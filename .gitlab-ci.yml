@@ -1,0 +1,32 @@
+stages: [test, package]
+unit:
+  stage: test
+  image: python:3.11-slim
+  script:
+    - pip install '.[test]'
+    - python -m pytest --junitxml=reports/unit.xml
+  artifacts:
+    when: always
+    reports:
+      junit: reports/unit.xml
+ui:
+  stage: test
+  image: python:3.11-bookworm
+  before_script:
+    - apt-get update && apt-get install -y nodejs npm
+    - pip install .
+    - npm install --no-save playwright
+    - npx playwright install --with-deps chromium
+  script:
+    - ./scripts/test-ui.sh
+package:
+  stage: package
+  image: python:3.11-slim
+  script:
+    - pip install build
+    - python -m build
+    - pip install dist/*.whl
+    - cd /tmp
+    - tail-harness --help
+  artifacts:
+    paths: [dist/]

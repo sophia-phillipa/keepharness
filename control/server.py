@@ -37,7 +37,7 @@ class Manager:
         self.settings=json.loads(self.path.read_text()) if self.path.exists() else {
             'services':{p:{'enabled':False,'models':[],'projects':['sem-projeto'],'mode':'scoped' if p!='local' else 'native','integrations':[],'permissions':{k:False for k in PERMISSIONS}} for p in ('codex','claude','local')},
             'projects':[],'uploads_enabled':False,'port':8095,'tailnet_port':8095,'logins':[]}
-        self.provider_models={};self.auth={};self.applied=None;self.operations=Operations()
+        self.provider_models={};self.auth={};self.applied=None;self.operations=Operations();self.startup_error=None
 
     def audit(self,action):
         with (self.state/'audit.jsonl').open('a') as out:out.write(json.dumps({'time':time.time(),'action':action})+'\n')
@@ -184,7 +184,7 @@ class Manager:
                 await asyncio.sleep(.25)
             else:
                 await self.stop(force=True);raise ValueError('O serviço não ficou pronto a tempo.')
-        self.applied=time.time();self.audit('harness_started')
+        self.applied=time.time();(self.state/'autostart').touch(mode=0o600);self.startup_error=None;self.audit('harness_started')
 
     async def stop(self,force=False):
         if not force and self.busy():raise ValueError('Há tarefas na fila ou em execução. Cancele ou aguarde antes de parar.')
@@ -192,6 +192,7 @@ class Manager:
             self.proc.terminate()
             try:await asyncio.wait_for(self.proc.wait(),15)
             except asyncio.TimeoutError:self.proc.kill();await self.proc.wait()
+        if not force:(self.state/'autostart').unlink(missing_ok=True)
         self.audit('harness_stopped')
 
     async def tailnet(self,enabled):
@@ -221,13 +222,16 @@ class Manager:
         host=(self.inventory or {}).get('network',{}).get('hostname');port=self.settings['port']
         return {'running':self.running(),'busy':self.busy(),'applied_at':self.applied,
                 'local_url':f'http://{self.settings.get("vpn_bind","127.0.0.1")}:{port}/','remote_url':f'http://{host}:{self.settings["tailnet_port"]}/' if host else None,
-                'shared':(self.state/'tailnet.json').exists(),'version':'0.1.0'}
+                'shared':(self.state/'tailnet.json').exists(),'version':'0.2.0','startup_error':self.startup_error}
 
 def create_app(state,port=8094):
     manager=Manager(state);manager.admin_port=port
     @asynccontextmanager
     async def lifespan(app):
         await manager.refresh()
+        if (manager.state/'autostart').exists():
+            try:await manager.start()
+            except (ValueError,RuntimeError,OSError) as exc:manager.startup_error=str(exc)
         yield
         await manager.stop(force=True)
         await manager.operations.close()

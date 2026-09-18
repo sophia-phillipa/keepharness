@@ -1,15 +1,41 @@
 # Tail Harness
 
-Painel local para descobrir, configurar e executar Codex CLI, Claude Code e modelos locais, com uma interface de conversa acessível pela Tailscale ou outra VPN. Python 3.11+, licença MIT, versão 0.1.0.
+Painel local para descobrir, configurar e executar Codex CLI, Claude Code e modelos locais, com uma interface de conversa acessível pela Tailscale ou outra VPN. Python 3.11+, licença MIT, versão 0.2.0.
 
-## Iniciar
+## Instalar e iniciar automaticamente (Linux/systemd)
+
+Repositório: `<repository-url>`.
+
+```sh
+git clone <repository-url>
+cd tail-harness
+./install.sh --boot
+```
+
+O instalador `.sh` cria um ambiente Python privado em `~/.local/share/tail-harness/venv`, instala a distribuição e dependências, executa a suíte Python e registra serviço e atalho. Requer Python 3.11+ com venv/pip, systemd do usuário e acesso à internet para dependências. Não usa sudo, não instala CLIs de terceiros e não autoriza contas automaticamente.
+
+Abra **Tail Harness** no menu de aplicativos. O atalho inicia o serviço se necessário e abre o navegador. `--boot` habilita linger para o serviço subir mesmo antes do login; se o sistema exigir autenticação administrativa, o instalador mostra a falha, sem declarar essa etapa concluída. Sem `--boot`, o serviço sobe ao iniciar a sessão do usuário.
+
+```sh
+systemctl --user status tail-harness
+systemctl --user restart tail-harness
+journalctl --user -u tail-harness -n 50
+# Desativar somente este serviço:
+systemctl --user disable --now tail-harness
+```
+
+Ao reiniciar, a administração volta automaticamente. Um harness iniciado pelo painel é retomado com as escolhas salvas; clicar em **Parar harness** desativa essa retomada. Se um CLI, login ou modelo estiver indisponível, o painel continua acessível e mostra a falha. Pesos locais não são carregados silenciosamente e permissões não são ampliadas no reinício.
+
+Para desenvolvimento ou execução manual:
 
 ```sh
 ./setup.sh
 ./start.sh
 ```
 
-Abra **http://127.0.0.1:8094/** no computador servidor. O inventário é somente leitura: nenhum serviço, projeto, upload, instalação ou compartilhamento é habilitado automaticamente. Para apenas verificar a máquina: `.venv/bin/python -m control --scan`.
+Para instalar um wheel, use um ambiente virtual e `pip install tail_harness-0.2.0-py3-none-any.whl`, seguido de `tail-harness`. O comando `tail-harness-install --boot` registra serviço e atalho para esse ambiente. A distribuição contém os arquivos da interface; não depende de manter o checkout original. Não há publicação no PyPI nesta versão.
+
+Abra **http://127.0.0.1:8094/** no computador servidor. O inventário é somente leitura: nenhum serviço, projeto, upload, instalação ou compartilhamento é habilitado automaticamente. Para apenas verificar a máquina: `tail-harness --scan` (ou `.venv/bin/python -m control --scan` no checkout).
 
 1. Verifique os serviços encontrados; use **Entrar** para iniciar o login oficial.
 2. Em **Operações**, abra o link de autorização emitido pelo CLI e conclua no navegador deste computador. Depois clique em **Verificar conta**.
@@ -70,11 +96,15 @@ Na Tailscale com identidade autorizada, a rota encaminha a identidade. Para VPN 
 ## Desenvolvimento e distribuição
 
 ```sh
-.venv/bin/python -m unittest discover -s tests -p 'test_*.py'
-# Com a administração em execução e Playwright instalado para desenvolvimento:
-PLAYWRIGHT_MODULE=/caminho/playwright node tests/admin.spec.cjs
+.venv/bin/python -m pip install '.[test]'
+.venv/bin/python -m pytest -q
+.venv/bin/python -m build
+# Teste de navegador com servidor temporário e estado isolado:
+PYTHON="$PWD/.venv/bin/python" PLAYWRIGHT_MODULE=/caminho/playwright ./scripts/test-ui.sh
 ```
 
 Estado privado: `~/.local/share/tail-harness` (ou `--state`). Credenciais permanecem nos perfis locais; logs, conversas, anexos, pesos e configuração pessoal não fazem parte da distribuição. A exclusão de conversas na interface é lógica, não uma garantia de apagamento físico. Backups e retenção do diretório de estado são responsabilidade de quem administra.
 
 Consulte [auditoria da extração](docs/AUDIT.md) e [validação e limites](docs/VALIDATION.md). Referência de produto: [T3 Code](https://github.com/pingdotgg/t3code), apresentado no [artigo indicado](https://www.crazystack.com.br/blog/it39s-finally-here/). Implementação própria; não incorpora código ou recursos gráficos do T3 e não alega equivalência de recursos.
+
+A suíte cobre políticas de acesso, autenticação, protocolos e aprovações, descoberta local, integridade de download, instalação, arquivos empacotados e retomada após falha. O teste de navegador usa fixtures para não consumir contas nem baixar modelos. A configuração GitLab CI executa testes Python, UI Chromium e construção de wheel/sdist; os artefatos ficam no job de pacote quando o pipeline passa. Autenticação de terceiros e reinício físico da máquina não são simulados como prova de funcionamento real.

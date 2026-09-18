@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tail-harness"
+version = "0.2.0"
+description = "Local AI CLI control panel and private-network harness"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [{name = "Tail Harness contributors"}]
+dependencies = ["starlette>=0.47,<1", "uvicorn>=0.35,<1", "httpx>=0.28,<1", "mcp>=1.12,<2", "python-multipart>=0.0.20,<1"]
+
+[project.optional-dependencies]
+test = ["pytest>=8,<10", "build>=1,<2"]
+
+[project.scripts]
+tail-harness = "control.cli:main"
+tail-harness-install = "control.install:main"
+tail-harness-mcp = "agent_service.mcp_bridge:main"
+
+[tool.setuptools]
+packages = ["control", "agent_service"]
+
+[tool.setuptools.package-data]
+control = ["*.html", "*.css", "*.js"]
+agent_service = ["*.html", "*.css", "*.js", "VERSION"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

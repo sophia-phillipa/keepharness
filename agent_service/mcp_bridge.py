@@ -110,7 +110,7 @@ async def upload_text(project_id:str,filename:str,text:str) -> dict:
     return await call('POST','/v1/files?project_id='+urllib.parse.quote(project_id,safe=''),
                       headers={'X-Filename':urllib.parse.quote(filename,safe='')},content=text.encode())
 
-if __name__=='__main__':
+def main():
     import sys
     if len(sys.argv)>1 and sys.argv[1]=='upload':
         # The model-facing MCP tool cannot read arbitrary client paths. Only explicit CLI invocation does so.
@@ -121,3 +121,6 @@ if __name__=='__main__':
             headers={'X-Filename':urllib.parse.quote(path.name,safe='')},content=path.read_bytes()))))
     else:
         mcp.run(transport='stdio')
+
+
+if __name__=='__main__':main()
