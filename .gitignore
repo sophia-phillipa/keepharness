@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+graphify-out/
+.env*
+*.key
+*.gguf
+*.sqlite3*
+state/
+dist/
