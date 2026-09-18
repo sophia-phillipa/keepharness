@@ -60,3 +60,11 @@ class DistributionTest(unittest.TestCase):
    with patch('control.download_model.CATALOG',{'test':('owner/model','revision','model.gguf',hashlib.sha256(b'fixture').hexdigest())}),patch('control.download_model.urllib.request.urlopen',return_value=io.BytesIO(b'fixture')):
     download('test',d)
    self.assertEqual(Path(d,'model.gguf').read_bytes(),b'fixture')
+
+class ReadinessTest(unittest.TestCase):
+ def test_wait_retries_until_http_ready(self):
+  from control.install import wait_ready
+  from unittest.mock import MagicMock
+  response=MagicMock();response.__enter__.return_value.status=200
+  with patch('control.install.urllib.request.urlopen',side_effect=[OSError('starting'),response]) as request,patch('control.install.time.sleep'):
+   wait_ready(8100);self.assertEqual(request.call_count,2)
