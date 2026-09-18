@@ -6,4 +6,8 @@ TH_VENV="${TAIL_HARNESS_VENV:-$HOME/.local/share/tail-harness/venv}"
 python3 -m venv "$TH_VENV"
 "$TH_VENV/bin/python" -m pip install '.[test]'
 "$TH_VENV/bin/python" -m pytest -q
-"$TH_VENV/bin/tail-harness-install" "$@"
+if [ "${1:-}" = "--check-only" ]; then
+  "$TH_VENV/bin/python" -m control.install_check
+else
+  "$TH_VENV/bin/tail-harness-install" "$@"
+fi

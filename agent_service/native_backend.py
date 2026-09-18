@@ -18,7 +18,7 @@ async def run(config,prompt,event,project,model,effort,session_dir,provider,appr
     command=[config['binary'],'app-server','--listen','stdio://']
     command+=['-c','features.hooks='+str(bool(permissions.get('hooks'))).lower(),'-c','features.apps=false','-c','features.shell_tool='+str(bool(permissions.get('shell'))).lower(),
               '-c','features.unified_exec='+str(bool(permissions.get('shell'))).lower(),
-              '-c','web_search="'+('live' if permissions.get('internet') else 'disabled')+'"']
+              '-c','web_search="'+('live' if permissions.get('internet') and provider!='deepseek' else 'disabled')+'"']
     local_provider=config.get('local_provider');environment=None
     endpoint=config.get('local_models',{}).get(model)
     if endpoint:
@@ -30,6 +30,10 @@ async def run(config,prompt,event,project,model,effort,session_dir,provider,appr
         if endpoint.get('key_file'):
             environment=dict(os.environ,TAIL_HARNESS_LOCAL_KEY=Path(endpoint['key_file']).read_text().strip())
             command+=['-c','model_providers.tail_local.env_key="TAIL_HARNESS_LOCAL_KEY"']
+    if config.get('api_provider'):
+        api=config['api_provider'];local_provider='tail_api'
+        environment=dict(os.environ,TAIL_HARNESS_API_KEY=Path(api['key_file']).read_text().strip())
+        command+=['-c','model_providers.tail_api.name="DeepSeek"','-c','model_providers.tail_api.base_url='+json.dumps(api['url']),'-c','model_providers.tail_api.wire_api="responses"','-c','model_providers.tail_api.requires_openai_auth=false','-c','model_providers.tail_api.env_key="TAIL_HARNESS_API_KEY"']
     if local_provider:command+=['-c','model_provider='+json.dumps(local_provider)]
     started=time.monotonic();first=None;answer='';thinking='';usage={};token_usage={};seen_answer=False
     async with connection(command,env=environment) as rpc:

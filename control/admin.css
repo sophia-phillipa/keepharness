@@ -6,3 +6,5 @@
 .stats article>div{min-width:0;max-width:100%}.stats strong{overflow-wrap:anywhere}@media(max-width:520px){#network-state{font-size:15px}}
 
 .project-badges{flex-shrink:0}.project-badges label{white-space:nowrap}.project-row>label{flex:1}
+
+.advanced{margin:18px 0;padding:16px;border:1px solid var(--line);border-radius:10px}.advanced>summary{cursor:pointer;font-weight:600;color:var(--accent)}.advanced[open]>summary{margin-bottom:16px}.actionbar{flex-wrap:wrap}.stats,.onboarding{display:none}#local-profile-summary{overflow-wrap:anywhere}#wizard-progress{white-space:nowrap}@media(max-width:520px){.actionbar{gap:6px}main{padding-bottom:160px}}

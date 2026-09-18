@@ -40,6 +40,7 @@ async def scan():
     local['models']+=list(dict.fromkeys(m['id'] for m in local['runtimes'] if m['id'] not in local['models']))
     local['found']=bool(binaries['codex'] and local['models'])
     services.append(local)
+    services.append({'id':'deepseek','name':'DeepSeek','found':bool(binaries['codex']),'binary':binaries['codex'],'cloud':True,'api':True})
     network={'installed':bool(binaries['tailscale']),'online':False,'hostname':None}
     if binaries['tailscale']:
         code,out=await command(binaries['tailscale'],'status','--json')

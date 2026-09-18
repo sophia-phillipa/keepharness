@@ -1,6 +1,6 @@
 # Tail Harness
 
-Painel local para descobrir, configurar e executar Codex CLI, Claude Code e modelos locais, com uma interface de conversa acessível pela Tailscale ou outra VPN. Python 3.11+, licença MIT, versão 0.2.0.
+Painel local para descobrir, configurar e executar Codex CLI, Claude Code e modelos locais, com uma interface de conversa acessível pela Tailscale ou outra VPN. Python 3.11+, licença MIT, versão 0.3.0.
 
 ## Instalar e iniciar automaticamente (Linux/systemd)
 
@@ -33,7 +33,7 @@ Para desenvolvimento ou execução manual:
 ./start.sh
 ```
 
-Para instalar um wheel, use um ambiente virtual e `pip install tail_harness-0.2.0-py3-none-any.whl`, seguido de `tail-harness`. O comando `tail-harness-install --boot` registra serviço e atalho para esse ambiente. A distribuição contém os arquivos da interface; não depende de manter o checkout original. Não há publicação no PyPI nesta versão.
+Para instalar um wheel, use um ambiente virtual e `pip install tail_harness-0.3.0-py3-none-any.whl`, seguido de `tail-harness`. O comando `tail-harness-install --boot` registra serviço e atalho para esse ambiente. A distribuição contém os arquivos da interface; não depende de manter o checkout original. Não há publicação no PyPI nesta versão.
 
 Abra **http://127.0.0.1:8094/** no computador servidor. O inventário é somente leitura: nenhum serviço, projeto, upload, instalação ou compartilhamento é habilitado automaticamente. Para apenas verificar a máquina: `tail-harness --scan` (ou `.venv/bin/python -m control --scan` no checkout).
 
@@ -110,3 +110,23 @@ Consulte [auditoria da extração](docs/AUDIT.md) e [validação e limites](docs
 A suíte cobre políticas de acesso, autenticação, protocolos e aprovações, descoberta local, integridade de download, instalação, arquivos empacotados e retomada após falha. O teste de navegador usa fixtures para não consumir contas nem baixar modelos. A configuração GitLab CI executa testes Python, UI Chromium e construção de wheel/sdist; os artefatos ficam no job de pacote quando o pipeline passa. Autenticação de terceiros e reinício físico da máquina não são simulados como prova de funcionamento real.
 
 O projeto GitLab foi criado privado. Para compartilhar por GitLab, conceda acesso ao destinatário nas configurações do projeto. A primeira execução remota de CI ficou bloqueada por cota; a suíte foi validada localmente.
+
+## Assistente e configuração portátil
+
+O dashboard mostra somente provedores cadastrados, com ações de edição e exclusão. **Adicionar provedor** abre um assistente de três etapas: **Serviço e modelos → Permissões e projetos → Revisão**. Permissões detalhadas, conectores, instalação de modelos, portas e outras VPNs ficam em opções expansíveis. O botão **Usar configuração atual** captura os parâmetros de desempenho do llama.cpp ativo sem reiniciá-lo e grava `local-profile.json` no diretório privado de estado (modo 0600). Esse perfil preserva GPU, MoE na CPU, threads e afinidade para futuras inicializações do mesmo modelo pelo painel; não copia chaves ou argumentos arbitrários.
+
+No dashboard, em **Acesso remoto e configuração → Exportar ou importar configuração**, exporte as escolhas salvas ou selecione um JSON para conferir uma prévia e aplicar. Credenciais, tokens e chaves VPN são excluídos. O arquivo ainda contém caminhos locais e identidades permitidas: trate-o como privado. A importação valida caminhos e integrações existentes, não inicia serviços e não pode substituir escolhas durante uma execução. Sem perfil no arquivo, o perfil local atual é preservado.
+
+Para testar uma instalação vazia sem modificar o serviço principal:
+
+```sh
+TAIL_HARNESS_VENV="$(mktemp -d)/venv" ./install.sh --check-only
+```
+
+Esse fluxo instala todas as dependências em outro ambiente, roda a suíte e inicia o pacote fora do checkout com estado temporário e porta livre. Não reinicia modelos nem configura Tailscale. A pasta do ambiente de teste pode ser removida depois.
+
+## DeepSeek com sua própria chave (BYOK)
+
+Em **Adicionar provedor → DeepSeek**, informe o token da plataforma DeepSeek e clique em **Salvar chave e verificar**. O painel consulta modelos e saldo disponíveis; depois selecione os modelos e permissões e conclua o assistente. O token fica no arquivo privado `deepseek.key` do estado local (0600), não é retornado pela API administrativa e não entra na exportação. Excluir esse provedor do dashboard também apaga a chave gerenciada pelo painel; a conta externa não é alterada.
+
+O agente é o Codex instalado, com provider DeepSeek temporário por processo; não altera seu perfil global do Codex. A inferência usa a conta/créditos DeepSeek. Ferramentas, sessões, aprovações e esforço seguem o executor nativo. Pesquisa web interna do Codex fica desativada nesse provedor; rede para terminal e MCP segue as permissões selecionadas. A implementação segue a [integração oficial DeepSeek/Codex](https://api-docs.deepseek.com/quick_start/agent_integrations/codex/). Modelos são descobertos pela API, não por uma lista fixa. A execução autenticada depende de cadastrar uma chave válida e ter saldo.

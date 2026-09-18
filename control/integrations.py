@@ -26,4 +26,5 @@ def inventory():
         result['claude'] += [{'id':'plugin:'+name,'name':name,'kind':'plugin','status':'installed'} for name in plugins]
     except (OSError,ValueError):pass
     result['local']=result['codex']
+    result['deepseek']=result['codex']
     return result
