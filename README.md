@@ -1,6 +1,12 @@
 # Tail Harness
 
-Painel local para descobrir, configurar e executar Codex CLI, Claude Code e modelos locais, com uma interface de conversa acessível pela Tailscale ou outra VPN. Python 3.11+, licença MIT, versão 0.3.0.
+Painel local para descobrir, configurar e executar Codex CLI, Claude Code e modelos locais, com uma interface de conversa acessível pela Tailscale ou outra VPN. Python 3.11+, licença MIT, versão 0.4.0.
+
+## Estado persistente
+
+A instalação pelo checkout usa um vínculo editável: o serviço executa o código desta pasta, sem uma segunda cópia em site-packages. Mantenha o checkout neste caminho e reinicie o serviço após alterações de código Python. Wheels continuam sendo distribuições independentes e precisam de atualização explícita.
+
+O estado de produção fica em `~/.local/share/tail-harness`: `settings.json`, `local-profiles.json`, `runs/jobs.sqlite3` e anexos. Prévias com `--state` em `/tmp` são descartáveis e não substituem esse estado. Antes de encerrar uma prévia, exporte e importe suas configurações no painel permanente; migrar apenas o código ou o banco não transfere as permissões dos modelos.
 
 ## Instalar e iniciar automaticamente (Linux/systemd)
 
@@ -12,7 +18,7 @@ cd tail-harness
 ./install.sh --boot
 ```
 
-O instalador `.sh` cria um ambiente Python privado em `~/.local/share/tail-harness/venv`, instala a distribuição e dependências, executa a suíte Python e registra serviço e atalho. Requer Python 3.11+ com venv/pip, systemd do usuário e acesso à internet para dependências. Não usa sudo, não instala CLIs de terceiros e não autoriza contas automaticamente.
+O instalador `.sh` cria um ambiente Python privado em `~/.local/share/tail-harness/venv`, vincula a instalação ao código deste checkout e instala as dependências, executa a suíte Python e registra serviço e atalho. Requer Python 3.11+ com venv/pip, systemd do usuário e acesso à internet para dependências. Não usa sudo, não instala CLIs de terceiros e não autoriza contas automaticamente.
 
 Abra **Tail Harness** no menu de aplicativos. O atalho inicia o serviço se necessário e abre o navegador. `--boot` habilita linger para o serviço subir mesmo antes do login; se o sistema exigir autenticação administrativa, o instalador mostra a falha, sem declarar essa etapa concluída. Sem `--boot`, o serviço sobe ao iniciar a sessão do usuário.
 
@@ -33,7 +39,7 @@ Para desenvolvimento ou execução manual:
 ./start.sh
 ```
 
-Para instalar um wheel, use um ambiente virtual e `pip install tail_harness-0.3.0-py3-none-any.whl`, seguido de `tail-harness`. O comando `tail-harness-install --boot` registra serviço e atalho para esse ambiente. A distribuição contém os arquivos da interface; não depende de manter o checkout original. Não há publicação no PyPI nesta versão.
+Para instalar um wheel, use um ambiente virtual e `pip install tail_harness-0.4.0-py3-none-any.whl`, seguido de `tail-harness`. O comando `tail-harness-install --boot` registra serviço e atalho para esse ambiente. A distribuição contém os arquivos da interface; não depende de manter o checkout original. Não há publicação no PyPI nesta versão.
 
 Abra **http://127.0.0.1:8094/** no computador servidor. O inventário é somente leitura: nenhum serviço, projeto, upload, instalação ou compartilhamento é habilitado automaticamente. Para apenas verificar a máquina: `tail-harness --scan` (ou `.venv/bin/python -m control --scan` no checkout).
 
@@ -77,6 +83,16 @@ O projeto não é uma solução multiusuário para pessoas mutuamente não confi
 
 ## MCP no notebook
 
+No Linux ou macOS, abra **Conexão / MCP** no harness e clique em **Baixar instalador MCP (.sh)**. Com Tailscale conectado, Python 3.10+, curl e Claude Code instalados, salve o arquivo em Downloads. No Mac, abra o Terminal pelo Spotlight (⌘ + Espaço → Terminal). Execute:
+
+```sh
+cd ~/Downloads
+chmod +x setup-mcp.sh
+./setup-mcp.sh 'https://SEU-SERVIDOR-TAILSCALE'
+```
+
+Use a URL real mostrada na janela Conexão / MCP. O `chmod +x` torna o arquivo executável; alternativamente, use `sh setup-mcp.sh 'https://SEU-SERVIDOR-TAILSCALE'`. O instalador cria um ambiente Python no diretório do usuário, baixa o bridge e cadastra o MCP no Claude Code. Confira a conexão com `/mcp`. O arquivo também está em `agent_service/setup-mcp.sh` no projeto. Para Claude Desktop, faça a configuração manual abaixo.
+
 Instale Python e as dependências do projeto no notebook, copie o projeto limpo e configure seu cliente MCP para executar `agent_service/mcp_bridge.py`. Use caminhos absolutos adequados ao notebook:
 
 ```json
@@ -92,6 +108,38 @@ Instale Python e as dependências do projeto no notebook, copie o projeto limpo 
 ```
 
 Na Tailscale com identidade autorizada, a rota encaminha a identidade. Para VPN com chave, crie `~/.config/tail-harness/client.json` contendo `{"url":"http://IP-VPN:8095","key_file":"/caminho/privado/chave"}`. Coloque a chave num arquivo privado no notebook. Nunca coloque chave em Git ou em prompts. O bridge oferece descoberta de modelos/projetos, tarefas, eventos, resultados, anexos, cancelamento e resposta a aprovações. Para continuar contexto use o último `job_id` como `parent_job_id`.
+
+## Delegação pelo MCP: documentos, pastas e projetos
+
+O conector apresenta um guia ao cliente durante a conexão; `workflow_guide` também permite consultá-lo. Ele diferencia o computador cliente (Mac/Linux) do servidor e informa os recursos realmente configurados. Não presume acesso aos conectores nem aos arquivos do outro computador.
+
+### Relatórios com documentos da empresa
+
+Peça, por exemplo: “Use os documentos desta pasta para cruzar as decisões das reuniões com os e-mails e preparar um relatório com fontes, delegando o processamento ao harness”.
+
+1. O cliente obtém transcrições, arquivos, e-mails e mensagens pelos conectores que já possui. Salve os documentos e suas referências (link, data, identificador) em uma pasta autorizada.
+2. `upload_path` transfere o arquivo ou pasta diretamente do disco do cliente para um projeto autorizado do servidor, sem colocar os bytes na conversa. Retorna um `workspace_id` reutilizável.
+3. `inspect_files` lista arquivos, procura nomes/textos ou lê trechos numerados. PDFs e DOCX recebem cópias de texto para pesquisa em `_harness_sources`; falhas de extração são informadas (até 200 documentos por envio, 2 MiB de texto por documento). Imagens, áudio e PDFs digitalizados sem texto não recebem OCR/transcrição automática.
+4. `submit_job` recebe a tarefa e o `workspace_id`. O processamento usa as fontes no servidor; o cliente recebe resultados compactos. Para conteúdo disponível apenas como texto de um conector, `upload_text` continua disponível.
+5. `download_workspace` salva um ZIP novo no computador cliente. Não sobrescreve arquivos existentes nem aplica mudanças automaticamente ao projeto original.
+
+A redução de contexto ocorre no trabalho delegado e no retorno compacto. Não recupera tokens que o Claude já consumiu ao ler respostas dos conectores. Economia líquida ainda precisa ser medida. Gmail, Drive e Slack precisam estar autenticados no computador que fará a consulta. Integrações do cliente não são transferidas; não copie credenciais. Para busca direta pelo servidor, habilite o conector no executor e delegue a consulta. O inventário informa configuração, não comprova autenticação ativa.
+
+### Execução automática e Maestro opcional
+
+O padrão MCP é `backend="auto"`. Quando Codex está habilitado para o projeto e **Usar Maestro por padrão** está ativo, o Codex planeja de uma a seis etapas e escolhe os executores, modelos e esforços dentre os habilitados naquela instalação. O modelo local participa quando configurado e autorizado para o projeto. A fila executa uma etapa de cada vez.
+
+Sem Maestro elegível, o servidor usa **Executor padrão sem Maestro** ou o primeiro executor elegível habilitado. Nenhum modelo específico é obrigatório para o aplicativo: um serviço ausente nunca é anunciado como disponível. Os requisitos do executor continuam valendo (por exemplo, o adaptador local atual utiliza o CLI Codex como agente). É possível selecionar explicitamente `backend`, `model` e `effort` para execução direta.
+
+O painel do Codex permite acrescentar **Instruções do Maestro nesta instalação**, sem embutir regras pessoais na distribuição. O plano e as saídas de cada etapa ficam registrados em `runs/maestro/<job_id>/`; o resultado final informa os modelos/esforços e métricas disponíveis. Para pastas enviadas, a resposta final também é salva em `_harness_results/<job_id>/answer.md`. Planos inválidos e etapas incompletas são reportados como falhas. Disponibilidade declarada do modelo não garante cota ou funcionamento do provedor no momento da execução.
+
+### Pastas, código e serviços
+
+`upload_path` aceita qualquer linguagem como arquivo, preserva a hierarquia e não executa código no envio. Análise textual independe da linguagem; executar/testar exige runtime e permissões no servidor. A cópia original do envio é preservada como `original.zip`. A pasta de trabalho pode ser modificada conforme as permissões existentes. Limites: 10 mil entradas, 200 MiB por pasta descompactada e armazenamento total limitado. Metadados Git, dependências, links simbólicos, `.env`, chaves e pesos de modelos são excluídos ou recusados; confira a lista de exclusões retornada.
+
+Na configuração de cada projeto, **Serviços deste projeto** cadastra unidades `systemd --user`, como `meu-app.service`. `project_services` consulta o estado ou inicia/para/reinicia somente unidades cadastradas, com permissão de terminal de um executor nativo e pedido explícito para a alteração. As ações são registradas. Esse controle requer servidor com systemd; não administra serviços do Mac cliente. Tarefas executadas pelos agentes continuam sujeitas às permissões e aprovações de cada executor.
+
+`job_events` retorna progresso compacto por padrão, omitindo saídas intermediárias e raciocínio. Use `compact=false` para diagnóstico detalhado. O resultado final é obtido com `job_status`/`get_artifact`. `job_status` também é compacto por padrão: não repete o pedido original e limita a prévia da resposta a 12 mil caracteres, sinalizando cortes; o arquivo completo continua disponível.
 
 ## Desenvolvimento e distribuição
 
@@ -130,3 +178,11 @@ Esse fluxo instala todas as dependências em outro ambiente, roda a suíte e ini
 Em **Adicionar provedor → DeepSeek**, informe o token da plataforma DeepSeek e clique em **Salvar chave e verificar**. O painel consulta modelos e saldo disponíveis; depois selecione os modelos e permissões e conclua o assistente. O token fica no arquivo privado `deepseek.key` do estado local (0600), não é retornado pela API administrativa e não entra na exportação. Excluir esse provedor do dashboard também apaga a chave gerenciada pelo painel; a conta externa não é alterada.
 
 O agente é o Codex instalado, com provider DeepSeek temporário por processo; não altera seu perfil global do Codex. A inferência usa a conta/créditos DeepSeek. Ferramentas, sessões, aprovações e esforço seguem o executor nativo. Pesquisa web interna do Codex fica desativada nesse provedor; rede para terminal e MCP segue as permissões selecionadas. A implementação segue a [integração oficial DeepSeek/Codex](https://api-docs.deepseek.com/quick_start/agent_integrations/codex/). Modelos são descobertos pela API, não por uma lista fixa. A execução autenticada depende de cadastrar uma chave válida e ter saldo.
+
+### Usabilidade e regressões
+
+Veja [o relatório das oito rodadas](docs/UX-GAUNTLET.md) para cenários, testes reais com modelo local, desempenho medido e limites de cobertura. `scripts/test-ui.sh` executa as regressões das duas interfaces em servidores temporários.
+
+## Specifications and use cases
+
+The [project dossier](dossie/README.md) contains specifications, use cases, and research. All dossier documents are maintained in English.

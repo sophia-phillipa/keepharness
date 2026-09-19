@@ -58,3 +58,15 @@ if __name__=='__main__':
                 value=[{k:m.get(k) for k in ('id','model','displayName','supportedReasoningEfforts','defaultReasoningEffort')} for m in value.get('data',[])][:12]
             print(method,json.dumps(value))
     asyncio.run(main())
+
+
+def usage_delta(previous, current, last):
+    """Turn counters, never charge a resumed thread's cumulative history again."""
+    result={}
+    for key in ('inputTokens','outputTokens','cachedInputTokens','reasoningOutputTokens'):
+        value=current.get(key)
+        if not isinstance(value,(int,float)):continue
+        before=(previous or {}).get(key,0)
+        delta=value-before if previous is not None and value>=before else last.get(key)
+        if isinstance(delta,(int,float)) and delta>=0:result[key]=delta
+    return result

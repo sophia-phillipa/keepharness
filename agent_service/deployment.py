@@ -20,7 +20,8 @@ def target(root, name):
 
 def snapshot(root):
     root=Path(root).resolve()
-    names=subprocess.check_output(['git','-C',str(root),'ls-files','--cached','--others','--exclude-standard','-z']).decode().split('\0')
+    names=(subprocess.check_output(['git','-C',str(root),'ls-files','--cached','--others','--exclude-standard','-z']).decode().split('\0')
+           if (root/'.git').exists() else [str(p.relative_to(root)) for p in root.rglob('*') if p.is_file()])
     result={}
     for name in names:
         if not name:continue

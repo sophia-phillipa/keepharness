@@ -6,7 +6,7 @@ from pathlib import Path
 import shutil
 import tempfile
 import time
-from .codex_rpc import connection
+from .codex_rpc import connection, usage_delta
 from .tools import ToolError,safe_file
 
 async def run(config,prompt,event,project=None,model='gpt-6-astra',effort='low',staged=None,session_dir=None,provider='codex'):
@@ -73,6 +73,8 @@ async def run(config,prompt,event,project=None,model='gpt-6-astra',effort='low',
             started=time.monotonic();first=None;answer='';thinking='';usage={};token_usage={};seen_answer=False
             async with connection(command) as rpc:
                 marker=home/'remote-thread.json'
+                turn_started=False
+                previous_usage=json.loads(marker.read_text()).get('usage_total') if marker.exists() else {}
                 params={'model':model,'cwd':'/work','sandbox':'read-only','approvalPolicy':'never',
                     'developerInstructions':'Use only selected_project MCP tools within authorized roots. File proposals are applied automatically after validation when this project enables apply_changes; do not refuse authorized local edits or local deployment. Do not publish to Git remotes, access credentials, or external tools.'}
                 if marker.exists():
@@ -83,7 +85,7 @@ async def run(config,prompt,event,project=None,model='gpt-6-astra',effort='low',
                     params['ephemeral']=not bool(session_dir)
                     thread=await rpc.call('thread/start',params)
                 thread_id=thread['thread']['id']
-                marker.write_text(json.dumps({'id':thread_id}))
+                marker.write_text(json.dumps({'id':thread_id,**({'usage_total':previous_usage} if previous_usage is not None else {})}))
                 await rpc.send('turn/start',{'threadId':thread_id,'model':model,'effort':effort,
                     'input':[{'type':'text','text':prompt}]})
                 event('planning',{'backend':'codex','model':model,'effort':effort})
@@ -111,8 +113,11 @@ async def run(config,prompt,event,project=None,model='gpt-6-astra',effort='low',
                         elif typ=='reasoning' and kind.endswith('started'):event('thinking',{})
                         elif typ=='agentMessage' and kind.endswith('completed') and not seen_answer:
                             text=content.get('text','');answer+=text;event('answer_delta',{'text':text})
+                    elif kind=='turn/started':turn_started=True
                     elif kind=='thread/tokenUsage/updated':
-                        token_usage=params.get('tokenUsage',{});usage=token_usage.get('total',{})
+                        token_usage=params.get('tokenUsage',{});total=token_usage.get('total',{})
+                        for key,value in (usage_delta(previous_usage,total,token_usage.get('last',{})) if turn_started else {}).items():usage[key]=usage.get(key,0)+value
+                        previous_usage=total;marker.write_text(json.dumps({'id':thread_id,'usage_total':total}))
                         event('context_usage',token_usage)
                     elif kind=='turn/plan/updated':event('plan_updated',params)
                     elif kind=='thread/compacted':event('context_compacted',{})
@@ -142,7 +147,7 @@ async def run(config,prompt,event,project=None,model='gpt-6-astra',effort='low',
                     'project_mode':'scoped_read_and_staged_changes' if roots else 'projectless'}
         return {'answer':answer,'context_usage':token_usage,'thread_id':thread_id,'staged_files':staged_files,'patch':''.join(patches),'host_changed':False,'project_mode':'scoped_read_and_staged_changes' if roots else 'projectless',
           'backend':'codex','model':model,'effort':effort,'cloud_inference':True,'finish_reason':'completed','incomplete':False,
-          'metrics':{'input_tokens':usage.get('inputTokens'),'output_tokens':usage.get('outputTokens'),
+          'metrics':{'usage_scope':'turn','input_tokens':usage.get('inputTokens'),'output_tokens':usage.get('outputTokens'),
           'cached_tokens':usage.get('cachedInputTokens'),'thinking_tokens':usage.get('reasoningOutputTokens'),'answer_tokens':None,
           'ttft_seconds':first,'inference_seconds':time.monotonic()-started,'generated_tokens_per_second':None,
           'billing':'ChatGPT account quota; monetary amount unavailable'}}

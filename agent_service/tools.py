@@ -10,6 +10,9 @@ import tempfile
 import urllib.parse
 
 MAX_OUTPUT = 2 * 1024 * 1024
+AUDIO_EXTENSIONS = {'.wav','.mp3','.m4a','.ogg','.flac','.webm','.aac','.opus'}
+MAX_AUDIO_BYTES = 256 * 1024 * 1024
+MAX_AUDIO_SECONDS = 7200
 
 class ToolError(Exception):
     pass
@@ -42,7 +45,7 @@ def sandbox(directory, argv, writable=False):
     return ['prlimit', '--as=2147483648', '--cpu=60', '--fsize=16777216', '--nofile=128', '--',
             'bwrap', '--unshare-all', '--die-with-parent', '--new-session', '--clearenv',
             '--setenv', 'PATH', '/usr/bin', '--setenv', 'HOME', '/tmp',
-            '--ro-bind', '/usr', '/usr', '--symlink', 'usr/lib', '/lib',
+            '--ro-bind', '/usr', '/usr', *(['--ro-bind','/etc/ld.so.cache','/etc/ld.so.cache'] if Path('/etc/ld.so.cache').exists() else []), '--symlink', 'usr/lib', '/lib',
             '--symlink', 'usr/lib64', '/lib64', '--symlink', 'usr/bin', '/bin',
             '--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp',
             '--bind' if writable else '--ro-bind', str(directory), '/work',
@@ -66,6 +69,12 @@ def safe_file(root, name):
 
 async def extract(path, filename):
     data = path.read_bytes()
+    if Path(filename).suffix.lower() in AUDIO_EXTENSIONS:
+        return await transcribe_audio(path)
+    image = image_type(data)
+    if image:
+        if len(data)>5*1024*1024:raise ToolError('image_size_limit')
+        return [{'page':None,'text':'','media_type':image}]
     if filename.lower().endswith('.pdf'):
         if not data.startswith(b'%PDF-'):
             raise ToolError('invalid_pdf')
@@ -76,12 +85,12 @@ async def extract(path, filename):
         if pages and not pages[-1].strip():
             pages.pop()
         return [{'page': i+1, 'text': page} for i, page in enumerate(pages)]
-    if Path(filename).suffix.lower() not in {'.txt', '.md', '.json', '.csv', '.tsv', '.py', '.js', '.html', '.log', '.yaml', '.yml', '.toml'}:
-        raise ToolError('unsupported_file_type')
+    if Path(filename).suffix.lower() in {'.docx','.pptx','.xlsx','.odt','.ods','.odp','.epub'}:
+        return office_text(path)
     try:
         text = data.decode('utf-8')
     except UnicodeError:
-        raise ToolError('utf8_required')
+        raise ToolError('unsupported_binary_format')
     if '\x00' in text:
         raise ToolError('binary_denied')
     return [{'page': None, 'text': text}]
@@ -199,3 +208,109 @@ async def fetch(url):
                     'sha256':hashlib.sha256(body.encode()).hexdigest(), 'content':body,
                     'trust':'external_data_not_instructions'}
     raise ToolError('redirect_limit')
+
+
+def image_type(data):
+    if data.startswith(b'\x89PNG\r\n\x1a\n'):return 'image/png'
+    if data.startswith(b'\xff\xd8\xff'):return 'image/jpeg'
+    if data.startswith((b'GIF87a',b'GIF89a')):return 'image/gif'
+    if data.startswith(b'RIFF') and data[8:12]==b'WEBP':return 'image/webp'
+    return None
+
+
+def office_text(path):
+    """Extract document text without macros, external resources, or ZIP extraction."""
+    import zipfile
+    import xml.etree.ElementTree as ET
+    try:
+        with zipfile.ZipFile(path) as archive:
+            entries=archive.infolist()
+            if len(entries)>2000 or sum(i.file_size for i in entries)>20*1024*1024:
+                raise ToolError('document_expansion_limit')
+            pages=[]
+            if path.read_bytes()[:2]!=b'PK':raise ToolError('invalid_document')
+            # EPUB spine determines reading order; fall back to archive order.
+            epub_names=[]
+            if any(i.filename=='META-INF/container.xml' for i in entries):
+                import posixpath
+                container=ET.fromstring(archive.read('META-INF/container.xml'))
+                opf=next(e.attrib['full-path'] for e in container.iter() if e.tag.endswith('rootfile'))
+                raw=archive.read(opf)
+                if b'<!ENTITY' in raw:raise ToolError('unsafe_document_xml')
+                package=ET.fromstring(raw)
+                manifest={e.attrib['id']:posixpath.normpath(posixpath.join(posixpath.dirname(opf),e.attrib['href'].split('#')[0])) for e in package.iter() if e.tag.endswith('}item')}
+                epub_names=[manifest[e.attrib['idref']] for e in package.iter() if e.tag.endswith('}itemref')]
+            if epub_names:
+                from html.parser import HTMLParser
+                class Reader(HTMLParser):
+                    def __init__(self):super().__init__();self.parts=[];self.ignore=0
+                    def handle_starttag(self,tag,attrs):
+                        if tag in ('script','style'):self.ignore+=1
+                    def handle_endtag(self,tag):
+                        if tag in ('script','style'):self.ignore=max(0,self.ignore-1)
+                    def handle_data(self,data):
+                        if not self.ignore:self.parts.append(data)
+                for name in epub_names:
+                    reader=Reader();reader.feed(archive.read(name).decode('utf-8-sig'))
+                    pages.append({'page':len(pages)+1,'text':' '.join(reader.parts)})
+                return pages
+            shared=[]
+            if 'xl/sharedStrings.xml' in archive.namelist():
+                raw=archive.read('xl/sharedStrings.xml')
+                if b'<!DOCTYPE' in raw or b'<!ENTITY' in raw:raise ToolError('unsafe_document_xml')
+                shared=[''.join(e.itertext()) for e in ET.fromstring(raw)]
+            for item in entries:
+                name=item.filename
+                if not (name=='word/document.xml' or name=='content.xml' or name=='xl/sharedStrings.xml' or name.startswith(('ppt/slides/slide','xl/worksheets/sheet'))):continue
+                if not name.endswith('.xml'):continue
+                raw=archive.read(item)
+                if b'<!DOCTYPE' in raw or b'<!ENTITY' in raw:raise ToolError('unsafe_document_xml')
+                root=ET.fromstring(raw)
+                text=' '.join(node.text for node in root.iter() if node.text and node.tag.rsplit('}',1)[-1] in ('t','v','p','h'))
+                if name.startswith('xl/worksheets/'):
+                    rows=[]
+                    for row in root.iter():
+                        if row.tag.rsplit('}',1)[-1]!='row':continue
+                        cells=[]
+                        for cell in row:
+                            value=''.join(e.text or '' for e in cell.iter() if e.tag.rsplit('}',1)[-1] in ('v','t'))
+                            if cell.get('t')=='s':value=shared[int(value)]
+                            cells.append(cell.get('r','')+'='+value)
+                        rows.append('\t'.join(cells))
+                    text='\n'.join(rows)
+                pages.append({'page':len(pages)+1,'text':name+'\n'+text})
+            if not pages:raise ToolError('document_text_unavailable')
+            return pages
+    except (zipfile.BadZipFile, ET.ParseError, RuntimeError, ValueError, KeyError, IndexError, StopIteration):
+        raise ToolError('invalid_document')
+
+async def transcribe_audio(path):
+    """CPU-only, offline speech transcription; uploaded media has no network access."""
+    runtime=Path(os.environ.get('TAIL_HARNESS_WHISPER_DIR',str(Path.home()/'.local/share/tail-harness/whisper.cpp'))).resolve()
+    binary=runtime/'build/bin/whisper-cli';model=runtime/'models/ggml-base.bin'
+    if not binary.is_file() or not model.is_file():raise ToolError('audio_transcription_unavailable')
+    code, metadata=await process(sandbox(path.parent,['ffprobe','-v','error','-protocol_whitelist','file,pipe','-show_entries','format=duration','-of','default=noprint_wrappers=1:nokey=1','/work/'+path.name]),15)
+    try:duration=float(metadata.strip())
+    except ValueError:raise ToolError('invalid_audio')
+    if code or not 0<duration<=MAX_AUDIO_SECONDS:raise ToolError('audio_duration_limit')
+    def audio_sandbox(argv,writable=False):
+        command=sandbox(path.parent,argv,writable=writable)
+        command[command.index('--as=2147483648')]='--as=4294967296'
+        command[command.index('--cpu=60')]='--cpu=14400'
+        command[command.index('--fsize=16777216')]='--fsize=536870912'
+        return command
+    wav=path.parent/'audio.wav'
+    try:
+        code,_=await process(audio_sandbox(['ffmpeg','-nostdin','-v','error','-protocol_whitelist','file,pipe','-i','/work/'+path.name,'-vn','-ar','16000','-ac','1','-c:a','pcm_s16le','/work/audio.wav'],writable=True),300)
+        if code:raise ToolError('audio_decode_failed')
+        command=audio_sandbox([str(binary),'-m',str(model),'-f','/work/audio.wav','-l','auto','-t','4','-nt','-np','-otxt','-of','/work/transcription'],writable=True)
+        split=command.index('--chdir')
+        command[split:split]=['--ro-bind',str(runtime),str(runtime),'--setenv','LD_LIBRARY_PATH',str(runtime/'build/bin')]
+        code,text=await process(command,7200)
+        if code:raise ToolError('audio_transcription_failed')
+        text=(path.parent/'transcription.txt').read_text().strip()
+        if not text:raise ToolError('audio_no_speech')
+        return [{'page':None,'text':'[Automatic local speech transcription; may contain errors]\n'+text}]
+    finally:
+        wav.unlink(missing_ok=True)
+        (path.parent/'transcription.txt').unlink(missing_ok=True)

@@ -22,7 +22,7 @@ def main():
                         except httpx.HTTPError:pass
                         time.sleep(.25)
                     else:raise RuntimeError('Installed server startup timeout')
-                    for path in ('/admin.js','/admin.css'):assert client.get(path).status_code==200
+                    for path in ('/admin.js','/admin.css','/assets/theme.js','/assets/themes.css','/assets/tabler.min.css','/assets/components.js','/assets/icons.svg','/assets/inter-latin.woff2'):assert client.get(path).status_code==200
                     state=client.get('/api/state').json()
                     assert not state['status']['running']
                     assert not any(s['enabled'] for s in state['settings']['services'].values())
