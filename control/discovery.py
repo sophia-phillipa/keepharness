@@ -21,15 +21,20 @@ async def command(*args):
 
 async def scan():
     home=Path.home()
-    binaries={n:shutil.which(n) for n in ('codex','claude','ollama','tailscale','bwrap','node','git','pdftotext')}
+    binaries={n:shutil.which(n) for n in ('codex','claude','gemini','ollama','tailscale','bwrap','node','git','pdftotext')}
     if not binaries['codex']:
         candidates=sorted(home.glob('.local/opt/chatgpt-*/resources/codex'))
         binaries['codex']=str(candidates[-1]) if candidates else None
+    if not binaries['gemini']:
+        candidate=home/'.local/opt/node/bin/gemini'
+        if candidate.is_file() and os.access(candidate, os.X_OK):binaries['gemini']=str(candidate)
+    gemini_auth=home/'.gemini/oauth_creds.json'
     codex_auth=home/'.codex/auth.json';claude_auth=home/'.claude/.credentials.json'
     services=[{'id':'codex','name':'Codex CLI','binary':binaries['codex'],'found':bool(binaries['codex']),
                'credential_present':codex_auth.is_file(),'auth_file':str(codex_auth),'cloud':True},
               {'id':'claude','name':'Claude Code','binary':binaries['claude'],'found':bool(binaries['claude']),
                'credential_present':claude_auth.is_file(),'auth_file':str(claude_auth),'cloud':True}]
+    services.append({'id':'gemini','name':'Gemini CLI','binary':binaries['gemini'],'found':bool(binaries['gemini']),'credential_present':gemini_auth.is_file(),'auth_file':str(gemini_auth),'cloud':True})
     local={'id':'local','name':'Modelos locais · llama.cpp / Ollama','found':False,'binary':binaries['codex'],'cloud':False,'credential_present':False,'auth_file':str(codex_auth),'models':[]}
     async with httpx.AsyncClient(timeout=2,trust_env=False) as client:
         try:

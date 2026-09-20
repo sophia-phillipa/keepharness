@@ -7,9 +7,9 @@ import unittest
 from unittest.mock import patch,AsyncMock
 import httpx
 from starlette.testclient import TestClient
-from control import deepseek
+from Adapters.deepseek import account as deepseek
 from control.server import create_app
-from agent_service.native_backend import run
+from Adapters import run_native as run
 
 class DeepseekTest(unittest.IsolatedAsyncioTestCase):
  async def test_models_balance_and_key_privacy(self):
@@ -19,12 +19,12 @@ class DeepseekTest(unittest.IsolatedAsyncioTestCase):
    def respond(request):
     self.assertEqual(request.headers['Authorization'],'Bearer fixture-secret-key-123')
     return httpx.Response(200,json={'data':[{'id':'deepseek-test'}]} if request.url.path=='/models' else {'is_available':True,'balance_infos':[{'currency':'USD','total_balance':'1.00'}]})
-   with patch('control.deepseek.httpx.AsyncClient',side_effect=lambda **kw:original(**kw,transport=httpx.MockTransport(respond))):result=await deepseek.check(d)
+   with patch('Adapters.deepseek.account.httpx.AsyncClient',side_effect=lambda **kw:original(**kw,transport=httpx.MockTransport(respond))):result=await deepseek.check(d)
    self.assertTrue(result['authenticated']);self.assertIn('deepseek-test',result['models']);self.assertNotIn('fixture-secret',json.dumps(result))
  async def test_rejected_key_does_not_leak_response(self):
   with tempfile.TemporaryDirectory() as d:
    deepseek.store_key(d,'fixture-secret-key-123');original=httpx.AsyncClient
-   with patch('control.deepseek.httpx.AsyncClient',side_effect=lambda **kw:original(**kw,transport=httpx.MockTransport(lambda r:httpx.Response(401,text='fixture-secret-key-123')))):
+   with patch('Adapters.deepseek.account.httpx.AsyncClient',side_effect=lambda **kw:original(**kw,transport=httpx.MockTransport(lambda r:httpx.Response(401,text='fixture-secret-key-123')))):
     with self.assertRaisesRegex(ValueError,'recusada') as caught:await deepseek.check(d)
    self.assertNotIn('fixture-secret',str(caught.exception))
  async def test_native_api_provider_routes_without_key_in_arguments(self):
@@ -37,7 +37,7 @@ class DeepseekTest(unittest.IsolatedAsyncioTestCase):
   async def connection(command,**kw):captured['command']=command;captured['env']=kw['env'];yield RPC()
   with tempfile.TemporaryDirectory() as d:
    key=Path(d,'key');key.write_text('fixture-private-key')
-   with patch('agent_service.native_backend.connection',connection),patch('agent_service.native_backend.configurations',return_value={'codex':{}}),patch('agent_service.native_backend.inventory',return_value={'codex':[]}):
+   with patch('Adapters.codex.native.connection',connection),patch('Adapters.codex.native.configurations',return_value={'codex':{}}),patch('Adapters.codex.native.inventory',return_value={'codex':[]}):
     result=await run({'binary':'codex','api_provider':{'url':deepseek.API,'key_file':str(key)}},'test',lambda *a:None,{'permissions':{}},'deepseek-test','high',Path(d)/'session','deepseek',AsyncMock())
    self.assertEqual(captured['thread/start']['modelProvider'],'tail_api');self.assertEqual(captured['env']['TAIL_HARNESS_API_KEY'],'fixture-private-key');self.assertNotIn('fixture-private-key',' '.join(captured['command']));self.assertIn('model_providers.tail_api.requires_openai_auth=false',captured['command']);self.assertEqual(result['backend'],'deepseek')
 

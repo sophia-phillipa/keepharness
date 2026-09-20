@@ -3,6 +3,7 @@ import json
 from unittest.mock import AsyncMock, patch
 
 from agent_service.app import Service, context_overflow
+from Adapters.local.sandbox import ISOLATION_VERSION
 from test_workspaces import config
 
 
@@ -27,13 +28,17 @@ def test_overflow_excludes_inherited_files_and_resets_native_session_once(tmp_pa
         assert 'Huge rejected request' not in args[1]
         assert 'Previous answer' in args[1]
         assert not marker.exists()
-        return {'answer':'Recovered'}
-    with patch('agent_service.native_backend.run',side_effect=run):
+        marker.write_text(json.dumps({'id':'healthy','isolation':ISOLATION_VERSION}))
+        return {'answer':'Recovered','thread_id':'healthy'}
+    with patch('Adapters.run_native',side_effect=run):
         assert asyncio.run(service.infer(row,payloads[-1]))['answer']=='Recovered'
     assert (session/'native-thread.json.before-context-recovery').exists()
-    marker.write_text(json.dumps({'id':'healthy','isolation':'local-bwrap-v1'}))
-    with patch('agent_service.native_backend.run',AsyncMock(return_value={'answer':'Still healthy'})):
-        asyncio.run(service.infer(row,payloads[-1]))
+    service.finish('c','completed',{'answer':'Recovered','thread_id':'healthy'})
+    next_payload={**payloads[-1],'parent_job_id':'c','prompt':'Next request'}
+    service.db.execute('INSERT INTO jobs(id,project,owner,state,created,payload) VALUES(?,?,?,?,?,?)',('d','p','a','running',2,json.dumps(next_payload)))
+    service.db.commit();next_row=dict(service.db.execute("SELECT * FROM jobs WHERE id='d'").fetchone())
+    with patch('Adapters.run_native',AsyncMock(return_value={'answer':'Still healthy'})):
+        asyncio.run(service.infer(next_row,next_payload))
     assert json.loads(marker.read_text())['id']=='healthy'
     service.db.close()
 

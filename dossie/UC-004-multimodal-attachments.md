@@ -29,4 +29,13 @@ Local document integration job `6b7c9017ec074fedbff5dd34b8365ff0` completed: an 
 
 ## Expanded limits (not load-tested)
 
-At the user's explicit request, Qwen was configured for its native 262,144-token context. KV cache is placed in system RAM using `--no-kv-offload` and the additional RAM prompt cache is disabled to limit memory pressure. The previous private launch configuration is backed up. Audio duration is now capped at 7,200 seconds, uploads at 256 MiB, decoding output at 512 MiB, transcription address space at 4 GiB and wall time at two hours. These larger limits were configured without inference, audio or stress tests at the user's request; full-context performance and two-hour transcription are not validated.
+Audio duration is capped at 7,200 seconds, uploads at 256 MiB, decoding output
+at 512 MiB, transcription address space at 4 GiB and wall time at two hours.
+These bounds do not certify two-hour transcription performance.
+
+## Suggested GPU profile
+
+The author-suggested [Qwen profile](../profiles/qwen-author-profile.json) records
+the approved example configuration, including context size, CPU/GPU placement
+and vision projector settings. Review these parameters for the target machine;
+the release regressions do not include GPU or full-context stress benchmarks.

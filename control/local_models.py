@@ -19,7 +19,9 @@ def processes():
             if host not in ('127.0.0.1','localhost','0.0.0.0'):continue
             found.append({'url':'http://127.0.0.1:'+option('--port',default='8080'),
                           'key_file':option('--api-key-file'),'binary':args[0],
-                          'model_file':option('--model','-m'),'performance':performance(args)})
+                          'model_file':option('--model','-m'),'mmproj_file':option('--mmproj'),
+                          'flags':[flag for flag in PROFILE_FLAGS if '--'+flag in args],
+                          'performance':performance(args)})
         except (OSError,ValueError,IndexError,UnicodeError):continue
     return found
 
@@ -38,18 +40,19 @@ async def discover():
 
 # Only performance options: never import credentials or arbitrary CLI arguments.
 PERFORMANCE_FLAGS=('device','n-gpu-layers','ctx-size','parallel','flash-attn','cache-type-k','cache-type-v','cache-ram','reasoning','reasoning-format','reasoning-budget','threads','n-cpu-moe','threads-batch','load-mode','cpu-range','cpu-strict','cpu-range-batch','cpu-strict-batch','temp','top-k','top-p','min-p','repeat-penalty','seed','main-gpu','split-mode','tensor-split')
+PROFILE_FLAGS=('no-mmproj-offload','kv-offload')
 MODEL_PERMISSIONS=('read','write','upload','tests','internet','shell','hooks')
 def performance(args):
     return {name:args[args.index('--'+name)+1] for name in PERFORMANCE_FLAGS if '--'+name in args and args.index('--'+name)+1<len(args)}
 
 def save_profile(state,server):
     import json
-    profile={k:server[k] for k in ('binary','model_file','performance','permissions','capabilities','allowed_roots') if k in server}
+    profile={k:server[k] for k in ('binary','model_file','description','mmproj_file','flags','performance','permissions','capabilities','allowed_roots') if k in server}
     if not profile.get('model_file'):raise ValueError('Selecione o arquivo de pesos deste perfil.')
     profile['model_file']=str(Path(profile['model_file']).expanduser().resolve())
     profiles=load_profiles(state)
     previous=profiles.get(profile['model_file'],{})
-    for key in ('permissions','capabilities','allowed_roots'):
+    for key in ('description','permissions','capabilities','allowed_roots'):
         if key not in profile and key in previous:profile[key]=previous[key]
     profiles[profile['model_file']]=profile
     for name,value in [('local-profiles.json',profiles),('local-profile.json',profile)]:
@@ -88,9 +91,21 @@ def launch_options(profile):
     values=profile.get('performance',{})
     return [value for name in PERFORMANCE_FLAGS if name in values for value in ('--'+name,str(values[name]))]
 
+def launch_command(profile, *, key_file, port=8096, alias='managed-local'):
+    """Build the fixed local-only llama.cpp invocation from a validated profile."""
+    profile=validate_profile(profile)
+    if type(port) is not int or not 1024<=port<=65535:raise ValueError('Porta inválida.')
+    if not isinstance(alias,str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,160}',alias):raise ValueError('Alias inválido.')
+    key=Path(key_file).expanduser()
+    if not key.is_absolute():raise ValueError('Arquivo de chave precisa usar caminho absoluto.')
+    command=[profile['binary'],'--model',profile['model_file'],'--alias',alias,'--host','127.0.0.1','--port',str(port),'--api-key-file',str(key),'--jinja']
+    if profile.get('mmproj_file'):command.extend(['--mmproj',profile['mmproj_file']])
+    command.extend('--'+flag for flag in profile.get('flags',()))
+    return [*command,*launch_options(profile)]
+
 def validate_profile(profile):
     if not profile:return {}
-    if not isinstance(profile,dict) or set(profile)-{'binary','model_file','performance','permissions','capabilities','allowed_roots'}:raise ValueError('Perfil local contém campos não permitidos.')
+    if not isinstance(profile,dict) or set(profile)-{'binary','model_file','description','mmproj_file','flags','performance','permissions','capabilities','allowed_roots'}:raise ValueError('Perfil local contém campos não permitidos.')
     binary=Path(profile.get('binary',''));model=Path(profile.get('model_file',''))
     if not binary.is_absolute() or binary.name!='llama-server' or not binary.is_file():raise ValueError('Executável do perfil não encontrado nesta máquina.')
     if not model.is_absolute() or model.suffix!='.gguf' or not model.is_file():raise ValueError('Modelo do perfil não encontrado nesta máquina.')
@@ -119,6 +134,18 @@ def validate_profile(profile):
         except ValueError:raise ValueError('Informe proporções de GPU separadas por vírgula.') from None
         if not 1<=len(ratios)<=256 or any(not math.isfinite(value) or value<0 for value in ratios) or sum(ratios)<=0:raise ValueError('Proporções de GPU inválidas.')
     result={'binary':str(binary.resolve()),'model_file':str(model.resolve()),'performance':dict(values)}
+    if 'description' in profile:
+        description=profile['description']
+        if not isinstance(description,str) or len(description)>2000:raise ValueError('Descrição do perfil inválida.')
+        result['description']=description
+    if 'mmproj_file' in profile:
+        mmproj=Path(profile['mmproj_file']).expanduser()
+        if not mmproj.is_absolute() or mmproj.suffix!='.gguf' or not mmproj.is_file():raise ValueError('Projetor multimodal não encontrado nesta máquina.')
+        result['mmproj_file']=str(mmproj.resolve())
+    if 'flags' in profile:
+        flags=profile['flags']
+        if not isinstance(flags,list) or len(flags)>len(PROFILE_FLAGS) or any(flag not in PROFILE_FLAGS for flag in flags):raise ValueError('Flags específicas do perfil não permitidas.')
+        result['flags']=list(dict.fromkeys(flags))
     for key,allowed in [('permissions',MODEL_PERMISSIONS),('capabilities',('tools',))]:
         if key not in profile:continue
         items=profile[key]
@@ -127,7 +154,7 @@ def validate_profile(profile):
     if 'allowed_roots' in profile:
         roots=profile['allowed_roots']
         if not isinstance(roots,list) or len(roots)>20 or any(not isinstance(value,str) for value in roots):raise ValueError('Informe até 20 pastas locais por modelo.')
-        home=Path.home().resolve();sensitive=[home/name for name in ('.ssh','.codex','.claude','.config','.local/share/tail-harness')]
+        home=Path.home().resolve();sensitive=[home/name for name in ('.ssh','.codex','.claude','.gemini','.config','.local/share/tail-harness')]
         checked=[]
         for value in roots:
             root=Path(value).expanduser()

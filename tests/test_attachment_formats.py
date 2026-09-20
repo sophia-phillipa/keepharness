@@ -85,5 +85,5 @@ def test_large_csv_keeps_full_content_outside_prompt(tmp_path):
         assert extracted.read_text()==content
         assert str(extracted.resolve()) in args[1]
         return {'answer':'ok'}
-    with patch('agent_service.native_backend.run',side_effect=run):asyncio.run(service.infer(row,data))
+    with patch('Adapters.run_native',side_effect=run):asyncio.run(service.infer(row,data))
     service.db.close()

@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from agent_service.native_backend import run
+from Adapters import run_native as run
 from agent_service.tools import ToolError
 
 
@@ -32,8 +32,8 @@ for line in sys.stdin:
         async def approve(*args):
             raise AssertionError('Usage fixture must not request permissions')
 
-        with patch('agent_service.native_backend.configurations', return_value={'codex': {}}), \
-                patch('agent_service.native_backend.inventory', return_value={'codex': []}):
+        with patch('Adapters.codex.native.configurations', return_value={'codex': {}}), \
+                patch('Adapters.codex.native.inventory', return_value={'codex': []}):
             return await run({'binary': str(executable)}, 'fixture', lambda *args: None,
                              {'permissions': {}}, 'fixture-model', 'low',
                              root / 'session', 'codex', approve)

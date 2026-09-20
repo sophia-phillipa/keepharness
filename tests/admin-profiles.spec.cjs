@@ -9,12 +9,13 @@ const assert=require('node:assert/strict');
 
  const a='/models/Qwen-family-Q3_K_M.gguf',b='/models/Qwen-family-Q4_K_M.gguf';
  state.settings.services.local={...empty('local'),added:true,enabled:true,models:['qwen-local']};
- state.local_profiles={[a]:{model_file:a,binary:'/usr/bin/llama-server',performance:{'cpu-range':'2-7','n-gpu-layers':'99','threads':'6'}}};
+ state.local_profiles={[a]:{model_file:a,binary:'/usr/bin/llama-server',description:'Perfil base Qwen',mmproj_file:'/models/mmproj.gguf',flags:['--some-flag'],performance:{'cpu-range':'2-7','n-gpu-layers':'99','threads':'6'}}};
  const local=state.inventory.services.find(s=>s.id==='local');local.name='Modelos locais';local.models=['qwen-local'];local.runtimes=[{id:'qwen-local',runtime:'llama.cpp',model_file:a},{id:'qwen-q4',runtime:'llama.cpp',model_file:b}];
  await p.route('**/api/**',async r=>{const path=new URL(r.request().url()).pathname.slice(5);let result={};
   if(path==='state')result=state;
   if(path==='scan')result=state.inventory;
   if(path==='local-profile'){result=r.request().postDataJSON();writes.push(result);state.local_profiles[result.model_file]=result;}
+  if(path==='local-import'){const file=r.request().postDataJSON().file;result={...state.local_profiles[file],model_file:file,description:'Descrição importada'};}
   if(path==='settings'){writes.push({unexpectedGeneralSave:true});result={saved:true};}
   await r.fulfill({json:result});
  });
@@ -23,6 +24,8 @@ const assert=require('node:assert/strict');
  await p.locator('#hardware-editor-details>summary').click();
  assert.equal(await p.locator('#hardware-model').inputValue(),a);
  assert.equal(await p.locator('#profile-cpu-range').inputValue(),'2-7');
+ assert.equal(await p.locator('#profile-description').inputValue(),'Perfil base Qwen');
+ assert.match(await p.locator('#local-profile-summary').innerText(),/Perfil base Qwen/);
  await p.selectOption('#hardware-model',b);
  assert.equal(await p.locator('#profile-cpu-range').inputValue(),'');
  assert.match(await p.locator('#local-profile-summary').innerText(),/Nenhum · não herda de outro modelo/);
@@ -33,12 +36,14 @@ const assert=require('node:assert/strict');
  assert.equal(await p.locator('#profile-cpu-range').inputValue(),'4-9');
  await p.click('#save');await p.waitForFunction(()=>document.querySelector('#feedback').textContent.includes('perfil de CPU e GPU tem alterações pendentes'));
  assert.equal(writes.length,0);
+ await p.fill('#profile-description','Perfil criado pela Pessoa de teste para Qwen3.6-35B-A3B UD-Q3_K_M');
  await p.locator('#inspector-tabs').getByText('Permissões e projetos').click();
  await p.check('#profile-tools');await p.check('#profile-permission-internet');await p.check('#profile-permission-upload');
  await p.click('#profile-save');await p.waitForFunction(()=>document.querySelector('#profile-save').textContent==='Salvar perfil deste modelo');
- assert.equal(writes.length,1);assert.equal(writes[0].model_file,a);assert.equal(writes[0].performance['cpu-range'],'4-9');assert(!state.local_profiles[b]);assert.equal(writes[0].permissions.internet,true);assert.equal(writes[0].permissions.upload,true);assert.equal(writes[0].capabilities.tools,true);
+ assert.equal(writes.length,1);assert.equal(writes[0].model_file,a);assert.equal(writes[0].performance['cpu-range'],'4-9');assert(!state.local_profiles[b]);assert.equal(writes[0].permissions.internet,true);assert.equal(writes[0].permissions.upload,true);assert.equal(writes[0].capabilities.tools,true);assert.equal(writes[0].description,'Perfil criado pela Pessoa de teste para Qwen3.6-35B-A3B UD-Q3_K_M');assert.equal(writes[0].mmproj_file,'/models/mmproj.gguf');assert.deepEqual(writes[0].flags,['--some-flag']);
  await p.selectOption('#hardware-model',b);assert(!(await p.isChecked('#profile-permission-internet')));assert(!(await p.isChecked('#profile-permission-upload')));assert(await p.isDisabled('#profile-permission-internet'));
  await p.locator('#inspector-tabs').getByText('Modelo e hardware').click();
+ await p.click('#local-import');await p.waitForFunction(()=>document.querySelector('#profile-description').value==='Descrição importada');
  await p.click('#add-local-model');assert(await p.locator('#local-download').isVisible());await p.click('#source-file');assert(await p.locator('#local-existing').isVisible());assert(!(await p.locator('#local-download').isVisible()));await p.selectOption('#local-file',b);await p.click('#use-local-file');assert.equal(await p.locator('#hardware-model').inputValue(),b);assert(!(await p.locator('#local-add').isVisible()));
  await p.selectOption('#hardware-model',b);assert.equal(await p.locator('#profile-cpu-range').inputValue(),'');
  await p.selectOption('#hardware-model',a);assert.equal(await p.locator('#profile-cpu-range').inputValue(),'4-9');

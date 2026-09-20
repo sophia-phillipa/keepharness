@@ -1,4 +1,5 @@
 """Distribution, restart policy, service templates and offline lifecycle tests."""
+import json
 import asyncio
 from pathlib import Path
 import subprocess
@@ -32,6 +33,7 @@ class DistributionTest(unittest.TestCase):
  def test_restart_failed_keeps_admin_available(self):
   with tempfile.TemporaryDirectory() as d:
    Path(d,'autostart').touch()
+   manager=Manager(d);manager.settings['services']['codex'].update(enabled=True,models=['fixture']);Path(d,'settings.json').write_text(json.dumps(manager.settings))
    with patch('control.server.scan',AsyncMock(return_value=INVENTORY)),patch.object(Manager,'start',AsyncMock(side_effect=ValueError('CLI indisponível'))) as start:
     with TestClient(create_app(d),base_url='http://127.0.0.1:8094') as client:
      client.get('/');state=client.get('/api/state').json()

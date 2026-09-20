@@ -1,4 +1,4 @@
-from agent_service.codex_rpc import usage_delta
+from Adapters.codex.rpc import usage_delta
 
 
 def test_resumed_usage_excludes_prior_turns():

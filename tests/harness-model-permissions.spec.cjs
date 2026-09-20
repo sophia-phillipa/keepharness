@@ -16,7 +16,8 @@ const assert=require('node:assert/strict');
  await p.clock.install();
  await p.locator('#file').setInputFiles({name:'speech.wav',mimeType:'audio/wav',buffer:Buffer.from('fixture audio')});
  await p.waitForFunction(()=>document.querySelector('#status').textContent.includes('speech.wav'));
- while(!audioRoute)await new Promise(resolve=>setTimeout(resolve,10));
+ for(let attempt=0;!audioRoute&&attempt<100;attempt++)await new Promise(resolve=>setTimeout(resolve,10));
+ assert(audioRoute,'audio request must reach the fixture');
  await p.clock.fastForward(31000);
  assert.match(await p.locator('#status').innerText(),/speech.wav/);
  await audioRoute.fulfill({json:{file_id:'audio-fixture'}});
@@ -25,6 +26,6 @@ const assert=require('node:assert/strict');
 
  await p.selectOption('#model','gemma-local');assert(await p.locator('#attach').isDisabled());assert.match(await p.locator('#model-permissions').innerText(),/Internet desativada/);
  await p.fill('#prompt','Analisar anexo');await p.click('#send');assert.match(await p.locator('#status').innerText(),/não permite anexos/);assert.equal(jobs,0);assert.equal(await p.locator('#prompt').inputValue(),'Analisar anexo');
- await p.selectOption('#model','qwen-local');assert(await p.locator('#attach').isEnabled());assert.match(await p.locator('#attachments').innerText(),/teste.txt/);await p.selectOption('#model','gemma-local');await p.selectOption('#project','demo');await p.waitForFunction(()=>!document.querySelector('#attach').disabled);assert.match(await p.locator('#model-permissions').innerText(),/Internet permitida/);await p.selectOption('#project','sem-projeto');await p.waitForFunction(()=>document.querySelector('#attach').disabled);assert.match(await p.locator('#model-permissions').innerText(),/Internet desativada/);assert.deepEqual(errors,[]);
+ await p.selectOption('#model','qwen-local');assert(await p.locator('#attach').isEnabled());assert.match(await p.locator('#attachments').innerText(),/teste.txt/);await p.selectOption('#model','gemma-local');await p.selectOption('#project','demo',{force:true});await p.waitForFunction(()=>!document.querySelector('#attach').disabled);assert.match(await p.locator('#model-permissions').innerText(),/Internet permitida/);await p.selectOption('#project','sem-projeto',{force:true});await p.waitForFunction(()=>document.querySelector('#attach').disabled);assert.match(await p.locator('#model-permissions').innerText(),/Internet desativada/);assert.deepEqual(errors,[]);
  console.log('PASS: Qwen attachments and internet permissions, isolated Gemma restrictions, draft and attachment retained on model switch');
 }finally{await browser.close();}})().catch(e=>{console.error(e);process.exitCode=1;});

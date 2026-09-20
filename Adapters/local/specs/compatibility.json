@@ -1,0 +1,34 @@
+{
+  "adapter_spec_revision": 1,
+  "harness_baseline": "0.4.4 working-tree",
+  "reviewed_at": "2026-09-19",
+  "live_provider_validation": false,
+  "provider": "local",
+  "executor": {
+    "name": "codex-cli",
+    "observed_version": "0.155.0-alpha.9.2"
+  },
+  "runtime": {
+    "name": "llama.cpp",
+    "recipe_version": "b11003",
+    "recipe_commit": "7d6f5d02bb40fca0ab29e65fe4eb86eab6886f19",
+    "installed_version": null
+  },
+  "protocol": "local /v1/responses",
+  "sources": [
+    "https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md",
+    "https://registry.ollama.com/blog/openai-compatibility"
+  ],
+  "models": [
+    {
+      "id": "qwen36",
+      "spec": "models/qwen36-35b-a3b-ud-q3-k-m.md",
+      "availability": "download catalog; not runtime validation"
+    },
+    {
+      "id": "gemma4",
+      "spec": "models/gemma4-e4b-q4-k-m.md",
+      "availability": "download catalog; not runtime validation"
+    }
+  ]
+}

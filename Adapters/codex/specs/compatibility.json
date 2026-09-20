@@ -1,0 +1,42 @@
+{
+  "adapter_spec_revision": 1,
+  "harness_baseline": "0.4.4 working-tree",
+  "reviewed_at": "2026-09-19",
+  "live_provider_validation": false,
+  "provider": "codex",
+  "executor": {
+    "name": "codex-cli",
+    "observed_version": "0.155.0-alpha.9.2"
+  },
+  "protocol": "app-server JSON-RPC over stdio",
+  "sources": [
+    "https://developers.openai.com/pt-BR/docs/app-server"
+  ],
+  "models": [
+    {
+      "id": "gpt-6-astra",
+      "spec": "models/gpt-6-astra.md",
+      "availability": "requires authenticated model/list"
+    },
+    {
+      "id": "gpt-5.6-sol",
+      "spec": "models/gpt-5.6-sol.md",
+      "availability": "requires authenticated model/list"
+    },
+    {
+      "id": "gpt-5.6-terra",
+      "spec": "models/gpt-5.6-terra.md",
+      "availability": "requires authenticated model/list"
+    },
+    {
+      "id": "gpt-5.6-luna",
+      "spec": "models/gpt-5.6-luna.md",
+      "availability": "requires authenticated model/list"
+    },
+    {
+      "id": "gpt-5.5",
+      "spec": "models/gpt-5.5.md",
+      "availability": "requires authenticated model/list"
+    }
+  ]
+}

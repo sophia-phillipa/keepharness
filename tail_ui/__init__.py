@@ -3,7 +3,7 @@ from pathlib import Path
 from starlette.responses import FileResponse, Response
 
 ASSETS = Path(__file__).with_name('assets')
-PUBLIC = frozenset(('tabler.min.css', 'tabler.min.js', 'themes.css', 'theme.js', 'components.js', 'icons.svg', 'inter-latin.woff2'))
+PUBLIC = frozenset(('tabler.min.css', 'tabler.min.js', 'themes.css', 'theme.js', 'components.js', 'icons.svg', 'file-icons.svg', 'file-icons-data.js', 'file-icons-LICENSE.txt', 'inter-latin.woff2'))
 
 def asset_response(path):
     name = path.removeprefix('/assets/')

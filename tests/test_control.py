@@ -16,7 +16,7 @@ class ControlTest(unittest.TestCase):
  def tearDown(self):self.tmp.cleanup()
  def test_default_and_permissions(self):
   self.assertFalse(any(s['enabled'] for s in self.manager.settings['services'].values()))
-  settings=copy.deepcopy(self.manager.settings);settings['services']['codex']['permissions']['write']=True
+  settings=copy.deepcopy(self.manager.settings);settings['services']['local']['permissions']['write']=True
   with self.assertRaisesRegex(ValueError,'leitura'):self.manager.validate(settings)
   settings=copy.deepcopy(self.manager.settings);settings['projects']=[{'id':'home','root':str(Path.home())}]
   with self.assertRaisesRegex(ValueError,'ampla'):self.manager.validate(settings)

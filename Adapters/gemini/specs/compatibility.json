@@ -1,0 +1,24 @@
+{
+  "adapter_spec_revision": 1,
+  "harness_baseline": "0.5.0",
+  "reviewed_at": "2026-09-20",
+  "live_provider_validation": false,
+  "provider": "gemini",
+  "executor": {
+    "name": "Gemini CLI",
+    "observed_version": "0.60.0"
+  },
+  "protocol": "ACP JSON-RPC over stdio",
+  "sources": [
+    "https://geminicli.com/docs/cli/acp-mode",
+    "https://geminicli.com/docs/cli/cli-reference",
+    "https://geminicli.com/docs/cli/session-management"
+  ],
+  "models": [
+    {
+      "id": "auto-gemini-3",
+      "spec": "models/auto.md",
+      "availability": "CLI default; account dependent"
+    }
+  ]
+}

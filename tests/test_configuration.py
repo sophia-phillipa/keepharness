@@ -41,7 +41,7 @@ class ConfigurationTest(unittest.TestCase):
     before=Path(d,'settings.json').read_bytes();bad=copy.deepcopy(bundle);bad['settings']['vpn_bind']='0.0.0.0'
     self.assertEqual(c.post('/api/settings-import',json={'bundle':bad,'apply':True},headers=headers).status_code,400);self.assertEqual(Path(d,'settings.json').read_bytes(),before)
     self.assertEqual(c.post('/api/settings-import',json={'bundle':{'version':99}},headers=headers).status_code,400)
- def test_import_malformed_and_while_running(self):
+ def test_import_malformed_and_live_reload_while_running(self):
   from control.server import Manager
   with tempfile.TemporaryDirectory() as d,patch('control.server.scan',AsyncMock(return_value=INVENTORY)):
    with TestClient(create_app(d),base_url='http://127.0.0.1:8094') as c:
@@ -49,5 +49,9 @@ class ConfigurationTest(unittest.TestCase):
     self.assertEqual(c.post('/api/settings-import',json=[],headers=h).status_code,400)
     bundle=c.post('/api/settings-export',json={},headers=h).json()
     with patch.object(Manager,'running',return_value=True):
+     self.assertEqual(c.post('/api/settings-import',json={'bundle':bundle,'apply':True},headers=h).status_code,200)
+     self.assertTrue(Path(d,'settings.json').exists())
+     before=Path(d,'settings.json').read_bytes()
+     bundle['settings']['port']=8195
      self.assertEqual(c.post('/api/settings-import',json={'bundle':bundle,'apply':True},headers=h).status_code,400)
-    self.assertFalse(Path(d,'settings.json').exists())
+     self.assertEqual(Path(d,'settings.json').read_bytes(),before)

@@ -5,8 +5,8 @@ const assert=require('node:assert/strict');
  try{
   const page=await browser.newPage(),errors=[];let code='submission_rate_limit',retry='7',submissions=0;
   page.on('pageerror',e=>errors.push(e.message));
-  await page.route('**/v1/models',r=>r.fulfill({json:{models:[{id:'qwen-local',name:'Qwen local',backend:'local',efforts:['low']}],providers:{local:{}}}}));
-  await page.route('**/v1/conversations',r=>r.fulfill({json:{conversations:[]}}));
+  await page.route('**/v1/models*',r=>r.fulfill({json:{models:[{id:'qwen-local',name:'Qwen local',backend:'local',efforts:['low']}],providers:{local:{}}}}));
+  await page.route('**/v1/conversations*',r=>r.fulfill({json:{conversations:[]}}));
   const limited=r=>r.fulfill({status:429,headers:retry===null?{}:{'Retry-After':retry},json:{code}});
   await page.route('**/v1/jobs',r=>{submissions++;return limited(r);});
   await page.route('**/v1/fixture-limit',limited);
