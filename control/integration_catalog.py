@@ -1,0 +1,159 @@
+"""Read-only, bounded connector and plugin catalogues from installed CLIs."""
+
+import asyncio
+import json
+import os
+import signal
+
+
+OUTPUT_LIMIT = 8 * 1024 * 1024
+TIMEOUT_SECONDS = 8
+
+
+async def _run(*args):
+    """Run a fixed CLI command and return a bounded decoded stdout result."""
+    process = None
+    try:
+        process = await asyncio.create_subprocess_exec(
+            *args,
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        output = bytearray()
+        async with asyncio.timeout(TIMEOUT_SECONDS):
+            while chunk := await process.stdout.read(65536):
+                remaining = OUTPUT_LIMIT - len(output)
+                if remaining <= 0:
+                    return 1, ""
+                output.extend(chunk[:remaining])
+                if len(chunk) > remaining:
+                    return 1, ""
+            return await process.wait(), output.decode(errors="replace")
+    except (OSError, TimeoutError):
+        return 1, ""
+    finally:
+        if process and process.returncode is None:
+            try:
+                if os.name == "posix":
+                    os.killpg(process.pid, signal.SIGTERM)
+                else:
+                    process.terminate()
+            except ProcessLookupError:
+                pass
+            try:
+                await asyncio.wait_for(process.wait(), 2)
+            except asyncio.TimeoutError:
+                if os.name == "posix":
+                    os.killpg(process.pid, signal.SIGKILL)
+                else:
+                    process.kill()
+                await process.wait()
+
+
+def _plugin_identifier(plugin):
+    identifier = plugin.get("pluginId") or plugin.get("id")
+    if isinstance(identifier, str) and identifier:
+        return identifier
+    name = plugin.get("name")
+    marketplace = plugin.get("marketplaceName")
+    if isinstance(name, str) and isinstance(marketplace, str) and name and marketplace:
+        return f"{name}@{marketplace}"
+    return name if isinstance(name, str) else None
+
+
+def _plugins(payload):
+    try:
+        decoded = json.loads(payload)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(decoded, dict):
+        return None
+    items = []
+    seen = set()
+    for default_status, entries in (("installed", decoded.get("installed", [])), ("available", decoded.get("available", []))):
+        if not isinstance(entries, list):
+            continue
+        for plugin in entries:
+            if not isinstance(plugin, dict):
+                continue
+            identifier = _plugin_identifier(plugin)
+            name = plugin.get("name") or identifier
+            if not isinstance(identifier, str) or not identifier or not isinstance(name, str) or identifier in seen:
+                continue
+            seen.add(identifier)
+            installed = plugin.get("installed") is True
+            items.append(
+                {
+                    "id": f"plugin:{identifier}",
+                    "name": name,
+                    "kind": "plugin",
+                    "status": "installed" if installed or default_status == "installed" else "available",
+                    "enabled": plugin.get("enabled") is True,
+                }
+            )
+    return items
+
+
+def _codex_mcp(payload):
+    try:
+        decoded = json.loads(payload)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(decoded, list):
+        return None
+    items = []
+    for server in decoded:
+        name = server.get("name") if isinstance(server, dict) else None
+        if isinstance(name, str) and name:
+            items.append({"id": f"mcp:{name}", "name": name, "kind": "mcp", "status": "configured", "enabled": server.get("enabled") is True})
+    return items
+
+
+def _claude_mcp(payload):
+    """Claude has no JSON `mcp list` output in the observed version."""
+    if payload.strip().startswith("No MCP servers configured"):
+        return []
+    items = []
+    for line in payload.splitlines():
+        name, separator, _rest = line.partition(":")
+        name = name.strip()
+        if separator and name and all(character.isalnum() or character in "_.-" for character in name):
+            items.append({"id": f"mcp:{name}", "name": name, "kind": "mcp", "status": "configured"})
+    return items or None
+
+
+def _fallback(provider, fallback):
+    if fallback is None:
+        # The metadata reader is itself bounded to configured local files and
+        # returns no command or environment details.
+        from .integrations import inventory
+
+        fallback = inventory()
+    entries = fallback.get(provider, []) if isinstance(fallback, dict) else []
+    return [item for item in entries if isinstance(item, dict) and item.get("kind") == "mcp"]
+
+
+async def catalog(provider, binary, fallback=None):
+    """Return the known provider catalogue without commands, credentials, or stderr."""
+    if provider not in {"codex", "claude"}:
+        return {"items": [], "warnings": ["Catálogo não suportado para este provedor."]}
+    if not isinstance(binary, str) or not binary:
+        return {"items": [], "warnings": ["CLI do provedor não foi encontrado."]}
+
+    plugin_command = (binary, "plugin", "list", "--available", "--json")
+    mcp_command = (binary, "mcp", "list", "--json") if provider == "codex" else (binary, "mcp", "list")
+    mcp_result, plugin_result = await asyncio.gather(_run(*mcp_command), _run(*plugin_command))
+    mcp_code, mcp_output = mcp_result
+    plugin_code, plugin_output = plugin_result
+    mcp_items = _codex_mcp(mcp_output) if provider == "codex" else _claude_mcp(mcp_output)
+    plugin_items = _plugins(plugin_output)
+    warnings = []
+    if mcp_code != 0 or mcp_items is None:
+        mcp_items = _fallback(provider, fallback)
+        warnings.append("Não foi possível ler o catálogo MCP do CLI; foram usados os conectores já configurados.")
+    if plugin_code != 0 or plugin_items is None:
+        plugin_items = []
+        warnings.append("Não foi possível ler o catálogo de plugins do CLI.")
+    return {"items": mcp_items + plugin_items, "warnings": warnings}

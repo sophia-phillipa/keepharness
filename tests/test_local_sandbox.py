@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from agent_service.local_sandbox import wrap
+from Adapters.local.sandbox import wrap
 from agent_service.tools import ToolError
 
 
@@ -40,6 +40,23 @@ print(json.dumps({'inside':readable(root/'inside.txt'),'outside':readable(%r),'s
 
 
 def test_missing_bwrap_is_fail_closed(tmp_path):
-    with patch('agent_service.local_sandbox.shutil.which',return_value=None):
+    with patch('Adapters.local.sandbox.shutil.which',return_value=None):
         with pytest.raises(ToolError,match='local_filesystem_isolation_unavailable'):
             wrap(['/usr/bin/python3'],tmp_path,tmp_path,{})
+
+
+def test_project_internal_runtime_secrets_are_hidden(tmp_path):
+    if not shutil.which('bwrap'):pytest.skip('bubblewrap is not installed')
+    root=tmp_path/'project';root.mkdir()
+    for name in ('config','migration-backup'):
+        folder=root/'local-ai'/name;folder.mkdir(parents=True)
+        (folder/'private.txt').write_text('fixture-private')
+    (root/'source.py').write_text('public source')
+    session=tmp_path/'session';session.mkdir()
+    script="import pathlib,json; p=pathlib.Path(%r); print(json.dumps({'source':(p/'source.py').read_text(),'private':[str(x) for x in (p/'local-ai').rglob('private.txt')]}))"%str(root)
+    with patch.dict('os.environ',{'TAIL_HARNESS_ROOT':str(root)}):
+        command=wrap(['/usr/bin/python3','-c',script],session,root,{'root':str(root),'permissions':{'read':True,'write':True}})
+    result=subprocess.run(command,capture_output=True,text=True,timeout=10)
+    assert result.returncode==0,result.stderr
+    assert json.loads(result.stdout)=={'source':'public source','private':[]}
+    assert (root/'local-ai/config/private.txt').read_text()=='fixture-private'

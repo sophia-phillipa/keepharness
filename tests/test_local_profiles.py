@@ -39,6 +39,7 @@ def test_legacy_read_and_save_upsert_preserve_other_models(tmp_path):
 
 def test_profiles_api_import_exact_model_start_and_export(tmp_path):
     qwen, gemma = profiles(tmp_path)
+    qwen['description'] = 'Perfil Qwen exportável'
     with patch('control.server.scan', AsyncMock(return_value=INVENTORY)), \
             patch('control.local_models.processes', return_value=[]) as running, \
             patch('control.server.socket') as socket, \
@@ -123,3 +124,54 @@ def test_sampling_roundtrip_and_invalid_hardware_values(tmp_path):
                         ('seed', '4294967296'), ('api-key', 'credential'), ('host', '0.0.0.0')]:
         with pytest.raises(ValueError):
             validate_profile({**qwen, 'performance': {name: value}})
+
+
+def test_multimodal_description_flags_roundtrip_and_launch_command(tmp_path):
+    import pytest
+    from control.local_models import launch_command, validate_profile
+    qwen, _ = profiles(tmp_path)
+    mmproj = tmp_path / 'qwen-mmproj.gguf'
+    mmproj.touch()
+    profile = validate_profile({**qwen, 'description': 'Perfil de teste',
+                                'mmproj_file': str(mmproj),
+                                'flags': ['no-mmproj-offload', 'kv-offload']})
+    save_profile(tmp_path, profile)
+    assert load_profile(tmp_path, qwen['model_file']) == profile
+    command = launch_command(profile, key_file=tmp_path / 'key', port=8091, alias='qwen-local')
+    assert command[command.index('--mmproj') + 1] == str(mmproj)
+    assert '--no-mmproj-offload' in command and '--kv-offload' in command and '--jinja' in command
+    for invalid in ({**qwen, 'description': 1}, {**qwen, 'description': 'x' * 2001},
+                    {**qwen, 'mmproj_file': str(tmp_path / 'missing.gguf')},
+                    {**qwen, 'flags': ['api-key']}):
+        with pytest.raises(ValueError): validate_profile(invalid)
+
+
+def test_panel_uses_project_internal_runtime_models_and_key(tmp_path):
+    internal=tmp_path/'local-ai'
+    binary=internal/'runtime/llama-b11003/llama-server';binary.parent.mkdir(parents=True);binary.touch()
+    model=internal/'models/example.gguf';model.parent.mkdir();model.touch()
+    with patch('control.server.LOCAL_AI',internal), \
+            patch('control.server.scan',AsyncMock(return_value=INVENTORY)), \
+            patch('control.local_models.processes',return_value=[]), \
+            patch('control.server.socket'), \
+            patch('control.server.shutil.disk_usage') as disk, \
+            patch('control.server.Operations.launch',return_value={'id':'fixture'}) as launch:
+        disk.return_value.free=100*1024**3
+        with TestClient(create_app(tmp_path),base_url='http://127.0.0.1:8094') as client:
+            client.get('/');headers={'X-Harness-Admin':'1'}
+            r=client.post('/api/local-start',json={'file':str(model),'gpu_layers':0},headers=headers)
+            assert r.status_code==200,r.text
+            args=launch.call_args.args[0]
+            assert args[0]==str(binary)
+            assert args[args.index('--api-key-file')+1]==str(internal/'config/api-key')
+            assert (internal/'config/api-key').stat().st_mode&0o777==0o600
+            r=client.post('/api/model-install',json={'model':'qwen36','accepted':True},headers=headers)
+            assert r.status_code==200,r.text
+            assert launch.call_args.args[0][-1]==str(internal/'models')
+
+
+def test_import_keeps_saved_description(tmp_path):
+    qwen,_=profiles(tmp_path)
+    save_profile(tmp_path,{**qwen,'description':'Sugestão da autora'})
+    save_profile(tmp_path,qwen)
+    assert load_profile(tmp_path,qwen['model_file'])['description']=='Sugestão da autora'

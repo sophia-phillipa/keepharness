@@ -83,7 +83,7 @@ async def submit_job(project_id:str,prompt:str='',kind:str='infer',file_ids:list
     """Auto uses Maestro only when Codex and Maestro are enabled; otherwise uses the configured default or first eligible executor directly.
     Use available_models to request a specific enabled executor when the person asks. Never assume Codex or a local model exists.
     Pass workspace_id for an uploaded folder. Return concise results, not full source documents.
-    Explicit backend overrides (codex/claude/local/deepseek) are for user-requested manual selection.
+    Explicit backend overrides (codex/claude/gemini/local/deepseek) are for user-requested manual selection.
 
     Native mode uses CLI tools and permissions selected in administration. Approvals
     arrive through job_events; use resolve_approval or the web interface to respond.
@@ -203,7 +203,7 @@ async def upload_path(project_id:str,local_path:str) -> dict:
     if not source.is_absolute() or source.is_symlink() or not source.exists():return {'error':'existing_absolute_path_required'}
     source=source.resolve()
     if source.resolve() in (Path('/'),Path.home().resolve()):return {'error':'select_specific_folder'}
-    excluded={'.git','.ssh','.aws','.config','.codex','.claude','.venv','venv','node_modules','__pycache__','.DS_Store','__MACOSX'}
+    excluded={'.git','.ssh','.aws','.config','.codex','.claude','.gemini','.venv','venv','node_modules','__pycache__','.DS_Store','__MACOSX'}
     if any(part in excluded or part.startswith('.env') for part in source.parts):return {'error':'credential_or_dependency_path_denied'}
     skipped=[];count=0;size=0
     with tempfile.TemporaryDirectory() as temporary:

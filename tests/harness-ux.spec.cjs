@@ -34,8 +34,8 @@ const assert=require('node:assert/strict');
   }else if(scenario==='catalog-error'){
    assert(await page.locator('#model-availability').isVisible());assert.match(await page.locator('#model-availability').innerText(),/Não foi possível consultar/);
    assert.doesNotMatch(await page.locator('#status').innerText(),/Conecte o Tailscale/);
-   await page.fill('#prompt','Rascunho preservado');mode='recovered';await page.click('#models-retry');await page.waitForFunction(()=>document.querySelector('#model').value==='fixture-local');
-   assert.equal(await page.locator('#prompt').inputValue(),'Rascunho preservado');assert(!(await page.locator('#model-availability').isVisible()));assert(await page.locator('#send').isEnabled());
+   assert(await page.locator('#startup-gate').isVisible());assert(await page.locator('main').evaluate(el=>el.inert));mode='recovered';await page.locator('#startup-gate').waitFor({state:'hidden',timeout:20000});await page.waitForFunction(()=>document.querySelector('#model').value==='fixture-local');
+   assert.equal(await page.locator('#prompt').inputValue(),'');assert(!(await page.locator('#model-availability').isVisible()));await page.fill('#prompt','Conexão recuperada');assert(await page.locator('#send').isEnabled());
   }else if(scenario==='uploads-disabled'){
    assert(await page.locator('#attach').isDisabled());assert.match(await page.locator('#attachment-help').innerText(),/desativados/);
    await page.locator('#file').setInputFiles({name:'fixture.txt',mimeType:'text/plain',buffer:Buffer.from('Fixture sem dados pessoais')});
@@ -67,7 +67,7 @@ const assert=require('node:assert/strict');
     assert.equal(await page.locator('#prompt').inputValue(),'Pergunta simulada');assert(await page.locator('#send').isEnabled());
    }else{
     await page.locator('#resume-execution').waitFor({state:'visible',timeout:10000});
-    assert.equal(eventRequests,4);assert(await page.locator('#cancel').isVisible());assert(await page.locator('#new').isDisabled());
+    assert.equal(eventRequests,4);assert(await page.locator('#cancel').isVisible());assert(await page.locator('#new').isEnabled(),'another conversation may start while this job remains on the server');
     if(scenario==='stream-resume'){jobState='completed';await page.click('#resume-execution');}
     else await page.click('#cancel');
     await page.locator('#cancel').waitFor({state:'hidden'});assert(await page.locator('#new').isEnabled());assert(!(await page.locator('#resume-execution').isVisible()));

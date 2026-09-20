@@ -58,7 +58,7 @@ def test_execution_roots_project_plus_model_and_model_only_outside(tmp_path):
         for project in ('p','sem-projeto'):
             data={'project_id':project,'backend':'local','model':'qwen','effort':'configured','prompt':'fixture'}
             jid=service.submit(identity,data)['job_id']
-            with patch('agent_service.app.native_backend.run',AsyncMock(return_value={'answer':'fixture'})) as run:
+            with patch('agent_service.app.adapters.run_native',AsyncMock(return_value={'answer':'fixture'})) as run:
                 asyncio.run(service.infer(service.job(identity,jid),data))
                 chosen=run.call_args.args[3]
                 roots=[chosen['root'],*chosen.get('additional_roots',[])]

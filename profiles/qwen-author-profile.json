@@ -1,0 +1,31 @@
+{
+  "description": "Sugestão criada por Sophia, autora do Tail Harness, para utilização do Qwen3.6-35B-A3B, quantização UD-Q3_K_M, neste servidor: AMD Radeon RX 9070 XT, Vulkan, 8 threads e 8 camadas MoE na CPU. Perfil com contexto de 98.304 tokens, cache KV Q8 e projetor multimodal Qwen3.6 F16. Revisar memória, CPUs e dispositivo antes de usar em outro servidor.",
+  "binary": "local-ai/runtime/llama-b11003/llama-server",
+  "model_file": "local-ai/models/Qwen3.6-35B-A3B-UD-Q3_K_M.gguf",
+  "mmproj_file": "local-ai/models/Qwen3.6-mmproj-F16.gguf",
+  "flags": [
+    "no-mmproj-offload",
+    "kv-offload"
+  ],
+  "performance": {
+    "device": "Vulkan0",
+    "n-gpu-layers": "99",
+    "ctx-size": "98304",
+    "parallel": "1",
+    "flash-attn": "on",
+    "cache-type-k": "q8_0",
+    "cache-type-v": "q8_0",
+    "cache-ram": "0",
+    "reasoning": "on",
+    "reasoning-format": "deepseek",
+    "reasoning-budget": "4096",
+    "threads": "8",
+    "n-cpu-moe": "8",
+    "threads-batch": "8",
+    "load-mode": "none",
+    "cpu-range": "6-13",
+    "cpu-strict": "1",
+    "cpu-range-batch": "0-13",
+    "cpu-strict-batch": "0"
+  }
+}

@@ -1,6 +1,11 @@
 # Tail Harness
 
-Painel local para descobrir, configurar e executar Codex CLI, Claude Code e modelos locais, com uma interface de conversa acessível pela Tailscale ou outra VPN. Python 3.11+, licença MIT, versão 0.4.0.
+[Português (Brasil)](README.md) · [English](README.en.md)
+
+Painel local para descobrir, configurar e executar Codex CLI, Claude Code, Gemini CLI e modelos locais, com uma interface de conversa acessível pela Tailscale ou outra VPN. Python 3.11+, licença MIT, versão 0.5.0.
+
+
+O painel de arquivos usa o Material Icon Theme (MIT), com ícones por extensão e pastas coloridas por nome, servidos localmente. Cada mensagem aceita até **20 anexos**, tanto por upload quanto pela seleção de arquivos/pastas. O ícone identifica o formato; a leitura do conteúdo continua sujeita aos formatos suportados pelo serviço.
 
 ## Estado persistente
 
@@ -10,15 +15,15 @@ O estado de produção fica em `~/.local/share/tail-harness`: `settings.json`, `
 
 ## Instalar e iniciar automaticamente (Linux/systemd)
 
-Repositório: `<repository-url>`.
+Clone o repositório autorizado para sua instalação.
 
 ```sh
-git clone <repository-url>
+git clone REPOSITORY_URL tail-harness
 cd tail-harness
 ./install.sh --boot
 ```
 
-O instalador `.sh` cria um ambiente Python privado em `~/.local/share/tail-harness/venv`, vincula a instalação ao código deste checkout e instala as dependências, executa a suíte Python e registra serviço e atalho. Requer Python 3.11+ com venv/pip, systemd do usuário e acesso à internet para dependências. Não usa sudo, não instala CLIs de terceiros e não autoriza contas automaticamente.
+O instalador `.sh` cria um ambiente Python privado em `~/.local/share/tail-harness/venv`, vincula a instalação ao código deste checkout e instala as dependências, registra serviço e atalho. A instalação não executa a suíte de testes. Requer Python 3.11+ com venv/pip, systemd do usuário e acesso à internet para dependências. Não usa sudo, não instala CLIs de terceiros e não autoriza contas automaticamente.
 
 Abra **Tail Harness** no menu de aplicativos. O atalho inicia o serviço se necessário e abre o navegador. `--boot` habilita linger para o serviço subir mesmo antes do login; se o sistema exigir autenticação administrativa, o instalador mostra a falha, sem declarar essa etapa concluída. Sem `--boot`, o serviço sobe ao iniciar a sessão do usuário.
 
@@ -39,7 +44,7 @@ Para desenvolvimento ou execução manual:
 ./start.sh
 ```
 
-Para instalar um wheel, use um ambiente virtual e `pip install tail_harness-0.4.0-py3-none-any.whl`, seguido de `tail-harness`. O comando `tail-harness-install --boot` registra serviço e atalho para esse ambiente. A distribuição contém os arquivos da interface; não depende de manter o checkout original. Não há publicação no PyPI nesta versão.
+Para instalar um wheel, use um ambiente virtual e `pip install tail_harness-0.5.0-py3-none-any.whl`, seguido de `tail-harness`. O comando `tail-harness-install --boot` registra serviço e atalho para esse ambiente. A distribuição contém os arquivos da interface; não depende de manter o checkout original. Não há publicação no PyPI nesta versão.
 
 Abra **http://127.0.0.1:8094/** no computador servidor. O inventário é somente leitura: nenhum serviço, projeto, upload, instalação ou compartilhamento é habilitado automaticamente. Para apenas verificar a máquina: `tail-harness --scan` (ou `.venv/bin/python -m control --scan` no checkout).
 
@@ -47,7 +52,7 @@ Abra **http://127.0.0.1:8094/** no computador servidor. O inventário é somente
 2. Em **Operações**, abra o link de autorização emitido pelo CLI e conclua no navegador deste computador. Depois clique em **Verificar conta**.
 3. Selecione modelos, modo de execução, permissões e integrações por serviço.
 4. Adicione somente os projetos que deseja disponibilizar, ou use conversas sem projeto.
-5. Salve e inicie o harness. O endereço padrão de conversa é **http://127.0.0.1:8095/**.
+5. Salve um modelo habilitado; o harness inicia automaticamente. O endereço padrão de conversa é **http://127.0.0.1:8095/**.
 6. Para Tailscale, cadastre as identidades autorizadas e habilite o compartilhamento. Para outra VPN, informe o IP privado dessa interface; o painel gera uma chave de acesso, mostrada mediante clique.
 
 A administração fica somente no loopback. A VPN transporta a interface; Codex/Claude continuam usando os respectivos provedores na nuvem. O backend **local** usa Codex como agente e llama.cpp/Ollama para a inferência, sem enviar a inferência à OpenAI. Internet, hooks e conectores habilitados podem produzir suas próprias comunicações externas.
@@ -72,12 +77,12 @@ A instalação/remoção de integrações modifica o perfil do CLI deste usuári
 
 ## Conversas e ferramentas
 
-O harness oferece streaming SSE persistido, cancelamento, histórico, continuidade da sessão, modelos/esforços disponíveis, atividade das ferramentas e aprovações interativas. Eventos de raciocínio e compactação são apresentados quando o provedor os fornece; não se fabrica raciocínio interno. Cota Codex é consultada antes/depois das execuções; Claude não fornece essa cota neste adaptador. Tokens/contexto são apresentados quando enviados pelo CLI.
+O harness oferece streaming SSE persistido, cancelamento, histórico, continuidade da sessão, modelos/esforços disponíveis, atividade das ferramentas e aprovações interativas. Eventos de raciocínio e compactação são apresentados quando o provedor os fornece; não se fabrica raciocínio interno. Cota Codex é consultada antes/depois das execuções e atualizada periodicamente no cabeçalho; a cota Claude aparece quando o CLI fornece a porcentagem em seus eventos, com indicação da última observação. Tokens/contexto são apresentados quando enviados pelo CLI.
 
 Há dois modos:
 
 - **Isolado:** Linux + bubblewrap; ferramentas limitadas ao projeto, sem terminal geral ou acesso livre à internet. Alterações passam por proposta/aplicação com backup. Não usa conectores externos.
-- **Nativo:** executa o CLI com ferramentas nativas, plugins escolhidos, política de sandbox e aprovações. A pasta selecionada define o projeto, mas não constitui uma prisão de leitura. Terminal, hooks e conectores têm o alcance de suas próprias permissões. A opção Internet não é um firewall para processos externos. Edições nativas acontecem diretamente no projeto.
+- **Nativo:** Codex, Claude e DeepSeek executam diretamente no sistema, sem sandbox e com acesso a arquivos, terminal e rede. Modelos locais mantêm suas permissões por modelo e isolamento. A pasta selecionada define o projeto, mas não constitui uma prisão de leitura. Terminal, hooks e conectores têm o alcance de suas próprias permissões. A opção Internet não é um firewall para processos externos. Edições nativas acontecem diretamente no projeto.
 
 O projeto não é uma solução multiusuário para pessoas mutuamente não confiáveis. Todos os clientes autorizados recebem a mesma política administrativa de projetos; cada um tem seu histórico e aprovações. Para separação forte de identidades e credenciais, execute instâncias sob usuários do sistema distintos.
 
@@ -171,7 +176,7 @@ Para testar uma instalação vazia sem modificar o serviço principal:
 TAIL_HARNESS_VENV="$(mktemp -d)/venv" ./install.sh --check-only
 ```
 
-Esse fluxo instala todas as dependências em outro ambiente, roda a suíte e inicia o pacote fora do checkout com estado temporário e porta livre. Não reinicia modelos nem configura Tailscale. A pasta do ambiente de teste pode ser removida depois.
+Esse fluxo instala todas as dependências em outro ambiente e faz uma verificação curta do pacote fora do checkout com estado temporário e porta livre. Não reinicia modelos nem configura Tailscale. A pasta do ambiente de teste pode ser removida depois.
 
 ## DeepSeek com sua própria chave (BYOK)
 
@@ -183,6 +188,113 @@ O agente é o Codex instalado, com provider DeepSeek temporário por processo; n
 
 Veja [o relatório das oito rodadas](docs/UX-GAUNTLET.md) para cenários, testes reais com modelo local, desempenho medido e limites de cobertura. `scripts/test-ui.sh` executa as regressões das duas interfaces em servidores temporários.
 
-## Specifications and use cases
+## Especificações e casos de uso
 
-The [project dossier](dossie/README.md) contains specifications, use cases, and research. All dossier documents are maintained in English.
+O [dossiê do projeto](dossie/README.md) reúne especificações, casos de uso e pesquisas. Os documentos do dossiê são mantidos em inglês.
+
+## Navegação e arquitetura
+
+No harness, o botão **Menu**, no canto inferior esquerdo, reúne **Configurações** e **Painel administrativo** quando o endereço administrativo está disponível. A atualização da interface continua automática quando não há execução ou envio de arquivos, preservando o rascunho; não há botão de recarregar nem ação separada de recolher na lateral. O controle do cabeçalho continua abrindo a navegação no celular.
+
+```mermaid
+flowchart LR
+  Navegador[Harness no navegador] --> VPN[Tailscale ou VPN]
+  VPN --> API[Servidor Python / API e SSE]
+  Admin[Administração local] --> Config[Configuração privada]
+  Config --> API
+  API --> Fila[Fila e sessões]
+  Fila --> Codex[Codex CLI]
+  Fila --> Claude[Claude Code]
+  Fila --> Local[Agente local / llama.cpp]
+  Local --> Pesos[Modelo GGUF e projetor visual]
+  API --> Anexos[Extração de documentos e transcrição local]
+```
+
+```mermaid
+flowchart TD
+  Menu[Menu no canto inferior esquerdo] --> Preferencias[Configurações do harness]
+  Menu --> Administracao[Painel administrativo, quando disponível]
+  Preferencias --> Aparencia[Aparência e preferências deste navegador]
+  Administracao --> Provedores[Provedores, projetos e permissões]
+```
+
+## Especificações por versão
+
+Cada nova versão deve ter uma especificação em inglês em `dossie/releases/v<VERSÃO>.md`, incluindo escopo, comportamento, critérios de aceitação, diagramas relevantes, migração e validação realmente realizada. Consulte a [especificação 0.5.0](dossie/releases/v0.5.0.md). Atualize também ambos os READMEs e os identificadores de versão; não declare testes que não foram executados.
+
+Na versão 0.4.4, o indicador de contexto também mostra tokens/s quando há métricas. Sem taxa direta do provedor, informa a média de tokens de saída por segundo da execução, incluindo sua duração total de inferência. O painel lateral mantém os detalhes, sem texto introdutório nem botão extra nas respostas.
+
+Na versão 0.4.4, o limite de contexto dos modelos locais é consultado no servidor em execução. O indicador não usa mais o limite genérico do agente Codex; se a capacidade não estiver disponível, ela não é estimada.
+
+Na versão 0.4.4, o seletor **Acesso** distingue aprovação adicional das permissões administrativas. Escolha **Pedir aprovação**, **Automático · limites do admin** ou **Somente leitura**. A escolha acompanha a conversa. **Permitir sempre nesta conversa** memoriza o mesmo comando e pasta, respeitando as permissões atuais; o menu permite esquecer essas autorizações. Internet habilitada pode continuar exigindo aprovação do CLI. Para modelos locais, o modo automático respeita os limites configurados. Codex, Claude e DeepSeek usam acesso nativo ao sistema por padrão; Somente leitura continua disponível quando escolhido explicitamente.
+
+## Runtime e modelos dentro do projeto
+
+Runtime llama.cpp, pesos e chave local ficam em `local-ai/`, ignorado pelo Git. A instalação em outro servidor está descrita no [guia de modelos locais](docs/LOCAL-INSTALL.md): instalar as dependências Python, compilar o runtime CPU/Vulkan/CUDA, baixar GGUF com revisão e SHA-256 fixados e iniciar pelo motor genérico `control.start_local` ou pelo painel.
+
+Os [perfis](profiles/) usam caminhos relativos à raiz passada por `--root`. `qwen-author-profile.json` é a sugestão de Sophia, autora do projeto, para Qwen3.6-35B-A3B UD-Q3_K_M neste servidor; não é uma configuração universal. `local-cpu-profile.json` é um ponto de partida sem afinidade de hardware. A descrição é editável no painel e acompanha exportação/importação. Permissões por modelo são preservadas na configuração administrativa, não concedidas pelo perfil sugerido.
+
+O lançador genérico usa o mesmo construtor de comando do painel, preserva projetor multimodal e flags permitidas e não inclui código específico de Qwen. Nenhum peso, binário ou segredo acompanha o pacote/Git; em outro servidor, o runtime é construído e os pesos são baixados explicitamente. O estado administrativo e o ambiente Python continuam gerenciados pelo instalador no diretório do usuário.
+
+### Projetos e atualização de provedores
+
+Adicione projetos pela barra lateral do **Tail Harness**, com um nome único de pelo menos três letras e uma ou mais pastas existentes no servidor. Pesquise os nomes das pastas no diretório aberto, navegue e adicione até 20 pastas; a primeira será a pasta principal. O nome e o ícone do projeto aparecem ao lado do título da conversa. Os projetos cadastrados ficam disponíveis para todos os modelos habilitados e persistem no banco de conversas após reiniciar. O painel administrativo concentra provedores e perfis locais; modelos, provedores e permissões podem ser alterados enquanto o harness está ativo.
+
+Cada início verifica novamente os provedores habilitados e seus modelos selecionados. A interface também atualiza o catálogo quando o servidor muda, preservando o rascunho e a seleção ainda disponível; durante uma execução, a troca aguarda seu término. Codex, Claude e DeepSeek recebem acesso nativo a arquivos, terminal, rede e anexos. Os controles de concessão de permissões permanecem exclusivos dos modelos locais. Autenticação e compatibilidade de cada provedor continuam necessárias.
+
+Projetos adicionados na conversa são armazenados em `runs/jobs.sqlite3`; inclua esse banco no backup. A exportação de configurações administrativas não inclui esses cadastros.
+
+### Pastas de trabalho e busca de conversas
+
+As pastas são repassadas em cada execução e retomada: Codex usa a pasta principal como diretório de trabalho e as demais nas permissões da execução; Claude recebe `--add-dir`; os modelos locais e DeepSeek por API usam o motor de ferramentas existente para consultar arquivos e devolver resultados ao modelo. Nenhuma pasta inteira é enviada automaticamente como texto. As permissões de leitura e escrita continuam sendo respeitadas.
+
+No menu lateral, **Buscar** abre uma modal que procura termos no título das conversas, sem diferenciar maiúsculas ou acentos. Os painéis laterais têm larguras iniciais de 280 e 400 pixels e continuam redimensionáveis; o rodapé é compacto.
+
+Detalhes dos contratos e fontes oficiais: [pastas de projetos](docs/PROJECT-FOLDERS-20260919.md).
+
+Em **Configurações**, escolha visualmente a ordem dos painéis (Conversas–Chat–Arquivos/Atividade ou a ordem invertida). A escolha fica salva neste navegador e pode voltar ao padrão.
+
+A cota restante fica visível no cabeçalho quando o provedor informa uma porcentagem. O indicador distingue cota da conta e contexto da conversa; dados indisponíveis não são estimados.
+
+
+## Adaptadores, especialistas e especificações versionadas
+
+As integrações ficam em [`Adapters/`](Adapters/README.md), separadas em `codex`, `claude`, `deepseek` e `local`. Cada uma tem um agente de desenvolvimento especializado em `.codex/agents/provedor_*.toml`, código próprio e `specs/models/`. O especialista local também cuida do Qwen e de seus perfis; o motor de ferramentas compartilhado continua sendo o Codex. O núcleo mantém fila, autorização e histórico, e os módulos antigos são imports de compatibilidade.
+
+Cada `specs/compatibility.json` correlaciona revisão do adaptador, versão observada do CLI/runtime, baseline do harness, data das fontes e fichas dos modelos. Consulte a spec local primeiro; pesquise novamente quando houver mudança de versão, contrato ou comportamento. Uma spec para Claude Code 2.1.258 ou Codex 0.155.0-alpha.9.2 não certifica automaticamente outra versão. APIs sem versão e aliases móveis ficam explicitamente identificados, com validação documental, simulada e real separadas. Mudanças de contrato seguem TDD e devem atualizar a revisão do código e a spec correspondente.
+
+No [DeepSeek](Adapters/deepseek/specs/README.md), a chave autentica a API e o Codex mantém o histórico no cliente. O ID da sessão local não é uma conversa armazenada pelo DeepSeek: mensagens, raciocínio e resultados de ferramentas precisam acompanhar as chamadas seguintes. O teste usa o CLI instalado contra uma API local simulada e verifica uma chamada de ferramenta e retomada após reiniciar o processo; não consome créditos nem certifica a conta remota. O adaptador força HTTP, impede fallback sem configuração BYOK e define `configured` como `high`; use esforço explícito para outra preferência. A revisão inicial destas specs acompanha o checkout 0.4.4, sem criar uma nova release.
+
+### Atualização sem parar o harness
+
+Salvar a configuração atualiza o processo ativo. Remover um modelo cancela os trabalhos desse modelo na fila e em execução; alterações de permissões ou integração encerram as execuções afetadas. Adicionar modelos mantém os outros trabalhos. O histórico e os projetos cadastrados permanecem no banco.
+
+A tela consulta novamente o catálogo e mantém o texto digitado. Quando os arquivos da interface mudam, a recarga automática preserva o rascunho e os anexos, aguardando uma execução ou envio em andamento. Se o navegador não conseguir guardar o rascunho, não faz essa recarga. Configuração inválida mantém a última versão válida, com erro informado pelo serviço.
+
+Trocar o endereço/porta de escuta, atualizar o código Python do servidor ou mudar parâmetros do processo llama.cpp ainda exige reiniciar o processo correspondente. Salvar um perfil de CPU/GPU não reconfigura um modelo já carregado. Essas operações são diferentes de atualizar o catálogo ou as permissões do harness.
+
+O painel consulta os CLIs do servidor em **Conectores → Catálogo do servidor**, com busca e instalação por item. `plugin list --available --json` lista plugins instalados e disponíveis nos marketplaces conhecidos do Codex/Claude; `mcp list` lista conectores já configurados. Isso não representa todos os serviços existentes na internet. A consulta não instala nada e não retorna comandos ou credenciais dos conectores. Erros de consulta aparecem no painel.
+
+Os botões de iniciar/parar o harness foram removidos. Salvar o primeiro modelo habilitado inicia o serviço automaticamente; na abertura da administração, os provedores habilitados também são retomados. Alterações posteriores usam recarga. A execução de um prompt continua exigindo envio explícito.
+
+## Gemini CLI
+
+**Status: parcialmente implementado; cartão oculto no painel.** A integração permanece no código para trabalho futuro, sem migração para Antigravity nesta etapa.
+
+A integração Gemini permanece oculta no painel enquanto autenticação e aplicação das políticas do executor não estão validadas para uso suportado. Consulte o [guia oficial de migração](https://antigravity.google/docs/cli/gcli-migration/). O motor Antigravity ainda não está integrado.
+
+O adaptador utiliza ACP para respostas incrementais, sessões, imagens e aprovações. A execução é nativa; o sandbox scoped dos outros provedores não é reutilizado implicitamente. Esforço `configured` mantém o padrão do Gemini. Quotas e disponibilidade dos modelos dependem da conta; o painel não estima saldo da assinatura. Não há fallback automático para API paga. Veja as [specs do Gemini](Adapters/gemini/specs/README.md).
+
+### Troca de modelo na mesma tarefa
+
+Entre mensagens, escolha outro modelo ou esforço no seletor: a próxima execução continua na mesma conversa. Por exemplo, DeepSeek → modelo local → Astra → DeepSeek. Ao voltar a um provedor, o Harness sincroniza as mensagens e os anexos recebidos durante sua ausência. Mudanças de modelo/esforço no Codex preservam a sessão; sessões sem checkpoint válido são reconstruídas com o histórico portátil. Respostas parciais e evidências disponíveis de ferramentas acompanham a transferência, respeitando as permissões do destino. Histórico acima do limite gera erro explícito, sem resumo ou corte silencioso. Veja [comportamento, limites e validação](docs/MODEL-HANDOFF-20260920.md).
+
+### Modelo e motor de execução
+
+Os cartões **Modelo Local via Codex** e **DeepSeek via Codex** identificam a combinação disponível hoje. O modelo local responde pelo servidor local; o DeepSeek responde pela sua API e consome créditos DeepSeek. O Codex CLI envia as requisições, executa as ferramentas autorizadas e mantém as sessões; não usa um modelo OpenAI como intermediário nessas integrações.
+
+O Tail Harness separa modelo e motor como conceitos. Outras combinações, como DeepSeek ou modelo local via Claude Code, dependem de integração e validação próprias e ainda não são opções destes cartões. Usar Codex para desenvolver o projeto não torna o Harness exclusivo dos modelos OpenAI.
+
+## Versão 0.5.0
+
+Esta release menor reúne continuidade entre provedores/modelos, projetos com múltiplas pastas, busca de conversas, controles de acesso, até 20 anexos por mensagem, ícones por tipo de arquivo/pasta e a avaliação de seis personas. Inclui o perfil CPU genérico e o perfil GPU sugerido pela autora; credenciais e registros privados permanecem locais. Gemini continua experimental e oculto na administração. Consulte a [especificação da release](dossie/releases/v0.5.0.md) e a [avaliação de usabilidade](docs/eval-20260920/README.md).

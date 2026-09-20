@@ -8,7 +8,7 @@ const assert=require('node:assert/strict');
   if(path==='/v1/projects')data={projects:['sem-projeto','demo'],details:{demo:{label:'Projeto de trabalho'}}};
   if(path==='/v1/models')data={models:[{id:'gpt-5.6-sol',backend:'codex',name:'Sol',efforts:['low','high']},{id:'sonnet',backend:'claude',name:'Sonnet',efforts:['low','high']}],providers:{codex:true,claude:true},uploads_enabled:false};
   if(path==='/v1/usage'&&quotaDelay)await new Promise(resolve=>setTimeout(resolve,quotaDelay));
-  if(path==='/v1/usage')data={available:true,rateLimits:{primary:{usedPercent:25,windowDurationMins:300,resetsAt:1999999999}}};
+  if(path==='/v1/usage')data=new URL(r.request().url()).searchParams.get('backend')==='claude'?{available:false,backend:'claude'}:{available:true,backend:'codex',rateLimits:{primary:{usedPercent:25,windowDurationMins:300,resetsAt:1999999999}}};
   if(path==='/v1/conversations')data={conversations:[]};
   return r.fulfill({json:data});
  });

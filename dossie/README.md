@@ -13,3 +13,17 @@ All specifications, use cases, design decisions, and research notes in this dire
 - [Senior UX gauntlet](UX-GAUNTLET-SENIOR-REVIEW.md)
 
 - [UC-003 — Additive project and model access](UC-003-additive-project-access.md)
+
+## Version specifications
+
+Each new version must add an English specification under `releases/v<VERSION>.md`. Keep both READMEs and version identifiers aligned; record actual validation and any unverified behavior.
+
+- [0.4.1 — Harness navigation and release documentation](releases/v0.4.1.md)
+- [UC-004 — Multimodal attachments](UC-004-multimodal-attachments.md)
+- [0.4.2 — Context throughput and quieter activity panel](releases/v0.4.2.md)
+- [0.4.3 — Actual local context capacity](releases/v0.4.3.md)
+- [0.4.4 — Access modes and persistent action approvals](releases/v0.4.4.md)
+
+- [0.4.5 — Gemini CLI provider](releases/v0.4.5.md)
+
+- [0.5.0 — provider continuity, workspace UX and portable packaging](releases/v0.5.0.md)

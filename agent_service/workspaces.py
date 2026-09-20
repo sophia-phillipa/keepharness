@@ -4,13 +4,20 @@ import json
 import shutil
 import stat
 import zipfile
+from itertools import islice
 from pathlib import Path, PurePosixPath
 from .tools import ToolError, safe_file
 
 MAX_BYTES = 200 * 1024 * 1024
 MAX_FILES = 10000
-EXCLUDED = {'.git', '.ssh', '.aws', '.config', '.codex', '.claude', '.venv', 'venv',
+MAX_ATTACHMENTS = 20
+EXCLUDED = {'.git', '.ssh', '.aws', '.config', '.codex', '.claude','.gemini', '.venv', 'venv',
             'node_modules', '__pycache__', '.DS_Store', '__MACOSX'}
+PROJECT_EXCLUDED = EXCLUDED | {'local-ai'}
+FOLDER_ATTACH_EXCLUDED = {'.ssh', '.aws', '.config', '.codex', '.claude','.gemini', 'local-ai'}
+SYSTEM_DIRECTORIES = tuple(Path('/'+name) for name in ('proc', 'sys', 'dev', 'etc', 'usr', 'boot', 'ostree', 'var'))
+SYSTEM_DIRECTORY_NAMES = {directory.name for directory in SYSTEM_DIRECTORIES}
+VOLUME_DIRECTORIES = {'System Volume Information', '$RECYCLE.BIN', 'RECYCLE.BIN', 'lost+found'}
 
 
 def allowed(name):
@@ -19,6 +26,190 @@ def allowed(name):
             and not any(p in ('.', '..') or p in EXCLUDED or p.startswith('.env') for p in parts)
             and not any(ord(c) < 32 for c in name)
             and Path(name).suffix.lower() not in {'.pem', '.key', '.gguf'})
+
+
+def project_roots(spec):
+    extra = spec.get('additional_roots', [])
+    paths = [spec.get('root'), *(extra if isinstance(extra, list) else [])]
+    return [(('root' if index == 0 else f'additional-{index - 1}'), path)
+            for index, path in enumerate(paths) if isinstance(path, str) and path]
+
+
+def project_root(spec, root_id):
+    roots = dict(project_roots(spec))
+    if root_id not in roots:
+        raise ToolError('project_root_denied')
+    root = Path(roots[root_id])
+    if any(part.is_symlink() for part in (root, *root.parents)) or not root.is_dir():
+        raise ToolError('project_root_unavailable')
+    return root.resolve()
+
+
+def project_allowed(name):
+    return allowed(name) and not any(part in PROJECT_EXCLUDED for part in PurePosixPath(name).parts)
+
+
+def project_path(root, name):
+    if not isinstance(name, str) or not name or not project_allowed(name):
+        raise ToolError('path_not_authorized')
+    root = Path(root).resolve()
+    target = root / name
+    if target.is_symlink() or any(part.is_symlink() for part in target.parents if part != root):
+        raise ToolError('symlink_denied')
+    if not target.resolve().is_relative_to(root) or not target.exists():
+        raise ToolError('path_not_authorized')
+    return target
+
+
+def browse_project(root, path='', start=1, limit=100):
+    if type(limit) is not int or not 1 <= limit <= 200 or type(start) is not int or start < 1:
+        raise ToolError('invalid_range')
+    root = Path(root).resolve()
+    target = root if not path else project_path(root, path)
+    if not target.is_dir():
+        raise ToolError('directory_not_found')
+    entries = []
+    for child in sorted(target.iterdir(), key=lambda item: (not item.is_dir(), item.name.casefold())):
+        relative = child.relative_to(root).as_posix()
+        if child.is_symlink() or not project_allowed(relative):
+            continue
+        if child.is_dir():
+            entries.append({'path': relative, 'name': child.name, 'type': 'directory'})
+        elif child.is_file() and child.resolve().is_relative_to(root):
+            entries.append({'path': relative, 'name': child.name, 'type': 'file', 'bytes': child.stat().st_size})
+    window = entries[start - 1:start - 1 + limit]
+    return {'path': path, 'entries': window, 'limited': start - 1 + len(window) < len(entries)}
+
+
+def selected_project_files(root, names, maximum):
+    if (not isinstance(names, list) or not 1 <= len(names) <= 100 or not all(isinstance(name, str) and name not in ('', '.') for name in names)
+            or type(maximum) is not int or not 1 <= maximum <= MAX_ATTACHMENTS):
+        raise ToolError('invalid_selection')
+    root = Path(root).resolve(); selected = {}; skipped = []; scanned = 0
+    for name in dict.fromkeys(names):
+        if scanned >= MAX_FILES:
+            skipped.append({'path': name, 'reason': 'selection_scan_limit'}); continue
+        target = project_path(root, name)
+        if target.is_file():
+            candidates = [target]
+        else:
+            candidates = list(islice(target.rglob('*'), MAX_FILES - scanned + 1))
+            exceeded = len(candidates) > MAX_FILES - scanned
+            candidates = sorted(candidates[:MAX_FILES - scanned])
+            if exceeded:
+                skipped.append({'path': name, 'reason': 'selection_scan_limit'})
+        scanned += len(candidates)
+        for candidate in candidates:
+            if not candidate.is_file() or candidate.is_symlink():
+                continue
+            relative = candidate.relative_to(root).as_posix()
+            if not project_allowed(relative):
+                skipped.append({'path': relative, 'reason': 'path_not_authorized'}); continue
+            if any(parent.is_symlink() for parent in candidate.parents if parent != root) or not candidate.resolve().is_relative_to(root):
+                raise ToolError('symlink_denied')
+            if relative in selected:
+                continue
+            if len(selected) >= maximum:
+                skipped.append({'path': relative, 'reason': 'file_limit'}); continue
+            selected[relative] = candidate
+    return list(selected.items()), skipped
+
+
+def system_roots():
+    roots = [('system', Path('/')), ('home', Path.home().resolve())]
+    media_user = Path('/run/media') / Path.home().name
+    if media_user.is_dir():
+        roots.append(('media-user', media_user.resolve()))
+    return roots
+
+
+def visible_system_roots():
+    return [(root_id, path) for root_id, path in system_roots() if root_id != 'system']
+
+
+def hidden_system_entry(path, name, root, top_level=False):
+    return (name.startswith('.') or name in VOLUME_DIRECTORIES
+            or (Path(root).resolve() == Path('/') and ((top_level and name in SYSTEM_DIRECTORY_NAMES)
+                                                       or any(path == directory or directory in path.parents for directory in SYSTEM_DIRECTORIES))))
+
+
+def system_root(root_id):
+    roots = dict(system_roots())
+    if root_id not in roots:
+        raise ToolError('system_root_denied')
+    return roots[root_id]
+
+
+def system_path(root, name=''):
+    if not isinstance(name, str) or Path(name).is_absolute() or '..' in Path(name).parts or any(ord(char) < 32 for char in name):
+        raise ToolError('path_not_authorized')
+    root = Path(root).resolve(); raw = root / name
+    try: target = raw.resolve(strict=True)
+    except OSError as exc: raise ToolError('path_not_authorized') from exc
+    if not target.is_relative_to(root):
+        raise ToolError('path_not_authorized')
+    return target
+
+
+def browse_system(root, path='', start=1, limit=100, directories_only=False, query=''):
+    if type(limit) is not int or not 1 <= limit <= 200 or type(start) is not int or start < 1:
+        raise ToolError('invalid_range')
+    root = Path(root).resolve(); target = system_path(root, path)
+    if not target.is_dir():
+        raise ToolError('directory_not_found')
+    entries = []
+    for child in sorted(target.iterdir(), key=lambda item: (not item.is_dir(), item.name.casefold())):
+        try: canonical = child.resolve(strict=True)
+        except OSError: continue
+        if not canonical.is_relative_to(root) or hidden_system_entry(canonical, child.name, root, target == root):
+            continue
+        if (directories_only and not canonical.is_dir()) or query.casefold() not in child.name.casefold():
+            continue
+        relative = canonical.relative_to(root).as_posix()
+        if canonical.is_dir():
+            entries.append({'path': relative, 'name': child.name, 'type': 'directory'})
+        elif canonical.is_file():
+            entries.append({'path': relative, 'name': child.name, 'type': 'file', 'bytes': canonical.stat().st_size})
+    window = entries[start - 1:start - 1 + limit]
+    return {'path': target.relative_to(root).as_posix() if target != root else '', 'entries': window,
+            'limited': start - 1 + len(window) < len(entries)}
+
+
+def selected_system_files(root, names, maximum):
+    if (not isinstance(names, list) or not 1 <= len(names) <= 100 or not all(isinstance(name, str) and name not in ('', '.') for name in names)
+            or type(maximum) is not int or not 1 <= maximum <= MAX_ATTACHMENTS):
+        raise ToolError('invalid_selection')
+    root = Path(root).resolve(); selected = {}; skipped = []; scanned = 0
+    for name in dict.fromkeys(names):
+        if scanned >= MAX_FILES:
+            skipped.append({'path': name, 'reason': 'selection_scan_limit'}); continue
+        raw = root / name; target = system_path(root, name)
+        if raw.is_symlink() or any(parent.is_symlink() for parent in raw.parents if parent != root):
+            skipped.append({'path': name, 'reason': 'symlink_denied'}); continue
+        if target.is_file():
+            candidates = [target]
+        else:
+            candidates = list(islice(target.rglob('*'), MAX_FILES - scanned + 1))
+            exceeded = len(candidates) > MAX_FILES - scanned
+            candidates = sorted(candidates[:MAX_FILES - scanned])
+            if exceeded:
+                skipped.append({'path': name, 'reason': 'selection_scan_limit'})
+        scanned += len(candidates)
+        for candidate in candidates:
+            if candidate.is_symlink() or not candidate.is_file() or not stat.S_ISREG(candidate.stat().st_mode):
+                continue
+            relative = candidate.relative_to(root).as_posix()
+            parts = PurePosixPath(relative).parts
+            if target.is_dir() and (hidden_system_entry(candidate, candidate.name, root, target == root)
+                                    or any(part in FOLDER_ATTACH_EXCLUDED or part.startswith('.env') for part in parts)
+                                    or Path(relative).suffix.lower() in {'.pem', '.key', '.gguf'}):
+                skipped.append({'path': relative, 'reason': 'sensitive_file'}); continue
+            if relative in selected:
+                continue
+            if len(selected) >= maximum:
+                skipped.append({'path': relative, 'reason': 'file_limit'}); continue
+            selected[relative] = candidate
+    return list(selected.items()), skipped
 
 
 def unpack(archive, destination):

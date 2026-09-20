@@ -1,5 +1,6 @@
 """Model policies bind to actual GGUFs and reach admission and execution."""
 import asyncio
+import json
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -15,7 +16,7 @@ from test_workspaces import config
 @pytest.fixture(autouse=True)
 def mocked_local_process_boundary():
     # Protocol tests use fake RPCs; real bubblewrap is tested in test_local_sandbox.py.
-    with patch('agent_service.native_backend.isolate_local',side_effect=lambda command,*args:command):
+    with patch('Adapters.local.backend.wrap',side_effect=lambda command,*args:command):
         yield
 
 
@@ -59,7 +60,7 @@ def test_per_model_permissions_reach_inference_and_discovery(tmp_path):
             data = {'project_id':'p','backend':'local','model':model,'prompt':'fixture'}
             job = service.submit(identity, data)['job_id']
             row = service.job(identity,job)
-            with patch('agent_service.app.native_backend.run', AsyncMock(return_value={'answer':'fixture'})) as run:
+            with patch('agent_service.app.adapters.run_native', AsyncMock(return_value={'answer':'fixture'})) as run:
                 asyncio.run(service.infer(row, data))
                 backend, _, _, project = run.call_args.args[:4]
                 assert project['permissions']['internet'] is (model=='qwen')
@@ -100,7 +101,7 @@ def test_multigpu_values_and_permissions_are_validated(tmp_path):
 
 def test_local_internet_uses_permitted_shell_not_hosted_search(tmp_path):
     from contextlib import asynccontextmanager
-    from agent_service.native_backend import run
+    from Adapters import run_native as run
     recorded = {}
     class RPC:
         async def call(self, method, params):
@@ -116,9 +117,9 @@ def test_local_internet_uses_permitted_shell_not_hosted_search(tmp_path):
         yield RPC()
     async def approve(*args):
         raise AssertionError('No tools are executed in this fixture')
-    with patch('agent_service.native_backend.connection', connection), \
-            patch('agent_service.native_backend.configurations',return_value={'codex':{}}), \
-            patch('agent_service.native_backend.inventory',return_value={'codex':[]}):
+    with patch('Adapters.codex.native.connection', connection), \
+            patch('Adapters.codex.native.configurations',return_value={'codex':{}}), \
+            patch('Adapters.codex.native.inventory',return_value={'codex':[]}):
         asyncio.run(run({'binary':'fixture'},'fixture',lambda *args:None,
                         {'permissions':{'internet':True,'shell':True}},'local-test','configured',
                         tmp_path/'native','local',approve))
@@ -126,6 +127,29 @@ def test_local_internet_uses_permitted_shell_not_hosted_search(tmp_path):
     assert 'features.shell_tool=true' in recorded['command']
     assert recorded['turn']['sandboxPolicy']['networkAccess'] is True
     assert 'Hosted web search is unavailable' in recorded['thread']['developerInstructions']
+
+
+def test_full_mode_auto_approves_native_requests_without_expanding_grants(tmp_path):
+    cfg=model_config(tmp_path)
+    cfg['services']['local']['model_permissions']['qwen']={'read':True,'write':False,'shell':True,'internet':False}
+    service=Service(cfg);identity=('a',cfg['clients']['a'])
+    data={'project_id':'p','backend':'local','model':'qwen','effort':'configured','prompt':'fixture','access_mode':'full'}
+    async def native(*args):
+        project=args[3]
+        assert project['permissions']=={'read':True,'write':False,'shell':True,'internet':False}
+        reply=await args[-1]('item/commandExecution/requestApproval',{'command':'pwd'})
+        escaped=await args[-1]('permissions/requestApproval',{'permissions':{'network':True}})
+        return {'answer':'fixture','approved':reply['approved'],'escaped':escaped['approved']}
+    try:
+        job=service.submit(identity,data)['job_id']
+        with patch('agent_service.app.adapters.run_native',side_effect=native):
+            result=asyncio.run(service.infer(service.job(identity,job),data))
+        assert result['approved'] is True
+        assert result['escaped'] is False
+        events=service.db.execute("SELECT data FROM events WHERE job=? AND type='approval_automatic'",(job,))
+        assert any(json.loads(event['data'])['scope']=='configured_permissions' for event in events)
+    finally:
+        service.db.close()
 
 
 def test_device_discovery_uses_real_reported_ids_and_fixed_arguments(tmp_path):
@@ -150,7 +174,7 @@ else: raise SystemExit(2)
 @pytest.mark.parametrize('allowed', [False, True])
 def test_native_model_policy_network_shell_and_write_scope(tmp_path, allowed):
     from contextlib import asynccontextmanager
-    from agent_service.native_backend import run
+    from Adapters import run_native as run
     recorded={}
     class RPC:
         async def call(self, method, params):
@@ -166,9 +190,9 @@ def test_native_model_policy_network_shell_and_write_scope(tmp_path, allowed):
     project_root=tmp_path/'allowed-project';project_root.mkdir()
     session=tmp_path/'private-session'
     policy={name:allowed for name in ('read','write','shell','internet','hooks','upload')}
-    with patch('agent_service.native_backend.connection',connection), \
-            patch('agent_service.native_backend.configurations',return_value={'codex':{}}), \
-            patch('agent_service.native_backend.inventory',return_value={'codex':[]}):
+    with patch('Adapters.codex.native.connection',connection), \
+            patch('Adapters.codex.native.configurations',return_value={'codex':{}}), \
+            patch('Adapters.codex.native.inventory',return_value={'codex':[]}):
         asyncio.run(run({'binary':'fixture'},'fixture',lambda *args:None,
                         {'root':str(project_root),'permissions':policy},
                         'allowed-local' if allowed else 'restricted-local','configured',session,'local',approve))
@@ -214,7 +238,8 @@ def test_local_denies_escalation_without_internet_and_starts_isolated_session(tm
     import json
     from contextlib import asynccontextmanager
     from types import SimpleNamespace
-    from agent_service.native_backend import run, ISOLATION_VERSION
+    from Adapters import run_native as run
+    from Adapters.local.sandbox import ISOLATION_VERSION
     received=[];calls=[]
     class Stdin:
         def write(self,value):received.append(json.loads(value))
@@ -233,8 +258,8 @@ def test_local_denies_escalation_without_internet_and_starts_isolated_session(tm
     async def approve(*args):raise AssertionError('Forbidden escalation must not reach the UI')
     session=tmp_path/'session';session.mkdir()
     (session/'native-thread.json').write_text(json.dumps({'id':'host-thread','usage_total':{'outputTokens':500}}))
-    with patch('agent_service.native_backend.connection',connection), \
-            patch('agent_service.native_backend.configurations',side_effect=AssertionError('Host credentials must not be read')):
+    with patch('Adapters.codex.native.connection',connection), \
+            patch('Adapters.codex.native.configurations',side_effect=AssertionError('Host credentials must not be read')):
         asyncio.run(run({'binary':'fixture'},'fixture',lambda *args:None,
                         {'permissions':{'shell':True,'internet':False}},'fixture','configured',session,'local',approve))
     assert calls[0][0]=='thread/start'
@@ -254,7 +279,7 @@ def test_old_local_session_migration_refeeds_conversation_history(tmp_path):
         (folder/'native-thread.json').write_text(json.dumps({'id':'old-host-thread'}))
         followup={**first,'prompt':'what was said?','parent_job_id':jid}
         next_id=service.submit(identity,followup)['job_id']
-        with patch('agent_service.app.native_backend.run',AsyncMock(return_value={'answer':'fixture'})) as run:
+        with patch('agent_service.app.adapters.run_native',AsyncMock(return_value={'answer':'fixture'})) as run:
             asyncio.run(service.infer(service.job(identity,next_id),followup))
             assert 'remembered answer' in run.call_args.args[1]
             assert 'remember fixture' in run.call_args.args[1]

@@ -1,0 +1,10 @@
+{
+  "description": "Ponto de partida conservador para Qwen3.6-35B-A3B UD-Q3_K_M em CPU, sem afinidade de hardware específica. Requer memória RAM suficiente para os pesos e contexto. Ajuste ao servidor; não é um benchmark nem uma recomendação universal.",
+  "binary": "local-ai/runtime/llama-b11003/llama-server",
+  "model_file": "local-ai/models/Qwen3.6-35B-A3B-UD-Q3_K_M.gguf",
+  "performance": {
+    "n-gpu-layers": "0",
+    "ctx-size": "4096",
+    "parallel": "1"
+  }
+}

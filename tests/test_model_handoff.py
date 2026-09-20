@@ -1,0 +1,163 @@
+"""Conversation continuity across provider/model/effort changes (no paid inference)."""
+import asyncio
+import json
+from unittest.mock import AsyncMock, patch
+
+import pytest
+
+from agent_service.app import Service
+from Adapters.local.sandbox import ISOLATION_VERSION
+from test_workspaces import config
+
+
+@pytest.fixture
+def service(tmp_path):
+    cfg = config(tmp_path)
+    cfg['services']['deepseek'] = {**cfg['services']['local'], 'models': ['deepseek-flash']}
+    for backend in ('codex', 'local', 'deepseek'):
+        cfg['services'][backend]['mode'] = 'native'
+        cfg[backend] = {}
+    result = Service(cfg)
+    result.quota = AsyncMock(return_value={'available': False})
+    yield result
+    result.db.close()
+
+
+def add_turn(service, ident, backend, parent=None, files=(), model=None, effort='low'):
+    data = {'project_id': 'p', 'backend': backend, 'model': model or backend+'-model',
+            'effort': effort, 'prompt': 'request-'+ident, 'file_ids': list(files)}
+    if parent:
+        data['parent_job_id'] = parent
+    service.db.execute('INSERT INTO jobs(id,project,owner,state,created,payload) VALUES(?,?,?,?,?,?)',
+                       (ident, 'p', 'a', 'running', len(service.db.execute('SELECT id FROM jobs').fetchall()), json.dumps(data)))
+    service.db.commit()
+    return dict(service.db.execute('SELECT * FROM jobs WHERE id=?', (ident,)).fetchone()), data
+
+
+def execute(service, ident, backend, parent=None, files=(), model=None, effort='low'):
+    row, data = add_turn(service, ident, backend, parent, files, model, effort)
+    captured = {}
+
+    async def run(config, prompt, event, project, selected_model, selected_effort, session, provider, approve):
+        captured.update(prompt=prompt, project=project, model=selected_model, effort=selected_effort)
+        marker = session/'native-thread.json'
+        session.mkdir(parents=True, exist_ok=True)
+        captured['resumed'] = marker.exists()
+        thread_id = json.loads(marker.read_text())['id'] if marker.exists() else 'thread-'+ident
+        marker.write_text(json.dumps({'id': thread_id, 'isolation': ISOLATION_VERSION}))
+        return {'answer': 'answer-'+ident, 'thread_id': thread_id, 'backend': provider, 'model': selected_model}
+
+    with patch('Adapters.run_native', side_effect=run):
+        result = asyncio.run(service.infer(row, data))
+    service.finish(ident, 'completed', result)
+    return captured
+
+
+def attachment(service, fid):
+    service.db.execute('INSERT INTO files(id,project,owner,name,size,hash,pages) VALUES(?,?,?,?,?,?,?)',
+                       (fid, 'p', 'a', fid+'.txt', 1, 'fixture', json.dumps([{'text': 'source-'+fid}])))
+    service.db.commit()
+
+
+def test_roundtrip_replays_missing_turns_and_attachments_after_restart(service):
+    attachment(service, 'first')
+    attachment(service, 'during-local')
+    execute(service, 'a', 'deepseek', files=['first'])
+    local = execute(service, 'b', 'local', 'a', files=['during-local'])
+    assert 'request-a' in local['prompt'] and 'source-first' in local['prompt']
+    astra = execute(service, 'c', 'codex', 'b', model='gpt-6-astra')
+    assert all(text in astra['prompt'] for text in ('request-a', 'answer-b', 'source-during-local'))
+    restarted = Service(service.config)
+    try:
+        resumed = execute(restarted, 'd', 'deepseek', 'c')
+    finally:
+        restarted.db.close()
+    assert resumed['resumed']
+    assert 'request-a' not in resumed['prompt'], 'already synchronized turn must not be duplicated'
+    assert all(text in resumed['prompt'] for text in ('answer-b', 'answer-c', 'source-during-local'))
+    assert 'source-first' not in resumed['prompt']
+
+
+def test_model_and_effort_change_keep_native_session(service):
+    execute(service, 'a', 'codex', model='gpt-6-astra', effort='low')
+    changed = execute(service, 'b', 'codex', 'a', model='gpt-5.6-terra', effort='high')
+    assert changed['resumed']
+    assert changed['model'] == 'gpt-5.6-terra' and changed['effort'] == 'high'
+    assert 'request-a' not in changed['prompt']
+
+
+def test_partial_turn_transfers_tools_and_partial_answer_without_reasoning(service):
+    execute(service, 'a', 'deepseek')
+    row, _ = add_turn(service, 'b', 'local', 'a')
+    service.event('b', 'answer_delta', {'text': 'Partial verified result'})
+    service.event('b', 'reasoning_delta', {'text': 'PRIVATE_REASONING'})
+    service.event('b', 'tool_start', {'tool': 'exec_command', 'tool_id': 't1'})
+    service.event('b', 'tool_end', {'tool': 'exec_command', 'tool_id': 't1', 'result': '7 tests passed'})
+    service.event('b', 'tool_start', {'tool': 'apply_patch', 'tool_id': 'pending'})
+    service.finish('b', 'cancelled', {'partial_output': 'persisted_events'})
+    final = execute(service, 'c', 'codex', 'b')
+    for text in ('Partial verified result', '7 tests passed', 'cancelled', 'pending', 'deepseek', 'local'):
+        assert text in final['prompt']
+    assert 'PRIVATE_REASONING' not in final['prompt']
+
+
+@pytest.mark.parametrize('damage', ['missing', 'replaced', 'legacy', 'isolation'])
+def test_untrusted_session_replays_full_context(service, damage):
+    execute(service, 'a', 'local')
+    session = service.root/'sessions/a/local'
+    marker = session/'native-thread.json'
+    if damage == 'missing':
+        marker.unlink()
+    elif damage == 'replaced':
+        marker.write_text(json.dumps({'id': 'unrelated', 'isolation': ISOLATION_VERSION}))
+    elif damage == 'legacy':
+        (session/'harness-context.json').unlink(missing_ok=True)
+    else:
+        marker.write_text(json.dumps({'id': 'thread-a', 'isolation': 'old'}))
+    result = execute(service, 'b', 'local', 'a')
+    assert not result['resumed']
+    assert 'request-a' in result['prompt'] and 'answer-a' in result['prompt']
+
+
+def test_failed_native_turn_is_not_resumed_as_a_completed_checkpoint(service):
+    execute(service, 'a', 'deepseek')
+    row, _ = add_turn(service, 'b', 'deepseek', 'a')
+    service.event('b', 'tool_end', {'tool': 'write_file', 'result': 'file already written'})
+    service.finish('b', 'failed', {'error': 'provider_disconnected'})
+    final = execute(service, 'c', 'deepseek', 'b')
+    assert not final['resumed']
+    assert all(text in final['prompt'] for text in ('request-a', 'provider_disconnected', 'file already written'))
+
+
+def test_images_added_by_another_provider_reach_resumed_session(service):
+    execute(service, 'a', 'deepseek')
+    attachment(service, 'image')
+    with service.db:
+        service.db.execute('UPDATE files SET pages=? WHERE id=?',
+                           (json.dumps([{'media_type': 'image/png'}]), 'image'))
+    service.validate_images = AsyncMock()
+    execute(service, 'b', 'local', 'a', files=['image'])
+    final = execute(service, 'c', 'deepseek', 'b')
+    assert final['resumed']
+    assert final['project']['_images'] == [{'media_type': 'image/png', 'path': str(service.root/'files/p/image/source')}]
+
+
+def test_context_limit_fails_explicitly_without_truncating_history(service):
+    from agent_service.app import APIError
+    execute(service, 'a', 'local')
+    with service.db:
+        service.db.execute('UPDATE jobs SET result=? WHERE id=?', (json.dumps({'answer': 'x'*150001}), 'a'))
+    row, data = add_turn(service, 'b', 'deepseek', 'a')
+    with patch('Adapters.run_native', new_callable=AsyncMock) as run, pytest.raises(APIError, match='conversation_context_limit'):
+        asyncio.run(service.infer(row, data))
+    run.assert_not_called()
+
+
+def test_mode_change_rebuilds_history_instead_of_using_other_transport(service):
+    execute(service, 'a', 'codex')
+    cursor = service.root/'sessions/a/codex/harness-context.json'
+    saved = json.loads(cursor.read_text())
+    saved['mode'] = 'scoped'
+    cursor.write_text(json.dumps(saved))
+    result = execute(service, 'b', 'codex', 'a')
+    assert not result['resumed'] and 'answer-a' in result['prompt']

@@ -1,0 +1,35 @@
+{
+  "adapter_spec_revision": 1,
+  "harness_baseline": "0.4.4 working-tree",
+  "reviewed_at": "2026-09-19",
+  "live_provider_validation": false,
+  "provider": "deepseek",
+  "executor": {
+    "name": "codex-cli",
+    "observed_version": "0.155.0-alpha.9.2"
+  },
+  "protocol": "stateless HTTP Responses API through Codex",
+  "api_version": "rolling/unversioned",
+  "sources": [
+    "https://api-docs.deepseek.com/guides/responses_api/",
+    "https://api-docs.deepseek.com/api/create-response/",
+    "https://api-docs.deepseek.com/guides/thinking_mode/",
+    "https://api-docs.deepseek.com/quick_start/agent_integrations/codex/"
+  ],
+  "models": [
+    {
+      "id": "deepseek-flash",
+      "spec": "models/deepseek-flash.md",
+      "availability": "requires GET /models"
+    },
+    {
+      "id": "deepseek-v4-pro",
+      "spec": "models/deepseek-v4-pro.md",
+      "availability": "requires GET /models"
+    }
+  ],
+  "validation": [
+    "mock account and dispatch",
+    "installed CLI to stateless localhost fixture: history, reasoning, tool results and resume"
+  ]
+}

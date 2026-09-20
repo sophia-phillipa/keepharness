@@ -84,14 +84,14 @@ header{flex-wrap:wrap;height:auto;min-height:66px}
 .message .text{font-size:var(--reading-size);line-height:1.75}
 .message.user{max-width:min(85%,640px)}
 .message .run-meta,.footnote{color:var(--muted);font-size:11px}
-.composer:focus-within{border-color:transparent;box-shadow:none}
-.composer-info{display:flex;flex-wrap:wrap;justify-content:space-between;gap:4px 12px;padding:5px 6px 10px;font-size:11px;color:var(--muted)}
+
+
 #character-count{font-variant-numeric:tabular-nums}
 textarea{overflow-y:auto}
-.composer-area{position:relative;padding-bottom:max(13px,env(safe-area-inset-bottom))}
+
 .latest-message{display:block;margin:0;position:absolute;left:50%;bottom:calc(100% + 10px);transform:translateX(-50%);width:max-content;max-width:calc(100% - 24px);z-index:2;min-height:38px;padding:7px 16px;border:1px solid var(--line);border-radius:22px;background:var(--surface);color:var(--tone-0);box-shadow:0 3px 16px #35274522;font-size:12px}
-.copy-answer{margin-top:10px;min-height:36px;border:1px solid var(--line);border-radius:8px;padding:6px 12px;font-size:12px;color:var(--accent)}
-.copy-answer:hover,.suggestions button:hover{background:var(--tone-5);border-color:var(--accent)}
+
+.suggestions button:hover{background:var(--tone-5);border-color:var(--accent)}
 #settings-appearance label{display:block;margin:16px 0 6px;font-size:13px;font-weight:600}
 #settings-appearance select{width:100%;max-width:280px;border:1px solid var(--line);background:var(--surface)}
 .shortcut-help{color:var(--muted);line-height:1.8}
@@ -99,33 +99,29 @@ textarea{overflow-y:auto}
 .attachment button{flex-shrink:0;min-width:28px;min-height:28px}
 .sidebar-tree,.activity-scroll,.settings-content{overscroll-behavior:contain}
 @media(max-width:620px){
- .composer-toolbar{align-items:flex-end}
- .controls{flex:1;flex-wrap:wrap;gap:4px}
- .controls select{min-width:0;max-width:100%;font-size:12px}
+
+
+
  .icon,.send,#activity-close,#settings-close,.dialog-close{min-width:44px;min-height:44px}
  .conversation-row .delete-conversation{min-width:44px;min-height:44px}
  #sidebar{padding-top:max(16px,env(safe-area-inset-top))}
  .suggestions{flex-direction:column}
  .suggestions button{font-size:13px;min-height:48px}
- .composer-info{font-size:10px}
+
  .message.user{max-width:94%}
  textarea{font-size:16px}
- #attachment-help{font-size:10px}
+
  header{padding:8px 10px}
 }
 @media(forced-colors:active){
- .composer,.copy-answer,.history-search input,.suggestions button{border:1px solid ButtonText}
+ .composer,.history-search input,.suggestions button{border:1px solid ButtonText}
  .conversation-row>button[aria-current="true"]{outline:2px solid Highlight;outline-offset:-2px}
 }
 
-.clipboard-buffer{position:fixed;left:-9999px;top:0;width:1px;height:1px;opacity:0}
+
 
 /* Execution identity stays visible even when conversation titles are truncated. */
-.conversation-execution{display:block;font-size:11px;font-weight:400;line-height:1.5;white-space:normal;overflow-wrap:anywhere;opacity:.8;margin-top:4px}
-.task-label{display:flex;gap:6px;flex-direction:column;font-size:12px;padding:10px 12px 0}
-.task-label input{font:inherit;color:inherit;background:transparent;border:1px solid transparent;border-radius:6px;padding:7px;min-width:0;opacity:.85}
-.task-label input:focus{opacity:1}
-.task-label input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
 
 /* Empty generated content is decorative; existing status text remains accessible. */
 [data-motion="working"]::after{
@@ -133,7 +129,7 @@ textarea{overflow-y:auto}
  border:2px solid var(--line);border-top-color:var(--accent);border-right-color:var(--accent);
  border-radius:50%;animation:execution-spin .85s linear infinite;
 }
-[data-motion="answer"]::after{
+.response-motion[data-motion="answer"]::after{
  content:'';display:inline-block;width:24px;height:8px;margin-left:7px;vertical-align:baseline;
  background:radial-gradient(circle,currentColor 2px,transparent 2.5px) 0 50%/8px 8px repeat-x;
  animation:response-dots 1.2s steps(1,end) infinite;
@@ -145,45 +141,394 @@ textarea{overflow-y:auto}
  66%{clip-path:inset(0)}
 }
 @media(prefers-reduced-motion:reduce){
- [data-motion="working"]::after,[data-motion="answer"]::after{animation:none;clip-path:none}
-}
-
-/* Native disclosure keeps the optional task field compact and keyboard accessible. */
-.task-section{margin:0 0 8px}
-.task-section>summary{width:fit-content;max-width:100%;cursor:pointer;padding:6px 10px;border-radius:8px;color:var(--muted);font-size:12px}
-.task-section>summary:hover,.task-section[open]>summary{background:var(--tone-5);color:var(--accent)}
-.task-section .task-label{padding:8px 10px 10px;color:var(--muted)}
-.task-section input{width:100%;color:var(--tone-0)}
-
-/* The overall process has one exclusive flowing indicator above the composer. */
-#status[data-motion="overall"]::after{
- content:'';display:inline-block;width:44px;height:6px;margin-left:10px;vertical-align:2px;
- border-radius:999px;
- background:linear-gradient(90deg,var(--tone-5) 0%,var(--accent) 50%,var(--tone-5) 100%);
- background-size:200% 100%;
- animation:overall-flow 1.8s ease-in-out infinite;
-}
-@keyframes overall-flow{
- 0%,100%{background-position:100% 0;opacity:.65}
- 50%{background-position:0 0;opacity:1}
-}
-@media(prefers-reduced-motion:reduce){
- #status[data-motion="overall"]::after{animation:none;background-position:50% 0;opacity:1}
+ [data-motion="working"]::after,.response-motion[data-motion="answer"]::after{animation:none;clip-path:none}
 }
 
 .approval-card{border:1px solid var(--accent);border-radius:12px;padding:18px;margin:18px 0}.approval-card pre{max-height:240px;overflow:auto;white-space:pre-wrap}.approval-card button{background:var(--accent);color:white;border-radius:7px;padding:10px;margin:8px}.approval-card input{display:block;width:100%;padding:10px}#vpn-login input{padding:10px;max-width:100%}
 /* Tabler chat composition, with conversation/streaming geometry preserved. */
-:root{font-family:var(--tblr-font-sans-serif);--muted:var(--th-muted)}body{background:var(--th-bg);color:var(--th-text)}#sidebar,#activity-panel{background:var(--th-soft)}header{border-bottom:1px solid var(--line);height:auto;min-height:72px;padding:16px 24px}.brand{font-size:20px;padding-bottom:20px}.brandmark,.welcome-icon{display:none}.new.btn{justify-content:flex-start}.sidebar-footer button.btn{justify-content:flex-start}.section-label{font-size:12px;letter-spacing:.06em}.sidebar-footer span,small{font-size:12px}#welcome{margin:clamp(24px,7vh,90px) auto 0}#welcome h1{font-size:28px}#welcome p{font-size:16px}.composer.card{border:1px solid var(--line);border-radius:12px;display:block;background:var(--th-panel)}.message .chat-bubble{display:block;padding:16px 20px;border-radius:10px;font-size:var(--reading-size,16px);line-height:1.65;background:var(--th-panel);color:var(--th-text);max-width:100%;overflow-wrap:anywhere}.message.user .chat-bubble{background:var(--th-soft)}.message.user{background:transparent;padding:0}.message.assistant .chat-bubble{padding:4px 0;border:0;background:transparent}.message h3{font-size:14px}.message pre,.message code,.activity-reasoning{color:var(--th-text);background:var(--th-code)}.message pre{white-space:pre-wrap;overflow-wrap:anywhere}.message table{display:block;max-width:100%;overflow:auto}.send.btn{border-radius:9px;width:40px;height:40px;padding:8px;background:var(--th-action);color:var(--th-on-action)}.controls .form-select{margin:0;max-width:240px;font-size:14px}.project-control .form-select{margin:0}.form-control#prompt{border:0;margin:0;background:transparent;box-shadow:none;padding:6px;font-size:var(--reading-size,16px)}#status{font-size:14px}#status.th-notice{margin:8px 0}.composer-info,.footnote,.activity-note{font-size:12px;color:var(--th-muted)}.settings-nav button{font-size:14px}.settings-content h3{font-size:18px}.settings-content label{font-size:14px}.settings-content .form-select{margin:8px 0 16px}.approval-card button{background:var(--th-action);color:var(--th-on-action)}.approval-card input{color:var(--th-text);background:var(--th-panel);border:1px solid var(--line)}.suggestions button{font-size:14px}.quota-button,.activity-toggle{font-size:14px}.quota-button{border-radius:8px}.copy-answer{color:var(--th-accent)}.th-icon{display:inline-block;vertical-align:middle}.composer-area{background:var(--th-bg)}
+:root{font-family:var(--tblr-font-sans-serif);--muted:var(--th-muted)}body{background:var(--th-bg);color:var(--th-text)}#sidebar,#activity-panel{background:var(--th-soft)}header{border-bottom:1px solid var(--line);height:auto;min-height:72px;padding:16px 24px}.brand{font-size:20px;padding-bottom:20px}.brandmark,.welcome-icon{display:none}.new.btn{justify-content:flex-start}.sidebar-footer button.btn{justify-content:flex-start}.section-label{font-size:12px;letter-spacing:.06em}.sidebar-footer span,small{font-size:12px}#welcome{margin:clamp(24px,7vh,90px) auto 0}#welcome h1{font-size:28px}#welcome p{font-size:16px}.message .chat-bubble{display:block;padding:16px 20px;border-radius:10px;font-size:var(--reading-size,16px);line-height:1.65;background:var(--th-panel);color:var(--th-text);max-width:100%;overflow-wrap:anywhere}.message.user .chat-bubble{background:var(--th-soft)}.message.user{background:transparent;padding:0}.message.assistant .chat-bubble{padding:4px 0;border:0;background:transparent}.message h3{font-size:14px}.message pre,.message code,.activity-reasoning{color:var(--th-text);background:var(--th-code)}.message pre{white-space:pre-wrap;overflow-wrap:anywhere}.message table{display:block;max-width:100%;overflow:auto}.send.btn{border-radius:9px;width:40px;height:40px;padding:8px;background:var(--th-action);color:var(--th-on-action)}.controls .form-select{margin:0;max-width:240px;font-size:14px}.project-control .form-select{margin:0}.form-control#prompt{border:0;margin:0;background:transparent;box-shadow:none;padding:6px;font-size:var(--reading-size,16px)}#status{font-size:14px}#status.th-notice{margin:8px 0}.composer-info,.footnote,.activity-note{font-size:12px;color:var(--th-muted)}.settings-nav button{font-size:14px}.settings-content h3{font-size:18px}.settings-content label{font-size:14px}.settings-content .form-select{margin:8px 0 16px}.approval-card button{background:var(--th-action);color:var(--th-on-action)}.approval-card input{color:var(--th-text);background:var(--th-panel);border:1px solid var(--line)}.suggestions button{font-size:14px}.quota-button,.activity-toggle{font-size:14px}.quota-button{border-radius:8px}.th-icon{display:inline-block;vertical-align:middle}.composer-area{background:var(--th-bg)}
 @media(max-width:760px){header{padding:12px 16px;gap:8px;flex-wrap:wrap}.controls .form-select{max-width:170px}.composer-toolbar{gap:8px}.settings-layout{grid-template-columns:1fr}.settings-nav{display:flex;flex-wrap:wrap}.settings-nav button{width:auto}.settings-content{min-width:0}#activity-panel{background:var(--th-panel)}}
-.model-availability{margin:18px 24px;padding:24px;border:1px solid var(--line);box-shadow:0 6px 24px #20102f10;background:var(--panel);color:var(--text)}.model-availability[hidden]{display:none}.model-availability h2{font-size:20px;margin:0 0 12px}.model-availability>div{display:flex;flex-wrap:wrap;gap:12px}.model-availability .footnote{text-align:start;margin:14px 0 0}.composer{box-shadow:0 4px 22px #20102f14}.composer:focus-within{box-shadow:0 0 0 2px var(--accent),0 6px 24px #20102f12}.catalog-card{box-shadow:0 2px 8px #20102f08}.conversation-row:has(button.active){box-shadow:inset 3px 0 var(--accent)}@media(max-width:620px){.model-availability{padding:18px;margin:12px}}
-.composer-toolbar{gap:16px;align-items:flex-end;flex-wrap:wrap}.composer-toolbar .controls{display:flex;gap:16px;align-items:flex-end;flex-wrap:wrap;flex:1;min-width:0}.composer-toolbar .controls select{width:auto;min-width:140px;max-width:100%}.composer-toolbar .controls>.icon{flex-shrink:0}.composer-toolbar .controls label{display:grid;gap:6px;min-width:0;flex:1;font-size:12px;color:var(--muted)}.composer-toolbar .controls label select{width:100%;max-width:100%;color:var(--tone-0)}#activity-failures{padding:10px;border-left:3px solid var(--th-error);color:var(--th-error)}@media(max-width:620px){.composer-toolbar .controls{gap:12px}.composer-toolbar .controls label{flex-basis:calc(50% - 12px)}.composer-toolbar .controls select{min-width:0}}
-.conversation-execution{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere;max-height:3.2em;line-height:1.6}
-@media(max-width:620px){header{height:auto;min-height:84px;flex-wrap:wrap;gap:12px}.project-control{flex:1;min-width:180px}.project-control select{max-width:100%;width:100%}#quota-toggle,#activity-toggle{flex:1}.composer-toolbar #attach,.composer-toolbar #send,.composer-toolbar #cancel{width:40px;min-width:40px;height:40px;padding:0}}
+.model-availability{margin:18px 24px;padding:24px;border:1px solid var(--line);box-shadow:0 6px 24px #20102f10;background:var(--panel);color:var(--text)}.model-availability[hidden]{display:none}.model-availability h2{font-size:20px;margin:0 0 12px}.model-availability>div{display:flex;flex-wrap:wrap;gap:12px}.model-availability .footnote{text-align:start;margin:14px 0 0}.catalog-card{box-shadow:0 2px 8px #20102f08}.conversation-row:has(button.active){box-shadow:inset 3px 0 var(--accent)}@media(max-width:620px){.model-availability{padding:18px;margin:12px}}
+#activity-failures{padding:10px;border-left:3px solid var(--th-error);color:var(--th-error)}@media(max-width:620px){}
+
+@media(max-width:620px){header{height:auto;min-height:84px;flex-wrap:wrap;gap:12px}.project-control{flex:1;min-width:180px}.project-control select{max-width:100%;width:100%}#quota-toggle,#activity-toggle{flex:1}}
 .approval-card>.btn{margin:8px 12px 0 0}.approval-card>p[role=status]{margin:12px 0;color:var(--accent)}
 @media(max-width:620px){main>header{display:grid;grid-template-columns:40px minmax(0,1fr) minmax(100px,auto);height:auto;gap:12px;padding:16px}main>header>#menu{grid-column:1;grid-row:1}main>header>.project-control{grid-column:2 / 4;grid-row:1;min-width:0}main>header>#quota-toggle{grid-column:1 / 3;grid-row:2;width:auto;min-width:0;white-space:normal}main>header>#activity-toggle{grid-column:3;grid-row:2;width:auto;min-width:100px;white-space:normal}}
-.composer{container-type:inline-size;container-name:composer}.composer-toolbar .controls{display:grid;grid-template-columns:40px minmax(0,1fr) minmax(0,1fr);width:100%;align-items:end}.composer-toolbar .controls label{width:100%;min-width:0}.composer-toolbar .controls label select{min-width:0;width:100%;max-width:100%;text-overflow:ellipsis}@container composer (max-width:420px){.composer-toolbar{display:grid;grid-template-columns:minmax(0,1fr) 40px}.composer-toolbar .controls{grid-column:1 / -1;grid-template-columns:40px minmax(0,1fr)}.composer-toolbar .controls label{grid-column:2}.composer-toolbar .controls #attach{grid-column:1;grid-row:1}.composer-toolbar>.send{grid-column:2}}
 
-.sidebar-footer #admin-shortcut{justify-content:flex-start;text-align:left;font-size:13px;gap:8px;white-space:normal}
+
 
 /* Execution details remain attached to their response, in the activity sidebar. */
 .response-detail-card{min-width:0;margin:16px 0;padding:16px;border:1px solid var(--th-border);border-radius:12px;background:var(--th-surface);scroll-margin:16px}.response-detail-card h3{font-size:14px;overflow-wrap:anywhere}.response-detail-card details{margin-top:12px}.response-detail-card summary{cursor:pointer;overflow-wrap:anywhere}.response-detail-card pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:400px;overflow:auto;font-size:12px}.response-detail-card:focus{outline:2px solid var(--th-primary);outline-offset:2px}.inspect-execution{margin:12px 0;max-width:100%;white-space:normal}
+
+/* Bottom-left settings disclosure; stays outside the scrolling history. */
+.sidebar-footer{margin-top:auto;flex-shrink:0;position:relative}
+
+
+.message.assistant .chat-bubble{min-width:0;overflow-wrap:anywhere;white-space:normal}
+.message.assistant .chat-bubble>:first-child{margin-top:0}
+.message.assistant .chat-bubble>:last-child{margin-bottom:0}
+.message.assistant .chat-bubble h1,.message.assistant .chat-bubble h2,.message.assistant .chat-bubble h3,.message.assistant .chat-bubble h4,.message.assistant .chat-bubble h5,.message.assistant .chat-bubble h6{line-height:1.3;margin:1.15em 0 .55em}
+.message.assistant .chat-bubble pre{max-width:100%;overflow:auto;white-space:pre;overflow-wrap:normal;padding:14px;border:1px solid var(--line);border-radius:8px}
+.message.assistant .chat-bubble code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.9em}
+.message.assistant .chat-bubble :not(pre)>code{padding:2px 5px;border-radius:4px}
+.message.assistant .chat-bubble table{display:block;width:max-content;max-width:100%;overflow:auto;border-collapse:collapse}
+.message.assistant .chat-bubble th,.message.assistant .chat-bubble td{padding:6px 10px;border:1px solid var(--line);text-align:left}
+.message.assistant .chat-bubble th{background:var(--th-soft)}
+/* Keep the panel visible while the server and its essential catalogs reconnect. */
+.startup-gate{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:24px;background:color-mix(in srgb,var(--th-bg) 58%,transparent);backdrop-filter:blur(1.5px) saturate(.65);color:var(--th-text)}
+.startup-gate[hidden]{display:none}
+.startup-gate span{max-width:min(32rem,100%);padding:16px 24px;border:1px solid var(--line);border-radius:12px;background:var(--th-panel);box-shadow:0 8px 30px #20283820;text-align:center;font-size:16px}
+body[data-connection-ready="false"]>#sidebar,body[data-connection-ready="false"]>main,body[data-connection-ready="false"]>#activity-panel{opacity:.68;filter:saturate(.65)}
+@media(prefers-reduced-motion:reduce){.startup-gate{backdrop-filter:none}}
+
+/* Compact prompt capsule with native, borderless controls. */
+.composer-area{width:100%;max-width:1040px;margin-inline:auto;padding:10px 24px max(16px,env(safe-area-inset-bottom));background:var(--th-bg)}
+.composer.card{container-type:inline-size;container-name:composer;display:block;width:100%;margin:0;padding:10px 18px 8px;border:1px solid color-mix(in srgb,var(--th-border) 75%,var(--th-text));border-radius:30px;background:var(--th-panel);box-shadow:none}
+.composer:focus-within{border-color:var(--line);box-shadow:0 0 0 2px color-mix(in srgb,var(--th-accent) 28%,transparent)}
+.composer #prompt{display:block;width:100%;min-height:60px;max-height:170px;margin:0;padding:4px 2px 6px;border:0;outline:0;resize:none;background:transparent;color:var(--th-text);font-size:18px;line-height:1.4}
+.composer #prompt::placeholder{color:var(--th-muted);opacity:.8}
+.composer-toolbar{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:8px}
+.composer-actions,.composer-right,.composer-models,.composer-submit{display:flex;align-items:center;min-width:0}
+.composer-actions{gap:14px;flex:0 0 auto}
+.composer-right{gap:18px;flex:1;justify-content:flex-end}
+.composer-models{gap:8px;white-space:nowrap}
+.composer-models>select#model,.composer-models>select#effort{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}
+.model-picker{display:inline-flex;align-items:center;gap:8px;max-width:none;padding:5px 9px;border:0;border-radius:9px;background:transparent;color:var(--th-text);font-size:16px;line-height:1.4;white-space:nowrap;cursor:pointer}
+.model-picker-icon{display:inline-grid;place-items:center;flex:none;min-width:18px;font-size:17px;line-height:1}
+.model-picker-icon[hidden]{display:none!important}
+#model-trigger{color:var(--th-text)}
+#effort-trigger{gap:8px;color:var(--th-muted)}
+#model-label,#effort-label{display:block;white-space:nowrap}
+#effort-trigger>span[aria-hidden=true]{font-size:14px;color:var(--th-muted)}
+.model-picker:focus-visible,#access-trigger:focus-visible{outline:2px solid var(--th-accent);outline-offset:2px;border-radius:9px}
+.composer-actions .icon{display:grid;place-items:center;flex:0 0 40px;width:40px;height:40px;min-width:40px;min-height:40px;padding:0;color:var(--th-muted);font-size:26px}
+.composer-actions #attach{border:0;background:transparent;box-shadow:none;appearance:none}
+.composer-actions .icon:hover{color:var(--th-text)}
+.access-control{display:flex;align-items:center;gap:8px;min-width:0;color:#f27b38}
+.access-control svg{width:23px;height:23px;flex:none;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.composer .access-control select{max-width:180px;padding:5px 0;background-image:none;color:inherit;font-size:16px}
+.composer-submit{gap:8px}
+.composer-submit .send{display:grid;place-items:center;flex:0 0 44px;width:44px;height:44px;min-width:44px;min-height:44px;padding:0;border:0;box-shadow:none;border-radius:50%;background:var(--th-text);color:var(--th-bg);font-size:24px;line-height:1}
+.composer-submit .send:hover{filter:brightness(.9)}
+.composer-submit .send:focus-visible,.composer-actions .icon:focus-visible{outline:2px solid var(--th-accent);outline-offset:3px}
+.composer-submit .send.stop{border-radius:50%;background:var(--th-error);color:var(--th-bg)}
+.visually-hidden,#model-note,#attachment-help,.composer-area>#model-permissions{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}
+@media(max-width:620px){
+ #messages{padding:16px 12px}
+ .composer-area{max-width:1040px;padding:8px 12px max(12px,env(safe-area-inset-bottom))}
+ .composer.card{padding:10px 12px 8px;border-radius:26px}
+ .composer #prompt{min-height:64px;font-size:17px}
+ .composer-toolbar{margin-top:8px}
+ .composer-submit .send{width:44px;height:44px;min-width:44px;min-height:44px;flex-basis:44px}
+}
+
+.composer-actions #attach .th-icon,.composer-submit .send .th-icon{flex:none;width:32px;height:32px}
+@container composer (max-width:650px){
+ .composer-toolbar{display:grid;grid-template-columns:minmax(0,1fr) 44px;gap:10px 6px}
+ .composer-actions{grid-column:1;grid-row:1;gap:9px}
+ .composer-right{display:contents}
+ .composer-models{grid-column:1 / -1;grid-row:2;justify-content:flex-end;gap:10px}
+ .composer-submit{grid-column:2;grid-row:1;justify-content:flex-end}
+ #model-trigger{max-width:60cqw}
+ #effort-trigger{max-width:30cqw}
+ #model-label,#effort-label{overflow:hidden;text-overflow:ellipsis}
+ .composer .access-control select{max-width:40cqw;font-size:14px}
+}
+
+/* Shared native-backed model, effort and access pickers. */
+#access-trigger{display:flex;align-items:center;gap:8px;min-height:40px;padding:4px 0;border:0;border-radius:0;background:transparent;color:#f27b38;font-size:16px;white-space:nowrap}
+#access-trigger:hover{background:transparent;color:#f27b38}
+#access-trigger .access-option-icon{width:18px;height:20px;border:0;border-radius:0;font-size:16px;color:inherit}
+.composer-menu{position:fixed;inset:auto;margin:0;width:min(620px,calc(100vw - 24px));max-height:calc(100dvh - 24px);overflow:auto;padding:16px;border:1px solid var(--th-border);border-radius:24px;background:var(--th-panel);color:var(--th-text);box-shadow:0 16px 56px #0005}
+.access-menu-heading{margin:0;padding:6px 10px 14px;font-size:16px;color:var(--th-muted)}
+.composer-menu [role=option]{display:flex;align-items:center;gap:14px;width:100%;padding:12px 10px;border:1px solid transparent;border-radius:12px;text-align:left;color:inherit;background:transparent}
+.composer-menu [role=option]>span:nth-child(2){flex:1;min-width:0}
+.composer-menu strong{display:block;font-size:18px;font-weight:500;line-height:1.35}
+.composer-menu small{display:block;margin-top:3px;font-size:14px;font-weight:400;line-height:1.45;letter-spacing:0;color:var(--th-muted)}
+.composer-menu [role=option]:hover,.composer-menu [role=option]:focus-visible{background:var(--th-soft);border-color:var(--th-border);outline:none}
+.composer-menu [aria-selected=true],.composer-menu [aria-selected=true] small{color:#f27b38}
+.access-option-icon{display:grid;place-items:center;flex:none;width:26px;height:29px;border:1.5px solid currentColor;border-radius:9px;font-size:18px}
+.access-check{visibility:hidden;flex:none;font-size:23px}
+[aria-selected=true]>.access-check{visibility:visible}
+@container composer (max-width:650px){#access-trigger{font-size:14px;padding:4px 0;gap:7px}}
+@media(max-width:480px){.composer-menu{padding:10px;border-radius:20px}.composer-menu [role=option]{gap:10px;padding:10px 8px}.composer-menu strong{font-size:16px}.composer-menu small{font-size:13px}.access-menu-heading{font-size:14px}}
+
+/* Chat and composer share one readable column on wide displays. */
+#messages{width:100%;max-width:1040px;margin-inline:auto;padding:20px 24px}
+@media(max-width:620px){#messages{padding:16px 12px}}
+
+/* Execution details in the chat contain action titles only. */
+.message-activity{margin:0 8px 14px;color:var(--th-muted);font-size:13px}
+.message-activity>summary{width:fit-content;max-width:100%;cursor:pointer;list-style:none}
+.message-activity>summary::-webkit-details-marker{display:none}
+.message-activity>summary::after{content:'⌄';padding-left:7px}
+.message-activity[open]>summary::after{content:'⌃'}
+.activity-milestones{margin:8px 0 0;padding:0 0 0 12px;border-left:1px solid var(--th-border);list-style:none}
+.activity-milestones>li{padding:5px 8px;color:var(--th-muted);overflow-wrap:anywhere}
+.activity-milestones>li[data-state=failed]{color:var(--th-error)}
+.activity-run #activity-events{list-style:none;margin:8px 0;padding:0}
+.activity-run #activity-events>li{padding:7px 0;border-bottom:1px solid var(--th-border);font-size:12px;overflow-wrap:anywhere}
+
+/* Final compact UI rules: kept after base component styles so they win predictably. */
+.sidebar-footer{grid-template-columns:42px 1fr;align-items:center;gap:8px}
+.sidebar-footer #connection{font-size:12px;padding:0 4px;white-space:nowrap}
+#welcome{max-width:520px;margin:clamp(24px,8vh,90px) auto 0}
+#welcome h1{margin:0;font-size:25px;font-weight:500;letter-spacing:-.3px}
+.composer-area{position:relative;max-width:800px;padding-top:6px}
+.composer.card{padding:10px 13px 8px;border-radius:16px}
+#dropzone #prompt{min-height:42px;max-height:150px;padding:2px 5px;font-size:14px}
+#access-trigger{color:var(--th-muted);font-size:14px}
+#access-trigger:hover{color:var(--th-text)}
+#access-trigger[data-mode="full"],#access-trigger[data-mode="full"]:hover{color:var(--th-accent)}
+.composer-menu{width:min(500px,calc(100vw - 24px));padding:10px;border-radius:14px}
+.access-menu-heading{padding:4px 8px 8px;font-size:13px}
+.composer-menu [role=option]{gap:10px;padding:8px;border-radius:8px}
+.composer-menu strong{font-size:14px;line-height:1.3}
+.composer-menu small{margin-top:2px;font-size:12px;line-height:1.35}
+.access-option-icon{width:22px;height:24px;border-radius:7px;font-size:15px}
+.access-check{font-size:18px}
+.composer-menu [data-access="full"]{color:var(--th-accent)}
+.composer-menu [data-access="full"] small{color:var(--th-muted)}
+.composer-menu [aria-selected="true"]:not([data-access="full"]){color:var(--th-text)}
+.composer-menu [aria-selected="true"]:not([data-access="full"]) small{color:var(--th-muted)}
+#model-trigger{max-width:240px}
+#model-label{overflow:hidden;text-overflow:ellipsis}
+#effort-trigger{max-width:160px}
+#effort-label{overflow:hidden;text-overflow:ellipsis}
+.conversation-row{position:relative;gap:2px}
+.conversation-row>button:first-child{flex:1;min-width:0}
+.conversation-actions{position:relative;flex:none}
+.conversation-actions>summary{display:grid;place-items:center;width:32px;height:32px;border-radius:7px;cursor:pointer;list-style:none;color:var(--th-muted);font-size:20px}
+.conversation-actions>summary::-webkit-details-marker{display:none}
+.conversation-actions>summary:hover,.conversation-actions[open]>summary{background:var(--th-surface);color:var(--th-text)}
+.conversation-actions-menu{position:fixed;z-index:40;display:grid;min-width:176px;padding:5px;border:1px solid var(--th-border);border-radius:9px;background:var(--th-panel);box-shadow:0 8px 26px #0003}
+.conversation-actions-menu button{padding:8px 10px;border-radius:5px;text-align:left;white-space:nowrap;font-size:13px}
+.conversation-actions-menu button{display:flex;align-items:center;gap:8px}
+.conversation-actions-menu button:hover{background:var(--th-soft)}
+.conversation-actions-menu .menu-action-icon{width:16px;height:16px;flex:none;color:var(--th-muted)}
+.composer-menu .access-option-icon{border:0;border-radius:0}
+.composer-menu [role=option] .access-option-icon:has(.model-logo-icon){display:flex;align-items:center;justify-content:flex-start;gap:3px;width:auto;min-width:42px}
+.composer-menu .provider-logo-icon,.composer-menu .model-logo-icon{display:inline-grid;place-items:center;min-width:18px;font-size:15px;line-height:1}
+@media(max-width:620px){#welcome{margin-top:30px}#welcome h1{font-size:22px}#dropzone #prompt{font-size:14px}}
+#model-trigger{max-width:240px}
+#model-label{overflow:hidden;text-overflow:ellipsis}
+#effort-trigger{max-width:160px}
+#effort-label{overflow:hidden;text-overflow:ellipsis}
+
+/* Global sidebar control stays above both the conversation and its drawer. */
+:root{--app-topbar-height:52px}
+html{overflow:hidden}
+body{position:fixed;inset:0;display:grid;width:100vw;min-width:0;grid-template-columns:var(--sidebar-width,280px) minmax(0,1fr) auto;grid-template-rows:var(--app-topbar-height) minmax(0,1fr)}
+#app-topbar{grid-column:1/-1;grid-row:1;display:flex;align-items:center;padding:0 12px;background:var(--th-bg);border-bottom:1px solid var(--th-border);z-index:15}
+#app-topbar #menu{display:grid;place-items:center;width:36px;height:36px;padding:0;border:0;border-radius:8px;background:transparent;color:var(--th-muted)}
+#app-topbar #menu:hover{background:var(--th-soft);color:var(--th-text)}
+#app-topbar #menu:focus-visible{outline:2px solid var(--th-accent);outline-offset:2px}
+#app-topbar #menu .th-icon{width:20px;height:20px}
+#app-topbar #panel-toggle{flex:0 0 36px;display:grid;place-items:center;width:36px;height:36px;padding:0;margin-left:auto;border:0;border-radius:8px;background:transparent;color:var(--th-muted)}
+#app-topbar #panel-toggle:hover,#app-topbar #panel-toggle[aria-expanded="true"]{background:var(--th-soft);color:var(--th-text)}
+#panel-toggle:focus-visible,.panel-view-controls button:focus-visible{outline:2px solid var(--th-accent);outline-offset:2px}
+.panel-view-controls{display:flex;gap:4px;flex-shrink:0;margin-bottom:16px}
+.panel-view-controls button{display:flex;align-items:center;justify-content:center;gap:6px;flex:1;min-width:0;width:auto;height:36px;padding:6px;border-radius:8px;font-size:12px;color:var(--th-muted)}
+.panel-view-controls button:hover,.panel-view-controls button[aria-expanded="true"]{background:var(--th-panel);color:var(--th-text)}
+.panel-view-controls .th-icon{flex-shrink:0;width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+#app-topbar .th-icon{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+#sidebar{grid-column:1;grid-row:2;min-height:0}
+main{grid-column:2;grid-row:2;min-height:0}
+#activity-panel{grid-column:3;grid-row:2;min-height:0;justify-self:stretch;margin:0}
+body.sidebar-collapsed{grid-template-columns:0 minmax(0,1fr) auto}
+body[data-connection-ready="false"]>#app-topbar{opacity:.68;filter:saturate(.65)}
+@media(max-width:1199px){#activity-panel{top:0;right:0;bottom:0;height:auto;width:min(360px,100vw);max-width:none}}
+@media(max-width:620px){
+ body{grid-template-columns:minmax(0,1fr);grid-template-rows:var(--app-topbar-height) minmax(0,1fr)}
+ body.sidebar-collapsed{grid-template-columns:minmax(0,1fr)}
+ #app-topbar{grid-column:1;grid-row:1}
+ #sidebar{grid-column:1;grid-row:2;top:var(--app-topbar-height);bottom:0;max-height:calc(100dvh - var(--app-topbar-height))}
+ main{grid-column:1;grid-row:2}
+ #activity-panel{grid-column:1;grid-row:2;inset:0 0 0 auto;width:min(360px,100vw);max-width:none;max-height:calc(100dvh - var(--app-topbar-height))}
+ main>header{display:flex;justify-content:space-between;gap:12px}
+}
+#conversation-title{min-width:0;max-width:70%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:16px;font-weight:550;margin:0}
+main>header>.project-control,main>header>#project{display:none}
+.project-new{display:block;width:calc(100% - 10px);margin:3px 0 5px 10px;padding:7px 10px;text-align:left;font-size:12px;border-radius:7px;background:var(--th-panel);color:var(--th-muted)}
+.project-new:hover,#new:hover{background:var(--th-soft)}
+#activity-panel{overflow:hidden}
+#files-view,#activity-view{display:flex;flex:1;min-height:0;flex-direction:column;gap:8px}
+#files-view h2{font-size:16px;margin:0 0 4px}
+#files-help{margin:-7px 0 2px;font-size:11px;line-height:1.35;color:var(--th-muted)}
+#files-roots{display:flex;flex-direction:column;gap:5px;min-height:0;overflow:auto}
+.file-root{display:flex;width:100%;align-items:center;gap:7px;min-width:0;padding:6px 8px;border:0;border-radius:7px;background:transparent;color:var(--th-muted);font-size:12px;text-align:left;overflow-wrap:anywhere}
+.file-root[aria-expanded="true"],.file-root:hover{background:var(--th-soft);color:var(--th-accent)}
+.project-file-icon{width:18px;height:18px;flex:0 0 18px;fill:initial;stroke:none}
+#files-tree{flex:1;min-height:0;overflow:auto;list-style:none;padding:0;margin:0;font-size:13px}
+#files-tree ul{list-style:none;padding-left:17px;margin:2px 0 3px}
+.project-file-row{display:flex;align-items:center;gap:7px;min-height:32px;padding:3px 5px;border-radius:6px;overflow:hidden}
+.project-file-row:hover{background:var(--th-soft)}
+#files-tree [role="treeitem"]{cursor:grab}
+#files-tree [role="treeitem"]:active{cursor:grabbing}
+#files-tree [role="treeitem"]:focus-visible>.project-file-row{outline:2px solid var(--th-accent);outline-offset:-2px}
+#files-tree [role="treeitem"][aria-selected="true"]>.project-file-row{background:color-mix(in srgb,var(--th-accent) 13%,var(--th-panel));color:var(--th-text)}
+.project-file-row>span:last-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.file-chevron{display:grid;place-items:center;width:18px;height:22px;flex:0 0 18px;padding:0;border:0;background:transparent;color:var(--th-muted)}
+.file-chevron svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2;transition:transform .12s}
+.file-chevron[aria-expanded="true"] svg{transform:rotate(90deg)}
+#files-selection-count{align-self:flex-end;padding:3px 7px;border-radius:5px;background:var(--th-soft);color:var(--th-muted);font-size:11px}
+#files-no-project,#files-no-roots,#files-error,#files-loading{font-size:12px;color:var(--th-muted);margin:6px 0}
+#files-error:not(.file-tree-note){color:var(--th-danger,var(--th-accent))}
+.file-tree-note{color:var(--th-muted)!important}
+
+/* Shared quiet controls follow the model/access picker appearance. */
+body :is(button,.btn){border:0;box-shadow:none;font-size:14px;font-weight:400}
+body :is(#add-project,#new,.project-new,.quota-button,.send,.settings-nav button,#settings-close,#setup-close,#catalog-refresh){display:inline-flex;align-items:center;justify-content:flex-start;gap:8px;padding:7px 10px;border:0;border-radius:8px;background:transparent;color:var(--th-text);box-shadow:none;font-size:14px;font-weight:400}
+body :is(#add-project,#new,.project-new,.quota-button,.send,.settings-nav button,#settings-close,#setup-close,#catalog-refresh):hover{background:var(--th-soft);color:var(--th-text)}
+body .project-new{padding:5px 8px;font-size:13px}
+body #add-project .th-icon,body .project-new .th-icon,body #new .th-icon{width:18px;height:18px;flex:none}
+body .composer-submit .send{justify-content:center;background:transparent;color:var(--th-text);border-radius:8px}
+body .composer-submit .send:hover{background:var(--th-soft)}
+#attachment-count{display:block;padding:2px 4px 5px;color:var(--th-muted);font-size:11px}
+#attachments{max-height:min(180px,25dvh);overflow:auto}
+#attachments .image-attachment{position:relative;display:inline-flex;flex-direction:column;align-items:flex-start;padding:5px;gap:4px;max-width:148px}
+.attachment-preview{display:block;width:128px;height:96px;object-fit:cover;border-radius:8px}
+.image-attachment .attachment-name{max-width:128px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px}
+.image-attachment button{position:absolute;right:7px;top:7px;width:24px;height:24px;display:grid;place-items:center;padding:0;border-radius:50%;background:var(--th-panel);color:var(--th-text)}
+/* Notices never cover the composer or intercept its controls. */
+body .th-toast-container{top:calc(var(--app-topbar-height) + 8px);bottom:auto;pointer-events:none}
+body .th-toast-container>#th-toast{pointer-events:none}
+body .th-toast-container>#th-toast button{pointer-events:auto}
+/* Consistent pointer and keyboard feedback for every actionable control. */
+body :is(button,.btn,[role=button],summary):not(:disabled):hover{background-color:color-mix(in srgb,var(--th-accent) 12%,var(--th-panel))!important;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--th-accent) 28%,transparent)!important}
+body :is(button,.btn,[role=button],summary):focus-visible{outline:2px solid var(--th-accent);outline-offset:2px}
+
+#project-form{display:grid;gap:14px}
+#project-form label{display:grid;gap:6px}
+#project-form input{width:100%;box-sizing:border-box}
+#project-create{justify-self:start}
+
+/* Sidebar sections and creation actions follow the selected theme. */
+#sidebar .section-label{padding-bottom:0;margin-bottom:2px}
+#sidebar :is(#projects,#history){margin-top:18px}
+#sidebar .project-new{margin-bottom:14px}
+#sidebar .sidebar-section-divider{height:3px;opacity:1;border:0;border-radius:3px;background:var(--th-accent);margin:20px 0}
+#sidebar :is(#add-project,#new,.project-new),#sidebar :is(#add-project,#new,.project-new):hover{color:var(--th-accent)}
+
+#conversation-search-dialog{width:min(620px,calc(100vw - 32px));max-height:80dvh;overflow:auto}
+#conversation-search-list{display:grid;gap:6px}
+.conversation-search-result{display:grid;gap:4px;width:100%;padding:12px;text-align:left;border-radius:8px}
+.conversation-search-result:hover,.conversation-search-result:focus-visible{background:var(--th-soft)}
+.conversation-search-result strong{overflow-wrap:anywhere}
+.conversation-search-result small{color:var(--th-muted)}
+
+#sidebar .project-group>summary>button:not(:disabled):hover{background-color:transparent!important;box-shadow:none!important}
+
+#sidebar .conversation-row{box-shadow:0 1px 1px color-mix(in srgb,var(--th-border) 65%,transparent)}
+#sidebar .conversation-row:has(button.active){box-shadow:inset 3px 0 var(--th-accent),0 1px 1px color-mix(in srgb,var(--th-border) 65%,transparent)}
+#sidebar .conversation-row>button:first-child{display:flex;align-items:center;gap:7px;white-space:normal;text-align:left;padding-block:6px}
+.conversation-model-icon{flex:0 0 18px;width:18px;text-align:center;font-size:14px;line-height:1;color:var(--th-accent)}
+.conversation-row .conversation-title{min-width:0}
+.conversation-title{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;white-space:normal;overflow-wrap:anywhere;font-size:12px;line-height:1.3}
+
+.message-images{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;white-space:normal}
+.message-image{display:inline-flex;flex-direction:column;align-items:flex-start;padding:5px;gap:4px;max-width:148px;margin:0}
+.message-image .attachment-name{max-width:128px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px}
+.image-modal{max-width:calc(100vw - 24px);max-height:calc(100dvh - 24px);padding:16px}
+.image-modal>img{display:block;max-width:100%;max-height:calc(100dvh - 100px);object-fit:contain}
+
+.message-file{margin:0;max-width:240px;white-space:normal;color:var(--th-text);background:var(--th-panel)}
+.file-type{flex-shrink:0;padding:6px;border-radius:6px;background:var(--th-soft);font-size:10px;font-weight:600}
+
+/* Project picker, current-project badge and denser sidebar controls. */
+#search-conversations .th-icon{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+main>header{gap:10px}
+#active-project-badge{display:inline-flex;align-items:center;gap:6px;min-width:0;margin-left:auto;color:var(--th-muted);font-size:12px;white-space:nowrap}
+#active-project-badge .th-icon{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+#active-project-badge span{max-width:min(28vw,260px);overflow:hidden;text-overflow:ellipsis}
+#quota-toggle{flex:none}
+#sidebar .sidebar-footer{gap:5px;padding:7px 9px;min-height:44px}
+#sidebar #connection{font-size:10px;line-height:1.2}
+#project-dialog{width:min(680px,calc(100vw - 28px));max-height:88dvh;overflow:auto}
+#project-form{gap:9px}
+#project-form>p{margin:0;font-size:12px}
+#project-form input{min-height:38px;padding:8px 10px}
+.project-path-controls{display:flex;gap:6px}
+.project-path-controls input{min-width:0;flex:1}
+.project-path-controls button,#project-directory-roots button{padding:7px 10px;border-radius:7px;background:var(--th-soft);color:var(--th-text)}
+#project-directory-roots{display:flex;flex-wrap:wrap;gap:6px}
+#project-directory-roots button[aria-pressed="true"]{background:color-mix(in srgb,var(--th-accent) 16%,var(--th-panel));color:var(--th-accent)}
+#project-directory-list,#project-selected-paths{display:grid;gap:4px;max-height:190px;overflow:auto;padding:6px;margin:0;list-style:none;border:1px solid var(--th-border);border-radius:8px}
+#project-directory-list li,#project-selected-paths li{display:flex;align-items:center;gap:10px;min-width:0;padding:5px 7px;border-radius:6px;font-size:12px}
+#project-directory-list li label{display:flex;align-items:center;gap:4px;flex:none;font-size:11px}
+#project-directory-list input[type=checkbox]{width:16px;min-height:16px;margin:0}
+.project-directory-open{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left;background:transparent;color:var(--th-text)}
+#project-selected-paths li span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+#project-selected-paths li button{flex:none;font-size:11px;color:var(--th-muted)}
+@media(max-width:620px){#active-project-badge span{max-width:23vw}#project-dialog{padding:20px 16px}.project-path-controls button{padding-inline:7px}}
+
+/* Optional left/right workspace order; the center chat stays centered. */
+body.panel-order-reversed{grid-template-columns:auto minmax(0,1fr) var(--sidebar-width,280px)}
+body.panel-order-reversed #activity-panel{grid-column:1;grid-row:2}
+body.panel-order-reversed #sidebar{grid-column:3;grid-row:2}
+body.panel-order-reversed.sidebar-collapsed{grid-template-columns:auto minmax(0,1fr) 0}
+body.panel-order-reversed #sidebar-resize{right:auto;left:-6px}
+body.panel-order-reversed #activity-panel-resize{left:auto;right:-6px}
+#panel-order-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+#panel-order-options>button{display:grid;gap:9px;min-width:0;padding:10px;border:1px solid var(--th-border);border-radius:10px;background:var(--th-panel);color:var(--th-text);font-size:12px;text-align:left}
+#panel-order-options>button[aria-pressed="true"]{border-color:var(--th-accent);box-shadow:0 0 0 1px var(--th-accent)}
+.panel-order-diagram{display:grid;grid-template-columns:1fr 1.55fr 1fr;gap:3px;height:42px}
+.panel-order-diagram i{display:grid;place-items:center;min-width:0;overflow:hidden;border-radius:3px;background:var(--th-soft);color:var(--th-muted);font-size:8px;font-style:normal;white-space:nowrap}
+.panel-order-diagram i:nth-child(2){background:color-mix(in srgb,var(--th-accent) 16%,var(--th-panel));color:var(--th-accent)}
+#panel-order-reset{margin-top:6px}
+@media(min-width:621px) and (max-width:1199px){body.panel-order-reversed #activity-panel{left:0;right:auto}body.panel-order-reversed #activity-panel-resize{left:auto;right:-6px}}
+@media(max-width:620px){body.panel-order-reversed{grid-template-columns:minmax(0,1fr)}body.panel-order-reversed main,body.panel-order-reversed #sidebar,body.panel-order-reversed #activity-panel{grid-column:1;grid-row:2}body.panel-order-reversed #sidebar-resize{left:auto;right:0}body.panel-order-reversed #activity-panel-resize{right:auto;left:0}}
+#quota-model-identity{display:inline-flex;align-items:center;gap:4px;min-width:0;max-width:220px;font-weight:550}
+#quota-model-icon{flex:none;font-size:14px;line-height:1}
+#quota-model-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#quota-short{display:inline-block;white-space:nowrap;font-variant-numeric:tabular-nums;font-size:12px;font-weight:600}
+@media(max-width:620px){main>header{flex-wrap:wrap;justify-content:flex-start}main>header>#conversation-title{max-width:55%;font-size:14px}main>header>#active-project-badge{margin-left:auto;max-width:40%}main>header>#quota-toggle{display:flex;flex:1 0 100%;width:100%;max-width:100%;justify-content:flex-start;gap:8px;padding:5px 8px;white-space:normal}#quota-model-identity{max-width:36vw}#quota-short{white-space:normal;font-size:11px}}
+
+/* Keep connection notices clear of the always-visible model and quota header. */
+body .th-toast-container{top:calc(var(--conversation-header-bottom,120px) + 8px);right:12px;left:auto}
+@media(max-width:620px){body .th-toast-container{top:calc(var(--conversation-header-bottom,180px) + 8px);right:8px;left:8px;max-width:calc(100vw - 16px)}}
+#quota-toggle{min-width:0;max-width:100%;flex-wrap:wrap}
+#quota-short{min-width:0;white-space:normal;overflow:visible;overflow-wrap:anywhere}
+
+#quota-toggle{align-items:center}
+#quota-short{flex:1 1 auto}
+
+/* Compact provider sections in the model picker. */
+#model-menu strong{font-size:13px;overflow-wrap:anywhere}
+#model-menu [role=option]{padding:6px 8px;gap:8px}
+#model-menu [role=option] .access-option-icon{min-width:20px}
+#model-menu .model-provider-heading{padding:8px 8px 4px;font-size:11px;font-weight:600;color:var(--th-muted)}
+#model-menu [role=group]+[role=group]{margin-top:6px;border-top:1px solid var(--th-border)}
+
+/* Settings stay available beside the global panel controls. */
+
+#app-topbar #search-conversations{display:inline-flex;align-items:center;gap:8px;flex:none;width:auto;min-height:36px;height:36px;margin:0 0 0 6px;padding:0 10px;border:1px solid var(--th-border);border-radius:8px;background:var(--th-panel);color:var(--th-text)}
+#app-topbar #settings{height:34px;margin-left:8px;padding:6px 10px;gap:8px;font-size:14px;border:1px solid var(--th-border);background:var(--th-panel)}
+@media(max-width:620px){
+ #app-topbar #menu{flex-shrink:0}
+ #app-topbar #search-conversations,#app-topbar #settings{flex:0 0 36px;width:36px;padding:0;justify-content:center}
+ #app-topbar #search-conversations span,#app-topbar #settings span{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
+ #app-topbar #quota-toggle{flex:0 1 auto;min-width:0;max-width:calc(100vw - 190px);overflow:hidden;margin-left:6px}
+}
+
+/* Collapse controls travel with their panels, including keyboard tab order. */
+#app-topbar #menu{flex-shrink:0}
+#app-topbar #panel-toggle .th-icon{transform:scaleX(-1)}
+body.panel-order-reversed #app-topbar #panel-toggle{margin-left:0}
+body.panel-order-reversed #app-topbar #menu{margin-left:auto}
+body.panel-order-reversed #app-topbar #panel-toggle .th-icon{transform:none}
+body.panel-order-reversed #app-topbar #menu .th-icon{transform:scaleX(-1)}
+@media(max-width:620px){
+ body.panel-order-reversed #sidebar{left:auto;right:0}
+ body.panel-order-reversed #activity-panel{left:0;right:auto}
+ body.panel-order-reversed #sidebar-resize{left:0;right:auto}
+ body.panel-order-reversed #activity-panel-resize{left:auto;right:0}
+}
+
+.file-root-section{flex-shrink:0;min-width:0}
+.root-chevron{width:15px;height:15px;flex-shrink:0;fill:none;stroke:currentColor;stroke-width:2}
+.file-root[aria-expanded="true"] .root-chevron{transform:rotate(90deg)}
+.file-root-section #files-tree{overflow:visible;padding-left:12px}
+
+/* Keep the send/newline convention discoverable without exposing hidden counters. */
+.composer-info{padding:2px 2px 0;font-size:11px;line-height:1.4}

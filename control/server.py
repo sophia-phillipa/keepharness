@@ -15,6 +15,7 @@ import socket
 import sqlite3
 import sys
 import time
+import uuid
 from urllib.parse import urlparse
 import httpx
 from starlette.applications import Starlette
@@ -22,14 +23,17 @@ from starlette.requests import Request
 from starlette.responses import FileResponse,JSONResponse
 from starlette.routing import Route
 from .discovery import scan,command
-from . import deepseek
+from Adapters.deepseek import account as deepseek
+from Adapters.gemini import account as gemini
 from .integrations import inventory
+from .integration_catalog import catalog as integration_catalog
 from .operations import Operations,operation
-from .local_models import load_profile,load_profiles,save_profile,launch_options,validate_profile,runtime_permissions,runtime_roots,runtime_details
+from .local_models import load_profile,load_profiles,save_profile,launch_command,validate_profile,runtime_permissions,runtime_roots,runtime_details
 import ipaddress
-from agent_service.codex_rpc import metadata
+from Adapters.codex.rpc import metadata
 
 ROOT=Path(__file__).resolve().parents[1]
+LOCAL_AI=Path(os.environ.get('TAIL_HARNESS_ROOT',str(ROOT)))/'local-ai'
 PERMISSIONS=('read','write','upload','tests','internet','shell','hooks')
 ADMIN_BODY_LIMIT=64000
 ADMIN_BODY_TIMEOUT=10
@@ -43,10 +47,11 @@ class Manager:
         self.dashboard=DashboardReader(self.state)
         self.inventory=None;self.proc=None;self.lock=asyncio.Lock()
         self.settings=json.loads(self.path.read_text()) if self.path.exists() else {
-            'services':{p:{'enabled':False,'models':[],'projects':['sem-projeto'],'mode':'native' if p in ('local','deepseek') else 'scoped','integrations':[],'permissions':{k:False for k in PERMISSIONS}} for p in ('codex','claude','local','deepseek')},
+            'services':{p:{'enabled':False,'models':[],'projects':['sem-projeto'],'mode':'native' if p in ('local','deepseek','gemini') else 'scoped','integrations':[],'permissions':{k:False for k in PERMISSIONS}} for p in ('codex','claude','gemini','local','deepseek')},
             'projects':[],'uploads_enabled':False,'port':8095,'tailnet_port':8095,'logins':[]}
         self.settings['services'].setdefault('deepseek',{'enabled':False,'added':False,'models':[],'projects':['sem-projeto'],'mode':'native','integrations':[],'permissions':{k:False for k in PERMISSIONS}})
-        self.provider_models={};self.auth={};self.applied=None;self.operations=Operations();self.startup_error=None
+        self.settings['services'].setdefault('gemini',{'enabled':False,'added':False,'models':[],'projects':['sem-projeto'],'mode':'native','integrations':[],'permissions':{k:False for k in PERMISSIONS}})
+        self.provider_models={};self.auth={};self.applied=None;self.operations=Operations();self.startup_error=None;self.provider_revisions={}
 
     def audit(self,action):
         with (self.state/'audit.jsonl').open('a') as out:out.write(json.dumps({'time':time.time(),'action':action})+'\n')
@@ -72,13 +77,13 @@ class Manager:
         bind=data.get('vpn_bind','127.0.0.1');address=ipaddress.ip_address(bind)
         if address.version!=4 or not (address.is_loopback or address.is_private) or address.is_unspecified or address.is_multicast:raise ValueError('Use somente o IP privado específico da interface VPN, nunca 0.0.0.0.')
         out['vpn_bind']=bind
-        out['uploads_enabled']=data.get('uploads_enabled') is True
+        out['uploads_enabled']=data.get('uploads_enabled') is True or any(data.get('services',{}).get(p,{}).get('enabled') is True for p in ('codex','claude','gemini','deepseek'))
         out['maestro_enabled']=data.get('maestro_enabled',True) is True
         policy=data.get('maestro_instructions','')
         if not isinstance(policy,str) or len(policy)>12000:raise ValueError('Instruções do Maestro: máximo de 12 mil caracteres.')
         out['maestro_instructions']=policy
         default=data.get('default_backend','')
-        if default not in ('','codex','claude','local','deepseek'):raise ValueError('Executor padrão inválido.')
+        if default not in ('','codex','claude','gemini','local','deepseek'):raise ValueError('Executor padrão inválido.')
         out['default_backend']=default
         projects=[];ids=set()
         for project in data.get('projects',[]):
@@ -86,7 +91,7 @@ class Manager:
             if not re.fullmatch('[a-z0-9_-]{1,64}',pid) or pid=='sem-projeto' or pid in ids:raise ValueError('Identificador de projeto inválido ou repetido.')
             if not raw.is_absolute() or not raw.is_dir():raise ValueError('Escolha uma pasta existente e absoluta.')
             root=raw.resolve();home=Path.home().resolve()
-            forbidden=[Path('/'),home,home/'.ssh',home/'.codex',home/'.claude',home/'.config',self.state.resolve()]
+            forbidden=[Path('/'),home,home/'.ssh',home/'.codex',home/'.claude',home/'.gemini',home/'.config',self.state.resolve()]
             if root in forbidden or any(root.is_relative_to(x) or x.is_relative_to(root) for x in forbidden[2:]):raise ValueError('Pasta ampla ou de credenciais não pode ser compartilhada.')
             if len(label)>100:raise ValueError('Nome de projeto muito longo.')
             units=project.get('service_units',[])
@@ -96,23 +101,23 @@ class Manager:
             projects.append({'id':pid,'label':label or pid,'root':str(root),'service_units':list(dict.fromkeys(units)),'permissions':dict(overrides)});ids.add(pid)
         out['projects']=projects
         out['services']={}
-        for provider in ('codex','claude','local','deepseek'):
+        for provider in ('codex','claude','gemini','local','deepseek'):
             spec=data.get('services',{}).get(provider,{})
             models=spec.get('models',[]);allowed_projects=spec.get('projects',[])
             if not isinstance(models,list) or len(models)>50 or any(not isinstance(x,str) or not re.fullmatch('[a-zA-Z0-9_./:-]{1,160}',x) for x in models):raise ValueError('Lista de modelos inválida.')
             if not isinstance(allowed_projects,list) or any(p not in ids|{'sem-projeto'} for p in allowed_projects):raise ValueError('Projeto não cadastrado.')
-            perms={k:spec.get('permissions',{}).get(k) is True for k in PERMISSIONS}
+            if not isinstance(spec.get('permissions',{}),dict):raise ValueError('Permissões inválidas.')
+            perms={k:(provider!='local' or spec.get('permissions',{}).get(k) is True) for k in PERMISSIONS}
             if perms['write'] and not perms['read']:raise ValueError('Para permitir alterações, habilite também leitura.')
-            if perms['upload'] and not out['uploads_enabled']:raise ValueError('Habilite uploads globais antes de permitir anexos no serviço.')
-            mode=spec.get('mode','native' if provider in ('local','deepseek') else 'scoped')
-            if mode not in ('scoped','native') or (provider in ('local','deepseek') and mode!='native'):raise ValueError('Modelo local usa o agente Codex nativo.')
-            if mode=='scoped' and (perms['shell'] or perms['internet']):raise ValueError('Internet e terminal exigem modo nativo.')
+            if provider=='local' and perms['upload'] and not out['uploads_enabled']:raise ValueError('Habilite uploads globais antes de permitir anexos no serviço.')
+            mode='native'
             selected=spec.get('integrations',[])
             available={x['id'] for x in inventory().get(provider,[])}
             if not isinstance(selected,list) or any(x not in available for x in selected):raise ValueError('Integração não encontrada. Atualize o inventário.')
             if selected and (mode!='native' or not perms['internet']):raise ValueError('Conectores exigem modo nativo e internet nesta versão.')
             enabled=spec.get('enabled') is True
-            if enabled and (not models or not allowed_projects):raise ValueError('Selecione modelos e projetos para o serviço habilitado.')
+            allowed_projects=['sem-projeto',*[p['id'] for p in projects]]
+            if enabled and not models:raise ValueError('Selecione modelos para o serviço habilitado.')
             out['services'][provider]={'added':spec.get('added') is True or enabled or bool(models),'mode':mode,'integrations':selected,'enabled':enabled,'models':list(dict.fromkeys(models)),'projects':allowed_projects,'permissions':perms}
         logins=data.get('logins',[])
         if not isinstance(logins,list) or len(logins)>50 or any(not isinstance(x,str) or not re.fullmatch('[A-Za-z0-9_.+@-]{1,160}',x) for x in logins):raise ValueError('Identidades Tailscale inválidas.')
@@ -133,13 +138,203 @@ class Manager:
 
     def save(self,data):
         settings=self.validate(data)
-        if self.running():raise ValueError('Pare o harness antes de alterar permissões. Conversas em andamento são preservadas.')
         if (self.state/'tailnet.json').exists() and any(settings.get(k)!=self.settings.get(k) for k in ('port','tailnet_port','vpn_bind')):raise ValueError('Retire a rota Tailscale antes de mudar as portas ou o IP.')
         tmp=self.path.with_suffix('.tmp');tmp.write_text(json.dumps(settings,indent=2));tmp.chmod(0o600);tmp.replace(self.path)
         self.settings=settings;self.audit('settings_saved')
 
+    def _previous_runtime(self):
+        path = self.state / "runtime.json"
+        try:
+            return json.loads(path.read_text())
+        except (OSError, ValueError):
+            return {}
+
+    def _write_runtime(self, config):
+        path = self.state / "runtime.json"
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(config))
+        tmp.chmod(0o600)
+        tmp.replace(path)
+
+    async def build_runtime_config(self, settings, allow_empty=False):
+        """Build the process-owned configuration without starting or restarting it."""
+        if self.inventory is None:
+            await self.refresh()
+        settings = self.validate(settings)
+        cfg = {
+            "state_dir": str(self.state / "runs"),
+            "projects": {"sem-projeto": {"label": "Sem projeto"}},
+            "clients": {},
+            "services": json.loads(json.dumps(settings["services"])),
+            "origins": [],
+            "uploads_enabled": settings["uploads_enabled"],
+            "mcp_defaults": settings.get("mcp_defaults", {}),
+            "default_backend": settings.get("default_backend", ""),
+            "maestro_enabled": settings.get("maestro_enabled", True),
+            "maestro_instructions": settings.get("maestro_instructions", ""),
+            "shared_projects": True,
+            "control_state_dir": str(self.state),
+            "admin_url": f"http://127.0.0.1:{self.admin_port}/",
+            "local_access": settings.get("vpn_bind", "127.0.0.1") == "127.0.0.1",
+            "bind": settings.get("vpn_bind", "127.0.0.1"),
+            "port": settings["port"],
+            "config_revision": str(uuid.uuid4()),
+            "provider_revisions": getattr(self, "provider_revisions", {}),
+        }
+        for project in settings["projects"]:
+            cfg["projects"][project["id"]] = {
+                **project,
+                "test_commands": {},
+                "additional_roots": [],
+                "node_binary": shutil.which("node") or "node",
+            }
+        enabled = 0
+        for provider, spec in settings["services"].items():
+            if not spec["enabled"]:
+                continue
+            enabled += 1
+            checked = await self.check(provider)
+            info = next(s for s in self.inventory["services"] if s["id"] == provider)
+            if provider == "deepseek":
+                if any(m not in checked["models"] for m in spec["models"]):
+                    raise ValueError("Modelo DeepSeek não disponível na conta.")
+                cfg[provider] = {
+                    "binary": info["binary"],
+                    "api_provider": {
+                        "url": deepseek.API,
+                        "key_file": str(deepseek.key_file(self.state)),
+                    },
+                    "integrations": spec.get("integrations", []),
+                }
+                cfg["deepseek_models"] = {m: checked["models"][m] for m in spec["models"]}
+                continue
+            if not checked["authenticated"] or (
+                spec.get("mode") == "scoped" and not Path(info["auth_file"]).is_file()
+            ):
+                raise ValueError(
+                    "Faça login em "
+                    + provider
+                    + " e use autenticação por arquivo local. Keychain não é suportado pelo sandbox atual."
+                )
+            binary = Path(info["binary"]).resolve()
+            with binary.open("rb") as stream:
+                native = stream.read(4) == b"\x7fELF"
+            if not native and spec.get("mode") == "scoped":
+                raise ValueError(
+                    "Use o binário Linux nativo de "
+                    + provider
+                    + "; wrappers de shell/npm não são montados no sandbox."
+                )
+            if provider in ("codex", "gemini") and any(
+                m not in checked["models"] for m in spec["models"]
+            ):
+                raise ValueError("Modelo não retornado pelo catálogo do provedor atual.")
+            cfg[provider] = {
+                "binary": str(binary),
+                "auth_file": info["auth_file"],
+                "python": sys.executable,
+                "integrations": spec.get("integrations", []),
+            }
+            if provider == "local":
+                if any(m not in checked["models"] for m in spec["models"]):
+                    raise ValueError(
+                        "Modelo local não está disponível. Atualize a descoberta."
+                    )
+                cfg[provider]["local_provider"] = "ollama"
+                cfg[provider]["local_models"] = {
+                    m["id"]: m for m in info.get("runtimes", [])
+                }
+                cfg["services"][provider]["model_permissions"] = runtime_permissions(
+                    self.state, info.get("runtimes", []), spec["models"]
+                )
+                cfg[provider]["model_roots"] = runtime_roots(
+                    self.state, info.get("runtimes", []), spec["models"]
+                )
+                if any(
+                    permissions.get("upload")
+                    for permissions in cfg["services"][provider][
+                        "model_permissions"
+                    ].values()
+                ):
+                    cfg["uploads_enabled"] = True
+            cfg[provider + "_models"] = (
+                {m: checked["models"][m] for m in spec["models"]}
+                if provider == "codex"
+                else spec["models"]
+            )
+        if not enabled and not allow_empty:
+            raise ValueError("Habilite pelo menos um serviço.")
+        defaults = cfg.get("mcp_defaults") or {}
+        if defaults:
+            backend = defaults["backend"]
+            model = defaults["model"]
+            catalog = cfg.get(backend + "_models", {})
+            supported = (
+                catalog.get(model, []) if isinstance(catalog, dict) else ["configured"]
+            )
+            if defaults.get("effort") and defaults["effort"] not in supported:
+                raise ValueError("Verifique o esforço padrão MCP antes de iniciar.")
+        for provider in ("codex", "claude", "deepseek"):
+            if provider in cfg:
+                cfg[provider]["unrestricted"] = True
+        previous = self._previous_runtime()
+        all_projects = list(cfg["projects"])
+        vpnkey = self.state / "vpn.key"
+        if not vpnkey.exists():
+            vpnkey.write_text(secrets.token_urlsafe(48))
+            vpnkey.chmod(0o600)
+        clients = previous.get("clients", {})
+        cfg["clients"]["vpn"] = {
+            "sha256": clients.get("vpn", {}).get(
+                "sha256", hashlib.sha256(vpnkey.read_text().encode()).hexdigest()
+            ),
+            "projects": all_projects,
+        }
+        cfg["clients"]["local"] = {
+            "sha256": clients.get("local", {}).get(
+                "sha256", hashlib.sha256(secrets.token_bytes(48)).hexdigest()
+            ),
+            "projects": all_projects,
+        }
+        cfg["tailscale_logins"] = {}
+        for login in settings["logins"]:
+            client = "tailnet-" + hashlib.sha256(login.encode()).hexdigest()[:16]
+            cfg["clients"][client] = {
+                "sha256": clients.get(client, {}).get(
+                    "sha256", hashlib.sha256(secrets.token_bytes(48)).hexdigest()
+                ),
+                "projects": all_projects,
+            }
+            cfg["tailscale_logins"][login] = client
+        port = settings["port"]
+        host = self.inventory["network"].get("hostname")
+        remote = settings["tailnet_port"]
+        bind = settings.get("vpn_bind", "127.0.0.1")
+        cfg["origins"] = [
+            f"http://{bind}:{port}",
+            f"http://127.0.0.1:{port}",
+            f"http://localhost:{port}",
+        ] + ([f"http://{host}:{remote}"] if host else [])
+        return cfg
+
+    async def apply_settings(self, data):
+        settings = self.validate(data)
+        current = self.validate(self.settings)
+        if self.running() and any(
+            settings.get(key) != current.get(key) for key in ("port", "vpn_bind")
+        ):
+            raise ValueError("Para mudar endereço ou porta, reinicie o harness.")
+        if self.running():
+            runtime = await self.build_runtime_config(settings, allow_empty=True)
+            self.save(settings)
+            self._write_runtime(runtime)
+        else:
+            self.save(settings)
+            if any(spec.get("enabled") for spec in settings["services"].values()):
+                await self.start()
+
     async def check(self,provider):
-        if provider not in ('codex','claude','local','deepseek'):raise ValueError('Serviço desconhecido.')
+        if provider not in ('codex','claude','gemini','local','deepseek'):raise ValueError('Serviço desconhecido.')
         if self.inventory is None:await self.refresh()
         info=next(s for s in self.inventory['services'] if s['id']==provider)
         if not info['found']:raise ValueError('CLI não encontrado. Instale e entre pela ferramenta oficial.')
@@ -150,6 +345,13 @@ class Manager:
             self.provider_models[provider]={m:['configured'] for m in info.get('models',[])}
             self.auth[provider]=bool(info['found'])
             return {'authenticated':bool(info['found']),'models':self.provider_models[provider],'model_source':'Servidores locais detectados (llama.cpp / Ollama)'}
+        if provider=='gemini':
+            self.auth[provider]=False
+            result=await gemini.check(info['binary'])
+            self.provider_models[provider]=result.get('models',{})
+            self.auth[provider]=result.get('authenticated') is True
+            self.audit('provider_check:gemini')
+            return result
         if provider=='codex':
             code,_=await command(info['binary'],'login','status');authenticated=code==0
             if authenticated:
@@ -167,61 +369,15 @@ class Manager:
     async def start(self):
         if self.running():return
         await self.refresh()
+        self.settings=self.validate(self.settings)
         if any(s.get('enabled') and s.get('mode')=='scoped' for s in self.settings['services'].values()) and (platform.system()!='Linux' or not self.inventory['binaries']['bwrap']):raise ValueError('Modo isolado requer Linux e bubblewrap. Use o modo nativo em outra plataforma.')
-        cfg={'state_dir':str(self.state/'runs'),'projects':{'sem-projeto':{'label':'Sem projeto'}},'clients':{},
-             'services':json.loads(json.dumps(self.settings['services'])),'origins':[],'uploads_enabled':self.settings['uploads_enabled'],
-             'mcp_defaults':self.settings.get('mcp_defaults',{}),'default_backend':self.settings.get('default_backend',''),'maestro_enabled':self.settings.get('maestro_enabled',True),'maestro_instructions':self.settings.get('maestro_instructions',''),
-             'admin_url':f'http://127.0.0.1:{self.admin_port}/','local_access':self.settings.get('vpn_bind','127.0.0.1')=='127.0.0.1','bind':self.settings.get('vpn_bind','127.0.0.1'),'port':self.settings['port']}
-        for project in self.settings['projects']:cfg['projects'][project['id']]={**project,'test_commands':{},'additional_roots':[],'node_binary':shutil.which('node') or 'node'}
-        enabled=0
-        for provider,spec in self.settings['services'].items():
-            if not spec['enabled']:continue
-            enabled+=1
-            checked=await self.check(provider)
-            info=next(s for s in self.inventory['services'] if s['id']==provider)
-            if provider=='deepseek':
-                if any(m not in checked['models'] for m in spec['models']):raise ValueError('Modelo DeepSeek não disponível na conta.')
-                cfg[provider]={'binary':info['binary'],'api_provider':{'url':deepseek.API,'key_file':str(deepseek.key_file(self.state))},'integrations':spec.get('integrations',[])}
-                cfg['deepseek_models']={m:checked['models'][m] for m in spec['models']};continue
-            if not checked['authenticated'] or (spec.get('mode')=='scoped' and not Path(info['auth_file']).is_file()):raise ValueError('Faça login em '+provider+' e use autenticação por arquivo local. Keychain não é suportado pelo sandbox atual.')
-            binary=Path(info['binary']).resolve()
-            with binary.open('rb') as stream:native=stream.read(4)==b'\x7fELF'
-            if not native and spec.get('mode')=='scoped':raise ValueError('Use o binário Linux nativo de '+provider+'; wrappers de shell/npm não são montados no sandbox.')
-            if provider=='codex' and any(m not in checked['models'] for m in spec['models']):raise ValueError('Modelo Codex não retornado pelo CLI atual.')
-            cfg[provider]={'binary':str(binary),'auth_file':info['auth_file'],'python':sys.executable,'integrations':spec.get('integrations',[])}
-            if provider=='local':
-                if any(m not in checked['models'] for m in spec['models']):raise ValueError('Modelo local não está disponível. Atualize a descoberta.')
-                cfg[provider]['local_provider']='ollama'
-                cfg[provider]['local_models']={m['id']:m for m in info.get('runtimes',[])}
-                cfg['services'][provider]['model_permissions']=runtime_permissions(self.state,info.get('runtimes',[]),spec['models'])
-                cfg[provider]['model_roots']=runtime_roots(self.state,info.get('runtimes',[]),spec['models'])
-                if any(permissions.get('upload') for permissions in cfg['services'][provider]['model_permissions'].values()):cfg['uploads_enabled']=True
-            cfg[provider+'_models']={m:checked['models'][m] for m in spec['models']} if provider=='codex' else spec['models']
-        if not enabled:raise ValueError('Habilite pelo menos um serviço.')
-        defaults=cfg.get('mcp_defaults') or {}
-        if defaults:
-            backend=defaults['backend'];model=defaults['model']
-            catalog=cfg.get(backend+'_models',{})
-            supported=catalog.get(model,[]) if isinstance(catalog,dict) else ['configured']
-            if defaults.get('effort') and defaults['effort'] not in supported:raise ValueError('Verifique o esforço padrão MCP antes de iniciar.')
-        all_projects=list(cfg['projects'])
-        vpnkey=self.state/'vpn.key'
-        if not vpnkey.exists():vpnkey.write_text(secrets.token_urlsafe(48));vpnkey.chmod(0o600)
-        cfg['clients']['vpn']={'sha256':hashlib.sha256(vpnkey.read_text().encode()).hexdigest(),'projects':all_projects}
-        cfg['clients']['local']={'sha256':hashlib.sha256(secrets.token_bytes(48)).hexdigest(),'projects':all_projects}
-        cfg['tailscale_logins']={}
-        for login in self.settings['logins']:
-            client='tailnet-'+hashlib.sha256(login.encode()).hexdigest()[:16]
-            cfg['clients'][client]={'sha256':hashlib.sha256(secrets.token_bytes(48)).hexdigest(),'projects':all_projects}
-            cfg['tailscale_logins'][login]=client
-        port=self.settings['port'];host=self.inventory['network'].get('hostname');remote=self.settings['tailnet_port']
-        bind=self.settings.get('vpn_bind','127.0.0.1')
-        cfg['origins']=[f'http://{bind}:{port}',f'http://127.0.0.1:{port}',f'http://localhost:{port}']+([f'http://{host}:{remote}'] if host else [])
+        cfg=await self.build_runtime_config(self.settings)
+        port=self.settings['port'];bind=self.settings.get('vpn_bind','127.0.0.1')
         with socket.socket() as check:
             check.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
             try:check.bind((bind,port))
             except OSError:raise ValueError('Porta em uso. Escolha outra; nenhum serviço existente foi encerrado.')
-        path=self.state/'runtime.json';path.write_text(json.dumps(cfg));path.chmod(0o600)
+        path=self.state/'runtime.json';self._write_runtime(cfg)
         log=(self.state/'harness.log').open('ab')
         self.proc=await asyncio.create_subprocess_exec(sys.executable,'-m','agent_service.app',cwd=ROOT,env={**os.environ,'LOCAL_AGENT_CONFIG':str(path)},stdout=log,stderr=log)
         log.close()
@@ -272,14 +428,14 @@ class Manager:
         host=(self.inventory or {}).get('network',{}).get('hostname');port=self.settings['port']
         return {'running':self.running(),'busy':self.busy(),'applied_at':self.applied,
                 'local_url':f'http://{self.settings.get("vpn_bind","127.0.0.1")}:{port}/','remote_url':f'http://{host}:{self.settings["tailnet_port"]}/' if host else None,
-                'shared':(self.state/'tailnet.json').exists(),'version':'0.4.0','startup_error':self.startup_error}
+                'shared':(self.state/'tailnet.json').exists(),'version':'0.5.0','startup_error':self.startup_error}
 
 def create_app(state,port=8094):
     manager=Manager(state);manager.admin_port=port
     @asynccontextmanager
     async def lifespan(app):
         await manager.refresh()
-        if (manager.state/'autostart').exists():
+        if any(spec.get('enabled') for spec in manager.settings['services'].values()):
             try:await manager.start()
             except (ValueError,RuntimeError,OSError) as exc:manager.startup_error=str(exc)
         yield
@@ -351,16 +507,17 @@ def create_app(state,port=8094):
                 elif path=='/api/scan':result=await manager.refresh()
                 elif path=='/api/check':result=await manager.check(data.get('provider'))
                 elif path=='/api/provider-token':
-                    if manager.running():raise ValueError('Pare o harness antes de trocar a credencial.')
                     if data.get('provider')!='deepseek':raise ValueError('Provedor API desconhecido.')
-                    deepseek.store_key(manager.state,data.get('token'));manager.auth['deepseek']=False;manager.provider_models.pop('deepseek',None);manager.audit('deepseek_key_saved');result={'saved':True}
+                    deepseek.store_key(manager.state,data.get('token'));manager.provider_revisions['deepseek']=str(uuid.uuid4());manager.auth['deepseek']=False;manager.provider_models.pop('deepseek',None)
+                    if manager.running():await manager.apply_settings(manager.settings)
+                    manager.audit('deepseek_key_saved');result={'saved':True}
                 elif path=='/api/provider-delete':
                     provider=data.get('provider')
                     if provider not in manager.settings['services']:raise ValueError('Provedor desconhecido.')
                     import copy
                     draft=copy.deepcopy(manager.settings);draft['services'][provider].update(added=False,enabled=False,models=[],integrations=[],projects=['sem-projeto'],permissions={k:False for k in PERMISSIONS})
                     if draft.get('mcp_defaults',{}).get('backend')==provider:draft['mcp_defaults']={}
-                    manager.save(draft)
+                    await manager.apply_settings(draft)
                     if provider=='deepseek':deepseek.key_file(manager.state).unlink(missing_ok=True)
                     manager.audit('provider_removed:'+provider);result={'removed':True}
                 elif path=='/api/settings-export':
@@ -379,22 +536,28 @@ def create_app(state,port=8094):
                         validated[item['model_file']]=item
                     if profile:validated.setdefault(profile['model_file'],profile)
                     if data.get('apply') is True:
-                        manager.save(imported)
                         for item in validated.values():save_profile(manager.state,item)
                         if profile:save_profile(manager.state,validated[profile['model_file']])
+                        await manager.apply_settings(imported)
                         manager.audit('settings_imported')
                     result={'valid':True,'applied':data.get('apply') is True,'services':[p for p,s in imported['services'].items() if s['enabled']],'projects':len(imported['projects']),'local_profile':bool(validated),'local_profiles':len(validated)}
-                elif path=='/api/settings':manager.save(data);result={'saved':True}
+                elif path=='/api/settings':await manager.apply_settings(data);result={'saved':True}
                 elif path=='/api/start':await manager.start();result=manager.status()
                 elif path=='/api/stop':await manager.stop();result=manager.status()
                 elif path=='/api/cancel-operation':
                     manager.operations.cancel(data.get('id'));result={'cancelled':True}
                 elif path=='/api/provider-login':
-                    provider=data.get('provider');binary=manager.inventory['binaries'].get(provider) if provider in ('codex','claude') else None
+                    provider=data.get('provider');binary=manager.inventory['binaries'].get(provider) if provider in ('codex','claude','gemini') else None
                     if not binary:raise ValueError('CLI não encontrado.')
-                    result=manager.operations.launch([binary,'login','--device-auth'] if provider=='codex' else [binary,'auth','login'])
+                    command=[sys.executable,'-m','Adapters.gemini.account','--binary',binary] if provider=='gemini' else ([binary,'login','--device-auth'] if provider=='codex' else [binary,'auth','login'])
+                    result=manager.operations.launch(command)
+                elif path=='/api/integration-catalog':
+                    provider=data.get('provider')
+                    if provider not in ('codex','claude'):raise ValueError('Provedor inválido.')
+                    binary=manager.inventory['binaries'].get(provider)
+                    if not binary:raise ValueError('CLI não instalado.')
+                    result=await integration_catalog(provider,binary,inventory())
                 elif path=='/api/integration':
-                    if manager.running():raise ValueError('Pare o harness antes de modificar integrações.')
                     provider=data.get('provider')
                     if provider not in ('codex','claude'):raise ValueError('Provedor inválido.')
                     binary=manager.inventory['binaries'][provider]
@@ -406,8 +569,9 @@ def create_app(state,port=8094):
                     if not model:raise ValueError('Modelo desconhecido.')
                     if not data.get('accepted'):raise ValueError('Confirme licença e tamanho do download.')
                     required={'gemma4':6*1024**3,'qwen36':18*1024**3}[data['model']]
-                    if shutil.disk_usage(Path.home()).free<required:raise ValueError('Espaço livre insuficiente para o modelo.')
-                    args=[binary,'pull',model] if data.get('runtime')=='ollama' and binary else [sys.executable,'-m','control.download_model',data['model'],str(manager.state/'models')]
+                    LOCAL_AI.mkdir(parents=True,exist_ok=True)
+                    if shutil.disk_usage(LOCAL_AI).free<required:raise ValueError('Espaço livre insuficiente para o modelo.')
+                    args=[binary,'pull',model] if data.get('runtime')=='ollama' and binary else [sys.executable,'-m','control.download_model',data['model'],str(LOCAL_AI/'models')]
                     result=manager.operations.launch(args,timeout=7200);manager.audit('model_install:'+data['model'])
                 elif path=='/api/local-import':
                     from .local_models import processes
@@ -416,18 +580,22 @@ def create_app(state,port=8094):
                         selected=str(Path(data['file']).expanduser().resolve())
                         active=[server for server in active if server.get('model_file') and str(Path(server['model_file']).expanduser().resolve())==selected]
                     if len(active)!=1:raise ValueError('É necessário um único servidor local ativo para importar o perfil.')
-                    selected={k:active[0][k] for k in ('binary','model_file','performance') if k in active[0]}
-                    result=save_profile(manager.state,validate_profile(selected));manager.audit('local_profile_imported')
+                    selected={k:active[0][k] for k in ('binary','model_file','mmproj_file','flags','performance') if k in active[0] and active[0][k]}
+                    result=save_profile(manager.state,validate_profile(selected))
+                    if manager.running():await manager.apply_settings(manager.settings)
+                    manager.audit('local_profile_imported')
                 elif path=='/api/local-profile':
                     profile=validate_profile(data)
                     if not profile:raise ValueError('Informe o modelo e o executável deste perfil.')
-                    result=save_profile(manager.state,profile);manager.audit('local_profile_saved')
+                    result=save_profile(manager.state,profile)
+                    if manager.running():await manager.apply_settings(manager.settings)
+                    manager.audit('local_profile_saved')
                 elif path=='/api/local-devices':
                     result=await runtime_details(data.get('binary',''))
                 elif path=='/api/local-files':
                     from .local_models import processes
                     roots={Path(m['model_file']).parent for m in processes() if m.get('model_file')}
-                    roots.add(manager.state/'models')
+                    roots.add(LOCAL_AI/'models')
                     if data.get('folder'):
                         root=Path(data['folder']).expanduser().resolve()
                         if not root.is_dir() or root==Path('/'):raise ValueError('Escolha uma pasta de modelos existente.')
@@ -446,7 +614,7 @@ def create_app(state,port=8094):
                     if profile:profile=validate_profile(profile)
                     cpu_only=bool(profile) and profile.get('performance',{}).get('n-gpu-layers')=='0'
                     if active and not cpu_only:raise ValueError('Outro servidor local está ativo. Para preservá-lo, só é possível iniciar outro modelo com perfil explícito de CPU (0 camadas GPU).')
-                    binary=data.get('binary') or profile.get('binary') or shutil.which('llama-server')
+                    binary=data.get('binary') or profile.get('binary') or (str(LOCAL_AI/'runtime/llama-b11003/llama-server') if (LOCAL_AI/'runtime/llama-b11003/llama-server').is_file() else shutil.which('llama-server'))
                     if not binary or not Path(binary).is_file() or Path(binary).name!='llama-server':raise ValueError('Informe o executável llama-server instalado.')
                     if not model.is_file() or model.suffix!='.gguf':raise ValueError('Selecione um arquivo GGUF existente.')
                     multigpu=set(profile.get('performance',{}))&{'main-gpu','split-mode','tensor-split'}
@@ -456,13 +624,14 @@ def create_app(state,port=8094):
                         if unsupported:raise ValueError('Este runtime não confirmou suporte a: '+', '.join(sorted(unsupported)))
                     layers=int(data.get('gpu_layers',0))
                     if not 0<=layers<=999:raise ValueError('Camadas GPU inválidas.')
-                    key=manager.state/'llama.key'
-                    if not key.exists():key.write_text(secrets.token_urlsafe(32));key.chmod(0o600)
+                    from .start_local import ensure_key
+                    key=ensure_key(LOCAL_AI/'config/api-key')
                     with socket.socket() as probe:
                         probe.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
                         try:probe.bind(('127.0.0.1',8096))
                         except OSError:raise ValueError('Porta 8096 ocupada; o processo existente foi preservado.')
-                    result=manager.operations.launch([str(binary),'--model',str(model),'--alias','managed-local','--host','127.0.0.1','--port','8096','--api-key-file',str(key),'--jinja',*(launch_options(profile) if profile else ['--ctx-size','65536','--parallel','1','--n-gpu-layers',str(layers)])],timeout=None)
+                    launch_profile={**profile,'binary':str(binary)} if profile else {'binary':str(binary),'model_file':str(model),'performance':{'ctx-size':'65536','parallel':'1','n-gpu-layers':str(layers)}}
+                    result=manager.operations.launch(launch_command(launch_profile,key_file=key),timeout=None)
                     manager.audit('local_model_started')
                 elif path=='/api/vpn-key':
                     key=manager.state/'vpn.key'
