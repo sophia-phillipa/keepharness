@@ -6,7 +6,7 @@ from Adapters.shared.workspace import prepare_workspace
 from . import native
 
 
-SPEC_REVISION = 1
+SPEC_REVISION = 2
 
 
 async def run_native(
@@ -15,6 +15,8 @@ async def run_native(
     if effort != "configured":
         raise ToolError("gemini_effort_unavailable")
     workspace = prepare_workspace(project, prompt, session_dir)
+    if project.get("_conversation_title"):
+        event("session_title_sync_unsupported", {"backend": "gemini", "reason": "gemini_acp_title_unsupported"})
     return await native.run(
         config,
         workspace.prompt,

@@ -1,6 +1,6 @@
 # Gemma 4 E4B Q4_K_M
 
-**Responsible agent:** `provedor_local`.
+**Responsible agent:** `integrate-local_tail-harness_engineer`.
 
 The project catalog pins `gemma-4-E4B-it-Q4_K_M.gguf` from `unsloth/gemma-4-E4B-it-GGUF` at revision `bfc15c382204943c3a8fff0c750b94ae2364d7a3`, SHA-256 `85a896a047553e842f25297ee5b031d64ff30147d9c4af17b1e4b394cd1fab87`.
 

@@ -20,7 +20,7 @@ const assert=require('node:assert/strict');
  quotaDelay=250;await page.selectOption('#model','gpt-5.6-sol');await page.selectOption('#model','sonnet');await page.waitForTimeout(350);
  assert.match(await page.locator('#quota-short').innerText(),/Claude|indisponível|não disponível/,'Late OpenAI quota must not overwrite Claude status');
  await page.fill('#prompt','Rascunho importante da auditoria');
- await page.locator('#projects summary button').click();
+ await page.getByRole('button',{name:'Projeto de trabalho',exact:true}).click();
  assert.equal(await page.locator('#prompt').inputValue(),'Rascunho importante da auditoria');
  await page.locator('.project-new').click();
  assert.equal(await page.locator('#prompt').inputValue(),'Rascunho importante da auditoria');

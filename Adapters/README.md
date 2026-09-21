@@ -6,12 +6,12 @@ Cada provedor possui código, especificação e agente de desenvolvimento própr
 
 | Pasta | Responsabilidade | Especialista | Contrato local |
 | --- | --- | --- | --- |
-| `codex/` | Protocolo app-server, sessões, esforço, aprovações e execução scoped | `provedor_codex` | [Spec](codex/specs/README.md) |
-| `claude/` | CLI stream-json, resume, ferramentas e parsing Claude | `provedor_claude` | [Spec](claude/specs/README.md) |
-| `gemini/` | Gemini CLI ACP, Google OAuth, sessões e aprovações | `provedor_gemini` | [Spec](gemini/specs/README.md) |
-| `deepseek/` | Chave API, catálogo, endpoint Responses e continuidade cliente | `provedor_deepseek` | [Spec](deepseek/specs/README.md) |
-| `local/` | Endpoint local, credencial isolada, política de ferramentas e sandbox | `provedor_local` | [Spec](local/specs/README.md) |
-| `shared/` | Preparação de pastas/anexos e alterações propostas no modo scoped | `modelos_mcp` | Contratos compartilhados abaixo |
+| `codex/` | Protocolo app-server, sessões, esforço, aprovações e execução scoped | `integrate-codex_tail-harness_engineer` | [Spec](codex/specs/README.md) |
+| `claude/` | CLI stream-json, resume, ferramentas e parsing Claude | `integrate-claude_tail-harness_engineer` | [Spec](claude/specs/README.md) |
+| `gemini/` | Gemini CLI ACP, Google OAuth, sessões e aprovações | `integrate-gemini_tail-harness_engineer` | [Spec](gemini/specs/README.md) |
+| `deepseek/` | Chave API, catálogo, endpoint Responses e continuidade cliente | `integrate-deepseek_tail-harness_engineer` | [Spec](deepseek/specs/README.md) |
+| `local/` | Endpoint local, credencial isolada, política de ferramentas e sandbox | `integrate-local_tail-harness_engineer` | [Spec](local/specs/README.md) |
+| `shared/` | Preparação de pastas/anexos e alterações propostas no modo scoped | `integrate-contracts_tail-harness_engineer` | Contratos compartilhados abaixo |
 
 ```mermaid
 flowchart LR

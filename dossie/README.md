@@ -7,12 +7,14 @@ All specifications, use cases, design decisions, and research notes in this dire
 - [Concurrency validation plan](concurrency-validation-plan.md)
 
 - [Local validation round](local-validation-round.md)
+- [Browser entry, identity and panel regressions](browser-entry-regression.md)
 
 - [UC-002: Model-specific local profiles](UC-002-local-model-profiles.md)
 
 - [Senior UX gauntlet](UX-GAUNTLET-SENIOR-REVIEW.md)
 
 - [UC-003 — Additive project and model access](UC-003-additive-project-access.md)
+- [Harness implementation research](harness-implementation-research.md)
 
 ## Version specifications
 
@@ -27,3 +29,5 @@ Each new version must add an English specification under `releases/v<VERSION>.md
 - [0.4.5 — Gemini CLI provider](releases/v0.4.5.md)
 
 - [0.5.0 — provider continuity, workspace UX and portable packaging](releases/v0.5.0.md)
+
+- [Modelo canônico de agentes e skills](modelo-canonico-agentes-skills.md): nomes, catálogo e migração.

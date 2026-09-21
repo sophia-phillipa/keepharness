@@ -10,6 +10,7 @@ from tail_ui import asset_response
 from pathlib import Path
 import re
 import sqlite3
+import subprocess
 import shutil
 import time
 import uuid
@@ -18,18 +19,45 @@ import unicodedata
 import httpx
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response, StreamingResponse, FileResponse
+from starlette.responses import JSONResponse, Response, StreamingResponse, FileResponse, RedirectResponse
 from starlette.routing import Route
 import Adapters as adapters
 from Adapters.codex import rpc as codex_rpc
 from . import tools, deployment, workspaces, maestro, service_control
 from . import approval_policy, conversation_context
 from .catalog import catalog
+from . import resources
 from .execution_defaults import resolve as resolve_defaults
 
 TERMINAL = {'completed','failed','cancelled','interrupted'}
 KINDS = {'infer','repository_read','repository_search','web_fetch','web_search','test','propose_patch'}
 PREVIEW_MEDIA_TYPES = {'image/png', 'image/jpeg', 'image/webp'}
+EXECUTION_MODES = {
+    # "native" means the provider owns the host-side session.  The local adapter
+    # always wraps Codex in bubblewrap, so exposing it as native would lie.
+    'codex': ('native', 'scoped'),
+    'claude': ('native', 'scoped'),
+    'gemini': ('native',),
+    'deepseek': ('native',),
+    'local': ('scoped',),
+    # Maestro may use an isolated local step internally, but its own session is
+    # not a separate provider session the user can choose a transport for.
+    'maestro': ('native',),
+}
+
+def project_git(root):
+    """Read the branch (or detached revision) without changing the repository."""
+    if not root:
+        return None
+    try:
+        result = subprocess.run(['git', '-C', root, 'symbolic-ref', '--quiet', '--short', 'HEAD'],
+                                capture_output=True, text=True, timeout=2)
+        if result.returncode:
+            result = subprocess.run(['git', '-C', root, 'rev-parse', '--short', 'HEAD'],
+                                    capture_output=True, text=True, timeout=2)
+        return result.stdout.strip() if result.returncode == 0 else None
+    except (OSError, subprocess.TimeoutExpired):
+        return None
 
 def context_overflow(error):
     text=str(error).lower()
@@ -417,7 +445,7 @@ class Service:
         explicit_model=bool('model_permissions' in local and any(model['backend']=='local' for model in maestro.candidates(self.config,project,uploads=True)))
         return bool(self.config.get('uploads_enabled')) or override is True or explicit_model
 
-    async def attach_project_files(self, identity, project, selected, skipped, backend, model):
+    async def attach_project_files(self, identity, project, selected, skipped, backend, model, execution_mode=None):
         attachments = []
         async with self.upload_lock:
             used = self.db.execute('SELECT coalesce(sum(size),0) FROM files WHERE project=?',(project,)).fetchone()[0]
@@ -439,7 +467,7 @@ class Service:
                         choices = maestro.candidates(self.config, project, uploads=True)
                         if not any(choice['backend'] == backend and choice['model'] == model for choice in choices):
                             raise APIError('select_model_for_image')
-                        await self.validate_images(backend, model)
+                        await self.validate_images(backend, model, execution_mode or self.default_execution_mode(backend))
                     with self.db:
                         self.db.execute('INSERT INTO files(id,project,name,size,hash,pages,owner) VALUES(?,?,?,?,?,?,?)',
                                         (fid, project, name, copied, digest.hexdigest(), encoded(pages), identity[0]))
@@ -467,6 +495,60 @@ class Service:
                                      (parent,row['project'],row['owner'])).fetchone()
             if not previous:raise APIError('invalid_parent_job')
             row=dict(previous)
+
+    def conversation_title(self, row):
+        cid=self.conversation_id(row)
+        title=self.db.execute('SELECT title FROM conversation_titles WHERE id=?',(cid,)).fetchone()
+        if title:return title[0]
+        root=self.db.execute('SELECT payload FROM jobs WHERE id=?',(cid,)).fetchone()
+        return json.loads(root[0]).get('prompt','Conversa')[:100]
+
+    def execution_modes(self, backend):
+        return EXECUTION_MODES.get(backend, ())
+
+    def default_execution_mode(self, backend):
+        modes=self.execution_modes(backend)
+        if not modes:
+            raise APIError('execution_mode_unsupported',422)
+        return 'native' if 'native' in modes else modes[0]
+
+    def configured_execution_mode(self, backend):
+        """Compatibility behavior for conversations saved before this field."""
+        if backend=='local':
+            return 'scoped'
+        return self.config.get('services', {}).get(backend, {}).get('mode', 'scoped')
+
+    def conversation_execution_mode(self, row):
+        root=self.db.execute('SELECT * FROM jobs WHERE id=?',(self.conversation_id(row),)).fetchone()
+        root_data=json.loads(root['payload'])
+        if root_data.get('execution_mode'):
+            return root_data['execution_mode']
+        # A pre-migration handoff has no root choice.  Its latest/passed turn's
+        # provider was the effective configured transport at that time.
+        data=json.loads(row['payload'])
+        return self.configured_execution_mode(data.get('backend','codex'))
+
+    def validate_execution_mode(self, backend, execution_mode, internal=False):
+        # Local is always sandboxed. Maestro stages may use it while a native
+        # Maestro conversation is running, but clients cannot select that label.
+        if internal and backend=='local' and execution_mode=='native':
+            return
+        if execution_mode not in self.execution_modes(backend):
+            raise APIError('execution_mode_unsupported',422)
+
+    def bind_execution_mode(self, identity, data):
+        """Store one effective mode on every turn; continuations never choose it."""
+        data=dict(data)
+        parent=data.get('parent_job_id')
+        if parent:
+            if 'execution_mode' in data:
+                raise APIError('conversation_execution_mode_locked',409)
+            previous=self.job(identity,parent)
+            data['execution_mode']=self.conversation_execution_mode(previous)
+        else:
+            data['execution_mode']=data.get('execution_mode',self.default_execution_mode(data.get('backend','codex')))
+        self.validate_execution_mode(data.get('backend','codex'),data['execution_mode'])
+        return data
 
     def conversation(self, identity, cid):
         root=self.job(identity,cid)
@@ -520,6 +602,8 @@ class Service:
             raise APIError('invalid_prompt')
         data=self.resolve_execution(data)
         backend=data['backend']
+        if data.get('execution_mode') is not None:
+            self.validate_execution_mode(backend,data['execution_mode'],bool(data.get('_maestro_stage')))
         if backend=='maestro':
             maestro.coordinator(self.config,data.get('project_id'))
             available=maestro.candidates(self.config,data.get('project_id'),bool(data.get('file_ids') or data.get('workspace_id')))
@@ -557,14 +641,39 @@ class Service:
                 return {'decision':'unsupported','reason':'model_or_effort_unavailable'}
         return {'decision':'accept','kind':kind,'quality':'experimental; verify evidence'}
 
+    def resource_catalog(self, identity, project_id, backend, model, execution_mode=None):
+        self.project(identity,project_id)
+        policy=self.config.get('services',{}).get(backend,{})
+        if not policy.get('enabled') or project_id not in policy.get('projects',[]):
+            raise APIError('service_project_denied',403)
+        if model not in policy.get('models',[]):raise APIError('model_denied',403)
+        if not maestro.model_permissions(self.config,backend,model,project_id).get('read'):
+            return {'engine':resources.ENGINES.get(backend),'items':[],'warnings':['Leitura de recursos desativada para este modelo.']}
+        execution_mode=execution_mode or self.default_execution_mode(backend)
+        self.validate_execution_mode(backend,execution_mode)
+        return resources.discover(self.config,project_id,backend,model,execution_mode=execution_mode)
+
+    def selected_resources(self, data):
+        if data.get('resource_selections') and not maestro.model_permissions(self.config,data['backend'],data.get('model'),data['project_id']).get('read'):
+            raise APIError('resource_read_denied',403)
+        try:
+            selected=resources.resolve(self.config,data)
+            resources.prepare_prompt(data.get('prompt',''),selected)
+            return selected
+        except resources.ResourceError as error:
+            raise APIError(str(error),409 if str(error) in ('resource_changed','resource_unavailable') else 422) from None
+
     def submit(self, identity, data, idem=None):
         data=dict(data)
+        if any(key in data for key in ('_maestro_stage','_planning_only')):
+            raise APIError('invalid_internal_field')
         if 'access_mode' not in data and data.get('parent_job_id'):
             data['access_mode']=json.loads(self.job(identity,data['parent_job_id'])['payload']).get('access_mode','ask')
         if data.get('access_mode','ask') not in approval_policy.MODES:raise APIError('invalid_access_mode')
         if data.get('parent_job_id') and data.get('workspace_id') is None:
             data['workspace_id']=json.loads(self.job(identity,data['parent_job_id'])['payload']).get('workspace_id')
         data=self.resolve_execution(data)
+        data=self.bind_execution_mode(identity,data)
         decision = self.assess(identity,data)
         if decision['decision']!='accept':
             raise APIError(decision.get('reason','unsupported'),422)
@@ -588,6 +697,8 @@ class Service:
             if old['digest']!=digest:
                 raise APIError('idempotency_conflict',409)
             return {'job_id':old['id'],'reused':True}
+        self.selected_resources(data)
+        legacy_root=None
         if data.get('parent_job_id'):
             previous=self.job(identity,data['parent_job_id'])
             previous_data=json.loads(previous['payload'])
@@ -595,6 +706,13 @@ class Service:
             if previous['project']!=project or previous['owner']!=identity[0] or previous['state'] not in TERMINAL:raise APIError('invalid_parent_job')
             turns=self.conversation(identity,self.conversation_id(previous))
             if turns[-1]['id']!=previous['id']:raise APIError('conversation_has_newer_turn',409)
+            root_id=self.conversation_id(previous)
+            root=self.db.execute('SELECT payload FROM jobs WHERE id=?',(root_id,)).fetchone()
+            root_data=json.loads(root['payload'])
+            if 'execution_mode' not in root_data:
+                # Freeze a legacy conversation only after this continuation has
+                # passed all admission and queue checks below.
+                legacy_root=(root_id,root_data)
         if self.db.execute("SELECT count(*) FROM jobs WHERE state IN ('queued','running')").fetchone()[0]>=32:
             raise APIError('queue_full',429,5)
         if self.db.execute('SELECT count(*) FROM jobs WHERE project=?',(project,)).fetchone()[0]>=1000:
@@ -604,11 +722,16 @@ class Service:
         self.limit((identity[0],'submission'),12,'submission_rate_limit')
         job = uuid.uuid4().hex
         with self.db:
+            if legacy_root:
+                root_id,root_data=legacy_root
+                root_data['execution_mode']=data['execution_mode']
+                self.db.execute('UPDATE jobs SET payload=? WHERE id=?',(encoded(root_data),root_id))
             self.db.execute('INSERT INTO jobs VALUES(?,?,?,?,?,?,?,?,?)',
                 (job,project,identity[0],'queued',time.time(),payload,None,idem,digest))
             self.event(job,'queued',{})
         self.wake.set()
-        return {'job_id':job,'status_url':f'/v1/jobs/{job}','events_url':f'/v1/jobs/{job}/events'}
+        return {'job_id':job,'status_url':f'/v1/jobs/{job}','events_url':f'/v1/jobs/{job}/events',
+                'execution_mode':data['execution_mode']}
 
     def panel(self, project, thinking='',answer='',finished=False,timings=None,model='Qwen3.6-35B-A3B UD-Q3_K_M'):
         if not self.config['projects'][project].get('display',False):
@@ -620,8 +743,10 @@ class Service:
                                'thinking':thinking,'answer':answer,'finished':finished,'timings':timings or {}}))
         tmp.replace(path)
 
-    async def validate_images(self, backend, model):
-        if self.config.get('services',{}).get(backend,{}).get('mode')!='native':
+    async def validate_images(self, backend, model, execution_mode=None):
+        if execution_mode is None:
+            execution_mode=self.config.get('services',{}).get(backend,{}).get('mode','scoped')
+        if execution_mode!='native':
             raise APIError('images_require_native_service')
         if backend in ('codex','claude','gemini'):return
         if backend!='local':raise APIError('model_images_unavailable')
@@ -639,6 +764,7 @@ class Service:
         raise APIError('local_vision_not_enabled')
 
     async def infer(self, row, data):
+        selected_resources=self.selected_resources(data)
         model_url = self.config.get('model_url','http://127.0.0.1:8091')
         sources = []
         turns=[] if data.get('_planning_only') else self.context_turns(row,data)
@@ -658,11 +784,25 @@ class Service:
                               full_text_path=str(extracted.resolve()),instruction='Only an excerpt is shown. Read the local text file in bounded portions using the permitted tools. If tools are unavailable, ask for a smaller excerpt; never claim to have read the complete document.')
             sources.append(source)
         image_sources=[source for source in sources if any(page.get('media_type') for page in source['pages'])]
-        if image_sources:await self.validate_images(data.get('backend','codex'),data.get('model'))
+        attachment_notice = ''
+        if image_sources:
+            try:
+                await self.validate_images(data.get('backend','codex'),data.get('model'),data.get('execution_mode'))
+            except APIError as exc:
+                reasons = {
+                    'model_images_unavailable': 'o modelo selecionado não suporta leitura de imagens',
+                    'local_vision_not_enabled': 'o modelo local está sem suporte a imagens habilitado neste servidor',
+                    'images_require_native_service': 'o modo de execução selecionado não suporta leitura de imagens',
+                }
+                if exc.code not in reasons:raise
+                attachment_notice = '\n'.join('Arquivo '+json.dumps(source['filename'],ensure_ascii=False)+' ignorado nesta resposta porque '+reasons[exc.code]+'.' for source in image_sources)+'\n\n'
+                sources = [source for source in sources if source not in image_sources]
+                image_sources = []
         context = encoded(sources)
         if len(context)>100000:
             raise APIError('source_context_limit')
-        prompt = data.get('prompt','')
+        prompt = resources.prepare_prompt(data.get('prompt',''),selected_resources)
+        if attachment_notice:prompt += '\nAVISO DO SISTEMA: os arquivos abaixo não foram fornecidos ao modelo; não afirme ter lido seu conteúdo.\n'+attachment_notice
         native_session=self.root/'sessions'/self.conversation_id(row)/data.get('backend','codex')
         if data.get('_maestro_stage'):native_session=self.root/'sessions'/row['id']/('maestro-'+data['_maestro_stage'])
         overflow_job=next((payload['_overflow_job_id'] for payload,_ in reversed(turns) if payload.get('_overflow_job_id')),None)
@@ -675,8 +815,11 @@ class Service:
                 if marker.exists():marker.replace(native_session/(name+'.before-context-recovery'))
             recovery.write_text(encoded({'job':overflow_job}));recovery.chmod(0o600)
             self.event(row['id'],'context_recovered',{'excluded_attachments':True,'reason':'context_limit_exceeded'})
-        execution_mode=self.config['services'].get(data.get('backend','codex'),{}).get('mode','scoped')
-        pending,persisted_session=conversation_context.pending_turns(native_session,turns,data.get('backend','codex'),execution_mode)
+        execution_mode=data.get('execution_mode',self.configured_execution_mode(data.get('backend','codex')))
+        # The local adapter is visibly scoped but its persistent Codex cursor
+        # uses the native RPC transport.  Keep that historical cursor contract.
+        context_transport_mode='native' if data.get('backend')=='local' else execution_mode
+        pending,persisted_session=conversation_context.pending_turns(native_session,turns,data.get('backend','codex'),context_transport_mode)
         pending_files={fid for payload,_ in pending for fid in payload.get('file_ids',[])} | set(data.get('file_ids',[]))
         if persisted_session:
             context=encoded([source for source in sources if source['file_id'] in pending_files])
@@ -701,7 +844,11 @@ class Service:
                 if time.monotonic()-live['at']>1:
                     self.panel(row['project'],live['thinking'],live['answer'],model=data.get('model','gpt-6-astra'))
                     live['at']=time.monotonic()
+            if attachment_notice:progress('answer_delta',{'text':attachment_notice})
             project_config=dict(self.config['projects'][row['project']])
+            project_config['_resources']=selected_resources
+            if not data.get('_maestro_stage'):
+                project_config['_conversation_title']=self.conversation_title(row)
             if backend=='local' and not data.get('workspace_id'):
                 model_roots=self.config.get('local',{}).get('model_roots',{}).get(data['model'],[])
                 roots=list(dict.fromkeys([root for root in [project_config.get('root'),*project_config.get('additional_roots',[]),*model_roots] if root]))
@@ -724,7 +871,9 @@ class Service:
             if data.get('_planning_only'):
                 project_config={'permissions':{}}
                 backend_config={**backend_config,'integrations':[],'unrestricted':False}
-            if self.config['services'][backend].get('mode')=='native':
+            # Local's adapter has a scoped bubblewrap contract despite using the
+            # native Codex RPC helper underneath.
+            if execution_mode=='native' or backend=='local':
                 async def approve(kind,params):
                     fingerprint=approval_policy.rule_key(kind,params,permissions)
                     scope=(row['owner'],self.conversation_id(row),backend,data['model'],fingerprint)
@@ -751,7 +900,8 @@ class Service:
                 result=await adapters.run_native(backend_config,prompt+'\nFONTES:\n'+context,progress,project_config,data['model'],data.get('effort','low'),native_session,backend,approve)
                 if backend=='codex':
                     after=await self.quota(True);progress('quota_after',after);result.update(quota_before=before,quota_after=after)
-                conversation_context.save_cursor(native_session,row['id'],result,execution_mode)
+                if attachment_notice:result['answer']=attachment_notice+result.get('answer','')
+                conversation_context.save_cursor(native_session,row['id'],result,context_transport_mode)
                 return result
             baseline=deployment.snapshot(project_config['root']) if project_config.get('apply_changes') else {}
             result=await adapters.run_scoped(backend_config,full_prompt,progress,project_config,data.get('model','gpt-6-astra'),data.get('effort','low'),staged={} if project_config.get('apply_changes') else next((r.get('staged_files') for _,r in reversed(turns) if r.get('staged_files') is not None),{}),session_dir=native_session if backend=='codex' else None,provider=backend)
@@ -769,7 +919,8 @@ class Service:
             if backend=='codex':
                 after=await self.quota(True);self.event(row['id'],'quota_after',after)
                 result['quota_before']=before;result['quota_after']=after
-            conversation_context.save_cursor(native_session,row['id'],result,execution_mode)
+            if attachment_notice:result['answer']=attachment_notice+result.get('answer','')
+            conversation_context.save_cursor(native_session,row['id'],result,context_transport_mode)
             return result
         raise APIError('backend_unavailable')
 
@@ -896,6 +1047,7 @@ class Service:
         detail=json.loads(last['data']) if last else {}
         return {'backend':backend,'model':data.get('model','qwen-local' if backend=='qwen' else backend),
                 'effort':data.get('effort'),'kind':data.get('kind','infer'),
+                'execution_mode':self.conversation_execution_mode(row),
                 'task_label':data.get('task_label',''),'activity':row['state'] if row['state'] in TERMINAL else activity,
                 'tool':detail.get('tool') if activity in ('tool_start','tool_end') else None}
 
@@ -917,8 +1069,8 @@ class Service:
         return models
 
     def models(self,project_id=None):
-        automatic=[{'id':'maestro','name':'Maestro · seleção automática','backend':'maestro','efforts':['auto']}] if self.config.get('maestro_enabled',True) and self.config.get('services',{}).get('codex',{}).get('enabled') and (project_id is None or any(model['backend']=='codex' for model in maestro.candidates(self.config,project_id))) else []
-        return automatic+[{'id':m,'name':Path(self.config.get('local',{}).get('local_models',{}).get(m,{}).get('model_file') or m).name if provider=='local' else m,'backend':provider,'permissions':maestro.model_permissions(self.config,provider,m,project_id),'capabilities':{'tools':any(value for key,value in maestro.model_permissions(self.config,provider,m,project_id).items() if key!='upload')},'efforts':self.config.get('codex_models',{}).get(m,['configured']) if provider=='codex' else self.config.get('deepseek_models',{}).get(m,['configured']) if provider=='deepseek' else ['configured']}
+        automatic=[{'id':'maestro','name':'Maestro · seleção automática','backend':'maestro','efforts':['auto'],'execution_modes':list(self.execution_modes('maestro'))}] if self.config.get('maestro_enabled',True) and self.config.get('services',{}).get('codex',{}).get('enabled') and (project_id is None or any(model['backend']=='codex' for model in maestro.candidates(self.config,project_id))) else []
+        return automatic+[{'id':m,'name':Path(self.config.get('local',{}).get('local_models',{}).get(m,{}).get('model_file') or m).name if provider=='local' else m,'backend':provider,'permissions':maestro.model_permissions(self.config,provider,m,project_id),'capabilities':{'tools':any(value for key,value in maestro.model_permissions(self.config,provider,m,project_id).items() if key!='upload')},'execution_modes':list(self.execution_modes(provider)),'efforts':self.config.get('codex_models',{}).get(m,['configured']) if provider=='codex' else self.config.get('deepseek_models',{}).get(m,['configured']) if provider=='deepseek' else ['configured']}
                 for provider,service in self.config.get('services',{}).items() if service.get('enabled') and (project_id is None or project_id in service.get('projects',[])) for m in service.get('models',[])]
 
     def capabilities(self):
@@ -999,6 +1151,10 @@ def create_app(config, runtime_path=None):
             if path=='/.well-known/agent-capabilities.json':
                 value=service.capabilities();etag='"'+hashlib.sha256(encoded(value).encode()).hexdigest()+'"'
                 return Response(status_code=304,headers={'ETag':etag}) if request.headers.get('if-none-match')==etag else JSONResponse(value,headers={'ETag':etag})
+            if path=='/v1/resources':
+                params=request.query_params
+                value=await asyncio.to_thread(service.resource_catalog,identity,params.get('project_id'),params.get('backend'),params.get('model'),params.get('execution_mode'))
+                return JSONResponse(value,headers={'Cache-Control':'no-store'})
             if path=='/v1/catalog':
                 project_id=request.query_params.get('project_id')
                 service.project(identity,project_id)
@@ -1035,7 +1191,7 @@ def create_app(config, runtime_path=None):
             if path=='/v1/models':
                 project_id=request.query_params.get('project_id') or ('sem-projeto' if 'sem-projeto' in identity[1]['projects'] else next(iter(identity[1]['projects']),None))
                 service.project(identity,project_id)
-                return JSONResponse({'models':await service.models_with_context(project_id),'project_id':project_id,'providers':{p:c.get('enabled',False) for p,c in config.get('services',{}).items()},'uploads_enabled':service.uploads_enabled(project_id),'admin_url':config.get('admin_url') if request.url.hostname in ('localhost','127.0.0.1') else None})
+                return JSONResponse({'models':await service.models_with_context(project_id),'project_id':project_id,'providers':{p:c.get('enabled',False) for p,c in config.get('services',{}).items()},'uploads_enabled':service.uploads_enabled(project_id),'admin_url':config.get('admin_url')})
             if path=='/v1/conversations':
                 groups={}
                 deleted={r[0] for r in service.db.execute('SELECT id FROM deleted_conversations')}
@@ -1060,7 +1216,7 @@ def create_app(config, runtime_path=None):
                     with service.db:
                         service.db.execute('INSERT INTO deleted_conversations VALUES(?)',(cid,))
                     return JSONResponse({'deleted':True,'retention':'hidden; execution records retained'})
-                return JSONResponse({'id':cid,'turns':[{'id':r['id'],'project':r['project'],'state':r['state'],
+                return JSONResponse({'id':cid,'execution_mode':service.conversation_execution_mode(rows[-1]),'turns':[{'id':r['id'],'project':r['project'],'state':r['state'],
                     'attachments':service.message_attachments(r),'request':json.loads(r['payload']),'result':json.loads(r['result'] or '{}')} for r in rows]})
             if path=='/v1/history':
                 projects=identity[1]['projects'];placeholders=','.join('?' for _ in projects)
@@ -1081,6 +1237,9 @@ def create_app(config, runtime_path=None):
                 return JSONResponse({'roots':[{'id':rid,'label':{'home':'Pasta pessoal','media-user':'Mídias externas'}[rid]}
                                      for rid,_ in workspaces.visible_system_roots()], 'root_id':root_id,
                                      'absolute_path':str(workspaces.system_path(root,folder)),**result})
+            if path=='/v1/project-git':
+                spec=service.project(identity,request.query_params.get('project_id'))
+                return JSONResponse({'revision':await asyncio.to_thread(project_git,spec.get('root'))})
             if path=='/v1/projects':
                 if request.method=='POST':return JSONResponse({'project_id':service.add_project(await body(request))},status_code=201)
                 return JSONResponse({'projects':[p for p in identity[1]['projects'] if p in config['projects']], 'details':{p:{'label':config['projects'][p].get('label',p),'root':config['projects'][p].get('root'),'additional_roots':config['projects'][p].get('additional_roots',[]),'apply_changes':bool(config['projects'][p].get('apply_changes'))} for p in identity[1]['projects'] if p in config['projects']}})
@@ -1152,13 +1311,24 @@ def create_app(config, runtime_path=None):
                     selected,skipped=await asyncio.to_thread(workspaces.selected_system_files,root,data.get('paths'),maximum)
                     backend=request.query_params.get('backend',data.get('backend'))
                     model=request.query_params.get('model',data.get('model'))
-                    return JSONResponse(await service.attach_project_files(identity,project,selected,skipped,backend,model))
+                    execution_mode=data.get('execution_mode') or request.query_params.get('execution_mode')
+                    if backend:
+                        execution_mode=execution_mode or service.default_execution_mode(backend)
+                        service.validate_execution_mode(backend,execution_mode)
+                    return JSONResponse(await service.attach_project_files(identity,project,selected,skipped,backend,model,execution_mode))
                 if request.query_params.get('view')=='tree':
                     roots=workspaces.visible_system_roots();root_id=request.query_params.get('root_id','home')
                     try:start=int(request.query_params.get('start',1));limit=int(request.query_params.get('limit',100))
                     except ValueError:raise APIError('invalid_range')
+                    folder=request.query_params.get('path','')
+                    if request.query_params.get('navigate_project')=='1':
+                        spec=service.project(identity,request.query_params.get('project_id'))
+                        if not spec.get('root'):raise APIError('project_has_no_directory')
+                        target=Path(spec['root']).resolve()
+                        root_id,root=next(((rid,base) for rid,base in roots if target.is_relative_to(base.resolve())),('system',Path('/')))
+                        folder=target.relative_to(root.resolve()).as_posix()
                     root=workspaces.system_root(root_id)
-                    result=await asyncio.to_thread(workspaces.browse_system,root,request.query_params.get('path',''),start,limit)
+                    result=await asyncio.to_thread(workspaces.browse_system,root,folder,start,limit)
                     return JSONResponse({'state':'ready','roots':[{'id':rid,'label':{'home':'Pasta pessoal','media-user':'Mídias externas'}[rid]} for rid,_ in roots],
                                          'root_id':root_id,**result})
                 project=request.query_params.get('project_id');spec=service.project(identity,project)
@@ -1195,7 +1365,9 @@ def create_app(config, runtime_path=None):
                             backend=request.query_params.get('backend');model=request.query_params.get('model')
                             choices=maestro.candidates(config,project,uploads=True)
                             if not any(c['backend']==backend and c['model']==model for c in choices):raise APIError('select_model_for_image')
-                            await service.validate_images(backend,model)
+                            execution_mode=request.query_params.get('execution_mode') or service.default_execution_mode(backend)
+                            service.validate_execution_mode(backend,execution_mode)
+                            await service.validate_images(backend,model,execution_mode)
                         with service.db:
                             service.db.execute('INSERT INTO files(id,project,name,size,hash,pages,owner) VALUES(?,?,?,?,?,?,?)',(fid,project,filename,size,digest.hexdigest(),encoded(pages),identity[0]))
                     except BaseException:
@@ -1238,7 +1410,7 @@ def create_app(config, runtime_path=None):
                 return LimitedStream(events(),release=release_stream,media_type='text/event-stream',headers={'Cache-Control':'no-store','X-Accel-Buffering':'no'})
             row['attachments']=service.message_attachments(row)
             public_request=json.loads(row['payload'])
-            row['request']={k:public_request.get(k) for k in ('prompt','backend','model','effort','parent_job_id','task_label','kind','access_mode')}
+            row['request']={k:public_request.get(k) for k in ('prompt','backend','model','effort','parent_job_id','task_label','kind','access_mode','execution_mode')}
             return JSONResponse({k:(json.loads(v) if v and k=='result' else v) for k,v in row.items() if k not in ('payload','digest','idem','owner')})
         except (APIError,tools.ToolError) as exc:
             code=exc.code if isinstance(exc,APIError) else str(exc)
@@ -1248,13 +1420,21 @@ def create_app(config, runtime_path=None):
             return JSONResponse({'code':'internal_error','retryable':False,'request_id':uuid.uuid4().hex},status_code=500)
 
     async def ui(request):
+        # Keep browser storage and authenticated history on the shared origin.
+        # API/MCP callers retain their own identities and never follow this route.
+        destination = config.get('browser_url')
+        if (request.url.path == '/' and request.url.hostname in ('127.0.0.1', 'localhost', '::1')
+                and destination and destination.rstrip('/') in config.get('origins', [])
+                and destination.rstrip('/') != str(request.base_url).rstrip('/')):
+            return RedirectResponse(destination, status_code=307,
+                                    headers={'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer'})
         if request.url.path.startswith('/assets/'):return asset_response(request.url.path)
         if request.url.path=='/setup-mcp.sh':return FileResponse(Path(__file__).with_name('setup-mcp.sh'),media_type='text/x-shellscript',filename='setup-mcp.sh',headers={'Cache-Control':'no-store'})
         if request.url.path=='/guide':return FileResponse(Path(__file__).resolve().parents[1]/'README.md',media_type='text/plain')
         name={'/vendor/markdown-it.min.js':'vendor/markdown-it.min.js','/ui.js':'ui.js','/ui.css':'ui.css','/mcp_bridge.py':'mcp_bridge.py'}.get(request.url.path,'index.html')
         return FileResponse(Path(__file__).parent / name,headers={'Cache-Control':'no-store','Content-Security-Policy':"default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'",'X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer'})
 
-    routes=[Route('/v1/project-directories',endpoint),Route('/v1/approval-rules',endpoint,methods=['POST']),Route('/v1/services',endpoint,methods=['POST']),Route('/v1/workspaces',endpoint,methods=['GET','POST']),Route('/v1/workspaces/{workspace}',endpoint),Route('/v1/workspaces/{workspace}/download',endpoint),Route('/v1/project-files',endpoint),Route('/v1/project-files/attach',endpoint,methods=['POST']),Route('/v1/login',endpoint,methods=['POST']),Route('/v1/approvals/{approval}',endpoint,methods=['POST']),Route('/guide',ui),Route('/',ui),Route('/vendor/markdown-it.min.js',ui),Route('/ui.js',ui),Route('/ui.css',ui),Route('/assets/{path:path}',ui),Route('/mcp_bridge.py',ui),Route('/setup-mcp.sh',ui),Route('/.well-known/agent-capabilities.json',endpoint),Route('/v1/projects',endpoint,methods=['GET','POST']),Route('/v1/usage',endpoint),Route('/v1/models',endpoint),Route('/v1/history',endpoint),
+    routes=[Route('/v1/resources',endpoint),Route('/v1/project-git',endpoint),Route('/v1/project-directories',endpoint),Route('/v1/approval-rules',endpoint,methods=['POST']),Route('/v1/services',endpoint,methods=['POST']),Route('/v1/workspaces',endpoint,methods=['GET','POST']),Route('/v1/workspaces/{workspace}',endpoint),Route('/v1/workspaces/{workspace}/download',endpoint),Route('/v1/project-files',endpoint),Route('/v1/project-files/attach',endpoint,methods=['POST']),Route('/v1/login',endpoint,methods=['POST']),Route('/v1/approvals/{approval}',endpoint,methods=['POST']),Route('/guide',ui),Route('/',ui),Route('/vendor/markdown-it.min.js',ui),Route('/ui.js',ui),Route('/ui.css',ui),Route('/assets/{path:path}',ui),Route('/mcp_bridge.py',ui),Route('/setup-mcp.sh',ui),Route('/.well-known/agent-capabilities.json',endpoint),Route('/v1/projects',endpoint,methods=['GET','POST']),Route('/v1/usage',endpoint),Route('/v1/models',endpoint),Route('/v1/history',endpoint),
       Route('/v1/catalog',endpoint),Route('/v1/version',endpoint),Route('/v1/conversations',endpoint),Route('/v1/conversations/{conversation}',endpoint,methods=['GET','DELETE','PATCH']),
       Route('/v1/files',endpoint,methods=['POST']),Route('/v1/files/{file}/preview',endpoint,methods=['GET']),Route('/v1/assess',endpoint,methods=['POST']),
       Route('/v1/jobs',endpoint,methods=['POST']),Route('/v1/jobs/{job}',endpoint),

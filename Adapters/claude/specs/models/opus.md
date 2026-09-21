@@ -1,6 +1,6 @@
 # Claude Code alias: opus
 
-**Responsible agent:** `provedor_claude`.
+**Responsible agent:** `integrate-claude_tail-harness_engineer`.
 
 `opus` is one of the aliases explicitly exposed by `control/server.py` after successful Claude authentication. The harness invokes it with `--model opus` and exposes effort only as `configured`.
 

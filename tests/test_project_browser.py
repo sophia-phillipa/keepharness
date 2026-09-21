@@ -127,5 +127,22 @@ def test_system_attachment_uses_model_from_query_for_images(tmp_path):
         assert response.status_code == 200, response.text
         assert response.json()['attachments'][0]['media_type'] == 'image/png'
         assert response.json()['attachments'][0]['preview_url'].endswith('/preview')
-        validate.assert_awaited_once_with('codex', 'fixture')
+        validate.assert_awaited_once_with('codex', 'fixture', 'native')
+    app.state.service.db.close()
+
+
+def test_navigate_primary_project_folder_uses_visible_root(tmp_path):
+    from agent_service import workspaces
+    home=tmp_path/'home'; first=home/'first'; first.mkdir(parents=True)
+    (first/'main.txt').write_text('hello')
+    cfg=config(tmp_path);cfg['projects']['p']={'root':str(first),'additional_roots':[str(home/'second')]}
+    app=create_app(cfg)
+    with patch.object(workspaces,'system_roots',return_value=[('system',Path('/')),('home',home)]), TestClient(app,headers={'Authorization':'Bearer a'}) as client:
+        response=client.get('/v1/project-files?view=tree&navigate_project=1&project_id=p')
+        assert response.status_code==200
+        data=response.json()
+        assert data['root_id']=='home' and data['path']=='first'
+        assert [entry['name'] for entry in data['entries']]==['main.txt']
+        assert client.get('/v1/project-files?view=tree&navigate_project=1&project_id=unknown').status_code==403
+        assert client.get('/v1/project-files?view=tree&navigate_project=1&project_id=sem-projeto').status_code==422
     app.state.service.db.close()

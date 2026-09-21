@@ -161,3 +161,15 @@ def test_mode_change_rebuilds_history_instead_of_using_other_transport(service):
     cursor.write_text(json.dumps(saved))
     result = execute(service, 'b', 'codex', 'a')
     assert not result['resumed'] and 'answer-a' in result['prompt']
+
+
+@pytest.mark.parametrize('backend', ['codex', 'claude', 'gemini', 'deepseek', 'local'])
+def test_title_is_provider_independent_and_survives_handoff(service, backend):
+    service.config['services'][backend] = {**service.config['services']['codex'], 'mode': 'native'}
+    service.config.setdefault(backend, {})
+    first = execute(service, 'root-title', 'codex')
+    assert first['project']['_conversation_title'] == 'request-root-title'
+    with service.db:
+        service.db.execute('INSERT INTO conversation_titles VALUES(?,?)', ('root-title', 'Same title everywhere'))
+    next_turn = execute(service, 'child-title', backend, 'root-title')
+    assert next_turn['project']['_conversation_title'] == 'Same title everywhere'

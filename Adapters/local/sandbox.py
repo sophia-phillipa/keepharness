@@ -111,6 +111,9 @@ def wrap(command, session, cwd, project, environment=None):
     ):
         if Path(value).exists():
             args += ["--ro-bind", value, value]
+    if permissions.get("internet") and permissions.get("shell"):
+        args += ["--ro-bind", str(Path(__file__).with_name("web_search.py").resolve()),
+                 "/tail-web-search.py"]
     if environment and environment.get("TAIL_HARNESS_LOCAL_KEY"):
         args += [
             "--setenv",

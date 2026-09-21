@@ -26,7 +26,7 @@ from .discovery import scan,command
 from Adapters.deepseek import account as deepseek
 from Adapters.gemini import account as gemini
 from .integrations import inventory
-from .integration_catalog import catalog as integration_catalog
+from .integration_catalog import catalog as integration_catalog, installed_plugins
 from .operations import Operations,operation
 from .local_models import load_profile,load_profiles,save_profile,launch_command,validate_profile,runtime_permissions,runtime_roots,runtime_details
 import ipaddress
@@ -45,7 +45,7 @@ class Manager:
         self.path=self.state/'settings.json';self.cookie=secrets.token_urlsafe(32)
         self.admin_port=8094
         self.dashboard=DashboardReader(self.state)
-        self.inventory=None;self.proc=None;self.lock=asyncio.Lock()
+        self.inventory=None;self.plugin_catalog=None;self.proc=None;self.lock=asyncio.Lock()
         self.settings=json.loads(self.path.read_text()) if self.path.exists() else {
             'services':{p:{'enabled':False,'models':[],'projects':['sem-projeto'],'mode':'native' if p in ('local','deepseek','gemini') else 'scoped','integrations':[],'permissions':{k:False for k in PERMISSIONS}} for p in ('codex','claude','gemini','local','deepseek')},
             'projects':[],'uploads_enabled':False,'port':8095,'tailnet_port':8095,'logins':[]}
@@ -58,7 +58,19 @@ class Manager:
 
     async def refresh(self):
         self.inventory=await scan()
+        binary=self.inventory.get('binaries',{}).get('codex')
+        if binary:
+            plugins=await installed_plugins(binary)
+            if plugins is not None:self.plugin_catalog=plugins
+            else:self.inventory['integration_warnings']=['Não foi possível confirmar os plugins instalados; mantido o último inventário conhecido.']
         return self.inventory
+
+    def integrations(self):
+        result=inventory()
+        if self.plugin_catalog is not None:
+            result['codex']=[item for item in result.get('codex',[]) if item.get('kind')!='plugin']+self.plugin_catalog
+            result['local']=result['deepseek']=result['codex']
+        return result
 
     def busy(self):
         db=self.state/'runs/jobs.sqlite3'
@@ -112,7 +124,7 @@ class Manager:
             if provider=='local' and perms['upload'] and not out['uploads_enabled']:raise ValueError('Habilite uploads globais antes de permitir anexos no serviço.')
             mode='native'
             selected=spec.get('integrations',[])
-            available={x['id'] for x in inventory().get(provider,[])}
+            available={x['id'] for x in self.integrations().get(provider,[])}
             if not isinstance(selected,list) or any(x not in available for x in selected):raise ValueError('Integração não encontrada. Atualize o inventário.')
             if selected and (mode!='native' or not perms['internet']):raise ValueError('Conectores exigem modo nativo e internet nesta versão.')
             enabled=spec.get('enabled') is True
@@ -156,12 +168,19 @@ class Manager:
         tmp.chmod(0o600)
         tmp.replace(path)
 
+    def browser_url(self, settings):
+        host = (self.inventory or {}).get('network', {}).get('hostname')
+        if host and settings.get('logins') and (self.state / 'tailnet.json').exists():
+            return f'http://{host}:{settings["tailnet_port"]}/'
+        return None
+
     async def build_runtime_config(self, settings, allow_empty=False):
         """Build the process-owned configuration without starting or restarting it."""
         if self.inventory is None:
             await self.refresh()
         settings = self.validate(settings)
         cfg = {
+            "browser_url": self.browser_url(settings),
             "state_dir": str(self.state / "runs"),
             "projects": {"sem-projeto": {"label": "Sem projeto"}},
             "clients": {},
@@ -277,6 +296,8 @@ class Manager:
         for provider in ("codex", "claude", "deepseek"):
             if provider in cfg:
                 cfg[provider]["unrestricted"] = True
+                if provider in ('codex','deepseek'):
+                    cfg[provider]['plugin_inventory']=[item['id'] for item in self.integrations().get(provider,[]) if item.get('kind')=='plugin']
         previous = self._previous_runtime()
         all_projects = list(cfg["projects"])
         vpnkey = self.state / "vpn.key"
@@ -319,7 +340,9 @@ class Manager:
 
     async def apply_settings(self, data):
         settings = self.validate(data)
-        current = self.validate(self.settings)
+        # The new configuration may repair integrations removed from the CLI.
+        current = {'port':self.settings.get('port',8095),
+                   'vpn_bind':self.settings.get('vpn_bind','127.0.0.1')}
         if self.running() and any(
             settings.get(key) != current.get(key) for key in ("port", "vpn_bind")
         ):
@@ -385,7 +408,8 @@ class Manager:
             for _ in range(40):
                 if self.proc.returncode is not None:raise ValueError('O serviço encerrou ao iniciar. Consulte o log local.')
                 try:
-                    if (await client.get(f'http://{bind}:{port}/')).status_code==200:break
+                    # The browser entry may redirect to Tailscale; readiness is local.
+                    if (await client.get(f'http://{bind}:{port}/ui.css')).status_code==200:break
                 except httpx.HTTPError:pass
                 await asyncio.sleep(.25)
             else:
@@ -423,6 +447,10 @@ class Manager:
             code,_=await command(binary,'serve','--http='+str(port),'off')
             if code:raise ValueError('Não foi possível retirar a rota.')
             receipt.unlink();self.audit('tailnet_disabled')
+        runtime = self._previous_runtime()
+        if runtime:
+            runtime['browser_url'] = self.browser_url(self.settings)
+            self._write_runtime(runtime)
 
     def status(self):
         host=(self.inventory or {}).get('network',{}).get('hostname');port=self.settings['port']
@@ -447,8 +475,13 @@ def create_app(state,port=8094):
         if host not in allowed or (request.client is None or request.client.host not in ('127.0.0.1','::1','testclient')) or request.headers.get('tailscale-user-login'):
             return JSONResponse({'error':'Gestão disponível somente nesta máquina.'},403)
         origin=request.headers.get('origin')
-        if (origin and origin not in ['http://'+h for h in allowed]) or request.headers.get('sec-fetch-site')=='cross-site':return JSONResponse({'error':'Origem não autorizada.'},403)
         path=request.url.path
+        # A clicked harness link may cross sites; only allow the initial document.
+        navigation=(request.method=='GET' and path=='/'
+                    and request.headers.get('sec-fetch-mode')=='navigate'
+                    and request.headers.get('sec-fetch-dest')=='document'
+                    and request.headers.get('sec-fetch-user')=='?1')
+        if (origin and origin not in ['http://'+h for h in allowed]) or (request.headers.get('sec-fetch-site')=='cross-site' and not navigation):return JSONResponse({'error':'Origem não autorizada.'},403)
         if path=='/':
             r=FileResponse(ROOT/'control/index.html');r.set_cookie('admin',manager.cookie,httponly=True,samesite='strict');return r
         if path.startswith('/assets/'):return asset_response(path)
@@ -477,7 +510,7 @@ def create_app(state,port=8094):
                 if path=='/api/dashboard':
                     job=request.query_params.get('job')
                     return JSONResponse(await asyncio.to_thread(dashboard_execution,manager.state,job) if job else await manager.dashboard.read())
-                if path=='/api/state':return JSONResponse({'settings':manager.settings,'inventory':manager.inventory,'status':manager.status(),'authentication':manager.auth,'models':manager.provider_models,'integrations':inventory(),'operations':list(manager.operations.jobs.values()),'local_profile':load_profile(manager.state),'local_profiles':load_profiles(manager.state),'credentials':{'deepseek':deepseek.key_file(manager.state).exists()}})
+                if path=='/api/state':return JSONResponse({'settings':manager.settings,'inventory':manager.inventory,'status':manager.status(),'authentication':manager.auth,'models':manager.provider_models,'integrations':manager.integrations(),'operations':list(manager.operations.jobs.values()),'local_profile':load_profile(manager.state),'local_profiles':load_profiles(manager.state),'credentials':{'deepseek':deepseek.key_file(manager.state).exists()}})
                 return JSONResponse({'error':'Não encontrado'},404)
             if request.headers.get('x-harness-admin')!='1':raise ValueError('Cabeçalho administrativo obrigatório.')
             if manager.lock.locked():return JSONResponse({'error':'Outra operação administrativa está em andamento. Aguarde e tente novamente.'},429,headers={'Retry-After':'1'})

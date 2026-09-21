@@ -7,27 +7,15 @@ A local Python control panel for discovering, configuring and running Codex CLI,
 
 The file panel uses Material Icon Theme (MIT), with extension-specific icons and colored folders matched by name, served locally. Each message accepts up to **20 attachments**, through uploads or file/folder selection. Icons identify formats; reading their contents still depends on the formats supported by the service.
 
-## Install and start
+## AI-guided installation
 
-```sh
-git clone REPOSITORY_URL tail-harness
-cd tail-harness
-./install.sh --boot
-```
+Tail Harness is installed by an AI agent that inspects the server, reuses existing CLIs and credentials, configures provider panels and runs post-installation checks. Follow the [AI installation specification and checkpoints (Portuguese)](dossie/installation-agent-spec.md).
 
-The Linux installer creates a private Python environment, installs the checkout in editable mode and registers a user service and desktop shortcut. It requires Python with venv/pip, user systemd and internet access for dependencies. It does not install third-party AI CLIs or authorize accounts. `--boot` requests lingering; operating-system authorization may be required. Without it, the service starts at user login.
+Ask the agent: **“Install Tail Harness following `dossie/installation-agent-spec.md`, report progress, ask about unresolved decisions and deliver test evidence.”**
 
-Open **Tail Harness** from the application launcher. Administration defaults to **http://127.0.0.1:8094/** and the conversational harness to **http://127.0.0.1:8095/**. The admin panel stays on loopback.
+The procedure covers port conflicts, available models, provider capabilities, connectors, plugins, artifacts, persistence, startup and error recovery. The agent performs and verifies each step; legacy installers still present in the repository are not the recommended installation workflow.
 
-```sh
-systemctl --user status tail-harness
-systemctl --user restart tail-harness
-journalctl --user -u tail-harness -n 50
-# Disable this service:
-systemctl --user disable --now tail-harness
-```
-
-For development, use `./setup.sh` and `./start.sh`. Wheels are independent distributions: install a built wheel in a virtual environment, run `tail-harness`, and optionally register it with `tail-harness-install --boot`. There is no PyPI publication promised by this version.
+Default addresses are **http://127.0.0.1:8094/** for administration and **http://127.0.0.1:8095/** for conversations. The agent must check availability and ask which alternative to use on conflict. Administration stays on loopback; VPN sharing requires authorized configuration. By default, the agent discovers and enables existing models and resources that are available, authenticated when required, and supported by the integration. It records incompatible or unauthenticated resources; entries merely available in a catalog are not installed automatically.
 
 ## Configure providers
 
@@ -105,6 +93,8 @@ Production state defaults to `~/.local/share/tail-harness`: settings, model prof
 
 Configuration exports omit credentials but may contain local paths and authorized identities. Treat them as private. Conversation deletion in the UI is logical, not guaranteed physical erasure. Administrators are responsible for backups and retention. Editable installs follow the checkout; Python changes require a service restart. Wheels require explicit package updates.
 
+When Tailscale sharing is configured with authorized identities, opening the chat through `127.0.0.1` or `localhost` redirects to the configured Tailscale address. This preserves history identity and browser panel preferences across restarts. Local API/MCP callers retain their own identity; histories are not merged. Without sharing, the UI remains local. If Tailscale is unavailable, reconnect it: the browser does not silently fall back to another history.
+
 ## Development and releases
 
 ```sh
@@ -157,7 +147,7 @@ Remaining quota stays visible in the header when the provider supplies a percent
 
 ## Provider adapters, specialists and versioned specifications
 
-[`Adapters/`](Adapters/README.md) separates `codex`, `claude`, `deepseek` and `local`. Each integration has its own development specialist in `.codex/agents/provedor_*.toml`, implementation and `specs/models/` records. The local specialist also owns Qwen and its profiles. Codex remains the shared tool transport; the service owns queues, authorization and conversation history. Old backend modules remain compatibility imports.
+[`Adapters/`](Adapters/README.md) separates `codex`, `claude`, `deepseek` and `local`. Each integration has its own development specialist in `.codex/agents/integrate-*_tail-harness_engineer.toml`, implementation and `specs/models/` records. The local specialist also owns Qwen and its profiles. Codex remains the shared tool transport; the service owns queues, authorization and conversation history. Old backend modules remain compatibility imports.
 
 Each `specs/compatibility.json` correlates the adapter revision, observed CLI/runtime version, harness baseline, source review date and model records. Read the local specification first. Revisit official documentation when a version, contract or behavior changes. A specification for Claude Code 2.1.258 or Codex 0.155.0-alpha.9.2 does not automatically certify another version. Rolling APIs and model aliases are marked explicitly, and documentary, simulated and live validation are distinguished. Contract changes follow TDD and update both the implementation revision and its specification.
 
@@ -196,3 +186,13 @@ Tail Harness distinguishes the model from the execution engine. Other combinatio
 ## Version 0.5.0
 
 This minor release brings together cross-provider/model continuity, multi-folder projects, conversation search, access controls, up to 20 attachments per message, file/folder type icons and the six-persona evaluation. The generic CPU profile and the author-suggested GPU profile are distributed; credentials and private host records remain local. Gemini remains experimental and hidden in administration. See the [release specification](dossie/releases/v0.5.0.md) and [usability evaluation](docs/eval-20260920/README.md).
+
+### Composer agents, skills and commands
+
+Type `@` for agents or `/` for skills and commands belonging to the selected engine. The selector reads fresh metadata, shows project resources before global resources and identifies their origin. Selections are revalidated before execution; unavailable items explain their limitations. `@@` and `//` are reserved for Tail-owned resources. See [formats and execution limits](dossie/native-resource-discovery.md).
+
+Naming convention and specialist catalog: [canonical agent and skill model](dossie/modelo-canonico-agentes-skills.md) (Portuguese).
+
+Conversation titles are passed to execution engines on creation and resume. See [title synchronization](dossie/conversation-title-sync.md) for provider coverage and limitations for Gemini and nonpersistent sessions.
+
+New conversations offer isolation before the first message, defaulting to native execution where supported. The mode is then fixed and shown as a discreet prompt icon. Local models retain mandatory isolation. See [conversation execution modes](dossie/conversation-execution-mode.md).

@@ -22,6 +22,7 @@ for line in sys.stdin:
  method=x.get('method')
  if method=='initialize':emit({'id':x['id'],'result':{}})
  elif method in ('thread/start','thread/resume'):emit({'id':x['id'],'result':{'thread':{'id':'session-1'}}})
+ elif method=='thread/name/set':emit({'id':x['id'],'result':{}})
  elif method=='turn/start':emit({'id':90,'method':'item/commandExecution/requestApproval','params':{'command':'test-command'}})
  elif x.get('id')==90:
   emit({'method':'item/agentMessage/delta','params':{'delta':x['result']['decision']}})
@@ -32,13 +33,15 @@ for line in sys.stdin:
    async def approve(k,p):requests.append((k,p));return {'approved':False}
    with patch('Adapters.codex.native.configurations',return_value={'codex':{}}),patch('Adapters.codex.native.inventory',return_value={'codex':[]}):
     for model,effort in [('gpt-6-astra','low'),('gpt-6-astra','high'),('gpt-5.6-terra','medium')]:
-     result=await run({'binary':str(exe)},'hello',lambda k,v:events.append(k),{'permissions':{}},model,effort,root/'session','codex',approve)
+     result=await run({'binary':str(exe)},'hello',lambda k,v:events.append(k),{'permissions':{},'_conversation_title':'Harness title '+effort},model,effort,root/'session','codex',approve)
      self.assertEqual(result['answer'],'decline')
    self.assertEqual(len(requests),3);self.assertIn('session_resumed',events);self.assertIn('context_usage',events)
    messages=[json.loads(x) for x in log.read_text().splitlines()]
    turns=[x['params'] for x in messages if x.get('method')=='turn/start']
    self.assertEqual([(t['model'],t['effort']) for t in turns],[('gpt-6-astra','low'),('gpt-6-astra','high'),('gpt-5.6-terra','medium')])
    self.assertEqual({t['threadId'] for t in turns},{'session-1'})
+   names=[x['params'] for x in messages if x.get('method')=='thread/name/set']
+   self.assertEqual(names,[{'threadId':'session-1','name':'Harness title '+effort} for effort in ['low','high','medium']])
    turn=turns[0]
    self.assertFalse(turn['sandboxPolicy']['networkAccess']);self.assertEqual(turn['sandboxPolicy']['type'],'readOnly')
  async def test_full_mode_preserves_sandbox_and_denies_permission_escalation(self):

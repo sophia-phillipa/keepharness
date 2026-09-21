@@ -71,3 +71,17 @@ def test_first_enabled_provider_starts_harness_without_manual_button(tmp_path):
     settings['services']['claude'].update(enabled=True, models=['sonnet'])
     asyncio.run(manager.apply_settings(settings))
     manager.start.assert_awaited_once()
+
+
+@pytest.mark.parametrize('running', [False, True])
+def test_settings_can_remove_an_integration_that_is_no_longer_installed(tmp_path, running):
+    import copy
+    manager = Manager(tmp_path)
+    manager.inventory = {'network':{}, 'services':[], 'binaries':{}}
+    manager.plugin_catalog = []
+    manager.settings['services']['codex']['integrations'] = ['plugin:removed@market']
+    manager.proc = SimpleNamespace(returncode=None) if running else None
+    repaired = copy.deepcopy(manager.settings)
+    repaired['services']['codex']['integrations'] = []
+    asyncio.run(manager.apply_settings(repaired))
+    assert manager.settings['services']['codex']['integrations'] == []

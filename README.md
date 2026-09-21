@@ -11,51 +11,19 @@ O painel de arquivos usa o Material Icon Theme (MIT), com ícones por extensão 
 
 A instalação pelo checkout usa um vínculo editável: o serviço executa o código desta pasta, sem uma segunda cópia em site-packages. Mantenha o checkout neste caminho e reinicie o serviço após alterações de código Python. Wheels continuam sendo distribuições independentes e precisam de atualização explícita.
 
+Quando o compartilhamento Tailscale está configurado com identidades autorizadas, abrir a conversa por `127.0.0.1` ou `localhost` encaminha para o endereço Tailscale configurado. Isso preserva a identidade do histórico e as preferências de painéis do navegador após reiniciar. A API/MCP local mantém sua identidade própria; os históricos não são mesclados. Sem compartilhamento, a interface continua local. Se a Tailscale estiver indisponível, reconecte-a: o navegador não troca silenciosamente para outro histórico.
+
 O estado de produção fica em `~/.local/share/tail-harness`: `settings.json`, `local-profiles.json`, `runs/jobs.sqlite3` e anexos. Prévias com `--state` em `/tmp` são descartáveis e não substituem esse estado. Antes de encerrar uma prévia, exporte e importe suas configurações no painel permanente; migrar apenas o código ou o banco não transfere as permissões dos modelos.
 
-## Instalar e iniciar automaticamente (Linux/systemd)
+## Instalação conduzida por um agente de IA
 
-Clone o repositório autorizado para sua instalação.
+O Tail Harness é instalado por um agente de IA, que inspeciona o servidor, reutiliza CLIs e credenciais já disponibilizados, configura o painel e executa os testes pós-instalação. Siga a [spec de instalação por IA e checkpoints](dossie/installation-agent-spec.md).
 
-```sh
-git clone REPOSITORY_URL tail-harness
-cd tail-harness
-./install.sh --boot
-```
+Peça ao agente: **“Instale o Tail Harness seguindo `dossie/installation-agent-spec.md`, informe o progresso, pergunte sobre decisões pendentes e entregue as evidências dos testes.”**
 
-O instalador `.sh` cria um ambiente Python privado em `~/.local/share/tail-harness/venv`, vincula a instalação ao código deste checkout e instala as dependências, registra serviço e atalho. A instalação não executa a suíte de testes. Requer Python 3.11+ com venv/pip, systemd do usuário e acesso à internet para dependências. Não usa sudo, não instala CLIs de terceiros e não autoriza contas automaticamente.
+O procedimento cobre conflitos de porta, leitura dos modelos disponíveis, inventário de características, conectores, plugins e artefatos por provedor, persistência, início automático e recuperação de erros. A instalação é conduzida passo a passo pelo agente; os instaladores legados presentes no repositório não são o fluxo recomendado.
 
-Abra **Tail Harness** no menu de aplicativos. O atalho inicia o serviço se necessário e abre o navegador. `--boot` habilita linger para o serviço subir mesmo antes do login; se o sistema exigir autenticação administrativa, o instalador mostra a falha, sem declarar essa etapa concluída. Sem `--boot`, o serviço sobe ao iniciar a sessão do usuário.
-
-```sh
-systemctl --user status tail-harness
-systemctl --user restart tail-harness
-journalctl --user -u tail-harness -n 50
-# Desativar somente este serviço:
-systemctl --user disable --now tail-harness
-```
-
-Ao reiniciar, a administração volta automaticamente. Um harness iniciado pelo painel é retomado com as escolhas salvas; clicar em **Parar harness** desativa essa retomada. Se um CLI, login ou modelo estiver indisponível, o painel continua acessível e mostra a falha. Pesos locais não são carregados silenciosamente e permissões não são ampliadas no reinício.
-
-Para desenvolvimento ou execução manual:
-
-```sh
-./setup.sh
-./start.sh
-```
-
-Para instalar um wheel, use um ambiente virtual e `pip install tail_harness-0.5.0-py3-none-any.whl`, seguido de `tail-harness`. O comando `tail-harness-install --boot` registra serviço e atalho para esse ambiente. A distribuição contém os arquivos da interface; não depende de manter o checkout original. Não há publicação no PyPI nesta versão.
-
-Abra **http://127.0.0.1:8094/** no computador servidor. O inventário é somente leitura: nenhum serviço, projeto, upload, instalação ou compartilhamento é habilitado automaticamente. Para apenas verificar a máquina: `tail-harness --scan` (ou `.venv/bin/python -m control --scan` no checkout).
-
-1. Verifique os serviços encontrados; use **Entrar** para iniciar o login oficial.
-2. Em **Operações**, abra o link de autorização emitido pelo CLI e conclua no navegador deste computador. Depois clique em **Verificar conta**.
-3. Selecione modelos, modo de execução, permissões e integrações por serviço.
-4. Adicione somente os projetos que deseja disponibilizar, ou use conversas sem projeto.
-5. Salve um modelo habilitado; o harness inicia automaticamente. O endereço padrão de conversa é **http://127.0.0.1:8095/**.
-6. Para Tailscale, cadastre as identidades autorizadas e habilite o compartilhamento. Para outra VPN, informe o IP privado dessa interface; o painel gera uma chave de acesso, mostrada mediante clique.
-
-A administração fica somente no loopback. A VPN transporta a interface; Codex/Claude continuam usando os respectivos provedores na nuvem. O backend **local** usa Codex como agente e llama.cpp/Ollama para a inferência, sem enviar a inferência à OpenAI. Internet, hooks e conectores habilitados podem produzir suas próprias comunicações externas.
+Os endereços padrão são **http://127.0.0.1:8094/** para administração e **http://127.0.0.1:8095/** para conversa. O agente deve confirmar disponibilidade e perguntar qual alternativa utilizar em caso de conflito. A administração permanece no loopback; compartilhamento por VPN exige configuração autorizada. Por padrão, o agente descobre e ativa os modelos e recursos já presentes que estejam disponíveis, autenticados quando necessário e suportados pela integração. Registra recursos incompatíveis ou sem autenticação; entradas apenas disponíveis no catálogo não são instaladas automaticamente.
 
 ## Modelos locais
 
@@ -259,7 +227,7 @@ A cota restante fica visível no cabeçalho quando o provedor informa uma porcen
 
 ## Adaptadores, especialistas e especificações versionadas
 
-As integrações ficam em [`Adapters/`](Adapters/README.md), separadas em `codex`, `claude`, `deepseek` e `local`. Cada uma tem um agente de desenvolvimento especializado em `.codex/agents/provedor_*.toml`, código próprio e `specs/models/`. O especialista local também cuida do Qwen e de seus perfis; o motor de ferramentas compartilhado continua sendo o Codex. O núcleo mantém fila, autorização e histórico, e os módulos antigos são imports de compatibilidade.
+As integrações ficam em [`Adapters/`](Adapters/README.md), separadas em `codex`, `claude`, `deepseek` e `local`. Cada uma tem um agente de desenvolvimento especializado em `.codex/agents/integrate-*_tail-harness_engineer.toml`, código próprio e `specs/models/`. O especialista local também cuida do Qwen e de seus perfis; o motor de ferramentas compartilhado continua sendo o Codex. O núcleo mantém fila, autorização e histórico, e os módulos antigos são imports de compatibilidade.
 
 Cada `specs/compatibility.json` correlaciona revisão do adaptador, versão observada do CLI/runtime, baseline do harness, data das fontes e fichas dos modelos. Consulte a spec local primeiro; pesquise novamente quando houver mudança de versão, contrato ou comportamento. Uma spec para Claude Code 2.1.258 ou Codex 0.155.0-alpha.9.2 não certifica automaticamente outra versão. APIs sem versão e aliases móveis ficam explicitamente identificados, com validação documental, simulada e real separadas. Mudanças de contrato seguem TDD e devem atualizar a revisão do código e a spec correspondente.
 
@@ -298,3 +266,13 @@ O Tail Harness separa modelo e motor como conceitos. Outras combinações, como 
 ## Versão 0.5.0
 
 Esta release menor reúne continuidade entre provedores/modelos, projetos com múltiplas pastas, busca de conversas, controles de acesso, até 20 anexos por mensagem, ícones por tipo de arquivo/pasta e a avaliação de seis personas. Inclui o perfil CPU genérico e o perfil GPU sugerido pela autora; credenciais e registros privados permanecem locais. Gemini continua experimental e oculto na administração. Consulte a [especificação da release](dossie/releases/v0.5.0.md) e a [avaliação de usabilidade](docs/eval-20260920/README.md).
+
+### Agentes, skills e comandos no compositor
+
+Digite `@` para agentes ou `/` para skills e comandos do motor selecionado. O seletor consulta os arquivos novamente, apresenta os recursos do projeto antes dos globais e identifica sua origem. A seleção é revalidada antes de executar; itens incompatíveis explicam sua indisponibilidade. `@@` e `//` ficam reservados aos recursos próprios do Tail. Veja os [formatos e limites de execução](dossie/native-resource-discovery.md).
+
+Convenção de nomes e catálogo de especialistas: [modelo canônico de agentes e skills](dossie/modelo-canonico-agentes-skills.md).
+
+O título da conversa é repassado aos motores na criação e retomada. Consulte [sincronização de títulos](dossie/conversation-title-sync.md) para a cobertura por provedor e as limitações de Gemini e sessões sem persistência.
+
+Novas conversas permitem escolher o isolamento antes da primeira mensagem, com modo nativo como padrão quando suportado. Depois, o modo fica fixo e aparece como um ícone discreto no prompt. Modelos locais mantêm o isolamento obrigatório. Veja [modos por conversa](dossie/conversation-execution-mode.md).

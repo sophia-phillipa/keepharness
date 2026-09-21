@@ -87,3 +87,58 @@ def test_large_csv_keeps_full_content_outside_prompt(tmp_path):
         return {'answer':'ok'}
     with patch('Adapters.run_native',side_effect=run):asyncio.run(service.infer(row,data))
     service.db.close()
+
+
+@pytest.mark.parametrize('backend,mode,reason', [
+    ('deepseek','native','model_images_unavailable'),
+    ('local','native','local_vision_not_enabled'),
+    ('codex','scoped','images_require_native_service'),
+    ('claude','scoped','images_require_native_service'),
+    ('gemini','scoped','images_require_native_service'),
+])
+@pytest.mark.parametrize('historical', [False, True])
+def test_unsupported_images_are_explained_without_losing_text(tmp_path, backend, mode, reason, historical):
+    import json
+    cfg=config(tmp_path)
+    cfg['services'][backend]={'mode':mode,'permissions':{'upload':True}}
+    cfg[backend]={}
+    service=Service(cfg)
+    for fid,pages in [('picture',[{'media_type':'image/png','text':''}]),('text',[{'text':'READABLE EVIDENCE'}])]:
+        service.db.execute('INSERT INTO files(id,project,name,size,hash,pages,owner) VALUES(?,?,?,?,?,?,?)',(fid,'p',fid,1,'hash',json.dumps(pages),'a'))
+    data={'project_id':'p','backend':backend,'model':'fixture','prompt':'Analyze files','file_ids':[] if historical else ['picture','text']}
+    service.db.execute('INSERT INTO jobs(id,project,owner,state,created,payload) VALUES(?,?,?,?,?,?)',('j','p','a','running',1,json.dumps(data)))
+    row=dict(service.db.execute("SELECT * FROM jobs WHERE id='j'").fetchone())
+    turns=[({'_job_id':'previous','_state':'completed','file_ids':['picture','text']},{})] if historical else []
+    async def run(*args,**kwargs):
+        assert not args[3].get('_images')
+        assert 'READABLE EVIDENCE' in args[1]
+        assert 'image/png' not in args[1]
+        args[2]('answer_delta',{'text':'Model response'})
+        return {'answer':'Model response'}
+    with patch.object(service,'validate_images',AsyncMock(side_effect=APIError(reason))),patch.object(service,'context_turns',return_value=turns),patch.object(service,'quota',AsyncMock(return_value=None)),patch('Adapters.run_native',side_effect=run),patch('Adapters.run_scoped',side_effect=run):
+        result=asyncio.run(service.infer(row,data))
+    assert 'picture' in result['answer'] and 'ignorado' in result['answer']
+    assert result['answer'].endswith('Model response')
+    streamed=''.join(json.loads(r[0])['text'] for r in service.db.execute("SELECT data FROM events WHERE job='j' AND type='answer_delta' ORDER BY id"))
+    assert streamed==result['answer']
+    service.db.close()
+
+
+@pytest.mark.parametrize('reason', [None, 'image_capability_unavailable'])
+def test_supported_images_pass_through_and_probe_failures_remain_errors(tmp_path, reason):
+    import json
+    cfg=config(tmp_path);cfg['services']['local']['mode']='native';cfg['local']={}
+    service=Service(cfg)
+    service.db.execute('INSERT INTO files(id,project,name,size,hash,pages,owner) VALUES(?,?,?,?,?,?,?)',('pic','p','photo.png',1,'hash',json.dumps([{'media_type':'image/png','text':''}]),'a'))
+    data={'project_id':'p','backend':'local','model':'installed-model','prompt':'Describe','file_ids':['pic']}
+    service.db.execute('INSERT INTO jobs(id,project,owner,state,created,payload) VALUES(?,?,?,?,?,?)',('j','p','a','running',1,json.dumps(data)))
+    row=dict(service.db.execute("SELECT * FROM jobs WHERE id='j'").fetchone())
+    run=AsyncMock(return_value={'answer':'Image description'})
+    with patch.object(service,'validate_images',AsyncMock(side_effect=APIError(reason) if reason else None)),patch('Adapters.run_native',run):
+        if reason:
+            with pytest.raises(APIError,match=reason):asyncio.run(service.infer(row,data))
+            run.assert_not_awaited()
+        else:
+            assert asyncio.run(service.infer(row,data))['answer']=='Image description'
+            assert run.call_args.args[3]['_images'][0]['media_type']=='image/png'
+    service.db.close()

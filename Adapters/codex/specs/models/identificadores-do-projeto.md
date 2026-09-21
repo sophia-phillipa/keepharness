@@ -1,6 +1,6 @@
 # Codex identifiers declared by the project
 
-**Responsible agent:** `provedor_codex`.
+**Responsible agent:** `integrate-codex_tail-harness_engineer`.
 
 `gpt-6-astra`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, and `gpt-5.5` occur in the harness defaults, UI labels, agent settings, or tests. They are **not** a static Codex adapter catalog and this repository has no public-model compatibility evidence for them.
 

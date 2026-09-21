@@ -1,6 +1,6 @@
 # Codex model ID: gpt-5.5
 
-**Responsible agent:** `provedor_codex`.
+**Responsible agent:** `integrate-codex_tail-harness_engineer`.
 `adapter_spec_revision: 1`
 `harness_baseline: 0.4.4 working-tree`
 

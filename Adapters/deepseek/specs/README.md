@@ -1,6 +1,6 @@
 # DeepSeek adapter specification
 
-Responsible agent: `provedor_deepseek`. Adapter spec revision: **1**.
+Responsible agent: `integrate-deepseek_tail-harness_engineer`. Adapter spec revision: **1**.
 Harness baseline: **0.4.4 working-tree**. Reviewed: **2026-09-19**.
 Executor observed: **codex-cli 0.155.0-alpha.9.2**. Remote API: rolling, unversioned `/responses`.
 Machine-readable correlation: [compatibility.json](compatibility.json).
@@ -33,3 +33,11 @@ Other tests cover dispatch, missing configuration, key privacy and model catalog
 ## Change policy
 
 Read this local spec first. Review after changes to the CLI version, remote API contract, model alias, effort mapping, tool items, persistence or compaction. Increment the spec revision with corresponding code/tests, retain the old revision record in Git, and update `compatibility.json` and model notes. A matching version is necessary evidence, never proof by itself; rerun the local wire test for each new CLI baseline. Recheck official sources when this boundary changes, not on every prompt.
+
+## Conversation display title (2026-09-20)
+
+The service passes `_conversation_title` separately from the prompt: the conversation root prompt truncated to 100 characters, overridden by an explicit Harness rename. Provider/model handoffs retain that title; workspace metadata and history wrappers are never used as its source.
+
+The shared Codex executor calls `thread/name/set` on session creation/resume before starting the model turn. This also covers local and DeepSeek inference through Codex; Codex scoped execution uses the same helper. Errors/timeouts emit `session_title_sync_failed` and do not claim successful synchronization. Renames made while no turn is starting are propagated at the next execution, not in real time. Calls without a nonblank title leave existing native titles unchanged.
+
+Contract checked against installed Codex CLI 0.155.0-alpha.9.2 generated `v2/ThreadSetNameParams.json` (`threadId`, `name`) and https://learn.chatgpt.com/docs/app-server . Offline tests validate transport and handoff; no live model inference. This display metadata does not change session identity, isolation or inference model.

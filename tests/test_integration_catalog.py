@@ -1,7 +1,18 @@
 import asyncio
+import sys
 from unittest.mock import AsyncMock, patch
 
 from control.integration_catalog import catalog
+
+
+def test_slow_cli_initialization_can_finish_before_browser_deadline():
+    from control.integration_catalog import _run
+
+    # A real installed CLI took 10 s on its first query; the old 8 s budget lost it.
+    code, output = run(_run(sys.executable, '-c',
+                            'import time; time.sleep(9); print("catalog-ready")'))
+    assert code == 0
+    assert output.strip() == 'catalog-ready'
 
 
 def run(value):
