@@ -26,7 +26,9 @@ def pending_turns(session, turns, backend, mode):
     previous = next((p for p, _ in reversed(turns) if p.get('backend') == backend), {})
     valid = (bool(markers) and all(markers.values()) and cursor.get('markers') == markers
              and cursor.get('mode') == mode and cursor.get('job_id') == previous.get('_job_id')
-             and previous.get('_state') == 'completed')
+             and (previous.get('_state') == 'completed'
+                  or (backend == 'codex' and mode == 'native' and cursor.get('started') is True
+                      and previous.get('_state') in ('failed', 'cancelled', 'interrupted'))))
     if backend == 'local':
         valid = valid and read_json(session/'native-thread.json').get('isolation') == ISOLATION_VERSION
     if valid:
@@ -38,7 +40,7 @@ def pending_turns(session, turns, backend, mode):
     return turns, False
 
 
-def save_cursor(session, job_id, result, mode):
+def save_cursor(session, job_id, result, mode, *, started=False):
     markers = session_markers(session)
     if not result.get('thread_id') or result.get('error') or result.get('incomplete'):
         return
@@ -46,7 +48,7 @@ def save_cursor(session, job_id, result, mode):
         return
     target = session/'harness-context.json'
     temporary = target.with_suffix('.tmp')
-    temporary.write_text(json.dumps({'job_id': job_id, 'markers': markers, 'mode': mode}))
+    temporary.write_text(json.dumps({'job_id': job_id, 'markers': markers, 'mode': mode, 'started': started}))
     temporary.chmod(0o600)
     temporary.replace(target)
 

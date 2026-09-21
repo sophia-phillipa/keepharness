@@ -1,3 +1,7 @@
+async function openModelGroup(page,id){
+ const group=page.locator('#model-menu details').filter({has:page.locator('[data-value="'+id+'"]')});
+ if(await group.getAttribute('open')===null)await group.locator('summary').click();
+}
 const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
 const assert=require('node:assert/strict');
 const fs=require('node:fs/promises');
@@ -15,7 +19,7 @@ const path=require('node:path');
     let data={};
     if(p==='/v1/projects')data={projects:['sem-projeto'],details:{}};
     if(p==='/v1/usage')data=new URL(route.request().url()).searchParams.get('backend')==='claude'?{available:true,provider:'claude',checked_at:1790000000,rateLimitsByLimitId:{five_hour:{limitName:'five_hour',primary:{usedPercent:34.5,windowDurationMins:300,resetsAt:1800000000}},seven_day_opus:{limitName:'seven_day_opus',primary:{usedPercent:12,windowDurationMins:10080,resetsAt:1800000000}}}}:{available:true,rateLimitsByLimitId:{codex:{primary:{usedPercent:21.4,windowDurationMins:300,resetsAt:1800000000},secondary:{usedPercent:62,windowDurationMins:10080,resetsAt:1800000000}}}};
-    if(p==='/v1/models')data={models:[{id:'gpt-6-astra',backend:'codex',efforts:['low','medium','high']},{id:'local-long',name:'Modelo local com um nome muito longo para testar',backend:'local',efforts:['low']},{id:'claude-demo',name:'Claude Code',backend:'claude',efforts:['configured']}],providers:{codex:true,local:true,claude:true},uploads_enabled:true};
+    if(p==='/v1/models')data={models:[{id:'gpt-6-astra',backend:'codex',efforts:['low','medium','high']},{id:'local-long',name:'Modelo local com um nome muito longo para testar',backend:'local',efforts:['low']},{id:'claude-opus-5',name:'Claude Opus 5',backend:'claude',efforts:['configured','low','medium','high','xhigh','max']}],providers:{codex:true,local:true,claude:true},uploads_enabled:true};
     if(p==='/v1/conversations')data={conversations:[{id:'conversation-fixture',title:conversationTitle,project:'sem-projeto',state:'completed',execution:{backend:'local',model:'fixture'}}]};
     if(p==='/v1/conversations/conversation-fixture'&&route.request().method()==='PATCH'){
      conversationTitle=route.request().postDataJSON().title.trim();return route.fulfill({json:{id:'conversation-fixture',title:conversationTitle}});
@@ -139,11 +143,11 @@ const path=require('node:path');
   assert.equal(await page.locator('#access-mode').inputValue(),'ask');
   await page.click('#access-trigger');await page.locator('#access-menu [data-access=full]').click();
   // Both custom menus reflect the current catalog and supported efforts.
-  await page.click('#model-trigger');await page.locator('#model-menu [data-value=local-long]').click();
+  await page.click('#model-trigger');await openModelGroup(page,'local-long');await page.locator('#model-menu [data-value=local-long]').click();
   assert.equal(await page.locator('#model-label').textContent(),'Modelo local com um nome muito longo para testar');
   await page.click('#effort-trigger');assert.equal(await page.locator('#effort-menu [role=option]').count(),1);
   await page.keyboard.press('Escape');
-  await page.click('#model-trigger');await page.locator('#model-menu [data-value=gpt-6-astra]').click();
+  await page.click('#model-trigger');await openModelGroup(page,'gpt-6-astra');await page.locator('#model-menu [data-value=gpt-6-astra]').click();
   await page.click('#effort-trigger');assert.equal(await page.locator('#effort-menu [role=option]').count(),3);
   await page.locator('#effort-menu [data-value=high]').click();assert.equal(await page.locator('#effort-label').textContent(),'Alto');
   for(const id of ['model','effort']){
@@ -153,7 +157,7 @@ const path=require('node:path');
   await page.selectOption('#model','local-long');assert.match(await page.locator('#quota-short').innerText(),/Sem cota do provedor/);assert.doesNotMatch(await page.locator('#quota-toggle').getAttribute('aria-label'),/cota compartilhada da conta Codex/i);
   for(const width of [1515,1000,768,390])await checkLayout(width);
   await page.setViewportSize({width:1280,height:950});await page.evaluate(()=>setPanelOpen(true,false));await checkLayout(1280);await page.evaluate(()=>setPanelOpen(false,false));
-  await page.selectOption('#model','claude-demo');await page.waitForFunction(()=>document.querySelector('#quota-short').textContent.includes('5 h · Claude: 65.5% restante'));assert.equal(await page.locator('#quota-model-icon').textContent(),'✳');assert.match(await page.locator('#quota-toggle').getAttribute('aria-label'),/Última informação do Claude/);assert.match(await page.locator('#quota-toggle').getAttribute('title'),/Atualizada em/);await page.selectOption('#model','gpt-6-astra');await page.waitForFunction(()=>document.querySelector('#quota-short').textContent.includes('5 h: 78.6%'));await page.locator('#effort-trigger').focus();await page.keyboard.press('ArrowDown');await page.keyboard.press('Home');await page.keyboard.press('ArrowDown');await page.keyboard.press('Enter');
+  await page.selectOption('#model','claude-opus-5');assert.deepEqual(await page.locator('#effort option').evaluateAll(options=>options.map(o=>o.value)),['configured','low','medium','high','xhigh','max']);await page.selectOption('#effort','max');await page.waitForFunction(()=>document.querySelector('#quota-short').textContent.includes('5 h · Claude: 65.5% restante'));assert.equal(await page.locator('#quota-model-icon').textContent(),'✳');assert.match(await page.locator('#quota-toggle').getAttribute('aria-label'),/Última informação do Claude/);assert.match(await page.locator('#quota-toggle').getAttribute('title'),/Atualizada em/);await page.selectOption('#model','gpt-6-astra');await page.waitForFunction(()=>document.querySelector('#quota-short').textContent.includes('5 h: 78.6%'));await page.locator('#effort-trigger').focus();await page.keyboard.press('ArrowDown');await page.keyboard.press('Home');await page.keyboard.press('ArrowDown');await page.keyboard.press('Enter');
   assert.equal(await page.locator('#effort').inputValue(),'medium');
   const chooser=page.waitForEvent('filechooser');await page.click('#attach');await (await chooser).setFiles({name:'teste.txt',mimeType:'text/plain',buffer:Buffer.from('Anexo de teste')});
   await page.waitForFunction(()=>document.querySelector('#attachments').textContent.includes('teste.txt'));

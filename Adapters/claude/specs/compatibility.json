@@ -1,12 +1,12 @@
 {
-  "adapter_spec_revision": 3,
+  "adapter_spec_revision": 4,
   "harness_baseline": "0.4.4 working-tree",
-  "reviewed_at": "2026-09-20",
+  "reviewed_at": "2026-09-21",
   "live_provider_validation": false,
   "provider": "claude",
   "executor": {
     "name": "Claude Code",
-    "observed_version": "2.1.258"
+    "observed_version": "2.1.236"
   },
   "protocol": "stream-json print mode",
   "session_title": {
@@ -14,7 +14,8 @@
     "scoped": "unsupported: --no-session-persistence intentionally prevents a provider-side session title"
   },
   "sources": [
-    "https://code.claude.com/docs/en/cli-usage"
+    "https://code.claude.com/docs/en/cli-usage",
+    "https://code.claude.com/docs/en/model-config"
   ],
   "models": [
     {
@@ -31,6 +32,11 @@
       "id": "haiku",
       "spec": "models/haiku.md",
       "availability": "rolling CLI alias; account dependent"
+    },
+    {
+      "id": "dynamic-cli-catalog",
+      "spec": "models/catalogo-cli.md",
+      "availability": "CLI initialize catalog, account dependent"
     }
   ],
   "resource_validation": "Offline discovery/admission/transport tests; no live inference"

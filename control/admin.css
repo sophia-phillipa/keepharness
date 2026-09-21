@@ -65,6 +65,19 @@
 .hardware-editor>label{align-content:start}
 @media(max-width:600px){.heading{align-items:flex-start;flex-wrap:wrap}.heading>div{min-width:0}.panel-description{max-width:100%}}
 
-.environment-check{max-width:360px}.environment-check .hint{margin-top:0}.configured-card>.toggle-row{margin-top:16px}.stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+.header-right #scan{margin-inline-end:16px}.configured-card>.toggle-row{margin-top:16px}.stats{grid-template-columns:repeat(2,minmax(0,1fr))}
 
 #operation-dialog{width:min(720px,90vw);max-height:85vh;overflow:auto}#operation-dialog::backdrop{background:rgb(0 0 0 / .55)}#operation-dialog pre{white-space:pre-wrap;overflow-wrap:anywhere}#operation-dialog>button{margin:8px}
+
+#integration-selection .provider-connectors{padding:20px;margin:20px 0}
+#integration-selection h3{margin-top:0}
+
+/* Let the form respond to the inspector width, including the tablet sidebar. */
+#integrations>.advanced{padding:12px}
+#integrations>.advanced>.panel{border:0;background:transparent}
+#integrations>.advanced>.panel>.panel-body{padding:0}
+#integrations .field-pair{flex-direction:row;flex-wrap:wrap;gap:0 20px}
+#integrations .field-pair>label{flex:1 1 240px}
+#integrations .form-select{padding-left:10px;padding-right:28px;background-position:right 8px center}
+
+@media(max-width:400px){#integrations>.advanced{padding:4px}}

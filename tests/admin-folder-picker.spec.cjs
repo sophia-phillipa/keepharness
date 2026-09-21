@@ -23,7 +23,7 @@ const assert=require('node:assert/strict');
  });
  await p.goto(process.env.ADMIN_URL||'http://127.0.0.1:8094/');
  await p.locator('[data-configured-provider=local]').getByRole('button',{name:/Editar/}).click();
- await p.locator('#inspector-tabs').getByText('Permissões e projetos').click();assert.match(await p.locator('#project-list').innerText(),/barra lateral do Tail Harness/);await p.click('#model-roots-add');
+ await p.locator('#inspector-tabs').getByText('Permissões').click();assert.match(await p.locator('#project-list').innerText(),/barra lateral do Tail Harness/);await p.click('#model-roots-add');
  await p.locator('#folder-picker-list').getByText('Privado',{exact:true}).click();await p.waitForFunction(()=>!document.querySelector('#folder-picker-error').hidden);assert(await p.locator('#folder-picker-use').isDisabled());
  await p.click('#folder-picker-home');await p.locator('#folder-picker-list').getByText('Projetos',{exact:true}).click();
  await p.locator('.folder-picker-create>summary').click();await p.fill('#folder-picker-new-name','Meu projeto');await p.click('#folder-picker-create');

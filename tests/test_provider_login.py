@@ -38,6 +38,7 @@ def test_login_applies_credential_preference_only_on_success(tmp_path, monkeypat
         runtime = manager._previous_runtime()
         assert runtime['claude'].get('use_cli_login', False) == (exit_code == 0)
         assert runtime['other'] == 'preserved'
+        assert manager.auth.get('claude') is (True if exit_code == 0 else None)
     asyncio.run(exercise())
 
 
@@ -82,7 +83,7 @@ def test_renewed_account_check_ignores_inherited_token(tmp_path, monkeypatch):
     manager = Manager(tmp_path)
     manager.inventory = {'services': [{'id': 'claude', 'found': True, 'binary': '/fixture'}]}
     asyncio.run(manager.claude_login_completed())
-    with patch('control.server.command', AsyncMock(return_value=(0, '{"loggedIn":true}'))) as command:
+    with patch('control.server.command', AsyncMock(return_value=(0, '{"loggedIn":true}'))) as command, patch('Adapters.claude.account.metadata', AsyncMock(return_value={'models':[{'value':'sonnet'}]})):
         assert asyncio.run(manager.check('claude'))['authenticated']
         assert 'CLAUDE_CODE_OAUTH_TOKEN' not in command.call_args.kwargs['env']
 
@@ -114,4 +115,4 @@ def test_pending_claude_login_does_not_block_native_harness_startup(tmp_path):
         runtime = asyncio.run(manager.build_runtime_config(manager.settings))
     assert runtime['services']['claude']['enabled']
     assert runtime['services']['claude']['mode'] == 'native'
-    assert runtime['claude_models'] == ['sonnet']
+    assert runtime['claude_models'] == {'sonnet':['configured']}

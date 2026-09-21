@@ -61,5 +61,7 @@ async def run(
             "Do not access credentials, network, other folders or Git remotes. Save edits through propose_file. "
             "Run only registered tests. Cite sources and never invent execution.",
         ]
-        result = await stream(command, prompt, event, model)
+        if effort != "configured":
+            command += ["--effort", effort]
+        result = await stream(command, prompt, event, model, effort)
         return {**result, **collect_changes(workspace)}

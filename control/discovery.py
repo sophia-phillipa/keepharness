@@ -53,11 +53,15 @@ async def scan():
             try:
                 ts=json.loads(out);network.update(online=ts.get('BackendState')=='Running',hostname=ts.get('Self',{}).get('DNSName','').rstrip('.'))
             except ValueError:pass
-    projects=[]
+    projects=[];seen_project_directories=set()
     for folder in (home/'Projects',home/'projects'):
         if not folder.is_dir():continue
         for path in sorted(folder.iterdir())[:100]:
-            if path.is_dir() and not path.is_symlink() and (path/'.git').exists():projects.append({'name':path.name,'path':str(path.resolve())})
+            if path.is_dir() and not path.is_symlink() and (path/'.git').exists():
+                info=path.stat();identity=(info.st_dev,info.st_ino)
+                if identity in seen_project_directories:continue
+                seen_project_directories.add(identity)
+                projects.append({'name':path.name,'path':str(path.resolve())})
     mem=None
     try:mem=os.sysconf('SC_PAGE_SIZE')*os.sysconf('SC_PHYS_PAGES')
     except (ValueError,OSError,AttributeError):pass

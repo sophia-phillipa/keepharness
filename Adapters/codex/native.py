@@ -390,6 +390,7 @@ async def run_turn(
                     event("answer_delta", {"text": text})
             elif kind == "turn/started":
                 turn_started = True
+                event("session_turn_started", {"thread_id": thread_id})
             elif kind == "thread/tokenUsage/updated":
                 token_usage = params.get("tokenUsage", {})
                 total = token_usage.get("total", {})

@@ -1,11 +1,11 @@
-"""Public entry points for Claude Code; effort follows its configured CLI profile."""
+"""Public entry points for Claude Code; effort is passed explicitly when selected."""
 
 from Adapters.shared.workspace import prepare_workspace
 from . import native
 from .scoped import run as run_scoped
 
 
-SPEC_REVISION = 3
+SPEC_REVISION = 4
 
 async def run_native(
     config, prompt, event, project, model, effort, session_dir, approve
@@ -26,4 +26,5 @@ async def run_native(
         project.get("access_mode", "ask"),
         workspace.roots[1:],
         project.get("_conversation_title"),
+        effort=effort,
     )

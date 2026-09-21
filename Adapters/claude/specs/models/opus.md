@@ -2,7 +2,7 @@
 
 **Responsible agent:** `integrate-claude_tail-harness_engineer`.
 
-`opus` is one of the aliases explicitly exposed by `control/server.py` after successful Claude authentication. The harness invokes it with `--model opus` and exposes effort only as `configured`.
+`opus` and its resolved version identifiers come from the installed Claude CLI catalog. Effort choices are taken from `supportedEffortLevels`; without that capability only `configured` is offered. Explicit effort selections are passed through `--effort`. See [dynamic catalog](catalogo-cli.md).
 
 The official CLI reference states that `--model` accepts model aliases, including `opus`, or a full model name: <https://code.claude.com/docs/en/cli-usage>. It does not guarantee account entitlement. The exact resolved model is provider-controlled and was not validated here.
 

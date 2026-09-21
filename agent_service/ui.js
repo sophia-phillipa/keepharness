@@ -121,7 +121,7 @@ async function refreshProjectPermissions(timeout=30000){
  const sequence=++policySequence;policyPending=true;updateModelPermissions();updateComposer();
  try{const data=await json('/v1/models?project_id='+encodeURIComponent(project),{signal:AbortSignal.timeout(timeout)});if(sequence!==policySequence)return;
  if(!Array.isArray(data.models))throw Error('Catálogo de permissões inválido');
- const previous=$('model').value,effort=$('effort').value;models=data.models;uploadsAllowed=data.uploads_enabled===true;
+ const previous=$('model').value,effort=$('effort').value;models=data.models.filter(m=>TailUI.selectableModel(m.backend,m.id));uploadsAllowed=data.uploads_enabled===true;
  $('model').replaceChildren(...models.map(m=>new Option(names[m.id]||m.name||m.id,m.id)));if(models.some(m=>m.id===previous))$('model').value=previous;
  policyProject=project;policyPending=false;updateEfforts();if([...$('effort').options].some(o=>o.value===effort))$('effort').value=effort;
  }catch(e){if(sequence!==policySequence)return;status('Não foi possível carregar as permissões deste projeto. Selecione-o novamente para tentar: '+e.message);return false;}
@@ -146,7 +146,7 @@ function renderQuotaIdentity(){
  const model=selected(),backend=model?.backend||'',changed=backend!==quotaIdentityBackend;quotaIdentityBackend=backend;
  $('quota-model-icon').textContent=model?modelIcon(model.id):'◈';$('quota-model-name').textContent=model?modelName(model.id):'Modelo';$('quota-model-identity').title=model?modelName(model.id)+' · '+(providerNames[backend]||backend):'Modelo selecionado';$('quota-toggle').hidden=false;
  const states={local:'Sem cota do provedor',claude:'Consultando cota Claude…',deepseek:'Créditos DeepSeek',maestro:'Cota varia por modelo da etapa'};
- if(backend==='codex'||backend==='claude'){if(changed)$('quota-short').textContent=backend==='claude'?'Consultando cota Claude…':'Consultando cota…';}
+ if(backend==='codex'||backend==='claude'){if(changed){$('quota-short').textContent=backend==='claude'?'Consultando cota Claude…':'Consultando cota…';$('quota-current').textContent=$('quota-short').textContent;$('quota-comparison').replaceChildren();}}
  else{$('quota-short').textContent=states[backend]||'Cota indisponível';$('quota-comparison').replaceChildren();$('quota-current').replaceChildren();const detail=document.createElement('p');detail.textContent=backend==='local'?'Este modelo executa localmente. O uso de contexto aparece separado no indicador de contexto.':backend==='deepseek'?'Este modelo usa créditos próprios da sua conta DeepSeek.':backend==='maestro'?'O Maestro pode encaminhar etapas a modelos diferentes; a cota depende do executor de cada etapa.':'Selecione um modelo para consultar a cota do provedor.';$('quota-current').append(detail);}
  const description=model?modelName(model.id)+' · '+(providerNames[backend]||backend)+' · '+$('quota-short').textContent:'Modelo selecionado · cota indisponível';$('quota-toggle').setAttribute('aria-label',description);$('quota-toggle').title=description;requestAnimationFrame(updateHeaderToastOffset);
 }
@@ -264,26 +264,92 @@ function chooseProject(id){
  if(busy||loading||uploads)return;
  const draft=$('prompt').value;$('project').value=id;invalidateResources();const stale=[...invalidResourceTokens];newConversation();invalidResourceTokens=new Set(stale);$('prompt').value=draft;updateComposer();saveView();renderProjects();syncActiveProjectBadge();
 }
+let projectIcons={},projectAliases={};
+function updateProjectMetadata(details={}){
+ projectIcons=Object.fromEntries(Object.entries(details).map(([id,detail])=>[id,detail.icon]));
+ projectAliases=Object.fromEntries(Object.entries(details).map(([id,detail])=>[id,detail.canonical_id||id]));
+}
+let projectPreferences={};
+try{const saved=JSON.parse(localStorage.getItem('project-list-preferences')||'{}');if(saved&&typeof saved==='object'&&!Array.isArray(saved))projectPreferences=saved;}catch{}
+function setProjectPreference(id,key,value){
+ const next={...projectPreferences,[id]:{...projectPreferences[id],[key]:value}};
+ try{localStorage.setItem('project-list-preferences',JSON.stringify(next));}
+ catch{status('Não foi possível salvar a lista de projetos neste navegador. Tente novamente.');return;}
+ projectPreferences=next;renderProjects();
+ const group=[...$('projects').querySelectorAll('[data-project-id]')].find(el=>el.dataset.projectId===id);
+ (group?.querySelector('.project-actions > button')||$('removed-projects')?.querySelector('summary')||$('add-project')).focus();
+ if(key==='hideIcon')return;
+ status(key==='hidden'?(value?'Projeto removido da lista. Pastas e conversas preservadas.':'Projeto restaurado na lista.'):(value?'Projeto adicionado aos favoritos.':'Projeto removido dos favoritos.'));
+}
+function openDeleteProjectFolder(project,label,trigger){
+ const dialog=$('delete-project-folder-dialog'),check=$('delete-project-folder-check'),confirm=$('delete-project-folder-confirm'),cancel=$('delete-project-folder-cancel'),error=$('delete-project-folder-error'),paths=$('delete-project-folder-paths');
+ const url='/v1/project-folder?project_id='+encodeURIComponent(project);
+ const request=new AbortController();
+ const messages={project_folder_busy:'Há uma execução pendente ou uma exclusão em andamento neste projeto.',project_directory_shared:'Esta pasta se sobrepõe à pasta de outro projeto cadastrado.',project_directory_forbidden:'Esta pasta é protegida e não pode ser excluída.',project_directory_required:'Este projeto não possui uma pasta principal.',project_root_unavailable:'A pasta principal não está disponível.',project_folder_changed:'A pasta mudou desde a confirmação. Feche e abra novamente esta janela.',project_folder_delete_failed:'Não foi possível concluir a exclusão. Parte do conteúdo pode ter sido excluída. Confira a pasta antes de tentar novamente.'};
+ let preview=null,deleting=false;
+ $('delete-project-folder-name').textContent=label;paths.replaceChildren();error.textContent='';check.checked=false;check.disabled=true;confirm.disabled=true;cancel.disabled=false;
+ $('delete-project-folder-status').textContent='Carregando caminho…';
+ check.onchange=()=>{confirm.disabled=!preview||!check.checked||deleting;};
+ cancel.onclick=()=>{if(!deleting)dialog.close();};
+ dialog.oncancel=event=>{if(deleting)event.preventDefault();};
+ dialog.onclose=()=>{request.abort();preview=null;if(trigger.isConnected)trigger.focus();};
+ confirm.onclick=async()=>{
+  if(!preview||!check.checked||deleting||busy||loading||uploads)return;
+  deleting=true;check.disabled=true;confirm.disabled=true;cancel.disabled=true;error.textContent='';
+  $('delete-project-folder-status').textContent='Excluindo pasta…';
+  try{
+   const result=await json(url,{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({...preview,confirmed:true})});
+   const deleted=new Set(result.deleted_projects||[project]);
+   for(const option of [...$('project').options])if(deleted.has(option.value))option.remove();
+   if(deleted.has(project)&&!$('project').value)$('project').value='sem-projeto';
+   dialog.close();resetProjectFiles();renderProjects();
+   $('delete-project-folder-result').showModal();
+  }catch(e){error.textContent=messages[e.code]||'Não foi possível excluir a pasta: '+e.message;preview=null;check.checked=false;$('delete-project-folder-status').textContent='Feche e abra novamente para conferir o caminho antes de tentar de novo.';}
+  finally{deleting=false;cancel.disabled=false;}
+ };
+ dialog.showModal();cancel.focus();
+ json(url,{signal:request.signal}).then(data=>{
+  if(request.signal.aborted||!dialog.open)return;
+  preview=data;
+  paths.replaceChildren(...data.paths.map(path=>{const li=document.createElement('li');li.textContent=path;return li;}));
+  $('delete-project-folder-status').textContent=data.missing?'A pasta já não existe. A confirmação removerá os cadastros da lista.':(data.project_ids?.length>1?'Esta pasta tem '+data.project_ids.length+' cadastros duplicados. Todos serão retirados da lista.':'');check.disabled=false;
+ }).catch(e=>{if(!request.signal.aborted&&dialog.open){$('delete-project-folder-status').textContent='';error.textContent=messages[e.code]||(e.code==='HTTP 404'?'O serviço em execução não oferece a consulta de exclusão de pastas. Reinicie o serviço pelo painel de gestão e tente novamente. Isso não significa que o projeto esteja sem pasta.':'Não foi possível carregar a pasta: '+e.message);}});
+}
 function renderProjects(){
  syncActiveProjectBadge();const matches=conversations;
- $('projects').replaceChildren(...Array.from($('project').options).filter(o=>o.value!=='sem-projeto').map(o=>{
-  const group=document.createElement('details');group.className='project-group';
-  group.open=expandedProjects.get(o.value)??o.selected;
+ const removedOpen=$('removed-projects')?.open||false;
+ const options=Array.from($('project').options).filter(o=>o.value!=='sem-projeto'&&(!projectAliases[o.value]||projectAliases[o.value]===o.value));
+ $('projects').replaceChildren(...options.filter(o=>!projectPreferences[o.value]?.hidden).sort((a,b)=>Number(!!projectPreferences[b.value]?.favorite)-Number(!!projectPreferences[a.value]?.favorite)).map(o=>{
+  const favorite=!!projectPreferences[o.value]?.favorite;
+  const group=document.createElement('details');group.className='project-group';group.dataset.projectId=o.value;
+  const selected=(projectAliases[$('project').value]||$('project').value)===o.value;
+  group.open=expandedProjects.get(o.value)??selected;
   group.ontoggle=()=>expandedProjects.set(o.value,group.open);
-  const heading=document.createElement('summary');heading.className=o.selected?'active':'';
+  const heading=document.createElement('summary');heading.className=selected?'active':'';
   const button=document.createElement('button');button.textContent=o.textContent;button.title=o.textContent;
+  if(favorite){const star=document.createElement('span');star.textContent='★ ';star.setAttribute('aria-hidden','true');button.prepend(star);button.setAttribute('aria-label',o.textContent+' · Favorito');}
+  const projectIcon=projectIcons[o.value],showIcon=!!projectIcon&&!projectPreferences[o.value]?.hideIcon;
+  if(showIcon){const img=document.createElement('img');img.className='project-logo';img.src=projectIcon.src;img.alt='';img.title='Ícone detectado: '+projectIcon.path;img.onerror=()=>img.remove();button.prepend(img);}
   button.onclick=e=>{e.preventDefault();group.open=!group.open;expandedProjects.set(o.value,group.open);};
   const actions=document.createElement('span');actions.className='project-actions';
   const trigger=document.createElement('button');trigger.type='button';trigger.textContent='⋯';trigger.setAttribute('aria-label','Ações do projeto '+o.textContent);trigger.setAttribute('aria-expanded','false');
   const menu=document.createElement('div');menu.className='conversation-actions-menu project-actions-menu';menu.setAttribute('popover','auto');
   const navigate=document.createElement('button');navigate.type='button';navigate.append(TailUI.icon('folder'),document.createTextNode('Navegar para pasta do projeto'));
   navigate.onclick=()=>{menu.hidePopover();void navigateProjectFolder(o.value);};
+  const pin=document.createElement('button');pin.type='button';pin.append(TailUI.icon('star'),document.createTextNode(favorite?'Remover dos favoritos':'Adicionar aos favoritos'));
+  pin.onclick=()=>{menu.hidePopover();setProjectPreference(o.value,'favorite',!favorite);};
+  const remove=document.createElement('button');remove.type='button';remove.append(TailUI.icon('x'),document.createTextNode('Remover da lista'));remove.title='Preserva as pastas e as conversas do projeto';
+  remove.onclick=()=>{menu.hidePopover();setProjectPreference(o.value,'hidden',true);};
+  const deleteFolder=document.createElement('button');deleteFolder.type='button';deleteFolder.className='project-delete-folder';deleteFolder.append(TailUI.icon('trash'),document.createTextNode('Excluir pasta'));
+  deleteFolder.onclick=()=>{menu.hidePopover();openDeleteProjectFolder(o.value,o.textContent,trigger);};
   trigger.onclick=e=>{e.preventDefault();e.stopPropagation();if(menu.matches(':popover-open')){menu.hidePopover();return;}menu.showPopover();const rect=trigger.getBoundingClientRect();menu.style.left=Math.max(8,Math.min(rect.right-menu.offsetWidth,innerWidth-menu.offsetWidth-8))+'px';menu.style.top=Math.max(8,Math.min(rect.bottom+4,innerHeight-menu.offsetHeight-8))+'px';navigate.focus();};
   menu.addEventListener('toggle',e=>trigger.setAttribute('aria-expanded',String(e.newState==='open')));
   menu.addEventListener('click',e=>e.stopPropagation());
-  menu.append(navigate);actions.append(trigger,menu);heading.append(button,actions);
+  const iconToggle=document.createElement('button');iconToggle.type='button';iconToggle.setAttribute('aria-pressed',String(showIcon));iconToggle.disabled=!projectIcon;iconToggle.append(TailUI.icon('scan'),document.createTextNode(showIcon?'Esconder ícone do projeto':'Exibir ícone do projeto'));iconToggle.title=projectIcon?'Ícone detectado: '+projectIcon.path:'Nenhum ícone encontrado no projeto';
+  iconToggle.onclick=()=>{menu.hidePopover();setProjectPreference(o.value,'hideIcon',showIcon);};
+  menu.append(navigate,pin,iconToggle,remove,deleteFolder);actions.append(trigger,menu);heading.append(button,actions);
   const children=document.createElement('div');children.className='project-conversations';
-  const items=matches.filter(c=>c.project===o.value);
+  const items=matches.filter(c=>(projectAliases[c.project]||c.project)===o.value);
   children.replaceChildren(...items.map(conversationRow));
   const create=document.createElement('button');create.className='project-new';create.append(TailUI.icon('folder-message'),document.createTextNode('Nova Conversa'));create.setAttribute('aria-label','Nova Conversa em '+o.textContent);
   create.onclick=()=>{
@@ -294,6 +360,13 @@ function renderProjects(){
   if(!items.length){const empty=document.createElement('p');empty.className='empty-history';empty.textContent='Nenhuma conversa';children.append(empty);}
   group.append(heading,children);return group;
  }));
+ const removed=options.filter(o=>projectPreferences[o.value]?.hidden);
+ if(removed.length){
+  const section=document.createElement('details');section.id='removed-projects';section.open=removedOpen;
+  const heading=document.createElement('summary');heading.append(TailUI.icon('archive'),document.createTextNode('Projetos removidos ('+removed.length+')'));section.append(heading);
+  for(const option of removed){const restore=document.createElement('button');restore.type='button';restore.append(TailUI.icon('refresh'),document.createTextNode('Restaurar '+option.textContent));restore.onclick=()=>setProjectPreference(option.value,'hidden',false);section.append(restore);}
+  $('projects').append(section);
+ }
  $('history').replaceChildren(...matches.filter(c=>c.project==null||c.project===''||c.project==='sem-projeto').map(conversationRow));
  if(!$('history').children.length){const empty=document.createElement('p');empty.className='empty-history';empty.textContent='Suas conversas aparecerão aqui.';$('history').append(empty);}
 }
@@ -409,6 +482,7 @@ function updateMotion(type){
 function scroll(){const box=$('messages');if(box.scrollHeight-box.scrollTop-box.clientHeight<250)box.scrollTop=box.scrollHeight;updateLatest();}
 function event(e){
  if(e.id<=last)return;last=e.id;
+ if(e.type==='session_turn_started')return;
  if(e.type==='approval_required'){showApproval(e.data);return;}
  if(e.type==='approval_resolved'){document.getElementById('approval-'+e.data.approval_id)?.remove();return;}
  if(active){appendActivityTitle(active.milestones,e);if(active.milestones.children.length){active.activity.hidden=false;setActivitySummary(active,['completed','failed','cancelled','interrupted'].includes(e.type)?(labels[e.type]||'Etapas da execução'):'Trabalhando…');}}
@@ -429,7 +503,7 @@ function executionCondition(code){
 }
 function executionError(error){
  const condition=executionCondition(error);if(condition)return condition.message;
- if(/context_limit_exceeded|exceed_context_size|exceeds the available context|maximum context length|source_context_limit|conversation_context_limit|context_window_exceeded/i.test(String(error)))return 'O conteúdo ultrapassou o limite de contexto do modelo. Os anexos envolvidos nesta tentativa foram retirados do contexto das próximas mensagens; os arquivos e o histórico foram preservados. Você pode continuar nesta conversa. Para analisar o CSV, envie uma parte menor ou disponibilize-o em uma pasta autorizada.';
+ if(/context_limit_exceeded|exceed_context_size|exceeds the available context|maximum context length|source_context_limit|conversation_context_limit|context_window_exceeded/i.test(String(error)))return 'Não foi possível preparar ou processar o contexto desta tentativa. O histórico e os arquivos foram preservados. Você pode continuar nesta conversa; se o limite persistir, use um modelo com ferramentas de leitura ou reduza o conteúdo enviado de uma vez.';
  return 'A execução não foi concluída: '+error;
 }
 async function result(expectedJob=job,expectedController=controller,snapshot=null){
@@ -670,7 +744,7 @@ function setReadiness(ready,message=''){
  if(!ready){for(const menu of document.querySelectorAll('.composer-menu:popover-open'))menu.hidePopover();for(const dialog of document.querySelectorAll('dialog[open]:not(#vpn-login)'))dialog.close();}
  else if($('vpn-login').open)$('vpn-login').close();
 }
-function modelAvailability(data,error=''){
+function modelAvailability(data={admin_url:$('admin-link').getAttribute('href')},error=''){
  const panel=$('model-availability');panel.hidden=models.length>0&&!error;
  $('model-availability-title').textContent=error?'Não foi possível consultar os modelos':'Nenhum modelo disponível';
  $('model-availability-detail').textContent=error||'Adicione e habilite um provedor na administração deste servidor. Depois, inicie ou reinicie o harness para aplicar.';
@@ -687,8 +761,8 @@ async function initialize(){if(initializing)return;initializing=true;setReadines
  if(!Array.isArray(p.projects)||!p.projects.length||!Array.isArray(m.models))throw Error('O servidor retornou um catálogo inválido.');
  let saved={};if(!startupTimer){try{saved=JSON.parse(sessionStorage.getItem('remote-view')||'{}')||{};}catch{}}
  const previous=$('model').value,project=saved.project||$('project').value;
- $('project').replaceChildren(...p.projects.map(id=>{const o=new Option(p.details?.[id]?.label||id,id);return o;}));$('project').value=p.projects.includes(project)?project:p.projects.includes('sem-projeto')?'sem-projeto':p.projects[0];renderProjects();syncActiveProjectBadge();
- providers=m.providers||{};models=m.models;uploadsAllowed=m.uploads_enabled===true;policyProject=null;policyPending=false;
+ updateProjectMetadata(p.details);$('project').replaceChildren(...p.projects.map(id=>{const o=new Option(p.details?.[id]?.label||id,id);return o;}));$('project').value=p.projects.includes(project)?project:p.projects.includes('sem-projeto')?'sem-projeto':p.projects[0];renderProjects();syncActiveProjectBadge();
+ providers=m.providers||{};models=m.models.filter(m=>TailUI.selectableModel(m.backend,m.id));uploadsAllowed=m.uploads_enabled===true;policyProject=null;policyPending=false;
  $('model').replaceChildren(...models.map(m=>new Option(names[m.id]||m.name||m.id,m.id)));if(models.some(m=>m.id===previous))$('model').value=previous;
  updateEfforts();restoreSelection();if(!await refreshProjectPermissions(5000))throw Error('Não foi possível carregar as permissões deste projeto.');modelAvailability(m);
  if(!await history(5000))throw Error('Não foi possível carregar o histórico de conversas.');
@@ -703,7 +777,8 @@ async function probeReadiness(){if(probing||Date.now()<readinessRetryAt)return;r
  const project=$('project').value;if(!p.projects.includes(project))throw Error('Projeto indisponível');
  const scoped=await json('/v1/models?project_id='+encodeURIComponent(project),{signal:AbortSignal.timeout(5000)});if(!Array.isArray(scoped.models))throw Error('Permissões inválidas');
  if(!busy&&!loading&&project===$('project').value&&(JSON.stringify(scoped.models)!==JSON.stringify(models)||(scoped.uploads_enabled===true)!==uploadsAllowed)){policyProject=null;if(await refreshProjectPermissions(5000)){providers=m.providers||{};modelAvailability(m);}}
- if(!busy&&!loading&&JSON.stringify(p.projects)!==JSON.stringify([...$('project').options].map(o=>o.value))){$('project').replaceChildren(...p.projects.map(id=>new Option(p.details?.[id]?.label||id,id)));$('project').value=project;renderProjects();}
+ if(!busy&&!loading){const icons=Object.fromEntries(Object.entries(p.details||{}).map(([id,detail])=>[id,detail.icon]));const aliases=Object.fromEntries(Object.entries(p.details||{}).map(([id,detail])=>[id,detail.canonical_id||id]));if(JSON.stringify(icons)!==JSON.stringify(projectIcons)||JSON.stringify(aliases)!==JSON.stringify(projectAliases)){updateProjectMetadata(p.details);renderProjects();}}
+ if(!busy&&!loading&&JSON.stringify(p.projects)!==JSON.stringify([...$('project').options].map(o=>o.value))){updateProjectMetadata(p.details);$('project').replaceChildren(...p.projects.map(id=>new Option(p.details?.[id]?.label||id,id)));$('project').value=project;renderProjects();}
  try{const h=await json('/v1/conversations',{signal:AbortSignal.timeout(5000)});if(!Array.isArray(h.conversations))throw Error('Histórico inválido');}catch(e){if(e.status!==404)throw e;const h=await json('/v1/history',{signal:AbortSignal.timeout(5000)});if(!Array.isArray(h.jobs))throw Error('Histórico inválido');}
  }catch(e){if(e.status===429){readinessRetryAt=Date.now()+Math.max(5000,e.retryAfter||5000);status(e.message);return;}readinessRetryAt=0;if(e.status===401&&!$('vpn-login').open)$('vpn-login').showModal();setReadiness(false,e.status===401?'Aguardando autorização. Informe sua chave de acesso para conectar.':'Aguardando o servidor… Verificando a conexão automaticamente.');status('Conexão com o servidor interrompida: '+e.message);}finally{probing=false;}}
 $('resume-execution').onclick=()=>watch();
@@ -1056,7 +1131,11 @@ function renderPicker(id){
  const descriptions={none:'Sem etapa de raciocínio.',configured:'Usar o padrão configurado no provedor.',auto:'O coordenador escolhe o esforço para cada etapa.',low:'Raciocínio breve para tarefas simples.',medium:'Esforço intermediário de raciocínio.',high:'Mais raciocínio para tarefas complexas.',xhigh:'Esforço de raciocínio muito alto.',max:'Esforço máximo disponibilizado pelo modelo.',ultra:'Nível de raciocínio mais intenso disponibilizado pelo modelo.'};
  const providers={local:'Modelo local no servidor',qwen:'Modelo local no servidor',codex:'Codex',claude:'Claude Code',gemini:'Gemini CLI',deepseek:'DeepSeek',maestro:'Coordenador de modelos'};
  const groups=new Map();
- const buttons=[...$(id).options].map(option=>{
+ const options=[...$(id).options];
+ // Sort Claude families together, newest numeric version first within each family.
+ const claude=options.filter(o=>models.find(m=>m.id===o.value)?.backend==='claude').sort((a,b)=>a.value.split('-')[1].localeCompare(b.value.split('-')[1])||b.value.localeCompare(a.value,undefined,{numeric:true}));
+ let claudeIndex=0;
+ const buttons=options.map(o=>id==='model'&&models.find(m=>m.id===o.value)?.backend==='claude'?claude[claudeIndex++]:o).map(option=>{
   const button=document.createElement('button');button.type='button';button.setAttribute('role','option');button.dataset.value=option.value;button.disabled=option.disabled;
   button.setAttribute('aria-selected',String(option.selected));
   const model=models.find(m=>m.id===option.value);
@@ -1070,23 +1149,35 @@ function renderPicker(id){
   if(id==='model'){
    const backend=model?.backend==='qwen'?'local':model?.backend||'other';
    if(!groups.has(backend)){
-    const group=document.createElement('div'),heading=document.createElement('div');
+    const group=document.createElement('details'),heading=document.createElement('summary'),list=document.createElement('div');
+    group.name='model-providers';group.dataset.provider=backend;
+    list.className='model-provider-options';list.id='model-provider-'+backend;list.setAttribute('role','listbox');
+    heading.setAttribute('aria-controls',list.id);
+    heading.append(TailUI.icon(({codex:'brand-openai',claude:'brand-claude',gemini:'brand-gemini',local:'stack-2',deepseek:'stack-2',maestro:'tail-harness'})[backend]||'stack-2'));
     const label=({codex:'Codex',claude:'Claude',local:'Modelo local',deepseek:'DeepSeek',gemini:'Google',maestro:'Maestro'})[backend]||model?.backend||'Outros';
     group.setAttribute('role','group');group.setAttribute('aria-label',label);
-    heading.className='model-provider-heading';heading.setAttribute('aria-hidden','true');heading.textContent=label;
-    group.append(heading);groups.set(backend,group);
+    heading.className='model-provider-heading';heading.append(document.createTextNode(label));
+    const chevron=TailUI.icon('chevron-left');chevron.classList.add('model-provider-chevron');heading.append(chevron);
+    list.setAttribute('aria-label',label);
+    group.append(heading,list);groups.set(backend,group);
+    group.addEventListener('toggle',()=>{heading.setAttribute('aria-expanded',String(group.open));if($('model-menu').matches(':popover-open'))positionComposerPicker('model');});
+    heading.setAttribute('aria-expanded','false');
    }
-   groups.get(backend).append(button);
+   groups.get(backend).querySelector('.model-provider-options').append(button);
+   if(option.selected){groups.get(backend).open=true;groups.get(backend).querySelector('summary').setAttribute('aria-expanded','true');}
   }
   return button;
  });
  $(id+'-menu').querySelector('.picker-options').replaceChildren(...(id==='model'?groups.values():buttons));
 }
-function openComposerPicker(id){
- const trigger=$(id+'-trigger'),menu=$(id+'-menu');if(trigger.disabled)return;
- renderPicker(id);menu.showPopover();const rect=trigger.getBoundingClientRect();
+function positionComposerPicker(id){
+ const trigger=$(id+'-trigger'),menu=$(id+'-menu'),rect=trigger.getBoundingClientRect();
  menu.style.left=Math.max(12,Math.min(rect.left,innerWidth-menu.offsetWidth-12))+'px';
  menu.style.top=Math.max(12,rect.top-menu.offsetHeight-10)+'px';
+}
+function openComposerPicker(id){
+ const trigger=$(id+'-trigger'),menu=$(id+'-menu');if(trigger.disabled)return;
+ renderPicker(id);menu.showPopover();positionComposerPicker(id);
  (menu.querySelector('[aria-selected="true"]:not(:disabled)')||menu.querySelector('[role=option]:not(:disabled)'))?.focus();
 }
 for(const id of ['access','model','effort']){
@@ -1100,7 +1191,10 @@ for(const id of ['access','model','effort']){
  });
  trigger.addEventListener('keydown',event=>{if(['ArrowDown','ArrowUp'].includes(event.key)){event.preventDefault();openComposerPicker(id);}});
  menu.addEventListener('keydown',event=>{
-  const options=[...menu.querySelectorAll('[role=option]:not(:disabled)')],index=options.indexOf(document.activeElement);
+  const options=[...menu.querySelectorAll('summary,[role=option]:not(:disabled)')].filter(el=>!el.closest('details')||el.tagName==='SUMMARY'||el.closest('details').open),index=options.indexOf(document.activeElement);
+  if(id==='model'&&['ArrowLeft','ArrowRight'].includes(event.key)){
+   const group=document.activeElement.closest('details');if(group){event.preventDefault();group.open=event.key==='ArrowRight';if(!group.open)group.querySelector('summary').focus();}return;
+  }
   if(options.length&&['ArrowDown','ArrowUp','Home','End'].includes(event.key)){
    event.preventDefault();const next=event.key==='Home'?0:event.key==='End'?options.length-1:(index+(event.key==='ArrowDown'?1:-1)+options.length)%options.length;options[next].focus();
   }
@@ -1152,6 +1246,6 @@ $('project-dialog-close').onclick=$('project-dialog-cancel').onclick=()=>$('proj
 $('project-directory-add-current').onclick=()=>{const entry=projectDirectory.candidate;if(!entry||projectDirectory.selected.has(entry.absolute_path))return;if(projectDirectory.selected.size>=20){$('project-create-note').textContent='Adicione até 20 pastas por projeto.';return;}projectDirectory.selected.set(entry.absolute_path,entry.name);renderSelectedProjectDirectories();$('project-directory-add-current').disabled=true;$('project-create-note').textContent='';};
 $('project-form').onsubmit=async event=>{
  event.preventDefault();const name=$('project-name').value.trim(),button=$('project-create'),note=$('project-create-note');if(Array.from(name.matchAll(/\p{L}/gu)).length<3){note.textContent='O nome precisa ter pelo menos 3 letras.';return;}if(!projectDirectory.selected.size){note.textContent='Adicione pelo menos uma pasta.';return;}if(projectDirectory.selected.size>20){note.textContent='Adicione até 20 pastas por projeto.';return;}button.disabled=true;note.textContent='Adicionando projeto…';
- try{const result=await post('/v1/projects',{name,paths:Array.from(projectDirectory.selected.keys())});const p=await json('/v1/projects');$('project').replaceChildren(...p.projects.map(id=>new Option(p.details?.[id]?.label||id,id)));policyProject=null;chooseProject(result.project_id);renderProjects();$('project-dialog').close();$('project-form').reset();projectDirectory.selected.clear();renderSelectedProjectDirectories();note.textContent='';
+ try{const result=await post('/v1/projects',{name,paths:Array.from(projectDirectory.selected.keys())});const p=await json('/v1/projects');updateProjectMetadata(p.details);$('project').replaceChildren(...p.projects.map(id=>new Option(p.details?.[id]?.label||id,id)));policyProject=null;chooseProject(result.project_id);renderProjects();$('project-dialog').close();$('project-form').reset();projectDirectory.selected.clear();renderSelectedProjectDirectories();note.textContent='';
  }catch(e){note.textContent='Não foi possível adicionar: '+e.message;}finally{button.disabled=false;}
 };

@@ -52,6 +52,23 @@ const path=require('node:path');
   await page.reload();await page.locator('#startup-gate').waitFor({state:'hidden'});
   assert.equal(await page.evaluate(()=>parent),'job-6');
   assert.equal(await page.evaluate(()=>conversation),'job-1');
+  turns.at(-1).state='failed';turns.at(-1).result={error:'context_limit_exceeded'};
+  await page.setViewportSize({width:390,height:844});
+  await page.reload();await page.locator('#startup-gate').waitFor({state:'hidden'});
+  await page.getByText('Não foi possível preparar ou processar o contexto desta tentativa.',{exact:false}).waitFor();
+  assert.equal(await page.getByText('Para analisar o CSV',{exact:false}).count(),0);
+  assert.equal(await page.evaluate(()=>parent),'job-6');
+  await page.locator('#prompt').focus();await page.keyboard.type('Continue após a interrupção');
+  await page.locator('#send').focus();await page.keyboard.press('Enter');
+  await page.waitForFunction(()=>!document.querySelector('#model').disabled);
+  assert.equal(turns.at(-1).request.parent_job_id,'job-6');
+  await page.evaluate(()=>{
+   active=assistant('compact-fixture');
+   event({id:last+1,type:'context_compacting',data:{}});
+  });
+  assert.match(await page.locator('#activity-state').textContent(),/Otimizando/);
+  await page.evaluate(()=>event({id:last+1,type:'context_compacted',data:{}}));
+  assert.match(await page.locator('#activity-state').textContent(),/Contexto otimizado/);
   assert.deepEqual(errors,[]);
   console.log('PASS: provider/model/effort changes preserve parent chain and conversation after reload.');
  }finally{await browser.close();}

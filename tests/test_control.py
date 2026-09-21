@@ -36,6 +36,15 @@ class ControlTest(unittest.TestCase):
     self.assertEqual(client.post('/api/settings',json=settings,headers={'X-Harness-Admin':'1','Origin':'https://evil.example'}).status_code,403)
     self.assertEqual(client.post('/api/settings',json=settings,headers={'X-Harness-Admin':'1'}).status_code,200)
     self.assertEqual((Path(self.tmp.name)/'settings.json').stat().st_mode&0o777,0o600)
+ def test_saved_missing_project_does_not_block_other_projects(self):
+  missing=self.tmp.name+'-removed-project'
+  settings=copy.deepcopy(self.manager.settings)
+  settings['projects']=[{'id':'removed','root':missing}]
+  with self.assertRaisesRegex(ValueError,'existente'):self.manager.validate(settings)
+  self.manager.settings=copy.deepcopy(settings)
+  self.assertEqual(self.manager.validate(settings)['projects'][0]['root'],str(Path(missing).resolve()))
+  settings['projects'][0]['root']=str(Path(self.tmp.name)/'another-missing-project')
+  with self.assertRaisesRegex(ValueError,'existente'):self.manager.validate(settings)
  def test_cross_site_admin_link_navigation(self):
   navigation={'Sec-Fetch-Site':'cross-site','Sec-Fetch-Mode':'navigate','Sec-Fetch-Dest':'document','Sec-Fetch-User':'?1'}
   with patch('control.server.scan',AsyncMock(return_value=INVENTORY)):

@@ -48,3 +48,42 @@ def test_only_context_failures_trigger_recovery():
     assert context_overflow('context_limit_exceeded')
     assert context_overflow('source_context_limit')
     assert not context_overflow('authentication_required')
+
+
+def test_native_codex_worker_has_no_fixed_deadline_and_remains_cancellable(tmp_path):
+    async def exercise():
+        cfg = config(tmp_path)
+        cfg['services']['codex']['mode'] = 'native'
+        cfg['codex'] = {}
+        service = Service(cfg)
+        service.quota = AsyncMock(return_value=None)
+        identity = ('a', cfg['clients']['a'])
+        job = service.submit(identity, {'project_id': 'p', 'backend': 'codex',
+                                      'model': 'gpt-6-astra', 'effort': 'low', 'prompt': 'long task'})
+        entered = asyncio.Event()
+        deadlines = []
+        real_timeout = asyncio.timeout
+        def accelerated_timeout(delay):
+            deadlines.append(delay)
+            return real_timeout(.001 if delay == 600 else delay)
+        async def execute(row):
+            entered.set()
+            await asyncio.Event().wait()
+        service.execute = execute
+        with patch('agent_service.app.asyncio.timeout', side_effect=accelerated_timeout):
+            worker = asyncio.create_task(service.worker())
+            try:
+                await asyncio.wait_for(entered.wait(), 1)
+                await asyncio.sleep(.02)
+                assert service.job(identity, job['job_id'])['state'] == 'running'
+                assert deadlines == [None]
+                service.cancel(identity, job['job_id'])
+                async with real_timeout(1):
+                    while service.job(identity, job['job_id'])['state'] == 'running':
+                        await asyncio.sleep(.001)
+                assert service.job(identity, job['job_id'])['state'] == 'cancelled'
+            finally:
+                worker.cancel()
+                await asyncio.gather(worker, return_exceptions=True)
+                service.db.close()
+    asyncio.run(exercise())
