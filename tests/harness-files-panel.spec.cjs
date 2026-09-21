@@ -1,3 +1,7 @@
+async function openModelGroup(page,id){
+ const group=page.locator('#model-menu details').filter({has:page.locator('[data-value="'+id+'"]')});
+ if(await group.getAttribute('open')===null)await group.locator('summary').click();
+}
 const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
 const assert=require('node:assert/strict');
 const path=require('node:path');
@@ -45,14 +49,14 @@ const path=require('node:path');
   await page.goto(process.env.HARNESS_URL||'http://panel.test/');
   await page.locator('#startup-gate').waitFor({state:'hidden'});
   for(const [id,label] of [['deepseek-flash','DeepSeek V4.1 Flash'],['deepseek-v4-pro','DeepSeek V4 Pro']]){
-   await page.locator('#model-trigger').click();const option=page.locator(`#model-menu [data-value="${id}"]`);await option.waitFor({state:'visible'});
+   await page.locator('#model-trigger').click();await openModelGroup(page,id);const option=page.locator(`#model-menu [data-value="${id}"]`);await option.waitFor({state:'visible'});
    assert.equal(await option.locator('.provider-logo-icon').count(),0);assert.equal(await option.locator('.model-logo-icon').innerText(),'🐋');assert.equal(await option.locator('strong').innerText(),label);
    await option.click();assert.equal(await page.locator('#model-label').innerText(),label);assert.equal(await page.locator('#model-trigger .model-picker-icon').count(),1);assert.equal(await page.locator('#model-trigger-icon').innerText(),'🐋');
    assert.equal(await page.locator('#composer-identity').count(),0,'no duplicate identity above composer');
    if(id==='deepseek-flash')await page.screenshot({path:'/tmp/tail-model-identity.png'});
   }
-  await page.locator('#model-trigger').click();await page.locator('#model-menu [data-value="qwen-local"]').click();assert.equal(await page.locator('#model-trigger-icon').innerText(),'✦');assert.equal(await page.locator('#model-trigger .model-picker-icon').count(),1);
-  await page.locator('#model-trigger').click();await page.locator('#model-menu [data-value="fixture"]').click();
+  await page.locator('#model-trigger').click();await openModelGroup(page,'qwen-local');await page.locator('#model-menu [data-value="qwen-local"]').click();assert.equal(await page.locator('#model-trigger-icon').innerText(),'✦');assert.equal(await page.locator('#model-trigger .model-picker-icon').count(),1);
+  await page.locator('#model-trigger').click();await openModelGroup(page,'fixture');await page.locator('#model-menu [data-value="fixture"]').click();
   const modes=[['ask','?','Pedir aprovação','Pedir confirmação quando uma ação exigir autorização.'],['auto','↗','Automático','Seguir a política de aprovação do executor e os acessos configurados.'],['full','!','Acesso total','Executar sem pedir confirmação, dentro dos acessos autorizados. Não amplia permissões.'],['read_only','◉','Somente leitura','Consultar arquivos e informações. Escrita, comandos e testes ficam desativados.']];
   for(const [mode,icon,label,title] of modes){if(await page.locator('#access-mode').inputValue()!==mode){await page.locator('#access-trigger').click();await page.locator(`[data-access="${mode}"]`).click();}assert.equal(await page.locator('#access-label').innerText(),label);assert.equal(await page.locator('#access-trigger-icon').innerText(),icon);assert.equal(await page.locator('#access-trigger').getAttribute('title'),title);}
   await page.evaluate(()=>sessionStorage.setItem('remote-view',JSON.stringify({conversation:'restore-fixture'})));
@@ -102,7 +106,7 @@ const path=require('node:path');
   assert.equal(await page.locator('#files-error').isVisible(),false,'successful retry clears the previous directory error');
   for(const path of ['photo.png','src','src/main.py'])assert.equal(await page.locator(`#files-tree [data-path="${path}"]`).getAttribute('aria-selected'),'true','Shift selects all visible items, including expanded descendants');
   assert.equal(await page.locator('#files-selection-count').innerText(),'3 selecionado(s)');
-  await child.click({modifiers:['Control']});assert.equal(await child.getAttribute('aria-selected'),'false','modifier click toggles only the child');
+  await child.click({modifiers:['ControlOrMeta']});assert.equal(await child.getAttribute('aria-selected'),'false','modifier click toggles only the child');
   await child.focus();await child.press('Space');assert.equal(await child.getAttribute('aria-selected'),'true','Space toggles selection from keyboard');
   assert.equal(await page.locator('#files-selection-count').innerText(),'3 selecionado(s)');
   await photo.evaluate(node=>{const data=new DataTransfer();node.dispatchEvent(new DragEvent('dragstart',{bubbles:true,cancelable:true,dataTransfer:data}));window.__filesDrag=data;});
@@ -137,7 +141,7 @@ const path=require('node:path');
   assert.equal(submitted.length,2);assert.equal(submitted[1].prompt,'envio via Enter');assert.deepEqual(submitted[1].file_ids,[]);
   await page.waitForFunction(()=>document.querySelector('#cancel').hidden&&!document.querySelector('#prompt').value);
   await page.getByRole('button',{name:'Expandir src'}).click();await child.waitFor({state:'visible'});
-  await photo.click();await child.click({modifiers:['Control']});
+  await photo.click();await child.click({modifiers:['ControlOrMeta']});
   await child.press('Enter');
   await page.waitForFunction(()=>document.querySelector('#attachment-count').textContent==='1 / 20 arquivos anexados');
   assert.deepEqual(attached.at(-1).body.paths,['photo.png','src/main.py'],'Enter on a selected file attaches the selected group');
@@ -173,7 +177,7 @@ const path=require('node:path');
   assert.equal(await page.locator('#activity-panel').isVisible(),false,'clicking the active view collapses the drawer');
   await page.setViewportSize({width:390,height:844});
   assert.equal(await page.locator('#activity-panel').isVisible(),false,'mobile starts without covering the conversation');
-  await page.locator('#model-trigger').click();await page.locator('#model-menu [data-value="deepseek-v4-pro"]').click();assert.equal(await page.locator('#composer-identity').count(),0);assert.equal(await page.locator('#model-trigger .model-picker-icon').count(),1);await page.screenshot({path:'/tmp/tail-model-identity-mobile.png'});
+  await page.locator('#model-trigger').click();await openModelGroup(page,'deepseek-v4-pro');await page.locator('#model-menu [data-value="deepseek-v4-pro"]').click();assert.equal(await page.locator('#composer-identity').count(),0);assert.equal(await page.locator('#model-trigger .model-picker-icon').count(),1);await page.screenshot({path:'/tmp/tail-model-identity-mobile.png'});
   await page.click('#panel-toggle');
   await page.locator('#activity-panel').waitFor({state:'visible'});
   assert.equal(await page.locator('#files-view').isVisible(),true,'mobile opens to file view');

@@ -5,6 +5,7 @@ const fs=require('node:fs');
  const page=await browser.newPage({viewport:{width:390,height:700}});
  await page.setContent('<select id="model"></select><div id="model-menu" class="composer-menu"><div class="picker-options" role="listbox"></div></div>');
  await page.addStyleTag({content:fs.readFileSync('agent_service/ui.css','utf8')});
+ await page.addScriptTag({path:'tail_ui/assets/components.js'});
  const source=fs.readFileSync('agent_service/ui.js','utf8');
  await page.evaluate(source=>{
   window.$=id=>document.getElementById(id);window.modelIcon=()=> '◈';
@@ -20,5 +21,10 @@ const fs=require('node:fs');
  assert.equal(await page.locator('.model-logo-icon').count(),7);
  assert.equal(await page.locator('[aria-selected=true]').count(),1);
  assert.equal(await page.locator('#model-menu strong').first().evaluate(el=>getComputedStyle(el).fontSize),'13px');
+ assert.equal(await page.locator('details[open]').count(),1);
+ assert.equal(await page.locator('summary .th-icon').count(),10);
+ await groups.nth(2).locator('summary').click();
+ assert.equal(await groups.nth(2).getAttribute('open'),'');
+ assert.equal(await groups.first().getAttribute('open'),null);
  console.log('PASS: provider grouping, local aliases, icons, selection and compact typography');
 }finally{await browser.close();}})().catch(e=>{console.error(e);process.exitCode=1;});

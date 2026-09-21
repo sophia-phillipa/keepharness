@@ -37,7 +37,7 @@ const assert=require('node:assert/strict');
  await p.click('#save');await p.waitForFunction(()=>document.querySelector('#feedback').textContent.includes('perfil de CPU e GPU tem alterações pendentes'));
  assert.equal(writes.length,0);
  await p.fill('#profile-description','Perfil criado pela Pessoa de teste para Qwen3.6-35B-A3B UD-Q3_K_M');
- await p.locator('#inspector-tabs').getByText('Permissões e projetos').click();
+ await p.locator('#inspector-tabs').getByText('Permissões').click();
  await p.check('#profile-tools');await p.check('#profile-permission-internet');await p.check('#profile-permission-upload');
  await p.click('#profile-save');await p.waitForFunction(()=>document.querySelector('#profile-save').textContent==='Salvar perfil deste modelo');
  assert.equal(writes.length,1);assert.equal(writes[0].model_file,a);assert.equal(writes[0].performance['cpu-range'],'4-9');assert(!state.local_profiles[b]);assert.equal(writes[0].permissions.internet,true);assert.equal(writes[0].permissions.upload,true);assert.equal(writes[0].capabilities.tools,true);assert.equal(writes[0].description,'Perfil criado pela Pessoa de teste para Qwen3.6-35B-A3B UD-Q3_K_M');assert.equal(writes[0].mmproj_file,'/models/mmproj.gguf');assert.deepEqual(writes[0].flags,['--some-flag']);

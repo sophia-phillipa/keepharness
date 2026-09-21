@@ -6,15 +6,15 @@ const assert=require('node:assert/strict'),fs=require('node:fs/promises'),path=r
  try{
  const page=await browser.newPage({viewport:{width:1280,height:900}}),errors=[];
  page.setDefaultTimeout(7000);page.on('pageerror',e=>errors.push(e.message));
- const spec={added:true,enabled:true,models:['sonnet'],projects:['sem-projeto'],permissions:{},mode:'native',integrations:[]};
- const state={settings:{services:{claude:spec},projects:[],logins:[],port:8095,tailnet_port:8095,uploads_enabled:false},inventory:{platform:'Darwin',services:[{id:'claude',name:'Claude Code',found:true}],projects:[],network:{}},authentication:{claude:true},models:{claude:{sonnet:['configured']}},integrations:{claude:[]},operations:[],credentials:{},status:{running:true,local_url:'http://127.0.0.1:8095/',shared:false}};
- let logins=0,condition='claude_authentication_required';const posts=[],turns=[];
+ const spec={added:true,enabled:true,models:['claude-sonnet-4-6'],projects:['sem-projeto'],permissions:{},mode:'native',integrations:[]};
+ const state={settings:{services:{claude:spec},projects:[],logins:[],port:8095,tailnet_port:8095,uploads_enabled:false},inventory:{platform:'Darwin',services:[{id:'claude',name:'Claude Code',found:true}],projects:[],network:{}},authentication:{claude:true},models:{claude:{'claude-sonnet-4-6':['configured']}},integrations:{claude:[]},operations:[],credentials:{},status:{running:true,local_url:'http://127.0.0.1:8095/',shared:false}};
+ let logins=0,loginDelay=0,condition='claude_authentication_required';const posts=[],turns=[];
  await page.route('http://admin.test/**',async route=>{
   const q=new URL(route.request().url()).pathname;
   if(q.startsWith('/api/')){
    let data={};
    if(q==='/api/state')data=state;
-   if(q==='/api/provider-login'){logins++;data={id:'login-fixture',state:'running',output:'https://claude.ai/oauth/authorize?fixture=1'};state.operations=[data];}
+   if(q==='/api/provider-login'){if(loginDelay)await new Promise(resolve=>setTimeout(resolve,loginDelay));logins++;data={id:'login-fixture',state:'running',output:'https://claude.ai/oauth/authorize?fixture=1'};state.operations=[data];}
    if(q==='/api/check')data={authenticated:true,models:state.models.claude};
    if(q==='/api/cancel-operation'){state.operations[0].state='cancelled';data={cancelled:true};}
    return route.fulfill({json:data});
@@ -27,9 +27,9 @@ const assert=require('node:assert/strict'),fs=require('node:fs/promises'),path=r
   if(q.startsWith('/v1/')){
    let data={};
    if(q==='/v1/projects')data={projects:['sem-projeto'],details:{}};
-   if(q==='/v1/models')data={models:[{id:'sonnet',backend:'claude',efforts:['configured'],permissions:{}}],providers:{claude:true},uploads_enabled:false};
+   if(q==='/v1/models')data={models:[{id:'claude-sonnet-4-6',backend:'claude',efforts:['configured'],permissions:{}}],providers:{claude:true},uploads_enabled:false};
    if(q==='/v1/version')data={version:'fixture',build:'renewal'};
-   if(q==='/v1/conversations')data={conversations:turns.length?[{id:'turn-1',title:'Renovação',project:'sem-projeto',state:'interrupted',last_job_id:turns.at(-1).id,execution:{model:'sonnet',backend:'claude'}}]:[]};
+   if(q==='/v1/conversations')data={conversations:turns.length?[{id:'turn-1',title:'Renovação',project:'sem-projeto',state:'interrupted',last_job_id:turns.at(-1).id,execution:{model:'claude-sonnet-4-6',backend:'claude'}}]:[]};
    if(q==='/v1/usage')data={available:false};
    if(q==='/v1/project-directories')data={roots:[],entries:[]};
    if(q==='/v1/catalog')data={agents:[],skills:[],warnings:[]};
@@ -57,8 +57,8 @@ const assert=require('node:assert/strict'),fs=require('node:fs/promises'),path=r
  await login().click();await page.getByRole('button',{name:'Cancelar',exact:true}).click();await page.getByRole('button',{name:'Tentar novamente',exact:true}).waitFor();
  await page.getByRole('button',{name:'Tentar novamente',exact:true}).click();await page.getByRole('link',{name:/Abrir autorização/}).waitFor();await close();console.log('P2 PASS: cancel and retry');
  // P4: keyboard activation, accessible status, escape returns focus.
- await login().focus();await page.keyboard.press('Enter');await page.locator('#operation-dialog').waitFor();
- assert.equal(await page.locator('#operation-message').getAttribute('role'),'status');await page.keyboard.press('Escape');assert(await login().evaluate(e=>e===document.activeElement));console.log('P4 PASS: keyboard and status');
+ loginDelay=250;await login().focus();await page.keyboard.press('Enter');await page.locator('#operation-dialog').waitFor();
+ assert.equal(await page.locator('#operation-message').getAttribute('role'),'status');await page.keyboard.press('Escape');await page.waitForFunction(()=>document.activeElement?.getAttribute('aria-label')==='Entrar ou renovar acesso — Claude Code');assert(await login().evaluate(e=>e===document.activeElement));loginDelay=0;console.log('P4 PASS: keyboard and status, including closing during a pending request');
  // P5: mobile layout and re-opening an ongoing login after reload.
  await page.setViewportSize({width:390,height:844});await page.reload();await idle();assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
  await page.getByRole('button',{name:'Operações em andamento e resultados',exact:true}).click();await page.getByRole('link',{name:/Abrir autorização/}).waitFor();await close();

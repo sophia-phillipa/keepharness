@@ -122,7 +122,7 @@ class Stream:
         if len(self.answer) + len(self.thinking) > 500000:
             raise ToolError("claude_output_limit")
 
-    def finish(self, model):
+    def finish(self, model, effort="configured"):
         if self.result is None:
             raise ToolError("claude_stream_incomplete")
         usage = self.result.get("usage", {})
@@ -133,7 +133,7 @@ class Stream:
             "answer": answer,
             "backend": "claude",
             "model": model,
-            "effort": "configured",
+            "effort": effort,
             "cloud_inference": True,
             "finish_reason": "completed",
             "incomplete": False,
@@ -150,7 +150,7 @@ class Stream:
         }
 
 
-async def stream(command, prompt, event, model):
+async def stream(command, prompt, event, model, effort="configured"):
     state = Stream(event)
     proc = await asyncio.create_subprocess_exec(
         *command,
@@ -166,7 +166,7 @@ async def stream(command, prompt, event, model):
         proc.stdin.close()
 
     writer = asyncio.create_task(write_prompt())
-    event("planning", {"backend": "claude", "model": model, "effort": "configured"})
+    event("planning", {"backend": "claude", "model": model, "effort": effort})
     size = 0
     try:
         async for line in proc.stdout:
@@ -183,7 +183,7 @@ async def stream(command, prompt, event, model):
         await writer
         if await proc.wait() != 0:
             raise ToolError(state.provider_error or "claude_execution_failed")
-        return state.finish(model)
+        return state.finish(model, effort)
     finally:
         writer.cancel()
         await asyncio.gather(writer, return_exceptions=True)

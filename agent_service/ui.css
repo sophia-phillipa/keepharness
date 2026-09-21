@@ -631,3 +631,21 @@ body.panel-order-reversed #app-topbar #menu .th-icon{transform:scaleX(-1)}
 @media(prefers-reduced-motion:reduce){.isolation-thumb{transition:none}}
 #isolation-toggle[aria-checked="true"]{background:var(--accent);border-color:var(--accent)}
 #isolation-toggle[aria-checked="true"] .isolation-thumb{background:var(--surface);color:var(--accent)}
+
+#delete-project-folder-dialog{width:min(560px,calc(100vw - 32px));max-height:calc(100dvh - 32px);overflow:auto}
+#delete-project-folder-paths{padding:12px 12px 12px 30px;background:var(--th-soft);border-radius:8px;font-family:monospace;overflow-wrap:anywhere}
+.delete-project-folder-ack{display:flex;align-items:flex-start;gap:10px}
+.delete-project-folder-ack input{flex:none;margin-top:5px}
+#delete-project-folder-error:empty,#delete-project-folder-status:empty{display:none}
+
+.project-logo{width:20px;height:20px;object-fit:contain;vertical-align:middle;margin-right:6px}
+
+/* Provider accordion: local sprite icons, native disclosure and nested model lists. */
+#model-menu .model-provider-heading{display:flex;align-items:center;gap:9px;padding:9px 8px;font-size:13px;font-weight:500;list-style:none;border-radius:7px;color:var(--th-text);cursor:pointer}
+#model-menu .model-provider-heading::-webkit-details-marker{display:none}
+#model-menu .model-provider-heading:hover,#model-menu details[open]>.model-provider-heading{background:var(--th-soft)}
+#model-menu .model-provider-heading>.th-icon{width:18px;height:18px;flex:none}
+#model-menu .model-provider-chevron{margin-left:auto;transform:rotate(180deg)}
+#model-menu details[open]>.model-provider-heading .model-provider-chevron{transform:rotate(-90deg)}
+#model-menu .model-provider-options{margin:5px 0 5px 17px;padding-left:8px;border-left:1px solid var(--th-border)}
+@media(pointer:coarse){#model-menu .model-provider-heading,#model-menu [role=option]{min-height:44px}}

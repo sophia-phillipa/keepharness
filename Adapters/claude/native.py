@@ -91,10 +91,13 @@ async def run(
     access_mode="ask",
     additional_roots=None,
     title=None,
+    effort="configured",
 ):
     command = build_command(
         config, model, home, permissions, selected, access_mode, additional_roots
     )
+    if effort != "configured":
+        command += ["--effort", effort]
     marker = home / "claude-session.json"
     if marker.exists():
         command += ["--resume", json.loads(marker.read_text())["id"]]
@@ -160,7 +163,7 @@ async def run(
             state.consume(item)
             if item.get("type") == "result":
                 break
-        result = state.finish(model)
+        result = state.finish(model, effort)
         if session:
             marker.write_text(json.dumps({"id": session}))
             result["thread_id"] = session

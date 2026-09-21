@@ -16,7 +16,7 @@ const assert=require('node:assert/strict'),path=require('node:path');
   }
   if(p.endsWith('/events'))return route.fulfill({contentType:'text/event-stream',body:'id: 1\ndata: '+JSON.stringify({id:1,type:'completed',data:{}})+'\n\n'});
   const data=p==='/v1/projects'?{projects:['p'],details:{p:{label:'Project'}}}:
-   p==='/v1/models'?{models:[{id:'fixture',name:'Fixture',backend:'claude',efforts:['low'],execution_modes:['native','scoped']},{id:'local-fixture',name:'Local fixture',backend:'local',efforts:['low'],execution_modes:['scoped']},{id:'gemini-fixture',name:'Gemini fixture',backend:'gemini',efforts:['configured'],execution_modes:['native']}],providers:{claude:true},uploads_enabled:false}:
+   p==='/v1/models'?{models:[{id:'claude-sonnet-4-6',name:'Fixture',backend:'claude',efforts:['low'],execution_modes:['native','scoped']},{id:'local-fixture',name:'Local fixture',backend:'local',efforts:['low'],execution_modes:['scoped']},{id:'gemini-fixture',name:'Gemini fixture',backend:'gemini',efforts:['configured'],execution_modes:['native']}],providers:{claude:true},uploads_enabled:false}:
    p==='/v1/conversations'?{conversations:turns.length?[{id:turns[0].id,title:'Test',project:'p',state:'completed',execution_mode:turns[0].request.execution_mode,last_job_id:turns.at(-1).id}]:[]}:
    p.startsWith('/v1/conversations/')?{execution_mode:turns[0]?.request.execution_mode,turns}:
    p.startsWith('/v1/jobs/')?turns.find(t=>t.id===p.split('/')[3])||{}:
@@ -38,7 +38,7 @@ const assert=require('node:assert/strict'),path=require('node:path');
  assert.equal(await page.locator('#prompt').inputValue(),'Rascunho 🐋 <teste>');
  assert.equal(await page.locator('#send').isDisabled(),true);
  assert.equal(sent.length,0);
- await page.locator('#model').selectOption('fixture',{force:true});
+ await page.locator('#model').selectOption('claude-sonnet-4-6',{force:true});
  assert.equal(await page.locator('#send').isEnabled(),true);
  await page.locator('#prompt').fill('Preserve draft');await page.reload();await page.locator('#startup-gate').waitFor({state:'hidden'});
  assert.equal(await toggle.getAttribute('aria-checked'),'true');assert.equal(await page.locator('#prompt').inputValue(),'Preserve draft');

@@ -23,6 +23,8 @@
  function mountThemes(container){const grid=document.createElement('div');grid.className='theme-picker';grid.setAttribute('role','group');grid.setAttribute('aria-label','Tema desta interface');
   for(const t of theme.themes){const b=document.createElement('button');b.type='button';b.className='theme-choice';b.dataset.themeChoice=t.id;const swatches=document.createElement('span');swatches.className='theme-swatches';swatches.setAttribute('aria-hidden','true');for(const color of t.colors){const s=document.createElement('span');s.style.backgroundColor=color;swatches.append(s);}const title=document.createElement('strong');title.className='theme-name';title.textContent=t.name;const mode=document.createElement('small');mode.textContent=t.mode==='dark'?'Escuro':'Claro';b.append(swatches,title,mode);b.onclick=()=>theme.apply(t.id);grid.append(b);}container.append(grid);theme.apply(document.documentElement.dataset.palette,false);
  }
- window.TailUI={icon,decorate,notice,toast,mountThemes};
+ // Picker policy only: keep legacy execution IDs intact for existing sessions.
+ function selectableModel(provider,id){return provider!=='claude'||/^claude-[a-z]+-\d{1,3}(?:-\d{1,3})?$/.test(id);}
+ window.TailUI={icon,decorate,notice,toast,mountThemes,selectableModel};
  document.addEventListener('DOMContentLoaded',()=>{decorate();document.querySelectorAll('[data-theme-picker]').forEach(mountThemes);});
 })();

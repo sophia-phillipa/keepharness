@@ -2,7 +2,7 @@
 
 **Responsible agent:** `integrate-claude_tail-harness_engineer` (`.codex/agents/integrate-claude_tail-harness_engineer.toml`).
 
-`adapter_spec_revision: 3`
+`adapter_spec_revision: 4`
 `harness_baseline: 0.4.4 working-tree`
 
 ## Observed baseline
@@ -20,7 +20,7 @@ The version and naming option were observed with `claude --version` and `claude 
 | --- | --- | --- |
 | Input | Native mode sends a JSONL `user` message with text and permitted base64 images. Scoped mode passes the bounded prompt through the isolated command. | Fake CLI tests cover the native message and tool approval path. |
 | Session | Native mode records `claude-session.json`, passes `--resume <id>` on continuation, and passes the canonical Harness title unchanged through the official `--name` option when it is nonblank. Scoped mode reports `replayed_history` and deliberately disables Claude session persistence. | Fake CLI tests cover title transport and session ID persistence; no live resume or provider UI claim. |
-| Effort | The public harness contract exposes only `configured` for Claude. | Configuration and assessment validation; no undocumented CLI effort flag is used. |
+| Effort | The CLI initialize catalog supplies supported levels per model; `configured` preserves provider defaults. Explicit choices are passed via `--effort` in native and scoped mode. | Catalog, admission and fake CLI transport tests. |
 | Streaming | `stream-json` events become text, thinking, tool lifecycle, token metrics and separate rate-limit events; a successful `result` is required. Token metrics are not account quota. | Stream parser tests cover representative messages. |
 | Cancel | Process cleanup terminates the child and escalates to kill after its timeout. A provider-side cancellation acknowledgement is not separately validated. | Implementation behavior; add a failing cancellation test before changing it. |
 | Errors | Invalid JSON, missing result, nonzero process result, provider failure and output limits map to `claude_*` errors. | Unit tests cover representative parser and native failures. |
@@ -30,7 +30,7 @@ The installed Claude Code `2.1.258` help and CLI reference document `--name`, `-
 
 ## Aliases
 
-The project exposes the official CLI aliases `sonnet`, `opus`, and `haiku` with `configured` effort. See their individual records in [models](models/). They remain subject to account entitlement and provider availability.
+The project reads the authenticated CLI initialize catalog, including aliases, resolved version IDs, extended-context variants and per-model effort levels. Disabled rows are excluded. The CLI remains authoritative for account availability; the catalog is not an inference entitlement test. See [catalog contract](models/catalogo-cli.md).
 
 ## Review triggers
 
@@ -94,3 +94,7 @@ Validation: `tests/test_claude_errors.py`, `tests/test_provider_login.py`,
 `tests/account-renewal.spec.cjs`, and related native/session/runtime tests.
 Browser checks use simulated APIs and accounts; an actual successful OAuth
 renewal still requires the account owner's browser authorization.
+
+## Catalog and quota — 2026-09-21
+
+Claude Code 2.1.236 was checked on this host with non-inference control requests. `initialize` supplies models and `get_usage` supplies account quota. The latter reports percentages, unlike stream utilization fractions. Quota is fetched before a conversation exists, cached for 30 seconds, and falls back to recent owner-scoped stream observations if unavailable. Metadata requests use an empty temporary working directory, no tools, disabled hooks, and the same selected login source as execution. No user prompt is sent.

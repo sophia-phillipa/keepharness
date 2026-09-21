@@ -19,6 +19,7 @@ import uuid
 from urllib.parse import urlparse
 import httpx
 from Adapters.claude.auth import cli_login_environment
+from Adapters.claude import account as claude
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import FileResponse,JSONResponse
@@ -88,7 +89,7 @@ class Manager:
         if 'claude' in runtime:
             runtime['claude']['use_cli_login']=True
             self._write_runtime(runtime)
-        self.auth['claude']=False
+        self.auth['claude']=True
         self.audit('claude_login_completed')
 
     def validate(self,data):
@@ -110,10 +111,13 @@ class Manager:
         if default not in ('','codex','claude','gemini','local','deepseek'):raise ValueError('Executor padrão inválido.')
         out['default_backend']=default
         projects=[];ids=set()
+        saved_roots={p.get('id'):p.get('root') for p in self.settings.get('projects',[])}
         for project in data.get('projects',[]):
             pid=project.get('id','');label=project.get('label','');raw=Path(project.get('root','')).expanduser()
             if not re.fullmatch('[a-z0-9_-]{1,64}',pid) or pid=='sem-projeto' or pid in ids:raise ValueError('Identificador de projeto inválido ou repetido.')
-            if not raw.is_absolute() or not raw.is_dir():raise ValueError('Escolha uma pasta existente e absoluta.')
+            # A removed, previously registered folder must not stop unrelated projects.
+            saved_missing=not raw.exists() and saved_roots.get(pid)==str(raw)
+            if not raw.is_absolute() or (not raw.is_dir() and not saved_missing):raise ValueError('Escolha uma pasta existente e absoluta.')
             root=raw.resolve();home=Path.home().resolve()
             forbidden=[Path('/'),home,home/'.ssh',home/'.codex',home/'.claude',home/'.gemini',home/'.config',self.state.resolve()]
             if root in forbidden or any(root.is_relative_to(x) or x.is_relative_to(root) for x in forbidden[2:]):raise ValueError('Pasta ampla ou de credenciais não pode ser compartilhada.')
@@ -128,7 +132,8 @@ class Manager:
         for provider in ('codex','claude','gemini','local','deepseek'):
             spec=data.get('services',{}).get(provider,{})
             models=spec.get('models',[]);allowed_projects=spec.get('projects',[])
-            if not isinstance(models,list) or len(models)>50 or any(not isinstance(x,str) or not re.fullmatch('[a-zA-Z0-9_./:-]{1,160}',x) for x in models):raise ValueError('Lista de modelos inválida.')
+            model_pattern = r'[a-zA-Z0-9_./:-]{1,160}(?:\[1m\])?' if provider == 'claude' else r'[a-zA-Z0-9_./:-]{1,160}'
+            if not isinstance(models,list) or len(models)>50 or any(not isinstance(x,str) or not re.fullmatch(model_pattern,x) for x in models):raise ValueError('Lista de modelos inválida.')
             if not isinstance(allowed_projects,list) or any(p not in ids|{'sem-projeto'} for p in allowed_projects):raise ValueError('Projeto não cadastrado.')
             if not isinstance(spec.get('permissions',{}),dict):raise ValueError('Permissões inválidas.')
             perms={k:(provider!='local' or spec.get('permissions',{}).get(k) is True) for k in PERMISSIONS}
@@ -294,8 +299,8 @@ class Manager:
                 ):
                     cfg["uploads_enabled"] = True
             cfg[provider + "_models"] = (
-                {m: checked["models"][m] for m in spec["models"]}
-                if provider == "codex"
+                {m: checked["models"].get(m, ["configured"]) for m in spec["models"]}
+                if provider in ("codex", "claude")
                 else spec["models"]
             )
         if not enabled and not allow_empty:
@@ -402,10 +407,12 @@ class Manager:
             code,raw=await command(info['binary'],'auth','status','--json',**options)
             try:authenticated=code==0 and json.loads(raw).get('loggedIn') is True
             except ValueError:authenticated=False
-            # Official CLI aliases; entitlement is checked by the provider at execution.
-            self.provider_models[provider]={m:['configured'] for m in ('sonnet','opus','haiku')}
+            self.provider_models[provider] = {}
+            if authenticated:
+                self.provider_models[provider] = claude.model_catalog(await claude.metadata(
+                    {'binary': info['binary'], 'use_cli_login': bool(options)}))
         self.auth[provider]=authenticated;self.audit('provider_check:'+provider)
-        return {'authenticated':authenticated,'models':self.provider_models.get(provider,{}),'model_source':'CLI model/list' if provider=='codex' else 'Aliases oficiais; disponibilidade depende da conta'}
+        return {'authenticated':authenticated,'models':self.provider_models.get(provider,{}),'model_source':'CLI model/list' if provider=='codex' else 'Catálogo do Claude Code e versões oficiais legadas; acesso sujeito à conta'}
 
     async def start(self):
         if self.running():return

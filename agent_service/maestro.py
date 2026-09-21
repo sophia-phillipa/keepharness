@@ -15,6 +15,14 @@ def model_permissions(config,provider,model,project_id=None):
     return permissions
 
 
+def model_efforts(config, provider, model):
+    if provider not in ("codex", "deepseek", "claude"):
+        return ["configured"]
+    catalog = config.get(provider + "_models", {})
+    default = ["configured"] if provider == "claude" else []
+    return catalog.get(model, default) if isinstance(catalog, dict) else default
+
+
 def candidates(config, project, uploads=False):
     result=[]
     for provider, spec in config.get('services',{}).items():
@@ -22,7 +30,7 @@ def candidates(config, project, uploads=False):
         for model in spec.get('models',[]):
             permissions=model_permissions(config,provider,model,project)
             if uploads and not permissions.get('upload'):continue
-            efforts=config.get(provider+'_models',{}).get(model,[]) if provider in ('codex','deepseek') else ['configured']
+            efforts=model_efforts(config,provider,model)
             if efforts:result.append({'backend':provider,'model':model,'efforts':efforts,'permissions':permissions,'integrations':[] if provider=='local' and 'model_permissions' in spec else spec.get('integrations',[]),'mode':spec.get('mode','scoped')})
     return result
 

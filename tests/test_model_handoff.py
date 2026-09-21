@@ -173,3 +173,45 @@ def test_title_is_provider_independent_and_survives_handoff(service, backend):
         service.db.execute('INSERT INTO conversation_titles VALUES(?,?)', ('root-title', 'Same title everywhere'))
     next_turn = execute(service, 'child-title', backend, 'root-title')
     assert next_turn['project']['_conversation_title'] == 'Same title everywhere'
+
+@pytest.mark.parametrize('state', ['failed', 'cancelled', 'interrupted'])
+def test_confirmed_codex_turn_resumes_after_interruption(service, state):
+    execute(service, 'a', 'codex')
+    row, data = add_turn(service, 'b', 'codex', 'a')
+    async def interrupted(*args):
+        args[2]('session_turn_started', {'thread_id': 'thread-a'})
+        args[2]('tool_end', {'result': 'large output '*15000})
+        raise TimeoutError()
+    with patch('Adapters.run_native', side_effect=interrupted), pytest.raises(TimeoutError):
+        asyncio.run(service.infer(row, data))
+    service.finish('b', state, {'error': 'TimeoutError'})
+    resumed = execute(service, 'c', 'codex', 'b')
+    assert resumed['resumed']
+    assert 'large output' not in resumed['prompt']
+    assert 'interrompida' in resumed['prompt']
+
+
+def test_legacy_oversized_codex_history_is_readable_without_inline_replay(service):
+    from pathlib import Path
+    service.config['services']['codex']['permissions']['shell'] = True
+    execute(service, 'a', 'local')
+    service.event('a', 'tool_end', {'result': 'large evidence '*15000})
+    final = execute(service, 'b', 'codex', 'a')
+    assert len(final['prompt']) < 20000
+    roots = final['project']['additional_roots']
+    history = Path(roots[-1])/'history-b.jsonl'
+    saved = [json.loads(line) for line in history.read_text().splitlines()]
+    assert saved[0]['user'] == 'request-a'
+    assert saved[0]['evidence'][0]['data']['result'] == 'large evidence '*15000
+    assert str(history) in final['prompt']
+    assert history.stat().st_mode & 0o777 == 0o600
+    assert 'request-b' in final['prompt']
+
+
+def test_oversized_codex_history_without_tools_still_fails_explicitly(service):
+    from agent_service.app import APIError
+    execute(service, 'a', 'local')
+    service.event('a', 'tool_end', {'result': 'x'*160000})
+    row, data = add_turn(service, 'b', 'codex', 'a')
+    with pytest.raises(APIError, match='conversation_context_limit'):
+        asyncio.run(service.infer(row, data))

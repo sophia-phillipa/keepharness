@@ -23,7 +23,11 @@ for line in sys.stdin:
  if method=='initialize':emit({'id':x['id'],'result':{}})
  elif method in ('thread/start','thread/resume'):emit({'id':x['id'],'result':{'thread':{'id':'session-1'}}})
  elif method=='thread/name/set':emit({'id':x['id'],'result':{}})
- elif method=='turn/start':emit({'id':90,'method':'item/commandExecution/requestApproval','params':{'command':'test-command'}})
+ elif method=='turn/start':
+  emit({'method':'turn/started','params':{'threadId':'session-1','turn':{'id':'turn-1','status':'inProgress'}}})
+  emit({'method':'item/started','params':{'item':{'type':'contextCompaction'}}})
+  emit({'method':'thread/compacted','params':{'threadId':'session-1'}})
+  emit({'id':90,'method':'item/commandExecution/requestApproval','params':{'command':'test-command'}})
  elif x.get('id')==90:
   emit({'method':'item/agentMessage/delta','params':{'delta':x['result']['decision']}})
   emit({'method':'thread/tokenUsage/updated','params':{'tokenUsage':{'total':{'inputTokens':12,'outputTokens':1}}}})
@@ -36,6 +40,9 @@ for line in sys.stdin:
      result=await run({'binary':str(exe)},'hello',lambda k,v:events.append(k),{'permissions':{},'_conversation_title':'Harness title '+effort},model,effort,root/'session','codex',approve)
      self.assertEqual(result['answer'],'decline')
    self.assertEqual(len(requests),3);self.assertIn('session_resumed',events);self.assertIn('context_usage',events)
+   self.assertEqual(events.count('session_turn_started'),3)
+   self.assertEqual(events.count('context_compacting'),3)
+   self.assertEqual(events.count('context_compacted'),3)
    messages=[json.loads(x) for x in log.read_text().splitlines()]
    turns=[x['params'] for x in messages if x.get('method')=='turn/start']
    self.assertEqual([(t['model'],t['effort']) for t in turns],[('gpt-6-astra','low'),('gpt-6-astra','high'),('gpt-5.6-terra','medium')])

@@ -28,6 +28,12 @@ const assert=require('node:assert/strict');
   assert.equal(await page.locator('#sidebar .brand').count(),0);
   assert.equal(await page.locator('#admin-shortcut-top').isVisible(),true);
   assert.equal(await page.locator('#admin-shortcut-top').getAttribute('href'),'http://127.0.0.1:8094/');
-  console.log('PASS: administrative link on network hostname');
+  await page.click('#new');
+  assert.equal(await page.locator('#admin-shortcut-top').isVisible(),true,'administration remains available after a new conversation');
+  assert.equal(await page.locator('#admin-shortcut-top').getAttribute('href'),'http://127.0.0.1:8094/');
+  await page.click('#settings');
+  assert.equal(await page.locator('#admin-shortcut').isVisible(),true,'settings retains the administrative shortcut');
+  assert.equal(await page.locator('#admin-shortcut').getAttribute('href'),'http://127.0.0.1:8094/');
+  console.log('PASS: administrative links survive a new conversation on network hostname');
  }finally{await browser.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});
