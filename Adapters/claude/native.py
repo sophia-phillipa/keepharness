@@ -4,6 +4,7 @@ import asyncio
 import json
 from control.integrations import configurations, inventory
 from .stream import Stream
+from .auth import cli_login_environment
 
 
 def build_command(
@@ -102,6 +103,7 @@ async def run(
     proc = await asyncio.create_subprocess_exec(
         *command,
         cwd=cwd,
+        env=cli_login_environment() if config.get("use_cli_login") else None,
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.DEVNULL,

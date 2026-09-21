@@ -18,6 +18,7 @@ import time
 import uuid
 from urllib.parse import urlparse
 import httpx
+from Adapters.claude.auth import cli_login_environment
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import FileResponse,JSONResponse
@@ -78,6 +79,17 @@ class Manager:
         with sqlite3.connect(db) as c:return bool(c.execute("SELECT 1 FROM jobs WHERE state IN ('queued','running') LIMIT 1").fetchone())
 
     def running(self):return self.proc is not None and self.proc.returncode is None
+
+    async def claude_login_completed(self):
+        # No token is copied or stored here. Claude owns the renewed credential.
+        marker=self.state/'claude-cli-login'
+        marker.touch(mode=0o600)
+        runtime=self._previous_runtime()
+        if 'claude' in runtime:
+            runtime['claude']['use_cli_login']=True
+            self._write_runtime(runtime)
+        self.auth['claude']=False
+        self.audit('claude_login_completed')
 
     def validate(self,data):
         if not isinstance(data,dict):raise ValueError('Configuração inválida.')
@@ -227,7 +239,10 @@ class Manager:
                 }
                 cfg["deepseek_models"] = {m: checked["models"][m] for m in spec["models"]}
                 continue
-            if not checked["authenticated"] or (
+            # A pending native Claude login is an account condition; it must
+            # not prevent the UI and other configured providers from starting.
+            pending_claude_login = provider == 'claude' and spec.get('mode') == 'native'
+            if (not checked["authenticated"] and not pending_claude_login) or (
                 spec.get("mode") == "scoped" and not Path(info["auth_file"]).is_file()
             ):
                 raise ValueError(
@@ -254,6 +269,8 @@ class Manager:
                 "python": sys.executable,
                 "integrations": spec.get("integrations", []),
             }
+            if provider == 'claude' and (self.state/'claude-cli-login').exists():
+                cfg[provider]['use_cli_login'] = True
             if provider == "local":
                 if any(m not in checked["models"] for m in spec["models"]):
                     raise ValueError(
@@ -381,7 +398,8 @@ class Manager:
                 listing=await metadata(info['binary'],'model/list')
                 self.provider_models[provider]={m['id']:[e['reasoningEffort'] for e in m.get('supportedReasoningEfforts',[])] or ['low'] for m in listing.get('data',[])}
         else:
-            code,raw=await command(info['binary'],'auth','status','--json')
+            options={'env':cli_login_environment()} if (self.state/'claude-cli-login').exists() else {}
+            code,raw=await command(info['binary'],'auth','status','--json',**options)
             try:authenticated=code==0 and json.loads(raw).get('loggedIn') is True
             except ValueError:authenticated=False
             # Official CLI aliases; entitlement is checked by the provider at execution.
@@ -583,7 +601,13 @@ def create_app(state,port=8094):
                     provider=data.get('provider');binary=manager.inventory['binaries'].get(provider) if provider in ('codex','claude','gemini') else None
                     if not binary:raise ValueError('CLI não encontrado.')
                     command=[sys.executable,'-m','Adapters.gemini.account','--binary',binary] if provider=='gemini' else ([binary,'login','--device-auth'] if provider=='codex' else [binary,'auth','login'])
-                    result=manager.operations.launch(command)
+                    existing=next((j for j in manager.operations.jobs.values() if j.get('provider')==provider and j.get('kind')=='provider-login' and j['state']=='running'),None)
+                    if existing:
+                        result=existing
+                    else:
+                        options={'env':cli_login_environment(),'on_success':manager.claude_login_completed} if provider=='claude' else {}
+                        result=manager.operations.launch(command,**options)
+                        result.update(provider=provider,kind='provider-login')
                 elif path=='/api/integration-catalog':
                     provider=data.get('provider')
                     if provider not in ('codex','claude'):raise ValueError('Provedor inválido.')

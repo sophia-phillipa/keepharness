@@ -70,3 +70,27 @@ execution frontmatter are unavailable instead of silently flattened.
 Sources: <https://code.claude.com/docs/en/skills> and
 <https://code.claude.com/docs/en/sub-agents> (checked 2026-09-20).
 Validation: `tests/test_resources.py`, `tests/test_native.py`; no paid inference.
+
+## Account renewal and recoverable conditions — 2026-09-21
+
+Verified locally with Claude Code 2.1.236 (`--version`, `auth status`; no live
+inference). An observed assistant event reported `authentication_failed` and an
+expired OAuth session. The adapter retains known structured error codes without
+copying arbitrary provider messages into application errors. Authentication and
+quota conditions end the attempt as `interrupted`, with `condition` metadata,
+rather than `failed`; the UI explains the next action in both live and saved turns.
+Unknown failures still retain the generic failure contract.
+
+The administration dashboard and provider editor expose account login/renewal.
+An explicit successful Claude browser login persists a non-secret
+`claude-cli-login` preference in the control state directory and updates the
+runtime's `use_cli_login` flag. Login, later account checks and subsequent native
+Claude processes then omit inherited `CLAUDE_CODE_OAUTH_TOKEN`; the parent
+environment is unchanged. Failed/cancelled logins do not change this preference.
+The preference survives admin restarts. Credentials remain managed by the CLI.
+Native Claude account renewal does not block starting the rest of the Harness.
+
+Validation: `tests/test_claude_errors.py`, `tests/test_provider_login.py`,
+`tests/account-renewal.spec.cjs`, and related native/session/runtime tests.
+Browser checks use simulated APIs and accounts; an actual successful OAuth
+renewal still requires the account owner's browser authorization.

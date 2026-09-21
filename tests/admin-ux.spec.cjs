@@ -48,7 +48,7 @@ const assert=require('node:assert/strict');
  assert.match(await p.evaluate(()=>document.activeElement.textContent),/Codex/);
  await p.keyboard.press('Tab');await p.keyboard.press('Enter');
  const missing=p.locator('.provider-card[data-provider=claude]');
- assert(await missing.getByRole('button',{name:'Entrar',exact:true}).isDisabled());
+ assert(await missing.getByRole('button',{name:'Entrar ou renovar acesso — Claude Code',exact:true}).isDisabled());
  assert.match(await missing.innerText(),/Instale o CLI/);
  await p.click('#wizard-back');
  await p.locator('#provider-options').locator('[data-provider=local]').click();

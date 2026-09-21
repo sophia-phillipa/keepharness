@@ -345,6 +345,7 @@ function eventToolName(data={}){
 }
 function activityTitle(e){
  const data=e.data||{},type=e.type,tool=eventToolName(data);
+ const condition=executionCondition(data.condition||data.error);if(condition)return condition.title;
  if(type==='tool_start')return data.command_name&&tool?'Executando comando '+tool:({Read:'Lendo arquivo',Glob:'Buscando arquivos',Grep:'Pesquisando no texto',webSearch:'Pesquisando na web'})[data.tool]||('Executando '+(tool||'ferramenta'));
  if(type==='tool_end')return (data.status==='failed'?'Falha na ferramenta':'Ferramenta concluída');
  if(['thinking','reasoning_delta','reasoning_summary'].includes(type))return 'Pensando';
@@ -421,25 +422,32 @@ function event(e){
  else{status(labels[e.type]||e.type);}
  scroll();
 }
+function executionCondition(code){
+ if(['claude_authentication_required','claude_authentication_failed'].includes(code))return {title:'Renovar acesso ao Claude',message:'Seu acesso ao Claude precisa ser renovado. No painel administrativo, encontre Claude Code e clique em “Renovar acesso”. Conclua o login no navegador e envie sua mensagem novamente.'};
+ if(['claude_quota_exhausted','claude_rate_limit'].includes(code))return {title:'Aguardar renovação da cota',message:'Sua cota do Claude está temporariamente esgotada. Aguarde a renovação ou selecione outro provedor para continuar nesta conversa.'};
+ return null;
+}
 function executionError(error){
+ const condition=executionCondition(error);if(condition)return condition.message;
  if(/context_limit_exceeded|exceed_context_size|exceeds the available context|maximum context length|source_context_limit|conversation_context_limit|context_window_exceeded/i.test(String(error)))return 'O conteúdo ultrapassou o limite de contexto do modelo. Os anexos envolvidos nesta tentativa foram retirados do contexto das próximas mensagens; os arquivos e o histórico foram preservados. Você pode continuar nesta conversa. Para analisar o CSV, envie uma parte menor ou disponibilize-o em uma pasta autorizada.';
  return 'A execução não foi concluída: '+error;
 }
 async function result(expectedJob=job,expectedController=controller,snapshot=null){
  const r=snapshot||await json('/v1/jobs/'+expectedJob);if(job!==expectedJob||controller!==expectedController)return r;const terminal={completed:'Concluído',failed:'Falha na execução',cancelled:'Execução cancelada',interrupted:'Execução interrompida'};
- updateMotion(r.state);$('activity-state').textContent=(activityIcons[r.state]||'•')+' '+(labels[r.state]||r.state);
+ const condition=executionCondition(r.result?.condition||r.result?.error);
+ updateMotion(r.state);$('activity-state').textContent=condition?'ℹ '+condition.title:(activityIcons[r.state]||'•')+' '+(labels[r.state]||r.state);
  if(active){
   active.chip.textContent=$('activity-state').textContent;
   const data=r.result||{},seconds=Number(data.total_seconds);
   if(data.context_usage)paintContext(data.context_usage,data.metrics);else if(data.metrics)paintLocalUsage(data.metrics);
   if(data.answer!==undefined)setAnswer(active,data.answer);
-  if(data.error)setAnswer(active,executionError(data.error));
+  if(condition)setAnswer(active,condition.message);else if(data.error)setAnswer(active,executionError(data.error));
   if(r.state==='cancelled'&&!active.body.rawAnswer)setAnswer(active,'Execução cancelada.');
   const modelId=data.model||$('model').value,model=modelId?modelIcon(modelId)+' '+(names[modelId]||models.find(m=>m.id===modelId)?.name||modelId):'',duration=Number.isFinite(seconds)&&seconds>0?seconds.toFixed(1)+' s':'';
   active.meta.textContent=[model,duration].filter(Boolean).join(' · ');
   if(data.deployment)active.meta.textContent+=(active.meta.textContent?' · ':'')+(data.deployment.applied?'Alterações aplicadas':'Alterações não aplicadas');
-  setActivitySummary(active,terminal[r.state]?(duration?'Trabalhou por '+duration:terminal[r.state]):'Trabalhando…');
-  if(data.incomplete)status('Resposta incompleta. Reduza o escopo e tente novamente.');else status(terminal[r.state]||r.state);
+  setActivitySummary(active,condition?condition.title:terminal[r.state]?(duration?'Trabalhou por '+duration:terminal[r.state]):'Trabalhando…');
+  if(data.incomplete)status('Resposta incompleta. Reduza o escopo e tente novamente.');else status(condition?.title||terminal[r.state]||r.state);
   if(data.deployment)status(data.deployment.applied?'Alterações aplicadas ao projeto. Verificando atualização do painel…':'Alterações não aplicadas.');
   if(selected()?.backend==='codex'){if(data.quota_before)quotaSnapshot('before',data.quota_before);if(data.quota_after)quotaSnapshot('after',data.quota_after);}
  }
@@ -469,11 +477,12 @@ async function load(id,legacy=false,restoredView=null){
    if(models.some(m=>m.id===model)){$('model').value=model;updateEfforts();$('effort').value=r.request?.effort||$('effort').value;}
    messageAttachments(bubble('user',r.request?.prompt||'Execução anterior'),r.attachments);active=assistant(r.id,model,r!==data.turns[data.turns.length-1]||['completed','failed','cancelled','interrupted'].includes(r.state));job=r.id;
    if(r!==data.turns[data.turns.length-1]){
-    setAnswer(active,r.result?.answer??(r.result?.error?executionError(r.result.error):r.state));
-    active.chip.textContent=(activityIcons[r.state]||'•')+' '+(labels[r.state]||r.state);
+    const condition=executionCondition(r.result?.condition||r.result?.error);
+    setAnswer(active,condition?.message??r.result?.answer??(r.result?.error?executionError(r.result.error):r.state));
+    active.chip.textContent=condition?'ℹ '+condition.title:(activityIcons[r.state]||'•')+' '+(labels[r.state]||r.state);
     const seconds=Number(r.result?.total_seconds),duration=Number.isFinite(seconds)&&seconds>0?seconds.toFixed(1)+' s':'';
     active.meta.textContent=[r.result?.model||model||'',duration].filter(Boolean).join(' · ');
-    setActivitySummary(active,duration?'Trabalhou por '+duration:(labels[r.state]||'Etapas da execução'));
+    setActivitySummary(active,condition?condition.title:duration?'Trabalhou por '+duration:(labels[r.state]||'Etapas da execução'));
    }
   }
   $('access-mode').value=data.turns.at(-1).request?.access_mode||'ask';syncAccessMode();void quota();
