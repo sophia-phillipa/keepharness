@@ -1,0 +1,49 @@
+const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
+const assert=require('node:assert/strict'),fs=require('node:fs/promises'),path=require('node:path');
+(async()=>{const browser=await chromium.launch();try{
+ let eventRequests=0,cancelRequests=0,createdProject=null;const origin='http://harness.test:8093';
+ const page=await browser.newPage({viewport:{width:1280,height:900}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
+ const conversations=Array.from({length:35},(_,i)=>({id:'c'+i,title:i===34?'Revisão Filosófica':'Conversa '+i,project:i===34?'p':'sem-projeto',state:'completed',execution:{backend:'local',model:i===34?'qwen-local':'fixture'}}));
+ const turn={id:'c34',project:'p',state:'completed',request:{backend:'local',model:'qwen-local',prompt:'Texto original'},result:{answer:'Resposta recuperada'}};
+ await page.route(origin+'/**',async route=>{const url=new URL(route.request().url()),p=url.pathname;if(p.startsWith('/v1/')){
+  if(p.endsWith('/cancel'))cancelRequests++;
+  if(p.endsWith('/events')){eventRequests++;const id=p.split('/')[3],lastEvent=route.request().headers()['last-event-id'];const body=id==='c34'&&turn.state==='running'&&lastEvent==='0'?'id: 1\ndata: '+JSON.stringify({id:1,type:'answer_delta',data:{text:'Resposta exclusiva de c34'}})+'\n\n':'';if(body)await new Promise(resolve=>setTimeout(resolve,250));try{return await route.fulfill({body,contentType:'text/event-stream'});}catch{return;}}
+  let data={};if(p==='/v1/projects'&&route.request().method()==='POST'){createdProject=route.request().postDataJSON();return route.fulfill({json:{project_id:'novo'}});}if(p==='/v1/projects')data=createdProject?{projects:['sem-projeto','p','novo'],details:{p:{label:'Filosofia'},novo:{label:createdProject.name}}}:{projects:['sem-projeto','p'],details:{p:{label:'Filosofia'}}};
+  if(p==='/v1/project-directories'){const urlPath=url.searchParams.get('path')||'',q=url.searchParams.get('q')||'',entries=urlPath?[]:[{name:'Trabalho A',path:'Trabalho A',absolute_path:'/home/test-user/Trabalho A',type:'directory'},{name:'Trabalho B',path:'Trabalho B',absolute_path:'/home/test-user/Trabalho B',type:'directory'}];data={roots:[{id:'home',label:'Pastas locais'}],root_id:'home',path:urlPath,absolute_path:urlPath?'/home/test-user/'+urlPath:'/home/test-user',entries:entries.filter(e=>e.name.toLowerCase().includes(q.toLowerCase())),limited:false};}
+  if(p==='/v1/models')data={models:[{id:'qwen-local',backend:'local',efforts:['configured']}],admin_url:'http://localhost:8094/admin/'};
+  if(p==='/v1/conversations')data={conversations};
+  if(p==='/v1/conversations/c34')data={title:'Revisão Filosófica',turns:[{...turn,id:'older',state:'completed',result:{answer:'Resposta antiga completa'}},turn]};
+  if(p==='/v1/conversations/c0')data={title:'Conversa 0',turns:[{id:'c0',project:'sem-projeto',state:'completed',request:{backend:'local',model:'qwen-local',prompt:'Pergunta independente'},result:{answer:'Resposta da conversa 0'}}]};
+  if(p==='/v1/jobs/c34')data=turn;
+  if(p==='/v1/version')data={version:'test',build:'search-test'};
+  if(p==='/v1/catalog')data={agents:[],skills:[],warnings:[]};
+  return route.fulfill({json:data});}
+  const file=p==='/'?'index.html':p.slice(1);return route.fulfill({body:await fs.readFile(path.join(__dirname,file.startsWith('assets/')?'../tail_ui':'../agent_service',file)),contentType:file.endsWith('.svg')?'image/svg+xml':file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':'text/html'});
+ });
+ await page.emulateMedia({reducedMotion:'reduce'});
+ await page.goto(origin);await page.locator('#startup-gate').waitFor({state:'hidden'});
+
+ assert.equal(await page.locator('.conversation-indicator').count(),0,'old history starts read');
+ turn.state='running';turn.result={};conversations.at(-1).state='running';
+ await page.evaluate(()=>history());
+ assert.equal(await page.locator('#projects .conversation-indicator.working').count(),1);
+ turn.state='completed';turn.result={answer:'Nova resposta concluída'};conversations.at(-1).state='completed';
+ await page.evaluate(()=>history());
+ assert.equal(await page.locator('#projects .conversation-indicator.unread').count(),1);
+ await page.reload();await page.locator('#startup-gate').waitFor({state:'hidden'});
+ assert.equal(await page.locator('#projects .conversation-indicator.unread').count(),1,'unread survives reload');
+ await page.locator('.project-group > summary').click();
+ await page.screenshot({path:'/tmp/tail-conversation-indicators.png'});
+ await page.locator('#projects .conversation-row > button').click();
+ await page.waitForFunction(()=>Array.from(document.querySelectorAll('.assistant .text')).some(e=>e.textContent.includes('Nova resposta')));
+ assert.equal(await page.locator('#projects .conversation-indicator').count(),0,'opening answer clears dot');
+ await page.evaluate(()=>history());
+ assert.equal(await page.locator('#projects .conversation-indicator').count(),0,'poll does not restore dot');
+ conversations.at(-1).last_job_id='next-completed';await page.evaluate(()=>history());
+ assert.equal(await page.locator('#projects .conversation-indicator.unread').count(),1,'new job detected even between polls');
+ conversations.at(-1).state='queued';await page.evaluate(()=>history());
+ assert.equal(await page.locator('#projects .conversation-indicator.working').count(),1);
+ conversations.at(-1).state='failed';await page.evaluate(()=>history());
+ assert.equal(await page.locator('#projects .conversation-indicator.working').count(),0);
+ assert.deepEqual(errors,[]);console.log('PASS: working, unread, reload, acknowledge, new completion and terminal states');
+}finally{await browser.close();}})().catch(e=>{console.error(e);process.exitCode=1});

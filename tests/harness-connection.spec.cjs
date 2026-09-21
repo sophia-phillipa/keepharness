@@ -43,7 +43,9 @@ const path=require('node:path');
   await page.goto('http://panel.test');await blocked();
   const before=requests;
   mode='partial';await page.waitForTimeout(6500);await blocked();assert(requests>before);
-  mode='ready';await ready();await page.fill('#prompt','Rascunho preservado');
+  // Optional browser persistence must never keep a healthy server behind the gate.
+  await page.evaluate(()=>{window.originalSetItem=Storage.prototype.setItem;Storage.prototype.setItem=function(key,value){if(key==='conversation-activity')throw new DOMException('Storage full','QuotaExceededError');return window.originalSetItem.call(this,key,value);};});
+  mode='ready';await ready();await page.evaluate(()=>{Storage.prototype.setItem=window.originalSetItem;});await page.fill('#prompt','Rascunho preservado');
   // Background tabs must not spend the shared identity's polling budget.
   await page.evaluate(()=>Object.defineProperty(document,'hidden',{configurable:true,get:()=>true}));
   await page.waitForTimeout(500);const quietRequests=requests;await page.waitForTimeout(11000);assert.equal(requests,quietRequests);
@@ -52,7 +54,7 @@ const path=require('node:path');
   assert(await gate.isHidden(),'429 is throttling, not a disconnected server');assert.equal(await page.locator('#prompt').inputValue(),'Rascunho preservado');
   mode='ready';await page.waitForTimeout(11000);assert(requests>beforeLimit);
   extraModel=true;await page.waitForFunction(()=>[...document.querySelector('#model').options].some(o=>o.value==='new-provider'),{},{timeout:25000});assert.equal(await page.locator('#model').inputValue(),'fixture-local');
-  await page.click('#add-project');await page.fill('#project-name','Demo');await page.click('#project-directory-add-current');await page.click('#project-create');await page.locator('#project-dialog').waitFor({state:'hidden'});assert.equal(await page.locator('#project').inputValue(),'demo');assert.equal(await page.locator('#prompt').inputValue(),'Rascunho preservado');
+  await page.click('#add-project');await page.fill('#project-name','Demo');await page.locator('#project-directory-list .project-file-row').filter({hasText:'Test folders'}).click();await page.click('#project-directory-add-current');await page.click('#project-create');await page.locator('#project-dialog').waitFor({state:'hidden'});assert.equal(await page.locator('#project').inputValue(),'demo');assert.equal(await page.locator('#prompt').inputValue(),'Rascunho preservado');
   // A previously opened modal must not escape the disconnected screen.
   await page.evaluate(()=>document.querySelector('#settings-dialog').showModal());
   mode='offline';await blocked();assert(!(await page.locator('#settings-dialog').evaluate(el=>el.open)));

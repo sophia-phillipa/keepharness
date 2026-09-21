@@ -1,4 +1,4 @@
-const {chromium}=require('playwright');
+const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
 const assert=require('node:assert/strict');
 (async()=>{const browser=await chromium.launch();try{const page=await browser.newPage({viewport:{width:1366,height:1000}});let expired=false;const now=Date.now()/1000;
 await page.route('**/api/dashboard*',route=>{const detail=new URL(route.request().url()).searchParams.has('job');return route.fulfill({json:detail?{prompt:'<script>unsafe()</script>',answer:'Resposta observada',events:[{time:now,type:'thinking',data:{}}]}:{available:true,checked_at:now,requests_per_second:.2,active:1,queued:0,input_tokens:100,output_tokens:20,measured_jobs:1,latest_output_tokens_per_second:2,hardware:{cpu_percent:25,memory_used:10,memory_total:20,gpus:[]},recent:expired?[]:[{id:'read-only',created:now,state:'running',backend:'codex',model:'example',project:'demo',output_tokens:20}]}})});

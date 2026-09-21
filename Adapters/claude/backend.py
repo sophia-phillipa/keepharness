@@ -5,12 +5,13 @@ from . import native
 from .scoped import run as run_scoped
 
 
-SPEC_REVISION = 1
+SPEC_REVISION = 3
 
 async def run_native(
     config, prompt, event, project, model, effort, session_dir, approve
 ):
     workspace = prepare_workspace(project, prompt, session_dir)
+    config = {**config, "resource_skills": [item["name"] for item in project.get("_resources", []) if item["kind"] == "skill"]}
     return await native.run(
         config,
         workspace.prompt,
@@ -24,4 +25,5 @@ async def run_native(
         workspace.images,
         project.get("access_mode", "ask"),
         workspace.roots[1:],
+        project.get("_conversation_title"),
     )

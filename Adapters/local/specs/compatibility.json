@@ -1,7 +1,7 @@
 {
-  "adapter_spec_revision": 1,
+  "adapter_spec_revision": 2,
   "harness_baseline": "0.4.4 working-tree",
-  "reviewed_at": "2026-09-19",
+  "reviewed_at": "2026-09-20",
   "live_provider_validation": false,
   "provider": "local",
   "executor": {

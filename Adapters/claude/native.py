@@ -24,6 +24,8 @@ def build_command(
         if p["kind"] == "plugin"
     }
     tools = ["Read", "Glob", "Grep"] if permissions.get("read") else []
+    if permissions.get("read") and config.get("resource_skills"):
+        tools += ["Skill"]
     if permissions.get("write"):
         tools += ["Edit", "Write", "NotebookEdit"]
     if permissions.get("shell"):
@@ -87,6 +89,7 @@ async def run(
     images=None,
     access_mode="ask",
     additional_roots=None,
+    title=None,
 ):
     command = build_command(
         config, model, home, permissions, selected, access_mode, additional_roots
@@ -94,6 +97,8 @@ async def run(
     marker = home / "claude-session.json"
     if marker.exists():
         command += ["--resume", json.loads(marker.read_text())["id"]]
+    if isinstance(title, str) and title.strip():
+        command += ["--name", title]
     proc = await asyncio.create_subprocess_exec(
         *command,
         cwd=cwd,

@@ -1,7 +1,7 @@
 {
-  "adapter_spec_revision": 1,
+  "adapter_spec_revision": 3,
   "harness_baseline": "0.4.4 working-tree",
-  "reviewed_at": "2026-09-19",
+  "reviewed_at": "2026-09-20",
   "live_provider_validation": false,
   "provider": "claude",
   "executor": {
@@ -9,6 +9,10 @@
     "observed_version": "2.1.258"
   },
   "protocol": "stream-json print mode",
+  "session_title": {
+    "native": "official --name option, passed from the canonical Harness title",
+    "scoped": "unsupported: --no-session-persistence intentionally prevents a provider-side session title"
+  },
   "sources": [
     "https://code.claude.com/docs/en/cli-usage"
   ],
@@ -28,5 +32,6 @@
       "spec": "models/haiku.md",
       "availability": "rolling CLI alias; account dependent"
     }
-  ]
+  ],
+  "resource_validation": "Offline discovery/admission/transport tests; no live inference"
 }

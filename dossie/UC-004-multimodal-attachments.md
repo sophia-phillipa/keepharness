@@ -39,3 +39,24 @@ The author-suggested [Qwen profile](../profiles/qwen-author-profile.json) record
 the approved example configuration, including context size, CPU/GPU placement
 and vision projector settings. Review these parameters for the target machine;
 the release regressions do not include GPU or full-context stress benchmarks.
+
+## Explicit unsupported-attachment notices
+
+The chat displays an assistant notice naming each rejected file when direct
+upload or folder selection encounters an unsupported image or binary format.
+These pre-submission notices remain in the current view; they are not stored as
+conversation turns. Importer limitations are identified as missing readers,
+not incorrectly attributed to the model.
+
+At inference time, images unsupported by DeepSeek, local runtimes reporting
+vision disabled, or scoped execution are excluded while supported extracted
+text remains available. This also covers images inherited when changing the
+conversation model. The harness emits the explanation in the response stream
+and prepends it to the saved answer, independently of the model's wording.
+Native Codex, Claude and Gemini retain their existing image handling, as do
+local runtimes whose capability probe confirms vision. Probe/network failures
+remain errors rather than being treated as evidence of incompatibility.
+
+Validation: 23 targeted Python attachment tests and the mocked Playwright
+attachment-notice scenario passed. Provider execution was mocked; no real
+provider inference was performed.

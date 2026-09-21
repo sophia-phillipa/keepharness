@@ -5,7 +5,7 @@ import time
 from Adapters.shared.scoped import prepare_scoped, collect_changes
 from agent_service.tools import ToolError
 from agent_service.tool_metadata import event_metadata
-from .rpc import connection, usage_delta
+from .rpc import connection, usage_delta, sync_title
 
 
 async def run(
@@ -81,6 +81,7 @@ async def run(
                     }
                 )
             )
+            await sync_title(rpc, thread_id, (project or {}).get("_conversation_title"), event)
             await rpc.send(
                 "turn/start",
                 {

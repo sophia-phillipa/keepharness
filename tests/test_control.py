@@ -36,6 +36,28 @@ class ControlTest(unittest.TestCase):
     self.assertEqual(client.post('/api/settings',json=settings,headers={'X-Harness-Admin':'1','Origin':'https://evil.example'}).status_code,403)
     self.assertEqual(client.post('/api/settings',json=settings,headers={'X-Harness-Admin':'1'}).status_code,200)
     self.assertEqual((Path(self.tmp.name)/'settings.json').stat().st_mode&0o777,0o600)
+ def test_cross_site_admin_link_navigation(self):
+  navigation={'Sec-Fetch-Site':'cross-site','Sec-Fetch-Mode':'navigate','Sec-Fetch-Dest':'document','Sec-Fetch-User':'?1'}
+  with patch('control.server.scan',AsyncMock(return_value=INVENTORY)):
+   with TestClient(create_app(self.tmp.name),base_url='http://127.0.0.1:8094') as client:
+    response=client.get('/',headers=navigation)
+    self.assertEqual(response.status_code,200)
+    self.assertIn('admin',response.cookies)
+    self.assertEqual(client.get('/api/state').status_code,200)
+    for headers in (
+     {**navigation,'Sec-Fetch-Mode':'cors'},
+     {**navigation,'Sec-Fetch-Dest':'iframe'},
+     {k:v for k,v in navigation.items() if k!='Sec-Fetch-User'},
+     {**navigation,'Origin':'https://evil.example'},
+     {**navigation,'Host':'evil.example:8094'},
+     {**navigation,'Tailscale-User-Login':'remote@example.com'},
+    ):
+     with self.subTest(headers=headers):
+      self.assertEqual(client.get('/',headers=headers).status_code,403)
+    for path in ('/api/state','/admin.js','/admin.css','/assets/icons.svg'):
+     with self.subTest(path=path):
+      self.assertEqual(client.get(path,headers=navigation).status_code,403)
+    self.assertEqual(client.post('/api/settings',json=self.manager.settings,headers={**navigation,'X-Harness-Admin':'1'}).status_code,403)
  def test_connector_arguments_no_shell(self):
   self.assertEqual(operation('codex','codex',{'action':'connector_add','name':'drive','url':'https://example.com/mcp'}),['codex','mcp','add','drive','--url','https://example.com/mcp'])
   for name in ('--help','bad;touch /tmp/x'):

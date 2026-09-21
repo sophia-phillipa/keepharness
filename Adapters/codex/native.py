@@ -1,6 +1,7 @@
 """Codex app-server turns; provider adapters supply endpoint and isolation policy."""
 
 import json
+import hashlib
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -8,7 +9,7 @@ from pathlib import Path
 from control.integrations import configurations, inventory
 from agent_service.tools import ToolError
 from agent_service.tool_metadata import event_metadata
-from .rpc import connection, usage_delta
+from .rpc import connection, usage_delta, sync_title
 
 
 @dataclass
@@ -48,6 +49,17 @@ def thread_parameters(config, project, model, workspace, runtime, unrestricted):
     cwd, permissions = workspace.cwd, workspace.permissions
     selected = config.get("integrations", [])
     local_provider = runtime.model_provider
+    plugins = []
+    if not runtime.isolated:
+        plugins = (
+            config["plugin_inventory"]
+            if "plugin_inventory" in config
+            else [
+                item["id"]
+                for item in inventory()["codex"]
+                if item["kind"] == "plugin"
+            ]
+        )
     params = {
         "model": model,
         "cwd": str(cwd),
@@ -80,9 +92,8 @@ def thread_parameters(config, project, model, workspace, runtime, unrestricted):
                 for name, spec in configurations()["codex"].items()
             },
             "plugins": {
-                item["id"].split(":", 1)[1]: {"enabled": item["id"] in selected}
-                for item in inventory()["codex"]
-                if item["kind"] == "plugin"
+                plugin.split(":", 1)[1]: {"enabled": plugin in selected}
+                for plugin in plugins
             },
         }
     )
@@ -160,6 +171,25 @@ async def respond_to_interaction(
     return
 
 
+async def resource_inputs(rpc, project, cwd):
+    """Reload the engine catalog and bind explicitly selected skills by path."""
+    selected=[item for item in project.get('_resources',[]) if item['kind']=='skill']
+    if not selected:return []
+    available=await rpc.call('skills/list',{'cwds':[str(cwd)],'forceReload':True})
+    skills=[skill for group in available.get('data',[]) for skill in group.get('skills',[])]
+    result=[]
+    for item in selected:
+        path=Path(item['source'])
+        match=next((skill for skill in skills if skill.get('path') and Path(skill['path']).resolve()==path.resolve() and skill.get('name')==item['name']),None)
+        if not match or match.get('enabled') is not True:raise ToolError('resource_unavailable_in_engine')
+        try:
+            with path.open('rb') as stream:content=stream.read(65537)
+        except OSError:raise ToolError('resource_unavailable_in_engine') from None
+        if hashlib.sha256(content).hexdigest()!=item['revision']:raise ToolError('resource_changed')
+        result.append({'type':'skill','name':item['name'],'path':str(path)})
+    return result
+
+
 async def run_turn(
     config,
     event,
@@ -193,6 +223,7 @@ async def run_turn(
     token_usage = {}
     seen_answer = False
     async with connection(command, env=environment) as rpc:
+        selected_inputs=await resource_inputs(rpc,project,cwd)
         marker = home / "native-thread.json"
         turn_started = False
         saved = json.loads(marker.read_text()) if marker.exists() else {}
@@ -229,6 +260,7 @@ async def run_turn(
                 }
             )
         )
+        await sync_title(rpc, thread_id, project.get("_conversation_title"), event)
         writable = [
             str(cwd),
             *[
@@ -263,7 +295,7 @@ async def run_turn(
                         ),
                     }
                 ),
-                "input": [{"type": "text", "text": prompt}]
+                "input": [{"type": "text", "text": prompt}] + selected_inputs
                 + [
                     {
                         "type": "image",

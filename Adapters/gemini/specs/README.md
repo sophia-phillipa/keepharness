@@ -2,9 +2,9 @@
 
 **Status: partially implemented, hidden from the administration panel.** OAuth access for individual accounts is unavailable; native settings enforcement remains unresolved. Antigravity migration is deferred pending verification of credit-overage controls.
 
-**Responsible agent:** `provedor_gemini` (`.codex/agents/provedor_gemini.toml`).
+**Responsible agent:** `integrate-gemini_tail-harness_engineer` (`.codex/agents/integrate-gemini_tail-harness_engineer.toml`).
 
-`adapter_spec_revision: 1`
+`adapter_spec_revision: 2`
 `harness_baseline: 0.5.0`
 
 ## Documented baseline
@@ -48,3 +48,9 @@ The ACP client identity now reports harness 0.5.0. The adapter contract and
 `adapter_spec_revision` remain unchanged. This packaging change does not upgrade
 the observed Gemini CLI or certify live authentication, inference or policy
 enforcement. The provider remains hidden in administration.
+
+## Conversation display title (2026-09-20)
+
+The service passes `_conversation_title` separately from the prompt: the conversation root prompt truncated to 100 characters, overridden by an explicit Harness rename. Provider/model handoffs retain that title; workspace metadata and history wrappers are never used as its source.
+
+Installed Gemini CLI 0.60.0 documents ACP new/load/prompt and mode/model control, but implements no session-title setter. The adapter emits `session_title_sync_unsupported` (`gemini_acp_title_unsupported`); it does not fabricate a rename method, mutate CLI-owned session files, or claim external title synchronization. Sources inspected: installed `bundle/docs/cli/acp-mode.md` and ACP agent implementation in `bundle/gemini-ZTU7EMI3.js`. Scoped execution remains unsupported.

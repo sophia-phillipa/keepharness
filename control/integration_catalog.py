@@ -7,7 +7,8 @@ import signal
 
 
 OUTPUT_LIMIT = 8 * 1024 * 1024
-TIMEOUT_SECONDS = 8
+# First CLI plugin discovery can take ~10 s; stay below the admin's 30 s deadline.
+TIMEOUT_SECONDS = 15
 
 
 async def _run(*args):
@@ -109,6 +110,18 @@ def _codex_mcp(payload):
         if isinstance(name, str) and name:
             items.append({"id": f"mcp:{name}", "name": name, "kind": "mcp", "status": "configured", "enabled": server.get("enabled") is True})
     return items
+
+
+async def installed_plugins(binary):
+    """Return authoritative installed metadata, or None when discovery failed."""
+    code, output = await _run(binary, "plugin", "list", "--json")
+    try:
+        decoded = json.loads(output)
+    except (TypeError, ValueError):
+        return None
+    if code or not isinstance(decoded, dict) or not isinstance(decoded.get("installed"), list):
+        return None
+    return _plugins(json.dumps({"installed": decoded["installed"]}))
 
 
 def _claude_mcp(payload):

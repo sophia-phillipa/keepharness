@@ -83,3 +83,14 @@ def test_model_allowed_roots_persist_and_reject_broad_or_credential_paths(tmp_pa
     assert runtime_roots(tmp_path,[{'id':'q','model_file':qwen['model_file']}],['q'])=={'q':[str(root)]}
     for forbidden in ('/',str(__import__('pathlib').Path.home())):
         with pytest.raises(ValueError):validate_profile({**qwen,'allowed_roots':[forbidden]})
+
+
+def test_models_advertise_local_admin_link_on_vpn_hostname(tmp_path):
+    cfg=grants_config(tmp_path)
+    cfg['admin_url']='http://127.0.0.1:8094/'
+    app=create_app(cfg)
+    client=TestClient(app,base_url='http://harness.test:8093',headers={'Authorization':'Bearer a'})
+    try:
+        assert client.get('/v1/models').json()['admin_url']==cfg['admin_url']
+    finally:
+        client.close();app.state.service.db.close()

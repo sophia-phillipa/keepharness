@@ -1,6 +1,6 @@
 # Claude Code alias: sonnet
 
-**Responsible agent:** `provedor_claude`.
+**Responsible agent:** `integrate-claude_tail-harness_engineer`.
 
 `sonnet` is one of the aliases explicitly exposed by `control/server.py` after successful Claude authentication. The harness invokes it with `--model sonnet` and exposes effort only as `configured`.
 

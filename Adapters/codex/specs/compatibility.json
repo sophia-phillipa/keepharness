@@ -1,7 +1,7 @@
 {
-  "adapter_spec_revision": 1,
+  "adapter_spec_revision": 4,
   "harness_baseline": "0.4.4 working-tree",
-  "reviewed_at": "2026-09-19",
+  "reviewed_at": "2026-09-20",
   "live_provider_validation": false,
   "provider": "codex",
   "executor": {
@@ -38,5 +38,19 @@
       "spec": "models/gpt-5.5.md",
       "availability": "requires authenticated model/list"
     }
-  ]
+  ],
+  "resource_validation": "Offline discovery/admission/transport tests; no live inference",
+  "plugin_runtime_inventory": {
+    "config_field": "plugin_inventory",
+    "identifier_format": "plugin:name@marketplace",
+    "selection_field": "integrations",
+    "empty_inventory": "authoritative disabled plugin set",
+    "absent_inventory": "legacy Codex catalogue fallback",
+    "validation": "tests/test_native_plugin_inventory.py; no app-server turn or model inference"
+  },
+  "conversation_title": {
+    "source": "Tail Harness root prompt (100 chars) or explicit conversation title",
+    "sync": "thread/name/set on create/resume, native and scoped",
+    "validation": "Focused offline contract tests; no model inference"
+  }
 }

@@ -13,6 +13,7 @@ const assert=require('node:assert/strict');
    const path=new URL(route.request().url()).pathname;
    if(path==='/v1/projects')await new Promise(resolve=>setTimeout(resolve,250));
    const data=path==='/v1/projects'?{projects:['project-a','sem-projeto'],details:{'project-a':{label:'Projeto Alpha'}}}:
+    path==='/v1/project-git'?{revision:'feature/composer'}:
     path==='/v1/models'?{models:[{id:'fixture',name:'Fixture',backend:'local',efforts:['low']},{id:'cloud-fixture',name:'Cloud fixture',backend:'codex',efforts:['low']}],providers:{local:true,codex:true},uploads_enabled:false}:
     path==='/v1/conversations'?{conversations:[]}:
     path==='/v1/version'?{version:'fixture',build:'fixture'}:{};
@@ -23,15 +24,46 @@ const assert=require('node:assert/strict');
   assert.equal(await page.locator('#app-topbar').evaluate(el=>el.inert),true,'topbar stays inert while connection gate is active');
   await page.locator('#startup-gate').waitFor({state:'hidden'});
   assert.equal(await page.locator('#app-topbar').evaluate(el=>el.inert),false);
+  assert.equal(await page.locator('#app-topbar > :first-child').getAttribute('id'),'app-brand');
+  assert.equal(await page.locator('#app-brand').innerText(),'Tail Harness');
+  assert.equal(await page.locator('#sidebar .brand').count(),0);
   const top=await page.locator('#app-topbar').boundingBox();assert.equal(top.y,0);assert(top.height>=48);
   assert.equal(await page.locator('#conversation-title').innerText(),'Nova Conversa');
   assert.equal(await page.locator('#new').innerText(),'Nova Conversa');
-  await page.locator('#projects details summary').first().click();
+  await page.locator('#prompt').fill('Rascunho preservado');
+  const projectName=page.locator('#projects details summary button').first();
+  const originalProject=await page.locator('#project').inputValue();
+  await page.evaluate(()=>{window.projectResetCalls=0;const original=newConversation;newConversation=(...args)=>{window.projectResetCalls++;return original(...args);};});
+  for(const open of [true,false,true]){
+   await projectName.click();
+   assert.equal(await page.locator('#projects details').first().evaluate(el=>el.open),open);
+   assert.equal(await page.locator('#project').inputValue(),originalProject);
+   assert.equal(await page.locator('#prompt').inputValue(),'Rascunho preservado');
+   assert.equal(await page.evaluate(()=>window.projectResetCalls),0,'project name only toggles the group');
+  }
+  await page.locator('#prompt').fill('');
   await page.locator('.project-new').first().click();
   assert.equal(await page.locator('#conversation-title').innerText(),'Nova Conversa no projeto Projeto Alpha');
+  assert.equal(await page.locator('#composer-project-name').innerText(),'Projeto Alpha');
+  await page.waitForFunction(()=>document.querySelector('#composer-git').textContent==='feature/composer');
+  await page.evaluate(()=>paintContext({last:{totalTokens:100},total:{totalTokens:999},modelContextWindow:1000},{output_tokens:20,inference_seconds:2}));
+  assert.match(await page.locator('#context-meter').innerText(),/Contexto: 100.*10 tk\/s/);
+  assert.doesNotMatch(await page.locator('#context-meter').innerText(),/Consumo acumulado|média/);
+  assert.equal(await page.locator('#dropzone #context-meter').count(),0);
+  const contextBox=await page.locator('#context-meter').boundingBox(),promptBox=await page.locator('#dropzone').boundingBox();
+  assert(contextBox.y+contextBox.height<=promptBox.y,'metadata sits above the outside border');
+  assert(await page.locator('#prompt').evaluate(el=>el.matches(':placeholder-shown')));
+  assert.match(await page.locator('#prompt').getAttribute('placeholder'),/Envie uma mensagem.*Enter envia.*Shift\+Enter quebra linha/);
+  await page.locator('#prompt').fill('Texto');
+  assert.equal(await page.locator('#prompt').evaluate(el=>el.matches(':placeholder-shown')),false);
+  assert(await page.locator('.composer-info').evaluate(el=>getComputedStyle(el).position==='absolute'));
+  await page.locator('#prompt').fill('');
+  assert((await page.locator('#prompt').boundingBox()).height<42);
+  await page.screenshot({path:'/tmp/tail-composer-project.png'});
   await page.locator('#new').click();
   assert.equal(await page.locator('#conversation-title').innerText(),'Nova Conversa');
   assert.equal(await page.locator('#project').inputValue(),'sem-projeto');
+  assert(await page.locator('#composer-project').isHidden());
   await page.locator('#model').selectOption('cloud-fixture');await page.locator('#model').dispatchEvent('change');
   await page.locator('#quota-toggle').waitFor({state:'visible'});
   await page.locator('#model').selectOption('fixture');await page.locator('#model').dispatchEvent('change');
@@ -62,6 +94,9 @@ const assert=require('node:assert/strict');
    await page.setViewportSize({width,height:860});
    for(const order of ['conversations-right','conversations-left']){
     await page.evaluate(order=>{applyPanelOrder(order);setPanelOpen(false,false);document.body.classList.remove('sidebar-collapsed');document.querySelector('#sidebar').classList.add('open');fitPanels();},order);
+    assert.equal(await page.locator('#app-topbar > :first-child').getAttribute('id'),'app-brand');
+    assert(await page.locator('#app-brand').isVisible());
+    assert(await page.locator('#app-topbar').evaluate(el=>el.scrollWidth<=el.clientWidth),'topbar fits viewport');
     const reversed=order==='conversations-right';
     const left=page.locator(reversed?'#panel-toggle':'#menu'),right=page.locator(reversed?'#menu':'#panel-toggle');
     assert((await left.boundingBox()).x<(await right.boundingBox()).x,`controls follow panel order at ${width}`);

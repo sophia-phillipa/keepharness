@@ -45,11 +45,28 @@ def test_rename_requires_conversation_owner(api):
     assert response.status_code == 403
 
 
-@pytest.mark.parametrize('title', ['', '   ', 5, 'x' * 101])
+@pytest.mark.parametrize('title', ['', '   ', '\t\n', '\u00a0', None, True, 5, [], {}, 'x' * 101, '🐋' * 101])
 def test_rename_rejects_invalid_title(api, title):
+    assert api.patch('/v1/conversations/conversation-1', json={'title': 'Preserved'}).status_code == 200
     response = api.patch('/v1/conversations/conversation-1', json={'title': title})
     assert response.status_code == 422
     assert response.json()['code'] == 'invalid_conversation_title'
+    assert api.get('/v1/conversations').json()['conversations'][0]['title'] == 'Preserved'
+
+
+@pytest.mark.parametrize('title', ['a', 'x' * 100, '🐋' * 100, 'Revisão <teste> & 123 🐋'])
+def test_rename_accepts_allowed_characters_and_trims_before_length_check(api, title):
+    response = api.patch('/v1/conversations/conversation-1', json={'title': '  ' + title + '  '})
+    assert response.status_code == 200
+    assert response.json()['title'] == title
+    assert api.get('/v1/conversations').json()['conversations'][0]['title'] == title
+
+
+def test_rename_requires_title(api):
+    response = api.patch('/v1/conversations/conversation-1', json={})
+    assert response.status_code == 422
+    assert response.json()['code'] == 'invalid_conversation_title'
+    assert api.get('/v1/conversations').json()['conversations'][0]['title'] == 'Original prompt'
 
 
 def test_message_attachment_metadata_survives_history_and_job_read(api):
@@ -66,3 +83,12 @@ def test_message_attachment_metadata_survives_history_and_job_read(api):
                 {'id': 'doc', 'name': 'notes.txt'}]
     assert api.get('/v1/conversations/conversation-1').json()['turns'][0]['attachments'] == expected
     assert api.get('/v1/jobs/conversation-1').json()['attachments'] == expected
+
+
+def test_native_title_uses_root_prompt_and_explicit_rename(api):
+    service = api.app.state.service
+    root = dict(service.db.execute("SELECT * FROM jobs WHERE id='conversation-1'").fetchone())
+    child = dict(root, id='child', payload=json.dumps({'prompt': 'Follow up', 'parent_job_id': root['id']}))
+    assert service.conversation_title(child) == 'Original prompt'
+    api.patch('/v1/conversations/conversation-1', json={'title': 'Shared title'})
+    assert service.conversation_title(child) == 'Shared title'

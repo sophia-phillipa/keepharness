@@ -52,6 +52,18 @@ class RPC:
         await self.send("initialized", request=False)
 
 
+async def sync_title(rpc, thread_id, title, event):
+    """Set display metadata without changing the model prompt or starting a turn."""
+    if not isinstance(title, str) or not title.strip():
+        return
+    try:
+        await asyncio.wait_for(rpc.call("thread/name/set", {"threadId": thread_id, "name": title}), 5)
+    except (RuntimeError, asyncio.TimeoutError) as exc:
+        if isinstance(exc, RuntimeError) and str(exc) != "codex_rpc_error":
+            raise
+        event("session_title_sync_failed", {"thread_id": thread_id})
+
+
 @asynccontextmanager
 async def connection(command, stderr=asyncio.subprocess.DEVNULL, env=None):
     proc = await asyncio.create_subprocess_exec(

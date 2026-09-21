@@ -1,8 +1,8 @@
 # Codex adapter specification
 
-**Responsible agent:** `provedor_codex` (`.codex/agents/provedor_codex.toml`).
+**Responsible agent:** `integrate-codex_tail-harness_engineer` (`.codex/agents/integrate-codex_tail-harness_engineer.toml`).
 
-`adapter_spec_revision: 1`
+`adapter_spec_revision: 4`
 `harness_baseline: 0.4.4 working-tree`
 
 ## Observed baseline
@@ -52,3 +52,48 @@ status. It never returns the MCP command, environment, authentication state, or
 other CLI output. Catalogue contents depend on the currently configured
 marketplaces and can change without an adapter release; refresh before presenting
 an install choice and review this section when the plugin CLI schema changes.
+
+## Installed plugin runtime inventory (2026-09-20)
+
+When `config.plugin_inventory` is present, native thread creation treats it as the
+authoritative list of installed complete plugin IDs (`plugin:name@marketplace`).
+It emits every listed plugin into app-server configuration and enables only IDs
+also selected in `config.integrations`; installed but unselected plugins remain
+disabled. An explicit empty list disables all plugins. Configurations produced
+before this field existed continue to fall back to the legacy Codex catalogue.
+Isolated runtimes still emit empty MCP and plugin configuration.
+
+Evidence: `thread_parameters` contract tests in
+`tests/test_native_plugin_inventory.py` cover the authoritative, empty, and
+legacy-fallback cases without an app-server turn or model inference. Documentation
+consulted: this adapter specification's catalogue contract and the existing
+app-server reference recorded above. Review this section if the CLI plugin ID
+format or app-server plugin configuration schema changes.
+
+## Explicit project and global resources (2026-09-20)
+
+The composer resolves native resources for the selected engine on each menu open.
+Selections carry canonical identity and a content revision, checked at admission
+and again before execution. Directory aliases are deduplicated and metadata reads
+are bounded. Project resources precede personal resources. No plugin cache is
+interpreted as an enabled resource inventory.
+
+The installed CLI version was rechecked as `0.155.0-alpha.9.2`. Explicit skills
+reload `skills/list` with `forceReload: true` in the execution process and require
+an enabled matching path before adding a `skill` item to `turn/start`. The text
+uses `$name` while the composer uses `/name`. Agent selections request actual
+native delegation by registered name; shadowed agents cannot be selected.
+Local/DeepSeek isolated executors do not expose host-global resources or agent
+profiles as callable. Existing sandbox and model routing are unchanged.
+Source: <https://learn.chatgpt.com/docs/app-server> (checked 2026-09-20).
+Validation: `tests/test_resources.py`, `tests/test_native.py`; no paid inference.
+
+The installed generated JSON schema confirms `skill` turn input and `forceReload` in `SkillsListParams`; generation performed without a model turn.
+
+## Conversation display title (2026-09-20)
+
+The service passes `_conversation_title` separately from the prompt: the conversation root prompt truncated to 100 characters, overridden by an explicit Harness rename. Provider/model handoffs retain that title; workspace metadata and history wrappers are never used as its source.
+
+The shared Codex executor calls `thread/name/set` on session creation/resume before starting the model turn. This also covers local and DeepSeek inference through Codex; Codex scoped execution uses the same helper. Errors/timeouts emit `session_title_sync_failed` and do not claim successful synchronization. Renames made while no turn is starting are propagated at the next execution, not in real time. Calls without a nonblank title leave existing native titles unchanged.
+
+Contract checked against installed Codex CLI 0.155.0-alpha.9.2 generated `v2/ThreadSetNameParams.json` (`threadId`, `name`) and https://learn.chatgpt.com/docs/app-server . Offline tests validate transport and handoff; no live model inference. This display metadata does not change session identity, isolation or inference model.
