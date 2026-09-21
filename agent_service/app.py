@@ -1003,8 +1003,16 @@ class Service:
                     raise
             except Exception as exc:
                 code=exc.code if isinstance(exc,APIError) else str(exc) if isinstance(exc,tools.ToolError) else type(exc).__name__
-                self.finish(row['id'],'failed',{'error':'context_limit_exceeded' if context_overflow(code) else code,'error_detail':code if context_overflow(code) else None,'metrics':None})
-                self.panel(row['project'],answer='Execução interrompida: '+code,finished=True)
+                condition={
+                    'claude_authentication_failed':('claude_authentication_required','Renove o acesso ao Claude no painel administrativo.'),
+                    'claude_rate_limit':('claude_quota_exhausted','Aguarde a renovação da cota do Claude ou selecione outro provedor.'),
+                }.get(code)
+                if condition:
+                    self.finish(row['id'],'interrupted',{'condition':condition[0],'metrics':None})
+                    self.panel(row['project'],answer=condition[1],finished=True)
+                else:
+                    self.finish(row['id'],'failed',{'error':'context_limit_exceeded' if context_overflow(code) else code,'error_detail':code if context_overflow(code) else None,'metrics':None})
+                    self.panel(row['project'],answer='Execução interrompida: '+code,finished=True)
             finally:
                 if json.loads(row['payload']).get('backend')=='codex':
                     state=self.db.execute('SELECT state FROM jobs WHERE id=?',(row['id'],)).fetchone()[0]
@@ -1069,8 +1077,7 @@ class Service:
         return models
 
     def models(self,project_id=None):
-        automatic=[{'id':'maestro','name':'Maestro · seleção automática','backend':'maestro','efforts':['auto'],'execution_modes':list(self.execution_modes('maestro'))}] if self.config.get('maestro_enabled',True) and self.config.get('services',{}).get('codex',{}).get('enabled') and (project_id is None or any(model['backend']=='codex' for model in maestro.candidates(self.config,project_id))) else []
-        return automatic+[{'id':m,'name':Path(self.config.get('local',{}).get('local_models',{}).get(m,{}).get('model_file') or m).name if provider=='local' else m,'backend':provider,'permissions':maestro.model_permissions(self.config,provider,m,project_id),'capabilities':{'tools':any(value for key,value in maestro.model_permissions(self.config,provider,m,project_id).items() if key!='upload')},'execution_modes':list(self.execution_modes(provider)),'efforts':self.config.get('codex_models',{}).get(m,['configured']) if provider=='codex' else self.config.get('deepseek_models',{}).get(m,['configured']) if provider=='deepseek' else ['configured']}
+        return [{'id':m,'name':Path(self.config.get('local',{}).get('local_models',{}).get(m,{}).get('model_file') or m).name if provider=='local' else m,'backend':provider,'permissions':maestro.model_permissions(self.config,provider,m,project_id),'capabilities':{'tools':any(value for key,value in maestro.model_permissions(self.config,provider,m,project_id).items() if key!='upload')},'execution_modes':list(self.execution_modes(provider)),'efforts':self.config.get('codex_models',{}).get(m,['configured']) if provider=='codex' else self.config.get('deepseek_models',{}).get(m,['configured']) if provider=='deepseek' else ['configured']}
                 for provider,service in self.config.get('services',{}).items() if service.get('enabled') and (project_id is None or project_id in service.get('projects',[])) for m in service.get('models',[])]
 
     def capabilities(self):

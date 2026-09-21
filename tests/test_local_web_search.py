@@ -27,6 +27,11 @@ def test_search_reports_invalid_or_oversized_responses(body):
 
 @pytest.mark.parametrize('internet,shell', [(False, False), (False, True), (True, False), (True, True)])
 def test_search_helper_is_mounted_only_with_effective_permissions(tmp_path, internet, shell):
-    command = wrap(['/usr/bin/python3'], tmp_path, tmp_path,
-                   {'permissions': {'internet': internet, 'shell': shell}})
+    binary = tmp_path / 'fixture-cli'
+    binary.touch()
+    # This tests command construction, not execution of the Linux sandbox.
+    with patch('Adapters.local.sandbox.sys.platform', 'linux'), \
+            patch('Adapters.local.sandbox.shutil.which', return_value='/fixture/bwrap'):
+        command = wrap([str(binary)], tmp_path, tmp_path,
+                       {'permissions': {'internet': internet, 'shell': shell}})
     assert ('/tail-web-search.py' in command) is (internet and shell)

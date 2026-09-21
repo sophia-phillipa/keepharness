@@ -21,7 +21,7 @@ class ConfigurationTest(unittest.TestCase):
  def test_profile_rejects_unknown_flags_and_missing_files(self):
   with tempfile.TemporaryDirectory() as d:
    binary=Path(d,'llama-server');binary.touch();model=Path(d,'test.gguf');model.touch()
-   profile={'binary':str(binary),'model_file':str(model),'performance':{'api-key':'x'}}
+   profile={'binary':str(binary.resolve()),'model_file':str(model.resolve()),'performance':{'api-key':'x'}}
    with self.assertRaises(ValueError):validate_profile(profile)
    profile['performance']={'threads':'--model'}
    with self.assertRaises(ValueError):validate_profile(profile)

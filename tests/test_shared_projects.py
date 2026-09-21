@@ -130,3 +130,17 @@ print(json.dumps({'type':'result','subtype':'success','result':json.dumps(sys.ar
     command=json.loads(result['answer'])
     assert command[command.index('--permission-mode')+1]=='bypassPermissions'
     assert json.loads(command[command.index('--settings')+1])['sandbox']=={'enabled':False}
+
+
+@pytest.mark.parametrize('project_id', [None, 'sem-projeto'])
+def test_model_catalog_excludes_maestro_even_when_enabled(tmp_path, project_id):
+    cfg = config(tmp_path)
+    cfg['maestro_enabled'] = True
+    app = create_app(cfg)
+    with TestClient(app, headers={'Authorization': 'Bearer a'}) as client:
+        response = client.get('/v1/models', params={'project_id': project_id} if project_id else {})
+        assert response.status_code == 200
+        models = response.json()['models']
+        assert models
+        assert all(model['backend'] != 'maestro' for model in models)
+        assert any(model['backend'] == 'codex' for model in models)

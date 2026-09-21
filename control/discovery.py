@@ -8,9 +8,9 @@ import shutil
 import httpx
 from .local_models import discover
 
-async def command(*args):
+async def command(*args, env=None):
     try:
-        proc=await asyncio.create_subprocess_exec(*args,stdout=asyncio.subprocess.PIPE,stderr=asyncio.subprocess.DEVNULL)
+        proc=await asyncio.create_subprocess_exec(*args,stdout=asyncio.subprocess.PIPE,stderr=asyncio.subprocess.DEVNULL,env=env)
         try:
             out,_=await asyncio.wait_for(proc.communicate(),8)
             return proc.returncode,out[:100000].decode(errors='replace')

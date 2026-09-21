@@ -51,13 +51,22 @@ class Stream:
         self.answer = ""
         self.thinking = ""
         self.result = None
+        self.provider_error = None
         self.tools = {}
         self.started = time.monotonic()
         self.first = None
 
     def consume(self, item):
         kind = item.get("type")
-        if kind == "rate_limit_event":
+        if kind == "assistant":
+            # Keep only known codes, never credential-bearing provider text.
+            error = item.get("error")
+            self.provider_error = (
+                {"authentication_failed": "claude_authentication_failed",
+                 "rate_limit": "claude_rate_limit"}.get(error)
+                if isinstance(error, str) else None
+            )
+        elif kind == "rate_limit_event":
             update = rate_limit_update(item)
             if update:
                 self.event("quota_update", update)
@@ -108,7 +117,7 @@ class Stream:
                     )
         elif kind == "result":
             if item.get("is_error") or item.get("subtype") != "success":
-                raise ToolError("claude_execution_failed")
+                raise ToolError(self.provider_error or "claude_execution_failed")
             self.result = item
         if len(self.answer) + len(self.thinking) > 500000:
             raise ToolError("claude_output_limit")
@@ -173,7 +182,7 @@ async def stream(command, prompt, event, model):
             state.consume(item)
         await writer
         if await proc.wait() != 0:
-            raise ToolError("claude_execution_failed")
+            raise ToolError(state.provider_error or "claude_execution_failed")
         return state.finish(model)
     finally:
         writer.cancel()

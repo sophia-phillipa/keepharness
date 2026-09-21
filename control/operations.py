@@ -10,19 +10,22 @@ from .discovery import command
 
 class Operations:
     def __init__(self):self.jobs={};self.tasks=set();self.by_id={}
-    def launch(self,args,timeout=300):
+    def launch(self,args,timeout=300,*,env=None,on_success=None):
         jid=uuid.uuid4().hex;self.jobs[jid]={'id':jid,'state':'running','output':''}
         async def run():
             proc=None
             try:
-                proc=await asyncio.create_subprocess_exec(*args,stdin=asyncio.subprocess.DEVNULL,stdout=asyncio.subprocess.PIPE,stderr=asyncio.subprocess.STDOUT,start_new_session=True)
+                proc=await asyncio.create_subprocess_exec(*args,stdin=asyncio.subprocess.DEVNULL,stdout=asyncio.subprocess.PIPE,stderr=asyncio.subprocess.STDOUT,start_new_session=True,env=env)
                 async with asyncio.timeout(timeout):
                     while True:
                         chunk=await proc.stdout.read(2048)
                         if not chunk:break
                         text=chunk.decode(errors='replace')
                         self.jobs[jid]['output']=(self.jobs[jid]['output']+text)[-12000:]
-                    self.jobs[jid].update(state='completed' if await proc.wait()==0 else 'failed')
+                    succeeded=await proc.wait()==0
+                    if succeeded and on_success:
+                        await on_success()
+                    self.jobs[jid].update(state='completed' if succeeded else 'failed')
             except asyncio.CancelledError:self.jobs[jid]['state']='cancelled';raise
             except asyncio.TimeoutError:self.jobs[jid].update(state='failed',output='Tempo esgotado. Tente novamente.')
             except OSError as exc:self.jobs[jid].update(state='failed',output=str(exc))
