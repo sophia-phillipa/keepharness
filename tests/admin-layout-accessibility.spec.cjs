@@ -20,16 +20,16 @@ const assert=require('node:assert/strict');
 
   const results=[], failures=[];
   const check=(id,ok,detail)=>{results.push({id,ok,detail});if(!ok)failures.push(id)};
-  await page.goto('http://admin.test/');
+  await page.goto('http://admin.test/');await page.locator('[data-panel=provedores]').click();
   await page.click('#add-provider');await page.locator('#provider-options').getByText('Codex CLI',{exact:false}).click();
   const tabs=page.locator('#inspector-tabs');
-  const connectors=tabs.getByRole('button',{name:'Conectores e plugins',exact:true});
+  const connectors=tabs.getByRole('button',{name:'Plugins',exact:true});
   await connectors.focus();await page.keyboard.press('Enter');
   await page.getByRole('button',{name:'Instalar Sentry',exact:true}).waitFor();
   check('P4-S1',await connectors.getAttribute('aria-pressed')==='true','Keyboard Enter activates section and exposes selected state');
   for(const width of [320,390,768,1440]){
    await page.setViewportSize({width,height:1000});
-   for(const section of ['Permissões','Conectores e plugins']){
+   for(const section of ['Plugins','Conectores']){
     await tabs.getByRole('button',{name:section,exact:true}).click();
     await page.waitForTimeout(250);
     const bounds=await page.evaluate(()=>({width:innerWidth,doc:document.documentElement.scrollWidth,clipped:[...document.querySelectorAll('#provider-dialog button,#provider-dialog input,#provider-dialog select')].filter(e=>e.getClientRects().length).filter(e=>{const r=e.getBoundingClientRect();return r.left<0||r.right>innerWidth+1}).map(e=>e.id||e.textContent)}));
@@ -58,6 +58,7 @@ const assert=require('node:assert/strict');
   const tabStates=await tabs.locator('button').evaluateAll(es=>es.map(e=>({text:e.textContent,pressed:e.getAttribute('aria-pressed'),background:getComputedStyle(e).backgroundColor,color:getComputedStyle(e).color,class:e.className})));
   check('P4-tab-state',tabStates.filter(x=>x.pressed==='true').length===1&&tabStates[2].pressed==='true',tabStates);
   await page.setViewportSize({width:390,height:844});
+  await tabs.getByRole('button',{name:'Plugins',exact:true}).click();
   check('P5-catalog-kind',await page.locator('#catalog-items .subtle').first().isVisible(),'Catalog provider/kind metadata visible on mobile');
   await page.evaluate(()=>TailTheme.apply('arizona',false));await page.waitForTimeout(250);
   await page.screenshot({path:'/tmp/tester-a11y-arizona-mobile.png',fullPage:true});
@@ -72,6 +73,7 @@ const assert=require('node:assert/strict');
   const skipError=await page.locator('.skip').evaluate(e=>({top:e.getBoundingClientRect().top,bottom:e.getBoundingClientRect().bottom,focused:document.activeElement===e,scroll:scrollY}));check('P4-skip-error',skipError.bottom<=0&&!skipError.focused,skipError);await page.screenshot({path:'/tmp/tester-a11y-error-viewport.png'});
   check('P5-error-layout',await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Long catalogue failure/status remains within viewport');
   check('P5-S2',!await page.locator('#catalog-refresh').isDisabled(),'Retry remains enabled after network failure');
+  await tabs.getByRole('button',{name:'Plugins',exact:true}).click();
   failCatalog=false;await page.locator('#catalog-refresh').focus();await page.keyboard.press('Enter');await page.getByRole('button',{name:'Instalar Sentry',exact:true}).waitFor();
   await page.locator('#catalog-search').focus();await page.keyboard.type('Sentry');
   check('P4-S3',await page.locator('#catalog-items article').count()===1,'Keyboard search after recovery');

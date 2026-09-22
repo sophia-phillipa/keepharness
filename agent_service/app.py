@@ -314,7 +314,7 @@ class Service:
             for key in candidate["services"]
         )
 
-    def add_project(self, data):
+    def add_project(self, data, project_id=None):
         if not self.config.get('shared_projects'):raise APIError('project_registration_disabled',403)
         if not isinstance(data,dict):raise APIError('invalid_project')
         raw_paths=data.get('paths',[data.get('root')])
@@ -332,7 +332,7 @@ class Service:
                 raise APIError('project_directory_forbidden',403)
             if str(root) not in roots:roots.append(str(root))
         # Preserve idempotent registration for older single-root clients without a name.
-        if 'paths' not in data and not label:
+        if project_id is None and 'paths' not in data and not label:
             for pid,spec in self.config['projects'].items():
                 if spec.get('root') and str(Path(spec['root']).resolve())==roots[0]:return pid
             label=Path(roots[0]).name
@@ -341,11 +341,12 @@ class Service:
         if len(label)>100 or sum(c.isalpha() for c in label)<3 or any(ord(c)<32 for c in label):
             raise APIError('invalid_project_name')
         if any(unicodedata.normalize('NFKC',' '.join(spec.get('label',pid).split())).casefold()==label.casefold()
-               for pid,spec in self.config['projects'].items()):
+               for pid,spec in self.config['projects'].items() if pid != project_id):
             raise APIError('project_name_exists',409)
-        pid='project-'+uuid.uuid4().hex[:12]
-        spec={'label':label,'root':roots[0],'test_commands':{},'additional_roots':roots[1:],'node_binary':shutil.which('node') or 'node'}
-        with self.db:self.db.execute('INSERT INTO registered_projects VALUES(?,?)',(pid,encoded(spec)))
+        pid=project_id or 'project-'+uuid.uuid4().hex[:12]
+        spec=dict(self.config['projects'][pid]) if project_id else {'test_commands':{},'node_binary':shutil.which('node') or 'node'}
+        spec.update(label=label,root=roots[0],additional_roots=roots[1:])
+        with self.db:self.db.execute('INSERT INTO registered_projects VALUES(?,?) ON CONFLICT(id) DO UPDATE SET spec=excluded.spec',(pid,encoded(spec)))
         self.config['projects'][pid]=spec
         self.share_projects()
         return pid
@@ -550,18 +551,18 @@ class Service:
         async with self.upload_lock:
             used = self.db.execute('SELECT coalesce(sum(size),0) FROM files WHERE project=?',(project,)).fetchone()[0]
             for name, source in selected:
-                size = source.stat().st_size
                 limit = tools.MAX_AUDIO_BYTES if source.suffix.lower() in tools.AUDIO_EXTENSIONS else 50 * 1024 * 1024
-                if size > limit or used + size > 2 * 1024**3:
-                    skipped.append({'path': name, 'reason': 'upload_limit'}); continue
                 fid = uuid.uuid4().hex; folder = self.root/'files'/project/fid; folder.mkdir(parents=True, mode=0o700)
                 dest = folder/'source'; digest = hashlib.sha256(); copied = 0
                 try:
-                    with source.open('rb') as input, dest.open('xb') as output:
-                        while chunk := input.read(65536):
-                            copied += len(chunk)
-                            if copied > limit or used + copied > 2 * 1024**3: raise APIError('upload_limit',413)
-                            output.write(chunk); digest.update(chunk)
+                    with workspaces.open_attachment_source(source) as input:
+                        size=os.fstat(input.fileno()).st_size
+                        if size>limit or used+size>2*1024**3:raise APIError('upload_limit',413)
+                        with dest.open('xb') as output:
+                            while chunk := input.read(65536):
+                                copied += len(chunk)
+                                if copied > limit or used + copied > 2 * 1024**3: raise APIError('upload_limit',413)
+                                output.write(chunk); digest.update(chunk)
                     pages = await tools.extract(dest, name)
                     if any(page.get('media_type') for page in pages):
                         choices = maestro.candidates(self.config, project, uploads=True)
@@ -785,6 +786,7 @@ class Service:
         if not isinstance(data.get('file_ids',[]),list) or len(data.get('file_ids',[]))>workspaces.MAX_ATTACHMENTS:
             raise APIError('file_limit')
         for fid in data.get('file_ids',[]):
+            if not isinstance(fid,str) or not fid or len(fid)>128:raise APIError('invalid_file_id')
             self.file(project,fid,identity[0])
         max_tokens = data.get('max_tokens',6500)
         if type(max_tokens) is not int or not 1<=max_tokens<=8192:
@@ -805,7 +807,7 @@ class Service:
             previous=self.job(identity,data['parent_job_id'])
             previous_data=json.loads(previous['payload'])
             if previous_data.get('workspace_id')!=data.get('workspace_id'):raise APIError('conversation_workspace_changed',409)
-            if previous['project']!=project or previous['owner']!=identity[0] or previous['state'] not in TERMINAL:raise APIError('invalid_parent_job')
+            if previous['project']!=project or previous['owner']!=identity[0]:raise APIError('invalid_parent_job')
             turns=self.conversation(identity,self.conversation_id(previous))
             if turns[-1]['id']!=previous['id']:raise APIError('conversation_has_newer_turn',409)
             root_id=self.conversation_id(previous)
@@ -1085,7 +1087,11 @@ class Service:
 
     def next_job(self):
         # Queue is bounded to 32; choose the least recently served owner, FIFO within it.
-        rows=self.db.execute("SELECT * FROM jobs WHERE state='queued' ORDER BY created,id").fetchall()
+        rows=self.db.execute(
+            "SELECT child.* FROM jobs child LEFT JOIN jobs parent "
+            "ON parent.id=json_extract(child.payload,'$.parent_job_id') "
+            "WHERE child.state='queued' AND (parent.id IS NULL OR parent.state NOT IN ('queued','running')) "
+            "ORDER BY child.created,child.id").fetchall()
         if not rows:return None
         row=min(rows,key=lambda item:(self.last_served.get(item['owner'],0),item['created'],item['id']))
         self.dispatch_sequence+=1
@@ -1390,6 +1396,15 @@ def create_app(config, runtime_path=None):
                 spec=service.project(identity,request.query_params.get('project_id'))
                 return JSONResponse({'revision':await asyncio.to_thread(project_git,spec.get('root'))})
             if path=='/v1/projects':
+                if request.method=='PATCH':
+                    data=await body(request)
+                    if not isinstance(data,dict) or not isinstance(data.get('project_id'),str):raise APIError('invalid_project')
+                    pid=data['project_id']
+                    service.project(identity,pid)
+                    if pid=='sem-projeto':raise APIError('project_edit_forbidden',403)
+                    if pid in service.deleting_project_folders or service.db.execute("SELECT 1 FROM jobs WHERE project=? AND state IN ('queued','running') LIMIT 1",(pid,)).fetchone():
+                        raise APIError('project_busy',409)
+                    return JSONResponse({'project_id':service.add_project(data,pid)})
                 if request.method=='POST':return JSONResponse({'project_id':service.add_project(await body(request))},status_code=201)
                 catalog = {'projects':[p for p in identity[1]['projects'] if p in config['projects'] and p not in service.deleted_project_folders], 'details':{p:{'label':config['projects'][p].get('label',p),'root':config['projects'][p].get('root'),'additional_roots':config['projects'][p].get('additional_roots',[]),'apply_changes':bool(config['projects'][p].get('apply_changes'))} for p in identity[1]['projects'] if p in config['projects'] and p not in service.deleted_project_folders}}
                 seen = {}
@@ -1514,7 +1529,8 @@ def create_app(config, runtime_path=None):
                 if not service.uploads_enabled(project) or not maestro.candidates(config,project,uploads=True):raise APIError('uploads_denied',403)
                 from urllib.parse import unquote
                 filename=unquote(request.headers.get('x-filename',''))
-                if not re.fullmatch(r'[\w .-]{1,160}',filename) or filename in ('.','..'):
+                if (not 1<=len(filename)<=160 or not filename.strip() or filename in ('.','..')
+                        or any(char in '/\\' or ord(char)<32 or 127<=ord(char)<160 for char in filename)):
                     raise APIError('invalid_filename')
                 async with service.upload_lock:
                     used=service.db.execute('SELECT coalesce(sum(size),0) FROM files WHERE project=?',(project,)).fetchone()[0]
@@ -1602,7 +1618,7 @@ def create_app(config, runtime_path=None):
         name={'/vendor/markdown-it.min.js':'vendor/markdown-it.min.js','/ui.js':'ui.js','/ui.css':'ui.css','/mcp_bridge.py':'mcp_bridge.py'}.get(request.url.path,'index.html')
         return FileResponse(Path(__file__).parent / name,headers={'Cache-Control':'no-store','Content-Security-Policy':"default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'",'X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer'})
 
-    routes=[Route('/v1/project-folder',endpoint,methods=['GET','DELETE']),Route('/v1/resources',endpoint),Route('/v1/project-git',endpoint),Route('/v1/project-directories',endpoint),Route('/v1/approval-rules',endpoint,methods=['POST']),Route('/v1/services',endpoint,methods=['POST']),Route('/v1/workspaces',endpoint,methods=['GET','POST']),Route('/v1/workspaces/{workspace}',endpoint),Route('/v1/workspaces/{workspace}/download',endpoint),Route('/v1/project-files',endpoint),Route('/v1/project-files/attach',endpoint,methods=['POST']),Route('/v1/login',endpoint,methods=['POST']),Route('/v1/approvals/{approval}',endpoint,methods=['POST']),Route('/guide',ui),Route('/',ui),Route('/vendor/markdown-it.min.js',ui),Route('/ui.js',ui),Route('/ui.css',ui),Route('/assets/{path:path}',ui),Route('/mcp_bridge.py',ui),Route('/setup-mcp.sh',ui),Route('/.well-known/agent-capabilities.json',endpoint),Route('/v1/projects',endpoint,methods=['GET','POST']),Route('/v1/usage',endpoint),Route('/v1/models',endpoint),Route('/v1/history',endpoint),
+    routes=[Route('/v1/project-folder',endpoint,methods=['GET','DELETE']),Route('/v1/resources',endpoint),Route('/v1/project-git',endpoint),Route('/v1/project-directories',endpoint),Route('/v1/approval-rules',endpoint,methods=['POST']),Route('/v1/services',endpoint,methods=['POST']),Route('/v1/workspaces',endpoint,methods=['GET','POST']),Route('/v1/workspaces/{workspace}',endpoint),Route('/v1/workspaces/{workspace}/download',endpoint),Route('/v1/project-files',endpoint),Route('/v1/project-files/attach',endpoint,methods=['POST']),Route('/v1/login',endpoint,methods=['POST']),Route('/v1/approvals/{approval}',endpoint,methods=['POST']),Route('/guide',ui),Route('/',ui),Route('/vendor/markdown-it.min.js',ui),Route('/ui.js',ui),Route('/ui.css',ui),Route('/assets/{path:path}',ui),Route('/mcp_bridge.py',ui),Route('/setup-mcp.sh',ui),Route('/.well-known/agent-capabilities.json',endpoint),Route('/v1/projects',endpoint,methods=['GET','POST','PATCH']),Route('/v1/usage',endpoint),Route('/v1/models',endpoint),Route('/v1/history',endpoint),
       Route('/v1/catalog',endpoint),Route('/v1/version',endpoint),Route('/v1/conversations',endpoint),Route('/v1/conversations/{conversation}',endpoint,methods=['GET','DELETE','PATCH']),
       Route('/v1/files',endpoint,methods=['POST']),Route('/v1/files/{file}/preview',endpoint,methods=['GET']),Route('/v1/assess',endpoint,methods=['POST']),
       Route('/v1/jobs',endpoint,methods=['POST']),Route('/v1/jobs/{job}',endpoint),

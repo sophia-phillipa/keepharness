@@ -53,6 +53,8 @@ class Stream:
         self.result = None
         self.provider_error = None
         self.tools = {}
+        self.message_id = None
+        self.output_usage = {}
         self.started = time.monotonic()
         self.first = None
 
@@ -72,6 +74,18 @@ class Stream:
                 self.event("quota_update", update)
         elif kind == "stream_event":
             value = item.get("event", {})
+            if value.get("type") == "message_start":
+                self.message_id = value.get("message", {}).get("id")
+            if value.get("type") in ("message_start", "message_delta"):
+                usage = (value.get("message", {}) if value["type"] == "message_start" else value).get("usage", {})
+                count = usage.get("output_tokens")
+                if isinstance(self.message_id, str) and type(count) in (int, float) and math.isfinite(count) and count >= 0:
+                    self.output_usage[self.message_id] = count
+                    self.event("usage_metrics", {
+                        "usage_scope": "turn",
+                        "output_tokens": sum(self.output_usage.values()),
+                        "inference_seconds": time.monotonic() - self.started,
+                    })
             block = value.get("content_block", {})
             if (
                 value.get("type") == "content_block_start"

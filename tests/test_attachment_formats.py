@@ -1,3 +1,4 @@
+import base64
 import asyncio
 import io
 import zipfile
@@ -16,7 +17,7 @@ def test_utf8_any_extension_and_binary_denied(tmp_path):
 
 
 def test_images_preserve_binary_outside_prompt(tmp_path):
-    file=tmp_path/'source';file.write_bytes(b'\x89PNG\r\n\x1a\n'+b'test')
+    file=tmp_path/'source';file.write_bytes(base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aJ1sAAAAASUVORK5CYII='))
     assert asyncio.run(tools.extract(file,'image.png'))==[{'page':None,'text':'','media_type':'image/png'}]
     file.write_bytes(b'\xff\xd8\xff'+b'0'*(5*1024*1024))
     with pytest.raises(tools.ToolError,match='image_size_limit'):asyncio.run(tools.extract(file,'image.jpg'))

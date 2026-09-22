@@ -11,7 +11,7 @@ from agent_service.tools import ToolError
 
 
 class UsageStreamTest(unittest.IsolatedAsyncioTestCase):
-    async def execute(self, root, notifications):
+    async def execute(self, root, notifications, events=None):
         executable = root / 'fixture-cli'
         executable.write_text('#!' + sys.executable + '\n' + '''
 import json, sys
@@ -34,7 +34,7 @@ for line in sys.stdin:
 
         with patch('Adapters.codex.native.configurations', return_value={'codex': {}}), \
                 patch('Adapters.codex.native.inventory', return_value={'codex': []}):
-            return await run({'binary': str(executable)}, 'fixture', lambda *args: None,
+            return await run({'binary': str(executable)}, 'fixture', lambda *args: events.append(args) if events is not None else None,
                              {'permissions': {}}, 'fixture-model', 'low',
                              root / 'session', 'codex', approve)
 
@@ -53,10 +53,17 @@ for line in sys.stdin:
                 if baseline is not None:
                     saved['usage_total'] = baseline
                 marker.write_text(json.dumps(saved))
+                events = []
+                foreign = usage(90000, 80000)
+                foreign['params']['threadId'] = 'another-session'
                 result = await self.execute(root, [usage(1000, 444),
                     {'method': 'turn/started'}, usage(1100, 478), usage(1100, 478),
-                    usage(1200, 505),
-                    {'method': 'turn/completed', 'params': {'turn': {'status': 'completed'}}}])
+                    foreign, usage(1200, 505),
+                    {'method': 'turn/completed', 'params': {'turn': {'status': 'completed'}}}], events)
+                live = [data for kind, data in events if kind == 'context_usage']
+                self.assertEqual(live[-1]['metrics']['output_tokens'], 61)
+                self.assertGreater(live[-1]['metrics']['inference_seconds'], 0)
+                self.assertEqual(len(live), 4)
                 self.assertEqual(result['metrics']['usage_scope'], 'turn')
                 self.assertEqual(result['metrics']['input_tokens'], 200)
                 self.assertEqual(result['metrics']['output_tokens'], 61)

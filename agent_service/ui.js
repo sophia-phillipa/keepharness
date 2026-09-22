@@ -1,7 +1,9 @@
 const MAX_ATTACHMENTS=20;
+const AUDIO_ATTACHMENT_TIMEOUT_MS=8200000;
 'use strict';
 const $=id=>document.getElementById(id);
 let providers={},models=[],files=[],job='',last=0,controller=null,active=null,busy=false,parent=null,conversation='',loading=false,build='',reloadPending=false;
+let queuedTurns=[];
 let executionMode="native",executionModeChosen=false;
 let policyProject=null,policyPending=false,policySequence=0;
 let uploadsAllowed=false,streamDisconnected=false,submitting=false,cancelling=false,pendingSubmission=null;
@@ -115,7 +117,7 @@ async function json(path,options){const r=await api(path,options);try{return awa
 
 const post=(path,value)=>json(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(value)});
 function selected(){return models.find(m=>m.id===$('model').value)||models[0];}
-function setBusy(value){value=value||streamDisconnected;busy=value;$('add-project').disabled=value||loading;if(!value)paintMotion('');$('send').disabled=value||loading||uploads>0||!selected()||!$('prompt').value.trim();$('send').hidden=value;$('cancel').hidden=!value;$('cancel').disabled=submitting||cancelling||!job;$('attach').disabled=value;$('project').disabled=value;$('model').disabled=value;$('effort').disabled=value;$('access-mode').disabled=value;$('access-trigger').disabled=value;$('attach').disabled=value||uploads>0||!canUpload()||!selected();$('new').disabled=submitting||cancelling||loading||uploads>0;updateComposer();renderFiles();}
+function setBusy(value){value=value||streamDisconnected;busy=value;$('add-project').disabled=value||loading;if(!value)paintMotion('');$('send').disabled=value||loading||uploads>0||!selected()||!$('prompt').value.trim();$('cancel').disabled=submitting||cancelling||!job;$('attach').disabled=value;$('project').disabled=value||loading||uploads>0;$('model').disabled=submitting||loading||uploads>0||policyPending||!models.length;$('effort').disabled=$('model').disabled;$('access-mode').disabled=value;$('access-trigger').disabled=value;$('attach').disabled=value||uploads>0||!canUpload()||!selected();$('new').disabled=submitting||cancelling||loading||uploads>0;updateComposer();renderFiles();}
 async function refreshProjectPermissions(timeout=30000){
  const project=$('project').value;if(project===policyProject)return true;
  const sequence=++policySequence;policyPending=true;updateModelPermissions();updateComposer();
@@ -132,8 +134,11 @@ function canUpload(){const m=selected();return !policyPending&&uploadsAllowed&&!
 function updateModelPermissions(){
  const m=selected(),allowed=canUpload();
  $('attach').disabled=busy||loading||uploads>0||!allowed;
- $('attach').title=allowed?'Anexar arquivo':'Anexos não permitidos para este modelo';
- $('attachment-help').textContent=allowed?'Documentos: 50 MiB · imagens: 5 MiB · áudio: até 2 h / 256 MiB':'Anexos desativados para este modelo. Revise suas permissões no painel administrativo.';
+ const textOnly=m?.backend==='deepseek'||executionMode!=='native';
+ const imageHelp=textOnly?'Imagens indisponíveis nesta integração':m?.backend==='local'?'Imagens: até 5 MiB, se a visão local estiver habilitada':'Imagens: até 5 MiB, conforme suporte do modelo';
+ const attachmentHelp='Documentos: 50 MiB · áudio: até 4 h / 256 MiB, transcrito localmente para texto · '+imageHelp;
+ $('attach').title=allowed?'Anexar arquivo. '+attachmentHelp:'Anexos não permitidos para este modelo';
+ $('attachment-help').textContent=allowed?attachmentHelp:'Anexos desativados para este modelo. Revise suas permissões no painel administrativo.';
  let panel=$('model-permissions');if(!panel){panel=document.createElement('p');panel.id='model-permissions';panel.className='footnote';$('model-note').after(panel);}
  panel.hidden=!m?.permissions;
  if(m?.permissions)panel.textContent=(m.permissions.upload?'Anexos permitidos':'Sem anexos')+' · '+(m.permissions.internet?(m.backend==='local'?'Internet permitida às ferramentas locais':'Internet permitida'):'Internet desativada')+' · '+(m.permissions.shell?'Terminal permitido':'Terminal desativado');
@@ -242,7 +247,7 @@ function syncExecutionMode(){
  const modeContract=Array.isArray(selected()?.execution_modes);
  $('execution-mode-choice').hidden=started||!modeContract;
  $('isolation-toggle').setAttribute('aria-checked',String(isolated));
- $('isolation-toggle').disabled=started||busy||loading||submitting||modes.length<2;
+ $('isolation-toggle').disabled=started||busy||loading||submitting||uploads>0||modes.length<2;
  $('execution-mode-label').textContent=isolated?'Conversa isolada':'Conversa nativa';
  const warning=$('execution-mode-unavailable');warning.hidden=!selected()||(modes.includes(executionMode)&&modes.length>1);
  warning.textContent=modes.length===1&&modes.includes(executionMode)?(isolated?'Este modelo usa isolamento obrigatório.':'Este modelo oferece apenas o modo nativo.'):'Este modelo não oferece o modo '+(isolated?'isolado':'nativo')+'. Escolha outro modelo'+(started?'.':' ou altere o modo antes de enviar.');
@@ -250,22 +255,23 @@ function syncExecutionMode(){
  const label=isolated?'Conversa isolada · isolamento ligado':'Conversa nativa · isolamento desligado';indicator.title=label;indicator.setAttribute('aria-label',label);
  $('dropzone').classList.toggle('has-execution-mode',started&&modeContract);
 }
-$('isolation-toggle').onclick=()=>{if(conversation||parent||busy||loading||submitting)return;executionMode=executionMode==='scoped'?'native':'scoped';executionModeChosen=true;invalidateResources();updateComposer();saveView();};
+$('isolation-toggle').onclick=()=>{if(conversation||parent||busy||loading||submitting||uploads)return;executionMode=executionMode==='scoped'?'native':'scoped';executionModeChosen=true;invalidateResources();updateComposer();saveView();};
 function newConversation(title='Nova Conversa'){
  resourceSelections=[];invalidResourceTokens.clear();if(submitting||cancelling||loading||uploads){status('Aguarde o envio atual antes de iniciar outra conversa.');return;}
  conversationLoad++;
  streamDisconnected=false;$('resume-execution').hidden=true;
  restoreSelection();clearSubmission();resetProjectFiles();
  resetActivity();active=null;setConversationTitle(title);
- if(controller)controller.abort();controller=null;job='';last=0;parent=null;conversation='';executionMode='native';executionModeChosen=false;files=[];renderFiles();
+ if(controller)controller.abort();controller=null;queuedTurns=[];job='';last=0;parent=null;conversation='';executionMode='native';executionModeChosen=false;files=[];renderFiles();
  $('messages').replaceChildren(welcomeTemplate.cloneNode(true));bindSuggestions();modelAvailability();$('prompt').value='';updateComposer();saveView();$('context-meter').textContent='Nova conversa · contexto independente';setBusy(false);status('');$('prompt').focus({preventScroll:true});refreshProjectPermissions();
 }
 function chooseProject(id){
  if(busy||loading||uploads)return;
  const draft=$('prompt').value;$('project').value=id;invalidateResources();const stale=[...invalidResourceTokens];newConversation();invalidResourceTokens=new Set(stale);$('prompt').value=draft;updateComposer();saveView();renderProjects();syncActiveProjectBadge();
 }
-let projectIcons={},projectAliases={};
+let projectIcons={},projectAliases={},projectDetails={};
 function updateProjectMetadata(details={}){
+ projectDetails=details;
  projectIcons=Object.fromEntries(Object.entries(details).map(([id,detail])=>[id,detail.icon]));
  projectAliases=Object.fromEntries(Object.entries(details).map(([id,detail])=>[id,detail.canonical_id||id]));
 }
@@ -347,7 +353,10 @@ function renderProjects(){
   menu.addEventListener('click',e=>e.stopPropagation());
   const iconToggle=document.createElement('button');iconToggle.type='button';iconToggle.setAttribute('aria-pressed',String(showIcon));iconToggle.disabled=!projectIcon;iconToggle.append(TailUI.icon('scan'),document.createTextNode(showIcon?'Esconder ícone do projeto':'Exibir ícone do projeto'));iconToggle.title=projectIcon?'Ícone detectado: '+projectIcon.path:'Nenhum ícone encontrado no projeto';
   iconToggle.onclick=()=>{menu.hidePopover();setProjectPreference(o.value,'hideIcon',showIcon);};
-  menu.append(navigate,pin,iconToggle,remove,deleteFolder);actions.append(trigger,menu);heading.append(button,actions);
+  const edit=document.createElement('button');edit.type='button';edit.title='Alterar o nome, adicionar pastas e escolher a pasta principal';edit.append(TailUI.icon('pencil'),document.createTextNode('Editar projeto'));
+  edit.onclick=()=>{menu.hidePopover();openProjectDialog(o.value);};
+  navigate.title='Abrir a pasta principal no explorador';pin.title=favorite?'Retirar este projeto dos favoritos':'Mostrar este projeto entre os favoritos';deleteFolder.title='Revisar a exclusão da pasta principal do computador';trigger.title='Abrir ações do projeto';trigger.replaceChildren(TailUI.icon('settings'));
+  menu.append(edit,navigate,pin,iconToggle,remove,deleteFolder);actions.append(trigger,menu);heading.append(button,actions);
   const children=document.createElement('div');children.className='project-conversations';
   const items=matches.filter(c=>(projectAliases[c.project]||c.project)===o.value);
   children.replaceChildren(...items.map(conversationRow));
@@ -458,7 +467,7 @@ async function loadResponseTools(id,target){
  const reader=response.body.getReader(),decoder=new TextDecoder();let buffer='';
  try{while(true){const {value,done}=await reader.read();if(done)break;buffer+=decoder.decode(value,{stream:true});let end;
   while((end=buffer.indexOf('\n\n'))>=0){const block=buffer.slice(0,end);buffer=buffer.slice(end+2);const line=block.split('\n').find(l=>l.startsWith('data: '));if(!line)continue;
-   const e=JSON.parse(line.slice(6));if(!['answer_delta','context_usage','quota_before','quota_after'].includes(e.type))appendActivityTitle(target,e);
+   const e=JSON.parse(line.slice(6));if(!['answer_delta','context_usage','usage_metrics','quota_before','quota_after'].includes(e.type))appendActivityTitle(target,e);
   }
  }}finally{await reader.cancel();}
  if(!target.children.length){const row=document.createElement('li');row.textContent='Nenhuma etapa foi registrada nesta execução.';target.append(row);}
@@ -485,9 +494,10 @@ function event(e){
  if(e.type==='session_turn_started')return;
  if(e.type==='approval_required'){showApproval(e.data);return;}
  if(e.type==='approval_resolved'){document.getElementById('approval-'+e.data.approval_id)?.remove();return;}
- if(active){appendActivityTitle(active.milestones,e);if(active.milestones.children.length){active.activity.hidden=false;setActivitySummary(active,['completed','failed','cancelled','interrupted'].includes(e.type)?(labels[e.type]||'Etapas da execução'):'Trabalhando…');}}
+ if(active&&!['context_usage','usage_metrics'].includes(e.type)){appendActivityTitle(active.milestones,e);if(active.milestones.children.length){active.activity.hidden=false;setActivitySummary(active,['completed','failed','cancelled','interrupted'].includes(e.type)?(labels[e.type]||'Etapas da execução'):'Trabalhando…');}}
  recordActivity(e);updateMotion(e.type);if(active)active.chip.textContent=$('activity-state').textContent;
- if(e.type==='context_usage'){paintContext(e.data);return;}
+ if(e.type==='usage_metrics'){paintLocalUsage(e.data);return;}
+ if(e.type==='context_usage'){paintContext(e.data,e.data.metrics);return;}
  if(e.type==='plan_updated'){status('Plano atualizado');}
  else if(e.type==='answer_delta'){active.body.rawAnswer=(active.body.rawAnswer||'')+e.data.text;renderAnswer(active.body,active.body.rawAnswer);status('Recebendo resposta…');}
  else if(e.type==='reasoning_delta'||e.type==='reasoning_summary'){if(active)setActivitySummary(active,'Pensando…');status('Raciocinando…');}
@@ -526,7 +536,7 @@ async function result(expectedJob=job,expectedController=controller,snapshot=nul
   if(selected()?.backend==='codex'){if(data.quota_before)quotaSnapshot('before',data.quota_before);if(data.quota_after)quotaSnapshot('after',data.quota_after);}
  }
  if(['completed','failed','cancelled','interrupted'].includes(r.state)){
-  parent=job;
+  parent=queuedTurns.at(-1)?.id||job;
   const current=conversations.find(c=>c.id===conversation);
   if(current){current.state=r.state;current.last_job_id=r.id||expectedJob;observeConversation(current);
    if(r.state==='completed')conversationActivity[current.id].unread=document.hidden;
@@ -534,7 +544,11 @@ async function result(expectedJob=job,expectedController=controller,snapshot=nul
   }
  }saveView();return r;
 }
-async function watch(retries=0){streamDisconnected=false;$('resume-execution').hidden=true;if(controller)controller.abort();controller=new AbortController();const current=controller;setBusy(true);paintMotion('working');try{const r=await api('/v1/jobs/'+job+'/events',{headers:{'Last-Event-ID':String(last)},signal:controller.signal});const reader=r.body.getReader(),decoder=new TextDecoder();let buffer='';while(true){const{value,done}=await reader.read();if(done)break;buffer+=decoder.decode(value,{stream:true});let end;while((end=buffer.indexOf('\n\n'))>=0){const block=buffer.slice(0,end);buffer=buffer.slice(end+2);const data=block.split('\n').find(l=>l.startsWith('data: '));if(controller!==current)return;if(data)event(JSON.parse(data.slice(6)));}}if(controller!==current)return;const final=await result();if(controller!==current)return;if(['running','queued'].includes(final.state)){if(retries<3){status('Reconectando à execução em andamento…');await new Promise(resolve=>setTimeout(resolve,1000));if(controller!==current)return;return await watch(retries+1);}throw Error('stream_closed');}if(controller!==current)return;await quota();await history();}catch(e){if(controller===current&&e.name!=='AbortError'){paintMotion('');$('activity-state').textContent='⚠ Conexão interrompida';streamDisconnected=true;$('resume-execution').hidden=false;status('Conexão interrompida. A execução pode continuar no servidor. Use Retomar acompanhamento ou Cancelar execução.');await history();}}finally{if(controller===current){setBusy(false);checkVersion();}}}
+async function watchQueuedTurn(){
+ const next=queuedTurns.shift();job=next.id;active=next.response;last=0;beginActivity(job);
+ await watch();
+}
+async function watch(retries=0){streamDisconnected=false;$('resume-execution').hidden=true;if(controller)controller.abort();controller=new AbortController();const current=controller;setBusy(true);paintMotion('working');try{const r=await api('/v1/jobs/'+job+'/events',{headers:{'Last-Event-ID':String(last)},signal:controller.signal});const reader=r.body.getReader(),decoder=new TextDecoder();let buffer='';while(true){const{value,done}=await reader.read();if(done)break;buffer+=decoder.decode(value,{stream:true});let end;while((end=buffer.indexOf('\n\n'))>=0){const block=buffer.slice(0,end);buffer=buffer.slice(end+2);const data=block.split('\n').find(l=>l.startsWith('data: '));if(controller!==current)return;if(data)event(JSON.parse(data.slice(6)));}}if(controller!==current)return;const final=await result();if(controller!==current)return;if(['running','queued'].includes(final.state)){if(retries<3){status('Reconectando à execução em andamento…');await new Promise(resolve=>setTimeout(resolve,1000));if(controller!==current)return;return await watch(retries+1);}throw Error('stream_closed');}if(controller!==current)return;await quota();await history();if(controller===current&&queuedTurns.length)return await watchQueuedTurn();}catch(e){if(controller===current&&e.name!=='AbortError'){paintMotion('');$('activity-state').textContent='⚠ Conexão interrompida';streamDisconnected=true;$('resume-execution').hidden=false;status('Conexão interrompida. A execução pode continuar no servidor. Use Retomar acompanhamento ou Cancelar execução.');await history();}}finally{if(controller===current){setBusy(false);checkVersion();}}}
 async function load(id,legacy=false,restoredView=null){
  if(submitting||cancelling||uploads)return;const request=++conversationLoad,priorDraft=$('prompt').value;loading=true;if(controller){controller.abort();controller=null;}setBusy(true);
  try{
@@ -543,14 +557,15 @@ async function load(id,legacy=false,restoredView=null){
   catch(e){if(e.status!==404||!legacyHistory)throw e;data={turns:[await json('/v1/jobs/'+encodeURIComponent(id))]};}
   if(request!==conversationLoad)return;
   if(!data.turns?.length)throw Error('Conversa vazia');
-  parent=null;job='';last=0;resetActivity();setConversationTitle(data.title||conversations.find(item=>item.id===id)?.title||'Nova Conversa');
+  queuedTurns=[];parent=null;job='';last=0;resetActivity();setConversationTitle(data.title||conversations.find(item=>item.id===id)?.title||'Nova Conversa');
   executionMode=data.execution_mode||data.turns[0].request?.execution_mode||conversations.find(c=>c.id===id)?.execution_mode||conversations.find(c=>c.id===id)?.execution?.execution_mode||'native';
   conversation=id;if(!restoredView)saveView();files=[];renderFiles();$('messages').replaceChildren();$('prompt').value='';
   for(const r of data.turns){
    $('project').value=r.project;syncActiveProjectBadge();const model=r.request?.backend==='qwen'?'qwen-local':r.request?.model;
    if(models.some(m=>m.id===model)){$('model').value=model;updateEfforts();$('effort').value=r.request?.effort||$('effort').value;}
-   messageAttachments(bubble('user',r.request?.prompt||'Execução anterior'),r.attachments);active=assistant(r.id,model,r!==data.turns[data.turns.length-1]||['completed','failed','cancelled','interrupted'].includes(r.state));job=r.id;
-   if(r!==data.turns[data.turns.length-1]){
+   messageAttachments(bubble('user',r.request?.prompt||'Execução anterior'),r.attachments);active=assistant(r.id,model,!['queued','running'].includes(r.state));job=r.id;
+   if(['queued','running'].includes(r.state))queuedTurns.push({id:r.id,response:active});
+   if(r!==data.turns[data.turns.length-1]&&!['queued','running'].includes(r.state)){
     const condition=executionCondition(r.result?.condition||r.result?.error);
     setAnswer(active,condition?.message??r.result?.answer??(r.result?.error?executionError(r.result.error):r.state));
     active.chip.textContent=condition?'ℹ '+condition.title:(activityIcons[r.state]||'•')+' '+(labels[r.state]||r.state);
@@ -560,19 +575,30 @@ async function load(id,legacy=false,restoredView=null){
    }
   }
   $('access-mode').value=data.turns.at(-1).request?.access_mode||'ask';syncAccessMode();void quota();
+  parent=job;
+  if(queuedTurns.length){const next=queuedTurns.shift();job=next.id;active=next.response;}
   beginActivity(job);
   resetProjectFiles();await refreshProjectPermissions();if(request!==conversationLoad)return;
   expandedProjects.set($('project').value,true);renderProjects();$('sidebar').querySelector('.conversation-row > button[aria-current="true"]')?.scrollIntoView({block:'nearest'});last=0;$('sidebar').classList.remove('open');loading=false;
   if(restoredView)restoreView(restoredView);
-  const latest=data.turns.at(-1);
+  const latest=data.turns.find(turn=>turn.id===job);
   if(['completed','failed','cancelled','interrupted'].includes(latest.state))await result(job,controller,latest);
   else if(!restoredView)await watch();
+  return ['queued','running'].includes(latest.state);
  }catch(e){if(request!==conversationLoad)return;loading=false;setBusy(false);$('prompt').value=priorDraft;updateComposer();$('sidebar').classList.remove('open');status('Não foi possível abrir a conversa. Seu rascunho foi preservado: '+e.message);}
  finally{if(request===conversationLoad){loading=false;setBusy(false);}}
 }
-async function upload(list){if(!canUpload()){status('Não foi possível anexar: anexos estão desativados na administração.');return;}if(busy||loading||uploads)return;uploads++;setBusy(busy);$('project').disabled=true;renderFiles();try{for(const f of Array.from(list)){if(files.length>=MAX_ATTACHMENTS){status('Limite de 20 anexos atingido. Remova um anexo antes de adicionar outro.');break;}const audio=/\.(wav|mp3|m4a|ogg|flac|webm|aac|opus)$/i.test(f.name);if(f.size>(audio?256:50)*1024*1024){status(audio?'O limite por áudio é 256 MiB.':'O limite por documento é 50 MiB.');continue;}status('Enviando e preparando '+f.name+'… Áudios são transcritos localmente.');try{const r=await json('/v1/files?project_id='+encodeURIComponent($('project').value)+'&backend='+encodeURIComponent(selected().backend)+'&model='+encodeURIComponent(selected().id),{method:'POST',headers:{'X-Filename':encodeURIComponent(f.name)},body:f,signal:AbortSignal.timeout(audio?8200000:600000)});files.push({id:r.file_id,name:f.name,preview_url:r.preview_url});renderFiles();saveView();status('Arquivo recebido.');}catch(e){attachmentNotice(f.name,e.code);status('Não foi possível enviar: '+attachmentError(e.code||e.message));}}}finally{uploads--;setBusy(busy);renderFiles();updateComposer();}}
+async function upload(list){if(!canUpload()){status('Não foi possível anexar: anexos estão desativados na administração.');return;}if(busy||loading||uploads)return;uploads++;setBusy(busy);$('project').disabled=true;renderFiles();try{for(const f of Array.from(list)){if(files.length>=MAX_ATTACHMENTS){status('Limite de 20 anexos atingido. Remova um anexo antes de adicionar outro.');break;}const audio=/\.(wav|mp3|m4a|ogg|flac|webm|aac|opus)$/i.test(f.name),image=/\.(png|jpe?g|gif|webp)$/i.test(f.name)||/^image\/(png|jpeg|gif|webp)$/i.test(f.type);if(f.size>(audio?256:image?5:50)*1024*1024){status(f.name+': '+(audio?'O limite por áudio é 256 MiB.':image?'O limite por imagem é 5 MiB.':'O limite por documento é 50 MiB.'));continue;}status('Enviando e preparando '+f.name+'… Áudios são transcritos localmente.');try{const r=await json('/v1/files?project_id='+encodeURIComponent($('project').value)+'&backend='+encodeURIComponent(selected().backend)+'&model='+encodeURIComponent(selected().id)+'&execution_mode='+encodeURIComponent(executionMode),{method:'POST',headers:{'X-Filename':encodeURIComponent(f.name)},body:f,signal:AbortSignal.timeout(audio?AUDIO_ATTACHMENT_TIMEOUT_MS:600000)});files.push({id:r.file_id,name:f.name,preview_url:r.preview_url});renderFiles();saveView();status('Arquivo recebido.');}catch(e){attachmentNotice(f.name,e.code);status('Não foi possível enviar: '+attachmentError(e.code||e.message));}}}finally{uploads--;setBusy(busy);renderFiles();updateComposer();}}
 $('files-retry').onclick=()=>fileTree.basePath?loadProjectFileDirectory(fileTree.rootId,fileTree.basePath):loadProjectFileRoots(true);
-async function send(){if(busy||loading||uploads||policyPending||!selected())return;const prompt=$('prompt').value.trim();if(!prompt)return;const reserved=prompt.match(/(?:^|\s)(@@|\/\/)[^\s@/]+/);if(reserved){status(reserved[1].startsWith('@@')?'Agentes do Tail Harness ainda não estão disponíveis.':'Skills e comandos do Tail Harness ainda não estão disponíveis.');return;}syncResourceSelections();const stale=[...invalidResourceTokens].find(token=>prompt.split(/\s+/).includes(token));if(stale){status('O recurso '+stale+' foi invalidado pela troca de projeto ou motor. Selecione-o novamente antes de enviar.');return;}const m=selected();if(!supportedExecutionModes().includes(executionMode)){status('Este modelo não oferece o modo selecionado. Escolha outro modelo.');return;}if(files.length&&!canUpload()){status('Este modelo não permite anexos. Remova os arquivos ou escolha um modelo com essa permissão.');return;}syncResourceSelections();rememberSelection();submitting=true;setBusy(true);status('Enviando pedido ao servidor…');let sentJob=null;try{if(m.backend==='codex'){status('Consultando cota antes da execução…');quotaSnapshot('before',await json('/v1/usage'));}const data={project_id:$('project').value,prompt,file_ids:files.map(f=>f.id),backend:m.backend,model:m.id,effort:$('effort').value,access_mode:$('access-mode').value,resource_selections:resourceSelections.map(({id,revision,token})=>({id,revision,token}))};if(parent)data.parent_job_id=parent;else if(Array.isArray(m.execution_modes))data.execution_mode=executionMode;const r=await json('/v1/jobs',{method:'POST',headers:{'Content-Type':'application/json','Idempotency-Key':submissionKey(data)},body:JSON.stringify(data)});clearSubmission();$('welcome')?.remove();messageAttachments(bubble('user',prompt),files);active=assistant(r.job_id,m.id);beginActivity(r.job_id);job=r.job_id;sentJob=job;submitting=false;$('cancel').disabled=false;parent=job;if(!conversation){conversation=job;setConversationTitle(prompt);}files=[];renderFiles();last=0;$('prompt').value='';resourceSelections=[];invalidResourceTokens.clear();updateComposer();saveView();$('messages').scrollTop=$('messages').scrollHeight;await history();await watch();}catch(e){status('Não foi possível executar: '+e.message+(e.status===429&&submitting?' Seu rascunho foi preservado.':''));}finally{if(!sentJob||job===sentJob){submitting=false;setBusy(false);}}}
+async function send(){if(submitting||cancelling||loading||uploads||policyPending||!selected())return;const following=busy&&!!job;const draft=$('prompt').value,prompt=draft.trim();if(!prompt)return;const reserved=prompt.match(/(?:^|\s)(@@|\/\/)[^\s@/]+/);if(reserved){status(reserved[1].startsWith('@@')?'Agentes do Tail Harness ainda não estão disponíveis.':'Skills e comandos do Tail Harness ainda não estão disponíveis.');return;}syncResourceSelections();const stale=[...invalidResourceTokens].find(token=>prompt.split(/\s+/).includes(token));if(stale){status('O recurso '+stale+' foi invalidado pela troca de projeto ou motor. Selecione-o novamente antes de enviar.');return;}const m=selected();if(!supportedExecutionModes().includes(executionMode)){status('Este modelo não oferece o modo selecionado. Escolha outro modelo.');return;}if(files.length&&!canUpload()){status('Este modelo não permite anexos. Remova os arquivos ou escolha um modelo com essa permissão.');return;}syncResourceSelections();rememberSelection();submitting=true;setBusy(true);status('Enviando pedido ao servidor…');let sentJob=null;const clearSentDraft=()=>{if($('prompt').value===draft){$('prompt').value='';resourceSelections=[];invalidResourceTokens.clear();}};try{const data={project_id:$('project').value,prompt,file_ids:files.map(f=>f.id),backend:m.backend,model:m.id,effort:$('effort').value,access_mode:$('access-mode').value,resource_selections:resourceSelections.map(({id,revision,token})=>({id,revision,token}))};if(parent)data.parent_job_id=parent;else if(Array.isArray(m.execution_modes))data.execution_mode=executionMode;if(m.backend==='codex'){status('Consultando cota antes da execução…');quotaSnapshot('before',await json('/v1/usage'));}const r=await json('/v1/jobs',{method:'POST',headers:{'Content-Type':'application/json','Idempotency-Key':submissionKey(data)},body:JSON.stringify(data)});clearSubmission();$('welcome')?.remove();messageAttachments(bubble('user',prompt),files);
+if(following){
+ queuedTurns.push({id:r.job_id,response:assistant(r.job_id,m.id)});parent=r.job_id;sentJob=r.job_id;submitting=false;setBusy(busy);
+ files=[];renderFiles();clearSentDraft();updateComposer();saveView();
+ status('Mensagem enviada. Aguardando a resposta atual terminar.');await history();
+ if(!busy&&queuedTurns.length)void watchQueuedTurn();
+ return;
+}
+active=assistant(r.job_id,m.id);beginActivity(r.job_id);job=r.job_id;sentJob=job;submitting=false;$('cancel').disabled=false;parent=job;if(!conversation){conversation=job;setConversationTitle(prompt);}files=[];renderFiles();last=0;clearSentDraft();updateComposer();saveView();$('messages').scrollTop=$('messages').scrollHeight;await history();await watch();}catch(e){status('Não foi possível executar: '+e.message+(e.status===429&&submitting?' Seu rascunho foi preservado.':''));}finally{if(!sentJob){submitting=false;setBusy(following?busy:false);}else if(job===sentJob&&!submitting&&!following)setBusy(false);}}
 function resetProjectFiles(){
  const project=$('project').value;if(fileTree.project===project)return;
  fileTree.project=project;fileTree.selected.clear();fileTree.anchor='';renderProjectFileTree();renderProjectFileSelection();
@@ -589,7 +615,7 @@ function renderProjectFileEntries(list,entries,tree=fileTree){
   const item=document.createElement('li');item.setAttribute('role','treeitem');item.setAttribute('aria-selected',String(tree.selected.has(entry.path)));item.tabIndex=0;item.dataset.path=entry.path;
   const row=document.createElement('div');row.className='project-file-row';
   if(entry.type==='directory'){
-   const open=tree.expanded.has(entry.path),toggle=document.createElement('button');toggle.type='button';toggle.className='file-chevron';toggle.setAttribute('aria-label',(open?'Recolher ':'Expandir ')+entry.name);toggle.setAttribute('aria-expanded',String(open));toggle.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>';toggle.onclick=()=>tree.foldersOnly?toggleProjectFolder(entry):toggleProjectDirectory(entry);
+   const open=tree.expanded.has(entry.path),toggle=document.createElement('button');toggle.type='button';toggle.className='file-chevron';toggle.setAttribute('aria-label',(open?'Recolher ':'Expandir ')+entry.name);toggle.setAttribute('aria-expanded',String(open));toggle.title=(open?'Recolher ':'Expandir ')+entry.name;toggle.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>';toggle.onclick=()=>tree.foldersOnly?toggleProjectFolder(entry):toggleProjectDirectory(entry);
    const name=document.createElement('span');name.textContent=entry.name;name.title=entry.name;row.append(toggle,projectFileIcon(entry.name,true,open),name);item.append(row);
    if(open){const childList=document.createElement('ul');childList.setAttribute('role','group');childList.className='project-file-children';const children=tree.cache.get(tree.rootId+'\0'+entry.path);if(children)renderProjectFileEntries(childList,children,tree);else{const loading=document.createElement('li');loading.textContent='Carregando…';loading.setAttribute('role','status');childList.append(loading);}item.append(childList);}
   }else{
@@ -695,13 +721,13 @@ async function toggleProjectDirectory(entry){
 async function attachSelectedProjectFiles(selection={root_id:fileTree.rootId,paths:Array.from(fileTree.selected)}){
  if(busy||loading||uploads)return;if(!canUpload()){status('Este modelo não permite anexar arquivos.');return;}
  const maxFiles=Math.max(0,MAX_ATTACHMENTS-files.length),paths=[...new Set(selection.paths||[])];if(!selection.root_id||!paths.length||!maxFiles){status(maxFiles?'Selecione arquivos para anexar.':'O limite de 20 anexos já foi atingido.');return;}
- uploads++;updateComposer();renderProjectFileTree();status('Anexando arquivos selecionados…');
- try{const url='/v1/project-files/attach?project_id='+encodeURIComponent($('project').value)+'&max_files='+maxFiles;const result=await json(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({root_id:selection.root_id,paths,backend:selected().backend,model:selected().id})});
+ uploads++;setBusy(busy);renderProjectFileTree();status('Anexando arquivos selecionados… Áudios são transcritos localmente; aguarde a conclusão.');
+ try{const url='/v1/project-files/attach?project_id='+encodeURIComponent($('project').value)+'&max_files='+maxFiles;const result=await json(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({root_id:selection.root_id,paths,backend:selected().backend,model:selected().id,execution_mode:executionMode}),signal:AbortSignal.timeout(maxFiles*AUDIO_ATTACHMENT_TIMEOUT_MS)});
   for(const attachment of result.attachments||[])files.push({id:attachment.file_id,name:attachment.name,preview_url:attachment.preview_url});renderFiles();saveView();
   if(selection.root_id===fileTree.rootId){for(const path of paths)fileTree.selected.delete(path);renderProjectFileTree();}
-  for(const item of result.skipped||[])attachmentNotice(item.path,item.reason);
-  const skipped=(result.skipped||[]).length;status(`${(result.attachments||[]).length} arquivo(s) anexado(s)${skipped?`; ${skipped} item(ns) indisponível(is) ou ignorado(s)`:''}.`);
- }catch(error){status('Não foi possível anexar a seleção: '+error.message);}finally{uploads--;renderFiles();updateComposer();renderProjectFileTree();}
+  for(const item of (result.skipped||[]).slice(0,10))attachmentNotice(item.path,item.reason);
+  const skipped=(result.skipped||[]).length;status(`${(result.attachments||[]).length} arquivo(s) anexado(s)${skipped?`; ${skipped} item(ns) indisponível(is) ou ignorado(s)`:''}.${skipped>10?' Mostrados os primeiros 10 avisos.':''}`);
+ }catch(error){status('Não foi possível anexar a seleção: '+error.message);}finally{uploads--;setBusy(busy);renderProjectFileTree();}
 }
 function renderFiles(){
  $('attachments').replaceChildren(...files.map((f,i)=>{
@@ -709,8 +735,8 @@ function renderFiles(){
   if(f.preview_url){const img=document.createElement('img');img.src=f.preview_url;img.alt=f.name;img.className='attachment-preview';img.onerror=()=>img.remove();el.append(img);el.classList.add('image-attachment');}
   if(!f.preview_url)el.append(projectFileIcon(f.name));
   const name=document.createElement('span');name.textContent=f.name;name.className='attachment-name';el.append(name);
-  const b=document.createElement('button');b.type='button';b.textContent='×';b.title='Retirar da próxima mensagem';b.setAttribute('aria-label','Remover anexo '+f.name);b.disabled=busy||uploads>0;
-  b.onclick=()=>{files.splice(i,1);renderFiles();saveView();renderProjectFileTree();updateComposer();};el.append(b);return el;
+  const b=document.createElement('button');b.type='button';b.append(TailUI.icon('x'));b.title='Retirar da próxima mensagem';b.setAttribute('aria-label','Remover anexo '+f.name);b.disabled=busy||uploads>0;
+  b.onclick=()=>{files.splice(i,1);renderFiles();saveView();renderProjectFileTree();updateComposer();const buttons=$('attachments').querySelectorAll('button');(buttons[Math.min(i,buttons.length-1)]||$('attach')).focus();};el.append(b);return el;
  }));
  let count=$('attachment-count');if(!count){count=document.createElement('span');count.id='attachment-count';count.setAttribute('role','status');$('attachments').after(count);}
  count.hidden=files.length===0;count.textContent=files.length+' / '+MAX_ATTACHMENTS+' arquivos anexados';renderProjectFileSelection();
@@ -718,7 +744,7 @@ function renderFiles(){
 $('send').onclick=send;$('prompt').oninput=()=>{syncResourceSelections();openResourceMenu();};$('prompt').onkeydown=e=>{if(resourceKeydown(e))return;if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing&&e.keyCode!==229){e.preventDefault();send();}};$('cancel').onclick=async()=>{if(submitting||cancelling||!job)return;cancelling=true;$('cancel').disabled=true;try{await post('/v1/jobs/'+job+'/cancel',{});status('Cancelando…');if(streamDisconnected)await watch();}catch(e){status('Não foi possível cancelar: '+e.message);}finally{cancelling=false;setBusy(busy);}};
 $('new').onclick=()=>{if(submitting||cancelling||loading||uploads||!confirmNewConversation())return;const loose=Array.from($('project').options).some(o=>o.value==='sem-projeto');if(loose)$('project').value='sem-projeto';newConversation(loose?'Nova Conversa':'Nova Conversa no projeto '+$('project').selectedOptions[0]?.textContent);renderProjects();history();$('sidebar').classList.remove('open');};
 $('project').onchange=()=>{const draft=$('prompt').value;invalidateResources();const stale=[...invalidResourceTokens];newConversation();invalidResourceTokens=new Set(stale);$('prompt').value=draft;resourceSelections=[];updateComposer();saveView();renderProjects();history();};
-$('model').onchange=()=>{invalidateResources();updateEfforts();rememberSelection();updateComposer();saveView();quota();};$('quota-refresh').onclick=()=>void quota();document.addEventListener('visibilitychange',()=>{if(!document.hidden&&['codex','claude'].includes(selected()?.backend))void quota();});setInterval(()=>{if(!document.hidden&&['codex','claude'].includes(selected()?.backend))void quota();},60000);$('effort').onchange=rememberSelection;$('attach').onclick=()=>$('file').click();$('file').onchange=()=>{upload($('file').files);$('file').value='';};
+$('model').onchange=()=>{invalidateResources();updateEfforts();rememberSelection();updateComposer();saveView();quota();};$('quota-refresh').onclick=()=>void quota();document.addEventListener('visibilitychange',()=>{if(!document.hidden&&['codex','claude'].includes(selected()?.backend))void quota();});setInterval(()=>{if(!document.hidden&&['codex','claude'].includes(selected()?.backend))void quota();},60000);$('effort').onchange=()=>{rememberSelection();saveView();};$('attach').onclick=()=>$('file').click();$('file').onchange=()=>{upload($('file').files);$('file').value='';};
 $('dropzone').ondragover=e=>{if(e.dataTransfer.types.includes('application/x-tail-authorized-project-files')||e.dataTransfer.files.length){e.preventDefault();$('dropzone').classList.add('drag');}};$('dropzone').ondragleave=()=>$('dropzone').classList.remove('drag');$('dropzone').ondrop=e=>{e.preventDefault();$('dropzone').classList.remove('drag');const payload=e.dataTransfer.getData('application/x-tail-authorized-project-files');if(payload){try{const selection=JSON.parse(payload);if(Array.isArray(selection.paths))void attachSelectedProjectFiles(selection);else status('A seleção de arquivos não é válida.');}catch{status('A seleção de arquivos não é válida.');}}else upload(e.dataTransfer.files);};
 $('quota-toggle').onclick=()=>setQuotaOpen($('quota-panel').hidden);$('quota-refresh').onclick=quota;function toggleSidebar(){
  if(matchMedia('(max-width:620px)').matches){$('sidebar').classList.toggle('open');}
@@ -751,7 +777,7 @@ function modelAvailability(data={admin_url:$('admin-link').getAttribute('href')}
  const link=$('admin-link');link.hidden=true;
  {const url=data?.admin_url;try{const parsed=new URL(url);if(['127.0.0.1','localhost'].includes(parsed.hostname)&&parsed.protocol==='http:'){link.href=parsed.href;link.hidden=false;}}catch{}}
  const shortcut=$('admin-shortcut'),topShortcut=$('admin-shortcut-top');shortcut.hidden=link.hidden;topShortcut.hidden=link.hidden;if(!link.hidden){shortcut.href=link.href;topShortcut.href=link.href;}
- $('model').disabled=!models.length||busy;$('effort').disabled=!models.length||busy;$('prompt').placeholder=models.length?'Envie uma mensagem… · Enter envia · Shift+Enter quebra linha':'Configure um modelo para enviar; seu rascunho será preservado.';
+ $('model').disabled=!models.length||submitting||loading||uploads>0||policyPending;$('effort').disabled=$('model').disabled;$('prompt').placeholder=models.length?'Envie uma mensagem… · Enter envia · Shift+Enter quebra linha':'Configure um modelo para enviar; seu rascunho será preservado.';
  $('model-note').hidden=!models.length;updateModelPermissions();
  if(!models.length){$('model').replaceChildren(new Option('Nenhum modelo disponível',''));$('effort').replaceChildren(new Option('Esforço indisponível',''));$('quota-short').textContent='Nenhum modelo selecionado';}
  if($('welcome'))$('welcome').hidden=!models.length;updateComposer();
@@ -767,7 +793,7 @@ async function initialize(){if(initializing)return;initializing=true;setReadines
  updateEfforts();restoreSelection();if(!await refreshProjectPermissions(5000))throw Error('Não foi possível carregar as permissões deste projeto.');modelAvailability(m);
  if(!await history(5000))throw Error('Não foi possível carregar o histórico de conversas.');
  status(models.length?'Pronto para conversar.':'Configure um modelo para começar.');
- if(!startupTimer){try{if(saved.conversation)await load(saved.conversation,false,saved);restoreView(saved);}catch{}startupTimer=setInterval(()=>{if(!document.hidden&&interfaceReady&&!initializing){checkVersion();history();}},10000);}setReadiness(true);if(!$('activity-panel').hidden&&rightPanelView==='files')loadProjectFileRoots();void Promise.all([quota(),checkVersion()]);updateComposer();if(saved.conversation&&job&&!parent)void watch();
+ let resumeWatch=false;if(!startupTimer){try{if(saved.conversation)resumeWatch=await load(saved.conversation,false,saved);restoreView(saved);}catch{}startupTimer=setInterval(()=>{if(!document.hidden&&interfaceReady&&!initializing){checkVersion();history();}},10000);}setReadiness(true);if(!$('activity-panel').hidden&&rightPanelView==='files')loadProjectFileRoots();void Promise.all([quota(),checkVersion()]);updateComposer();if(resumeWatch&&job)void watch();
  }catch(e){setReadiness(false,e.status===401?'Aguardando autorização. Informe sua chave de acesso para conectar.':'Aguardando o servidor… Verificando a conexão automaticamente.');if(e.status===401&&!$('vpn-login').open)$('vpn-login').showModal();modelAvailability(null,e.message);status('Não foi possível conectar: '+e.message);}finally{initializing=false;retry.disabled=false;retry.textContent='Verificar novamente';if(!readinessTimer)readinessTimer=setInterval(()=>{retryReadiness();},5000);}}
 function retryReadiness(){if(document.hidden||initializing||probing||Date.now()<readinessRetryAt)return;return interfaceReady?probeReadiness():initialize();}
 document.addEventListener('visibilitychange',()=>{void retryReadiness();});
@@ -785,6 +811,10 @@ $('resume-execution').onclick=()=>watch();
 $('models-retry').onclick=()=>{if(!busy)initialize();};initialize();
 
 function restoreView(saved){
+ if(saved.project===$('project').value&&models.some(m=>m.id===saved.composer_selection?.model)){
+  $('model').value=saved.composer_selection.model;updateEfforts();
+  if([...$('effort').options].some(o=>o.value===saved.composer_selection.effort))$('effort').value=saved.composer_selection.effort;
+ }
  if(!conversation&&["native","scoped"].includes(saved.execution_mode)){executionMode=saved.execution_mode;executionModeChosen=saved.execution_mode_chosen!==false;}
  if(typeof saved.draft==='string')$('prompt').value=saved.draft;invalidResourceTokens=new Set(Array.isArray(saved.invalid_resource_tokens)?saved.invalid_resource_tokens.filter(token=>typeof token==='string'&&$('prompt').value.split(/\s+/).includes(token)):[]);const engine=resourceEngine(),sameResourceContext=saved.resource_context?.project===$('project').value&&saved.resource_context?.backend===engine.backend&&saved.resource_context?.model===engine.model&&saved.resource_context?.execution_mode===engine.execution_mode;if(sameResourceContext&&Array.isArray(saved.resource_selections))resourceSelections=saved.resource_selections.filter(ref=>ref&&typeof ref.id==='string'&&typeof ref.revision==='string'&&typeof ref.token==='string'&&$('prompt').value.split(/\s+/).includes(ref.token));else{resourceSelections=[];invalidResourceTokens=new Set([...invalidResourceTokens,...(Array.isArray(saved.resource_selections)?saved.resource_selections.map(ref=>ref?.token).filter(token=>typeof token==='string'&&$('prompt').value.split(/\s+/).includes(token)):[])]);}
  if(saved.project===$('project').value&&Array.isArray(saved.files)){
@@ -792,7 +822,7 @@ function restoreView(saved){
  }
  saveView();updateComposer();
 }
-function saveView(){try{sessionStorage.setItem('remote-view',JSON.stringify({conversation,execution_mode:executionMode,execution_mode_chosen:executionModeChosen,project:$('project').value,draft:$('prompt').value,files,resource_selections:resourceSelections,invalid_resource_tokens:[...invalidResourceTokens],resource_context:{project:$('project').value,...resourceEngine()}}));return true;}catch{return false;}}
+function saveView(){try{sessionStorage.setItem('remote-view',JSON.stringify({conversation,composer_selection:{model:$('model').value,effort:$('effort').value},execution_mode:executionMode,execution_mode_chosen:executionModeChosen,project:$('project').value,draft:$('prompt').value,files,resource_selections:resourceSelections,invalid_resource_tokens:[...invalidResourceTokens],resource_context:{project:$('project').value,...resourceEngine()}}));return true;}catch{return false;}}
 $('prompt').addEventListener('input',()=>{saveView();updateComposer();});
 
 function throughputLabel(m){
@@ -851,7 +881,7 @@ function resetActivity(clearHistory=true){
 }
 function recordActivity(e){
  const type=e.type,data=e.data||{},failed=type==='tool_end'&&(data.status==='failed'||data.result?.isError===true);
- if(['context_usage','quota_before','quota_after'].includes(type))return;
+ if(['context_usage','usage_metrics','quota_before','quota_after'].includes(type))return;
  if(type==='answer_delta'){$('activity-state').textContent='Recebendo resposta';return;}
  if(['reasoning_delta','reasoning_summary','thinking'].includes(type)){$('activity-state').textContent='Pensando';return;}
  if(type==='tool_start'||type==='tool_end'){
@@ -1036,7 +1066,10 @@ function updateComposer(){
  renderPromptHighlights();
  const count=Array.from(prompt.value).length;
  $('character-count').textContent=count.toLocaleString('pt-BR')+(count===1?' caractere':' caracteres');
- $('send').disabled=busy||loading||uploads>0||policyPending||!selected()||!prompt.value.trim()||!supportedExecutionModes().includes(executionMode);
+ const hasPrompt=!!prompt.value.trim();
+ $('send').hidden=busy&&!hasPrompt;$('cancel').hidden=!busy||hasPrompt;
+ $('cancel').disabled=submitting||cancelling||!job;
+ $('send').disabled=submitting||cancelling||loading||uploads>0||policyPending||!selected()||!prompt.value.trim()||!supportedExecutionModes().includes(executionMode);
 }
 function updateLatest(){const box=$('messages');$('latest-message').hidden=box.scrollHeight-box.scrollTop-box.clientHeight<150;}
 $('messages').addEventListener('scroll',updateLatest,{passive:true});
@@ -1091,14 +1124,14 @@ for(const node of document.querySelectorAll('.brandmark,.welcome-icon'))node.rep
 for(const button of document.querySelectorAll('[data-settings]')){button.textContent=button.textContent.replace(/^[^A-Za-zÀ-ÿ]+/,'');button.prepend(TailUI.icon(button.dataset.settings==='appearance'?'adjustments':button.dataset.settings==='agents'?'stack-2':'message'));}
 
 function attachmentNotice(filename,code){
- const reasons={model_images_unavailable:'o modelo selecionado não suporta leitura de imagens',local_vision_not_enabled:'o modelo local está sem suporte a imagens habilitado neste servidor',images_require_native_service:'o modo de execução selecionado não suporta leitura de imagens',unsupported_binary_format:'este formato não possui um leitor disponível no aplicativo',binary_denied:'este formato binário não possui um leitor disponível no aplicativo'};
+ const reasons={attachment_source_unavailable:'o arquivo mudou, desapareceu ou deixou de ser um arquivo regular após a seleção',file_limit:'o limite de 20 anexos por mensagem foi atingido',upload_limit:'o tamanho do arquivo ou o armazenamento do projeto ultrapassou o limite',sensitive_file:'a importação de pastas exclui arquivos ocultos ou sensíveis',symlink_denied:'links simbólicos não são importados como anexos',invalid_image:'a imagem está incompleta ou corrompida',image_validation_unavailable:'o validador local de imagens está indisponível',image_validation_timeout:'a validação da imagem excedeu o tempo permitido',invalid_document:'o documento não pôde ser interpretado pelo leitor disponível',unsafe_document_xml:'o XML contém declarações que não são permitidas',document_expansion_limit:'o documento descompactado excede os limites de segurança',model_images_unavailable:'o modelo selecionado não suporta leitura de imagens',local_vision_not_enabled:'o modelo local está sem suporte a imagens habilitado neste servidor',images_require_native_service:'o modo de execução selecionado não suporta leitura de imagens',unsupported_binary_format:'este formato não possui um leitor disponível no aplicativo',binary_denied:'este formato binário não possui um leitor disponível no aplicativo'};
  if(!Object.hasOwn(reasons,code))return;
  $('welcome')?.remove();
  const notice=assistant('',selected()?.id);notice.chip.textContent='Arquivo ignorado';
  notice.body.textContent=`Arquivo “${filename}” ignorado porque ${reasons[code]}.`;
  $('messages').scrollTop=$('messages').scrollHeight;
 }
-function attachmentError(code){return ({audio_transcription_unavailable:'A transcrição local de áudio não está instalada neste servidor.',audio_duration_limit:'Envie um áudio de até 2 horas.',invalid_audio:'Não foi possível reconhecer o áudio. Tente WAV, MP3, M4A, OGG ou FLAC.',audio_transcription_failed:'A transcrição local falhou; o áudio não foi anexado.',local_vision_not_enabled:'Este servidor local está sem visão habilitada. É necessário configurar o projetor visual (mmproj) do modelo e reiniciar o servidor. O arquivo não foi anexado.',image_capability_unavailable:'Não foi possível verificar a visão deste servidor. Tente novamente quando ele estiver disponível.',model_images_unavailable:'O serviço selecionado não oferece leitura de imagens.',images_require_native_service:'A leitura de imagens exige a execução nativa do serviço.',select_model_for_image:'Selecione um modelo com permissão para anexos antes de enviar a imagem.',image_size_limit:'Imagens podem ter até 5 MiB.',unsupported_binary_format:'Este formato binário ainda não tem um leitor disponível. Envie uma imagem compatível, PDF com texto, documento Office/OpenDocument ou arquivo de texto.',binary_denied:'Este arquivo contém dados binários sem leitor disponível.',invalid_document:'O documento está inválido ou corrompido.',document_expansion_limit:'O documento excede o limite seguro de descompactação.'})[code]||code;}
+function attachmentError(code){return ({invalid_image:'A imagem está incompleta ou corrompida. Ela não foi anexada.',image_validation_unavailable:'O validador local de imagens está indisponível. A imagem não foi anexada.',image_validation_timeout:'A validação da imagem demorou demais. Tente uma imagem menor.',invalid_filename:'O nome do arquivo contém um caminho, caracteres de controle ou ultrapassa 160 caracteres.',upload_limit:'O arquivo ou o armazenamento do projeto ultrapassou o limite permitido.',audio_transcription_unavailable:'A transcrição local de áudio não está instalada neste servidor.',audio_duration_limit:'Envie um áudio de até 4 horas.',invalid_audio:'Não foi possível reconhecer o áudio. Tente WAV, MP3, M4A, OGG ou FLAC.',audio_transcription_failed:'A transcrição local falhou; o áudio não foi anexado.',local_vision_not_enabled:'Este servidor local está sem visão habilitada. É necessário configurar o projetor visual (mmproj) do modelo e reiniciar o servidor. O arquivo não foi anexado.',image_capability_unavailable:'Não foi possível verificar a visão deste servidor. Tente novamente quando ele estiver disponível.',model_images_unavailable:'O serviço selecionado não oferece leitura de imagens.',images_require_native_service:'A leitura de imagens exige a execução nativa do serviço.',select_model_for_image:'Selecione um modelo com permissão para anexos antes de enviar a imagem.',image_size_limit:'Imagens podem ter até 5 MiB.',unsupported_binary_format:'Este formato binário ainda não tem um leitor disponível. Envie uma imagem compatível, PDF com texto, documento Office/OpenDocument ou arquivo de texto.',binary_denied:'Este arquivo contém dados binários sem leitor disponível.',invalid_document:'O documento está inválido ou corrompido.',document_expansion_limit:'O documento excede o limite seguro de descompactação.'})[code]||code;}
 
 document.addEventListener('click',event=>{document.querySelectorAll('.conversation-actions[open]').forEach(actions=>{if(!actions.contains(event.target))actions.open=false;});});
 
@@ -1119,10 +1152,12 @@ function syncComposerPickers(){
   if(id==='model')$('model-trigger-icon').textContent=modelIcon(select.value);
   if(id==='model'){
    const identity=selectedIdentity();$('model-trigger-icon').title=identity?.model||'';
-   trigger.title=identity?identity.provider+' · '+identity.model:$(id+'-label').textContent;
+   trigger.title=identity?'Escolher modelo · '+identity.provider+' · '+identity.model:'Escolher modelo';
   }
-  if(id!=='model')trigger.title=$(id+'-label').textContent;
-  trigger.disabled=select.disabled||!select.options.length||busy||loading||policyPending;
+  if(id!=='model')trigger.title='Escolher esforço · '+$(id+'-label').textContent;
+  select.disabled=!models.length||submitting||loading||uploads>0||policyPending;
+  trigger.disabled=select.disabled||!select.options.length;
+  if(busy)trigger.title+=' · Aplicar à próxima mensagem; a resposta atual mantém o modelo e esforço.';
   if(trigger.disabled&&$(id+'-menu').matches(':popover-open'))$(id+'-menu').hidePopover();
  }
 }
@@ -1145,6 +1180,7 @@ function renderPicker(id){
   }else icon.textContent='◷';
   const text=document.createElement('span'),title=document.createElement('strong'),detail=document.createElement('small');title.textContent=option.textContent;
   detail.textContent=id==='model'?(providers[model?.backend]||model?.backend||'Modelo configurado no servidor'):(descriptions[option.value]||'Nível disponibilizado pelo modelo selecionado.');
+  button.title='Selecionar '+option.textContent+' · '+detail.textContent+(busy?' · Aplicar à próxima mensagem.':'');
   text.append(title);if(id!=='model')text.append(detail);const check=document.createElement('span');check.className='access-check';check.setAttribute('aria-hidden','true');check.textContent='✓';button.append(icon,text,check);
   if(id==='model'){
    const backend=model?.backend==='qwen'?'local':model?.backend||'other';
@@ -1205,7 +1241,7 @@ window.addEventListener('resize',()=>{for(const menu of document.querySelectorAl
 syncAccessMode();syncComposerPickers();
 
 // Project registration and folder selection.
-const projectDirectory={rootId:'home',request:0,selected:new Map(),candidate:null,roots:[],cache:new Map(),expanded:new Set()};
+const projectDirectory={editing:null,saving:false,rootId:'home',request:0,selected:new Map(),candidate:null,roots:[],cache:new Map(),expanded:new Set()};
 const projectFolderTree={foldersOnly:true,rootId:'home',cache:projectDirectory.cache,expanded:projectDirectory.expanded,selected:new Set()};
 function renderProjectFolders(){
  const list=$('project-directory-list');list.replaceChildren();
@@ -1225,7 +1261,7 @@ async function loadProjectDirectories(path='',rootId=projectDirectory.rootId){
   if(!projectDirectory.roots.length){
    projectDirectory.rootId=data.root_id;projectFolderTree.rootId=data.root_id;
    projectDirectory.roots=[{name:(data.roots||[]).find(root=>root.id===data.root_id)?.label||'Pasta pessoal',path:'',absolute_path:data.absolute_path,type:'directory'}];
-   const roots=$('project-directory-roots');roots.replaceChildren(...(data.roots||[]).map(root=>{const button=document.createElement('button');button.type='button';button.textContent=root.label;button.setAttribute('aria-pressed',String(root.id===data.root_id));button.onclick=()=>{resetProjectFolderBrowser(root.id);void loadProjectDirectories('',root.id);};return button;}));
+   const roots=$('project-directory-roots');roots.replaceChildren(...(data.roots||[]).map(root=>{const button=document.createElement('button');button.type='button';button.append(TailUI.icon('folder'),document.createTextNode(root.label));button.title='Navegar por '+root.label;button.setAttribute('aria-pressed',String(root.id===data.root_id));button.onclick=()=>{resetProjectFolderBrowser(root.id);void loadProjectDirectories('',root.id);};return button;}));
    projectDirectory.expanded.add('');
   }
   projectDirectory.cache.set(rootId+'\0'+path,entries);$('project-directory-error').textContent='';renderProjectFolders();
@@ -1240,12 +1276,45 @@ async function toggleProjectFolder(entry){
  projectDirectory.expanded.add(entry.path);renderProjectFolders();
  if(!projectDirectory.cache.has(projectDirectory.rootId+'\0'+entry.path))await loadProjectDirectories(entry.path);
 }
-function renderSelectedProjectDirectories(){const list=$('project-selected-paths');list.hidden=!projectDirectory.selected.size;$('project-folders-empty').hidden=!!projectDirectory.selected.size;list.replaceChildren();for(const [path,name] of projectDirectory.selected){const li=document.createElement('li'),label=document.createElement('span'),remove=document.createElement('button');label.textContent=name+' · '+path;label.title=path;remove.type='button';remove.textContent='Remover';remove.onclick=()=>{projectDirectory.selected.delete(path);renderSelectedProjectDirectories();renderProjectFolders();};li.append(label,remove);list.append(li);}}
-$('add-project').onclick=()=>{if(!busy&&!loading){projectDirectory.selected.clear();renderSelectedProjectDirectories();$('project-form').reset();resetProjectFolderBrowser();$('project-create-note').textContent='';$('project-dialog').showModal();void loadProjectDirectories();}};
-$('project-dialog-close').onclick=$('project-dialog-cancel').onclick=()=>$('project-dialog').close();
+function renderSelectedProjectDirectories(){
+ const list=$('project-selected-paths');list.hidden=!projectDirectory.selected.size;$('project-folders-empty').hidden=!!projectDirectory.selected.size;list.replaceChildren();
+ for(const [path,name] of projectDirectory.selected){
+  const li=document.createElement('li'),label=document.createElement('span'),remove=document.createElement('button'),primary=document.createElement('button');
+  label.textContent=name+' · '+path;label.title=path;
+  const isPrimary=path===projectDirectory.selected.keys().next().value;
+  primary.type='button';primary.append(TailUI.icon('home'),document.createTextNode(isPrimary?'Principal':'Tornar principal'));primary.title=isPrimary?'Diretório inicial das tarefas deste projeto':'Usar esta pasta como diretório inicial das tarefas';primary.setAttribute('aria-pressed',String(isPrimary));primary.setAttribute('aria-label',(isPrimary?'Pasta principal: ':'Tornar principal: ')+name);
+  primary.onclick=()=>{projectDirectory.selected=new Map([[path,name],...Array.from(projectDirectory.selected).filter(([key])=>key!==path)]);renderSelectedProjectDirectories();};
+  remove.type='button';remove.append(TailUI.icon('x'),document.createTextNode('Remover'));remove.title='Retirar a pasta do projeto sem excluir seus arquivos';remove.setAttribute('aria-label','Remover pasta '+name);remove.onclick=()=>{projectDirectory.selected.delete(path);renderSelectedProjectDirectories();renderProjectFolders();};
+  li.append(label,primary,remove);list.append(li);
+ }
+}
+function openProjectDialog(projectId=null){
+ if(projectDirectory.saving)return;
+ projectDirectory.editing=projectId;projectDirectory.selected.clear();$('project-form').reset();
+ const detail=projectDetails[projectId];
+ if(detail){$('project-name').value=detail.label||projectId;for(const path of [detail.root,...(detail.additional_roots||[])].filter(Boolean))projectDirectory.selected.set(path,path.split('/').filter(Boolean).pop()||path);}
+ $('project-dialog-title').textContent=projectId?'Editar projeto':'Criar projeto';$('project-create').replaceChildren(TailUI.icon(projectId?'pencil':'folder-plus'),document.createTextNode(projectId?'Salvar alterações':'Criar projeto'));$('project-create').title=projectId?'Salvar o nome e as pastas mantendo as conversas':'Criar o projeto com as pastas selecionadas';
+ renderSelectedProjectDirectories();resetProjectFolderBrowser();$('project-create-note').textContent='';$('project-dialog').showModal();void loadProjectDirectories();
+}
+for(const [id,icon,title] of [['project-directory-add-current','folder-plus','Adicionar a pasta selecionada ao projeto'],['project-dialog-cancel','x','Descartar alterações e fechar'],['project-dialog-close','x','Fechar sem salvar alterações']]){const button=$(id);button.title=title;if(!button.querySelector('svg'))button.prepend(TailUI.icon(icon));}
+$('add-project').onclick=()=>{if(!busy&&!loading)openProjectDialog();};
+$('project-dialog-close').onclick=$('project-dialog-cancel').onclick=()=>{if(!projectDirectory.saving)$('project-dialog').close();};
+$('project-dialog').addEventListener('cancel',event=>{if(projectDirectory.saving)event.preventDefault();});
 $('project-directory-add-current').onclick=()=>{const entry=projectDirectory.candidate;if(!entry||projectDirectory.selected.has(entry.absolute_path))return;if(projectDirectory.selected.size>=20){$('project-create-note').textContent='Adicione até 20 pastas por projeto.';return;}projectDirectory.selected.set(entry.absolute_path,entry.name);renderSelectedProjectDirectories();$('project-directory-add-current').disabled=true;$('project-create-note').textContent='';};
 $('project-form').onsubmit=async event=>{
- event.preventDefault();const name=$('project-name').value.trim(),button=$('project-create'),note=$('project-create-note');if(Array.from(name.matchAll(/\p{L}/gu)).length<3){note.textContent='O nome precisa ter pelo menos 3 letras.';return;}if(!projectDirectory.selected.size){note.textContent='Adicione pelo menos uma pasta.';return;}if(projectDirectory.selected.size>20){note.textContent='Adicione até 20 pastas por projeto.';return;}button.disabled=true;note.textContent='Adicionando projeto…';
- try{const result=await post('/v1/projects',{name,paths:Array.from(projectDirectory.selected.keys())});const p=await json('/v1/projects');updateProjectMetadata(p.details);$('project').replaceChildren(...p.projects.map(id=>new Option(p.details?.[id]?.label||id,id)));policyProject=null;chooseProject(result.project_id);renderProjects();$('project-dialog').close();$('project-form').reset();projectDirectory.selected.clear();renderSelectedProjectDirectories();note.textContent='';
- }catch(e){note.textContent='Não foi possível adicionar: '+e.message;}finally{button.disabled=false;}
+ event.preventDefault();if(projectDirectory.saving)return;
+ const name=$('project-name').value.trim(),note=$('project-create-note'),editing=projectDirectory.editing,current=$('project').value;
+ if(Array.from(name.matchAll(/\p{L}/gu)).length<3){note.textContent='O nome precisa ter pelo menos 3 letras.';return;}
+ if(!projectDirectory.selected.size){note.textContent='Adicione pelo menos uma pasta.';return;}
+ if(projectDirectory.selected.size>20){note.textContent='Adicione até 20 pastas por projeto.';return;}
+ const payload={name,paths:Array.from(projectDirectory.selected.keys()),...(editing?{project_id:editing}:{})};
+ projectDirectory.saving=true;const controls=Array.from($('project-form').querySelectorAll('button,input')).map(node=>[node,node.disabled]);controls.forEach(([node])=>node.disabled=true);note.textContent='Salvando projeto…';
+ try{
+  const result=await json('/v1/projects',{method:editing?'PATCH':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  const p=await json('/v1/projects');updateProjectMetadata(p.details);$('project').replaceChildren(...p.projects.map(id=>new Option(p.details?.[id]?.label||id,id)));
+  if(editing){$('project').value=current;syncActiveProjectBadge();if(current===editing){policyProject=null;invalidateResources();await refreshProjectPermissions();}saveView();}
+  else{policyProject=null;chooseProject(result.project_id);}
+  renderProjects();$('project-dialog').close();$('project-form').reset();projectDirectory.selected.clear();renderSelectedProjectDirectories();note.textContent='';
+ }catch(e){const reason={project_busy:'Aguarde as tarefas deste projeto terminarem para editar.',project_name_exists:'Já existe um projeto com esse nome.',project_directory_required:'Uma das pastas não existe mais. Escolha uma pasta disponível.',project_directory_forbidden:'Essa pasta é protegida e não pode ser adicionada.'}[e.code]||e.message;note.textContent='Não foi possível salvar: '+reason;}
+ finally{projectDirectory.saving=false;controls.forEach(([node,disabled])=>node.disabled=disabled);}
 };

@@ -23,7 +23,7 @@ const fs=require('node:fs/promises'),path=require('node:path');
    const f=p==='/'?'index.html':p.slice(1);
    return route.fulfill({body:await fs.readFile(path.join(__dirname,f.startsWith('assets/')?'../tail_ui':'../control',f)),contentType:f.endsWith('.js')?'text/javascript':f.endsWith('.css')?'text/css':f.endsWith('.svg')?'image/svg+xml':'text/html'});
   });
-  await page.goto('http://gemini-admin.test');
+  await page.goto('http://gemini-admin.test/#provedores');
   assert.equal(await page.locator('[data-configured-provider=gemini]').count(),0);
   await page.click('#add-provider');
   assert.equal(await page.locator('#provider-options [data-provider=gemini]').count(),0);

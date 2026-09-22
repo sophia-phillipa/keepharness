@@ -116,3 +116,48 @@ def test_missing_project_folder_is_not_recreated(tmp_path):
                         {'root':str(missing),'permissions':{'read':True}},
                         'fixture','low',tmp_path/'session','codex',None))
     assert not missing.exists()
+
+
+def test_edit_project_preserves_id_policy_and_persists(tmp_path):
+    cfg=config(tmp_path)
+    roots=[tmp_path/name for name in ('one','two','three')]
+    for root in roots:root.mkdir()
+    cfg['projects']['existing']={'label':'Existing','root':str(roots[0]),'permissions':{'write':False},'test_commands':{'check':['true']}}
+    cfg['clients']['a']['projects'].append('existing')
+    app=create_app(copy.deepcopy(cfg))
+    with TestClient(app,headers={'Authorization':'Bearer a'}) as client:
+        result=client.patch('/v1/projects',json={'project_id':'existing','name':'Renamed','paths':[str(roots[1]),str(roots[0]),str(roots[2])]})
+        assert result.status_code==200,result.text
+        assert result.json()['project_id']=='existing'
+        spec=app.state.service.config['projects']['existing']
+        assert spec['permissions']=={'write':False}
+        assert spec['test_commands']=={'check':['true']}
+        assert spec['root']==str(roots[1])
+        assert spec['additional_roots']==[str(roots[0]),str(roots[2])]
+        assert client.patch('/v1/projects',json={'project_id':'existing','name':'ab','paths':[str(roots[0])]}).status_code==422
+        assert client.patch('/v1/projects',json={'project_id':'missing','name':'Valid','paths':[str(roots[0])]}).status_code==403
+        assert client.patch('/v1/projects',json={'project_id':'sem-projeto','name':'Valid','paths':[str(roots[0])]}).status_code==403
+        assert client.patch('/v1/projects',json={'project_id':'existing','name':'Valid','paths':['/']}).status_code==403
+        client.post('/v1/projects',json={'name':'Other','paths':[str(roots[0])]})
+        assert client.patch('/v1/projects',json={'project_id':'existing','name':'OTHER','paths':[str(roots[0])]}).status_code==409
+    app.state.service.db.close()
+    service=Service(copy.deepcopy(cfg))
+    assert service.config['projects']['existing']==spec
+    service.db.close()
+
+
+@pytest.mark.parametrize('state',['queued','running'])
+def test_edit_busy_project_is_atomic(tmp_path,state):
+    cfg=config(tmp_path);root=tmp_path/'project';root.mkdir()
+    app=create_app(cfg);service=app.state.service
+    pid=service.add_project({'name':'Example','paths':[str(root)]})
+    before=dict(service.config['projects'][pid])
+    with service.db:
+        service.db.execute('INSERT INTO jobs(id,project,owner,state,payload) VALUES(?,?,?,?,?)',('busy',pid,'a',state,'{}'))
+    # No worker is started; the fixture's job remains in the requested state.
+    client=TestClient(app,headers={'Authorization':'Bearer a'})
+    response=client.patch('/v1/projects',json={'project_id':pid,'name':'Changed','paths':[str(root)]})
+    assert response.status_code==409 and response.json()['code']=='project_busy'
+    assert service.config['projects'][pid]==before
+    assert client.patch('/v1/projects',json={'project_id':pid},headers={'Authorization':'Bearer unknown'}).status_code==401
+    client.close();service.db.close()

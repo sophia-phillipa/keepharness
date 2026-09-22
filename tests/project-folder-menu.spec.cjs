@@ -26,7 +26,7 @@ const path=require('node:path');
   const trigger=page.getByRole('button',{name:'Ações do projeto Alpha',exact:true});
   await trigger.click();
   const icons=page.locator('.project-actions-menu:popover-open button > svg');
-  assert.equal(await icons.count(),5);
+  assert.equal(await icons.count(),6);
   await page.waitForFunction(()=>[...document.querySelectorAll('.project-actions-menu:popover-open button > svg')].every(svg=>svg.getBBox().width>0&&svg.getBBox().height>0));
   await page.screenshot({path:'/tmp/project-menu-icons.png'});
   await page.getByRole('button',{name:'Navegar para pasta do projeto',exact:true}).click();

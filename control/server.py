@@ -1,6 +1,6 @@
 """Local administration. Provider access and tailnet exposure require explicit choices."""
 import asyncio
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 import hashlib
 import json
 import os
@@ -99,7 +99,9 @@ class Manager:
             value=data.get(key,8095)
             if type(value)!=int or not 1024<=value<=65535 or value==self.admin_port:raise ValueError('Porta inválida ou reservada pela gestão.')
             out[key]=value
-        bind=data.get('vpn_bind','127.0.0.1');address=ipaddress.ip_address(bind)
+        bind=data.get('vpn_bind','127.0.0.1')
+        if not isinstance(bind,str):raise ValueError('Informe o IP privado como texto.')
+        address=ipaddress.ip_address(bind)
         if address.version!=4 or not (address.is_loopback or address.is_private) or address.is_unspecified or address.is_multicast:raise ValueError('Use somente o IP privado específico da interface VPN, nunca 0.0.0.0.')
         out['vpn_bind']=bind
         out['uploads_enabled']=data.get('uploads_enabled') is True or any(data.get('services',{}).get(p,{}).get('enabled') is True for p in ('codex','claude','gemini','deepseek'))
@@ -170,6 +172,25 @@ class Manager:
         if (self.state/'tailnet.json').exists() and any(settings.get(k)!=self.settings.get(k) for k in ('port','tailnet_port','vpn_bind')):raise ValueError('Retire a rota Tailscale antes de mudar as portas ou o IP.')
         tmp=self.path.with_suffix('.tmp');tmp.write_text(json.dumps(settings,indent=2));tmp.chmod(0o600);tmp.replace(self.path)
         self.settings=settings;self.audit('settings_saved')
+
+    @contextmanager
+    def configuration_change(self):
+        """Restore configuration files on a rejected or interrupted update."""
+        paths=[self.state/name for name in ('settings.json','runtime.json','local-profile.json','local-profiles.json','autostart')]
+        previous={path:path.read_bytes() if path.exists() else None for path in paths}
+        settings=self.settings
+        try:
+            yield
+        except BaseException:
+            self.settings=settings
+            for path,content in previous.items():
+                current=path.read_bytes() if path.exists() else None
+                if current==content:continue
+                if content is None:path.unlink(missing_ok=True)
+                else:
+                    temporary=path.with_suffix('.rollback')
+                    temporary.write_bytes(content);temporary.chmod(0o600);temporary.replace(path)
+            raise
 
     def _previous_runtime(self):
         path = self.state / "runtime.json"
@@ -369,14 +390,22 @@ class Manager:
             settings.get(key) != current.get(key) for key in ("port", "vpn_bind")
         ):
             raise ValueError("Para mudar endereço ou porta, reinicie o harness.")
-        if self.running():
-            runtime = await self.build_runtime_config(settings, allow_empty=True)
-            self.save(settings)
-            self._write_runtime(runtime)
-        else:
-            self.save(settings)
-            if any(spec.get("enabled") for spec in settings["services"].values()):
-                await self.start()
+        previous_proc,previous_applied,previous_error=self.proc,self.applied,self.startup_error
+        with self.configuration_change():
+            try:
+                if self.running():
+                    runtime = await self.build_runtime_config(settings, allow_empty=True)
+                    self.save(settings)
+                    self._write_runtime(runtime)
+                else:
+                    self.save(settings)
+                    if any(spec.get("enabled") for spec in settings["services"].values()):
+                        await self.start()
+            except BaseException:
+                if self.proc is not previous_proc and self.running():
+                    await self.stop(force=True)
+                self.proc,self.applied,self.startup_error=previous_proc,previous_applied,previous_error
+                raise
 
     async def check(self,provider):
         if provider not in ('codex','claude','gemini','local','deepseek'):raise ValueError('Serviço desconhecido.')
@@ -594,9 +623,10 @@ def create_app(state,port=8094):
                         validated[item['model_file']]=item
                     if profile:validated.setdefault(profile['model_file'],profile)
                     if data.get('apply') is True:
-                        for item in validated.values():save_profile(manager.state,item)
-                        if profile:save_profile(manager.state,validated[profile['model_file']])
-                        await manager.apply_settings(imported)
+                        with manager.configuration_change():
+                            for item in validated.values():save_profile(manager.state,item)
+                            if profile:save_profile(manager.state,validated[profile['model_file']])
+                            await manager.apply_settings(imported)
                         manager.audit('settings_imported')
                     result={'valid':True,'applied':data.get('apply') is True,'services':[p for p,s in imported['services'].items() if s['enabled']],'projects':len(imported['projects']),'local_profile':bool(validated),'local_profiles':len(validated)}
                 elif path=='/api/settings':await manager.apply_settings(data);result={'saved':True}
@@ -645,14 +675,16 @@ def create_app(state,port=8094):
                         active=[server for server in active if server.get('model_file') and str(Path(server['model_file']).expanduser().resolve())==selected]
                     if len(active)!=1:raise ValueError('É necessário um único servidor local ativo para importar o perfil.')
                     selected={k:active[0][k] for k in ('binary','model_file','mmproj_file','flags','performance') if k in active[0] and active[0][k]}
-                    result=save_profile(manager.state,validate_profile(selected))
-                    if manager.running():await manager.apply_settings(manager.settings)
+                    with manager.configuration_change():
+                        result=save_profile(manager.state,validate_profile(selected))
+                        if manager.running():await manager.apply_settings(manager.settings)
                     manager.audit('local_profile_imported')
                 elif path=='/api/local-profile':
                     profile=validate_profile(data)
                     if not profile:raise ValueError('Informe o modelo e o executável deste perfil.')
-                    result=save_profile(manager.state,profile)
-                    if manager.running():await manager.apply_settings(manager.settings)
+                    with manager.configuration_change():
+                        result=save_profile(manager.state,profile)
+                        if manager.running():await manager.apply_settings(manager.settings)
                     manager.audit('local_profile_saved')
                 elif path=='/api/local-devices':
                     result=await runtime_details(data.get('binary',''))

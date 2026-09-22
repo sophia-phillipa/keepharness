@@ -8,7 +8,7 @@ const fs=require('node:fs');
  await page.addScriptTag({path:'tail_ui/assets/components.js'});
  const source=fs.readFileSync('agent_service/ui.js','utf8');
  await page.evaluate(source=>{
-  window.$=id=>document.getElementById(id);window.modelIcon=()=> '◈';
+  window.busy=false;window.$=id=>document.getElementById(id);window.modelIcon=()=> '◈';
   window.models=['codex','local','claude','codex','deepseek','gemini','qwen'].map((backend,i)=>({id:`model-${i}`,backend}));
   models.forEach(m=>$('model').add(new Option(m.id,m.id)));
   eval(source.slice(source.indexOf('function renderPicker('),source.indexOf('function openComposerPicker(')));
@@ -19,6 +19,7 @@ const fs=require('node:fs');
  assert.equal(await groups.first().locator('[role=option]').count(),2);
  assert.equal(await groups.nth(1).locator('[role=option]').count(),2);
  assert.equal(await page.locator('.model-logo-icon').count(),7);
+ for(const button of await page.locator('[role=option]').all())assert.match(await button.getAttribute('title'),/Selecionar/);
  assert.equal(await page.locator('[aria-selected=true]').count(),1);
  assert.equal(await page.locator('#model-menu strong').first().evaluate(el=>getComputedStyle(el).fontSize),'13px');
  assert.equal(await page.locator('details[open]').count(),1);

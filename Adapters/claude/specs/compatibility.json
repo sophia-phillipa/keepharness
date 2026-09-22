@@ -1,12 +1,12 @@
 {
-  "adapter_spec_revision": 4,
+  "adapter_spec_revision": 5,
   "harness_baseline": "0.4.4 working-tree",
   "reviewed_at": "2026-09-21",
   "live_provider_validation": false,
   "provider": "claude",
   "executor": {
     "name": "Claude Code",
-    "observed_version": "2.1.236"
+    "observed_version": "2.1.258"
   },
   "protocol": "stream-json print mode",
   "session_title": {
@@ -15,7 +15,8 @@
   },
   "sources": [
     "https://code.claude.com/docs/en/cli-usage",
-    "https://code.claude.com/docs/en/model-config"
+    "https://code.claude.com/docs/en/model-config",
+    "https://platform.claude.com/docs/en/build-with-claude/streaming"
   ],
   "models": [
     {
@@ -39,5 +40,9 @@
       "availability": "CLI initialize catalog, account dependent"
     }
   ],
-  "resource_validation": "Offline discovery/admission/transport tests; no live inference"
+  "resource_validation": "Offline discovery/admission/transport tests; no live inference",
+  "throughput": {
+    "live": "Provider output counts and monotonic elapsed time; execution average, not decoder speed",
+    "validation": "Offline stream and browser regression tests; no live model inference"
+  }
 }

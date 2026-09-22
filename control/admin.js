@@ -3,7 +3,7 @@ const $=id=>document.getElementById(id);
 let state,settings,working=false,wizard=false,editing=null,unsaved=false;
 let profileModel="",profileDirty=false,discoveredModelFiles=[];
 function visibleProviders(){return state.inventory.services.filter(info=>info.id!=='gemini');}
-function say(text,error=false){TailUI.notice($('feedback'),text,{error,persistent:!error&&/…$/.test(text)});}
+function say(text,error=false){TailUI.notice($('network').open?$('network-feedback'):$('feedback'),text,{error,persistent:!error&&/…$/.test(text)});}
 let activeOperation=null,operationOpener=null;
 async function request(path,data){
  const starts=['provider-login','integration','model-install','local-start'].includes(path)&&data!==undefined;
@@ -17,6 +17,7 @@ async function requestRaw(path,data){
  if(!r.ok)throw Error(({model_not_available:'O modelo selecionado não está disponível. Verifique os modelos do provedor e escolha novamente.',authentication_required:'Autentique sua conta e verifique novamente.',permission_denied:'Esta ação não tem permissão. Revise as permissões do provedor.'})[value.error]||value.error||'Não foi possível concluir. Verifique os dados e tente novamente.');return value;
 }
 function dirty(){unsaved=true;$('dirty').textContent='Alterações ainda não salvas';}
+window.addEventListener('beforeunload',event=>{if(unsaved||profileDirty){event.preventDefault();event.returnValue='';}});
 function element(tag,text,cls){const el=document.createElement(tag);if(text!==undefined)el.textContent=text;if(cls)el.className=cls;if(cls?.includes('button')){el.classList.add('btn');if(cls.split(' ').includes('primary'))el.classList.add('btn-primary');}if(cls?.split(' ').includes('panel')||cls==='provider-card')el.classList.add('card');return el;}
 function toggle(text,checked,change,detail){const label=element('label',undefined,'toggle-row');const input=element('input');input.type='checkbox';input.setAttribute('aria-label',text);if(detail)input.setAttribute('aria-description',detail);input.checked=checked;input.onchange=()=>{change(input.checked);dirty();};const span=element('span');span.append(element('strong',text));if(detail)span.append(element('small',detail));label.append(input,span);return label;}
 function fieldHelp(input,text){
@@ -31,6 +32,14 @@ function pendingAuthentication(id){return ['codex','claude','gemini','deepseek']
 function providerIcon(id){if(id==='deepseek'){const mark=element('span','🐋','provider-mark');mark.setAttribute('aria-hidden','true');return mark;}return icon(({local:'layers',codex:'brand-openai',claude:'brand-claude',gemini:'brand-gemini'})[id]||'message');}
 function providerName(info){return ({local:'Modelo Local via Codex',deepseek:'DeepSeek via Codex'})[info.id]||info.name;}
 function providerModelName(id){return ({'deepseek-flash':'DeepSeek V4.1 Flash','deepseek-v4-pro':'DeepSeek V4 Pro'})[id]||id;}
+function modelIdentity(provider,model,label=model){
+ const name=String(model||'').toLowerCase(),span=element('span',undefined,'model-identity');
+ const symbol=name.includes('qwen')?'✦':name.includes('gemma')?'💎':name.includes('llama')?'🦙':null;
+ if(symbol){const mark=element('span',symbol,'model-mark');mark.setAttribute('aria-hidden','true');span.append(mark);}
+ else span.append(providerIcon(name.includes('deepseek')?'deepseek':name.includes('gpt-')?'codex':/claude|sonnet|opus|haiku/.test(name)?'claude':name.includes('gemini')?'gemini':provider));
+ span.append(document.createTextNode(label||'Modelo não informado'));return span;
+}
+
 
 function providerLoginButton(info){
  const button=element('button','Entrar / Renovar acesso','button secondary');
@@ -64,7 +73,7 @@ function providerCard(info){
  const top=element('div',undefined,'provider-top');const logo=element('span',undefined,'provider-logo');logo.append(providerIcon(id));top.append(logo);
  const title=element('div',undefined,'provider-title');title.append(element('h3',providerName(info)),element('small',id==='local'?'Inferência local · agente Codex':id==='deepseek'?'Sua chave · créditos DeepSeek · agente Codex':'CLI local · inferência na nuvem'));top.append(title,element('span',info.api?'API · chave própria':info.found?'Encontrado nesta máquina':'Não encontrado','pill'+(info.found?' good':'')));card.append(top);
  const body=element('div',undefined,'provider-body'),meta=element('div',undefined,'provider-meta');meta.append(element('span',state.authentication[id]?(id==='local'?'● Servidor disponível':'● Autenticado'):info.credential_present?'Credencial encontrada · verificar':id==='local'?'Servidor ainda não verificado':'Login não verificado'));
- const check=element('button',id==='local'?'Verificar modelos':'Verificar conta','button secondary');check.disabled=!info.found;check.hidden=id==='deepseek'&&!state.credentials?.deepseek;check.onclick=()=>action(async()=>{const data=await request('check',{provider:id});state.authentication[id]=data.authenticated;state.models[id]=data.models;renderProviders();renderProfile();say(data.authenticated?(id==='local'?'Servidor verificado. Escolha os modelos que deseja disponibilizar.':'Conta verificada. Escolha os modelos que deseja disponibilizar.'):(id==='local'?'O servidor local não respondeu. Inicie o modelo abaixo e clique em Verificar modelos.':'Primeiro, clique em Entrar e conclua o login no navegador. Depois, volte ao painel e clique em Verificar conta.'));});meta.append(check);if(['codex','claude','gemini'].includes(id))meta.insertBefore(providerLoginButton(info),check);body.append(meta);
+ const check=element('button',id==='local'?'Verificar modelos':'Verificar conta','button secondary');check.disabled=!info.found;check.hidden=id==='deepseek'&&!state.credentials?.deepseek;check.onclick=()=>action(async()=>{const data=await request('check',{provider:id});state.authentication[id]=data.authenticated;state.models[id]=data.models;renderProviders();renderProfile();say(data.authenticated?(id==='local'?'Servidor verificado. Escolha os modelos que deseja disponibilizar.':'Conta verificada. Escolha os modelos que deseja disponibilizar.'):(id==='local'?'O servidor local não respondeu. Inicie o modelo abaixo e clique em Verificar modelos.':'Primeiro, clique em Entrar e conclua o login no navegador. Depois, volte ao painel e clique em Verificar conta.'));});if(id==='local'||(!state.settings.services[id]?.added&&!state.settings.services[id]?.enabled)){meta.append(check);if(['codex','claude','gemini'].includes(id))meta.insertBefore(providerLoginButton(info),check);}body.append(meta);
  if(id==='local'||id==='deepseek'){const inference=id==='local'?'Quem responde é o modelo no seu servidor local.':'Quem responde é o modelo da API DeepSeek, usando seus créditos DeepSeek.';body.append(element('p',inference+' O Codex CLI é o motor que executa ferramentas e mantém a sessão; isso não usa um modelo OpenAI. Modelo e motor são escolhas distintas. Nesta integração, o motor disponível é o Codex. Outros motores, como Claude Code, dependem de uma integração compatível e ainda não estão disponíveis para esta opção.','hint'));}
  if(id==='local'&&(info.runtimes||[]).length){const servers=element('div',undefined,'detected-servers');servers.append(element('strong','Servidores encontrados'));for(const runtime of info.runtimes){const row=element('p',runtime.runtime+' · '+runtime.url+' · '+localModelLabel(runtime.id,info));servers.append(row);}body.append(servers);}
  if(id==='deepseek'){const tokenLabel=element('label','Sua chave API DeepSeek (BYOK)'),token=element('input');token.type='password';token.autocomplete='off';token.placeholder=state.credentials?.deepseek?'Chave salva · preencha somente para substituir':'Cole sua chave da plataforma DeepSeek';tokenLabel.append(token);const saveToken=element('button','Salvar chave e verificar','button primary');saveToken.onclick=()=>action(async()=>{if(!token.value.trim()&&!state.credentials?.deepseek)throw Error('Cole sua chave API DeepSeek antes de verificar.');if(token.value.trim()){await request('provider-token',{provider:id,token:token.value.trim()});state.credentials={...state.credentials,deepseek:true};token.value='';}const result=await request('check',{provider:id});state.models[id]=result.models||{};state.authentication[id]=result.authenticated===true;if(!result.authenticated)throw Error('A chave foi salva, mas a autenticação não foi confirmada. Confira a chave e tente verificar novamente.');state.credentials={...state.credentials,deepseek:true};renderProviders();say('DeepSeek verificado. '+(result.balance?.balance_infos||[]).map(b=>b.currency+' '+b.total_balance).join(' · '));});body.append(tokenLabel,saveToken,element('p','Salvar chave aplica a credencial imediatamente nesta máquina; Cancelar o cadastro não a remove. Conversas, arquivos e ferramentas enviados ao modelo consomem créditos DeepSeek.','hint'));}
@@ -85,22 +94,31 @@ function renderProviders(){
  $('provider-options').hidden=!!editing;
  $('provider-discovery-heading').hidden=!!editing;
  const info=visibleProviders().find(x=>x.id===editing);$('provider-cards').replaceChildren(...(info?[providerCard(info)]:[]));$('permission-editor').replaceChildren();
- if(info){const advanced=$('provider-cards').querySelector('.advanced');advanced.open=true;if(info.id==='local'){advanced.hidden=true;$('permission-editor').append(element('p','As permissões de operações pertencem ao modelo selecionado acima. Os projetos são cadastrados na interface do Tail Harness e ficam disponíveis para todos os modelos.','hint'));}else $('permission-editor').append(advanced);
+ if(info){const advanced=$('provider-cards').querySelector('.advanced');advanced.open=true;if(info.id==='local'){advanced.hidden=true;$('permission-editor').append(element('p','As permissões de operações pertencem ao modelo selecionado acima. Os projetos são cadastrados na interface do Tail Harness e ficam disponíveis para todos os modelos.','hint'));}
  renderIntegrationSelection();}
  renderDashboard();TailUI.decorate($('provider-dialog'));
 }
+function integrationEngine(provider=editing){return ({codex:'codex',claude:'claude',local:'codex',deepseek:'codex'})[provider];}
+function integrationKind(){return step===4?'plugin':'mcp';}
+function integrationDescription(item){
+ const metadata=integrationCatalogs.get(integrationEngine())?.items?.find(entry=>entry.id===item.id);
+ return item.description||metadata?.description||'Descrição não fornecida pelo provedor.';
+}
 function renderIntegrationSelection(){
  const host=$('integration-selection');host.replaceChildren();
- if(!['codex','claude'].includes(editing))return;
+ if(!integrationEngine())return;
  const spec=settings.services[editing],available=state.integrations?.[editing]||[];
  for(const [kind,title,description] of [
   ['mcp','Conectores','Um conector MCP dá acesso às ferramentas de um serviço ou processo. Cada conexão pode exigir sua própria autorização.'],
   ['plugin','Plugins',editing==='claude'?'No Claude Code, plugins são pacotes que podem reunir skills, agentes, hooks e servidores MCP.':'No Codex, plugins são pacotes que podem reunir skills, aplicativos e servidores MCP.']]){
+  if(kind!==integrationKind())continue;
   const section=element('section',undefined,'provider-connectors panel');
   section.append(element('h3',title),element('p',description+' A seleção abaixo define o que o Tail Harness solicita ao CLI deste provedor nas conversas. Salve para aplicar.','hint'));
+  if(editing==='local')section.append(element('p','O modelo local usa um ambiente isolado: plugins e conectores MCP do computador não são carregados nesta integração. O catálogo abaixo pertence ao motor Codex; operações nele afetam o perfil compartilhado do motor.','hint'));
   const list=element('div',undefined,'model-list');
   for(const item of available.filter(item=>item.kind===kind)){
-   const row=toggle(connectorLabel(item),(spec.integrations||[]).includes(item.id),yes=>{spec.integrations=yes?[...new Set([...(spec.integrations||[]),item.id])]:(spec.integrations||[]).filter(id=>id!==item.id);},kind==='plugin'?'Plugin instalado · carregar nas conversas':'Conector configurado · disponibilizar ferramentas');
+   const row=toggle(connectorLabel(item),(spec.integrations||[]).includes(item.id),yes=>{spec.integrations=yes?[...new Set([...(spec.integrations||[]),item.id])]:(spec.integrations||[]).filter(id=>id!==item.id);},integrationDescription(item)+' '+(kind==='plugin'?'Plugin instalado · carregar nas conversas':'Conector configurado · disponibilizar ferramentas'));
+   if(editing==='local')row.querySelector('input').disabled=true;
    row.querySelector('strong').prepend(connectorIcon(item));list.append(row);
   }
   if(!list.children.length)list.append(element('p',kind==='plugin'?'Nenhum plugin instalado neste provedor.':'Nenhum conector configurado neste provedor.','hint'));
@@ -129,24 +147,24 @@ function connectorIcon(item){
  if(symbol==='codex')mark.append(providerIcon('codex'));else mark.textContent=symbol;
  return mark;
 }
-function renderDashboard(){const configured=visibleProviders().filter(i=>{const s=state.settings.services[i.id];return s&&(s.added||s.enabled||s.models.length);});$('configured-providers').replaceChildren(...configured.map(info=>{const s=state.settings.services[info.id],card=element('article',undefined,'panel configured-card');card.classList.toggle('selected',editing===info.id);card.dataset.configuredProvider=info.id;const heading=element('div',undefined,'configured-heading'),mark=element('span',undefined,'provider-logo');mark.append(providerIcon(info.id));heading.append(mark,element('h3',providerName(info)));card.append(heading,element('span',pendingAuthentication(info.id)?'Autorização pendente':s.enabled?'Habilitado':'Desativado','pill'+(s.enabled&&!pendingAuthentication(info.id)?' good':'')),element('p',s.models.map(m=>info.id==='local'?localModelLabel(m,info):providerModelName(m)).join(' · ')||'Nenhum modelo selecionado','configured-models'));const actions=element('div',undefined,'card-actions');const edit=element('button','Editar','button secondary');edit.setAttribute('aria-label','Editar '+providerName(info));edit.onclick=()=>openWizard(info.id);const remove=element('button','Excluir','button secondary');remove.onclick=()=>action(async()=>{if(!confirm('Remover '+providerName(info)+' do painel? A conta e o CLI não serão desinstalados. A chave BYOK deste provedor será apagada.'))return;await request('provider-delete',{provider:info.id});await load();say('Provedor removido.');});edit.prepend(icon('edit'));remove.prepend(icon('trash'));actions.append(edit,remove);if(['codex','claude','gemini'].includes(info.id))actions.prepend(providerLoginButton(info),providerCheckButton(info));card.append(actions);
+function renderDashboard(){const configured=visibleProviders().filter(i=>{const s=state.settings.services[i.id];return s&&(s.added||s.enabled||s.models.length);});$('configured-providers').replaceChildren(...configured.map(info=>{const s=state.settings.services[info.id],card=element('article',undefined,'panel configured-card');card.classList.toggle('selected',editing===info.id);card.dataset.configuredProvider=info.id;const heading=element('div',undefined,'configured-heading'),mark=element('span',undefined,'provider-logo');mark.append(providerIcon(info.id));heading.append(mark,element('h3',providerName(info)));card.append(heading,element('span',pendingAuthentication(info.id)?'Autorização pendente':s.enabled?'Habilitado':'Desativado','pill'+(s.enabled&&!pendingAuthentication(info.id)?' good':'')),element('p',s.models.length?undefined:'Nenhum modelo selecionado','configured-models'));card.querySelector('.configured-models').append(...s.models.map(m=>modelIdentity(info.id,m,info.id==='local'?localModelLabel(m,info):providerModelName(m))));const actions=element('div',undefined,'card-actions');const edit=element('button','Editar','button secondary');edit.setAttribute('aria-label','Editar '+providerName(info));edit.onclick=()=>openWizard(info.id);const remove=element('button','Excluir','button secondary');remove.onclick=()=>action(async()=>{if(!confirm('Remover '+providerName(info)+' do painel? A conta e o CLI não serão desinstalados. A chave BYOK deste provedor será apagada.'))return;await request('provider-delete',{provider:info.id});await load();say('Provedor removido.');});edit.prepend(icon('edit'));remove.prepend(icon('trash'));actions.append(edit,remove);if(['codex','claude','gemini'].includes(info.id))actions.prepend(providerLoginButton(info),providerCheckButton(info));card.append(actions);
  const availability=toggle('Disponibilizar este serviço',s.enabled,()=>{},'Ative para usar os modelos nas conversas. Desative para pausar o uso sem apagar a configuração.');
  const checkbox=availability.querySelector('input');checkbox.setAttribute('aria-label','Disponibilizar '+providerName(info));
  checkbox.onchange=()=>{const enabled=checkbox.checked;if(working){checkbox.checked=s.enabled;return;}action(async()=>{checkbox.disabled=true;try{const saved=structuredClone(state.settings);saved.services[info.id].enabled=enabled;await request('settings',saved);await load({select:false});say(enabled?'Serviço ativado. Seus modelos estão disponíveis nas conversas.':'Serviço desativado. Sua configuração foi mantida.');}finally{checkbox.checked=s.enabled;checkbox.disabled=false;}});};
  card.append(availability);return card;}));if(!configured.length)$('configured-providers').append(element('p','Seu espaço está pronto. Adicione um provedor para escolher modelos e permissões.','empty-state'));}
-function openWizard(provider=null){if((unsaved||profileDirty)&&!confirm('Descartar alterações não salvas, incluindo o perfil de CPU e GPU, e abrir outro provedor?'))return;settings=structuredClone(state.settings);unsaved=false;profileDirty=false;$('feedback').hidden=true;wizard=true;editing=provider;if(provider&&['codex','claude'].includes(provider)){const current=state.settings.services[provider];if(!current?.added&&!current?.enabled&&!current?.models?.length)settings.services[provider].integrations=(state.integrations?.[provider]||[]).map(item=>item.id);}step=0;renderProviders();renderProjects();showStep(0);$('wizard-title').textContent=provider?'Editar '+providerName(visibleProviders().find(i=>i.id===provider)):'Adicionar provedor';$('provider-dialog').hidden=false;renderProfile();$('wizard-feedback').append($('feedback'));TailUI.decorate();if(!provider)$('provider-options').querySelector('button')?.focus();}
+function openWizard(provider=null){if((unsaved||profileDirty)&&!confirm('Descartar alterações não salvas, incluindo o perfil de CPU e GPU, e abrir outro provedor?'))return;settings=structuredClone(state.settings);unsaved=false;profileDirty=false;$('feedback').hidden=true;wizard=true;editing=provider;if(provider&&provider!=='local'&&integrationEngine(provider)){const current=state.settings.services[provider];if(!current?.added&&!current?.enabled&&!current?.models?.length)settings.services[provider].integrations=(state.integrations?.[provider]||[]).map(item=>item.id);}step=0;renderProviders();renderProjects();showStep(0);$('wizard-title').textContent=provider?'Editar '+providerName(visibleProviders().find(i=>i.id===provider)):'Adicionar provedor';$('provider-dialog').hidden=false;renderProfile();$('wizard-feedback').append($('feedback'));TailUI.decorate();if(!provider)$('provider-options').querySelector('button')?.focus();}
 function dashboard(){if((unsaved||profileDirty)&&!confirm('Descartar alterações não salvas, incluindo o perfil de CPU e GPU?'))return;profileDirty=false;wizard=false;editing=null;showStep(0);renderDashboard();}
 
 function renderProjects(){
  $('project-list').replaceChildren(element('p','Adicione projetos na barra lateral do Tail Harness. Todos os modelos habilitados ficam disponíveis nos projetos cadastrados.','hint'));$('project-count').textContent=settings.projects.length;
 }
 
-function renderStatus(){const s=state.status;$('add-provider').disabled=false;$('wizard-content-lock').disabled=false;$('wizard-next').disabled=false;if(s.startup_error)say("Não foi possível retomar o harness: "+s.startup_error,true);$('runtime-badge').textContent=s.running?'● Harness ativo':'● Harness parado';$('runtime-badge').classList.toggle('good',s.running);$('open-harness').href=(s.shared?s.remote_url:s.local_url)||'#';$('save').disabled=false;}
+function renderStatus(){const s=state.status;$('add-provider').disabled=working;$('wizard-content-lock').disabled=working;$('wizard-next').disabled=working;if(s.startup_error)say("Não foi possível retomar o harness: "+s.startup_error,true);$('runtime-badge').textContent=s.running?'● Harness ativo':'● Harness parado';$('runtime-badge').classList.toggle('good',s.running);$('open-harness').href=(s.shared?s.remote_url:s.local_url)||'#';$('save').disabled=working;}
 function render(){renderProviders();renderProjects();renderStatus();renderProfile();renderMcpDefaults();showStep(step);$('found-count').textContent=visibleProviders().filter(x=>x.found).length;$('uploads').checked=settings.uploads_enabled;$('uploads').closest('.panel-bottom').hidden=true;$('platform-note').textContent='Plataforma detectada: '+state.inventory.platform+'. Modo isolado requer Linux e bubblewrap. O modo nativo usa os mecanismos do CLI instalado.';}
 async function load({select=true}={}){state=await request('state');if(state.authentication.claude===false){try{const checked=await request('check',{provider:'claude'});state.authentication.claude=checked.authenticated;state.models.claude=checked.models;}catch{state.authentication.claude=null;}}settings=structuredClone(state.settings);unsaved=false;if(select){const available=visibleProviders().filter(i=>{const s=settings.services[i.id];return s&&(s.added||s.enabled||s.models.length);});editing=available.some(i=>i.id===editing)?editing:null;wizard=!!editing;}render();if(wizard)$('wizard-title').textContent='Editar '+(visibleProviders().find(i=>i.id===editing)?.name||'provedor');TailUI.decorate();}
 async function action(fn){if(working)return;working=true;const trigger=document.activeElement?.closest('button');if(trigger&&!$('operation-dialog').open)operationOpener=trigger;const disabled=trigger?.disabled;const label=trigger?.textContent?.trim()||'Carregar painel';if(trigger)trigger.disabled=true;
- document.body.setAttribute('aria-busy','true');const busy=$('busy-status');busy.hidden=false;busy.replaceChildren(icon('refresh'),document.createTextNode(label+' · processando…'));if(trigger){trigger.setAttribute('aria-busy','true');trigger.classList.add('is-processing');}
- try{await fn();}catch(e){say(e.message,true);}finally{working=false;busy.hidden=true;document.body.removeAttribute('aria-busy');if(trigger?.isConnected){trigger.disabled=disabled;trigger.removeAttribute('aria-busy');trigger.classList.remove('is-processing');if(trigger===operationOpener&&!$('operation-dialog').open&&document.activeElement===document.body)trigger.focus();}if(state)renderStatus();}}
+ $('wizard-content-lock').disabled=true;$('config-mcp').inert=true;if(state)renderStatus();document.body.setAttribute('aria-busy','true');const busy=$('busy-status');busy.hidden=false;busy.replaceChildren(icon('refresh'),document.createTextNode(label+' · processando…'));if(trigger){trigger.setAttribute('aria-busy','true');trigger.classList.add('is-processing');}
+ try{await fn();}catch(e){say(e.message,true);}finally{working=false;$('wizard-content-lock').disabled=false;$('config-mcp').inert=false;busy.hidden=true;document.body.removeAttribute('aria-busy');if(trigger?.isConnected){trigger.disabled=disabled;trigger.removeAttribute('aria-busy');trigger.classList.remove('is-processing');if(trigger===operationOpener&&!$('operation-dialog').open&&document.activeElement===document.body)trigger.focus();}if(state)renderStatus();if(wizard&&!editing&&$('provider-dialog').open)$('provider-options').querySelector('button')?.focus();}}
 
 function collect(){settings.uploads_enabled=$('uploads').checked;return settings;}
 $('scan').onclick=()=>action(async()=>{state.inventory=await request('scan',{});renderProviders();renderProjects();renderStatus();renderProfile();say('Verificação concluída. Nenhuma permissão foi habilitada.');});
@@ -160,7 +178,7 @@ $('save').onclick=()=>action(async()=>{
  try{await request('settings',collect());}catch(e){TailUI.toast('Não foi possível salvar: '+e.message,{error:true});throw e;}
  unsaved=false;$('dirty').textContent='Configurações salvas';
  TailUI.toast(state.status.running?'Configurações salvas. Atualizando o harness ativo.':'Configurações salvas. O harness inicia automaticamente com um modelo habilitado.');
- try{await load();$('dirty').textContent='Configurações salvas';}catch(e){throw Error('As configurações foram salvas, mas não foi possível atualizar o painel. Recarregue a página.');}
+ try{const savedProvider=editing;await load();wizard=false;editing=null;showStep(0);renderDashboard();$('dirty').textContent='Configurações salvas';document.querySelector('[data-configured-provider="'+savedProvider+'"] button[aria-label^="Editar"]')?.focus();}catch(e){throw Error('As configurações foram salvas, mas não foi possível atualizar o painel. Recarregue a página.');}
 });
 $('uploads').onchange=()=>{settings.uploads_enabled=$('uploads').checked;if(!settings.uploads_enabled)for(const s of Object.values(settings.services))s.permissions.upload=false;renderProviders();dirty();};
 let folderPickerTarget=null,folderPickerCurrent=null,folderPickerSequence=0;
@@ -192,7 +210,10 @@ $('theme').onclick=()=>$('appearance-dialog').showModal();$('appearance-close').
 $('integration-run').onclick=()=>action(async()=>{
  const transport=$('integration-transport').value,source=$('integration-source').value.trim();
  const data={provider:$('integration-provider').value,action:$('integration-action').value,name:$('integration-name').value.trim(),transport,url:source};
- if(transport==='stdio'&&data.action==='connector_add')data.command=JSON.parse(source);
+ if(transport==='stdio'&&data.action==='connector_add'){
+  try{data.command=JSON.parse(source);}catch{throw Error('Informe o comando como uma lista JSON válida, por exemplo: ["programa", "argumento"].');}
+  if(!Array.isArray(data.command)||!data.command.length||data.command.some(value=>typeof value!=='string')||!data.command[0].trim())throw Error('Informe o comando como uma lista JSON de textos, começando pelo programa que será executado.');
+ }
  await request('integration',data);say('Operação iniciada. Acompanhe o resultado abaixo.');pollOperations();
 });
 $('integration-refresh').onclick=()=>action(async()=>{const fresh=await request('state');state.integrations=fresh.integrations;renderProviders();say('Integrações atualizadas. Selecione-as na área de conectores e plugins.');});
@@ -215,12 +236,43 @@ for(const mode of ['download','file'])$('source-'+mode).onclick=()=>{for(const c
 $('use-local-file').onclick=()=>{const file=$('local-file').value;if(!file){say('Busque e selecione um arquivo GGUF nesta máquina.',true);return;}if(profileDirty&&!confirm('Descartar alterações não salvas deste perfil?'))return;profileModel=file;profileDirty=false;renderProfile();$('local-add').hidden=true;editor.open=true;binaryInput.focus();};
 $('local-start').onclick=()=>action(async()=>{if(profileDirty)throw Error('Salve o perfil deste modelo antes de iniciar.');await request('local-start',{file:profileModel,use_profile:true});say('Servidor iniciando. Acompanhe Operações e atualize o inventário após o carregamento.');pollOperations();});
 
-const providerDialog=element('section');providerDialog.id='provider-dialog';providerDialog.setAttribute('aria-labelledby','wizard-title');
-const workspace=element('div',undefined,'provider-workspace');$('configured-providers').before(workspace);const list=element('div',undefined,'provider-list');const listHeading=element('div',undefined,'provider-list-heading');listHeading.append(element('h2','Provedores'),$('add-provider'));list.append(listHeading,$('configured-providers'));workspace.append(list,providerDialog);const emptyInspector=element('section',undefined,'dashboard-live');emptyInspector.setAttribute('aria-label','Atividade e desempenho');emptyInspector.id='inspector-empty';workspace.append(emptyInspector);emptyInspector.innerHTML='<div class=section-heading><div><h2>Operação em tempo real</h2><p>Últimas 24 horas · <span id=dashboard-updated>consultando</span></p></div></div><div id=dashboard-metrics class=dashboard-metrics></div><section class=card><div class=panel-header><h3>Servidor local</h3><small>Uso global da máquina</small></div><div id=server-resources class=server-resources></div></section><section class=card><div class=panel-header><h3>Execuções · somente leitura</h3><small id=recent-count></small></div><div id=recent-runs></div></section><p class=hint>Saída por segundo: média da execução, incluindo ferramentas e espera pelo provedor. Não representa velocidade bruta da GPU. Tokens são apenas os reportados pelos serviços. Execuções encerradas saem desta lista após 30 minutos; o histórico é preservado.</p>';
+const providerDialog=element('dialog');providerDialog.id='provider-dialog';providerDialog.setAttribute('aria-labelledby','wizard-title');
+const workspace=element('div',undefined,'provider-workspace');$('configured-providers').before(workspace);const list=element('div',undefined,'provider-list');const listHeading=element('div',undefined,'provider-list-heading');listHeading.append(element('h2','Provedores'),$('add-provider'));list.append(listHeading,$('configured-providers'));workspace.append(list);document.body.append(providerDialog);const emptyInspector=element('section',undefined,'dashboard-live');emptyInspector.setAttribute('aria-label','Atividade e desempenho');emptyInspector.id='inspector-empty';$('dashboard').before(emptyInspector);emptyInspector.innerHTML='<div class=section-heading><div><h2>Operação em tempo real</h2><p>Últimas 24 horas · <span id=dashboard-updated>consultando</span></p></div></div><div id=dashboard-metrics class=dashboard-metrics></div><section class=card><div class=panel-header><h3>Servidor local</h3><small>Uso global da máquina</small></div><div id=server-resources class=server-resources></div></section><section class=card><div class=panel-header><h3>Execuções · somente leitura</h3><small id=recent-count></small></div><div id=recent-runs></div></section><p class=hint>Saída por segundo: média da execução, incluindo ferramentas e espera pelo provedor. Não representa velocidade bruta da GPU. Tokens são apenas os reportados pelos serviços. Execuções encerradas saem desta lista após 30 minutos; o histórico é preservado.</p>';
+const executionPage=element('section',undefined,'dashboard-live');executionPage.id='execution-page';executionPage.setAttribute('aria-label','Execuções');
+executionPage.append($('recent-runs').closest('section'));
+const metricHint=emptyInspector.querySelector('.hint');metricHint.textContent='Saída por segundo: média da execução, incluindo ferramentas e espera pelo provedor. Não representa velocidade bruta da GPU. Tokens são apenas os reportados pelos serviços.';
+executionPage.append(element('p','Execuções encerradas saem desta lista após 30 minutos; o histórico é preservado.','hint'));
+emptyInspector.after(executionPage);
+
+const panelCopy={
+ home:['Home','Acompanhe as operações e o uso do servidor em tempo real.'],
+ provedores:['Provedores de IA','Conecte suas contas de IA, escolha os modelos disponíveis nas conversas e configure o acesso a arquivos, ferramentas e serviços.'],
+ execucoes:['Execuções','Inspecione pedidos, respostas e eventos das execuções em tempo real.']
+};
+function renderPanel(){
+ const section=Object.hasOwn(panelCopy,location.hash.slice(1))?location.hash.slice(1):'home';
+ $('dashboard').hidden=section!=='provedores';emptyInspector.hidden=section!=='home';executionPage.hidden=section!=='execucoes';
+ document.querySelector('#overview h1').textContent=panelCopy[section][0];
+ document.querySelector('#overview .panel-description').textContent=panelCopy[section][1];
+ document.querySelector('.notes').hidden=section!=='provedores';
+ document.querySelector('.actionbar').hidden=section!=='provedores';
+
+ const showEditor=section==='provedores'&&wizard;
+ providerDialog.hidden=!showEditor;
+ if(showEditor&&!providerDialog.open)providerDialog.showModal();
+ else if(!showEditor&&providerDialog.open)providerDialog.close();
+ const busy=$('busy-status');if(busy)(showEditor?providerDialog:$('main')).prepend(busy);
+ if(section!=='provedores')$('network').close();
+ document.querySelectorAll('[data-panel]').forEach(link=>{if(link.dataset.panel===section)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current');});
+}
+for(const [section,name] of [['home','home'],['provedores','plug'],['execucoes','list']])document.querySelector('[data-panel="'+section+'"]').prepend(icon(name));
+providerDialog.addEventListener('cancel',event=>{event.preventDefault();if(!working)$('wizard-cancel').click();});
+window.addEventListener('hashchange',()=>{renderPanel();refreshDashboard();});
+renderPanel();
 const busyStatus=element('div');busyStatus.id='busy-status';busyStatus.hidden=true;busyStatus.setAttribute('role','status');$('main').prepend(busyStatus);
 document.addEventListener('click',e=>{if(working&&e.target.closest('button')&&!e.target.closest('#feedback,#appearance-dialog')){e.preventDefault();e.stopImmediatePropagation();busyStatus.textContent='Aguarde a operação em andamento. As demais ações serão liberadas ao terminar.';}},true);
 const wizardContent=element('fieldset',undefined,'wizard-content');wizardContent.id='wizard-content-lock';wizardContent.style.cssText='border:0;margin:0;min-width:0';
-const inspectorTabs=element('div',undefined,'inspector-tabs');inspectorTabs.id='inspector-tabs';for(const [index,label] of ['Modelo e hardware','Permissões','Conectores e plugins'].entries()){const button=element('button',label,'button secondary');button.onclick=()=>showStep(index===2?3:index);inspectorTabs.append(button);}providerDialog.append($('wizard-heading'),inspectorTabs,wizardContent);
+const inspectorTabs=element('div',undefined,'inspector-tabs');inspectorTabs.id='inspector-tabs';for(const [index,label] of ['Modelo e hardware','Plugins','Conectores'].entries()){const button=element('button',label,'button secondary');button.dataset.inspectorStep=[0,4,3][index];button.onclick=()=>showStep(Number(button.dataset.inspectorStep));inspectorTabs.append(button);}providerDialog.append($('wizard-heading'),inspectorTabs,wizardContent);
 const wizardFeedback=element('div');wizardFeedback.id='wizard-feedback';wizardContent.append(wizardFeedback);
 for(const id of ['providers','local-models','projects','integrations','review'])wizardContent.append($(id));
 const wizardFooter=element('div',undefined,'wizard-footer');wizardFooter.append($('wizard-back'),$('wizard-progress'),$('wizard-next'),$('save'));providerDialog.append(wizardFooter);
@@ -231,9 +283,10 @@ function icon(name){return TailUI.icon(({layers:'stack-2',edit:'pencil'})[name]|
 for(const [id,name,text] of [['add-provider','plus','Adicionar provedor'],['scan','scan','Verificar ambiente']]){$(id).replaceChildren(icon(name),document.createTextNode(text));}
 let step=0;
 const steps=['providers','projects','network'];
-function showStepBase(value){if(value!==step)$('feedback').hidden=true;step=Math.max(0,Math.min(3,value));$('dashboard').hidden=false;if(!wizard){$('provider-dialog').hidden=true;$('main').insertBefore($('feedback'),$('overview'));}$('wizard-heading').hidden=!wizard;$('inspector-empty').hidden=wizard;const existing=!!(editing&&(state.settings.services[editing]?.added||state.settings.services[editing]?.enabled));$('inspector-tabs').hidden=!existing;$('inspector-tabs').lastElementChild.hidden=!['codex','claude'].includes(editing);if(editing&&['codex','claude'].includes(editing)){$('integration-provider').value=editing;$('integration-provider').disabled=true;}[...$('inspector-tabs').children].forEach((b,i)=>b.setAttribute('aria-pressed',String((i===2?3:i)===step)));$('provider-dialog').hidden=!wizard;$('provider-dialog').classList.toggle('local-inspector',editing==='local');$('network').hidden=true;document.querySelectorAll('[data-step]').forEach(el=>el.hidden=!wizard||Number(el.dataset.step)!==step||(el.id==='local-models'&&editing!=='local'));if(editing==='local'){$('local-models').hidden=!wizard||![0,1].includes(step);$('local-profile-summary').hidden=step!==0;$('hardware-editor-details').hidden=step!==0||!profileModel;$('local-model-permissions').hidden=step!==1;$('local-launch').hidden=step!==0;$('local-import').hidden=step!==0||!(visibleProviders().find(i=>i.id==='local')?.runtimes||[]).some(r=>r.model_file===profileModel);$('add-local-model').hidden=step!==0;if(step!==0)$('local-add').hidden=true;}$('wizard-progress').textContent=wizard?'Etapa '+(step+1)+' de 3 · '+['Escolher serviço e modelos','Permissões','Revisar e concluir'][step]:'';$('wizard-back').hidden=!wizard||(step===0&&(!editing||existing));$('wizard-back').textContent=step===0?'Escolher outro provedor':'Voltar';$('wizard-next').hidden=!wizard||existing||step===2;$('save').hidden=!wizard||(!existing&&step!==2);$('save').textContent=existing?'Salvar alterações':'Concluir e salvar';$('wizard-progress').hidden=existing;$('save').title=state.status.running?'Aplicar alterações sem parar o harness.':'';if(editing){$('provider-review').textContent='Ao concluir, '+(visibleProviders().find(i=>i.id===editing)?.name||editing)+' será adicionado ao painel com os modelos selecionados.';}}
-$('wizard-back').onclick=()=>{if(step===0){openWizard();$('provider-options').querySelector('button')?.focus();}else showStep(step===3?1:step-1);};$('wizard-next').onclick=()=>{if(!editing){say('Escolha um provedor para continuar.',true);return;}if(step===0&&!settings.services[editing].models.length){const info=visibleProviders().find(i=>i.id===editing);say(editing==='local'?'Busque ou instale um modelo local abaixo; depois verifique e selecione o modelo.':!info?.found&&!info?.api?'Instale o CLI nesta máquina e use Verificar ambiente antes de continuar.':'Verifique a conta e selecione pelo menos um modelo.',true);return;}showStep(step+1);};
-$('add-provider').onclick=()=>action(async()=>{if((unsaved||profileDirty)&&!confirm('Descartar alterações não salvas, incluindo o perfil de CPU e GPU, para adicionar um provedor?'))return;unsaved=false;profileDirty=false;const button=$('add-provider');button.disabled=true;const label=button.textContent;button.textContent='Verificando…';try{state.inventory=await request('scan',{});openWizard();}finally{button.disabled=false;button.replaceChildren(icon('plus'),document.createTextNode(label));}});$('nav-dashboard').onclick=e=>{e.preventDefault();action(async()=>{if((unsaved||profileDirty)&&!confirm('Descartar alterações não salvas, incluindo o perfil de CPU e GPU?'))return;profileDirty=false;wizard=false;editing=null;await load({select:false});});};$('wizard-cancel').onclick=()=>action(async()=>{if((unsaved||profileDirty)&&!confirm('Descartar alterações não salvas, incluindo o perfil de CPU e GPU?'))return;profileDirty=false;wizard=false;editing=null;await load({select:false});say('Edição descartada.');});$('manage-network').onclick=()=>{$('network').hidden=!$('network').hidden;};
+function showStepBase(value){if(value!==step)$('feedback').hidden=true;step=Math.max(0,Math.min(4,value));$('dashboard').hidden=false;if(!wizard){$('provider-dialog').hidden=true;$('main').insertBefore($('feedback'),$('overview'));}$('wizard-heading').hidden=!wizard;const existing=!!(editing&&(state.settings.services[editing]?.added||state.settings.services[editing]?.enabled));$('inspector-tabs').hidden=!existing;$('inspector-tabs').lastElementChild.hidden=!['codex','claude'].includes(editing);if(editing&&['codex','claude'].includes(editing)){$('integration-provider').value=editing;$('integration-provider').disabled=true;}[...$('inspector-tabs').children].forEach((b,i)=>b.setAttribute('aria-pressed',String(Number(b.dataset.inspectorStep)===step)));$('provider-dialog').hidden=!wizard;$('provider-dialog').classList.toggle('local-inspector',editing==='local');document.querySelectorAll('[data-step]').forEach(el=>el.hidden=!wizard||Number(el.dataset.step)!==step||(el.id==='local-models'&&editing!=='local'));if(editing==='local'){$('local-models').hidden=!wizard||![0,1].includes(step);$('local-profile-summary').hidden=step!==0;$('hardware-editor-details').hidden=step!==0||!profileModel;$('local-model-permissions').hidden=step!==1;$('local-launch').hidden=step!==0;$('local-import').hidden=step!==0||!(visibleProviders().find(i=>i.id==='local')?.runtimes||[]).some(r=>r.model_file===profileModel);$('add-local-model').hidden=step!==0;if(step!==0)$('local-add').hidden=true;}$('wizard-progress').textContent=wizard?'Etapa '+(step+1)+' de 3 · '+['Escolher serviço e modelos','Permissões','Revisar e concluir'][step]:'';$('wizard-back').hidden=!wizard||(step===0&&(!editing||existing));$('wizard-back').textContent=step===0?'Escolher outro provedor':'Voltar';$('wizard-next').hidden=!wizard||existing||step===2;$('save').hidden=!wizard||(!existing&&step!==2);$('save').textContent=existing?'Salvar alterações':'Concluir e salvar';$('wizard-progress').hidden=existing;$('save').title=state.status.running?'Aplicar alterações sem parar o harness.':'';if(editing){$('provider-review').textContent='Ao concluir, '+(visibleProviders().find(i=>i.id===editing)?.name||editing)+' será adicionado ao painel com os modelos selecionados.';}}
+$('wizard-back').onclick=()=>{if(step===0){openWizard();$('provider-options').querySelector('button')?.focus();}else showStep(step>=2?0:step-1);};$('wizard-next').onclick=()=>{if(!editing){say('Escolha um provedor para continuar.',true);return;}if(step===0&&!settings.services[editing].models.length){const info=visibleProviders().find(i=>i.id===editing);say(editing==='local'?'Busque ou instale um modelo local abaixo; depois verifique e selecione o modelo.':!info?.found&&!info?.api?'Instale o CLI nesta máquina e use Verificar ambiente antes de continuar.':'Verifique a conta e selecione pelo menos um modelo.',true);return;}showStep(step===0?2:step+1);};
+$('add-provider').onclick=()=>action(async()=>{if((unsaved||profileDirty)&&!confirm('Descartar alterações não salvas, incluindo o perfil de CPU e GPU, para adicionar um provedor?'))return;unsaved=false;profileDirty=false;const button=$('add-provider');button.disabled=true;const label=button.textContent;button.textContent='Verificando…';try{state.inventory=await request('scan',{});openWizard();}finally{button.disabled=false;button.replaceChildren(icon('plus'),document.createTextNode(label));}});$('wizard-cancel').onclick=()=>action(async()=>{if((unsaved||profileDirty)&&!confirm('Descartar alterações não salvas, incluindo o perfil de CPU e GPU?'))return;const previousProvider=editing;profileDirty=false;wizard=false;editing=null;await load({select:false});say('Edição descartada.');(document.querySelector('[data-configured-provider="'+previousProvider+'"] button[aria-label^="Editar"]')||$('add-provider')).focus();});$('manage-network').onclick=()=>{$('network-feedback').hidden=true;$('network').showModal();};
+$('network-close').onclick=()=>$('network').close();
 const hardwareFields=[['n-gpu-layers','Camadas na GPU'],['n-cpu-moe','Camadas MoE na CPU'],['cpu-range','CPUs lógicas (ex.: 2-7)'],['cpu-range-batch','CPUs no lote (ex.: 0-7)'],['threads','Threads'],['threads-batch','Threads no lote'],['ctx-size','Tamanho do contexto'],['device','GPU(s) do runtime (ex.: Vulkan0 ou CUDA0,CUDA1)'],['main-gpu','GPU principal (índice)'],['split-mode','Distribuição entre GPUs (none, layer ou row)'],['tensor-split','Proporção entre GPUs (ex.: 1,1)'],['parallel','Slots de processamento'],['flash-attn','Flash Attention (on, off, auto)'],['cache-type-k','Tipo do cache K'],['cache-type-v','Tipo do cache V'],['cache-ram','Cache RAM (MiB)'],['reasoning','Raciocínio (on, off, auto)'],['reasoning-format','Formato do raciocínio'],['reasoning-budget','Orçamento de raciocínio'],['load-mode','Modo de carregamento'],['cpu-strict','Afinidade estrita de CPU (0 ou 1)'],['cpu-strict-batch','Afinidade estrita no lote (0 ou 1)'],['temp','Temperatura'],['top-k','Top K'],['top-p','Top P'],['min-p','Min P'],['repeat-penalty','Penalidade de repetição'],['seed','Semente aleatória']];
 const profilePanel=$('local-profile-summary').parentElement;
 const profilePicker=element('select');profilePicker.id='hardware-model';profilePicker.className='form-select';
@@ -296,7 +349,7 @@ function renderProfile(){
  if(profileModel){const details=element('details');details.append(element('summary','Caminho completo dos pesos'),element('p',profileModel,'hint'));summary.append(details);}
  $('dashboard-profile').textContent=Object.keys(saved).length+' perfil(is) privado(s) · configurações por arquivo de pesos';
  $('local-import').hidden=!active;$('local-import').textContent='Copiar configuração em execução deste modelo';
- editor.hidden=!profileModel||step!==0;profileSave.disabled=!profileModel;localPermissions.hidden=step!==1;profilePanel.querySelector('h3').textContent=profileModel?'Modelo · '+profileModel.split('/').pop():'Nenhum modelo configurado';
+ editor.hidden=!profileModel||step!==0;profileSave.disabled=!profileModel;localPermissions.hidden=step!==0;profilePanel.querySelector('h3').textContent=profileModel?'Modelo · '+profileModel.split('/').pop():'Nenhum modelo configurado';
  if(!profileDirty){modelRoots=[...(profile.allowed_roots||[])];renderModelRoots();toolsInput.checked=profile.capabilities?.tools===true;for(const [key] of modelPermissionFields)$('profile-permission-'+key).checked=profile.permissions?.[key]===true;refreshPermissionAvailability();binaryInput.value=profile.binary||active?.binary||runtimes.find(r=>r.binary)?.binary||'';descriptionInput.value=profile.description||'';for(const [key] of hardwareFields)$('profile-'+key).value=p[key]||'';profileSave.textContent='Salvar perfil deste modelo';}
  const launchChoice=$('local-file').value;$('local-file').replaceChildren(...paths.map(path=>new Option(path.split('/').pop(),path)));if(paths.includes(launchChoice))$('local-file').value=launchChoice;else $('local-file').value=profileModel;
  const cpuOnly=profile.performance?.['n-gpu-layers']==='0';$('local-start').disabled=!profile.model_file||!!active||(!!runtimes.length&&!cpuOnly);
@@ -316,8 +369,8 @@ action(async()=>{await load();pollOperations();});
 
 let importBundle=null;
 $('export-settings').onclick=()=>action(async()=>{const bundle=await request('settings-export',{});const url=URL.createObjectURL(new Blob([JSON.stringify(bundle,null,2)],{type:'application/json'}));const link=element('a');link.href=url;link.download='tail-harness-settings.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);say('Configuração salva exportada sem credenciais. Alterações ainda não salvas não entram no arquivo.');});
-$('import-settings').onchange=()=>action(async()=>{importBundle=null;$('import-preview').hidden=true;const file=$('import-settings').files[0];if(!file)return;if(file.size>60000)throw Error('Arquivo de configuração muito grande.');const candidate=JSON.parse(await file.text());const preview=await request('settings-import',{bundle:candidate,apply:false});importBundle=candidate;$('import-summary').textContent='Substituir escolhas salvas: '+preview.services.join(', ')+' · '+preview.projects+' projetos'+(preview.local_profile?' · inclui perfil local':' · mantém o perfil local atual')+'. A importação não inicia serviços.';$('import-preview').hidden=false;});
-$('apply-import').onclick=()=>action(async()=>{if(!importBundle)return;await request('settings-import',{bundle:importBundle,apply:true});importBundle=null;$('import-preview').hidden=true;await load();say('Configuração importada. Revise as etapas antes de iniciar.');});
+$('import-settings').onchange=()=>action(async()=>{importBundle=null;$('import-preview').hidden=true;const file=$('import-settings').files[0];if(!file)return;if(file.size>60000)throw Error('Arquivo de configuração muito grande.');let candidate;try{candidate=JSON.parse(await file.text());}catch{throw Error('O arquivo de configuração não contém JSON válido. Selecione um arquivo exportado pelo painel.');}const preview=await request('settings-import',{bundle:candidate,apply:false});importBundle=candidate;$('import-summary').textContent='Substituir escolhas salvas: '+preview.services.join(', ')+' · '+preview.projects+' projetos'+(preview.local_profile?' · inclui perfil local':' · mantém o perfil local atual')+'. Ao aplicar, os serviços habilitados serão iniciados ou atualizados automaticamente.';$('import-preview').hidden=false;});
+$('apply-import').onclick=()=>action(async()=>{if(!importBundle)return;await request('settings-import',{bundle:importBundle,apply:true});importBundle=null;$('import-preview').hidden=true;await load();$('network').close();say('Configuração importada. Os serviços habilitados foram iniciados ou atualizados automaticamente.');});
 $('cancel-import').onclick=()=>{importBundle=null;$('import-preview').hidden=true;$('import-settings').value='';};
 
 
@@ -338,13 +391,13 @@ function renderMcpEfforts(preferred=''){
  if(preferred&&!efforts.includes(preferred))select.append(new Option(preferred+' · salvo, verificar conta',preferred));select.value=preferred;
 }
 $('mcp-default-model').onchange=()=>renderMcpEfforts();
-$('save-mcp').onclick=()=>action(async()=>{try{const draft=structuredClone(state.settings),value=$('mcp-default-model').value;if(value){const [backend,model]=JSON.parse(value);draft.mcp_defaults={backend,model,effort:$('mcp-default-effort').value};}else draft.mcp_defaults={};await request('settings',draft);state.settings=draft;settings.mcp_defaults=draft.mcp_defaults;TailUI.notice($('mcp-feedback'),'Padrão MCP salvo. Inicie o harness para aplicar.');}catch(e){TailUI.notice($('mcp-feedback'),e.message,{error:true});}});
+$('save-mcp').onclick=()=>action(async()=>{try{const draft=structuredClone(state.settings),value=$('mcp-default-model').value;if(value){const [backend,model]=JSON.parse(value);draft.mcp_defaults={backend,model,effort:$('mcp-default-effort').value};}else draft.mcp_defaults={};await request('settings',draft);state.settings=draft;settings.mcp_defaults=draft.mcp_defaults;TailUI.notice($('mcp-feedback'),'Padrão MCP salvo. A configuração é aplicada automaticamente aos próximos pedidos.');}catch(e){TailUI.notice($('mcp-feedback'),e.message,{error:true});}});
 document.querySelectorAll('[data-config-tab]').forEach(button=>button.onclick=()=>{for(const name of ['appearance','mcp'])$('config-'+name).hidden=name!==button.dataset.configTab;document.querySelectorAll('[data-config-tab]').forEach(b=>b.setAttribute('aria-pressed',String(b===button)));});
 
 let dashboardLoading=false;
 async function refreshDashboard(){
- if(document.hidden||wizard||dashboardLoading)return;dashboardLoading=true;
- try{const data=await request('dashboard');if(wizard)return;if(!data.available)throw Error('Métricas temporariamente indisponíveis');
+ if(document.hidden||location.hash==='#provedores'||dashboardLoading)return;dashboardLoading=true;
+ try{const data=await request('dashboard');if(!data.available)throw Error('Métricas temporariamente indisponíveis');
  const format=n=>n==null?'Não informado':Number(n).toLocaleString('pt-BR');
  $('dashboard-updated').textContent='atualizado '+new Date(data.checked_at*1000).toLocaleTimeString('pt-BR');
  const values=[['Pedidos / segundo',format(Number(data.requests_per_second.toFixed(3))),'Média dos últimos 60 segundos'],['Em execução / fila',data.active+' / '+data.queued,'Estado atual'],['Tokens reportados',data.input_tokens==null&&data.output_tokens==null?'Não informado':format((data.input_tokens||0)+(data.output_tokens||0)),format(data.measured_jobs)+' pedidos com métricas'],['Saída / segundo',format(data.latest_output_tokens_per_second),'Última execução com medição']];
@@ -356,7 +409,7 @@ async function refreshDashboard(){
  $('server-resources').replaceChildren(...resources.map(([label,value,current,max])=>{const box=element('div');box.append(element('span',label),element('strong',value));if(current!=null&&max){const meter=document.createElement('meter');meter.min=0;meter.max=max;meter.value=current;meter.setAttribute('aria-label',label);box.append(meter);}return box;}));
  const names={queued:'Na fila',running:'Executando',completed:'Concluído',failed:'Falhou',cancelled:'Cancelado',interrupted:'Interrompido'};
  $('recent-count').textContent='Mostrando '+data.recent.length+' de '+(data.recent_count??data.recent.length)+' · últimas encerradas em 30 min';$('recent-runs').setAttribute('aria-label','Mostrando '+data.recent.length+' de '+(data.recent_count??data.recent.length)+' execuções');const holder=$('recent-runs');const retained=new Map([...holder.querySelectorAll('details[data-job]')].map(e=>[e.dataset.job,e]));
- const rows=data.recent.map(job=>{let row=retained.get(job.id);if(!row){row=element('details',undefined,'execution-row');row.dataset.job=job.id;row.append(element('summary'),element('div',undefined,'execution-detail'));row.addEventListener('toggle',()=>{if(row.open)refreshExecution(row);});}row.firstElementChild.textContent=[new Date(job.created*1000).toLocaleTimeString('pt-BR'),[job.backend,job.model].filter(Boolean).join(' · ')||'Executor não informado',names[job.state]||job.state,job.project||'Sem projeto',format(job.output_tokens)+' tokens saída'].join(' · ');if(row.open)refreshExecution(row);return row;});
+ const rows=data.recent.map(job=>{let row=retained.get(job.id);if(!row){row=element('details',undefined,'execution-row');row.dataset.job=job.id;row.append(element('summary'),element('div',undefined,'execution-detail'));row.addEventListener('toggle',()=>{if(row.open)refreshExecution(row);});}row.firstElementChild.replaceChildren(document.createTextNode(new Date(job.created*1000).toLocaleTimeString('pt-BR')+' · '),modelIdentity(job.backend,job.model,[job.backend,job.model].filter(Boolean).join(' · ')||'Executor não informado'),document.createTextNode(' · '+[names[job.state]||job.state,job.project||'Sem projeto',format(job.output_tokens)+' tokens saída'].join(' · ')));if(row.open)refreshExecution(row);return row;});
  for(const child of [...holder.children])if(!rows.includes(child))child.remove();
  for(const [i,row] of rows.entries())if(holder.children[i]!==row)holder.insertBefore(row,holder.children[i]||null);
  if(!rows.length)holder.replaceChildren(element('p','Nenhuma execução ativa ou encerrada nos últimos 30 minutos.','empty-history'));
@@ -387,45 +440,58 @@ function describeExecutionData(value){
 }
 
 function showStep(value){
- showStepBase(value);
- const connectorsAvailable=wizard&&["codex","claude"].includes(editing);
- const existing=!!(editing&&(state.settings.services[editing]?.added||state.settings.services[editing]?.enabled));
- $("inspector-tabs").hidden=!existing&&!connectorsAvailable;
- $("inspector-tabs").lastElementChild.hidden=!connectorsAvailable;
- if(connectorsAvailable){
-  $("integration-provider").value=editing;$("integration-provider").disabled=true;
-  const info=visibleProviders().find(item=>item.id===editing);
-  const heading=$("integrations").querySelector("h2");
-  heading.replaceChildren(providerIcon(editing),document.createTextNode((info?.name||editing)+" · Conectores e plugins"));
+ showStepBase(value===1?0:value);
+ renderPanel();
+ const engine=integrationEngine(),integrating=step===3||step===4;
+ $('projects').hidden=true;
+ $('inspector-tabs').hidden=!wizard||!editing;
+ for(const button of $('inspector-tabs').children)button.hidden=button.dataset.inspectorStep!=='0'&&!engine;
+ $('integrations').hidden=!wizard||!integrating||!engine;
+ if(editing==='local'){
+  $('local-model-permissions').hidden=step!==0;
  }
- if(step===3){renderIntegrationSelection();if(integrationCatalogs.has(editing))renderCatalog();else loadCatalog();$("wizard-progress").textContent="Conectores e plugins · selecione o que o harness carregará";$("wizard-next").hidden=true;$("wizard-back").hidden=false;}
+ if(!wizard||!engine||!integrating){if(wizard)$('wizard-progress').textContent=step===0?'Escolher serviço e modelos':'Revisar e concluir';return;}
+ const plugins=integrationKind()==='plugin',title=plugins?'Plugins':'Conectores';
+ $('integration-provider').value=engine;$('integration-provider').disabled=true;
+ $('integrations').querySelector('h2').replaceChildren(providerIcon(editing),document.createTextNode(title+' · '+providerName(visibleProviders().find(item=>item.id===editing))));
+ $('integration-help').textContent=plugins
+  ?'Plugins são pacotes de recursos para o motor '+(engine==='claude'?'Claude Code':'Codex')+'. Consulte a descrição, instale o pacote e atualize a lista. Depois selecione os plugins que deseja carregar e salve. Servidores MCP são gerenciados na aba Conectores.'
+  :'Conectores MCP permitem que o modelo use ferramentas de outros serviços. Para conectar: escolha Cadastrar conector MCP, informe um nome e a URL oficial do serviço (ou o comando local em JSON), e execute. Se o serviço exigir login, escolha Autenticar conector e conclua a autorização oficial. Atualize a lista, selecione o conector e salve. Cadastrar não confirma que a conexão está autenticada ou funcionando.';
+ const options=plugins?[['plugin_install','Instalar plugin'],['plugin_remove','Remover plugin']]:[['connector_add','Cadastrar conector MCP'],['login','Autenticar conector'],['connector_remove','Remover conector']];
+ const previous=$('integration-action').value;
+ $('integration-action').replaceChildren(...options.map(([value,label])=>new Option(label,value)));
+ if(options.some(([value])=>value===previous))$('integration-action').value=previous;
+ renderIntegrationForm();renderIntegrationCliGuide();renderIntegrationSelection();
+ if(integrationCatalogs.has(engine))renderCatalog();else loadCatalog();
+ $('wizard-progress').textContent=title+' · selecione o que o harness carregará';
+ $('wizard-next').hidden=true;$('wizard-back').hidden=false;
 }
 
 function renderIntegrationCliGuide(){
  const host=$("integrations").querySelector(".panel-body");
- if(!host||$("integration-cli-guide"))return;
- const guide=element("details",undefined,"advanced integration-cli-guide");guide.id="integration-cli-guide";guide.append(element("summary","Descobrir e adicionar conectores ou plugins pelo CLI"),element("p","O catálogo acima é consultado pelo servidor. MCP lista conectores configurados; plugins inclui opções ainda não instaladas dos marketplaces conhecidos. Instalação, login e autorização só acontecem quando você escolhe uma operação.","hint"));
+ if(!host)return;
+ $("integration-cli-guide")?.remove();
+ const guide=element("details",undefined,"advanced integration-cli-guide");guide.id="integration-cli-guide";guide.append(element("summary",integrationKind()==='plugin'?"Gerenciar plugins pelo CLI":"Gerenciar conectores MCP pelo CLI"),element("p","O catálogo acima é consultado pelo servidor. MCP lista conectores configurados; plugins inclui opções ainda não instaladas dos marketplaces conhecidos. Instalação, login e autorização só acontecem quando você escolhe uma operação.","hint"));
  const providers=[{id:"codex",name:"Codex",commands:["codex mcp list","codex mcp add <name> --url <https-url>","codex plugin list --available --json","codex plugin add <plugin@marketplace>"]},{id:"claude",name:"Claude Code",commands:["claude mcp list","claude mcp add --transport http <name> <https-url>","claude plugin list --available --json","claude plugin install <plugin@marketplace>"]}];
- for(const provider of providers){const section=element("section",undefined,"integration-cli-provider"),heading=element("h3"),logo=element("span",undefined,"provider-logo");logo.append(providerIcon(provider.id));heading.append(logo,document.createTextNode(provider.name));section.append(heading);for(const command of provider.commands){const code=element("code",command);section.append(code);}guide.append(section);}
+ for(const provider of providers.filter(item=>item.id===integrationEngine())){const section=element("section",undefined,"integration-cli-provider"),heading=element("h3"),logo=element("span",undefined,"provider-logo");logo.append(providerIcon(provider.id));heading.append(logo,document.createTextNode(provider.name));section.append(heading);for(const command of provider.commands.filter(command=>command.includes(integrationKind()==='plugin'?' plugin ':' mcp '))){const code=element("code",command);section.append(code);}guide.append(section);}
  host.append(guide);
 }
-renderIntegrationCliGuide();
-
-$("provider-options").addEventListener("click",event=>{const button=event.target.closest(".discovery-option");if(!button)return;const id=button.dataset.provider,current=state.settings.services[id];if(current&&!current.added&&!current.enabled&&!current.models?.length)settings.services[id].integrations=(state.integrations?.[id]||[]).map(item=>item.id);},true);
+$("provider-options").addEventListener("click",event=>{const button=event.target.closest(".discovery-option");if(!button)return;const id=button.dataset.provider,current=state.settings.services[id];if(id!=='local'&&current&&!current.added&&!current.enabled&&!current.models?.length)settings.services[id].integrations=(state.integrations?.[id]||[]).map(item=>item.id);},true);
 
 const integrationCatalogs=new Map(),catalogPending=new Set();
 let catalogVisibleCount=40,catalogViewKey='';
 function renderCatalog(){
  const provider=$('integration-provider').value,data=integrationCatalogs.get(provider),query=$('catalog-search').value.trim().toLocaleLowerCase();
- const viewKey=JSON.stringify([provider,query]);
+ const viewKey=JSON.stringify([provider,integrationKind(),query]);
  if(viewKey!==catalogViewKey){catalogVisibleCount=40;catalogViewKey=viewKey;}
- const items=(data?.items||[]).filter(item=>(item.name+' '+item.id).toLocaleLowerCase().includes(query));
+ const items=(data?.items||[]).filter(item=>item.kind===integrationKind()&&(item.name+' '+item.id+' '+(item.description||'')).toLocaleLowerCase().includes(query));
  $('catalog-refresh').disabled=catalogPending.has(provider);
  $('catalog-items').setAttribute('aria-busy',String(catalogPending.has(provider)));
  $('catalog-status').textContent=catalogPending.has(provider)?'Buscando conectores e plugins de '+(provider==='claude'?'Claude Code':'Codex')+' neste computador… Aguarde.':data?.error?'Não foi possível consultar o catálogo. '+data.error+(data.items?.length?' Exibindo resultados da última consulta bem-sucedida.':'')+' Tente novamente em Consultar catálogos.':data?items.length+' resultado(s). '+(data.warnings||[]).join(' '):'Consulte os catálogos conhecidos pelo CLI deste servidor.';
  $('catalog-items').replaceChildren(...items.slice(0,catalogVisibleCount).map(item=>{
   const card=element('article',undefined,'catalog-item'),title=element('strong');title.append(connectorIcon(item),document.createTextNode(connectorLabel(item)));
   const detail=element('div');detail.append(title,element('small',item.id.replace(/^(plugin|mcp):/,''),'subtle'));
+  detail.append(element('p',integrationDescription(item),'hint'));
   detail.append(element('small',item.kind==='plugin'?'Plugin':'Conector MCP','subtle'));
   card.append(detail,element('span',item.status==='installed'?'Instalado':item.status==='configured'?'Configurado':'Disponível para instalar','pill'));
   if(item.kind==='plugin'&&item.status==='available'){
@@ -444,7 +510,7 @@ async function loadCatalog(){
  catalogPending.add(provider);renderCatalog();
  try{integrationCatalogs.set(provider,await request('integration-catalog',{provider}));}
  catch(error){integrationCatalogs.set(provider,{...(integrationCatalogs.get(provider)||{items:[]}),error:error.message});}
- finally{catalogPending.delete(provider);renderCatalog();}
+ finally{catalogPending.delete(provider);renderCatalog();renderIntegrationSelection();}
 }
 function createCatalog(){
  const host=$('integrations').querySelector('.panel-body'),section=element('section',undefined,'integration-catalog');
@@ -489,3 +555,48 @@ function renderIntegrationForm(){
 $('integration-action').onchange=renderIntegrationForm;
 $('integration-transport').onchange=renderIntegrationForm;
 renderIntegrationForm();
+
+// One action vocabulary keeps dynamic and static panel buttons consistent.
+const buttonActions=[
+ [/^(Salvar|Concluir e salvar|Aplicar)/,'device-floppy','Salva e aplica as alterações desta configuração.'],
+ [/^(Editar)/,'pencil','Abre a edição em uma janela sobre a lista de provedores.'],
+ [/^(Excluir)/,'trash','Remove o cadastro após confirmação; não desinstala o serviço.'],
+ [/^(Remover)/,'trash','Retira este item da configuração.'],
+ [/^(Entrar)/,'login','Abre a autenticação oficial para conectar ou renovar sua conta.'],
+ [/^(Verificar|Detectar|Consultar|Buscar)/,'scan','Consulta o estado atual e atualiza as opções disponíveis.'],
+ [/^(Atualizar|Tentar novamente)/,'refresh','Repete a consulta para atualizar os dados ou recuperar uma falha.'],
+ [/^(Adicionar|Criar)/,'plus','Abre o cadastro ou a seleção de um novo item.'],
+ [/^(Cancelar|Fechar)/,'x','Fecha esta janela; alterações pendentes exigem confirmação antes de serem descartadas.'],
+ [/^(Voltar|Escolher outro)/,'chevron-left','Retorna à etapa anterior da configuração.'],
+ [/^(Continuar|Carregar mais)/,'chevron-right','Mostra a próxima etapa ou mais resultados.'],
+ [/^(Baixar|Instalar)/,'download','Inicia a instalação ou o download do item selecionado.'],
+ [/^Exportar/,'download','Baixa as configurações salvas em um arquivo sem credenciais.'],
+ [/^Importar ou exportar/,'adjustments','Abre as opções para importar ou exportar as configurações.'],
+ [/^(Usar configuração atual|Copiar configuração)/,'copy','Copia a configuração em execução para o perfil deste modelo.'],
+ [/^Usar arquivo/,'folder','Seleciona um arquivo de modelo já baixado neste servidor.'],
+ [/^Usar esta pasta/,'check','Confirma a pasta selecionada para esta configuração.'],
+ [/^Configurar este arquivo/,'adjustments','Abre o perfil do arquivo de modelo selecionado.'],
+ [/^Iniciar/,'player-play','Inicia o modelo com o perfil salvo neste servidor.'],
+ [/^Executar operação/,'player-play','Executa a operação selecionada e mostra seu resultado.'],
+ [/^Operações em andamento/,'list','Abre o progresso e os resultados das operações administrativas.'],
+ [/^(Escolher pasta|Pasta pessoal|Pasta acima)/,'folder','Abre a navegação de pastas neste servidor.'],
+ [/^(Modelo e hardware)/,'adjustments','Mostra os modelos e as configurações de execução do provedor.'],
+ [/^Permissões/,'isolation','Mostra os acessos e as permissões do provedor ou modelo.'],
+ [/^(Plugins|Conectores|Conexão)/,'plug','Mostra as integrações e as opções de conexão.'],
+ [/^(Configurações|Aparência)/,'settings','Abre as preferências de aparência e configuração.']
+];
+function decoratePanelButtons(){
+ for(const button of document.querySelectorAll('button')){
+  const label=(button.getAttribute('aria-label')||button.textContent).trim();
+  const action=buttonActions.find(([pattern])=>pattern.test(label));
+  const folder=button.closest('#folder-picker-breadcrumb,#folder-picker-list');
+  const theme=button.dataset.themeChoice;
+  const provider=button.classList.contains('discovery-option');
+  const name=folder?'folder':theme?'palette':action?.[1];
+  const explanation=folder?'Abre esta pasta no servidor: '+(button.title||label):theme?'Aplica o tema '+(button.querySelector('.theme-name')?.textContent||theme)+' ao painel.':provider?'Abre a configuração deste provedor para escolher conta, modelos e permissões.':action?.[2];
+  if(!button.querySelector('svg,.provider-mark')&&name)button.prepend(icon(name));
+  if(explanation&&!button.title)button.title=explanation;
+ }
+}
+decoratePanelButtons();
+new MutationObserver(decoratePanelButtons).observe(document.body,{childList:true,subtree:true});

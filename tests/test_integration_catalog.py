@@ -87,3 +87,45 @@ def test_claude_empty_mcp_list_is_not_a_query_failure():
         return (0, 'No MCP servers configured. Use `claude mcp add` to add a server.') if args[-2:] == ('mcp', 'list') else (0, '{"installed":[],"available":[]}')
     with patch('control.integration_catalog._run', side_effect=fake_run):
         assert run(catalog('claude','/bin/claude')) == {'items':[], 'warnings':[]}
+
+
+def test_plugin_descriptions_are_preserved_as_text_for_both_statuses():
+    from control.integration_catalog import _plugins
+    import json
+
+    items = _plugins(json.dumps({
+        "installed": [{"id": "installed", "description": "  Explains installed tools.  "}],
+        "available": [{"id": "available", "description": "<b>Plain text description</b>"},
+                      {"id": "invalid", "description": {"token": "not metadata"}}],
+    }))
+    assert items[0]["description"] == "Explains installed tools."
+    assert items[1]["description"] == "<b>Plain text description</b>"
+    assert "description" not in items[2]
+
+
+def test_plugin_description_from_local_manifest_is_bounded(tmp_path):
+    import json
+    from control.integration_catalog import _plugins
+    directory = tmp_path / ".codex-plugin"
+    directory.mkdir()
+    manifest = directory / "plugin.json"
+    manifest.write_text(json.dumps({"interface": {"longDescription": "Create documents."}, "secret": "never exposed"}))
+    payload = json.dumps({"installed": [{"id": "documents", "source": {"source": "local", "path": str(tmp_path)}}]})
+    items = _plugins(payload)
+    assert items[0]["description"] == "Create documents."
+    assert "secret" not in str(items)
+    manifest.write_text(" " * 65537)
+    assert "description" not in _plugins(payload)[0]
+
+
+def test_installed_marketplace_description_uses_exact_cache_version(tmp_path, monkeypatch):
+    import json
+    from control.integration_catalog import _plugins
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path))
+    directory = tmp_path / "plugins/cache/market/documents/1.2/.codex-plugin"
+    directory.mkdir(parents=True)
+    (directory / "plugin.json").write_text(json.dumps({"description": "Document tools"}))
+    plugin = {"name": "documents", "marketplaceName": "market", "version": "1.2"}
+    assert _plugins(json.dumps({"installed": [plugin]}))[0]["description"] == "Document tools"
+    plugin["version"] = "../1.2"
+    assert "description" not in _plugins(json.dumps({"installed": [plugin]}))[0]

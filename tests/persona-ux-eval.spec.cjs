@@ -89,7 +89,7 @@ test(5,'Trocar provedores e agentes na mesma sessão, continuar e recarregar',as
  const choices=[['qwen-local','local'],['deepseek-flash','deepseek'],['gpt-6-astra','codex'],['gpt-5.6-terra','codex'],['claude-sonnet-4-6','claude'],['gemini-test','gemini'],['maestro-test','maestro'],['qwen-local','local']];
  for(const [i,[model,backend]] of choices.entries()){
   await p.click('#model-trigger');await openModelGroup(p,model);await p.locator('#model-menu [data-value="'+model+'"]').click();await p.fill('#prompt','Turno '+(i+1));await p.click('#send');
-  await p.waitForFunction(n=>document.querySelectorAll('.message.assistant').length===n&&!document.querySelector('#model').disabled,i+1);
+  await p.waitForFunction(n=>document.querySelectorAll('.message.assistant').length===n&&!busy&&!submitting,i+1);
   assert.equal(s.posts[i].backend,backend);assert.equal(s.posts[i].model,model);assert.equal(s.posts[i].parent_job_id,i?'eval-job'+(i>1?'-'+i:''):undefined);
   assert.equal(await p.evaluate(()=>conversation),'eval-job');
  }

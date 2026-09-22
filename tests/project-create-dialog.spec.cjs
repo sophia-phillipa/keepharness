@@ -34,7 +34,7 @@ const assert=require('node:assert/strict'),fs=require('node:fs/promises'),path=r
  await page.locator('#project-directory-list .project-file-row').filter({hasText:'Trabalho B'}).click();await page.click('#project-directory-add-current');
  await page.getByRole('button',{name:'Expandir Trabalho A',exact:true}).click();await page.locator('#project-directory-list').getByText('Subpasta',{exact:true}).waitFor();assert.equal(await page.locator('#project-directory-list').getByText('oculto.txt').count(),0);await page.getByRole('button',{name:'Recolher Trabalho A',exact:true}).click();assert.equal(await page.locator('#project-directory-list').getByText('Subpasta',{exact:true}).count(),0);assert.equal(await page.locator('#project-folder-browser').isVisible(),true);
  assert.equal(await page.locator('#project-selected-paths li').count(),2);
- await page.locator('#project-selected-paths button').first().click();
+ await page.getByRole('button',{name:'Remover pasta Trabalho A',exact:true}).click();
  assert.equal(await page.locator('#project-selected-paths li').count(),1);
  await page.click('#project-dialog-cancel');assert.equal(await page.locator('#project-dialog').isVisible(),false);
  await page.click('#add-project');assert.equal(await page.locator('#project-name').inputValue(),'');

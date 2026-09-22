@@ -49,6 +49,23 @@ const assert=require('node:assert/strict');
   await page.evaluate(()=>paintContext({last:{totalTokens:100},total:{totalTokens:999},modelContextWindow:1000},{output_tokens:20,inference_seconds:2}));
   assert.match(await page.locator('#context-meter').innerText(),/Contexto: 100.*10 tk\/s/);
   assert.doesNotMatch(await page.locator('#context-meter').innerText(),/Consumo acumulado|média/);
+  await page.evaluate(()=>{
+   event({id:last+1,type:'context_usage',data:{last:{totalTokens:100},metrics:{output_tokens:40,inference_seconds:2}}});
+   if(!document.querySelector('#context-meter').textContent.includes('20 tk/s'))throw Error('live throughput missing');
+   event({id:last+1,type:'usage_metrics',data:{output_tokens:60,inference_seconds:2}});
+  });
+  assert.match(await page.locator('#context-meter').innerText(),/30 tk\/s/);
+  const labels=await page.evaluate(()=>[
+   throughputLabel({generated_tokens_per_second:12.5,output_tokens:1,inference_seconds:10}),
+   throughputLabel({output_tokens:0,inference_seconds:2}),
+   throughputLabel({output_tokens:20,inference_seconds:0}),
+   throughputLabel({output_tokens:null,inference_seconds:2}),
+   throughputLabel({output_tokens:Infinity,inference_seconds:2}),
+   throughputLabel({output_tokens:-1,inference_seconds:2}),
+   throughputLabel({})
+  ]);
+  assert.deepEqual(labels,[' · 12,5 tk/s',' · 0 tk/s',...Array(5).fill(' · tk/s: —')]);
+
   assert.equal(await page.locator('#dropzone #context-meter').count(),0);
   const contextBox=await page.locator('#context-meter').boundingBox(),promptBox=await page.locator('#dropzone').boundingBox();
   assert(contextBox.y+contextBox.height<=promptBox.y,'metadata sits above the outside border');

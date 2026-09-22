@@ -392,6 +392,8 @@ async def run_turn(
                 turn_started = True
                 event("session_turn_started", {"thread_id": thread_id})
             elif kind == "thread/tokenUsage/updated":
+                if params.get("threadId", thread_id) != thread_id:
+                    continue
                 token_usage = params.get("tokenUsage", {})
                 total = token_usage.get("total", {})
                 for key, value in (
@@ -404,7 +406,11 @@ async def run_turn(
                 marker.write_text(
                     json.dumps({"id": thread_id, **isolation, "usage_total": total})
                 )
-                event("context_usage", token_usage)
+                event("context_usage", {**token_usage, "metrics": {
+                    "usage_scope": "turn",
+                    "output_tokens": usage.get("outputTokens"),
+                    "inference_seconds": time.monotonic() - started,
+                }})
             elif kind == "turn/plan/updated":
                 event("plan_updated", params)
             elif kind == "thread/compacted":
