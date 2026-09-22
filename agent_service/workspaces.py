@@ -1,6 +1,7 @@
 """Bounded project transfers and source retrieval; never execute archive contents."""
 import hashlib
 import json
+import os
 import shutil
 import stat
 import zipfile
@@ -37,7 +38,7 @@ def project_roots(spec):
 
 def project_root(spec, root_id):
     roots = dict(project_roots(spec))
-    if root_id not in roots:
+    if not isinstance(root_id,str) or root_id not in roots:
         raise ToolError('project_root_denied')
     root = Path(roots[root_id])
     if any(part.is_symlink() for part in (root, *root.parents)) or not root.is_dir():
@@ -135,9 +136,30 @@ def hidden_system_entry(path, name, root, top_level=False):
 
 def system_root(root_id):
     roots = dict(system_roots())
-    if root_id not in roots:
+    if not isinstance(root_id,str) or root_id not in roots:
         raise ToolError('system_root_denied')
     return roots[root_id]
+
+
+def open_attachment_source(path):
+    """Open the selected regular file without following replaceable symlinks."""
+    path=Path(path)
+    if not path.is_absolute() or '..' in path.parts:raise ToolError('path_not_authorized')
+    parent=os.open(path.anchor,os.O_RDONLY|os.O_DIRECTORY)
+    try:
+        for part in path.parts[1:-1]:
+            child=os.open(part,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW,dir_fd=parent)
+            os.close(parent);parent=child
+        fd=os.open(path.name,os.O_RDONLY|os.O_NONBLOCK|os.O_NOFOLLOW,dir_fd=parent)
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):raise ToolError('attachment_source_unavailable')
+            return os.fdopen(fd,'rb')
+        except BaseException:
+            os.close(fd);raise
+    except OSError:
+        raise ToolError('attachment_source_unavailable') from None
+    finally:
+        os.close(parent)
 
 
 def system_path(root, name=''):

@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import signal
+from pathlib import Path
 
 
 OUTPUT_LIMIT = 8 * 1024 * 1024
@@ -64,6 +65,39 @@ def _plugin_identifier(plugin):
     return name if isinstance(name, str) else None
 
 
+def _plugin_description(plugin):
+    """Read only public descriptive fields from bounded local plugin manifests."""
+    description = plugin.get("description")
+    if isinstance(description, str) and description.strip():
+        return description.strip()
+    source = plugin.get("source")
+    root = source.get("path") if isinstance(source, dict) and source.get("source") == "local" else plugin.get("installPath")
+    if not root and plugin.get("installed") is True:
+        parts = [plugin.get(key) for key in ("marketplaceName", "name", "version")]
+        if all(isinstance(part, str) and part not in {"", ".", ".."} and "/" not in part and chr(92) not in part for part in parts):
+            root = str(Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex") / "plugins" / "cache" / Path(*parts))
+    if not isinstance(root, str) or not Path(root).is_absolute():
+        return ""
+    for directory in (".codex-plugin", ".claude-plugin"):
+        path = Path(root) / directory / "plugin.json"
+        try:
+            with path.open("rb") as stream:
+                raw = stream.read(65537)
+            if len(raw) > 65536:
+                continue
+            manifest = json.loads(raw)
+            if not isinstance(manifest, dict):
+                continue
+            interface = manifest.get("interface")
+            interface = interface if isinstance(interface, dict) else {}
+            for value in (interface.get("longDescription"), manifest.get("description"), interface.get("shortDescription")):
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+        except (OSError, ValueError):
+            continue
+    return ""
+
+
 def _plugins(payload):
     try:
         decoded = json.loads(payload)
@@ -85,6 +119,7 @@ def _plugins(payload):
                 continue
             seen.add(identifier)
             installed = plugin.get("installed") is True
+            description = _plugin_description({**plugin, "installed": installed or default_status == "installed"})
             items.append(
                 {
                     "id": f"plugin:{identifier}",
@@ -92,6 +127,7 @@ def _plugins(payload):
                     "kind": "plugin",
                     "status": "installed" if installed or default_status == "installed" else "available",
                     "enabled": plugin.get("enabled") is True,
+                    **({"description": description} if description else {}),
                 }
             )
     return items

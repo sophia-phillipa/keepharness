@@ -44,7 +44,7 @@ const path=require('node:path');
    await page.selectOption('#effort',effort);
    await page.fill('#prompt','Continue '+model+' '+effort);
    await page.click('#send');
-   await page.waitForFunction(()=>!document.querySelector('#model').disabled);
+   await page.waitForFunction(()=>!busy&&!submitting);
    assert.equal(turns.at(-1).request.model,model);
    assert.equal(turns.at(-1).request.effort,effort);
    assert.equal(await page.evaluate(()=>conversation),'job-1');
@@ -60,7 +60,7 @@ const path=require('node:path');
   assert.equal(await page.evaluate(()=>parent),'job-6');
   await page.locator('#prompt').focus();await page.keyboard.type('Continue após a interrupção');
   await page.locator('#send').focus();await page.keyboard.press('Enter');
-  await page.waitForFunction(()=>!document.querySelector('#model').disabled);
+  await page.waitForFunction(()=>!busy&&!submitting);
   assert.equal(turns.at(-1).request.parent_job_id,'job-6');
   await page.evaluate(()=>{
    active=assistant('compact-fixture');

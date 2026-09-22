@@ -118,6 +118,7 @@ def discover(config, project_id, backend, model=None, *, private=False, executio
                     text=read(path)
                     meta=tomllib.loads(text) if path.suffix=='.toml' else markdown(text)[0]
                     body=meta.get('prompt','') if kind=='command' and path.suffix=='.toml' else markdown(text)[1] if path.suffix=='.md' else text
+                    if not isinstance(body,str):raise ValueError('invalid_resource_body')
                     name=meta.get('name') or (path.parent.name if kind=='skill' else path.stem)
                     if kind=='command':name=str(path.relative_to(base).with_suffix('')).replace(os.sep,':')
                     if not isinstance(name,str) or not NAME.fullmatch(name):raise ValueError('invalid_name')
@@ -173,24 +174,32 @@ def resolve(config,data):
 
 
 def prepare_prompt(prompt,items):
-    notes=[]
+    notes=[];commands={};skills={}
     for item in items:
         name=item['name'];token=('@' if item['kind']=='agent' else '/')+name
         if item['kind']=='agent':
             notes.append('Delegate this task using the native agent '+json.dumps(name)+' defined at '+json.dumps(item['source'])+'. Use actual native delegation, not role-play. If unavailable, report that limitation without claiming delegation.')
         elif item['kind']=='skill':
-            if item['origin'] in ('codex','agents'):
-                prompt=re.sub(r'(?<!\S)'+re.escape(token)+r'(?=\s|$)',lambda _: '$'+name,prompt)
+            if item['origin'] in ('codex','agents'):skills[token]='$'+name
             notes.append('Explicitly invoke the selected skill '+json.dumps(name)+' at '+json.dumps(item['source'])+'. Preserve its native instructions and dependencies; report unavailable tools instead of substituting silently.')
-        else:
-            pattern=r'(?<!\S)'+re.escape(token)+r'(?=\s|$)([^\n]*)'
-            def expand(match):
-                args=match.group(1).strip()
-                try:positional=shlex.split(args)
-                except ValueError:raise ResourceError('invalid_command_arguments') from None
-                body=item['_body'].replace('{{args}}',args).replace('$ARGUMENTS',args)
-                body=re.sub(r'\$([1-9])(?!\d)',lambda m:positional[int(m[1])-1] if len(positional)>=int(m[1]) else '',body)
-                return body
-            prompt=re.sub(pattern,expand,prompt)
+        else:commands[token]=item
+    patterns=[]
+    if commands:patterns.append(r'(?P<command>'+ '|'.join(map(re.escape,commands))+r')(?=\s|$)(?P<args>[^\n]*)')
+    if skills:patterns.append(r'(?P<skill>'+ '|'.join(map(re.escape,skills))+r')(?=\s|$)')
+    if patterns:
+        def expand(match):
+            groups=match.groupdict()
+            if groups.get('skill') is not None:return skills[groups['skill']]
+            args=groups['args'].strip()
+            try:positional=shlex.split(args)
+            except ValueError:raise ResourceError('invalid_command_arguments') from None
+            def substitute(placeholder):
+                if placeholder.group(1) is None:return args
+                index=int(placeholder.group(1))-1
+                return positional[index] if index<len(positional) else ''
+            return re.sub(r'\{\{args\}\}|\$ARGUMENTS|\$([1-9])(?!\d)',substitute,commands[groups['command']]['_body'])
+        # Match the original text once; arguments and inserted bodies remain data.
+        prompt=re.sub(r'(?<!\S)(?:'+'|'.join(patterns)+')',expand,prompt)
+    prompt+=('\n\nEXPLICIT RESOURCE SELECTIONS:\n'+'\n'.join(notes) if notes else '')
     if len(prompt)>150000:raise ResourceError('resource_prompt_limit')
-    return prompt+ ('\n\nEXPLICIT RESOURCE SELECTIONS:\n'+'\n'.join(notes) if notes else '')
+    return prompt

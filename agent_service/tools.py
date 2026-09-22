@@ -6,13 +6,14 @@ import json
 import os
 from pathlib import Path
 import socket
+import shutil
 import tempfile
 import urllib.parse
 
 MAX_OUTPUT = 2 * 1024 * 1024
 AUDIO_EXTENSIONS = {'.wav','.mp3','.m4a','.ogg','.flac','.webm','.aac','.opus'}
 MAX_AUDIO_BYTES = 256 * 1024 * 1024
-MAX_AUDIO_SECONDS = 7200
+MAX_AUDIO_SECONDS = 14400
 
 class ToolError(Exception):
     pass
@@ -27,11 +28,13 @@ async def process(argv, timeout=30, cwd=None):
             if len(output) > MAX_OUTPUT:
                 raise ToolError('tool_output_limit')
         await proc.wait()
+    completed=False
     try:
         async with asyncio.timeout(timeout):
             await collect()
+            completed=True
     finally:
-        if proc.returncode is None:
+        if not completed:
             import signal
             try:
                 os.killpg(proc.pid, signal.SIGKILL)
@@ -68,12 +71,22 @@ def safe_file(root, name):
     return path
 
 async def extract(path, filename):
-    data = path.read_bytes()
     if Path(filename).suffix.lower() in AUDIO_EXTENSIONS:
         return await transcribe_audio(path)
+    data = path.read_bytes()
     image = image_type(data)
     if image:
         if len(data)>5*1024*1024:raise ToolError('image_size_limit')
+        if any(shutil.which(tool) is None for tool in ('ffmpeg','bwrap','prlimit')):
+            raise ToolError('image_validation_unavailable')
+        try:
+            code,_ = await process(sandbox(path.parent, ['ffmpeg','-nostdin','-v','error','-xerror','-protocol_whitelist','file,pipe','-i','/work/'+path.name,'-frames:v','1','-f','null','-']),30)
+        except TimeoutError:
+            raise ToolError('image_validation_timeout') from None
+        except OSError:
+            raise ToolError('image_validation_unavailable') from None
+        if code in (126,127):raise ToolError('image_validation_unavailable')
+        if code:raise ToolError('invalid_image')
         return [{'page':None,'text':'','media_type':image}]
     if filename.lower().endswith('.pdf'):
         if not data.startswith(b'%PDF-'):
@@ -222,6 +235,11 @@ def office_text(path):
     """Extract document text without macros, external resources, or ZIP extraction."""
     import zipfile
     import xml.etree.ElementTree as ET
+    class SafeTreeBuilder(ET.TreeBuilder):
+        def doctype(self,name,pubid,system):
+            raise ToolError('unsafe_document_xml')
+    def parse_xml(raw):
+        return ET.fromstring(raw, parser=ET.XMLParser(target=SafeTreeBuilder()))
     try:
         with zipfile.ZipFile(path) as archive:
             entries=archive.infolist()
@@ -233,13 +251,12 @@ def office_text(path):
             epub_names=[]
             if any(i.filename=='META-INF/container.xml' for i in entries):
                 import posixpath
-                container=ET.fromstring(archive.read('META-INF/container.xml'))
+                container=parse_xml(archive.read('META-INF/container.xml'))
                 opf=next(e.attrib['full-path'] for e in container.iter() if e.tag.endswith('rootfile'))
                 raw=archive.read(opf)
-                if b'<!ENTITY' in raw:raise ToolError('unsafe_document_xml')
-                package=ET.fromstring(raw)
+                package=parse_xml(raw)
                 manifest={e.attrib['id']:posixpath.normpath(posixpath.join(posixpath.dirname(opf),e.attrib['href'].split('#')[0])) for e in package.iter() if e.tag.endswith('}item')}
-                epub_names=[manifest[e.attrib['idref']] for e in package.iter() if e.tag.endswith('}itemref')]
+                epub_names=[manifest.get(e.attrib['idref']) for e in package.iter() if e.tag.endswith('}itemref')]
             if epub_names:
                 from html.parser import HTMLParser
                 class Reader(HTMLParser):
@@ -250,23 +267,32 @@ def office_text(path):
                         if tag in ('script','style'):self.ignore=max(0,self.ignore-1)
                     def handle_data(self,data):
                         if not self.ignore:self.parts.append(data)
+                expanded=0;missing=0
+                archive_names=set(archive.namelist())
                 for name in epub_names:
-                    reader=Reader();reader.feed(archive.read(name).decode('utf-8-sig'))
+                    if name not in archive_names:
+                        missing+=1;continue
+                    raw=archive.read(name);expanded+=len(raw)
+                    if len(pages)>=2000 or expanded>20*1024*1024:raise ToolError('document_expansion_limit')
+                    reader=Reader();reader.feed(raw.decode('utf-8-sig'))
                     pages.append({'page':len(pages)+1,'text':' '.join(reader.parts)})
+                if not pages:raise ToolError('document_text_unavailable')
+                if missing:
+                    pages[0]['text']='[EPUB extraction warning: '+str(missing)+' reading-order reference(s) could not be read; the extracted text is incomplete.]\n'+pages[0]['text']
                 return pages
             shared=[]
             if 'xl/sharedStrings.xml' in archive.namelist():
                 raw=archive.read('xl/sharedStrings.xml')
-                if b'<!DOCTYPE' in raw or b'<!ENTITY' in raw:raise ToolError('unsafe_document_xml')
-                shared=[''.join(e.itertext()) for e in ET.fromstring(raw)]
+                shared=[''.join(e.itertext()) for e in parse_xml(raw)]
             for item in entries:
                 name=item.filename
                 if not (name=='word/document.xml' or name=='content.xml' or name=='xl/sharedStrings.xml' or name.startswith(('ppt/slides/slide','xl/worksheets/sheet'))):continue
                 if not name.endswith('.xml'):continue
                 raw=archive.read(item)
-                if b'<!DOCTYPE' in raw or b'<!ENTITY' in raw:raise ToolError('unsafe_document_xml')
-                root=ET.fromstring(raw)
+                root=parse_xml(raw)
                 text=' '.join(node.text for node in root.iter() if node.text and node.tag.rsplit('}',1)[-1] in ('t','v','p','h'))
+                if name=='content.xml':
+                    text='\n'.join(''.join(node.itertext()) for node in root.iter() if node.tag.rsplit('}',1)[-1] in ('p','h'))
                 if name.startswith('xl/worksheets/'):
                     rows=[]
                     for row in root.iter():
@@ -274,7 +300,10 @@ def office_text(path):
                         cells=[]
                         for cell in row:
                             value=''.join(e.text or '' for e in cell.iter() if e.tag.rsplit('}',1)[-1] in ('v','t'))
-                            if cell.get('t')=='s':value=shared[int(value)]
+                            if cell.get('t')=='s':
+                                index=int(value)
+                                if index<0:raise ValueError('negative_shared_string_index')
+                                value=shared[index]
                             cells.append(cell.get('r','')+'='+value)
                         rows.append('\t'.join(cells))
                     text='\n'.join(rows)

@@ -2,7 +2,7 @@
 
 **Responsible agent:** `integrate-claude_tail-harness_engineer` (`.codex/agents/integrate-claude_tail-harness_engineer.toml`).
 
-`adapter_spec_revision: 4`
+`adapter_spec_revision: 5`
 `harness_baseline: 0.4.4 working-tree`
 
 ## Observed baseline
@@ -98,3 +98,9 @@ renewal still requires the account owner's browser authorization.
 ## Catalog and quota — 2026-09-21
 
 Claude Code 2.1.236 was checked on this host with non-inference control requests. `initialize` supplies models and `get_usage` supplies account quota. The latter reports percentages, unlike stream utilization fractions. Quota is fetched before a conversation exists, cached for 30 seconds, and falls back to recent owner-scoped stream observations if unavailable. Metadata requests use an empty temporary working directory, no tools, disabled hooks, and the same selected login source as execution. No user prompt is sent.
+
+## Live throughput (2026-09-21)
+
+The shared native/scoped stream parser now emits live usage metrics from message_start and message_delta counts, retaining the latest cumulative output count per message. Source: [official streaming contract](https://platform.claude.com/docs/en/build-with-claude/streaming). Claude Code 2.1.258 was checked locally. Offline fixtures cover multiple messages, duplicate counts and invalid metrics; no live model inference was run.
+
+The displayed rate is output tokens divided by elapsed execution time, including tool waits; it is not decoder-only speed. Missing provider counts remain unavailable and are never estimated from text length. Final results remain authoritative when reopening a conversation.

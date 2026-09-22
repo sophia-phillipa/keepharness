@@ -1,3 +1,4 @@
+import base64
 """Authenticated previews are limited to validated raster uploads."""
 import hashlib
 from unittest.mock import AsyncMock, patch
@@ -23,7 +24,7 @@ def test_preview_is_private_validated_image_bytes_only(tmp_path):
     app = create_app(config(tmp_path))
     with TestClient(app, headers={'Authorization': 'Bearer alice'}) as client, \
             patch.object(app.state.service, 'validate_images', new=AsyncMock()):
-        image = b'\x89PNG\r\n\x1a\npreview'
+        image = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aJ1sAAAAASUVORK5CYII=')
         upload = client.post('/v1/files?project_id=p&backend=codex&model=fixture',
                              headers={'X-Filename': 'preview.png'}, content=image)
         assert upload.status_code == 201, upload.text

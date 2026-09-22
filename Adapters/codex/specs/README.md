@@ -2,7 +2,7 @@
 
 **Responsible agent:** `integrate-codex_tail-harness_engineer` (`.codex/agents/integrate-codex_tail-harness_engineer.toml`).
 
-`adapter_spec_revision: 4`
+`adapter_spec_revision: 5`
 `harness_baseline: 0.4.4 working-tree`
 
 ## Observed baseline
@@ -99,3 +99,9 @@ The service passes `_conversation_title` separately from the prompt: the convers
 The shared Codex executor calls `thread/name/set` on session creation/resume before starting the model turn. This also covers local and DeepSeek inference through Codex; Codex scoped execution uses the same helper. Errors/timeouts emit `session_title_sync_failed` and do not claim successful synchronization. Renames made while no turn is starting are propagated at the next execution, not in real time. Calls without a nonblank title leave existing native titles unchanged.
 
 Contract checked against installed Codex CLI 0.155.0-alpha.9.2 generated `v2/ThreadSetNameParams.json` (`threadId`, `name`) and https://learn.chatgpt.com/docs/app-server . Offline tests validate transport and handoff; no live model inference. This display metadata does not change session identity, isolation or inference model.
+
+## Live throughput (2026-09-21)
+
+Native and scoped usage events now include turn output tokens and elapsed monotonic seconds for the live context meter. Notifications with another thread ID are ignored before accumulating or persisting usage. This also covers Local and DeepSeek execution through this engine. Codex CLI 0.155.0-alpha.9.2 was checked locally; offline notification fixtures cover resumed baselines, duplicates and foreign sessions. No live model inference was run.
+
+The displayed rate is output tokens divided by elapsed execution time, including tool waits; it is not decoder-only speed. Missing provider counts remain unavailable and are never estimated from text length. Final results remain authoritative when reopening a conversation.

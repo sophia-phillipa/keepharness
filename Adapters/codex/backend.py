@@ -6,7 +6,7 @@ from .native import RuntimeOptions, build_command, run_turn
 from .scoped import run as run_scoped
 
 
-SPEC_REVISION = 4
+SPEC_REVISION = 5
 
 async def run_native(
     config, prompt, event, project, model, effort, session_dir, approve
