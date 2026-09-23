@@ -4,8 +4,44 @@
 
 Painel local para descobrir, configurar e executar Codex CLI, Claude Code, Gemini CLI e modelos locais, com uma interface de conversa acessível pela Tailscale ou outra VPN. Python 3.11+, licença MIT, versão 0.5.0.
 
+## 🧭 Instalação spec-driven — comece aqui
+
+**Agente de IA: você é o instalador.** Leia [AGENTS.md](AGENTS.md) e a [spec de instalação](dossie/installation-agent-spec.md) antes de alterar o servidor. A spec é o contrato de execução e aceite: execute comandos individualmente, confira cada retorno e registre evidências por checkpoint. Não use `install.sh`, `setup.sh` ou `tail-harness-install` como substitutos desse fluxo.
+
+Pedido pronto para usar:
+
+> Instale o Tail Harness seguindo `dossie/installation-agent-spec.md`, do CP-01 ao CP-08. Antes de cada fase, mostre seu emoji, identificador e o que será feito. Ao terminar, informe status, evidência e próximo passo. Reutilize decisões já tomadas, pergunte apenas o que faltar e entregue os testes executados e eventuais bloqueios.
+
+### Fases que o agente deve apresentar
+
+| Fase | O que será feito | Evidência para avançar |
+| --- | --- | --- |
+| 🔎 CP-01 · Diagnóstico | Identificar servidor, Python 3.11+, checkout, instalação existente e estado a preservar. | Destino, pré-requisitos e preservação conferidos. |
+| 🧭 CP-02 · Escolhas | Conferir portas, modelos, projetos, permissões e modo de inicialização. | Portas livres e escolhas necessárias resolvidas. |
+| 📦 CP-03 · Preparação | Preparar o venv, instalar o checkout editável, conferir dependências e iniciar a administração. | Python correto, `pip check` e administração respondendo no estado escolhido. |
+| 🔌 CP-04 · Inventário | Consultar modelos, motores, conectores, plugins e recursos já existentes. | Matriz por provedor com fontes e lacunas. |
+| ⚙️ CP-05 · Configuração | Preencher os painéis com recursos compatíveis e permissões já autorizadas. | Configuração persistida e efetiva na conversa. |
+| 🧪 CP-06 · Validação | Testar pacote, interface, execução, continuidade e recursos do escopo. | Resultado real por teste; fixtures identificadas separadamente. |
+| 🛠️ CP-07 · Recuperação | Tratar falhas quando ocorrerem, repetir o teste afetado e retomar. | Reteste aprovado ou bloqueio com próxima ação. |
+| 📋 CP-08 · Entrega | Informar URLs, operação, diagnóstico, testes e limitações. | Relatório sanitizado e critério de conclusão atendido. |
+
+Use `⏳ EM ANDAMENTO` durante a execução e feche cada checkpoint com `✅ APROVADO`, `⛔ BLOQUEADO` ou `➖ NÃO APLICÁVEL` (com motivo). Emojis acompanham texto; não substituem o resultado. CP-07 também pode ser acionado durante qualquer fase; depois, retome o checkpoint afetado.
+
+### Como começar a execução
+
+Parta de um checkout permanente obtido da origem autorizada. Leia a spec completa, inspecione o ambiente e resolva CP-01/CP-02 **antes** de instalar dependências. Os comandos individuais de venv, instalação editável, `pip check` e inicialização estão em **CP-03**; os testes e critérios estão em **CP-06**. Ajuste caminhos e portas ao servidor, confira cada saída e não cole a sequência inteira sem verificar os resultados.
+
+O estado padrão é `~/.local/share/tail-harness`. As URLs padrão são **http://127.0.0.1:8094/** (administração em loopback) e **http://127.0.0.1:8095/** (conversa); confirme disponibilidade antes de usá-las. Conflitos exigem identificar o ocupante e resolver a porta alternativa sem encerrar serviços alheios. Início automático e VPN seguem o escopo autorizado.
+
+Reutilize CLIs, credenciais privadas e servidores existentes. Ative recursos já instalados/configurados, autenticados quando necessário e suportados, preservando projetos, permissões e desativações explícitas. Catálogo não comprova instalação nem execução; registre pendências de login e incompatibilidades. Não exponha segredos nas mensagens.
+
+**Conclusão:** só anuncie “instalação concluída e testada” após os checkpoints obrigatórios, ao menos uma combinação modelo/motor operacional e validação de todos os recursos obrigatórios. Caso contrário, entregue “instalação parcial” com bloqueios e próxima ação. A [spec](dossie/installation-agent-spec.md) detalha os critérios; este README é a porta de entrada.
+
 
 O painel de arquivos usa o Material Icon Theme (MIT), com ícones por extensão e pastas coloridas por nome, servidos localmente. Cada mensagem aceita até **20 anexos**, tanto por upload quanto pela seleção de arquivos/pastas. O ícone identifica o formato; a leitura do conteúdo continua sujeita aos formatos suportados pelo serviço.
+
+Cada arquivo pode ter até **100 MiB (104.857.600 bytes)**, incluindo documentos, imagens, áudio e MP4. A admissão de MP4 depende da capacidade visual detectada para o modelo e do modo de execução. O Harness fornece quatro quadros amostrados ao modelo e transcreve a fala localmente com whisper.cpp quando há áudio; isso não cobre todos os instantes do vídeo. A transcrição exige o runtime local instalado. Os limites de duração (quatro horas), descompactação, armazenamento e contexto continuam aplicáveis.
+
 
 ## Estado persistente
 
@@ -14,16 +50,6 @@ A instalação pelo checkout usa um vínculo editável: o serviço executa o có
 Quando o compartilhamento Tailscale está configurado com identidades autorizadas, abrir a conversa por `127.0.0.1` ou `localhost` encaminha para o endereço Tailscale configurado. Isso preserva a identidade do histórico e as preferências de painéis do navegador após reiniciar. A API/MCP local mantém sua identidade própria; os históricos não são mesclados. Sem compartilhamento, a interface continua local. Se a Tailscale estiver indisponível, reconecte-a: o navegador não troca silenciosamente para outro histórico.
 
 O estado de produção fica em `~/.local/share/tail-harness`: `settings.json`, `local-profiles.json`, `runs/jobs.sqlite3` e anexos. Prévias com `--state` em `/tmp` são descartáveis e não substituem esse estado. Antes de encerrar uma prévia, exporte e importe suas configurações no painel permanente; migrar apenas o código ou o banco não transfere as permissões dos modelos.
-
-## Instalação conduzida por um agente de IA
-
-O Tail Harness é instalado por um agente de IA, que inspeciona o servidor, reutiliza CLIs e credenciais já disponibilizados, configura o painel e executa os testes pós-instalação. Siga a [spec de instalação por IA e checkpoints](dossie/installation-agent-spec.md).
-
-Peça ao agente: **“Instale o Tail Harness seguindo `dossie/installation-agent-spec.md`, informe o progresso, pergunte sobre decisões pendentes e entregue as evidências dos testes.”**
-
-O procedimento cobre conflitos de porta, leitura dos modelos disponíveis, inventário de características, conectores, plugins e artefatos por provedor, persistência, início automático e recuperação de erros. A instalação é conduzida passo a passo pelo agente; os instaladores legados presentes no repositório não são o fluxo recomendado.
-
-Os endereços padrão são **http://127.0.0.1:8094/** para administração e **http://127.0.0.1:8095/** para conversa. O agente deve confirmar disponibilidade e perguntar qual alternativa utilizar em caso de conflito. A administração permanece no loopback; compartilhamento por VPN exige configuração autorizada. Por padrão, o agente descobre e ativa os modelos e recursos já presentes que estejam disponíveis, autenticados quando necessário e suportados pela integração. Registra recursos incompatíveis ou sem autenticação; entradas apenas disponíveis no catálogo não são instaladas automaticamente.
 
 ## Modelos locais
 
@@ -138,13 +164,13 @@ O dashboard mostra somente provedores cadastrados, com ações de edição e exc
 
 No dashboard, em **Acesso remoto e configuração → Exportar ou importar configuração**, exporte as escolhas salvas ou selecione um JSON para conferir uma prévia e aplicar. Credenciais, tokens e chaves VPN são excluídos. O arquivo ainda contém caminhos locais e identidades permitidas: trate-o como privado. A importação valida caminhos e integrações existentes, não inicia serviços e não pode substituir escolhas durante uma execução. Sem perfil no arquivo, o perfil local atual é preservado.
 
-Para testar uma instalação vazia sem modificar o serviço principal:
+Para conferir o pacote já instalado, use o Python absoluto do ambiente preparado em CP-03:
 
 ```sh
-TAIL_HARNESS_VENV="$(mktemp -d)/venv" ./install.sh --check-only
+"$TH_VENV/bin/python" -m control.install_check
 ```
 
-Esse fluxo instala todas as dependências em outro ambiente e faz uma verificação curta do pacote fora do checkout com estado temporário e porta livre. Não reinicia modelos nem configura Tailscale. A pasta do ambiente de teste pode ser removida depois.
+`TH_VENV` deve apontar ao ambiente verificado pelo agente. O check executa uma verificação curta fora do checkout, com estado temporário e porta livre; não instala dependências, reinicia modelos nem configura Tailscale. Não substitui os testes da instância definitiva ou dos provedores. Para simular uma instalação vazia, siga a seção **Simulação de instalação limpa** da [spec](dossie/installation-agent-spec.md), preparando ambiente, estado e portas separados por comandos individuais.
 
 ## DeepSeek com sua própria chave (BYOK)
 

@@ -24,6 +24,7 @@ from starlette.routing import Route
 from agent_service.project_icons import discover_project_icon
 import Adapters as adapters
 from Adapters.codex import rpc as codex_rpc
+from Adapters.claude import account as claude_account
 from . import tools, deployment, workspaces, maestro, service_control
 from . import approval_policy, conversation_context
 from .catalog import catalog
@@ -84,7 +85,7 @@ def encoded(value):
     return json.dumps(value,ensure_ascii=False,separators=(',',':'))
 
 def preview_metadata(file_id, pages):
-    media_type=next((page.get('media_type') for page in pages if page.get('media_type') in PREVIEW_MEDIA_TYPES),None)
+    media_type=next((page.get('media_type') for page in pages if not page.get('frame') and page.get('media_type') in PREVIEW_MEDIA_TYPES),None)
     return {'preview_url':'/v1/files/'+file_id+'/preview','media_type':media_type} if media_type else {}
 
 class Service:
@@ -135,6 +136,10 @@ class Service:
         self.claude_usage_lock = asyncio.Lock()
         self.usage_cache=None
         self.usage_at=0
+        self.codex_modalities_cache=None
+        self.codex_modalities_lock=asyncio.Lock()
+        self.claude_video_cache=None
+        self.claude_video_lock=asyncio.Lock()
         self.config_reload_error=None
         self.cancellation_reasons={}
         self.active_executors={}
@@ -551,7 +556,7 @@ class Service:
         async with self.upload_lock:
             used = self.db.execute('SELECT coalesce(sum(size),0) FROM files WHERE project=?',(project,)).fetchone()[0]
             for name, source in selected:
-                limit = tools.MAX_AUDIO_BYTES if source.suffix.lower() in tools.AUDIO_EXTENSIONS else 50 * 1024 * 1024
+                limit = tools.MAX_ATTACHMENT_BYTES
                 fid = uuid.uuid4().hex; folder = self.root/'files'/project/fid; folder.mkdir(parents=True, mode=0o700)
                 dest = folder/'source'; digest = hashlib.sha256(); copied = 0
                 try:
@@ -563,6 +568,11 @@ class Service:
                                 copied += len(chunk)
                                 if copied > limit or used + copied > 2 * 1024**3: raise APIError('upload_limit',413)
                                 output.write(chunk); digest.update(chunk)
+                    if source.suffix.lower() == '.mp4':
+                        choices = maestro.candidates(self.config, project, uploads=True)
+                        if not any(choice['backend'] == backend and choice['model'] == model for choice in choices):
+                            raise APIError('model_video_unavailable')
+                        await self.validate_video(backend, model, execution_mode or self.default_execution_mode(backend))
                     pages = await tools.extract(dest, name)
                     if any(page.get('media_type') for page in pages):
                         choices = maestro.candidates(self.config, project, uploads=True)
@@ -574,8 +584,11 @@ class Service:
                                         (fid, project, name, copied, digest.hexdigest(), encoded(pages), identity[0]))
                     used += copied; attachments.append({'file_id': fid, 'name': name, **preview_metadata(fid,pages)})
                 except (APIError, tools.ToolError, OSError) as exc:
-                    dest.unlink(missing_ok=True); folder.rmdir()
+                    shutil.rmtree(folder)
                     skipped.append({'path': name, 'reason': exc.code if isinstance(exc, APIError) else str(exc)})
+                except BaseException:
+                    shutil.rmtree(folder)
+                    raise
         return {'attachments': attachments, 'skipped': skipped}
 
     def conversation_rows(self, identity):
@@ -850,7 +863,7 @@ class Service:
     async def validate_images(self, backend, model, execution_mode=None):
         if execution_mode is None:
             execution_mode=self.config.get('services',{}).get(backend,{}).get('mode','scoped')
-        if execution_mode!='native':
+        if execution_mode!='native' and backend!='local':
             raise APIError('images_require_native_service')
         if backend in ('codex','claude','gemini'):return
         if backend!='local':raise APIError('model_images_unavailable')
@@ -866,6 +879,62 @@ class Service:
         except (httpx.HTTPError,ValueError,OSError):
             raise APIError('image_capability_unavailable')
         raise APIError('local_vision_not_enabled')
+
+    async def validate_video(self, backend, model, execution_mode=None):
+        if not tools.video_tools_available():
+            raise APIError('video_processing_unavailable')
+        if backend == 'codex' and execution_mode == 'native':
+            modalities=await self.codex_model_modalities()
+            if modalities is None:raise APIError('video_capability_unavailable',503)
+            if 'image' in modalities.get(model, ()):
+                return
+            raise APIError('model_video_unavailable')
+        if backend == 'claude' and execution_mode == 'native':
+            models=await self.claude_video_models()
+            if models is None:raise APIError('video_capability_unavailable',503)
+            if model in models:return
+            raise APIError('model_video_unavailable')
+        if backend != 'local':
+            raise APIError('model_video_unavailable')
+        try:
+            await self.validate_images(backend, model, execution_mode)
+        except APIError as exc:
+            if exc.code in ('local_vision_not_enabled', 'images_require_native_service', 'model_images_unavailable'):
+                raise APIError('model_video_unavailable') from None
+            raise
+
+    async def codex_model_modalities(self):
+        binary=self.config.get('codex',{}).get('binary')
+        if not binary:return None
+        async with self.codex_modalities_lock:
+            cache=self.codex_modalities_cache
+            if cache and cache[0]==binary and time.monotonic()-cache[1]<30:return cache[2]
+            try:
+                result=await asyncio.wait_for(codex_rpc.metadata(binary,'model/list'),2)
+                modalities={item['id']:item['inputModalities'] for item in result.get('data',[])
+                    if isinstance(item,dict) and isinstance(item.get('id'),str) and isinstance(item.get('inputModalities'),list)}
+            except (OSError,ValueError,RuntimeError,TimeoutError):
+                modalities=None
+            self.codex_modalities_cache=(binary,time.monotonic(),modalities)
+            return modalities
+
+    async def claude_video_models(self):
+        # Claude Code's picker has no modality flag. These current aliases are
+        # documented image-capable: https://platform.claude.com/docs/en/models/overview
+        known={'default','opus','opus[1m]','sonnet','haiku','fable'}
+        binary=self.config.get('claude',{}).get('binary')
+        if not binary:return None
+        async with self.claude_video_lock:
+            cache=self.claude_video_cache
+            if cache and cache[0]==binary and time.monotonic()-cache[1]<30:return cache[2]
+            try:
+                result=await asyncio.wait_for(claude_account.metadata(self.config['claude']),2)
+                models={item['value'] for item in result.get('models',[])
+                    if isinstance(item,dict) and item.get('value') in known and not item.get('disabled')}
+            except (OSError,ValueError,RuntimeError,TimeoutError):
+                models=None
+            self.claude_video_cache=(binary,time.monotonic(),models)
+            return models
 
     async def infer(self, row, data):
         selected_resources=self.selected_resources(data)
@@ -884,29 +953,39 @@ class Service:
                 folder=native_session/'attachments';folder.mkdir(parents=True,exist_ok=True,mode=0o700)
                 extracted=folder/(fid+'.txt')
                 extracted.write_text('\n'.join(page.get('text','') for page in pages));extracted.chmod(0o600)
-                source.update(pages=[{'page':None,'text':extracted.read_text()[:6000]}],excerpt=True,
+                source.update(pages=[{'page':None,'text':extracted.read_text()[:6000]},
+                    *(page for page in pages if page.get('media_type'))],excerpt=True,
                               full_text_path=str(extracted.resolve()),instruction='Only an excerpt is shown. Read the local text file in bounded portions using the permitted tools. If tools are unavailable, ask for a smaller excerpt; never claim to have read the complete document.')
             sources.append(source)
         image_sources=[source for source in sources if any(page.get('media_type') for page in source['pages'])]
         attachment_notice = ''
-        if image_sources:
+        notices=[]
+        for source in image_sources[:]:
+            video=Path(source['filename']).suffix.lower()=='.mp4'
             try:
-                await self.validate_images(data.get('backend','codex'),data.get('model'),data.get('execution_mode'))
+                if video:await self.validate_video(data.get('backend','codex'),data.get('model'),data.get('execution_mode'))
+                else:await self.validate_images(data.get('backend','codex'),data.get('model'),data.get('execution_mode'))
             except APIError as exc:
                 reasons = {
                     'model_images_unavailable': 'o modelo selecionado não suporta leitura de imagens',
+                    'model_video_unavailable': 'o modelo selecionado não suporta os quadros deste vídeo',
                     'local_vision_not_enabled': 'o modelo local está sem suporte a imagens habilitado neste servidor',
                     'images_require_native_service': 'o modo de execução selecionado não suporta leitura de imagens',
+                    'video_processing_unavailable': 'o processamento local de vídeo está indisponível',
                 }
                 if exc.code not in reasons:raise
-                attachment_notice = '\n'.join('Arquivo '+json.dumps(source['filename'],ensure_ascii=False)+' ignorado nesta resposta porque '+reasons[exc.code]+'.' for source in image_sources)+'\n\n'
-                sources = [source for source in sources if source not in image_sources]
-                image_sources = []
+                name=json.dumps(source['filename'],ensure_ascii=False)
+                if video:notices.append('Quadros do arquivo '+name+' ignorados nesta resposta porque '+reasons[exc.code]+'. O texto extraído, quando disponível, foi preservado.')
+                else:notices.append('Arquivo '+name+' ignorado nesta resposta porque '+reasons[exc.code]+'.')
+                image_sources.remove(source)
+                if video:source['pages']=[page for page in source['pages'] if not page.get('media_type')]
+                else:sources.remove(source)
+        if notices:attachment_notice='\n'.join(notices)+'\n\n'
         context = encoded(sources)
         if len(context)>100000:
             raise APIError('source_context_limit')
         prompt = resources.prepare_prompt(data.get('prompt',''),selected_resources)
-        if attachment_notice:prompt += '\nAVISO DO SISTEMA: os arquivos abaixo não foram fornecidos ao modelo; não afirme ter lido seu conteúdo.\n'+attachment_notice
+        if attachment_notice:prompt += '\nAVISO DO SISTEMA: os quadros e imagens citados abaixo não foram fornecidos ao modelo; não afirme ter visto seu conteúdo.\n'+attachment_notice
         native_session=self.root/'sessions'/self.conversation_id(row)/data.get('backend','codex')
         if data.get('_maestro_stage'):native_session=self.root/'sessions'/row['id']/('maestro-'+data['_maestro_stage'])
         overflow_job=next((payload['_overflow_job_id'] for payload,_ in reversed(turns) if payload.get('_overflow_job_id')),None)
@@ -983,7 +1062,10 @@ class Service:
             mode=data.get('access_mode','ask')
             permissions=approval_policy.effective_permissions(permissions,mode)
             project_config['access_mode']=mode
-            project_config['_images']=[{'media_type':source['pages'][0]['media_type'],'path':str(self.root/'files'/row['project']/source['file_id']/'source')} for source in image_sources if not persisted_session or source['file_id'] in pending_files]
+            project_config['_images']=[{'media_type':page['media_type'],
+                'path':str(self.root/'files'/row['project']/source['file_id']/(page.get('frame') or 'source'))}
+                for source in image_sources if not persisted_session or source['file_id'] in pending_files
+                for page in source['pages'] if page.get('media_type')]
             project_config['permissions']=permissions
             if history_folder is not None:
                 project_config['additional_roots']=[*project_config.get('additional_roots',[]),str(history_folder.resolve())]
@@ -1209,6 +1291,16 @@ class Service:
 
     async def models_with_context(self, project_id=None):
         models=self.models(project_id)
+        async def codex_video():
+            return (await self.codex_model_modalities() or {}) if any(model['backend']=='codex' for model in models) and tools.video_tools_available() else {}
+        async def claude_video_models():
+            return (await self.claude_video_models() or set()) if any(model['backend']=='claude' for model in models) and tools.video_tools_available() else set()
+        codex_modalities,claude_video=await asyncio.gather(codex_video(),claude_video_models())
+        for model in models:
+            if model['backend']=='codex' and 'image' in codex_modalities.get(model['id'],()):
+                model['capabilities'].update(video=True,video_transcription=tools.transcription_available(),video_execution_modes=['native'])
+            if model['backend']=='claude' and model['id'] in claude_video:
+                model['capabilities'].update(video=True,video_transcription=tools.transcription_available(),video_execution_modes=['native'])
         async def enrich(model):
             if model['backend']!='local':return
             endpoint=self.config.get('local',{}).get('local_models',{}).get(model['id'],{})
@@ -1218,14 +1310,19 @@ class Service:
                 async with httpx.AsyncClient(timeout=2) as client:
                     response=await client.get(endpoint.get('url',self.config.get('model_url','http://127.0.0.1:8091')).rstrip('/')+'/props',headers=headers)
                     response.raise_for_status()
-                    window=response.json().get('default_generation_settings',{}).get('n_ctx')
+                    properties=response.json()
+                    window=properties.get('default_generation_settings',{}).get('n_ctx')
                     if type(window) is int and window>0:model['context_window']=window
+                    if properties.get('modalities',{}).get('vision') is True and tools.video_tools_available():
+                        model['capabilities']['video']=True
+                        model['capabilities']['video_transcription']=tools.transcription_available()
+                        model['capabilities']['video_execution_modes']=['scoped']
             except (httpx.HTTPError,ValueError,OSError):pass
         await asyncio.gather(*(enrich(model) for model in models))
         return models
 
     def models(self,project_id=None):
-        return [{'id':m,'name':Path(self.config.get('local',{}).get('local_models',{}).get(m,{}).get('model_file') or m).name if provider=='local' else m,'backend':provider,'permissions':maestro.model_permissions(self.config,provider,m,project_id),'capabilities':{'tools':any(value for key,value in maestro.model_permissions(self.config,provider,m,project_id).items() if key!='upload')},'execution_modes':list(self.execution_modes(provider)),'efforts':maestro.model_efforts(self.config,provider,m)}
+        return [{'id':m,'name':Path(self.config.get('local',{}).get('local_models',{}).get(m,{}).get('model_file') or m).name if provider=='local' else m,'backend':provider,'permissions':maestro.model_permissions(self.config,provider,m,project_id),'capabilities':{'tools':any(value for key,value in maestro.model_permissions(self.config,provider,m,project_id).items() if key!='upload'),'video':False,'video_transcription':False,'video_execution_modes':[]},'execution_modes':list(self.execution_modes(provider)),'efforts':maestro.model_efforts(self.config,provider,m)}
                 for provider,service in self.config.get('services',{}).items() if service.get('enabled') and (project_id is None or project_id in service.get('projects',[])) for m in service.get('models',[])]
 
     def capabilities(self):
@@ -1444,7 +1541,6 @@ def create_app(config, runtime_path=None):
                 from urllib.parse import unquote
                 name=unquote(request.headers.get('x-filename','project.zip'))
                 if not re.fullmatch(r'[\w .-]{1,160}',name):raise APIError('invalid_filename')
-                import shutil
                 async with service.upload_lock:
                     base=service.root/'workspaces';base.mkdir(exist_ok=True,mode=0o700)
                     used=sum(p.stat().st_size for p in base.rglob('*') if p.is_file() and not p.is_symlink())
@@ -1536,7 +1632,7 @@ def create_app(config, runtime_path=None):
                     used=service.db.execute('SELECT coalesce(sum(size),0) FROM files WHERE project=?',(project,)).fetchone()[0]
                     fid=uuid.uuid4().hex;folder=service.root/'files'/project/fid;folder.mkdir(parents=True,mode=0o700)
                     dest=folder/'source';size=0;digest=hashlib.sha256()
-                    file_limit=tools.MAX_AUDIO_BYTES if Path(filename).suffix.lower() in tools.AUDIO_EXTENSIONS else 50*1024*1024
+                    file_limit=tools.MAX_ATTACHMENT_BYTES
                     try:
                         with dest.open('xb') as out:
                             async with asyncio.timeout(600):
@@ -1544,6 +1640,13 @@ def create_app(config, runtime_path=None):
                                     size+=len(chunk)
                                     if size>file_limit or used+size>2*1024**3: raise APIError('upload_limit',413)
                                     out.write(chunk);digest.update(chunk)
+                        if Path(filename).suffix.lower()=='.mp4':
+                            backend=request.query_params.get('backend');model=request.query_params.get('model')
+                            choices=maestro.candidates(config,project,uploads=True)
+                            if not any(c['backend']==backend and c['model']==model for c in choices):raise APIError('model_video_unavailable')
+                            execution_mode=request.query_params.get('execution_mode') or service.default_execution_mode(backend)
+                            service.validate_execution_mode(backend,execution_mode)
+                            await service.validate_video(backend,model,execution_mode)
                         pages=await tools.extract(dest,filename)
                         if any(page.get('media_type') for page in pages):
                             backend=request.query_params.get('backend');model=request.query_params.get('model')
@@ -1555,7 +1658,7 @@ def create_app(config, runtime_path=None):
                         with service.db:
                             service.db.execute('INSERT INTO files(id,project,name,size,hash,pages,owner) VALUES(?,?,?,?,?,?,?)',(fid,project,filename,size,digest.hexdigest(),encoded(pages),identity[0]))
                     except BaseException:
-                        dest.unlink(missing_ok=True);folder.rmdir();raise
+                        shutil.rmtree(folder);raise
                 return JSONResponse({'file_id':fid,'sha256':digest.hexdigest(),'bytes':size,'pages':len(pages),**preview_metadata(fid,pages)},status_code=201)
             if path.startswith('/v1/files/'):
                 file_id=request.path_params['file'];row=service.db.execute('SELECT * FROM files WHERE id=? AND owner=?',(file_id,identity[0])).fetchone()

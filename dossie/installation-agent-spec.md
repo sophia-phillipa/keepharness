@@ -10,12 +10,35 @@ Leia `AGENTS.md`, os dois READMEs, `pyproject.toml` e as specs dos adaptadores u
 
 ### Regras de execução
 
-- Informe antes de cada fase o que fará e, ao terminar, o resultado, a evidência e a próxima etapa. Nunca silencie um bloqueio nem anuncie sucesso só porque um processo iniciou.
+- Informe antes de cada fase seu emoji, identificador CP, o que fará e por quê; ao terminar, informe o resultado, a evidência e a próxima etapa. Siga o formato de progresso abaixo. Nunca silencie um bloqueio nem anuncie sucesso só porque um processo iniciou.
 - Faça perguntas apenas quando faltar uma decisão necessária. Reutilize respostas e autorizações anteriores. Continue tarefas independentes enquanto aguarda; não escolha pelo usuário uma porta alternativa ou uma ampliação de acesso.
 - Não leia valores de tokens para a conversa, logs ou relatório. Reutilize os mecanismos privados do provedor, sob o usuário correto. Presença de arquivo não comprova autenticação.
 - Preserve checkout, estado, credenciais, modelos, serviços existentes e trabalhos em execução. Faça backup privado consistente antes de mudanças em estado existente; para SQLite ativo, use backup transacional, não cópia isolada do arquivo.
 - Não instalar CLIs, baixar pesos, trocar runtime, habilitar integrações, publicar na rede ou ampliar permissões apenas porque foram descobertos. Execute o escopo já autorizado; pergunte sobre escolhas adicionais necessárias.
 - Cada checkpoint recebe `APROVADO`, `BLOQUEADO` ou `NÃO APLICÁVEL`, com evidência, horário e motivo. Falha de um provedor pode permitir continuar os demais, mas impede declarar esse provedor pronto. Ausência de evidência não equivale a aprovação.
+
+## Progresso visível obrigatório
+
+Use os mesmos identificadores e emojis do README: 🔎 CP-01 diagnóstico, 🧭 CP-02 escolhas, 📦 CP-03 preparação, 🔌 CP-04 inventário, ⚙️ CP-05 configuração, 🧪 CP-06 validação, 🛠️ CP-07 recuperação e 📋 CP-08 entrega. Apresente o roteiro no início e atualize-o conforme os resultados observados. A numeração identifica checkpoints, não porcentagem nem duração estimada.
+
+Antes de executar, publique uma mensagem curta neste formato:
+
+> 📦 CP-03 · Preparação — ⏳ EM ANDAMENTO
+>
+> Vou instalar o checkout no ambiente Python selecionado e conferir as dependências para iniciar a administração. Vou verificar o retorno de cada comando antes de avançar.
+
+Ao fechar uma fase, use `✅ APROVADO`, `⛔ BLOQUEADO` ou `➖ NÃO APLICÁVEL`, acompanhado de ação executada, resultado observado, evidência sanitizada e próximo passo. Exemplo de formato, a preencher com resultados reais:
+
+```text
+📦 CP-03 · Preparação — <status>
+Executado: <comando ou ação com caminhos efetivos, sem segredos>
+Resultado/evidência: <observação, horário e referência local>
+Próximo passo: <checkpoint seguinte ou ação para resolver o bloqueio>
+```
+
+Em operações demoradas, explique qual comando continua em execução e o que falta verificar; não invente progresso ou conclusão. Se ocorrer falha, anuncie 🛠️ CP-07, descreva o diagnóstico/reparo dentro do escopo e retome a fase afetada após o reteste. Quando não houver falha a tratar, registre CP-07 como `➖ NÃO APLICÁVEL`, com esse motivo. Fases condicionais e recursos opcionais também precisam de justificativa; um requisito que falhou permanece bloqueado.
+
+**Aceite da comunicação:** todas as fases têm emoji, identificador e descrição textual; cada checkpoint encerrado tem status, evidência e próximo passo. Uma instalação parcial termina com bloqueios explícitos. Mensagens exemplificativas desta spec não são evidências de execução.
 
 ## Simulação de instalação limpa
 
@@ -25,7 +48,7 @@ Antes de instalar sobre uma instância existente, prefira um diretório temporá
 
 Em teste local real, habilite somente o modelo escolhido na instância temporária; conceda leitura/escrita/terminal apenas para um projeto sintético, sem rede, hooks ou integrações. Aguarde disponibilidade do runtime, não concorra com inferência alheia, imponha prazo e cancele somente o próprio job ao excedê-lo. Ao terminar, encerre somente os processos da simulação e confira os listeners de produção. Preserve relatório e evidências, informando que diretórios em `/tmp` são temporários.
 
-## CP-01 — Identificar servidor e preservar a instalação
+## 🔎 CP-01 — Identificar servidor e preservar a instalação
 
 1. Confirme usuário efetivo, sistema, arquitetura, checkout/revisão e alterações locais. Registre se é primeira instalação, atualização ou retomada.
 2. Verifique Python 3.11+, venv/pip, espaço, RAM, Node/Chromium quando necessários aos testes e acesso às dependências. GPU é opcional; não carregar modelos para medir disponibilidade.
@@ -35,7 +58,7 @@ Em teste local real, habilite somente o modelo escolhido na instância temporár
 
 **Aceite:** destino e usuário inequívocos; pré-requisitos atendidos ou lacunas identificadas; estado anterior preservado. Não instalar uma segunda instância por não reconhecer a primeira.
 
-## CP-02 — Resolver portas e escolhas necessárias
+## 🧭 CP-02 — Resolver portas e escolhas necessárias
 
 Verifique listeners e seus processos antes de iniciar qualquer serviço. Padrões: administração `8094`, conversa `8095`; `8096` só é relevante se um runtime local gerenciado for solicitado. Ollama existente normalmente usa `11434`; descubra o endereço real. Administração permanece em `127.0.0.1`.
 
@@ -45,7 +68,7 @@ Resolva somente as demais escolhas ainda desconhecidas: provedores/modelos desej
 
 **Aceite:** portas distintas válidas, entre 1024 e 65535 para administração/conversa, e decisões registradas. Rotas VPN existentes precisam ser tratadas antes de mudar suas portas, conforme a validação do painel.
 
-## CP-03 — Instalar dependências e iniciar a administração
+## 📦 CP-03 — Instalar dependências e iniciar a administração
 
 O agente executa cada comando, inspeciona o retorno e só então avança. Exemplo para um checkout já obtido da origem autorizada, com variáveis ajustadas e caminhos absolutos:
 
@@ -70,7 +93,7 @@ Abra `/` e confira assets e `/api/state` com a mesma sessão HTTP: a página ini
 
 **Aceite:** pacote importável pelo Python instalado, dependências consistentes, administração responde e executa o checkout/estado esperados. Serviço e atalho, quando solicitados, apontam à instalação correta.
 
-## CP-04 — Descobrir modelos e recursos de todos os provedores
+## 🔌 CP-04 — Descobrir modelos e recursos de todos os provedores
 
 Informe explicitamente: **“Vou ler os modelos disponíveis nos servidores e os recursos já configurados nos CLIs para preencher os painéis dos provedores. Essa leitura não habilita permissões novas.”**
 
@@ -92,7 +115,7 @@ Para catálogos Codex/Claude, o código usa `codex mcp list --json`, `claude mcp
 
 **Aceite:** matriz por provedor cobrindo todas as categorias, com fonte, estado e lacunas. Resuma ao usuário os modelos encontrados antes de configurar a seleção. Diferencie `descoberto`, `configurado`, `habilitado`, `autenticado`, `testado` e `não suportado`.
 
-## CP-05 — Preencher e conferir os painéis
+## ⚙️ CP-05 — Preencher e conferir os painéis
 
 1. Preencha os cartões pelos mecanismos suportados de configuração, reutilizando IDs e ícones reais. Identifique **Modelo Local via Codex** e **DeepSeek via Codex** quando essas forem as combinações efetivas; não anunciar motores alternativos ainda não implementados.
 2. Apresente modelos e recursos já encontrados e habilitados no perfil de origem. Reconcile cada item do inventário com o painel do provedor: ID, estado, seleção e origem. Detectado não significa autorizado para todas as tarefas do Tail Harness.
@@ -104,7 +127,7 @@ Para catálogos Codex/Claude, o código usa `codex mcp list --json`, `claude mcp
 
 No padrão da instalação, classifique separadamente **catalogado**, **instalado/configurado**, **credencial presente**, **autenticado**, **habilitado** e **testado**. Ative tudo que esteja instalado/configurado, autenticado e tenha contrato implementado, sem mudar a lista de projetos nem permissões. Catálogo sem instalação fica disponível para consulta, não instalado; recurso sem autenticação fica pendente de login; recurso sem suporte fica marcado como não suportado. Conectores configurados podem ser selecionados somente quando forem compatíveis com o provedor/motor atual e permanecerem dentro do escopo já concedido. Uma entrada de catálogo ou configuração não prova operação real; marque-a como testada apenas após uma chamada mínima, autorizada e somente leitura.
 
-## CP-06 — Testes pós-instalação obrigatórios
+## 🧪 CP-06 — Testes pós-instalação obrigatórios
 
 Execute testes dirigidos à instalação e aos contratos selecionados, respeitando `AGENTS.md`. Suíte completa somente nos marcos Git previstos; não criar um marco para dispará-la. Fixtures não comprovam acesso real a contas. Testes reais devem usar dados sintéticos, projeto temporário autorizado e orçamento curto, sem benchmarks de GPU ou inferências pagas não autorizadas.
 
@@ -132,7 +155,7 @@ O primeiro comando valida distribuição, inicialização e catálogo, não a in
 
 **Aceite:** resultados registrados por teste e combinação; sem falhas obrigatórias abertas. Sucesso do pacote, sucesso das fixtures e sucesso ponta a ponta são evidências diferentes.
 
-## CP-07 — Tratar falhas e retomar
+## 🛠️ CP-07 — Tratar falhas e retomar
 
 Antes de alterar algo, recolha erro sanitizado, horário, comando, versão, processo/porta, usuário e estado efetivos. Consulte logs da unidade (`journalctl --user -u tail-harness -n 50`) ou da sessão manual. Evite dumps de ambiente e configs com segredos.
 
@@ -150,7 +173,7 @@ Correções reversíveis dentro do escopo são responsabilidade do agente. Mudan
 
 **Aceite:** falhas corrigidas com reteste ou bloqueios documentados com próxima ação concreta. Ao retomar, confira o estado real e reutilize checkpoints ainda válidos; mudanças invalidam apenas as evidências afetadas.
 
-## CP-08 — Entrega e critério de conclusão
+## 📋 CP-08 — Entrega e critério de conclusão
 
 Entregue um relatório sanitizado fora do versionamento, em local combinado, com:
 
