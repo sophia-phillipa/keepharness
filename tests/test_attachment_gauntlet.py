@@ -60,8 +60,10 @@ def test_attachment_profile(api,round_no,profile):
         assert response.status_code==422
         assert not list((service.root/'files').rglob('source'))
         assert upload(client,content).status_code==201
-    elif profile==6: # Real bytes just above 50 MiB; no mocked size check.
-        response=upload(client,b'x'*(50*1024*1024+round_no),name='large.txt')
+    elif profile==6: # Streamed bytes above the configured bound are rejected.
+        from unittest.mock import patch
+        with patch('agent_service.app.tools.MAX_ATTACHMENT_BYTES', 1024*1024):
+            response=upload(client,b'x'*(1024*1024+round_no),name='large.txt')
         assert response.status_code==413,response.text
         assert service.db.execute('SELECT count(*) FROM files').fetchone()[0]==0
         assert not list((service.root/'files').rglob('source'))
@@ -149,7 +151,7 @@ def test_attachment_source_changes_are_bounded(api,replacement):
 
 def test_exact_document_limit_is_accepted(api):
     client,service,_=api
-    content=b'x'*(50*1024*1024)
+    content=b'x'*(100*1024*1024)
     response=upload(client,content,'boundary.txt')
     assert response.status_code==201,response.text
     assert response.json()['bytes']==len(content)

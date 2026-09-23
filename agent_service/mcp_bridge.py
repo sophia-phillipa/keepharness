@@ -273,7 +273,7 @@ def main():
         # The model-facing MCP tool cannot read arbitrary client paths. Only explicit CLI invocation does so.
         import asyncio,urllib.parse
         project,filename=sys.argv[2:4];path=Path(filename)
-        if path.stat().st_size>50*1024*1024: raise SystemExit('50 MiB limit')
+        if path.stat().st_size>100*1024*1024: raise SystemExit('100 MiB limit')
         print(json.dumps(asyncio.run(call('POST','/v1/files?project_id='+urllib.parse.quote(project,safe=''),
             headers={'X-Filename':urllib.parse.quote(path.name,safe='')},content=path.read_bytes()))))
     else:

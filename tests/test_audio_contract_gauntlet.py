@@ -39,7 +39,7 @@ def test_four_hour_audio_accepted_without_changing_byte_budgets(media, monkeypat
     calls=fake_pipeline(monkeypatch,media,duration)
     result=asyncio.run(tools.transcribe_audio(media))
     assert 'Synthetic speech' in result[0]['text']
-    assert tools.MAX_AUDIO_BYTES==256*1024*1024
+    assert tools.MAX_AUDIO_BYTES==100*1024*1024
     assert len(calls)==3
     assert '--fsize=536870912' in calls[1][0]
     assert media.read_bytes()==b'SYNTHETIC AUDIO'

@@ -4,18 +4,41 @@
 
 A local Python control panel for discovering, configuring and running Codex CLI, Claude Code, Gemini CLI and local AI models, with a conversational harness accessible through Tailscale or another VPN. Python 3.11+, MIT license, version **0.5.0**.
 
+## 🧭 Spec-driven installation — start here
+
+**AI agent: you are the installer.** Read [AGENTS.md](AGENTS.md) and the [installation specification (Portuguese)](dossie/installation-agent-spec.md) before changing the server. The spec defines execution and acceptance: run individual commands, inspect every result and record evidence for each checkpoint. Do not substitute `install.sh`, `setup.sh` or `tail-harness-install` for this workflow.
+
+Ready-to-use request:
+
+> Install Tail Harness following `dossie/installation-agent-spec.md`, from CP-01 through CP-08. Before each phase, show its emoji, identifier and planned action. Afterwards, report status, evidence and next step. Reuse previous decisions, ask only for missing ones and deliver executed tests and any blockers.
+
+### Phases the agent must present
+
+| Phase | What happens | Evidence to proceed |
+| --- | --- | --- |
+| 🔎 CP-01 · Diagnosis | Identify the server, Python 3.11+, checkout, existing installation and state to preserve. | Destination, prerequisites and preservation verified. |
+| 🧭 CP-02 · Decisions | Check ports, models, projects, permissions and startup mode. | Available ports and required decisions resolved. |
+| 📦 CP-03 · Preparation | Prepare the venv, install the editable checkout, check dependencies and start administration. | Correct Python, `pip check` and administration using the chosen state. |
+| 🔌 CP-04 · Inventory | Query existing models, execution engines, connectors, plugins and resources. | Provider matrix with sources and gaps. |
+| ⚙️ CP-05 · Configuration | Populate panels with compatible resources and existing authorized permissions. | Configuration persisted and effective in conversations. |
+| 🧪 CP-06 · Validation | Test the package, interface, execution, continuity and scoped resources. | Actual result per test; fixtures identified separately. |
+| 🛠️ CP-07 · Recovery | Handle failures when they occur, rerun affected tests and resume. | Passing retest or blocker with a next action. |
+| 📋 CP-08 · Handoff | Provide URLs, operating instructions, diagnostics, tests and limitations. | Sanitized report and completion criteria met. |
+
+Use `⏳ IN PROGRESS` while running and close each checkpoint with `✅ APPROVED`, `⛔ BLOCKED` or `➖ NOT APPLICABLE` (with a reason), corresponding to the spec's `APROVADO`, `BLOQUEADO` and `NÃO APLICÁVEL`. Emojis accompany text, never replace results. CP-07 can also be entered during any phase; then resume the affected checkpoint.
+
+### Starting execution
+
+Start from a permanent checkout obtained from the authorized source. Read the complete spec, inspect the environment and resolve CP-01/CP-02 **before** installing dependencies. Individual commands for the venv, editable installation, `pip check` and startup are in **CP-03**; tests and acceptance criteria are in **CP-06**. Adapt paths and ports to the server, inspect every output and do not paste the entire sequence without checking results.
+
+Default state lives in `~/.local/share/tail-harness`. Default URLs are **http://127.0.0.1:8094/** (loopback administration) and **http://127.0.0.1:8095/** (conversations); verify availability first. For conflicts, identify the occupant and resolve the alternative port without stopping unrelated services. Autostart and VPN follow the authorized scope.
+
+Reuse existing CLIs, private credentials and model servers. Enable resources already installed/configured, authenticated when required and supported, preserving projects, permissions and explicit disabled selections. Catalog entries do not prove installation or execution; record pending logins and incompatibilities. Never expose secrets in progress messages.
+
+**Completion:** report “installation completed and tested” only after required checkpoints pass, at least one model/engine combination works and all required resources are validated. Otherwise, report “partial installation” with blockers and next actions. The [spec](dossie/installation-agent-spec.md) defines detailed criteria; this README is the entry point.
+
 
 The file panel uses Material Icon Theme (MIT), with extension-specific icons and colored folders matched by name, served locally. Each message accepts up to **20 attachments**, through uploads or file/folder selection. Icons identify formats; reading their contents still depends on the formats supported by the service.
-
-## AI-guided installation
-
-Tail Harness is installed by an AI agent that inspects the server, reuses existing CLIs and credentials, configures provider panels and runs post-installation checks. Follow the [AI installation specification and checkpoints (Portuguese)](dossie/installation-agent-spec.md).
-
-Ask the agent: **“Install Tail Harness following `dossie/installation-agent-spec.md`, report progress, ask about unresolved decisions and deliver test evidence.”**
-
-The procedure covers port conflicts, available models, provider capabilities, connectors, plugins, artifacts, persistence, startup and error recovery. The agent performs and verifies each step; legacy installers still present in the repository are not the recommended installation workflow.
-
-Default addresses are **http://127.0.0.1:8094/** for administration and **http://127.0.0.1:8095/** for conversations. The agent must check availability and ask which alternative to use on conflict. Administration stays on loopback; VPN sharing requires authorized configuration. By default, the agent discovers and enables existing models and resources that are available, authenticated when required, and supported by the integration. It records incompatible or unauthenticated resources; entries merely available in a catalog are not installed automatically.
 
 ## Configure providers
 
@@ -39,7 +62,7 @@ The inventory discovers local llama.cpp processes and Ollama models. Model weigh
 
 Supported attachment paths include text/source files, CSV/TSV, selectable-text PDF, EPUB without DRM, DOCX/PPTX/XLSX and OpenDocument text extraction. Large documents have a labeled excerpt plus a full local text file for bounded tool reads. Image forwarding requires a compatible native executor; local vision is checked against the running server. Optional whisper.cpp performs offline speech transcription. Uploaded folder workspaces use a separate extraction path and do not automatically inherit all single-file transformations.
 
-Limits include 50 MiB per document, 5 MiB per image, and two hours / 256 MiB per audio upload. The increased audio and context limits have not been load-tested. Scanned PDFs, encrypted/DRM documents, legacy binary Office formats and native audio reasoning are not automatically supported. See the [attachment specification](dossie/UC-004-multimodal-attachments.md).
+Each attachment can contain up to **100 MiB (104,857,600 bytes)**, including documents, images, audio and MP4. MP4 admission follows detected model vision capabilities and the execution mode. The harness supplies four sampled frames and locally transcribes speech with whisper.cpp when an audio track exists; sampling does not cover every moment of the video. Speech transcription requires the installed local runtime. Media duration remains limited to four hours; archive expansion, storage and model context limits still apply. Long-media processing has not been load-tested. Scanned PDFs, encrypted/DRM documents, legacy binary Office formats and native audio reasoning are not automatically supported. See the [attachment specification](dossie/UC-004-multimodal-attachments.md).
 
 ## Permissions and integrations
 
@@ -104,7 +127,7 @@ When Tailscale sharing is configured with authorized identities, opening the cha
 PYTHON="$PWD/.venv/bin/python" PLAYWRIGHT_MODULE=/path/to/playwright ./scripts/test-ui.sh
 ```
 
-UI fixtures avoid cloud inference and model downloads. A passing mocked suite does not prove third-party authentication, physical reboot or full-context performance. For an isolated installer check, use `TAIL_HARNESS_VENV="$(mktemp -d)/venv" ./install.sh --check-only`.
+UI fixtures avoid cloud inference and model downloads. A passing mocked suite does not prove third-party authentication, physical reboot or full-context performance. To check the installed package, use `"$TH_VENV/bin/python" -m control.install_check`, with `TH_VENV` set to the absolute environment path verified in CP-03. This smoke check runs outside the checkout with temporary state and an available port; it does not install dependencies or validate the production instance and providers. For a clean installation simulation, follow the dedicated section of the [spec](dossie/installation-agent-spec.md), preparing separate environment, state and ports through individual commands.
 
 Every new version requires an English specification at `dossie/releases/v<VERSION>.md`, with behavior, acceptance criteria, relevant diagrams, migration notes and actual validation. Update both READMEs and version identifiers together. See [version 0.5.0](dossie/releases/v0.5.0.md), the [dossier](dossie/README.md), [extraction audit](docs/AUDIT.md) and [validation notes](docs/VALIDATION.md).
 

@@ -12,8 +12,16 @@ import urllib.parse
 
 MAX_OUTPUT = 2 * 1024 * 1024
 AUDIO_EXTENSIONS = {'.wav','.mp3','.m4a','.ogg','.flac','.webm','.aac','.opus'}
-MAX_AUDIO_BYTES = 256 * 1024 * 1024
+MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024
+MAX_AUDIO_BYTES = MAX_ATTACHMENT_BYTES
 MAX_AUDIO_SECONDS = 14400
+
+def video_tools_available():
+    return all(shutil.which(tool) for tool in ('ffprobe', 'ffmpeg', 'bwrap', 'prlimit'))
+
+def transcription_available():
+    runtime = Path(os.environ.get('TAIL_HARNESS_WHISPER_DIR', str(Path.home()/'.local/share/tail-harness/whisper.cpp')))
+    return (runtime/'build/bin/whisper-cli').is_file() and (runtime/'models/ggml-base.bin').is_file()
 
 class ToolError(Exception):
     pass
@@ -73,10 +81,12 @@ def safe_file(root, name):
 async def extract(path, filename):
     if Path(filename).suffix.lower() in AUDIO_EXTENSIONS:
         return await transcribe_audio(path)
+    if Path(filename).suffix.lower() == '.mp4':
+        return await extract_video(path)
     data = path.read_bytes()
     image = image_type(data)
     if image:
-        if len(data)>5*1024*1024:raise ToolError('image_size_limit')
+        if len(data)>MAX_ATTACHMENT_BYTES:raise ToolError('image_size_limit')
         if any(shutil.which(tool) is None for tool in ('ffmpeg','bwrap','prlimit')):
             raise ToolError('image_validation_unavailable')
         try:
@@ -312,6 +322,57 @@ def office_text(path):
             return pages
     except (zipfile.BadZipFile, ET.ParseError, RuntimeError, ValueError, KeyError, IndexError, StopIteration):
         raise ToolError('invalid_document')
+
+async def extract_video(path):
+    """Read a few bounded still frames and the speech track from an MP4."""
+    if not video_tools_available():
+        raise ToolError('video_processing_unavailable')
+    try:
+        code, output = await process(sandbox(path.parent, ['ffprobe', '-v', 'error',
+            '-protocol_whitelist', 'file,pipe', '-show_entries', 'format=format_name,duration:stream=codec_type',
+            '-of', 'json', '/work/' + path.name]), 15)
+        metadata = json.loads(output)
+        duration = float(metadata['format']['duration'])
+        streams = {stream.get('codec_type') for stream in metadata.get('streams', [])}
+        if code or 'mp4' not in metadata['format'].get('format_name', '') or not 0 < duration <= MAX_AUDIO_SECONDS or 'video' not in streams:
+            raise ToolError('invalid_video')
+    except TimeoutError:
+        raise ToolError('video_processing_timeout') from None
+    except (KeyError, ValueError, TypeError, json.JSONDecodeError):
+        raise ToolError('invalid_video') from None
+    pages = [{'page': None, 'text': '[Video represented by four sampled frames at 0%, 25%, 50% and 75%; events between samples are not observed.]'}]
+    frames = []
+    try:
+        if 'audio' in streams:
+            try:
+                pages.extend(await transcribe_audio(path))
+            except ToolError as exc:
+                if str(exc) != 'audio_no_speech':
+                    raise
+                pages.append({'page': None, 'text': '[Audio track contains no recognized speech]'})
+        else:
+            pages.append({'page': None, 'text': '[Video has no audio track]'})
+        for index, fraction in enumerate((0, .25, .5, .75), 1):
+            name = f'frame-{index}.jpg'
+            frames.append(path.parent / name)
+            code, _ = await process(sandbox(path.parent, ['ffmpeg', '-nostdin', '-v', 'error',
+                '-xerror', '-protocol_whitelist', 'file,pipe', '-ss', str(duration * fraction),
+                '-i', '/work/' + path.name, '-frames:v', '1', '-vf',
+                'scale=min(1024\\,iw):-2', '-q:v', '4', '-y', '/work/' + name], writable=True), 30)
+            if code or not frames[-1].is_file() or frames[-1].stat().st_size > 5 * 1024 * 1024:
+                raise ToolError('video_frame_failed')
+            pages.append({'page': index, 'text': f'[Video frame at {duration * fraction:.1f} seconds]',
+                          'media_type': 'image/jpeg', 'frame': name})
+        return pages
+    except TimeoutError:
+        for frame in frames:
+            frame.unlink(missing_ok=True)
+        raise ToolError('video_processing_timeout') from None
+    except BaseException:
+        for frame in frames:
+            frame.unlink(missing_ok=True)
+        raise
+
 
 async def transcribe_audio(path):
     """CPU-only, offline speech transcription; uploaded media has no network access."""

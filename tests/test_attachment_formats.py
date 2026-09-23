@@ -16,10 +16,11 @@ def test_utf8_any_extension_and_binary_denied(tmp_path):
     with pytest.raises(tools.ToolError):asyncio.run(tools.extract(file,'file.bin'))
 
 
-def test_images_preserve_binary_outside_prompt(tmp_path):
+def test_images_preserve_binary_outside_prompt(tmp_path, monkeypatch):
     file=tmp_path/'source';file.write_bytes(base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aJ1sAAAAASUVORK5CYII='))
     assert asyncio.run(tools.extract(file,'image.png'))==[{'page':None,'text':'','media_type':'image/png'}]
     file.write_bytes(b'\xff\xd8\xff'+b'0'*(5*1024*1024))
+    monkeypatch.setattr(tools, 'MAX_ATTACHMENT_BYTES', 5*1024*1024)
     with pytest.raises(tools.ToolError,match='image_size_limit'):asyncio.run(tools.extract(file,'image.jpg'))
 
 

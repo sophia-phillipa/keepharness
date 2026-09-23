@@ -7,9 +7,10 @@
 - EPUB: archive container, package manifest and spine order; chapter markup stripped; no scripts or external resources executed. DRM is not supported.
 - DOCX, PPTX, XLSX, ODT, ODS and ODP: bounded ZIP/XML text extraction. Spreadsheet cell coordinates and shared strings are retained; layout, embedded images and recalculation are not provided.
 - PNG, JPEG, GIF and WebP: original image bytes sent as native image content. Upload and execution verify the selected service. Local llama.cpp must report `modalities.vision=true`; an upload permission alone does not imply vision.
+- MP4: model-aware admission, four sampled JPEG frames with timestamps and local speech transcription when an audio track exists. Frames represent 0%, 25%, 50% and 75% of duration; motion, intervening events and the full visual timeline are not reconstructed.
 - WAV, MP3, M4A, OGG, FLAC, WEBM, AAC and OPUS: offline speech transcription using whisper.cpp base, followed by text input. This is speech recognition, not native sound/music understanding or speech synthesis.
 
-Documents are limited to 50 MiB, images to 5 MiB, audio to four hours / 256 MiB. Office/EPUB archives have a 20 MiB uncompressed and 2,000-entry limit. Parsers do not extract archive paths to disk or load external XML entities. Media decoding/transcription runs in a bounded, network-isolated sandbox.
+All individual attachments are limited to 100 MiB (104,857,600 bytes), inclusive. Audio and MP4 duration is limited to four hours. Office/EPUB archives have a 20 MiB uncompressed and 2,000-entry limit. Parsers do not extract archive paths to disk or load external XML entities. Media decoding/transcription runs in a bounded, network-isolated sandbox.
 
 Large extracted documents are stored in the conversation's private attachments directory. The prompt includes at most 6,000 characters per file, explicitly labeled as an excerpt, plus the complete text path for bounded tool reads. If tools are disabled, the agent must request a smaller excerpt rather than claim full access. Conversation/project ownership and upload grants still apply. Raw uploads are preserved.
 
@@ -113,3 +114,35 @@ group cancellation, including a descendant whose parent has already exited.
 The shared process helper now terminates an incomplete operation's group even
 when its leader already has a return code. Thirteen new direct audio/process
 tests and the directly affected attachment tests passed: 66 tests total.
+
+
+## MP4 and uniform attachment admission — 2026-09-22
+
+The current per-file limit is 100 MiB across direct uploads, project-file imports
+and the CLI upload helper. Older dated validation sections above describe their
+original limits. Expansion, project storage, duration and inference context
+budgets are independent of this upload limit. Native providers can impose their
+own input limits.
+
+The CLI upload helper does not send a model selection, so it cannot admit
+MP4 or image attachments. Use the composer or the upload API with explicit
+`backend`, `model` and a compatible `execution_mode` for those formats.
+
+`/v1/models` exposes `capabilities.video`, `video_execution_modes` and
+`video_transcription`. The composer reads these capabilities and refreshes its
+help when the model or mode changes. Upload permission remains required. The
+server checks capability again when admitting MP4, including imported project
+files. Missing capability evidence does not grant MP4 support.
+
+Decoding runs through the existing network-isolated FFmpeg sandbox. Generated
+frames are bounded JPEGs, with timestamps and a sampling limitation in the
+model context. Original MP4 bytes are not sent as image content or returned
+through the raster preview endpoint. A speech track uses the existing local
+Whisper pipeline; missing transcription dependencies or failed processing
+produce an explicit error instead of claiming full interpretation. Silent
+videos can be interpreted from frames without Whisper.
+
+Validation: 253 focused backend tests, seven MP4 browser profiles, existing
+attachment/preview/permission browser regressions and a real short local
+FFmpeg/Whisper smoke check passed. See the [validation record](../docs/validation/2026-09-22-mp4-attachments.md)
+for commands, capability sources, service verification and limitations.
