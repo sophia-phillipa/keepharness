@@ -68,7 +68,7 @@ def prepare_scoped(config, project, staged, session_dir, provider, auth_name):
         auth_target = home / auth_name
         shutil.copyfile(auth, auth_target)
         auth_target.chmod(0o600)
-        for name in ("project_mcp.py", "tools.py"):
+        for name in ("project_mcp.py", "tools.py", "errors.py"):
             shutil.copyfile(Path(agent_service.__file__).with_name(name), bridge / name)
         (bridge / "project.json").write_text(
             json.dumps(

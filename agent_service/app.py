@@ -45,6 +45,7 @@ from . import (
     workspaces,
 )
 from .catalog import catalog
+from .errors import APIError
 from .execution_defaults import resolve as resolve_defaults
 
 TERMINAL = {"completed", "failed", "cancelled", "interrupted"}
@@ -110,11 +111,6 @@ def context_overflow(error):
             "context_limit_exceeded",
         )
     )
-
-
-class APIError(Exception):
-    def __init__(self, code, status=422, retry_after=None):
-        self.code, self.status, self.retry_after = code, status, retry_after
 
 
 class LimitedStream(StreamingResponse):

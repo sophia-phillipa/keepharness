@@ -11,6 +11,11 @@ import tempfile
 import urllib.parse
 from pathlib import Path
 
+try:
+    from .errors import ToolError
+except ImportError:  # copied beside project_mcp.py into the scoped sandbox bridge
+    from errors import ToolError
+
 MAX_OUTPUT = 2 * 1024 * 1024
 AUDIO_EXTENSIONS = {".wav", ".mp3", ".m4a", ".ogg", ".flac", ".webm", ".aac", ".opus"}
 MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024
@@ -31,10 +36,6 @@ def transcription_available():
     return (runtime / "build/bin/whisper-cli").is_file() and (
         runtime / "models/ggml-base.bin"
     ).is_file()
-
-
-class ToolError(Exception):
-    pass
 
 
 async def process(argv, timeout=30, cwd=None):

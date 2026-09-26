@@ -54,7 +54,7 @@ Supporting suffixes: `*Config` for immutable settings objects, `*Error` for exce
 | `LOCAL_AGENT_CONFIG` | `TAIL_HARNESS_AGENT_CONFIG` (old name as deprecated alias) | done |
 | `TH_VENV` | `TAIL_HARNESS_VENV` (old name as deprecated alias) | done |
 | — | `control/env.py` (alias resolver with deprecation warning) | done |
-| — | `HarnessError` base class for `*Error` classes | planned |
+| — | `HarnessError` base class for `*Error` classes (`agent_service/errors.py`) | done |
 | CSS `--accent`, `--bg`, `--panel` (and `--muted`, `--line`, `--tint`, `--control`, `--surface`, `--border`, `--text`, `--admin-sidebar-width`, `--app-topbar-height`, `--reading-size`, `--sidebar-width`, `--conversation-header-bottom`) | `--th-accent`, `--th-bg` (unused), `--th-panel`, `--th-muted`, `--th-border`, `--th-soft`, `--th-panel`, `--th-panel`, `--th-border`, `--th-text`, `--th-admin-sidebar-width`, `--th-app-topbar-height`, `--th-reading-size`, `--th-sidebar-width`, `--th-conversation-header-bottom` — the local, already-shadowed `--accent`/`--muted`/`--line` definitions in `agent_service/ui.css` became `--th-accent-tone`/`--th-muted-tone`/`--th-line-tone` (distinct suffix) since `--th-accent`/`--th-muted` already exist with the real palette value | done |
 | Abbreviated identifiers (`cfg`, `svc`, `st`, `proc`) | `config`, `service`, `state`, `process` | planned |
 
