@@ -4,19 +4,19 @@ from control import start_local
 
 
 def profile(root):
-    runtime = root / "local-ai/runtime/llama-b11003"
+    runtime = root / "local_ai/runtime/llama-b11003"
     runtime.mkdir(parents=True)
     binary = runtime / "llama-server"
     binary.touch()
-    models = root / "local-ai/models"
+    models = root / "local_ai/models"
     models.mkdir(parents=True)
     (models / "Qwen.gguf").touch()
     (models / "Qwen-mmproj.gguf").touch()
     return {
         "description": "fixture",
-        "binary": "local-ai/runtime/llama-b11003/llama-server",
-        "model_file": "local-ai/models/Qwen.gguf",
-        "mmproj_file": "local-ai/models/Qwen-mmproj.gguf",
+        "binary": "local_ai/runtime/llama-b11003/llama-server",
+        "model_file": "local_ai/models/Qwen.gguf",
+        "mmproj_file": "local_ai/models/Qwen-mmproj.gguf",
         "flags": ["no-mmproj-offload", "kv-offload"],
         "performance": {"ctx-size": "98304", "threads": "8"},
     }
@@ -25,7 +25,7 @@ def profile(root):
 def test_check_resolves_paths_and_does_not_create_key(tmp_path, capsys):
     source = tmp_path / "profile.json"
     source.write_text(json.dumps(profile(tmp_path)))
-    key = "local-ai/config/api-key"
+    key = "local_ai/config/api-key"
     start_local.main(
         [
             "--profile",
@@ -42,7 +42,7 @@ def test_check_resolves_paths_and_does_not_create_key(tmp_path, capsys):
         ]
     )
     command = capsys.readouterr().out
-    assert str(tmp_path / "local-ai/models/Qwen.gguf") in command
+    assert str(tmp_path / "local_ai/models/Qwen.gguf") in command
     assert "--no-mmproj-offload" in command and "--kv-offload" in command and "--jinja" in command
     assert not (tmp_path / key).exists()
 
@@ -54,7 +54,7 @@ def test_exec_creates_private_key_once_and_uses_fixed_environment(tmp_path, monk
     monkeypatch.setattr(
         start_local.os, "execv", lambda binary, args: called.update(binary=binary, args=args)
     )
-    key = tmp_path / "local-ai/config/api-key"
+    key = tmp_path / "local_ai/config/api-key"
     start_local.main(["--profile", str(source), "--root", str(tmp_path), "--key-file", str(key)])
     assert key.stat().st_mode & 0o777 == 0o600
     previous = key.read_text()

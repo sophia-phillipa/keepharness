@@ -11,5 +11,6 @@ recursive-include adapters *.py *.md *.json
 # Git ignore rules do not filter an sdist manifest.
 prune .codex
 prune local-ai
+prune local_ai
 prune pytest-of-unknown
 exclude AGENTS.md

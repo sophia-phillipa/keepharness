@@ -15,6 +15,7 @@ reports/
 
 # Per-server runtimes, credentials and weights (profiles are versioned separately).
 local-ai/
+local_ai/
 
 # Personal agent settings (AGENTS.md and CLAUDE.md are shared and versioned).
 /.codex/

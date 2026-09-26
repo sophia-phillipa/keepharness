@@ -10,7 +10,7 @@ class InstallRuntimeTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = install_runtime.project_root(directory)
             self.assertEqual(
-                install_runtime.runtime_dir(root), root / "local-ai/runtime/llama-b11003"
+                install_runtime.runtime_dir(root), root / "local_ai/runtime/llama-b11003"
             )
         self.assertEqual(install_runtime.COMMIT, "7d6f5d02bb40fca0ab29e65fe4eb86eab6886f19")
 
@@ -22,7 +22,7 @@ class InstallRuntimeTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             missing = install_runtime.project_root(directory) / "missing"
             self.assertEqual(install_runtime.main(["--root", str(missing)]), 1)
-            self.assertFalse((missing / "local-ai").exists())
+            self.assertFalse((missing / "local_ai").exists())
 
     def test_non_linux_is_rejected_before_build(self):
         with tempfile.TemporaryDirectory() as directory:

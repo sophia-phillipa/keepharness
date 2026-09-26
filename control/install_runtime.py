@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a pinned llama.cpp runtime below a project-local ``local-ai`` folder."""
+"""Build a pinned llama.cpp runtime below a project-local ``local_ai`` folder."""
 
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ def project_root(value: str) -> Path:
 
 
 def runtime_dir(root: Path) -> Path:
-    return root / "local-ai" / "runtime" / f"llama-{VERSION}"
+    return root / "local_ai" / "runtime" / f"llama-{VERSION}"
 
 
 def require_tools() -> None:

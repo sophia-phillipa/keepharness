@@ -196,7 +196,7 @@ def test_multimodal_description_flags_roundtrip_and_launch_command(tmp_path):
 
 
 def test_panel_uses_project_internal_runtime_models_and_key(tmp_path):
-    internal = tmp_path / "local-ai"
+    internal = tmp_path / "local_ai"
     binary = internal / "runtime/llama-b11003/llama-server"
     binary.parent.mkdir(parents=True)
     binary.touch()
@@ -235,3 +235,36 @@ def test_import_keeps_saved_description(tmp_path):
     save_profile(tmp_path, {**qwen, "description": "Author-suggested profile"})
     save_profile(tmp_path, qwen)
     assert load_profile(tmp_path, qwen["model_file"])["description"] == "Author-suggested profile"
+
+
+def test_local_ai_directory_migrates_once_and_rewrites_profile_paths(tmp_path):
+    from control.server import migrate_local_ai_directory
+
+    root = tmp_path / "root"
+    legacy = root / "local-ai"
+    (legacy / "models").mkdir(parents=True)
+    (legacy / "models" / "Qwen.gguf").touch()
+    state = tmp_path / "state"
+    state.mkdir()
+    stored = {
+        str(legacy / "models" / "Qwen.gguf"): {
+            "binary": str(legacy / "runtime/llama-b11003/llama-server"),
+            "model_file": str(legacy / "models" / "Qwen.gguf"),
+            "performance": {},
+        }
+    }
+    (state / "local-profiles.json").write_text(json.dumps(stored, indent=2))
+
+    migrate_local_ai_directory(root, state)
+
+    assert not legacy.exists()
+    assert (root / "local_ai" / "models" / "Qwen.gguf").is_file()
+    migrated = json.loads((state / "local-profiles.json").read_text())
+    entry = next(iter(migrated.values()))
+    assert "local-ai/" not in entry["binary"] and "local-ai/" not in entry["model_file"]
+    assert entry["binary"].endswith("local_ai/runtime/llama-b11003/llama-server")
+    assert entry["model_file"].endswith("local_ai/models/Qwen.gguf")
+
+    # Idempotent: a second call is a no-op, not an error, even though local-ai is now gone.
+    migrate_local_ai_directory(root, state)
+    assert (root / "local_ai" / "models" / "Qwen.gguf").is_file()

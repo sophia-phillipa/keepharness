@@ -49,17 +49,40 @@ from .local_models import (
 from .operations import Operations, operation
 
 ROOT = Path(__file__).resolve().parents[1]
-LOCAL_AI = Path(os.environ.get("TAIL_HARNESS_ROOT", str(ROOT))) / "local-ai"
+LOCAL_AI_ROOT = Path(os.environ.get("TAIL_HARNESS_ROOT", str(ROOT)))
+LOCAL_AI = LOCAL_AI_ROOT / "local_ai"
 PERMISSIONS = ("read", "write", "upload", "tests", "internet", "shell", "hooks")
 ADMIN_BODY_LIMIT = 64000
 ADMIN_BODY_TIMEOUT = 10
 ADMIN_OPERATION_LIMIT = 4
 
 
+def migrate_local_ai_directory(root: Path, state: Path) -> None:
+    """One-time rename of the legacy ``local-ai`` runtime directory to ``local_ai``.
+
+    Also rewrites any local model profile in ``state`` that still points at the old path.
+    Safe to call on every startup: a no-op once the rename and the profile rewrite are done.
+    """
+    legacy = root / "local-ai"
+    current = root / "local_ai"
+    if legacy.is_dir() and not current.exists():
+        legacy.rename(current)
+    for name in ("local-profiles.json", "local-profile.json"):
+        target = state / name
+        try:
+            text = target.read_text()
+        except (FileNotFoundError, OSError):
+            continue
+        if "local-ai/" not in text:
+            continue
+        target.write_text(text.replace("local-ai/", "local_ai/"))
+
+
 class Manager:
     def __init__(self, state):
         self.state = Path(state)
         self.state.mkdir(parents=True, exist_ok=True, mode=0o700)
+        migrate_local_ai_directory(LOCAL_AI_ROOT, self.state)
         self.path = self.state / "settings.json"
         self.cookie = secrets.token_urlsafe(32)
         self.admin_port = 8094

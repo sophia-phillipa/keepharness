@@ -60,14 +60,14 @@ def test_project_internal_runtime_secrets_are_hidden(tmp_path):
     root = tmp_path / "project"
     root.mkdir()
     for name in ("config", "migration-backup"):
-        folder = root / "local-ai" / name
+        folder = root / "local_ai" / name
         folder.mkdir(parents=True)
         (folder / "private.txt").write_text("fixture-private")
     (root / "source.py").write_text("public source")
     session = tmp_path / "session"
     session.mkdir()
     script = (
-        "import pathlib,json; p=pathlib.Path(%r); print(json.dumps({'source':(p/'source.py').read_text(),'private':[str(x) for x in (p/'local-ai').rglob('private.txt')]}))"
+        "import pathlib,json; p=pathlib.Path(%r); print(json.dumps({'source':(p/'source.py').read_text(),'private':[str(x) for x in (p/'local_ai').rglob('private.txt')]}))"
         % str(root)
     )
     with patch.dict("os.environ", {"TAIL_HARNESS_ROOT": str(root)}):
@@ -80,4 +80,4 @@ def test_project_internal_runtime_secrets_are_hidden(tmp_path):
     result = subprocess.run(command, capture_output=True, text=True, timeout=10)
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout) == {"source": "public source", "private": []}
-    assert (root / "local-ai/config/private.txt").read_text() == "fixture-private"
+    assert (root / "local_ai/config/private.txt").read_text() == "fixture-private"

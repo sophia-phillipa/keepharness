@@ -1,8 +1,8 @@
 {
   "description": "Suggested profile for Qwen3.6-35B-A3B (UD-Q3_K_M) on an AMD Radeon RX 9070 XT with Vulkan, 8 threads and 8 MoE layers on the CPU. Profile with a 98,304-token context, Q8 KV cache and the Qwen3.6 F16 multimodal projector. Review memory, CPUs and device before using it on another machine.",
-  "binary": "local-ai/runtime/llama-b11003/llama-server",
-  "model_file": "local-ai/models/Qwen3.6-35B-A3B-UD-Q3_K_M.gguf",
-  "mmproj_file": "local-ai/models/Qwen3.6-mmproj-F16.gguf",
+  "binary": "local_ai/runtime/llama-b11003/llama-server",
+  "model_file": "local_ai/models/Qwen3.6-35B-A3B-UD-Q3_K_M.gguf",
+  "mmproj_file": "local_ai/models/Qwen3.6-mmproj-F16.gguf",
   "flags": [
     "no-mmproj-offload",
     "kv-offload"

@@ -28,8 +28,17 @@ EXCLUDED = {
     ".DS_Store",
     "__MACOSX",
 }
-PROJECT_EXCLUDED = EXCLUDED | {"local-ai"}
-FOLDER_ATTACH_EXCLUDED = {".ssh", ".aws", ".config", ".codex", ".claude", ".gemini", "local-ai"}
+PROJECT_EXCLUDED = EXCLUDED | {"local-ai", "local_ai"}
+FOLDER_ATTACH_EXCLUDED = {
+    ".ssh",
+    ".aws",
+    ".config",
+    ".codex",
+    ".claude",
+    ".gemini",
+    "local-ai",
+    "local_ai",
+}
 SYSTEM_DIRECTORIES = tuple(
     Path("/" + name) for name in ("proc", "sys", "dev", "etc", "usr", "boot", "ostree", "var")
 )

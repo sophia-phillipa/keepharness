@@ -32,6 +32,6 @@ PYTHON="$PWD/.venv/bin/python" ./scripts/test-ui.sh   # needs Node.js and Playwr
 - Test-driven changes: failing test → minimal implementation → run the affected tests. Run the full Python and browser suites before a release or merge to `main`.
 - Every new version needs `dossier/releases/v<VERSION>.md` (behavior, acceptance criteria, migration notes, actual validation) and matching version identifiers.
 - Commits follow Conventional Commits (`type(scope): subject`), with a Why / How / What body.
-- Never commit secrets, local state, model weights or per-server runtimes (`local-ai/`, `state/`, `*.gguf`, `.env*`). Personal agent settings stay local (`CLAUDE.local.md`, `.claude/settings.local.json`, `.codex/`).
+- Never commit secrets, local state, model weights or per-server runtimes (`local_ai/`, `state/`, `*.gguf`, `.env*`). Personal agent settings stay local (`CLAUDE.local.md`, `.claude/settings.local.json`, `.codex/`).
 - Agent and skill names follow [the canonical model](dossier/canonical-agents-skills-model.md); project skills live in `.agents/skills/`.
 - All other names (files, identifiers, environment variables, keys, tests, error codes, docs) follow [the naming model](dossier/naming-model.md).

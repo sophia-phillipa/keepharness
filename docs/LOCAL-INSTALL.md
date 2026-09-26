@@ -3,9 +3,9 @@
 This flow supports Linux servers and keeps the runtime, models and key inside the project, in paths ignored by Git:
 
 ```text
-local-ai/runtime/llama-b11003/
-local-ai/models/
-local-ai/config/api-key
+local_ai/runtime/llama-b11003/
+local_ai/models/
+local_ai/config/api-key
 ```
 
 It does not install system dependencies, does not download weights together with the runtime, and does not start the server during installation.
@@ -45,13 +45,13 @@ The setup follows the official llama.cpp documentation: [CPU, Vulkan and CUDA bu
 The existing downloader uses pinned revisions and SHA-256 hashes. For the catalog's Qwen3.6 UD-Q3_K_M, with an internal destination:
 
 ```sh
-.venv/bin/python -m control.download_model qwen36 local-ai/models
+.venv/bin/python -m control.download_model qwen36 local_ai/models
 ```
 
 For the other registered model:
 
 ```sh
-.venv/bin/python -m control.download_model gemma4 local-ai/models
+.venv/bin/python -m control.download_model gemma4 local_ai/models
 ```
 
 The file is written as a temporary file, only receives its final name after the SHA-256 check, and never replaces an already-existing model.
@@ -66,7 +66,7 @@ The generic CPU profile avoids assuming a GPU and serves as a starting point for
   --profile profiles/local-cpu-profile.json \
   --port 8091 \
   --alias qwen-local \
-  --key-file local-ai/config/api-key
+  --key-file local_ai/config/api-key
 ```
 
 The `profiles/qwen-vulkan-profile.json` profile is an author-suggested example for Vulkan, with a specific multimodal projector and CPU affinity. It is distributed as an authorized example, with no credentials. Review its parameters and point to its path with `--profile`; it is not a universal configuration.
@@ -79,6 +79,6 @@ On 2026-09-19, the CPU installation completed in `local-ai/portable-check` with 
 
 ## Installation from a wheel
 
-The wheel includes the profiles under `share/tail-harness/profiles` in the Python environment's prefix. Copy the chosen profile into a `profiles/` folder in your data root and pass that root via `--root` to the installer/launcher. For a panel installed from a wheel, set `TAIL_HARNESS_ROOT` to the same root: runtime, downloads and the key will use `<root>/local-ai`. The package does not ship this server's private configuration or weights.
+The wheel includes the profiles under `share/tail-harness/profiles` in the Python environment's prefix. Copy the chosen profile into a `profiles/` folder in your data root and pass that root via `--root` to the installer/launcher. For a panel installed from a wheel, set `TAIL_HARNESS_ROOT` to the same root: runtime, downloads and the key will use `<root>/local_ai`. The package does not ship this server's private configuration or weights.
 
 The default `qwen36` text downloader only downloads the UD-Q3_K_M weights. For images, explicitly configure a compatible multimodal projector in a local profile; the distributed CPU profile does not include a projector.

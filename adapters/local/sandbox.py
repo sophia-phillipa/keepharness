@@ -85,7 +85,7 @@ def wrap(command, session, cwd, project, environment=None):
         Path(
             os.environ.get("TAIL_HARNESS_ROOT", str(Path(__file__).resolve().parents[2]))
         ).resolve()
-        / "local-ai"
+        / "local_ai"
     )
     for name in ("config", "migration-backup"):
         hidden = private_runtime / name

@@ -9,7 +9,7 @@
 
 - Consulted: 2026-09-19.
 - Build recipe pinned by the project: llama.cpp `b11003`, commit `7d6f5d02bb40fca0ab29e65fe4eb86eab6886f19`.
-- `llama-server` and `ollama` were not found in `PATH`; no server was started and no `local-ai/` runtime, key, or weights were read.
+- `llama-server` and `ollama` were not found in `PATH`; no server was started and no `local_ai/` runtime, key, or weights were read.
 - Upstream llama.cpp server reference: <https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md>.
 - Upstream Ollama OpenAI-compatibility reference: <https://registry.ollama.com/blog/openai-compatibility>.
 

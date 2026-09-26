@@ -251,7 +251,7 @@ The [project dossier](dossier/README.md) gathers specifications, use cases and r
 
 ### Project-local runtime and models
 
-llama.cpp, model weights and the local API key live under the Git-ignored `local-ai/` directory. Follow the [local installation guide](docs/LOCAL-INSTALL.md) on a new server: install Python dependencies, build the CPU/Vulkan/CUDA runtime, download GGUF weights pinned by revision and SHA-256, then use `control.start_local` or the administration panel.
+llama.cpp, model weights and the local API key live under the Git-ignored `local_ai/` directory (renamed from `local-ai/` automatically on first start). Follow the [local installation guide](docs/LOCAL-INSTALL.md) on a new server: install Python dependencies, build the CPU/Vulkan/CUDA runtime, download GGUF weights pinned by revision and SHA-256, then use `control.start_local` or the administration panel.
 
 The [profiles](profiles/) resolve paths against `--root`. `profiles/qwen-vulkan-profile.json` is the author-suggested configuration for Qwen3.6-35B-A3B UD-Q3_K_M on the author's own server, not a universal default. `local-cpu-profile.json` avoids hardware-specific affinity. Profile descriptions can be edited and survive export/import. Administrative model permissions are preserved separately and are not granted by a suggested profile.
 
@@ -561,7 +561,7 @@ Na versão 0.4.4, o seletor **Acesso** distingue aprovação adicional das permi
 
 ### Runtime e modelos dentro do projeto
 
-Runtime llama.cpp, pesos e chave local ficam em `local-ai/`, ignorado pelo Git. A instalação em outro servidor está descrita no [guia de modelos locais](docs/LOCAL-INSTALL.md): instalar as dependências Python, compilar o runtime CPU/Vulkan/CUDA, baixar GGUF com revisão e SHA-256 fixados e iniciar pelo motor genérico `control.start_local` ou pelo painel.
+Runtime llama.cpp, pesos e chave local ficam em `local_ai/` (renomeado de `local-ai/` automaticamente na primeira execução), ignorado pelo Git. A instalação em outro servidor está descrita no [guia de modelos locais](docs/LOCAL-INSTALL.md): instalar as dependências Python, compilar o runtime CPU/Vulkan/CUDA, baixar GGUF com revisão e SHA-256 fixados e iniciar pelo motor genérico `control.start_local` ou pelo painel.
 
 Os [perfis](profiles/) usam caminhos relativos à raiz passada por `--root`. `profiles/qwen-vulkan-profile.json` é a sugestão da autora do projeto para Qwen3.6-35B-A3B UD-Q3_K_M em seu próprio servidor; não é uma configuração universal. `local-cpu-profile.json` é um ponto de partida sem afinidade de hardware. A descrição é editável no painel e acompanha exportação/importação. Permissões por modelo são preservadas na configuração administrativa, não concedidas pelo perfil sugerido.
 
