@@ -3,6 +3,7 @@ import base64
 import hashlib
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from starlette.testclient import TestClient
 
 from agent_service.app import create_app
@@ -20,6 +21,7 @@ def config(tmp_path):
     }
 
 
+@pytest.mark.requires_media_sandbox
 def test_preview_is_private_validated_image_bytes_only(tmp_path):
     app = create_app(config(tmp_path))
     with TestClient(app, headers={'Authorization': 'Bearer alice'}) as client, \

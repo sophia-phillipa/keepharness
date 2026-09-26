@@ -32,6 +32,9 @@ agent_service = ["*.html", "*.css", "*.js", "*.sh", "VERSION", "vendor/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "requires_media_sandbox: skip when ffmpeg/bwrap/prlimit or the bwrap user-namespace probe are unavailable",
+]
 
 [tool.setuptools.data-files]
 "share/tail-harness/profiles" = ["profiles/qwen-vulkan-profile.json", "profiles/local-cpu-profile.json"]

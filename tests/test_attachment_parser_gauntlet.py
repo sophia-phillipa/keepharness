@@ -46,6 +46,7 @@ def test_round03_xlsx_negative_shared_index_rejected(tmp_path, index):
 
 
 @pytest.mark.parametrize('data', [b'\x89PNG\r\n\x1a\nFAKE', b'\xff\xd8\xffFAKE', b'GIF89aFAKE', b'RIFF\x04\x00\x00\x00WEBP'])
+@pytest.mark.requires_media_sandbox
 def test_round04_fake_images_rejected(tmp_path, data):
     path = tmp_path/'source';path.write_bytes(data)
     with pytest.raises(tools.ToolError, match='invalid_image'):
@@ -53,6 +54,7 @@ def test_round04_fake_images_rejected(tmp_path, data):
 
 
 @pytest.mark.parametrize('filename', ['photo.PNG', 'photo.bin'])
+@pytest.mark.requires_media_sandbox
 def test_round05_valid_image_sniffed_independent_of_name(tmp_path, filename):
     path = tmp_path/'source';path.write_bytes(PNG)
     assert extract(path, filename) == [{'page': None, 'text': '', 'media_type': 'image/png'}]
@@ -106,6 +108,7 @@ def test_round10_odt_inline_formatting_preserves_words(tmp_path):
     assert text.count('formatted') == 1
 
 
+@pytest.mark.requires_media_sandbox
 def test_round10_truncated_real_image_rejected(tmp_path):
     path = tmp_path/'source';path.write_bytes(PNG[:40])
     with pytest.raises(tools.ToolError, match='invalid_image'):
@@ -120,6 +123,7 @@ def test_round10_epub_repeated_spine_cannot_amplify_archive(tmp_path):
         extract(path, 'book.epub')
 
 
+@pytest.mark.requires_media_sandbox
 def test_round10_image_decoder_timeout_is_controlled(tmp_path, monkeypatch):
     path = tmp_path/'source';path.write_bytes(PNG)
     monkeypatch.setattr(tools, 'process', AsyncMock(side_effect=TimeoutError))

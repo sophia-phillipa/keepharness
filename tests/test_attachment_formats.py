@@ -16,6 +16,7 @@ def test_utf8_any_extension_and_binary_denied(tmp_path):
     with pytest.raises(tools.ToolError):asyncio.run(tools.extract(file,'file.bin'))
 
 
+@pytest.mark.requires_media_sandbox
 def test_images_preserve_binary_outside_prompt(tmp_path, monkeypatch):
     file=tmp_path/'source';file.write_bytes(base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aJ1sAAAAASUVORK5CYII='))
     assert asyncio.run(tools.extract(file,'image.png'))==[{'page':None,'text':'','media_type':'image/png'}]
