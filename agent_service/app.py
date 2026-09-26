@@ -1503,9 +1503,9 @@ def create_app(config, runtime_path=None):
                         raise APIError('project_busy',409)
                     return JSONResponse({'project_id':service.add_project(data,pid)})
                 if request.method=='POST':return JSONResponse({'project_id':service.add_project(await body(request))},status_code=201)
-                catalog = {'projects':[p for p in identity[1]['projects'] if p in config['projects'] and p not in service.deleted_project_folders], 'details':{p:{'label':config['projects'][p].get('label',p),'root':config['projects'][p].get('root'),'additional_roots':config['projects'][p].get('additional_roots',[]),'apply_changes':bool(config['projects'][p].get('apply_changes'))} for p in identity[1]['projects'] if p in config['projects'] and p not in service.deleted_project_folders}}
+                project_catalog = {'projects':[p for p in identity[1]['projects'] if p in config['projects'] and p not in service.deleted_project_folders], 'details':{p:{'label':config['projects'][p].get('label',p),'root':config['projects'][p].get('root'),'additional_roots':config['projects'][p].get('additional_roots',[]),'apply_changes':bool(config['projects'][p].get('apply_changes'))} for p in identity[1]['projects'] if p in config['projects'] and p not in service.deleted_project_folders}}
                 seen = {}
-                for pid, detail in catalog['details'].items():
+                for pid, detail in project_catalog['details'].items():
                     detail['canonical_id'] = pid
                     if detail.get('root'):
                         try:
@@ -1516,8 +1516,8 @@ def create_app(config, runtime_path=None):
                         except OSError:
                             pass
                     canonical = detail['canonical_id']
-                    detail['icon'] = catalog['details'][canonical]['icon'] if canonical != pid else await asyncio.to_thread(discover_project_icon, detail.get('root'))
-                return JSONResponse(catalog)
+                    detail['icon'] = project_catalog['details'][canonical]['icon'] if canonical != pid else await asyncio.to_thread(discover_project_icon, detail.get('root'))
+                return JSONResponse(project_catalog)
             if path=='/v1/project-folder':
                 project=request.query_params.get('project_id')
                 if request.method=='DELETE':

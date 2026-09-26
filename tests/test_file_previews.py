@@ -1,5 +1,5 @@
-import base64
 """Authenticated previews are limited to validated raster uploads."""
+import base64
 import hashlib
 from unittest.mock import AsyncMock, patch
 
