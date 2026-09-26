@@ -1,0 +1,10 @@
+agent_service/vendor/
+tail_ui/assets/
+graphify-out/
+dist/
+build/
+local-ai/
+local_ai/
+*.min.js
+*.min.css
+*.html

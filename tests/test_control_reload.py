@@ -54,34 +54,33 @@ def test_running_harness_rejects_bind_or_port_change_but_allows_empty_services(
         asyncio.run(manager.apply_settings(changed))
     asyncio.run(manager.apply_settings(manager.settings))
     assert (
-        json.loads((tmp_path / "runtime.json").read_text())["services"]["codex"][
-            "enabled"
-        ]
-        is False
+        json.loads((tmp_path / "runtime.json").read_text())["services"]["codex"]["enabled"] is False
     )
 
 
 def test_first_enabled_provider_starts_harness_without_manual_button(tmp_path):
     from unittest.mock import AsyncMock
+
     manager = Manager(tmp_path)
     manager.start = AsyncMock()
     asyncio.run(manager.apply_settings(manager.settings))
     manager.start.assert_not_awaited()
     settings = json.loads(json.dumps(manager.settings))
-    settings['services']['claude'].update(enabled=True, models=['sonnet'])
+    settings["services"]["claude"].update(enabled=True, models=["sonnet"])
     asyncio.run(manager.apply_settings(settings))
     manager.start.assert_awaited_once()
 
 
-@pytest.mark.parametrize('running', [False, True])
+@pytest.mark.parametrize("running", [False, True])
 def test_settings_can_remove_an_integration_that_is_no_longer_installed(tmp_path, running):
     import copy
+
     manager = Manager(tmp_path)
-    manager.inventory = {'network':{}, 'services':[], 'binaries':{}}
+    manager.inventory = {"network": {}, "services": [], "binaries": {}}
     manager.plugin_catalog = []
-    manager.settings['services']['codex']['integrations'] = ['plugin:removed@market']
+    manager.settings["services"]["codex"]["integrations"] = ["plugin:removed@market"]
     manager.proc = SimpleNamespace(returncode=None) if running else None
     repaired = copy.deepcopy(manager.settings)
-    repaired['services']['codex']['integrations'] = []
+    repaired["services"]["codex"]["integrations"] = []
     asyncio.run(manager.apply_settings(repaired))
-    assert manager.settings['services']['codex']['integrations'] == []
+    assert manager.settings["services"]["codex"]["integrations"] == []

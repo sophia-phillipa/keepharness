@@ -14,11 +14,9 @@ class InstallRuntimeTest(unittest.TestCase):
             )
         self.assertEqual(install_runtime.COMMIT, "7d6f5d02bb40fca0ab29e65fe4eb86eab6886f19")
 
-
     def test_backends_are_explicit(self):
         self.assertEqual(set(install_runtime.BACKEND_OPTIONS), {"cpu", "vulkan", "cuda"})
         self.assertIn("-DGGML_VULKAN=ON", install_runtime.BACKEND_OPTIONS["vulkan"])
-
 
     def test_invalid_root_fails_without_creating_a_runtime(self):
         with tempfile.TemporaryDirectory() as directory:

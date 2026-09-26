@@ -1,17 +1,23 @@
 """Public entry points for Claude Code; effort is passed explicitly when selected."""
 
 from Adapters.shared.workspace import prepare_workspace
+
 from . import native
 from .scoped import run as run_scoped
 
-
 SPEC_REVISION = 5
 
-async def run_native(
-    config, prompt, event, project, model, effort, session_dir, approve
-):
+__all__ = ["SPEC_REVISION", "run_native", "run_scoped"]
+
+
+async def run_native(config, prompt, event, project, model, effort, session_dir, approve):
     workspace = prepare_workspace(project, prompt, session_dir)
-    config = {**config, "resource_skills": [item["name"] for item in project.get("_resources", []) if item["kind"] == "skill"]}
+    config = {
+        **config,
+        "resource_skills": [
+            item["name"] for item in project.get("_resources", []) if item["kind"] == "skill"
+        ],
+    }
     return await native.run(
         config,
         workspace.prompt,

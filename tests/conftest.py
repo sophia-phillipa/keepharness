@@ -1,4 +1,5 @@
 """Shared pytest infrastructure: media-sandbox skip gate and config fixtures."""
+
 import hashlib
 import shutil
 import subprocess
@@ -25,7 +26,9 @@ def _media_sandbox_unavailable_reason():
     try:
         probe = subprocess.run(
             ["bwrap", "--ro-bind", "/", "/", "true"],
-            capture_output=True, timeout=10, check=False,
+            capture_output=True,
+            timeout=10,
+            check=False,
         )
     except OSError as exc:
         return f"bwrap probe failed to start: {exc}"
@@ -66,6 +69,7 @@ def make_harness_config(tmp_state):
         }
         cfg.update(overrides)
         return cfg
+
     return factory
 
 
@@ -81,7 +85,8 @@ def client(tmp_path):
     from agent_service.app import create_app
 
     cfg = {
-        "state_dir": str(tmp_path), "origins": [],
+        "state_dir": str(tmp_path),
+        "origins": [],
         "projects": {"p": {}},
         "clients": {"a": {"sha256": hashlib.sha256(b"a").hexdigest(), "projects": ["p"]}},
         "services": {},

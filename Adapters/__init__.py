@@ -1,13 +1,20 @@
 """Explicit provider dispatch; transport details belong to each adapter."""
 
 from agent_service.tools import ToolError
-from .codex import backend as codex
+
 from .claude import backend as claude
-from .gemini import backend as gemini
+from .codex import backend as codex
 from .deepseek import backend as deepseek
+from .gemini import backend as gemini
 from .local import backend as local
 
-PROVIDERS = {"codex": codex, "claude": claude, "gemini": gemini, "deepseek": deepseek, "local": local}
+PROVIDERS = {
+    "codex": codex,
+    "claude": claude,
+    "gemini": gemini,
+    "deepseek": deepseek,
+    "local": local,
+}
 
 
 def get_adapter(provider):
@@ -17,9 +24,7 @@ def get_adapter(provider):
         raise ToolError("backend_unavailable") from None
 
 
-async def run_native(
-    config, prompt, event, project, model, effort, session_dir, provider, approve
-):
+async def run_native(config, prompt, event, project, model, effort, session_dir, provider, approve):
     adapter = get_adapter(provider)
     return await adapter.run_native(
         config, prompt, event, project, model, effort, session_dir, approve

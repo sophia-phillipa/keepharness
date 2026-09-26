@@ -2,21 +2,19 @@
 
 import asyncio
 import json
+
 from control.integrations import configurations, inventory
-from .stream import Stream
+
 from .auth import cli_login_environment
+from .stream import Stream
 
 
-def build_command(
-    config, model, home, permissions, selected, access_mode, additional_roots
-):
+def build_command(config, model, home, permissions, selected, access_mode, additional_roots):
     """Configure only selected tools and connectors for this Claude process."""
     servers = configurations()["claude"]
     mcp = home / "mcp.json"
     mcp.write_text(
-        json.dumps(
-            {"mcpServers": {k: v for k, v in servers.items() if "mcp:" + k in selected}}
-        )
+        json.dumps({"mcpServers": {k: v for k, v in servers.items() if "mcp:" + k in selected}})
     )
     mcp.chmod(0o600)
     plugins = {
@@ -56,19 +54,11 @@ def build_command(
             {
                 "enabledPlugins": plugins,
                 "disableAllHooks": not permissions.get("hooks", False),
-                **(
-                    {"sandbox": {"enabled": False}}
-                    if config.get("unrestricted")
-                    else {}
-                ),
+                **({"sandbox": {"enabled": False}} if config.get("unrestricted") else {}),
             }
         ),
     ]
-    if (
-        config.get("unrestricted")
-        and access_mode != "read_only"
-        and permissions.get("shell")
-    ):
+    if config.get("unrestricted") and access_mode != "read_only" and permissions.get("shell"):
         command += ["--permission-mode", "bypassPermissions"]
     elif access_mode in ("auto", "full", "read_only"):
         command += ["--permission-mode", "dontAsk"]

@@ -57,18 +57,50 @@ def build(root: Path, backend: str, jobs: int) -> Path:
     with tempfile.TemporaryDirectory(prefix=".llama-build-", dir=parent) as temporary:
         work = Path(temporary)
         source, build_dir, package = work / "source", work / "build", work / "package"
-        command(["git", "clone", "--depth", "1", "--branch", VERSION, "--single-branch", SOURCE_URL, str(source)])
-        actual = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=source, text=True).strip()
+        command(
+            [
+                "git",
+                "clone",
+                "--depth",
+                "1",
+                "--branch",
+                VERSION,
+                "--single-branch",
+                SOURCE_URL,
+                str(source),
+            ]
+        )
+        actual = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=source, text=True
+        ).strip()
         if actual != COMMIT:
             raise RuntimeError(f"Unexpected llama.cpp revision: {actual}; expected {COMMIT}")
         configure = [
-            "cmake", "-S", str(source), "-B", str(build_dir),
-            "-DCMAKE_BUILD_TYPE=Release", "-DGGML_NATIVE=OFF",
-            "-DCMAKE_BUILD_WITH_INSTALL_RPATH=ON", "-DCMAKE_INSTALL_RPATH=$ORIGIN",
+            "cmake",
+            "-S",
+            str(source),
+            "-B",
+            str(build_dir),
+            "-DCMAKE_BUILD_TYPE=Release",
+            "-DGGML_NATIVE=OFF",
+            "-DCMAKE_BUILD_WITH_INSTALL_RPATH=ON",
+            "-DCMAKE_INSTALL_RPATH=$ORIGIN",
         ]
         configure.extend(BACKEND_OPTIONS[backend])
         command(configure)
-        command(["cmake", "--build", str(build_dir), "--config", "Release", "--target", "llama-server", "--parallel", str(jobs)])
+        command(
+            [
+                "cmake",
+                "--build",
+                str(build_dir),
+                "--config",
+                "Release",
+                "--target",
+                "llama-server",
+                "--parallel",
+                str(jobs),
+            ]
+        )
         binary_dir = build_dir / "bin"
         if not (binary_dir / "llama-server").is_file():
             raise RuntimeError(f"Build did not create {binary_dir / 'llama-server'}")
@@ -83,7 +115,9 @@ def build(root: Path, backend: str, jobs: int) -> Path:
             "platform": platform.platform(),
             "machine": platform.machine(),
         }
-        (package / "runtime.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+        (package / "runtime.json").write_text(
+            json.dumps(metadata, indent=2) + "\n", encoding="utf-8"
+        )
         command([str(package / "llama-server"), "--help"])
         if target.exists():
             raise FileExistsError(f"Runtime appeared during build; refusing to overwrite: {target}")

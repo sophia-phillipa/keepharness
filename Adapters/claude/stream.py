@@ -4,8 +4,9 @@ import asyncio
 import json
 import math
 import time
-from agent_service.tools import ToolError
+
 from agent_service.tool_metadata import command_name
+from agent_service.tools import ToolError
 
 
 def rate_limit_update(item):
@@ -64,9 +65,12 @@ class Stream:
             # Keep only known codes, never credential-bearing provider text.
             error = item.get("error")
             self.provider_error = (
-                {"authentication_failed": "claude_authentication_failed",
-                 "rate_limit": "claude_rate_limit"}.get(error)
-                if isinstance(error, str) else None
+                {
+                    "authentication_failed": "claude_authentication_failed",
+                    "rate_limit": "claude_rate_limit",
+                }.get(error)
+                if isinstance(error, str)
+                else None
             )
         elif kind == "rate_limit_event":
             update = rate_limit_update(item)
@@ -77,20 +81,27 @@ class Stream:
             if value.get("type") == "message_start":
                 self.message_id = value.get("message", {}).get("id")
             if value.get("type") in ("message_start", "message_delta"):
-                usage = (value.get("message", {}) if value["type"] == "message_start" else value).get("usage", {})
+                usage = (
+                    value.get("message", {}) if value["type"] == "message_start" else value
+                ).get("usage", {})
                 count = usage.get("output_tokens")
-                if isinstance(self.message_id, str) and type(count) in (int, float) and math.isfinite(count) and count >= 0:
+                if (
+                    isinstance(self.message_id, str)
+                    and type(count) in (int, float)
+                    and math.isfinite(count)
+                    and count >= 0
+                ):
                     self.output_usage[self.message_id] = count
-                    self.event("usage_metrics", {
-                        "usage_scope": "turn",
-                        "output_tokens": sum(self.output_usage.values()),
-                        "inference_seconds": time.monotonic() - self.started,
-                    })
+                    self.event(
+                        "usage_metrics",
+                        {
+                            "usage_scope": "turn",
+                            "output_tokens": sum(self.output_usage.values()),
+                            "inference_seconds": time.monotonic() - self.started,
+                        },
+                    )
             block = value.get("content_block", {})
-            if (
-                value.get("type") == "content_block_start"
-                and block.get("type") == "tool_use"
-            ):
+            if value.get("type") == "content_block_start" and block.get("type") == "tool_use":
                 tool_id = block.get("id")
                 tool = block.get("name", "tool")
                 metadata = {"tool": tool}
@@ -124,9 +135,7 @@ class Stream:
                         "tool_end",
                         {
                             **metadata,
-                            "status": (
-                                "failed" if block.get("is_error") else "completed"
-                            ),
+                            "status": ("failed" if block.get("is_error") else "completed"),
                         },
                     )
         elif kind == "result":

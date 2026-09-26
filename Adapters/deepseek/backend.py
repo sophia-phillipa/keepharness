@@ -4,9 +4,9 @@ import json
 import os
 from pathlib import Path
 
-from agent_service.tools import ToolError
 from Adapters.codex.native import RuntimeOptions, build_command, run_turn
 from Adapters.shared.workspace import prepare_workspace
+from agent_service.tools import ToolError
 
 SPEC_REVISION = 1
 EFFORTS = ("configured", "none", "low", "high", "max")
@@ -17,9 +17,7 @@ def runtime_options(config, permissions):
     api = config.get("api_provider") or {}
     if not config.get("binary") or not api.get("url") or not api.get("key_file"):
         raise ToolError("deepseek_api_configuration_required")
-    environment = dict(
-        os.environ, TAIL_HARNESS_API_KEY=Path(api["key_file"]).read_text().strip()
-    )
+    environment = dict(os.environ, TAIL_HARNESS_API_KEY=Path(api["key_file"]).read_text().strip())
     command = build_command(config["binary"], permissions, hosted_search=False)
     command += [
         "-c",
@@ -53,9 +51,7 @@ def runtime_options(config, permissions):
     )
 
 
-async def run_native(
-    config, prompt, event, project, model, effort, session_dir, approve
-):
+async def run_native(config, prompt, event, project, model, effort, session_dir, approve):
     if effort not in EFFORTS:
         raise ToolError("deepseek_effort_unavailable")
     runtime = runtime_options(config, project.get("permissions", {}))

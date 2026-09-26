@@ -43,7 +43,7 @@ def test_native_session_receives_the_harness_conversation_title(tmp_path, monkey
 
 
 def test_scoped_contract_has_no_persisted_claude_session():
-    source = (native.__file__.replace("native.py", "scoped.py"))
+    source = native.__file__.replace("native.py", "scoped.py")
     assert "--no-session-persistence" in open(source, encoding="utf-8").read()
 
 

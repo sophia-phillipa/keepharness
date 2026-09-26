@@ -41,3 +41,12 @@ markers = [
 
 [tool.setuptools.packages.find]
 include = ["control", "agent_service", "tail_ui", "Adapters", "Adapters.*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+exclude = ["agent_service/vendor", "tail_ui/assets", "graphify-out", "local-ai", "local_ai"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+ignore = ["E501"]

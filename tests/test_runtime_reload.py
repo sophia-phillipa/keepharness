@@ -4,9 +4,9 @@ import json
 
 import pytest
 from starlette.testclient import TestClient
+from test_workspaces import config
 
 from agent_service.app import APIError, Service, create_app
-from test_workspaces import config
 
 
 def payload(backend="codex", model="codex-test"):
@@ -45,9 +45,7 @@ def test_reload_cancels_only_removed_model_and_keeps_registered_projects(tmp_pat
                 "a",
                 "queued",
                 1,
-                json.dumps(
-                    {**payload("stable", "stable-model"), "project_id": project}
-                ),
+                json.dumps({**payload("stable", "stable-model"), "project_id": project}),
                 None,
                 None,
                 "registered",
@@ -61,18 +59,9 @@ def test_reload_cancels_only_removed_model_and_keeps_registered_projects(tmp_pat
 
         asyncio.run(service.apply_runtime_config(candidate))
 
-        assert (
-            service.job(("a", service.config["clients"]["a"]), "removed")["state"]
-            == "cancelled"
-        )
-        assert (
-            service.job(("a", service.config["clients"]["a"]), "kept")["state"]
-            == "queued"
-        )
-        assert (
-            service.job(("a", service.config["clients"]["a"]), "registered")["state"]
-            == "queued"
-        )
+        assert service.job(("a", service.config["clients"]["a"]), "removed")["state"] == "cancelled"
+        assert service.job(("a", service.config["clients"]["a"]), "kept")["state"] == "queued"
+        assert service.job(("a", service.config["clients"]["a"]), "registered")["state"] == "queued"
         assert service.config["projects"][project]["root"] == str(registered)
         assert service.config["config_revision"] == "revision-two"
     finally:
@@ -100,10 +89,7 @@ def test_reload_keeps_last_config_for_malformed_nested_service(tmp_path):
         malformed["services"]["codex"]["models"] = {"not": "a list"}
         with pytest.raises(APIError, match="runtime_config_invalid"):
             asyncio.run(service.apply_runtime_config(malformed))
-        assert (
-            service.config["services"]["codex"]["models"]
-            == cfg["services"]["codex"]["models"]
-        )
+        assert service.config["services"]["codex"]["models"] == cfg["services"]["codex"]["models"]
     finally:
         service.db.close()
 
@@ -135,12 +121,11 @@ def test_reload_revokes_client_and_only_affected_local_runtime(tmp_path):
         candidate["clients"]["a"]["projects"] = []
         asyncio.run(service.apply_runtime_config(candidate))
         assert (
-            service.db.execute("SELECT state FROM jobs WHERE id='two'").fetchone()[0]
-            == "cancelled"
+            service.db.execute("SELECT state FROM jobs WHERE id='two'").fetchone()[0] == "cancelled"
         )
-        assert (
-            service.config["clients"]["a"]["projects"] == []
-        ), "reload must not restore revoked grants"
+        assert service.config["clients"]["a"]["projects"] == [], (
+            "reload must not restore revoked grants"
+        )
     finally:
         service.db.close()
 
@@ -178,9 +163,7 @@ def test_reload_cancels_active_job_when_its_model_is_removed(tmp_path):
     async def scenario():
         queued(service, "active-removed", payload())
         with service.db:
-            service.db.execute(
-                "UPDATE jobs SET state='running' WHERE id='active-removed'"
-            )
+            service.db.execute("UPDATE jobs SET state='running' WHERE id='active-removed'")
         service.active = "active-removed"
         service.task = asyncio.create_task(asyncio.sleep(10))
         candidate = copy.deepcopy(cfg)
@@ -211,9 +194,7 @@ def test_reload_cancels_active_maestro_when_its_resolved_local_model_is_removed(
     async def scenario():
         queued(service, "maestro-active", payload("maestro", "auto"))
         with service.db:
-            service.db.execute(
-                "UPDATE jobs SET state='running' WHERE id='maestro-active'"
-            )
+            service.db.execute("UPDATE jobs SET state='running' WHERE id='maestro-active'")
         service.active = "maestro-active"
         service.active_executors["maestro-active"] = ("local", "one")
         service.task = asyncio.create_task(asyncio.sleep(10))
@@ -242,10 +223,7 @@ def test_watcher_applies_atomic_runtime_file_and_reports_invalid_config(tmp_path
         replacement.write_text(json.dumps(candidate))
         replacement.replace(runtime)
         for _ in range(30):
-            if (
-                client.get("/v1/version").json().get("config_revision")
-                == "watched-revision"
-            ):
+            if client.get("/v1/version").json().get("config_revision") == "watched-revision":
                 break
             import time
 

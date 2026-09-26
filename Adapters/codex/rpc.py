@@ -4,7 +4,6 @@ import asyncio
 import json
 import os
 import signal
-import time
 from contextlib import asynccontextmanager
 
 
@@ -57,7 +56,9 @@ async def sync_title(rpc, thread_id, title, event):
     if not isinstance(title, str) or not title.strip():
         return
     try:
-        await asyncio.wait_for(rpc.call("thread/name/set", {"threadId": thread_id, "name": title}), 5)
+        await asyncio.wait_for(
+            rpc.call("thread/name/set", {"threadId": thread_id, "name": title}), 5
+        )
     except (RuntimeError, asyncio.TimeoutError) as exc:
         if isinstance(exc, RuntimeError) and str(exc) != "codex_rpc_error":
             raise
@@ -100,11 +101,7 @@ async def metadata(binary, method):
         async with connection([binary, "app-server", "--listen", "stdio://"]) as rpc:
             return await rpc.call(
                 method,
-                (
-                    {"includeHidden": False, "limit": 100}
-                    if method == "model/list"
-                    else {}
-                ),
+                ({"includeHidden": False, "limit": 100} if method == "model/list" else {}),
             )
 
 
@@ -146,11 +143,7 @@ def usage_delta(previous, current, last):
         if not isinstance(value, (int, float)):
             continue
         before = (previous or {}).get(key, 0)
-        delta = (
-            value - before
-            if previous is not None and value >= before
-            else last.get(key)
-        )
+        delta = value - before if previous is not None and value >= before else last.get(key)
         if isinstance(delta, (int, float)) and delta >= 0:
             result[key] = delta
     return result

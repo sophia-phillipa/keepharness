@@ -1,26 +1,293 @@
-const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
-const assert=require('node:assert/strict');
-const fs=require('node:fs/promises'),path=require('node:path');
-(async()=>{const b=await chromium.launch();const p=await b.newPage({viewport:{width:1440,height:1000}});const errors=[],saved=[];p.on('pageerror',e=>errors.push(e.message));p.on('dialog',d=>d.accept());
- const empty=id=>({added:false,enabled:false,models:[],projects:['sem-projeto'],permissions:{read:false,write:false,upload:false,shell:false,internet:false,hooks:false},mode:['local','deepseek'].includes(id)?'native':'scoped',integrations:[]});
- const state={settings:{services:Object.fromEntries(['codex','claude','local','deepseek'].map(id=>[id,empty(id)])),projects:[],logins:[],port:8095,tailnet_port:8095,uploads_enabled:false},inventory:{platform:'Linux',services:[{id:'codex',name:'Codex CLI',found:true},{id:'claude',name:'Claude Code',found:true},{id:'local',name:'Local model',found:false},{id:'deepseek',name:'DeepSeek',api:true,found:true}],projects:[{name:'Demo',path:'/workspace/demo'}],network:{online:true}},authentication:{},models:{},integrations:{codex:[{id:'mcp:drive',name:'Drive',kind:'mcp'}],claude:[],local:[],deepseek:[]},operations:[],credentials:{},status:{running:false,local_url:'http://127.0.0.1:8095/',remote_url:'http://demo.tailnet:8095/',shared:false}};
+const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
+const assert = require("node:assert/strict");
+const fs = require("node:fs/promises"),
+  path = require("node:path");
+(async () => {
+  const b = await chromium.launch();
+  const p = await b.newPage({ viewport: { width: 1440, height: 1000 } });
+  const errors = [],
+    saved = [];
+  p.on("pageerror", (e) => errors.push(e.message));
+  p.on("dialog", (d) => d.accept());
+  const empty = (id) => ({
+    added: false,
+    enabled: false,
+    models: [],
+    projects: ["sem-projeto"],
+    permissions: {
+      read: false,
+      write: false,
+      upload: false,
+      shell: false,
+      internet: false,
+      hooks: false,
+    },
+    mode: ["local", "deepseek"].includes(id) ? "native" : "scoped",
+    integrations: [],
+  });
+  const state = {
+    settings: {
+      services: Object.fromEntries(
+        ["codex", "claude", "local", "deepseek"].map((id) => [id, empty(id)]),
+      ),
+      projects: [],
+      logins: [],
+      port: 8095,
+      tailnet_port: 8095,
+      uploads_enabled: false,
+    },
+    inventory: {
+      platform: "Linux",
+      services: [
+        { id: "codex", name: "Codex CLI", found: true },
+        { id: "claude", name: "Claude Code", found: true },
+        { id: "local", name: "Local model", found: false },
+        { id: "deepseek", name: "DeepSeek", api: true, found: true },
+      ],
+      projects: [{ name: "Demo", path: "/workspace/demo" }],
+      network: { online: true },
+    },
+    authentication: {},
+    models: {},
+    integrations: {
+      codex: [{ id: "mcp:drive", name: "Drive", kind: "mcp" }],
+      claude: [],
+      local: [],
+      deepseek: [],
+    },
+    operations: [],
+    credentials: {},
+    status: {
+      running: false,
+      local_url: "http://127.0.0.1:8095/",
+      remote_url: "http://demo.tailnet:8095/",
+      shared: false,
+    },
+  };
 
-const idle=()=>p.waitForFunction(()=>!document.body.hasAttribute('aria-busy'));
-let authenticated=true,catalog='alpha';
-await p.route('http://admin.test/**',async route=>{const url=new URL(route.request().url());if(url.pathname.startsWith('/api/'))return route.fallback();const file=url.pathname==='/'?'index.html':url.pathname.slice(1);return route.fulfill({body:await fs.readFile(path.join(__dirname,file.startsWith('assets/')?'../tail_ui':'../control',file)),contentType:file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':'text/html'});});
-await p.route('**/api/**',async route=>{const req=route.request(),name=new URL(req.url()).pathname.slice(5),data=req.method()==='POST'?req.postDataJSON():null;let result={};
-if(name==='state')result=state;
-else if(name==='scan')result=state.inventory;
-else if(name==='check'){result={authenticated,models:data.provider==='claude'?{'claude-sonnet-4-6':['configured']}:{[catalog]:['low','high']}};state.authentication[data.provider]=authenticated;state.models[data.provider]=result.models;}
-else if(name==='settings'){state.settings=structuredClone(data);saved.push(structuredClone(data));result={saved:true};}
-return route.fulfill({json:result});});
-await p.goto('http://admin.test/#providers');await p.waitForFunction(()=>document.querySelector('#configured-providers')&&!document.body.hasAttribute('aria-busy'));await p.click('#add-provider');await p.locator('#provider-options').getByText('Codex CLI',{exact:false}).click();await p.waitForFunction(()=>!document.body.hasAttribute('aria-busy'));
-await p.locator('[data-provider=codex]').getByRole('button',{name:'Check account',exact:true}).click();await p.waitForFunction(()=>!document.body.hasAttribute('aria-busy'));await p.locator('[data-provider=codex]').getByLabel('alpha',{exact:true}).check();await p.locator('[data-provider=codex]').getByLabel('Make this service available',{exact:true}).check();await p.click('#wizard-next');await p.click('#save');await p.waitForFunction(()=>document.querySelector('#dirty').textContent==='Settings saved');assert.deepEqual(saved.at(-1).services.codex.models,['alpha']);await p.reload();await p.locator('[data-configured-provider=codex]').getByRole('button',{name:'Edit Codex CLI',exact:true}).click();await p.waitForFunction(()=>!document.body.hasAttribute('aria-busy'));assert(await p.locator('[data-provider=codex]').getByLabel('alpha',{exact:true}).isChecked());
+  const idle = () =>
+    p.waitForFunction(() => !document.body.hasAttribute("aria-busy"));
+  let authenticated = true,
+    catalog = "alpha";
+  await p.route("http://admin.test/**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname.startsWith("/api/")) return route.fallback();
+    const file = url.pathname === "/" ? "index.html" : url.pathname.slice(1);
+    return route.fulfill({
+      body: await fs.readFile(
+        path.join(
+          __dirname,
+          file.startsWith("assets/") ? "../tail_ui" : "../control",
+          file,
+        ),
+      ),
+      contentType: file.endsWith(".js")
+        ? "text/javascript"
+        : file.endsWith(".css")
+          ? "text/css"
+          : "text/html",
+    });
+  });
+  await p.route("**/api/**", async (route) => {
+    const req = route.request(),
+      name = new URL(req.url()).pathname.slice(5),
+      data = req.method() === "POST" ? req.postDataJSON() : null;
+    let result = {};
+    if (name === "state") result = state;
+    else if (name === "scan") result = state.inventory;
+    else if (name === "check") {
+      result = {
+        authenticated,
+        models:
+          data.provider === "claude"
+            ? { "claude-sonnet-4-6": ["configured"] }
+            : { [catalog]: ["low", "high"] },
+      };
+      state.authentication[data.provider] = authenticated;
+      state.models[data.provider] = result.models;
+    } else if (name === "settings") {
+      state.settings = structuredClone(data);
+      saved.push(structuredClone(data));
+      result = { saved: true };
+    }
+    return route.fulfill({ json: result });
+  });
+  await p.goto("http://admin.test/#providers");
+  await p.waitForFunction(
+    () =>
+      document.querySelector("#configured-providers") &&
+      !document.body.hasAttribute("aria-busy"),
+  );
+  await p.click("#add-provider");
+  await p
+    .locator("#provider-options")
+    .getByText("Codex CLI", { exact: false })
+    .click();
+  await p.waitForFunction(() => !document.body.hasAttribute("aria-busy"));
+  await p
+    .locator("[data-provider=codex]")
+    .getByRole("button", { name: "Check account", exact: true })
+    .click();
+  await p.waitForFunction(() => !document.body.hasAttribute("aria-busy"));
+  await p
+    .locator("[data-provider=codex]")
+    .getByLabel("alpha", { exact: true })
+    .check();
+  await p
+    .locator("[data-provider=codex]")
+    .getByLabel("Make this service available", { exact: true })
+    .check();
+  await p.click("#wizard-next");
+  await p.click("#save");
+  await p.waitForFunction(
+    () => document.querySelector("#dirty").textContent === "Settings saved",
+  );
+  assert.deepEqual(saved.at(-1).services.codex.models, ["alpha"]);
+  await p.reload();
+  await p
+    .locator("[data-configured-provider=codex]")
+    .getByRole("button", { name: "Edit Codex CLI", exact: true })
+    .click();
+  await p.waitForFunction(() => !document.body.hasAttribute("aria-busy"));
+  assert(
+    await p
+      .locator("[data-provider=codex]")
+      .getByLabel("alpha", { exact: true })
+      .isChecked(),
+  );
 
-catalog='beta';await p.click('#wizard-cancel');await p.getByRole('button',{name:'Check account — Codex CLI',exact:true}).click();await idle();await p.getByRole('button',{name:'Edit Codex CLI',exact:true}).click();await idle();assert.match(await p.locator('[data-provider=codex]').innerText(),/Unavailable/);const before=saved.length;await p.click('#save');await idle();assert.equal(saved.length,before);assert.match(await p.locator('#feedback').innerText(),/model/i);
-await p.locator('[data-provider=codex]').getByLabel('alpha',{exact:false}).uncheck();await p.locator('[data-provider=codex]').getByLabel('beta',{exact:true}).check();await p.click('#save');await idle();assert.deepEqual(saved.at(-1).services.codex.models,['beta']);
-await p.locator('#provider-dialog').waitFor({state:'hidden'});await idle();await p.click('#add-provider');await idle();await p.locator('#provider-options').getByText('Claude Code',{exact:false}).click();authenticated=false;await p.locator('[data-provider=claude]').getByRole('button',{name:'Check account',exact:true}).click();await idle();assert.match(await p.locator('#feedback').innerText(),/Log in/);await p.locator('[data-provider=claude]').getByLabel('claude-sonnet-4-6',{exact:true}).check();await p.locator('[data-provider=claude]').getByLabel('Make this service available',{exact:true}).check();await p.click('#wizard-next');assert.match(await p.locator('#provider-review').innerText(),/Claude Code.*selected models/);const count=saved.length;await p.click('#save');await idle();assert.equal(saved.length,count);assert.match(await p.locator('#feedback').innerText(),/Log in|author|authent/i);
-await p.click('#wizard-back');await p.locator('[data-provider=claude]').getByLabel('Make this service available',{exact:true}).uncheck();await p.click('#wizard-next');await p.click('#save');await idle();assert.equal(state.settings.services.claude.enabled,false);
-authenticated=true;await p.locator('#provider-dialog').waitFor({state:'hidden'});await p.getByRole('button',{name:'Check account — Claude Code',exact:true}).click();await idle();await p.locator('[data-configured-provider=claude]').getByRole('checkbox').check();await idle();assert.equal(state.settings.services.claude.enabled,true);await p.reload();await p.waitForFunction(()=>document.querySelectorAll('#configured-providers article').length===2&&!document.body.hasAttribute('aria-busy'));assert.deepEqual(state.settings.services.codex.models,['beta']);assert.deepEqual(state.settings.services.claude.models,['claude-sonnet-4-6']);
-for(const theme of ['violet-bordeaux','porcelain','mineral-rose','amethyst','petroleum','arizona']){await p.click('#theme');await p.locator('[data-theme-choice='+theme+']').click();assert.equal(await p.locator('html').getAttribute('data-palette'),theme);await p.click('#appearance-close');}
-state.status.running=true;await p.reload();await idle();assert(await p.locator('#add-provider').isEnabled());assert.equal(await p.locator('#configuration-lock').count(),0);assert(await p.locator('[data-configured-provider=codex] button').first().isEnabled());assert.equal(await p.locator('#add-project').count(),0);state.status.running=false;await p.reload();await p.waitForFunction(()=>!document.querySelector('#add-provider').disabled);assert.equal(await p.locator('#configuration-lock').count(),0);assert.deepEqual(errors,[]);console.log('PASS gauntlet: Codex/Claude registration, stale catalog, refused authentication, save disabled, reauthorize, persistence and six themes');await b.close();})().catch(e=>{console.error(e);process.exit(1)});
+  catalog = "beta";
+  await p.click("#wizard-cancel");
+  await p
+    .getByRole("button", { name: "Check account — Codex CLI", exact: true })
+    .click();
+  await idle();
+  await p.getByRole("button", { name: "Edit Codex CLI", exact: true }).click();
+  await idle();
+  assert.match(
+    await p.locator("[data-provider=codex]").innerText(),
+    /Unavailable/,
+  );
+  const before = saved.length;
+  await p.click("#save");
+  await idle();
+  assert.equal(saved.length, before);
+  assert.match(await p.locator("#feedback").innerText(), /model/i);
+  await p
+    .locator("[data-provider=codex]")
+    .getByLabel("alpha", { exact: false })
+    .uncheck();
+  await p
+    .locator("[data-provider=codex]")
+    .getByLabel("beta", { exact: true })
+    .check();
+  await p.click("#save");
+  await idle();
+  assert.deepEqual(saved.at(-1).services.codex.models, ["beta"]);
+  await p.locator("#provider-dialog").waitFor({ state: "hidden" });
+  await idle();
+  await p.click("#add-provider");
+  await idle();
+  await p
+    .locator("#provider-options")
+    .getByText("Claude Code", { exact: false })
+    .click();
+  authenticated = false;
+  await p
+    .locator("[data-provider=claude]")
+    .getByRole("button", { name: "Check account", exact: true })
+    .click();
+  await idle();
+  assert.match(await p.locator("#feedback").innerText(), /Log in/);
+  await p
+    .locator("[data-provider=claude]")
+    .getByLabel("claude-sonnet-4-6", { exact: true })
+    .check();
+  await p
+    .locator("[data-provider=claude]")
+    .getByLabel("Make this service available", { exact: true })
+    .check();
+  await p.click("#wizard-next");
+  assert.match(
+    await p.locator("#provider-review").innerText(),
+    /Claude Code.*selected models/,
+  );
+  const count = saved.length;
+  await p.click("#save");
+  await idle();
+  assert.equal(saved.length, count);
+  assert.match(
+    await p.locator("#feedback").innerText(),
+    /Log in|author|authent/i,
+  );
+  await p.click("#wizard-back");
+  await p
+    .locator("[data-provider=claude]")
+    .getByLabel("Make this service available", { exact: true })
+    .uncheck();
+  await p.click("#wizard-next");
+  await p.click("#save");
+  await idle();
+  assert.equal(state.settings.services.claude.enabled, false);
+  authenticated = true;
+  await p.locator("#provider-dialog").waitFor({ state: "hidden" });
+  await p
+    .getByRole("button", { name: "Check account — Claude Code", exact: true })
+    .click();
+  await idle();
+  await p
+    .locator("[data-configured-provider=claude]")
+    .getByRole("checkbox")
+    .check();
+  await idle();
+  assert.equal(state.settings.services.claude.enabled, true);
+  await p.reload();
+  await p.waitForFunction(
+    () =>
+      document.querySelectorAll("#configured-providers article").length === 2 &&
+      !document.body.hasAttribute("aria-busy"),
+  );
+  assert.deepEqual(state.settings.services.codex.models, ["beta"]);
+  assert.deepEqual(state.settings.services.claude.models, [
+    "claude-sonnet-4-6",
+  ]);
+  for (const theme of [
+    "violet-bordeaux",
+    "porcelain",
+    "mineral-rose",
+    "amethyst",
+    "petroleum",
+    "arizona",
+  ]) {
+    await p.click("#theme");
+    await p.locator("[data-theme-choice=" + theme + "]").click();
+    assert.equal(await p.locator("html").getAttribute("data-palette"), theme);
+    await p.click("#appearance-close");
+  }
+  state.status.running = true;
+  await p.reload();
+  await idle();
+  assert(await p.locator("#add-provider").isEnabled());
+  assert.equal(await p.locator("#configuration-lock").count(), 0);
+  assert(
+    await p
+      .locator("[data-configured-provider=codex] button")
+      .first()
+      .isEnabled(),
+  );
+  assert.equal(await p.locator("#add-project").count(), 0);
+  state.status.running = false;
+  await p.reload();
+  await p.waitForFunction(
+    () => !document.querySelector("#add-provider").disabled,
+  );
+  assert.equal(await p.locator("#configuration-lock").count(), 0);
+  assert.deepEqual(errors, []);
+  console.log(
+    "PASS gauntlet: Codex/Claude registration, stale catalog, refused authentication, save disabled, reauthorize, persistence and six themes",
+  );
+  await b.close();
+})().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

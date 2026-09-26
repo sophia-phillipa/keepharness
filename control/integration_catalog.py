@@ -6,7 +6,6 @@ import os
 import signal
 from pathlib import Path
 
-
 OUTPUT_LIMIT = 8 * 1024 * 1024
 # First CLI plugin discovery can take ~10 s; stay below the admin's 30 s deadline.
 TIMEOUT_SECONDS = 15
@@ -71,11 +70,26 @@ def _plugin_description(plugin):
     if isinstance(description, str) and description.strip():
         return description.strip()
     source = plugin.get("source")
-    root = source.get("path") if isinstance(source, dict) and source.get("source") == "local" else plugin.get("installPath")
+    root = (
+        source.get("path")
+        if isinstance(source, dict) and source.get("source") == "local"
+        else plugin.get("installPath")
+    )
     if not root and plugin.get("installed") is True:
         parts = [plugin.get(key) for key in ("marketplaceName", "name", "version")]
-        if all(isinstance(part, str) and part not in {"", ".", ".."} and "/" not in part and chr(92) not in part for part in parts):
-            root = str(Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex") / "plugins" / "cache" / Path(*parts))
+        if all(
+            isinstance(part, str)
+            and part not in {"", ".", ".."}
+            and "/" not in part
+            and chr(92) not in part
+            for part in parts
+        ):
+            root = str(
+                Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
+                / "plugins"
+                / "cache"
+                / Path(*parts)
+            )
     if not isinstance(root, str) or not Path(root).is_absolute():
         return ""
     for directory in (".codex-plugin", ".claude-plugin"):
@@ -90,7 +104,11 @@ def _plugin_description(plugin):
                 continue
             interface = manifest.get("interface")
             interface = interface if isinstance(interface, dict) else {}
-            for value in (interface.get("longDescription"), manifest.get("description"), interface.get("shortDescription")):
+            for value in (
+                interface.get("longDescription"),
+                manifest.get("description"),
+                interface.get("shortDescription"),
+            ):
                 if isinstance(value, str) and value.strip():
                     return value.strip()
         except (OSError, ValueError):
@@ -107,7 +125,10 @@ def _plugins(payload):
         return None
     items = []
     seen = set()
-    for default_status, entries in (("installed", decoded.get("installed", [])), ("available", decoded.get("available", []))):
+    for default_status, entries in (
+        ("installed", decoded.get("installed", [])),
+        ("available", decoded.get("available", [])),
+    ):
         if not isinstance(entries, list):
             continue
         for plugin in entries:
@@ -115,17 +136,26 @@ def _plugins(payload):
                 continue
             identifier = _plugin_identifier(plugin)
             name = plugin.get("name") or identifier
-            if not isinstance(identifier, str) or not identifier or not isinstance(name, str) or identifier in seen:
+            if (
+                not isinstance(identifier, str)
+                or not identifier
+                or not isinstance(name, str)
+                or identifier in seen
+            ):
                 continue
             seen.add(identifier)
             installed = plugin.get("installed") is True
-            description = _plugin_description({**plugin, "installed": installed or default_status == "installed"})
+            description = _plugin_description(
+                {**plugin, "installed": installed or default_status == "installed"}
+            )
             items.append(
                 {
                     "id": f"plugin:{identifier}",
                     "name": name,
                     "kind": "plugin",
-                    "status": "installed" if installed or default_status == "installed" else "available",
+                    "status": "installed"
+                    if installed or default_status == "installed"
+                    else "available",
                     "enabled": plugin.get("enabled") is True,
                     **({"description": description} if description else {}),
                 }
@@ -144,7 +174,15 @@ def _codex_mcp(payload):
     for server in decoded:
         name = server.get("name") if isinstance(server, dict) else None
         if isinstance(name, str) and name:
-            items.append({"id": f"mcp:{name}", "name": name, "kind": "mcp", "status": "configured", "enabled": server.get("enabled") is True})
+            items.append(
+                {
+                    "id": f"mcp:{name}",
+                    "name": name,
+                    "kind": "mcp",
+                    "status": "configured",
+                    "enabled": server.get("enabled") is True,
+                }
+            )
     return items
 
 
@@ -168,7 +206,11 @@ def _claude_mcp(payload):
     for line in payload.splitlines():
         name, separator, _rest = line.partition(":")
         name = name.strip()
-        if separator and name and all(character.isalnum() or character in "_.-" for character in name):
+        if (
+            separator
+            and name
+            and all(character.isalnum() or character in "_.-" for character in name)
+        ):
             items.append({"id": f"mcp:{name}", "name": name, "kind": "mcp", "status": "configured"})
     return items or None
 
@@ -192,7 +234,9 @@ async def catalog(provider, binary, fallback=None):
         return {"items": [], "warnings": ["The provider's CLI was not found."]}
 
     plugin_command = (binary, "plugin", "list", "--available", "--json")
-    mcp_command = (binary, "mcp", "list", "--json") if provider == "codex" else (binary, "mcp", "list")
+    mcp_command = (
+        (binary, "mcp", "list", "--json") if provider == "codex" else (binary, "mcp", "list")
+    )
     mcp_result, plugin_result = await asyncio.gather(_run(*mcp_command), _run(*plugin_command))
     mcp_code, mcp_output = mcp_result
     plugin_code, plugin_output = plugin_result
@@ -201,7 +245,9 @@ async def catalog(provider, binary, fallback=None):
     warnings = []
     if mcp_code != 0 or mcp_items is None:
         mcp_items = _fallback(provider, fallback)
-        warnings.append("Could not read the CLI's MCP catalog; already configured connectors were used.")
+        warnings.append(
+            "Could not read the CLI's MCP catalog; already configured connectors were used."
+        )
     if plugin_code != 0 or plugin_items is None:
         plugin_items = []
         warnings.append("Could not read the CLI's plugin catalog.")

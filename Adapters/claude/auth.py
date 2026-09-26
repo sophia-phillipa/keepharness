@@ -1,4 +1,5 @@
 """Use the browser login only after an explicit account renewal."""
+
 import os
 
 

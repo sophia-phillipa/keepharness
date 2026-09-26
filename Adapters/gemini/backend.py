@@ -1,22 +1,22 @@
 """Public entry points for Gemini CLI; its effort remains CLI-configured."""
 
-from agent_service.tools import ToolError
 from Adapters.shared.workspace import prepare_workspace
+from agent_service.tools import ToolError
 
 from . import native
-
 
 SPEC_REVISION = 2
 
 
-async def run_native(
-    config, prompt, event, project, model, effort, session_dir, approve
-):
+async def run_native(config, prompt, event, project, model, effort, session_dir, approve):
     if effort != "configured":
         raise ToolError("gemini_effort_unavailable")
     workspace = prepare_workspace(project, prompt, session_dir)
     if project.get("_conversation_title"):
-        event("session_title_sync_unsupported", {"backend": "gemini", "reason": "gemini_acp_title_unsupported"})
+        event(
+            "session_title_sync_unsupported",
+            {"backend": "gemini", "reason": "gemini_acp_title_unsupported"},
+        )
     return await native.run(
         config,
         workspace.prompt,

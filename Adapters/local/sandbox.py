@@ -1,9 +1,9 @@
 """Filesystem boundary for local inference agents, independent of CLI approvals."""
 
-from pathlib import Path
-import shutil
 import os
+import shutil
 import sys
+from pathlib import Path
 
 from agent_service.tools import ToolError
 
@@ -83,9 +83,7 @@ def wrap(command, session, cwd, project, environment=None):
     # Runtime credentials/backups now live inside the checkout, not in model context.
     private_runtime = (
         Path(
-            os.environ.get(
-                "TAIL_HARNESS_ROOT", str(Path(__file__).resolve().parents[2])
-            )
+            os.environ.get("TAIL_HARNESS_ROOT", str(Path(__file__).resolve().parents[2]))
         ).resolve()
         / "local-ai"
     )
@@ -112,8 +110,11 @@ def wrap(command, session, cwd, project, environment=None):
         if Path(value).exists():
             args += ["--ro-bind", value, value]
     if permissions.get("internet") and permissions.get("shell"):
-        args += ["--ro-bind", str(Path(__file__).with_name("web_search.py").resolve()),
-                 "/tail-web-search.py"]
+        args += [
+            "--ro-bind",
+            str(Path(__file__).with_name("web_search.py").resolve()),
+            "/tail-web-search.py",
+        ]
     if environment and environment.get("TAIL_HARNESS_LOCAL_KEY"):
         args += [
             "--setenv",

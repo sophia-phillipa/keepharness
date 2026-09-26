@@ -6,18 +6,15 @@ from pathlib import Path
 
 from Adapters.codex.native import RuntimeOptions, build_command, run_turn
 from Adapters.shared.workspace import prepare_workspace
-from .sandbox import wrap, ISOLATION_VERSION
 
+from .sandbox import ISOLATION_VERSION, wrap
 
 SPEC_REVISION = 2
 
-async def run_native(
-    config, prompt, event, project, model, effort, session_dir, approve
-):
+
+async def run_native(config, prompt, event, project, model, effort, session_dir, approve):
     workspace = prepare_workspace(project, prompt, session_dir)
-    command = build_command(
-        config["binary"], workspace.permissions, hosted_search=False
-    )
+    command = build_command(config["binary"], workspace.permissions, hosted_search=False)
     model_provider = config.get("local_provider")
     environment = None
     endpoint = config.get("local_models", {}).get(model)
@@ -27,8 +24,7 @@ async def run_native(
             "-c",
             'model_providers.tail_local.name="Local llama.cpp"',
             "-c",
-            "model_providers.tail_local.base_url="
-            + json.dumps(endpoint["url"] + "/v1"),
+            "model_providers.tail_local.base_url=" + json.dumps(endpoint["url"] + "/v1"),
             "-c",
             'model_providers.tail_local.wire_api="responses"',
             "-c",
@@ -63,7 +59,8 @@ async def run_native(
         isolated=True,
         session_metadata={"isolation": ISOLATION_VERSION},
         thread_instructions={"baseInstructions": BASE_INSTRUCTIONS},
-        developer_instructions=LOCAL_TOOL_INSTRUCTIONS + (
+        developer_instructions=LOCAL_TOOL_INSTRUCTIONS
+        + (
             WEB_SEARCH_INSTRUCTIONS
             if workspace.permissions.get("internet") and workspace.permissions.get("shell")
             else " Web research is disabled by the effective internet or shell permissions; do not attempt network access."

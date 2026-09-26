@@ -2,11 +2,11 @@
 
 import difflib
 import json
-from pathlib import Path
 import shutil
 import tempfile
 from contextlib import contextmanager
 from dataclasses import dataclass
+from pathlib import Path
 
 import agent_service
 from agent_service.tools import ToolError, safe_file
@@ -41,7 +41,7 @@ def prepare_scoped(config, project, staged, session_dir, provider, auth_name):
             roots = {
                 "project": Path(project["root"]).resolve(),
                 **{
-                    f"extra-{i+1}": Path(p).resolve()
+                    f"extra-{i + 1}": Path(p).resolve()
                     for i, p in enumerate(project.get("additional_roots", []))
                 },
             }
@@ -159,11 +159,7 @@ def collect_changes(workspace):
     patches = []
     staged_files = {}
     for path in work.rglob("*"):
-        if (
-            not path.is_file()
-            or path.is_symlink()
-            or path.stat().st_size > 2 * 1024 * 1024
-        ):
+        if not path.is_file() or path.is_symlink() or path.stat().st_size > 2 * 1024 * 1024:
             continue
         name = str(path.relative_to(work))
         parts = Path(name).parts
@@ -176,11 +172,7 @@ def collect_changes(workspace):
         after = path.read_bytes()
         if before == after:
             continue
-        if (
-            len(parts) > 1
-            and parts[0] in roots
-            and not any(p.startswith(".") for p in parts)
-        ):
+        if len(parts) > 1 and parts[0] in roots and not any(p.startswith(".") for p in parts):
             try:
                 staged_files[name] = after.decode()
             except UnicodeError:

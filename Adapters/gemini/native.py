@@ -8,8 +8,8 @@ import time
 from pathlib import Path
 
 from agent_service.tools import ToolError
-from .policy import prepare
 
+from .policy import prepare
 
 MAX_OUTPUT_BYTES = 8 * 1024 * 1024
 MAX_TEXT_CHARS = 500000
@@ -32,9 +32,31 @@ async def _stop_process_group(proc):
         await proc.wait()
 
 
-async def run(config, prompt, event, cwd, model, home, permissions, access_mode, images=None, approve=None, additional_roots=None):
+async def run(
+    config,
+    prompt,
+    event,
+    cwd,
+    model,
+    home,
+    permissions,
+    access_mode,
+    images=None,
+    approve=None,
+    additional_roots=None,
+):
     return await run_acp(
-        config, prompt, event, cwd, model, home, permissions, access_mode, images or [], approve, additional_roots or []
+        config,
+        prompt,
+        event,
+        cwd,
+        model,
+        home,
+        permissions,
+        access_mode,
+        images or [],
+        approve,
+        additional_roots or [],
     )
 
 
@@ -56,7 +78,9 @@ class AcpStream:
             text = content.get("text", "") if isinstance(content, dict) else ""
             if text:
                 self.answer += text
-                self.first = self.first if self.first is not None else time.monotonic() - self.started
+                self.first = (
+                    self.first if self.first is not None else time.monotonic() - self.started
+                )
                 self.event("answer_delta", {"text": text})
         elif kind == "agent_thought_chunk":
             content = update.get("content", {})
@@ -68,11 +92,28 @@ class AcpStream:
             # Titles can contain a command or file content; the protocol kind is
             # the only safe activity label for the public timeline.
             tool_kind = update.get("kind")
-            metadata = {"tool": tool_kind if tool_kind in {"read", "edit", "delete", "move", "search", "fetch", "execute", "think", "other"} else "tool"}
+            metadata = {
+                "tool": tool_kind
+                if tool_kind
+                in {
+                    "read",
+                    "edit",
+                    "delete",
+                    "move",
+                    "search",
+                    "fetch",
+                    "execute",
+                    "think",
+                    "other",
+                }
+                else "tool"
+            }
             if isinstance(update.get("toolCallId"), str):
                 metadata["tool_id"] = update["toolCallId"]
             self.event(
-                "tool_start" if kind == "tool_call" and update.get("status") == "in_progress" else "tool_end",
+                "tool_start"
+                if kind == "tool_call" and update.get("status") == "in_progress"
+                else "tool_end",
                 {**metadata, "status": update.get("status", "completed")},
             )
         elif kind == "usage_update":
@@ -104,7 +145,8 @@ class AcpConnection:
                 "edit": self.permissions.get("write", False),
                 "delete": self.permissions.get("write", False),
                 "move": self.permissions.get("write", False),
-                "search": self.permissions.get("read", False) or self.permissions.get("internet", False),
+                "search": self.permissions.get("read", False)
+                or self.permissions.get("internet", False),
                 "fetch": self.permissions.get("internet", False),
                 "execute": self.permissions.get("shell", False),
                 "think": True,
@@ -121,13 +163,24 @@ class AcpConnection:
                 approved = False
             # Never choose allow_always: Tail Harness authorization is turn-scoped.
             wanted = "allow_once" if approved else "reject_once"
-            option = next((x.get("optionId") for x in params.get("options", []) if x.get("kind") == wanted), None)
-            outcome = {"outcome": "selected", "optionId": option} if option else {"outcome": "cancelled"}
+            option = next(
+                (x.get("optionId") for x in params.get("options", []) if x.get("kind") == wanted),
+                None,
+            )
+            outcome = (
+                {"outcome": "selected", "optionId": option} if option else {"outcome": "cancelled"}
+            )
             await self._send({"jsonrpc": "2.0", "id": item["id"], "result": {"outcome": outcome}})
         elif method == "session/update":
             self.state.consume(params)
         else:
-            await self._send({"jsonrpc": "2.0", "id": item.get("id"), "error": {"code": -32601, "message": "Unsupported ACP client method"}})
+            await self._send(
+                {
+                    "jsonrpc": "2.0",
+                    "id": item.get("id"),
+                    "error": {"code": -32601, "message": "Unsupported ACP client method"},
+                }
+            )
 
     async def call(self, method, params):
         self.sequence += 1
@@ -142,7 +195,8 @@ class AcpConnection:
                 raise ToolError("gemini_output_limit")
             try:
                 item = json.loads(line)
-                if not isinstance(item, dict):raise ValueError()
+                if not isinstance(item, dict):
+                    raise ValueError()
             except ValueError:
                 raise ToolError("gemini_acp_invalid") from None
             if item.get("method"):
@@ -153,14 +207,30 @@ class AcpConnection:
                 return item.get("result", {})
 
 
-async def run_acp(config, prompt, event, cwd, model, home, permissions, access_mode, images, approve, additional_roots):
+async def run_acp(
+    config,
+    prompt,
+    event,
+    cwd,
+    model,
+    home,
+    permissions,
+    access_mode,
+    images,
+    approve,
+    additional_roots,
+):
     command, environment = prepare(config, home, permissions, access_mode)
     if additional_roots:
         command += ["--include-directories", *additional_roots]
     proc = await asyncio.create_subprocess_exec(
         *command,
-        cwd=cwd, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.DEVNULL, limit=1024 * 1024, start_new_session=True,
+        cwd=cwd,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL,
+        limit=1024 * 1024,
+        start_new_session=True,
         env=environment,
     )
     state, marker = AcpStream(event), Path(home) / "gemini-session.json"
@@ -168,28 +238,53 @@ async def run_acp(config, prompt, event, cwd, model, home, permissions, access_m
     rpc.mcp_selected = bool(config.get("integrations")) and access_mode != "read_only"
     event("planning", {"backend": "gemini", "model": model, "effort": "configured"})
     try:
-        initialized = await asyncio.wait_for(rpc.call("initialize", {
-            "protocolVersion": 1, "clientInfo": {"name": "tail-harness", "version": "0.5.0"},
-            # Files and terminals are intentionally not proxied in this revision;
-            # admin policy routes the enabled native tools through ACP approval.
-            "clientCapabilities": {"auth": {"terminal": False}, "fs": {}, "terminal": False},
-        }), timeout=15)
+        initialized = await asyncio.wait_for(
+            rpc.call(
+                "initialize",
+                {
+                    "protocolVersion": 1,
+                    "clientInfo": {"name": "tail-harness", "version": "0.5.0"},
+                    # Files and terminals are intentionally not proxied in this revision;
+                    # admin policy routes the enabled native tools through ACP approval.
+                    "clientCapabilities": {
+                        "auth": {"terminal": False},
+                        "fs": {},
+                        "terminal": False,
+                    },
+                },
+            ),
+            timeout=15,
+        )
         if not initialized.get("agentCapabilities", {}).get("loadSession"):
             raise ToolError("gemini_acp_unavailable")
         saved = json.loads(marker.read_text()) if marker.exists() else {}
         session_id = saved.get("id")
         if isinstance(session_id, str) and session_id:
             state.suppressed = True
-            await asyncio.wait_for(rpc.call("session/load", {"sessionId": session_id, "cwd": str(cwd), "mcpServers": []}), timeout=15)
+            await asyncio.wait_for(
+                rpc.call(
+                    "session/load", {"sessionId": session_id, "cwd": str(cwd), "mcpServers": []}
+                ),
+                timeout=15,
+            )
             state.suppressed = False
-            state.answer, state.thinking, state.first, state.started = "", "", None, time.monotonic()
+            state.answer, state.thinking, state.first, state.started = (
+                "",
+                "",
+                None,
+                time.monotonic(),
+            )
             event("session_resumed", {"backend": "gemini"})
         else:
-            created = await asyncio.wait_for(rpc.call("session/new", {"cwd": str(cwd), "mcpServers": []}), timeout=15)
+            created = await asyncio.wait_for(
+                rpc.call("session/new", {"cwd": str(cwd), "mcpServers": []}), timeout=15
+            )
             session_id = created.get("sessionId")
         if not isinstance(session_id, str) or not session_id:
             raise ToolError("gemini_acp_incomplete")
-        await asyncio.wait_for(rpc.call("session/set_model", {"sessionId": session_id, "modelId": model}), timeout=15)
+        await asyncio.wait_for(
+            rpc.call("session/set_model", {"sessionId": session_id, "modelId": model}), timeout=15
+        )
         content = [{"type": "text", "text": prompt}] + [
             {"type": "image", "data": item["data"], "mimeType": item["media_type"]}
             for item in images
@@ -201,12 +296,22 @@ async def run_acp(config, prompt, event, cwd, model, home, permissions, access_m
         marker.chmod(0o600)
         quota = result.get("_meta", {}).get("quota", {}).get("token_count", {})
         return {
-            "answer": state.answer, "thread_id": session_id, "backend": "gemini", "model": model,
-            "effort": "configured", "cloud_inference": True, "finish_reason": result.get("stopReason"),
-            "incomplete": result.get("stopReason") != "end_turn", "context_strategy": "native_session",
-            "metrics": {"input_tokens": quota.get("input_tokens"), "output_tokens": quota.get("output_tokens"),
-                        "ttft_seconds": state.first, "inference_seconds": time.monotonic() - state.started,
-                        "billing": "Google account quota; monetary amount unavailable"},
+            "answer": state.answer,
+            "thread_id": session_id,
+            "backend": "gemini",
+            "model": model,
+            "effort": "configured",
+            "cloud_inference": True,
+            "finish_reason": result.get("stopReason"),
+            "incomplete": result.get("stopReason") != "end_turn",
+            "context_strategy": "native_session",
+            "metrics": {
+                "input_tokens": quota.get("input_tokens"),
+                "output_tokens": quota.get("output_tokens"),
+                "ttft_seconds": state.first,
+                "inference_seconds": time.monotonic() - state.started,
+                "billing": "Google account quota; monetary amount unavailable",
+            },
         }
     finally:
         await _stop_process_group(proc)

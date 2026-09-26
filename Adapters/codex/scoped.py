@@ -2,10 +2,12 @@
 
 import json
 import time
-from Adapters.shared.scoped import prepare_scoped, collect_changes
-from agent_service.tools import ToolError
+
+from Adapters.shared.scoped import collect_changes, prepare_scoped
 from agent_service.tool_metadata import event_metadata
-from .rpc import connection, usage_delta, sync_title
+from agent_service.tools import ToolError
+
+from .rpc import connection, sync_title, usage_delta
 
 
 async def run(
@@ -18,9 +20,7 @@ async def run(
     staged=None,
     session_dir=None,
 ):
-    with prepare_scoped(
-        config, project, staged, session_dir, "codex", "auth.json"
-    ) as workspace:
+    with prepare_scoped(config, project, staged, session_dir, "codex", "auth.json") as workspace:
         command, home = workspace.command, workspace.home
         command += [
             "--",
@@ -50,9 +50,7 @@ async def run(
             marker = home / "remote-thread.json"
             turn_started = False
             previous_usage = (
-                json.loads(marker.read_text()).get("usage_total")
-                if marker.exists()
-                else {}
+                json.loads(marker.read_text()).get("usage_total") if marker.exists() else {}
             )
             params = {
                 "model": model,
@@ -73,11 +71,7 @@ async def run(
                 json.dumps(
                     {
                         "id": thread_id,
-                        **(
-                            {"usage_total": previous_usage}
-                            if previous_usage is not None
-                            else {}
-                        ),
+                        **({"usage_total": previous_usage} if previous_usage is not None else {}),
                     }
                 )
             )
@@ -129,11 +123,7 @@ async def run(
                     text = params.get("delta", "")
                     thinking += text
                     event(
-                        (
-                            "reasoning_delta"
-                            if kind.endswith("/textDelta")
-                            else "reasoning_summary"
-                        ),
+                        ("reasoning_delta" if kind.endswith("/textDelta") else "reasoning_summary"),
                         {"text": text},
                     )
                 elif kind in ("item/started", "item/completed"):
@@ -161,11 +151,7 @@ async def run(
                         )
                     elif typ == "reasoning" and kind.endswith("started"):
                         event("thinking", {})
-                    elif (
-                        typ == "agentMessage"
-                        and kind.endswith("completed")
-                        and not seen_answer
-                    ):
+                    elif typ == "agentMessage" and kind.endswith("completed") and not seen_answer:
                         text = content.get("text", "")
                         answer += text
                         event("answer_delta", {"text": text})
@@ -183,14 +169,18 @@ async def run(
                     ).items():
                         usage[key] = usage.get(key, 0) + value
                     previous_usage = total
-                    marker.write_text(
-                        json.dumps({"id": thread_id, "usage_total": total})
+                    marker.write_text(json.dumps({"id": thread_id, "usage_total": total}))
+                    event(
+                        "context_usage",
+                        {
+                            **token_usage,
+                            "metrics": {
+                                "usage_scope": "turn",
+                                "output_tokens": usage.get("outputTokens"),
+                                "inference_seconds": time.monotonic() - started,
+                            },
+                        },
                     )
-                    event("context_usage", {**token_usage, "metrics": {
-                        "usage_scope": "turn",
-                        "output_tokens": usage.get("outputTokens"),
-                        "inference_seconds": time.monotonic() - started,
-                    }})
                 elif kind == "turn/plan/updated":
                     event("plan_updated", params)
                 elif kind == "thread/compacted":

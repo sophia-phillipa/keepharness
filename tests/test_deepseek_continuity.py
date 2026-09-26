@@ -9,7 +9,6 @@ import json
 import shutil
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -17,10 +16,14 @@ import pytest
 from Adapters.deepseek.backend import run_native
 
 
-@pytest.mark.parametrize("effort,next_model,next_effort", [
-    (effort, "deepseek-flash", effort) for effort in ("configured", "none", "high", "max")
-] + [("low", "deepseek-v4-pro", "max")])
-def test_deepseek_resumes_full_history_with_reasoning(tmp_path, monkeypatch, effort, next_model, next_effort):
+@pytest.mark.parametrize(
+    "effort,next_model,next_effort",
+    [(effort, "deepseek-flash", effort) for effort in ("configured", "none", "high", "max")]
+    + [("low", "deepseek-v4-pro", "max")],
+)
+def test_deepseek_resumes_full_history_with_reasoning(
+    tmp_path, monkeypatch, effort, next_model, next_effort
+):
     binary = shutil.which("codex")
     if not binary:
         pytest.skip("Installed Codex is required for the local wire contract")
@@ -66,9 +69,7 @@ def test_deepseek_resumes_full_history_with_reasoning(tmp_path, monkeypatch, eff
                     "id": "fc_fixture",
                     "call_id": "call_fixture",
                     "name": "update_plan",
-                    "arguments": json.dumps(
-                        {"plan": [{"step": "fixture", "status": "completed"}]}
-                    ),
+                    "arguments": json.dumps({"plan": [{"step": "fixture", "status": "completed"}]}),
                 }
             events = [
                 {
@@ -98,8 +99,7 @@ def test_deepseek_resumes_full_history_with_reasoning(tmp_path, monkeypatch, eff
                 },
             ]
             data = "".join(
-                f'event: {item["type"]}\ndata: {json.dumps(item)}\n\n'
-                for item in events
+                f"event: {item['type']}\ndata: {json.dumps(item)}\n\n" for item in events
             ).encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
@@ -164,8 +164,7 @@ def test_deepseek_resumes_full_history_with_reasoning(tmp_path, monkeypatch, eff
     assert "answer-fixture-2" in second_input
     assert "reasoning-fixture-1" in second_input
     assert any(
-        item.get("type") == "function_call_output"
-        and item.get("call_id") == "call_fixture"
+        item.get("type") == "function_call_output" and item.get("call_id") == "call_fixture"
         for item in requests[1]["input"]
     )
     assert "reasoning-fixture-1" in json.dumps(requests[1]["input"])
@@ -188,9 +187,7 @@ def test_deepseek_resumes_full_history_with_reasoning(tmp_path, monkeypatch, eff
         ("max", "max"),
     ],
 )
-def test_deepseek_owns_effort_and_stateless_transport_policy(
-    tmp_path, effort, expected
-):
+def test_deepseek_owns_effort_and_stateless_transport_policy(tmp_path, effort, expected):
     key = tmp_path / "fixture.key"
     key.write_text("fixture-not-a-real-key")
     config = {

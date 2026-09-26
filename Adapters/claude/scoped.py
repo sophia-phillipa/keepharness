@@ -1,7 +1,9 @@
 """Claude scoped MCP execution; conversation history is replayed by the caller."""
 
 import json
-from Adapters.shared.scoped import prepare_scoped, collect_changes
+
+from Adapters.shared.scoped import collect_changes, prepare_scoped
+
 from .stream import stream
 
 

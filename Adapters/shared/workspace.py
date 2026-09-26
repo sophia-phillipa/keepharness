@@ -29,11 +29,7 @@ def prepare_workspace(project, prompt, session_dir):
         raise ToolError("project_root_unavailable")
     cwd.mkdir(parents=True, exist_ok=True)
     roots = (
-        list(
-            dict.fromkeys(
-                str(Path(value).resolve()) for _, value in project_roots(project)
-            )
-        )
+        list(dict.fromkeys(str(Path(value).resolve()) for _, value in project_roots(project)))
         if permissions.get("read")
         else []
     )
