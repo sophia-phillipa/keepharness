@@ -17,10 +17,6 @@ import shutil
 
 import pytest
 
-# Not ``import adapters.claude.account as claude_account``: adapters/__init__.py's own
-# ``from .claude import backend as claude`` shadows the ``adapters.claude`` attribute
-# with the backend module (F-33 in the P5 findings log), so a dotted-with-alias import
-# resolves the wrong module. ``from adapters.claude import account`` is unaffected.
 from adapters.claude import account as claude_account
 from adapters.codex import rpc as codex_rpc
 

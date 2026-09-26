@@ -132,3 +132,15 @@ def test_gemini_scoped_keeps_its_own_unsupported_error():
     adapters = importlib.import_module("adapters")
     with pytest.raises(ToolError, match="^gemini_scoped_unsupported$"):
         asyncio.run(adapters.run_scoped({}, "", None, provider="gemini"))
+
+
+@pytest.mark.parametrize("provider", ["codex", "claude", "gemini", "deepseek", "local"])
+def test_package_attributes_are_the_provider_subpackages_not_their_backends(provider):
+    """F-33: the dispatch registry must not shadow ``adapters.<provider>``."""
+    import sys
+
+    import adapters
+    import adapters.claude.account as account
+
+    assert account is sys.modules["adapters.claude.account"]
+    assert getattr(adapters, provider) is sys.modules[f"adapters.{provider}"]

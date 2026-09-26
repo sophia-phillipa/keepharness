@@ -31,6 +31,17 @@ def next_job(service):
     return row
 
 
+def settle(service, job, state, result):
+    """Record an error path's terminal state; a failure here must not end the worker loop."""
+    for attempt in (1, 2):
+        try:
+            return service.finish(job, state, result)
+        except Exception:
+            # A transient persistence error (e.g. a full disk) is retried once; otherwise
+            # startup recovery later marks the job, still ``running``, as interrupted.
+            logger.exception("Could not record job %s as %s (attempt %d)", job, state, attempt)
+
+
 async def run(service):
     while True:
         row = service.next_job()
@@ -85,7 +96,8 @@ async def run(service):
             if service.conversation_repository.state(row["id"])[0] == "completed":
                 raise
             reason = service.cancellation_reasons.pop(row["id"], None)
-            service.finish(
+            settle(
+                service,
                 row["id"],
                 "cancelled",
                 {"partial_output": "persisted_events", "error": reason, "metrics": None},
@@ -119,12 +131,13 @@ async def run(service):
                 ),
             }.get(code)
             if condition:
-                service.finish(
-                    row["id"], "interrupted", {"condition": condition[0], "metrics": None}
+                settle(
+                    service, row["id"], "interrupted", {"condition": condition[0], "metrics": None}
                 )
                 service.panel(row["project"], answer=condition[1], finished=True)
             else:
-                service.finish(
+                settle(
+                    service,
                     row["id"],
                     "failed",
                     {
@@ -137,7 +150,12 @@ async def run(service):
                     row["project"], answer="Execution interrupted: " + code, finished=True
                 )
         finally:
-            if json.loads(row["payload"]).get("backend") == "codex":
+            # Not on shutdown (the worker itself is cancelled): the refresh can wait up to
+            # 25 s on the Codex CLI and would hold the process open after SIGTERM.
+            if (
+                json.loads(row["payload"]).get("backend") == "codex"
+                and not asyncio.current_task().cancelling()
+            ):
                 state = service.conversation_repository.state(row["id"])[0]
                 if state != "completed":
                     service.event(row["id"], "quota_after", await service.quota(True))

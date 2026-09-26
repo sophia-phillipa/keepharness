@@ -410,13 +410,12 @@ def test_sigkill_of_harness_recovers_as_interrupted_on_restart(hanging_codex_har
             proc2.wait(timeout=10)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="F-30: SIGTERM during a running native-codex job never lets the worker loop exit "
-    "(asyncio.timeout's own uncancel() resets Task.cancelling() to 0), so only SIGKILL works",
-)
 def test_sigterm_during_native_codex_job_exits_promptly(hanging_codex_harness):
-    """P5-09: uvicorn's SIGTERM should give a graceful shutdown within a bounded time."""
+    """P5-09 / F-30: uvicorn's SIGTERM gives a graceful shutdown within a bounded time.
+
+    The shutdown cancel used to wait up to 25 s in the worker's post-job Codex quota
+    refresh (the hung fake CLI never answers it).
+    """
     context = hanging_codex_harness
     proc = context["proc"]
 
@@ -425,11 +424,10 @@ def test_sigterm_during_native_codex_job_exits_promptly(hanging_codex_harness):
     while time.monotonic() < deadline and proc.poll() is None:
         time.sleep(0.2)
 
-    # The job must never come back to life as ``running``; this much already works today.
+    # The job must never come back to life as ``running``.
     db = sqlite3.connect(str(context["state"] / "jobs.sqlite3"))
     state = db.execute("SELECT state FROM jobs WHERE id=?", (context["job_id"],)).fetchone()[0]
     db.close()
     assert state in ("cancelled", "interrupted")
 
-    # This is the part that currently fails: the process should have exited by now.
     assert proc.poll() is not None, "harness did not exit within 10s of SIGTERM"

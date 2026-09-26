@@ -4795,6 +4795,21 @@ document.addEventListener("keydown", (e) => {
     }
   }
 });
+// A modal dialog lets Tab leave the page after its last control; wrap focus inside it.
+document.addEventListener("keydown", (e) => {
+  const dialog =
+    e.key === "Tab" && document.activeElement?.closest("dialog:modal");
+  if (!dialog) return;
+  const controls = [
+    ...dialog.querySelectorAll(
+      "a[href],button,input,select,textarea,summary,[tabindex]",
+    ),
+  ].filter((el) => el.tabIndex >= 0 && !el.disabled && el.checkVisibility());
+  if (document.activeElement !== (e.shiftKey ? controls[0] : controls.at(-1)))
+    return;
+  e.preventDefault();
+  (e.shiftKey ? controls.at(-1) : controls[0]).focus();
+});
 
 function applyReadingSize(value) {
   const size = ["15", "17", "19"].includes(value) ? value : "15";

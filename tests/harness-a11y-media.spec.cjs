@@ -136,10 +136,8 @@ const path = require("node:path");
       },
     );
 
-    // Tab x20 inside the open settings dialog: it should never leave it. It doesn't
-    // quite hold today (see the KNOWN BUG note below), so this asserts the current,
-    // reproducible behaviour instead of the ideal one, and will need updating once
-    // the wrap-around is fixed.
+    // Tab x20 inside the open settings dialog never leaves it (F-32): Tab on the last
+    // focusable control wraps to the first, and Shift+Tab on the first wraps to the last.
     await page.locator("#settings").focus();
     await page.keyboard.press("Enter");
     let escapes = 0;
@@ -160,16 +158,19 @@ const path = require("node:path");
         if (!escapee) escapee = active;
       }
     }
-    // KNOWN BUG F-32: tabbing forward from the dialog's last focusable descendant
-    // (#catalog-refresh) does not wrap directly back to the first one
-    // (#settings-close); it takes one extra Tab press through document.body first.
-    // Exactly one such escape is expected per full loop through the dialog's 16
-    // focusable descendants; the dialog itself (not just its descendants) is what
-    // regains focus afterwards, which is why this never leaves the user stuck outside.
+    check("Tab x20 stays inside the open settings dialog", escapes === 0, {
+      escapes,
+      escapee,
+    });
+    await page.locator("#settings-close").focus();
+    await page.keyboard.press("Shift+Tab");
+    const shiftTabTarget = await page.evaluate(
+      () => document.activeElement?.id,
+    );
     check(
-      "Tab x20 leaves the dialog exactly once, on the last-to-first wrap (KNOWN BUG F-32)",
-      escapes === 1 && escapee && escapee.tag === "BODY",
-      { escapes, escapee },
+      "Shift+Tab on the first settings control wraps to the last one",
+      shiftTabTarget === "catalog-refresh",
+      shiftTabTarget,
     );
     await page.keyboard.press("Escape");
 

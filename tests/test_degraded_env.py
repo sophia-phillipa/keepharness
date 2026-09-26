@@ -240,14 +240,9 @@ def _local_only_config(state_dir, project="p"):
     }
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="F-31: a persistence error inside queue_worker.run's own except/finally "
-    "handling escapes run(), silently killing the worker task; the process keeps "
-    "serving HTTP and keeps queuing jobs that are never dispatched again",
-)
 def test_worker_survives_a_disk_full_error_writing_a_result_and_runs_the_next_job(tmp_path):
-    """P5-28: an ``OperationalError`` while persisting one job's result must not wedge the queue."""
+    """P5-28 / F-31: an ``OperationalError`` while persisting one job's result must not wedge
+    the queue."""
     from agent_service.app import create_app
     from agent_service.persistence.repositories import ConversationRepository
 
@@ -295,8 +290,7 @@ def test_worker_survives_a_disk_full_error_writing_a_result_and_runs_the_next_jo
                 )
             finally:
                 worker.cancel()
-                # If ``worker`` already died on the patched OperationalError (the bug this
-                # test targets), awaiting it re-raises that error instead of CancelledError.
+                # A worker that died on the patched OperationalError would re-raise it here.
                 try:
                     await worker
                 except asyncio.CancelledError:

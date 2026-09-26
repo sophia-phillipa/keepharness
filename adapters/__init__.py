@@ -6,24 +6,27 @@ from types import MappingProxyType
 from agent_service.tools import ToolError
 
 from .base import ProviderAdapter, ScopedProviderAdapter
-from .claude import backend as claude
-from .codex import backend as codex
-from .deepseek import backend as deepseek
-from .gemini import backend as gemini
-from .local import backend as local
+
+# Suffixed names: a bare ``claude`` here would replace the ``adapters.claude`` subpackage
+# attribute with its backend module and break ``import adapters.claude.account``.
+from .claude import backend as claude_backend
+from .codex import backend as codex_backend
+from .deepseek import backend as deepseek_backend
+from .gemini import backend as gemini_backend
+from .local import backend as local_backend
 
 PROVIDERS: Mapping[str, ProviderAdapter] = MappingProxyType(
     {
-        "codex": codex,
-        "claude": claude,
-        "gemini": gemini,
-        "deepseek": deepseek,
-        "local": local,
+        "codex": codex_backend,
+        "claude": claude_backend,
+        "gemini": gemini_backend,
+        "deepseek": deepseek_backend,
+        "local": local_backend,
     }
 )
 # Gemini is listed because it answers run_scoped with its own gemini_scoped_unsupported.
 SCOPED_PROVIDERS: Mapping[str, ScopedProviderAdapter] = MappingProxyType(
-    {"codex": codex, "claude": claude, "gemini": gemini}
+    {"codex": codex_backend, "claude": claude_backend, "gemini": gemini_backend}
 )
 
 
