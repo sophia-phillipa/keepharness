@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  unit:
+    name: Unit tests (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install media sandbox tools (ffmpeg, bubblewrap, poppler)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg bubblewrap poppler-utils
+          # Ubuntu 24.04 blocks unprivileged user namespaces, which bubblewrap needs.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Install package with test extras
+        run: pip install '.[test]'
+      - name: Run pytest
+        run: python -m pytest -rs --junitxml=reports/unit-${{ matrix.python }}.xml
+      - name: Upload unit test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-report-${{ matrix.python }}
+          path: reports/unit-${{ matrix.python }}.xml
+
+  ui:
+    name: UI tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install media sandbox tools (ffmpeg, bubblewrap, poppler)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg bubblewrap poppler-utils
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Install package
+        run: pip install .
+      - name: Install Playwright
+        run: npm install --no-save playwright
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Run UI tests
+        run: ./scripts/test-ui.sh
+
+  package:
+    name: Build and install package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install build tool
+        run: pip install build
+      - name: Build package
+        run: python -m build
+      - name: Install built wheel
+        run: pip install dist/*.whl
+      - name: Verify CLI entry point
+        run: |
+          cd /tmp
+          tail-harness --help
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/

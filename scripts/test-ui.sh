@@ -26,7 +26,8 @@ for _ in range(80):
 else:raise SystemExit("Harness test server unavailable")'
 # Enumerate every browser regression so new feature tests cannot be omitted.
 ui_failures=0
-for test_file in tests/*.spec.cjs; do
+for test_file in tests/*.spec.cjs tests/personas/*.spec.cjs; do
+  [ -e "$test_file" ] || continue
   echo "RUN $test_file"
   if ADMIN_URL=http://127.0.0.1:18094 HARNESS_URL=http://127.0.0.1:18095 node "$test_file"; then
     echo "PASS FILE $test_file"
