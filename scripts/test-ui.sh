@@ -25,8 +25,10 @@ for _ in range(80):
  except OSError:time.sleep(.25)
 else:raise SystemExit("Harness test server unavailable")'
 # Enumerate every browser regression so new feature tests cannot be omitted.
+# Optional arguments restrict the run to the given spec files.
 ui_failures=0
-for test_file in tests/*.spec.cjs tests/personas/*.spec.cjs; do
+if [ "$#" -gt 0 ]; then set -- "$@"; else set -- tests/*.spec.cjs tests/personas/*.spec.cjs; fi
+for test_file in "$@"; do
   [ -e "$test_file" ] || continue
   echo "RUN $test_file"
   if ADMIN_URL=http://127.0.0.1:18094 HARNESS_URL=http://127.0.0.1:18095 node "$test_file"; then
