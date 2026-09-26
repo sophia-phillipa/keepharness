@@ -15,12 +15,13 @@ def test_native_dispatch_uses_only_the_selected_adapter(provider, tmp_path):
     implementation = importlib.import_module(f"Adapters.{provider}.backend")
     config = {"binary": "fixture"}
     project = {"permissions": {}}
-    event = lambda *args: None
+
+    def event(*args):
+        return None
+
     approve = AsyncMock()
     expected = {"answer": "fixture", "backend": provider}
-    with patch.object(
-        implementation, "run_native", AsyncMock(return_value=expected)
-    ) as run:
+    with patch.object(implementation, "run_native", AsyncMock(return_value=expected)) as run:
         result = asyncio.run(
             adapters.run_native(
                 config,
@@ -90,6 +91,4 @@ def test_unsupported_scoped_provider_is_rejected(provider):
 def test_unknown_native_provider_is_rejected(tmp_path):
     adapters = importlib.import_module("Adapters")
     with pytest.raises(ToolError, match="backend_unavailable"):
-        asyncio.run(
-            adapters.run_native({}, "", None, {}, "", "", tmp_path, "unknown", None)
-        )
+        asyncio.run(adapters.run_native({}, "", None, {}, "", "", tmp_path, "unknown", None))

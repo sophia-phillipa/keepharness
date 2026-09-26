@@ -1,15 +1,16 @@
 """Codex app-server turns; provider adapters supply endpoint and isolation policy."""
 
-import json
 import hashlib
+import json
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from control.integrations import configurations, inventory
-from agent_service.tools import ToolError
 from agent_service.tool_metadata import event_metadata
-from .rpc import connection, usage_delta, sync_title
+from agent_service.tools import ToolError
+from control.integrations import configurations, inventory
+
+from .rpc import connection, sync_title, usage_delta
 
 
 @dataclass
@@ -54,11 +55,7 @@ def thread_parameters(config, project, model, workspace, runtime, unrestricted):
         plugins = (
             config["plugin_inventory"]
             if "plugin_inventory" in config
-            else [
-                item["id"]
-                for item in inventory()["codex"]
-                if item["kind"] == "plugin"
-            ]
+            else [item["id"] for item in inventory()["codex"] if item["kind"] == "plugin"]
         )
     params = {
         "model": model,
@@ -66,12 +63,13 @@ def thread_parameters(config, project, model, workspace, runtime, unrestricted):
         "sandbox": (
             "danger-full-access"
             if unrestricted
-            else "workspace-write" if permissions.get("write") else "read-only"
+            else "workspace-write"
+            if permissions.get("write")
+            else "read-only"
         ),
         "approvalPolicy": (
             "never"
-            if project.get("access_mode") in ("auto", "full", "read_only")
-            and not runtime.isolated
+            if project.get("access_mode") in ("auto", "full", "read_only") and not runtime.isolated
             else "on-request"
         ),
         "developerInstructions": "Use the native CLI tools and only the configured integrations. Follow the selected project instructions. Ask approval for actions that exceed the configured permissions. Do not claim a tool succeeded without evidence.",
@@ -92,8 +90,7 @@ def thread_parameters(config, project, model, workspace, runtime, unrestricted):
                 for name, spec in configurations()["codex"].items()
             },
             "plugins": {
-                plugin.split(":", 1)[1]: {"enabled": plugin in selected}
-                for plugin in plugins
+                plugin.split(":", 1)[1]: {"enabled": plugin in selected} for plugin in plugins
             },
         }
     )
@@ -102,9 +99,7 @@ def thread_parameters(config, project, model, workspace, runtime, unrestricted):
     return params
 
 
-async def respond_to_interaction(
-    rpc, item, approve, project, permissions, unrestricted, isolated
-):
+async def respond_to_interaction(rpc, item, approve, project, permissions, unrestricted, isolated):
     """Map an approval reply to the exact response expected by Codex."""
     kind, params = item["method"], item.get("params", {})
     escalation = "requestApproval" in kind or kind in (
@@ -164,29 +159,41 @@ async def respond_to_interaction(
         )
         await rpc.process.stdin.drain()
         return
-    rpc.process.stdin.write(
-        (json.dumps({"id": item["id"], "result": result}) + "\n").encode()
-    )
+    rpc.process.stdin.write((json.dumps({"id": item["id"], "result": result}) + "\n").encode())
     await rpc.process.stdin.drain()
     return
 
 
 async def resource_inputs(rpc, project, cwd):
     """Reload the engine catalog and bind explicitly selected skills by path."""
-    selected=[item for item in project.get('_resources',[]) if item['kind']=='skill']
-    if not selected:return []
-    available=await rpc.call('skills/list',{'cwds':[str(cwd)],'forceReload':True})
-    skills=[skill for group in available.get('data',[]) for skill in group.get('skills',[])]
-    result=[]
+    selected = [item for item in project.get("_resources", []) if item["kind"] == "skill"]
+    if not selected:
+        return []
+    available = await rpc.call("skills/list", {"cwds": [str(cwd)], "forceReload": True})
+    skills = [skill for group in available.get("data", []) for skill in group.get("skills", [])]
+    result = []
     for item in selected:
-        path=Path(item['source'])
-        match=next((skill for skill in skills if skill.get('path') and Path(skill['path']).resolve()==path.resolve() and skill.get('name')==item['name']),None)
-        if not match or match.get('enabled') is not True:raise ToolError('resource_unavailable_in_engine')
+        path = Path(item["source"])
+        match = next(
+            (
+                skill
+                for skill in skills
+                if skill.get("path")
+                and Path(skill["path"]).resolve() == path.resolve()
+                and skill.get("name") == item["name"]
+            ),
+            None,
+        )
+        if not match or match.get("enabled") is not True:
+            raise ToolError("resource_unavailable_in_engine")
         try:
-            with path.open('rb') as stream:content=stream.read(65537)
-        except OSError:raise ToolError('resource_unavailable_in_engine') from None
-        if hashlib.sha256(content).hexdigest()!=item['revision']:raise ToolError('resource_changed')
-        result.append({'type':'skill','name':item['name'],'path':str(path)})
+            with path.open("rb") as stream:
+                content = stream.read(65537)
+        except OSError:
+            raise ToolError("resource_unavailable_in_engine") from None
+        if hashlib.sha256(content).hexdigest() != item["revision"]:
+            raise ToolError("resource_changed")
+        result.append({"type": "skill", "name": item["name"], "path": str(path)})
     return result
 
 
@@ -210,7 +217,7 @@ async def run_turn(
         and project.get("access_mode") != "read_only"
         and bool(permissions.get("shell"))
     )
-    command, environment, local_provider = (
+    command, environment, _local_provider = (
         runtime.command,
         runtime.environment,
         runtime.model_provider,
@@ -223,22 +230,17 @@ async def run_turn(
     token_usage = {}
     seen_answer = False
     async with connection(command, env=environment) as rpc:
-        selected_inputs=await resource_inputs(rpc,project,cwd)
+        selected_inputs = await resource_inputs(rpc, project, cwd)
         marker = home / "native-thread.json"
         turn_started = False
         saved = json.loads(marker.read_text()) if marker.exists() else {}
         resumable = bool(saved) and (
             not runtime.isolated
-            or all(
-                saved.get(key) == value
-                for key, value in runtime.session_metadata.items()
-            )
+            or all(saved.get(key) == value for key, value in runtime.session_metadata.items())
         )
         previous_usage = saved.get("usage_total") if resumable else {}
         isolation = runtime.session_metadata
-        params = thread_parameters(
-            config, project, model, workspace, runtime, unrestricted
-        )
+        params = thread_parameters(config, project, model, workspace, runtime, unrestricted)
         if resumable:
             params["threadId"] = saved["id"]
             thread = await rpc.call("thread/resume", params)
@@ -252,11 +254,7 @@ async def run_turn(
                 {
                     "id": thread_id,
                     **isolation,
-                    **(
-                        {"usage_total": previous_usage}
-                        if previous_usage is not None
-                        else {}
-                    ),
+                    **({"usage_total": previous_usage} if previous_usage is not None else {}),
                 }
             )
         )
@@ -280,9 +278,7 @@ async def run_turn(
                     {"type": "dangerFullAccess"}
                     if unrestricted
                     else {
-                        "type": (
-                            "workspaceWrite" if permissions.get("write") else "readOnly"
-                        ),
+                        "type": ("workspaceWrite" if permissions.get("write") else "readOnly"),
                         "networkAccess": bool(permissions.get("internet")),
                         **(
                             {
@@ -295,7 +291,8 @@ async def run_turn(
                         ),
                     }
                 ),
-                "input": [{"type": "text", "text": prompt}] + selected_inputs
+                "input": [{"type": "text", "text": prompt}]
+                + selected_inputs
                 + [
                     {
                         "type": "image",
@@ -336,11 +333,7 @@ async def run_turn(
                 text = params.get("delta", "")
                 thinking += text
                 event(
-                    (
-                        "reasoning_delta"
-                        if kind.endswith("/textDelta")
-                        else "reasoning_summary"
-                    ),
+                    ("reasoning_delta" if kind.endswith("/textDelta") else "reasoning_summary"),
                     {"text": text},
                 )
             elif kind in ("item/started", "item/completed"):
@@ -354,11 +347,7 @@ async def run_turn(
                 ):
                     metadata = event_metadata(
                         content,
-                        command=(
-                            content.get("command")
-                            if typ == "commandExecution"
-                            else None
-                        ),
+                        command=(content.get("command") if typ == "commandExecution" else None),
                     )
                     event(
                         "tool_start" if kind.endswith("started") else "tool_end",
@@ -371,20 +360,12 @@ async def run_turn(
                     )
                 elif typ == "contextCompaction":
                     event(
-                        (
-                            "context_compacting"
-                            if kind.endswith("started")
-                            else "context_compacted"
-                        ),
+                        ("context_compacting" if kind.endswith("started") else "context_compacted"),
                         {},
                     )
                 elif typ == "reasoning" and kind.endswith("started"):
                     event("thinking", {})
-                elif (
-                    typ == "agentMessage"
-                    and kind.endswith("completed")
-                    and not seen_answer
-                ):
+                elif typ == "agentMessage" and kind.endswith("completed") and not seen_answer:
                     text = content.get("text", "")
                     answer += text
                     event("answer_delta", {"text": text})
@@ -403,14 +384,18 @@ async def run_turn(
                 ).items():
                     usage[key] = usage.get(key, 0) + value
                 previous_usage = total
-                marker.write_text(
-                    json.dumps({"id": thread_id, **isolation, "usage_total": total})
+                marker.write_text(json.dumps({"id": thread_id, **isolation, "usage_total": total}))
+                event(
+                    "context_usage",
+                    {
+                        **token_usage,
+                        "metrics": {
+                            "usage_scope": "turn",
+                            "output_tokens": usage.get("outputTokens"),
+                            "inference_seconds": time.monotonic() - started,
+                        },
+                    },
                 )
-                event("context_usage", {**token_usage, "metrics": {
-                    "usage_scope": "turn",
-                    "output_tokens": usage.get("outputTokens"),
-                    "inference_seconds": time.monotonic() - started,
-                }})
             elif kind == "turn/plan/updated":
                 event("plan_updated", params)
             elif kind == "thread/compacted":
@@ -423,9 +408,7 @@ async def run_turn(
                 event("error", params)
                 raise ToolError(
                     "codex_execution_failed: "
-                    + str(params.get("error", {}).get("message", "provider error"))[
-                        :500
-                    ]
+                    + str(params.get("error", {}).get("message", "provider error"))[:500]
                 )
             if len(answer) + len(thinking) > 500000:
                 raise ToolError("codex_output_limit")

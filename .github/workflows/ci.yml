@@ -17,6 +17,27 @@ jobs:
       - name: Run convention checks
         run: python scripts/check_conventions.py
 
+  lint:
+    name: Formatting and lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install ruff
+        run: pip install ruff
+      - name: Check Python formatting and lint
+        run: |
+          ruff format --check .
+          ruff check .
+      - name: Check JS/CSS formatting
+        # HTML is excluded on purpose: reflowing text nodes changes textContent.
+        run: npx --yes prettier@3 --check "control/*.{js,css}" "agent_service/*.{js,css}" "tests/*.cjs" "scripts/*.cjs"
+
   unit:
     name: Unit tests (Python ${{ matrix.python }})
     runs-on: ubuntu-latest

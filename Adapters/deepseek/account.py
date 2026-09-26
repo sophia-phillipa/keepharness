@@ -1,6 +1,7 @@
 """DeepSeek BYOK: private credential file and read-only account checks."""
 
 from pathlib import Path
+
 import httpx
 
 API = "https://api.deepseek.com"
@@ -11,11 +12,7 @@ def key_file(state):
 
 
 def store_key(state, token):
-    if (
-        not isinstance(token, str)
-        or not 16 <= len(token) <= 512
-        or any(c.isspace() for c in token)
-    ):
+    if not isinstance(token, str) or not 16 <= len(token) <= 512 or any(c.isspace() for c in token):
         raise ValueError("Invalid API token.")
     path = key_file(state)
     temp = path.with_suffix(".tmp")
@@ -37,25 +34,19 @@ async def check(state):
         try:
             response = await client.get("/models")
             if response.status_code in (401, 403):
-                raise ValueError(
-                    "DeepSeek key rejected. Check the credential with the provider."
-                )
+                raise ValueError("DeepSeek key rejected. Check the credential with the provider.")
             response.raise_for_status()
             models = {
                 m["id"]: ["configured", "none", "low", "high", "max"]
                 for m in response.json()["data"]
             }
             balance_response = await client.get("/user/balance")
-            balance = (
-                balance_response.json() if balance_response.status_code == 200 else None
-            )
+            balance = balance_response.json() if balance_response.status_code == 200 else None
             return {
                 "authenticated": True,
                 "models": models,
                 "balance": balance,
                 "model_source": "DeepSeek API /models",
             }
-        except (httpx.HTTPError, KeyError) as exc:
-            raise ValueError(
-                "Could not query the DeepSeek API. Try again."
-            ) from None
+        except (httpx.HTTPError, KeyError):
+            raise ValueError("Could not query the DeepSeek API. Try again.") from None
