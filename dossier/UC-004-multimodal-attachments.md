@@ -38,7 +38,7 @@ performance.
 
 ## Suggested GPU profile
 
-The author-suggested [Qwen profile](../profiles/qwen-author-profile.json) records
+The author-suggested [Qwen profile](../profiles/qwen-vulkan-profile.json) records
 the approved example configuration, including context size, CPU/GPU placement
 and vision projector settings. Review these parameters for the target machine;
 the release regressions do not include GPU or full-context stress benchmarks.

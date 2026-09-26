@@ -1,24 +1,24 @@
-# Navegação de arquivos no painel direito
+# File navigation in the right panel
 
-Pedido: compartilhar o painel direito entre Arquivos (visualização inicial) e Atividade, com controles na barra superior. A usuária revisou explicitamente o escopo para permitir navegação no sistema, independente do projeto. O projeto da conversa permanece como destino dos anexos; as permissões de execução não são ampliadas.
+Request: share the right panel between Files (initial view) and Activity, with controls in the top bar. The user explicitly expanded the scope to allow system-wide navigation, independent of the project. The conversation's project remains the attachment destination; execution permissions are not widened.
 
-A árvore carrega filhos por expansão, mostra arquivos e pastas visíveis, permite seleção múltipla e arraste para o prompt. O navegador inicia em Pastas Locais e mantém Pastas Externas, com destaque na opção selecionada; os atalhos Sistema e Mídias externas do sistema foram retirados. Pastas de sistema e itens ocultos são filtrados conforme o sistema operacional; the local Linux host foi confirmado localmente nesta revisão. A revisão final remove checkboxes e o botão Anexar seleção: a anexação ocorre pelo arraste, com seleção visual por clique e modificadores. A navegação é independente do projeto. A seleção deve ser associada ao destino no momento da anexação e protegida contra troca de contexto durante pedidos assíncronos. Diretórios são expandidos em anexos suportados, preservando os originais e indicando itens ignorados/limites. O limite existente é de dez arquivos por pedido.
+The tree loads children on expansion, shows visible files and folders, allows multiple selection and drag to the prompt. The browser starts at Local Folders and keeps External Folders, highlighting the selected option; the System and external media shortcuts were removed. System folders and hidden items are filtered according to the operating system; this was locally confirmed on a Linux host during this review. The final revision removes checkboxes and the Attach selection button: attachment happens by drag, with visual selection by click and modifiers. Navigation is independent of the project. The selection must be bound to its destination at the moment of attachment and protected against context switches during async requests. Directories are expanded into supported attachments, preserving originals and flagging skipped items/limits. The existing limit is ten files per request.
 
-A visualização de Atividade preserva os eventos e controles existentes. Arquivos é a visualização inicial; no celular, o painel é aberto sob demanda. Os dois botões abrem ou alternam a visualização, e recolhem o painel ao clicar novamente na visualização aberta.
+The Activity view preserves existing events and controls. Files is the initial view; on mobile, the panel opens on demand. Both buttons open or toggle the view, and collapse the panel when clicking the already-open view again.
 
-## Contrato
+## Contract
 
-- GET `/v1/project-files?view=tree&project_id=...&root_id=...&path=...&start=1&limit=100`: diretório imediato, raízes do navegador e indicação de paginação.
-- POST `/v1/project-files/attach?project_id=...&backend=...&model=...&max_files=...`: seleção relativa à raiz do navegador; retorna anexos com `file_id` e itens ignorados com motivo. Reaproveita o envio da pergunta por `file_ids`.
+- GET `/v1/project-files?view=tree&project_id=...&root_id=...&path=...&start=1&limit=100`: immediate directory listing, browser roots and pagination indicator.
+- POST `/v1/project-files/attach?project_id=...&backend=...&model=...&max_files=...`: selection relative to the browser root; returns attachments with `file_id` and skipped items with a reason. Reuses the question submission via `file_ids`.
 
-## Validação
+## Validation
 
-- Backend: `tests/test_project_browser.py` — 7 aprovados, incluindo autenticação, anexação fora do projeto, caminhos canônicos, permissões, limites e encaminhamento do modelo.
-- Interface: `tests/harness-files-panel.spec.cjs` passou com APIs simuladas para seleção múltipla, expansão, alternância, arraste e envio.
-- Runtime: reinício apenas após ociosidade confirmada, stop/start HTTP 200. Árvore global HTTP 200 com Sistema, Pasta pessoal e atalhos de mídias presentes.
-- Anexação real de arquivo sintético em `/tmp`: HTTP 200, um anexo, nenhum item ignorado, original preservado. Não foi executado modelo.
-- Revisão mobile concluída: controles Arquivos/Atividade agrupados à direita; drawer inicia exatamente abaixo da barra e termina na borda direita. Teste focado passou após ajuste. Árvore real carregou sem erro.
+- Backend: `tests/test_project_browser.py` — 7 passed, including authentication, out-of-project attachment, canonical paths, permissions, limits and model forwarding.
+- UI: `tests/harness-files-panel.spec.cjs` passed with mocked APIs for multiple selection, expansion, toggling, drag and submission.
+- Runtime: restart only after confirmed idleness, stop/start HTTP 200. Global tree HTTP 200 with System, home folder and media shortcuts present.
+- Real attachment of a synthetic file in `/tmp`: HTTP 200, one attachment, no skipped items, original preserved. No model was executed.
+- Mobile review completed: Files/Activity controls grouped on the right; the drawer starts right below the bar and ends at the right edge. The focused test passed after the adjustment. The real tree loaded without error.
 
-Sem marco Git.
+No Git milestone.
 
-Revisão de interface: checkboxes e Anexar seleção removidos. A seleção visual usa clique/Ctrl/Shift e arraste para o prompt. Abaixo de Arquivos: "arraste os arquivos ou pastas para o chat para utilizá-los". O seletor de acesso sincroniza ícone, nome e tooltip com o modo ativo; descrições menores explicam cada modo.
+UI review: checkboxes and the Attach selection button were removed. Visual selection uses click/Ctrl/Shift and drag to the prompt. Below Files: "drag files or folders into the chat to use them." The access selector synchronizes icon, name and tooltip with the active mode; smaller descriptions explain each mode.

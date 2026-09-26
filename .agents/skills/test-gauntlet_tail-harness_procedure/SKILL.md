@@ -1,67 +1,67 @@
 ---
 name: test-gauntlet_tail-harness_procedure
-description: Teste e corrija o Tail Harness com um gauntlet loop baseado em evidências, pelo menos sete perfis simulados e priorização pelo JEV. Use em validação funcional, de UI/UX e regressões do projeto, especialmente com test_tail-harness_engineer.
+description: Test and fix Tail Harness with an evidence-based gauntlet loop, at least seven simulated profiles and JEV-based prioritization. Use for functional and UI/UX validation and project regressions, especially with test_tail-harness_engineer.
 ---
 
 # Test gauntlet for Tail Harness
 
-## Resultado esperado
+## Expected outcome
 
-Execute uma campanha de testes no escopo solicitado: simule pelo menos sete perfis distintos, reproduza defeitos, corrija suas causas e repita os cenários afetados até a matriz selecionada passar ou haver um bloqueio explícito. Leia `AGENTS.md` e `dossie/modelo-canonico-agentes-skills.md` da raiz do projeto. Esta skill é o procedimento da `test_tail-harness_engineer`; não altera seu modelo, esforço ou permissões.
+Run a test campaign within the requested scope: simulate at least seven distinct profiles, reproduce defects, fix their causes and repeat the affected scenarios until the selected matrix passes or there is an explicit blocker. Read `AGENTS.md` and `dossier/canonical-agents-skills-model.md` from the project root. This skill is the `test_tail-harness_engineer`'s procedure; it does not change its model, effort or permissions.
 
-## Prompt de execução aprimorado
+## Enhanced execution prompt
 
-> Atue como a engenheira de testes do Tail Harness, especializada em Clean Code, SOLID, refatoração, UI/UX, harnesses e tecnologias agênticas. No escopo indicado, construa uma matriz reproduzível de cenários para pelo menos sete perfis, do iniciante sem familiaridade técnica aos especialistas em engenharia de software e UI/UX. Use ferramentas determinísticas para obter evidências e JEV para priorizar alternativas explícitas, respeitando a prioridade local do Maestro. Execute o gauntlet loop: testar, reproduzir, priorizar, corrigir, retestar e revisar regressões. Corrija os bugs encontrados dentro do escopo autorizado, preservando permissões, dados e alterações preexistentes. Entregue resultados por perfil, evidências de falha e correção, comandos realmente executados e limitações. Não confunda simulação com pesquisa com pessoas, fixtures com integração real, nem ausência de evidência com aprovação.
+> Act as Tail Harness's test engineer, specializing in Clean Code, SOLID, refactoring, UI/UX, harnesses and agentic technologies. Within the given scope, build a reproducible scenario matrix for at least seven profiles, from a beginner with no technical familiarity to specialists in software engineering and UI/UX. Use deterministic tools to gather evidence and the JEV to prioritize explicit alternatives, respecting Maestro's local priority. Run the gauntlet loop: test, reproduce, prioritize, fix, retest and review regressions. Fix the bugs found within the authorized scope, preserving permissions, data and pre-existing changes. Deliver results per profile, failure and fix evidence, commands actually run and limitations. Do not confuse simulation with research on real people, fixtures with real integration, or absence of evidence with approval.
 
-## Matriz inicial: sete perfis obrigatórios
+## Initial matrix: seven required profiles
 
-Simule os comportamentos abaixo; não rotule pessoas como incompetentes e não abra um agente por persona. Registre familiaridade, objetivo, entrada, passos, resultado esperado e evidência observável. Para cada perfil, inclua um caminho principal e uma variação de erro/recuperação pertinentes à feature. Adapte as tarefas ao recorte sem inventar funcionalidades. Não repita o mesmo teste sob sete nomes.
+Simulate the behaviors below; do not label people as incompetent and do not spin up an agent per persona. Record familiarity, goal, input, steps, expected result and observable evidence. For each profile, include a main path and an error/recovery variation relevant to the feature. Adapt the tasks to the scope without inventing functionality. Do not repeat the same test under seven different names.
 
-| ID | Perfil | Comportamento e foco de teste |
+| ID | Profile | Behavior and test focus |
 |---|---|---|
-| P1 | Iniciante sem familiaridade técnica | Segue apenas os textos visíveis; inicia tarefa, interpreta controles e recupera uma escolha errada sem conhecer CLI, sessão ou motor. |
-| P2 | Usuário apressado | Envia duas vezes, troca seleção rapidamente, cancela ou volta; verifica duplicação, estado ocupado e preservação do rascunho. |
-| P3 | Profissional de domínio não técnico | Trabalha com arquivos e conversas longas; precisa de resultados claros, nomes consistentes e continuidade ao reabrir. |
-| P4 | Usuário que depende de acessibilidade | Opera pelo teclado; verifica foco, nomes acessíveis, leitura dos estados e contraste. Não usa cor como único sinal. Árvore acessível não prova teste com leitor de tela real. |
-| P5 | Usuário em celular e rede instável | Tela estreita, recarga e perda de conexão; verifica responsividade, reconexão, recuperação e ausência de perda de conteúdo. |
-| P6 | Engenheira de software e harnesses | Exercita contratos, permissões, isolamento, troca de modelo/provedor, sessões, ferramentas, streaming e erros; avalia Clean Code e SOLID sem abstrações especulativas. |
-| P7 | Especialista em UI/UX | Verifica descoberta, linguagem simples, consistência entre telas, hierarquia visual, feedback, estados vazios/erro e identidade de modelos/provedores. |
+| P1 | Beginner with no technical familiarity | Follows only the visible text; starts a task, interprets controls and recovers from a wrong choice without knowing about CLI, session or engine. |
+| P2 | Rushed user | Submits twice, switches selection quickly, cancels or goes back; checks for duplication, busy state and draft preservation. |
+| P3 | Non-technical domain professional | Works with files and long conversations; needs clear results, consistent names and continuity when reopening. |
+| P4 | User relying on accessibility | Operates via keyboard; checks focus, accessible names, state announcements and contrast. Does not use color as the only signal. An accessible tree does not prove a test with a real screen reader. |
+| P5 | Mobile user on an unstable network | Narrow screen, reload and connection loss; checks responsiveness, reconnection, recovery and absence of content loss. |
+| P6 | Software and harness engineer | Exercises contracts, permissions, isolation, model/provider switching, sessions, tools, streaming and errors; evaluates Clean Code and SOLID without speculative abstractions. |
+| P7 | UI/UX specialist | Checks discoverability, plain language, consistency across screens, visual hierarchy, feedback, empty/error states and model/provider identity. |
 
-Sempre mantenha sete perfis com cenários no escopo. Se um comportamento não se aplica, escolha outro relevante para o mesmo perfil e justifique. Não marque como aprovado um cenário não executado. Em trabalho exclusivamente interno, vincule os perfis às consequências observáveis do contrato; registre honestamente quando não houver UI a avaliar.
+Always keep seven profiles with scenarios in scope. If a behavior does not apply, pick another one relevant to the same profile and justify it. Do not mark an unexecuted scenario as passed. In purely internal work, tie the profiles to the contract's observable consequences; honestly record when there is no UI to evaluate.
 
 ## Gauntlet loop
 
-1. **Preparar e medir a linha de base.** Confirme checkout, mudanças preexistentes e estado temporário de teste. Use Graphify AST e buscas pontuais para localizar código, contratos e testes. Leia fontes atuais e specs dos adaptadores envolvidos, correlacionando revisão e versão instalada. Defina a matriz antes de corrigir, com IDs estáveis como `P2-S1`. Reutilize testes adequados; `tests/persona-ux-eval.spec.cjs`, `tests/gauntlet-senior-ux.spec.cjs` e `tests/gauntlet-provider-flow.spec.cjs` são pontos de partida, não uma lista para executar automaticamente.
-2. **Executar.** Use ações reais de navegador para cenários visuais e testes de API/contrato para comportamentos internos. Para cada cenário registre passou, falhou, bloqueado ou não executado. Colete comandos, resultados, arquivo/linha e evidências visuais pertinentes. Não use testes que apenas confirmam sua implementação quando o comportamento pode ser observado.
-3. **Reproduzir e priorizar.** Reduza cada falha a um caso reproduzível. Classifique por impacto e atribua ID de bug. Perda de dados, violação de permissões e bloqueio de fluxo têm precedência determinística. Quando houver alternativas válidas sem ordem evidente, use JEV conforme abaixo; uma escolha não dispensa os demais testes obrigatórios.
-4. **Corrigir.** Crie primeiro uma regressão que falha; aplique a menor correção na causa; confira verde; refatore somente quando necessário. Revise chamadores e contratos afetados. Preserve o trabalho de outras pessoas. A solicitação de testar/corrigir autoriza correções relacionadas ao recorte, não uma reescrita ampla, implantação ou alteração de dados reais. Encaminhe ao Maestro bugs fora do escopo; eles permanecem registrados, sem desaparecer do relatório.
-5. **Retestar.** Execute o caso que falhava e os contratos diretamente afetados. Se surgir regressão, volte ao passo 3. Ao concluir as correções, rode novamente a matriz final dos sete perfis sobre o mesmo estado do código, verificando também a apresentação no navegador quando aplicável.
-6. **Encerrar com evidências.** Aprove somente se todos os cenários obrigatórios da matriz final passaram e não restarem bugs conhecidos nela. Se acesso, ferramenta, ambiente ou contrato impedir a prova, declare incompleto/bloqueado e o próximo passo. Após dois ciclos sem progresso sobre a mesma falha, reavalie a hipótese com o Maestro em vez de repetir comandos indefinidamente. Não declare aprovação para encerrar um loop ou por esgotar tempo/orçamento.
+1. **Prepare and measure the baseline.** Confirm the checkout, pre-existing changes and temporary test state. Use the Graphify AST and targeted searches to locate code, contracts and tests. Read current sources and the specs of the adapters involved, correlating revision and installed version. Define the matrix before fixing anything, with stable IDs like `P2-S1`. Reuse suitable tests; `tests/persona-ux-eval.spec.cjs`, `tests/gauntlet-senior-ux.spec.cjs` and `tests/gauntlet-provider-flow.spec.cjs` are starting points, not a list to run automatically.
+2. **Execute.** Use real browser actions for visual scenarios and API/contract tests for internal behaviors. For each scenario, record passed, failed, blocked or not run. Collect commands, results, file/line and relevant visual evidence. Do not use tests that merely confirm your own implementation when the behavior can be observed directly.
+3. **Reproduce and prioritize.** Reduce each failure to a reproducible case. Classify by impact and assign a bug ID. Data loss, permission violations and flow blockers take deterministic precedence. When there are valid alternatives with no obvious order, use the JEV as described below; a choice does not waive the other required tests.
+4. **Fix.** First write a failing regression test; apply the smallest fix at the root cause; confirm it passes; refactor only when necessary. Review affected callers and contracts. Preserve other people's work. A request to test/fix authorizes fixes related to the scope, not a broad rewrite, deployment or changes to real data. Forward out-of-scope bugs to Maestro; they stay recorded and do not disappear from the report.
+5. **Retest.** Run the case that used to fail and the directly affected contracts. If a regression appears, go back to step 3. After finishing the fixes, rerun the final seven-profile matrix against the same code state, also checking the browser presentation when applicable.
+6. **Close with evidence.** Approve only if every required scenario in the final matrix passed and no known bugs remain in it. If access, a tool, the environment or a contract prevents proof, declare it incomplete/blocked along with the next step. After two cycles with no progress on the same failure, reassess the hypothesis with Maestro instead of repeating commands indefinitely. Do not declare approval just to close a loop or because time/budget ran out.
 
-Um gauntlet é a repetição dessa matriz com correções e regressões, não uma rodada de opiniões. Não execute a suíte automatizada inteira durante desenvolvimento: siga a regra de testes por feature; a suíte completa fica para marcos Git autorizados e coordenados pelo Maestro. Não crie um marco apenas para dispará-la. Uma campanha ampla pode cobrir os sete perfis por fluxos selecionados sem acionar toda a suíte por rotina.
+A gauntlet is the repetition of this matrix with fixes and regressions, not a round of opinions. Do not run the entire automated suite during development: follow the per-feature testing rule; the full suite is reserved for authorized Git milestones coordinated by Maestro. Do not create a milestone just to trigger it. A broad campaign can cover the seven profiles through selected flows without running the whole suite as a matter of routine.
 
-## JEV: prioridade, não certificação
+## JEV: priority, not certification
 
-Use JEV para ordenar cenários, investigações ou correções entre **2–64 alternativas explícitas**, preparadas pelo Maestro a partir de evidências determinísticas. Com uma única opção válida ou prioridade já resolvida, siga direto e registre a dispensa. Preserve a prioridade Qwen local para os microcasos interpretativos aprovados; não delegue a outro LLM a preparação das alternativas do JEV.
+Use the JEV to rank scenarios, investigations or fixes among **2-64 explicit alternatives**, prepared by Maestro from deterministic evidence. With a single valid option or an already-resolved priority, proceed directly and record the waiver. Preserve the local-model priority for approved interpretive micro-cases; do not delegate preparing the JEV's alternatives to another LLM.
 
-- Antes de consultar, anuncie: “Vou utilizar o JEV agora para [finalidade]”; em lote, informe a quantidade. Revise o pedido concreto, seu caminho, finalidade e categorias de dados. Não inclua segredos.
-- Leia `$HOME/Projects/TypeSafe-JEV/docs/FLUXO-JEV.md` quando disponível. Grave um JSON temporário privado (0600), até 64 KiB: `{"state": evidencias_minimas, "instructions": criterio_de_escolha, "criteria": {"id_a": "alternativa A", "id_b": "alternativa B"}}`. `state` deve relacionar IDs a arquivo/linha, cenário e resultado observado. `abstain` é reservado, não um candidato.
-- Execute uma vez: `timeout 15s $HOME/Projects/TypeSafe-JEV/.venv/bin/python $HOME/Projects/TypeSafe-JEV/jev.py decide /caminho/absoluto/pedido.json --min-confidence 0.60`.
-- Confira ID escolhido e confiança, não apenas `status=ok`. Com confiança ≥0,75, verifique a evidência antes de seguir a escolha. Entre 0,60 e 0,75, use somente como sugestão de prioridade reversível. Abaixo de 0,60, abstenção, erro ou ferramenta indisponível: comunique a falha e siga por prioridade determinística/local, sem retry. Aprovação de ações continua sujeita às permissões; não contorne rejeições.
-- Registre uso, latência e retrabalho retornados; não alegue economia sem medição. Preserve pedidos enquanto houver revisão pendente e descarte-os após resolução. JEV não aprova o produto nem substitui testes, revisão ou critérios de aceitação.
+- Before querying, announce: "I will use the JEV now for [purpose]"; for a batch, state the count. Review the concrete request, its path, purpose and data categories. Do not include secrets.
+- Read the JEV flow documentation under the TypeSafe-JEV project, when available. Write a private temporary JSON file (0600), up to 64KiB: `{"state": minimal_evidence, "instructions": choice_criterion, "criteria": {"id_a": "alternative A", "id_b": "alternative B"}}`. `state` must relate IDs to file/line, scenario and observed result. `abstain` is reserved, not a candidate.
+- Run once: `timeout 15s <typesafe-jev-venv>/bin/python <typesafe-jev-path>/jev.py decide /absolute/path/request.json --min-confidence 0.60`.
+- Check the chosen ID and confidence, not just `status=ok`. With confidence >=0.75, verify the evidence before following the choice. Between 0.60 and 0.75, use it only as a reversible priority suggestion. Below 0.60, an abstention, an error or an unavailable tool: report the failure and proceed by deterministic/local priority, with no retry. Action approval remains subject to permissions; do not work around rejections.
+- Record the returned usage, latency and rework; do not claim savings without measuring them. Keep requests while a review is pending and discard them once resolved. The JEV does not approve the product nor replace tests, review or acceptance criteria.
 
-## Evidências e limites
+## Evidence and limits
 
-Use dados sintéticos e estado temporário. Simulação dos perfis não equivale a validação com usuários reais. Identifique separadamente fixtures, execução real de CLI sem inferência, navegador e conta real. Testes de ferramentas agênticas verificam chamadas, argumentos, cancelamento, permissões e efeitos observáveis; texto do modelo dizendo que executou não é prova.
+Use synthetic data and temporary state. Simulating the profiles is not equivalent to validation with real users. Separately identify fixtures, real CLI execution without inference, browser and a real account. Tests of agentic tools verify calls, arguments, cancellation, permissions and observable effects; the model's own text claiming it executed something is not proof.
 
-Não dispare inferências reais pagas, benchmarks GPU, reinicializações de produção, acessos adicionais ou marcos Git por esta skill. Consultas JEV autorizadas para priorização seguem seu contrato específico. Se uma prova real adicional for necessária, reporte a lacuna ao Maestro para coordenação; não altere permissões nem presuma equivalência entre provedores. Não carregue segredos, pesos ou configurações privadas sem necessidade de teste.
+Do not trigger real paid inference, GPU benchmarks, production restarts, additional access grants or Git milestones through this skill. Authorized JEV queries for prioritization follow their own specific contract. If additional real proof is needed, report the gap to Maestro for coordination; do not change permissions or assume equivalence between providers. Do not load secrets, weights or private configuration without a testing need.
 
-Entregue um relatório compacto com:
+Deliver a compact report with:
 
-- Escopo, estado do código e ambiente testado.
-- Matriz: perfil/cenário, esperado, observado, estado e evidência.
-- Bugs: ID, severidade, reprodução, causa, arquivos alterados e prova de falha→correção→reteste.
-- Rodadas do gauntlet e regressões encontradas; decisões JEV com confiança, métricas e alternativa usada quando necessário.
-- Comandos executados, resultados finais, cenários bloqueados/não executados e limitações da conclusão.
+- Scope, code state and environment tested.
+- Matrix: profile/scenario, expected, observed, state and evidence.
+- Bugs: ID, severity, reproduction, cause, changed files and proof of failure -> fix -> retest.
+- Gauntlet rounds and regressions found; JEV decisions with confidence, metrics and the alternative used when relevant.
+- Commands run, final results, blocked/not-run scenarios and limitations of the conclusion.
 
-A criação desta skill não executa uma campanha de testes. Ao recebê-la para teste/correção, execute o ciclo; ao receber apenas um pedido de edição da própria skill, valide o documento e a associação, sem iniciar o gauntlet do produto.
+Creating this skill does not run a test campaign. When asked to test/fix, run the cycle; when asked only to edit the skill itself, validate the document and its association, without starting the product's gauntlet.

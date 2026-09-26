@@ -5,13 +5,14 @@ All specifications, use cases, design decisions, and research notes in this dire
 - [UC-001: Ten-user concurrent execution](UC-001-multi-user-execution.md)
 - [Provider account usage research](provider-account-usage-research.md)
 - [Concurrency validation plan](concurrency-validation-plan.md)
+- [Installation agent specification](installation-agent-spec.md)
 
-- [Local validation round](local-validation-round.md)
 - [Browser entry, identity and panel regressions](browser-entry-regression.md)
+- [Conversation execution mode](conversation-execution-mode.md)
+- [Conversation title synchronization](conversation-title-sync.md)
+- [Native resource discovery](native-resource-discovery.md)
 
 - [UC-002: Model-specific local profiles](UC-002-local-model-profiles.md)
-
-- [Senior UX gauntlet](UX-GAUNTLET-SENIOR-REVIEW.md)
 
 - [UC-003 — Additive project and model access](UC-003-additive-project-access.md)
 - [Harness implementation research](harness-implementation-research.md)
@@ -30,4 +31,4 @@ Each new version must add an English specification under `releases/v<VERSION>.md
 
 - [0.5.0 — provider continuity, workspace UX and portable packaging](releases/v0.5.0.md)
 
-- [Modelo canônico de agentes e skills](modelo-canonico-agentes-skills.md): nomes, catálogo e migração.
+- [Canonical agent and skill model](canonical-agents-skills-model.md): naming, catalog and migration.

@@ -16,10 +16,8 @@ reports/
 # Per-server runtimes, credentials and weights (profiles are versioned separately).
 local-ai/
 
-# Local development instructions, personal profiles and host audit records.
+# Personal agent settings (AGENTS.md and CLAUDE.md are shared and versioned).
 /.codex/
-/AGENTS.md
+CLAUDE.local.md
+.claude/settings.local.json
 /pytest-of-*/
-/docs/gauntlet-20260919/
-/docs/DEPENDENCIAS-ORIGEM-20260919.md
-/docs/MIGRACAO-LOCAL-AI-20260919.md

@@ -1,13 +1,13 @@
-# Envio, seleção e prévia de anexos
+# Attachment send, selection and preview
 
-O botão de envio parou porque a declaração de `send()` foi removida durante a inserção da árvore de arquivos. O identificador global do elemento `#send` mascarava a ausência de uma função. A função foi restaurada com modo de acesso e título inicial, sem o campo de tarefa removido anteriormente.
+The send button stopped working because the `send()` declaration was removed while inserting the file tree. The global identifier of the `#send` element masked the absence of a function. The function was restored with the access mode and initial title, without the task field removed earlier.
 
-Botões de remover anexos permaneciam desabilitados porque os chips eram criados enquanto `uploads` ainda era positivo e não eram reconstruídos ao concluir a anexação da árvore. O bloco final agora atualiza os anexos após liberar esse estado.
+Remove-attachment buttons stayed disabled because the chips were created while `uploads` was still positive and were not rebuilt when the tree attachment finished. The final block now refreshes attachments after releasing that state.
 
-Revisão solicitada: Shift deve abranger itens visíveis de diferentes níveis da árvore, incluindo arquivos e pastas; o arraste não deve substituir seu próprio elemento de origem. O limite existente de dez arquivos deve ser apresentado e aplicado tanto ao upload quanto ao navegador de arquivos.
+Requested review: Shift must span visible items across different tree levels, including files and folders; dragging must not replace its own source element. The existing ten-file limit must be shown and enforced both for upload and for the file browser.
 
-Imagens PNG/JPEG/WebP anexadas recebem `preview_url` autenticada por dono e projeto. A prévia entrega somente o arquivo de imagem validado, com no-store e nosniff; não permite navegar por um caminho arbitrário.
+Attached PNG/JPEG/WebP images receive a `preview_url` authenticated by owner and project. The preview serves only the validated image file, with no-store and nosniff; it does not allow browsing an arbitrary path.
 
-Validação backend: `tests/test_file_previews.py tests/test_project_browser.py` — 9 aprovados. Servidor ativado após confirmação de ociosidade, stop/start HTTP 200. `tests/harness-files-panel.spec.cjs` passou: clique/Enter com prompt e file_ids, seleção mista Shift/Ctrl/Space, arraste, prévia, remoção, limite 10 e feedback hover. Requisições de execução simuladas; nenhum modelo executado nesta validação. Sintaxe e git diff --check aprovados.
+Backend validation: `tests/test_file_previews.py tests/test_project_browser.py` — 9 passed. Service restarted after confirming idleness, stop/start HTTP 200. `tests/harness-files-panel.spec.cjs` passed: click/Enter with prompt and file_ids, mixed Shift/Ctrl/Space selection, drag, preview, removal, the 10-item limit and hover feedback. Execution requests were mocked; no model was run during this validation. Syntax and `git diff --check` passed.
 
-Também foi encontrada interceptação de cliques por notificações sobre o compositor. As notificações agora ficam abaixo da barra superior e seu texto não captura eventos do mouse. Botões usam a aparência neutra dos seletores e feedback comum de hover/foco. Miniaturas de 128 × 96 px usam preview autenticado, e o compositor apresenta o contador de anexos.
+Click interception by notifications over the composer was also found. Notifications now sit below the top bar and their text no longer captures mouse events. Buttons use the selectors' neutral appearance and common hover/focus feedback. 128x96px thumbnails use an authenticated preview, and the composer shows the attachment count.

@@ -1,18 +1,18 @@
-# Etapas recolhidas na conversa
+# Collapsed steps in the conversation
 
-Cada resposta tem um grupo recolhido de etapas. Ao expandir, aparecem somente títulos de pensamento, ferramentas e marcos, com indicação de conclusão ou falha. Histórico recupera os títulos sob demanda. Eventos repetidos são deduplicados e término de ferramenta atualiza sua linha pelo identificador. Resposta e conclusão continuam no corpo da conversa.
+Each response has a collapsed group of steps. Expanding it shows only thinking, tool and milestone titles, with completion or failure indication. History fetches titles on demand. Repeated events are deduplicated and tool completion updates its row by identifier. The answer and its completion stay in the conversation body.
 
-O painel direito concentra estado e marcos gerais. Entradas, saídas, métricas brutas e texto bruto de pensamento não aparecem nesses grupos. Os registros originais permanecem preservados. Metadados aditivos nos adaptadores permitem mostrar apenas o nome do executável; quando indisponível, o título permanece genérico, sem tentar reconstruir comandos ou argumentos.
+The right panel concentrates general state and milestones. Raw inputs, outputs, metrics and raw thinking text do not appear in these groups. The original records remain preserved. Additive metadata in the adapters allows showing only the executable name; when unavailable, the title stays generic, without trying to reconstruct commands or arguments.
 
-## Validação
+## Validation
 
-- `tests/harness-side-details.spec.cjs`: histórico, execução ao vivo, expansão, deduplicação, ausência de conteúdo bruto, painel lateral e celular.
-- `tests/response-format.spec.cjs`: Markdown, streaming, JSON, cópia e segurança de renderização.
-- `tests/harness-layout.spec.cjs`: seis temas, desktop, notebook, celular, escala, teclado e seletores.
-- `tests/harness-ux.spec.cjs`: 12 cenários; `tests/harness-model-permissions.spec.cjs`: aprovado.
-- Testes direcionados de metadados e integração nativa: 11 aprovados.
+- `tests/harness-side-details.spec.cjs`: history, live execution, expansion, deduplication, absence of raw content, side panel and mobile.
+- `tests/response-format.spec.cjs`: Markdown, streaming, JSON, copy and rendering safety.
+- `tests/harness-layout.spec.cjs`: six themes, desktop, laptop, mobile, scale, keyboard and selectors.
+- `tests/harness-ux.spec.cjs`: 12 scenarios; `tests/harness-model-permissions.spec.cjs`: passed.
+- Targeted metadata and native-integration tests: 11 passed.
 
-Testes de navegador usam assets reais e APIs simuladas. Sem inferência, commit ou execução da suíte inteira. Alterações anteriores do checkout preservadas.
-- `tests/harness-connection.spec.cjs`: aprovado; indisponibilidade, recuperação automática, bloqueio de teclado, autenticação e preservação do rascunho.
-- Sintaxe JavaScript e `git diff --check` aprovados; Graphify AST atualizado.
-- Aplicação reiniciada pelo administrador após confirmar estado ocioso. Stop/start e versão retornaram HTTP 200; HTML, JS e CSS servidos conferidos byte a byte com o checkout.
+Browser tests use real assets and mocked APIs. No inference, commit or full-suite run. Prior checkout changes preserved.
+- `tests/harness-connection.spec.cjs`: passed; unavailability, automatic recovery, keyboard lock, authentication and draft preservation.
+- JavaScript syntax and `git diff --check` passed; Graphify AST map updated.
+- The application was restarted by the administrator after confirming idle state. Stop/start and version returned HTTP 200; served HTML, JS and CSS matched the checkout byte for byte.

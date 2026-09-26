@@ -1,6 +1,6 @@
-# Instalação local portátil
+# Portable local installation
 
-Este fluxo suporta servidores Linux e mantém runtime, modelos e chave dentro do projeto, em caminhos ignorados pelo Git:
+This flow supports Linux servers and keeps the runtime, models and key inside the project, in paths ignored by Git:
 
 ```text
 local-ai/runtime/llama-b11003/
@@ -8,57 +8,57 @@ local-ai/models/
 local-ai/config/api-key
 ```
 
-Ele não instala dependências do sistema, não baixa pesos junto do runtime e não inicia o servidor durante a instalação.
+It does not install system dependencies, does not download weights together with the runtime, and does not start the server during installation.
 
-## 0. Instalar o aplicativo
+## 0. Install the application
 
-Na raiz do checkout execute `./setup.sh` para criar `.venv` e instalar as dependências Python. Em Linux/systemd, `./install.sh` instala também o serviço administrativo, sem executar a suíte de testes. Os comandos de módulos abaixo usam `.venv/bin/python`; se usou `install.sh`, use `~/.local/share/tail-harness/venv/bin/python`.
+From the checkout root, run `./setup.sh` to create `.venv` and install the Python dependencies. On Linux/systemd, `./install.sh` also installs the admin service, without running the test suite. The module commands below use `.venv/bin/python`; if you used `install.sh`, use `~/.local/share/tail-harness/venv/bin/python` instead.
 
-## 1. Compilar llama.cpp
+## 1. Build llama.cpp
 
-Tenha `python3`, `git`, compilador C/C++ e `cmake` já instalados. Compile em cada servidor Linux: um binário Linux construído em um computador não é um pacote universal para os demais servidores. Outros sistemas são recusados explicitamente pelo instalador atual.
+Have `python3`, `git`, a C/C++ compiler and `cmake` already installed. Build on each Linux server: a Linux binary built on one machine is not a universal package for other servers. Other operating systems are explicitly rejected by the current installer.
 
-Na raiz do projeto, a opção CPU mais portátil é:
+From the project root, the most portable CPU option is:
 
 ```sh
 python3 control/install_runtime.py --root . --backend cpu
 ```
 
-Em uma máquina Linux que já tenha SDK Vulkan:
+On a Linux machine that already has the Vulkan SDK:
 
 ```sh
 python3 control/install_runtime.py --root . --backend vulkan
 ```
 
-Em uma máquina que já tenha toolkit CUDA:
+On a machine that already has the CUDA toolkit:
 
 ```sh
 python3 control/install_runtime.py --root . --backend cuda
 ```
 
-O instalador clona a fonte oficial `ggml-org/llama.cpp`, usa a tag `b11003`, verifica o commit `7d6f5d02bb40fca0ab29e65fe4eb86eab6886f19`, compila com CMake e executa somente `llama-server --help`. Se o runtime já existir, ele recusa sobrescrevê-lo.
+The installer clones the official `ggml-org/llama.cpp` source, uses tag `b11003`, verifies commit `7d6f5d02bb40fca0ab29e65fe4eb86eab6886f19`, builds with CMake and only runs `llama-server --help`. If the runtime already exists, it refuses to overwrite it.
 
-A configuração segue a documentação oficial do llama.cpp: [build CPU, Vulkan e CUDA](https://github.com/ggml-org/llama.cpp/blob/b11003/docs/build.md).
+The setup follows the official llama.cpp documentation: [CPU, Vulkan and CUDA builds](https://github.com/ggml-org/llama.cpp/blob/b11003/docs/build.md).
 
-## 2. Baixar o modelo verificado
+## 2. Download the verified model
 
-O downloader existente usa revisões e SHA-256 fixados. Para o Qwen3.6 UD-Q3_K_M do catálogo, com destino interno:
+The existing downloader uses pinned revisions and SHA-256 hashes. For the catalog's Qwen3.6 UD-Q3_K_M, with an internal destination:
 
 ```sh
 .venv/bin/python -m control.download_model qwen36 local-ai/models
 ```
 
-Para o outro modelo cadastrado:
+For the other registered model:
 
 ```sh
 .venv/bin/python -m control.download_model gemma4 local-ai/models
 ```
 
-O arquivo é escrito como temporário, só recebe o nome final após conferir SHA-256 e nunca substitui um modelo já existente.
+The file is written as a temporary file, only receives its final name after the SHA-256 check, and never replaces an already-existing model.
 
-## 3. Iniciar o servidor
+## 3. Start the server
 
-O perfil CPU genérico evita assumir GPU e serve como ponto de partida para outro servidor:
+The generic CPU profile avoids assuming a GPU and serves as a starting point for another server:
 
 ```sh
 .venv/bin/python -m control.start_local \
@@ -69,17 +69,16 @@ O perfil CPU genérico evita assumir GPU e serve como ponto de partida para outr
   --key-file local-ai/config/api-key
 ```
 
-O perfil `profiles/qwen-author-profile.json` é uma sugestão pessoal da autora para Vulkan, com projetor multimodal e afinidade de CPU específicos. Ele é distribuído como exemplo autorizado, sem credenciais. Revise seus parâmetros e informe seu caminho com `--profile`; não é uma configuração universal.
+The `profiles/qwen-vulkan-profile.json` profile is an author-suggested example for Vulkan, with a specific multimodal projector and CPU affinity. It is distributed as an authorized example, with no credentials. Review its parameters and point to its path with `--profile`; it is not a universal configuration.
 
-Para apenas conferir o comando sem iniciar o runtime nem criar a chave, acrescente `--check`.
+To only check the command without starting the runtime or creating the key, add `--check`.
 
-## Última validação
+## Latest validation
 
-Em 19/09/2026, a instalação CPU foi concluída em `local-ai/portable-check` com raiz vazia e `--jobs 2`. Foi usado CMake 4.4.3 privado em `local-ai/build-tools`, sem instalação de dependência do sistema. A fonte oficial `b11003` foi conferida no commit `7d6f5d02bb40fca0ab29e65fe4eb86eab6886f19`; o destino final recebeu `llama-server`, bibliotecas, `LICENSE` e `runtime.json`. O `RUNPATH` final é `$ORIGIN` e `llama-server --help` passou depois da publicação. Não foram baixados pesos nem inicializada GPU.
+On 2026-09-19, the CPU installation completed in `local-ai/portable-check` with an empty root and `--jobs 2`. A private CMake 4.4.3 in `local-ai/build-tools` was used, with no system dependency installed. The official `b11003` source was checked at commit `7d6f5d02bb40fca0ab29e65fe4eb86eab6886f19`; the final destination received `llama-server`, libraries, `LICENSE` and `runtime.json`. The final `RUNPATH` is `$ORIGIN` and `llama-server --help` passed after publishing. No weights were downloaded and no GPU was initialized.
 
+## Installation from a wheel
 
-## Instalação a partir de wheel
+The wheel includes the profiles under `share/tail-harness/profiles` in the Python environment's prefix. Copy the chosen profile into a `profiles/` folder in your data root and pass that root via `--root` to the installer/launcher. For a panel installed from a wheel, set `TAIL_HARNESS_ROOT` to the same root: runtime, downloads and the key will use `<root>/local-ai`. The package does not ship this server's private configuration or weights.
 
-O wheel inclui os perfis em `share/tail-harness/profiles` no prefixo do ambiente Python. Copie o perfil escolhido para uma pasta `profiles/` em sua raiz de dados e passe essa raiz por `--root` ao instalador/launcher. Para o painel instalado por wheel, configure `TAIL_HARNESS_ROOT` apontando à mesma raiz: runtime, downloads e chave usarão `<raiz>/local-ai`. O pacote não carrega a configuração privada nem os pesos deste servidor.
-
-O downloader padrão de texto `qwen36` baixa somente os pesos UD-Q3_K_M. Para imagens, configure explicitamente um projetor multimodal compatível em um perfil local; o perfil CPU distribuído não inclui projetor.
+The default `qwen36` text downloader only downloads the UD-Q3_K_M weights. For images, explicitly configure a compatible multimodal projector in a local profile; the distributed CPU profile does not include a projector.

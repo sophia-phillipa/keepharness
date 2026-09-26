@@ -1,12 +1,10 @@
 include LICENSE README.md setup.sh start.sh install.sh requirements.txt
 recursive-include docs *.md
-recursive-include dossie *.md
-recursive-include docs/eval-20260920 *.json *.png
+recursive-include dossier *.md
 recursive-include tests *.py *.cjs
 recursive-include scripts *.sh *.py *.py
 
-include profiles/local-cpu-profile.json profiles/qwen-author-profile.json
-include README.en.md
+include profiles/local-cpu-profile.json profiles/qwen-vulkan-profile.json
 
 recursive-include Adapters *.py *.md *.json
 
@@ -14,7 +12,4 @@ recursive-include Adapters *.py *.md *.json
 prune .codex
 prune local-ai
 prune pytest-of-unknown
-prune docs/gauntlet-20260919
 exclude AGENTS.md
-exclude docs/DEPENDENCIAS-ORIGEM-20260919.md
-exclude docs/MIGRACAO-LOCAL-AI-20260919.md

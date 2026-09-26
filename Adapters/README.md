@@ -1,55 +1,55 @@
-# Adaptadores e contratos de integração
+# Adapters and integration contracts
 
-[Português](../README.md) · [English](../README.en.md)
+[English](../README.md#english) · [Português (Brasil)](../README.md#português-brasil)
 
-Cada provedor possui código, especificação e agente de desenvolvimento próprios. O agente especialista mantém a integração; seu modelo de desenvolvimento não precisa ser o modelo integrado.
+Each provider has its own code, specification and development agent. The specialist agent maintains the integration; its development model does not need to be the integrated model.
 
-| Pasta | Responsabilidade | Especialista | Contrato local |
+| Folder | Responsibility | Specialist | Local contract |
 | --- | --- | --- | --- |
-| `codex/` | Protocolo app-server, sessões, esforço, aprovações e execução scoped | `integrate-codex_tail-harness_engineer` | [Spec](codex/specs/README.md) |
-| `claude/` | CLI stream-json, resume, ferramentas e parsing Claude | `integrate-claude_tail-harness_engineer` | [Spec](claude/specs/README.md) |
-| `gemini/` | Gemini CLI ACP, Google OAuth, sessões e aprovações | `integrate-gemini_tail-harness_engineer` | [Spec](gemini/specs/README.md) |
-| `deepseek/` | Chave API, catálogo, endpoint Responses e continuidade cliente | `integrate-deepseek_tail-harness_engineer` | [Spec](deepseek/specs/README.md) |
-| `local/` | Endpoint local, credencial isolada, política de ferramentas e sandbox | `integrate-local_tail-harness_engineer` | [Spec](local/specs/README.md) |
-| `shared/` | Preparação de pastas/anexos e alterações propostas no modo scoped | `integrate-contracts_tail-harness_engineer` | Contratos compartilhados abaixo |
+| `codex/` | app-server protocol, sessions, effort, approvals and scoped execution | `integrate-codex_tail-harness_engineer` | [Spec](codex/specs/README.md) |
+| `claude/` | Claude CLI stream-json, resume, tools and parsing | `integrate-claude_tail-harness_engineer` | [Spec](claude/specs/README.md) |
+| `gemini/` | Gemini CLI ACP, Google OAuth, sessions and approvals | `integrate-gemini_tail-harness_engineer` | [Spec](gemini/specs/README.md) |
+| `deepseek/` | API key, catalog, Responses endpoint and client continuity | `integrate-deepseek_tail-harness_engineer` | [Spec](deepseek/specs/README.md) |
+| `local/` | Local endpoint, isolated credential, tool policy and sandbox | `integrate-local_tail-harness_engineer` | [Spec](local/specs/README.md) |
+| `shared/` | Folder/attachment preparation and proposed changes in scoped mode | `integrate-contracts_tail-harness_engineer` | Shared contracts below |
 
 ```mermaid
 flowchart LR
-    API[API e fila do harness] --> Dispatch[Adapters: despacho explícito]
-    Dispatch --> Codex[Adaptador Codex]
-    Dispatch --> Claude[Adaptador Claude]
-    Dispatch --> Gemini[Adaptador Gemini CLI]
-    Dispatch --> DeepSeek[Adaptador DeepSeek]
-    Dispatch --> Local[Adaptador local]
-    DeepSeek --> Transport[Transporte Codex app-server]
+    API[Harness API and queue] --> Dispatch[Adapters: explicit dispatch]
+    Dispatch --> Codex[Codex adapter]
+    Dispatch --> Claude[Claude adapter]
+    Dispatch --> Gemini[Gemini CLI adapter]
+    Dispatch --> DeepSeek[DeepSeek adapter]
+    Dispatch --> Local[Local adapter]
+    DeepSeek --> Transport[Codex app-server transport]
     Local --> Transport
     Codex --> Transport
     Claude --> CLI[Claude stream-json]
-    Transport --> Remote[Endpoint selecionado]
+    Transport --> Remote[Selected endpoint]
 ```
 
-## Contratos e responsabilidades
+## Contracts and responsibilities
 
-`run_native(config, prompt, event, project, model, effort, session_dir, provider, approve)` escolhe uma implementação explícita; cada `backend.py` recebe os mesmos argumentos sem `provider`. `run_scoped` aceita somente Codex e Claude. Provedor desconhecido ou modo sem implementação falha; não existe fallback silencioso.
+`run_native(config, prompt, event, project, model, effort, session_dir, provider, approve)` picks an explicit implementation; each `backend.py` receives the same arguments minus `provider`. `run_scoped` only accepts Codex and Claude. An unknown provider or an unimplemented mode fails; there is no silent fallback.
 
-Os adaptadores recebem apenas permissões já calculadas pelo serviço. O núcleo mantém fila, autorização, histórico de conversa, recuperação e aplicação de alterações; transporte não amplia autorização. Dados de anexos e respostas não viram instruções de instalação. `event` entrega eventos incrementais e `approve` mantém a política de aprovação do harness. Os arquivos antigos `agent_service/*backend.py`, `codex_rpc.py`, `local_sandbox.py` e `control/deepseek.py` são apenas imports de compatibilidade; código novo usa `Adapters`.
+Adapters only receive permissions already computed by the service. The core owns the queue, authorization, conversation history, recovery and applying changes; the transport does not widen authorization. Attachment and response data never become installation instructions. `event` delivers incremental events and `approve` keeps the harness's approval policy. The legacy `agent_service/*backend.py`, `codex_rpc.py`, `local_sandbox.py` and `control/deepseek.py` files are compatibility imports only; new code uses `Adapters`.
 
-A composição reutiliza o protocolo do Codex para DeepSeek e modelos locais, mas cada integração escolhe endpoint, autenticação e política. Não há classe-base ou fábrica de plugins. Funções separadas constroem comandos, preparam sessões, tratam interações e interpretam streams. Código Python novo usa formatação convencional, sem métodos comprimidos em uma linha.
+The design reuses the Codex protocol for DeepSeek and local models, but each integration chooses its own endpoint, authentication and policy. There is no base class or plugin factory. Separate functions build commands, prepare sessions, handle interactions and parse streams. New Python code uses conventional formatting, with no one-line compressed methods.
 
-## Versões correlacionadas e consulta offline
+## Correlated versions and offline lookup
 
-Cada pasta `specs/` contém `compatibility.json`, contrato e `models/`. O registro correlaciona `adapter_spec_revision` do código, baseline do harness, CLI/runtime observado, data da documentação, modelos/aliases e tipo de validação. As revisões são próprias dos adaptadores; esta mudança não cria uma release do aplicativo. APIs sem versão e aliases móveis são registrados como tais, nunca como snapshots imutáveis.
+Each `specs/` folder contains `compatibility.json`, a contract and `models/`. The record correlates the code's `adapter_spec_revision`, the harness baseline, the observed CLI/runtime, the documentation date, models/aliases and the type of validation. Revisions belong to the adapters themselves; this change does not create an application release. Unversioned APIs and moving aliases are recorded as such, never as immutable snapshots.
 
-Leia a spec local antes de pesquisar. Se a versão e o contrato continuam iguais, reutilize as decisões registradas. Mudanças de CLI, runtime, endpoint, alias, esforço, sessão ou teste exigem revisar fontes oficiais, atualizar as decisões e incrementar a revisão afetada. Preserve revisões anteriores no histórico Git; não substitua uma evidência antiga por uma alegação de validação nova. Observar `--version`, executar um fixture e testar a conta real são evidências diferentes.
+Read the local spec before researching. If the version and contract are unchanged, reuse the recorded decisions. Changes to the CLI, runtime, endpoint, alias, effort, session or test require reviewing official sources, updating the decisions and bumping the affected revision. Preserve earlier revisions in the Git history; do not replace old evidence with a claim of new validation. Observing `--version`, running a fixture and testing a real account are different kinds of evidence.
 
-## TDD e validação
+## TDD and validation
 
-Para mudar comportamento: teste que falha → implementação mínima → refatoração → testes afetados. `tests/test_adapters.py` cobre despacho; `tests/test_adapter_specs.py` verifica a ligação código/spec/modelos; os testes existentes continuam cobrindo permissões, anexos, projetos, streams e retomada. `tests/test_deepseek_continuity.py` usa CLI real e API local simulada, sem inferência externa.
+To change behavior: a failing test -> minimal implementation -> refactor -> affected tests. `tests/test_adapters.py` covers dispatch; `tests/test_adapter_specs.py` verifies the code/spec/models link; the existing tests continue covering permissions, attachments, projects, streams and resumption. `tests/test_deepseek_continuity.py` uses a real CLI and a mocked local API, with no external inference.
 
-Execute somente testes da feature durante desenvolvimento. Suíte inteira é reservada aos marcos Git definidos em `AGENTS.md`; não crie um marco para dispará-la. Antes de afirmar compatibilidade com versão nova, registre o comando, a versão e o resultado. Testes simulados não certificam autenticação, qualidade do modelo, limites ou cobrança do provedor remoto.
+Run only the feature's tests during development. Run the full suite before a release or merge to `main` (see `AGENTS.md`). Before claiming compatibility with a new version, record the command, the version and the result. Mocked tests do not certify authentication, model quality, remote-provider limits or billing.
 
-## Modelo × motor
+## Model x engine
 
-O nome de apresentação da integração deve explicitar o motor efetivamente usado: hoje, **Modelo Local via Codex** e **DeepSeek via Codex**. O modelo/provedor realiza a inferência; o motor gerencia o ciclo de ferramentas e a sessão. O Harness mantém a tarefa e seu histórico portátil. Construir o projeto com Codex não impõe um modelo OpenAI nem exclusividade desse motor.
+The integration's display name must state the engine actually used: today, **Local model via Codex** and **DeepSeek via Codex**. The model/provider performs inference; the engine manages the tool loop and the session. The Harness owns the task and its portable history. Building the project with Codex imposes neither an OpenAI model nor exclusivity to that engine.
 
-Novas combinações — por exemplo, DeepSeek via Claude Code, modelo local via Claude Code ou DeepSeek via motor próprio — precisam de contrato e validação próprios. Não reutilizar sessões, parâmetros ou garantias entre motores por analogia. Os cartões só devem oferecer combinações realmente implementadas; os IDs atuais continuam compatíveis enquanto não houver uma migração explícita.
+New combinations — for example, DeepSeek via Claude Code, a local model via Claude Code, or DeepSeek via its own engine — need their own contract and validation. Do not reuse sessions, parameters or guarantees across engines by analogy. The cards should only offer combinations that are actually implemented; the current IDs remain compatible until there is an explicit migration.

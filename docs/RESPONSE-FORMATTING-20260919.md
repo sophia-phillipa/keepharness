@@ -1,15 +1,15 @@
-# Formatação das respostas
+# Response formatting
 
-Implementada no Tail Harness em 19/09/2026. Respostas antes exibidas como texto literal agora renderizam Markdown no streaming, resultado final e histórico. Títulos, tabelas, negrito, itálico, listas, citações, links e código recebem apresentação própria. JSON objeto/array puro e blocos json em Markdown são indentados; conteúdo inválido permanece visível. Copiar resposta conserva a fonte original.
+Implemented in Tail Harness on 2026-09-19. Responses previously shown as literal text now render Markdown during streaming, in the final result and in history. Headings, tables, bold, italics, lists, quotes, links and code get their own presentation. Plain JSON objects/arrays and fenced json blocks in Markdown are indented; invalid content stays visible. Copying a response keeps the original source.
 
-Preservados os balões e detalhes laterais do Tail Harness, caminhos de erro, aprovações e eventos Maestro. Mensagens do usuário e raciocínio permanecem literais. O parser markdown-it 14.1.0 é servido localmente, com HTML desativado, links perigosos rejeitados e imagens suprimidas. Bundle, proveniência e licença MIT estão em agent_service/vendor/ e incluídos no pacote. Referência: https://github.com/markdown-it/markdown-it/blob/14.1.0/README.md
+The Tail Harness bubbles and side details, error paths, approvals and Maestro events are preserved. User messages and reasoning remain literal. The markdown-it 14.1.0 parser is served locally, with HTML disabled, dangerous links rejected and images suppressed. The bundle, provenance and MIT license live in `agent_service/vendor/` and are included in the package. Reference: https://github.com/markdown-it/markdown-it/blob/14.1.0/README.md
 
-## Validação executada
+## Validation performed
 
-- tests/response-format.spec.cjs: aprovado contra os arquivos do serviço ativo em 127.0.0.1:8095, com API de respostas simulada. Exercita streaming fragmentado, histórico/resultado, tabelas/listas/citações, JSON puro/cercado/misto/objeto/inválido, cópia bruta, usuário literal, HTML/links perigosos/imagens e largura 390/1280 nos temas reais Violeta & Bordô e Ametista.
-- `.venv/bin/python -m unittest discover -s tests -p test_response_assets.py -v`: 1 teste aprovado. Verifica rota Starlette real, ordem dos scripts, tipo JavaScript e política de conteúdo.
-- `node --check agent_service/ui.js`: aprovado. Verificado também que bundle e licença constam nos padrões de package-data.
-- Fila consultada vazia antes do reinício. Apenas o processo do painel foi parado/iniciado por /api/stop e /api/start da administração local; ambos HTTP 200. Página, biblioteca e ui.js do serviço retornaram HTTP 200; ui.js servido contém renderAnswer.
-- Sem inferência real, benchmark, suíte completa, commit, push, merge, tag ou criação de branch nesta feature.
+- tests/response-format.spec.cjs: passed against the active service's files at 127.0.0.1:8095, with a mocked responses API. Exercises fragmented streaming, history/result, tables/lists/quotes, plain/fenced/mixed/object/invalid JSON, raw copy, literal user text, HTML/dangerous links/images, and 390/1280 widths across the real Violet & Burgundy and Amethyst themes.
+- `.venv/bin/python -m unittest discover -s tests -p test_response_assets.py -v`: 1 test passed. Verifies the real Starlette route, script order, JavaScript type and content policy.
+- `node --check agent_service/ui.js`: passed. Also verified that the bundle and license are listed in the package-data patterns.
+- The queue was checked as empty before the restart. Only the panel process was stopped/started via the local admin's /api/stop and /api/start; both HTTP 200. The service's page, library and ui.js returned HTTP 200; the served ui.js contains renderAnswer.
+- No real inference, benchmark, full suite, commit, push, merge, tag or branch creation in this feature.
 
-Os testes do navegador podem ser executados isoladamente com PLAYWRIGHT_MODULE apontando para a instalação local de Playwright e HARNESS_URL=http://127.0.0.1:8095. Sem HARNESS_URL, o teste serve os arquivos do checkout por interceptação local. Nenhuma fonte do local-llm-service é necessária para a execução dos testes ou do renderizador.
+The browser tests can be run in isolation with PLAYWRIGHT_MODULE pointing to the local Playwright install and HARNESS_URL=http://127.0.0.1:8095. Without HARNESS_URL, the test serves the checkout files via local interception. No local-llm-service source is required to run the tests or the renderer.

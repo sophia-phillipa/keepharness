@@ -1,17 +1,17 @@
-# Caixa de mensagem baseada na referência visual
+# Message box based on the visual reference
 
-Cápsula com cantos arredondados, área de escrita ampla e barra inferior compacta. Anexar usa o símbolo + sem moldura; acesso aparece com escudo; modelo e esforço ficam adjacentes, sem campos emoldurados nem rótulos redundantes; envio usa botão circular de contraste neutro. A paleta existente continua respeitada. Não foi adicionado um microfone sem funcionalidade correspondente.
+Capsule with rounded corners, a wide writing area and a compact bottom bar. Attach uses a frameless + symbol; access appears with a shield; model and effort sit next to each other, with no framed fields or redundant labels; send uses a circular button with neutral contrast. The existing palette is still respected. No microphone was added without matching functionality.
 
-Os seletores continuam nativos e acessíveis por teclado. Acesso automático preserva os limites administrativos existentes. Nomes de modelos aparecem sem emojis, com GPT-6 Astra/GPT-5.6 nos nomes conhecidos. Tarefa opcional foi movida para fora da cápsula. A ajuda permanece disponível para leitores de tela, incluindo as permissões associadas ao modelo. Contêineres estreitos reorganizam a barra em duas linhas, mesmo com painéis laterais abertos.
+The selectors remain native and keyboard-accessible. Automatic access preserves the existing administrative limits. Model names appear without emojis, with GPT-6 Astra/GPT-5.6 among the known names. The optional Task field was moved out of the capsule. Help remains available for screen readers, including the permissions associated with the model. Narrow containers reorganize the bar into two lines, even with side panels open.
 
-Alterados: `agent_service/index.html`, `agent_service/ui.css`, `agent_service/ui.js` e `tests/harness-layout.spec.cjs`. Alterações preexistentes preservadas. Sem commit, criação de branch, nova versão ou reinício do serviço em uso.
+Changed: `agent_service/index.html`, `agent_service/ui.css`, `agent_service/ui.js` and `tests/harness-layout.spec.cjs`. Pre-existing changes preserved. No commit, branch creation, new version or restart of the service in use.
 
-## Validação
+## Validation
 
-- `node tests/harness-layout.spec.cjs` com Playwright do runtime local: seis temas, 1515/768/390 px, modos de acesso, nomes longos, painel de atividade, zoom de 200%, seleção por teclado, configurações, anexar e payload de envio; captura dos temas claro, ametista e Arizona. Assets do checkout com APIs simuladas, sem inferência.
-- `node tests/harness-ux.spec.cjs` em servidor temporário isolado: 12 cenários aprovados.
-- `node tests/harness-model-permissions.spec.cjs`: aprovado.
-- `node tests/harness-connection.spec.cjs`: aprovado, incluindo bloqueio e reconexão.
-- `node --check agent_service/ui.js` e `git diff --check`: aprovados.
+- `node tests/harness-layout.spec.cjs` with the local runtime's Playwright: six themes, 1515/768/390px, access modes, long names, activity panel, 200% zoom, keyboard selection, settings, attach and send payload; captures of the light, amethyst and Arizona themes. Checkout assets with mocked APIs, no inference.
+- `node tests/harness-ux.spec.cjs` on an isolated temporary server: 12 scenarios passed.
+- `node tests/harness-model-permissions.spec.cjs`: passed.
+- `node tests/harness-connection.spec.cjs`: passed, including block and reconnection.
+- `node --check agent_service/ui.js` and `git diff --check`: passed.
 
-O teste de layout anteriormente incompatível com o menu foi atualizado para abrir o menu real e verificar o comportamento final. A suíte completa não foi executada por não haver marco Git.
+The layout test previously incompatible with the menu was updated to open the real menu and check the final behavior. The full suite was not run because there was no Git milestone.

@@ -17,7 +17,7 @@ Every URL under "Verified sources" returned HTTP 200 and was fetched with `curl`
 
 - Request 1 (search strategy, 5 candidate engines): `status=ok`, `choice=github_api`, `confidence=0.66`, `model=jev-1.13.0`, `input_tokens=668`, `output_tokens=71`, `elapsed_ms=794`.
 - Interpretation: 0.60 ≤ 0.66 < 0.75, so the choice was a reversible priority suggestion only, not a validated decision. Working local evidence (a search endpoint returning relevant results) took precedence; the GitHub suggestion was retained as a complementary source. No retry, no rework.
-- Request 2 (where to store this document, 2 candidates): `status=ok`, `choice=dossie_existente`, `confidence=0.99`, `model=jev-1.13.0`, `input_tokens=582`, `output_tokens=54`, `elapsed_ms=861`.
+- Request 2 (where to store this document, 2 candidates): `status=ok`, `choice=existing_dossier`, `confidence=0.99`, `model=jev-1.13.0`, `input_tokens=582`, `output_tokens=54`, `elapsed_ms=861`.
 - Both requests were prepared locally and executed through the local `jev.py` CLI. The remote endpoint `https://api.typesafe.ai` was not called in these runs.
 
 ## Verified sources
