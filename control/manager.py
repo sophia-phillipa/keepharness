@@ -24,7 +24,7 @@ from adapters.gemini import account as gemini
 from . import discovery, env, integration_catalog, integrations, runtime_config
 from .dashboard import DashboardReader
 from .operations import Operations
-from .persistence import ControlStateRepository
+from .persistence import ControlStateRepository, private_file
 
 ROOT = env.REPOSITORY_ROOT
 PERMISSIONS = ("read", "write", "upload", "tests", "internet", "shell", "hooks")
@@ -546,13 +546,13 @@ class Manager:
                 raise ValueError("Port in use. Choose another; no existing service was stopped.")
         path = self.state / "runtime.json"
         self._write_runtime(cfg)
-        log = (self.state / "harness.log").open("ab")
+        log = open(self.state / "harness.log", "ab", opener=private_file)
         self.proc = await asyncio.create_subprocess_exec(
             sys.executable,
             "-m",
             "agent_service.app",
             cwd=ROOT,
-            env={**os.environ, "LOCAL_AGENT_CONFIG": str(path)},
+            env={**os.environ, "TAIL_HARNESS_AGENT_CONFIG": str(path)},
             stdout=log,
             stderr=log,
         )

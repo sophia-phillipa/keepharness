@@ -1,6 +1,7 @@
 """Connection, JSON encoding and versioned schema migrations for ``jobs.sqlite3``."""
 
 import json
+import os
 import sqlite3
 
 
@@ -8,8 +9,16 @@ def encoded(value):
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
 
+def private_file(path, flags):
+    """``open`` opener: state files hold requests and ids, so they are owner-only."""
+    return os.open(path, flags, 0o600)
+
+
 def connect(root):
-    db = sqlite3.connect(root / "jobs.sqlite3", check_same_thread=False)
+    path = root / "jobs.sqlite3"
+    # SQLite gives its -wal/-shm files the database file's mode.
+    os.close(private_file(path, os.O_CREAT | os.O_WRONLY))
+    db = sqlite3.connect(path, check_same_thread=False)
     db.row_factory = sqlite3.Row
     return db
 

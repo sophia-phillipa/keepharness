@@ -94,11 +94,16 @@ async def run(service):
             if asyncio.current_task().cancelling():
                 raise
         except Exception as exc:
+            backend = json.loads(row["payload"]).get("backend")
+            binary = service.config.get(backend, {}).get("binary")
             code = (
                 exc.code
                 if isinstance(exc, APIError)
                 else str(exc)
                 if isinstance(exc, tools.ToolError)
+                # The provider CLI was removed or moved after the harness started.
+                else "cli_missing"
+                if isinstance(exc, FileNotFoundError) and binary and exc.filename == binary
                 else type(exc).__name__
             )
             if not isinstance(exc, (APIError, tools.ToolError)):

@@ -55,6 +55,18 @@ def config():
     return cfg
 
 
+def decoded(response):
+    """The API's JSON answer; a proxy's HTML or text page becomes a structured error."""
+    try:
+        body = response.json()
+    except ValueError:
+        return {
+            "error": {"code": "invalid_response", "message": response.text[:1000]},
+            "http_status": response.status_code,
+        }
+    return {"error": body, "http_status": response.status_code} if response.is_error else body
+
+
 async def call(method, path, data=None, headers=None, content=None):
     cfg = config()
     token = Path(cfg["key_file"]).read_text().strip() if cfg.get("key_file") else None
@@ -66,9 +78,7 @@ async def call(method, path, data=None, headers=None, content=None):
             content=content,
             headers={**({"Authorization": "Bearer " + token} if token else {}), **(headers or {})},
         )
-        if response.is_error:
-            return {"error": response.json(), "http_status": response.status_code}
-        return response.json()
+        return decoded(response)
 
 
 @mcp.tool()
@@ -410,9 +420,9 @@ async def upload_path(project_id: str, local_path: str) -> dict:
                     "X-Filename": quote(source.name + ".zip", safe=""),
                 },
             )
-        result = response.json()
-        if response.is_error:
-            return {"error": result, "http_status": response.status_code}
+        result = decoded(response)
+        if "http_status" in result:
+            return result
         return {**result, "excluded": skipped[:100], "excluded_count": len(skipped)}
 
 

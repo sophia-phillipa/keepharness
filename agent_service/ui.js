@@ -657,6 +657,8 @@ const userErrors = {
   project_denied: "You don't have access to this project.",
   native_failed:
     "The AI service did not finish the run. Check the activity and try again.",
+  cli_missing:
+    "The provider's command-line tool is missing on the server. Reinstall it, refresh discovery in the admin panel and try again.",
   project_name_exists:
     "A project with that name already exists. Choose a different name.",
   invalid_project_name: "The name needs to be between 3 and 100 characters.",
@@ -2374,6 +2376,7 @@ function executionCondition(code) {
 function executionError(error) {
   const condition = executionCondition(error);
   if (condition) return condition.message;
+  if (error === "cli_missing") return userErrors.cli_missing;
   if (
     /context_limit_exceeded|exceed_context_size|exceeds the available context|maximum context length|source_context_limit|conversation_context_limit|context_window_exceeded/i.test(
       String(error),

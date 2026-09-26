@@ -220,11 +220,22 @@ class ConversationService:
         origin = request.headers.get("origin")
         if origin and origin not in self.config.get("origins", []):
             raise APIError("origin_denied", 403)
+        # Like the admin gate: another site may only navigate here, never fetch or embed.
+        cross_site = request.headers.get("sec-fetch-site") == "cross-site"
+        navigation = (
+            request.method == "GET"
+            and request.headers.get("sec-fetch-mode") == "navigate"
+            and request.headers.get("sec-fetch-dest") == "document"
+            and request.headers.get("sec-fetch-user") == "?1"
+        )
+        if cross_site and not navigation:
+            raise APIError("origin_denied", 403)
         auth = request.headers.get("authorization", "")
         if not auth and request.cookies.get("harness_token"):
             auth = "Bearer " + request.cookies["harness_token"]
         if (
             not auth
+            and not cross_site
             and request.client
             and request.client.host in ("127.0.0.1", "::1")
             and request.headers.get("host", "").split(":")[0] in ("localhost", "127.0.0.1")
@@ -438,10 +449,14 @@ class ConversationService:
         return "native" if "native" in modes else modes[0]
 
     def configured_execution_mode(self, backend):
-        """Compatibility behavior for conversations saved before this field."""
-        if backend == "local":
-            return "scoped"
-        return self.config.get("services", {}).get(backend, {}).get("mode", "scoped")
+        """Compatibility behavior for conversations saved before this field.
+
+        The service's configured mode when its backend supports it, else the backend's
+        default: local is always scoped, and a 0.5.0 Maestro conversation has no service.
+        """
+        mode = self.config.get("services", {}).get(backend, {}).get("mode", "scoped")
+        modes = self.execution_modes(backend)
+        return mode if mode in modes or not modes else self.default_execution_mode(backend)
 
     def conversation_execution_mode(self, row):
         root = self.conversation_repository.get(self.conversation_id(row))

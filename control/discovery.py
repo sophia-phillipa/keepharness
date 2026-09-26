@@ -11,6 +11,10 @@ import httpx
 
 from .local_models import discover
 
+OLLAMA_TAGS_URL = "http://127.0.0.1:11434/api/tags"
+# Total seconds for the Ollama probe; httpx timeouts apply per read, not per response.
+PROBE_SECONDS = 3
+
 
 async def command(*args, env=None):
     try:
@@ -97,7 +101,7 @@ async def scan():
     }
     async with httpx.AsyncClient(timeout=2, trust_env=False) as client:
         try:
-            r = await client.get("http://127.0.0.1:11434/api/tags")
+            r = await asyncio.wait_for(client.get(OLLAMA_TAGS_URL), PROBE_SECONDS)
             r.raise_for_status()
             local.update(
                 found=bool(binaries["codex"]),
@@ -107,7 +111,7 @@ async def scan():
                     if not m["name"].endswith((":cloud", "-cloud"))
                 ],
             )
-        except (httpx.HTTPError, ValueError, KeyError):
+        except (httpx.HTTPError, ValueError, KeyError, TimeoutError):
             pass
     local["runtimes"] = await discover()
     local["models"] += list(

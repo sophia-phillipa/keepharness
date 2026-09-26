@@ -6,6 +6,7 @@ provider (``await manager.check``) and hands the result to the matching builder 
 
 import hashlib
 import json
+import platform
 import secrets
 import shutil
 import sys
@@ -50,6 +51,32 @@ def base_config(settings, state, admin_port, browser_url, provider_revisions):
     return cfg
 
 
+# ``platform.machine()`` to the Node ``process.arch`` used in npm platform package names.
+NODE_ARCHITECTURES = MappingProxyType(
+    {"x86_64": "x64", "amd64": "x64", "aarch64": "arm64", "arm64": "arm64"}
+)
+
+
+def native_binary(binary):
+    """The native binary behind ``npm install -g @openai/codex``'s Node wrapper.
+
+    Isolated mode mounts only the binary, so the ``bin/codex.js`` entry point cannot run
+    there; the platform package inside the npm package ships the real executable.
+    """
+    binary = Path(binary).resolve()
+    if binary.parts[-4:] != ("@openai", "codex", "bin", "codex.js"):
+        return binary
+    machine = NODE_ARCHITECTURES.get(platform.machine().lower())
+    name = f"codex-{platform.system().lower()}-{machine}"
+    for candidate in sorted(
+        binary.parents[1].glob(f"node_modules/@openai/{name}/vendor/*/bin/codex")
+    ):
+        with candidate.open("rb") as stream:
+            if stream.read(4) == b"\x7fELF":
+                return candidate
+    return binary
+
+
 def build_deepseek(cfg, provider, spec, checked, info, state):
     if any(m not in checked["models"] for m in spec["models"]):
         raise ValueError("DeepSeek model not available on the account.")
@@ -77,7 +104,7 @@ def build_cli_provider(cfg, provider, spec, checked, info, state):
             + provider
             + " and use local file authentication. Keychain is not supported by the current sandbox."
         )
-    binary = Path(info["binary"]).resolve()
+    binary = native_binary(info["binary"])
     with binary.open("rb") as stream:
         native = stream.read(4) == b"\x7fELF"
     if not native and spec.get("mode") == "scoped":

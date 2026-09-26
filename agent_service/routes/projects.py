@@ -10,7 +10,7 @@ from starlette.responses import JSONResponse
 from .. import maestro, service_control, workspaces
 from ..catalog import catalog as project_catalog_items
 from ..errors import APIError
-from ..persistence.db import encoded
+from ..persistence.db import encoded, private_file
 from ..project_icons import discover_project_icon
 from . import api_route, body
 
@@ -192,7 +192,7 @@ async def services(request, service, identity):
     if action in ("start", "stop", "restart") and data.get("user_requested") is not True:
         raise APIError("explicit_service_request_required", 403)
     result = await service_control.operate(config, spec, action, data.get("unit", ""))
-    with (service.root / "service-actions.jsonl").open("a") as log:
+    with open(service.root / "service-actions.jsonl", "a", opener=private_file) as log:
         log.write(
             encoded(
                 {

@@ -8,6 +8,10 @@ from pathlib import Path
 
 import httpx
 
+# Total seconds per server probe; httpx timeouts apply per read, so a server that
+# trickles bytes could otherwise hold discovery forever.
+PROBE_SECONDS = 3
+
 
 def processes():
     found = []
@@ -51,7 +55,9 @@ async def discover():
                     headers["Authorization"] = (
                         "Bearer " + Path(server["key_file"]).read_text().strip()
                     )
-                r = await client.get(server["url"] + "/v1/models", headers=headers)
+                r = await asyncio.wait_for(
+                    client.get(server["url"] + "/v1/models", headers=headers), PROBE_SECONDS
+                )
                 r.raise_for_status()
                 for model in r.json().get("data", []):
                     results.append(

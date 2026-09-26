@@ -1,6 +1,7 @@
 """Control-plane state files under the admin state directory."""
 
 import json
+import os
 import sqlite3
 import time
 from pathlib import Path
@@ -15,6 +16,11 @@ CONFIGURATION_FILES = (
 )
 
 
+def private_file(path, flags):
+    """``open`` opener: state files are owner-only whatever the process umask."""
+    return os.open(path, flags, 0o600)
+
+
 class ControlStateRepository:
     """Atomic settings/runtime writes, the audit log, rollback snapshots and harness busy."""
 
@@ -24,10 +30,7 @@ class ControlStateRepository:
         self.runtime_path = self.state / "runtime.json"
 
     def save_settings(self, settings):
-        tmp = self.settings_path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(settings, indent=2))
-        tmp.chmod(0o600)
-        tmp.replace(self.settings_path)
+        self._replace(self.settings_path, json.dumps(settings, indent=2))
 
     def read_runtime(self):
         try:
@@ -36,13 +39,21 @@ class ControlStateRepository:
             return {}
 
     def write_runtime(self, config):
-        tmp = self.runtime_path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(config))
-        tmp.chmod(0o600)
-        tmp.replace(self.runtime_path)
+        self._replace(self.runtime_path, json.dumps(config))
+
+    @staticmethod
+    def _replace(path, text):
+        """Atomic owner-only replace; a failed write (e.g. disk full) leaves no temporary file."""
+        tmp = path.with_suffix(".tmp")
+        try:
+            tmp.write_text(text)
+            tmp.chmod(0o600)
+            tmp.replace(path)
+        finally:
+            tmp.unlink(missing_ok=True)
 
     def audit(self, action):
-        with (self.state / "audit.jsonl").open("a") as out:
+        with open(self.state / "audit.jsonl", "a", opener=private_file) as out:
             out.write(json.dumps({"time": time.time(), "action": action}) + "\n")
 
     def snapshot(self):

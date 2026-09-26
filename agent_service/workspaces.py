@@ -40,7 +40,8 @@ FOLDER_ATTACH_EXCLUDED = {
     "local_ai",
 }
 SYSTEM_DIRECTORIES = tuple(
-    Path("/" + name) for name in ("proc", "sys", "dev", "etc", "usr", "boot", "ostree", "var")
+    Path("/" + name)
+    for name in ("proc", "sys", "dev", "etc", "usr", "boot", "ostree", "sysroot", "var", "run")
 )
 SYSTEM_DIRECTORY_NAMES = {directory.name for directory in SYSTEM_DIRECTORIES}
 VOLUME_DIRECTORIES = {"System Volume Information", "$RECYCLE.BIN", "RECYCLE.BIN", "lost+found"}
