@@ -95,24 +95,13 @@ def build_cli_provider(cfg, provider, spec, checked, info, state):
     """A provider CLI (codex, claude, gemini, and the CLI half of local)."""
     # A pending native Claude login is an account condition; it must
     # not prevent the UI and other configured providers from starting.
-    pending_claude_login = provider == "claude" and spec.get("mode") == "native"
-    if (not checked["authenticated"] and not pending_claude_login) or (
-        spec.get("mode") == "scoped" and not Path(info["auth_file"]).is_file()
-    ):
+    if not checked["authenticated"] and provider != "claude":
         raise ValueError(
             "Log in to "
             + provider
             + " and use local file authentication. Keychain is not supported by the current sandbox."
         )
     binary = native_binary(info["binary"])
-    with binary.open("rb") as stream:
-        native = stream.read(4) == b"\x7fELF"
-    if not native and spec.get("mode") == "scoped":
-        raise ValueError(
-            "Use the native Linux binary for "
-            + provider
-            + "; shell/npm wrappers are not mounted in the sandbox."
-        )
     if provider in ("codex", "gemini") and any(m not in checked["models"] for m in spec["models"]):
         raise ValueError("Model not returned by the current provider's catalog.")
     cfg[provider] = {

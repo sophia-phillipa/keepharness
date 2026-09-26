@@ -42,7 +42,6 @@ async def scan():
             "gemini",
             "ollama",
             "tailscale",
-            "bwrap",
             "node",
             "git",
             "pdftotext",

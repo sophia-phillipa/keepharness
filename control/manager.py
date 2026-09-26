@@ -4,7 +4,6 @@ import asyncio
 import ipaddress
 import json
 import os
-import platform
 import re
 import secrets
 import socket
@@ -74,7 +73,7 @@ class Manager:
                         "enabled": False,
                         "models": [],
                         "projects": ["sem-projeto"],
-                        "mode": "native" if p in ("local", "deepseek", "gemini") else "scoped",
+                        "mode": "native",
                         "integrations": [],
                         "permissions": {k: False for k in PERMISSIONS},
                     }
@@ -290,22 +289,20 @@ class Manager:
                 raise ValueError(
                     "Enable global uploads before allowing attachments on the service."
                 )
-            mode = "native"
             selected = spec.get("integrations", [])
             available = {x["id"] for x in self.integrations().get(provider, [])}
             if not isinstance(selected, list) or any(x not in available for x in selected):
                 raise ValueError("Integration not found. Refresh the inventory.")
-            if selected and (mode != "native" or not perms["internet"]):
-                raise ValueError(
-                    "Connectors require native mode and internet access in this version."
-                )
+            if selected and not perms["internet"]:
+                raise ValueError("Connectors require internet access in this version.")
             enabled = spec.get("enabled") is True
             allowed_projects = ["sem-projeto", *[p["id"] for p in projects]]
             if enabled and not models:
                 raise ValueError("Select models for the enabled service.")
             out["services"][provider] = {
                 "added": spec.get("added") is True or enabled or bool(models),
-                "mode": mode,
+                # Providers are native-only; isolation is chosen per conversation.
+                "mode": "native",
                 "integrations": selected,
                 "enabled": enabled,
                 "models": list(dict.fromkeys(models)),
@@ -528,13 +525,6 @@ class Manager:
             return
         await self.refresh()
         self.settings = self.validate(self.settings)
-        if any(
-            s.get("enabled") and s.get("mode") == "scoped"
-            for s in self.settings["services"].values()
-        ) and (platform.system() != "Linux" or not self.inventory["binaries"]["bwrap"]):
-            raise ValueError(
-                "Isolated mode requires Linux and bubblewrap. Use native mode on another platform."
-            )
         cfg = await self.build_runtime_config(self.settings)
         port = self.settings["port"]
         bind = self.settings.get("vpn_bind", "127.0.0.1")

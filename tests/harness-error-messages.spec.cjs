@@ -67,6 +67,11 @@ const path = require("node:path");
     assert.match(missing, /command-line tool is missing on the server/);
     assert(!missing.includes("cli_missing"));
     assert.equal(other, "The run did not finish: fixture_failure");
+    // F-23: an isolated conversation refused up front names what the server lacks.
+    const isolation = await page.evaluate(
+      () => userErrors.isolation_unavailable,
+    );
+    assert.match(isolation, /bubblewrap/);
     assert.deepEqual(errors, []);
     console.log(
       "PASS: a missing provider CLI shows a guided message; other codes keep the generic text.",

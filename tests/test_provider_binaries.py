@@ -1,5 +1,5 @@
-"""Provider binaries: the isolated-mode ELF gate, npm Codex wrappers and a CLI removed
-while the harness runs (P5-30, P5-31, F-01, F-10)."""
+"""Provider binaries: native-only builds, npm Codex wrappers and a CLI removed while the
+harness runs (P5-30, P5-31, F-01, F-10, F-23)."""
 
 import asyncio
 import json
@@ -26,16 +26,13 @@ def build(provider, binary, mode, tmp_path):
     return cfg[provider]["binary"]
 
 
-def test_isolated_mode_rejects_a_script_wrapper_and_native_mode_accepts_it(tmp_path):
+@pytest.mark.parametrize("mode", ["scoped", "native"])
+def test_a_script_wrapper_is_accepted_because_providers_are_native_only(tmp_path, mode):
+    """F-23: the admin has no isolated provider mode left, so no ELF gate either."""
     script = tmp_path / "claude"
     script.write_text('#!/bin/sh\nexec node cli.js "$@"\n')
     script.chmod(0o755)
-    with pytest.raises(ValueError) as raised:
-        build("claude", script, "scoped", tmp_path)
-    assert str(raised.value) == (
-        "Use the native Linux binary for claude; shell/npm wrappers are not mounted in the sandbox."
-    )
-    assert build("claude", script, "native", tmp_path) == str(script)
+    assert build("claude", script, mode, tmp_path) == str(script)
 
 
 def npm_codex(prefix, with_native=True):
@@ -67,14 +64,13 @@ def test_npm_codex_wrapper_resolves_to_its_native_binary(tmp_path, mode):
         assert build("codex", command, mode, tmp_path) == str(native)
 
 
-def test_npm_codex_wrapper_without_its_platform_package_is_still_rejected(tmp_path):
+def test_npm_codex_wrapper_without_its_platform_package_keeps_the_wrapper(tmp_path):
     command, _ = npm_codex(tmp_path / "prefix", with_native=False)
     with (
         patch("control.runtime_config.platform.system", return_value="Linux"),
         patch("control.runtime_config.platform.machine", return_value="x86_64"),
-        pytest.raises(ValueError, match="native Linux binary for codex"),
     ):
-        build("codex", command, "scoped", tmp_path)
+        assert build("codex", command, "scoped", tmp_path) == str(command.resolve())
 
 
 def test_provider_cli_removed_while_running_fails_with_a_stable_code(tmp_path):

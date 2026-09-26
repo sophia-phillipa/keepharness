@@ -659,6 +659,8 @@ const userErrors = {
     "The AI service did not finish the run. Check the activity and try again.",
   cli_missing:
     "The provider's command-line tool is missing on the server. Reinstall it, refresh discovery in the admin panel and try again.",
+  isolation_unavailable:
+    "Isolated conversations need Linux with bubblewrap on the server. Turn isolation off or ask the administrator to install bubblewrap.",
   project_name_exists:
     "A project with that name already exists. Choose a different name.",
   invalid_project_name: "The name needs to be between 3 and 100 characters.",

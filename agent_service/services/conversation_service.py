@@ -8,6 +8,7 @@ import logging
 import math
 import os
 import shutil
+import sys
 import time
 import uuid
 from dataclasses import dataclass
@@ -478,6 +479,14 @@ class ConversationService:
             return
         if execution_mode not in self.execution_modes(backend):
             raise APIError("execution_mode_unsupported", 422)
+        # An isolated cloud conversation runs its CLI under bubblewrap: refuse it here
+        # rather than mid-run (local keeps its own sandbox check and error).
+        if (
+            execution_mode == "scoped"
+            and backend != "local"
+            and (sys.platform != "linux" or not shutil.which("bwrap"))
+        ):
+            raise APIError("isolation_unavailable", 422)
 
     def bind_execution_mode(self, identity, data):
         """Store one effective mode on every turn; continuations never choose it."""
@@ -806,7 +815,7 @@ class ConversationService:
 
     async def validate_images(self, backend, model, execution_mode=None):
         if execution_mode is None:
-            execution_mode = self.config.get("services", {}).get(backend, {}).get("mode", "scoped")
+            execution_mode = self.config.get("services", {}).get(backend, {}).get("mode", "native")
         if execution_mode != "native" and backend != "local":
             raise APIError("images_require_native_service")
         if backend in ("codex", "claude", "gemini"):
@@ -1658,7 +1667,7 @@ class ConversationService:
             "backends": {
                 p: {
                     "enabled": c.get("enabled", False),
-                    "mode": c.get("mode", "scoped"),
+                    "mode": c.get("mode", "native"),
                     "permissions": c.get("permissions", {}),
                 }
                 for p, c in self.config.get("services", {}).items()

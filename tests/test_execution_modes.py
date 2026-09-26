@@ -364,3 +364,35 @@ def test_job_and_conversation_api_report_the_locked_mode(tmp_path):
         conversation = client.get("/v1/conversations/" + job).json()
         assert conversation["execution_mode"] == "native"
     app.state.service.db.close()
+
+
+def test_isolated_cloud_conversation_without_bubblewrap_is_refused_up_front(tmp_path):
+    """F-23: the harness checks bubblewrap when a conversation is admitted, not mid-run."""
+    instance, identity = service(tmp_path)
+    request = {"project_id": "p", "backend": "codex", "model": "gpt-6-astra", "prompt": "x"}
+    try:
+        with patch("agent_service.services.conversation_service.shutil.which", return_value=None):
+            with pytest.raises(APIError, match="isolation_unavailable") as refused:
+                instance.submit(identity, {**request, "execution_mode": "scoped"})
+            assert refused.value.status == 422
+            instance.submit(identity, request)
+            # Local models keep their own sandbox contract and run-time error.
+            instance.submit(identity, {**request, "backend": "local", "model": "installed-model"})
+    finally:
+        instance.db.close()
+
+
+def test_a_service_without_a_mode_defaults_to_native(tmp_path):
+    """F-24: providers are native-only at the service level; no fallback says scoped."""
+    from agent_service import maestro
+
+    cfg = config(tmp_path)
+    assert "mode" not in cfg["services"]["codex"]
+    instance = Service(cfg)
+    try:
+        assert instance.capabilities()["backends"]["codex"]["mode"] == "native"
+        asyncio.run(instance.validate_images("codex", "gpt-6-astra"))
+        codex = [m for m in maestro.candidates(cfg, "p") if m["backend"] == "codex"]
+        assert codex and all(m["mode"] == "native" for m in codex)
+    finally:
+        instance.db.close()

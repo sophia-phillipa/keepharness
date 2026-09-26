@@ -48,7 +48,7 @@ def candidates(config, project, uploads=False):
                         "integrations": []
                         if provider == "local" and "model_permissions" in spec
                         else spec.get("integrations", []),
-                        "mode": spec.get("mode", "scoped"),
+                        "mode": spec.get("mode", "native"),
                     }
                 )
     return result
