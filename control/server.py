@@ -10,7 +10,6 @@ import re
 import secrets
 import shutil
 import socket
-import sqlite3
 import sys
 import time
 import uuid
@@ -47,6 +46,7 @@ from .local_models import (
     validate_profile,
 )
 from .operations import Operations, operation
+from .persistence import ControlStateRepository
 
 ROOT = Path(__file__).resolve().parents[1]
 LOCAL_AI_ROOT = Path(os.environ.get("TAIL_HARNESS_ROOT", str(ROOT)))
@@ -83,7 +83,8 @@ class Manager:
         self.state = Path(state)
         self.state.mkdir(parents=True, exist_ok=True, mode=0o700)
         migrate_local_ai_directory(LOCAL_AI_ROOT, self.state)
-        self.path = self.state / "settings.json"
+        self.state_repository = ControlStateRepository(self.state)
+        self.path = self.state_repository.settings_path
         self.cookie = secrets.token_urlsafe(32)
         self.admin_port = 8094
         self.dashboard = DashboardReader(self.state)
@@ -145,8 +146,7 @@ class Manager:
         self.provider_revisions = {}
 
     def audit(self, action):
-        with (self.state / "audit.jsonl").open("a") as out:
-            out.write(json.dumps({"time": time.time(), "action": action}) + "\n")
+        self.state_repository.audit(action)
 
     async def refresh(self):
         self.inventory = await scan()
@@ -171,15 +171,7 @@ class Manager:
         return result
 
     def busy(self):
-        db = self.state / "runs/jobs.sqlite3"
-        if not db.exists():
-            return False
-        with sqlite3.connect(db) as c:
-            return bool(
-                c.execute(
-                    "SELECT 1 FROM jobs WHERE state IN ('queued','running') LIMIT 1"
-                ).fetchone()
-            )
+        return self.state_repository.harness_busy()
 
     def running(self):
         return self.proc is not None and self.proc.returncode is None
@@ -396,58 +388,27 @@ class Manager:
             settings.get(k) != self.settings.get(k) for k in ("port", "tailnet_port", "vpn_bind")
         ):
             raise ValueError("Remove the Tailscale route before changing the ports or the IP.")
-        tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(settings, indent=2))
-        tmp.chmod(0o600)
-        tmp.replace(self.path)
+        self.state_repository.save_settings(settings)
         self.settings = settings
         self.audit("settings_saved")
 
     @contextmanager
     def configuration_change(self):
         """Restore configuration files on a rejected or interrupted update."""
-        paths = [
-            self.state / name
-            for name in (
-                "settings.json",
-                "runtime.json",
-                "local-profile.json",
-                "local-profiles.json",
-                "autostart",
-            )
-        ]
-        previous = {path: path.read_bytes() if path.exists() else None for path in paths}
+        previous = self.state_repository.snapshot()
         settings = self.settings
         try:
             yield
         except BaseException:
             self.settings = settings
-            for path, content in previous.items():
-                current = path.read_bytes() if path.exists() else None
-                if current == content:
-                    continue
-                if content is None:
-                    path.unlink(missing_ok=True)
-                else:
-                    temporary = path.with_suffix(".rollback")
-                    temporary.write_bytes(content)
-                    temporary.chmod(0o600)
-                    temporary.replace(path)
+            self.state_repository.restore(previous)
             raise
 
     def _previous_runtime(self):
-        path = self.state / "runtime.json"
-        try:
-            return json.loads(path.read_text())
-        except (OSError, ValueError):
-            return {}
+        return self.state_repository.read_runtime()
 
     def _write_runtime(self, config):
-        path = self.state / "runtime.json"
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(config))
-        tmp.chmod(0o600)
-        tmp.replace(path)
+        self.state_repository.write_runtime(config)
 
     def browser_url(self, settings):
         host = (self.inventory or {}).get("network", {}).get("hostname")

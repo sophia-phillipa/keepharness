@@ -9,7 +9,6 @@ import math
 import os
 import re
 import shutil
-import sqlite3
 import subprocess
 import time
 import unicodedata
@@ -48,6 +47,12 @@ from . import (
 from .catalog import catalog
 from .errors import APIError
 from .execution_defaults import resolve as resolve_defaults
+from .persistence.db import connect, encoded, migrate
+from .persistence.repositories import (
+    ConversationRepository,
+    MessageRepository,
+    ProjectRepository,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -130,10 +135,6 @@ class LimitedStream(StreamingResponse):
             self.release()
 
 
-def encoded(value):
-    return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
-
-
 def preview_metadata(file_id, pages):
     media_type = next(
         (
@@ -155,46 +156,14 @@ class Service:
         self.config = config
         self.root = Path(config["state_dir"])
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
-        self.db = sqlite3.connect(self.root / "jobs.sqlite3", check_same_thread=False)
-        self.db.row_factory = sqlite3.Row
-        self.db.executescript("""
-        PRAGMA journal_mode=WAL;
-        CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY, project TEXT, owner TEXT, state TEXT,
-          created REAL, payload TEXT, result TEXT, idem TEXT, digest TEXT, UNIQUE(owner,project,idem));
-        CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY AUTOINCREMENT, job TEXT, time REAL, type TEXT, data TEXT);
-        CREATE TABLE IF NOT EXISTS deleted_conversations(id TEXT PRIMARY KEY);
-        CREATE TABLE IF NOT EXISTS conversation_titles(id TEXT PRIMARY KEY, title TEXT NOT NULL);
-        CREATE INDEX IF NOT EXISTS events_job ON events(job,id);
-        CREATE INDEX IF NOT EXISTS events_job_terminal ON events(job,type,time);
-        CREATE INDEX IF NOT EXISTS events_terminal_time ON events(type,time,job);
-        CREATE INDEX IF NOT EXISTS jobs_created ON jobs(created);
-        CREATE INDEX IF NOT EXISTS jobs_state_created ON jobs(state,created);
-        CREATE TABLE IF NOT EXISTS files(id TEXT PRIMARY KEY, project TEXT, name TEXT, size INTEGER, hash TEXT, pages TEXT);
-        """)
-        if "owner" not in {column[1] for column in self.db.execute("PRAGMA table_info(files)")}:
-            # Older attachments have no reliable owner; keep them private until re-uploaded.
-            self.db.execute("ALTER TABLE files ADD COLUMN owner TEXT")
-        self.db.execute("CREATE INDEX IF NOT EXISTS files_owner_project ON files(owner,project)")
-        self.db.execute(
-            "CREATE TABLE IF NOT EXISTS workspaces(id TEXT PRIMARY KEY, project TEXT, owner TEXT, name TEXT, created REAL, manifest TEXT)"
-        )
-        self.db.execute(
-            "CREATE TABLE IF NOT EXISTS approval_rules(owner TEXT, conversation TEXT, backend TEXT, model TEXT, fingerprint TEXT, PRIMARY KEY(owner,conversation,backend,model,fingerprint))"
-        )
-        self.db.execute(
-            "CREATE TABLE IF NOT EXISTS registered_projects(id TEXT PRIMARY KEY, spec TEXT NOT NULL)"
-        )
-        self.db.execute("CREATE TABLE IF NOT EXISTS deleted_project_folders(id TEXT PRIMARY KEY)")
-        self.deleted_project_folders = {
-            row["id"] for row in self.db.execute("SELECT id FROM deleted_project_folders")
-        }
+        self.db = connect(self.root)
+        migrate(self.db)
+        self.conversation_repository = ConversationRepository(self.db)
+        self.message_repository = MessageRepository(self.db)
+        self.project_repository = ProjectRepository(self.db)
+        self.deleted_project_folders = self.project_repository.deleted_folders()
         if config.get("shared_projects"):
-            config["projects"].update(
-                {
-                    row["id"]: json.loads(row["spec"])
-                    for row in self.db.execute("SELECT * FROM registered_projects")
-                }
-            )
+            config["projects"].update(self.project_repository.registered())
             self.share_projects()
         self.approvals = {}
         self.active = None
@@ -218,7 +187,7 @@ class Service:
         self.config_reload_error = None
         self.cancellation_reasons = {}
         self.active_executors = {}
-        for row in self.db.execute("SELECT id FROM jobs WHERE state='running'").fetchall():
+        for row in self.conversation_repository.running():
             self.finish(row["id"], "interrupted", {"error": "service_restarted", "metrics": None})
 
     def share_projects(self):
@@ -289,10 +258,7 @@ class Service:
         if not self._valid_runtime_config(candidate):
             raise APIError("runtime_config_invalid")
         # Registered projects are durable user data, not a control-file concern.
-        registered = {
-            row["id"]: json.loads(row["spec"])
-            for row in self.db.execute("SELECT * FROM registered_projects")
-        }
+        registered = self.project_repository.registered()
         candidate = {**candidate, "projects": {**candidate["projects"], **registered}}
         for spec in candidate["services"].values():
             if spec.get("projects"):
@@ -315,9 +281,7 @@ class Service:
                     for model in set(old.get("models", [])) | set(new.get("models", []))
                 )
         affected = []
-        for row in self.db.execute(
-            "SELECT * FROM jobs WHERE state IN ('queued','running')"
-        ).fetchall():
+        for row in self.conversation_repository.pending():
             if self._runtime_job_affected(row, candidate):
                 affected.append(dict(row))
         self.config.clear()
@@ -333,10 +297,7 @@ class Service:
         }
         if affected_scopes:
             with self.db:
-                self.db.executemany(
-                    "DELETE FROM approval_rules WHERE backend=? AND model=?",
-                    affected_scopes,
-                )
+                self.conversation_repository.clear_model_approval_rules(affected_scopes)
         for row in affected:
             payload = json.loads(row["payload"])
             backend, model = self.active_executors.get(
@@ -458,10 +419,7 @@ class Service:
         )
         spec.update(label=label, root=roots[0], additional_roots=roots[1:])
         with self.db:
-            self.db.execute(
-                "INSERT INTO registered_projects VALUES(?,?) ON CONFLICT(id) DO UPDATE SET spec=excluded.spec",
-                (pid, encoded(spec)),
-            )
+            self.project_repository.register(pid, encoded(spec))
         self.config["projects"][pid] = spec
         self.share_projects()
         return pid
@@ -556,11 +514,7 @@ class Service:
                 ):
                     raise APIError("project_directory_shared", 409)
         if aliases & self.deleting_project_folders or any(
-            self.db.execute(
-                "SELECT 1 FROM jobs WHERE project=? AND state IN ('queued','running') LIMIT 1",
-                (pid,),
-            ).fetchone()
-            for pid in aliases
+            self.conversation_repository.project_busy(pid) for pid in aliases
         ):
             raise APIError("project_folder_busy", 409)
         info = root.stat() if root.exists() else None
@@ -619,10 +573,7 @@ class Service:
             if not preview["missing"]:
                 await asyncio.to_thread(remove)
             with self.db:
-                self.db.executemany(
-                    "INSERT OR IGNORE INTO deleted_project_folders VALUES(?)",
-                    [(pid,) for pid in preview["project_ids"]],
-                )
+                self.project_repository.mark_folders_deleted(preview["project_ids"])
             self.deleted_project_folders.update(preview["project_ids"])
         except OSError:
             raise APIError("project_folder_delete_failed", 409)
@@ -632,22 +583,17 @@ class Service:
 
     def event(self, job, kind, data):
         if kind == "quota_update" and data.get("provider") == "claude":
-            row = self.db.execute("SELECT owner FROM jobs WHERE id=?", (job,)).fetchone()
+            row = self.conversation_repository.owner(job)
             if row:
                 buckets = self.provider_usage.setdefault(row["owner"], {})
                 for key, bucket in data.get("rateLimitsByLimitId", {}).items():
                     buckets[key] = {**bucket, "checked_at": data["checked_at"]}
         with self.db:
-            self.db.execute(
-                "INSERT INTO events(job,time,type,data) VALUES(?,?,?,?)",
-                (job, time.time(), kind, encoded(data)),
-            )
+            self.message_repository.add_event(job, time.time(), kind, encoded(data))
 
     def finish(self, job, state, result):
         with self.db:
-            self.db.execute(
-                "UPDATE jobs SET state=?,result=? WHERE id=?", (state, encoded(result), job)
-            )
+            self.conversation_repository.set_result(job, state, encoded(result))
             self.event(job, state, result)
 
     def identity(self, request):
@@ -703,7 +649,7 @@ class Service:
         return self.config["projects"][project]
 
     def job(self, identity, job):
-        row = self.db.execute("SELECT * FROM jobs WHERE id=?", (job,)).fetchone()
+        row = self.conversation_repository.get(job)
         if not row:
             raise APIError("job_not_found", 404)
         self.project(identity, row["project"])
@@ -712,9 +658,7 @@ class Service:
         return dict(row)
 
     def file(self, project, file_id, owner):
-        row = self.db.execute(
-            "SELECT * FROM files WHERE id=? AND project=? AND owner=?", (file_id, project, owner)
-        ).fetchone()
+        row = self.message_repository.file(file_id, project, owner)
         if not row:
             raise APIError("file_not_found", 404)
         return dict(row)
@@ -722,10 +666,7 @@ class Service:
     def message_attachments(self, row):
         attachments = []
         for fid in json.loads(row["payload"]).get("file_ids", []):
-            record = self.db.execute(
-                "SELECT * FROM files WHERE id=? AND project=? AND owner=?",
-                (fid, row["project"], row["owner"]),
-            ).fetchone()
+            record = self.message_repository.file(fid, row["project"], row["owner"])
             if record:
                 attachments.append(
                     {
@@ -737,7 +678,7 @@ class Service:
         return attachments
 
     def workspace(self, identity, wid, project=None):
-        row = self.db.execute("SELECT * FROM workspaces WHERE id=?", (wid,)).fetchone()
+        row = self.project_repository.workspace(wid)
         if not row or row["owner"] != identity[0]:
             raise APIError("workspace_not_found", 404)
         self.project(identity, row["project"])
@@ -777,9 +718,7 @@ class Service:
     ):
         attachments = []
         async with self.upload_lock:
-            used = self.db.execute(
-                "SELECT coalesce(sum(size),0) FROM files WHERE project=?", (project,)
-            ).fetchone()[0]
+            used = self.message_repository.project_bytes(project)
             for name, source in selected:
                 limit = tools.MAX_ATTACHMENT_BYTES
                 fid = uuid.uuid4().hex
@@ -822,17 +761,14 @@ class Service:
                             backend, model, execution_mode or self.default_execution_mode(backend)
                         )
                     with self.db:
-                        self.db.execute(
-                            "INSERT INTO files(id,project,name,size,hash,pages,owner) VALUES(?,?,?,?,?,?,?)",
-                            (
-                                fid,
-                                project,
-                                name,
-                                copied,
-                                digest.hexdigest(),
-                                encoded(pages),
-                                identity[0],
-                            ),
+                        self.message_repository.add_file(
+                            fid,
+                            project,
+                            name,
+                            copied,
+                            digest.hexdigest(),
+                            encoded(pages),
+                            identity[0],
                         )
                     used += copied
                     attachments.append(
@@ -853,14 +789,7 @@ class Service:
 
     def conversation_rows(self, identity):
         projects = [p for p in identity[1]["projects"] if p in self.config["projects"]]
-        marks = ",".join("?" for _ in projects)
-        return [
-            dict(r)
-            for r in self.db.execute(
-                f"SELECT * FROM jobs WHERE owner=? AND project IN ({marks}) ORDER BY created,id",
-                [identity[0], *projects],
-            ).fetchall()
-        ]
+        return [dict(r) for r in self.conversation_repository.owned(identity[0], projects)]
 
     def conversation_id(self, row):
         seen = set()
@@ -871,22 +800,17 @@ class Service:
             parent = json.loads(row["payload"]).get("parent_job_id")
             if not parent:
                 return row["id"]
-            previous = self.db.execute(
-                "SELECT * FROM jobs WHERE id=? AND project=? AND owner=?",
-                (parent, row["project"], row["owner"]),
-            ).fetchone()
+            previous = self.conversation_repository.turn(parent, row["project"], row["owner"])
             if not previous:
                 raise APIError("invalid_parent_job")
             row = dict(previous)
 
     def conversation_title(self, row):
         cid = self.conversation_id(row)
-        title = self.db.execute(
-            "SELECT title FROM conversation_titles WHERE id=?", (cid,)
-        ).fetchone()
+        title = self.conversation_repository.title(cid)
         if title:
             return title[0]
-        root = self.db.execute("SELECT payload FROM jobs WHERE id=?", (cid,)).fetchone()
+        root = self.conversation_repository.payload(cid)
         return json.loads(root[0]).get("prompt", "Conversation")[:100]
 
     def execution_modes(self, backend):
@@ -905,9 +829,7 @@ class Service:
         return self.config.get("services", {}).get(backend, {}).get("mode", "scoped")
 
     def conversation_execution_mode(self, row):
-        root = self.db.execute(
-            "SELECT * FROM jobs WHERE id=?", (self.conversation_id(row),)
-        ).fetchone()
+        root = self.conversation_repository.get(self.conversation_id(row))
         root_data = json.loads(root["payload"])
         if root_data.get("execution_mode"):
             return root_data["execution_mode"]
@@ -944,10 +866,7 @@ class Service:
         root = self.job(identity, cid)
         if root["owner"] != identity[0]:
             raise APIError("conversation_not_found", 404)
-        if (
-            self.conversation_id(root) != cid
-            or self.db.execute("SELECT 1 FROM deleted_conversations WHERE id=?", (cid,)).fetchone()
-        ):
+        if self.conversation_id(root) != cid or self.conversation_repository.is_deleted(cid):
             raise APIError("conversation_not_found", 404)
         return [r for r in self.conversation_rows(identity) if self.conversation_id(r) == cid]
 
@@ -959,10 +878,7 @@ class Service:
             if ancestor in seen:
                 raise APIError("invalid_parent_job")
             seen.add(ancestor)
-            previous = self.db.execute(
-                "SELECT * FROM jobs WHERE id=? AND project=? AND owner=?",
-                (ancestor, row["project"], row["owner"]),
-            ).fetchone()
+            previous = self.conversation_repository.turn(ancestor, row["project"], row["owner"])
             if not previous:
                 raise APIError("invalid_parent_job")
             payload = {
@@ -1174,10 +1090,7 @@ class Service:
         payload = encoded(data)
         digest = hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
         old = (
-            self.db.execute(
-                "SELECT id,digest FROM jobs WHERE owner=? AND project=? AND idem=?",
-                (identity[0], project, idem),
-            ).fetchone()
+            self.conversation_repository.by_idempotency_key(identity[0], project, idem)
             if idem
             else None
         )
@@ -1198,31 +1111,17 @@ class Service:
             if turns[-1]["id"] != previous["id"]:
                 raise APIError("conversation_has_newer_turn", 409)
             root_id = self.conversation_id(previous)
-            root = self.db.execute("SELECT payload FROM jobs WHERE id=?", (root_id,)).fetchone()
+            root = self.conversation_repository.payload(root_id)
             root_data = json.loads(root["payload"])
             if "execution_mode" not in root_data:
                 # Freeze a legacy conversation only after this continuation has
                 # passed all admission and queue checks below.
                 legacy_root = (root_id, root_data)
-        if (
-            self.db.execute(
-                "SELECT count(*) FROM jobs WHERE state IN ('queued','running')"
-            ).fetchone()[0]
-            >= 32
-        ):
+        if self.conversation_repository.count_pending() >= 32:
             raise APIError("queue_full", 429, 5)
-        if (
-            self.db.execute("SELECT count(*) FROM jobs WHERE project=?", (project,)).fetchone()[0]
-            >= 1000
-        ):
+        if self.conversation_repository.count_for_project(project) >= 1000:
             raise APIError("job_storage_limit", 429)
-        if (
-            self.db.execute(
-                "SELECT count(*) FROM jobs WHERE owner=? AND state IN ('queued','running')",
-                (identity[0],),
-            ).fetchone()[0]
-            >= 10
-        ):
+        if self.conversation_repository.count_pending_for_owner(identity[0]) >= 10:
             raise APIError("owner_queue_full", 429, 5)
         self.limit((identity[0], "submission"), 12, "submission_rate_limit")
         job = uuid.uuid4().hex
@@ -1230,12 +1129,9 @@ class Service:
             if legacy_root:
                 root_id, root_data = legacy_root
                 root_data["execution_mode"] = data["execution_mode"]
-                self.db.execute(
-                    "UPDATE jobs SET payload=? WHERE id=?", (encoded(root_data), root_id)
-                )
-            self.db.execute(
-                "INSERT INTO jobs VALUES(?,?,?,?,?,?,?,?,?)",
-                (job, project, identity[0], "queued", time.time(), payload, None, idem, digest),
+                self.conversation_repository.set_payload(root_id, encoded(root_data))
+            self.conversation_repository.insert(
+                job, project, identity[0], "queued", time.time(), payload, None, idem, digest
             )
             self.event(job, "queued", {})
         self.wake.set()
@@ -1710,10 +1606,7 @@ class Service:
                     if (
                         fingerprint
                         and mode != "read_only"
-                        and self.db.execute(
-                            "SELECT 1 FROM approval_rules WHERE owner=? AND conversation=? AND backend=? AND model=? AND fingerprint=?",
-                            scope,
-                        ).fetchone()
+                        and self.conversation_repository.has_approval_rule(scope)
                     ):
                         progress("approval_reused", {"scope": "conversation", "kind": kind})
                         return {"approved": True}
@@ -1765,9 +1658,7 @@ class Service:
                             and mode != "read_only"
                         ):
                             with self.db:
-                                self.db.execute(
-                                    "INSERT OR IGNORE INTO approval_rules VALUES(?,?,?,?,?)", scope
-                                )
+                                self.conversation_repository.add_approval_rule(scope)
                         return reply
                     finally:
                         self.approvals.pop(aid, None)
@@ -1907,12 +1798,7 @@ class Service:
 
     def next_job(self):
         # Queue is bounded to 32; choose the least recently served owner, FIFO within it.
-        rows = self.db.execute(
-            "SELECT child.* FROM jobs child LEFT JOIN jobs parent "
-            "ON parent.id=json_extract(child.payload,'$.parent_job_id') "
-            "WHERE child.state='queued' AND (parent.id IS NULL OR parent.state NOT IN ('queued','running')) "
-            "ORDER BY child.created,child.id"
-        ).fetchall()
+        rows = self.conversation_repository.ready()
         if not rows:
             return None
         row = min(
@@ -1934,7 +1820,7 @@ class Service:
             self.active = row["id"]
             started = time.time()
             with self.db:
-                self.db.execute("UPDATE jobs SET state='running' WHERE id=?", (row["id"],))
+                self.conversation_repository.set_running(row["id"])
             self.event(row["id"], "running", {})
             self.task = asyncio.create_task(self.execute(row))
             try:
@@ -1978,10 +1864,7 @@ class Service:
                             row["id"], "deployment_failed", {"error": "restart_schedule_failed"}
                         )
             except asyncio.CancelledError:
-                if (
-                    self.db.execute("SELECT state FROM jobs WHERE id=?", (row["id"],)).fetchone()[0]
-                    == "completed"
-                ):
+                if self.conversation_repository.state(row["id"])[0] == "completed":
                     raise
                 reason = self.cancellation_reasons.pop(row["id"], None)
                 self.finish(
@@ -2032,9 +1915,7 @@ class Service:
                     )
             finally:
                 if json.loads(row["payload"]).get("backend") == "codex":
-                    state = self.db.execute(
-                        "SELECT state FROM jobs WHERE id=?", (row["id"],)
-                    ).fetchone()[0]
+                    state = self.conversation_repository.state(row["id"])[0]
                     if state != "completed":
                         self.event(row["id"], "quota_after", await self.quota(True))
                 self.active = None
@@ -2112,9 +1993,7 @@ class Service:
     def execution(self, row):
         data = json.loads(row["payload"])
         backend = data.get("backend", "codex")
-        last = self.db.execute(
-            "SELECT type,data FROM events WHERE job=? ORDER BY id DESC LIMIT 1", (row["id"],)
-        ).fetchone()
+        last = self.message_repository.last_event(row["id"])
         activity = last["type"] if last else row["state"]
         detail = json.loads(last["data"]) if last else {}
         return {
@@ -2457,10 +2336,7 @@ def create_app(config, runtime_path=None):
                 if not self_rows:
                     raise APIError("conversation_not_found", 404)
                 with service.db:
-                    service.db.execute(
-                        "DELETE FROM approval_rules WHERE owner=? AND conversation=?",
-                        (identity[0], cid),
-                    )
+                    service.conversation_repository.clear_approval_rules(identity[0], cid)
                 return JSONResponse({"cleared": True})
             if path == "/v1/usage":
                 backend = request.query_params.get("backend", "codex")
@@ -2492,8 +2368,8 @@ def create_app(config, runtime_path=None):
                 )
             if path == "/v1/conversations":
                 groups = {}
-                deleted = {r[0] for r in service.db.execute("SELECT id FROM deleted_conversations")}
-                titles = dict(service.db.execute("SELECT id,title FROM conversation_titles"))
+                deleted = service.conversation_repository.deleted()
+                titles = service.conversation_repository.titles()
                 for r in service.conversation_rows(identity):
                     cid = service.conversation_id(r)
                     if cid in deleted:
@@ -2532,16 +2408,13 @@ def create_app(config, runtime_path=None):
                     ):
                         raise APIError("invalid_conversation_title")
                     with service.db:
-                        service.db.execute(
-                            "INSERT INTO conversation_titles(id,title) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET title=excluded.title",
-                            (cid, title),
-                        )
+                        service.conversation_repository.set_title(cid, title)
                     return JSONResponse({"id": cid, "title": title})
                 if request.method == "DELETE":
                     if any(r["state"] not in TERMINAL for r in rows):
                         raise APIError("conversation_busy", 409)
                     with service.db:
-                        service.db.execute("INSERT INTO deleted_conversations VALUES(?)", (cid,))
+                        service.conversation_repository.mark_deleted(cid)
                     return JSONResponse(
                         {"deleted": True, "retention": "hidden; execution records retained"}
                     )
@@ -2563,12 +2436,7 @@ def create_app(config, runtime_path=None):
                     }
                 )
             if path == "/v1/history":
-                projects = identity[1]["projects"]
-                placeholders = ",".join("?" for _ in projects)
-                rows = service.db.execute(
-                    f"SELECT id,project,state,created,payload FROM jobs WHERE owner=? AND project IN ({placeholders}) ORDER BY created DESC LIMIT 50",
-                    [identity[0], *projects],
-                ).fetchall()
+                rows = service.conversation_repository.history(identity[0], identity[1]["projects"])
                 return JSONResponse(
                     {
                         "jobs": [
@@ -2643,10 +2511,7 @@ def create_app(config, runtime_path=None):
                         raise APIError("project_edit_forbidden", 403)
                     if (
                         pid in service.deleting_project_folders
-                        or service.db.execute(
-                            "SELECT 1 FROM jobs WHERE project=? AND state IN ('queued','running') LIMIT 1",
-                            (pid,),
-                        ).fetchone()
+                        or service.conversation_repository.project_busy(pid)
                     ):
                         raise APIError("project_busy", 409)
                     return JSONResponse({"project_id": service.add_project(data, pid)})
@@ -2730,10 +2595,7 @@ def create_app(config, runtime_path=None):
                     )
                 return JSONResponse(result)
             if path == "/v1/workspaces" and request.method == "GET":
-                rows = service.db.execute(
-                    "SELECT id,project,name,created FROM workspaces WHERE owner=? ORDER BY created DESC",
-                    (identity[0],),
-                ).fetchall()
+                rows = service.project_repository.workspaces(identity[0])
                 return JSONResponse(
                     {
                         "workspaces": [
@@ -2783,9 +2645,8 @@ def create_app(config, runtime_path=None):
                             raise APIError("empty_workspace")
                         warnings = await workspaces.prepare_documents(folder / "work", manifest)
                         with service.db:
-                            service.db.execute(
-                                "INSERT INTO workspaces VALUES(?,?,?,?,?,?)",
-                                (wid, project, identity[0], name, time.time(), encoded(manifest)),
+                            service.project_repository.add_workspace(
+                                wid, project, identity[0], name, time.time(), encoded(manifest)
                             )
                     except BaseException:
                         shutil.rmtree(folder, ignore_errors=True)
@@ -2970,9 +2831,7 @@ def create_app(config, runtime_path=None):
                 ):
                     raise APIError("invalid_filename")
                 async with service.upload_lock:
-                    used = service.db.execute(
-                        "SELECT coalesce(sum(size),0) FROM files WHERE project=?", (project,)
-                    ).fetchone()[0]
+                    used = service.message_repository.project_bytes(project)
                     fid = uuid.uuid4().hex
                     folder = service.root / "files" / project / fid
                     folder.mkdir(parents=True, mode=0o700)
@@ -3017,17 +2876,14 @@ def create_app(config, runtime_path=None):
                             service.validate_execution_mode(backend, execution_mode)
                             await service.validate_images(backend, model, execution_mode)
                         with service.db:
-                            service.db.execute(
-                                "INSERT INTO files(id,project,name,size,hash,pages,owner) VALUES(?,?,?,?,?,?,?)",
-                                (
-                                    fid,
-                                    project,
-                                    filename,
-                                    size,
-                                    digest.hexdigest(),
-                                    encoded(pages),
-                                    identity[0],
-                                ),
+                            service.message_repository.add_file(
+                                fid,
+                                project,
+                                filename,
+                                size,
+                                digest.hexdigest(),
+                                encoded(pages),
+                                identity[0],
                             )
                     except BaseException:
                         shutil.rmtree(folder)
@@ -3044,9 +2900,7 @@ def create_app(config, runtime_path=None):
                 )
             if path.startswith("/v1/files/"):
                 file_id = request.path_params["file"]
-                row = service.db.execute(
-                    "SELECT * FROM files WHERE id=? AND owner=?", (file_id, identity[0])
-                ).fetchone()
+                row = service.message_repository.owned_file(file_id, identity[0])
                 if not row:
                     raise APIError("file_not_found", 404)
                 record = dict(row)
@@ -3090,10 +2944,7 @@ def create_app(config, runtime_path=None):
                 async def events():
                     cursor = after
                     while True:
-                        rows = service.db.execute(
-                            "SELECT * FROM events WHERE job=? AND id>? ORDER BY id LIMIT 200",
-                            (job, cursor),
-                        ).fetchall()
+                        rows = service.message_repository.events_after(job, cursor)
                         for event in rows:
                             cursor = event["id"]
                             envelope = {
@@ -3104,9 +2955,7 @@ def create_app(config, runtime_path=None):
                                 "data": json.loads(event["data"]),
                             }
                             yield f"id: {cursor}\nevent: {event['type']}\ndata: {encoded(envelope)}\n\n"
-                        state = service.db.execute(
-                            "SELECT state FROM jobs WHERE id=?", (job,)
-                        ).fetchone()[0]
+                        state = service.conversation_repository.state(job)[0]
                         if state in TERMINAL and len(rows) < 200:
                             break
                         if await request.is_disconnected():

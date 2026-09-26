@@ -40,7 +40,7 @@ markers = [
 "share/tail-harness/profiles" = ["profiles/qwen-vulkan-profile.json", "profiles/local-cpu-profile.json"]
 
 [tool.setuptools.packages.find]
-include = ["control", "agent_service", "tail_ui", "adapters", "adapters.*"]
+include = ["control", "agent_service", "agent_service.*", "tail_ui", "adapters", "adapters.*"]
 
 [tool.ruff]
 line-length = 100
