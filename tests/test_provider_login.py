@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from starlette.testclient import TestClient
 
-from Adapters.claude.auth import cli_login_environment
+from adapters.claude.auth import cli_login_environment
 from control.operations import Operations
 from control.server import Manager, create_app
 
@@ -108,7 +108,7 @@ def test_renewed_account_check_ignores_inherited_token(tmp_path, monkeypatch):
             "control.server.command", AsyncMock(return_value=(0, '{"loggedIn":true}'))
         ) as command,
         patch(
-            "Adapters.claude.account.metadata",
+            "adapters.claude.account.metadata",
             AsyncMock(return_value={"models": [{"value": "sonnet"}]}),
         ),
     ):
@@ -118,7 +118,7 @@ def test_renewed_account_check_ignores_inherited_token(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("use_cli_login", [False, True])
 def test_native_run_uses_the_selected_auth_source(tmp_path, monkeypatch, use_cli_login):
-    from Adapters.claude import native
+    from adapters.claude import native
 
     monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "stale-fixture")
     executable = tmp_path / "claude-fixture"

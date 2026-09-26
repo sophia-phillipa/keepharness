@@ -11,8 +11,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 @pytest.mark.parametrize("provider", ["codex", "claude", "gemini", "deepseek", "local"])
 def test_adapter_spec_matches_implementation_and_has_model_records(provider):
-    backend = importlib.import_module(f"Adapters.{provider}.backend")
-    folder = ROOT / "Adapters" / provider / "specs"
+    backend = importlib.import_module(f"adapters.{provider}.backend")
+    folder = ROOT / "adapters" / provider / "specs"
     spec = json.loads((folder / "compatibility.json").read_text())
     assert spec["adapter_spec_revision"] == backend.SPEC_REVISION
     assert spec["provider"] == provider

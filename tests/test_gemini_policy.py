@@ -8,11 +8,11 @@ from agent_service.tools import ToolError
 
 
 def test_policy_denies_unknown_tools_and_read_only_writes(tmp_path):
-    from Adapters.gemini.policy import prepare
+    from adapters.gemini.policy import prepare
 
     with (
-        patch("Adapters.gemini.policy.SYSTEM_POLICIES", tmp_path / "absent"),
-        patch("Adapters.gemini.policy.SYSTEM_SETTINGS", tmp_path / "absent.json"),
+        patch("adapters.gemini.policy.SYSTEM_POLICIES", tmp_path / "absent"),
+        patch("adapters.gemini.policy.SYSTEM_SETTINGS", tmp_path / "absent.json"),
     ):
         command, env = prepare(
             {"binary": "gemini"},
@@ -36,17 +36,17 @@ def test_policy_denies_unknown_tools_and_read_only_writes(tmp_path):
 
 
 def test_policy_removes_api_routing_and_filters_mcp(tmp_path):
-    from Adapters.gemini.policy import prepare
+    from adapters.gemini.policy import prepare
 
     with (
-        patch("Adapters.gemini.policy.SYSTEM_POLICIES", tmp_path / "absent"),
-        patch("Adapters.gemini.policy.SYSTEM_SETTINGS", tmp_path / "absent.json"),
+        patch("adapters.gemini.policy.SYSTEM_POLICIES", tmp_path / "absent"),
+        patch("adapters.gemini.policy.SYSTEM_SETTINGS", tmp_path / "absent.json"),
         patch.dict(
             "os.environ",
             {"GEMINI_API_KEY": "secret", "GOOGLE_GEMINI_BASE_URL": "https://elsewhere"},
         ),
         patch(
-            "Adapters.gemini.policy.configurations",
+            "adapters.gemini.policy.configurations",
             return_value={"gemini": {"drive": {}, "other": {}}},
         ),
     ):
@@ -61,11 +61,11 @@ def test_policy_removes_api_routing_and_filters_mcp(tmp_path):
 
 
 def test_existing_system_policy_is_not_bypassed(tmp_path):
-    from Adapters.gemini.policy import prepare
+    from adapters.gemini.policy import prepare
 
     policies = tmp_path / "admin"
     policies.mkdir()
     (policies / "policy.toml").write_text("")
-    with patch("Adapters.gemini.policy.SYSTEM_POLICIES", policies):
+    with patch("adapters.gemini.policy.SYSTEM_POLICIES", policies):
         with pytest.raises(ToolError, match="system_policy"):
             prepare({"binary": "gemini"}, tmp_path, {}, "ask")

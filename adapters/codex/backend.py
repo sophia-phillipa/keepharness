@@ -2,7 +2,7 @@
 
 import json
 
-from Adapters.shared.workspace import prepare_workspace
+from adapters.shared.workspace import prepare_workspace
 
 from .native import RuntimeOptions, build_command, run_turn
 from .scoped import run as run_scoped

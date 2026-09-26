@@ -27,9 +27,9 @@ from starlette.responses import (
 )
 from starlette.routing import Route
 
-import Adapters as adapters
-from Adapters.claude import account as claude_account
-from Adapters.codex import rpc as codex_rpc
+import adapters
+from adapters.claude import account as claude_account
+from adapters.codex import rpc as codex_rpc
 from agent_service.project_icons import discover_project_icon
 from tail_ui import asset_response
 
@@ -2070,7 +2070,7 @@ class Service:
         }
 
     async def claude_quota(self, owner):
-        from Adapters.claude import account
+        from adapters.claude import account
 
         config = self.config.get("claude", {})
         if not config.get("binary"):

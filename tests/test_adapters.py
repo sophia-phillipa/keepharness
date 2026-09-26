@@ -11,8 +11,8 @@ from agent_service.tools import ToolError
 
 @pytest.mark.parametrize("provider", ["codex", "claude", "gemini", "deepseek", "local"])
 def test_native_dispatch_uses_only_the_selected_adapter(provider, tmp_path):
-    adapters = importlib.import_module("Adapters")
-    implementation = importlib.import_module(f"Adapters.{provider}.backend")
+    adapters = importlib.import_module("adapters")
+    implementation = importlib.import_module(f"adapters.{provider}.backend")
     config = {"binary": "fixture"}
     project = {"permissions": {}}
 
@@ -50,8 +50,8 @@ def test_native_dispatch_uses_only_the_selected_adapter(provider, tmp_path):
 
 @pytest.mark.parametrize("provider", ["codex", "claude"])
 def test_scoped_dispatch_uses_provider_specific_implementation(provider):
-    adapters = importlib.import_module("Adapters")
-    implementation = importlib.import_module(f"Adapters.{provider}.backend")
+    adapters = importlib.import_module("adapters")
+    implementation = importlib.import_module(f"adapters.{provider}.backend")
     with patch.object(
         implementation, "run_scoped", AsyncMock(return_value={"answer": "ok"})
     ) as run:
@@ -83,12 +83,12 @@ def test_scoped_dispatch_uses_provider_specific_implementation(provider):
 
 @pytest.mark.parametrize("provider", ["local", "deepseek", "unknown"])
 def test_unsupported_scoped_provider_is_rejected(provider):
-    adapters = importlib.import_module("Adapters")
+    adapters = importlib.import_module("adapters")
     with pytest.raises(ToolError, match="backend_unavailable"):
         asyncio.run(adapters.run_scoped({}, "", None, provider=provider))
 
 
 def test_unknown_native_provider_is_rejected(tmp_path):
-    adapters = importlib.import_module("Adapters")
+    adapters = importlib.import_module("adapters")
     with pytest.raises(ToolError, match="backend_unavailable"):
         asyncio.run(adapters.run_native({}, "", None, {}, "", "", tmp_path, "unknown", None))

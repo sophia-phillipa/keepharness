@@ -2,7 +2,7 @@
 
 import json
 
-from Adapters.shared.scoped import collect_changes, prepare_scoped
+from adapters.shared.scoped import collect_changes, prepare_scoped
 
 from .stream import stream
 

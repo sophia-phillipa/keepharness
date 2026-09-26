@@ -4,7 +4,7 @@ import sys
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-from Adapters.claude import backend, native
+from adapters.claude import backend, native
 
 
 def test_native_session_receives_the_harness_conversation_title(tmp_path, monkeypatch):

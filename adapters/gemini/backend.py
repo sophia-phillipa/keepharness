@@ -1,6 +1,6 @@
 """Public entry points for Gemini CLI; its effort remains CLI-configured."""
 
-from Adapters.shared.workspace import prepare_workspace
+from adapters.shared.workspace import prepare_workspace
 from agent_service.tools import ToolError
 
 from . import native

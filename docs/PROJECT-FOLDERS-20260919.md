@@ -11,7 +11,7 @@ The authenticated `GET /v1/project-directories` endpoint is available only when 
 | Codex native app-server | `thread/start` or `thread/resume` receives `cwd`; every `turn/start` also supplies `cwd`. Authorized additional roots join `sandboxPolicy.writableRoots` only when writing is allowed. All readable project directories appear in the turn's workspace context. | Native tools read files as needed. |
 | Claude Code | Process `cwd` is the primary folder; `--add-dir` followed by all additional paths grants the additional directories. The same paths appear in each prompt's workspace context. | Configured Read/Glob/Grep and other permitted tools. |
 | DeepSeek API | Existing Python adapter configures the Codex tool runtime with the DeepSeek Responses provider; the same turn directory/context/sandbox contract applies. API credentials stay in the process environment. | The runtime executes tools locally and sends tool results to the API. A local path by itself is not a file upload. |
-| Local API models | Existing Responses-compatible provider through the Codex runtime, with the same folder context plus filesystem mounts restricted by `local_sandbox`. | Tools execute in the local sandbox and results return to the local model endpoint. |
+| Local API models | Existing Responses-compatible provider through the Codex runtime, with the same folder context plus filesystem mounts restricted by `adapters.local.sandbox`. | Tools execute in the local sandbox and results return to the local model endpoint. |
 | Scoped CLI mode | Existing project MCP mounts primary and additional directories under `/sources/project` and `/sources/extra-N`. | MCP list/read/search functions, with staged proposals for writes. |
 
 No API protocol field pretending to grant remote access to local folders is introduced. No complete recursive folder content is added to prompts. Read-disabled models receive no project root context or additional directory grants. Selected workspace transfers retain their existing behavior of overriding project folders.
@@ -56,4 +56,4 @@ Claude stream quota events are supported when their optional utilization field i
 
 Claude source: [official SDK RateLimitInfo and RateLimitEvent types](https://github.com/anthropics/claude-agent-sdk-python/blob/main/src/claude_agent_sdk/types.py). Nine targeted checks in `tests/test_provider_quota.py` passed for normalization, absent/invalid values, stream-to-endpoint integration, identity separation, and expiry. This tests the contract with fixtures; no live Claude quota event was requested.
 
-Executor implementations live under `Adapters/`. Claude additional directories are passed as one variadic `--add-dir` list, verified with three project folders.
+Executor implementations live under `adapters/`. Claude additional directories are passed as one variadic `--add-dir` list, verified with three project folders.

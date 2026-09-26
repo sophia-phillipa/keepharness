@@ -6,7 +6,7 @@ recursive-include scripts *.sh *.py *.py
 
 include profiles/local-cpu-profile.json profiles/qwen-vulkan-profile.json
 
-recursive-include Adapters *.py *.md *.json
+recursive-include adapters *.py *.md *.json
 
 # Git ignore rules do not filter an sdist manifest.
 prune .codex

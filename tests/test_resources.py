@@ -155,7 +155,7 @@ def test_api_permissions_and_revalidation_before_queue(tmp_path, monkeypatch):
 def test_codex_native_skill_reload_and_structured_input(tmp_path):
     import asyncio
 
-    from Adapters.codex.native import resource_inputs
+    from adapters.codex.native import resource_inputs
     from agent_service.tools import ToolError
 
     path = put(tmp_path, "skill/SKILL.md", "---\nname: test\n---\nDo")
@@ -189,11 +189,11 @@ def test_codex_native_skill_reload_and_structured_input(tmp_path):
 def test_claude_skill_tool_is_only_enabled_for_explicit_selection(tmp_path):
     from unittest.mock import patch
 
-    from Adapters.claude.native import build_command
+    from adapters.claude.native import build_command
 
     with (
-        patch("Adapters.claude.native.configurations", return_value={"claude": {}}),
-        patch("Adapters.claude.native.inventory", return_value={"claude": []}),
+        patch("adapters.claude.native.configurations", return_value={"claude": {}}),
+        patch("adapters.claude.native.inventory", return_value={"claude": []}),
     ):
         basic = build_command(
             {"binary": "claude"}, "sonnet", tmp_path, {"read": True}, [], "ask", []

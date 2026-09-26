@@ -32,7 +32,7 @@ flowchart LR
 
 `run_native(config, prompt, event, project, model, effort, session_dir, provider, approve)` picks an explicit implementation; each `backend.py` receives the same arguments minus `provider`. `run_scoped` only accepts Codex and Claude. An unknown provider or an unimplemented mode fails; there is no silent fallback.
 
-Adapters only receive permissions already computed by the service. The core owns the queue, authorization, conversation history, recovery and applying changes; the transport does not widen authorization. Attachment and response data never become installation instructions. `event` delivers incremental events and `approve` keeps the harness's approval policy. The legacy `agent_service/*backend.py`, `codex_rpc.py`, `local_sandbox.py` and `control/deepseek.py` files are compatibility imports only; new code uses `Adapters`.
+Adapters only receive permissions already computed by the service. The core owns the queue, authorization, conversation history, recovery and applying changes; the transport does not widen authorization. Attachment and response data never become installation instructions. `event` delivers incremental events and `approve` keeps the harness's approval policy. The legacy `agent_service/*backend.py`, `codex_rpc.py`, `local_sandbox.py` and `control/deepseek.py` compatibility-import shims have been removed; all code imports `adapters` directly.
 
 The design reuses the Codex protocol for DeepSeek and local models, but each integration chooses its own endpoint, authentication and policy. There is no base class or plugin factory. Separate functions build commands, prepare sessions, handle interactions and parse streams. New Python code uses conventional formatting, with no one-line compressed methods.
 

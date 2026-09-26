@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from starlette.testclient import TestClient
 
-from Adapters.claude import account
-from Adapters.claude.stream import Stream, rate_limit_update
+from adapters.claude import account
+from adapters.claude.stream import Stream, rate_limit_update
 from agent_service.app import create_app
 from tests.test_shared_projects import config
 

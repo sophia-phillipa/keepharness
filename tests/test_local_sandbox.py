@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from Adapters.local.sandbox import wrap
+from adapters.local.sandbox import wrap
 from agent_service.tools import ToolError
 
 
@@ -49,7 +49,7 @@ print(json.dumps({'inside':readable(root/'inside.txt'),'outside':readable(%r),'s
 
 
 def test_missing_bwrap_is_fail_closed(tmp_path):
-    with patch("Adapters.local.sandbox.shutil.which", return_value=None):
+    with patch("adapters.local.sandbox.shutil.which", return_value=None):
         with pytest.raises(ToolError, match="local_filesystem_isolation_unavailable"):
             wrap(["/usr/bin/python3"], tmp_path, tmp_path, {})
 

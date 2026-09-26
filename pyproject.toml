@@ -25,7 +25,7 @@ tail-harness-local = "control.start_local:main"
 include-package-data = false
 
 [tool.setuptools.package-data]
-Adapters = ["README.md", "*/specs/*.md", "*/specs/**/*.md", "*/specs/*.json"]
+adapters = ["README.md", "*/specs/*.md", "*/specs/**/*.md", "*/specs/*.json"]
 tail_ui = ["assets/*"]
 control = ["*.html", "*.css", "*.js"]
 agent_service = ["*.html", "*.css", "*.js", "*.sh", "VERSION", "vendor/*"]
@@ -40,7 +40,7 @@ markers = [
 "share/tail-harness/profiles" = ["profiles/qwen-vulkan-profile.json", "profiles/local-cpu-profile.json"]
 
 [tool.setuptools.packages.find]
-include = ["control", "agent_service", "tail_ui", "Adapters", "Adapters.*"]
+include = ["control", "agent_service", "tail_ui", "adapters", "adapters.*"]
 
 [tool.ruff]
 line-length = 100

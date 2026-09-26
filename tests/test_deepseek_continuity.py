@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from Adapters.deepseek.backend import run_native
+from adapters.deepseek.backend import run_native
 
 
 @pytest.mark.parametrize(
@@ -149,8 +149,8 @@ def test_deepseek_resumes_full_history_with_reasoning(
 
     try:
         with (
-            patch("Adapters.codex.native.configurations", return_value={"codex": {}}),
-            patch("Adapters.codex.native.inventory", return_value={"codex": []}),
+            patch("adapters.codex.native.configurations", return_value={"codex": {}}),
+            patch("adapters.codex.native.inventory", return_value={"codex": []}),
         ):
             asyncio.run(turns())
     finally:
@@ -195,7 +195,7 @@ def test_deepseek_owns_effort_and_stateless_transport_policy(tmp_path, effort, e
         "api_provider": {"url": "https://api.deepseek.com", "key_file": str(key)},
     }
     with patch(
-        "Adapters.deepseek.backend.run_turn", AsyncMock(return_value={"answer": "ok"})
+        "adapters.deepseek.backend.run_turn", AsyncMock(return_value={"answer": "ok"})
     ) as execute:
         result = asyncio.run(
             run_native(

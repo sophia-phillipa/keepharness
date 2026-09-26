@@ -6,7 +6,7 @@ Guidance for AI coding agents (Codex, Claude Code, others) working on this repos
 
 - `control/` — local admin panel (Starlette): discovery, provider setup, local model profiles, installer. Entry point `python -m control`.
 - `agent_service/` — conversation harness: queues, authorization, history, attachments, MCP bridge (`mcp_bridge.py`), Maestro coordinator.
-- `Adapters/` — one package per provider (`codex`, `claude`, `deepseek`, `gemini`, `local`) with its implementation and `specs/models/` records. See [Adapters/README.md](Adapters/README.md).
+- `adapters/` — one package per provider (`codex`, `claude`, `deepseek`, `gemini`, `local`) with its implementation and `specs/models/` records. See [adapters/README.md](adapters/README.md).
 - `tail_ui/` — shared UI assets (themes, components).
 - `profiles/` — suggested local model profiles shipped with the package.
 - `dossier/` — specifications, use cases, research and release notes (`dossier/releases/v<VERSION>.md`).

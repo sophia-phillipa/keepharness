@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from test_workspaces import config
 
-from Adapters.local.sandbox import ISOLATION_VERSION
+from adapters.local.sandbox import ISOLATION_VERSION
 from agent_service.app import Service
 
 
@@ -72,7 +72,7 @@ def execute(service, ident, backend, parent=None, files=(), model=None, effort="
             "model": selected_model,
         }
 
-    with patch("Adapters.run_native", side_effect=run):
+    with patch("adapters.run_native", side_effect=run):
         result = asyncio.run(service.infer(row, data))
     service.finish(ident, "completed", result)
     return captured
@@ -197,7 +197,7 @@ def test_context_limit_fails_explicitly_without_truncating_history(service):
         )
     row, data = add_turn(service, "b", "deepseek", "a")
     with (
-        patch("Adapters.run_native", new_callable=AsyncMock) as run,
+        patch("adapters.run_native", new_callable=AsyncMock) as run,
         pytest.raises(APIError, match="conversation_context_limit"),
     ):
         asyncio.run(service.infer(row, data))
@@ -238,7 +238,7 @@ def test_confirmed_codex_turn_resumes_after_interruption(service, state):
         args[2]("tool_end", {"result": "large output " * 15000})
         raise TimeoutError()
 
-    with patch("Adapters.run_native", side_effect=interrupted), pytest.raises(TimeoutError):
+    with patch("adapters.run_native", side_effect=interrupted), pytest.raises(TimeoutError):
         asyncio.run(service.infer(row, data))
     service.finish("b", state, {"error": "TimeoutError"})
     resumed = execute(service, "c", "codex", "b")

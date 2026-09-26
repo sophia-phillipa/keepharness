@@ -191,7 +191,7 @@ Only declare **"installation completed and tested"** when the required checkpoin
 
 - [Entrypoint and ports](../control/cli.py), [dependencies](../pyproject.toml), [legacy unit and shortcut model](../control/install.py).
 - [Discovery](../control/discovery.py), [integration inventory](../control/integrations.py), [CLI catalog](../control/integration_catalog.py).
-- [Administration and configuration validation](../control/server.py), [adapter contracts](../Adapters/README.md).
+- [Administration and configuration validation](../control/server.py), [adapter contracts](../adapters/README.md).
 - [Installed-package smoke test](../control/install_check.py), [UI regression](../scripts/test-ui.sh).
 
 This specification describes the work the agent must perform on each installation. Reviewing this document does not certify an installation, account, model or connector on this server.

@@ -9,7 +9,7 @@ from unittest.mock import patch
 import pytest
 from starlette.testclient import TestClient
 
-from Adapters import run_native as run
+from adapters import run_native as run
 from agent_service.app import Service, create_app
 from control.server import Manager
 
@@ -116,9 +116,9 @@ def test_cloud_native_turn_is_unrestricted(tmp_path, provider):
         key.write_text("fixture-key")
         config["api_provider"] = {"url": "https://api.deepseek.com", "key_file": str(key)}
     with (
-        patch("Adapters.codex.native.connection", connection),
-        patch("Adapters.codex.native.configurations", return_value={"codex": {}}),
-        patch("Adapters.codex.native.inventory", return_value={"codex": []}),
+        patch("adapters.codex.native.connection", connection),
+        patch("adapters.codex.native.configurations", return_value={"codex": {}}),
+        patch("adapters.codex.native.inventory", return_value={"codex": []}),
     ):
         asyncio.run(
             run(
@@ -216,8 +216,8 @@ print(json.dumps({'type':'result','subtype':'success','result':json.dumps(sys.ar
         raise AssertionError("No inference or tools executed")
 
     with (
-        patch("Adapters.claude.native.configurations", return_value={"claude": {}}),
-        patch("Adapters.claude.native.inventory", return_value={"claude": []}),
+        patch("adapters.claude.native.configurations", return_value={"claude": {}}),
+        patch("adapters.claude.native.inventory", return_value={"claude": []}),
     ):
         result = asyncio.run(
             run(

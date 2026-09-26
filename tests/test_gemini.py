@@ -4,8 +4,8 @@ import sys
 
 import pytest
 
-from Adapters.gemini import account, backend
-from Adapters.gemini.native import AcpStream
+from adapters.gemini import account, backend
+from adapters.gemini.native import AcpStream
 from agent_service.tools import ToolError
 
 
@@ -145,7 +145,7 @@ def test_check_without_credentials_does_not_start_cli(tmp_path, monkeypatch):
     from unittest.mock import AsyncMock, patch
 
     monkeypatch.setenv("HOME", str(tmp_path))
-    with patch("Adapters.gemini.account.asyncio.create_subprocess_exec", AsyncMock()) as start:
+    with patch("adapters.gemini.account.asyncio.create_subprocess_exec", AsyncMock()) as start:
         result = asyncio.run(account.check("/unused/gemini"))
     assert result["authenticated"] is False
     assert result["models"] == {}
@@ -176,7 +176,7 @@ def test_login_cli_failure_has_no_traceback(tmp_path):
     executable.write_text("#!/bin/sh\nexit 1\n")
     executable.chmod(0o700)
     result = subprocess.run(
-        [sys.executable, "-m", "Adapters.gemini.account", "--binary", str(executable)],
+        [sys.executable, "-m", "adapters.gemini.account", "--binary", str(executable)],
         capture_output=True,
         text=True,
         timeout=10,
@@ -205,7 +205,7 @@ for line in sys.stdin:
     )
     executable.chmod(0o700)
     result = subprocess.run(
-        [sys.executable, "-m", "Adapters.gemini.account", "--binary", str(executable)],
+        [sys.executable, "-m", "adapters.gemini.account", "--binary", str(executable)],
         capture_output=True,
         text=True,
         timeout=10,

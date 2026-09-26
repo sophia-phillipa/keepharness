@@ -3,7 +3,7 @@
 import json
 import time
 
-from Adapters.shared.scoped import collect_changes, prepare_scoped
+from adapters.shared.scoped import collect_changes, prepare_scoped
 from agent_service.tool_metadata import event_metadata
 from agent_service.tools import ToolError
 

@@ -23,11 +23,11 @@ from starlette.requests import Request
 from starlette.responses import FileResponse, JSONResponse
 from starlette.routing import Route
 
-from Adapters.claude import account as claude
-from Adapters.claude.auth import cli_login_environment
-from Adapters.codex.rpc import metadata
-from Adapters.deepseek import account as deepseek
-from Adapters.gemini import account as gemini
+from adapters.claude import account as claude
+from adapters.claude.auth import cli_login_environment
+from adapters.codex.rpc import metadata
+from adapters.deepseek import account as deepseek
+from adapters.gemini import account as gemini
 from tail_ui import asset_response
 
 from .dashboard import DashboardReader
@@ -1131,7 +1131,7 @@ def create_app(state, port=8094):
                     if not binary:
                         raise ValueError("CLI not found.")
                     command = (
-                        [sys.executable, "-m", "Adapters.gemini.account", "--binary", binary]
+                        [sys.executable, "-m", "adapters.gemini.account", "--binary", binary]
                         if provider == "gemini"
                         else (
                             [binary, "login", "--device-auth"]

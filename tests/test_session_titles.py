@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from Adapters.codex.rpc import sync_title
+from adapters.codex.rpc import sync_title
 
 
 @pytest.mark.parametrize("error", [RuntimeError("codex_rpc_error"), asyncio.TimeoutError()])
@@ -30,7 +30,7 @@ def test_scoped_codex_sets_title_on_creation_and_resume(tmp_path):
     from types import SimpleNamespace
     from unittest.mock import patch
 
-    from Adapters.codex.scoped import run
+    from adapters.codex.scoped import run
 
     rpc = AsyncMock()
     rpc.call.return_value = {"thread": {"id": "scoped-id"}}
@@ -46,10 +46,10 @@ def test_scoped_codex_sets_title_on_creation_and_resume(tmp_path):
     workspace = SimpleNamespace(command=[], home=tmp_path)
     with (
         patch(
-            "Adapters.codex.scoped.prepare_scoped", side_effect=lambda *a: nullcontext(workspace)
+            "adapters.codex.scoped.prepare_scoped", side_effect=lambda *a: nullcontext(workspace)
         ),
-        patch("Adapters.codex.scoped.connection", connection),
-        patch("Adapters.codex.scoped.collect_changes", return_value={}),
+        patch("adapters.codex.scoped.connection", connection),
+        patch("adapters.codex.scoped.collect_changes", return_value={}),
     ):
         for title in ("First title", "Renamed title"):
             asyncio.run(

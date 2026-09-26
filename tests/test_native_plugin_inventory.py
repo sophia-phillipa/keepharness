@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from Adapters.codex.native import RuntimeOptions, thread_parameters
+from adapters.codex.native import RuntimeOptions, thread_parameters
 
 
 def test_plugin_inventory_is_authoritative_and_only_selects_integrations():
@@ -13,9 +13,9 @@ def test_plugin_inventory_is_authoritative_and_only_selects_integrations():
     }
 
     with (
-        patch("Adapters.codex.native.configurations", return_value={"codex": {}}),
+        patch("adapters.codex.native.configurations", return_value={"codex": {}}),
         patch(
-            "Adapters.codex.native.inventory",
+            "adapters.codex.native.inventory",
             return_value={"codex": [{"id": "plugin:stale@marketplace", "kind": "plugin"}]},
         ),
     ):
@@ -32,9 +32,9 @@ def test_empty_plugin_inventory_disables_legacy_inventory_fallback():
     runtime = RuntimeOptions(command=["codex"])
 
     with (
-        patch("Adapters.codex.native.configurations", return_value={"codex": {}}),
+        patch("adapters.codex.native.configurations", return_value={"codex": {}}),
         patch(
-            "Adapters.codex.native.inventory",
+            "adapters.codex.native.inventory",
             return_value={"codex": [{"id": "plugin:stale@marketplace", "kind": "plugin"}]},
         ),
     ):
@@ -55,9 +55,9 @@ def test_plugin_inventory_falls_back_to_legacy_catalog_when_absent():
     runtime = RuntimeOptions(command=["codex"])
 
     with (
-        patch("Adapters.codex.native.configurations", return_value={"codex": {}}),
+        patch("adapters.codex.native.configurations", return_value={"codex": {}}),
         patch(
-            "Adapters.codex.native.inventory",
+            "adapters.codex.native.inventory",
             return_value={"codex": [{"id": "plugin:legacy@marketplace", "kind": "plugin"}]},
         ),
     ):
@@ -77,7 +77,7 @@ def test_isolated_runtime_does_not_read_or_expose_plugin_inventory():
     workspace = SimpleNamespace(cwd="/tmp/project", permissions={})
     runtime = RuntimeOptions(command=["codex"], isolated=True)
 
-    with patch("Adapters.codex.native.inventory") as inventory:
+    with patch("adapters.codex.native.inventory") as inventory:
         params = thread_parameters(
             {},
             {},

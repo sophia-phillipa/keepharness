@@ -8,8 +8,8 @@ from unittest.mock import AsyncMock, patch
 import httpx
 from starlette.testclient import TestClient
 
-from Adapters import run_native as run
-from Adapters.deepseek import account as deepseek
+from adapters import run_native as run
+from adapters.deepseek import account as deepseek
 from control.server import create_app
 
 
@@ -33,7 +33,7 @@ class DeepseekTest(unittest.IsolatedAsyncioTestCase):
                 )
 
             with patch(
-                "Adapters.deepseek.account.httpx.AsyncClient",
+                "adapters.deepseek.account.httpx.AsyncClient",
                 side_effect=lambda **kw: original(**kw, transport=httpx.MockTransport(respond)),
             ):
                 result = await deepseek.check(d)
@@ -46,7 +46,7 @@ class DeepseekTest(unittest.IsolatedAsyncioTestCase):
             deepseek.store_key(d, "fixture-secret-key-123")
             original = httpx.AsyncClient
             with patch(
-                "Adapters.deepseek.account.httpx.AsyncClient",
+                "adapters.deepseek.account.httpx.AsyncClient",
                 side_effect=lambda **kw: original(
                     **kw,
                     transport=httpx.MockTransport(
@@ -82,9 +82,9 @@ class DeepseekTest(unittest.IsolatedAsyncioTestCase):
             key = Path(d, "key")
             key.write_text("fixture-private-key")
             with (
-                patch("Adapters.codex.native.connection", connection),
-                patch("Adapters.codex.native.configurations", return_value={"codex": {}}),
-                patch("Adapters.codex.native.inventory", return_value={"codex": []}),
+                patch("adapters.codex.native.connection", connection),
+                patch("adapters.codex.native.configurations", return_value={"codex": {}}),
+                patch("adapters.codex.native.inventory", return_value={"codex": []}),
             ):
                 result = await run(
                     {

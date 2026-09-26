@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from Adapters.claude.stream import Stream
+from adapters.claude.stream import Stream
 from agent_service.tools import ToolError
 
 

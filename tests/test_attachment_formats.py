@@ -146,7 +146,7 @@ def test_large_csv_keeps_full_content_outside_prompt(tmp_path):
         assert str(extracted.resolve()) in args[1]
         return {"answer": "ok"}
 
-    with patch("Adapters.run_native", side_effect=run):
+    with patch("adapters.run_native", side_effect=run):
         asyncio.run(service.infer(row, data))
     service.db.close()
 
@@ -208,8 +208,8 @@ def test_unsupported_images_are_explained_without_losing_text(
         patch.object(service, "validate_images", AsyncMock(side_effect=APIError(reason))),
         patch.object(service, "context_turns", return_value=turns),
         patch.object(service, "quota", AsyncMock(return_value=None)),
-        patch("Adapters.run_native", side_effect=run),
-        patch("Adapters.run_scoped", side_effect=run),
+        patch("adapters.run_native", side_effect=run),
+        patch("adapters.run_scoped", side_effect=run),
     ):
         result = asyncio.run(service.infer(row, data))
     assert "picture" in result["answer"] and "ignored" in result["answer"]
@@ -261,7 +261,7 @@ def test_supported_images_pass_through_and_probe_failures_remain_errors(tmp_path
         patch.object(
             service, "validate_images", AsyncMock(side_effect=APIError(reason) if reason else None)
         ),
-        patch("Adapters.run_native", run),
+        patch("adapters.run_native", run),
     ):
         if reason:
             with pytest.raises(APIError, match=reason):

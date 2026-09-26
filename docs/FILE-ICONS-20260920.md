@@ -36,7 +36,7 @@ directory, then use its `dist/module/index.cjs` export `generateManifest()` to
 write a JSON manifest. Run:
 
 ```sh
-python scripts/vendor-file-icons.py /absolute/package /absolute/manifest.json
+python scripts/vendor_file_icons.py /absolute/package /absolute/manifest.json
 ```
 
 The generator preserves SVG view boxes/colors and namespaces internal paint/clip

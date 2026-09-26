@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from starlette.testclient import TestClient
 
-from Adapters.claude import account, native, scoped
+from adapters.claude import account, native, scoped
 from agent_service import maestro
 from agent_service.app import create_app
 from control.server import Manager

@@ -3,13 +3,13 @@ from unittest.mock import patch
 
 import pytest
 
-from Adapters.local.sandbox import wrap
-from Adapters.local.web_search import search
+from adapters.local.sandbox import wrap
+from adapters.local.web_search import search
 
 
 def test_search_encodes_query_and_returns_bounded_deduplicated_sources():
     body = b"""<rss><channel><item><title>A &amp; B</title><link>https://example.org/a</link><description>Evidence</description></item><item><title>Duplicate</title><link>https://example.org/a</link></item><item><title>Unsafe</title><link>javascript:alert(1)</link></item></channel></rss>"""
-    with patch("Adapters.local.web_search.urlopen", return_value=io.BytesIO(body)) as fetch:
+    with patch("adapters.local.web_search.urlopen", return_value=io.BytesIO(body)) as fetch:
         result = search("harness & tools")
     assert "q=harness+%26+tools" in fetch.call_args.args[0].full_url
     assert fetch.call_args.kwargs["timeout"] == 12
@@ -21,7 +21,7 @@ def test_search_encodes_query_and_returns_bounded_deduplicated_sources():
 
 @pytest.mark.parametrize("body", [b"<html>challenge</html>", b"not xml", b"x" * 1_048_577])
 def test_search_reports_invalid_or_oversized_responses(body):
-    with patch("Adapters.local.web_search.urlopen", return_value=io.BytesIO(body)):
+    with patch("adapters.local.web_search.urlopen", return_value=io.BytesIO(body)):
         with pytest.raises(ValueError):
             search("test")
 
@@ -34,8 +34,8 @@ def test_search_helper_is_mounted_only_with_effective_permissions(tmp_path, inte
     binary.touch()
     # This tests command construction, not execution of the Linux sandbox.
     with (
-        patch("Adapters.local.sandbox.sys.platform", "linux"),
-        patch("Adapters.local.sandbox.shutil.which", return_value="/fixture/bwrap"),
+        patch("adapters.local.sandbox.sys.platform", "linux"),
+        patch("adapters.local.sandbox.shutil.which", return_value="/fixture/bwrap"),
     ):
         command = wrap(
             [str(binary)],

@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from Adapters import run_native as run
+from adapters import run_native as run
 from control.local_models import discover
 from control.operations import Operations
 
@@ -53,8 +53,8 @@ for line in sys.stdin:
                 return {"approved": False}
 
             with (
-                patch("Adapters.codex.native.configurations", return_value={"codex": {}}),
-                patch("Adapters.codex.native.inventory", return_value={"codex": []}),
+                patch("adapters.codex.native.configurations", return_value={"codex": {}}),
+                patch("adapters.codex.native.inventory", return_value={"codex": []}),
             ):
                 for model, effort in [
                     ("gpt-6-astra", "low"),
@@ -144,9 +144,9 @@ for line in sys.stdin:
 
         with (
             tempfile.TemporaryDirectory() as d,
-            patch("Adapters.codex.native.connection", connection),
-            patch("Adapters.codex.native.configurations", return_value={"codex": {}}),
-            patch("Adapters.codex.native.inventory", return_value={"codex": []}),
+            patch("adapters.codex.native.connection", connection),
+            patch("adapters.codex.native.configurations", return_value={"codex": {}}),
+            patch("adapters.codex.native.inventory", return_value={"codex": []}),
         ):
             await run(
                 {"binary": "fixture"},
@@ -230,9 +230,9 @@ for line in sys.stdin:
 
         with (
             tempfile.TemporaryDirectory() as d,
-            patch("Adapters.codex.native.connection", connection),
-            patch("Adapters.codex.native.configurations", return_value={"codex": {}}),
-            patch("Adapters.codex.native.inventory", return_value={"codex": []}),
+            patch("adapters.codex.native.connection", connection),
+            patch("adapters.codex.native.configurations", return_value={"codex": {}}),
+            patch("adapters.codex.native.inventory", return_value={"codex": []}),
         ):
             await run(
                 {"binary": "fixture"},
@@ -275,8 +275,8 @@ print(json.dumps({'type':'result','subtype':'success','result':decision,'session
                 return {"approved": True}
 
             with (
-                patch("Adapters.claude.native.configurations", return_value={"claude": {}}),
-                patch("Adapters.claude.native.inventory", return_value={"claude": []}),
+                patch("adapters.claude.native.configurations", return_value={"claude": {}}),
+                patch("adapters.claude.native.inventory", return_value={"claude": []}),
             ):
                 result = await run(
                     {"binary": str(exe)},

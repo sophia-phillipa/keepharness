@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from Adapters.gemini.backend import run_native
-from Adapters.gemini.native import AcpConnection, AcpStream
+from adapters.gemini.backend import run_native
+from adapters.gemini.native import AcpConnection, AcpStream
 from agent_service.tools import ToolError
 
 

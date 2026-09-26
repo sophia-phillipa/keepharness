@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, patch
 
 from test_workspaces import config
 
-from Adapters.local.sandbox import ISOLATION_VERSION
+from adapters.local.sandbox import ISOLATION_VERSION
 from agent_service.app import Service, context_overflow
 
 
@@ -61,7 +61,7 @@ def test_overflow_excludes_inherited_files_and_resets_native_session_once(tmp_pa
         marker.write_text(json.dumps({"id": "healthy", "isolation": ISOLATION_VERSION}))
         return {"answer": "Recovered", "thread_id": "healthy"}
 
-    with patch("Adapters.run_native", side_effect=run):
+    with patch("adapters.run_native", side_effect=run):
         assert asyncio.run(service.infer(row, payloads[-1]))["answer"] == "Recovered"
     assert (session / "native-thread.json.before-context-recovery").exists()
     service.finish("c", "completed", {"answer": "Recovered", "thread_id": "healthy"})
@@ -72,7 +72,7 @@ def test_overflow_excludes_inherited_files_and_resets_native_session_once(tmp_pa
     )
     service.db.commit()
     next_row = dict(service.db.execute("SELECT * FROM jobs WHERE id='d'").fetchone())
-    with patch("Adapters.run_native", AsyncMock(return_value={"answer": "Still healthy"})):
+    with patch("adapters.run_native", AsyncMock(return_value={"answer": "Still healthy"})):
         asyncio.run(service.infer(next_row, next_payload))
     assert json.loads(marker.read_text())["id"] == "healthy"
     service.db.close()

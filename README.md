@@ -279,11 +279,11 @@ Remaining quota stays visible in the header when the provider supplies a percent
 
 ### Provider adapters, specialists and versioned specifications
 
-[`Adapters/`](Adapters/README.md) separates `codex`, `claude`, `deepseek` and `local`. Each integration has its own implementation and `specs/models/` records. The local specialist also owns Qwen and its profiles. Codex remains the shared tool transport; the service owns queues, authorization and conversation history. Old backend modules remain compatibility imports.
+[`adapters/`](adapters/README.md) separates `codex`, `claude`, `deepseek` and `local`. Each integration has its own implementation and `specs/models/` records. The local specialist also owns Qwen and its profiles. Codex remains the shared tool transport; the service owns queues, authorization and conversation history.
 
 Each `specs/compatibility.json` correlates the adapter revision, observed CLI/runtime version, harness baseline, source review date and model records. Read the local specification first. Revisit official documentation when a version, contract or behavior changes. A specification for Claude Code 2.1.258 or Codex 0.155.0-alpha.9.2 does not automatically certify another version. Rolling APIs and model aliases are marked explicitly, and documentary, simulated and live validation are distinguished. Contract changes follow TDD and update both the implementation revision and its specification.
 
-For [DeepSeek](Adapters/deepseek/specs/README.md), the key authenticates the API while Codex maintains client-side history. A local thread ID is not a conversation stored by DeepSeek: messages, reasoning and tool results must accompany later requests. The regression test runs the installed CLI against a stateless localhost fixture and checks a tool cycle plus resume after process restart. It spends no provider credits and does not certify remote account access. The adapter forces HTTP, refuses missing BYOK configuration instead of falling back, and maps `configured` effort to `high`; select an explicit effort for another preference. These first specification revisions describe the 0.4.4 working tree and do not create a new release.
+For [DeepSeek](adapters/deepseek/specs/README.md), the key authenticates the API while Codex maintains client-side history. A local thread ID is not a conversation stored by DeepSeek: messages, reasoning and tool results must accompany later requests. The regression test runs the installed CLI against a stateless localhost fixture and checks a tool cycle plus resume after process restart. It spends no provider credits and does not certify remote account access. The adapter forces HTTP, refuses missing BYOK configuration instead of falling back, and maps `configured` effort to `high`; select an explicit effort for another preference. These first specification revisions describe the 0.4.4 working tree and do not create a new release.
 
 #### Updating without stopping the harness
 
@@ -303,7 +303,7 @@ Manual harness start/stop buttons have been removed. Saving the first enabled mo
 
 Google discontinued Gemini CLI access for individual, Google AI Pro and Ultra accounts. A real authentication attempt on 2026-09-20 returned an unsupported-client error. Retrying login or using the same CLI in a terminal does not resolve it. See the [official migration guide](https://antigravity.google/docs/cli/gcli-migration/). Antigravity is not yet integrated into this panel; installing its CLI does not enable the Gemini card.
 
-The adapter uses ACP for incremental responses, sessions, images and approvals. Execution is native; other providers' scoped sandbox is not implicitly reused. The `configured` effort leaves reasoning to Gemini. Model access and quotas depend on the account; the panel does not estimate subscription balance or fall back automatically to paid API authentication. See the [Gemini specs](Adapters/gemini/specs/README.md) and [0.5.0 release specification](dossier/releases/v0.5.0.md).
+The adapter uses ACP for incremental responses, sessions, images and approvals. Execution is native; other providers' scoped sandbox is not implicitly reused. The `configured` effort leaves reasoning to Gemini. Model access and quotas depend on the account; the panel does not estimate subscription balance or fall back automatically to paid API authentication. See the [Gemini specs](adapters/gemini/specs/README.md) and [0.5.0 release specification](dossier/releases/v0.5.0.md).
 
 #### Switching models within one task
 
@@ -589,11 +589,11 @@ A cota restante fica visível no cabeçalho quando o provedor informa uma porcen
 
 ### Adaptadores, especialistas e especificações versionadas
 
-As integrações ficam em [`Adapters/`](Adapters/README.md), separadas em `codex`, `claude`, `deepseek` e `local`. Cada uma tem código próprio e registros em `specs/models/`. O especialista local também cuida do Qwen e de seus perfis; o motor de ferramentas compartilhado continua sendo o Codex. O núcleo mantém fila, autorização e histórico, e os módulos antigos são imports de compatibilidade.
+As integrações ficam em [`adapters/`](adapters/README.md), separadas em `codex`, `claude`, `deepseek` e `local`. Cada uma tem código próprio e registros em `specs/models/`. O especialista local também cuida do Qwen e de seus perfis; o motor de ferramentas compartilhado continua sendo o Codex. O núcleo mantém fila, autorização e histórico.
 
 Cada `specs/compatibility.json` correlaciona revisão do adaptador, versão observada do CLI/runtime, baseline do harness, data das fontes e fichas dos modelos. Consulte a spec local primeiro; pesquise novamente quando houver mudança de versão, contrato ou comportamento. Uma spec para Claude Code 2.1.258 ou Codex 0.155.0-alpha.9.2 não certifica automaticamente outra versão. APIs sem versão e aliases móveis ficam explicitamente identificados, com validação documental, simulada e real separadas. Mudanças de contrato seguem TDD e devem atualizar a revisão do código e a spec correspondente.
 
-No [DeepSeek](Adapters/deepseek/specs/README.md), a chave autentica a API e o Codex mantém o histórico no cliente. O ID da sessão local não é uma conversa armazenada pelo DeepSeek: mensagens, raciocínio e resultados de ferramentas precisam acompanhar as chamadas seguintes. O teste usa o CLI instalado contra uma API local simulada e verifica uma chamada de ferramenta e retomada após reiniciar o processo; não consome créditos nem certifica a conta remota. O adaptador força HTTP, impede fallback sem configuração BYOK e define `configured` como `high`; use esforço explícito para outra preferência. A revisão inicial destas specs acompanha o checkout 0.4.4, sem criar uma nova release.
+No [DeepSeek](adapters/deepseek/specs/README.md), a chave autentica a API e o Codex mantém o histórico no cliente. O ID da sessão local não é uma conversa armazenada pelo DeepSeek: mensagens, raciocínio e resultados de ferramentas precisam acompanhar as chamadas seguintes. O teste usa o CLI instalado contra uma API local simulada e verifica uma chamada de ferramenta e retomada após reiniciar o processo; não consome créditos nem certifica a conta remota. O adaptador força HTTP, impede fallback sem configuração BYOK e define `configured` como `high`; use esforço explícito para outra preferência. A revisão inicial destas specs acompanha o checkout 0.4.4, sem criar uma nova release.
 
 #### Atualização sem parar o harness
 
@@ -613,7 +613,7 @@ Os botões de iniciar/parar o harness foram removidos. Salvar o primeiro modelo 
 
 O Google descontinuou o acesso ao Gemini CLI para contas individuais, Google AI Pro e Ultra. Uma tentativa real de autenticação em 20/09/2026 retornou um erro de cliente não suportado. Repetir o login ou usar o mesmo CLI num terminal não resolve. Veja o [guia oficial de migração](https://antigravity.google/docs/cli/gcli-migration/). O Antigravity ainda não está integrado a este painel; instalar seu CLI não habilita o cartão do Gemini.
 
-O adaptador utiliza ACP para respostas incrementais, sessões, imagens e aprovações. A execução é nativa; o sandbox scoped dos outros provedores não é reutilizado implicitamente. Esforço `configured` mantém o padrão do Gemini. Quotas e disponibilidade dos modelos dependem da conta; o painel não estima saldo da assinatura, nem recorre automaticamente à autenticação paga por API. Veja as [specs do Gemini](Adapters/gemini/specs/README.md) e a [especificação da release 0.5.0](dossier/releases/v0.5.0.md).
+O adaptador utiliza ACP para respostas incrementais, sessões, imagens e aprovações. A execução é nativa; o sandbox scoped dos outros provedores não é reutilizado implicitamente. Esforço `configured` mantém o padrão do Gemini. Quotas e disponibilidade dos modelos dependem da conta; o painel não estima saldo da assinatura, nem recorre automaticamente à autenticação paga por API. Veja as [specs do Gemini](adapters/gemini/specs/README.md) e a [especificação da release 0.5.0](dossier/releases/v0.5.0.md).
 
 #### Troca de modelo na mesma tarefa
 

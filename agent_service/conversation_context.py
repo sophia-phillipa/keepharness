@@ -2,7 +2,7 @@
 
 import json
 
-from Adapters.local.sandbox import ISOLATION_VERSION
+from adapters.local.sandbox import ISOLATION_VERSION
 
 MARKERS = ("native-thread.json", "remote-thread.json", "claude-session.json", "gemini-session.json")
 EVIDENCE_EVENTS = ("tool_start", "tool_end", "plan_updated", "changes_applied", "deployment_failed")

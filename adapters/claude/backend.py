@@ -1,6 +1,6 @@
 """Public entry points for Claude Code; effort is passed explicitly when selected."""
 
-from Adapters.shared.workspace import prepare_workspace
+from adapters.shared.workspace import prepare_workspace
 
 from . import native
 from .scoped import run as run_scoped

@@ -1,6 +1,6 @@
 """Build offline assets from an unpacked Material Icon Theme package and manifest.
 
-Usage: python scripts/vendor-file-icons.py PACKAGE_DIR MANIFEST_JSON
+Usage: python scripts/vendor_file_icons.py PACKAGE_DIR MANIFEST_JSON
 Generate the manifest with the package's generateManifest() export first.
 """
 

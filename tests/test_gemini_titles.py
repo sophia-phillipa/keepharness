@@ -1,13 +1,13 @@
 import asyncio
 from unittest.mock import AsyncMock, patch
 
-from Adapters.gemini.backend import run_native
+from adapters.gemini.backend import run_native
 
 
 def test_gemini_reports_unsupported_title_without_fabricating_acp_method(tmp_path):
     events = []
     with patch(
-        "Adapters.gemini.backend.native.run", AsyncMock(return_value={"answer": "ok"})
+        "adapters.gemini.backend.native.run", AsyncMock(return_value={"answer": "ok"})
     ) as run:
         asyncio.run(
             run_native(

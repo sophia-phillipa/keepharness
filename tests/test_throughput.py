@@ -1,13 +1,13 @@
 from unittest.mock import patch
 
-from Adapters.claude.stream import Stream
+from adapters.claude.stream import Stream
 
 
 def test_claude_live_usage_counts_messages_once_and_preserves_final_metrics():
     events = []
-    with patch("Adapters.claude.stream.time.monotonic", return_value=10):
+    with patch("adapters.claude.stream.time.monotonic", return_value=10):
         stream = Stream(lambda *args: events.append(args))
-    with patch("Adapters.claude.stream.time.monotonic", return_value=12):
+    with patch("adapters.claude.stream.time.monotonic", return_value=12):
         for message_id, counts in [("one", [2, 20, 20]), ("two", [1, 10])]:
             stream.consume(
                 {
@@ -57,7 +57,7 @@ def test_scoped_codex_live_usage_excludes_other_sessions(tmp_path):
     from contextlib import asynccontextmanager, nullcontext
     from types import SimpleNamespace
 
-    from Adapters.codex.scoped import run
+    from adapters.codex.scoped import run
 
     def usage(thread, count):
         return {
@@ -95,9 +95,9 @@ def test_scoped_codex_live_usage_excludes_other_sessions(tmp_path):
     workspace = SimpleNamespace(command=[], home=tmp_path)
     events = []
     with (
-        patch("Adapters.codex.scoped.prepare_scoped", return_value=nullcontext(workspace)),
-        patch("Adapters.codex.scoped.connection", connection),
-        patch("Adapters.codex.scoped.collect_changes", return_value={}),
+        patch("adapters.codex.scoped.prepare_scoped", return_value=nullcontext(workspace)),
+        patch("adapters.codex.scoped.connection", connection),
+        patch("adapters.codex.scoped.collect_changes", return_value={}),
     ):
         result = asyncio.run(run({}, "fixture", lambda *args: events.append(args)))
     assert result["metrics"]["output_tokens"] == 30

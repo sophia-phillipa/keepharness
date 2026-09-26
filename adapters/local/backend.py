@@ -4,8 +4,8 @@ import json
 import os
 from pathlib import Path
 
-from Adapters.codex.native import RuntimeOptions, build_command, run_turn
-from Adapters.shared.workspace import prepare_workspace
+from adapters.codex.native import RuntimeOptions, build_command, run_turn
+from adapters.shared.workspace import prepare_workspace
 
 from .sandbox import ISOLATION_VERSION, wrap
 

@@ -17,7 +17,7 @@ from control.local_models import launch_options, runtime_permissions, save_profi
 @pytest.fixture(autouse=True)
 def mocked_local_process_boundary():
     # Protocol tests use fake RPCs; real bubblewrap is tested in test_local_sandbox.py.
-    with patch("Adapters.local.backend.wrap", side_effect=lambda command, *args: command):
+    with patch("adapters.local.backend.wrap", side_effect=lambda command, *args: command):
         yield
 
 
@@ -154,7 +154,7 @@ def test_multigpu_values_and_permissions_are_validated(tmp_path):
 def test_local_internet_uses_permitted_shell_not_hosted_search(tmp_path):
     from contextlib import asynccontextmanager
 
-    from Adapters import run_native as run
+    from adapters import run_native as run
 
     recorded = {}
 
@@ -178,9 +178,9 @@ def test_local_internet_uses_permitted_shell_not_hosted_search(tmp_path):
         raise AssertionError("No tools are executed in this fixture")
 
     with (
-        patch("Adapters.codex.native.connection", connection),
-        patch("Adapters.codex.native.configurations", return_value={"codex": {}}),
-        patch("Adapters.codex.native.inventory", return_value={"codex": []}),
+        patch("adapters.codex.native.connection", connection),
+        patch("adapters.codex.native.configurations", return_value={"codex": {}}),
+        patch("adapters.codex.native.inventory", return_value={"codex": []}),
     ):
         asyncio.run(
             run(
@@ -278,7 +278,7 @@ else: raise SystemExit(2)
 def test_native_model_policy_network_shell_and_write_scope(tmp_path, allowed):
     from contextlib import asynccontextmanager
 
-    from Adapters import run_native as run
+    from adapters import run_native as run
 
     recorded = {}
 
@@ -306,9 +306,9 @@ def test_native_model_policy_network_shell_and_write_scope(tmp_path, allowed):
     session = tmp_path / "private-session"
     policy = {name: allowed for name in ("read", "write", "shell", "internet", "hooks", "upload")}
     with (
-        patch("Adapters.codex.native.connection", connection),
-        patch("Adapters.codex.native.configurations", return_value={"codex": {}}),
-        patch("Adapters.codex.native.inventory", return_value={"codex": []}),
+        patch("adapters.codex.native.connection", connection),
+        patch("adapters.codex.native.configurations", return_value={"codex": {}}),
+        patch("adapters.codex.native.inventory", return_value={"codex": []}),
     ):
         asyncio.run(
             run(
@@ -376,8 +376,8 @@ def test_local_denies_escalation_without_internet_and_starts_isolated_session(tm
     from contextlib import asynccontextmanager
     from types import SimpleNamespace
 
-    from Adapters import run_native as run
-    from Adapters.local.sandbox import ISOLATION_VERSION
+    from adapters import run_native as run
+    from adapters.local.sandbox import ISOLATION_VERSION
 
     received = []
     calls = []
@@ -421,9 +421,9 @@ def test_local_denies_escalation_without_internet_and_starts_isolated_session(tm
         json.dumps({"id": "host-thread", "usage_total": {"outputTokens": 500}})
     )
     with (
-        patch("Adapters.codex.native.connection", connection),
+        patch("adapters.codex.native.connection", connection),
         patch(
-            "Adapters.codex.native.configurations",
+            "adapters.codex.native.configurations",
             side_effect=AssertionError("Host credentials must not be read"),
         ),
     ):

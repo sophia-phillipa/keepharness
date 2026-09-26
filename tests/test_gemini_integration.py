@@ -195,7 +195,7 @@ def test_gemini_session_marker_avoids_replaying_prior_turns(tmp_path):
             assert "earlier-answer" not in prompt
             return {"answer": "new-answer", "backend": "gemini"}
 
-        with patch("Adapters.run_native", side_effect=run):
+        with patch("adapters.run_native", side_effect=run):
             assert asyncio.run(service.infer(row, current))["answer"] == "new-answer"
     finally:
         service.db.close()
@@ -222,7 +222,7 @@ def test_panel_gemini_login_launches_oauth_helper(tmp_path):
             )
             assert response.status_code == 200
             launch.assert_called_once_with(
-                [sys.executable, "-m", "Adapters.gemini.account", "--binary", "/fixture/gemini"]
+                [sys.executable, "-m", "adapters.gemini.account", "--binary", "/fixture/gemini"]
             )
 
 

@@ -129,7 +129,7 @@ def test_long_video_transcript_keeps_frames_and_handoff_keeps_speech(tmp_path):
     with (
         patch.object(service, "validate_video", AsyncMock()),
         patch.object(service, "quota", AsyncMock(return_value=None)),
-        patch("Adapters.run_native", side_effect=supported),
+        patch("adapters.run_native", side_effect=supported),
     ):
         asyncio.run(service.infer(row, data))
     with (
@@ -137,7 +137,7 @@ def test_long_video_transcript_keeps_frames_and_handoff_keeps_speech(tmp_path):
             service, "validate_video", AsyncMock(side_effect=APIError("model_video_unavailable"))
         ),
         patch.object(service, "quota", AsyncMock(return_value=None)),
-        patch("Adapters.run_native", side_effect=unsupported),
+        patch("adapters.run_native", side_effect=unsupported),
     ):
         asyncio.run(service.infer(row, data))
     service.db.close()

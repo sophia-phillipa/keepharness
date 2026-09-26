@@ -1,4 +1,4 @@
-from Adapters.claude.stream import Stream
+from adapters.claude.stream import Stream
 from agent_service.tool_metadata import command_name, event_metadata
 
 

@@ -9,7 +9,7 @@ from unittest.mock import patch
 import pytest
 from starlette.testclient import TestClient
 
-from Adapters import run_native as run
+from adapters import run_native as run
 from agent_service.app import Service, create_app
 from tests.test_shared_projects import config
 
@@ -128,10 +128,10 @@ def test_rpc_providers_receive_roots_on_every_turn(tmp_path, provider, read, wri
     if provider == "local":
         cfg["local_models"] = {"fixture": {"url": "http://127.0.0.1:9999"}}
     with (
-        patch("Adapters.codex.native.connection", connection),
-        patch("Adapters.local.backend.wrap", side_effect=lambda command, *args: command),
-        patch("Adapters.codex.native.configurations", return_value={"codex": {}}),
-        patch("Adapters.codex.native.inventory", return_value={"codex": []}),
+        patch("adapters.codex.native.connection", connection),
+        patch("adapters.local.backend.wrap", side_effect=lambda command, *args: command),
+        patch("adapters.codex.native.configurations", return_value={"codex": {}}),
+        patch("adapters.codex.native.inventory", return_value={"codex": []}),
     ):
         for _ in range(2):
             asyncio.run(
@@ -178,8 +178,8 @@ print(json.dumps({'type':'result','subtype':'success','result':json.dumps({'args
         raise AssertionError("No real inference")
 
     with (
-        patch("Adapters.claude.native.configurations", return_value={"claude": {}}),
-        patch("Adapters.claude.native.inventory", return_value={"claude": []}),
+        patch("adapters.claude.native.configurations", return_value={"claude": {}}),
+        patch("adapters.claude.native.inventory", return_value={"claude": []}),
     ):
         result = asyncio.run(
             run(
