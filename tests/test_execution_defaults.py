@@ -76,7 +76,7 @@ def test_shared_assets_whitelist():
 
 
 def test_admin_assets_keep_host_boundary(tmp_path):
-    with patch("control.server.scan", AsyncMock(return_value={"services": [], "network": {}})):
+    with patch("control.discovery.scan", AsyncMock(return_value={"services": [], "network": {}})):
         with TestClient(create_app(tmp_path), base_url="http://127.0.0.1:8094") as client:
             assert client.get("/assets/themes.css").status_code == 200
             assert (

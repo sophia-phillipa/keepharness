@@ -31,9 +31,9 @@ def test_cli_installed_plugins_drive_inventory_validation_and_runtime(tmp_path):
         ],
     }
     with (
-        patch("control.server.inventory", return_value=legacy),
-        patch("control.server.scan", AsyncMock(return_value=discovered)),
-        patch("control.server.installed_plugins", AsyncMock(return_value=installed)),
+        patch("control.integrations.inventory", return_value=legacy),
+        patch("control.discovery.scan", AsyncMock(return_value=discovered)),
+        patch("control.integration_catalog.installed_plugins", AsyncMock(return_value=installed)),
     ):
         asyncio.run(manager.refresh())
         items = manager.integrations()
@@ -52,7 +52,7 @@ def test_cli_installed_plugins_drive_inventory_validation_and_runtime(tmp_path):
         ):
             config = asyncio.run(manager.build_runtime_config(settings))
         assert config["codex"]["plugin_inventory"] == ["plugin:drive@market"]
-        with patch("control.server.installed_plugins", AsyncMock(return_value=None)):
+        with patch("control.integration_catalog.installed_plugins", AsyncMock(return_value=None)):
             asyncio.run(manager.refresh())
         assert manager.integrations()["codex"] == items["codex"]
         assert manager.inventory["integration_warnings"]

@@ -102,7 +102,7 @@ class AdminSecurityTest(unittest.IsolatedAsyncioTestCase):
             {"projects": [{"id": []}]},
             {"services": {"codex": {"permissions": []}}},
         ]
-        with patch("control.server.inventory", return_value={}):
+        with patch("control.integrations.inventory", return_value={}):
             for payload in payloads:
                 response = await self.client.post(
                     "/api/settings", json=payload, headers=self.headers

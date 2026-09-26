@@ -151,10 +151,10 @@ def test_start_readiness_does_not_probe_redirecting_browser_entry(tmp_path, read
             )
 
         with (
-            patch("control.server.socket.socket"),
-            patch("control.server.asyncio.create_subprocess_exec", AsyncMock(return_value=process)),
-            patch("control.server.asyncio.sleep", AsyncMock()),
-            patch("control.server.httpx.AsyncClient") as client,
+            patch("socket.socket"),
+            patch("asyncio.create_subprocess_exec", AsyncMock(return_value=process)),
+            patch("asyncio.sleep", AsyncMock()),
+            patch("httpx.AsyncClient") as client,
         ):
             client.return_value.__aenter__.return_value.get = AsyncMock(side_effect=get)
             if ready:
@@ -242,7 +242,7 @@ def test_browser_destination_survives_restart_and_tracks_sharing(tmp_path):
         # Disabling sharing must clear the destination in the running config.
         from unittest.mock import patch
 
-        with patch("control.server.command", AsyncMock(return_value=(0, ""))):
+        with patch("control.discovery.command", AsyncMock(return_value=(0, ""))):
             await manager.tailnet(False)
         assert manager._previous_runtime()["browser_url"] is None
 

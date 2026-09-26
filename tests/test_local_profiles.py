@@ -47,7 +47,7 @@ def test_profiles_api_import_exact_model_start_and_export(tmp_path):
     qwen, gemma = profiles(tmp_path)
     qwen["description"] = "Exportable Qwen profile"
     with (
-        patch("control.server.scan", AsyncMock(return_value=INVENTORY)),
+        patch("control.discovery.scan", AsyncMock(return_value=INVENTORY)),
         patch("control.local_models.processes", return_value=[]) as running,
         patch("control.routes.socket"),
         patch("control.operations.Operations.launch", return_value={"id": "fixture"}) as launch,
@@ -93,7 +93,7 @@ def test_profiles_api_import_exact_model_start_and_export(tmp_path):
 
 def test_invalid_profile_catalog_does_not_partially_import(tmp_path):
     qwen, gemma = profiles(tmp_path)
-    with patch("control.server.scan", AsyncMock(return_value=INVENTORY)):
+    with patch("control.discovery.scan", AsyncMock(return_value=INVENTORY)):
         with TestClient(create_app(tmp_path), base_url="http://127.0.0.1:8094") as client:
             client.get("/")
             headers = {"X-Harness-Admin": "1"}
@@ -205,7 +205,7 @@ def test_panel_uses_project_internal_runtime_models_and_key(tmp_path):
     model.touch()
     with (
         patch("control.env.LOCAL_AI", internal),
-        patch("control.server.scan", AsyncMock(return_value=INVENTORY)),
+        patch("control.discovery.scan", AsyncMock(return_value=INVENTORY)),
         patch("control.local_models.processes", return_value=[]),
         patch("control.routes.socket"),
         patch("shutil.disk_usage") as disk,

@@ -37,7 +37,7 @@ def test_discovery_runtime_and_admission_preserve_versions_and_efforts(tmp_path)
     }
     manager.settings["services"]["claude"].update(enabled=True, models=["claude-opus-5", "haiku"])
     with (
-        patch("control.server.command", AsyncMock(return_value=(0, '{"loggedIn":true}'))),
+        patch("control.discovery.command", AsyncMock(return_value=(0, '{"loggedIn":true}'))),
         patch.object(account, "metadata", AsyncMock(return_value=CATALOG)),
     ):
         runtime = asyncio.run(manager.build_runtime_config(manager.settings))

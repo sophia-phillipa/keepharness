@@ -80,7 +80,7 @@ def test_login_endpoint_deduplicates_and_requires_admin(tmp_path, monkeypatch):
         return job
 
     with (
-        patch("control.server.scan", AsyncMock(return_value=inventory)),
+        patch("control.discovery.scan", AsyncMock(return_value=inventory)),
         patch.object(Operations, "launch", launch),
     ):
         with TestClient(create_app(tmp_path), base_url="http://127.0.0.1:8094") as client:
@@ -105,7 +105,7 @@ def test_renewed_account_check_ignores_inherited_token(tmp_path, monkeypatch):
     asyncio.run(manager.claude_login_completed())
     with (
         patch(
-            "control.server.command", AsyncMock(return_value=(0, '{"loggedIn":true}'))
+            "control.discovery.command", AsyncMock(return_value=(0, '{"loggedIn":true}'))
         ) as command,
         patch(
             "adapters.claude.account.metadata",

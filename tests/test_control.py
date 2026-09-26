@@ -50,7 +50,7 @@ class ControlTest(unittest.TestCase):
         self.assertEqual(self.manager.validate(settings)["vpn_bind"], "10.44.0.2")
 
     def test_auth_csrf_and_save(self):
-        with patch("control.server.scan", AsyncMock(return_value=INVENTORY)):
+        with patch("control.discovery.scan", AsyncMock(return_value=INVENTORY)):
             with TestClient(create_app(self.tmp.name), base_url="http://127.0.0.1:8094") as client:
                 self.assertEqual(client.get("/api/state").status_code, 401)
                 self.assertEqual(
@@ -102,7 +102,7 @@ class ControlTest(unittest.TestCase):
             "Sec-Fetch-Dest": "document",
             "Sec-Fetch-User": "?1",
         }
-        with patch("control.server.scan", AsyncMock(return_value=INVENTORY)):
+        with patch("control.discovery.scan", AsyncMock(return_value=INVENTORY)):
             with TestClient(create_app(self.tmp.name), base_url="http://127.0.0.1:8094") as client:
                 response = client.get("/", headers=navigation)
                 self.assertEqual(response.status_code, 200)

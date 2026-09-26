@@ -120,7 +120,7 @@ class ProviderLifecycleTest(unittest.TestCase):
         }
         with (
             tempfile.TemporaryDirectory() as d,
-            patch("control.server.scan", AsyncMock(return_value=inventory)),
+            patch("control.discovery.scan", AsyncMock(return_value=inventory)),
         ):
             with TestClient(create_app(d), base_url="http://127.0.0.1:8094") as c:
                 c.get("/")

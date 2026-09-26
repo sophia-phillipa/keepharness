@@ -180,10 +180,10 @@ def test_start_rechecks_providers_and_builds_native_config(tmp_path):
         patch.object(manager, "refresh", AsyncMock()) as refresh,
         patch.object(manager, "check", AsyncMock(side_effect=check)) as checked,
         patch(
-            "control.server.asyncio.create_subprocess_exec",
+            "asyncio.create_subprocess_exec",
             AsyncMock(side_effect=[process, SimpleNamespace(returncode=None)]),
         ),
-        patch("control.server.httpx.AsyncClient", return_value=Client()),
+        patch("httpx.AsyncClient", return_value=Client()),
     ):
         asyncio.run(manager.start())
         process.returncode = 0

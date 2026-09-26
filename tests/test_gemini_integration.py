@@ -124,7 +124,7 @@ def test_gemini_check_uses_own_account_and_builds_native_config(tmp_path):
     }
     settings = copy.deepcopy(manager.settings)
     settings["services"]["gemini"].update(enabled=True, models=["auto-gemini-3"])
-    with patch("control.server.gemini.check", AsyncMock(return_value=expected)) as check:
+    with patch("adapters.gemini.account.check", AsyncMock(return_value=expected)) as check:
         config = asyncio.run(manager.build_runtime_config(settings))
     check.assert_awaited_once_with(str(binary))
     assert config["gemini"]["binary"] == str(binary)
@@ -140,7 +140,7 @@ def test_gemini_credential_directory_cannot_be_shared(tmp_path):
     manager = Manager(tmp_path / "control")
     data = copy.deepcopy(manager.settings)
     data["projects"] = [{"id": "credentials", "root": str(protected)}]
-    with patch("control.server.Path.home", return_value=home):
+    with patch("pathlib.Path.home", return_value=home):
         with pytest.raises(ValueError, match="credentials"):
             manager.validate(data)
 
@@ -210,7 +210,7 @@ def test_panel_gemini_login_launches_oauth_helper(tmp_path):
 
     inventory = {"services": [], "binaries": {"gemini": "/fixture/gemini"}, "network": {}}
     with (
-        patch("control.server.scan", AsyncMock(return_value=inventory)),
+        patch("control.discovery.scan", AsyncMock(return_value=inventory)),
         patch(
             "control.operations.Operations.launch", return_value={"id": "login", "state": "running"}
         ) as launch,
@@ -237,7 +237,7 @@ def test_panel_gemini_check_without_login_returns_200(tmp_path, monkeypatch):
         "binaries": {"gemini": "/unused/gemini"},
         "network": {},
     }
-    with patch("control.server.scan", AsyncMock(return_value=inventory)):
+    with patch("control.discovery.scan", AsyncMock(return_value=inventory)):
         with TestClient(
             create_app(tmp_path / "control"), base_url="http://127.0.0.1:8094"
         ) as client:

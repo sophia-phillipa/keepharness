@@ -11,7 +11,7 @@ def test_folder_listing_and_creation(tmp_path):
     (root / "Project").mkdir()
     (root / "file.txt").write_text("not returned")
     with (
-        patch("control.server.Manager.refresh", AsyncMock()),
+        patch("control.manager.Manager.refresh", AsyncMock()),
         patch("pathlib.Path.home", return_value=root),
     ):
         with TestClient(create_app(tmp_path / "state"), base_url="http://127.0.0.1:8094") as client:

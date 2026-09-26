@@ -30,7 +30,7 @@ def manager(tmp_path, monkeypatch):
 
 @pytest.fixture
 def admin(tmp_path, monkeypatch):
-    monkeypatch.setattr("control.server.scan", AsyncMock(return_value=copy.deepcopy(INVENTORY)))
+    monkeypatch.setattr("control.discovery.scan", AsyncMock(return_value=copy.deepcopy(INVENTORY)))
     monkeypatch.setattr(Manager, "integrations", lambda self: {})
     monkeypatch.setattr(Manager, "start", AsyncMock())
     monkeypatch.setattr(Manager, "stop", AsyncMock())

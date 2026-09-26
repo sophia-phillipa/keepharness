@@ -89,7 +89,7 @@ class ConfigurationTest(unittest.TestCase):
     def test_export_preview_apply_and_failed_import(self):
         with (
             tempfile.TemporaryDirectory() as d,
-            patch("control.server.scan", AsyncMock(return_value=INVENTORY)),
+            patch("control.discovery.scan", AsyncMock(return_value=INVENTORY)),
         ):
             Path(d, "vpn.key").write_text("never-export-this")
             with TestClient(create_app(d), base_url="http://127.0.0.1:8094") as c:
@@ -130,7 +130,7 @@ class ConfigurationTest(unittest.TestCase):
 
         with (
             tempfile.TemporaryDirectory() as d,
-            patch("control.server.scan", AsyncMock(return_value=INVENTORY)),
+            patch("control.discovery.scan", AsyncMock(return_value=INVENTORY)),
         ):
             with TestClient(create_app(d), base_url="http://127.0.0.1:8094") as c:
                 c.get("/")

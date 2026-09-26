@@ -30,6 +30,7 @@ from .local_models import (
     save_profile,
     validate_profile,
 )
+from .manager import PERMISSIONS
 from .operations import operation
 
 ADMIN_BODY_LIMIT = 64000
@@ -197,8 +198,6 @@ async def delete_provider(request, manager, data):
     if provider not in manager.settings["services"]:
         raise ValueError("Unknown provider.")
     import copy
-
-    from .server import PERMISSIONS
 
     draft = copy.deepcopy(manager.settings)
     draft["services"][provider].update(
