@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 cd "$(dirname "$0")"
-python3 -c 'import sys; assert sys.version_info >= (3,11), "Python 3.11+ é necessário"'
+python3 -c 'import sys; assert sys.version_info >= (3,11), "Python 3.11+ is required"'
 python3 -m venv .venv
 .venv/bin/python -m pip install .
-printf '\nPronto. Inicie com: .venv/bin/python -m control\nInventário sem alterações: .venv/bin/python -m control --scan\n'
+printf '\nDone. Start with: .venv/bin/python -m control\nInventory without changes: .venv/bin/python -m control --scan\n'

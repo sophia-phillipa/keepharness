@@ -45,16 +45,16 @@ const path=require('node:path');
   mode='partial';await page.waitForTimeout(6500);await blocked();assert(requests>before);
   // Optional browser persistence must never keep a healthy server behind the gate.
   await page.evaluate(()=>{window.originalSetItem=Storage.prototype.setItem;Storage.prototype.setItem=function(key,value){if(key==='conversation-activity')throw new DOMException('Storage full','QuotaExceededError');return window.originalSetItem.call(this,key,value);};});
-  mode='ready';await ready();await page.evaluate(()=>{Storage.prototype.setItem=window.originalSetItem;});await page.fill('#prompt','Rascunho preservado');
+  mode='ready';await ready();await page.evaluate(()=>{Storage.prototype.setItem=window.originalSetItem;});await page.fill('#prompt','Preserved draft');
   // Background tabs must not spend the shared identity's polling budget.
   await page.evaluate(()=>Object.defineProperty(document,'hidden',{configurable:true,get:()=>true}));
   await page.waitForTimeout(500);const quietRequests=requests;await page.waitForTimeout(11000);assert.equal(requests,quietRequests);
   await page.evaluate(()=>delete document.hidden);
-  mode='limited';const beforeLimit=requests;await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('Muitas consultas'),{},{timeout:25000});
-  assert(await gate.isHidden(),'429 is throttling, not a disconnected server');assert.equal(await page.locator('#prompt').inputValue(),'Rascunho preservado');
+  mode='limited';const beforeLimit=requests;await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('Too many requests'),{},{timeout:25000});
+  assert(await gate.isHidden(),'429 is throttling, not a disconnected server');assert.equal(await page.locator('#prompt').inputValue(),'Preserved draft');
   mode='ready';await page.waitForTimeout(11000);assert(requests>beforeLimit);
   extraModel=true;await page.waitForFunction(()=>[...document.querySelector('#model').options].some(o=>o.value==='new-provider'),{},{timeout:25000});assert.equal(await page.locator('#model').inputValue(),'fixture-local');
-  await page.click('#add-project');await page.fill('#project-name','Demo');await page.locator('#project-directory-list .project-file-row').filter({hasText:'Test folders'}).click();await page.click('#project-directory-add-current');await page.click('#project-create');await page.locator('#project-dialog').waitFor({state:'hidden'});assert.equal(await page.locator('#project').inputValue(),'demo');assert.equal(await page.locator('#prompt').inputValue(),'Rascunho preservado');
+  await page.click('#add-project');await page.fill('#project-name','Demo');await page.locator('#project-directory-list .project-file-row').filter({hasText:'Test folders'}).click();await page.click('#project-directory-add-current');await page.click('#project-create');await page.locator('#project-dialog').waitFor({state:'hidden'});assert.equal(await page.locator('#project').inputValue(),'demo');assert.equal(await page.locator('#prompt').inputValue(),'Preserved draft');
   // A previously opened modal must not escape the disconnected screen.
   await page.evaluate(()=>document.querySelector('#settings-dialog').showModal());
   mode='offline';await blocked();assert(!(await page.locator('#settings-dialog').evaluate(el=>el.open)));
@@ -67,7 +67,7 @@ const path=require('node:path');
    }
   }
   await page.screenshot({path:'/tmp/tail-harness-connection-wait.png',fullPage:true});
-  mode='ready';await ready();assert.equal(await page.locator('#prompt').inputValue(),'Rascunho preservado');assert.equal(submissions,0);
+  mode='ready';await ready();assert.equal(await page.locator('#prompt').inputValue(),'Preserved draft');assert.equal(submissions,0);
   if(await page.locator('#th-toast').isVisible())await page.locator('#th-toast button').click();
   if(await page.locator('#activity-panel').isVisible())await page.locator('#files-toggle[aria-expanded=true],#activity-toggle[aria-expanded=true]').click();
   await page.click('#model-trigger');await page.locator('#model-menu').waitFor({state:'visible'});

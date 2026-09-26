@@ -129,7 +129,7 @@ def test_login_cli_failure_has_no_traceback(tmp_path):
     executable.chmod(0o700)
     result = subprocess.run([sys.executable, '-m', 'Adapters.gemini.account', '--binary', str(executable)], capture_output=True, text=True, timeout=10)
     assert result.returncode == 1
-    assert 'Não foi possível concluir o login Google' in result.stdout
+    assert 'Could not complete the Google login' in result.stdout
     assert 'Traceback' not in result.stdout + result.stderr
 
 
@@ -149,5 +149,5 @@ for line in sys.stdin:
     assert result.returncode == 1
     assert '[gemini_client_retired]' in result.stdout
     assert 'https://antigravity.google/docs/cli/gcli-migration/' in result.stdout
-    assert 'ainda não está disponível aqui' in result.stdout
+    assert 'is not yet available here' in result.stdout
     assert 'Traceback' not in result.stdout + result.stderr

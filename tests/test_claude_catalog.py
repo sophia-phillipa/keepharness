@@ -114,5 +114,5 @@ def test_extended_context_model_ids_survive_settings_validation(tmp_path):
     manager.settings['services']['claude']['models'] = ['claude-opus-5[1m]']
     assert manager.validate(manager.settings)['services']['claude']['models'] == ['claude-opus-5[1m]']
     manager.settings['services']['claude']['models'] = ['claude-opus-5[anything]']
-    with pytest.raises(ValueError, match='Lista de modelos'):
+    with pytest.raises(ValueError, match='Invalid model list'):
         manager.validate(manager.settings)

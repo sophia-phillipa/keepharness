@@ -5,9 +5,9 @@ import tomllib
 def catalog(config, project):
     root = Path(project['root']).resolve() if project.get('root') else None
     result = {'agents': [], 'skills': [], 'warnings': [],
-              'scope': 'Projeto selecionado e motores configurados neste serviço; não é um inventário global da máquina.'}
+              'scope': 'Selected project and engines configured in this service; not a global inventory of the machine.'}
     for provider,service in config.get('services',{}).items():
-        if service.get('enabled'):result['agents'].append({'name':provider,'description':', '.join(service.get('models',[])),'source':'Configuração do serviço','status':'Configurado'})
+        if service.get('enabled'):result['agents'].append({'name':provider,'description':', '.join(service.get('models',[])),'source':'Service configuration','status':'Configured'})
     if root is None:return result
     def safe(path):
         try:
@@ -42,7 +42,7 @@ def catalog(config, project):
             try:
                 for index,path in enumerate(base.iterdir()):
                     if index>=200:
-                        result['warnings'].append('Catálogo limitado a 200 entradas por pasta.');break
+                        result['warnings'].append('Catalog limited to 200 entries per folder.');break
                     if not safe(path): continue
                     if kind=='skills': path=path/'SKILL.md'
                     elif path.suffix not in ('.toml','.md'):continue
@@ -51,10 +51,10 @@ def catalog(config, project):
                         if text is None:continue
                         meta=tomllib.loads(text) if path.suffix=='.toml' else frontmatter(text)
                         name=meta.get('name') or (path.parent.name if kind=='skills' else path.stem)
-                        description=meta.get('description') or 'Descrição não informada no arquivo.'
+                        description=meta.get('description') or 'No description provided in the file.'
                         result[kind].append({'name':str(name)[:160], 'description':str(description)[:2000],
-                            'source':str(path.relative_to(root)), 'status':'Disponível no projeto'})
+                            'source':str(path.relative_to(root)), 'status':'Available in project'})
                     except (OSError,ValueError):
-                        result['warnings'].append('Não foi possível ler metadados de '+str(path.relative_to(root)))
-            except OSError: result['warnings'].append('Não foi possível consultar '+folder)
+                        result['warnings'].append('Could not read metadata for '+str(path.relative_to(root)))
+            except OSError: result['warnings'].append('Could not access '+folder)
     return result

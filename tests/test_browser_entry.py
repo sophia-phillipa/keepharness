@@ -104,7 +104,7 @@ def test_start_readiness_does_not_probe_redirecting_browser_entry(tmp_path, read
             if ready:
                 await manager.start()
             else:
-                with pytest.raises(ValueError, match='não ficou pronto'):
+                with pytest.raises(ValueError, match='did not become ready'):
                     await manager.start()
         if ready:
             manager.stop.assert_not_awaited()

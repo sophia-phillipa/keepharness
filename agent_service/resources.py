@@ -72,9 +72,9 @@ def discover(config, project_id, backend, model=None, *, private=False, executio
     engine=ENGINES.get(backend)
     result={'engine':engine,'items':[],'warnings':[]}
     if engine is None:
-        result['warnings'].append('Escolha um motor concreto para consultar seus recursos.');return result
+        result['warnings'].append('Choose a concrete engine to query its resources.');return result
     if (execution_mode or config.get('services',{}).get(backend,{}).get('mode'))!='native':
-        result['warnings'].append('Recursos nativos exigem uma execução em modo nativo.');return result
+        result['warnings'].append('Native resources require a native-mode execution.');return result
     project=config['projects'][project_id];root=Path(project['root']).resolve() if project.get('root') else None
     global_base,shared=roots(engine)
     sources=[]
@@ -105,7 +105,7 @@ def discover(config, project_id, backend, model=None, *, private=False, executio
                     if isinstance(item,dict) and item.get('enabled') is False and item.get('path'):
                         disabled.add(str(Path(item['path']).expanduser().resolve()))
             except FileNotFoundError:pass
-            except (ValueError,OSError,TypeError,AttributeError):result['warnings'].append('Não foi possível verificar a configuração de skills do Codex.')
+            except (ValueError,OSError,TypeError,AttributeError):result['warnings'].append('Could not check the Codex skills configuration.')
     seen=set();agent_names=set();skill_names=set()
     for base,scope,origin,boundary,kind in sources:
         try:
@@ -124,16 +124,16 @@ def discover(config, project_id, backend, model=None, *, private=False, executio
                     if not isinstance(name,str) or not NAME.fullmatch(name):raise ValueError('invalid_name')
                     if kind=='agent' and engine=='codex' and not isinstance(meta.get('developer_instructions'),str):raise ValueError('invalid_agent')
                     reason=''
-                    if canonical in disabled:reason='Skill desativada na configuração do motor.'
-                    if engine=='gemini' and kind in ('agent','skill'):reason='O adaptador Gemini ainda desativa agentes e skills nesta execução.'
-                    if engine=='claude' and kind=='agent':reason='O adaptador Claude ainda não disponibiliza delegação nativa de agentes.'
+                    if canonical in disabled:reason='Skill disabled in the engine configuration.'
+                    if engine=='gemini' and kind in ('agent','skill'):reason='The Gemini adapter still disables agents and skills in this execution.'
+                    if engine=='claude' and kind=='agent':reason='The Claude adapter does not yet offer native agent delegation.'
                     if backend in ('local','deepseek') and (scope=='global' or kind=='agent'):
-                        reason='Este recurso não está disponível no ambiente isolado deste executor.'
-                    if kind=='skill' and engine=='claude' and name in skill_names:reason='Outra skill com este nome tem precedência no motor; renomeie para selecioná-la.'
-                    if kind=='agent' and name in agent_names:reason='Outro agente com este nome tem precedência no motor; renomeie para selecioná-lo.'
+                        reason='This resource is not available in the isolated environment of this executor.'
+                    if kind=='skill' and engine=='claude' and name in skill_names:reason='Another skill with this name takes precedence in the engine; rename it to select it.'
+                    if kind=='agent' and name in agent_names:reason='Another agent with this name takes precedence in the engine; rename it to select it.'
                     if kind=='command' and (re.search(r'!\{|!`|@\{|\$\{|\$[A-Za-z_]+',body.replace('$ARGUMENTS','')) or (engine=='claude' and re.search(r'^\s*(context|agent|hooks|allowed-tools):',text,re.M))):
-                        reason='Este comando exige recursos de expansão nativa ainda não suportados.'
-                    if kind=='skill' and str(meta.get('user-invocable','true')).lower()=='false':reason='Skill não disponível para invocação pelo usuário.'
+                        reason='This command requires native expansion features that are not yet supported.'
+                    if kind=='skill' and str(meta.get('user-invocable','true')).lower()=='false':reason='Skill not available for invocation by the user.'
                     identity=hashlib.sha256((engine+'\0'+kind+'\0'+canonical).encode()).hexdigest()
                     item={'id':identity,'revision':hashlib.sha256(text.encode()).hexdigest(),'kind':kind,'name':name,
                           'description':str(meta.get('description',''))[:1000],'scope':scope,'origin':origin,
@@ -142,11 +142,11 @@ def discover(config, project_id, backend, model=None, *, private=False, executio
                     result['items'].append(item);seen.add(key)
                     if kind=='agent':agent_names.add(name)
                     if kind=='skill':skill_names.add(name)
-                except (ValueError,OSError,TypeError):result['warnings'].append('Não foi possível ler o recurso '+str(path))
+                except (ValueError,OSError,TypeError):result['warnings'].append('Could not read the resource '+str(path))
                 if len(result['items'])>=MAX_FILES:
-                    result['warnings'].append('Catálogo limitado a 500 recursos.');return result
-        except ResourceError:result['warnings'].append('Leitura limitada a 500 entradas em '+str(base))
-        except (OSError,RuntimeError):result['warnings'].append('Não foi possível consultar '+str(base))
+                    result['warnings'].append('Catalog limited to 500 resources.');return result
+        except ResourceError:result['warnings'].append('Read limited to 500 entries in '+str(base))
+        except (OSError,RuntimeError):result['warnings'].append('Could not access '+str(base))
     result['items'].sort(key=lambda i:(i['scope']!='project',i['origin'],i['name'].casefold(),i['kind']))
     return result
 

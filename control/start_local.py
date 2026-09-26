@@ -10,7 +10,7 @@ from .local_models import launch_command, validate_profile
 
 
 def resolve_profile(profile, root):
-    if not isinstance(profile,dict):raise ValueError('Perfil local inválido.')
+    if not isinstance(profile,dict):raise ValueError('Invalid local profile.')
     result=dict(profile)
     for name in ('binary','model_file','mmproj_file'):
         if name in result and result[name]:
@@ -31,16 +31,16 @@ def ensure_key(path):
 
 
 def main(argv=None):
-    parser=argparse.ArgumentParser(description='Inicia um perfil local llama.cpp validado.')
+    parser=argparse.ArgumentParser(description='Starts a validated local llama.cpp profile.')
     parser.add_argument('--profile',required=True)
     parser.add_argument('--root',required=True)
     parser.add_argument('--port',type=int,default=8096)
     parser.add_argument('--alias',default='managed-local')
     parser.add_argument('--key-file',required=True)
-    parser.add_argument('--check',action='store_true',help='Mostra o comando sem iniciar o runtime.')
+    parser.add_argument('--check',action='store_true',help='Show the command without starting the runtime.')
     args=parser.parse_args(argv)
     root=Path(args.root).expanduser().resolve()
-    if not root.is_dir():raise ValueError('Raiz do projeto não encontrada.')
+    if not root.is_dir():raise ValueError('Project root not found.')
     profile_path=Path(args.profile).expanduser()
     profile_path=profile_path if profile_path.is_absolute() else root/profile_path
     profile=resolve_profile(json.loads(profile_path.read_text()),root)

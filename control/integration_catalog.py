@@ -187,9 +187,9 @@ def _fallback(provider, fallback):
 async def catalog(provider, binary, fallback=None):
     """Return the known provider catalogue without commands, credentials, or stderr."""
     if provider not in {"codex", "claude"}:
-        return {"items": [], "warnings": ["Catálogo não suportado para este provedor."]}
+        return {"items": [], "warnings": ["Catalog not supported for this provider."]}
     if not isinstance(binary, str) or not binary:
-        return {"items": [], "warnings": ["CLI do provedor não foi encontrado."]}
+        return {"items": [], "warnings": ["The provider's CLI was not found."]}
 
     plugin_command = (binary, "plugin", "list", "--available", "--json")
     mcp_command = (binary, "mcp", "list", "--json") if provider == "codex" else (binary, "mcp", "list")
@@ -201,8 +201,8 @@ async def catalog(provider, binary, fallback=None):
     warnings = []
     if mcp_code != 0 or mcp_items is None:
         mcp_items = _fallback(provider, fallback)
-        warnings.append("Não foi possível ler o catálogo MCP do CLI; foram usados os conectores já configurados.")
+        warnings.append("Could not read the CLI's MCP catalog; already configured connectors were used.")
     if plugin_code != 0 or plugin_items is None:
         plugin_items = []
-        warnings.append("Não foi possível ler o catálogo de plugins do CLI.")
+        warnings.append("Could not read the CLI's plugin catalog.")
     return {"items": mcp_items + plugin_items, "warnings": warnings}

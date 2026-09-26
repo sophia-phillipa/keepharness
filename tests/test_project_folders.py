@@ -17,13 +17,13 @@ def test_named_multiple_roots_persist_and_names_are_unique(tmp_path):
     roots=[tmp_path/'one',tmp_path/'two']
     for root in roots:root.mkdir()
     with TestClient(app,headers={'Authorization':'Bearer a'}) as client:
-        response=client.post('/v1/projects',json={'name':'  Meu   Projeto  ','paths':list(map(str,roots))+[str(roots[0])]})
+        response=client.post('/v1/projects',json={'name':'  My   Project  ','paths':list(map(str,roots))+[str(roots[0])]})
         assert response.status_code==201,response.text
         pid=response.json()['project_id']
         spec=client.get('/v1/projects').json()['details'][pid]
-        assert spec['label']=='Meu Projeto'
+        assert spec['label']=='My Project'
         assert spec['root']==str(roots[0]) and spec['additional_roots']==[str(roots[1])]
-        duplicate=client.post('/v1/projects',json={'name':'MEU PROJETO','paths':[str(roots[1])]})
+        duplicate=client.post('/v1/projects',json={'name':'MY PROJECT','paths':[str(roots[1])]})
         assert duplicate.status_code==409 and duplicate.json()['code']=='project_name_exists'
         for name in ('','ab','12a',3):
             assert client.post('/v1/projects',json={'name':name,'paths':[str(roots[0])]}).status_code==422

@@ -29,7 +29,7 @@ const assert=require('node:assert/strict'),fs=require('node:fs/promises'),path=r
    if(q==='/v1/projects')data={projects:['sem-projeto'],details:{}};
    if(q==='/v1/models')data={models:[{id:'claude-sonnet-4-6',backend:'claude',efforts:['configured'],permissions:{}}],providers:{claude:true},uploads_enabled:false};
    if(q==='/v1/version')data={version:'fixture',build:'renewal'};
-   if(q==='/v1/conversations')data={conversations:turns.length?[{id:'turn-1',title:'Renovação',project:'sem-projeto',state:'interrupted',last_job_id:turns.at(-1).id,execution:{model:'claude-sonnet-4-6',backend:'claude'}}]:[]};
+   if(q==='/v1/conversations')data={conversations:turns.length?[{id:'turn-1',title:'Renewal',project:'sem-projeto',state:'interrupted',last_job_id:turns.at(-1).id,execution:{model:'claude-sonnet-4-6',backend:'claude'}}]:[]};
    if(q==='/v1/usage')data={available:false};
    if(q==='/v1/project-directories')data={roots:[],entries:[]};
    if(q==='/v1/catalog')data={agents:[],skills:[],warnings:[]};
@@ -38,7 +38,7 @@ const assert=require('node:assert/strict'),fs=require('node:fs/promises'),path=r
     turns.push({id,project:'sem-projeto',state:'interrupted',request:posts.at(-1),result:{condition}});data={job_id:id};
    }
    if(q.startsWith('/v1/jobs/')&&!q.endsWith('/events'))data=turns.find(t=>t.id===q.split('/').at(-1))||{};
-   if(q==='/v1/conversations/turn-1')data={title:'Renovação',turns};
+   if(q==='/v1/conversations/turn-1')data={title:'Renewal',turns};
    if(q.endsWith('/events'))return route.fulfill({body:'',contentType:'text/event-stream'});
    return route.fulfill({json:data});
   }
@@ -46,38 +46,38 @@ const assert=require('node:assert/strict'),fs=require('node:fs/promises'),path=r
   return route.fulfill({body:await fs.readFile(path.join(__dirname,file.startsWith('assets/')?'../tail_ui':'../agent_service',file)),contentType:file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':file.endsWith('.svg')?'image/svg+xml':'text/html'});
  });
  const idle=()=>page.waitForFunction(()=>!document.body.hasAttribute('aria-busy'));
- const login=()=>page.getByRole('button',{name:'Entrar ou renovar acesso — Claude Code',exact:true});
- const close=()=>page.getByRole('button',{name:'Fechar',exact:true}).click();
+ const login=()=>page.getByRole('button',{name:'Log in or renew access — Claude Code',exact:true});
+ const close=()=>page.getByRole('button',{name:'Close',exact:true}).click();
  // P1: novice finds renewal directly; missing CLI has a disabled action.
  await page.goto('http://admin.test/#provedores');await idle();assert(await login().isVisible());
- await login().click();await page.getByRole('link',{name:/Abrir autorização/}).waitFor();assert.equal(logins,1);await close();
+ await login().click();await page.getByRole('link',{name:/Open authorization/}).waitFor();assert.equal(logins,1);await close();
  state.inventory.services[0].found=false;await page.reload();await idle();assert(await login().isDisabled());
  state.inventory.services[0].found=true;await page.reload();await idle();console.log('P1 PASS: visible renewal and missing CLI');
  // P2: cancel and retry remain available; duplicate requests are tested by API unit tests.
- await login().click();await page.getByRole('button',{name:'Cancelar',exact:true}).click();await page.getByRole('button',{name:'Tentar novamente',exact:true}).waitFor();
- await page.getByRole('button',{name:'Tentar novamente',exact:true}).click();await page.getByRole('link',{name:/Abrir autorização/}).waitFor();await close();console.log('P2 PASS: cancel and retry');
+ await login().click();await page.getByRole('button',{name:'Cancel',exact:true}).click();await page.getByRole('button',{name:'Retry',exact:true}).waitFor();
+ await page.getByRole('button',{name:'Retry',exact:true}).click();await page.getByRole('link',{name:/Open authorization/}).waitFor();await close();console.log('P2 PASS: cancel and retry');
  // P4: keyboard activation, accessible status, escape returns focus.
  loginDelay=250;await login().focus();await page.keyboard.press('Enter');await page.locator('#operation-dialog').waitFor();
- assert.equal(await page.locator('#operation-message').getAttribute('role'),'status');await page.keyboard.press('Escape');await page.waitForFunction(()=>document.activeElement?.getAttribute('aria-label')==='Entrar ou renovar acesso — Claude Code');assert(await login().evaluate(e=>e===document.activeElement));loginDelay=0;console.log('P4 PASS: keyboard and status, including closing during a pending request');
+ assert.equal(await page.locator('#operation-message').getAttribute('role'),'status');await page.keyboard.press('Escape');await page.waitForFunction(()=>document.activeElement?.getAttribute('aria-label')==='Log in or renew access — Claude Code');assert(await login().evaluate(e=>e===document.activeElement));loginDelay=0;console.log('P4 PASS: keyboard and status, including closing during a pending request');
  // P5: mobile layout and re-opening an ongoing login after reload.
  await page.setViewportSize({width:390,height:844});await page.reload();await idle();assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
- await page.getByRole('button',{name:'Operações em andamento e resultados',exact:true}).click();await page.getByRole('link',{name:/Abrir autorização/}).waitFor();await close();
+ await page.getByRole('button',{name:'Operations in progress and results',exact:true}).click();await page.getByRole('link',{name:/Open authorization/}).waitFor();await close();
  await page.screenshot({path:'/tmp/tail-renewal-admin-mobile.png',fullPage:true});console.log('P5 PASS: mobile and operation recovery');
  // P6: selectable catalog and explicit provider are preserved.
  await page.goto('http://harness.test/');await page.locator('#startup-gate').waitFor({state:'hidden'});
  await page.click('#model-trigger');assert.equal(await page.locator('#model-menu').getByText(/Maestro/).count(),0);await page.keyboard.press('Escape');
- await page.fill('#prompt','Mensagem preservada');await page.click('#send');await page.getByText('Seu acesso ao Claude precisa ser renovado.',{exact:false}).waitFor();
+ await page.fill('#prompt','Preserved message');await page.click('#send');await page.getByText('Your Claude access needs to be renewed.',{exact:false}).waitFor();
  assert.equal(posts[0].backend,'claude');console.log('P6 PASS: catalog and selected executor');
  // P3: history and continuing after account condition, without losing the original request.
- condition='claude_quota_exhausted';await page.fill('#prompt','Continuar depois');await page.click('#send');await page.getByText('Sua cota do Claude está temporariamente esgotada.',{exact:false}).waitFor();
+ condition='claude_quota_exhausted';await page.fill('#prompt','Continue later');await page.click('#send');await page.getByText('Your Claude quota is temporarily exhausted.',{exact:false}).waitFor();
  assert.equal(posts[1].parent_job_id,'turn-1');await page.reload();await page.locator('#startup-gate').waitFor({state:'hidden'});
- await page.getByText('Seu acesso ao Claude precisa ser renovado.',{exact:false}).waitFor();await page.getByText('Sua cota do Claude está temporariamente esgotada.',{exact:false}).waitFor();
- assert(await page.getByText('Mensagem preservada',{exact:true}).isVisible());console.log('P3 PASS: history and continuation');
+ await page.getByText('Your Claude access needs to be renewed.',{exact:false}).waitFor();await page.getByText('Your Claude quota is temporarily exhausted.',{exact:false}).waitFor();
+ assert(await page.getByText('Preserved message',{exact:true}).isVisible());console.log('P3 PASS: history and continuation');
  // P7: both conditions have neutral, actionable summaries in latest and older turns.
  const legacy=await page.evaluate(()=>['claude_authentication_failed','claude_rate_limit'].map(executionError));
- assert.match(legacy[0],/painel administrativo/);assert.match(legacy[1],/cota/);assert(!/falha|claude_authentication_failed/i.test(legacy[0]));
- assert.match(await page.locator('#activity-state').textContent(),/Aguardar renovação da cota/);
- assert(!/Falha|❌|claude_execution_failed/.test(await page.locator('#messages').innerText()));
+ assert.match(legacy[0],/admin panel/);assert.match(legacy[1],/quota/);assert(!/fail|claude_authentication_failed/i.test(legacy[0]));
+ assert.match(await page.locator('#activity-state').textContent(),/Wait for quota renewal/);
+ assert(!/Failed|❌|claude_execution_failed/.test(await page.locator('#messages').innerText()));
  await page.screenshot({path:'/tmp/tail-renewal-conditions-mobile.png',fullPage:true});
  await page.setViewportSize({width:1280,height:900});await page.screenshot({path:'/tmp/tail-renewal-conditions-desktop.png',fullPage:true});console.log('P7 PASS: neutral condition summaries');
  assert.deepEqual(errors,[]);

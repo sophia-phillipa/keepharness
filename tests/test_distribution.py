@@ -34,10 +34,10 @@ class DistributionTest(unittest.TestCase):
   with tempfile.TemporaryDirectory() as d:
    Path(d,'autostart').touch()
    manager=Manager(d);manager.settings['services']['codex'].update(enabled=True,models=['fixture']);Path(d,'settings.json').write_text(json.dumps(manager.settings))
-   with patch('control.server.scan',AsyncMock(return_value=INVENTORY)),patch.object(Manager,'start',AsyncMock(side_effect=ValueError('CLI indisponível'))) as start:
+   with patch('control.server.scan',AsyncMock(return_value=INVENTORY)),patch.object(Manager,'start',AsyncMock(side_effect=ValueError('CLI unavailable'))) as start:
     with TestClient(create_app(d),base_url='http://127.0.0.1:8094') as client:
      client.get('/');state=client.get('/api/state').json()
-     self.assertEqual(state['status']['startup_error'],'CLI indisponível');start.assert_awaited_once()
+     self.assertEqual(state['status']['startup_error'],'CLI unavailable');start.assert_awaited_once()
  def test_fresh_install_does_not_enable_providers(self):
   with tempfile.TemporaryDirectory() as d:
    with patch('control.server.scan',AsyncMock(return_value=INVENTORY)),patch.object(Manager,'start',AsyncMock()) as start:

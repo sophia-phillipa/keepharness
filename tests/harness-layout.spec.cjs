@@ -12,20 +12,20 @@ const path=require('node:path');
   const page=await browser.newPage({viewport:{width:1515,height:950}}),errors=[];
   page.on('pageerror',e=>errors.push(e.message));
   await page.addInitScript(()=>localStorage.setItem('activity-open','0'));
-  const origin=process.env.HARNESS_URL||'http://panel.test';let submitted,conversationTitle='Conversa de teste';
+  const origin=process.env.HARNESS_URL||'http://panel.test';let submitted,conversationTitle='Test conversation';
   const serve=async route=>{
    const p=new URL(route.request().url()).pathname;
    if(p.startsWith('/v1/')){
     let data={};
     if(p==='/v1/projects')data={projects:['sem-projeto'],details:{}};
     if(p==='/v1/usage')data=new URL(route.request().url()).searchParams.get('backend')==='claude'?{available:true,provider:'claude',checked_at:1790000000,rateLimitsByLimitId:{five_hour:{limitName:'five_hour',primary:{usedPercent:34.5,windowDurationMins:300,resetsAt:1800000000}},seven_day_opus:{limitName:'seven_day_opus',primary:{usedPercent:12,windowDurationMins:10080,resetsAt:1800000000}}}}:{available:true,rateLimitsByLimitId:{codex:{primary:{usedPercent:21.4,windowDurationMins:300,resetsAt:1800000000},secondary:{usedPercent:62,windowDurationMins:10080,resetsAt:1800000000}}}};
-    if(p==='/v1/models')data={models:[{id:'gpt-6-astra',backend:'codex',efforts:['low','medium','high']},{id:'local-long',name:'Modelo local com um nome muito longo para testar',backend:'local',efforts:['low']},{id:'claude-opus-5',name:'Claude Opus 5',backend:'claude',efforts:['configured','low','medium','high','xhigh','max']}],providers:{codex:true,local:true,claude:true},uploads_enabled:true};
+    if(p==='/v1/models')data={models:[{id:'gpt-6-astra',backend:'codex',efforts:['low','medium','high']},{id:'local-long',name:'Local model with a very long name for testing',backend:'local',efforts:['low']},{id:'claude-opus-5',name:'Claude Opus 5',backend:'claude',efforts:['configured','low','medium','high','xhigh','max']}],providers:{codex:true,local:true,claude:true},uploads_enabled:true};
     if(p==='/v1/conversations')data={conversations:[{id:'conversation-fixture',title:conversationTitle,project:'sem-projeto',state:'completed',execution:{backend:'local',model:'fixture'}}]};
     if(p==='/v1/conversations/conversation-fixture'&&route.request().method()==='PATCH'){
      conversationTitle=route.request().postDataJSON().title.trim();return route.fulfill({json:{id:'conversation-fixture',title:conversationTitle}});
     }
     if(p==='/v1/version')data={version:'test',build:'composer-test'};
-    if(p==='/v1/catalog')data={agents:[],skills:[],warnings:[],scope:'teste'};
+    if(p==='/v1/catalog')data={agents:[],skills:[],warnings:[],scope:'test'};
     if(p==='/v1/files')data={file_id:'attachment-fixture'};
     if(p==='/v1/jobs'&&route.request().method()==='POST'){
      submitted=route.request().postDataJSON();
@@ -41,15 +41,15 @@ const path=require('node:path');
   await page.goto(origin);
   await page.locator('#startup-gate').waitFor({state:'hidden'});
   assert.equal(await page.locator('#task-section,#task-label').count(),0);
-  assert.equal(await page.locator('#conversation-search').getAttribute('placeholder'),'Digite um título…');
+  assert.equal(await page.locator('#conversation-search').getAttribute('placeholder'),'Type a title…');
   assert.equal(Math.round((await page.locator('#sidebar').boundingBox()).width),280,'default conversation sidebar width');
-  await page.waitForFunction(()=>document.querySelector('#quota-short').textContent.includes('5 h: 78.6%')&&document.querySelector('#quota-short').textContent.includes('Semanal: 38%'));assert.equal(await page.locator('#quota-model-icon').textContent(),'🌟');assert.match(await page.locator('#quota-model-name').textContent(),/GPT-6 Astra/);await page.screenshot({path:'/tmp/tail-quota-header-desktop.png'});await page.setViewportSize({width:1280,height:950});await page.evaluate(()=>setPanelOpen(true,false));await page.waitForTimeout(100);const narrowQuota=await page.locator('#quota-toggle').boundingBox();assert(narrowQuota.x>=0&&narrowQuota.x+narrowQuota.width<=1280,'quota header stays inside viewport with both panels open');await page.screenshot({path:'/tmp/tail-quota-both-panels.png'});await page.evaluate(()=>setPanelOpen(false,false));await page.setViewportSize({width:1515,height:950});
+  await page.waitForFunction(()=>document.querySelector('#quota-short').textContent.includes('5 h: 78.6%')&&document.querySelector('#quota-short').textContent.includes('Weekly: 38%'));assert.equal(await page.locator('#quota-model-icon').textContent(),'🌟');assert.match(await page.locator('#quota-model-name').textContent(),/GPT-6 Astra/);await page.screenshot({path:'/tmp/tail-quota-header-desktop.png'});await page.setViewportSize({width:1280,height:950});await page.evaluate(()=>setPanelOpen(true,false));await page.waitForTimeout(100);const narrowQuota=await page.locator('#quota-toggle').boundingBox();assert(narrowQuota.x>=0&&narrowQuota.x+narrowQuota.width<=1280,'quota header stays inside viewport with both panels open');await page.screenshot({path:'/tmp/tail-quota-both-panels.png'});await page.evaluate(()=>setPanelOpen(false,false));await page.setViewportSize({width:1515,height:950});
   await page.evaluate(()=>setPanelOpen(true,false));assert.equal(Math.round((await page.locator('#activity-panel').boundingBox()).width),400,'default activity sidebar width');await page.evaluate(()=>setPanelOpen(false,false));
   const footer=await page.locator('#app-topbar #settings').boundingBox();assert(footer.height>=32&&footer.height<=40,'compact settings control keeps accessible hit area');
   await page.selectOption('#model','gpt-6-astra');await page.selectOption('#effort','medium');
   await page.selectOption('#access-mode','auto');
   if(await page.locator('#th-toast').isVisible())await page.locator('#th-toast button').click();
-  const draft='Precisamos reformular a nossa caixa de prompt. Eu quero algo parecido com isto';
+  const draft='We need to redesign our prompt box. I want something like this';
   await page.fill('#prompt',draft);
   assert.equal(await page.locator('#model option:checked').textContent(),'GPT-6 Astra');
   async function checkLayout(width){
@@ -85,21 +85,21 @@ const path=require('node:path');
   await page.setViewportSize({width:1515,height:950});
   // Settings opens the dialog directly, without an intermediate menu.
   assert.equal(await page.locator('#account-menu,#forget-approvals').count(),0);
-  assert.equal(await page.locator('#settings').innerText(),'Configurações');
+  assert.equal(await page.locator('#settings').innerText(),'Settings');
   assert.equal(await page.locator('#settings').getAttribute('aria-haspopup'),'dialog');
   await page.click('#settings');
   assert(await page.locator('#settings-dialog').isVisible());
   assert.match(await page.locator('#version').innerText(),/^Release: test$/);
   assert.equal(await page.locator('[data-panel-order=conversations-left]').getAttribute('aria-pressed'),'true');await page.screenshot({path:'/tmp/tail-panel-order-desktop.png'});await page.locator('[data-panel-order=conversations-right]').click();assert.equal(await page.locator('[data-panel-order=conversations-right]').getAttribute('aria-pressed'),'true');assert.equal(await page.evaluate(()=>localStorage.getItem('panel-order')),'conversations-right');await page.evaluate(()=>setPanelOpen(true,false));const reversed1280=await page.evaluate(()=>({sidebar:document.querySelector('#sidebar').getBoundingClientRect().x,main:document.querySelector('main').getBoundingClientRect().x,activity:document.querySelector('#activity-panel').getBoundingClientRect().x}));assert(reversed1280.sidebar>reversed1280.main&&reversed1280.activity<reversed1280.main,'reversed 1280px positions panels on opposite sides of chat');await page.screenshot({path:'/tmp/tail-panel-order-reversed-1280.png'});await page.setViewportSize({width:900,height:950});await page.waitForFunction(()=>document.querySelector('#app-topbar #quota-toggle'));assert.equal(await page.locator('#app-topbar #quota-toggle').count(),1,'quota remains pinned to the visible app bar while drawer overlays chat');const reversed900=await page.evaluate(()=>({sidebar:document.querySelector('#sidebar').getBoundingClientRect().x,main:document.querySelector('main').getBoundingClientRect().x,activity:document.querySelector('#activity-panel').getBoundingClientRect().x}));assert(reversed900.sidebar>reversed900.main&&reversed900.activity<=reversed900.main,'reversed 900px keeps the drawer on the left');await page.screenshot({path:'/tmp/tail-panel-order-reversed-900.png'});await page.evaluate(()=>setPanelOpen(false,false));assert.equal(await page.locator('main #quota-toggle').count(),1,'quota returns to the conversation header when drawer closes');await page.locator('#panel-order-reset').click();assert.equal(await page.evaluate(()=>localStorage.getItem('panel-order')),'conversations-left');await page.setViewportSize({width:1515,height:950});await page.setViewportSize({width:390,height:844});await page.screenshot({path:'/tmp/tail-panel-order-mobile.png'});await page.setViewportSize({width:1515,height:950});await page.click('#settings-close');await page.evaluate(()=>{applyPanelOrder('conversations-right');setPanelOpen(true,false)});await page.screenshot({path:'/tmp/tail-panels-reversed-live-1280.png'});await page.setViewportSize({width:900,height:950});await page.screenshot({path:'/tmp/tail-panels-reversed-live-900.png'});await page.evaluate(()=>{setPanelOpen(false,false);applyPanelOrder('conversations-left')});await page.setViewportSize({width:1515,height:950});
   const actions=page.locator('.conversation-actions').first();await actions.locator('summary').click();
-  assert(await actions.getByRole('button',{name:'Renomear conversa'}).isVisible());
-  assert(await actions.getByRole('button',{name:'Excluir conversa'}).isVisible());
-  await actions.getByRole('button',{name:'Renomear conversa'}).click();
-  await page.fill('#rename-conversation-name','Conversa renomeada');
+  assert(await actions.getByRole('button',{name:'Rename conversation'}).isVisible());
+  assert(await actions.getByRole('button',{name:'Delete conversation'}).isVisible());
+  await actions.getByRole('button',{name:'Rename conversation'}).click();
+  await page.fill('#rename-conversation-name','Renamed conversation');
   await page.click('#rename-conversation-save');
   await page.locator('#rename-conversation-dialog').waitFor({state:'hidden'});
-  await page.waitForFunction(()=>document.querySelector('.conversation-row .conversation-title').textContent==='Conversa renomeada');
-  assert.equal(conversationTitle,'Conversa renomeada');
+  await page.waitForFunction(()=>document.querySelector('.conversation-row .conversation-title').textContent==='Renamed conversation');
+  assert.equal(conversationTitle,'Renamed conversation');
   await page.setViewportSize({width:390,height:844});await page.click('#menu');await page.locator('#sidebar').waitFor();
   await page.click('#settings');
   const accountBox=await page.locator('#settings-dialog').boundingBox();
@@ -129,7 +129,7 @@ const path=require('node:path');
    assert(menu.width>Math.min(450,width-40));
    await page.locator('#access-menu [data-access=full]').click();
    assert.equal(await page.locator('#access-mode').inputValue(),'full');
-   assert.equal(await page.locator('#access-label').textContent(),'Acesso total');
+   assert.equal(await page.locator('#access-label').textContent(),'Full access');
    await page.click('#access-trigger');
    const colors=await page.locator('#access-menu [data-access]').evaluateAll(nodes=>nodes.map(node=>({mode:node.dataset.access,color:getComputedStyle(node).color,selected:node.getAttribute('aria-selected')})));
    const full=colors.find(item=>item.mode==='full'),selected=colors.find(item=>item.selected==='true');
@@ -144,29 +144,29 @@ const path=require('node:path');
   await page.click('#access-trigger');await page.locator('#access-menu [data-access=full]').click();
   // Both custom menus reflect the current catalog and supported efforts.
   await page.click('#model-trigger');await openModelGroup(page,'local-long');await page.locator('#model-menu [data-value=local-long]').click();
-  assert.equal(await page.locator('#model-label').textContent(),'Modelo local com um nome muito longo para testar');
+  assert.equal(await page.locator('#model-label').textContent(),'Local model with a very long name for testing');
   await page.click('#effort-trigger');assert.equal(await page.locator('#effort-menu [role=option]').count(),1);
   await page.keyboard.press('Escape');
   await page.click('#model-trigger');await openModelGroup(page,'gpt-6-astra');await page.locator('#model-menu [data-value=gpt-6-astra]').click();
   await page.click('#effort-trigger');assert.equal(await page.locator('#effort-menu [role=option]').count(),3);
-  await page.locator('#effort-menu [data-value=high]').click();assert.equal(await page.locator('#effort-label').textContent(),'Alto');
+  await page.locator('#effort-menu [data-value=high]').click();assert.equal(await page.locator('#effort-label').textContent(),'High');
   for(const id of ['model','effort']){
    await page.click('#'+id+'-trigger');await page.locator('#'+id+'-menu').screenshot({path:'/tmp/tail-'+id+'-picker.png'});await page.keyboard.press('Escape');
   }
   // Long provider names, keyboard selection and uploads use the real controls.
-  await page.selectOption('#model','local-long');assert.match(await page.locator('#quota-short').innerText(),/Sem cota do provedor/);assert.doesNotMatch(await page.locator('#quota-toggle').getAttribute('aria-label'),/cota compartilhada da conta Codex/i);
+  await page.selectOption('#model','local-long');assert.match(await page.locator('#quota-short').innerText(),/No provider quota/);assert.doesNotMatch(await page.locator('#quota-toggle').getAttribute('aria-label'),/Shared Codex account quota/i);
   for(const width of [1515,1000,768,390])await checkLayout(width);
   await page.setViewportSize({width:1280,height:950});await page.evaluate(()=>setPanelOpen(true,false));await checkLayout(1280);await page.evaluate(()=>setPanelOpen(false,false));
-  await page.selectOption('#model','claude-opus-5');assert.deepEqual(await page.locator('#effort option').evaluateAll(options=>options.map(o=>o.value)),['configured','low','medium','high','xhigh','max']);await page.selectOption('#effort','max');await page.waitForFunction(()=>document.querySelector('#quota-short').textContent.includes('5 h · Claude: 65.5% restante'));assert.equal(await page.locator('#quota-model-icon').textContent(),'✳');assert.match(await page.locator('#quota-toggle').getAttribute('aria-label'),/Última informação do Claude/);assert.match(await page.locator('#quota-toggle').getAttribute('title'),/Atualizada em/);await page.selectOption('#model','gpt-6-astra');await page.waitForFunction(()=>document.querySelector('#quota-short').textContent.includes('5 h: 78.6%'));await page.locator('#effort-trigger').focus();await page.keyboard.press('ArrowDown');await page.keyboard.press('Home');await page.keyboard.press('ArrowDown');await page.keyboard.press('Enter');
+  await page.selectOption('#model','claude-opus-5');assert.deepEqual(await page.locator('#effort option').evaluateAll(options=>options.map(o=>o.value)),['configured','low','medium','high','xhigh','max']);await page.selectOption('#effort','max');await page.waitForFunction(()=>document.querySelector('#quota-short').textContent.includes('5 h · Claude: 65.5% remaining'));assert.equal(await page.locator('#quota-model-icon').textContent(),'✳');assert.match(await page.locator('#quota-toggle').getAttribute('aria-label'),/Latest information from Claude/);assert.match(await page.locator('#quota-toggle').getAttribute('title'),/Updated on/);await page.selectOption('#model','gpt-6-astra');await page.waitForFunction(()=>document.querySelector('#quota-short').textContent.includes('5 h: 78.6%'));await page.locator('#effort-trigger').focus();await page.keyboard.press('ArrowDown');await page.keyboard.press('Home');await page.keyboard.press('ArrowDown');await page.keyboard.press('Enter');
   assert.equal(await page.locator('#effort').inputValue(),'medium');
-  const chooser=page.waitForEvent('filechooser');await page.click('#attach');await (await chooser).setFiles({name:'teste.txt',mimeType:'text/plain',buffer:Buffer.from('Anexo de teste')});
-  await page.waitForFunction(()=>document.querySelector('#attachments').textContent.includes('teste.txt'));
-  await page.click('#send');await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('Este modelo não está habilitado'));
+  const chooser=page.waitForEvent('filechooser');await page.click('#attach');await (await chooser).setFiles({name:'test.txt',mimeType:'text/plain',buffer:Buffer.from('Test attachment')});
+  await page.waitForFunction(()=>document.querySelector('#attachments').textContent.includes('test.txt'));
+  await page.click('#send');await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('This model is not enabled'));
   assert.equal(submitted.model,'gpt-6-astra');assert.equal(submitted.effort,'medium');assert.equal(submitted.access_mode,'full');assert.deepEqual(submitted.file_ids,['attachment-fixture']);
   assert.equal(submitted.prompt,draft);assert.equal(await page.locator('#prompt').inputValue(),draft);
   await page.reload();await page.locator('#startup-gate').waitFor({state:'hidden'});
   assert.equal(await page.locator('#model-label').textContent(),'GPT-6 Astra');
-  assert.equal(await page.locator('#effort-label').textContent(),'Médio');
+  assert.equal(await page.locator('#effort-label').textContent(),'Medium');
   // A physical 4K screen with 200% display scaling has a 1920x1080 CSS viewport.
   const scaled=await browser.newPage({viewport:{width:1920,height:1080},deviceScaleFactor:2});
   await scaled.addInitScript(()=>localStorage.setItem('activity-open','0'));
@@ -176,13 +176,13 @@ const path=require('node:path');
   await scaled.screenshot({path:'/tmp/tail-4k-scaled.png',fullPage:true});await scaled.close();
   const motion=await page.evaluate(()=>{
    const prior=active,priorLast=last,el=document.createElement('article'),body=document.createElement('div');body.className='text chat-bubble';el.append(body);document.querySelector('#messages').append(el);active={body,el};
-   body.rawAnswer=renderAnswer(body,'Resposta parcial');updateMotion('answer_delta');const duringAnswer=!!body.querySelector('p .response-motion');
+   body.rawAnswer=renderAnswer(body,'Partial answer');updateMotion('answer_delta');const duringAnswer=!!body.querySelector('p .response-motion');
    updateMotion('thinking');const duringThinking=!!body.querySelector('p .response-motion');
-   updateMotion('completed');const afterComplete=!!body.querySelector('.response-motion');status('Concluído');const routineStatus=document.querySelector('#status').textContent;
-   status('Não foi possível concluir: erro de teste');const errorStatus=document.querySelector('#status').textContent;
+   updateMotion('completed');const afterComplete=!!body.querySelector('.response-motion');status('Completed');const routineStatus=document.querySelector('#status').textContent;
+   status("Couldn't finish: test error");const errorStatus=document.querySelector('#status').textContent;
    active=prior;last=priorLast;el.remove();return{duringAnswer,duringThinking,afterComplete,routineStatus,errorStatus};
   });
-  assert.deepEqual(motion,{duringAnswer:true,duringThinking:true,afterComplete:false,routineStatus:'',errorStatus:'Não foi possível concluir: erro de teste'});
+  assert.deepEqual(motion,{duringAnswer:true,duringThinking:true,afterComplete:false,routineStatus:'',errorStatus:"Couldn't finish: test error"});
   assert.deepEqual(errors,[]);
   console.log('PASS: composer reference layout, six themes, desktop/tablet/mobile, zoom, long names, keyboard, settings, rename menu, inline response motion and status behavior.');
  }finally{await browser.close();}

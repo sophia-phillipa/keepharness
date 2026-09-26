@@ -117,7 +117,7 @@ def test_round09_unicode_and_argument_recovery(project):
     item = command(project, 'Review {{args}}')
     with pytest.raises(resources.ResourceError, match='invalid_command_arguments'):
         resources.prepare_prompt('/review "unfinished', [item])
-    assert resources.prepare_prompt('/review "revisão acessível"\nDraft intact', [item]) == 'Review "revisão acessível"\nDraft intact'
+    assert resources.prepare_prompt('/review "café façade"\nDraft intact', [item]) == 'Review "café façade"\nDraft intact'
     assert resources.prepare_prompt('/review-other literal', [item]) == '/review-other literal'
 
 

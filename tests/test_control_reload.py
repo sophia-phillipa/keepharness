@@ -50,7 +50,7 @@ def test_running_harness_rejects_bind_or_port_change_but_allows_empty_services(
         )
     )
     changed = {**manager.settings, "port": 8096}
-    with pytest.raises(ValueError, match="reinicie"):
+    with pytest.raises(ValueError, match="restart the harness"):
         asyncio.run(manager.apply_settings(changed))
     asyncio.run(manager.apply_settings(manager.settings))
     assert (

@@ -12,7 +12,7 @@ const assert=require('node:assert/strict');
   await page.route('**/v1/**',async route=>{
    const path=new URL(route.request().url()).pathname;
    if(path==='/v1/projects')await new Promise(resolve=>setTimeout(resolve,250));
-   const data=path==='/v1/projects'?{projects:['project-a','sem-projeto'],details:{'project-a':{label:'Projeto Alpha'}}}:
+   const data=path==='/v1/projects'?{projects:['project-a','sem-projeto'],details:{'project-a':{label:'Project Alpha'}}}:
     path==='/v1/models'?{admin_url:'http://127.0.0.1:8094/',models:[{id:'fixture',name:'Fixture',backend:'local',efforts:['low']},{id:'cloud-fixture',name:'Cloud fixture',backend:'codex',efforts:['low']}],providers:{local:true,codex:true},uploads_enabled:false}:
     path==='/v1/conversations'?{conversations:[]}:
     path==='/v1/version'?{version:'fixture',build:'fixture'}:{};

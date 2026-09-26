@@ -2,11 +2,11 @@
 (()=>{
  const root=document.documentElement,surface=root.dataset.surface==='admin'?'admin':'harness';
  const themes=[
-  {id:'violet-bordeaux',name:'Violeta & Bordô',mode:'light',colors:['#ffffff','#643b92','#792f49']},
-  {id:'porcelain',name:'Porcelana',mode:'light',colors:['#ffffff','#176b78','#244f69']},
-  {id:'mineral-rose',name:'Rosa mineral',mode:'light',colors:['#ffffff','#873c62','#684253']},
-  {id:'amethyst',name:'Ametista',mode:'dark',colors:['#17131e','#c0a0ef','#eaa5c1']},
-  {id:'petroleum',name:'Petróleo',mode:'dark',colors:['#111c22','#6bd4c9','#f0bc68']},
+  {id:'violet-bordeaux',name:'Violet & Bordeaux',mode:'light',colors:['#ffffff','#643b92','#792f49']},
+  {id:'porcelain',name:'Porcelain',mode:'light',colors:['#ffffff','#176b78','#244f69']},
+  {id:'mineral-rose',name:'Mineral Rose',mode:'light',colors:['#ffffff','#873c62','#684253']},
+  {id:'amethyst',name:'Amethyst',mode:'dark',colors:['#17131e','#c0a0ef','#eaa5c1']},
+  {id:'petroleum',name:'Petroleum',mode:'dark',colors:['#111c22','#6bd4c9','#f0bc68']},
   {id:'arizona',name:'Arizona',mode:'dark',colors:['#232323','#fc4c02','#eeeeee']}
  ];
  const key='tail-harness:theme:'+surface;let initial='violet-bordeaux';

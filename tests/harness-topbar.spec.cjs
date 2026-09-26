@@ -12,7 +12,7 @@ const assert=require('node:assert/strict');
   await page.route('**/v1/**',async route=>{
    const path=new URL(route.request().url()).pathname;
    if(path==='/v1/projects')await new Promise(resolve=>setTimeout(resolve,250));
-   const data=path==='/v1/projects'?{projects:['project-a','sem-projeto'],details:{'project-a':{label:'Projeto Alpha'}}}:
+   const data=path==='/v1/projects'?{projects:['project-a','sem-projeto'],details:{'project-a':{label:'Alpha Project'}}}:
     path==='/v1/project-git'?{revision:'feature/composer'}:
     path==='/v1/models'?{models:[{id:'fixture',name:'Fixture',backend:'local',efforts:['low']},{id:'cloud-fixture',name:'Cloud fixture',backend:'codex',efforts:['low']}],providers:{local:true,codex:true},uploads_enabled:false}:
     path==='/v1/conversations'?{conversations:[]}:
@@ -28,9 +28,9 @@ const assert=require('node:assert/strict');
   assert.equal(await page.locator('#app-brand').innerText(),'Tail Harness');
   assert.equal(await page.locator('#sidebar .brand').count(),0);
   const top=await page.locator('#app-topbar').boundingBox();assert.equal(top.y,0);assert(top.height>=48);
-  assert.equal(await page.locator('#conversation-title').innerText(),'Nova Conversa');
-  assert.equal(await page.locator('#new').innerText(),'Nova Conversa');
-  await page.locator('#prompt').fill('Rascunho preservado');
+  assert.equal(await page.locator('#conversation-title').innerText(),'New Conversation');
+  assert.equal(await page.locator('#new').innerText(),'New Conversation');
+  await page.locator('#prompt').fill('Preserved draft');
   const projectName=page.locator('#projects details summary button').first();
   const originalProject=await page.locator('#project').inputValue();
   await page.evaluate(()=>{window.projectResetCalls=0;const original=newConversation;newConversation=(...args)=>{window.projectResetCalls++;return original(...args);};});
@@ -38,17 +38,17 @@ const assert=require('node:assert/strict');
    await projectName.click();
    assert.equal(await page.locator('#projects details').first().evaluate(el=>el.open),open);
    assert.equal(await page.locator('#project').inputValue(),originalProject);
-   assert.equal(await page.locator('#prompt').inputValue(),'Rascunho preservado');
+   assert.equal(await page.locator('#prompt').inputValue(),'Preserved draft');
    assert.equal(await page.evaluate(()=>window.projectResetCalls),0,'project name only toggles the group');
   }
   await page.locator('#prompt').fill('');
   await page.locator('.project-new').first().click();
-  assert.equal(await page.locator('#conversation-title').innerText(),'Nova Conversa no projeto Projeto Alpha');
-  assert.equal(await page.locator('#composer-project-name').innerText(),'Projeto Alpha');
+  assert.equal(await page.locator('#conversation-title').innerText(),'New Conversation in project Alpha Project');
+  assert.equal(await page.locator('#composer-project-name').innerText(),'Alpha Project');
   await page.waitForFunction(()=>document.querySelector('#composer-git').textContent==='feature/composer');
   await page.evaluate(()=>paintContext({last:{totalTokens:100},total:{totalTokens:999},modelContextWindow:1000},{output_tokens:20,inference_seconds:2}));
-  assert.match(await page.locator('#context-meter').innerText(),/Contexto: 100.*10 tk\/s/);
-  assert.doesNotMatch(await page.locator('#context-meter').innerText(),/Consumo acumulado|média/);
+  assert.match(await page.locator('#context-meter').innerText(),/Context: 100.*10 tk\/s/);
+  assert.doesNotMatch(await page.locator('#context-meter').innerText(),/Accumulated usage|average/);
   await page.evaluate(()=>{
    event({id:last+1,type:'context_usage',data:{last:{totalTokens:100},metrics:{output_tokens:40,inference_seconds:2}}});
    if(!document.querySelector('#context-meter').textContent.includes('20 tk/s'))throw Error('live throughput missing');
@@ -64,27 +64,27 @@ const assert=require('node:assert/strict');
    throughputLabel({output_tokens:-1,inference_seconds:2}),
    throughputLabel({})
   ]);
-  assert.deepEqual(labels,[' · 12,5 tk/s',' · 0 tk/s',...Array(5).fill(' · tk/s: —')]);
+  assert.deepEqual(labels,[' · 12.5 tk/s',' · 0 tk/s',...Array(5).fill(' · tk/s: —')]);
 
   assert.equal(await page.locator('#dropzone #context-meter').count(),0);
   const contextBox=await page.locator('#context-meter').boundingBox(),promptBox=await page.locator('#dropzone').boundingBox();
   assert(contextBox.y+contextBox.height<=promptBox.y,'metadata sits above the outside border');
   assert(await page.locator('#prompt').evaluate(el=>el.matches(':placeholder-shown')));
-  assert.match(await page.locator('#prompt').getAttribute('placeholder'),/Envie uma mensagem.*Enter envia.*Shift\+Enter quebra linha/);
-  await page.locator('#prompt').fill('Texto');
+  assert.match(await page.locator('#prompt').getAttribute('placeholder'),/Send a message.*Enter to send.*Shift\+Enter for a new line/);
+  await page.locator('#prompt').fill('Text');
   assert.equal(await page.locator('#prompt').evaluate(el=>el.matches(':placeholder-shown')),false);
   assert(await page.locator('.composer-info').evaluate(el=>getComputedStyle(el).position==='absolute'));
   await page.locator('#prompt').fill('');
   assert((await page.locator('#prompt').boundingBox()).height<42);
   await page.screenshot({path:'/tmp/tail-composer-project.png'});
   await page.locator('#new').click();
-  assert.equal(await page.locator('#conversation-title').innerText(),'Nova Conversa');
+  assert.equal(await page.locator('#conversation-title').innerText(),'New Conversation');
   assert.equal(await page.locator('#project').inputValue(),'sem-projeto');
   assert(await page.locator('#composer-project').isHidden());
   await page.locator('#model').selectOption('cloud-fixture');await page.locator('#model').dispatchEvent('change');
   await page.locator('#quota-toggle').waitFor({state:'visible'});
   await page.locator('#model').selectOption('fixture');await page.locator('#model').dispatchEvent('change');
-  await page.locator('#quota-toggle').waitFor({state:'visible'});assert.match(await page.locator('#quota-short').innerText(),/Sem cota do provedor/);
+  await page.locator('#quota-toggle').waitFor({state:'visible'});assert.match(await page.locator('#quota-short').innerText(),/No provider quota/);
   assert.equal(await page.locator('#menu').getAttribute('aria-controls'),'sidebar');
   assert.equal(await page.locator('#panel-toggle').getAttribute('aria-controls'),'activity-panel');
   await page.click('#panel-toggle');

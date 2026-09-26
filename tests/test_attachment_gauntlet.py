@@ -34,9 +34,9 @@ def submit(client, ids, prompt='Read only the attached content'):
 @pytest.mark.parametrize('profile',range(1,16),ids=lambda p:f'P{p:02}')
 def test_attachment_profile(api,round_no,profile):
     client,service,root=api
-    content=('Anexo contextual 🐋 '+str(round_no)+'\n').encode()
+    content=('Contextual attachment 🐋 '+str(round_no)+'\n').encode()
     if profile==1: # Real text upload, content-type does not override bytes.
-        response=upload(client,content,name=f'revisão-{round_no}.CSV')
+        response=upload(client,content,name=f'cafe-{round_no}.CSV')
         assert response.status_code==201,response.text
         data=response.json();assert data['sha256']==hashlib.sha256(content).hexdigest()
         assert service.file('p',data['file_id'],'a')['size']==len(content)
@@ -53,7 +53,7 @@ def test_attachment_profile(api,round_no,profile):
         assert service.db.execute('SELECT count(*) FROM files').fetchone()[0]==0
         assert submit(client,[f'missing-{round_no}']).status_code==404
     elif profile==4: # Ordinary desktop/document names must not require renaming.
-        names=['relatório (1).txt','cópia [final].txt','nota, revisão.txt','nota + versão.txt','resumo 🐋.txt',"Sophia's note.txt",'a & b.txt','a@b.txt','100%.txt','arquivo;final.txt']
+        names=['invoice (1).txt','copy [final].txt','note, revision.txt','note + version.txt','summary 🐋.txt',"Alex's note.txt",'a & b.txt','a@b.txt','100%.txt','file;final.txt']
         response=upload(client,content,names[round_no-1]);assert response.status_code==201,response.text
     elif profile==5: # Failed binary upload leaves no orphan, then recovery works.
         response=upload(client,b'\x00'+bytes([round_no]),name='broken.txt')

@@ -15,7 +15,7 @@ const assert=require('node:assert/strict');
   const errors=[];page.on('pageerror',e=>errors.push(e.message));let failSave=false,failCatalog=false,releaseCatalog=null,catalogCalls=0;
   const service=()=>({added:false,enabled:false,models:[],projects:['sem-projeto'],permissions:{read:false,write:false,upload:false,shell:false,internet:false,hooks:false},mode:'scoped',integrations:[]});
   const state={settings:{services:{codex:service(),claude:service()},projects:[],logins:[],port:8095,tailnet_port:8095,uploads_enabled:false},inventory:{platform:'Linux',services:[{id:'codex',name:'Codex CLI',found:true},{id:'claude',name:'Claude Code',found:true}],projects:[{name:'Demo',path:'/workspace/demo'}],network:{online:true}},authentication:{},models:{},integrations:{codex:[{id:'mcp:drive',name:'Drive',kind:'mcp'},{id:'plugin:github@openai',name:'github@openai',kind:'plugin'}],claude:[{id:'mcp:linear',name:'Linear',kind:'mcp'}]},operations:[],credentials:{},status:{running:false}};
-  await page.route('**/api/**',async route=>{const url=new URL(route.request().url());if(url.pathname.endsWith('/check')){state.authentication.claude=true;return route.fulfill({json:{authenticated:true,models:{sonnet:['configured']}}});}if(url.pathname.endsWith('/integration-catalog')){catalogCalls++;if(releaseCatalog)await releaseCatalog;if(failCatalog)return route.fulfill({status:503,json:{error:'Catálogo temporariamente indisponível'}});}if(url.pathname.endsWith('/settings')){if(failSave)return route.fulfill({status:400,json:{error:'Falha simulada'}});state.settings=route.request().postDataJSON();}
+  await page.route('**/api/**',async route=>{const url=new URL(route.request().url());if(url.pathname.endsWith('/check')){state.authentication.claude=true;return route.fulfill({json:{authenticated:true,models:{sonnet:['configured']}}});}if(url.pathname.endsWith('/integration-catalog')){catalogCalls++;if(releaseCatalog)await releaseCatalog;if(failCatalog)return route.fulfill({status:503,json:{error:'Catalog temporarily unavailable'}});}if(url.pathname.endsWith('/settings')){if(failSave)return route.fulfill({status:400,json:{error:'Simulated failure'}});state.settings=route.request().postDataJSON();}
    const result=url.pathname.endsWith('/integration-catalog')?{items:[{id:'plugin:sentry@official',name:'Sentry',kind:'plugin',status:'available'},{id:'plugin:github@openai',name:'GitHub',kind:'plugin',status:'installed'}],warnings:[]}:url.pathname.endsWith('/state')?state:url.pathname.endsWith('/scan')?state.inventory:{};await route.fulfill({json:result});});
 
   state.settings.services.codex={...service(),added:true,models:['fixture'],integrations:['mcp:drive']};
@@ -31,7 +31,7 @@ const assert=require('node:assert/strict');
   await page.locator('[data-panel=provedores]').click();await page.locator('#dashboard').waitFor();
   const cards=await page.locator('#configured-providers .configured-card').evaluateAll(es=>es.map(e=>{const r=e.getBoundingClientRect();return {x:r.x,y:r.y,bottom:r.bottom};}));
   assert.equal(cards[0].y,cards[1].y);assert(cards[1].x>cards[0].x);
-  await page.getByRole('button',{name:'Editar Codex CLI',exact:true}).click();
+  await page.getByRole('button',{name:'Edit Codex CLI',exact:true}).click();
   assert(await page.locator('#provider-dialog').evaluate(e=>e.matches(':modal')));
   assert.equal(new URL(page.url()).hash,'#provedores');
   await page.keyboard.press('Tab');assert(await page.locator('#provider-dialog').evaluate(e=>e.contains(document.activeElement)));
@@ -49,7 +49,7 @@ const assert=require('node:assert/strict');
   await page.locator('[data-panel=provedores]').click();assert(!await drive.isChecked());
   page.once('dialog',d=>d.dismiss());await page.keyboard.press('Escape');assert(await page.locator('#provider-dialog').evaluate(e=>e.open));
   page.once('dialog',d=>d.accept());await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('#provider-dialog').open);
-  await page.waitForFunction(()=>document.activeElement.getAttribute('aria-label')==='Editar Codex CLI');
+  await page.waitForFunction(()=>document.activeElement.getAttribute('aria-label')==='Edit Codex CLI');
   for(const theme of ['violet-bordeaux','arizona']){
    await page.evaluate(theme=>TailTheme.apply(theme,false),theme);
    for(const width of [320,390,768,1440]){

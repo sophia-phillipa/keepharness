@@ -16,7 +16,7 @@ def store_key(state, token):
         or not 16 <= len(token) <= 512
         or any(c.isspace() for c in token)
     ):
-        raise ValueError("Token de API inválido.")
+        raise ValueError("Invalid API token.")
     path = key_file(state)
     temp = path.with_suffix(".tmp")
     temp.write_text(token)
@@ -27,7 +27,7 @@ def store_key(state, token):
 async def check(state):
     path = key_file(state)
     if not path.exists():
-        raise ValueError("Adicione sua chave DeepSeek no assistente.")
+        raise ValueError("Add your DeepSeek key in the assistant.")
     async with httpx.AsyncClient(
         base_url=API,
         headers={"Authorization": "Bearer " + path.read_text().strip()},
@@ -38,7 +38,7 @@ async def check(state):
             response = await client.get("/models")
             if response.status_code in (401, 403):
                 raise ValueError(
-                    "Chave DeepSeek recusada. Confira a credencial no provedor."
+                    "DeepSeek key rejected. Check the credential with the provider."
                 )
             response.raise_for_status()
             models = {
@@ -57,5 +57,5 @@ async def check(state):
             }
         except (httpx.HTTPError, KeyError) as exc:
             raise ValueError(
-                "Não foi possível consultar a API DeepSeek. Tente novamente."
+                "Could not query the DeepSeek API. Try again."
             ) from None

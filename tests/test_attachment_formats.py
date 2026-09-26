@@ -119,7 +119,7 @@ def test_unsupported_images_are_explained_without_losing_text(tmp_path, backend,
         return {'answer':'Model response'}
     with patch.object(service,'validate_images',AsyncMock(side_effect=APIError(reason))),patch.object(service,'context_turns',return_value=turns),patch.object(service,'quota',AsyncMock(return_value=None)),patch('Adapters.run_native',side_effect=run),patch('Adapters.run_scoped',side_effect=run):
         result=asyncio.run(service.infer(row,data))
-    assert 'picture' in result['answer'] and 'ignorado' in result['answer']
+    assert 'picture' in result['answer'] and 'ignored' in result['answer']
     assert result['answer'].endswith('Model response')
     streamed=''.join(json.loads(r[0])['text'] for r in service.db.execute("SELECT data FROM events WHERE job='j' AND type='answer_delta' ORDER BY id"))
     assert streamed==result['answer']

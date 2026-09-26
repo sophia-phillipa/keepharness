@@ -17,7 +17,7 @@ def wait_ready(port):
                 if response.status==200:return
         except OSError:pass
         time.sleep(.25)
-    raise RuntimeError('O serviço não ficou disponível; consulte journalctl --user -u tail-harness.')
+    raise RuntimeError('The service did not become available; check journalctl --user -u tail-harness.')
 
 def quoted(value):
     return json.dumps(str(value).replace('%','%%').replace('$','$$'))
@@ -51,7 +51,7 @@ exec xdg-open http://127.0.0.1:{port}/
     desktop=f'''[Desktop Entry]
 Type=Application
 Name=Tail Harness
-Comment=Gerenciar serviços de IA locais
+Comment=Manage local AI services
 Exec="{home}/.local/bin/tail-harness-open"
 Icon=utilities-terminal
 Terminal=false
@@ -61,12 +61,12 @@ StartupNotify=false
     return {home/'.config/systemd/user'/SERVICE:(unit,0o600),home/'.local/bin/tail-harness-open':(launcher,0o700),home/'.local/share/applications/tail-harness.desktop':(desktop,0o644)}
 
 def main(argv=None):
-    parser=argparse.ArgumentParser(description='Instala serviço e atalho para este usuário Linux')
+    parser=argparse.ArgumentParser(description='Install service and shortcut for this Linux user')
     parser.add_argument('--port',type=int,default=8094)
-    parser.add_argument('--boot',action='store_true',help='Habilitar linger para iniciar antes do login')
+    parser.add_argument('--boot',action='store_true',help='Enable linger to start before login')
     args=parser.parse_args(argv)
-    if not sys.platform.startswith('linux'):parser.error('Instalação de serviço requer Linux/systemd; use tail-harness para execução manual.')
-    if not 1024<=args.port<=65535:parser.error('Porta inválida')
+    if not sys.platform.startswith('linux'):parser.error('Service installation requires Linux/systemd; use tail-harness for manual execution.')
+    if not 1024<=args.port<=65535:parser.error('Invalid port')
     os.umask(0o077)
     for path,(content,mode) in files(Path.home(),sys.executable,args.port).items():
         path.parent.mkdir(parents=True,exist_ok=True);path.write_text(content);path.chmod(mode)
@@ -76,6 +76,6 @@ def main(argv=None):
     if args.boot:subprocess.run(['loginctl','enable-linger',str(os.getuid())],check=True)
     subprocess.run(['systemctl','--user','is-active',SERVICE],check=True)
     wait_ready(args.port)
-    print(f'Serviço instalado. Abra Tail Harness no menu ou http://127.0.0.1:{args.port}/')
+    print(f'Service installed. Open Tail Harness from the menu or http://127.0.0.1:{args.port}/')
 
 if __name__=='__main__':main()

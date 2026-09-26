@@ -54,7 +54,7 @@ def test_rename_rejects_invalid_title(api, title):
     assert api.get('/v1/conversations').json()['conversations'][0]['title'] == 'Preserved'
 
 
-@pytest.mark.parametrize('title', ['a', 'x' * 100, '🐋' * 100, 'Revisão <teste> & 123 🐋'])
+@pytest.mark.parametrize('title', ['a', 'x' * 100, '🐋' * 100, 'Café <naïve> & 123 🐋'])
 def test_rename_accepts_allowed_characters_and_trims_before_length_check(api, title):
     response = api.patch('/v1/conversations/conversation-1', json={'title': '  ' + title + '  '})
     assert response.status_code == 200

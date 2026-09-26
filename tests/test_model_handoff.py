@@ -188,7 +188,7 @@ def test_confirmed_codex_turn_resumes_after_interruption(service, state):
     resumed = execute(service, 'c', 'codex', 'b')
     assert resumed['resumed']
     assert 'large output' not in resumed['prompt']
-    assert 'interrompida' in resumed['prompt']
+    assert 'interrupted' in resumed['prompt']
 
 
 def test_legacy_oversized_codex_history_is_readable_without_inline_replay(service):

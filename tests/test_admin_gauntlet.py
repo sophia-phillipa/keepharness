@@ -99,7 +99,7 @@ def test_round06_settings_roundtrip_permissions_and_restart(admin,tmp_path):
     client,manager=admin
     root=tmp_path/'project';root.mkdir()
     data=copy.deepcopy(manager.settings)
-    data.update(projects=[{'id':'fixture','label':'Revisão acessível','root':str(root),'permissions':{'read':True,'internet':False}}],maestro_instructions='Preserve Unicode α and drafts.')
+    data.update(projects=[{'id':'fixture','label':'Café façade','root':str(root),'permissions':{'read':True,'internet':False}}],maestro_instructions='Preserve Unicode α and drafts.')
     data['services']['local']['permissions']={'read':True,'write':False}
     assert client.post('/api/settings',json=data).status_code==200
     saved=client.get('/api/state').json()['settings']
@@ -130,7 +130,7 @@ def test_round08_busy_stop_preserves_tasks(manager):
     runs=manager.state/'runs';runs.mkdir()
     with sqlite3.connect(runs/'jobs.sqlite3') as db:
         db.execute('CREATE TABLE jobs(state TEXT)');db.execute("INSERT INTO jobs VALUES('running')")
-    with pytest.raises(ValueError,match='tarefas'):asyncio.run(manager.stop())
+    with pytest.raises(ValueError,match='tasks'):asyncio.run(manager.stop())
 
 
 def test_round08_admin_lock_recovers(admin):

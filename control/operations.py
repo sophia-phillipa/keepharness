@@ -27,7 +27,7 @@ class Operations:
                         await on_success()
                     self.jobs[jid].update(state='completed' if succeeded else 'failed')
             except asyncio.CancelledError:self.jobs[jid]['state']='cancelled';raise
-            except asyncio.TimeoutError:self.jobs[jid].update(state='failed',output='Tempo esgotado. Tente novamente.')
+            except asyncio.TimeoutError:self.jobs[jid].update(state='failed',output='Timed out. Try again.')
             except OSError as exc:self.jobs[jid].update(state='failed',output=str(exc))
             finally:
                 if proc and proc.returncode is None:
@@ -51,7 +51,7 @@ class Operations:
 
 def operation(binary,provider,data):
     action=data.get('action');name=data.get('name','')
-    if not re.fullmatch(r'[A-Za-z0-9_@./:-]{1,160}',name) or name.startswith('-'):raise ValueError('Nome inválido.')
+    if not re.fullmatch(r'[A-Za-z0-9_@./:-]{1,160}',name) or name.startswith('-'):raise ValueError('Invalid name.')
     if action=='login':return [binary,'mcp','login',name]
     if action=='plugin_install':return [binary,'plugin','add' if provider=='codex' else 'install',name]
     if action=='plugin_remove':return [binary,'plugin','remove' if provider=='codex' else 'uninstall',name]
@@ -60,9 +60,9 @@ def operation(binary,provider,data):
         transport=data.get('transport','http')
         if transport=='http':
             url=data.get('url','');parsed=urlsplit(url)
-            if parsed.scheme!='https' or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:raise ValueError('Use a URL HTTPS do servidor MCP, sem credenciais na URL.')
+            if parsed.scheme!='https' or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:raise ValueError('Use the MCP server\'s HTTPS URL, with no credentials in the URL.')
             return [binary,'mcp','add',name,'--url',url] if provider=='codex' else [binary,'mcp','add','--scope','user','--transport','http',name,url]
         args=data.get('command',[])
-        if not isinstance(args,list) or not args or any(not isinstance(x,str) or len(x)>500 for x in args):raise ValueError('Comando deve ser uma lista JSON, sem shell intermediário.')
+        if not isinstance(args,list) or not args or any(not isinstance(x,str) or len(x)>500 for x in args):raise ValueError('Command must be a JSON list, with no intermediate shell.')
         return [binary,'mcp','add',*(['--scope','user'] if provider=='claude' else []),name,'--',*args]
-    raise ValueError('Operação desconhecida.')
+    raise ValueError('Unknown operation.')

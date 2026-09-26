@@ -35,7 +35,7 @@ async def scan():
               {'id':'claude','name':'Claude Code','binary':binaries['claude'],'found':bool(binaries['claude']),
                'credential_present':claude_auth.is_file(),'auth_file':str(claude_auth),'cloud':True}]
     services.append({'id':'gemini','name':'Gemini CLI','binary':binaries['gemini'],'found':bool(binaries['gemini']),'credential_present':gemini_auth.is_file(),'auth_file':str(gemini_auth),'cloud':True})
-    local={'id':'local','name':'Modelos locais · llama.cpp / Ollama','found':False,'binary':binaries['codex'],'cloud':False,'credential_present':False,'auth_file':str(codex_auth),'models':[]}
+    local={'id':'local','name':'Local models · llama.cpp / Ollama','found':False,'binary':binaries['codex'],'cloud':False,'credential_present':False,'auth_file':str(codex_auth),'models':[]}
     async with httpx.AsyncClient(timeout=2,trust_env=False) as client:
         try:
             r=await client.get('http://127.0.0.1:11434/api/tags');r.raise_for_status()
@@ -67,4 +67,4 @@ async def scan():
     except (ValueError,OSError,AttributeError):pass
     return {'platform':platform.system(),'services':services,'binaries':binaries,'network':network,
             'projects':projects,'memory_bytes':mem,'free_bytes':shutil.disk_usage(home).free,
-            'note':'Credencial presente não comprova autenticação. Nada foi habilitado pelo inventário.'}
+            'note':'A present credential does not prove authentication. Nothing was enabled by the inventory.'}

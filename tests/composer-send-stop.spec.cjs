@@ -19,12 +19,12 @@ const assert=require('node:assert/strict'),fs=require('node:fs/promises'),path=r
     data={job_id:'follow-'+requests.length};
    }
    if(p==='/v1/conversations/first')data={turns:[
-    {id:'first',project:'sem-projeto',state:finished?'completed':'running',request:{backend:'local',model:'fixture',prompt:'Original'},result:finished?{answer:'Original concluída'}:null},
+    {id:'first',project:'sem-projeto',state:finished?'completed':'running',request:{backend:'local',model:'fixture',prompt:'Original'},result:finished?{answer:'Original completed'}:null},
     ...requests.slice(0,2).map((request,i)=>({id:'follow-'+(i+1),project:'sem-projeto',state:i?'queued':'running',request,result:null}))
    ]};
    if(p==='/v1/jobs/first/events'){await firstDone;return route.fulfill({body:'',contentType:'text/event-stream'});}
    if(p.includes('/events'))return; // Keep the follow-up stream open until the page closes.
-   if(p==='/v1/jobs/first')data={id:'first',state:'completed',result:{answer:'Original concluída'}};
+   if(p==='/v1/jobs/first')data={id:'first',state:'completed',result:{answer:'Original completed'}};
    return route.fulfill({json:data});
   }
   const file=p==='/'?'index.html':p.slice(1);
@@ -36,30 +36,30 @@ const assert=require('node:assert/strict'),fs=require('node:fs/promises'),path=r
  // Beginner: empty input offers stop.
  assert.equal(await page.locator('#cancel').isVisible(),true);
  // Writer: typing immediately offers enabled send.
- await page.fill('#prompt','Continuação');assert.equal(await page.locator('#send').isVisible(),true);assert.equal(await page.locator('#send').isEnabled(),true);
+ await page.fill('#prompt','Continuation');assert.equal(await page.locator('#send').isVisible(),true);assert.equal(await page.locator('#send').isEnabled(),true);
  // Editor: deleting or whitespace restores stop.
  await page.fill('#prompt','');assert.equal(await page.locator('#cancel').isVisible(),true);
  await page.fill('#prompt','   ');assert.equal(await page.locator('#cancel').isVisible(),true);
  // Keyboard user: Enter submits; rapid repetition cannot duplicate.
- await page.fill('#prompt','Continuação');await page.press('#prompt','Enter');await page.press('#prompt','Enter');
+ await page.fill('#prompt','Continuation');await page.press('#prompt','Enter');await page.press('#prompt','Enter');
  await page.waitForFunction(()=>submitting);assert.equal(requests.length,1);assert.equal(requests[0].parent_job_id,'first');
  releasePost();await page.waitForFunction(()=>!submitting&&!document.getElementById('prompt').value);
  assert.equal(await page.locator('#cancel').isVisible(),true);
  assert.equal(await page.evaluate(()=>job),'first','original stream remains active');
  // Multitasker: further follow-ups chain to the latest accepted message.
- await page.fill('#prompt','Outra');await page.click('#send');
+ await page.fill('#prompt','Another');await page.click('#send');
  await page.waitForFunction(()=>!submitting&&!document.getElementById('prompt').value);
  assert.equal(requests[1].parent_job_id,'follow-1');
  // Network failure: preserve the draft and the original execution.
- fail=true;await page.fill('#prompt','Preservar');await page.click('#send');await page.waitForFunction(()=>!submitting);
- assert.equal(await page.inputValue('#prompt'),'Preservar');assert.equal(await page.evaluate(()=>busy),true);
+ fail=true;await page.fill('#prompt','Preserve');await page.click('#send');await page.waitForFunction(()=>!submitting);
+ assert.equal(await page.inputValue('#prompt'),'Preserve');assert.equal(await page.evaluate(()=>busy),true);
  // Streaming user: finishing the first response starts watching the next.
  finished=true;releaseFirst();await page.waitForFunction(()=>job==='follow-1');
- assert.match(await page.locator('#messages').innerText(),/Original concluída/);
- assert.equal(await page.inputValue('#prompt'),'Preservar');await page.reload();await page.locator('#startup-gate').waitFor({state:'hidden'});
+ assert.match(await page.locator('#messages').innerText(),/Original completed/);
+ assert.equal(await page.inputValue('#prompt'),'Preserve');await page.reload();await page.locator('#startup-gate').waitFor({state:'hidden'});
  await page.waitForFunction(()=>busy&&job==='follow-1');
  assert.equal(await page.evaluate(()=>parent),'follow-2');
- assert.equal(await page.inputValue('#prompt'),'Preservar');
+ assert.equal(await page.inputValue('#prompt'),'Preserve');
  assert.equal(await page.evaluate(()=>queuedTurns.length),1);
  await page.fill('#prompt','');await page.click('#cancel');
  await page.waitForFunction(()=>!cancelling);

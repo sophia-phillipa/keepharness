@@ -9,7 +9,7 @@ description = "Local AI CLI control panel and private-network harness"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
-authors = [{name = "Tail Harness contributors"}]
+authors = [{name = "Sophia Phillipa"}]
 dependencies = ["starlette>=0.47,<1", "uvicorn>=0.35,<1", "httpx>=0.28,<1", "mcp>=1.12,<2", "python-multipart>=0.0.20,<1"]
 
 [project.optional-dependencies]
@@ -34,7 +34,7 @@ agent_service = ["*.html", "*.css", "*.js", "*.sh", "VERSION", "vendor/*"]
 testpaths = ["tests"]
 
 [tool.setuptools.data-files]
-"share/tail-harness/profiles" = ["profiles/qwen-author-profile.json", "profiles/local-cpu-profile.json"]
+"share/tail-harness/profiles" = ["profiles/qwen-vulkan-profile.json", "profiles/local-cpu-profile.json"]
 
 [tool.setuptools.packages.find]
 include = ["control", "agent_service", "tail_ui", "Adapters", "Adapters.*"]

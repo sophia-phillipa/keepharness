@@ -36,7 +36,7 @@
     },
     {
       "id": "dynamic-cli-catalog",
-      "spec": "models/catalogo-cli.md",
+      "spec": "models/cli-catalog.md",
       "availability": "CLI initialize catalog, account dependent"
     }
   ],

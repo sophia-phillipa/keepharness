@@ -1,5 +1,5 @@
 {
-  "description": "Ponto de partida conservador para Qwen3.6-35B-A3B UD-Q3_K_M em CPU, sem afinidade de hardware específica. Requer memória RAM suficiente para os pesos e contexto. Ajuste ao servidor; não é um benchmark nem uma recomendação universal.",
+  "description": "Conservative CPU starting point for Qwen3.6-35B-A3B UD-Q3_K_M, with no specific hardware affinity. Requires enough RAM for the weights and context. Adjust to your machine; this is not a benchmark or a universal recommendation.",
   "binary": "local-ai/runtime/llama-b11003/llama-server",
   "model_file": "local-ai/models/Qwen3.6-35B-A3B-UD-Q3_K_M.gguf",
   "performance": {

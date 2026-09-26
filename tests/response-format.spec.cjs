@@ -8,8 +8,8 @@ const path=require('node:path');
  try{
  const page=await browser.newPage({viewport:{width:1280,height:960}}),errors=[];
  page.on('pageerror',e=>errors.push(e.message));
- const markdown='# Resultado\n\n**Negrito** e *itálico*.\n\n| Nome | Valor |\n| --- | --- |\n| Item | 42 |\n\n- Primeiro\n- Segundo\n\n> Citação\n\n```js\nconst x = "<tag>";\n```';
- const turns=[{id:'first',project:'sem-projeto',state:'completed',request:{backend:'qwen',prompt:'**literal**'},result:{answer:markdown}},{id:'second',project:'sem-projeto',state:'completed',request:{backend:'qwen',prompt:'JSON'},result:{answer:'{"nome":"Pessoa de teste","lista":[1,2]}'}}];
+ const markdown='# Result\n\n**Bold** and *café*.\n\n| Name | Value |\n| --- | --- |\n| Item | 42 |\n\n- First\n- Second\n\n> Quote\n\n```js\nconst x = "<tag>";\n```';
+ const turns=[{id:'first',project:'sem-projeto',state:'completed',request:{backend:'qwen',prompt:'**literal**'},result:{answer:markdown}},{id:'second',project:'sem-projeto',state:'completed',request:{backend:'qwen',prompt:'JSON'},result:{answer:'{"name":"Test person","list":[1,2]}'}}];
  const origin=process.env.HARNESS_URL||'http://panel.test';
  await page.route(origin+'/**',async route=>{
   const p=new URL(route.request().url()).pathname;
@@ -31,12 +31,12 @@ const path=require('node:path');
  await page.goto(origin);
  await page.waitForFunction(()=>models.length===1);
  // Real event handler, including a Markdown token split across chunks.
- await page.evaluate(()=>{active=assistant();last=0;event({id:1,type:'answer_delta',data:{text:'**Neg'}});event({id:2,type:'answer_delta',data:{text:'rito** e *itálico*'}});});
- assert.equal(await page.locator('.assistant .text strong').textContent(),'Negrito');
- assert.equal(await page.locator('.assistant .text em').textContent(),'itálico');
+ await page.evaluate(()=>{active=assistant();last=0;event({id:1,type:'answer_delta',data:{text:'**Bol'}});event({id:2,type:'answer_delta',data:{text:'d** and *café*'}});});
+ assert.equal(await page.locator('.assistant .text strong').textContent(),'Bold');
+ assert.equal(await page.locator('.assistant .text em').textContent(),'café');
  await page.evaluate(()=>load('saved'));
  assert.equal(await page.locator('.assistant .text table tbody tr').count(),1);
- assert.equal(await page.locator('.assistant .text h1').textContent(),'Resultado');
+ assert.equal(await page.locator('.assistant .text h1').textContent(),'Result');
  assert.equal(await page.locator('.assistant .text').first().evaluate(el=>getComputedStyle(el).whiteSpace),'normal');
  assert.equal(await page.locator('.assistant .text ul li').count(),2);
  assert.equal(await page.locator('.assistant .text blockquote').count(),1);
@@ -49,13 +49,13 @@ const path=require('node:path');
  async function finalAnswer(answer){turns[1].result.answer=answer;await page.evaluate(()=>result());}
  await finalAnswer('```json\n{"nested":{"ok":true}}\n```');
  assert.equal((await page.locator('.assistant .text pre code').last().textContent()).trim(),JSON.stringify({nested:{ok:true}},null,2));
- await finalAnswer('Dados:\n\n```json\n{"a":[1,2]}\n```');
+ await finalAnswer('Data:\n\n```json\n{"a":[1,2]}\n```');
  assert.equal((await page.locator('.assistant .text pre code').last().textContent()).trim(),JSON.stringify({a:[1,2]},null,2));
  await finalAnswer({a:[1,2]});
  assert.equal((await page.locator('.assistant .text pre code').last().textContent()).trim(),JSON.stringify({a:[1,2]},null,2));
- await finalAnswer('```json\n{"incompleto":\n```');
- assert((await page.locator('.assistant .text').last().textContent()).includes('{"incompleto":'));
- await finalAnswer('<script>window.injected=1</script>\n\n<img src=x onerror="window.injected=1">\n\n[ataque](javascript:alert(1))\n\n![imagem](https://example.com/pixel)\n\n[seguro](https://example.com)');
+ await finalAnswer('```json\n{"incomplete":\n```');
+ assert((await page.locator('.assistant .text').last().textContent()).includes('{"incomplete":'));
+ await finalAnswer('<script>window.injected=1</script>\n\n<img src=x onerror="window.injected=1">\n\n[attack](javascript:alert(1))\n\n![image](https://example.com/pixel)\n\n[safe](https://example.com)');
  const body=page.locator('.assistant .text').last();
  assert.equal(await body.locator('script,img,iframe').count(),0);
  assert.equal(await body.locator('a[href^="javascript:"]').count(),0);

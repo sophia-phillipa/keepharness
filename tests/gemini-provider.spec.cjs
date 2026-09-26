@@ -16,7 +16,7 @@ const fs=require('node:fs/promises'),path=require('node:path');
     if(p==='/api/state')data=state;
     if(p==='/api/scan')data=state.inventory;
     if(p==='/api/check'){data=checked?{authenticated:true,models:{'auto-gemini-3':['configured']}}:{authenticated:false,models:{},error:'gemini_login_required'};checked=true;}
-    if(p==='/api/provider-login'){logins++;data={id:'login-'+logins,state:'running'};state.operations=[{id:'old-failed',state:'failed',output:'OLD-OPERATION-SHOULD-NOT-APPEAR'},{id:data.id,state:logins===1?'failed':'completed',output:logins===1?'Traceback (most recent call last): private stack':'Login concluído.'}];}
+    if(p==='/api/provider-login'){logins++;data={id:'login-'+logins,state:'running'};state.operations=[{id:'old-failed',state:'failed',output:'OLD-OPERATION-SHOULD-NOT-APPEAR'},{id:data.id,state:logins===1?'failed':'completed',output:logins===1?'Traceback (most recent call last): private stack':'Login complete.'}];}
     if(p==='/api/settings'){state.settings=route.request().postDataJSON();data={saved:true};}
     return route.fulfill({json:data});
    }

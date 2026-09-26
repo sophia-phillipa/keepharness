@@ -12,7 +12,7 @@
   const old=notices.get(target);if(old)clearTimeout(old.timer);
   target.replaceChildren();target.hidden=false;target.className='th-notice'+(error?' error':'');target.setAttribute('role',error?'alert':'status');target.setAttribute('aria-live',error?'assertive':'polite');
   const message=document.createElement('span');message.className='notice-text';message.textContent=text;
-  const close=document.createElement('button');close.type='button';close.setAttribute('aria-label','Fechar mensagem');close.append(icon('x'));
+  const close=document.createElement('button');close.type='button';close.setAttribute('aria-label','Close message');close.append(icon('x'));
   const entry={timer:null,remaining:5000,started:0};notices.set(target,entry);
   const hide=()=>{clearTimeout(entry.timer);target.hidden=true;};close.onclick=hide;target.append(message,close);
   const pause=()=>{if(entry.timer){clearTimeout(entry.timer);entry.timer=null;entry.remaining=Math.max(0,entry.remaining-(performance.now()-entry.started));}};
@@ -20,8 +20,8 @@
   target.onmouseenter=pause;target.onmouseleave=resume;target.onfocusin=pause;target.onfocusout=()=>setTimeout(resume,0);resume();
  }
  function toast(text,options){let box=document.getElementById('th-toast');if(!box){const container=document.createElement('div');container.className='th-toast-container';box=document.createElement('div');box.id='th-toast';container.append(box);document.body.append(container);}notice(box,text,options);}
- function mountThemes(container){const grid=document.createElement('div');grid.className='theme-picker';grid.setAttribute('role','group');grid.setAttribute('aria-label','Tema desta interface');
-  for(const t of theme.themes){const b=document.createElement('button');b.type='button';b.className='theme-choice';b.dataset.themeChoice=t.id;const swatches=document.createElement('span');swatches.className='theme-swatches';swatches.setAttribute('aria-hidden','true');for(const color of t.colors){const s=document.createElement('span');s.style.backgroundColor=color;swatches.append(s);}const title=document.createElement('strong');title.className='theme-name';title.textContent=t.name;const mode=document.createElement('small');mode.textContent=t.mode==='dark'?'Escuro':'Claro';b.append(swatches,title,mode);b.onclick=()=>theme.apply(t.id);grid.append(b);}container.append(grid);theme.apply(document.documentElement.dataset.palette,false);
+ function mountThemes(container){const grid=document.createElement('div');grid.className='theme-picker';grid.setAttribute('role','group');grid.setAttribute('aria-label','Theme for this interface');
+  for(const t of theme.themes){const b=document.createElement('button');b.type='button';b.className='theme-choice';b.dataset.themeChoice=t.id;const swatches=document.createElement('span');swatches.className='theme-swatches';swatches.setAttribute('aria-hidden','true');for(const color of t.colors){const s=document.createElement('span');s.style.backgroundColor=color;swatches.append(s);}const title=document.createElement('strong');title.className='theme-name';title.textContent=t.name;const mode=document.createElement('small');mode.textContent=t.mode==='dark'?'Dark':'Light';b.append(swatches,title,mode);b.onclick=()=>theme.apply(t.id);grid.append(b);}container.append(grid);theme.apply(document.documentElement.dataset.palette,false);
  }
  // Picker policy only: keep legacy execution IDs intact for existing sessions.
  function selectableModel(provider,id){return provider!=='claude'||/^claude-[a-z]+-\d{1,3}(?:-\d{1,3})?$/.test(id);}

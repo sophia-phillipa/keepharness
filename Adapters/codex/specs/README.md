@@ -34,7 +34,7 @@ The official reference specifies JSON-RPC responses and notifications, failed-tu
 
 Codex has no static model alias list in this repository. During provider verification, `control/server.py` calls the authenticated CLI method `model/list` and persists only returned IDs and `supportedReasoningEfforts`. A model is executable only after it appears in that result and is enabled for the project.
 
-See [the dynamic catalog rule](models/catalogo-cli.md), [project identifiers pending verification](models/identificadores-do-projeto.md), and individual records for [gpt-6-astra](models/gpt-6-astra.md), [gpt-5.6-sol](models/gpt-5.6-sol.md), [gpt-5.6-terra](models/gpt-5.6-terra.md), [gpt-5.6-luna](models/gpt-5.6-luna.md), and [gpt-5.5](models/gpt-5.5.md).
+See [the dynamic catalog rule](models/cli-catalog.md), [project identifiers pending verification](models/project-identifiers.md), and individual records for [gpt-6-astra](models/gpt-6-astra.md), [gpt-5.6-sol](models/gpt-5.6-sol.md), [gpt-5.6-terra](models/gpt-5.6-terra.md), [gpt-5.6-luna](models/gpt-5.6-luna.md), and [gpt-5.5](models/gpt-5.5.md).
 
 ## Review triggers
 

@@ -16,5 +16,5 @@ def main(argv=None):
     if args.scan:print(json.dumps(asyncio.run(scan()),indent=2,ensure_ascii=False));return
     import uvicorn
     from .server import create_app
-    print(f'Gestão local: http://127.0.0.1:{args.port}/',flush=True)
+    print(f'Local management: http://127.0.0.1:{args.port}/',flush=True)
     uvicorn.run(create_app(args.state,args.port),host='127.0.0.1',port=args.port,proxy_headers=False,access_log=False)

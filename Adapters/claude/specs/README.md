@@ -30,7 +30,7 @@ The installed Claude Code `2.1.258` help and CLI reference document `--name`, `-
 
 ## Aliases
 
-The project reads the authenticated CLI initialize catalog, including aliases, resolved version IDs, extended-context variants and per-model effort levels. Disabled rows are excluded. The CLI remains authoritative for account availability; the catalog is not an inference entitlement test. See [catalog contract](models/catalogo-cli.md).
+The project reads the authenticated CLI initialize catalog, including aliases, resolved version IDs, extended-context variants and per-model effort levels. Disabled rows are excluded. The CLI remains authoritative for account availability; the catalog is not an inference entitlement test. See [catalog contract](models/cli-catalog.md).
 
 ## Review triggers
 

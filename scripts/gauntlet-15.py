@@ -14,21 +14,21 @@ import time
 
 ROOT = Path(__file__).resolve().parents[1]
 PROFILES = [
-    ('P01', 'Iniciante', 'composer-send-stop.spec.cjs'),
-    ('P02', 'Apressado', 'test_composer_queue.py'),
-    ('P03', 'Pesquisadora', 'harness-model-handoff.spec.cjs'),
-    ('P04', 'Acessibilidade', 'model-provider-groups.spec.cjs'),
-    ('P05', 'Mobile e rede instável', 'harness-reconnect.spec.cjs'),
-    ('P06', 'Engenheira de software', 'test_model_handoff.py'),
-    ('P07', 'Especialista UI/UX', 'project-edit-dialog.spec.cjs'),
-    ('P08', 'Hacker web', 'test_api_security.py'),
-    ('P09', 'Hacker de isolamento', 'test_project_grants.py'),
-    ('P10', 'Caçador de bugs', 'gauntlet-live-model.spec.cjs'),
-    ('P11', 'Engenheira de caos', 'harness-reload.spec.cjs'),
-    ('P12', 'Especialista em harness', 'harness-resources.spec.cjs'),
-    ('P13', 'Administradora de projetos', 'project-create-dialog.spec.cjs'),
-    ('P14', 'Redatora', 'response-format.spec.cjs'),
-    ('P15', 'Entradas adversariais', 'test_gauntlet_edges.py'),
+    ('P01', 'Beginner', 'composer-send-stop.spec.cjs'),
+    ('P02', 'In a hurry', 'test_composer_queue.py'),
+    ('P03', 'Researcher', 'harness-model-handoff.spec.cjs'),
+    ('P04', 'Accessibility', 'model-provider-groups.spec.cjs'),
+    ('P05', 'Mobile and unstable network', 'harness-reconnect.spec.cjs'),
+    ('P06', 'Software engineer', 'test_model_handoff.py'),
+    ('P07', 'UI/UX specialist', 'project-edit-dialog.spec.cjs'),
+    ('P08', 'Web hacker', 'test_api_security.py'),
+    ('P09', 'Isolation hacker', 'test_project_grants.py'),
+    ('P10', 'Bug hunter', 'gauntlet-live-model.spec.cjs'),
+    ('P11', 'Chaos engineer', 'harness-reload.spec.cjs'),
+    ('P12', 'Harness specialist', 'harness-resources.spec.cjs'),
+    ('P13', 'Project administrator', 'project-create-dialog.spec.cjs'),
+    ('P14', 'Copywriter', 'response-format.spec.cjs'),
+    ('P15', 'Adversarial inputs', 'test_gauntlet_edges.py'),
 ]
 
 

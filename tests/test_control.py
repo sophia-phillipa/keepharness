@@ -17,11 +17,11 @@ class ControlTest(unittest.TestCase):
  def test_default_and_permissions(self):
   self.assertFalse(any(s['enabled'] for s in self.manager.settings['services'].values()))
   settings=copy.deepcopy(self.manager.settings);settings['services']['local']['permissions']['write']=True
-  with self.assertRaisesRegex(ValueError,'leitura'):self.manager.validate(settings)
+  with self.assertRaisesRegex(ValueError,'read access'):self.manager.validate(settings)
   settings=copy.deepcopy(self.manager.settings);settings['projects']=[{'id':'home','root':str(Path.home())}]
-  with self.assertRaisesRegex(ValueError,'ampla'):self.manager.validate(settings)
+  with self.assertRaisesRegex(ValueError,'broad'):self.manager.validate(settings)
   settings=copy.deepcopy(self.manager.settings);settings['vpn_bind']='0.0.0.0'
-  with self.assertRaisesRegex(ValueError,'privado'):self.manager.validate(settings)
+  with self.assertRaisesRegex(ValueError,'private'):self.manager.validate(settings)
   settings['vpn_bind']='10.44.0.2';self.assertEqual(self.manager.validate(settings)['vpn_bind'],'10.44.0.2')
  def test_auth_csrf_and_save(self):
   with patch('control.server.scan',AsyncMock(return_value=INVENTORY)):
@@ -40,11 +40,11 @@ class ControlTest(unittest.TestCase):
   missing=self.tmp.name+'-removed-project'
   settings=copy.deepcopy(self.manager.settings)
   settings['projects']=[{'id':'removed','root':missing}]
-  with self.assertRaisesRegex(ValueError,'existente'):self.manager.validate(settings)
+  with self.assertRaisesRegex(ValueError,'existing'):self.manager.validate(settings)
   self.manager.settings=copy.deepcopy(settings)
   self.assertEqual(self.manager.validate(settings)['projects'][0]['root'],str(Path(missing).resolve()))
   settings['projects'][0]['root']=str(Path(self.tmp.name)/'another-missing-project')
-  with self.assertRaisesRegex(ValueError,'existente'):self.manager.validate(settings)
+  with self.assertRaisesRegex(ValueError,'existing'):self.manager.validate(settings)
  def test_cross_site_admin_link_navigation(self):
   navigation={'Sec-Fetch-Site':'cross-site','Sec-Fetch-Mode':'navigate','Sec-Fetch-Dest':'document','Sec-Fetch-User':'?1'}
   with patch('control.server.scan',AsyncMock(return_value=INVENTORY)):

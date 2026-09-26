@@ -39,7 +39,7 @@ def test_legacy_read_and_save_upsert_preserve_other_models(tmp_path):
 
 def test_profiles_api_import_exact_model_start_and_export(tmp_path):
     qwen, gemma = profiles(tmp_path)
-    qwen['description'] = 'Perfil Qwen exportável'
+    qwen['description'] = 'Exportable Qwen profile'
     with patch('control.server.scan', AsyncMock(return_value=INVENTORY)), \
             patch('control.local_models.processes', return_value=[]) as running, \
             patch('control.server.socket') as socket, \
@@ -132,7 +132,7 @@ def test_multimodal_description_flags_roundtrip_and_launch_command(tmp_path):
     qwen, _ = profiles(tmp_path)
     mmproj = tmp_path / 'qwen-mmproj.gguf'
     mmproj.touch()
-    profile = validate_profile({**qwen, 'description': 'Perfil de teste',
+    profile = validate_profile({**qwen, 'description': 'Test profile',
                                 'mmproj_file': str(mmproj),
                                 'flags': ['no-mmproj-offload', 'kv-offload']})
     save_profile(tmp_path, profile)
@@ -172,6 +172,6 @@ def test_panel_uses_project_internal_runtime_models_and_key(tmp_path):
 
 def test_import_keeps_saved_description(tmp_path):
     qwen,_=profiles(tmp_path)
-    save_profile(tmp_path,{**qwen,'description':'Sugestão da autora'})
+    save_profile(tmp_path,{**qwen,'description':'Author-suggested profile'})
     save_profile(tmp_path,qwen)
-    assert load_profile(tmp_path,qwen['model_file'])['description']=='Sugestão da autora'
+    assert load_profile(tmp_path,qwen['model_file'])['description']=='Author-suggested profile'

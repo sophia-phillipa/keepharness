@@ -25,7 +25,7 @@ class DeepseekTest(unittest.IsolatedAsyncioTestCase):
   with tempfile.TemporaryDirectory() as d:
    deepseek.store_key(d,'fixture-secret-key-123');original=httpx.AsyncClient
    with patch('Adapters.deepseek.account.httpx.AsyncClient',side_effect=lambda **kw:original(**kw,transport=httpx.MockTransport(lambda r:httpx.Response(401,text='fixture-secret-key-123')))):
-    with self.assertRaisesRegex(ValueError,'recusada') as caught:await deepseek.check(d)
+    with self.assertRaisesRegex(ValueError,'rejected') as caught:await deepseek.check(d)
    self.assertNotIn('fixture-secret',str(caught.exception))
  async def test_native_api_provider_routes_without_key_in_arguments(self):
   captured={}

@@ -82,7 +82,7 @@ def test_long_video_transcript_keeps_frames_and_handoff_keeps_speech(tmp_path):
     async def unsupported(*args):
         assert not args[3]['_images']
         assert 'spoken marker' in args[1]
-        assert 'Quadros do arquivo' in args[1]
+        assert 'Frames from file' in args[1]
         return {'answer': 'speech only'}
 
     with patch.object(service, 'validate_video', AsyncMock()), patch.object(service, 'quota', AsyncMock(return_value=None)), patch('Adapters.run_native', side_effect=supported):

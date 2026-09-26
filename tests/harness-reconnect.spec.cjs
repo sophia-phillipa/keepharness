@@ -25,7 +25,7 @@ const path=require('node:path');
    await route.fulfill({body:await fs.readFile(path.join(__dirname,file.startsWith('assets/')?'../tail_ui':'../agent_service',file)),contentType:file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':'text/html'});
   });
   await page.goto('http://reconnect.test');await page.locator('#startup-gate').waitFor({state:'hidden'});
-  await page.fill('#prompt','Preservar meu rascunho');
+  await page.fill('#prompt','Preserve my draft');
   // Hold the recovery history response across a background timer tick.
   await page.evaluate(()=>{
    window.originalJson=json;
@@ -49,7 +49,7 @@ const path=require('node:path');
   offline=false;
   await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));
   await page.locator('#startup-gate').waitFor({state:'hidden',timeout:3000});
-  assert.equal(await page.locator('#prompt').inputValue(),'Preservar meu rascunho');
+  assert.equal(await page.locator('#prompt').inputValue(),'Preserve my draft');
   assert.equal(loads,1);assert.deepEqual(errors,[]);
   console.log('PASS: recovery owns history polling, online/foreground recovery, no reload, draft preserved.');
  }finally{await browser.close();}

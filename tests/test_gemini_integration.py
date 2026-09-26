@@ -85,7 +85,7 @@ def test_gemini_credential_directory_cannot_be_shared(tmp_path):
     data = copy.deepcopy(manager.settings)
     data['projects'] = [{'id': 'credentials', 'root': str(protected)}]
     with patch('control.server.Path.home', return_value=home):
-        with pytest.raises(ValueError, match='credenciais'):
+        with pytest.raises(ValueError, match='credentials'):
             manager.validate(data)
 
 

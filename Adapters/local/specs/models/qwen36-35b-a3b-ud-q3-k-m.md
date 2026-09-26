@@ -8,7 +8,7 @@ Two versioned suggestions point to that filename:
 
 | Profile | Purpose | Not a runtime validation |
 | --- | --- | --- |
-| `profiles/qwen-author-profile.json` | Author-suggested Vulkan profile with multimodal projector and CPU affinity. | Explicitly authorized example; review hardware, memory and runtime compatibility before use. |
+| `profiles/qwen-vulkan-profile.json` | Suggested Vulkan profile with multimodal projector and CPU affinity. | Explicitly authorized example; review hardware, memory and runtime compatibility before use. |
 | `profiles/local-cpu-profile.json` | Conservative CPU starting point with no hardware affinity. | It is not a performance claim or universal recommendation. |
 
 The selected runtime must expose a compatible `/v1/responses` endpoint and the selected model must work with the needed tool contract before execution is enabled. llama.cpp documents the endpoint, but no local runtime or weight was loaded for this specification: <https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md>.

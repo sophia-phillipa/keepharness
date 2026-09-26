@@ -70,7 +70,7 @@ def test_round06_audio_routes_without_reading_whole_file(tmp_path, monkeypatch):
     transcribe.assert_awaited_once_with(path)
 
 
-@pytest.mark.parametrize('filename,content,expected', [('source.RS', 'ação e revisão', 'ação e revisão'), ('empty.TXT', '', ''), ('data.CSV', 'α,β\n1,2', 'α,β\n1,2')])
+@pytest.mark.parametrize('filename,content,expected', [('source.RS', 'café and façade', 'café and façade'), ('empty.TXT', '', ''), ('data.CSV', 'α,β\n1,2', 'α,β\n1,2')])
 def test_round07_text_empty_unicode_uppercase(tmp_path, filename, content, expected):
     path = tmp_path/'source';path.write_text(content)
     assert extract(path, filename) == [{'page': None, 'text': expected}]
@@ -92,8 +92,8 @@ def test_round09_compressed_document_expansion_bound(tmp_path):
 
 @pytest.mark.parametrize('encoding', ['utf-8', 'utf-16', 'utf-16-be'])
 def test_round10_cross_retest_safe_xml_and_index(tmp_path, encoding):
-    path = archive(tmp_path, {'word/document.xml': '<root><t>Safe ação</t></root>'.encode(encoding)})
-    assert 'Safe ação' in extract(path, 'report.DOCX')[0]['text']
+    path = archive(tmp_path, {'word/document.xml': '<root><t>Safe café</t></root>'.encode(encoding)})
+    assert 'Safe café' in extract(path, 'report.DOCX')[0]['text']
     path = archive(tmp_path, {'xl/sharedStrings.xml': '<sst><si><t>First</t></si></sst>'.encode(encoding),
         'xl/worksheets/sheet1.xml': '<worksheet><row><c r="A1" t="s"><v>0</v></c></row></worksheet>'.encode(encoding)})
     assert 'A1=First' in extract(path, 'report.XLSX')[-1]['text']

@@ -343,7 +343,7 @@ async def prepare_documents(root, manifest):
         try:
             if path.suffix.lower() == '.pdf':
                 pages = await tools.extract(path, path.name)
-                text = '\n'.join('[Página '+str(p['page'])+']\n'+p['text'] for p in pages)
+                text = '\n'.join('[Page '+str(p['page'])+']\n'+p['text'] for p in pages)
             else:
                 with zipfile.ZipFile(path) as document:
                     item = document.getinfo('word/document.xml')
@@ -357,7 +357,7 @@ async def prepare_documents(root, manifest):
             if len(text.encode()) > 2*1024*1024 or generated > MAX_BYTES:raise ToolError('document_text_limit')
             output = Path(root)/'_harness_sources'/(entry['path']+'.txt')
             output.parent.mkdir(parents=True,exist_ok=True)
-            output.write_text('Fonte: '+entry['path']+'\n'+text)
+            output.write_text('Source: '+entry['path']+'\n'+text)
         except (ToolError, OSError, ValueError, KeyError, zipfile.BadZipFile, ET.ParseError) as exc:
             warnings.append({'path':entry['path'],'warning':str(exc)[:200]})
     return warnings

@@ -42,13 +42,13 @@ const path=require('node:path');
   assert.deepEqual(errors,[]);
   const motion=await page.evaluate(()=>{
    const previous=active,lastId=last,el=document.createElement('article'),body=document.createElement('div');body.className='text chat-bubble';el.append(body);document.querySelector('#messages').append(el);active={body,el};
-   body.rawAnswer=renderAnswer(body,'Resposta parcial');updateMotion('answer_delta');const partial=!!body.querySelector('p .response-motion');
+   body.rawAnswer=renderAnswer(body,'Partial answer');updateMotion('answer_delta');const partial=!!body.querySelector('p .response-motion');
    updateMotion('thinking');const thinking=!!body.querySelector('p .response-motion');
-   updateMotion('completed');const completed=!!body.querySelector('.response-motion');status('Concluído');const routine=document.querySelector('#status').textContent;
-   status('Não foi possível concluir: erro de teste');const error=document.querySelector('#status').textContent;
+   updateMotion('completed');const completed=!!body.querySelector('.response-motion');status('Completed');const routine=document.querySelector('#status').textContent;
+   status("Couldn't finish: test error");const error=document.querySelector('#status').textContent;
    active=previous;last=lastId;el.remove();return{partial,thinking,completed,routine,error};
   });
-  assert.deepEqual(motion,{partial:true,thinking:true,completed:false,routine:'',error:'Não foi possível concluir: erro de teste'});
+  assert.deepEqual(motion,{partial:true,thinking:true,completed:false,routine:'',error:"Couldn't finish: test error"});
   console.log('PASS: inline answer motion survives thinking, clears at completion, routine status stays empty, error stays visible; mobile settings dialog stays within viewport.');
  }finally{await browser.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});

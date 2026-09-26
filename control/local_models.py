@@ -48,7 +48,7 @@ def performance(args):
 def save_profile(state,server):
     import json
     profile={k:server[k] for k in ('binary','model_file','description','mmproj_file','flags','performance','permissions','capabilities','allowed_roots') if k in server}
-    if not profile.get('model_file'):raise ValueError('Selecione o arquivo de pesos deste perfil.')
+    if not profile.get('model_file'):raise ValueError('Select the weights file for this profile.')
     profile['model_file']=str(Path(profile['model_file']).expanduser().resolve())
     profiles=load_profiles(state)
     previous=profiles.get(profile['model_file'],{})
@@ -64,15 +64,15 @@ def load_profiles(state):
     import json
     try:stored=json.loads((Path(state)/'local-profiles.json').read_text())
     except FileNotFoundError:stored={}
-    if not isinstance(stored,dict):raise ValueError('Catálogo de perfis locais inválido.')
+    if not isinstance(stored,dict):raise ValueError('Invalid local profile catalog.')
     profiles={}
     for value in stored.values():
-        if not isinstance(value,dict) or not value.get('model_file'):raise ValueError('Perfil local inválido.')
+        if not isinstance(value,dict) or not value.get('model_file'):raise ValueError('Invalid local profile.')
         key=str(Path(value['model_file']).expanduser().resolve())
         profiles[key]={**value,'model_file':key}
     try:legacy=json.loads((Path(state)/'local-profile.json').read_text())
     except FileNotFoundError:legacy={}
-    if not isinstance(legacy,dict):raise ValueError('Perfil local legado inválido.')
+    if not isinstance(legacy,dict):raise ValueError('Invalid legacy local profile.')
     if legacy.get('model_file'):
         key=str(Path(legacy['model_file']).expanduser().resolve())
         profiles.setdefault(key,{**legacy,'model_file':key})
@@ -94,10 +94,10 @@ def launch_options(profile):
 def launch_command(profile, *, key_file, port=8096, alias='managed-local'):
     """Build the fixed local-only llama.cpp invocation from a validated profile."""
     profile=validate_profile(profile)
-    if type(port) is not int or not 1024<=port<=65535:raise ValueError('Porta inválida.')
-    if not isinstance(alias,str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,160}',alias):raise ValueError('Alias inválido.')
+    if type(port) is not int or not 1024<=port<=65535:raise ValueError('Invalid port.')
+    if not isinstance(alias,str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,160}',alias):raise ValueError('Invalid alias.')
     key=Path(key_file).expanduser()
-    if not key.is_absolute():raise ValueError('Arquivo de chave precisa usar caminho absoluto.')
+    if not key.is_absolute():raise ValueError('Key file must use an absolute path.')
     command=[profile['binary'],'--model',profile['model_file'],'--alias',alias,'--host','127.0.0.1','--port',str(port),'--api-key-file',str(key),'--jinja']
     if profile.get('mmproj_file'):command.extend(['--mmproj',profile['mmproj_file']])
     command.extend('--'+flag for flag in profile.get('flags',()))
@@ -105,13 +105,13 @@ def launch_command(profile, *, key_file, port=8096, alias='managed-local'):
 
 def validate_profile(profile):
     if not profile:return {}
-    if not isinstance(profile,dict) or set(profile)-{'binary','model_file','description','mmproj_file','flags','performance','permissions','capabilities','allowed_roots'}:raise ValueError('Perfil local contém campos não permitidos.')
+    if not isinstance(profile,dict) or set(profile)-{'binary','model_file','description','mmproj_file','flags','performance','permissions','capabilities','allowed_roots'}:raise ValueError('Local profile contains fields that are not allowed.')
     binary=Path(profile.get('binary',''));model=Path(profile.get('model_file',''))
-    if not binary.is_absolute() or binary.name!='llama-server' or not binary.is_file():raise ValueError('Executável do perfil não encontrado nesta máquina.')
-    if not model.is_absolute() or model.suffix!='.gguf' or not model.is_file():raise ValueError('Modelo do perfil não encontrado nesta máquina.')
+    if not binary.is_absolute() or binary.name!='llama-server' or not binary.is_file():raise ValueError('Profile executable not found on this machine.')
+    if not model.is_absolute() or model.suffix!='.gguf' or not model.is_file():raise ValueError('Profile model not found on this machine.')
     values=profile.get('performance',{})
-    if not isinstance(values,dict) or set(values)-set(PERFORMANCE_FLAGS):raise ValueError('Opções de desempenho não permitidas.')
-    if any(not isinstance(v,str) or not v or len(v)>100 or v.startswith('--') or any(ord(c)<32 for c in v) for v in values.values()):raise ValueError('Valor de desempenho inválido.')
+    if not isinstance(values,dict) or set(values)-set(PERFORMANCE_FLAGS):raise ValueError('Performance options not allowed.')
+    if any(not isinstance(v,str) or not v or len(v)>100 or v.startswith('--') or any(ord(c)<32 for c in v) for v in values.values()):raise ValueError('Invalid performance value.')
     integer_ranges={'n-gpu-layers':(0,999),'ctx-size':(0,10000000),'parallel':(1,256),
                     'threads':(1,4096),'threads-batch':(-1,4096),'n-cpu-moe':(0,100000),
                     'reasoning-budget':(-1,10000000),'cache-ram':(-1,2**40),
@@ -120,47 +120,47 @@ def validate_profile(profile):
     for name,(minimum,maximum) in {**integer_ranges,**float_ranges}.items():
         if name not in values:continue
         try:value=int(values[name]) if name in integer_ranges else float(values[name])
-        except ValueError:raise ValueError('Valor numérico inválido para '+name+'.') from None
-        if not math.isfinite(value) or not minimum<=value<=maximum:raise ValueError('Valor fora do intervalo permitido para '+name+'.')
+        except ValueError:raise ValueError('Invalid numeric value for '+name+'.') from None
+        if not math.isfinite(value) or not minimum<=value<=maximum:raise ValueError('Value out of the allowed range for '+name+'.')
     for name in ('cpu-range','cpu-range-batch'):
         if name not in values:continue
-        if not re.fullmatch(r'\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*',values[name]):raise ValueError('Informe CPUs como 0-7 ou 0-3,8-11.')
+        if not re.fullmatch(r'\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*',values[name]):raise ValueError('Provide CPUs like 0-7 or 0-3,8-11.')
         for part in values[name].split(','):
             bounds=[int(value) for value in part.split('-')]
-            if bounds[0]>bounds[-1] or bounds[-1]>4095:raise ValueError('Intervalo de CPUs inválido.')
-    if 'split-mode' in values and values['split-mode'] not in ('none','layer','row'):raise ValueError('Modo de divisão de GPU inválido.')
+            if bounds[0]>bounds[-1] or bounds[-1]>4095:raise ValueError('Invalid CPU range.')
+    if 'split-mode' in values and values['split-mode'] not in ('none','layer','row'):raise ValueError('Invalid GPU split mode.')
     if 'tensor-split' in values:
         try:ratios=[float(part) for part in values['tensor-split'].split(',')]
-        except ValueError:raise ValueError('Informe proporções de GPU separadas por vírgula.') from None
-        if not 1<=len(ratios)<=256 or any(not math.isfinite(value) or value<0 for value in ratios) or sum(ratios)<=0:raise ValueError('Proporções de GPU inválidas.')
+        except ValueError:raise ValueError('Provide GPU ratios separated by commas.') from None
+        if not 1<=len(ratios)<=256 or any(not math.isfinite(value) or value<0 for value in ratios) or sum(ratios)<=0:raise ValueError('Invalid GPU ratios.')
     result={'binary':str(binary.resolve()),'model_file':str(model.resolve()),'performance':dict(values)}
     if 'description' in profile:
         description=profile['description']
-        if not isinstance(description,str) or len(description)>2000:raise ValueError('Descrição do perfil inválida.')
+        if not isinstance(description,str) or len(description)>2000:raise ValueError('Invalid profile description.')
         result['description']=description
     if 'mmproj_file' in profile:
         mmproj=Path(profile['mmproj_file']).expanduser()
-        if not mmproj.is_absolute() or mmproj.suffix!='.gguf' or not mmproj.is_file():raise ValueError('Projetor multimodal não encontrado nesta máquina.')
+        if not mmproj.is_absolute() or mmproj.suffix!='.gguf' or not mmproj.is_file():raise ValueError('Multimodal projector not found on this machine.')
         result['mmproj_file']=str(mmproj.resolve())
     if 'flags' in profile:
         flags=profile['flags']
-        if not isinstance(flags,list) or len(flags)>len(PROFILE_FLAGS) or any(flag not in PROFILE_FLAGS for flag in flags):raise ValueError('Flags específicas do perfil não permitidas.')
+        if not isinstance(flags,list) or len(flags)>len(PROFILE_FLAGS) or any(flag not in PROFILE_FLAGS for flag in flags):raise ValueError('Profile-specific flags not allowed.')
         result['flags']=list(dict.fromkeys(flags))
     for key,allowed in [('permissions',MODEL_PERMISSIONS),('capabilities',('tools',))]:
         if key not in profile:continue
         items=profile[key]
-        if not isinstance(items,dict) or set(items)-set(allowed) or any(type(value) is not bool for value in items.values()):raise ValueError('Permissões e capacidades devem usar valores booleanos permitidos.')
+        if not isinstance(items,dict) or set(items)-set(allowed) or any(type(value) is not bool for value in items.values()):raise ValueError('Permissions and capabilities must use allowed boolean values.')
         result[key]={name:items.get(name,False) for name in allowed}
     if 'allowed_roots' in profile:
         roots=profile['allowed_roots']
-        if not isinstance(roots,list) or len(roots)>20 or any(not isinstance(value,str) for value in roots):raise ValueError('Informe até 20 pastas locais por modelo.')
+        if not isinstance(roots,list) or len(roots)>20 or any(not isinstance(value,str) for value in roots):raise ValueError('Provide up to 20 local folders per model.')
         home=Path.home().resolve();sensitive=[home/name for name in ('.ssh','.codex','.claude','.gemini','.config','.local/share/tail-harness')]
         checked=[]
         for value in roots:
             root=Path(value).expanduser()
-            if not root.is_absolute() or not root.is_dir():raise ValueError('Escolha pastas existentes e absolutas.')
+            if not root.is_absolute() or not root.is_dir():raise ValueError('Choose existing, absolute folders.')
             root=root.resolve()
-            if root in (Path('/'),home) or any(root.is_relative_to(path) or path.is_relative_to(root) for path in sensitive):raise ValueError('Pasta ampla ou de credenciais não pode ser compartilhada.')
+            if root in (Path('/'),home) or any(root.is_relative_to(path) or path.is_relative_to(root) for path in sensitive):raise ValueError('A broad or credentials folder cannot be shared.')
             checked.append(str(root))
         result['allowed_roots']=list(dict.fromkeys(checked))
     return result
@@ -191,7 +191,7 @@ def runtime_roots(state,runtimes,models):
 async def runtime_details(binary):
     """Inspect fixed informational flags only, without loading weights or starting a server."""
     path=Path(binary).expanduser()
-    if not path.is_absolute() or path.name!='llama-server' or not path.is_file():raise ValueError('Informe um executável llama-server existente.')
+    if not path.is_absolute() or path.name!='llama-server' or not path.is_file():raise ValueError('Provide an existing llama-server executable.')
     async def inspect(flag):
         proc=await asyncio.create_subprocess_exec(str(path),flag,stdout=asyncio.subprocess.PIPE,stderr=asyncio.subprocess.STDOUT)
         try:
@@ -199,15 +199,15 @@ async def runtime_details(binary):
                 output=b''
                 while chunk:=await proc.stdout.read(min(8192,65537-len(output))):
                     output+=chunk
-                    if len(output)>65536:raise ValueError('A resposta do runtime excedeu o limite de descoberta.')
+                    if len(output)>65536:raise ValueError('The runtime response exceeded the discovery limit.')
                 await proc.wait()
             return proc.returncode,output.decode(errors='replace')
-        except TimeoutError:raise ValueError('O runtime demorou a responder à descoberta de dispositivos.') from None
+        except TimeoutError:raise ValueError('The runtime took too long to respond to device discovery.') from None
         finally:
             if proc.returncode is None:
                 proc.kill();await proc.wait()
     code,output=await inspect('--list-devices')
-    if code:raise ValueError('Não foi possível listar os dispositivos deste runtime.')
+    if code:raise ValueError('Could not list this runtime\'s devices.')
     help_code,help_text=await inspect('--help')
     devices=[]
     for line in output.splitlines():

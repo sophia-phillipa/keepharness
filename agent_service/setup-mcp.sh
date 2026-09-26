@@ -1,23 +1,23 @@
 #!/bin/sh
-# Linux e macOS: chmod +x setup-mcp.sh
-# Execute: ./setup-mcp.sh 'https://seu-servidor-tailscale'
+# Linux and macOS: chmod +x setup-mcp.sh
+# Run: ./setup-mcp.sh 'https://your-tailscale-server'
 set -eu
 if [ "$#" -ne 1 ]; then
-    printf '%s\n' 'Uso: ./setup-mcp.sh URL_DO_HARNESS' >&2
+    printf '%s\n' 'Usage: ./setup-mcp.sh HARNESS_URL' >&2
     exit 1
 fi
 server=${1%/}
 case "$server" in
     http://?*|https://?*) ;;
-    *) printf '%s\n' 'Informe a URL http:// ou https:// do harness.' >&2; exit 1 ;;
+    *) printf '%s\n' 'Provide the http:// or https:// URL of the harness.' >&2; exit 1 ;;
 esac
 for dependency in python3 curl claude; do
     if ! command -v "$dependency" >/dev/null 2>&1; then
-        printf 'Instale %s e execute novamente. Requisitos: Python 3.10+, curl e Claude Code.\n' "$dependency" >&2
+        printf 'Install %s and run again. Requirements: Python 3.10+, curl and Claude Code.\n' "$dependency" >&2
         exit 1
     fi
 done
-python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else "Instale Python 3.10 ou superior.")'
+python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else "Install Python 3.10 or newer.")'
 folder="$HOME/.local/share/tail-harness"
 mkdir -p "$folder"
 python3 -m venv "$folder/venv"
@@ -29,4 +29,4 @@ curl -fS --connect-timeout 15 --max-time 120 "$server/mcp_bridge.py" -o "$tempor
 "$folder/venv/bin/python" -c 'import ast, pathlib, sys; ast.parse(pathlib.Path(sys.argv[1]).read_text())' "$temporary"
 mv "$temporary" "$folder/mcp_bridge.py"
 claude mcp add --transport stdio --scope user --env "LOCAL_AGENT_URL=$server" tail-harness -- "$folder/venv/bin/python" "$folder/mcp_bridge.py"
-printf '%s\n' 'Conector cadastrado. Abra o Claude Code e use /mcp para verificar a conexão.'
+printf '%s\n' 'Connector registered. Open Claude Code and use /mcp to verify the connection.'

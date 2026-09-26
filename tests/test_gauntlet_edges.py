@@ -18,7 +18,7 @@ def test_malformed_mode_never_enqueues_or_silently_defaults(tmp_path, mode):
 def test_incompatible_handoff_preserves_native_root_and_unicode_title(tmp_path):
     instance, identity = service(tmp_path)
     try:
-        title = 'Revisão 🐋 <arquivo> & ação'
+        title = 'Café 🐋 <naïve> & façade'
         root = instance.submit(identity, dict(project_id='p', backend='codex', model='gpt-6-astra', prompt=title))['job_id']
         instance.finish(root, 'completed', {'answer': 'done'})
         with pytest.raises(APIError, match='execution_mode_unsupported'):

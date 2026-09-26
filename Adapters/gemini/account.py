@@ -125,22 +125,22 @@ def _main():
         task = asyncio.current_task()
         asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, task.cancel)
         return await asyncio.wait_for(login(args.binary), timeout=240)
-    print("Preparando o login Google…", flush=True)
+    print("Preparing Google login…", flush=True)
     try:
         asyncio.run(run())
     except asyncio.CancelledError:
-        print("Login cancelado.", flush=True)
+        print("Login canceled.", flush=True)
         raise SystemExit(1) from None
     except Exception as error:
         if str(error) == "gemini_client_retired":
-            print("[gemini_client_retired] O Google encerrou o acesso do Gemini CLI para contas individuais, incluindo Google AI Pro e Ultra. Repetir o login ou executar gemini no terminal não resolve.", flush=True)
-            print("1. Abra o guia oficial de migração em uma nova aba: https://antigravity.google/docs/cli/gcli-migration/", flush=True)
-            print("2. Siga o guia para instalar o Antigravity CLI e entrar com sua conta Google.", flush=True)
-            print("3. Para utilizá-lo neste painel, é necessário integrar o motor Antigravity. Ele ainda não está disponível aqui; instalar o CLI não habilita este cartão Gemini.", flush=True)
+            print("[gemini_client_retired] Google has ended Gemini CLI access for individual accounts, including Google AI Pro and Ultra. Repeating the login or running gemini in the terminal does not fix this.", flush=True)
+            print("1. Open the official migration guide in a new tab: https://antigravity.google/docs/cli/gcli-migration/", flush=True)
+            print("2. Follow the guide to install the Antigravity CLI and sign in with your Google account.", flush=True)
+            print("3. Using it in this panel requires integrating the Antigravity engine. It is not yet available here; installing the CLI does not enable this Gemini card.", flush=True)
             raise SystemExit(1) from None
-        print("Não foi possível concluir o login Google. Tente novamente. Para diagnóstico: 1. Abra um terminal neste computador. 2. Execute: gemini 3. Se aparecer login Google, conclua-o e volte a Verificar conta. Se aparecer migração para Antigravity, o cliente foi descontinuado e repetir o login não resolve.", flush=True)
+        print("Could not complete the Google login. Try again. To diagnose: 1. Open a terminal on this computer. 2. Run: gemini 3. If a Google login appears, complete it and go back to Verify account. If a migration to Antigravity appears, the client has been discontinued and repeating the login does not fix this.", flush=True)
         raise SystemExit(1) from None
-    print("Login Google concluído. Clique em Verificar conta no painel.", flush=True)
+    print("Google login complete. Click Verify account in the panel.", flush=True)
 
 
 async def login(binary):
@@ -175,7 +175,7 @@ async def login(binary):
         )
             if not any(item.get("id") == "oauth-personal" for item in initial.get("authMethods", []) if isinstance(item, dict)):
                 raise ToolError("gemini_oauth_unavailable")
-            print("Aguardando autorização Google no navegador…", flush=True)
+            print("Waiting for Google authorization in the browser…", flush=True)
             await _request(proc, 2, "authenticate", {"methodId": "oauth-personal"})
             return {"authenticated": True}
         finally:

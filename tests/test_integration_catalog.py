@@ -78,7 +78,7 @@ def test_catalog_falls_back_to_known_mcp_metadata_when_claude_output_is_unknown(
 def test_catalog_rejects_unknown_provider_without_executing_a_cli():
     with patch("control.integration_catalog._run", new_callable=AsyncMock) as command:
         result = run(catalog("deepseek", "/bin/codex"))
-    assert result == {"items": [], "warnings": ["Catálogo não suportado para este provedor."]}
+    assert result == {"items": [], "warnings": ["Catalog not supported for this provider."]}
     command.assert_not_awaited()
 
 

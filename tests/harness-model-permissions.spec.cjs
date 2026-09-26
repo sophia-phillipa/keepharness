@@ -10,9 +10,9 @@ const assert=require('node:assert/strict');
  if(path==='/v1/jobs'){jobs++;throw Error('Must not execute inference in permission test');}
  if(path==='/v1/models'&&new URL(r.request().url()).searchParams.get('project_id')==='demo')data.models=data.models.map(m=>({...m,permissions:{...m.permissions,upload:true,internet:true}}));
  await r.fulfill({json:data});});
- await p.goto(process.env.HARNESS_URL||'http://127.0.0.1:18196/');await p.waitForFunction(()=>document.querySelector('#models-retry').textContent==='Verificar novamente');
- assert(await p.locator('#attach').isEnabled());assert.match(await p.locator('#model-permissions').innerText(),/Internet permitida/);
- await p.locator('#file').setInputFiles({name:'teste.txt',mimeType:'text/plain',buffer:Buffer.from('Arquivo de teste sem dados pessoais')});await p.waitForFunction(()=>document.querySelector('#attachments').textContent.includes('teste.txt'));assert.equal(uploads,1);
+ await p.goto(process.env.HARNESS_URL||'http://127.0.0.1:18196/');await p.waitForFunction(()=>document.querySelector('#models-retry').textContent==='Check again');
+ assert(await p.locator('#attach').isEnabled());assert.match(await p.locator('#model-permissions').innerText(),/Internet allowed/);
+ await p.locator('#file').setInputFiles({name:'test.txt',mimeType:'text/plain',buffer:Buffer.from('Test file without personal data')});await p.waitForFunction(()=>document.querySelector('#attachments').textContent.includes('test.txt'));assert.equal(uploads,1);
  await p.clock.install();
  await p.locator('#file').setInputFiles({name:'speech.wav',mimeType:'audio/wav',buffer:Buffer.from('fixture audio')});
  await p.waitForFunction(()=>document.querySelector('#status').textContent.includes('speech.wav'));
@@ -24,8 +24,8 @@ const assert=require('node:assert/strict');
  await p.waitForFunction(()=>document.querySelector('#attachments').textContent.includes('speech.wav'));
  assert.equal(uploads,2);
 
- await p.selectOption('#model','gemma-local');assert(await p.locator('#attach').isDisabled());assert.match(await p.locator('#model-permissions').innerText(),/Internet desativada/);
- await p.fill('#prompt','Analisar anexo');await p.click('#send');assert.match(await p.locator('#status').innerText(),/não permite anexos/);assert.equal(jobs,0);assert.equal(await p.locator('#prompt').inputValue(),'Analisar anexo');
- await p.selectOption('#model','qwen-local');assert(await p.locator('#attach').isEnabled());assert.match(await p.locator('#attachments').innerText(),/teste.txt/);await p.selectOption('#model','gemma-local');await p.selectOption('#project','demo',{force:true});await p.waitForFunction(()=>!document.querySelector('#attach').disabled);assert.match(await p.locator('#model-permissions').innerText(),/Internet permitida/);await p.selectOption('#project','sem-projeto',{force:true});await p.waitForFunction(()=>document.querySelector('#attach').disabled);assert.match(await p.locator('#model-permissions').innerText(),/Internet desativada/);assert.deepEqual(errors,[]);
+ await p.selectOption('#model','gemma-local');assert(await p.locator('#attach').isDisabled());assert.match(await p.locator('#model-permissions').innerText(),/Internet disabled/);
+ await p.fill('#prompt','Analyze attachment');await p.click('#send');assert.match(await p.locator('#status').innerText(),/doesn't allow attachments/);assert.equal(jobs,0);assert.equal(await p.locator('#prompt').inputValue(),'Analyze attachment');
+ await p.selectOption('#model','qwen-local');assert(await p.locator('#attach').isEnabled());assert.match(await p.locator('#attachments').innerText(),/test.txt/);await p.selectOption('#model','gemma-local');await p.selectOption('#project','demo',{force:true});await p.waitForFunction(()=>!document.querySelector('#attach').disabled);assert.match(await p.locator('#model-permissions').innerText(),/Internet allowed/);await p.selectOption('#project','sem-projeto',{force:true});await p.waitForFunction(()=>document.querySelector('#attach').disabled);assert.match(await p.locator('#model-permissions').innerText(),/Internet disabled/);assert.deepEqual(errors,[]);
  console.log('PASS: Qwen attachments and internet permissions, isolated Gemma restrictions, draft and attachment retained on model switch');
 }finally{await browser.close();}})().catch(e=>{console.error(e);process.exitCode=1;});
