@@ -9,11 +9,13 @@ from datetime import datetime
 
 from .auth import cli_login_environment
 
-# Active legacy versions omitted by the CLI picker. Reviewed 2026-09-21 against
+# Active versions omitted by the CLI picker. Reviewed 2026-09-26 against
 # https://platform.claude.com/docs/en/about-claude/model-deprecations and
 # https://code.claude.com/docs/en/model-config (CLI effort, not Messages API).
 # Listing a documented version does not establish entitlement for this account.
 LEGACY_MODELS = {
+    "claude-opus-5": ["configured", "low", "medium", "high", "xhigh", "max"],
+    "claude-fable-5": ["configured", "low", "medium", "high", "xhigh", "max"],
     "claude-opus-4-8": ["configured", "low", "medium", "high", "xhigh", "max"],
     "claude-opus-4-7": ["configured", "low", "medium", "high", "xhigh", "max"],
     "claude-opus-4-6": ["configured", "low", "medium", "high", "max"],

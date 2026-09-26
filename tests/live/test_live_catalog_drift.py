@@ -27,6 +27,7 @@ MAX_REVIEW_AGE_DAYS = 90
 # returning; kept in sync with adapters/codex/specs/models/*.md (excluding the two
 # non-model reference docs in that folder).
 CODEX_SPEC_NON_MODEL_DOCS = {"cli-catalog.md", "project-identifiers.md"}
+UNVERIFIED_SPEC_NOTE = "project default, not a verified Codex alias"
 
 
 def test_claude_legacy_models_review_note_is_not_stale():
@@ -52,9 +53,11 @@ def _codex_spec_model_ids():
     models_dir = Path(specs_dir).resolve().parent / "specs" / "models"
     ids = []
     for path in sorted(models_dir.glob("*.md")):
-        if path.name in CODEX_SPEC_NON_MODEL_DOCS:
+        text = path.read_text()
+        # A project default (gpt-6-astra) is documented as not a verified alias.
+        if path.name in CODEX_SPEC_NON_MODEL_DOCS or UNVERIFIED_SPEC_NOTE in text:
             continue
-        heading = path.read_text().splitlines()[0]
+        heading = text.splitlines()[0]
         match = re.search(r"Codex model ID:\s*`?([^`\n]+)`?", heading)
         ids.append(match.group(1).strip() if match else path.stem)
     return ids

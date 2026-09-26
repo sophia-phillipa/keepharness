@@ -39,14 +39,6 @@ def _free_port():
     return port
 
 
-def _is_elf(path):
-    try:
-        with open(path, "rb") as handle:
-            return handle.read(4) == b"\x7fELF"
-    except OSError:
-        return False
-
-
 def _pick_model(provider, models):
     """The cheapest model/effort combination available on this account."""
     if provider == "claude":
@@ -72,7 +64,8 @@ class LiveHarness:
         self.admin_base = f"http://127.0.0.1:{admin_port}"
         self.harness_base = f"http://127.0.0.1:{harness_port}"
         self.admin_process = None
-        self.client = httpx.Client(base_url=self.admin_base, timeout=15)
+        # Saving settings that enable a provider also re-checks it and starts the harness.
+        self.client = httpx.Client(base_url=self.admin_base, timeout=90)
 
     def start_admin(self):
         self.admin_process = subprocess.Popen(
@@ -92,7 +85,7 @@ class LiveHarness:
 
     def admin_post(self, path, json_body):
         response = self.client.post(path, json=json_body, headers={"X-Harness-Admin": "1"})
-        response.raise_for_status()
+        assert response.status_code == 200, (path, response.text)
         return response.json()
 
     def admin_get(self, path):
@@ -115,7 +108,7 @@ class LiveHarness:
     def stop(self):
         try:
             self.admin_post("/api/stop", {})
-        except (httpx.HTTPError, RuntimeError):
+        except (httpx.HTTPError, RuntimeError, AssertionError):
             pass
         self.client.close()
         if self.admin_process is not None:
@@ -139,7 +132,7 @@ def live_harness(tmp_path):
 
 def _submit_and_wait(client, payload, timeout=JOB_TIMEOUT_SECONDS):
     response = client.post("/v1/jobs", json=payload)
-    response.raise_for_status()
+    assert response.status_code == 202, response.text
     job_id = response.json()["job_id"]
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -147,7 +140,27 @@ def _submit_and_wait(client, payload, timeout=JOB_TIMEOUT_SECONDS):
         if info["state"] in ("completed", "failed", "cancelled", "interrupted"):
             return job_id, info
         time.sleep(1)
+    client.post(f"/v1/jobs/{job_id}/cancel")
     raise TimeoutError(f"job {job_id} did not settle within {timeout}s")
+
+
+def _result_text(client, job_id):
+    response = client.get(f"/v1/jobs/{job_id}/artifacts/result.json")
+    response.raise_for_status()
+    return json.dumps(response.json())
+
+
+def _wait_for_output(client, job_id, timeout=JOB_TIMEOUT_SECONDS):
+    """Follow the job's SSE stream until the provider has produced output."""
+    output = {"answer_delta", "reasoning_delta", "tool_start"}
+    deadline = time.monotonic() + timeout
+    with client.stream("GET", f"/v1/jobs/{job_id}/events") as stream:
+        for line in stream.iter_lines():
+            if line.startswith("event: ") and line[7:].strip() in output:
+                return line[7:].strip()
+            if time.monotonic() > deadline:
+                break
+    return None
 
 
 @pytest.mark.live
@@ -201,26 +214,27 @@ def test_live_provider_end_to_end(provider, live_harness):
 
         # 5. A real turn.
         root_id, root_info = _submit_and_wait(
-            client, {**base_payload, "prompt": "Reply with exactly the word PONG"}
+            client, {**base_payload, "prompt": "Reply with exactly: PONG"}
         )
         assert root_info["state"] == "completed", root_info
-        result = client.get(f"/v1/jobs/{root_id}/result").json()
-        assert "PONG" in json.dumps(result), result
+        # Exact: an empty "SOURCES:" trailer on the prompt was once echoed back.
+        assert root_info["result"]["answer"].strip() == "PONG", root_info["result"]
 
-        # 6. Resume: the provider must recall its own previous reply.
+        # 6. Resume: the provider must recall its own previous reply. A continuation
+        # inherits the conversation's execution mode and must not name one.
+        continuation = {k: v for k, v in base_payload.items() if k != "execution_mode"}
         resume_id, resume_info = _submit_and_wait(
             client,
             {
-                **base_payload,
+                **continuation,
                 "parent_job_id": root_id,
                 "prompt": "What word did you reply with? Answer with just that word.",
             },
         )
         assert resume_info["state"] == "completed", resume_info
-        resume_result = client.get(f"/v1/jobs/{resume_id}/result").json()
-        assert "PONG" in json.dumps(resume_result), resume_result
+        assert "PONG" in _result_text(client, resume_id)
 
-        # 7. Cancel: cancel on the very first event, expect a clean, prompt cancellation.
+        # 7. Cancel mid-stream: wait for the provider's first output, then cancel.
         cancel_payload = {
             **base_payload,
             "prompt": "Count from 1 to 300, one number per line, nothing else.",
@@ -228,10 +242,7 @@ def test_live_provider_end_to_end(provider, live_harness):
         submitted = client.post("/v1/jobs", json=cancel_payload)
         submitted.raise_for_status()
         cancel_job_id = submitted.json()["job_id"]
-        with client.stream("GET", f"/v1/jobs/{cancel_job_id}/events") as stream:
-            for line in stream.iter_lines():
-                if line.strip():
-                    break
+        assert _wait_for_output(client, cancel_job_id), "no provider output before cancelling"
         client.post(f"/v1/jobs/{cancel_job_id}/cancel").raise_for_status()
         deadline = time.monotonic() + 15
         cancelled_state = None
@@ -242,24 +253,17 @@ def test_live_provider_end_to_end(provider, live_harness):
             time.sleep(0.5)
         assert cancelled_state == "cancelled", cancelled_state
 
-        # 8. Isolated (scoped) mode, only if this machine can actually sandbox it.
-        binary = shutil.which(provider)
-        if shutil.which("bwrap") and binary and _is_elf(binary) and remaining_budget() > 90:
-            settings = harness.admin_get("/api/state")["settings"]
-            settings["services"][provider]["mode"] = "scoped"
-            harness.admin_post("/api/settings", settings)
-            harness.admin_post("/api/stop", {})
-            harness.admin_post("/api/start", {})
-            harness.wait_for_harness()
-            with httpx.Client(
-                base_url=harness.harness_base, timeout=JOB_TIMEOUT_SECONDS + 5
-            ) as scoped_client:
-                _, scoped_info = _submit_and_wait(
-                    scoped_client,
-                    {
-                        **base_payload,
-                        "execution_mode": "scoped",
-                        "prompt": "Reply with exactly the word PONG",
-                    },
-                )
-                assert scoped_info["state"] == "completed", scoped_info
+        # 8. Isolated (scoped) mode is chosen per conversation; it needs bubblewrap.
+        # The harness itself resolves an npm wrapper to its native binary.
+        if sys.platform == "linux" and shutil.which("bwrap") and remaining_budget() > 90:
+            scoped_id, scoped_info = _submit_and_wait(
+                client,
+                {
+                    **base_payload,
+                    "execution_mode": "scoped",
+                    "prompt": "Reply with exactly the word PONG",
+                },
+            )
+            assert scoped_info["state"] == "completed", scoped_info
+            assert scoped_info["request"]["execution_mode"] == "scoped", scoped_info
+            assert "PONG" in _result_text(client, scoped_id)

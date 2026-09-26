@@ -150,6 +150,13 @@ def test_all_active_legacy_versions_and_only_cli_efforts():
     assert "claude-opus-4-8" not in account.model_catalog(disabled)
 
 
+def test_active_versions_the_cli_picker_omits_are_listed():
+    """Claude Code 2.1.281 lists Opus 5.5, Fable 5.1, Sonnet 5 and Haiku 4.5 only."""
+    models = account.model_catalog(CATALOG)
+    for model in ("claude-opus-5", "claude-fable-5"):
+        assert models[model] == ["configured", "low", "medium", "high", "xhigh", "max"]
+
+
 def test_scoped_execution_transmits_effort(tmp_path):
     @contextmanager
     def workspace(*args):
