@@ -12,9 +12,9 @@ from pathlib import Path
 from starlette.responses import FileResponse, JSONResponse
 
 from .. import maestro, tools, workspaces
-from ..config import preview_metadata
 from ..errors import APIError
 from ..persistence.db import encoded
+from ..services.conversation_service import preview_metadata
 from . import api_route, body
 
 

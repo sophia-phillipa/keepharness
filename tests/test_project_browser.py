@@ -199,7 +199,7 @@ def test_system_attachment_uses_model_from_query_for_images(tmp_path):
     with (
         TestClient(app, headers={"Authorization": "Bearer a"}) as client,
         patch(
-            "agent_service.app.tools.extract",
+            "agent_service.tools.extract",
             new=AsyncMock(return_value=[{"media_type": "image/png"}]),
         ),
         patch.object(app.state.service, "validate_images", new=AsyncMock()) as validate,

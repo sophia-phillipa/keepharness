@@ -140,7 +140,7 @@ def test_busy_revalidation_failure_and_submission_during_delete(setup):
         raise PermissionError("fixture")
 
     fail.avoids_symlink_attacks = True
-    with patch("agent_service.app.shutil.rmtree", fail):
+    with patch("shutil.rmtree", fail):
         assert delete(client, data).json()["code"] == "project_folder_delete_failed"
     assert not service.deleting_project_folders and root.exists()
 

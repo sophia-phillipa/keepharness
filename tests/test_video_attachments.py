@@ -56,7 +56,7 @@ def test_mp4_requires_verified_vision_before_extraction(tmp_path):
                 "validate_video",
                 AsyncMock(side_effect=RuntimeError("not supported")),
             ),
-            patch("agent_service.app.tools.extract", AsyncMock()) as extract,
+            patch("agent_service.tools.extract", AsyncMock()) as extract,
         ):
             try:
                 client.post(
@@ -163,9 +163,9 @@ def test_video_capability_uses_live_model_metadata(tmp_path):
         },
     )()
     with (
-        patch("agent_service.app.tools.video_tools_available", return_value=True),
-        patch("agent_service.app.tools.transcription_available", return_value=True),
-        patch("agent_service.app.codex_rpc.metadata", AsyncMock(return_value=model_list)) as codex,
+        patch("agent_service.tools.video_tools_available", return_value=True),
+        patch("agent_service.tools.transcription_available", return_value=True),
+        patch("adapters.codex.rpc.metadata", AsyncMock(return_value=model_list)) as codex,
         patch("httpx.AsyncClient.get", AsyncMock(return_value=props)),
     ):
         models = asyncio.run(service.models_with_context("p"))
@@ -205,8 +205,8 @@ def test_claude_video_only_for_current_cli_aliases(tmp_path):
         ]
     }
     with (
-        patch("agent_service.app.tools.video_tools_available", return_value=True),
-        patch("agent_service.app.claude_account.metadata", AsyncMock(return_value=picker)),
+        patch("agent_service.tools.video_tools_available", return_value=True),
+        patch("adapters.claude.account.metadata", AsyncMock(return_value=picker)),
     ):
         models = asyncio.run(service.models_with_context("p"))
         assert next(m for m in models if m["id"] == "sonnet")["capabilities"]["video"] is True
@@ -230,7 +230,7 @@ def test_cancelled_folder_video_import_cleans_source(tmp_path):
     source.write_bytes(b"fake mp4")
     with (
         patch.object(service, "validate_video", AsyncMock()),
-        patch("agent_service.app.tools.extract", AsyncMock(side_effect=asyncio.CancelledError)),
+        patch("agent_service.tools.extract", AsyncMock(side_effect=asyncio.CancelledError)),
     ):
         try:
             asyncio.run(

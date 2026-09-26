@@ -86,7 +86,7 @@ def test_claude_stream_quota_cache_is_private_and_expires(tmp_path):
         assert result["available"] and len(result["rateLimitsByLimitId"]) == 2
         assert result["rateLimitsByLimitId"]["five_hour"]["primary"]["usedPercent"] == 25
         assert not service.observed_claude_quota("other-owner")["available"]
-        with patch("agent_service.app.time.time", return_value=time.time() + 301):
+        with patch("time.time", return_value=time.time() + 301):
             assert not client.get("/v1/usage?backend=claude").json()["available"]
         stream.consume(
             {

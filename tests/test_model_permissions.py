@@ -80,7 +80,7 @@ def test_per_model_permissions_reach_inference_and_discovery(tmp_path):
             job = service.submit(identity, data)["job_id"]
             row = service.job(identity, job)
             with patch(
-                "agent_service.app.adapters.run_native",
+                "adapters.run_native",
                 AsyncMock(return_value={"answer": "fixture"}),
             ) as run:
                 asyncio.run(service.infer(row, data))
@@ -234,7 +234,7 @@ def test_full_mode_auto_approves_native_requests_without_expanding_grants(tmp_pa
 
     try:
         job = service.submit(identity, data)["job_id"]
-        with patch("agent_service.app.adapters.run_native", side_effect=native):
+        with patch("adapters.run_native", side_effect=native):
             result = asyncio.run(service.infer(service.job(identity, job), data))
         assert result["approved"] is True
         assert result["escaped"] is False
@@ -470,9 +470,7 @@ def test_old_local_session_migration_refeeds_conversation_history(tmp_path):
         (folder / "native-thread.json").write_text(json.dumps({"id": "old-host-thread"}))
         followup = {**first, "prompt": "what was said?", "parent_job_id": jid}
         next_id = service.submit(identity, followup)["job_id"]
-        with patch(
-            "agent_service.app.adapters.run_native", AsyncMock(return_value={"answer": "fixture"})
-        ) as run:
+        with patch("adapters.run_native", AsyncMock(return_value={"answer": "fixture"})) as run:
             asyncio.run(service.infer(service.job(identity, next_id), followup))
             assert "remembered answer" in run.call_args.args[1]
             assert "remember fixture" in run.call_args.args[1]

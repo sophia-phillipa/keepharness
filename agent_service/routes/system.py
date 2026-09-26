@@ -68,7 +68,7 @@ async def version(request, service, identity):
             "VERSION",
         )
     ]
-    for package in ("routes", "persistence"):
+    for package in ("routes", "persistence", "services"):
         source_files += sorted((PACKAGE_DIR / package).rglob("*.py"))
     source_files += sorted(Path(adapters.__file__).parent.rglob("*.py"))
     digest = hashlib.sha256(b"".join(path.read_bytes() for path in source_files)).hexdigest()[:12]

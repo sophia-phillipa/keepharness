@@ -8,6 +8,23 @@ MARKERS = ("native-thread.json", "remote-thread.json", "claude-session.json", "g
 EVIDENCE_EVENTS = ("tool_start", "tool_end", "plan_updated", "changes_applied", "deployment_failed")
 
 
+def context_overflow(error):
+    text = str(error).lower()
+    return any(
+        code in text
+        for code in (
+            "context_length_exceeded",
+            "exceed_context_size",
+            "exceeds the available context",
+            "maximum context length",
+            "source_context_limit",
+            "conversation_context_limit",
+            "context_window_exceeded",
+            "context_limit_exceeded",
+        )
+    )
+
+
 def read_json(path):
     try:
         value = json.loads(path.read_text())

@@ -118,7 +118,7 @@ def test_native_codex_worker_has_no_fixed_deadline_and_remains_cancellable(tmp_p
             await asyncio.Event().wait()
 
         service.execute = execute
-        with patch("agent_service.app.asyncio.timeout", side_effect=accelerated_timeout):
+        with patch("asyncio.timeout", side_effect=accelerated_timeout):
             worker = asyncio.create_task(service.worker())
             try:
                 await asyncio.wait_for(entered.wait(), 1)

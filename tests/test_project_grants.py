@@ -96,7 +96,7 @@ def test_execution_roots_project_plus_model_and_model_only_outside(tmp_path):
             }
             jid = service.submit(identity, data)["job_id"]
             with patch(
-                "agent_service.app.adapters.run_native",
+                "adapters.run_native",
                 AsyncMock(return_value={"answer": "fixture"}),
             ) as run:
                 asyncio.run(service.infer(service.job(identity, jid), data))

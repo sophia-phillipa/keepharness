@@ -96,7 +96,7 @@ def test_attachment_profile(api, round_no, profile):
     elif profile == 6:  # Streamed bytes above the configured bound are rejected.
         from unittest.mock import patch
 
-        with patch("agent_service.app.tools.MAX_ATTACHMENT_BYTES", 1024 * 1024):
+        with patch("agent_service.tools.MAX_ATTACHMENT_BYTES", 1024 * 1024):
             response = upload(client, b"x" * (1024 * 1024 + round_no), name="large.txt")
         assert response.status_code == 413, response.text
         assert service.db.execute("SELECT count(*) FROM files").fetchone()[0] == 0
@@ -304,7 +304,7 @@ def test_streamed_audio_over_limit_is_rejected_before_transcription(api):
                 "/v1/files?project_id=p", headers={"X-Filename": "large.wav"}, content=chunks()
             )
 
-    with patch("agent_service.app.tools.extract", new=AsyncMock()) as extract:
+    with patch("agent_service.tools.extract", new=AsyncMock()) as extract:
         response = asyncio.run(run())
         assert response.status_code == 413, response.text
         extract.assert_not_awaited()

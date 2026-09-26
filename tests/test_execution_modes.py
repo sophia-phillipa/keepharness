@@ -334,10 +334,8 @@ def test_local_scoped_mode_uses_its_isolated_native_adapter(tmp_path):
         row = instance.job(identity, job)
         data = payload(instance, identity, job)
         with (
-            patch(
-                "agent_service.app.adapters.run_native", AsyncMock(return_value={"answer": "ok"})
-            ) as native,
-            patch("agent_service.app.adapters.run_scoped", AsyncMock()) as scoped,
+            patch("adapters.run_native", AsyncMock(return_value={"answer": "ok"})) as native,
+            patch("adapters.run_scoped", AsyncMock()) as scoped,
         ):
             asyncio.run(instance.infer(row, data))
         native.assert_awaited_once()

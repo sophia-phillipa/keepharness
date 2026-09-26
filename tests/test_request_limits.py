@@ -67,13 +67,13 @@ def test_same_identity_burst_keeps_control_and_other_identity_available(tmp_path
 def test_limiter_recovery_and_bounded_keys(tmp_path):
     service = create_app(config(tmp_path)).state.service
     try:
-        with patch("agent_service.app.time.monotonic", return_value=100):
+        with patch("time.monotonic", return_value=100):
             for _ in range(12):
                 service.limit(("a", "submission"), 12, "submission_rate_limit")
             with pytest.raises(APIError) as exc:
                 service.limit(("a", "submission"), 12, "submission_rate_limit")
             assert exc.value.retry_after == 60
-        with patch("agent_service.app.time.monotonic", return_value=161):
+        with patch("time.monotonic", return_value=161):
             service.limit(("a", "submission"), 12)
         assert service.requests == {("a", "submission"): [161]}
     finally:

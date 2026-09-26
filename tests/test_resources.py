@@ -245,14 +245,12 @@ def test_execution_rechecks_selection_and_preserves_stored_prompt(tmp_path, monk
         job = service.submit(identity, data)["job_id"]
         row = service.job(identity, job)
         assert json.loads(row["payload"])["prompt"] == "/a work"
-        with patch(
-            "agent_service.app.adapters.run_native", AsyncMock(return_value={"answer": "done"})
-        ) as run:
+        with patch("adapters.run_native", AsyncMock(return_value={"answer": "done"})) as run:
             asyncio.run(service.infer(row, data))
             assert "$a work" in run.call_args.args[1]
             assert run.call_args.args[3]["_resources"][0]["source"] == str(path)
         path.unlink()
-        with patch("agent_service.app.adapters.run_native", AsyncMock()) as run:
+        with patch("adapters.run_native", AsyncMock()) as run:
             with pytest.raises(APIError, match="resource_unavailable"):
                 asyncio.run(service.infer(row, data))
             run.assert_not_called()
