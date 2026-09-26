@@ -246,26 +246,26 @@ emptyInspector.after(executionPage);
 
 const panelCopy={
  home:['Home','Track operations and server usage in real time.'],
- provedores:['AI Providers','Connect your AI accounts, choose the models available in conversations, and configure access to files, tools, and services.'],
- execucoes:['Runs','Inspect requests, responses, and run events in real time.']
+ providers:['AI Providers','Connect your AI accounts, choose the models available in conversations, and configure access to files, tools, and services.'],
+ runs:['Runs','Inspect requests, responses, and run events in real time.']
 };
 function renderPanel(){
  const section=Object.hasOwn(panelCopy,location.hash.slice(1))?location.hash.slice(1):'home';
- $('dashboard').hidden=section!=='provedores';emptyInspector.hidden=section!=='home';executionPage.hidden=section!=='execucoes';
+ $('dashboard').hidden=section!=='providers';emptyInspector.hidden=section!=='home';executionPage.hidden=section!=='runs';
  document.querySelector('#overview h1').textContent=panelCopy[section][0];
  document.querySelector('#overview .panel-description').textContent=panelCopy[section][1];
- document.querySelector('.notes').hidden=section!=='provedores';
- document.querySelector('.actionbar').hidden=section!=='provedores';
+ document.querySelector('.notes').hidden=section!=='providers';
+ document.querySelector('.actionbar').hidden=section!=='providers';
 
- const showEditor=section==='provedores'&&wizard;
+ const showEditor=section==='providers'&&wizard;
  providerDialog.hidden=!showEditor;
  if(showEditor&&!providerDialog.open)providerDialog.showModal();
  else if(!showEditor&&providerDialog.open)providerDialog.close();
  const busy=$('busy-status');if(busy)(showEditor?providerDialog:$('main')).prepend(busy);
- if(section!=='provedores')$('network').close();
+ if(section!=='providers')$('network').close();
  document.querySelectorAll('[data-panel]').forEach(link=>{if(link.dataset.panel===section)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current');});
 }
-for(const [section,name] of [['home','home'],['provedores','plug'],['execucoes','list']])document.querySelector('[data-panel="'+section+'"]').prepend(icon(name));
+for(const [section,name] of [['home','home'],['providers','plug'],['runs','list']])document.querySelector('[data-panel="'+section+'"]').prepend(icon(name));
 providerDialog.addEventListener('cancel',event=>{event.preventDefault();if(!working)$('wizard-cancel').click();});
 window.addEventListener('hashchange',()=>{renderPanel();refreshDashboard();});
 renderPanel();
@@ -396,7 +396,7 @@ document.querySelectorAll('[data-config-tab]').forEach(button=>button.onclick=()
 
 let dashboardLoading=false;
 async function refreshDashboard(){
- if(document.hidden||location.hash==='#provedores'||dashboardLoading)return;dashboardLoading=true;
+ if(document.hidden||location.hash==='#providers'||dashboardLoading)return;dashboardLoading=true;
  try{const data=await request('dashboard');if(!data.available)throw Error('Metrics temporarily unavailable');
  const format=n=>n==null?'Not provided':Number(n).toLocaleString('en-US');
  $('dashboard-updated').textContent='updated '+new Date(data.checked_at*1000).toLocaleTimeString('en-US');
@@ -572,14 +572,14 @@ const buttonActions=[
  [/^(Download|Install)/,'download','Starts installing or downloading the selected item.'],
  [/^Export/,'download','Downloads the saved settings to a file without credentials.'],
  [/^Import or export/,'adjustments','Opens the options to import or export settings.'],
- [/^(Use current configuration|Copy configuration)/,'copy','Copies the running configuration into this model\'s profile.'],
- [/^Use file/,'folder','Selects a model file already downloaded on this server.'],
+ [/^(Use current configuration|Copy configuration|Copy the running configuration)/,'copy','Copies the running configuration into this model\'s profile.'],
+ [/^Use (file|an already downloaded file)/,'folder','Selects a model file already downloaded on this server.'],
  [/^Use this folder/,'check','Confirms the selected folder for this configuration.'],
  [/^Configure this file/,'adjustments','Opens the profile of the selected model file.'],
  [/^Start/,'player-play','Starts the model using the profile saved on this server.'],
  [/^Run operation/,'player-play','Runs the selected operation and shows its result.'],
  [/^Operations in progress/,'list','Opens the progress and results of administrative operations.'],
- [/^(Choose folder|Home folder|Parent folder)/,'folder','Opens folder navigation on this server.'],
+ [/^(Choose (models )?folder|Home folder|Parent folder)/,'folder','Opens folder navigation on this server.'],
  [/^(Model and hardware)/,'adjustments','Shows the models and execution settings of the provider.'],
  [/^Permissions/,'isolation','Shows the access and permissions of the provider or model.'],
  [/^(Plugins|Connectors|Connection)/,'plug','Shows the integrations and connection options.'],

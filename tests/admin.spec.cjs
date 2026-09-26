@@ -23,7 +23,7 @@ const assert=require('node:assert/strict');
   else if(name==='scan')result=state.inventory;
   return route.fulfill({contentType:'application/json',body:JSON.stringify(result)});
  });
- await p.goto(process.env.ADMIN_URL||'http://127.0.0.1:8094/');await p.locator('[data-panel=provedores]').click();await p.waitForSelector('#add-provider');
+ await p.goto(process.env.ADMIN_URL||'http://127.0.0.1:8094/');await p.locator('[data-panel=providers]').click();await p.waitForSelector('#add-provider');
  assert.equal(await p.locator('#providers').isVisible(),false);assert.equal(await p.locator('#configured-providers article').count(),0);
  await p.click('#add-provider');assert.equal(await p.locator('#dashboard').isVisible(),true);assert(actions.some(x=>x[0]==='scan'));await p.waitForSelector('#provider-dialog:not([hidden])');await p.screenshot({path:'/tmp/tail-wizard-new.png'});for(const width of [390,768]){await p.setViewportSize({width,height:844});assert.equal(await p.locator('#provider-dialog').evaluate(e=>e.scrollWidth>e.clientWidth),false);}await p.setViewportSize({width:1440,height:1000});await p.locator('#provider-options').getByText('Codex CLI',{exact:false}).click();
  const codex=p.locator('[data-provider=codex]');await codex.getByText('Check account',{exact:true}).click();await codex.getByLabel('model-one',{exact:true}).check();await codex.getByLabel('Make this service available',{exact:true}).check();

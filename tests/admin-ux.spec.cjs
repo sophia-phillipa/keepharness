@@ -24,7 +24,7 @@ const assert=require('node:assert/strict');
   }
   await route.fulfill({json:result});
  });
- await p.goto(process.env.ADMIN_URL||'http://admin.test/');await p.locator('[data-panel=provedores]').click();
+ await p.goto(process.env.ADMIN_URL||'http://admin.test/');await p.locator('[data-panel=providers]').click();
  assert.equal(await p.locator('#start').count(),0);
  assert.equal(await p.locator('#stop').count(),0);
  await p.click('#add-provider');
@@ -53,7 +53,7 @@ const assert=require('node:assert/strict');
  await p.click('#wizard-back');
  await p.locator('#provider-options').locator('[data-provider=local]').click();
  assert(await p.locator('#profile-temp').getAttribute('aria-describedby'));
- assert.match(await p.locator('#profile-temp-help').textContent(),/variation/);
+ assert.match(await p.locator('#profile-temp-help').textContent(),/variability/);
  let check=p.getByRole('button',{name:'Check models',exact:true});
  await check.click();
  await p.waitForFunction(()=>document.querySelector('#feedback').textContent.includes('unexpected response'));

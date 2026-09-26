@@ -29,7 +29,7 @@ flowchart LR
 
 ## UI
 
-The current project's icon/name is shown on the right of the central conversation header; projectless conversations hide it. Search is a magnifier + Buscar action in the sidebar menu, opening a dialog that matches only conversation titles. Default sidebar/drawer widths are 280/400 px; saved explicit sizes are retained. The footer spacing is reduced. Settings offers two illustrated layouts: Conversations–Chat–Files/Activity (default), or Files/Activity–Chat–Conversations. The preference is saved locally and can be reset to the default.
+The current project's icon/name is shown on the right of the central conversation header; projectless conversations hide it. Search is a magnifier + Search action in the sidebar menu, opening a dialog that matches only conversation titles. Default sidebar/drawer widths are 280/400 px; saved explicit sizes are retained. The footer spacing is reduced. Settings offers two illustrated layouts: Conversations–Chat–Files/Activity (default), or Files/Activity–Chat–Conversations. The preference is saved locally and can be reset to the default.
 
 ## Research
 

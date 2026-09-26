@@ -19,7 +19,7 @@ const assert=require('node:assert/strict');
   if(path==='settings'){writes.push({unexpectedGeneralSave:true});result={saved:true};}
   await r.fulfill({json:result});
  });
- await p.goto(process.env.ADMIN_URL||'http://127.0.0.1:8094/');await p.locator('[data-panel=provedores]').click();
+ await p.goto(process.env.ADMIN_URL||'http://127.0.0.1:8094/');await p.locator('[data-panel=providers]').click();
  await p.locator('[data-configured-provider=local]').getByRole('button',{name:/Edit/}).click();
  await p.locator('#hardware-editor-details>summary').click();
  assert.equal(await p.locator('#hardware-model').inputValue(),a);

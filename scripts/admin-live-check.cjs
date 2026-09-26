@@ -13,7 +13,7 @@ const assert=require('node:assert/strict'),fs=require('node:fs/promises'),path=r
   const initial=await page.evaluate(async()=>{const current=await requestRaw('state');const settings=current.settings;settings.services.codex.added=true;settings.services.codex.enabled=false;settings.services.codex.models=['gpt-6-astra'];await requestRaw('settings',settings);return settings;});
   assert(initial.services.codex.added);await page.reload();await page.waitForFunction(()=>!working&&!!state);
   for(let round=1;round<=10;round++){
-   await page.setViewportSize({width:round%2?1280:390,height:900});await page.locator('[data-panel=provedores]').click();
+   await page.setViewportSize({width:round%2?1280:390,height:900});await page.locator('[data-panel=providers]').click();
    const enabled=round%2===1;const toggleResponse=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/settings'&&r.request().method()==='POST');
    await page.locator('[data-configured-provider=codex]').getByRole('checkbox').setChecked(enabled);assert.equal((await toggleResponse).status(),200);await page.waitForFunction(()=>!working);
    await page.locator('[data-configured-provider=codex] button[aria-label^="Edit"]').click();
@@ -21,7 +21,7 @@ const assert=require('node:assert/strict'),fs=require('node:fs/promises'),path=r
    const response=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/settings'&&r.request().method()==='POST');await page.click('#save');assert.equal((await response).status(),200);await page.waitForFunction(()=>!working);
    const persisted=JSON.parse(await fs.readFile(path.join(ADMIN_TEST_STATE,'settings.json'),'utf8'));
    assert.equal(persisted.services.codex.enabled,enabled);assert.deepEqual(persisted.services.codex.models,['gpt-6-astra']);
-   await page.reload();await page.waitForFunction(()=>!working&&!!state);await page.locator('[data-panel=provedores]').click();
+   await page.reload();await page.waitForFunction(()=>!working&&!!state);await page.locator('[data-panel=providers]').click();
    assert.equal(await page.locator('[data-configured-provider=codex]').getByRole('checkbox').isChecked(),enabled);
    const noCsrf=await page.evaluate(async()=>{const r=await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});return {status:r.status,body:await r.json()};});assert.equal(noCsrf.status,400);assert.match(noCsrf.body.error,/Administrative header/);
    const foreign=await page.request.post(ADMIN_TEST_URL+'/api/settings',{data:{},headers:{'Origin':'https://foreign.example','X-Harness-Admin':'1'}});assert.equal(foreign.status(),403);

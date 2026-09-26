@@ -20,7 +20,7 @@ const assert=require('node:assert/strict');
 
   const results=[], failures=[];
   const check=(id,ok,detail)=>{results.push({id,ok,detail});if(!ok)failures.push(id)};
-  await page.goto('http://admin.test/');await page.locator('[data-panel=provedores]').click();
+  await page.goto('http://admin.test/');await page.locator('[data-panel=providers]').click();
   await page.click('#add-provider');await page.locator('#provider-options').getByText('Codex CLI',{exact:false}).click();
   const tabs=page.locator('#inspector-tabs');
   const connectors=tabs.getByRole('button',{name:'Plugins',exact:true});

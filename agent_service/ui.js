@@ -147,7 +147,7 @@ function updateModelPermissions(){
  if(m?.permissions)panel.textContent=(m.permissions.upload?'Attachments allowed':'No attachments')+' · '+(m.permissions.internet?(m.backend==='local'?'Internet allowed for local tools':'Internet allowed'):'Internet disabled')+' · '+(m.permissions.shell?'Terminal allowed':'Terminal disabled');
 }
 function updateEfforts(){updateModelPermissions();renderQuotaIdentity();const m=selected();if(!m){$('effort').replaceChildren();return;}$('effort').replaceChildren(...m.efforts.map(e=>{const o=document.createElement('option');o.value=e;o.textContent=efforts[e]||e;return o;}));$('model-note').textContent=m.backend==='maestro'?'Codex coordinates and chooses enabled local or cloud models for each step':m.backend==='local'?'Local model runs on the server · no OpenAI quota · check the sources':m.backend==='deepseek'?'DeepSeek API · uses your DeepSeek credits':m.backend==='gemini'?'Gemini CLI · Google account · subscription quota':m.backend==='claude'?'Claude Code on the server · Anthropic inference · quota not available':'Codex CLI on the server · OpenAI inference · uses ChatGPT quota';}
-function quotaWindows(q,backend=selected()?.backend){const buckets=q?.rateLimitsByLimitId||{codex:q?.rateLimits},entries=Object.entries(buckets||{}),windows=[];for(const [id,bucket] of entries){if(!bucket)continue;const bucketNames={five_hour:'Claude',seven_day:'Claude',seven_day_opus:'✳ Opus',seven_day_sonnet:'✳ Sonnet',overage:'Overage'};const bucketLabel=entries.length>1?(backend==='claude'?(bucketNames[id]||bucket.limitName||bucket.name||bucket.limitId||id.replaceAll('_',' ')):(bucket.limitName||bucket.name||bucket.limitId||bucketNames[id]||id.replaceAll('_',' '))):'';for(const window of [bucket.primary,bucket.secondary]){const used=window?.usedPercent;if(!window||typeof used!=='number'||!Number.isFinite(used))continue;const duration=window.windowDurationMins,label=typeof duration==='number'&&duration>=10080?'Weekly':duration===300?'5h':typeof duration==='number'&&Number.isFinite(duration)&&duration>0?duration<60?Math.round(duration)+' min':Math.round(duration/60)+' h':'Quota',remaining=Math.max(0,Math.min(100,Math.round((100-used)*10)/10)),percent=Number.isInteger(remaining)?String(remaining):remaining.toFixed(1);windows.push({label:bucketLabel?`${label} · ${bucketLabel}`:label,remaining,percent,resetsAt:Number(window.resetsAt)});}}return windows;}
+function quotaWindows(q,backend=selected()?.backend){const buckets=q?.rateLimitsByLimitId||{codex:q?.rateLimits},entries=Object.entries(buckets||{}),windows=[];for(const [id,bucket] of entries){if(!bucket)continue;const bucketNames={five_hour:'Claude',seven_day:'Claude',seven_day_opus:'✳ Opus',seven_day_sonnet:'✳ Sonnet',overage:'Overage'};const bucketLabel=entries.length>1?(backend==='claude'?(bucketNames[id]||bucket.limitName||bucket.name||bucket.limitId||id.replaceAll('_',' ')):(bucket.limitName||bucket.name||bucket.limitId||bucketNames[id]||id.replaceAll('_',' '))):'';for(const window of [bucket.primary,bucket.secondary]){const used=window?.usedPercent;if(!window||typeof used!=='number'||!Number.isFinite(used))continue;const duration=window.windowDurationMins,label=typeof duration==='number'&&duration>=10080?'Weekly':duration===300?'5 h':typeof duration==='number'&&Number.isFinite(duration)&&duration>0?duration<60?Math.round(duration)+' min':Math.round(duration/60)+' h':'Quota',remaining=Math.max(0,Math.min(100,Math.round((100-used)*10)/10)),percent=Number.isInteger(remaining)?String(remaining):remaining.toFixed(1);windows.push({label:bucketLabel?`${label} · ${bucketLabel}`:label,remaining,percent,resetsAt:Number(window.resetsAt)});}}return windows;}
 function quotaText(q){if(!q?.available)return'Quota unavailable';const windows=quotaWindows(q);return windows.length?windows.map(w=>`${w.label}: ${w.percent}% remaining`).join(' · '):'Percentage unavailable';}
 let quotaIdentityBackend='';
 function renderQuotaIdentity(){
@@ -447,7 +447,7 @@ function appendActivityTitle(list,e){
  const data=e.data||{},toolId=data.tool_id==null?'':String(data.tool_id),toolFailed=e.type==='tool_end'&&(data.status==='failed'||data.result?.isError===true);
  if(e.type==='tool_end'&&toolId&&list.toolRows.has(toolId)){const row=list.toolRows.get(toolId);row.dataset.state=toolFailed?'failed':'completed';row.textContent=toolFailed?'Failed: '+row.textContent:row.textContent.replace(/^Running/,'Ran').replace(/^Reading/,'Read').replace(/^Searching/,'Searched');return;}
  const title=activityTitle(e);if(!title)return;
- if(title==='Pensando'&&list.lastElementChild?.textContent===title)return;
+ if(title==='Thinking'&&list.lastElementChild?.textContent===title)return;
  const row=document.createElement('li');row.textContent=title;row.dataset.state=toolFailed?'failed':e.type; if(eventId)row.dataset.eventId=eventId;
  list.append(row);if(e.type==='tool_start'&&toolId)list.toolRows.set(toolId,row);
 }
@@ -503,7 +503,7 @@ function event(e){
  if(e.type==='context_usage'){paintContext(e.data,e.data.metrics);return;}
  if(e.type==='plan_updated'){status('Plan updated');}
  else if(e.type==='answer_delta'){active.body.rawAnswer=(active.body.rawAnswer||'')+e.data.text;renderAnswer(active.body,active.body.rawAnswer);status('Receiving response…');}
- else if(e.type==='reasoning_delta'||e.type==='reasoning_summary'){if(active)setActivitySummary(active,'Pensando…');status('Raciocinando…');}
+ else if(e.type==='reasoning_delta'||e.type==='reasoning_summary'){if(active)setActivitySummary(active,'Thinking…');status('Reasoning…');}
  else if(e.type==='quota_before'||e.type==='quota_after'){if(selected()?.backend==='codex')quotaSnapshot(e.type.endsWith('before')?'before':'after',e.data);}
  else if(e.type==='quota_update'){if(e.data?.provider===selected()?.backend&&['codex','claude'].includes(selected()?.backend))void quota();return;}
  else{status(labels[e.type]||e.type);}
@@ -901,7 +901,7 @@ function recordActivity(e){
  const type=e.type,data=e.data||{},failed=type==='tool_end'&&(data.status==='failed'||data.result?.isError===true);
  if(['context_usage','usage_metrics','quota_before','quota_after'].includes(type))return;
  if(type==='answer_delta'){$('activity-state').textContent='Receiving response';return;}
- if(['reasoning_delta','reasoning_summary','thinking'].includes(type)){$('activity-state').textContent='Pensando';return;}
+ if(['reasoning_delta','reasoning_summary','thinking'].includes(type)){$('activity-state').textContent='Thinking';return;}
  if(type==='tool_start'||type==='tool_end'){
   $('activity-state').textContent=failed?'A step failed':'Run in progress';
   if(failed){$('activity-failures').hidden=false;$('activity-failures').textContent='A step in this run failed.';}

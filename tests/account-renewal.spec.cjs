@@ -49,7 +49,7 @@ const assert=require('node:assert/strict'),fs=require('node:fs/promises'),path=r
  const login=()=>page.getByRole('button',{name:'Log in or renew access — Claude Code',exact:true});
  const close=()=>page.getByRole('button',{name:'Close',exact:true}).click();
  // P1: novice finds renewal directly; missing CLI has a disabled action.
- await page.goto('http://admin.test/#provedores');await idle();assert(await login().isVisible());
+ await page.goto('http://admin.test/#providers');await idle();assert(await login().isVisible());
  await login().click();await page.getByRole('link',{name:/Open authorization/}).waitFor();assert.equal(logins,1);await close();
  state.inventory.services[0].found=false;await page.reload();await idle();assert(await login().isDisabled());
  state.inventory.services[0].found=true;await page.reload();await idle();console.log('P1 PASS: visible renewal and missing CLI');

@@ -20,7 +20,7 @@ const assert=require('node:assert/strict');
 
   state.settings.services.codex={...service(),added:true,models:['fixture'],integrations:['mcp:drive']};
   state.settings.services.claude={...service(),added:true,models:['sonnet'],integrations:['mcp:linear']};
-  await page.goto('http://admin.test/');await page.locator('[data-panel=provedores]').click();
+  await page.goto('http://admin.test/');await page.locator('[data-panel=providers]').click();
   await page.getByRole('button',{name:'Edit Codex CLI',exact:true}).click();
   const tabs=page.locator('#inspector-tabs');
   let release;releaseCatalog=new Promise(resolve=>release=resolve);
