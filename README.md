@@ -122,7 +122,7 @@ Install Python and the project's dependencies on the other computer, copy the cl
     "tail-harness": {
       "command": "/path/tail-harness/.venv/bin/python",
       "args": ["/path/tail-harness/agent_service/mcp_bridge.py"],
-      "env": {"LOCAL_AGENT_URL": "http://YOUR-SERVER:8095"}
+      "env": {"TAIL_HARNESS_AGENT_URL": "http://YOUR-SERVER:8095"}
     }
   }
 }
@@ -437,7 +437,7 @@ Instale Python e as dependências do projeto no notebook, copie o projeto limpo 
     "tail-harness": {
       "command": "/caminho/tail-harness/.venv/bin/python",
       "args": ["/caminho/tail-harness/agent_service/mcp_bridge.py"],
-      "env": {"LOCAL_AGENT_URL": "http://SEU-SERVIDOR:8095"}
+      "env": {"TAIL_HARNESS_AGENT_URL": "http://SEU-SERVIDOR:8095"}
     }
   }
 }

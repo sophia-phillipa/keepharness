@@ -16,7 +16,7 @@ for _ in range(80):
 else:raise SystemExit("UI server unavailable")'
 "${PYTHON:-python3}" -c 'import json,sys;from pathlib import Path
 root=Path(sys.argv[1]);(root/"chat.json").write_text(json.dumps({"state_dir":str(root/"chat"),"bind":"127.0.0.1","port":18095,"local_access":True,"clients":{"local":{"sha256":"0"*64,"projects":["sem-projeto"]}},"projects":{"sem-projeto":{}},"services":{},"origins":["http://127.0.0.1:18095"]}))' "$TH_STATE"
-LOCAL_AGENT_CONFIG="$TH_STATE/chat.json" "${PYTHON:-python3}" -m agent_service.app >"$TH_STATE/chat.log" 2>&1 &
+TAIL_HARNESS_AGENT_CONFIG="$TH_STATE/chat.json" "${PYTHON:-python3}" -m agent_service.app >"$TH_STATE/chat.log" 2>&1 &
 TH_CHAT_PID=$!
 "${PYTHON:-python3}" -c 'import time,urllib.request
 for _ in range(80):

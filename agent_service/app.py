@@ -31,6 +31,7 @@ import adapters
 from adapters.claude import account as claude_account
 from adapters.codex import rpc as codex_rpc
 from agent_service.project_icons import discover_project_icon
+from control import env
 from tail_ui import asset_response
 
 from . import (
@@ -3258,9 +3259,12 @@ if __name__ == "__main__":
     import uvicorn
 
     os.umask(0o077)
-    config = json.loads(Path(os.environ["LOCAL_AGENT_CONFIG"]).read_text())
+    agent_config = env.read("AGENT_CONFIG")
+    if agent_config is None:
+        raise KeyError("TAIL_HARNESS_AGENT_CONFIG")
+    config = json.loads(Path(agent_config).read_text())
     uvicorn.run(
-        create_app(config, Path(os.environ["LOCAL_AGENT_CONFIG"])),
+        create_app(config, Path(agent_config)),
         host=config.get("bind", "127.0.0.1"),
         port=config.get("port", 8095),
         access_log=False,

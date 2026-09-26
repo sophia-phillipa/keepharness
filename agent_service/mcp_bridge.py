@@ -7,6 +7,15 @@ from pathlib import Path
 import httpx
 from mcp.server.fastmcp import FastMCP
 
+
+def read_env(name, legacy, default=None):
+    """Read TAIL_HARNESS_<name>, then its legacy alias.
+
+    Kept inline: setup-mcp.sh ships this file alone to the client computer.
+    """
+    return os.environ.get("TAIL_HARNESS_" + name) or os.environ.get(legacy) or default
+
+
 INSTRUCTIONS = """You connect the client computer (for example, a Mac running Claude) to the Tail Harness server.
 Use submit_job in auto mode: Maestro coordinates when enabled with Codex. Without Maestro, the server directly uses the configured default executor or the first enabled and eligible executor.
 Do not select backend/model/effort manually unless the person asks. The project must have Codex enabled for planning.
@@ -35,10 +44,14 @@ mcp = FastMCP("tail-harness", instructions=INSTRUCTIONS)
 
 def config():
     path = Path(
-        os.environ.get("LOCAL_AGENT_CLIENT", str(Path.home() / ".config/tail-harness/client.json"))
+        read_env(
+            "AGENT_CLIENT",
+            "LOCAL_AGENT_CLIENT",
+            str(Path.home() / ".config/tail-harness/client.json"),
+        )
     )
     cfg = json.loads(path.read_text()) if path.exists() else {}
-    cfg["url"] = os.environ.get("LOCAL_AGENT_URL", cfg.get("url", "http://127.0.0.1:8095"))
+    cfg["url"] = read_env("AGENT_URL", "LOCAL_AGENT_URL", cfg.get("url", "http://127.0.0.1:8095"))
     return cfg
 
 

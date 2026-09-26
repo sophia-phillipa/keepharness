@@ -35,7 +35,7 @@ const { spawn } = require("node:child_process");
     ["-m", "agent_service.app"],
     {
       cwd: root,
-      env: { ...process.env, LOCAL_AGENT_CONFIG: config },
+      env: { ...process.env, TAIL_HARNESS_AGENT_CONFIG: config },
       stdio: ["ignore", "ignore", "pipe"],
     },
   );

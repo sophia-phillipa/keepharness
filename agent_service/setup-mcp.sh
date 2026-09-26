@@ -28,5 +28,5 @@ trap 'exit 1' HUP INT TERM
 curl -fS --connect-timeout 15 --max-time 120 "$server/mcp_bridge.py" -o "$temporary"
 "$folder/venv/bin/python" -c 'import ast, pathlib, sys; ast.parse(pathlib.Path(sys.argv[1]).read_text())' "$temporary"
 mv "$temporary" "$folder/mcp_bridge.py"
-claude mcp add --transport stdio --scope user --env "LOCAL_AGENT_URL=$server" tail-harness -- "$folder/venv/bin/python" "$folder/mcp_bridge.py"
+claude mcp add --transport stdio --scope user --env "TAIL_HARNESS_AGENT_URL=$server" tail-harness -- "$folder/venv/bin/python" "$folder/mcp_bridge.py"
 printf '%s\n' 'Connector registered. Open Claude Code and use /mcp to verify the connection.'
