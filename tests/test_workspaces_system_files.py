@@ -60,3 +60,27 @@ def test_directory_selection_is_unchanged(tmp_path):
         "folder/key.pem",
     ]
     assert {item["reason"] for item in skipped} == {"sensitive_file"}
+
+
+def test_folder_selection_skips_hidden_subfolders_except_the_allowlist(tmp_path):
+    """F-19: a folder walk skips dot-folders at any depth, except ``.github`` and similar."""
+    root = tmp_path / "home"
+    folder = root / "folder"
+    files = {
+        "folder/.cache/x": "cache",
+        "folder/.local/share/keyrings/k": "keyring",
+        "folder/.github/workflows/ci.yml": "ci",
+        "folder/src/a.py": "code",
+    }
+    for name, content in files.items():
+        (root / name).parent.mkdir(parents=True, exist_ok=True)
+        (root / name).write_text(content)
+    selected, skipped = workspaces.selected_system_files(root, ["folder"], 10)
+    assert selected == [
+        ("folder/.github/workflows/ci.yml", folder / ".github/workflows/ci.yml"),
+        ("folder/src/a.py", folder / "src/a.py"),
+    ]
+    assert skipped == [
+        {"path": "folder/.cache/x", "reason": "sensitive_file"},
+        {"path": "folder/.local/share/keyrings/k", "reason": "sensitive_file"},
+    ]

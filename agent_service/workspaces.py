@@ -39,6 +39,8 @@ FOLDER_ATTACH_EXCLUDED = {
     "local-ai",
     "local_ai",
 }
+# Dot-folders a folder attachment keeps; every other one is skipped at any depth.
+ALLOWED_HIDDEN_DIRECTORIES = frozenset({".github", ".vscode", ".devcontainer"})
 SYSTEM_DIRECTORIES = tuple(
     Path("/" + name)
     for name in ("proc", "sys", "dev", "etc", "usr", "boot", "ostree", "sysroot", "var", "run")
@@ -341,6 +343,13 @@ def selected_system_files(root, names, maximum):
                 or (
                     not target.is_dir()
                     and any(hidden_system_entry(candidate, part, root) for part in parts[:-1])
+                )
+                or (
+                    target.is_dir()
+                    and any(
+                        part.startswith(".") and part not in ALLOWED_HIDDEN_DIRECTORIES
+                        for part in parts[:-1]
+                    )
                 )
             ):
                 skipped.append({"path": relative, "reason": "sensitive_file"})

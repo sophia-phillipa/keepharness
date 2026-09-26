@@ -245,6 +245,9 @@ class ConversationService:
         ):
             return self.throttle("local", self.config["clients"]["local"], request)
         token = auth[7:] if auth.startswith("Bearer ") else ""
+        # Intentional (owner decision, F-25): unlike local_access above, a user-activated
+        # cross-site top-level GET navigation still gets the Tailscale identity; every other
+        # cross-site request was refused before this point.
         if not auth and request.client and request.client.host in ("127.0.0.1", "::1"):
             login = request.headers.get("tailscale-user-login", "")
             client_name = self.config.get("tailscale_logins", {}).get(login)
