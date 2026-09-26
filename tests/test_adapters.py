@@ -2,6 +2,7 @@
 
 import asyncio
 import importlib
+import inspect
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -92,3 +93,42 @@ def test_unknown_native_provider_is_rejected(tmp_path):
     adapters = importlib.import_module("adapters")
     with pytest.raises(ToolError, match="backend_unavailable"):
         asyncio.run(adapters.run_native({}, "", None, {}, "", "", tmp_path, "unknown", None))
+
+
+def _parameters(function, *, skip_self=False):
+    parameters = list(inspect.signature(function).parameters.values())
+    return [(item.name, item.kind) for item in parameters[1 if skip_self else 0 :]]
+
+
+def test_registries_are_read_only_and_cover_every_scoped_backend():
+    adapters = importlib.import_module("adapters")
+    with pytest.raises(TypeError):
+        adapters.PROVIDERS["other"] = object()
+    with pytest.raises(TypeError):
+        adapters.SCOPED_PROVIDERS["other"] = object()
+    assert set(adapters.PROVIDERS) == {"codex", "claude", "gemini", "deepseek", "local"}
+    assert set(adapters.SCOPED_PROVIDERS) == {
+        name for name, module in adapters.PROVIDERS.items() if "run_scoped" in vars(module)
+    }
+    for name, module in adapters.SCOPED_PROVIDERS.items():
+        assert adapters.PROVIDERS[name] is module
+
+
+@pytest.mark.parametrize("provider", ["codex", "claude", "gemini", "deepseek", "local"])
+def test_backend_signatures_match_the_adapter_protocols(provider):
+    from adapters.base import ProviderAdapter, ScopedProviderAdapter
+
+    implementation = importlib.import_module(f"adapters.{provider}.backend")
+    assert _parameters(implementation.run_native) == _parameters(
+        ProviderAdapter.run_native, skip_self=True
+    )
+    if "run_scoped" in vars(implementation):
+        assert _parameters(implementation.run_scoped) == _parameters(
+            ScopedProviderAdapter.run_scoped, skip_self=True
+        )
+
+
+def test_gemini_scoped_keeps_its_own_unsupported_error():
+    adapters = importlib.import_module("adapters")
+    with pytest.raises(ToolError, match="^gemini_scoped_unsupported$"):
+        asyncio.run(adapters.run_scoped({}, "", None, provider="gemini"))

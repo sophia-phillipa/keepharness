@@ -1,23 +1,33 @@
 """Explicit provider dispatch; transport details belong to each adapter."""
 
+from collections.abc import Mapping
+from types import MappingProxyType
+
 from agent_service.tools import ToolError
 
+from .base import ProviderAdapter, ScopedProviderAdapter
 from .claude import backend as claude
 from .codex import backend as codex
 from .deepseek import backend as deepseek
 from .gemini import backend as gemini
 from .local import backend as local
 
-PROVIDERS = {
-    "codex": codex,
-    "claude": claude,
-    "gemini": gemini,
-    "deepseek": deepseek,
-    "local": local,
-}
+PROVIDERS: Mapping[str, ProviderAdapter] = MappingProxyType(
+    {
+        "codex": codex,
+        "claude": claude,
+        "gemini": gemini,
+        "deepseek": deepseek,
+        "local": local,
+    }
+)
+# Gemini is listed because it answers run_scoped with its own gemini_scoped_unsupported.
+SCOPED_PROVIDERS: Mapping[str, ScopedProviderAdapter] = MappingProxyType(
+    {"codex": codex, "claude": claude, "gemini": gemini}
+)
 
 
-def get_adapter(provider):
+def get_adapter(provider) -> ProviderAdapter:
     try:
         return PROVIDERS[provider]
     except KeyError:
@@ -42,8 +52,9 @@ async def run_scoped(
     session_dir=None,
     provider="codex",
 ):
-    adapter = get_adapter(provider)
-    if not hasattr(adapter, "run_scoped"):
+    get_adapter(provider)
+    adapter = SCOPED_PROVIDERS.get(provider)
+    if adapter is None:
         raise ToolError("backend_unavailable")
     return await adapter.run_scoped(
         config,
