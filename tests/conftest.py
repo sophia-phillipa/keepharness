@@ -1,6 +1,7 @@
 """Shared pytest infrastructure: media-sandbox skip gate and config fixtures."""
 
 import hashlib
+import os
 import shutil
 import subprocess
 
@@ -8,6 +9,16 @@ import pytest
 
 MEDIA_SANDBOX_MARKER = "requires_media_sandbox"
 MEDIA_SANDBOX_TOOLS = ("ffmpeg", "bwrap", "prlimit")
+LIVE_ENV_VAR = "TAIL_HARNESS_LIVE"
+
+
+def pytest_addoption(parser):
+    parser.addoption(
+        "--run-slow",
+        action="store_true",
+        default=False,
+        help="also run tests marked 'slow' (packaging builds, the 0.5.0 upgrade path)",
+    )
 
 
 def pytest_configure(config):
@@ -15,6 +26,20 @@ def pytest_configure(config):
         "markers",
         f"{MEDIA_SANDBOX_MARKER}: skip when ffmpeg/bwrap/prlimit or the bwrap "
         "user-namespace probe are unavailable in this sandbox",
+    )
+    config.addinivalue_line(
+        "markers",
+        "slow: takes tens of seconds (packaging builds, venvs, the 0.5.0 upgrade path); "
+        "skipped unless --run-slow is passed",
+    )
+    config.addinivalue_line(
+        "markers",
+        f"live: spawns a real provider CLI and needs network/credentials; skipped unless "
+        f"{LIVE_ENV_VAR}=1 is set",
+    )
+    config.addinivalue_line(
+        "markers",
+        "host_tools(*names): skip when one of the named host tools is missing from PATH",
     )
 
 
@@ -38,13 +63,30 @@ def _media_sandbox_unavailable_reason():
 
 
 def pytest_collection_modifyitems(config, items):
-    reason = _media_sandbox_unavailable_reason()
-    if reason is None:
-        return
-    skip = pytest.mark.skip(reason=f"media sandbox unavailable: {reason}")
+    media_reason = _media_sandbox_unavailable_reason()
+    skip_media = (
+        pytest.mark.skip(reason=f"media sandbox unavailable: {media_reason}")
+        if media_reason
+        else None
+    )
+    run_slow = config.getoption("--run-slow")
+    skip_slow = pytest.mark.skip(reason="slow: pass --run-slow to run")
+    live_enabled = os.environ.get(LIVE_ENV_VAR) == "1"
+    skip_live = pytest.mark.skip(reason=f"live: set {LIVE_ENV_VAR}=1 to run")
     for item in items:
-        if MEDIA_SANDBOX_MARKER in item.keywords:
-            item.add_marker(skip)
+        if skip_media is not None and MEDIA_SANDBOX_MARKER in item.keywords:
+            item.add_marker(skip_media)
+        if item.get_closest_marker("slow") is not None and not run_slow:
+            item.add_marker(skip_slow)
+        if item.get_closest_marker("live") is not None and not live_enabled:
+            item.add_marker(skip_live)
+        host_tools_marker = item.get_closest_marker("host_tools")
+        if host_tools_marker is not None:
+            missing = [name for name in host_tools_marker.args if shutil.which(name) is None]
+            if missing:
+                item.add_marker(
+                    pytest.mark.skip(reason="missing host tool(s): " + ", ".join(missing))
+                )
 
 
 @pytest.fixture

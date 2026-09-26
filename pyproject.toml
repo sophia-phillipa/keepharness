@@ -34,6 +34,9 @@ agent_service = ["*.html", "*.css", "*.js", "*.sh", "VERSION", "vendor/*"]
 testpaths = ["tests"]
 markers = [
     "requires_media_sandbox: skip when ffmpeg/bwrap/prlimit or the bwrap user-namespace probe are unavailable",
+    "slow: takes tens of seconds (packaging builds, venvs, the 0.5.0 upgrade path); skipped unless --run-slow",
+    "live: spawns a real provider CLI and needs network/credentials; skipped unless TAIL_HARNESS_LIVE=1",
+    "host_tools(*names): skip when one of the named host tools is missing from PATH",
 ]
 
 [tool.setuptools.data-files]
