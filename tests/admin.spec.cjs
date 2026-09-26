@@ -118,7 +118,7 @@ const assert = require("node:assert/strict");
   await p.goto(process.env.ADMIN_URL || "http://127.0.0.1:8094/");
   await p.locator("[data-panel=providers]").click();
   await p.waitForSelector("#add-provider");
-  assert.equal(await p.locator("#providers").isVisible(), false);
+  assert.equal(await p.locator("#provider-wizard").isVisible(), false);
   assert.equal(await p.locator("#configured-providers article").count(), 0);
   await p.click("#add-provider");
   assert.equal(await p.locator("#dashboard").isVisible(), true);
@@ -146,7 +146,7 @@ const assert = require("node:assert/strict");
     .getByLabel("Make this service available", { exact: true })
     .check();
   await p.click("#wizard-next");
-  assert.equal(await p.locator("#providers").isVisible(), false);
+  assert.equal(await p.locator("#provider-wizard").isVisible(), false);
   const permissions = p.locator("#permission-editor");
   await p
     .locator("#inspector-tabs")
@@ -216,7 +216,7 @@ const assert = require("node:assert/strict");
   await p.waitForFunction(
     () => document.querySelector("#provider-dialog").hidden,
   );
-  assert.equal(await p.locator("#providers").isVisible(), false);
+  assert.equal(await p.locator("#provider-wizard").isVisible(), false);
   assert.equal(
     await p.locator("#logins,#vpn-bind,#share,#save-network").count(),
     0,

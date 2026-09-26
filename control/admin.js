@@ -1582,7 +1582,7 @@ const wizardFeedback = element("div");
 wizardFeedback.id = "wizard-feedback";
 wizardContent.append(wizardFeedback);
 for (const id of [
-  "providers",
+  "provider-wizard",
   "local-models",
   "projects",
   "integrations",

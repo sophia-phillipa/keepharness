@@ -49,8 +49,8 @@ def test_profiles_api_import_exact_model_start_and_export(tmp_path):
     with (
         patch("control.server.scan", AsyncMock(return_value=INVENTORY)),
         patch("control.local_models.processes", return_value=[]) as running,
-        patch("control.server.socket"),
-        patch("control.server.Operations.launch", return_value={"id": "fixture"}) as launch,
+        patch("control.routes.socket"),
+        patch("control.operations.Operations.launch", return_value={"id": "fixture"}) as launch,
     ):
         with TestClient(create_app(tmp_path), base_url="http://127.0.0.1:8094") as client:
             client.get("/")
@@ -204,12 +204,12 @@ def test_panel_uses_project_internal_runtime_models_and_key(tmp_path):
     model.parent.mkdir()
     model.touch()
     with (
-        patch("control.server.LOCAL_AI", internal),
+        patch("control.env.LOCAL_AI", internal),
         patch("control.server.scan", AsyncMock(return_value=INVENTORY)),
         patch("control.local_models.processes", return_value=[]),
-        patch("control.server.socket"),
-        patch("control.server.shutil.disk_usage") as disk,
-        patch("control.server.Operations.launch", return_value={"id": "fixture"}) as launch,
+        patch("control.routes.socket"),
+        patch("shutil.disk_usage") as disk,
+        patch("control.operations.Operations.launch", return_value={"id": "fixture"}) as launch,
     ):
         disk.return_value.free = 100 * 1024**3
         with TestClient(create_app(tmp_path), base_url="http://127.0.0.1:8094") as client:

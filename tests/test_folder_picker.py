@@ -12,7 +12,7 @@ def test_folder_listing_and_creation(tmp_path):
     (root / "file.txt").write_text("not returned")
     with (
         patch("control.server.Manager.refresh", AsyncMock()),
-        patch("control.server.Path.home", return_value=root),
+        patch("pathlib.Path.home", return_value=root),
     ):
         with TestClient(create_app(tmp_path / "state"), base_url="http://127.0.0.1:8094") as client:
             assert client.get("/api/folders").status_code == 401
@@ -54,7 +54,7 @@ def test_folder_listing_and_creation(tmp_path):
                 (root / f"dir{n:03}").mkdir()
             data = client.get("/api/folders").json()
             assert data["truncated"] and len(data["directories"]) == 200
-            with patch("control.server.os.scandir", side_effect=PermissionError):
+            with patch("os.scandir", side_effect=PermissionError):
                 response = client.get("/api/folders")
                 assert response.status_code == 400
                 assert "permission" in response.json()["error"]

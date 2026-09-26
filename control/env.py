@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import warnings
+from pathlib import Path
 
 # Maps the suffix passed to read() to the legacy, unprefixed environment variable it replaces.
 _LEGACY_ALIASES = {
@@ -37,3 +38,9 @@ def read(name: str, default: str | None = None) -> str | None:
             )
         return os.environ[legacy]
     return default
+
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+# Data root for local model runtimes, downloads and keys (``<root>/local_ai``).
+LOCAL_AI_ROOT = Path(read("ROOT", str(REPOSITORY_ROOT)))
+LOCAL_AI = LOCAL_AI_ROOT / "local_ai"

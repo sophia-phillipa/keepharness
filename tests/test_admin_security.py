@@ -83,7 +83,7 @@ class AdminSecurityTest(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(1)
             yield b"}"
 
-        with patch("control.server.ADMIN_BODY_TIMEOUT", 0.02):
+        with patch("control.routes.ADMIN_BODY_TIMEOUT", 0.02):
             response = await self.client.post("/api/settings", content=body(), headers=self.headers)
         self.assertEqual(response.status_code, 408)
         self.assertFalse(self.app.state.manager.lock.locked())

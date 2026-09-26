@@ -234,7 +234,7 @@ const assert = require("node:assert/strict");
     await p.click("#wizard-next");
     assert(await p.locator("#review").isVisible());
     await p.click("#wizard-back");
-    assert(await p.locator("#providers").isVisible());
+    assert(await p.locator("#provider-wizard").isVisible());
     assert(
       !(await p.locator("#projects").isVisible()),
       "Projects are managed in the conversation sidebar, not a wizard step",

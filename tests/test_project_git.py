@@ -41,7 +41,7 @@ def test_git_endpoint_only_reads_authorized_root(tmp_path):
         "services": {},
     }
     app = create_app(config)
-    with patch("agent_service.app.project_git", return_value="main") as read:
+    with patch("agent_service.routes.projects.project_git", return_value="main") as read:
         with TestClient(app, headers={"Authorization": "Bearer a"}) as client:
             assert client.get("/v1/project-git?project_id=private").status_code == 403
             read.assert_not_called()

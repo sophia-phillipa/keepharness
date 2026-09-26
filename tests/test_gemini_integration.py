@@ -212,7 +212,7 @@ def test_panel_gemini_login_launches_oauth_helper(tmp_path):
     with (
         patch("control.server.scan", AsyncMock(return_value=inventory)),
         patch(
-            "control.server.Operations.launch", return_value={"id": "login", "state": "running"}
+            "control.operations.Operations.launch", return_value={"id": "login", "state": "running"}
         ) as launch,
     ):
         with TestClient(create_app(tmp_path), base_url="http://127.0.0.1:8094") as client:

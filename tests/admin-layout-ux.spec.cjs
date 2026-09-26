@@ -176,7 +176,7 @@ const assert = require("node:assert/strict");
     const drive = page.getByRole("checkbox", { name: /Drive/ });
     await drive.uncheck();
     await page.locator("#wizard-back").click();
-    assert(await page.locator("#providers").isVisible());
+    assert(await page.locator("#provider-wizard").isVisible());
     await tabs.getByText("Plugins", { exact: true }).click();
     await tabs.getByText("Connectors", { exact: true }).click();
     assert(!(await drive.isChecked()));

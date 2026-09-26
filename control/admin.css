@@ -472,11 +472,11 @@ label {
   max-width: 62%;
   overflow-wrap: anywhere;
 }
-.local-inspector #providers > .section-heading,
-.local-inspector #providers .provider-top {
+.local-inspector #provider-wizard > .section-heading,
+.local-inspector #provider-wizard .provider-top {
   display: none;
 }
-.local-inspector #providers {
+.local-inspector #provider-wizard {
   margin-top: 20px;
 }
 #local-profile-summary .advanced {
@@ -901,10 +901,10 @@ label {
   border-left: 3px solid var(--th-success);
   padding-left: 12px;
 }
-.local-inspector #providers .provider-top {
+.local-inspector #provider-wizard .provider-top {
   display: flex;
 }
-.local-inspector #providers > .section-heading {
+.local-inspector #provider-wizard > .section-heading {
   display: flex;
 }
 .configured-card,

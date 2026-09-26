@@ -229,3 +229,18 @@ def test_missing_folder_reappears_requires_new_confirmation(setup):
     (root / "new.txt").write_text("keep")
     assert delete(client, data).status_code == 409
     assert (root / "new.txt").exists()
+
+
+def test_repository_checkout_is_a_protected_folder(tmp_path):
+    from agent_service.config import PACKAGE_DIR, REPOSITORY_ROOT, VERSION_FILE
+
+    assert (REPOSITORY_ROOT / "pyproject.toml").is_file()
+    assert PACKAGE_DIR == REPOSITORY_ROOT / "agent_service" and VERSION_FILE.is_file()
+    cfg = config(tmp_path)
+    cfg["projects"]["p"] = {"root": str(REPOSITORY_ROOT / "docs")}
+    app = create_app(cfg)
+    with TestClient(app, headers={"Authorization": "Bearer a"}) as client:
+        response = client.get(URL)
+    app.state.service.db.close()
+    assert response.status_code == 403
+    assert response.json()["code"] == "project_directory_forbidden"
