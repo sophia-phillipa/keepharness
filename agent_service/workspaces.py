@@ -324,10 +324,14 @@ def selected_system_files(root, names, maximum):
                 continue
             relative = candidate.relative_to(root).as_posix()
             parts = PurePosixPath(relative).parts
-            if target.is_dir() and (
+            if (
                 hidden_system_entry(candidate, candidate.name, root, target == root)
                 or any(part in FOLDER_ATTACH_EXCLUDED or part.startswith(".env") for part in parts)
                 or Path(relative).suffix.lower() in {".pem", ".key", ".gguf"}
+                or (
+                    not target.is_dir()
+                    and any(hidden_system_entry(candidate, part, root) for part in parts[:-1])
+                )
             ):
                 skipped.append({"path": relative, "reason": "sensitive_file"})
                 continue
