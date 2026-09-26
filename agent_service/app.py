@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import hmac
 import json
+import logging
 import math
 import os
 import re
@@ -47,6 +48,8 @@ from . import (
 from .catalog import catalog
 from .errors import APIError
 from .execution_defaults import resolve as resolve_defaults
+
+logger = logging.getLogger(__name__)
 
 TERMINAL = {"completed", "failed", "cancelled", "interrupted"}
 KINDS = {
@@ -1997,6 +2000,8 @@ class Service:
                     if isinstance(exc, tools.ToolError)
                     else type(exc).__name__
                 )
+                if not isinstance(exc, (APIError, tools.ToolError)):
+                    logger.exception("Job %s failed unexpectedly", row["id"])
                 condition = {
                     "claude_authentication_failed": (
                         "claude_authentication_required",
@@ -2101,6 +2106,7 @@ class Service:
             self.usage_at = time.monotonic()
             return self.usage_cache
         except Exception:
+            logger.info("Codex quota unavailable", exc_info=True)
             return {"available": False, "checked_at": time.time(), "reason": "usage_unavailable"}
 
     def execution(self, row):
@@ -2321,9 +2327,10 @@ def create_app(config, runtime_path=None):
                         service.config_reload_error = None
                         previous = marker
                 except (OSError, ValueError, TypeError, AttributeError, APIError) as exc:
-                    service.config_reload_error = (
-                        exc.code if isinstance(exc, APIError) else "runtime_config_invalid"
-                    )
+                    code = exc.code if isinstance(exc, APIError) else "runtime_config_invalid"
+                    if code != service.config_reload_error:
+                        logger.warning("Runtime config reload failed: %s", code, exc_info=exc)
+                    service.config_reload_error = code
                 await asyncio.sleep(0.25)
 
         watcher = asyncio.create_task(watch_runtime()) if runtime_path else None
@@ -3156,8 +3163,12 @@ def create_app(config, runtime_path=None):
                 else {},
             )
         except Exception:
+            request_id = uuid.uuid4().hex
+            logger.exception(
+                "Internal error on %s %s (request %s)", request.method, request.url.path, request_id
+            )
             return JSONResponse(
-                {"code": "internal_error", "retryable": False, "request_id": uuid.uuid4().hex},
+                {"code": "internal_error", "retryable": False, "request_id": request_id},
                 status_code=500,
             )
 
@@ -3254,6 +3265,9 @@ def create_app(config, runtime_path=None):
 if __name__ == "__main__":
     import uvicorn
 
+    from .log_config import configure_logging
+
+    configure_logging()
     os.umask(0o077)
     agent_config = env.read("AGENT_CONFIG")
     if agent_config is None:

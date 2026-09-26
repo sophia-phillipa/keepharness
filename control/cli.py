@@ -23,7 +23,11 @@ def main(argv=None):
         return
     import uvicorn
 
+    from agent_service.log_config import configure_logging
+
     from .server import create_app
+
+    configure_logging()
 
     print(f"Local management: http://127.0.0.1:{args.port}/", flush=True)
     uvicorn.run(
