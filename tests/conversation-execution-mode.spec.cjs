@@ -172,7 +172,7 @@ const assert = require("node:assert/strict"),
     );
     await page.evaluate(() =>
       document.documentElement.style.setProperty(
-        "--accent",
+        "--th-accent",
         "rgb(20, 90, 140)",
       ),
     );
@@ -189,7 +189,7 @@ const assert = require("node:assert/strict"),
       "rgb(20, 90, 140)",
     );
     await page.evaluate(() =>
-      document.documentElement.style.removeProperty("--accent"),
+      document.documentElement.style.removeProperty("--th-accent"),
     );
     await page.waitForFunction(() => !busy && !submitting);
     await page.locator("#prompt").fill("Follow up");

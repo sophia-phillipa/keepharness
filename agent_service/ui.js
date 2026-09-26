@@ -4398,7 +4398,7 @@ function sizePanel(id, width, persist = true) {
     id === "sidebar" &&
     !document.body.classList.contains("sidebar-collapsed")
   )
-    document.body.style.setProperty("--sidebar-width", value + "px");
+    document.body.style.setProperty("--th-sidebar-width", value + "px");
   const handle = $(id + "-resize");
   handle.setAttribute("aria-valuemin", min);
   handle.setAttribute("aria-valuemax", Math.floor(max));
@@ -4793,7 +4793,7 @@ document.addEventListener("keydown", (e) => {
 
 function applyReadingSize(value) {
   const size = ["15", "17", "19"].includes(value) ? value : "15";
-  document.documentElement.style.setProperty("--reading-size", size + "px");
+  document.documentElement.style.setProperty("--th-reading-size", size + "px");
   $("reading-size").value = size;
   try {
     localStorage.setItem("reading-size", size);
@@ -4809,7 +4809,7 @@ function updateHeaderToastOffset() {
   const header = $("conversation-title").closest("header");
   if (header)
     document.documentElement.style.setProperty(
-      "--conversation-header-bottom",
+      "--th-conversation-header-bottom",
       Math.ceil(header.getBoundingClientRect().bottom) + "px",
     );
 }

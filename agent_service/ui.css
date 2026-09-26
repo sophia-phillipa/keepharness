@@ -6,9 +6,9 @@
     sans-serif;
   color: var(--tone-0);
   background: var(--tone-1);
-  --accent: var(--tone-2);
-  --muted: var(--tone-3);
-  --line: var(--tone-4);
+  --th-accent-tone: var(--tone-2);
+  --th-muted-tone: var(--tone-3);
+  --th-line-tone: var(--tone-4);
 }
 * {
   box-sizing: border-box;
@@ -47,7 +47,7 @@ aside {
   padding: 27px 18px;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid var(--line);
+  border-right: 1px solid var(--th-border);
 }
 .brand {
   display: flex;
@@ -59,14 +59,14 @@ aside {
 }
 .brandmark {
   font-size: 40px;
-  color: var(--accent);
+  color: var(--th-accent);
 }
 small {
   display: block;
   font-size: 11px;
   font-weight: 450;
   letter-spacing: 0.9px;
-  color: var(--muted);
+  color: var(--th-muted);
 }
 .new {
   text-align: left;
@@ -81,7 +81,7 @@ small {
 .section-label {
   font-size: 10px;
   letter-spacing: 1.3px;
-  color: var(--muted);
+  color: var(--th-muted);
   padding: 17px 12px 4px;
 }
 nav {
@@ -114,7 +114,7 @@ nav button.active {
 }
 .sidebar-footer span {
   font-size: 11px;
-  color: var(--muted);
+  color: var(--th-muted);
   padding-left: 8px;
 }
 main {
@@ -138,7 +138,7 @@ header {
   align-items: center;
   gap: 9px;
   font-size: 12px;
-  color: var(--muted);
+  color: var(--th-muted);
 }
 select {
   border: 0;
@@ -146,7 +146,7 @@ select {
   max-width: 260px;
   padding: 7px 20px 7px 7px;
   border-radius: 6px;
-  outline-color: var(--accent);
+  outline-color: var(--th-accent);
 }
 select:hover {
   background: var(--tone-5);
@@ -160,7 +160,7 @@ select:hover {
   gap: 8px;
   align-items: center;
   font-size: 12px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--th-border);
   border-radius: 20px;
   padding: 7px 13px;
   background: var(--tone-10);
@@ -177,15 +177,15 @@ select:hover {
   top: 70px;
   z-index: 5;
   width: min(440px, calc(100% - 30px));
-  background: var(--surface);
-  border: 1px solid var(--line);
+  background: var(--th-panel);
+  border: 1px solid var(--th-border);
   border-radius: 14px;
   box-shadow: 0 10px 50px #38234619;
   padding: 20px;
   font-size: 13px;
 }
 #quota-panel p {
-  color: var(--muted);
+  color: var(--th-muted);
   font-size: 11px;
 }
 .quota-heading {
@@ -195,7 +195,7 @@ select:hover {
   margin-bottom: 13px;
 }
 .text-button {
-  color: var(--accent);
+  color: var(--th-accent);
   font-size: 12px;
 }
 .quota-window {
@@ -205,7 +205,7 @@ select:hover {
   display: block;
   width: 100%;
   height: 5px;
-  accent-color: var(--accent);
+  accent-color: var(--th-accent);
   margin-top: 7px;
 }
 .quota-window small {
@@ -213,7 +213,7 @@ select:hover {
   letter-spacing: 0;
 }
 #quota-comparison {
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--th-border);
   margin-top: 12px;
   padding-top: 10px;
 }
@@ -240,7 +240,7 @@ h1 {
   margin: 21px 0 9px;
 }
 #welcome p {
-  color: var(--muted);
+  color: var(--th-muted);
   font-size: 14px;
   line-height: 1.8;
 }
@@ -251,8 +251,8 @@ h1 {
   max-width: 530px;
 }
 .suggestions button {
-  border: 1px solid var(--line);
-  background: var(--surface);
+  border: 1px solid var(--th-border);
+  background: var(--th-panel);
   border-radius: 13px;
   padding: 18px;
   text-align: left;
@@ -261,20 +261,20 @@ h1 {
 }
 .suggestions span {
   float: right;
-  color: var(--accent);
+  color: var(--th-accent);
 }
 .composer-area {
   padding: 12px max(30px, calc((100% - 800px) / 2)) 17px;
 }
 .composer {
   border: 1px solid transparent;
-  background: var(--surface);
+  background: var(--th-panel);
   border-radius: 21px;
   padding: 15px 17px 10px;
   box-shadow: none;
 }
 .composer.drag {
-  outline: 2px dashed var(--accent);
+  outline: 2px dashed var(--th-accent);
 }
 textarea {
   border: 0;
@@ -308,7 +308,7 @@ textarea::placeholder {
 }
 .icon {
   font-size: 25px;
-  color: var(--muted);
+  color: var(--th-muted);
   width: 34px;
   height: 35px;
   line-height: 1;
@@ -318,7 +318,7 @@ textarea::placeholder {
   width: 35px;
   height: 35px;
   flex-shrink: 0;
-  background: var(--accent);
+  background: var(--th-accent);
   color: white;
   font-size: 24px;
   line-height: 1;
@@ -335,7 +335,7 @@ textarea::placeholder {
 }
 #status {
   font-size: 12px;
-  color: var(--muted);
+  color: var(--th-muted);
   min-height: 25px;
   padding: 0 9px;
 }
@@ -361,7 +361,7 @@ textarea::placeholder {
 }
 .message h3 {
   font-size: 11px;
-  color: var(--muted);
+  color: var(--th-muted);
   font-weight: 500;
   margin: 0 0 10px;
 }
@@ -394,11 +394,11 @@ textarea::placeholder {
   align-items: center;
   gap: 8px;
   margin: 0 6px 10px 0;
-  border: 1px solid var(--line);
+  border: 1px solid var(--th-border);
   border-radius: 8px;
   padding: 5px 10px;
   font-size: 11px;
-  color: var(--muted);
+  color: var(--th-muted);
 }
 .attachment button {
   padding: 0;
@@ -406,7 +406,7 @@ textarea::placeholder {
 }
 dialog {
   max-width: 730px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--th-border);
   border-radius: 20px;
   background: var(--tone-1);
   color: inherit;
@@ -430,10 +430,10 @@ dialog pre {
 .dialog-close {
   float: right;
   font-size: 27px;
-  color: var(--muted);
+  color: var(--th-muted);
 }
 a {
-  color: var(--accent);
+  color: var(--th-accent);
 }
 .mobile {
   display: none;
@@ -442,7 +442,7 @@ a {
   display: none !important;
 }
 :focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--th-accent);
   outline-offset: 3px;
 }
 @media (max-width: 850px) {
@@ -555,7 +555,7 @@ aside details {
 
 #context-meter {
   font-size: 11px;
-  color: var(--muted);
+  color: var(--th-muted);
   padding: 2px 9px 5px;
 }
 #version {
@@ -631,7 +631,7 @@ header {
 .empty-history,
 #history-note {
   font-size: 11px;
-  color: var(--muted);
+  color: var(--th-muted);
   padding: 4px 10px;
 }
 #history-note:empty {
@@ -641,11 +641,11 @@ header {
 /* Execution activity: docked on desktop, dismissible overlay on smaller screens. */
 .activity-toggle {
   flex-shrink: 0;
-  border: 1px solid var(--line);
+  border: 1px solid var(--th-border);
   border-radius: 18px;
   padding: 7px 11px;
   font-size: 12px;
-  background: var(--surface);
+  background: var(--th-panel);
 }
 .activity-toggle[aria-expanded="true"] {
   background: var(--tone-6);
@@ -659,7 +659,7 @@ header {
   padding: 20px 16px;
   background: var(--tone-24);
   border-right: 0;
-  border-left: 1px solid var(--line);
+  border-left: 1px solid var(--th-border);
   min-height: 0;
 }
 .activity-heading {
@@ -695,7 +695,7 @@ header {
   flex: 1;
 }
 #activity-panel details {
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--th-border);
   padding: 14px 0;
 }
 #activity-panel summary {
@@ -719,7 +719,7 @@ header {
   display: flex;
   gap: 10px;
   padding: 10px 0;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--th-border);
   font-size: 12px;
   overflow-wrap: anywhere;
 }
@@ -828,7 +828,7 @@ header {
 }
 .panel-resize:hover:after,
 .panel-resize:focus-visible:after {
-  background: var(--accent);
+  background: var(--th-accent);
 }
 .resizing-panels,
 .resizing-panels * {
@@ -836,7 +836,7 @@ header {
   user-select: none !important;
 }
 .activity-run {
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--th-border);
   padding: 10px 0;
 }
 .activity-run h3 {
@@ -942,7 +942,7 @@ header {
   text-align: left;
 }
 .settings-nav button[aria-pressed="true"] {
-  background: var(--line);
+  background: var(--th-border);
 }
 .settings-content {
   min-width: 0;
@@ -955,7 +955,7 @@ header {
 }
 .catalog-card {
   padding: 14px 0;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--th-border);
   overflow-wrap: anywhere;
 }
 .catalog-card h4 {
@@ -967,16 +967,16 @@ header {
 }
 .catalog-card small {
   letter-spacing: 0;
-  color: var(--muted);
+  color: var(--th-muted);
 }
 #catalog-status {
   font-size: 12px;
-  color: var(--muted);
+  color: var(--th-muted);
   margin-top: 20px;
 }
 #projects .project-new {
   font-weight: 600;
-  color: var(--accent);
+  color: var(--th-accent);
 }
 @media (max-width: 620px) {
   .settings-layout {
@@ -997,17 +997,17 @@ header {
 
 /* Reading, navigation and responsive composition. */
 :root {
-  --muted: #71617f;
-  --reading-size: 15px;
+  --th-muted-tone: #71617f;
+  --th-reading-size: 15px;
 }
 .skip-link {
   position: fixed;
   left: 16px;
   top: -100px;
   z-index: 100;
-  background: var(--surface);
+  background: var(--th-panel);
   padding: 12px 18px;
-  border: 2px solid var(--accent);
+  border: 2px solid var(--th-accent);
   border-radius: 10px;
 }
 .skip-link:focus {
@@ -1019,7 +1019,7 @@ header {
 .history-search label {
   display: block;
   font-size: 12px;
-  color: var(--muted);
+  color: var(--th-muted);
   margin: 0 0 6px 4px;
 }
 .history-search > div {
@@ -1034,7 +1034,7 @@ header {
   border-radius: 10px;
   padding: 9px 36px 9px 10px;
   color: inherit;
-  background: var(--surface);
+  background: var(--th-panel);
 }
 .history-search input::-webkit-search-cancel-button {
   display: none;
@@ -1048,11 +1048,11 @@ header {
 }
 #search-results {
   font-size: 12px;
-  color: var(--muted);
+  color: var(--th-muted);
   margin: 8px 4px;
 }
 .conversation-row > button[aria-current="true"] {
-  box-shadow: inset 3px 0 var(--accent);
+  box-shadow: inset 3px 0 var(--th-accent);
   font-weight: 600;
 }
 #messages {
@@ -1061,7 +1061,7 @@ header {
   scrollbar-gutter: stable;
 }
 .message .text {
-  font-size: var(--reading-size);
+  font-size: var(--th-reading-size);
   line-height: 1.75;
 }
 .message.user {
@@ -1069,7 +1069,7 @@ header {
 }
 .message .run-meta,
 .footnote {
-  color: var(--muted);
+  color: var(--th-muted);
   font-size: 11px;
 }
 
@@ -1092,9 +1092,9 @@ textarea {
   z-index: 2;
   min-height: 38px;
   padding: 7px 16px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--th-border);
   border-radius: 22px;
-  background: var(--surface);
+  background: var(--th-panel);
   color: var(--tone-0);
   box-shadow: 0 3px 16px #35274522;
   font-size: 12px;
@@ -1102,7 +1102,7 @@ textarea {
 
 .suggestions button:hover {
   background: var(--tone-5);
-  border-color: var(--accent);
+  border-color: var(--th-accent);
 }
 #settings-appearance label {
   display: block;
@@ -1113,11 +1113,11 @@ textarea {
 #settings-appearance select {
   width: 100%;
   max-width: 280px;
-  border: 1px solid var(--line);
-  background: var(--surface);
+  border: 1px solid var(--th-border);
+  background: var(--th-panel);
 }
 .shortcut-help {
-  color: var(--muted);
+  color: var(--th-muted);
   line-height: 1.8;
 }
 .attachment {
@@ -1191,9 +1191,9 @@ textarea {
   height: 12px;
   margin-left: 8px;
   vertical-align: -2px;
-  border: 2px solid var(--line);
-  border-top-color: var(--accent);
-  border-right-color: var(--accent);
+  border: 2px solid var(--th-border);
+  border-top-color: var(--th-accent);
+  border-right-color: var(--th-accent);
   border-radius: 50%;
   animation: execution-spin 0.85s linear infinite;
 }
@@ -1234,7 +1234,7 @@ textarea {
 }
 
 .approval-card {
-  border: 1px solid var(--accent);
+  border: 1px solid var(--th-accent);
   border-radius: 12px;
   padding: 18px;
   margin: 18px 0;
@@ -1245,7 +1245,7 @@ textarea {
   white-space: pre-wrap;
 }
 .approval-card button {
-  background: var(--accent);
+  background: var(--th-accent);
   color: white;
   border-radius: 7px;
   padding: 10px;
@@ -1263,7 +1263,7 @@ textarea {
 /* Tabler chat composition, with conversation/streaming geometry preserved. */
 :root {
   font-family: var(--tblr-font-sans-serif);
-  --muted: var(--th-muted);
+  --th-muted-tone: var(--th-muted);
 }
 body {
   background: var(--th-bg);
@@ -1274,7 +1274,7 @@ body {
   background: var(--th-soft);
 }
 header {
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--th-border);
   height: auto;
   min-height: 72px;
   padding: 16px 24px;
@@ -1314,7 +1314,7 @@ small {
   display: block;
   padding: 16px 20px;
   border-radius: 10px;
-  font-size: var(--reading-size, 16px);
+  font-size: var(--th-reading-size, 16px);
   line-height: 1.65;
   background: var(--th-panel);
   color: var(--th-text);
@@ -1373,7 +1373,7 @@ small {
   background: transparent;
   box-shadow: none;
   padding: 6px;
-  font-size: var(--reading-size, 16px);
+  font-size: var(--th-reading-size, 16px);
 }
 #status {
   font-size: 14px;
@@ -1406,7 +1406,7 @@ small {
 .approval-card input {
   color: var(--th-text);
   background: var(--th-panel);
-  border: 1px solid var(--line);
+  border: 1px solid var(--th-border);
 }
 .suggestions button {
   font-size: 14px;
@@ -1457,10 +1457,10 @@ small {
 .model-availability {
   margin: 18px 24px;
   padding: 24px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--th-border);
   box-shadow: 0 6px 24px #20102f10;
-  background: var(--panel);
-  color: var(--text);
+  background: var(--th-panel);
+  color: var(--th-text);
 }
 .model-availability[hidden] {
   display: none;
@@ -1482,7 +1482,7 @@ small {
   box-shadow: 0 2px 8px #20102f08;
 }
 .conversation-row:has(button.active) {
-  box-shadow: inset 3px 0 var(--accent);
+  box-shadow: inset 3px 0 var(--th-accent);
 }
 @media (max-width: 620px) {
   .model-availability {
@@ -1523,7 +1523,7 @@ small {
 }
 .approval-card > p[role="status"] {
   margin: 12px 0;
-  color: var(--accent);
+  color: var(--th-accent);
 }
 @media (max-width: 620px) {
   main > header {
@@ -1629,7 +1629,7 @@ small {
   white-space: pre;
   overflow-wrap: normal;
   padding: 14px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--th-border);
   border-radius: 8px;
 }
 .message.assistant .chat-bubble code {
@@ -1650,7 +1650,7 @@ small {
 .message.assistant .chat-bubble th,
 .message.assistant .chat-bubble td {
   padding: 6px 10px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--th-border);
   text-align: left;
 }
 .message.assistant .chat-bubble th {
@@ -1674,7 +1674,7 @@ small {
 .startup-gate span {
   max-width: min(32rem, 100%);
   padding: 16px 24px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--th-border);
   border-radius: 12px;
   background: var(--th-panel);
   box-shadow: 0 8px 30px #20283820;
@@ -1714,7 +1714,7 @@ body[data-connection-ready="false"] > #activity-panel {
   box-shadow: none;
 }
 .composer:focus-within {
-  border-color: var(--line);
+  border-color: var(--th-border);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--th-accent) 28%, transparent);
 }
 .composer #prompt {
@@ -2479,7 +2479,7 @@ body[data-connection-ready="false"] > #activity-panel {
 
 /* Global sidebar control stays above both the conversation and its drawer. */
 :root {
-  --app-topbar-height: 52px;
+  --th-app-topbar-height: 52px;
 }
 html {
   overflow: hidden;
@@ -2490,8 +2490,8 @@ body {
   display: grid;
   width: 100vw;
   min-width: 0;
-  grid-template-columns: var(--sidebar-width, 280px) minmax(0, 1fr) auto;
-  grid-template-rows: var(--app-topbar-height) minmax(0, 1fr);
+  grid-template-columns: var(--th-sidebar-width, 280px) minmax(0, 1fr) auto;
+  grid-template-rows: var(--th-app-topbar-height) minmax(0, 1fr);
 }
 #app-topbar {
   grid-column: 1/-1;
@@ -2630,7 +2630,7 @@ body[data-connection-ready="false"] > #app-topbar {
 @media (max-width: 620px) {
   body {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: var(--app-topbar-height) minmax(0, 1fr);
+    grid-template-rows: var(--th-app-topbar-height) minmax(0, 1fr);
   }
   body.sidebar-collapsed {
     grid-template-columns: minmax(0, 1fr);
@@ -2642,9 +2642,9 @@ body[data-connection-ready="false"] > #app-topbar {
   #sidebar {
     grid-column: 1;
     grid-row: 2;
-    top: var(--app-topbar-height);
+    top: var(--th-app-topbar-height);
     bottom: 0;
-    max-height: calc(100dvh - var(--app-topbar-height));
+    max-height: calc(100dvh - var(--th-app-topbar-height));
   }
   main {
     grid-column: 1;
@@ -2656,7 +2656,7 @@ body[data-connection-ready="false"] > #app-topbar {
     inset: 0 0 0 auto;
     width: min(360px, 100vw);
     max-width: none;
-    max-height: calc(100dvh - var(--app-topbar-height));
+    max-height: calc(100dvh - var(--th-app-topbar-height));
   }
   main > header {
     display: flex;
@@ -2958,7 +2958,7 @@ body .composer-submit .send:hover {
 }
 /* Notices never cover the composer or intercept its controls. */
 body .th-toast-container {
-  top: calc(var(--app-topbar-height) + 8px);
+  top: calc(var(--th-app-topbar-height) + 8px);
   bottom: auto;
   pointer-events: none;
 }
@@ -3435,7 +3435,7 @@ main > header {
 
 /* Optional left/right workspace order; the center chat stays centered. */
 body.panel-order-reversed {
-  grid-template-columns: auto minmax(0, 1fr) var(--sidebar-width, 280px);
+  grid-template-columns: auto minmax(0, 1fr) var(--th-sidebar-width, 280px);
 }
 body.panel-order-reversed #activity-panel {
   grid-column: 1;
@@ -3590,13 +3590,13 @@ body.panel-order-reversed #activity-panel-resize {
 
 /* Keep connection notices clear of the always-visible model and quota header. */
 body .th-toast-container {
-  top: calc(var(--conversation-header-bottom, 120px) + 8px);
+  top: calc(var(--th-conversation-header-bottom, 120px) + 8px);
   right: 12px;
   left: auto;
 }
 @media (max-width: 620px) {
   body .th-toast-container {
-    top: calc(var(--conversation-header-bottom, 180px) + 8px);
+    top: calc(var(--th-conversation-header-bottom, 180px) + 8px);
     right: 8px;
     left: 8px;
     max-width: calc(100vw - 16px);
@@ -3995,9 +3995,9 @@ body.panel-order-reversed #app-topbar #menu .th-icon {
 #execution-mode-choice {
   margin: 12px 28px 0;
   padding: 12px 16px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--th-border);
   border-radius: 12px;
-  background: var(--surface);
+  background: var(--th-panel);
   flex-shrink: 0;
 }
 .execution-mode-heading {
@@ -4010,17 +4010,17 @@ body.panel-order-reversed #app-topbar #menu .th-icon {
 #execution-mode-unavailable {
   font-size: 12px;
   line-height: 1.5;
-  color: var(--muted);
+  color: var(--th-muted);
   margin: 8px 0 0;
 }
 #isolation-toggle {
   width: 50px;
   height: 28px;
   padding: 3px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--th-border);
   border-radius: 20px;
-  background: var(--surface);
-  color: var(--muted);
+  background: var(--th-panel);
+  color: var(--th-muted);
   flex-shrink: 0;
 }
 .isolation-thumb {
@@ -4034,8 +4034,8 @@ body.panel-order-reversed #app-topbar #menu .th-icon {
   transition: transform 0.15s;
 }
 #isolation-toggle[aria-checked="true"] {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--th-accent);
+  color: var(--th-accent);
 }
 #isolation-toggle[aria-checked="true"] .isolation-thumb {
   transform: translateX(22px);
@@ -4051,7 +4051,7 @@ body.panel-order-reversed #app-topbar #menu .th-icon {
   position: absolute;
   top: 8px;
   right: 10px;
-  color: var(--muted);
+  color: var(--th-muted);
   pointer-events: auto;
   z-index: 1;
   line-height: 1;
@@ -4061,7 +4061,7 @@ body.panel-order-reversed #app-topbar #menu .th-icon {
   height: 15px;
 }
 #execution-mode-indicator[data-isolated="true"] {
-  color: var(--accent);
+  color: var(--th-accent);
 }
 #execution-mode-indicator[data-isolated="false"] svg {
   opacity: 0.6;
@@ -4084,12 +4084,12 @@ body.panel-order-reversed #app-topbar #menu .th-icon {
   }
 }
 #isolation-toggle[aria-checked="true"] {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--th-accent);
+  border-color: var(--th-accent);
 }
 #isolation-toggle[aria-checked="true"] .isolation-thumb {
-  background: var(--surface);
-  color: var(--accent);
+  background: var(--th-panel);
+  color: var(--th-accent);
 }
 
 #delete-project-folder-dialog {

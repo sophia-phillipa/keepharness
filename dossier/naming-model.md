@@ -1,6 +1,6 @@
 # Naming model
 
-Version 1.0.0 — 2026-09-26
+Version 1.0.1 — 2026-09-26
 
 ## Purpose and scope
 
@@ -20,7 +20,7 @@ Canonical names for files and directories, Python identifiers, JS/CSS/HTML ident
 | Python functions, methods, variables | snake_case; functions are verbs (`load_profile`, `build_runtime_config`); booleans are predicates (`is_ready`, `has_credentials`); no abbreviations (`cfg`, `svc`, `st`, `proc` → `config`, `service`, `state`, `process`) | — | Loop indices; `e` in `except ... as e` |
 | Constants | UPPER_SNAKE and immutable (`tuple`, `frozenset`, `MappingProxyType`) | — | A mutable module-level dict/set is configuration, not a constant: name it snake_case |
 | Environment variables | Public ones prefixed `TAIL_HARNESS_`: `TAIL_HARNESS_ROOT`, `TAIL_HARNESS_VENV`, `TAIL_HARNESS_AGENT_URL`, `TAIL_HARNESS_AGENT_CLIENT`, `TAIL_HARNESS_AGENT_CONFIG`, `TAIL_HARNESS_LOG_LEVEL`, `TAIL_HARNESS_LIVE` | Already compliant: `TAIL_HARNESS_API_KEY`, `TAIL_HARNESS_LOCAL_KEY`, `TAIL_HARNESS_WHISPER_DIR` | Legacy `LOCAL_AGENT_URL`, `LOCAL_AGENT_CLIENT`, `LOCAL_AGENT_CONFIG`, `TH_VENV` accepted as deprecated aliases only through `control/env.py`, which logs a deprecation warning. Shell-script-local variables use `TH_` (`TH_STATE`, `TH_PID`) and are never a contract. Test-harness inputs `ADMIN_URL`, `HARNESS_URL`, `PLAYWRIGHT_MODULE`, `GAUNTLET_ROUND`, `EVAL_OUTPUT` are grandfathered and documented as such |
-| JSON/config/state keys, SQLite | snake_case keys; plural table names; foreign keys `<entity>_id` | `project_id`; tables `jobs`, `approval_rules`, `registered_projects` | External schemas: protocol sentinel `sem-projeto` (persisted "No project" scope id — never rename); llama.cpp flag keys in local profiles (`ctx-size`, `n-gpu-layers`, `cache-ram`… mirror the `llama-server` CLI); Gemini CLI settings keys (`selectedType`, `enforcedType`… in `Adapters/gemini/policy.py`); provider API payloads |
+| JSON/config/state keys, SQLite | snake_case keys; plural table names; foreign keys `<entity>_id` | `project_id`; tables `jobs`, `approval_rules`, `registered_projects` | External schemas: protocol sentinel `sem-projeto` (persisted "No project" scope id — never rename); llama.cpp flag keys in local profiles (`ctx-size`, `n-gpu-layers`, `cache-ram`… mirror the `llama-server` CLI); Gemini CLI settings keys (`selectedType`, `enforcedType`… in `adapters/gemini/policy.py`); provider API payloads |
 | Error codes returned to clients | snake_case strings | `image_validation_unavailable`, `backend_unavailable` | — |
 | JS | camelCase functions/variables; PascalCase constructors; UPPER_SNAKE constants; DOM ids, classes and `data-*` attributes kebab-case | `agent_service/ui.js`, `control/admin.js` | Vendor bundles (`markdown-it.min.js`, `tabler.min.js`) |
 | CSS custom properties | `--th-<role>` for project tokens | `--th-accent`, `--th-bg` | Vendor tokens (`--tblr-*` from Tabler) untouched; unprefixed `--accent`, `--bg`, `--panel` migrate to `--th-*` |
@@ -45,22 +45,22 @@ Supporting suffixes: `*Config` for immutable settings objects, `*Error` for exce
 
 | Old | New | Status |
 |---|---|---|
-| `Adapters/` (package `Adapters`) | `adapters/` (package `adapters`) | planned |
-| `scripts/gauntlet-15.py` | `scripts/gauntlet_matrix.py` | planned |
-| `scripts/vendor-file-icons.py` | `scripts/vendor_file_icons.py` | planned |
-| `local-ai/` (runtime dir) | `local_ai/` (one-time migration on startup) | planned |
-| `LOCAL_AGENT_URL` | `TAIL_HARNESS_AGENT_URL` (old name as deprecated alias) | planned |
-| `LOCAL_AGENT_CLIENT` | `TAIL_HARNESS_AGENT_CLIENT` (old name as deprecated alias) | planned |
-| `LOCAL_AGENT_CONFIG` | `TAIL_HARNESS_AGENT_CONFIG` (old name as deprecated alias) | planned |
-| `TH_VENV` | `TAIL_HARNESS_VENV` (old name as deprecated alias) | planned |
-| — | `control/env.py` (alias resolver with deprecation warning) | planned |
+| `Adapters/` (package `Adapters`) | `adapters/` (package `adapters`) | done |
+| `scripts/gauntlet-15.py` | `scripts/gauntlet_matrix.py` | done |
+| `scripts/vendor-file-icons.py` | `scripts/vendor_file_icons.py` | done |
+| `local-ai/` (runtime dir) | `local_ai/` (one-time migration on startup) | done |
+| `LOCAL_AGENT_URL` | `TAIL_HARNESS_AGENT_URL` (old name as deprecated alias) | done |
+| `LOCAL_AGENT_CLIENT` | `TAIL_HARNESS_AGENT_CLIENT` (old name as deprecated alias) | done |
+| `LOCAL_AGENT_CONFIG` | `TAIL_HARNESS_AGENT_CONFIG` (old name as deprecated alias) | done |
+| `TH_VENV` | `TAIL_HARNESS_VENV` (old name as deprecated alias) | done |
+| — | `control/env.py` (alias resolver with deprecation warning) | done |
 | — | `HarnessError` base class for `*Error` classes | planned |
-| CSS `--accent`, `--bg`, `--panel` | `--th-accent`, `--th-bg`, `--th-panel` | planned |
+| CSS `--accent`, `--bg`, `--panel` (and `--muted`, `--line`, `--tint`, `--control`, `--surface`, `--border`, `--text`, `--admin-sidebar-width`, `--app-topbar-height`, `--reading-size`, `--sidebar-width`, `--conversation-header-bottom`) | `--th-accent`, `--th-bg` (unused), `--th-panel`, `--th-muted`, `--th-border`, `--th-soft`, `--th-panel`, `--th-panel`, `--th-border`, `--th-text`, `--th-admin-sidebar-width`, `--th-app-topbar-height`, `--th-reading-size`, `--th-sidebar-width`, `--th-conversation-header-bottom` — the local, already-shadowed `--accent`/`--muted`/`--line` definitions in `agent_service/ui.css` became `--th-accent-tone`/`--th-muted-tone`/`--th-line-tone` (distinct suffix) since `--th-accent`/`--th-muted` already exist with the real palette value | done |
 | Abbreviated identifiers (`cfg`, `svc`, `st`, `proc`) | `config`, `service`, `state`, `process` | planned |
 
 ## Enforcement
 
-`scripts/check_conventions.py` (to be added) runs in CI and locally:
+`scripts/check_conventions.py` runs in CI and locally:
 
 1. File-name lint: applies the file and directory rules above to `git ls-files`, honoring the grandfathered list.
 2. Portuguese stop-word scan over tracked text files, with an explicit allowlist (`sem-projeto`, proper names); the pt-BR section of `README.md` is excluded.
@@ -71,4 +71,5 @@ A failing check blocks the merge; new exceptions are added to the allowlist in t
 
 | Version | Date | Change |
 |---|---|---|
+| 1.0.1 | 2026-09-26 | P3 migration executed: `Adapters/`→`adapters/`, script renames, `local-ai/`→`local_ai/` with a startup migration, `TAIL_HARNESS_*` environment variables with deprecated legacy aliases via `control/env.py`, unprefixed CSS custom properties renamed to `--th-*`, compatibility-import shims removed, and `scripts/check_conventions.py`'s grandfather entries for the migrated names dropped. |
 | 1.0.0 | 2026-09-26 | Initial naming model: rules, layering vocabulary, migration table and enforcement plan. |
