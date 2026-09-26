@@ -273,3 +273,13 @@ def test_oversized_codex_history_without_tools_still_fails_explicitly(service):
     row, data = add_turn(service, "b", "codex", "a")
     with pytest.raises(APIError, match="conversation_context_limit"):
         asyncio.run(service.infer(row, data))
+
+
+def test_prompt_without_sources_has_no_empty_sources_trailer(service):
+    """A bare ``SOURCES:\\n[]`` trailer was echoed by real models ("PONG\\nSOURCES:\\n[]")."""
+    plain = execute(service, "plain", "codex")
+    assert "SOURCES" not in plain["prompt"]
+    assert plain["prompt"].endswith("request-plain")
+    attachment(service, "doc")
+    cited = execute(service, "cited", "codex", files=("doc",))
+    assert "\nSOURCES:\n" in cited["prompt"] and "source-doc" in cited["prompt"]
