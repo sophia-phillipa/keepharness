@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+import re
 import signal
 from pathlib import Path
 
@@ -204,9 +205,21 @@ def _claude_mcp(payload):
         return []
     items = []
     for line in payload.splitlines():
-        name, separator, _rest = line.partition(":")
+        name, separator, rest = line.partition(":")
         name = name.strip()
-        if (
+        if separator and name.startswith("claude.ai ") and name[10:].strip():
+            # Claude account connectors: shown with their health, not selectable.
+            marker = re.search(r" - ([\u2714\u2718!]) ", rest + " ")
+            status = {"\u2714": "connected", "!": "needs_authentication", "\u2718": "failed"}
+            items.append(
+                {
+                    "id": f"account-app:{name}",
+                    "name": name,
+                    "kind": "account-app",
+                    "status": status[marker.group(1)] if marker else "unknown",
+                }
+            )
+        elif (
             separator
             and name
             and all(character.isalnum() or character in "_.-" for character in name)

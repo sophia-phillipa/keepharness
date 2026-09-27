@@ -97,6 +97,54 @@ def test_claude_uses_available_plugins_and_only_parses_mcp_names():
     }
 
 
+# Shape of a real `claude mcp list` (Claude Code 2.1.x): account connectors carry a
+# "claude.ai " prefix and a space in the name, and every line ends with a health marker.
+CLAUDE_MCP_LIST = """Checking MCP server health\u2026
+
+claude.ai Gmail: https://gmail.mcp.example/mcp - \u2714 Connected
+claude.ai Postman: https://mcp.postman.example/mcp - ! Needs authentication
+claude.ai Mercado Libre: https://mcp.example/mcp - \u2718 Failed to connect \u2014 HTTP 503: Error POSTing to endpoint: {"jsonrpc":"2.0","id":0}
+graphify: /home/user/.local/bin/graphify-mcp  - \u2714 Connected
+"""
+
+
+def test_claude_account_connectors_are_listed_with_their_health():
+    async def fake_run(*args):
+        if args[1:] == ("mcp", "list"):
+            return 0, CLAUDE_MCP_LIST
+        return 0, '{"installed":[],"available":[]}'
+
+    with patch("control.integration_catalog._run", side_effect=fake_run):
+        result = run(catalog("claude", "/bin/claude"))
+
+    assert result == {
+        "items": [
+            {
+                "id": "account-app:claude.ai Gmail",
+                "name": "claude.ai Gmail",
+                "kind": "account-app",
+                "status": "connected",
+            },
+            {
+                "id": "account-app:claude.ai Postman",
+                "name": "claude.ai Postman",
+                "kind": "account-app",
+                "status": "needs_authentication",
+            },
+            {
+                "id": "account-app:claude.ai Mercado Libre",
+                "name": "claude.ai Mercado Libre",
+                "kind": "account-app",
+                "status": "failed",
+            },
+            {"id": "mcp:graphify", "name": "graphify", "kind": "mcp", "status": "configured"},
+        ],
+        "warnings": [],
+    }
+    # No endpoint, command or provider error text leaks into the catalog.
+    assert "http" not in str(result) and "jsonrpc" not in str(result)
+
+
 def test_catalog_falls_back_to_known_mcp_metadata_when_claude_output_is_unknown():
     async def fake_run(*_args):
         return 1, "not a list"
