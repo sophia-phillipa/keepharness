@@ -137,6 +137,31 @@ function toggle(text, checked, change, detail) {
   label.append(input, span);
   return label;
 }
+const accountAppStatusLabels = {
+  connected: "Connected",
+  needs_authentication: "Needs authentication",
+  failed: "Failed",
+  unknown: "Status unknown",
+};
+function accountAppRow(item) {
+  const row = element("div", undefined, "toggle-row account-app-row"),
+    span = element("span"),
+    statusLabel =
+      accountAppStatusLabels[item.status] || accountAppStatusLabels.unknown;
+  span.append(element("strong", connectorLabel(item)));
+  span.append(
+    element("small", "Claude account connector · not selectable here"),
+  );
+  row.append(span);
+  const status = element(
+    "span",
+    statusLabel,
+    "connector-status connector-status-" + (item.status || "unknown"),
+  );
+  status.setAttribute("role", "status");
+  row.append(status);
+  return row;
+}
 function fieldHelp(input, text) {
   const help = element("small", text, "field-help");
   help.id = input.id + "-help";
@@ -705,6 +730,15 @@ function renderIntegrationSelection() {
       row.querySelector("strong").prepend(connectorIcon(item));
       list.append(row);
     }
+    // Claude's own account connectors (claude.ai Gmail, claude.ai Drive, ...)
+    // are not something the provider config can turn on or off here: show
+    // them as read-only entries with their health status (F-41 UI side).
+    if (kind === "mcp")
+      for (const item of available.filter(
+        (item) => item.kind === "account-app",
+      )) {
+        list.append(accountAppRow(item));
+      }
     if (!list.children.length)
       list.append(
         element(
@@ -1048,6 +1082,11 @@ async function action(fn) {
 
 function collect() {
   settings.uploads_enabled = $("uploads").checked;
+  // spec.models can still hold ids that TailUI.selectableModel() hides from
+  // the toggle list (e.g. unversioned Claude aliases); never send those back.
+  for (const [id, spec] of Object.entries(settings.services))
+    if (Array.isArray(spec.models))
+      spec.models = spec.models.filter((m) => TailUI.selectableModel(id, m));
   return settings;
 }
 $("scan").onclick = () =>

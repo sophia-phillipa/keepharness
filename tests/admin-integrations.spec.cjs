@@ -77,7 +77,21 @@ const assert = require("node:assert/strict");
           { id: "mcp:drive", name: "Drive", kind: "mcp" },
           { id: "plugin:github@openai", name: "github@openai", kind: "plugin" },
         ],
-        claude: [{ id: "mcp:linear", name: "Linear", kind: "mcp" }],
+        claude: [
+          { id: "mcp:linear", name: "Linear", kind: "mcp" },
+          {
+            id: "account-app:claude.ai Gmail",
+            name: "claude.ai Gmail",
+            kind: "account-app",
+            status: "connected",
+          },
+          {
+            id: "account-app:claude.ai Postman",
+            name: "claude.ai Postman",
+            kind: "account-app",
+            status: "needs_authentication",
+          },
+        ],
       },
       operations: [],
       credentials: {},
@@ -178,16 +192,14 @@ const assert = require("node:assert/strict");
     assert.match(await page.locator("#integrations").innerText(), /Codex/);
     // Browse all pages; search includes entries beyond the initial forty.
     await page.evaluate(() => {
-      integrationCatalogs
-        .get("codex")
-        .items.push(
-          ...Array.from({ length: 83 }, (_, i) => ({
-            id: "plugin:extra-" + i,
-            name: "Extra " + i,
-            kind: "plugin",
-            status: "available",
-          })),
-        );
+      integrationCatalogs.get("codex").items.push(
+        ...Array.from({ length: 83 }, (_, i) => ({
+          id: "plugin:extra-" + i,
+          name: "Extra " + i,
+          kind: "plugin",
+          status: "available",
+        })),
+      );
     });
     await page.locator("#catalog-search").fill("");
     assert.equal(await page.locator("#catalog-items article").count(), 40);
@@ -396,6 +408,22 @@ const assert = require("node:assert/strict");
     await page
       .getByRole("button", { name: "Edit Claude Code", exact: true })
       .click();
+    // F-41/UI: Claude's own account connectors show up as read-only rows
+    // with their health status, and are never toggleable checkboxes.
+    await tabs.getByText("Connectors", { exact: true }).click();
+    const accountAppRows = page.locator(
+      "#integration-selection .account-app-row",
+    );
+    assert.equal(await accountAppRows.count(), 2);
+    assert.equal(await accountAppRows.locator("input").count(), 0);
+    assert.match(
+      await accountAppRows.filter({ hasText: "Gmail" }).innerText(),
+      /Connected/,
+    );
+    assert.match(
+      await accountAppRows.filter({ hasText: "Postman" }).innerText(),
+      /Needs authentication/,
+    );
     await tabs.getByText("Plugins", { exact: true }).click();
     assert.match(
       await page.locator("#integration-selection").innerText(),

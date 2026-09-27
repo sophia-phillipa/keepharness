@@ -353,6 +353,32 @@ label {
   height: 18px;
   flex-shrink: 0;
 }
+.account-app-row {
+  cursor: default;
+}
+.account-app-row > span {
+  flex: 1;
+}
+.connector-status {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--th-border);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.connector-status-connected {
+  color: var(--th-success, #2e7d32);
+  border-color: var(--th-success, #2e7d32);
+}
+.connector-status-needs_authentication {
+  color: var(--th-warning, #b26a00);
+  border-color: var(--th-warning, #b26a00);
+}
+.connector-status-failed {
+  color: var(--th-danger, #c62828);
+  border-color: var(--th-danger, #c62828);
+}
 .permissions {
   display: grid;
   grid-template-columns: 1fr 1fr;
