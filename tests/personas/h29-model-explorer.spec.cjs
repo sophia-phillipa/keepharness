@@ -97,10 +97,11 @@ runPersona("H29", [
       assert.equal(await page.locator("#send").isDisabled(), true);
       await page.fill("#prompt", "Hello");
       assert.equal(await page.locator("#send").isDisabled(), false);
-      // KNOWN BUG F-90: the fallback is silent. restoreSelection() (ui.js ~4518)
-      // returns early when the saved model is gone; nothing tells the user that
-      // "claude-opus-4-1" is no longer offered.
-      assert.equal(await fallbackNotice(page, "claude-opus-4-1"), false);
+      // F-90: the fallback is announced, naming the model that is gone.
+      assert.match(
+        await page.locator("#status").textContent(),
+        /claude-opus-4-1 is no longer available; switched to .*Luna/i,
+      );
     },
   },
   {
@@ -161,9 +162,11 @@ runPersona("H29", [
         "Draft written for Claude",
       );
       assert.match(await page.locator("#model-label").innerText(), /luna/i);
-      // KNOWN BUG F-90: the composer silently switches from Claude to Codex; the
-      // next Enter would send the Claude-intended draft to another provider.
-      assert.equal(await fallbackNotice(page, "claude-sonnet-5"), false);
+      // F-90: the switch from Claude to Codex is announced before the next send.
+      assert.match(
+        await page.locator("#status").textContent(),
+        /is no longer available; switched to .*Luna/i,
+      );
     },
   },
   {

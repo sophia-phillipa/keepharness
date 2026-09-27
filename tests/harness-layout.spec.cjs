@@ -76,6 +76,7 @@ const path = require("node:path");
             models: [
               {
                 id: "gpt-6-astra",
+                name: "GPT-6 Astra",
                 backend: "codex",
                 efforts: ["low", "medium", "high"],
               },
@@ -178,7 +179,8 @@ const path = require("node:path");
           .querySelector("#quota-short")
           .textContent.includes("Weekly: 38%"),
     );
-    assert.equal(await page.locator("#quota-model-icon").textContent(), "🌟");
+    // No hard-coded icon for this fixture model (F-53): the generic one.
+    assert.equal(await page.locator("#quota-model-icon").textContent(), "◈");
     assert.match(
       await page.locator("#quota-model-name").textContent(),
       /GPT-6 Astra/,

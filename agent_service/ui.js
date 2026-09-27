@@ -586,7 +586,6 @@ const names = {
 };
 const modelIcons = {
   "qwen-local": "✦",
-  "gpt-6-astra": "🌟",
   "gpt-5.6-sol": "☀️",
   "gpt-5.6-terra": "🌍",
   "gpt-5.6-luna": "🌙",
@@ -1044,6 +1043,7 @@ async function refreshProjectPermissions(timeout = 30000) {
     if (sequence !== policySequence) return;
     if (!Array.isArray(data.models)) throw Error("Invalid permissions catalog");
     const previous = $("model").value,
+      previousName = modelName(previous),
       effort = $("effort").value;
     models = data.models.filter((m) => TailUI.selectableModel(m.backend, m.id));
     uploadsAllowed = data.uploads_enabled === true;
@@ -1051,6 +1051,8 @@ async function refreshProjectPermissions(timeout = 30000) {
       ...models.map((m) => new Option(names[m.id] || m.name || m.id, m.id)),
     );
     if (models.some((m) => m.id === previous)) $("model").value = previous;
+    // F-90: never switch the draft to another model silently.
+    else if (previous && models.length) selectionNotice(previousName);
     policyProject = project;
     policyPending = false;
     updateEfforts();
@@ -3081,17 +3083,43 @@ async function upload(list) {
   $("project").disabled = true;
   renderFiles();
   try {
-    for (const f of Array.from(list)) {
+    const picked = Array.from(list);
+    for (const [index, f] of picked.entries()) {
       if (files.length >= MAX_ATTACHMENTS) {
+        // F-71: say how many of the selection were dropped, and which ones.
+        const dropped = picked.slice(index).map((file) => file.name);
         status(
-          "Limit of 20 attachments reached. Remove one before adding another.",
+          "Limit of 20 attachments reached. " +
+            (dropped.length === picked.length
+              ? "Remove one before adding another."
+              : dropped.length +
+                " of the " +
+                picked.length +
+                " selected files " +
+                (dropped.length === 1 ? "was" : "were") +
+                " not attached."),
         );
+        attachmentNotice(dropped, "file_limit");
         break;
       }
       const video = /\.mp4$/i.test(f.name) || f.type === "video/mp4",
         audio = /\.(wav|mp3|m4a|ogg|flac|webm|aac|opus)$/i.test(f.name);
       if (f.size > MAX_ATTACHMENT_BYTES) {
+        // F-72: a persistent notice, since the next upload overwrites #status.
+        attachmentNotice(f.name, "file_too_large");
         status(f.name + ": The per-file limit is 100 MiB.");
+        continue;
+      }
+      // F-56: the same file twice would be sent twice.
+      if (
+        files.some(
+          (a) =>
+            a.name === f.name &&
+            a.size === f.size &&
+            a.modified === f.lastModified,
+        )
+      ) {
+        status(f.name + " is already attached.");
         continue;
       }
       if (video && !canAttachVideo()) {
@@ -3129,13 +3157,20 @@ async function upload(list) {
             ),
           },
         );
-        files.push({ id: r.file_id, name: f.name, preview_url: r.preview_url });
+        files.push({
+          id: r.file_id,
+          name: f.name,
+          preview_url: r.preview_url,
+          project: $("project").value,
+          size: f.size,
+          modified: f.lastModified,
+        });
         renderFiles();
         saveView();
         status("File received.");
       } catch (e) {
         attachmentNotice(f.name, e.code);
-        status("Couldn't upload: " + attachmentError(e.code || e.message));
+        status("Couldn't upload: " + (attachmentError(e.code) || e.message));
       }
     }
   } finally {
@@ -3701,7 +3736,7 @@ async function selectProjectFileRoot(root) {
   $("files-tree").hidden = false;
   renderProjectFileSelection();
   if (fileTree.cache.has(root.id + "\0")) renderProjectFileTree();
-  else await loadProjectFileDirectory(root.id, "");
+  await loadProjectFileDirectory(root.id, "");
 }
 
 async function loadProjectFileDirectory(rootId, path) {
@@ -3746,9 +3781,8 @@ async function toggleProjectDirectory(entry) {
   }
   fileTree.expanded.add(entry.path);
   renderProjectFileTree();
-  const key = fileTree.rootId + "\0" + entry.path;
-  if (!fileTree.cache.has(key))
-    await loadProjectFileDirectory(fileTree.rootId, entry.path);
+  // F-59: re-list on every expand; folders may have changed outside the app.
+  await loadProjectFileDirectory(fileTree.rootId, entry.path);
 }
 async function attachSelectedProjectFiles(
   selection = {
@@ -3800,6 +3834,7 @@ async function attachSelectedProjectFiles(
         id: attachment.file_id,
         name: attachment.name,
         preview_url: attachment.preview_url,
+        project: $("project").value,
       });
     renderFiles();
     saveView();
@@ -4177,7 +4212,11 @@ async function initialize() {
     modelAvailability(m);
     if (!(await history(5000)))
       throw Error("Couldn't load the conversation history.");
-    status(models.length ? "Ready to chat." : "Set up a model to get started.");
+    status(
+      pendingSelectionNotice ||
+        (models.length ? "Ready to chat." : "Set up a model to get started."),
+    );
+    pendingSelectionNotice = "";
     let resumeWatch = false;
     if (!startupTimer) {
       try {
@@ -4936,10 +4975,29 @@ function rememberSelection() {
     localStorage.setItem("chat-selection", JSON.stringify(preferredSelection));
   } catch {}
 }
+let pendingSelectionNotice = "";
+function selectionNotice(gone) {
+  const text =
+    gone +
+    " is no longer available; switched to " +
+    modelName($("model").value) +
+    ".";
+  // After the caller's own status updates (newConversation clears the bar);
+  // during startup, initialize shows it instead of "Ready to chat."
+  if (interfaceReady) setTimeout(() => status(text));
+  else pendingSelectionNotice = text;
+}
 function restoreSelection() {
   if (!models.length) return;
   const model = models.find((m) => m.id === preferredSelection.model);
-  if (!model) return;
+  if (!model) {
+    // F-90: the saved model is gone; say so once instead of switching silently.
+    if (preferredSelection.model) {
+      selectionNotice(modelName(preferredSelection.model));
+      preferredSelection = { ...preferredSelection, model: "" };
+    }
+    return;
+  }
   $("model").value = model.id;
   updateEfforts();
   if (model.efforts.includes(preferredSelection.effort))
@@ -6015,8 +6073,8 @@ async function toggleProjectFolder(entry) {
   }
   projectDirectory.expanded.add(entry.path);
   renderProjectFolders();
-  if (!projectDirectory.cache.has(projectDirectory.rootId + "\0" + entry.path))
-    await loadProjectDirectories(entry.path);
+  // F-59: re-list on every expand; folders may have changed outside the app.
+  await loadProjectDirectories(entry.path);
 }
 function renderSelectedProjectDirectories() {
   const list = $("project-selected-paths");

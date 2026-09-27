@@ -81,18 +81,17 @@ runPersona("h17", [
         await page.locator("#attachment-count").innerText(),
         "20 / 20 files attached",
       );
-      // KNOWN BUG F-71: the file-picker path only says the limit was reached
-      // after uploading 20 files one by one; it does not say that 10 of the 30
-      // selected files were dropped, nor which ones (the Files panel path says
-      // "The selection was limited to the available slots.").
+      // F-71: the file-picker path says how many of the selection were dropped
+      // and a persistent notice names them.
       assert.equal(
         await page.locator("#status").innerText(),
-        "Limit of 20 attachments reached. Remove one before adding another.",
+        "Limit of 20 attachments reached. 10 of the 30 selected files were not attached.",
       );
-      assert.equal(
-        await page.locator(".message", { hasText: "batch-21" }).count(),
-        0,
-      );
+      const notice = page.locator(".message", { hasText: "File skipped" });
+      assert.equal(await notice.count(), 1);
+      const skipped = await notice.innerText();
+      for (const f of picked.slice(20)) assert(skipped.includes(f.name));
+      assert(!skipped.includes(picked[19].name));
     },
   },
   {
@@ -145,16 +144,12 @@ runPersona("h17", [
         "one POST per file, none for the oversize one",
       );
       assert.deepEqual(await chips(page), [...kept, ...added], "order stable");
-      // KNOWN BUG F-72: the client-side oversize notice ("scan-archive.pdf: The
-      // per-file limit is 100 MiB.") only lives in #status and is overwritten by
-      // the next file's "Uploading…"/"File received." message, and no persistent
-      // "File skipped" notice is added (server-side skips get one), so the user
-      // never learns which file was left out.
-      assert.equal(await page.locator("#status").innerText(), "File received.");
-      assert.equal(
-        await page.locator(".message", { hasText: "scan-archive.pdf" }).count(),
-        0,
-      );
+      // F-72: the client-side oversize skip leaves a persistent notice that
+      // names the file, like server-side skips do.
+      const notice = page.locator(".message", { hasText: "scan-archive.pdf" });
+      assert.equal(await notice.count(), 1);
+      assert.match(await notice.innerText(), /File skipped/);
+      assert.match(await notice.innerText(), /100 MiB/);
     },
   },
 ]);
