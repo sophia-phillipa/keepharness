@@ -653,7 +653,7 @@ class ConversationService:
         if kind not in KINDS or (kind == "web_search" and not self.config.get("search_url")):
             return {"decision": "unsupported", "reason": "capability_unavailable"}
         if backend == "codex":
-            model = data.get("model", "gpt-6-astra")
+            model = data["model"]
             effort = data.get("effort", "low")
             if (
                 model not in self.config.get("codex_models", {})
@@ -1182,7 +1182,7 @@ class ConversationService:
                     row["project"],
                     live["thinking"],
                     live["answer"],
-                    model=data.get("model", "gpt-6-astra"),
+                    model=data["model"],
                 )
                 live["at"] = time.monotonic()
 
@@ -1219,7 +1219,7 @@ class ConversationService:
             full_prompt,
             progress,
             project_config,
-            data.get("model", "gpt-6-astra"),
+            data["model"],
             data.get("effort", "low"),
             staged={}
             if project_config.get("apply_changes")
@@ -1254,7 +1254,7 @@ class ConversationService:
             live["thinking"],
             live["answer"],
             True,
-            model=data.get("model", "gpt-6-astra"),
+            model=data["model"],
         )
         if backend == "codex":
             after = await self.quota(True)

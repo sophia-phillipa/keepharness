@@ -15,7 +15,7 @@ async def run(
     prompt,
     event,
     project=None,
-    model="gpt-6-astra",
+    model=None,
     effort="low",
     staged=None,
     session_dir=None,

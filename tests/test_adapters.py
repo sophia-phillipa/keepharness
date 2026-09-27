@@ -144,3 +144,14 @@ def test_package_attributes_are_the_provider_subpackages_not_their_backends(prov
 
     assert account is sys.modules["adapters.claude.account"]
     assert getattr(adapters, provider) is sys.modules[f"adapters.{provider}"]
+
+
+def test_no_phantom_codex_model_fallback():
+    """F-53: a turn always carries its own model; nothing falls back to a made-up id."""
+    from adapters.codex import scoped
+    from agent_service.services.conversation_service import ConversationService
+
+    adapters = importlib.import_module("adapters")
+    for function in (adapters.run_scoped, scoped.run):
+        assert inspect.signature(function).parameters["model"].default is None
+    assert "gpt-6-astra" not in inspect.getsource(ConversationService)

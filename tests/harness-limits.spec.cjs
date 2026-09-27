@@ -58,7 +58,17 @@ const assert = require("node:assert/strict");
         await page.locator("#prompt").inputValue(),
         "Preserve this draft: " + failure,
       );
-      assert(!(await page.locator("#send").isDisabled()));
+      // F-84: Send waits out Retry-After with a countdown, then comes back.
+      assert(await page.locator("#send").isDisabled());
+      assert.match(
+        await page.locator("#send").getAttribute("aria-label"),
+        /^Send message \(available in [67] seconds\)$/,
+      );
+      await page.waitForFunction(
+        () => !document.querySelector("#send").disabled,
+        null,
+        { timeout: 9000 },
+      );
     }
     // Errors remain visible; rejected submissions are never automatically retried.
     await page.waitForTimeout(5500);

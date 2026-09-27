@@ -2783,6 +2783,22 @@ $("files-retry").onclick = () =>
   fileTree.basePath
     ? loadProjectFileDirectory(fileTree.rootId, fileTree.basePath)
     : loadProjectFileRoots(true);
+let sendCooldownUntil = 0,
+  sendCooldownTimer = 0;
+function sendCooldownSeconds() {
+  const seconds = Math.ceil((sendCooldownUntil - Date.now()) / 1000);
+  if (seconds <= 0 && sendCooldownTimer) {
+    clearInterval(sendCooldownTimer);
+    sendCooldownTimer = 0;
+  }
+  return Math.max(0, seconds);
+}
+function startSendCooldown(milliseconds) {
+  sendCooldownUntil = Date.now() + milliseconds;
+  clearInterval(sendCooldownTimer);
+  sendCooldownTimer = setInterval(updateComposer, 1000);
+  updateComposer();
+}
 async function send() {
   if (
     submitting ||
@@ -2790,7 +2806,8 @@ async function send() {
     loading ||
     uploads ||
     policyPending ||
-    !selected()
+    !selected() ||
+    sendCooldownSeconds()
   )
     return;
   const following = busy && !!job;
@@ -2925,6 +2942,7 @@ async function send() {
         e.message +
         (e.status === 429 && submitting ? " Your draft was preserved." : ""),
     );
+    if (e.status === 429) startSendCooldown(e.retryAfter || 5000);
   } finally {
     if (!sentJob) {
       submitting = false;
@@ -4743,6 +4761,15 @@ function updateComposer() {
   $("send").hidden = busy && !hasPrompt;
   $("cancel").hidden = !busy || hasPrompt;
   $("cancel").disabled = submitting || cancelling || !job;
+  const cooldown = sendCooldownSeconds();
+  if (cooldown) $("send").dataset.countdown = cooldown;
+  else delete $("send").dataset.countdown;
+  $("send").setAttribute(
+    "aria-label",
+    cooldown
+      ? "Send message (available in " + cooldown + " seconds)"
+      : "Send message",
+  );
   $("send").disabled =
     submitting ||
     cancelling ||
@@ -4751,7 +4778,8 @@ function updateComposer() {
     policyPending ||
     !selected() ||
     !prompt.value.trim() ||
-    !supportedExecutionModes().includes(executionMode);
+    !supportedExecutionModes().includes(executionMode) ||
+    cooldown > 0;
 }
 function updateLatest() {
   const box = $("messages");

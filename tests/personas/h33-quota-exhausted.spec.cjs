@@ -55,16 +55,16 @@ runPersona("H33", [
       usage = 0;
       await page.fill("#prompt", "Refactor the billing module");
       const started = Date.now();
-      // Five clicks as fast as the button lets them through.
-      for (let i = 1; i <= 5; i++) {
-        await page.click("#send");
-        const deadline = Date.now() + 3000;
-        while (s.posts.length < i && Date.now() < deadline)
-          await page.waitForTimeout(20);
-      }
+      // Five clicks: the first one gets the 429, the other four land on the
+      // cooling-down button (force skips Playwright's wait for an enabled button).
+      await page.click("#send");
       await page.waitForFunction(() =>
         /^Couldn't run/.test(document.querySelector("#status").textContent),
       );
+      for (let i = 2; i <= 5; i++) await page.click("#send", { force: true });
+      await page.focus("#prompt");
+      await page.keyboard.press("Enter");
+      await page.waitForTimeout(300);
       const elapsed = Date.now() - started;
       const text = await statusText(page);
       console.log("H33-S1 status:", text, "| elapsed ms:", elapsed);
@@ -78,12 +78,15 @@ runPersona("H33", [
         "Refactor the billing module",
       );
       assert(elapsed < 30000);
-      // KNOWN BUG F-84: Retry-After is parsed (error.retryAfter) but only the
-      // readiness probe honours it; Send is re-enabled at once and every click
-      // inside the 30 s window re-POSTs (plus a /v1/usage call for Codex).
-      assert(await page.locator("#send").isEnabled());
-      assert.equal(s.posts.length, 5);
-      assert.equal(usage, 5);
+      // F-84: Send stays disabled for the Retry-After window, with a countdown,
+      // so the extra clicks send nothing.
+      assert(await page.locator("#send").isDisabled());
+      assert.match(
+        await page.locator("#send").getAttribute("aria-label"),
+        /^Send message \(available in (29|30) seconds\)$/,
+      );
+      assert.equal(s.posts.length, 1);
+      assert.equal(usage, 1);
       noConsoleErrors();
     },
   },

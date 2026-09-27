@@ -4217,3 +4217,35 @@ body.panel-order-reversed #app-topbar #menu .th-icon {
 #execution-mode-choice.started {
   padding: 6px 16px;
 }
+/* F-84: Send shows the Retry-After countdown instead of its icon. */
+#send[data-countdown] .th-icon {
+  display: none;
+}
+#send[data-countdown]::after {
+  content: attr(data-countdown);
+  font-size: 13px;
+  font-weight: 600;
+}
+/* F-64: phone touch targets are at least 44x44. */
+@media (max-width: 620px) {
+  #app-topbar #menu,
+  .composer-actions #attach {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+/* F-65: on short (landscape phone) screens the column scrolls and the
+   composer stays pinned, so Send is always reachable. */
+@media (max-height: 500px) {
+  main {
+    overflow-y: auto;
+  }
+  main > .composer-area {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+  }
+  #execution-mode-help {
+    display: none;
+  }
+}

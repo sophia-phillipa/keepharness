@@ -88,7 +88,11 @@ runPersona("H25", [
             await page.inputValue("#prompt"),
             "Tab " + (i + 1) + " asks for a report",
           );
-          assert(await page.locator("#send").isEnabled());
+          // F-84: Send waits out Retry-After; after 6 s only the 60 s tab still waits.
+          assert.equal(
+            await page.locator("#send").isEnabled(),
+            Number(LIMITS[i][1]) < 6,
+          );
           checks[i]();
         }
         assert.equal(new Set(messages).size, 3, "distinct messages");

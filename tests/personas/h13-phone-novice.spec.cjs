@@ -105,17 +105,14 @@ runPersona("H13", [
         send[0] >= 44 && send[1] >= 44,
         "#send must be at least 44x44, got " + send,
       );
-      // KNOWN BUG F-64: the phone rule `@media (max-width:620px) .icon {min-width:44px;
-      // min-height:44px}` (ui.css) loses to `.composer-actions .icon {40px}` and a
-      // top-bar width rule, so #attach is 40x40 and #menu 40x44. Correct: both >= 44x44.
-      assert.deepEqual(
-        [await size("#attach"), await size("#menu")],
-        [
-          [40, 40],
-          [40, 44],
-        ],
-        "F-64 fixed? flip this assertion",
-      );
+      // F-64: every phone touch target is at least 44x44.
+      for (const id of ["#attach", "#menu"]) {
+        const [width, height] = await size(id);
+        assert(
+          width >= 44 && height >= 44,
+          id + " must be at least 44x44, got " + [width, height],
+        );
+      }
       // A thumb lands 3px inside each corner of #send; each must hit the button.
       const b = await page.locator("#send").boundingBox();
       for (const [x, y] of [
@@ -138,15 +135,14 @@ runPersona("H13", [
         "Is it going to rain tomorrow?",
       );
       assert(await noHorizontalScroll(page), "landscape: no horizontal scroll");
-      // KNOWN BUG F-65: at 667x375 the header, the flex-shrink:0 #execution-mode-choice
-      // card and the composer do not fit; main has no overflow handling and body is
-      // overflow:hidden, so the composer (draft + #send) sits below the fold and cannot
-      // be scrolled into view by touch. Correct: #send and #prompt stay on screen.
-      const sendBox = await page.locator("#send").boundingBox();
-      assert(
-        sendBox.y + sendBox.height > 375,
-        "F-65 fixed? #send is now on screen - flip this assertion",
-      );
+      // F-65: in landscape the composer (draft + #send) stays on screen.
+      for (const id of ["#send", "#prompt"]) {
+        const box = await page.locator(id).boundingBox();
+        assert(
+          box.y >= 0 && box.y + box.height <= 375,
+          id + " must stay on screen at 667x375, got " + JSON.stringify(box),
+        );
+      }
       await page.setViewportSize(PHONE);
       await page.waitForTimeout(200);
       assert.equal(
