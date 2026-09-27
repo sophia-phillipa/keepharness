@@ -215,7 +215,12 @@ async function runPersona(id, scenarios) {
       JSON.stringify(results, null, 2) + "\n",
     );
   }
-  if (results.some((r) => r.status === "fail")) process.exitCode = 1;
+  // The JSON report stays on the machine that ran the suite; print every failure
+  // so a CI log alone says which scenario failed and why.
+  for (const r of results.filter((r) => r.status === "fail")) {
+    console.error(id + " FAIL " + r.scenario + ": " + r.error);
+    process.exitCode = 1;
+  }
   return results;
 }
 

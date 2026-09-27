@@ -166,3 +166,10 @@ class ReadinessTest(unittest.TestCase):
         ):
             wait_ready(8100)
             self.assertEqual(request.call_count, 2)
+
+
+def test_static_version_labels_match_the_version_file():
+    root = Path(__file__).resolve().parents[1]
+    version = (root / "agent_service/VERSION").read_text().strip()
+    assert f"v{version} · MIT" in (root / "control/index.html").read_text()
+    assert f"Release: {version}" in (root / "agent_service/index.html").read_text()
