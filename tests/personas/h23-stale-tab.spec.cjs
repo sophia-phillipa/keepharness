@@ -97,14 +97,10 @@ runPersona("H23", [
       assert.equal(await page.inputValue("#prompt"), "Add the Q3 numbers");
       const conflict = await statusText(page);
       console.log("H23-S1 409 status:", conflict);
-      // KNOWN BUG F-80: the 409 surfaces the raw protocol code with a generic
-      // "check the data" hint; nothing tells the user another tab moved the
-      // conversation on or how to refresh it (userErrors has no entry).
-      assert.match(conflict, /\(conversation_has_newer_turn\)/);
-      assert.doesNotMatch(
-        conflict,
-        /another tab|reload|refresh|newer message/i,
-      );
+      // F-80: the 409 names the other tab and the way out, not the raw code.
+      assert.doesNotMatch(conflict, /conversation_has_newer_turn/);
+      assert.match(conflict, /another tab/i);
+      assert.match(conflict, /open it again/i);
 
       // The other tab then deletes the conversation; reopening it here fails.
       deleted = true;
@@ -118,22 +114,18 @@ runPersona("H23", [
       const missing = await statusText(page);
       console.log("H23-S1 404 status:", missing);
       assert.match(missing, /Your draft was preserved/);
-      // KNOWN BUG F-80: raw "conversation_not_found" code, and the stale row
-      // stays in the list so the user can keep clicking a deleted item.
-      assert.match(missing, /\(conversation_not_found\)/);
+      // F-80: a readable sentence, and the deleted row leaves the list.
+      assert.doesNotMatch(missing, /conversation_not_found/);
+      assert.match(missing, /no longer exists/);
       assert.equal(
         await page.getByRole("button", { name: "Budget review" }).count(),
-        1,
+        0,
       );
 
-      // The only way out is "New conversation", which asks to discard the draft
-      // that the error message just promised was preserved.
+      // "New conversation" keeps the preserved draft (F-95) without a prompt.
       await page.click("#new");
-      // KNOWN BUG F-80: recovery requires discarding the preserved draft.
-      assert.deepEqual(dialogs, [
-        "Discard the draft and attachments to start a new conversation?",
-      ]);
-      assert.equal(await page.inputValue("#prompt"), "");
+      assert.deepEqual(dialogs, []);
+      assert.equal(await page.inputValue("#prompt"), "Add the Q3 numbers");
       noConsoleErrors();
     },
   },
@@ -190,28 +182,21 @@ runPersona("H23", [
         readinessRetryAt = 0;
         return probeReadiness();
       });
-      // KNOWN BUG F-81: a removed project is reported as a lost server
-      // connection and blocks the whole UI behind the startup gate.
-      assert(await page.locator("#startup-gate").isVisible());
-      assert.match(
-        await page.locator("#startup-gate").textContent(),
-        /Waiting for the server/,
-      );
-      assert.match(
-        await statusText(page),
-        /Connection to the server lost: Project unavailable/,
-      );
-
-      // Automatic re-initialisation (5 s interval) recovers silently.
-      await page
-        .locator("#startup-gate")
-        .waitFor({ state: "hidden", timeout: 8000 });
+      // F-81: a removed project is its own state, not a lost connection: the
+      // UI stays usable, the draft moves to "No project" and says so.
+      assert(await page.locator("#startup-gate").isHidden());
       assert.equal(await page.inputValue("#prompt"), "Plan the demo launch");
       assert.equal(await page.inputValue("#project"), "sem-projeto");
-      // KNOWN BUG F-81: the "Project unavailable" explanation is overwritten by
-      // "Ready to chat." and the draft is now silently scoped to "No project".
-      assert.equal(await statusText(page), "Ready to chat.");
-      assert.equal(await page.getByText("Project unavailable").count(), 0);
+      const removedNotice = await statusText(page);
+      assert.match(removedNotice, /“Demo” was removed/);
+      assert.match(removedNotice, /draft was kept/);
+      assert.doesNotMatch(removedNotice, /Connection to the server lost/);
+      // The explanation is still on screen after the next readiness probe.
+      await page.evaluate(() => {
+        readinessRetryAt = 0;
+        return probeReadiness();
+      });
+      assert.equal(await statusText(page), removedNotice);
       assert.equal(
         await page.getByRole("button", { name: "Demo", exact: true }).count(),
         0,

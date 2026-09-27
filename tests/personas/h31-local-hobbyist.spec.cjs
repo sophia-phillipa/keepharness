@@ -230,7 +230,9 @@ runPersona("H31", [
       const answer = page.locator("#messages article.assistant").last();
       await answer.locator(".run-highlight", { hasText: /Failed/ }).waitFor();
       const bubble = await answer.locator(".chat-bubble").innerText();
-      assert.match(bubble, /The run did not finish:/, "guided failure text");
+      assert.match(bubble, /stopped before finishing the run/, "guided text");
+      assert.match(bubble, /connection refused/, "provider message kept");
+      assert.doesNotMatch(bubble, /codex_execution_failed/);
       assert.match(await page.locator("#status").textContent(), /Failed run/);
       // No perpetual "Working…": the run reached a terminal state and the
       // composer is no longer busy (Cancel hidden, prompt editable, and Send

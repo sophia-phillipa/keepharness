@@ -668,6 +668,270 @@ const userErrors = {
     "Add at least one existing folder to the project.",
   project_directory_forbidden:
     "One of the chosen folders is protected or not authorized.",
+  // Requests (F-70): every code the server can return has a sentence.
+  payload_limit:
+    "This message is too large to send. Shorten it or attach it as a file.",
+  request_timeout: "The request took too long to arrive. Try again.",
+  invalid_json:
+    "The request was not understood. Refresh the page and try again.",
+  object_required:
+    "The request was not understood. Refresh the page and try again.",
+  internal_error:
+    "Something went wrong on the server. Try again; if it persists, check the harness log.",
+  origin_denied:
+    "This page is not allowed to reach the harness. Open it from the harness address.",
+  invalid_token: "The access key is invalid. Check it and try again.",
+  idempotency_conflict:
+    "This request was already sent with different content. Refresh the page before sending again.",
+  invalid_idempotency_key:
+    "The request was not understood. Refresh the page and try again.",
+  invalid_internal_field:
+    "The request was not understood. Refresh the page and try again.",
+  invalid_prompt: "The message could not be read. Edit it and try again.",
+  prompt_required: "Write a message before sending.",
+  invalid_task_label: "The task label is invalid. Shorten it and try again.",
+  invalid_max_tokens:
+    "The requested answer length is invalid. Refresh the page and try again.",
+  invalid_access_mode:
+    "That access mode is not available. Choose another one and try again.",
+  invalid_parent_job:
+    "The earlier message this reply continues is unavailable. Start a new conversation.",
+  invalid_event_id: "Tracking could not resume. Refresh the page.",
+  job_not_found: "This run no longer exists. Refresh the conversation list.",
+  job_owner_denied: "This run belongs to another user.",
+  result_not_ready: "The run has not finished yet. Wait for it to finish.",
+  job_storage_limit:
+    "The server's run storage is full. Ask the administrator to free space, then try again.",
+  // Conversations.
+  conversation_busy:
+    "This conversation is still running. Wait for it to finish or cancel it first.",
+  conversation_has_newer_turn:
+    "This conversation has a newer message from another tab. Open it again from the list to continue.",
+  conversation_not_found:
+    "This conversation no longer exists; it may have been deleted in another tab.",
+  conversation_context_limit:
+    "This conversation is too long for the model's context. Start a new conversation or use a model with a larger context.",
+  conversation_execution_mode_locked:
+    "This conversation's isolation mode can't change. Start a new conversation to use another mode.",
+  conversation_workspace_changed:
+    "This conversation's workspace changed. Start a new conversation.",
+  execution_mode_unsupported:
+    "This conversation uses an execution mode this model or server no longer offers. Choose another model or start a new conversation.",
+  invalid_conversation_title: "Use a title between 1 and 100 characters.",
+  service_restarted:
+    "The harness restarted during this run. Send your message again.",
+  model_removed:
+    "The administrator removed this model during the run. Choose another model and send your message again.",
+  configuration_changed:
+    "The server configuration changed during the run. Send your message again.",
+  context_limit_exceeded:
+    "The content is too large for the model's context. Reduce the content sent at once or use a model with a larger context.",
+  source_context_limit:
+    "The attached content is too large for the model's context. Attach less at once.",
+  // Models and providers.
+  model_denied: "This model is not enabled for you. Choose another model.",
+  model_or_effort_unavailable:
+    "This model or reasoning level is no longer available. Choose another one.",
+  backend_unavailable:
+    "This provider is not available right now. Choose another model.",
+  capability_unavailable:
+    "This model can't do what the request needs. Choose another model.",
+  unsupported:
+    "This model can't run this request. Choose another model or mode.",
+  no_enabled_executor_for_task:
+    "No enabled model can run this task. Ask the administrator to enable one.",
+  use_scoped_inference_tools:
+    "This model can only work through the isolated tools. Turn isolation on or choose another model.",
+  service_project_denied:
+    "This provider is not enabled for this project. Choose another model or ask the administrator.",
+  runtime_config_invalid:
+    "The server configuration is invalid. Ask the administrator to review it in the admin panel.",
+  runtime_immutable_changed:
+    "A server setting that needs a restart changed. Ask the administrator to restart the harness.",
+  codex_login_or_binary_unavailable:
+    "Codex is not installed or not signed in on the server. Check it in the admin panel.",
+  claude_login_or_binary_unavailable:
+    "Claude Code is not installed or not signed in on the server. Check it in the admin panel.",
+  codex_execution_failed:
+    "Codex stopped before finishing the run. Check the activity and try again.",
+  codex_rpc_error:
+    "Codex returned an unexpected response. Try again; if it persists, update Codex.",
+  codex_output_limit:
+    "Codex produced more output than allowed. Narrow the request and try again.",
+  claude_execution_failed:
+    "Claude stopped before finishing the run. Check the activity and try again.",
+  claude_stream_incomplete:
+    "The provider stopped before the answer was complete. Send your message again.",
+  claude_invalid_stream:
+    "Claude returned an unexpected response. Try again; if it persists, update Claude Code.",
+  claude_output_limit:
+    "Claude produced more output than allowed. Narrow the request and try again.",
+  gemini_execution_failed:
+    "Gemini stopped before finishing the run. Check the activity and try again.",
+  gemini_output_limit:
+    "Gemini produced more output than allowed. Narrow the request and try again.",
+  gemini_acp_unavailable:
+    "The Gemini CLI connection is unavailable. Check Gemini in the admin panel.",
+  gemini_acp_incomplete:
+    "The Gemini CLI stopped before the answer was complete. Send your message again.",
+  gemini_acp_invalid:
+    "The Gemini CLI returned an unexpected response. Update the Gemini CLI and try again.",
+  gemini_acp_title_unsupported:
+    "This Gemini CLI version can't name conversations. Update the Gemini CLI.",
+  gemini_client_retired:
+    "This Gemini CLI version is no longer supported. Update the Gemini CLI.",
+  gemini_oauth_unavailable:
+    "Gemini is not signed in on the server. Sign in again in the admin panel.",
+  gemini_effort_unavailable:
+    "This reasoning level is not available for Gemini. Choose another one.",
+  gemini_scoped_unsupported:
+    "Gemini can't run isolated conversations. Start a native conversation.",
+  gemini_access_mode_invalid:
+    "That access mode is not available for Gemini. Choose another one.",
+  gemini_integration_denied:
+    "A Gemini integration is blocked by policy. Ask the administrator.",
+  gemini_integration_unavailable:
+    "A Gemini integration is unavailable. Check Gemini in the admin panel.",
+  gemini_system_auth_conflict:
+    "The server's Gemini settings conflict with the harness sign-in. Ask the administrator to review them.",
+  gemini_system_policy_conflict:
+    "The server's Gemini policy conflicts with the harness. Ask the administrator to review it.",
+  gemini_system_settings_invalid:
+    "The server's Gemini settings are invalid. Ask the administrator to review them.",
+  deepseek_api_configuration_required:
+    "DeepSeek needs an API key. Add it in the admin panel.",
+  deepseek_effort_unavailable:
+    "This reasoning level is not available for DeepSeek. Choose another one.",
+  local_cli_binary_unavailable:
+    "The local model's command-line tool is missing on the server. Check it in the admin panel.",
+  local_filesystem_isolation_unavailable:
+    "The server can't isolate the local model's file access. Ask the administrator to install bubblewrap.",
+  local_project_scope_invalid:
+    "The local model can't reach this project's folders. Check the project folders.",
+  maestro_disabled: "Maestro is turned off. Choose another model.",
+  maestro_no_eligible_agents:
+    "Maestro has no enabled models for this project. Ask the administrator to enable one.",
+  maestro_requires_enabled_codex_for_project:
+    "Maestro needs Codex enabled for this project. Ask the administrator.",
+  maestro_model_or_effort_denied:
+    "Maestro chose a model that is not enabled. Try again or choose a model yourself.",
+  maestro_step_not_allowed:
+    "Maestro planned a step that is not allowed. Try again or choose a model yourself.",
+  maestro_invalid_plan_json:
+    "Maestro could not produce a valid plan. Try again or choose a model yourself.",
+  maestro_invalid_steps:
+    "Maestro could not produce a valid plan. Try again or choose a model yourself.",
+  maestro_invalid_step:
+    "Maestro could not produce a valid plan. Try again or choose a model yourself.",
+  maestro_invalid_step_description:
+    "Maestro could not produce a valid plan. Try again or choose a model yourself.",
+  maestro_incomplete_plan:
+    "Maestro could not finish planning. Try again or choose a model yourself.",
+  maestro_step_incomplete:
+    "A Maestro step did not finish. Try again or choose a model yourself.",
+  // Projects, folders and workspaces.
+  invalid_project: "This project is invalid. Choose another one.",
+  project_busy: "This project is busy with another change. Try again shortly.",
+  project_edit_forbidden: "You can't edit this project.",
+  project_registration_disabled:
+    "Adding projects is turned off on this server. Ask the administrator to enable it.",
+  project_directory_shared:
+    "One of the chosen folders already belongs to another project.",
+  project_folder_busy:
+    "The project folder is in use by a run. Wait for it to finish.",
+  project_folder_changed:
+    "The project folder changed since you opened it. Review it and try again.",
+  project_folder_confirmation_required: "Confirm the folder name to delete it.",
+  project_folder_deleted: "The project folder was already deleted.",
+  project_folder_delete_failed:
+    "The project folder could not be deleted. Check its permissions.",
+  project_folder_deletion_unsupported:
+    "This project's folder can't be deleted from the app.",
+  project_has_no_directory: "This project has no folder yet. Add one first.",
+  project_root_denied: "This folder is outside the project's allowed folders.",
+  project_root_unavailable:
+    "The project folder is missing or unreadable. Check it on the server.",
+  system_root_denied: "System folders can't be used here.",
+  directory_not_found: "This folder no longer exists. Refresh the list.",
+  path_not_authorized: "This path is not authorized for this project.",
+  read_denied: "You don't have permission to read this file.",
+  file_not_found: "The file no longer exists. Refresh the list.",
+  invalid_path: "The path is invalid.",
+  invalid_query: "The search is invalid. Change it and try again.",
+  invalid_range: "The requested part of the list is invalid. Refresh it.",
+  invalid_selection: "The selection is invalid. Select the files again.",
+  invalid_file_id: "An attachment is no longer available. Attach it again.",
+  empty_workspace: "There is nothing to download in this workspace yet.",
+  preview_not_available: "A preview is not available for this file.",
+  workspace_not_found: "This workspace no longer exists.",
+  workspace_path_denied: "That workspace path is not allowed.",
+  workspace_permission_denied:
+    "You don't have permission to use this workspace.",
+  workspace_project_denied: "This workspace belongs to another project.",
+  workspace_size_limit: "The workspace is larger than allowed.",
+  workspace_size_or_encryption_limit:
+    "The archive is too large or encrypted. Upload a smaller, unencrypted archive.",
+  workspace_storage_limit:
+    "The workspace storage is full. Remove files and try again.",
+  workspace_export_limit: "The workspace is too large to download at once.",
+  workspace_file_limit: "The workspace has too many files.",
+  invalid_archive: "The archive is invalid or damaged.",
+  unsafe_archive_entry:
+    "The archive contains a path that is not allowed. It was not extracted.",
+  binary_file_use_download:
+    "This is a binary file. Download it instead of opening it.",
+  invalid_staged_file:
+    "A file prepared for the isolated run is invalid. Attach it again.",
+  staged_context_limit:
+    "The files prepared for the isolated run are too large. Attach fewer files.",
+  deployment_path_denied:
+    "The changes touch a path that is not allowed. They were not applied.",
+  deployment_file_limit:
+    "The changes touch too many files. They were not applied.",
+  deployment_conflict:
+    "The files changed while the run worked. The changes were not applied.",
+  deployment_javascript_syntax:
+    "The changes contain a JavaScript syntax error. They were not applied.",
+  deployment_python_syntax:
+    "The changes contain a Python syntax error. They were not applied.",
+  restart_schedule_failed:
+    "The changes were applied, but the panel could not schedule its restart.",
+  service_control_denied: "You can't control this service.",
+  explicit_service_request_required:
+    "Controlling a service needs an explicit request. Use the service controls.",
+  invalid_service_action: "That service action is not available.",
+  invalid_service_unit: "That service is not available.",
+  service_not_registered: "That service is not registered for this project.",
+  service_manager_unavailable_requires_systemd_user:
+    "Service control needs the user systemd manager on the server.",
+  // Approvals.
+  approval_expired:
+    "This approval request expired. Send your message again if you still need it.",
+  approval_owner_denied: "This approval request belongs to another user.",
+  invalid_approval_scope: "That approval option is not available.",
+  // Resources.
+  resource_read_denied:
+    "This model can't read the selected resources. Choose another model.",
+  resource_changed:
+    "A selected resource changed. Select it again before sending.",
+  resource_unavailable:
+    "A selected resource is no longer available. Remove it and try again.",
+  resource_unavailable_in_engine:
+    "A selected resource is not available for this model. Remove it or choose another model.",
+  resource_selection_missing:
+    "A selected resource is missing. Select it again before sending.",
+  resource_name_ambiguous:
+    "More than one resource has that name. Pick it from the list.",
+  resource_prompt_limit:
+    "The selected resources are too large. Select fewer resources.",
+  resource_scan_limit:
+    "There are too many resources to list. Narrow the search.",
+  invalid_resource_selections:
+    "The selected resources are invalid. Select them again.",
+  invalid_command_arguments: "The command arguments are invalid.",
+  resources_unavailable_in_workspace:
+    "Resources are not available in this workspace.",
+  tail_resources_unavailable: "Resources are not available right now.",
 };
 async function api(path, options = {}) {
   let r;
@@ -693,11 +957,10 @@ async function api(path, options = {}) {
     }
     let message =
       userErrors[e.code] ||
+      attachmentError(e.code) ||
       (r.status === 429
         ? "The server applied a temporary limit to this request."
-        : "The server did not complete the request (" +
-          (e.code || r.status) +
-          "). Check the data or try again.");
+        : "The server did not complete the request. Check the data or try again.");
     if (r.status === 429) {
       const after = r.headers.get("Retry-After");
       const seconds =
@@ -2096,7 +2359,10 @@ function activityTitle(e) {
   const data = e.data || {},
     type = e.type,
     tool = eventToolName(data);
-  const condition = executionCondition(data.condition || data.error);
+  const condition = executionCondition(
+    data.condition || data.error,
+    data.backend,
+  );
   if (condition) return condition.title;
   if (type === "tool_start")
     return data.command_name && tool
@@ -2368,38 +2634,83 @@ function event(e) {
   } else {
     status(labels[e.type] || e.type);
   }
-  scroll();
+  // Deltas scroll after their batched render; reading layout here per delta
+  // would force a reflow for each one (F-87).
+  if (e.type !== "answer_delta") scroll();
 }
-function executionCondition(code) {
-  if (
-    ["claude_authentication_required", "claude_authentication_failed"].includes(
-      code,
-    )
-  )
-    return {
-      title: "Renew Claude access",
+// F-85: provider conditions from the worker ({condition, backend}), plus the
+// legacy Claude codes still stored in older history.
+const conditionCopy = {
+  provider_authentication_required: "authentication",
+  provider_authentication_failed: "authentication",
+  provider_quota_exhausted: "quota",
+  provider_rate_limit: "rate",
+  claude_authentication_required: "authentication",
+  claude_authentication_failed: "authentication",
+  claude_quota_exhausted: "quota",
+  claude_rate_limit: "quota",
+};
+function executionCondition(code, backend, detail) {
+  const kind = conditionCopy[code];
+  if (!kind) return null;
+  if (String(code).startsWith("claude_")) backend = "claude";
+  backend ||= selected()?.backend;
+  const name =
+      { claude: "Claude", gemini: "Gemini" }[backend] ||
+      providerNames[backend] ||
+      "provider",
+    panel = providerNames[backend] || name,
+    reason = providerMessage(detail);
+  const copy = {
+    authentication: {
+      title: "Renew " + name + " access",
       message:
-        "Your Claude access needs to be renewed. In the admin panel, find Claude Code and click “Renew access”. Complete the sign-in in the browser and send your message again.",
-    };
-  if (["claude_quota_exhausted", "claude_rate_limit"].includes(code))
-    return {
+        "Your " +
+        name +
+        " access needs to be renewed. In the admin panel, find " +
+        panel +
+        " and click “Renew access”. Complete the sign-in in the browser and send your message again.",
+    },
+    quota: {
       title: "Wait for quota renewal",
       message:
-        "Your Claude quota is temporarily exhausted. Wait for it to renew or select a different provider to continue this conversation.",
-    };
-  return null;
+        "Your " +
+        name +
+        " quota is temporarily exhausted. Wait for it to renew or select a different provider to continue this conversation.",
+    },
+    rate: {
+      title: "Wait a moment",
+      message:
+        name +
+        " is limiting requests. Wait a moment, or select a different provider to continue this conversation.",
+    },
+  }[kind];
+  if (reason) copy.message += " " + name + " says: " + reason;
+  return copy;
 }
-function executionError(error) {
-  const condition = executionCondition(error);
+// The prose after an adapter's "<code>: " prefix, never the code itself.
+function providerMessage(detail) {
+  const text = String(detail || "").trim(),
+    match = /^[a-z0-9_]+: (.+)$/s.exec(text);
+  return match ? match[1] : /^[a-z0-9_]+$/.test(text) ? "" : text;
+}
+function executionError(error, detail) {
+  const [code] = String(error).split(": ", 1),
+    condition = executionCondition(code);
   if (condition) return condition.message;
-  if (error === "cli_missing") return userErrors.cli_missing;
   if (
     /context_limit_exceeded|exceed_context_size|exceeds the available context|maximum context length|source_context_limit|conversation_context_limit|context_window_exceeded/i.test(
       String(error),
     )
   )
     return "Couldn't prepare or process the context for this attempt. The history and files were preserved. You can continue this conversation; if the limit persists, use a model with reading tools or reduce the content sent at once.";
-  return "The run did not finish: " + error;
+  const reason = providerMessage(detail || error);
+  return (
+    (userErrors[code] ||
+      attachmentError(code) ||
+      "The run did not finish. Check the activity and try again.") +
+    (reason ? " Provider message: " + reason : "")
+  );
 }
 async function result(
   expectedJob = job,
@@ -2414,7 +2725,11 @@ async function result(
     cancelled: "Run cancelled",
     interrupted: "Run interrupted",
   };
-  const condition = executionCondition(r.result?.condition || r.result?.error);
+  const condition = executionCondition(
+    r.result?.condition || r.result?.error,
+    r.result?.backend || r.request?.backend,
+    r.result?.error_detail,
+  );
   updateMotion(r.state);
   $("activity-state").textContent = condition
     ? "ℹ " + condition.title
@@ -2627,13 +2942,20 @@ async function load(id, legacy = false, restoredView = null) {
         !["queued", "running"].includes(r.state)
       ) {
         const condition = executionCondition(
-          r.result?.condition || r.result?.error,
-        );
+            r.result?.condition || r.result?.error,
+            r.result?.backend || r.request?.backend,
+            r.result?.error_detail,
+          ),
+          notice =
+            condition?.message ||
+            (r.result?.error
+              ? executionError(r.result.error, r.result.error_detail)
+              : "");
         setAnswer(
           active,
-          condition?.message ??
-            r.result?.answer ??
-            (r.result?.error ? executionError(r.result.error) : r.state),
+          r.result?.answer ?? (notice ? "" : r.state),
+          notice,
+          r.result?.error,
         );
         active.chip.textContent = condition
           ? "ℹ " + condition.title
@@ -2694,6 +3016,11 @@ async function load(id, legacy = false, restoredView = null) {
     $("prompt").value = priorDraft;
     updateComposer();
     $("sidebar").classList.remove("open");
+    // F-80: a conversation the server confirms is gone leaves the list.
+    if (e.code === "conversation_not_found") {
+      conversations = conversations.filter((c) => c.id !== id);
+      renderProjects();
+    }
     status(
       "Couldn't open the conversation. Your draft was preserved: " + e.message,
     );
@@ -5090,64 +5417,101 @@ function attachmentNotice(filename, code) {
       "the selected execution mode does not support reading images",
     unsupported_binary_format: "this format has no reader available in the app",
     binary_denied: "this binary format has no reader available in the app",
+    invalid_pdf: "the PDF is invalid or damaged",
+    pdf_extraction_failed: "its text could not be extracted from the PDF",
+    document_text_unavailable: "the document contains no readable text",
+    document_text_limit: "the document's text exceeds the size limit",
+    audio_decode_failed: "the audio could not be decoded",
+    audio_no_speech: "no speech was recognized in the audio",
+    audio_duration_limit: "the audio exceeds four hours",
+    invalid_audio: "the audio format was not recognized",
+    video_decode_failed: "the video frames could not be decoded",
+    video_processing_timeout: "video processing exceeded the allowed time",
+    image_size_limit: "the image exceeds 100 MiB",
+    file_too_large: "it exceeds the 100 MiB per-file limit",
+    tool_output_limit: "reading it produced more text than allowed",
+    xml_entities_denied: "the XML contains entities that are not allowed",
+    selection_scan_limit: "the folder has too many files to scan",
+    path_not_authorized: "the path is not authorized for this project",
+    invalid_filename:
+      "the filename contains a path or control characters, or is too long",
   };
   if (!Object.hasOwn(reasons, code)) return;
   $("welcome")?.remove();
-  const notice = assistant("", selected()?.id);
+  const notice = assistant("", selected()?.id),
+    names = [].concat(filename);
   notice.chip.textContent = "File skipped";
-  notice.body.textContent = `File “${filename}” was skipped because ${reasons[code]}.`;
+  notice.body.textContent =
+    names.length === 1
+      ? `File “${names[0]}” was skipped because ${reasons[code]}.`
+      : `${names.length} files were skipped because ${reasons[code]}: ${names.map((name) => `“${name}”`).join(", ")}.`;
   $("messages").scrollTop = $("messages").scrollHeight;
 }
 function attachmentError(code) {
-  return (
-    {
-      video_capability_unavailable:
-        "Couldn't check the model's MP4 support. Try again once the integration is available.",
-      model_video_unavailable:
-        "MP4 unavailable for this model or mode. Choose a model with detected support.",
-      video_processing_unavailable:
-        "Local video processing is unavailable on this server.",
-      invalid_video: "The video is invalid or contains no decodable frames.",
-      video_duration_limit: "Upload a video of up to 4 hours.",
-      video_decode_failed: "Couldn't decode the video frames.",
-      video_frame_failed: "Couldn't extract the video frames.",
-      video_processing_timeout: "Video processing exceeded the allowed time.",
-      invalid_image:
-        "The image is incomplete or corrupted. It was not attached.",
-      image_validation_unavailable:
-        "The local image validator is unavailable. The image was not attached.",
-      image_validation_timeout:
-        "Image validation took too long. Try a smaller image.",
-      invalid_filename:
-        "The filename contains a path, control characters, or exceeds 160 characters.",
-      upload_limit:
-        "The file or the project's storage exceeded the allowed limit.",
-      audio_transcription_unavailable:
-        "Local audio transcription is not installed on this server.",
-      audio_duration_limit: "Upload audio of up to 4 hours.",
-      invalid_audio:
-        "Couldn't recognize the audio. Try WAV, MP3, M4A, OGG, or FLAC.",
-      audio_transcription_failed:
-        "Local transcription failed; the audio was not attached.",
-      local_vision_not_enabled:
-        "This local server doesn't have vision enabled. You need to configure the model's visual projector (mmproj) and restart the server. The file was not attached.",
-      image_capability_unavailable:
-        "Couldn't check this server's vision support. Try again once it's available.",
-      model_images_unavailable:
-        "The selected service does not offer image reading.",
-      images_require_native_service:
-        "Reading images requires the native execution of the service.",
-      select_model_for_image:
-        "Select a model with attachment permission before sending the image.",
-      image_size_limit: "Images can be up to 100 MiB.",
-      unsupported_binary_format:
-        "This binary format doesn't have a reader available yet. Upload a compatible image, a PDF with text, an Office/OpenDocument document, or a text file.",
-      binary_denied: "This file contains binary data with no reader available.",
-      invalid_document: "The document is invalid or corrupted.",
-      document_expansion_limit:
-        "The document exceeds the safe decompression limit.",
-    }[code] || code
-  );
+  return {
+    video_capability_unavailable:
+      "Couldn't check the model's MP4 support. Try again once the integration is available.",
+    model_video_unavailable:
+      "MP4 unavailable for this model or mode. Choose a model with detected support.",
+    video_processing_unavailable:
+      "Local video processing is unavailable on this server.",
+    invalid_video: "The video is invalid or contains no decodable frames.",
+    video_duration_limit: "Upload a video of up to 4 hours.",
+    video_decode_failed: "Couldn't decode the video frames.",
+    video_frame_failed: "Couldn't extract the video frames.",
+    video_processing_timeout: "Video processing exceeded the allowed time.",
+    invalid_image: "The image is incomplete or corrupted. It was not attached.",
+    image_validation_unavailable:
+      "The local image validator is unavailable. The image was not attached.",
+    image_validation_timeout:
+      "Image validation took too long. Try a smaller image.",
+    invalid_filename:
+      "The filename contains a path, control characters, or exceeds 160 characters.",
+    upload_limit:
+      "The file or the project's storage exceeded the allowed limit.",
+    audio_transcription_unavailable:
+      "Local audio transcription is not installed on this server.",
+    audio_duration_limit: "Upload audio of up to 4 hours.",
+    invalid_audio:
+      "Couldn't recognize the audio. Try WAV, MP3, M4A, OGG, or FLAC.",
+    audio_transcription_failed:
+      "Local transcription failed; the audio was not attached.",
+    local_vision_not_enabled:
+      "This local server doesn't have vision enabled. You need to configure the model's visual projector (mmproj) and restart the server. The file was not attached.",
+    image_capability_unavailable:
+      "Couldn't check this server's vision support. Try again once it's available.",
+    model_images_unavailable:
+      "The selected service does not offer image reading.",
+    images_require_native_service:
+      "Reading images requires the native execution of the service.",
+    select_model_for_image:
+      "Select a model with attachment permission before sending the image.",
+    image_size_limit: "Images can be up to 100 MiB.",
+    unsupported_binary_format:
+      "This binary format doesn't have a reader available yet. Upload a compatible image, a PDF with text, an Office/OpenDocument document, or a text file.",
+    binary_denied: "This file contains binary data with no reader available.",
+    invalid_document: "The document is invalid or corrupted.",
+    document_expansion_limit:
+      "The document exceeds the safe decompression limit.",
+    invalid_pdf: "The PDF is invalid or damaged.",
+    pdf_extraction_failed: "Couldn't extract the text from the PDF.",
+    unsafe_document_xml:
+      "The document contains XML declarations that are not allowed.",
+    xml_entities_denied: "The file contains XML entities that are not allowed.",
+    document_text_unavailable: "The document contains no readable text.",
+    document_text_limit: "The document's text exceeds the size limit.",
+    audio_decode_failed: "Couldn't decode the audio.",
+    audio_no_speech: "No speech was recognized in the audio.",
+    file_too_large: "The file exceeds the 100 MiB per-file limit.",
+    tool_output_limit: "Reading the file produced more text than allowed.",
+    attachment_source_unavailable:
+      "The file changed or disappeared after it was selected. Select it again.",
+    file_limit: "The limit of 20 attachments per message was reached.",
+    sensitive_file: "Hidden or sensitive files can't be attached.",
+    symlink_denied: "Symbolic links can't be attached.",
+    selection_scan_limit:
+      "The folder has too many files to scan. Select a smaller folder.",
+  }[code];
 }
 
 document.addEventListener("click", (event) => {

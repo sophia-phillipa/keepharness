@@ -187,13 +187,12 @@ runPersona("H19", [
         await page.locator("#project-directory-roots button").count(),
         0,
       );
-      // KNOWN BUG F-100: the harness error map has no entry for the gating code,
-      // so the dialog shows the raw code — "The server did not complete the
-      // request (project_registration_disabled)." — instead of a guided message.
-      assert.match(
-        await page.locator("#project-directory-error").textContent(),
-        /project_registration_disabled/,
-      );
+      // F-100: the gating code becomes a guided message, never the raw code.
+      const refusal = await page
+        .locator("#project-directory-error")
+        .textContent();
+      assert.match(refusal, /Adding projects is turned off/);
+      assert.doesNotMatch(refusal, /project_registration_disabled/);
 
       done();
     },

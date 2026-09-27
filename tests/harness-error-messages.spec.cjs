@@ -66,7 +66,35 @@ const path = require("node:path");
     );
     assert.match(missing, /command-line tool is missing on the server/);
     assert(!missing.includes("cli_missing"));
-    assert.equal(other, "The run did not finish: fixture_failure");
+    // F-70: an unknown code gets generic text, never the raw code.
+    assert.match(other, /The run did not finish\./);
+    assert(!other.includes("fixture_failure"));
+    // F-73: the six extraction codes read as sentences, never as the code.
+    const extraction = await page.evaluate(() =>
+      [
+        "invalid_pdf",
+        "pdf_extraction_failed",
+        "unsafe_document_xml",
+        "audio_decode_failed",
+        "audio_no_speech",
+        "document_text_unavailable",
+      ].map((code) => [code, attachmentError(code)]),
+    );
+    for (const [code, text] of extraction) {
+      assert.match(text, /^[A-Z].+\.$/, code);
+      assert(!text.includes(code), code);
+    }
+    // F-85: generic provider conditions name the run's provider.
+    const conditions = await page.evaluate(() =>
+      [
+        ["provider_quota_exhausted", "codex"],
+        ["provider_rate_limit", "gemini"],
+        ["provider_authentication_required", "deepseek"],
+      ].map(([code, backend]) => executionCondition(code, backend).message),
+    );
+    assert.match(conditions[0], /^Your Codex quota is temporarily exhausted/);
+    assert.match(conditions[1], /^Gemini is limiting requests/);
+    assert.match(conditions[2], /Your DeepSeek access needs to be renewed/);
     // F-23: an isolated conversation refused up front names what the server lacks.
     const isolation = await page.evaluate(
       () => userErrors.isolation_unavailable,
@@ -74,7 +102,7 @@ const path = require("node:path");
     assert.match(isolation, /bubblewrap/);
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: a missing provider CLI shows a guided message; other codes keep the generic text.",
+      "PASS: a missing provider CLI shows a guided message; unknown codes get generic text without the code.",
     );
   } finally {
     await browser.close();

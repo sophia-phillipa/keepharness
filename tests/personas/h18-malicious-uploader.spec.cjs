@@ -21,7 +21,8 @@ const MODELS = {
 };
 const RLO = "‮";
 // Mirrors agent_service/routes/files.py:BIDI_CONTROLS (F-74).
-const BIDI_CONTROLS = "\u061c\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069";
+const BIDI_CONTROLS =
+  "\u061c\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069";
 
 // runPersona treats every console error as a failure, including Chromium's
 // "Failed to load resource" line for a 4xx the scenario provokes on purpose.
@@ -208,23 +209,17 @@ runPersona("h18", [
         results.docx,
         "Couldn't upload: The document exceeds the safe decompression limit.",
       );
-      // KNOWN BUG F-73: invalid_pdf (and other extraction codes: pdf_extraction_failed,
-      // unsafe_document_xml in the status line, audio_decode_failed, audio_no_speech,
-      // document_text_unavailable) are missing from attachmentError/attachmentNotice
-      // in agent_service/ui.js, so the raw code is shown and no "File skipped"
-      // notice names the file.
-      assert.equal(results.pdf, "Couldn't upload: invalid_pdf");
+      // F-73: every extraction code has a sentence and a "File skipped" notice.
+      assert.equal(
+        results.pdf,
+        "Couldn't upload: The PDF is invalid or damaged.",
+      );
       const skipped = await page
         .locator(".message", { hasText: "File skipped" })
         .allInnerTexts();
-      assert.equal(
-        skipped.length,
-        2,
-        "notices for bomb.zip and bomb.docx only",
-      );
-      assert(skipped.some((t) => t.includes("“bomb.zip”")));
-      assert(skipped.some((t) => t.includes("“bomb.docx”")));
-      assert(!skipped.some((t) => t.includes("report.pdf")));
+      assert.equal(skipped.length, 3, "a notice for each refused file");
+      for (const name of ["bomb.zip", "bomb.docx", "report.pdf"])
+        assert(skipped.some((t) => t.includes("“" + name + "”")));
       assert.deepEqual(
         await page.locator("#attachments .attachment-name").allTextContents(),
         ["diagram.svg"],

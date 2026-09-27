@@ -107,13 +107,10 @@ runPersona("h16", [
       await page.locator("#status", { hasText: "Couldn't run" }).waitFor();
       assert.equal(posts, 1);
       const text = await page.locator("#status").innerText();
-      // KNOWN BUG F-70: `payload_limit` is missing from `userErrors` in
-      // agent_service/ui.js, so the generic fallback leaks the raw code and gives
-      // no next step (shorten the message or attach the log as a file).
-      assert.equal(
-        text,
-        "Couldn't run: The server did not complete the request (payload_limit). Check the data or try again.",
-      );
+      // F-70: a readable sentence with a next step, never the raw code.
+      assert.match(text, /^Couldn't run: This message is too large to send\./);
+      assert.match(text, /attach it as a file/);
+      assert.doesNotMatch(text, /payload_limit/);
       assert.equal(
         await page.locator("#prompt").inputValue(),
         log,

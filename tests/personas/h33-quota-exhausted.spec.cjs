@@ -101,9 +101,16 @@ runPersona("H33", [
           s.turns.push({
             id: "job-1",
             project: "sem-projeto",
-            state: "failed",
+            state: "interrupted",
             request: s.posts.at(-1),
-            result: { error: CODEX_QUOTA_ERROR, model: CODEX.id },
+            // F-85 contract: the worker maps the Codex usage limit to a generic
+            // provider condition and keeps the provider's message as detail.
+            result: {
+              condition: "provider_quota_exhausted",
+              backend: "codex",
+              error_detail: CODEX_QUOTA_ERROR,
+              metrics: null,
+            },
           });
           return route.fulfill({ json: { job_id: "job-1" } });
         },
@@ -118,15 +125,13 @@ runPersona("H33", [
         chip = await answer.locator(".run-highlight").textContent(),
         status = await statusText(page);
       console.log("H33-S2:", JSON.stringify({ chip, status, bubble }));
-      // KNOWN BUG F-85: executionCondition() (ui.js) and the queue worker's
-      // condition map only know Claude codes, so a Codex quota exhaustion is a
-      // generic failed run with the raw adapter code, not the guided
-      // "Wait for quota renewal / select a different provider" condition.
-      assert.match(bubble, /^The run did not finish: codex_execution_failed: /);
-      assert.doesNotMatch(bubble, /Wait for .*quota|different provider/i);
-      assert.doesNotMatch(chip, /Wait for quota renewal/);
-      assert.equal(status, "Failed run");
-      assert.equal(await page.getByText("Wait for quota renewal").count(), 0);
+      // F-85: the guided quota condition names Codex, keeps the provider's
+      // reset time and never shows the adapter code.
+      assert.match(bubble, /Your Codex quota is temporarily exhausted/);
+      assert.match(bubble, /try again in 2 hours 13 minutes/);
+      assert.doesNotMatch(bubble, /codex_execution_failed|provider_quota/);
+      assert.match(chip, /Wait for quota renewal/);
+      assert.equal(status, "Wait for quota renewal");
       noConsoleErrors();
     },
   },

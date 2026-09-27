@@ -435,22 +435,12 @@ runPersona("H38", [
       const raw = Object.entries(shown)
         .filter(([code, text]) => text.includes(code))
         .map(([code]) => code);
-      // KNOWN BUG F-93: api() in ui.js (~L694) falls back to "The server did not
-      // complete the request (<code>). Check the data or try again." for every
-      // code missing from `userErrors`, so real harness codes reach the user raw.
-      // Same root cause as F-70 (payload_limit), F-73 (invalid_pdf) and F-80
-      // (conversation_has_newer_turn / conversation_not_found).
-      assert.deepEqual(raw, [
-        "execution_mode_unsupported",
-        "model_or_effort_unavailable",
-        "service_project_denied",
-        "job_storage_limit",
-        "prompt_required",
-      ]);
+      // F-93: every code has a sentence; none reaches the user raw.
+      assert.deepEqual(raw, []);
       assert.match(shown.model_not_allowed, /This model is not enabled/);
       assert.match(
         shown.execution_mode_unsupported,
-        /did not complete the request \(execution_mode_unsupported\)/,
+        /start a new conversation/,
       );
       assert.deepEqual(unexpected, []);
     },

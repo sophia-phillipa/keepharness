@@ -165,14 +165,9 @@ runPersona("H34", [
         await page.inputValue("#prompt"),
         "continue the pre-0.6 conversation",
       );
-      // KNOWN BUG F-101 (F-07 UI side): the harness error map has no entry for
-      // `execution_mode_unsupported`, so instead of a guided "this conversation
-      // predates the current execution mode" message the composer shows the raw
-      // code in the generic fallback.
-      assert.match(
-        status,
-        /The server did not complete the request \(execution_mode_unsupported\)/,
-      );
+      // F-101 (F-07 UI side): a guided message instead of the raw code.
+      assert.match(status, /start a new conversation/);
+      assert.doesNotMatch(status, /execution_mode_unsupported/);
       noConsoleErrors();
     },
   },
