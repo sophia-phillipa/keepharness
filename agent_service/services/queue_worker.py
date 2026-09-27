@@ -50,6 +50,36 @@ CONDITION_ANSWERS = {
     "provider_rate_limit": "{} is limiting requests. Wait a moment, or select another provider.",
 }
 PROVIDER_NAMES = {"codex": "Codex", "claude": "Claude", "gemini": "Gemini", "deepseek": "DeepSeek"}
+# F-114: a failed/interrupted/cancelled run keeps the answer text already streamed to
+# the UI, so a page reload does not lose it. Bounded like the other request-side limits
+# in this service (agent_service/routes/__init__.py, conversation_service.py).
+PARTIAL_ANSWER_LIMIT = 200_000
+TRUNCATION_MARKER = "\n\n[truncated]"
+
+
+def partial_answer(service, job):
+    """The job's streamed answer text so far, capped and marked when it overflows.
+
+    Returns ``None`` when nothing was streamed, so terminal states with no partial
+    text never gain the key.
+    """
+    text = "".join(
+        json.loads(row["data"]).get("text", "")
+        for row in service.message_repository.answer_deltas(job)
+    )
+    if not text:
+        return None
+    if len(text) > PARTIAL_ANSWER_LIMIT:
+        text = text[:PARTIAL_ANSWER_LIMIT] + TRUNCATION_MARKER
+    return text
+
+
+def with_partial_answer(service, job, result):
+    """Add ``partial_answer`` to a terminal result, in place, when there is text to keep."""
+    text = partial_answer(service, job)
+    if text is not None:
+        result["partial_answer"] = text
+    return result
 
 
 def provider_condition(code):
@@ -147,7 +177,11 @@ async def run(service):
                 service,
                 row["id"],
                 "cancelled",
-                {"partial_output": "persisted_events", "error": reason, "metrics": None},
+                with_partial_answer(
+                    service,
+                    row["id"],
+                    {"partial_output": "persisted_events", "error": reason, "metrics": None},
+                ),
             )
             service.panel(row["project"], answer="Execution cancelled", finished=True)
             if asyncio.current_task().cancelling():
@@ -173,13 +207,17 @@ async def run(service):
                     service,
                     row["id"],
                     "interrupted",
-                    {
-                        "condition": condition,
-                        "backend": backend,
-                        # A provider message (e.g. Codex's reset time), never a bare code.
-                        "error_detail": code if ": " in code else None,
-                        "metrics": None,
-                    },
+                    with_partial_answer(
+                        service,
+                        row["id"],
+                        {
+                            "condition": condition,
+                            "backend": backend,
+                            # A provider message (e.g. Codex's reset time), never a bare code.
+                            "error_detail": code if ": " in code else None,
+                            "metrics": None,
+                        },
+                    ),
                 )
                 name = PROVIDER_NAMES.get(backend, backend)
                 service.panel(
@@ -190,11 +228,15 @@ async def run(service):
                     service,
                     row["id"],
                     "failed",
-                    {
-                        "error": "context_limit_exceeded" if context_overflow(code) else code,
-                        "error_detail": code if context_overflow(code) else None,
-                        "metrics": None,
-                    },
+                    with_partial_answer(
+                        service,
+                        row["id"],
+                        {
+                            "error": "context_limit_exceeded" if context_overflow(code) else code,
+                            "error_detail": code if context_overflow(code) else None,
+                            "metrics": None,
+                        },
+                    ),
                 )
                 service.panel(
                     row["project"], answer="Execution interrupted: " + code, finished=True

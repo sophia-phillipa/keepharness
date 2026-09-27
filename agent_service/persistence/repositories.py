@@ -167,6 +167,13 @@ class MessageRepository:
             (job, cursor),
         ).fetchall()
 
+    def answer_deltas(self, job):
+        """A job's streamed ``answer_delta`` payloads, in the order they were sent."""
+        return self.db.execute(
+            "SELECT data FROM events WHERE job=? AND type='answer_delta' ORDER BY id",
+            (job,),
+        ).fetchall()
+
     def file(self, file_id, project, owner):
         return self.db.execute(
             "SELECT * FROM files WHERE id=? AND project=? AND owner=?", (file_id, project, owner)
