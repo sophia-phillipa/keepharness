@@ -1,6 +1,6 @@
 # Adapters and integration contracts
 
-[English](../README.md#english) · [Português (Brasil)](../README.md#português-brasil)
+[![🇺🇸 English](https://img.shields.io/badge/%F0%9F%87%BA%F0%9F%87%B8-English-blue.svg)](../README.md) [![🇧🇷 Português (Brasil)](https://img.shields.io/badge/%F0%9F%87%A7%F0%9F%87%B7-Portugu%C3%AAs%20(Brasil)-green.svg)](../README.pt-BR.md)
 
 Each provider has its own code, specification and development agent. The specialist agent maintains the integration; its development model does not need to be the integrated model.
 

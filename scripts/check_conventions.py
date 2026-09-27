@@ -2,10 +2,11 @@
 """Enforce the naming and language conventions from dossier/naming-model.md.
 
 Standard library only. Checks (1) file/directory name lint (snake_case Python, kebab-case for
-other text extensions, with a grandfathered allowlist) and (2) a Portuguese stop-word scan over
-text files, excluding the pt-BR section of README.md and a handful of documented sentinels.
+other text extensions, with a grandfathered allowlist), (2) a Portuguese stop-word scan over
+text files, excluding README.pt-BR.md and a handful of documented sentinels, and (3) heading-
+structure parity between README.md and README.pt-BR.md.
 
-Usage: python scripts/check_conventions.py [--verbose] [--only names|words]
+Usage: python scripts/check_conventions.py [--verbose] [--only names|words|readme]
 """
 
 from __future__ import annotations
@@ -30,7 +31,9 @@ KEBAB_EXTENSIONS = set(".sh .js .cjs .css .html .md .json .svg .toml .yml .yaml 
 TEXT_EXTENSIONS = set(".py .js .cjs .css .html .md .sh .toml .yml .yaml .json .txt".split())  # noqa: SIM905
 
 # Bare filenames matched against the basename anywhere in the tree.
-SILENT_NAME_BASENAMES = set("README.md AGENTS.md CLAUDE.md LICENSE MANIFEST.in".split())  # noqa: SIM905
+SILENT_NAME_BASENAMES = set(
+    "README.md README.pt-BR.md AGENTS.md CLAUDE.md LICENSE MANIFEST.in".split()  # noqa: SIM905
+)
 
 # Paths (or fnmatch globs, matched against the full relative path) that never count as errors.
 SILENT_NAME_ALLOWLIST = set(
@@ -50,8 +53,15 @@ PT_WORD_RE = re.compile(r"\b(" + "|".join(PT_WORDS) + r")\b", re.IGNORECASE)
 
 SENTINEL_EXCLUDE = ("sem-projeto",)
 ALLOW_LINE_MARKER = "conventions: allow-pt"
-SELF_EXCLUDED_FILES = {"dossier/naming-model.md", "scripts/check_conventions.py"}
-README_PT_MARKERS = ('<a id="português-brasil"></a>', "## português (brasil)")
+SELF_EXCLUDED_FILES = {
+    "dossier/naming-model.md",
+    "scripts/check_conventions.py",
+    "README.pt-BR.md",
+}
+
+HEADING_RE = re.compile(r"^(#{1,6})\s+\S")
+README_EN = "README.md"
+README_PT = "README.pt-BR.md"
 
 
 def list_tracked_files() -> list[str]:
@@ -166,11 +176,8 @@ def _scan_file_for_pt_words(rel_path: str) -> int:
 
     hits = 0
     lines = text.splitlines()
-    in_pt_section = False
     for idx, line in enumerate(lines):
-        if rel_path == "README.md" and line.strip().lower() in README_PT_MARKERS:
-            in_pt_section = True
-        if ALLOW_LINE_MARKER in line or in_pt_section:
+        if ALLOW_LINE_MARKER in line:
             continue
         search_line = line
         for sentinel in SENTINEL_EXCLUDE:
@@ -195,19 +202,64 @@ def check_words(files: list[str]) -> int:
     return hits
 
 
+def heading_levels(rel_path: str) -> list[int]:
+    """Return the heading depth of every Markdown heading, in document order."""
+    full_path = REPO_ROOT / rel_path
+    try:
+        text = full_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return []
+    levels = []
+    in_fence = False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        match = HEADING_RE.match(line)
+        if match:
+            levels.append(len(match.group(1)))
+    return levels
+
+
+def check_readme_parity(verbose: bool) -> int:
+    """README.md and README.pt-BR.md must have the same heading structure (levels, in order)."""
+    en_path, pt_path = REPO_ROOT / README_EN, REPO_ROOT / README_PT
+    if not en_path.is_file() or not pt_path.is_file():
+        return 0
+    en_levels, pt_levels = heading_levels(README_EN), heading_levels(README_PT)
+    if en_levels == pt_levels:
+        if verbose:
+            print(
+                f"OK {README_EN} and {README_PT} have matching heading structure "
+                f"({len(en_levels)} headings)"
+            )
+        return 0
+    print(
+        f"ERROR {README_EN} and {README_PT} heading structure differs: "
+        f"{len(en_levels)} headings {en_levels} vs {len(pt_levels)} headings {pt_levels}"
+    )
+    return 1
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--verbose", action="store_true")
-    parser.add_argument("--only", choices=("names", "words"))
+    parser.add_argument("--only", choices=("names", "words", "readme"))
     args = parser.parse_args()
 
     files = list_tracked_files()
 
-    errors = warnings = hits = 0
+    errors = warnings = hits = readme_errors = 0
     if args.only in (None, "names"):
         errors, warnings = check_names(files, args.verbose)
     if args.only in (None, "words"):
         hits = check_words(files)
+    if args.only in (None, "readme"):
+        readme_errors = check_readme_parity(args.verbose)
+    errors += readme_errors
 
     print(f"conventions: {errors} name errors, {warnings} name warnings, {hits} portuguese hits")
     return 0 if errors == 0 and hits == 0 else 1

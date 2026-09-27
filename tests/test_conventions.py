@@ -1,9 +1,9 @@
-"""P5 §11 (CI guards): exercise ``scripts/check_conventions.py`` directly.
+"""P5 §11 (CI guards) / P9: exercise ``scripts/check_conventions.py`` directly.
 
 The script is standard-library only and already wired into CI (``ci.yml``'s
-``conventions`` job). The README heading-parity check described in the original P5
-design was never implemented in the script (see its module docstring: only file/dir
-name lint and the Portuguese stop-word scan), so this file does not test it either.
+``conventions`` job): file/dir name lint, the Portuguese stop-word scan (now excluding
+the whole ``README.pt-BR.md`` file rather than a marker-delimited section of a single
+bilingual ``README.md``), and a README.md/README.pt-BR.md heading-structure parity check.
 """
 
 import subprocess
@@ -102,28 +102,56 @@ def test_allow_pt_marker_suppresses_a_flagged_line(tmp_path, monkeypatch):
     assert hits == 0
 
 
-def test_readme_pt_br_section_is_excluded_from_the_word_scan(tmp_path, monkeypatch):
+def test_readme_pt_br_file_is_excluded_from_the_word_scan(tmp_path, monkeypatch):
     monkeypatch.setattr(conventions, "REPO_ROOT", tmp_path)
-    readme = tmp_path / "README.md"
-    readme.write_text(
-        "# Title\n\nEnglish content here.\n\n"
-        + '<a id="português-brasil"></a>\n\n'
-        + "## Português (Brasil)\n\nConteúdo em português não é sinalizado aqui.\n"  # conventions: allow-pt
-    )
-    hits = conventions.check_words(["README.md"])
+    readme_pt = tmp_path / "README.pt-BR.md"
+    readme_pt.write_text("# Título\n\nConteúdo não sinalizado.\n")  # conventions: allow-pt
+    hits = conventions.check_words(["README.pt-BR.md"])
     assert hits == 0
 
 
-def test_readme_english_section_above_the_pt_marker_is_still_scanned(tmp_path, monkeypatch):
+def test_readme_english_file_is_still_scanned(tmp_path, monkeypatch):
     monkeypatch.setattr(conventions, "REPO_ROOT", tmp_path)
     readme = tmp_path / "README.md"
-    readme.write_text(
-        "# Title\n\nSee the attached arquivo before the Portuguese section.\n\n"  # conventions: allow-pt
-        + '<a id="português-brasil"></a>\n\n'
-        + "## Português (Brasil)\n\nTudo bem aqui.\n"
-    )
+    readme.write_text("# Title\n\nSee the attached arquivo, please.\n")  # conventions: allow-pt
     hits = conventions.check_words(["README.md"])
     assert hits >= 1
+
+
+def test_readme_pt_br_basename_is_a_silently_allowed_file_name():
+    errors, warnings = conventions.check_names(["README.pt-BR.md"], verbose=False)
+    assert (errors, warnings) == (0, 0)
+
+
+def test_readme_heading_parity_passes_for_matching_structures(tmp_path, monkeypatch):
+    monkeypatch.setattr(conventions, "REPO_ROOT", tmp_path)
+    (tmp_path / "README.md").write_text("# Title\n\n## First\n\n### Sub\n\n## Second\n")
+    pt_text = "# Título\n\n## Primeiro\n\n### Sub\n\n## Segundo\n"  # conventions: allow-pt
+    (tmp_path / "README.pt-BR.md").write_text(pt_text)
+    assert conventions.check_readme_parity(verbose=False) == 0
+
+
+def test_readme_heading_parity_fails_for_a_missing_heading(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(conventions, "REPO_ROOT", tmp_path)
+    (tmp_path / "README.md").write_text("# Title\n\n## First\n\n## Second\n")
+    (tmp_path / "README.pt-BR.md").write_text("# Título\n\n## Primeiro\n")  # conventions: allow-pt
+    assert conventions.check_readme_parity(verbose=False) == 1
+    assert "heading structure differs" in capsys.readouterr().out
+
+
+def test_readme_heading_parity_ignores_headings_inside_fenced_code_blocks(tmp_path, monkeypatch):
+    monkeypatch.setattr(conventions, "REPO_ROOT", tmp_path)
+    body = "# Title\n\n## Section\n\n```md\n# not a real heading\n```\n"
+    (tmp_path / "README.md").write_text(body)
+    pt_body = body.replace("Title", "Cabecalho").replace("Section", "Bloco")
+    (tmp_path / "README.pt-BR.md").write_text(pt_body)
+    assert conventions.check_readme_parity(verbose=False) == 0
+
+
+def test_readme_heading_parity_is_a_noop_when_either_file_is_missing(tmp_path, monkeypatch):
+    monkeypatch.setattr(conventions, "REPO_ROOT", tmp_path)
+    (tmp_path / "README.md").write_text("# Title\n")
+    assert conventions.check_readme_parity(verbose=False) == 0
 
 
 def test_personas_shared_harness_file_is_allowed_despite_its_leading_underscore():

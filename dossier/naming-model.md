@@ -63,7 +63,8 @@ Supporting suffixes: `*Config` for immutable settings objects, `*Error` for exce
 `scripts/check_conventions.py` runs in CI and locally:
 
 1. File-name lint: applies the file and directory rules above to `git ls-files`, honoring the grandfathered list.
-2. Portuguese stop-word scan over tracked text files, with an explicit allowlist (`sem-projeto`, proper names); the pt-BR section of `README.md` is excluded.
+2. Portuguese stop-word scan over tracked text files, with an explicit allowlist (`sem-projeto`, proper names); `README.pt-BR.md` is excluded.
+3. Heading-structure parity between `README.md` and `README.pt-BR.md` (same heading levels, in the same order).
 
 A failing check blocks the merge; new exceptions are added to the allowlist in the same commit that justifies them.
 

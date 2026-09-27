@@ -27,7 +27,7 @@ PYTHON="$PWD/.venv/bin/python" ./scripts/test-ui.sh   # needs Node.js and Playwr
 
 ## Conventions
 
-- Everything in the repository is in English: code, identifiers, comments, UI strings, docs and commit messages. The only exception is the pt-BR section of `README.md`, which must stay in sync with the English section in the same commit.
+- Everything in the repository is in English: code, identifiers, comments, UI strings, docs and commit messages. The only exception is `README.pt-BR.md`, the Portuguese counterpart of `README.md`, which must stay in sync (same headings, same order) with the English file in the same commit.
 - `sem-projeto` is a persisted protocol identifier (the "No project" scope); do not rename it.
 - Test-driven changes: failing test → minimal implementation → run the affected tests. Run the full Python and browser suites before a release or merge to `main`.
 - Every new version needs `dossier/releases/v<VERSION>.md` (behavior, acceptance criteria, migration notes, actual validation) and matching version identifiers.
