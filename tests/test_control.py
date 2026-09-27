@@ -49,6 +49,46 @@ class ControlTest(unittest.TestCase):
         settings["vpn_bind"] = "10.44.0.2"
         self.assertEqual(self.manager.validate(settings)["vpn_bind"], "10.44.0.2")
 
+    def test_claude_cli_aliases_are_rejected_like_the_ui_hides_them(self):
+        # Same rule as TailUI.selectableModel: only versioned claude-<family>-<n> ids.
+        for alias in ("haiku", "sonnet", "opus", "claude-haiku-4-5-20251001", "opus[1m]"):
+            settings = copy.deepcopy(self.manager.settings)
+            settings["services"]["claude"]["models"] = [alias]
+            with self.assertRaisesRegex(ValueError, "versioned Claude model id"):
+                self.manager.validate(settings)
+        settings = copy.deepcopy(self.manager.settings)
+        settings["services"]["claude"]["models"] = ["claude-opus-5", "claude-sonnet-4-6"]
+        self.assertEqual(
+            self.manager.validate(settings)["services"]["claude"]["models"],
+            ["claude-opus-5", "claude-sonnet-4-6"],
+        )
+        # An id already stored by an older version is kept, so saving never locks up.
+        self.manager.settings["services"]["claude"]["models"] = ["sonnet"]
+        settings = copy.deepcopy(self.manager.settings)
+        self.assertEqual(
+            self.manager.validate(settings)["services"]["claude"]["models"], ["sonnet"]
+        )
+
+    def test_claude_alias_post_returns_a_clear_400(self):
+        with patch("control.discovery.scan", AsyncMock(return_value=INVENTORY)):
+            with TestClient(create_app(self.tmp.name), base_url="http://127.0.0.1:8094") as client:
+                client.get("/")
+                settings = copy.deepcopy(client.app.state.manager.settings)
+                settings["services"]["claude"]["models"] = ["haiku"]
+                response = client.post(
+                    "/api/settings", json=settings, headers={"X-Harness-Admin": "1"}
+                )
+                self.assertEqual(response.status_code, 400)
+                self.assertIn("haiku", response.json()["error"])
+
+    def test_status_version_comes_from_the_version_file(self):
+        from agent_service.config import VERSION_FILE
+
+        self.assertEqual(self.manager.status()["version"], VERSION_FILE.read_text().strip())
+        with patch("control.manager.VERSION_FILE") as version:
+            version.read_text.return_value = "9.9.9\n"
+            self.assertEqual(self.manager.status()["version"], "9.9.9")
+
     def test_auth_csrf_and_save(self):
         with patch("control.discovery.scan", AsyncMock(return_value=INVENTORY)):
             with TestClient(create_app(self.tmp.name), base_url="http://127.0.0.1:8094") as client:

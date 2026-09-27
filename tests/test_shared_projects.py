@@ -74,9 +74,8 @@ def test_control_normalizes_cloud_access_and_keeps_local_permissions(tmp_path):
     manager = Manager(tmp_path / "control")
     settings = copy.deepcopy(manager.settings)
     for name in ("codex", "claude", "deepseek"):
-        settings["services"][name].update(
-            enabled=True, models=["fixture"], projects=[], mode="scoped"
-        )
+        model = "claude-sonnet-4-6" if name == "claude" else "fixture"
+        settings["services"][name].update(enabled=True, models=[model], projects=[], mode="scoped")
     normalized = manager.validate(settings)
     for name in ("codex", "claude", "deepseek"):
         assert normalized["services"][name]["mode"] == "native"

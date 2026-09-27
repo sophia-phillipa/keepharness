@@ -92,7 +92,7 @@ def _build_manager(tmp_path):
     settings["logins"] = ["person@example.com"]
     settings["projects"] = [{"id": "proj1", "label": "Project One", "root": str(project_root)}]
     settings["services"]["codex"].update(enabled=True, models=["gpt-5-codex"])
-    settings["services"]["claude"].update(enabled=True, models=["opus"])
+    settings["services"]["claude"].update(enabled=True, models=["claude-opus-4-6"])
     settings["services"]["local"].update(enabled=True, models=["local-model"])
     settings["services"]["deepseek"].update(enabled=True, models=["deepseek-chat"], added=True)
     # gemini is left disabled on purpose: the "one disabled service" case.
@@ -189,7 +189,7 @@ def test_build_runtime_config_matches_golden_shape(tmp_path):
                 "mode": "native",
                 "integrations": [],
                 "enabled": True,
-                "models": ["opus"],
+                "models": ["claude-opus-4-6"],
                 "projects": all_projects,
                 "permissions": full_permissions,
             },
@@ -256,7 +256,7 @@ def test_build_runtime_config_matches_golden_shape(tmp_path):
             "integrations": [],
             "unrestricted": True,
         },
-        "claude_models": {"opus": ["configured"]},
+        "claude_models": {"claude-opus-4-6": ["configured"]},
         "local": {
             "binary": "<PYTHON_RESOLVED>",
             "auth_file": "<TMP>/local-auth.json",

@@ -273,6 +273,20 @@ class Manager:
                 or any(not isinstance(x, str) or not re.fullmatch(model_pattern, x) for x in models)
             ):
                 raise ValueError("Invalid model list.")
+            # Same rule as TailUI.selectableModel, which hides other ids from both UIs;
+            # ids stored by an older version stay accepted so saving never locks up.
+            stored = self.settings["services"].get(provider, {}).get("models", [])
+            hidden = [
+                x
+                for x in models
+                if provider == "claude"
+                and x not in stored
+                and not re.fullmatch(r"claude-[a-z]+-\d{1,3}(?:-\d{1,3})?", x)
+            ]
+            if hidden:
+                raise ValueError(
+                    f"Use a versioned Claude model id such as claude-sonnet-4-6, not {hidden[0]}."
+                )
             if not isinstance(allowed_projects, list) or any(
                 p not in ids | {"sem-projeto"} for p in allowed_projects
             ):

@@ -66,7 +66,7 @@ def test_first_enabled_provider_starts_harness_without_manual_button(tmp_path):
     asyncio.run(manager.apply_settings(manager.settings))
     manager.start.assert_not_awaited()
     settings = json.loads(json.dumps(manager.settings))
-    settings["services"]["claude"].update(enabled=True, models=["sonnet"])
+    settings["services"]["claude"].update(enabled=True, models=["claude-sonnet-4-6"])
     asyncio.run(manager.apply_settings(settings))
     manager.start.assert_awaited_once()
 
