@@ -126,6 +126,21 @@ def test_readme_english_section_above_the_pt_marker_is_still_scanned(tmp_path, m
     assert hits >= 1
 
 
+def test_personas_shared_harness_file_is_allowed_despite_its_leading_underscore():
+    """`tests/personas/_harness.cjs` is a shared fixture module, not a spec (see AGENTS.md)."""
+    errors, warnings = conventions.check_names(["tests/personas/_harness.cjs"], verbose=False)
+    assert (errors, warnings) == (0, 0)
+
+
+def test_personas_spec_file_names_already_satisfy_the_kebab_case_rule():
+    """`tests/personas/<id>-<slug>.spec.cjs` needs no allowlist entry: it is already kebab-case."""
+    errors, _ = conventions.check_names(
+        ["tests/personas/h00-helper-smoke.spec.cjs", "tests/personas/c01-example.spec.cjs"],
+        verbose=False,
+    )
+    assert errors == 0
+
+
 def test_docs_markdown_with_a_lowercase_stem_is_not_grandfathered():
     # Only an uppercase-letter stem is grandfathered (matching the real dated docs);
     # a lowercase-stem name with an invalid character (a space) is still flagged.

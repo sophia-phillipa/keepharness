@@ -34,7 +34,7 @@ SILENT_NAME_BASENAMES = set("README.md AGENTS.md CLAUDE.md LICENSE MANIFEST.in".
 
 # Paths (or fnmatch globs, matched against the full relative path) that never count as errors.
 SILENT_NAME_ALLOWLIST = set(
-    "docs/*-2026*.md dossier/UC-*.md dossier/UX-*.md tail_ui/assets/*LICENSE* agent_service/vendor agent_service/vendor/** .github .github/** .agents .agents/** profiles/*.json adapters/*/specs adapters/*/specs/**".split()  # noqa: SIM905
+    "docs/*-2026*.md dossier/UC-*.md dossier/UX-*.md tail_ui/assets/*LICENSE* agent_service/vendor agent_service/vendor/** .github .github/** .agents .agents/** profiles/*.json adapters/*/specs adapters/*/specs/** tests/personas/_harness.cjs".split()  # noqa: SIM905
 )
 
 # Known naming-model violations already tracked in the migration table: counted as warnings only.
