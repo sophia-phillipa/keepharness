@@ -66,25 +66,21 @@ const assert = require("node:assert/strict");
       await p.locator("#model-permissions").innerText(),
       /Internet allowed/,
     );
-    await p
-      .locator("#file")
-      .setInputFiles({
-        name: "test.txt",
-        mimeType: "text/plain",
-        buffer: Buffer.from("Test file without personal data"),
-      });
+    await p.locator("#file").setInputFiles({
+      name: "test.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("Test file without personal data"),
+    });
     await p.waitForFunction(() =>
       document.querySelector("#attachments").textContent.includes("test.txt"),
     );
     assert.equal(uploads, 1);
     await p.clock.install();
-    await p
-      .locator("#file")
-      .setInputFiles({
-        name: "speech.wav",
-        mimeType: "audio/wav",
-        buffer: Buffer.from("fixture audio"),
-      });
+    await p.locator("#file").setInputFiles({
+      name: "speech.wav",
+      mimeType: "audio/wav",
+      buffer: Buffer.from("fixture audio"),
+    });
     await p.waitForFunction(() =>
       document.querySelector("#status").textContent.includes("speech.wav"),
     );

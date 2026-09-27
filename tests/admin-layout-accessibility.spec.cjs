@@ -243,27 +243,23 @@ const assert = require("node:assert/strict");
 
     await page.locator("#catalog-search").focus();
     await page.evaluate(() => scrollTo(0, 0));
-    const skip = await page
-      .locator(".skip")
-      .evaluate((e) => ({
-        top: e.getBoundingClientRect().top,
-        bottom: e.getBoundingClientRect().bottom,
-        position: getComputedStyle(e).position,
-        focused: document.activeElement === e,
-      }));
+    const skip = await page.locator(".skip").evaluate((e) => ({
+      top: e.getBoundingClientRect().top,
+      bottom: e.getBoundingClientRect().bottom,
+      position: getComputedStyle(e).position,
+      focused: document.activeElement === e,
+    }));
     check("P4-skip-unfocused", skip.bottom <= 0 && !skip.focused, skip);
     await page.screenshot({ path: "/tmp/tester-a11y-skip.png" });
-    const tabStates = await tabs
-      .locator("button")
-      .evaluateAll((es) =>
-        es.map((e) => ({
-          text: e.textContent,
-          pressed: e.getAttribute("aria-pressed"),
-          background: getComputedStyle(e).backgroundColor,
-          color: getComputedStyle(e).color,
-          class: e.className,
-        })),
-      );
+    const tabStates = await tabs.locator("button").evaluateAll((es) =>
+      es.map((e) => ({
+        text: e.textContent,
+        pressed: e.getAttribute("aria-pressed"),
+        background: getComputedStyle(e).backgroundColor,
+        color: getComputedStyle(e).color,
+        class: e.className,
+      })),
+    );
     check(
       "P4-tab-state",
       tabStates.filter((x) => x.pressed === "true").length === 1 &&
@@ -318,14 +314,12 @@ const assert = require("node:assert/strict");
       path: "/tmp/tester-a11y-mobile-error.png",
       fullPage: true,
     });
-    const skipError = await page
-      .locator(".skip")
-      .evaluate((e) => ({
-        top: e.getBoundingClientRect().top,
-        bottom: e.getBoundingClientRect().bottom,
-        focused: document.activeElement === e,
-        scroll: scrollY,
-      }));
+    const skipError = await page.locator(".skip").evaluate((e) => ({
+      top: e.getBoundingClientRect().top,
+      bottom: e.getBoundingClientRect().bottom,
+      focused: document.activeElement === e,
+      scroll: scrollY,
+    }));
     check(
       "P4-skip-error",
       skipError.bottom <= 0 && !skipError.focused,

@@ -105,13 +105,11 @@ const assert = require("node:assert/strict"),
         });
       });
       const add = async (name = "note.txt", body = "round " + round) => {
-        await page
-          .locator("#file")
-          .setInputFiles({
-            name,
-            mimeType: "text/plain",
-            buffer: Buffer.from(body),
-          });
+        await page.locator("#file").setInputFiles({
+          name,
+          mimeType: "text/plain",
+          buffer: Buffer.from(body),
+        });
         await page.waitForFunction(() => !uploads);
       };
       try {
@@ -196,13 +194,11 @@ const assert = require("node:assert/strict"),
         }
         if (profile === 7) {
           hold = true;
-          await page
-            .locator("#file")
-            .setInputFiles({
-              name: "slow.txt",
-              mimeType: "text/plain",
-              buffer: Buffer.from("x"),
-            });
+          await page.locator("#file").setInputFiles({
+            name: "slow.txt",
+            mimeType: "text/plain",
+            buffer: Buffer.from("x"),
+          });
           await page.waitForFunction(() => uploads === 1);
           assert(
             await page.locator("#model-trigger").isDisabled(),

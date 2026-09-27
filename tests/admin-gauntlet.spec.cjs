@@ -465,13 +465,11 @@ const assert = require("node:assert/strict"),
         if (profile === 11) {
           await page.locator("[data-panel=providers]").click();
           await page.click("#manage-network");
-          await page
-            .locator("#import-settings")
-            .setInputFiles({
-              name: "config.json",
-              mimeType: "application/json",
-              buffer: Buffer.from(round % 2 ? "{" : " ".repeat(60001)),
-            });
+          await page.locator("#import-settings").setInputFiles({
+            name: "config.json",
+            mimeType: "application/json",
+            buffer: Buffer.from(round % 2 ? "{" : " ".repeat(60001)),
+          });
           await finish();
           assert.equal(
             calls.filter((x) => x.path === "settings-import").length,

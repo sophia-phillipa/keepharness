@@ -164,13 +164,11 @@ const assert = require("node:assert/strict");
         await page.locator("#attachment-help").innerText(),
         /disabled/,
       );
-      await page
-        .locator("#file")
-        .setInputFiles({
-          name: "fixture.txt",
-          mimeType: "text/plain",
-          buffer: Buffer.from("Fixture without personal data"),
-        });
+      await page.locator("#file").setInputFiles({
+        name: "fixture.txt",
+        mimeType: "text/plain",
+        buffer: Buffer.from("Fixture without personal data"),
+      });
       await page.waitForFunction(() =>
         document
           .querySelector("#status")

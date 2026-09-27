@@ -49,15 +49,13 @@ const assert = require("node:assert/strict"),
                 },
                 result: finished ? { answer: "Original completed" } : null,
               },
-              ...requests
-                .slice(0, 2)
-                .map((request, i) => ({
-                  id: "follow-" + (i + 1),
-                  project: "sem-projeto",
-                  state: i ? "queued" : "running",
-                  request,
-                  result: null,
-                })),
+              ...requests.slice(0, 2).map((request, i) => ({
+                id: "follow-" + (i + 1),
+                project: "sem-projeto",
+                state: i ? "queued" : "running",
+                request,
+                result: null,
+              })),
             ],
           };
         if (p === "/v1/jobs/first/events") {
