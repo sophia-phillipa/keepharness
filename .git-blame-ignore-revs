@@ -1,0 +1,9 @@
+# Bulk formatting commits skipped by `git blame`.
+# Enable locally with: git config blame.ignoreRevsFile .git-blame-ignore-revs
+# GitHub reads this file automatically.
+
+# style: format Python with ruff and JS/CSS with prettier
+e60c40a9cf149bbb1e426324120c46d346504e39
+
+# style(tests): apply prettier to six browser specs
+c1ac405cc5570e30431e0b6e67cef30d85ddfad6
