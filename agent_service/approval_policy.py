@@ -35,7 +35,7 @@ def full_approval_allowed(kind, request, permissions):
         return False
     if "commandExecution/requestApproval" in kind or kind == "execCommandApproval":
         return bool(permissions.get("shell"))
-    if kind == "applyPatchApproval":
+    if kind in ("applyPatchApproval", "item/fileChange/requestApproval"):
         return bool(permissions.get("write"))
     if not kind.startswith("claude/"):
         return False

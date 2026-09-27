@@ -210,16 +210,14 @@ const path = require("node:path");
         const body = route.request().postDataJSON();
         attached.push({ query: Object.fromEntries(url.searchParams), body });
         data = {
-          attachments: (body.paths || [])
-            .slice(0, 1)
-            .map((name, i) => ({
-              file_id: "selected-" + attached.length + "-" + i,
-              name,
-              preview_url: name.endsWith(".png")
-                ? "/v1/files/selected-" + attached.length + "-" + i + "/preview"
-                : undefined,
-              media_type: name.endsWith(".png") ? "image/png" : undefined,
-            })),
+          attachments: (body.paths || []).slice(0, 1).map((name, i) => ({
+            file_id: "selected-" + attached.length + "-" + i,
+            name,
+            preview_url: name.endsWith(".png")
+              ? "/v1/files/selected-" + attached.length + "-" + i + "/preview"
+              : undefined,
+            media_type: name.endsWith(".png") ? "image/png" : undefined,
+          })),
           skipped: (body.paths || [])
             .slice(1)
             .map((path) => ({ path, reason: "limit" })),
@@ -271,25 +269,25 @@ const path = require("node:path");
         "ask",
         "?",
         "Ask for approval",
-        "Ask for confirmation whenever an action requires authorization.",
+        "Asks before every file change or command. Codex may still run commands that cannot change files.",
       ],
       [
         "auto",
         "↗",
         "Automatic",
-        "Follow the executor's approval policy and the configured access.",
+        "Edits and runs commands inside the project without asking; asks only to go beyond it.",
       ],
       [
         "full",
         "!",
         "Full access",
-        "Run without asking for confirmation, within authorized access. Doesn't expand permissions.",
+        "Runs without asking, within the permissions set by the administrator.",
       ],
       [
         "read_only",
         "◉",
         "Read only",
-        "Look up files and information. Writing, commands, and tests are disabled.",
+        "Reads and searches only. Writing, commands and tests are off.",
       ],
     ];
     for (const [mode, icon, label, title] of modes) {
@@ -746,15 +744,13 @@ const path = require("node:path");
       "Enter on an unselected focused file attaches only that file",
     );
     await page.locator(".attachment button").click();
-    await page
-      .locator("#file")
-      .setInputFiles(
-        Array.from({ length: 21 }, (_, i) => ({
-          name: `pic-${i}.png`,
-          mimeType: "image/png",
-          buffer: Buffer.from("fixture"),
-        })),
-      );
+    await page.locator("#file").setInputFiles(
+      Array.from({ length: 21 }, (_, i) => ({
+        name: `pic-${i}.png`,
+        mimeType: "image/png",
+        buffer: Buffer.from("fixture"),
+      })),
+    );
     await page.waitForFunction(
       () =>
         document.querySelector("#attachment-count")?.textContent ===
@@ -797,13 +793,11 @@ const path = require("node:path");
       );
     }
     await page.setViewportSize({ width: 1280, height: 860 });
-    await page
-      .locator("#file")
-      .setInputFiles({
-        name: "overflow.png",
-        mimeType: "image/png",
-        buffer: Buffer.from("fixture"),
-      });
+    await page.locator("#file").setInputFiles({
+      name: "overflow.png",
+      mimeType: "image/png",
+      buffer: Buffer.from("fixture"),
+    });
     await page
       .getByText(
         "Limit of 20 attachments reached. Remove one before adding another.",

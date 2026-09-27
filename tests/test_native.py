@@ -3,12 +3,237 @@ import json
 import sys
 import tempfile
 import unittest
+from contextlib import asynccontextmanager
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from adapters import run_native as run
+from adapters.claude.native import build_command as claude_command
+from adapters.codex.native import thread_parameters
 from control.local_models import discover
 from control.operations import Operations
+
+ALL_GRANTS = {"read": True, "write": True, "shell": True, "internet": True}
+
+
+async def record_codex_turns(project, events=(), approve=None, turns=1):
+    """Run fake Codex turns and return every RPC request plus the replies sent back."""
+    calls, replies = [], []
+
+    class Stdin:
+        def write(self, value):
+            replies.append(json.loads(value))
+
+        async def drain(self):
+            pass
+
+    class RPC:
+        process = SimpleNamespace(stdin=Stdin())
+
+        def __init__(self):
+            self.events = iter([*events, {"method": "turn/completed", "params": {"turn": {}}}])
+
+        async def call(self, method, params):
+            calls.append((method, params))
+            return {"thread": {"id": "fixture"}}
+
+        async def send(self, method, params):
+            calls.append((method, params))
+
+        async def receive(self):
+            item = next(self.events)
+            if item["method"] == "turn/completed":
+                item["params"]["turn"]["status"] = "completed"
+            return item
+
+    @asynccontextmanager
+    async def connection(*args, **kwargs):
+        yield RPC()
+
+    async def refuse(*args):
+        raise AssertionError("No approval expected")
+
+    with (
+        tempfile.TemporaryDirectory() as d,
+        patch("adapters.codex.native.connection", connection),
+        patch("adapters.codex.native.configurations", return_value={"codex": {}}),
+        patch("adapters.codex.native.inventory", return_value={"codex": []}),
+    ):
+        for _ in range(turns):
+            await run(
+                {"binary": "fixture", "unrestricted": True},
+                "fixture",
+                lambda *args: None,
+                project,
+                "fixture",
+                "configured",
+                Path(d) / "session",
+                "codex",
+                approve or refuse,
+            )
+    return calls, replies
+
+
+def claude_settings(command):
+    return json.loads(command[command.index("--settings") + 1])
+
+
+class AskModeTest(unittest.IsolatedAsyncioTestCase):
+    """F-110: "Ask for approval" must reach an approval card before any change."""
+
+    async def test_codex_ask_is_read_only_on_request_even_when_unrestricted(self):
+        calls, _ = await record_codex_turns(
+            {"permissions": ALL_GRANTS, "access_mode": "ask"}, turns=2
+        )
+        threads = [params for method, params in calls if method.startswith("thread/")]
+        self.assertEqual(
+            [method for method, _ in calls if method.startswith("thread/")],
+            ["thread/start", "thread/resume"],
+        )
+        for thread in threads:
+            self.assertEqual(thread["sandbox"], "read-only")
+            self.assertEqual(thread["approvalPolicy"], "on-request")
+            self.assertEqual(thread["approvalsReviewer"], "user")
+        for method, turn in calls:
+            if method == "turn/start":
+                self.assertEqual(turn["sandboxPolicy"], {"type": "readOnly", "networkAccess": True})
+                self.assertEqual(turn["approvalPolicy"], "on-request")
+                self.assertEqual(turn["approvalsReviewer"], "user")
+
+    async def test_codex_ask_keeps_integrations_enabled(self):
+        with patch(
+            "adapters.codex.native.configurations",
+            return_value={"codex": {"fixture": {"command": "fixture"}}},
+        ):
+            params = thread_parameters(
+                {
+                    "integrations": ["mcp:fixture", "plugin:tool"],
+                    "plugin_inventory": ["plugin:tool"],
+                },
+                {"access_mode": "ask"},
+                "fixture",
+                SimpleNamespace(cwd=Path("/project"), permissions=ALL_GRANTS),
+                SimpleNamespace(
+                    model_provider=None,
+                    isolated=False,
+                    thread_instructions={},
+                    developer_instructions="",
+                ),
+                False,
+            )
+        self.assertTrue(params["config"]["mcp_servers"]["fixture"]["enabled"])
+        self.assertEqual(params["config"]["plugins"], {"tool": {"enabled": True}})
+
+    async def test_codex_other_modes_keep_their_sandbox(self):
+        expected = {
+            "auto": ("danger-full-access", "never", {"type": "dangerFullAccess"}),
+            "full": ("danger-full-access", "never", {"type": "dangerFullAccess"}),
+            "read_only": (
+                "read-only",
+                "never",
+                {"type": "readOnly", "networkAccess": True},
+            ),
+        }
+        for mode, (sandbox, policy, sandbox_policy) in expected.items():
+            grants = (
+                {**ALL_GRANTS, "write": False, "shell": False}
+                if mode == "read_only"
+                else ALL_GRANTS
+            )
+            calls, _ = await record_codex_turns({"permissions": grants, "access_mode": mode})
+            thread, turn = calls[0][1], calls[1][1]
+            self.assertEqual(
+                (thread["sandbox"], thread["approvalPolicy"], turn["sandboxPolicy"]),
+                (sandbox, policy, sandbox_policy),
+                mode,
+            )
+            self.assertEqual(thread["approvalsReviewer"], "user")
+
+    async def test_codex_file_change_approval_carries_the_diff(self):
+        changes = [{"path": "/project/hello.txt", "kind": {"type": "add"}, "diff": "+hello\n"}]
+        seen = []
+
+        async def approve(kind, params):
+            seen.append((kind, params))
+            return {"approved": False}
+
+        _, replies = await record_codex_turns(
+            {"permissions": ALL_GRANTS, "access_mode": "ask"},
+            events=[
+                {
+                    "method": "item/started",
+                    "params": {
+                        "item": {
+                            "type": "fileChange",
+                            "id": "patch-1",
+                            "status": "inProgress",
+                            "changes": changes,
+                        }
+                    },
+                },
+                {
+                    "id": 91,
+                    "method": "item/fileChange/requestApproval",
+                    "params": {"itemId": "patch-1", "threadId": "fixture", "turnId": "t"},
+                },
+            ],
+            approve=approve,
+        )
+        self.assertEqual(seen[0][0], "item/fileChange/requestApproval")
+        self.assertEqual(seen[0][1]["changes"], changes)
+        self.assertEqual(seen[0][1]["itemId"], "patch-1")
+        self.assertEqual(replies, [{"id": 91, "result": {"decision": "decline"}}])
+
+    def test_claude_ask_never_bypasses_and_asks_before_changes(self):
+        with tempfile.TemporaryDirectory() as d:
+            with (
+                patch("adapters.claude.native.configurations", return_value={"claude": {}}),
+                patch("adapters.claude.native.inventory", return_value={"claude": []}),
+            ):
+                command = claude_command(
+                    {"binary": "claude", "unrestricted": True},
+                    "fixture",
+                    Path(d),
+                    ALL_GRANTS,
+                    [],
+                    "ask",
+                    [],
+                )
+        self.assertNotIn("bypassPermissions", command)
+        self.assertEqual(command[command.index("--permission-mode") + 1], "default")
+        settings = claude_settings(command)
+        self.assertEqual(
+            settings["permissions"]["ask"],
+            ["Edit", "Write", "NotebookEdit", "Bash", "mcp__*"],
+        )
+        self.assertIs(settings["sandbox"]["autoAllowBashIfSandboxed"], False)
+
+    def test_claude_other_modes_are_unchanged(self):
+        expected = {
+            "auto": "bypassPermissions",
+            "full": "bypassPermissions",
+            "read_only": "dontAsk",
+        }
+        for mode, permission_mode in expected.items():
+            with tempfile.TemporaryDirectory() as d:
+                with (
+                    patch("adapters.claude.native.configurations", return_value={"claude": {}}),
+                    patch("adapters.claude.native.inventory", return_value={"claude": []}),
+                ):
+                    command = claude_command(
+                        {"binary": "claude", "unrestricted": True},
+                        "fixture",
+                        Path(d),
+                        ALL_GRANTS,
+                        [],
+                        mode,
+                        [],
+                    )
+            self.assertEqual(command[command.index("--permission-mode") + 1], permission_mode)
+            settings = claude_settings(command)
+            self.assertNotIn("permissions", settings, mode)
+            self.assertEqual(settings["sandbox"], {"enabled": False}, mode)
 
 
 class NativeTest(unittest.IsolatedAsyncioTestCase):

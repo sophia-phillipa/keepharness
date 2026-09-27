@@ -4861,22 +4861,45 @@ function showApproval(data) {
   box.className = "approval-card";
   const title = document.createElement("h3");
   title.textContent = "Authorize this action?";
+  // Codex file changes carry the started patch (path and diff) in `changes`.
+  const changes = Array.isArray(data.request.changes)
+    ? data.request.changes
+    : [];
   const reason = document.createElement("p");
   reason.textContent =
-    data.request.reason || "The executor requested additional authorization.";
+    data.request.reason ||
+    (changes.length
+      ? "The executor wants to change these files."
+      : "The executor requested additional authorization.");
   const explanation = document.createElement("p");
   explanation.textContent =
-    "The administrator's permissions still apply. Always allow only remembers this command and this folder, for this conversation.";
+    "The administrator's permissions still apply." +
+    (data.can_remember
+      ? " Always allow only remembers this command and this folder, for this conversation."
+      : "");
   const command = document.createElement("pre");
+  const toolInput = data.request.input || {};
   command.textContent =
-    data.request.command || data.request.tool_name || data.kind;
+    changes.map((change) => change.path).join("\n") ||
+    data.request.command ||
+    [data.request.tool_name, toolInput.file_path || toolInput.command]
+      .filter(Boolean)
+      .join(" ") ||
+    data.kind;
+  const diff = document.createElement("pre");
+  diff.className = "approval-diff";
+  diff.textContent = changes
+    .map((change) => change.diff)
+    .filter(Boolean)
+    .join("\n");
+  diff.hidden = !diff.textContent;
   const details = document.createElement("details");
   const summary = document.createElement("summary");
   summary.textContent = "Technical details";
   const pre = document.createElement("pre");
   pre.textContent = JSON.stringify(data.request, null, 2);
   details.append(summary, pre);
-  box.append(title, reason, command, explanation, details);
+  box.append(title, reason, command, diff, explanation, details);
   const fields = [];
   for (const q of data.request.questions || []) {
     const label = document.createElement("label");
@@ -4905,6 +4928,8 @@ function showApproval(data) {
     button.onclick = async () => {
       if (deciding) return;
       deciding = true;
+      // F-60: disabling the buttons drops focus to <body>; restore it afterwards.
+      const hadFocus = box.contains(document.activeElement);
       box
         .querySelectorAll("button,input")
         .forEach((node) => (node.disabled = true));
@@ -4919,6 +4944,7 @@ function showApproval(data) {
           answers,
           scope,
         });
+        if (hadFocus) $("prompt").focus({ preventScroll: true });
         box.remove();
       } catch (e) {
         progress.textContent = "Couldn't confirm your decision. " + e.message;
@@ -4927,6 +4953,7 @@ function showApproval(data) {
         box
           .querySelectorAll("button,input")
           .forEach((node) => (node.disabled = false));
+        if (hadFocus && box.isConnected) button.focus();
       }
     };
     box.append(button);

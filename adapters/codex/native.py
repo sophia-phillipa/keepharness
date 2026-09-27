@@ -48,6 +48,8 @@ def build_command(binary, permissions, hosted_search=True):
 def thread_parameters(config, project, model, workspace, runtime, unrestricted):
     """Translate harness permissions and integrations to app-server settings."""
     cwd, permissions = workspace.cwd, workspace.permissions
+    # Ask: the read-only sandbox makes every write escalate to an approval card.
+    ask = project.get("access_mode", "ask") == "ask" and not runtime.isolated
     selected = config.get("integrations", [])
     local_provider = runtime.model_provider
     plugins = []
@@ -64,7 +66,7 @@ def thread_parameters(config, project, model, workspace, runtime, unrestricted):
             "danger-full-access"
             if unrestricted
             else "workspace-write"
-            if permissions.get("write")
+            if permissions.get("write") and not ask
             else "read-only"
         ),
         "approvalPolicy": (
@@ -72,6 +74,7 @@ def thread_parameters(config, project, model, workspace, runtime, unrestricted):
             if project.get("access_mode") in ("auto", "full", "read_only") and not runtime.isolated
             else "on-request"
         ),
+        "approvalsReviewer": "user",
         "developerInstructions": "Use the native CLI tools and only the configured integrations. Follow the selected project instructions. Ask approval for actions that exceed the configured permissions. Do not claim a tool succeeded without evidence.",
     }
     params["developerInstructions"] += (
@@ -211,10 +214,12 @@ async def run_turn(
 ):
     home, cwd, prompt = workspace.home, workspace.cwd, workspace.prompt
     permissions, images = workspace.permissions, workspace.images
+    access_mode = project.get("access_mode", "ask")
+    ask = access_mode == "ask" and not runtime.isolated
     unrestricted = (
         not runtime.isolated
         and config.get("unrestricted") is True
-        and project.get("access_mode") != "read_only"
+        and access_mode not in ("ask", "read_only")
         and bool(permissions.get("shell"))
     )
     command, environment, _local_provider = (
@@ -229,6 +234,7 @@ async def run_turn(
     usage = {}
     token_usage = {}
     seen_answer = False
+    file_changes = {}
     async with connection(command, env=environment) as rpc:
         selected_inputs = await resource_inputs(rpc, project, cwd)
         marker = home / "native-thread.json"
@@ -274,11 +280,15 @@ async def run_turn(
                 "cwd": str(cwd),
                 "model": model,
                 "effort": None if effort == "configured" else effort,
+                "approvalPolicy": params["approvalPolicy"],
+                "approvalsReviewer": params["approvalsReviewer"],
                 "sandboxPolicy": (
                     {"type": "dangerFullAccess"}
                     if unrestricted
                     else {
-                        "type": ("workspaceWrite" if permissions.get("write") else "readOnly"),
+                        "type": "workspaceWrite"
+                        if permissions.get("write") and not ask
+                        else "readOnly",
                         "networkAccess": bool(permissions.get("internet")),
                         **(
                             {
@@ -286,7 +296,7 @@ async def run_turn(
                                 "excludeSlashTmp": True,
                                 "excludeTmpdirEnvVar": True,
                             }
-                            if permissions.get("write")
+                            if permissions.get("write") and not ask
                             else {}
                         ),
                     }
@@ -310,6 +320,9 @@ async def run_turn(
             if "error" in item:
                 raise ToolError("codex_rpc_error")
             if "id" in item and "method" in item:
+                if params.get("itemId") in file_changes:
+                    # The approval request has no diff; the card shows the started patch.
+                    item = {**item, "params": {**params, "changes": file_changes[params["itemId"]]}}
                 await respond_to_interaction(
                     rpc,
                     item,
@@ -339,6 +352,8 @@ async def run_turn(
             elif kind in ("item/started", "item/completed"):
                 content = params.get("item", {})
                 typ = content.get("type", "")
+                if typ == "fileChange" and kind.endswith("started"):
+                    file_changes[content.get("id")] = content.get("changes", [])
                 if typ in (
                     "mcpToolCall",
                     "commandExecution",

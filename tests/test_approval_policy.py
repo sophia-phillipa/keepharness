@@ -48,3 +48,10 @@ def test_remembered_command_is_exact_and_permission_bound():
     assert key != rule_key(kind, {**request, "cwd": "/other"}, {"internet": True})
     assert key != rule_key(kind, request, {"internet": False})
     assert rule_key("item/tool/requestUserInput", request, {}) is None
+
+
+def test_codex_file_change_approval_follows_the_write_grant():
+    kind = "item/fileChange/requestApproval"
+    assert full_approval_allowed(kind, {"itemId": "patch-1"}, {"write": True})
+    assert not full_approval_allowed(kind, {"itemId": "patch-1"}, {"write": False})
+    assert rule_key(kind, {"itemId": "patch-1"}, {"write": True}) is None

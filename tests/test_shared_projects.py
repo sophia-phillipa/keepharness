@@ -127,6 +127,7 @@ def test_cloud_native_turn_is_unrestricted(tmp_path, provider):
                 {
                     "root": str(root),
                     "permissions": {"read": True, "write": True, "shell": True, "internet": True},
+                    "access_mode": "full",
                 },
                 "fixture",
                 "configured",
@@ -223,7 +224,10 @@ print(json.dumps({'type':'result','subtype':'success','result':json.dumps(sys.ar
                 {"binary": str(exe), "unrestricted": True},
                 "fixture",
                 lambda *args: None,
-                {"permissions": {"read": True, "write": True, "shell": True, "internet": True}},
+                {
+                    "permissions": {"read": True, "write": True, "shell": True, "internet": True},
+                    "access_mode": "full",
+                },
                 "fixture",
                 "configured",
                 tmp_path / "session",

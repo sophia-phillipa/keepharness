@@ -240,15 +240,9 @@ runPersona("H11", [
         { id: "a1", body: { approved: true, answers: {}, scope: "once" } },
       ]);
       await page.locator("#messages").getByText("Listed the folder.").waitFor();
-      // KNOWN BUG F-60: showApproval() removes the card (box.remove()) while its
-      // button holds focus, so focus falls back to <body>. Correct behaviour is
-      // focus on #prompt (or the answer); assert current behaviour to keep the run green.
-      const after = await focused(page);
-      assert.equal(
-        after,
-        "BODY",
-        "F-60 fixed? focus now on " + after + " - flip this assertion",
-      );
+      // F-60: the answered card is removed, so focus moves to #prompt first
+      // instead of falling back to <body>.
+      assert.equal(await focused(page), "prompt");
     },
   },
 ]);

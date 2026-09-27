@@ -31,6 +31,17 @@ def build_command(config, model, home, permissions, selected, access_mode, addit
         tools += ["Bash"]
     if permissions.get("internet"):
         tools += ["WebFetch", "WebSearch"]
+    sandbox = {"enabled": False} if config.get("unrestricted") else {}
+    settings = {
+        "enabledPlugins": plugins,
+        "disableAllHooks": not permissions.get("hooks", False),
+    }
+    if access_mode == "ask":
+        # Ask rules win over any user "allow" rule and over "acceptEdits".
+        settings["permissions"] = {"ask": ["Edit", "Write", "NotebookEdit", "Bash", "mcp__*"]}
+        sandbox["autoAllowBashIfSandboxed"] = False
+    if sandbox:
+        settings["sandbox"] = sandbox
     command = [
         config["binary"],
         "--print",
@@ -50,15 +61,11 @@ def build_command(config, model, home, permissions, selected, access_mode, addit
         "--mcp-config",
         str(mcp),
         "--settings",
-        json.dumps(
-            {
-                "enabledPlugins": plugins,
-                "disableAllHooks": not permissions.get("hooks", False),
-                **({"sandbox": {"enabled": False}} if config.get("unrestricted") else {}),
-            }
-        ),
+        json.dumps(settings),
     ]
-    if config.get("unrestricted") and access_mode != "read_only" and permissions.get("shell"):
+    if access_mode == "ask":
+        command += ["--permission-mode", "default"]
+    elif config.get("unrestricted") and access_mode != "read_only" and permissions.get("shell"):
         command += ["--permission-mode", "bypassPermissions"]
     elif access_mode in ("auto", "full", "read_only"):
         command += ["--permission-mode", "dontAsk"]

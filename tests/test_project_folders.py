@@ -118,7 +118,8 @@ def test_rpc_providers_receive_roots_on_every_turn(tmp_path, provider, read, wri
         "root": str(roots[0]),
         "additional_roots": [str(roots[1])],
         "permissions": {"read": read, "write": write},
-        "access_mode": "read_only" if not write else "ask",
+        # Ask keeps Codex read-only (F-110); Automatic is the mode that writes roots.
+        "access_mode": "read_only" if not write else "auto",
     }
     key = tmp_path / "key"
     key.write_text("test-key")
