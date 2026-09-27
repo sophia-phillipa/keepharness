@@ -30,6 +30,14 @@ The installed version was observed only with `codex --version`; no model turn or
 
 The official reference specifies JSON-RPC responses and notifications, failed-turn `error` events, and approval requests. It also documents `experimentalApi` as opt-in; do not make an experimental method part of this contract without a failing behavior test and a versioned compatibility check.
 
+## Resolving the native binary behind the `codex` command (2026-09-26)
+
+On a machine where `codex` on `PATH` resolves to the npm-distributed Node wrapper (`@openai/codex/bin/codex.js`, a `.js` script, not an ELF binary), isolated (bwrap) mode cannot mount and exec that wrapper directly — bwrap needs a real executable to bind-mount, and a `.js` entry point depends on a Node runtime that is not part of the mount. `control/runtime_config.py:native_binary` detects this shape (a resolved path ending `@openai/codex/bin/codex.js`, following one symlink) and instead resolves the sibling platform package's static native binary, `<pkg-root>/node_modules/@openai/codex-<os>-<arch>/vendor/*/bin/codex`, verifying its first four bytes are the ELF magic number (`\x7fELF`) before using it. This applies to every mode, not only isolated, so a single resolution path is exercised regardless of how `codex` was installed. Covered by `tests/test_provider_binaries.py` (finding F-01); the real install observed here resolved to a musl-linked ELF binary at that vendor path.
+
+## The Codex CLI auto-updates itself
+
+The `codex` CLI checks for and installs updates on its own, outside of any package manager the harness controls. During P6/P7 validation the observed version moved from `codex-cli 0.150.1` to `codex-cli 0.157.1` between two checks a few minutes apart, with no explicit upgrade command run. Do not treat `codex --version` as a stable fact across a validation session: re-read it before citing a version in evidence, and do not assume protocol/schema details recorded against one observed version still hold for a later one without rechecking (see "Review triggers" above).
+
 ## Model catalog
 
 Codex has no static model alias list in this repository. During provider verification, `control/server.py` calls the authenticated CLI method `model/list` and persists only returned IDs and `supportedReasoningEfforts`. A model is executable only after it appears in that result and is enabled for the project.
