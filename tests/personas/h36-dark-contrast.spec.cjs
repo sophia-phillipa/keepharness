@@ -330,13 +330,9 @@ runPersona("H36", [
       const found = [];
       for (const theme of THEMES)
         found.push(...(await scanHarness(page, theme)));
-      // KNOWN BUG F-96: the focused "Skip to message" link is near-white on white
-      // (1.05:1) in the three light themes. Tabler also ships a `.skip-link` class
-      // (color: var(--tblr-primary-fg,#fff)); ui.css:1003 sets only the background.
-      assert.deepEqual(
-        found,
-        LIGHT.map((t) => `${t} skip link: a.skip-link 'Skip to message' 1.05`),
-      );
+      // F-96 fixed: .skip-link:focus now sets color: var(--th-text), giving
+      // the focused "Skip to message" link real contrast in every theme.
+      assert.deepEqual(found, []);
     },
   },
   {
@@ -376,12 +372,10 @@ runPersona("H36", [
         await page.evaluate(() => document.activeElement.id),
         "prompt",
       );
-      // KNOWN BUG F-98: under forced colors the focused message box looks exactly
-      // like the idle one. The only cue is `.composer:focus-within { box-shadow }`
-      // (ui.css ~1716), which forced-colors mode drops; #prompt has no outline and
-      // the forced-colors block (ui.css ~1172) gives the composer the same
-      // ButtonText border in both states (WCAG 2.4.7).
-      assert.equal(await ring(), idle);
+      // F-98 fixed: the forced-colors block now gives the focused composer its
+      // own `outline: 2px solid Highlight`, so it no longer matches the idle
+      // state (WCAG 2.4.7).
+      assert.notEqual(await ring(), idle);
       // Status is carried by text, not only by colour.
       assert.match(await page.locator("#quota-short").innerText(), /\w/);
       const indicator = page.locator("#execution-mode-indicator");

@@ -104,6 +104,76 @@ runPersona("harness-runs-and-drafts", [
     },
   },
   {
+    title:
+      "F-114 reload renders a persisted partial_answer above the failure notice",
+    async run(page) {
+      const conversationTitle = "Long report";
+      await mockHarness(page, {
+        "GET /v1/models": { json: catalog },
+        "GET /v1/conversations": {
+          json: {
+            conversations: [
+              {
+                id: "c1",
+                title: conversationTitle,
+                project: "sem-projeto",
+                state: "failed",
+              },
+            ],
+          },
+        },
+        "GET /v1/conversations/c1": {
+          json: {
+            title: conversationTitle,
+            turns: [
+              {
+                id: "job-1",
+                project: "sem-projeto",
+                state: "failed",
+                request: {
+                  prompt: "Write the report",
+                  model: MODEL.id,
+                  backend: "claude",
+                  access_mode: "ask",
+                },
+                result: {
+                  error: "claude_stream_incomplete",
+                  partial_answer: "**" + PARTIAL + "**",
+                },
+              },
+            ],
+          },
+        },
+      });
+      await page.goto("http://harness.test");
+      await page.locator("#startup-gate").waitFor({ state: "hidden" });
+      await page
+        .locator("#history .conversation-row > button")
+        .filter({ hasText: conversationTitle })
+        .click();
+      const answer = page.locator("#messages article.assistant").last();
+      await answer.locator(".run-notice").waitFor();
+      // Rendered through the same markdown pipeline as a normal answer.
+      assert.equal(
+        await answer
+          .locator(".chat-bubble strong")
+          .filter({ hasText: PARTIAL })
+          .count(),
+        1,
+      );
+      const bubbleText = await answer.locator(".chat-bubble").innerText();
+      const noticeIndex = bubbleText.indexOf(
+        "stopped before the answer was complete",
+      );
+      const partialIndex = bubbleText.indexOf(PARTIAL);
+      assert(partialIndex >= 0, "partial answer text is shown");
+      assert(
+        partialIndex < noticeIndex,
+        "partial answer renders above the failure notice",
+      );
+    },
+  },
+  {
     title: "F-70 unknown codes never reach the user raw",
     async run(page) {
       const clean = allowHttpErrors(page);

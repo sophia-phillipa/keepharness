@@ -237,20 +237,16 @@ runPersona("H15", [
         LONG,
       );
       const shown = await page.locator("#conversation-title").textContent();
-      // KNOWN BUG F-66: setConversationTitle() cuts with String#slice(0, 79) on UTF-16
-      // code units, splitting the surrogate pair (and the ZWJ sequence), so the header
-      // shows a lone surrogate (rendered as a replacement box) before "…".
-      // Correct: cut on grapheme boundaries (Intl.Segmenter) or at least code points.
+      // F-66 fixed: setConversationTitle() now cuts on code points
+      // (Array.from), never splitting a surrogate pair.
       assert(
-        hasLoneSurrogate(shown),
-        "F-66 fixed? header no longer splits the emoji - flip this assertion",
+        !hasLoneSurrogate(shown),
+        "header must not split a surrogate pair when truncating",
       );
       assert(shown.endsWith("…"));
 
-      // KNOWN BUG F-67: title elements get neither dir="auto" nor
-      // unicode-bidi:plaintext, so an Arabic title is laid out with an LTR base
-      // direction and its trailing "!" lands right of the text instead of left.
-      // Correct: RTL titles get an RTL base direction (header and #history rows).
+      // F-67 fixed: title elements get dir="auto", so an Arabic title uses an
+      // RTL base direction and its trailing "!" lands left of the text.
       await page.locator("#history").getByText(ARABIC).click();
       await page.waitForFunction(
         (t) => document.querySelector("#conversation-title").title === t,
@@ -270,8 +266,8 @@ runPersona("H15", [
       );
       assert.deepEqual(
         bangRightOfText,
-        [true, true],
-        "F-67 fixed? RTL titles now use RTL base direction - flip this assertion",
+        [false, false],
+        "RTL titles must use an RTL base direction",
       );
     },
   },

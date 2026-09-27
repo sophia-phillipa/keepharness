@@ -198,13 +198,12 @@ runPersona("H13", [
         .getByText("Happy birthday, grandma!")
         .waitFor();
       await page.waitForTimeout(300); // slide-out transition
-      // KNOWN BUG F-63: load() (and #new, project picks) close the phone sidebar with
-      // classList.remove("open") but never reset #menu aria-expanded, which only
-      // toggleSidebar() updates. Correct: "false" once the sidebar is gone.
+      // F-63 fixed: every sidebar-closing site now routes through
+      // closeSidebar(), which also resets #menu's aria-expanded.
       assert.equal(
         await page.locator("#menu").getAttribute("aria-expanded"),
-        "true",
-        "F-63 fixed? flip this assertion",
+        "false",
+        "aria-expanded must be false once the sidebar is gone",
       );
       const sidebar = await page.locator("#sidebar").boundingBox();
       assert(

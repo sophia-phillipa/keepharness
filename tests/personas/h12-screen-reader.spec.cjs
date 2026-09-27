@@ -231,19 +231,15 @@ runPersona("H12", [
       assert(await dialog.isVisible(), "dialog must stay open after a failure");
       assert.equal(deletes, 1);
       assert.doesNotMatch(await error.innerText(), /boom|undefined|\[object/);
-      // KNOWN BUG F-61: the confirm button is disabled while the DELETE runs, so
-      // Chromium's focus fixup moves focus to <body> and it is never restored.
-      // Correct: focus stays on (or returns to) a control inside the dialog.
+      // F-61 fixed: the confirm button stays enabled (aria-disabled instead of
+      // disabled) while the DELETE runs, so Chromium never fixes up focus away
+      // from the dialog.
       const where = await page.evaluate(() =>
         document.activeElement.closest("dialog")
           ? "dialog"
           : document.activeElement.tagName,
       );
-      assert.equal(
-        where,
-        "BODY",
-        "F-61 fixed? focus is now in " + where + " - flip this assertion",
-      );
+      assert.equal(where, "dialog", "focus must stay inside the dialog");
       await page.keyboard.press("Escape");
       await dialog.waitFor({ state: "hidden" });
       assert.equal(deletes, 1);

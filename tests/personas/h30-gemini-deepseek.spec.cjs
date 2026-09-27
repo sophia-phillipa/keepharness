@@ -66,10 +66,9 @@ runPersona("H30", [
         .locator("#model-menu [role=group]")
         .evaluateAll((els) => els.map((e) => e.getAttribute("aria-label")));
       assert.deepEqual(groups.slice(1), [
-        // KNOWN BUG F-91: the Gemini group is headed "Google" (ui.js renderPicker
-        // label map) while the option titles, #model-note and the quota identity
-        // all say "Gemini CLI"; Codex/Claude/DeepSeek groups use product names.
-        "Google",
+        // F-91 fixed: the Gemini group is now headed "Gemini CLI", matching
+        // the option titles, #model-note and the quota identity.
+        "Gemini CLI",
         "DeepSeek",
       ]);
       assert.equal(groups[0], "Codex");
@@ -88,21 +87,19 @@ runPersona("H30", [
         await page.locator("#quota-model-identity").getAttribute("title"),
         /Gemini CLI/,
       );
-      // KNOWN BUG F-92: Gemini has no quota wording. renderQuotaIdentity() has no
-      // "gemini" entry, so the header says "Quota unavailable" and the panel says
-      // "Select a model to check the provider quota." although a model is selected.
-      assert.equal(await text(page, "#quota-short"), "Quota unavailable");
+      // F-92 fixed: renderQuotaIdentity() has a "gemini" entry, so the header
+      // shows Gemini-specific wording and the panel names Gemini.
+      assert.equal(await text(page, "#quota-short"), "Checking Gemini quota…");
       await page.click("#quota-toggle");
       await visible(page, "#quota-panel");
       assert.match(
         await text(page, "#quota-current"),
-        /Select a model to check the provider quota\./,
+        /Gemini CLI reports its own subscription usage/,
       );
-      // KNOWN BUG F-92 (same finding): the quota panel heading is static
-      // "ChatGPT account quota" (index.html) for every provider.
+      // F-92 fixed (same finding): the quota panel heading now names Gemini.
       assert.equal(
         await text(page, "#quota-panel .quota-heading strong"),
-        "ChatGPT account quota",
+        "Gemini subscription quota",
       );
     },
   },
@@ -140,7 +137,9 @@ runPersona("H30", [
         await text(page, "#quota-current"),
         /your own DeepSeek account credits/,
       );
-      // KNOWN BUG F-92: the heading still names ChatGPT for DeepSeek.
+      // F-92 scope decision (JEV, WP-C2): only Gemini (and Claude) get their
+      // own quota heading; DeepSeek keeps the generic "ChatGPT account quota"
+      // heading, matching the triage row's fix scope.
       assert.equal(
         await text(page, "#quota-panel .quota-heading strong"),
         "ChatGPT account quota",

@@ -1012,6 +1012,7 @@ header {
 }
 .skip-link:focus {
   top: 12px;
+  color: var(--th-text);
 }
 .history-search {
   margin: 14px 0 0;
@@ -1178,6 +1179,9 @@ textarea {
   .conversation-row > button[aria-current="true"] {
     outline: 2px solid Highlight;
     outline-offset: -2px;
+  }
+  .composer:focus-within {
+    outline: 2px solid Highlight;
   }
 }
 
@@ -2935,6 +2939,12 @@ body .composer-submit .send:hover {
   height: 96px;
   object-fit: cover;
   border-radius: 8px;
+}
+/* Defense in depth against filenames using bidi-control characters (see the
+   server-side rejection in agent_service/routes/files.py) so a spoofed
+   extension never displays out of order. */
+.attachment-name {
+  unicode-bidi: plaintext;
 }
 .image-attachment .attachment-name {
   max-width: 128px;

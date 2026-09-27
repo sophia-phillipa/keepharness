@@ -119,9 +119,20 @@ let fileTree = {
 function setConversationTitle(value) {
   const full = String(value || "New Conversation").trim() || "New Conversation",
     el = $("conversation-title");
-  el.textContent = full.length > 80 ? full.slice(0, 79).trimEnd() + "…" : full;
+  el.textContent = full.length > 80 ? truncateTitle(full, 79) + "…" : full;
   el.title = full;
+  el.dir = "auto";
   syncActiveProjectBadge();
+}
+// Cuts at up to `units` UTF-16 code units, then backs off one unit if that
+// landed inside a surrogate pair, so the result never ends in a lone
+// (unpaired) surrogate that would render as a replacement-character box.
+function truncateTitle(full, units) {
+  const cut = full.slice(0, units),
+    last = cut.charCodeAt(cut.length - 1);
+  return last >= 0xd800 && last <= 0xdbff
+    ? cut.slice(0, -1).trimEnd()
+    : cut.trimEnd();
 }
 let composerProjectId = null,
   composerGitRequest = 0,
@@ -1246,11 +1257,18 @@ function renderQuotaIdentity() {
     ? modelName(model.id) + " · " + (providerNames[backend] || backend)
     : "Selected model";
   $("quota-toggle").hidden = false;
+  $("quota-heading-title").textContent =
+    {
+      codex: "ChatGPT account quota",
+      claude: "Claude subscription quota",
+      gemini: "Gemini subscription quota",
+    }[backend] || "ChatGPT account quota";
   const states = {
     local: "No provider quota",
     claude: "Checking Claude quota…",
     deepseek: "DeepSeek credits",
     maestro: "Quota varies by step model",
+    gemini: "Checking Gemini quota…",
   };
   if (backend === "codex" || backend === "claude") {
     if (changed) {
@@ -1271,7 +1289,9 @@ function renderQuotaIdentity() {
           ? "This model uses your own DeepSeek account credits."
           : backend === "maestro"
             ? "Maestro can route steps to different models; the quota depends on each step's executor."
-            : "Select a model to check the provider quota.";
+            : backend === "gemini"
+              ? "Gemini CLI reports its own subscription usage; check it in your Google account."
+              : "Select a model to check the provider quota.";
     $("quota-current").append(detail);
   }
   const description = model
@@ -1528,6 +1548,7 @@ function conversationRow(c) {
   const title = document.createElement("span");
   title.className = "conversation-title";
   title.textContent = c.title || "Conversation";
+  title.dir = "auto";
   open.replaceChildren(icon, title);
   const indicator = conversationIndicator(c);
   if (indicator) open.prepend(indicator);
@@ -1612,16 +1633,20 @@ function openDeleteConversation(c, trigger) {
     error = $("delete-conversation-error");
   $("delete-conversation-name").textContent = c.title || "Conversation";
   error.textContent = "";
+  let deleting = false;
   cancel.onclick = () => dialog.close();
   dialog.onclose = () => {
     if (trigger.isConnected) trigger.focus();
   };
   dialog.oncancel = (event) => {
-    if (confirm.disabled) event.preventDefault();
+    if (deleting) event.preventDefault();
   };
   confirm.onclick = async () => {
-    if (confirm.disabled || busy || loading || uploads) return;
-    confirm.disabled = true;
+    if (deleting || busy || loading || uploads) return;
+    deleting = true;
+    // Keep the button enabled (and focused) while the request is in flight:
+    // disabling the focused element makes Chromium drop focus to <body>.
+    confirm.setAttribute("aria-disabled", "true");
     cancel.disabled = true;
     confirm.textContent = "Deleting…";
     error.textContent = "";
@@ -1635,7 +1660,8 @@ function openDeleteConversation(c, trigger) {
     } catch (e) {
       error.textContent = "Couldn't delete: " + e.message;
     } finally {
-      confirm.disabled = false;
+      deleting = false;
+      confirm.removeAttribute("aria-disabled");
       cancel.disabled = false;
       confirm.textContent = "Delete conversation";
     }
@@ -2144,7 +2170,7 @@ function renderProjects() {
           newConversation("New Conversation in project " + o.textContent);
           expandedProjects.set(o.value, true);
           renderProjects();
-          $("sidebar").classList.remove("open");
+          closeSidebar();
         };
         children.prepend(create);
         if (!items.length) {
@@ -2765,6 +2791,11 @@ async function result(
           ? "Last run cancelled"
           : "Last run did not finish") + " · token usage not reported";
     if (data.answer !== undefined) setAnswer(active, data.answer);
+    // On reload, nothing has streamed into this fresh bubble yet: fall back
+    // to the server's persisted partial_answer (WP-F contract) so a failed,
+    // interrupted or cancelled run still shows what was received.
+    else if (!active.body.rawAnswer && data.partial_answer !== undefined)
+      setAnswer(active, data.partial_answer);
     // F-83/F-112: keep what was already received and append the notice.
     const notice = condition
       ? condition.message
@@ -2994,7 +3025,9 @@ async function load(id, legacy = false, restoredView = null) {
               : "");
         setAnswer(
           active,
-          r.result?.answer ?? (notice ? "" : r.state),
+          r.result?.answer ??
+            r.result?.partial_answer ??
+            (notice ? "" : r.state),
           notice,
           r.result?.error,
         );
@@ -3040,7 +3073,7 @@ async function load(id, legacy = false, restoredView = null) {
       .querySelector('.conversation-row > button[aria-current="true"]')
       ?.scrollIntoView({ block: "nearest" });
     last = 0;
-    $("sidebar").classList.remove("open");
+    closeSidebar();
     loading = false;
     if (restoredView) restoreView(restoredView);
     const latest = data.turns.find((turn) => turn.id === job);
@@ -3056,7 +3089,7 @@ async function load(id, legacy = false, restoredView = null) {
     setBusy(false);
     $("prompt").value = priorDraft;
     updateComposer();
-    $("sidebar").classList.remove("open");
+    closeSidebar();
     // F-80: a conversation the server confirms is gone leaves the list.
     if (e.code === "conversation_not_found") {
       conversations = conversations.filter((c) => c.id !== id);
@@ -3636,7 +3669,7 @@ async function navigateProjectFolder(project) {
     $("files-roots").append(label, $("files-tree"));
     $("files-tree").hidden = false;
     $("files-no-roots").hidden = true;
-    $("sidebar").classList.remove("open");
+    closeSidebar();
     await loadProjectFileDirectory(fileTree.rootId, fileTree.basePath);
   } catch (error) {
     status("Couldn't navigate to the project folder: " + error.message);
@@ -3947,7 +3980,7 @@ $("new").onclick = () => {
   );
   renderProjects();
   history();
-  $("sidebar").classList.remove("open");
+  closeSidebar();
 };
 $("project").onchange = () => {
   const draft = $("prompt").value;
@@ -4039,6 +4072,14 @@ function toggleSidebar() {
         : !document.body.classList.contains("sidebar-collapsed"),
     ),
   );
+}
+// Every site that closes the phone sidebar outside of toggleSidebar() must
+// also clear #menu's aria-expanded, so assistive tech sees the same state.
+function closeSidebar() {
+  $("sidebar").classList.remove("open");
+  if (matchMedia("(max-width:620px)").matches) {
+    $("menu").setAttribute("aria-expanded", "false");
+  }
 }
 $("menu").onclick = () => {
   toggleSidebar();
@@ -5278,7 +5319,7 @@ document.addEventListener("keydown", (e) => {
       setPanelOpen(false);
       $("panel-toggle").focus();
     } else if ($("sidebar").classList.contains("open")) {
-      $("sidebar").classList.remove("open");
+      closeSidebar();
       $("menu").setAttribute("aria-expanded", "false");
       $("menu").focus();
     }
@@ -5808,7 +5849,7 @@ function renderPicker(id) {
               claude: "Claude",
               local: "Local model",
               deepseek: "DeepSeek",
-              gemini: "Google",
+              gemini: "Gemini CLI",
               maestro: "Maestro",
             }[backend] ||
             model?.backend ||

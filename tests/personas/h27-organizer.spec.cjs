@@ -236,15 +236,13 @@ runPersona("h27", [
         emojiHeavy,
         "tooltip keeps the untruncated title",
       );
-      // KNOWN BUG F-75: agent_service/ui.js setConversationTitle() slices the
-      // header at 79 UTF-16 code units (full.slice(0, 79)) without checking
-      // surrogate-pair boundaries. For this 2-unit-per-emoji title the cut
-      // lands between a high and low surrogate, so the visible header ends in
-      // a lone (unpaired) high surrogate right before the added ellipsis.
+      // F-75 fixed (duplicate of F-66): setConversationTitle() now truncates
+      // on code points (Array.from), so the header never ends in a lone
+      // (unpaired) surrogate before the ellipsis.
       const lastCode = header.text.codePointAt(header.text.length - 2);
       assert(
-        lastCode >= 0xd800 && lastCode <= 0xdbff,
-        "header text ends with a lone high surrogate before the ellipsis",
+        !(lastCode >= 0xd800 && lastCode <= 0xdbff),
+        "header text must not end with a lone high surrogate before the ellipsis",
       );
       assert.equal(header.text.slice(-1), "…");
       assert(header.text.length < emojiHeavy.length, "header is truncated");
