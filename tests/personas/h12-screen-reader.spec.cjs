@@ -140,18 +140,10 @@ runPersona("H12", [
       await page.fill("#prompt", "Summarize my notes");
       await page.keyboard.press("Enter");
       await page.locator("#cancel").waitFor();
-      // KNOWN BUG F-62: status() in ui.js blanks every progress label ("Sending
-      // request", "Working", "Completed"…), and the only other live region
-      // (#activity-state) sits in the hidden Activity view, so a screen reader hears
-      // nothing between Enter and the answer. Correct: #status announces progress.
+      // F-62: #status (a polite live region) announces progress even while the
+      // Activity panel, the other live region, stays closed.
       const midTurn = await page.locator("#status").innerText();
-      assert.equal(
-        midTurn.trim(),
-        "",
-        "F-62 fixed? #status now says " +
-          JSON.stringify(midTurn) +
-          " - flip this assertion",
-      );
+      assert.match(midTurn.trim(), /^(Sending|Working|Running|Checking)/);
       assert(
         await page.locator("#activity-view").isHidden(),
         "the Activity live region is not rendered by default",
@@ -163,8 +155,8 @@ runPersona("H12", [
       );
       release();
       await page.locator("#messages").getByText("Fixture response.").waitFor();
-      // F-62 (same cause): completion is not announced either.
-      assert.equal((await page.locator("#status").innerText()).trim(), "");
+      // F-62: completion is announced too.
+      await page.locator("#status", { hasText: "Completed" }).waitFor();
 
       // Disclosure state must follow what is actually shown.
       for (const [button, region] of [

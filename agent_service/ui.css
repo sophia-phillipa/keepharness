@@ -4249,3 +4249,10 @@ body.panel-order-reversed #app-topbar #menu .th-icon {
     display: none;
   }
 }
+
+/* F-83: a failure or condition notice after the partial answer received. */
+.chat-bubble .run-notice {
+  margin-top: 0.75rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--th-border);
+}

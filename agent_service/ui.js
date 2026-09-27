@@ -551,6 +551,9 @@ const labels = {
 };
 const status = (text) => {
   const target = $("status");
+  // Repeated progress (one per streamed delta) is announced once.
+  if (target.textContent === text && target.className === "visually-hidden")
+    return;
   target.hidden = false;
   target.className = "";
   target.textContent = text;
@@ -568,12 +571,12 @@ const status = (text) => {
       text,
     )
   ) {
-    target.textContent = "";
+    // F-62: progress stays off screen but announced by this live region.
+    target.className = "visually-hidden";
   }
 };
 const names = {
   "qwen-local": "Qwen3.6 · local",
-  "gpt-6-astra": "GPT-6 Astra",
   "gpt-5.6-sol": "GPT-5.6 Sol",
   "gpt-5.6-terra": "GPT-5.6 Terra",
   "gpt-5.6-luna": "GPT-5.6 Luna",
@@ -1638,12 +1641,6 @@ function openDeleteConversation(c, trigger) {
   dialog.showModal();
   cancel.focus();
 }
-function confirmNewConversation() {
-  return (
-    !($("prompt").value.trim() || files.length) ||
-    confirm("Discard the draft and attachments to start a new conversation?")
-  );
-}
 function supportedExecutionModes() {
   return (
     selected()?.execution_modes ||
@@ -1718,6 +1715,10 @@ function newConversation(title = "New Conversation") {
     );
     return;
   }
+  // F-95: an unsent draft survives every way of starting a new conversation;
+  // attachments too, unless they were uploaded to another project.
+  const draft = $("prompt").value,
+    kept = files.filter((f) => f.project === $("project").value);
   conversationLoad++;
   streamDisconnected = false;
   $("resume-execution").hidden = true;
@@ -1738,12 +1739,12 @@ function newConversation(title = "New Conversation") {
   executionModeChosen = false;
   $("access-mode").value = "ask";
   syncAccessMode();
-  files = [];
+  files = kept;
   renderFiles();
   $("messages").replaceChildren(welcomeTemplate.cloneNode(true));
   bindSuggestions();
   modelAvailability();
-  $("prompt").value = "";
+  $("prompt").value = draft;
   updateComposer();
   saveView();
   $("context-meter").textContent = "New conversation · independent context";
@@ -1754,13 +1755,11 @@ function newConversation(title = "New Conversation") {
 }
 function chooseProject(id) {
   if (busy || loading || uploads) return;
-  const draft = $("prompt").value;
   $("project").value = id;
   invalidateResources();
   const stale = [...invalidResourceTokens];
   newConversation();
   invalidResourceTokens = new Set(stale);
-  $("prompt").value = draft;
   updateComposer();
   saveView();
   renderProjects();
@@ -2139,7 +2138,6 @@ function renderProjects() {
             );
             return;
           }
-          if (!confirmNewConversation()) return;
           $("project").value = o.value;
           newConversation("New Conversation in project " + o.textContent);
           expandedProjects.set(o.value, true);
@@ -2260,8 +2258,17 @@ function syncResponseMotion(body) {
   marker.setAttribute("aria-hidden", "true");
   final.append(marker);
 }
-function setAnswer(answer, value) {
+function setAnswer(answer, value, notice = "", code = "") {
+  cancelAnimationFrame(answer.body.pendingRender);
+  answer.body.pendingRender = 0;
   answer.body.rawAnswer = renderAnswer(answer.body, value);
+  if (!notice) return;
+  // A separate paragraph, so the received answer stays as it was (F-83).
+  const note = document.createElement("p");
+  note.className = "run-notice";
+  note.textContent = notice;
+  if (code) note.title = "Error code: " + code;
+  answer.body.append(note);
 }
 function messageAttachments(message, attachments = []) {
   const gallery = document.createElement("div");
@@ -2537,8 +2544,11 @@ function paintMotion(mode) {
   for (const node of [$("activity-state"), active?.chip])
     if (node) node.removeAttribute("data-motion");
   if (active) {
-    active.body.dataset.motion = mode ? "answer" : "";
-    syncResponseMotion(active.body);
+    // Only on a change: renderAnswer re-places the marker itself (F-87).
+    if (active.body.dataset.motion !== (mode ? "answer" : "")) {
+      active.body.dataset.motion = mode ? "answer" : "";
+      syncResponseMotion(active.body);
+    }
     active.el.setAttribute("aria-busy", String(!!mode));
   }
 }
@@ -2615,8 +2625,14 @@ function event(e) {
   if (e.type === "plan_updated") {
     status("Plan updated");
   } else if (e.type === "answer_delta") {
-    active.body.rawAnswer = (active.body.rawAnswer || "") + e.data.text;
-    renderAnswer(active.body, active.body.rawAnswer);
+    // F-87: re-render the markdown at most once per frame, not per delta.
+    const body = active.body;
+    body.rawAnswer = (body.rawAnswer || "") + e.data.text;
+    body.pendingRender ||= requestAnimationFrame(() => {
+      body.pendingRender = 0;
+      renderAnswer(body, body.rawAnswer);
+      scroll();
+    });
     status("Receiving response…");
   } else if (e.type === "reasoning_delta" || e.type === "reasoning_summary") {
     if (active) setActivitySummary(active, "Thinking…");
@@ -2740,11 +2756,34 @@ async function result(
       seconds = Number(data.total_seconds);
     if (data.context_usage) paintContext(data.context_usage, data.metrics);
     else if (data.metrics) paintLocalUsage(data.metrics);
+    else if (["cancelled", "failed", "interrupted"].includes(r.state))
+      // F-57: partial usage events of an unfinished run are not the run's totals.
+      $("context-meter").textContent =
+        (r.state === "cancelled"
+          ? "Last run cancelled"
+          : "Last run did not finish") + " · token usage not reported";
     if (data.answer !== undefined) setAnswer(active, data.answer);
-    if (condition) setAnswer(active, condition.message);
-    else if (data.error) setAnswer(active, executionError(data.error));
+    // F-83/F-112: keep what was already received and append the notice.
+    const notice = condition
+      ? condition.message
+      : data.error
+        ? executionError(data.error, data.error_detail)
+        : "";
+    if (notice) setAnswer(active, active.body.rawAnswer, notice, data.error);
     if (r.state === "cancelled" && !active.body.rawAnswer)
       setAnswer(active, "Run cancelled.");
+    // The notice asks to send again: put the prompt back in an empty composer.
+    if (
+      notice &&
+      !snapshot &&
+      r.request?.prompt &&
+      !$("prompt").value &&
+      !files.length
+    ) {
+      $("prompt").value = r.request.prompt;
+      updateComposer();
+      saveView();
+    }
     const modelId = data.model || $("model").value,
       model = modelId
         ? modelIcon(modelId) +
@@ -3860,14 +3899,7 @@ $("cancel").onclick = async () => {
   }
 };
 $("new").onclick = () => {
-  if (
-    submitting ||
-    cancelling ||
-    loading ||
-    uploads ||
-    !confirmNewConversation()
-  )
-    return;
+  if (submitting || cancelling || loading || uploads) return;
   const loose = Array.from($("project").options).some(
     (o) => o.value === "sem-projeto",
   );
@@ -4165,7 +4197,8 @@ async function initialize() {
       loadProjectFileRoots();
     void Promise.all([quota(), checkVersion()]);
     updateComposer();
-    if (resumeWatch && job) void watch();
+    // F-82: a stream cut by the outage re-attaches as soon as the server is back.
+    if ((resumeWatch || streamDisconnected) && job) void watch();
   } catch (e) {
     setReadiness(
       false,
@@ -4199,8 +4232,11 @@ function retryReadiness() {
 document.addEventListener("visibilitychange", () => {
   void retryReadiness();
 });
-window.addEventListener("online", () => {
-  void retryReadiness();
+window.addEventListener("online", async () => {
+  await retryReadiness();
+  // F-82: resume tracking a run the outage detached, without a user tap.
+  if (streamDisconnected && job && interfaceReady && !initializing)
+    void watch();
 });
 async function probeReadiness() {
   if (probing || Date.now() < readinessRetryAt) return;
@@ -4217,8 +4253,31 @@ async function probeReadiness() {
       !Array.isArray(m.models)
     )
       throw Error("Invalid catalog");
-    const project = $("project").value;
-    if (!p.projects.includes(project)) throw Error("Project unavailable");
+    let project = $("project").value;
+    if (!p.projects.includes(project)) {
+      // F-81: a removed project is not a lost connection. Move the draft to a
+      // project that still exists and say so until something else is shown.
+      if (busy || loading || uploads) return;
+      const label = $("project").selectedOptions[0]?.textContent || project;
+      updateProjectMetadata(p.details);
+      $("project").replaceChildren(
+        ...p.projects.map((id) => new Option(p.details?.[id]?.label || id, id)),
+      );
+      policyProject = null; // re-check permissions even for a known project
+      chooseProject(
+        p.projects.includes("sem-projeto") ? "sem-projeto" : p.projects[0],
+      );
+      project = $("project").value;
+      status(
+        "The project “" +
+          label +
+          "” was removed. Your draft was kept and moved to " +
+          (project === "sem-projeto"
+            ? "No project"
+            : $("project").selectedOptions[0]?.textContent || project) +
+          ".",
+      );
+    }
     const scoped = await json(
       "/v1/models?project_id=" + encodeURIComponent(project),
       { signal: AbortSignal.timeout(5000) },
@@ -4371,7 +4430,8 @@ function restoreView(saved) {
       .filter(
         (f) => f && typeof f.id === "string" && typeof f.name === "string",
       )
-      .slice(0, MAX_ATTACHMENTS);
+      .slice(0, MAX_ATTACHMENTS)
+      .map((f) => ({ ...f, project: saved.project }));
     renderFiles();
   }
   saveView();

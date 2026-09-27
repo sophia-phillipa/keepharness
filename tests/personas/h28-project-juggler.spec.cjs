@@ -221,30 +221,19 @@ runPersona("H28", [
         "New Conversation in " + LABEL.p07,
       );
 
-      // Cancel the discard prompt: nothing changes.
+      // F-95: moving an unsent draft to another project keeps it, with no
+      // discard prompt.
       const prompts = [];
-      page.once("dialog", (d) => {
+      page.on("dialog", (d) => {
         prompts.push(d.message());
         return d.dismiss();
       });
       await create.click();
-      assert.deepEqual(prompts, [
-        "Discard the draft and attachments to start a new conversation?",
-      ]);
-      assert.equal(await page.locator("#project").inputValue(), "sem-projeto");
-      assert.equal(await page.locator("#prompt").inputValue(), draft);
-      assert(!state.modelQueries.includes("p07"));
-
-      // KNOWN BUG F-95: the only visible way to move to another project is
-      // "New Conversation in <project>", which asks to discard the draft; the
-      // hidden #project select and chooseProject() (after creating a project) keep
-      // it. Accepting the prompt switches project and empties the composer.
-      page.once("dialog", (d) => d.accept());
-      await create.click();
       await page.waitForFunction(
         () => document.getElementById("project").value === "p07",
       );
-      assert.equal(await page.locator("#prompt").inputValue(), "");
+      assert.deepEqual(prompts, []);
+      assert.equal(await page.locator("#prompt").inputValue(), draft);
       await page.waitForFunction(
         () => document.getElementById("model").options.length === 1,
       );

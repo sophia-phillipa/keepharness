@@ -106,9 +106,8 @@ test(0, "Send and read the response", async (p, s) => {
   await p.getByText("Evaluation response.", { exact: true }).waitFor();
   assert.equal(s.posts.length, 1);
 });
-test(0, "Cancel discarding the draft", async (p) => {
+test(0, "New conversation keeps the draft", async (p) => {
   await p.fill("#prompt", "My draft");
-  p.once("dialog", (d) => d.dismiss());
   await p.click("#new");
   assert.equal(await p.locator("#prompt").inputValue(), "My draft");
 });
@@ -242,18 +241,16 @@ test(2, "Switching model preserves the draft and image", async (p, s) => {
   s.allowUploads = true;
   await p.reload();
   await p.locator("#startup-gate").waitFor({ state: "hidden" });
-  await p
-    .locator("#file")
-    .setInputFiles(
-      process.env.EVAL_IMAGE || {
-        name: "fixture.png",
-        mimeType: "image/png",
-        buffer: Buffer.from(
-          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2nEIAAAAASUVORK5CYII=",
-          "base64",
-        ),
-      },
-    );
+  await p.locator("#file").setInputFiles(
+    process.env.EVAL_IMAGE || {
+      name: "fixture.png",
+      mimeType: "image/png",
+      buffer: Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2nEIAAAAASUVORK5CYII=",
+        "base64",
+      ),
+    },
+  );
   await p.locator(".attachment-preview").waitFor();
   await p.waitForFunction(
     () => document.querySelector(".attachment-preview").naturalWidth > 0,
@@ -286,11 +283,14 @@ test(2, "Keep draft when switching project", async (p) => {
   await p.locator("#projects summary button").first().click();
   assert.equal(await p.locator("#prompt").inputValue(), "Keep");
 });
-test(2, "Confirm a new conversation", async (p) => {
-  await p.fill("#prompt", "Discard");
-  p.once("dialog", (d) => d.accept());
+test(2, "A new conversation starts without a discard prompt", async (p) => {
+  let prompts = 0;
+  p.once("dialog", (d) => (prompts++, d.dismiss()));
+  await p.fill("#prompt", "Carry over");
   await p.click("#new");
-  assert.equal(await p.locator("#prompt").inputValue(), "");
+  assert.equal(prompts, 0);
+  assert.equal(await p.locator("#prompt").inputValue(), "Carry over");
+  await p.locator("#welcome").waitFor();
 });
 test(2, "Model selection survives a reload", async (p) => {
   await p.click("#model-trigger");
@@ -532,13 +532,11 @@ test(5, "Recovery unlocks the interface", async (p, s) => {
 });
 test(5, "Disabled uploads make no requests", async (p, s) => {
   assert(await p.locator("#attach").isDisabled());
-  await p
-    .locator("#file")
-    .setInputFiles({
-      name: "fixture.txt",
-      mimeType: "text/plain",
-      buffer: Buffer.from("fixture"),
-    });
+  await p.locator("#file").setInputFiles({
+    name: "fixture.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("fixture"),
+  });
   assert.equal(s.uploads, 0);
   assert.match(await p.locator("#status").innerText(), /disabled/);
 });

@@ -4,12 +4,11 @@ const assert = require("node:assert/strict");
   const browser = await chromium.launch();
   try {
     const page = await browser.newPage();
-    let discard = false,
-      confirmed = 0,
+    let confirmed = 0,
       quotaDelay = 0;
     page.on("dialog", async (d) => {
       confirmed++;
-      await (discard ? d.accept() : d.dismiss());
+      await d.dismiss();
     });
     await page.route("**/v1/**", async (r) => {
       const path = new URL(r.request().url()).pathname;
@@ -95,15 +94,10 @@ const assert = require("node:assert/strict");
       await page.locator("#prompt").inputValue(),
       "Important audit draft",
     );
-    assert(
-      confirmed > 0,
-      "Starting a new chat should confirm discarding a nonempty draft",
-    );
-    discard = true;
-    await page.locator(".project-new").click();
-    assert.equal(await page.locator("#prompt").inputValue(), "");
+    // F-95: a new chat keeps the unsent draft, so there is nothing to confirm.
+    assert.equal(confirmed, 0, "no discard prompt");
     console.log(
-      "PASS: Codex to Claude truthful quota, project selection preserves draft, new chat confirms discard",
+      "PASS: Codex to Claude truthful quota, project selection preserves draft, new chat keeps the draft",
     );
   } finally {
     await browser.close();

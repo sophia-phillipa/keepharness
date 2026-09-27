@@ -469,11 +469,9 @@ const path = require("node:path");
         await page.evaluate((t) => TailTheme.apply(t, false), theme);
         await page.mouse.move(0, 0);
         await page.waitForTimeout(250);
-        await page
-          .locator("#dropzone")
-          .screenshot({
-            path: "/tmp/tail-composer-" + width + "-" + theme + ".png",
-          });
+        await page.locator("#dropzone").screenshot({
+          path: "/tmp/tail-composer-" + width + "-" + theme + ".png",
+        });
       }
     }
     // Large bordered permission popover, keyboard choice and full-access payload.
@@ -679,7 +677,11 @@ const path = require("node:path");
       updateMotion("completed");
       const afterComplete = !!body.querySelector(".response-motion");
       status("Completed");
-      const routineStatus = document.querySelector("#status").textContent;
+      // F-62: routine progress is announced but kept off screen.
+      const routineStatus =
+        document.querySelector("#status").className +
+        ": " +
+        document.querySelector("#status").textContent;
       status("Couldn't finish: test error");
       const errorStatus = document.querySelector("#status").textContent;
       active = prior;
@@ -697,7 +699,7 @@ const path = require("node:path");
       duringAnswer: true,
       duringThinking: true,
       afterComplete: false,
-      routineStatus: "",
+      routineStatus: "visually-hidden: Completed",
       errorStatus: "Couldn't finish: test error",
     });
     assert.deepEqual(errors, []);

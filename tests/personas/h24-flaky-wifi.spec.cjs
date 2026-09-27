@@ -3,7 +3,7 @@
 // context.setOffline() does not affect routed requests, so the route below also
 // aborts every harness request while `net.offline` is set.
 const assert = require("node:assert/strict");
-const { mockHarness, runPersona, sse, fits } = require("./_harness.cjs");
+const { mockHarness, runPersona, sse } = require("./_harness.cjs");
 
 const CLAUDE = {
   id: "claude-sonnet-4-6",
@@ -130,19 +130,9 @@ runPersona("H24", [
       assert.equal(offlineView.gate, true);
       assert.doesNotMatch(offlineView.status, /Resume tracking/);
       await net.set(false);
-      // `online` re-initialises the page; it does not resume the stream.
+      // F-82: `online` re-initialises the page and re-attaches to the run by
+      // itself, from the last event it saw, without a tap on "Resume tracking".
       await page.locator("#startup-gate").waitFor({ state: "hidden" });
-      await page.waitForTimeout(1500);
-      console.log("H24-S1 back online: status =", await statusText(page));
-      // KNOWN BUG F-82: no automatic reconnection when the browser fires
-      // `online`; the stream stays detached (one events request so far) and
-      // the status says "Ready to chat." while the run is still going, so the
-      // user must notice and tap "Resume tracking" by themselves.
-      assert.equal(cursors.length, 1);
-      assert.equal(await statusText(page), "Ready to chat.");
-      assert(await page.locator("#resume-execution").isVisible());
-      await fits(page, "#resume-execution");
-      await page.click("#resume-execution");
       await page.getByText("Foxtrot").waitFor();
       await page.waitForFunction(
         () =>

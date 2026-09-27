@@ -167,11 +167,9 @@ runPersona("H39", [
         await answers.first().locator(".chat-bubble").innerText(),
         /Token 0 Token 1 .*Token 1999/s,
       );
-      // KNOWN BUG F-87: every answer_delta re-renders the whole accumulated
-      // markdown (renderAnswer → innerHTML) inside one synchronous read loop,
-      // so a burst of deltas is O(n²) work in a single task that freezes the
-      // page far beyond the 500 ms budget.
-      assert(worst > 500, "a long task over 500 ms blocks the page");
+      // F-87: the markdown is re-rendered at most once per animation frame, so
+      // a burst of deltas never blocks the page beyond the 500 ms budget.
+      assert(worst < 500, "longest task " + Math.round(worst) + " ms");
     },
   },
 ]);

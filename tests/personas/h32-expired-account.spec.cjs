@@ -109,11 +109,15 @@ runPersona("H32", [
           PARTIAL,
         ),
       );
-      // KNOWN BUG F-83: …but the renewal notice replaces it, and the composer
-      // is empty although the notice says "send your message again", so the
-      // user must retype the prompt from memory or copy it from the bubble.
-      assert.equal(await page.getByText("first half of the plan").count(), 0);
-      assert.equal(await page.inputValue("#prompt"), "");
+      // F-83: …and stays there, with the renewal notice appended after it, and
+      // the prompt is back in the composer, ready to send again.
+      const bubble = await answer.locator(".chat-bubble").innerText();
+      assert(bubble.indexOf(PARTIAL) >= 0, "partial answer kept");
+      assert(
+        bubble.indexOf(PARTIAL) < bubble.indexOf("Your Claude access"),
+        "notice appended after the partial answer",
+      );
+      assert.equal(await page.inputValue("#prompt"), PROMPT);
     },
   },
   {
