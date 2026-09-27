@@ -19,6 +19,7 @@ from adapters.claude.auth import cli_login_environment
 from adapters.codex.rpc import metadata
 from adapters.deepseek import account as deepseek
 from adapters.gemini import account as gemini
+from agent_service.config import VERSION_FILE
 
 from . import discovery, env, integration_catalog, integrations, runtime_config
 from .dashboard import DashboardReader
@@ -54,6 +55,9 @@ class Manager:
     def __init__(self, state):
         self.state = Path(state)
         self.state.mkdir(parents=True, exist_ok=True, mode=0o700)
+        # mkdir keeps an existing folder's mode (e.g. one a venv created as 0755).
+        if self.state.stat().st_uid == os.getuid():
+            self.state.chmod(0o700)
         migrate_local_ai_directory(env.LOCAL_AI_ROOT, self.state)
         self.state_repository = ControlStateRepository(self.state)
         self.path = self.state_repository.settings_path
@@ -657,6 +661,6 @@ class Manager:
             "local_url": f"http://{self.settings.get('vpn_bind', '127.0.0.1')}:{port}/",
             "remote_url": f"http://{host}:{self.settings['tailnet_port']}/" if host else None,
             "shared": (self.state / "tailnet.json").exists(),
-            "version": "0.5.0",
+            "version": VERSION_FILE.read_text().strip(),
             "startup_error": self.startup_error,
         }

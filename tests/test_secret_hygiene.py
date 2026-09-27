@@ -131,3 +131,12 @@ def test_harness_request_logs_and_database_are_private(tmp_path, open_umask):
     assert (root / "service-actions.jsonl").exists()
     assert (root / "jobs.sqlite3").exists()
     assert private(root) == []
+
+
+def test_existing_world_readable_state_directory_is_made_private(tmp_path, open_umask):
+    # A venv created inside the state folder leaves it 0755 before the admin first runs.
+    state = tmp_path / "tail-harness"
+    state.mkdir(mode=0o755)
+    state.chmod(0o755)
+    Manager(state)
+    assert stat.S_IMODE(state.stat().st_mode) == 0o700
