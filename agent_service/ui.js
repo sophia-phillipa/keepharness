@@ -1396,10 +1396,20 @@ function syncExecutionMode() {
     executionMode = modes.includes("native") ? "native" : "scoped";
   const isolated = executionMode === "scoped";
   const modeContract = Array.isArray(selected()?.execution_modes);
-  $("execution-mode-choice").hidden = started || !modeContract;
+  // F-58: isolation is chosen before the first message, then only stated.
+  $("execution-mode-choice").hidden = !modeContract;
+  $("execution-mode-choice").classList.toggle("started", started);
+  $("isolation-toggle").hidden = started;
+  $("execution-mode-help").hidden = started;
   $("isolation-toggle").setAttribute("aria-checked", String(isolated));
+  // F-94: a mode this model lacks can always be switched off.
   $("isolation-toggle").disabled =
-    started || busy || loading || submitting || uploads > 0 || modes.length < 2;
+    started ||
+    busy ||
+    loading ||
+    submitting ||
+    uploads > 0 ||
+    (modes.length < 2 && modes.includes(executionMode));
   $("execution-mode-label").textContent = isolated
     ? "Isolated conversation"
     : "Native conversation";
@@ -1414,7 +1424,9 @@ function syncExecutionMode() {
       : "This model does not offer " +
         (isolated ? "isolated" : "native") +
         " mode. Choose a different model" +
-        (started ? "." : " or change the mode before sending.");
+        (started
+          ? " or start a new conversation."
+          : " or change the mode before sending.");
   const indicator = $("execution-mode-indicator");
   indicator.hidden = !started || !modeContract;
   indicator.dataset.isolated = String(isolated);
@@ -1461,6 +1473,8 @@ function newConversation(title = "New Conversation") {
   conversation = "";
   executionMode = "native";
   executionModeChosen = false;
+  $("access-mode").value = "ask";
+  syncAccessMode();
   files = [];
   renderFiles();
   $("messages").replaceChildren(welcomeTemplate.cloneNode(true));
@@ -2807,7 +2821,9 @@ async function send() {
   const m = selected();
   if (!supportedExecutionModes().includes(executionMode)) {
     status(
-      "This model doesn't offer the selected mode. Choose a different model.",
+      parent
+        ? "This model doesn't offer this conversation's mode. Choose a different model or start a new conversation."
+        : "This model doesn't offer the selected mode. Choose a different model or change the mode.",
     );
     return;
   }
@@ -5119,6 +5135,8 @@ function syncAccessMode() {
   const mode = $("access-mode").value;
   $("access-label").textContent =
     $("access-mode").selectedOptions[0]?.textContent || "Ask for approval";
+  $("access-mode-notice").textContent =
+    "Access: " + $("access-label").textContent;
   $("access-trigger").dataset.mode = mode;
   const option = $("access-menu").querySelector('[data-access="' + mode + '"]'),
     optionIcon = option?.querySelector(".access-option-icon"),

@@ -4206,3 +4206,14 @@ body.panel-order-reversed #app-topbar #menu .th-icon {
     padding: 10px 12px;
   }
 }
+
+/* F-58: the conversation's mode notice; after the first message it is one fixed line. */
+.execution-mode-heading {
+  flex-wrap: wrap;
+}
+#access-mode-notice {
+  color: var(--th-muted);
+}
+#execution-mode-choice.started {
+  padding: 6px 16px;
+}

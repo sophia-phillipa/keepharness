@@ -152,7 +152,16 @@ const assert = require("node:assert/strict"),
     assert.equal(await page.locator("#prompt").inputValue(), "Preserve draft");
     fail = false;
     await page.locator("#send").click();
-    await page.locator("#execution-mode-choice").waitFor({ state: "hidden" });
+    // F-58: the choice becomes a fixed notice; no toggle stays in the chat.
+    await toggle.waitFor({ state: "hidden" });
+    assert.equal(
+      await page.locator("#execution-mode-choice").isVisible(),
+      true,
+    );
+    assert.equal(
+      await page.locator("#execution-mode-label").innerText(),
+      "Isolated conversation",
+    );
     assert.equal(sent.at(-1).execution_mode, "scoped");
     assert.equal(
       await page
@@ -199,9 +208,10 @@ const assert = require("node:assert/strict"),
     assert.equal(sent.at(-1).execution_mode, undefined);
     await page.reload();
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
+    assert.equal(await toggle.isVisible(), false);
     assert.equal(
-      await page.locator("#execution-mode-choice").isVisible(),
-      false,
+      await page.locator("#execution-mode-label").innerText(),
+      "Isolated conversation",
     );
     assert.equal(
       await page

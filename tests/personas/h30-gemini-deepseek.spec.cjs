@@ -199,22 +199,20 @@ runPersona("H30", [
         await page.locator("#prompt").inputValue(),
         "Should not leave the browser",
       );
-      // KNOWN BUG F-94: the notice says "change the mode before sending", but the
-      // isolation switch is disabled while a native-only model is selected
-      // (syncExecutionMode: disabled when modes.length < 2) and stays checked, so
-      // the user must go back to Codex, turn isolation off, and re-pick DeepSeek.
-      assert.equal(await page.locator("#isolation-toggle").isDisabled(), true);
+      // F-94: the switch stays usable while it names a mode this model lacks, so
+      // the user turns isolation off without leaving DeepSeek.
+      assert.equal(await page.locator("#isolation-toggle").isDisabled(), false);
       assert.equal(
         await page.locator("#isolation-toggle").getAttribute("aria-checked"),
         "true",
       );
-      await chooseModel(page, "gpt-5.6-luna");
       await page.click("#isolation-toggle");
       assert.equal(
         await page.locator("#isolation-toggle").getAttribute("aria-checked"),
         "false",
       );
-      await chooseModel(page, "deepseek-flash");
+      assert.equal(await page.locator("#isolation-toggle").isDisabled(), true);
+      assert.equal(await page.locator("#model").inputValue(), "deepseek-flash");
       assert.equal(
         await text(page, "#execution-mode-unavailable"),
         "This model only offers native mode.",
