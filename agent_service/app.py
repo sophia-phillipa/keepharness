@@ -10,6 +10,7 @@ from pathlib import Path
 from starlette.applications import Starlette
 
 from control import env
+from tail_ui import StaticGZipMiddleware
 
 from .conversation_context import context_overflow  # noqa: F401  (re-exported)
 from .errors import APIError
@@ -80,6 +81,9 @@ def create_app(config, runtime_path=None):
             *conversation_routes.ROUTES,
         ],
         lifespan=lifespan,
+    )
+    app.add_middleware(
+        StaticGZipMiddleware, paths=("/", "/ui.js", "/ui.css", "/vendor/markdown-it.min.js")
     )
     app.state.service = service
     return app

@@ -159,3 +159,20 @@ class AdminSecurityTest(unittest.IsolatedAsyncioTestCase):
         for path in ("/", "/api/state"):
             response = await self.client.get(path, headers=self.headers)
             self.assertIn("img-src 'self' data:", response.headers["content-security-policy"])
+
+    async def test_panel_static_files_are_compressed_and_revalidated(self):
+        for path in ("/admin.js", "/admin.css", "/assets/tabler.min.css"):
+            first = await self.client.get(path, headers={"Accept-Encoding": "gzip"})
+            self.assertEqual(first.status_code, 200)
+            self.assertEqual(first.headers["content-encoding"], "gzip")
+            self.assertEqual(first.headers["cache-control"], "no-cache")
+            again = await self.client.get(path, headers={"If-None-Match": first.headers["etag"]})
+            self.assertEqual(again.status_code, 304)
+        # The page that sets the admin cookie and the API stay uncached and uncompressed.
+        page = await self.client.get("/", headers={"Accept-Encoding": "gzip"})
+        self.assertEqual(page.headers["cache-control"], "no-store")
+        api = await self.client.get(
+            "/api/state", headers={**self.headers, "Accept-Encoding": "gzip"}
+        )
+        self.assertEqual(api.headers["cache-control"], "no-store")
+        self.assertNotIn("content-encoding", api.headers)

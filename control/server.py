@@ -5,6 +5,8 @@ from contextlib import asynccontextmanager
 
 from starlette.applications import Starlette
 
+from tail_ui import StaticGZipMiddleware
+
 from .manager import Manager, migrate_local_ai_directory  # noqa: F401  (re-exported)
 from .routes import ADMIN_BODY_LIMIT, ADMIN_OPERATION_LIMIT, ROUTES  # noqa: F401  (re-exported)
 
@@ -30,15 +32,18 @@ def create_app(state, port=8094):
     @app.middleware("http")
     async def security(request, call_next):
         response = await call_next(request)
+        # Static panel files set their own revalidation policy; everything else is no-store.
+        response.headers.setdefault("Cache-Control", "no-store")
         response.headers.update(
             {
-                "Cache-Control": "no-store",
                 "X-Content-Type-Options": "nosniff",
                 "Referrer-Policy": "no-referrer",
-                "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'",
+                "Content-Security-Policy": "default-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'",
             }
         )
         return response
+
+    app.add_middleware(StaticGZipMiddleware, paths=("/", "/admin.js", "/admin.css"))
 
     app.state.manager = manager
     app.state.admin_port = port

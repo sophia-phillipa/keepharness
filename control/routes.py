@@ -16,7 +16,7 @@ from starlette.routing import Route
 
 from adapters.claude.auth import cli_login_environment
 from adapters.deepseek import account as deepseek
-from tail_ui import asset_response
+from tail_ui import asset_response, static_response
 
 from . import env
 from .dashboard import execution as dashboard_execution
@@ -76,9 +76,9 @@ def admin_guard(request, manager, port):
         r.set_cookie("admin", manager.cookie, httponly=True, samesite="strict")
         return r
     if path.startswith("/assets/"):
-        return asset_response(path)
+        return asset_response(path, request.headers)
     if path in ("/admin.js", "/admin.css"):
-        return FileResponse(PANEL_DIR / path[1:])
+        return static_response(PANEL_DIR / path[1:], request.headers)
     if not secrets.compare_digest(
         request.cookies.get("admin", "").encode("utf-8"), manager.cookie.encode("utf-8")
     ):

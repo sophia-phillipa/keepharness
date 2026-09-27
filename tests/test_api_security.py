@@ -176,3 +176,23 @@ def test_ui_csp_allows_data_images_for_the_select_chevron(api):
     policy = client.get("/").headers["content-security-policy"]
     assert "img-src 'self' data:" in policy
     assert "default-src 'self'" in policy
+
+
+@pytest.mark.parametrize("path", ["/", "/ui.js", "/ui.css", "/assets/tabler.min.css"])
+def test_static_files_are_compressed_and_revalidated(api, path):
+    client, _, _ = api
+    first = client.get(path, headers={"Accept-Encoding": "gzip"})
+    assert first.status_code == 200
+    assert first.headers["content-encoding"] == "gzip"
+    assert first.headers["cache-control"] == "no-cache"
+    again = client.get(path, headers={"If-None-Match": first.headers["etag"]})
+    assert again.status_code == 304
+    assert again.content == b""
+
+
+def test_api_json_is_neither_compressed_nor_cached(api):
+    client, _, _ = api
+    response = client.get("/v1/projects", headers={"Accept-Encoding": "gzip"})
+    assert response.status_code == 200
+    assert "content-encoding" not in response.headers
+    assert response.headers.get("cache-control", "no-store") == "no-store"
