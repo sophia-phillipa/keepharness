@@ -7,6 +7,7 @@ following the ``maestro.run(service, ...)`` pattern.
 import asyncio
 import json
 import logging
+import re
 import time
 
 from .. import tools
@@ -15,6 +16,52 @@ from ..conversation_context import context_overflow
 from ..errors import APIError
 
 logger = logging.getLogger(__name__)
+
+# Provider account conditions shared with the UI: a run stopped by one ends ``interrupted``
+# with ``{"condition": <code>, "backend": <provider>}`` instead of a failure.
+PROVIDER_CONDITIONS = frozenset(
+    {
+        "provider_authentication_required",
+        "provider_authentication_failed",
+        "provider_quota_exhausted",
+        "provider_rate_limit",
+    }
+)
+# Older Claude adapter codes, still accepted as aliases.
+CONDITION_ALIASES = {
+    "claude_authentication_failed": "provider_authentication_required",
+    "claude_authentication_required": "provider_authentication_required",
+    "claude_rate_limit": "provider_quota_exhausted",
+    "claude_quota_exhausted": "provider_quota_exhausted",
+}
+# Provider messages carried by "<provider>_execution_failed: <message>" (Codex).
+CONDITION_PATTERNS = (
+    ("provider_quota_exhausted", re.compile(r"usage limit|quota", re.I)),
+    ("provider_rate_limit", re.compile(r"\b429\b|rate.?limit|too many requests", re.I)),
+    (
+        "provider_authentication_required",
+        re.compile(r"\b401\b|unauthori[sz]ed|not logged in|log ?in again|access token", re.I),
+    ),
+)
+CONDITION_ANSWERS = {
+    "provider_authentication_required": "Renew access to {} in the admin panel.",
+    "provider_authentication_failed": "Renew access to {} in the admin panel.",
+    "provider_quota_exhausted": "Wait for the {} quota to renew, or select another provider.",
+    "provider_rate_limit": "{} is limiting requests. Wait a moment, or select another provider.",
+}
+PROVIDER_NAMES = {"codex": "Codex", "claude": "Claude", "gemini": "Gemini", "deepseek": "DeepSeek"}
+
+
+def provider_condition(code):
+    """Map an adapter failure code to a generic provider condition, or ``None``."""
+    if code in PROVIDER_CONDITIONS:
+        return code
+    if code in CONDITION_ALIASES:
+        return CONDITION_ALIASES[code]
+    prefix, separator, message = code.partition(": ")
+    if separator and prefix.endswith("_execution_failed"):
+        return next((name for name, pattern in CONDITION_PATTERNS if pattern.search(message)), None)
+    return None
 
 
 def next_job(service):
@@ -120,21 +167,24 @@ async def run(service):
             )
             if not isinstance(exc, (APIError, tools.ToolError)):
                 logger.exception("Job %s failed unexpectedly", row["id"])
-            condition = {
-                "claude_authentication_failed": (
-                    "claude_authentication_required",
-                    "Renew access to Claude in the admin panel.",
-                ),
-                "claude_rate_limit": (
-                    "claude_quota_exhausted",
-                    "Wait for the Claude quota to renew, or select another provider.",
-                ),
-            }.get(code)
+            condition = provider_condition(code)
             if condition:
                 settle(
-                    service, row["id"], "interrupted", {"condition": condition[0], "metrics": None}
+                    service,
+                    row["id"],
+                    "interrupted",
+                    {
+                        "condition": condition,
+                        "backend": backend,
+                        # A provider message (e.g. Codex's reset time), never a bare code.
+                        "error_detail": code if ": " in code else None,
+                        "metrics": None,
+                    },
                 )
-                service.panel(row["project"], answer=condition[1], finished=True)
+                name = PROVIDER_NAMES.get(backend, backend)
+                service.panel(
+                    row["project"], answer=CONDITION_ANSWERS[condition].format(name), finished=True
+                )
             else:
                 settle(
                     service,

@@ -60,14 +60,35 @@ def test_incomplete_stream_keeps_its_distinct_error():
         Stream(lambda *_: None).finish("sonnet")
 
 
+CODEX_QUOTA = (
+    "codex_execution_failed: You've hit your usage limit. Upgrade to Pro "
+    "or try again in 2 hours 13 minutes."
+)
+
+
 @pytest.mark.parametrize(
-    "error,condition",
+    "backend,error,condition",
     [
-        ("claude_authentication_failed", "claude_authentication_required"),
-        ("claude_rate_limit", "claude_quota_exhausted"),
+        # The old Claude adapter codes stay accepted as aliases of the generic conditions.
+        ("claude", "claude_authentication_failed", "provider_authentication_required"),
+        ("claude", "claude_rate_limit", "provider_quota_exhausted"),
+        ("codex", CODEX_QUOTA, "provider_quota_exhausted"),
+        (
+            "codex",
+            "codex_execution_failed: exceeded retry limit, last status: 429 Too Many Requests",
+            "provider_rate_limit",
+        ),
+        (
+            "codex",
+            "codex_execution_failed: unexpected status 401 Unauthorized: token expired",
+            "provider_authentication_required",
+        ),
+        ("codex", "provider_authentication_failed", "provider_authentication_failed"),
     ],
 )
-def test_worker_records_account_conditions_without_execution_failure(tmp_path, error, condition):
+def test_worker_records_account_conditions_without_execution_failure(
+    tmp_path, backend, error, condition
+):
     import asyncio
     from unittest.mock import AsyncMock
 
@@ -80,14 +101,16 @@ def test_worker_records_account_conditions_without_execution_failure(tmp_path, e
         cfg["claude_models"] = ["sonnet"]
         service = Service(cfg)
         service.execute = AsyncMock(side_effect=ToolError(error))
+        # A failed Codex run refreshes the quota; never call the real CLI here.
+        service.quota = AsyncMock(return_value={})
         identity = ("a", service.config["clients"]["a"])
         job = service.submit(
             identity,
             {
                 "project_id": "sem-projeto",
-                "backend": "claude",
-                "model": "sonnet",
-                "effort": "configured",
+                "backend": backend,
+                "model": "sonnet" if backend == "claude" else "codex-test",
+                "effort": "configured" if backend == "claude" else "low",
                 "prompt": "hello",
             },
         )
@@ -100,10 +123,21 @@ def test_worker_records_account_conditions_without_execution_failure(tmp_path, e
             data = json.loads(row["result"])
             assert row["state"] == "interrupted"
             assert data["condition"] == condition
+            assert data["backend"] == backend
             assert "error" not in data
+            # A provider message is kept as detail (it may carry the reset time).
+            assert data.get("error_detail") == (error if ": " in error else None)
         finally:
             worker.cancel()
             await asyncio.gather(worker, return_exceptions=True)
             service.db.close()
 
     asyncio.run(exercise())
+
+
+def test_unrelated_codex_failure_stays_a_failed_run(tmp_path):
+    from agent_service.services.queue_worker import provider_condition
+
+    assert provider_condition("codex_execution_failed: model not found") is None
+    assert provider_condition("codex_execution_failed") is None
+    assert provider_condition("cli_missing") is None
