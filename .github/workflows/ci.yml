@@ -59,6 +59,8 @@ jobs:
       - name: Install package with test extras
         run: pip install '.[test]'
       - name: Run pytest
+        env:
+          TAIL_HARNESS_REQUIRE_MEDIA_SANDBOX: "1"
         run: python -m pytest -rs --junitxml=reports/unit-${{ matrix.python }}.xml
       - name: Upload unit test report
         if: always()

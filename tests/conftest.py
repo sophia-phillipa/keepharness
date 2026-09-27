@@ -4,12 +4,15 @@ import hashlib
 import os
 import shutil
 import subprocess
+import tempfile
 
 import pytest
 
 MEDIA_SANDBOX_MARKER = "requires_media_sandbox"
 MEDIA_SANDBOX_TOOLS = ("ffmpeg", "bwrap", "prlimit")
 LIVE_ENV_VAR = "TAIL_HARNESS_LIVE"
+# CI sets this so a broken media sandbox fails the run instead of skipping tests.
+REQUIRE_MEDIA_ENV_VAR = "TAIL_HARNESS_REQUIRE_MEDIA_SANDBOX"
 
 
 def pytest_addoption(parser):
@@ -24,8 +27,8 @@ def pytest_addoption(parser):
 def pytest_configure(config):
     config.addinivalue_line(
         "markers",
-        f"{MEDIA_SANDBOX_MARKER}: skip when ffmpeg/bwrap/prlimit or the bwrap "
-        "user-namespace probe are unavailable in this sandbox",
+        f"{MEDIA_SANDBOX_MARKER}: skip when ffmpeg/bwrap/prlimit are missing or "
+        "ffmpeg -version fails inside the tool sandbox",
     )
     config.addinivalue_line(
         "markers",
@@ -48,22 +51,31 @@ def _media_sandbox_unavailable_reason():
     missing = [tool for tool in MEDIA_SANDBOX_TOOLS if shutil.which(tool) is None]
     if missing:
         return "missing tool(s): " + ", ".join(missing)
+    # Run ffmpeg through the real tool sandbox, so a sandbox that cannot load it
+    # (blocked user namespaces, a library missing inside bwrap) is named here.
+    from agent_service.tools import sandbox
+
     try:
-        probe = subprocess.run(
-            ["bwrap", "--ro-bind", "/", "/", "true"],
-            capture_output=True,
-            timeout=10,
-            check=False,
-        )
-    except OSError as exc:
-        return f"bwrap probe failed to start: {exc}"
+        with tempfile.TemporaryDirectory() as work:
+            probe = subprocess.run(
+                sandbox(work, ["ffmpeg", "-version"]),
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return f"sandbox probe failed to start: {exc}"
     if probe.returncode != 0:
-        return f"bwrap --ro-bind probe exited {probe.returncode} (user namespaces likely blocked)"
+        detail = (probe.stderr.strip().splitlines() or ["no stderr"])[-1]
+        return f"ffmpeg -version exited {probe.returncode} inside the sandbox: {detail}"
     return None
 
 
 def pytest_collection_modifyitems(config, items):
     media_reason = _media_sandbox_unavailable_reason()
+    if media_reason and os.environ.get(REQUIRE_MEDIA_ENV_VAR) == "1":
+        raise pytest.UsageError(f"media sandbox required but unavailable: {media_reason}")
     skip_media = (
         pytest.mark.skip(reason=f"media sandbox unavailable: {media_reason}")
         if media_reason

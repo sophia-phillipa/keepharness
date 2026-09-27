@@ -74,6 +74,8 @@ async def process(argv, timeout=30, cwd=None):
 
 def sandbox(directory, argv, writable=False):
     # Only /usr and the selected work directory exist; no home, credentials or network.
+    # From /etc only the loader cache and the alternatives symlinks are exposed:
+    # Debian/Ubuntu resolve some /usr libraries (libblas, liblapack) through the latter.
     return [
         "prlimit",
         "--as=2147483648",
@@ -96,9 +98,10 @@ def sandbox(directory, argv, writable=False):
         "/usr",
         "/usr",
         *(
-            ["--ro-bind", "/etc/ld.so.cache", "/etc/ld.so.cache"]
-            if Path("/etc/ld.so.cache").exists()
-            else []
+            arg
+            for path in ("/etc/ld.so.cache", "/etc/alternatives")
+            if Path(path).exists()
+            for arg in ("--ro-bind", path, path)
         ),
         "--symlink",
         "usr/lib",
