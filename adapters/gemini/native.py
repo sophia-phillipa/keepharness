@@ -243,7 +243,7 @@ async def run_acp(
                 "initialize",
                 {
                     "protocolVersion": 1,
-                    "clientInfo": {"name": "tail-harness", "version": "0.5.0"},
+                    "clientInfo": {"name": "tail-harness", "version": "0.6.0"},
                     # Files and terminals are intentionally not proxied in this revision;
                     # admin policy routes the enabled native tools through ACP approval.
                     "clientCapabilities": {

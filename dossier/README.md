@@ -31,4 +31,6 @@ Each new version must add an English specification under `releases/v<VERSION>.md
 
 - [0.5.0 — provider continuity, workspace UX and portable packaging](releases/v0.5.0.md)
 
+- [0.6.0 — fix round 01: approvals, security hardening and English-only naming](releases/v0.6.0.md)
+
 - [Canonical agent and skill model](canonical-agents-skills-model.md): naming, catalog and migration.
