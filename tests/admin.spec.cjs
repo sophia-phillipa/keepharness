@@ -196,7 +196,11 @@ const assert = require("node:assert/strict");
   assert(saved.projects.some((project) => project.id === "demo"));
   assert.deepEqual(saved.services.codex.integrations, ["mcp:drive"]);
   assert.equal(saved.uploads_enabled, false); // Effective cloud grants are normalized by the server, covered in Python.
-  assert.equal(await p.locator("#configured-providers article").count(), 1);
+  // The provider list re-renders after the save toast; wait for it instead of counting at once.
+  await p.waitForFunction(
+    () =>
+      document.querySelectorAll("#configured-providers article").length === 1,
+  );
   await p
     .locator("#configured-providers")
     .getByText("Edit", { exact: true })
