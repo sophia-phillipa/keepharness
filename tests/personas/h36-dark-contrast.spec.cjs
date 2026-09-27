@@ -307,16 +307,16 @@ runPersona("H36", [
     async run(page) {
       await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
       await openHarness(page);
-      // KNOWN BUG F-97: no prefers-color-scheme handling anywhere (theme.js
-      // defaults to the light "violet-bordeaux"; no CSS media query), so a user
-      // whose OS is dark gets a light harness and admin until they pick a theme.
+      // F-97 fixed: with no saved theme, theme.js follows
+      // matchMedia('(prefers-color-scheme: dark)') and picks the default dark
+      // palette ("amethyst") instead of always starting on the light default.
       assert.equal(
         await page.evaluate(() => document.documentElement.dataset.palette),
-        "violet-bordeaux",
+        "amethyst",
       );
       assert.equal(
         await page.evaluate(() => document.documentElement.dataset.theme),
-        "light",
+        "dark",
       );
     },
   },

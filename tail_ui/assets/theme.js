@@ -9,8 +9,15 @@
   {id:'petroleum',name:'Petroleum',mode:'dark',colors:['#111c22','#6bd4c9','#f0bc68']},
   {id:'arizona',name:'Arizona',mode:'dark',colors:['#232323','#fc4c02','#eeeeee']}
  ];
- const key='tail-harness:theme:'+surface;let initial='violet-bordeaux';
- try{initial=localStorage.getItem(key)||initial;}catch{}
+ const key='tail-harness:theme:'+surface;
+ const defaultLight=themes.find(t=>t.mode==='light').id;
+ const defaultDark=themes.find(t=>t.mode==='dark').id;
+ let initial=defaultLight;
+ try{
+  const saved=localStorage.getItem(key);
+  if(saved)initial=saved;
+  else if(matchMedia('(prefers-color-scheme: dark)').matches)initial=defaultDark;
+ }catch{}
  function apply(id,persist=true){
   const t=themes.find(t=>t.id===id)||themes[0];
   root.dataset.palette=t.id;root.dataset.bsTheme=t.mode;root.dataset.theme=t.mode;root.style.colorScheme=t.mode;

@@ -457,10 +457,9 @@ runPersona("H37", [
         .locator(".folder-picker-create>summary")
         .scrollIntoViewIfNeeded();
       await page.click(".folder-picker-create>summary");
-      // KNOWN BUG F-99: tabbing into "New folder name" scrolls it just into the
-      // dialog, where the sticky ".folder-picker-footer" (admin.css ~1095) with
-      // "Use this folder" paints over the focused field (WCAG 2.4.11 Focus Not
-      // Obscured). The next Tab scrolls far enough; so does scrolling to the end.
+      // F-99 fixed: "#folder-picker { scroll-padding-bottom }" (admin.css) keeps
+      // the sticky ".folder-picker-footer" from painting over the focused field
+      // (WCAG 2.4.11 Focus Not Obscured).
       await page.keyboard.press("Tab");
       assert.equal(
         await page.evaluate(() => document.activeElement.id),
@@ -468,7 +467,7 @@ runPersona("H37", [
       );
       assert.equal(
         await page.locator("#folder-picker-new-name").evaluate(covering),
-        "button#folder-picker-use 'Use this folder'",
+        "",
       );
       await page.keyboard.press("Tab");
       assert.equal(

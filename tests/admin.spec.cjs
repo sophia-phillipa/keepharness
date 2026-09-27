@@ -137,6 +137,14 @@ const assert = require("node:assert/strict");
   await p.setViewportSize({ width: 1440, height: 1000 });
   await p
     .locator("#provider-options")
+    .getByText("Claude Code", { exact: false })
+    .click();
+  const claudeCard = p.locator("#provider-cards [data-provider=claude]");
+  assert.match(await claudeCard.innerText(), /full versioned id/);
+  assert.doesNotMatch(await claudeCard.innerText(), /CLI aliases/);
+  await p.click("#wizard-back");
+  await p
+    .locator("#provider-options")
     .getByText("Codex CLI", { exact: false })
     .click();
   const codex = p.locator("[data-provider=codex]");
@@ -164,6 +172,12 @@ const assert = require("node:assert/strict");
     await p.locator("#project-list").innerText(),
     /Tail Harness sidebar/,
   );
+  const uploadsCopy = await p
+    .locator("#uploads")
+    .locator("xpath=..")
+    .innerText();
+  assert.match(uploadsCopy, /100 MiB per file/);
+  assert.doesNotMatch(uploadsCopy, /50 MiB/);
   assert.equal(
     await permissions
       .getByLabel("Receive attachments", { exact: true })
@@ -284,21 +298,17 @@ const assert = require("node:assert/strict");
     );
   }
   await p.setViewportSize({ width: 1440, height: 1000 });
-  await p
-    .locator("#import-settings")
-    .setInputFiles({
-      name: "invalid.json",
-      mimeType: "application/json",
-      buffer: Buffer.from("{"),
-    });
+  await p.locator("#import-settings").setInputFiles({
+    name: "invalid.json",
+    mimeType: "application/json",
+    buffer: Buffer.from("{"),
+  });
   await p.locator("#network-feedback:not([hidden])").waitFor();
-  await p
-    .locator("#import-settings")
-    .setInputFiles({
-      name: "settings.json",
-      mimeType: "application/json",
-      buffer: Buffer.from(JSON.stringify(bundle())),
-    });
+  await p.locator("#import-settings").setInputFiles({
+    name: "settings.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(bundle())),
+  });
   await p.waitForFunction(
     () => !document.querySelector("#import-preview").hidden,
   );

@@ -1058,6 +1058,7 @@ label {
   width: min(680px, calc(100vw - 24px));
   max-height: calc(100dvh - 32px);
   overflow: auto;
+  scroll-padding-bottom: 88px;
 }
 #folder-picker .dialog-title {
   gap: 16px;

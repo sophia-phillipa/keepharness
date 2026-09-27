@@ -513,7 +513,7 @@ function providerCard(info) {
     body.append(
       element(
         "p",
-        "Sonnet, Opus, and Haiku are CLI aliases. Actual access depends on your account.",
+        "Models are listed by their full versioned id. Actual access depends on your account.",
         "hint",
       ),
     );
