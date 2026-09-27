@@ -20,6 +20,8 @@ const MODELS = {
   },
 };
 const RLO = "‮";
+// Mirrors agent_service/routes/files.py:BIDI_CONTROLS (F-74).
+const BIDI_CONTROLS = "\u061c\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069";
 
 // runPersona treats every console error as a failure, including Chromium's
 // "Failed to load resource" line for a 4xx the scenario provokes on purpose.
@@ -62,7 +64,8 @@ async function open(page, verdict) {
           (c) =>
             "/\\".includes(c) ||
             c.charCodeAt(0) < 32 ||
-            (c.charCodeAt(0) >= 127 && c.charCodeAt(0) < 160),
+            (c.charCodeAt(0) >= 127 && c.charCodeAt(0) < 160) ||
+            BIDI_CONTROLS.includes(c),
         );
       const code = bad ? "invalid_filename" : verdict(name);
       return code
@@ -127,6 +130,8 @@ runPersona("h18", [
         }),
         "File received.",
       );
+      // F-74: a bidi override could display "invoice<RLO>txt.exe" as
+      // "invoiceexe.txt", hiding the real extension; the server refuses it.
       const spoof = "invoice" + RLO + "txt.exe";
       assert.equal(
         await attachOne(page, {
@@ -134,26 +139,13 @@ runPersona("h18", [
           mimeType: "text/plain",
           buffer: text,
         }),
-        "File received.",
+        "Couldn't upload: The filename contains a path, control characters, or exceeds 160 characters.",
       );
-      assert.equal(seen[0], "..\\..\\etc\\passwd.txt");
+      assert.deepEqual(seen, ["..\\..\\etc\\passwd.txt", html, spoof]);
       const names = await page
         .locator("#attachments .attachment-name")
         .allTextContents();
-      assert.deepEqual(names, [html, spoof], "chips hold the literal names");
-      // KNOWN BUG F-74: U+202E (RIGHT-TO-LEFT OVERRIDE) is accepted by the server
-      // (routes/files.py:238-243 only rejects C0/C1 controls) and rendered as-is
-      // by renderFiles (ui.js:3438), so "invoice‮txt.exe" displays as
-      // "invoiceexe.txt": the real extension is visually hidden.
-      const chip = page.locator("#attachments .attachment-name").nth(1);
-      assert(
-        (await chip.textContent()).includes(RLO),
-        "bidi override reaches the chip unmodified",
-      );
-      assert.equal(
-        await chip.evaluate((e) => getComputedStyle(e).unicodeBidi),
-        "normal",
-      );
+      assert.deepEqual(names, [html], "chips hold the literal names");
       await page.locator("#prompt").fill("Summarize these files");
       await page.locator("#send:not([disabled])").click();
       await page.locator("#messages .message.user").waitFor();

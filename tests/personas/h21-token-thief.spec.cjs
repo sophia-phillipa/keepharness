@@ -15,21 +15,15 @@ const SENTINEL = "SENTINELdeadbeef0123456789cafef00d";
 // never echo a client credential digest.
 const CLIENT_DIGEST = "0".repeat(64);
 
-// Real UI responses carry a CSP with no img-src, so Tabler's data: `<select>`
-// chevron is blocked and floods the console. Tolerate only that known noise.
-function tolerateCspNoise(page) {
+// The probes provoke 4xx answers on purpose; Chromium logs each one as
+// "Failed to load resource". Tolerate only that line (F-102 fixed the CSP noise).
+function tolerateFailedLoads(page) {
   page.removeAllListeners("console");
   const errors = [];
   page.on("console", (m) => {
     if (m.type() !== "error") return;
     const t = m.text();
-    if (
-      /Content Security Policy|violates the following|data:image\/svg/.test(
-        t,
-      ) ||
-      /Failed to load resource/.test(t)
-    )
-      return;
+    if (/Failed to load resource/.test(t)) return;
     errors.push(t);
   });
   return () => assert.deepEqual(errors, []);
@@ -39,7 +33,7 @@ runPersona("H21", [
   {
     title: "H21-S1 a planted DeepSeek key never reaches the admin surface",
     async run(page) {
-      const done = tolerateCspNoise(page);
+      const done = tolerateFailedLoads(page);
       await page.goto(ADMIN + "/"); // sets the admin cookie in this context
       const admin = {
         headers: { "x-harness-admin": "1", "content-type": "application/json" },
@@ -114,7 +108,7 @@ runPersona("H21", [
   {
     title: "H21-S2 the harness leaks no cookie, token or credential digest",
     async run(page) {
-      const done = tolerateCspNoise(page);
+      const done = tolerateFailedLoads(page);
       await page.goto(HARNESS + "/");
       await page.locator("#startup-gate").waitFor({ state: "hidden" });
 

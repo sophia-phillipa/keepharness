@@ -154,3 +154,8 @@ class AdminSecurityTest(unittest.IsolatedAsyncioTestCase):
             ).status_code,
             200,
         )
+
+    async def test_csp_allows_data_images_for_the_select_chevron(self):
+        for path in ("/", "/api/state"):
+            response = await self.client.get(path, headers=self.headers)
+            self.assertIn("img-src 'self' data:", response.headers["content-security-policy"])

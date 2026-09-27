@@ -155,3 +155,24 @@ def test_legacy_attachment_owner_migration_is_fail_closed(api, tmp_path):
             assert error.value.status == 404
     finally:
         service.db.close()
+
+
+@pytest.mark.parametrize("control", ["‮", "‪", "⁦", "⁩", "؜"])
+def test_bidi_control_characters_in_filenames_are_refused(api, control):
+    client, _, _ = api
+    from urllib.parse import quote
+
+    response = client.post(
+        "/v1/files?project_id=shared",
+        headers={"X-Filename": quote("invoice" + control + "txt.exe")},
+        content=b"fixture",
+    )
+    assert response.status_code == 422, response.text
+    assert "invalid_filename" in response.text
+
+
+def test_ui_csp_allows_data_images_for_the_select_chevron(api):
+    client, _, _ = api
+    policy = client.get("/").headers["content-security-policy"]
+    assert "img-src 'self' data:" in policy
+    assert "default-src 'self'" in policy

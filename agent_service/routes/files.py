@@ -17,6 +17,10 @@ from ..persistence.db import encoded
 from ..services.conversation_service import preview_metadata
 from . import api_route, body
 
+# Bidirectional embedding, override and isolate controls: they can reorder how a name
+# is displayed and hide its real extension ("invoice\u202etxt.exe").
+BIDI_CONTROLS = frozenset("\u061c\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069")
+
 
 async def workspaces_collection(request, service, identity):
     if request.method == "POST":
@@ -239,7 +243,10 @@ async def upload_file(request, service, identity):
         not 1 <= len(filename) <= 160
         or not filename.strip()
         or filename in (".", "..")
-        or any(char in "/\\" or ord(char) < 32 or 127 <= ord(char) < 160 for char in filename)
+        or any(
+            char in "/\\" or ord(char) < 32 or 127 <= ord(char) < 160 or char in BIDI_CONTROLS
+            for char in filename
+        )
     ):
         raise APIError("invalid_filename")
     async with service.upload_lock:

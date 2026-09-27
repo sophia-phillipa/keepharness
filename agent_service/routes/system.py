@@ -8,7 +8,7 @@ from starlette.responses import FileResponse, JSONResponse, RedirectResponse, Re
 from starlette.routing import Route
 
 import adapters
-from tail_ui import asset_response
+from tail_ui import asset_response, static_response
 
 from ..config import PACKAGE_DIR, REPOSITORY_ROOT, VERSION_FILE
 from ..errors import APIError
@@ -100,7 +100,7 @@ async def ui(request):
             headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"},
         )
     if request.url.path.startswith("/assets/"):
-        return asset_response(request.url.path)
+        return asset_response(request.url.path, request.headers)
     if request.url.path == "/setup-mcp.sh":
         return FileResponse(
             PACKAGE_DIR / "setup-mcp.sh",
@@ -116,11 +116,11 @@ async def ui(request):
         "/ui.css": "ui.css",
         "/mcp_bridge.py": "mcp_bridge.py",
     }.get(request.url.path, "index.html")
-    return FileResponse(
+    return static_response(
         PACKAGE_DIR / name,
-        headers={
-            "Cache-Control": "no-store",
-            "Content-Security-Policy": "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'",
+        request.headers,
+        {
+            "Content-Security-Policy": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'",
             "X-Content-Type-Options": "nosniff",
             "Referrer-Policy": "no-referrer",
         },

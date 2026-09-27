@@ -28,22 +28,15 @@ const SYSTEM_DIRS = [
   "run",
 ];
 
-// The REAL server only sets its CSP on live UI responses (mock personas never
-// see it), so its Tabler `<select>` chevron — a data: image blocked by the
-// missing img-src — floods the console. Tolerate only that known noise.
-function tolerateCspNoise(page) {
+// The probes provoke 4xx answers on purpose; Chromium logs each one as
+// "Failed to load resource". Tolerate only that line (F-102 fixed the CSP noise).
+function tolerateFailedLoads(page) {
   page.removeAllListeners("console");
   const errors = [];
   page.on("console", (m) => {
     if (m.type() !== "error") return;
     const t = m.text();
-    if (
-      /Content Security Policy|violates the following|data:image\/svg/.test(
-        t,
-      ) ||
-      /Failed to load resource/.test(t)
-    )
-      return;
+    if (/Failed to load resource/.test(t)) return;
     errors.push(t);
   });
   return () => assert.deepEqual(errors, []);
@@ -96,7 +89,7 @@ runPersona("H19", [
     title:
       "H19-S1 harness directory browsers refuse traversal and hide system files",
     async run(page) {
-      const done = tolerateCspNoise(page);
+      const done = tolerateFailedLoads(page);
       const req = page.request;
 
       // /v1/project-directories is gated (shared_projects off on the test
@@ -209,7 +202,7 @@ runPersona("H19", [
     title:
       "H19-S2 admin folder creation rejects `..`, `../x`, `a/b` and never escapes",
     async run(page) {
-      const done = tolerateCspNoise(page);
+      const done = tolerateFailedLoads(page);
       // Real /api/folders and /api/folders/create; only /api/state and the
       // dashboard are mocked so the local-model panel renders on this test
       // server (which has no providers configured).
