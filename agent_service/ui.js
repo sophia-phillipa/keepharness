@@ -480,7 +480,7 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
               : item.scope === "builtin"
                 ? "Built-in"
               : "User",
-        category = item.group || (item.kind === "agent" ? "Agents" : item.kind === "skill" ? "Skills" : item.kind === "builtin" ? "Built-ins" : "Commands"),
+        category = item.group || (item.kind === "agent" ? "Agents" : item.kind === "skill" ? "Skills" : item.kind === "workflow" ? "Workflows" : item.kind === "builtin" ? "Built-ins" : "Commands"),
         groupKey = category + "\0" + scope + "\0" + item.origin;
       if (!groups.has(groupKey)) {
         const section = document.createElement("section"),
@@ -516,6 +516,8 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
           ? "Agent"
           : item.kind === "skill"
             ? "Skill"
+            : item.kind === "workflow"
+              ? "Workflow"
             : item.kind === "builtin"
               ? "Built-in"
             : "Command") +
@@ -652,7 +654,7 @@ async function refreshResources(trigger) {
       return;
     resourceItems = Array.isArray(data.items) ? data.items : [];
     let filtered = [...resourceItems, ...builtinResources()]
-      .filter((item) => trigger.prefix === "@" ? item.kind === "agent" : ["agent", "skill", "command", "rule", "context", "builtin"].includes(item.kind))
+      .filter((item) => trigger.prefix === "@" ? item.kind === "agent" : ["agent", "skill", "command", "workflow", "rule", "context", "builtin"].includes(item.kind))
       .map((item) => ({ item, score: resourceMatchScore(item, trigger.query) }))
       .filter((entry) => entry.score >= 0)
       .sort((left, right) => right.score - left.score)
@@ -3986,6 +3988,8 @@ async function send() {
         ({ id, revision, token }) => ({ id, revision, token }),
       ),
     };
+    const planPolicy = $("maestro-plan-policy")?.value;
+    if (planPolicy) data.maestro_plan_policy = planPolicy;
     if (releasePersonaPending) data.release_persona = true;
     if (parent) data.parent_job_id = parent;
     else if (Array.isArray(m.execution_modes))
