@@ -3990,6 +3990,54 @@ body.panel-order-reversed #app-topbar #menu .th-icon {
 #prompt-highlights .prompt-resource {
   color: var(--th-accent);
 }
+.resource-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 2px 4px 8px;
+}
+.resource-chip {
+  border: 1px solid color-mix(in srgb, var(--th-accent) 45%, var(--th-border));
+  border-radius: 999px;
+  padding: 4px 9px;
+  background: var(--th-soft);
+  color: var(--th-accent);
+  font: inherit;
+  font-size: 12px;
+}
+.resource-chip:hover,
+.resource-chip:focus-visible {
+  border-color: var(--th-accent);
+  outline: none;
+}
+.resource-menu {
+  width: min(720px, calc(100vw - 24px));
+}
+.resource-preview {
+  position: sticky;
+  bottom: -10px;
+  margin: 8px -2px -2px;
+  padding: 12px;
+  border: 1px solid var(--th-border);
+  border-radius: 10px;
+  background: var(--th-panel);
+  box-shadow: 0 -8px 18px color-mix(in srgb, var(--th-panel) 85%, transparent);
+}
+.resource-preview strong,
+.resource-preview p,
+.resource-preview small {
+  display: block;
+  margin: 0;
+}
+.resource-preview p {
+  margin-top: 4px;
+  font-size: 13px;
+}
+.resource-preview small {
+  margin-top: 5px;
+  color: var(--th-muted);
+  overflow-wrap: anywhere;
+}
 #dropzone #prompt.has-resource-highlights {
   position: relative;
   color: transparent;
@@ -3998,6 +4046,15 @@ body.panel-order-reversed #app-topbar #menu .th-icon {
 @media (forced-colors: active) {
   #prompt-highlights .prompt-resource {
     color: LinkText;
+  }
+}
+@media (max-width: 620px) {
+  .resource-menu {
+    width: calc(100vw - 24px);
+    max-height: min(70dvh, 560px);
+  }
+  .resource-preview {
+    position: static;
   }
 }
 

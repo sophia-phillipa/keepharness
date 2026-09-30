@@ -166,6 +166,41 @@ function syncResourceSelections() {
     [...invalidResourceTokens].filter((token) => tokens.has(token)),
   );
 }
+function renderResourceChips() {
+  let chips = $("resource-chips");
+  if (!chips) {
+    chips = document.createElement("div");
+    chips.id = "resource-chips";
+    chips.className = "resource-chips";
+    chips.setAttribute("aria-label", "Selected resources");
+    $("prompt").closest(".prompt-editor").before(chips);
+  }
+  chips.replaceChildren();
+  for (const selection of resourceSelections) {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "resource-chip";
+    chip.setAttribute("aria-label", "Remove " + selection.token);
+    chip.textContent = selection.token + " ×";
+    chip.onclick = () => {
+      const input = $("prompt"),
+        escaped = selection.token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      input.value = input.value
+        .replace(new RegExp("(^|\\s)" + escaped + "(?=\\s|$)", "g"), "$1")
+        .replace(/ {2,}/g, " ")
+        .trimStart();
+      resourceSelections = resourceSelections.filter(
+        (value) => value.token !== selection.token,
+      );
+      invalidResourceTokens.delete(selection.token);
+      updateComposer();
+      input.focus();
+      saveView();
+    };
+    chips.append(chip);
+  }
+  chips.hidden = resourceSelections.length === 0;
+}
 function renderPromptHighlights() {
   const input = $("prompt"),
     mirror = $("prompt-highlights"),
@@ -183,6 +218,7 @@ function renderPromptHighlights() {
   mirror.append(document.createTextNode("\u200b"));
   input.classList.toggle("has-resource-highlights", tokens.size > 0);
   mirror.hidden = tokens.size === 0;
+  renderResourceChips();
   syncPromptHighlightLayout();
 }
 function syncPromptHighlightLayout() {
@@ -263,7 +299,12 @@ function resourceKeydown(event) {
     $("prompt").focus();
     return true;
   }
-  if (event.key === "Tab") closeResourceMenu();
+  if (event.key === "Tab" && options.length) {
+    event.preventDefault();
+    event.stopPropagation();
+    options[index < 0 ? 0 : index].click();
+    return true;
+  }
   return false;
 }
 $("resource-menu").addEventListener("keydown", resourceKeydown);
@@ -300,7 +341,7 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
         ? "Tail Harness skills and commands"
         : trigger.prefix === "@"
           ? "Available agents"
-          : "Available skills and commands";
+          : "Agents, skills and commands";
   menu.append(heading);
   for (const warning of warnings) {
     const note = document.createElement("p");
@@ -321,13 +362,19 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
     menu.append(row);
   } else {
     for (const item of items) {
-      const key = item.scope === "project" ? "Project" : "Global",
-        groupKey = key + "\0" + item.origin;
+      const scope =
+          item.scope === "project"
+            ? "Project"
+            : item.scope === "catalog"
+              ? "Catalog"
+              : "User",
+        category = item.group || (item.kind === "agent" ? "Agents" : item.kind === "skill" ? "Skills" : "Commands"),
+        groupKey = category + "\0" + scope + "\0" + item.origin;
       if (!groups.has(groupKey)) {
         const section = document.createElement("section"),
           title = document.createElement("h3");
         section.className = "resource-group";
-        title.textContent = key + " · " + item.origin;
+        title.textContent = category + " · " + scope + " · " + item.origin;
         section.append(title);
         groups.set(groupKey, section);
         menu.append(section);
@@ -341,6 +388,7 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
       option.dataset.resourceKind = item.kind;
       option.disabled = item.selectable === false;
       option.title = item.source || item.origin || item.name;
+      option.setAttribute("aria-describedby", "resource-preview");
       const glyph = document.createElement("span");
       glyph.className = "resource-origin-icon";
       glyph.setAttribute("aria-hidden", "true");
@@ -360,14 +408,15 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
       text.append(name, description);
       option.append(glyph, text);
       option.onclick = () => selectResource(item, trigger);
+      option.onfocus = () => renderResourcePreview(item);
+      option.onpointerenter = () => renderResourcePreview(item);
       groups.get(groupKey).append(option);
     }
   }
   if (
     (trigger.prefix[0] === "@" &&
       !items.some((item) => item.kind === "agent")) ||
-    (trigger.prefix[0] === "/" &&
-      !items.some((item) => item.kind === "skill" || item.kind === "command"))
+    (trigger.prefix[0] === "/" && !items.length)
   ) {
     const empty = document.createElement("p");
     empty.className = "resource-empty";
@@ -376,6 +425,13 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
       : "No resource compatible with this engine.";
     menu.append(empty);
   }
+  const preview = document.createElement("aside");
+  preview.id = "resource-preview";
+  preview.className = "resource-preview";
+  preview.setAttribute("aria-live", "polite");
+  menu.append(preview);
+  const first = items.find((item) => item.selectable !== false) || items[0];
+  if (first) renderResourcePreview(first);
   menu.hidden = false;
   if (!menu.matches(":popover-open")) menu.showPopover();
   const rect = $("prompt").getBoundingClientRect();
@@ -383,6 +439,23 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
     Math.max(12, Math.min(rect.left, innerWidth - menu.offsetWidth - 12)) +
     "px";
   menu.style.top = Math.max(12, rect.top - menu.offsetHeight - 8) + "px";
+}
+function renderResourcePreview(item) {
+  const preview = $("resource-preview");
+  if (!preview || !item) return;
+  const title = document.createElement("strong"),
+    description = document.createElement("p"),
+    details = document.createElement("small");
+  title.textContent = (item.kind || "Resource") + " · " + item.name;
+  description.textContent = item.description || "No description provided.";
+  details.textContent = [
+    item.argument_hint ? "Arguments " + item.argument_hint : "",
+    item.source || "",
+    item.preflight_hint || item.unavailable_reason || "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  preview.replaceChildren(title, description, details);
 }
 function selectResource(item, trigger) {
   if (item.selectable === false) return;
@@ -442,15 +515,16 @@ async function refreshResources(trigger) {
     )
       return;
     resourceItems = Array.isArray(data.items) ? data.items : [];
-    const filtered = resourceItems
-      .filter((item) =>
-        trigger.prefix === "@"
-          ? item.kind === "agent"
-          : item.kind === "skill" || item.kind === "command",
-      )
-      .filter((item) =>
-        item.name.toLowerCase().includes(trigger.query.toLowerCase()),
-      );
+    let filtered = resourceItems
+      .filter((item) => trigger.prefix === "@" ? item.kind === "agent" : ["agent", "skill", "command", "rule", "context"].includes(item.kind))
+      .map((item) => ({ item, score: resourceMatchScore(item, trigger.query) }))
+      .filter((entry) => entry.score >= 0)
+      .sort((left, right) => right.score - left.score)
+      .map((entry) => entry.item);
+    const exact = filtered.filter(
+      (item) => item.name.toLowerCase() === trigger.query.toLowerCase(),
+    );
+    if (exact.length) filtered = exact;
     renderResourceMenu(
       trigger,
       filtered,
@@ -464,6 +538,21 @@ async function refreshResources(trigger) {
     const note = $("resource-menu").querySelector(".resource-empty");
     if (note) note.textContent = "Couldn't refresh resources.";
   }
+}
+function resourceMatchScore(item, query) {
+  const needle = query.toLowerCase();
+  if (!needle) return 0;
+  const text = (item.name + " " + (item.description || "")).toLowerCase();
+  if (text.includes(needle)) return 100 - text.indexOf(needle);
+  let offset = 0,
+    score = 0;
+  for (const character of needle) {
+    const found = text.indexOf(character, offset);
+    if (found < 0) return -1;
+    score += found === offset ? 3 : 1;
+    offset = found + 1;
+  }
+  return score;
 }
 function openResourceMenu() {
   const trigger = triggerAtCaret();
@@ -2419,6 +2508,29 @@ function activityTitle(e) {
     data.backend,
   );
   if (condition) return condition.title;
+  if (type === "hook_scope") {
+    return {
+      disabled: "Hooks disabled for this run",
+      project: "Using project hooks only",
+      global_and_project: "Using global and project hooks",
+    }[data.scope] || "Hook scope reported";
+  }
+  if (type === "resource_fallback")
+    return data.scope === "execution"
+      ? "Resource fallback applied for this run"
+      : "Resource fallback is advisory";
+  if (["invocation_started", "invocation_completed"].includes(type)) {
+    const invocation = data.invocation || data,
+      identity = invocation.role || invocation.resource_id || invocation.kind || "resource",
+      route = [invocation.backend, invocation.model, invocation.effort]
+        .filter(Boolean)
+        .join(" · ");
+    return (
+      (type === "invocation_started" ? "Started " : "Completed ") +
+      identity +
+      (route ? " · " + route : "")
+    );
+  }
   if (type === "tool_start")
     return data.command_name && tool
       ? "Running command " + tool
@@ -2430,6 +2542,8 @@ function activityTitle(e) {
         }[data.tool] || "Running " + (tool || "tool");
   if (type === "tool_end")
     return data.status === "failed" ? "Tool failed" : "Tool finished";
+  if (type === "answer_delta" && data.parent_tool_use_id)
+    return "Specialist is responding";
   if (["thinking", "reasoning_delta", "reasoning_summary"].includes(type))
     return "Thinking";
   if (
@@ -2684,6 +2798,10 @@ function event(e) {
   }
   if (e.type === "plan_updated") {
     status("Plan updated");
+  } else if (e.type === "answer_delta" && e.data.parent_tool_use_id) {
+    if (active) setActivitySummary(active, "Specialist is responding…");
+    status("Specialist is responding…");
+    return;
   } else if (e.type === "answer_delta") {
     // F-87: re-render the markdown at most once per frame, not per delta.
     const body = active.body;
@@ -4217,7 +4335,7 @@ function modelAvailability(
     !models.length || submitting || loading || uploads > 0 || policyPending;
   $("effort").disabled = $("model").disabled;
   $("prompt").placeholder = models.length
-    ? "Send a message… · Enter to send · Shift+Enter for a new line"
+    ? "Send a message… · / agents, skills and commands · Shift+Enter for a new line"
     : "Set up a model to send; your draft will be preserved.";
   $("model-note").hidden = !models.length;
   updateModelPermissions();
