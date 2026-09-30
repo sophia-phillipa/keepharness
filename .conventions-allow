@@ -1,0 +1,2 @@
+# Native CLI skill discovery requires this exact basename in the synthetic catalog.
+tests/fixtures/synthetic_squad/catalog/skills/demo-native/SKILL.md
