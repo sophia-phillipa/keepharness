@@ -50,6 +50,7 @@ from ..persistence.repositories import (
     ProjectRepository,
 )
 from . import queue_worker
+from .gate_service import GateService
 from .budgets import timeout_seconds
 from .project_service import ProjectService
 
@@ -143,6 +144,8 @@ class ConversationService:
         self.runtime_budgets = {}
         self.provider_slots = {}
         self.provider_inflight = {}
+        self.gates = GateService(self)
+        self.gates.invalidate_pending()
         for row in self.conversation_repository.running():
             self.finish(row["id"], "interrupted", {"error": "service_restarted", "metrics": None})
 
@@ -1407,6 +1410,8 @@ class ConversationService:
         mode = data.get("access_mode", "ask")
 
         async def approve(kind, params):
+            if kind == "gate":
+                return await self.gates.ask(row["id"], params, progress)
             fingerprint = approval_policy.rule_key(kind, params, permissions)
             scope = (
                 row["owner"],

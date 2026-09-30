@@ -61,7 +61,14 @@ def reset_legacy_approval_rules(db):
 
 
 # Append-only: migration N upgrades a database from version N-1 to N.
-MIGRATIONS = (baseline, reset_legacy_approval_rules)
+def add_gates(db):
+    db.execute(
+        "CREATE TABLE gates(gate_id TEXT PRIMARY KEY, job_id TEXT NOT NULL, "
+        "state TEXT NOT NULL, spec TEXT NOT NULL, choice TEXT, resolved_by TEXT, resolved_at REAL)"
+    )
+
+
+MIGRATIONS = (baseline, reset_legacy_approval_rules, add_gates)
 
 
 def migrate(db):

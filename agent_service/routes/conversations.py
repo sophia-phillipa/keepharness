@@ -16,6 +16,9 @@ from . import LimitedStream, api_route, body
 async def approval(request, service, identity):
     require_approval_session(request, service.config, identity)
     aid = request.path_params["approval"]
+    if service.gates.repository.get(aid):
+        data = await body(request)
+        return JSONResponse(service.gates.resolve(aid, identity, data))
     pending = service.approvals.get(aid)
     if not pending:
         raise APIError("approval_expired", 404)
@@ -146,6 +149,12 @@ async def submit_job(request, service, identity):
 
 async def job(request, service, identity):
     row = service.job(identity, request.path_params["job"])
+    row["gates"] = [
+        {**json.loads(gate["spec"]), "state": gate["state"],
+         "choice": json.loads(gate["choice"]) if gate["choice"] else None,
+         "resolved_by": gate["resolved_by"], "at": gate["resolved_at"]}
+        for gate in service.gates.repository.for_job(row["id"])
+    ]
     row["attachments"] = service.message_attachments(row)
     public_request = json.loads(row["payload"])
     row["request"] = {
