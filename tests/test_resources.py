@@ -13,7 +13,10 @@ def put(root, path, text):
 
 
 def cfg(root, backend="codex"):
-    return {"projects": {"p": {"root": str(root)}}, "services": {backend: {"mode": "native"}}}
+    return {
+        "projects": {"p": {"root": str(root), "permissions": {"delegate": True}}},
+        "services": {backend: {"mode": "native"}},
+    }
 
 
 def catalog_cfg(root, catalog, backend="codex"):
@@ -125,6 +128,7 @@ def test_catalog_kinds_namespace_maintenance_hints_and_agent_slash(tmp_path, mon
     assert writer["preflight_hint"]
     assert deploy["argument_hint"] == "<environment>"
     assert install["maintenance"] is True and install["group"] == "Maintenance"
+    assert deploy["native_command"] is False
     assert {item["kind"] for item in items if not item["selectable"]} >= {"rule", "context"}
 
     # Slash is canonical for palette agents; @ remains accepted for old clients.
@@ -139,6 +143,15 @@ def test_catalog_kinds_namespace_maintenance_hints_and_agent_slash(tmp_path, mon
         }
         selected = resources.resolve(config, data)
         assert "Delegate this task" in resources.prepare_prompt(data["prompt"], selected)
+
+    config["projects"]["p"]["permissions"]["delegate"] = False
+    unavailable = next(
+        item
+        for item in resources.discover(config, "p", "claude")["items"]
+        if item["kind"] == "agent"
+    )
+    assert unavailable["selectable"] is False
+    assert "delegation" in unavailable["unavailable_reason"].lower()
 
 
 def test_global_symlink_dedup_and_project_escape(tmp_path, monkeypatch):

@@ -38,6 +38,14 @@ def test_control_validates_and_plumbs_project_catalogs(tmp_path):
     invalid["projects"][0]["catalogs"] = ["missing"]
     with pytest.raises(ValueError, match="Catalog not registered"):
         manager.validate(invalid)
+    invalid["projects"][0]["catalogs"] = [{}]
+    with pytest.raises(ValueError, match="Catalog not registered"):
+        manager.validate(invalid)
+    for malformed in ({}, "catalog", [{"id": 3}], [{"id": "ok", "namespace": []}]):
+        invalid = copy.deepcopy(settings)
+        invalid["catalogs"] = malformed
+        with pytest.raises(ValueError, match="Invalid catalog"):
+            manager.validate(invalid)
 
 
 def test_catalog_delegates_to_resource_discovery(tmp_path, monkeypatch):

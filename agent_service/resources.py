@@ -390,6 +390,15 @@ def discover(config, project_id, backend, model=None, *, private=False, executio
                         )
                     if backend in ("local", "deepseek") and (scope == "user" or kind == "agent"):
                         reason = "This resource is not available in the isolated environment of this executor."
+                    delegate_allowed = project.get("permissions", {}).get("delegate") is True
+                    declared_mode = str(meta.get("mode", "")).strip()
+                    if (
+                        engine == "claude"
+                        and kind == "agent"
+                        and declared_mode != "conversational"
+                        and not delegate_allowed
+                    ):
+                        reason = "Agent delegation is disabled for this project and provider."
                     if kind in ("rule", "context"):
                         reason = "This resource is loaded automatically and cannot be selected."
                     if kind == "command" and re.search(r"!\{|!`|@\{", unfenced(body)):
@@ -435,7 +444,9 @@ def discover(config, project_id, backend, model=None, *, private=False, executio
                             meta.get("effort", meta.get("model_reasoning_effort", ""))
                         ),
                         "mode": mode,
-                        "native_command": engine == "claude" and kind == "command",
+                        "native_command": (
+                            engine == "claude" and kind == "command" and scope != "catalog"
+                        ),
                         "maintenance": maintenance,
                         "group": "Maintenance" if maintenance else kind.title() + "s",
                         "selectable": not bool(reason),

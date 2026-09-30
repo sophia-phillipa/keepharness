@@ -206,21 +206,28 @@ class Manager:
             catalog.get("id"): catalog.get("root")
             for catalog in self.settings.get("catalogs", [])
         }
-        for catalog in data.get("catalogs", []):
+        raw_catalogs = data.get("catalogs", [])
+        if not isinstance(raw_catalogs, list) or len(raw_catalogs) > 50:
+            raise ValueError("Invalid catalog configuration.")
+        for catalog in raw_catalogs:
             if not isinstance(catalog, dict):
                 raise ValueError("Invalid catalog configuration.")
             catalog_id = catalog.get("id", "")
             namespace = catalog.get("namespace", "")
             kind = catalog.get("kind", "folder")
-            raw = Path(catalog.get("root", "")).expanduser()
+            catalog_root_value = catalog.get("root", "")
             if (
-                not re.fullmatch(r"[a-z0-9_-]{1,64}", catalog_id)
+                not isinstance(catalog_id, str)
+                or not isinstance(namespace, str)
+                or not isinstance(catalog_root_value, str)
+                or not re.fullmatch(r"[a-z0-9_-]{1,64}", catalog_id)
                 or catalog_id in catalog_ids
                 or not re.fullmatch(r"[a-z0-9_-]{1,64}", namespace)
                 or kind not in ("folder", "git")
                 or type(catalog.get("trusted", False)) is not bool
             ):
                 raise ValueError("Invalid catalog configuration.")
+            raw = Path(catalog_root_value).expanduser()
             saved_missing = (
                 not raw.exists() and saved_catalog_roots.get(catalog_id) == str(raw)
             )
@@ -313,7 +320,10 @@ class Manager:
             if (
                 not isinstance(project_catalogs, list)
                 or len(project_catalogs) > 50
-                or any(value not in catalog_ids for value in project_catalogs)
+                or any(
+                    not isinstance(value, str) or value not in catalog_ids
+                    for value in project_catalogs
+                )
             ):
                 raise ValueError("Catalog not registered.")
             projects.append(
