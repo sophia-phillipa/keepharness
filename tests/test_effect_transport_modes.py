@@ -80,6 +80,7 @@ def test_native_configs_use_owned_server_and_disable_host_impersonation(tmp_path
     capability = {
         "socket": "/synthetic/prepare.sock",
         "token": "synthetic-prepare-only",
+        "config_file": "/synthetic/capability.json",
         "server_name": "harness_effects_fixture",
     }
     owned = server_spec(capability)
@@ -200,7 +201,13 @@ def test_scoped_mcp_is_registered_in_temporary_config_only(tmp_path):
         server = temporary["mcp_servers"]["harness_effects"]
         assert server["command"] == "/venv/bin/python"
         assert server["args"][0] == "/bridge/effect_mcp.py"
-        assert json.loads(server["args"][1])["socket"] == "/bridge/effect.sock"
+        assert server["args"][1] == "/bridge/effect.json"
+        credentials = json.loads((workspace.bridge / "effect.json").read_text())
+        assert credentials["socket"] == "/bridge/effect.sock"
+        assert credentials["token"] == "prepare-capability"
+        assert (workspace.bridge / "effect.json").stat().st_mode & 0o777 == 0o600
+        assert "prepare-capability" not in json.dumps(server)
+        assert "prepare-capability" not in json.dumps(workspace.command)
         index = workspace.command.index(str(socket))
         assert workspace.command[index - 1 : index + 2] == [
             "--ro-bind",
@@ -243,9 +250,7 @@ def test_scoped_process_can_prepare_without_reading_harness_store(tmp_path):
                 script = (
                     "import socket,json,pathlib; assert not pathlib.Path("
                     + repr(str(private))
-                    + ").exists(); s=socket.socket(socket.AF_UNIX); s.connect('/bridge/effect.sock'); s.sendall((json.dumps({'token':"
-                    + repr(capability["token"])
-                    + ",'method':'prepare','request':{}})+'\\n').encode()); print(s.recv(8192).decode())"
+                    + ").exists(); config=json.loads(pathlib.Path('/bridge/effect.json').read_text()); s=socket.socket(socket.AF_UNIX); s.connect(config['socket']); s.sendall((json.dumps({'token':config['token'],'method':'prepare','request':{}})+'\\n').encode()); print(s.recv(8192).decode())"
                 )
                 process = await asyncio.create_subprocess_exec(
                     *workspace.command,
@@ -334,3 +339,44 @@ def test_isolated_command_does_not_import_host_reserved_entries(tmp_path, monkey
     assert not any(
         "harness_effects" in arg for arg in build_command("fixture", {}, host_config=False)
     )
+
+
+def test_capability_token_is_file_only_and_expires(tmp_path):
+    import stat
+
+    from agent_service.effect_transport import server_spec
+
+    async def scenario():
+        service = SimpleNamespace(config={"effect_integrations": [{}]}, root=tmp_path)
+        async with effect_transport(service, "file-only", "codex", "native") as capability:
+            spec = server_spec(capability)
+            assert bool(capability["token"] not in json.dumps(spec))
+            path = Path(spec["args"][1])
+            assert stat.S_IMODE(path.stat().st_mode) == 0o600
+            assert json.loads(path.read_text()) == {
+                "socket": capability["socket"],
+                "token": capability["token"],
+            }
+        assert not path.exists()
+
+    asyncio.run(scenario())
+
+
+def test_codex_startup_argv_has_no_capability_token(tmp_path):
+    from unittest.mock import patch
+
+    from adapters.codex import backend
+
+    async def scenario():
+        service = SimpleNamespace(config={"effect_integrations": [{}]}, root=tmp_path)
+        async with effect_transport(service, "argv", "codex", "native") as capability:
+            config = {"binary": "fixture", "_effect_capability": capability}
+            with patch.object(backend, "run_turn", new_callable=AsyncMock) as run_turn:
+                await backend.run_native(
+                    config, "fixture", lambda *_: None, {}, None, "low", tmp_path, None
+                )
+            command = run_turn.call_args.args[8].command
+            assert bool(capability["token"] not in json.dumps(command))
+            assert capability["config_file"] in json.dumps(command)
+
+    asyncio.run(scenario())

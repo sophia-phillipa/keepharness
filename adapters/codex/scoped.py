@@ -4,7 +4,10 @@ import json
 import time
 
 from adapters.shared.scoped import (
-    collect_changes, prepare_scoped, scoped_home_read, scoped_home_write,
+    collect_changes,
+    prepare_scoped,
+    scoped_home_read,
+    scoped_home_write,
 )
 from agent_service.tool_metadata import event_metadata
 from agent_service.tools import ToolError
@@ -52,9 +55,7 @@ async def run(
             marker = "remote-thread.json"
             saved = scoped_home_read(home, marker)
             turn_started = False
-            previous_usage = (
-                json.loads(saved).get("usage_total") if saved else {}
-            )
+            previous_usage = json.loads(saved).get("usage_total") if saved else {}
             params = {
                 "model": model,
                 "cwd": "/work",
@@ -78,13 +79,15 @@ async def run(
                 params["ephemeral"] = not bool(session_dir)
                 thread = await rpc.call("thread/start", params)
             thread_id = thread["thread"]["id"]
-            scoped_home_write(home, marker,
+            scoped_home_write(
+                home,
+                marker,
                 json.dumps(
                     {
                         "id": thread_id,
                         **({"usage_total": previous_usage} if previous_usage is not None else {}),
                     }
-                )
+                ),
             )
             await sync_title(rpc, thread_id, (project or {}).get("_conversation_title"), event)
             await rpc.send(
@@ -180,7 +183,9 @@ async def run(
                     ).items():
                         usage[key] = usage.get(key, 0) + value
                     previous_usage = total
-                    scoped_home_write(home, marker, json.dumps({"id": thread_id, "usage_total": total}))
+                    scoped_home_write(
+                        home, marker, json.dumps({"id": thread_id, "usage_total": total})
+                    )
                     event(
                         "context_usage",
                         {

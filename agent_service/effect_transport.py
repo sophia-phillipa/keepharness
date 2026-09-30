@@ -93,6 +93,12 @@ async def effect_transport(service, job_id, backend, mode, *, execution_id=None)
         server = await asyncio.start_unix_server(handle, socket, limit=MAX_REQUEST_BYTES)
         os.chmod(socket, 0o600)
         capability["socket"] = socket
+        config_file = Path(directory) / "capability.json"
+        with open(
+            config_file, "x", opener=lambda path, flags: os.open(path, flags, 0o600)
+        ) as stream:
+            json.dump({"socket": socket, "token": token}, stream)
+        capability["config_file"] = str(config_file)
         try:
             yield capability
         finally:
@@ -107,15 +113,11 @@ def server_spec(capability, *, scoped=False):
     """Only the short-lived prepare capability enters the provider configuration."""
     import sys
 
-    public = {
-        "socket": "/bridge/effect.sock" if scoped else capability["socket"],
-        "token": capability["token"],
-    }
     return {
         "command": "/venv/bin/python" if scoped else sys.executable,
         "args": [
             "/bridge/effect_mcp.py" if scoped else str(Path(__file__).with_name("effect_mcp.py")),
-            json.dumps(public),
+            "/bridge/effect.json" if scoped else capability["config_file"],
         ],
     }
 

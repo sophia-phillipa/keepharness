@@ -71,8 +71,10 @@ def scoped_home_write(home, name, content):
                 raise ToolError("unsafe_scoped_home")
         temporary = ".harness-" + secrets.token_hex(16)
         fd = os.open(
-            temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-            0o600, dir_fd=directory,
+            temporary,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+            0o600,
+            dir_fd=directory,
         )
         try:
             with os.fdopen(fd, "wb") as stream:
@@ -144,9 +146,7 @@ def prepare_scoped(config, project, staged, session_dir, provider, auth_name):
             )
         )
         runtime = Path(config["python"]).parent.parent
-        home_config = (
-            '[mcp_servers.selected_project]\ndefault_tools_approval_mode = "approve"\ncommand = "/venv/bin/python"\nargs = ["/bridge/project_mcp.py"]\n'
-        )
+        home_config = '[mcp_servers.selected_project]\ndefault_tools_approval_mode = "approve"\ncommand = "/venv/bin/python"\nargs = ["/bridge/project_mcp.py"]\n'
         command = [
             "bwrap",
             "--unshare-all",
@@ -206,6 +206,10 @@ def prepare_scoped(config, project, staged, session_dir, provider, auth_name):
             shutil.copyfile(
                 Path(agent_service.__file__).with_name("effect_mcp.py"), bridge / "effect_mcp.py"
             )
+            with open(
+                bridge / "effect.json", "x", opener=lambda path, flags: os.open(path, flags, 0o600)
+            ) as stream:
+                json.dump({"socket": "/bridge/effect.sock", "token": capability["token"]}, stream)
             (bridge / "effect.sock").touch(mode=0o600)
             command += ["--ro-bind", capability["socket"], "/bridge/effect.sock"]
             spec = server_spec(capability, scoped=True)

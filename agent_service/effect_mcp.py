@@ -3,6 +3,7 @@
 import asyncio
 import json
 import sys
+from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 
@@ -25,7 +26,7 @@ async def prepare_request(config, request):
 
 
 def main():
-    config = json.loads(sys.argv[1])
+    config = json.loads(Path(sys.argv[1]).read_text())
     server = FastMCP(
         "harness-effects",
         instructions="Prepare Jira create-issue requests for human review. The harness executes only after single-use human approval. Do not wait for approval in this tool. Other publication paths are unenforced.",
