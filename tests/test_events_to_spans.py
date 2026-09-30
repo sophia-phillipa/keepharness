@@ -32,7 +32,7 @@ def test_single_backend_golden_and_purity():
     assert compact(events_to_spans(job("completed"), rows)) == [
         ("invoke_agent", 2, 4, "ok", "completed"),
         ("queue_wait", 1, 2, "ok", "completed"),
-        ("chat", 3, 4, "ok", "completed"),
+        ("chat", 3, 4, "unset", "unknown"),
     ]
     assert rows == before
 
@@ -102,12 +102,14 @@ def test_repeated_step_attempts_and_tool_ids_do_not_collide():
 
 
 @pytest.mark.parametrize("terminal,status", [("failed", "error"), ("cancelled", "cancelled")])
-def test_terminal_closes_open_children(terminal, status):
+def test_terminal_closes_unpaired_children_without_inventing_their_outcome(terminal, status):
     spans = events_to_spans(
         job(terminal),
         [event(1, "running"), event(2, "tool_start", tool="Read"), event(3, terminal)],
     )
-    assert [(s["end_ts"], s["status"]) for s in spans] == [(3, status), (3, status)]
+    assert [(s["end_ts"], s["status"]) for s in spans] == [(3, status), (3, "unset")]
+    assert spans[1]["attrs"]["outcome"] == "unknown"
+    assert spans[1]["attrs"]["end_inferred"] is True
 
 
 def test_reconnect_deduplicates_event_ids_and_pending_end_stays_null():
@@ -161,7 +163,7 @@ def test_native_gate_lifecycle_and_terminal_nested_pending_child():
         event(7, "cancelled"),
     ]
     spans = events_to_spans(job("cancelled"), rows)
-    assert (spans[2]["end_ts"], spans[2]["status"]) == (7, "cancelled")
+    assert (spans[2]["end_ts"], spans[2]["status"]) == (7, "unset")
     assert (spans[3]["end_ts"], spans[3]["status"]) == (6, "ok")
 
 
@@ -188,3 +190,35 @@ def test_repeated_execution_id_attempts_remain_distinct_and_metrics_map_safely()
     assert spans[0]["attrs"]["gen_ai.conversation.id"] == "conversation-root"
     assert spans[-1]["attrs"]["gen_ai.usage.input_tokens"] == 12
     assert "private" not in str(spans[-1]["attrs"])
+
+
+def test_failed_root_does_not_attribute_failure_to_legacy_step():
+    spans = events_to_spans(
+        job("failed", "maestro"),
+        [
+            event(1, "running"),
+            event(2, "maestro_step", index=1),
+            event(3, "tool_start", tool="Read"),
+            event(4, "failed", error="persistence_failure"),
+        ],
+    )
+    assert spans[0]["attrs"]["outcome"] == "failed"
+    for span in spans[1:]:
+        assert span["end_ts"] == 4
+        assert span["attrs"]["end_inferred"] is True
+        assert span["attrs"]["outcome"] == "unknown"
+        assert span["status"] == "unset"
+
+
+def test_explicit_terminal_after_inferred_boundary_is_authoritative():
+    spans = events_to_spans(
+        job("failed"),
+        [
+            event(1, "running"),
+            event(2, "tool_start", tool="Read", tool_call_id="call"),
+            event(3, "failed"),
+            event(4, "tool_end", tool_call_id="call", status="completed"),
+        ],
+    )
+    assert spans[1]["end_ts"] == 4 and spans[1]["attrs"]["outcome"] == "completed"
+    assert "end_inferred" not in spans[1]["attrs"]

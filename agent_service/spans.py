@@ -117,22 +117,21 @@ def events_to_spans(job, events):
         by_id[identifier] = span
         return span
 
-    def close(span, timestamp, outcome="unknown", cascade=False):
-        if span["end_ts"] is None:
+    def close(span, timestamp, outcome="unknown", cascade=False, inferred=False):
+        if span["end_ts"] is None or (not inferred and span["attrs"].get("end_inferred")):
+            if inferred:
+                span["attrs"]["end_inferred"] = True
+            else:
+                span["attrs"].pop("end_inferred", None)
             span["end_ts"] = timestamp
             span["attrs"]["outcome"] = outcome
             span["status"] = _status(outcome)
         if cascade:
             for child in spans:
                 if child["parent_id"] == span["span_id"]:
-                    # Missing tool/stage terminal events do not prove success.
-                    inherited = (
-                        outcome
-                        if child["kind"] == "chat"
-                        or outcome in {"failed", "cancelled", "interrupted"}
-                        else "unknown"
-                    )
-                    close(child, timestamp, inherited, cascade=True)
+                    # A parent's terminal proves its own outcome only. Missing child
+                    # terminals may reflect legacy capture or a later persistence error.
+                    close(child, timestamp, "unknown", cascade=True, inferred=True)
 
     workflow = payload.get("backend") == "maestro" or any(
         kind.startswith("maestro_") for _, _, kind, _ in rows if kind
@@ -187,7 +186,7 @@ def events_to_spans(job, events):
             active_stage = root
         elif kind == "maestro_step":
             if active_stage is not root and active_stage["end_ts"] is None:
-                close(active_stage, timestamp, cascade=True)
+                close(active_stage, timestamp, cascade=True, inferred=True)
             execution_id = data.get("execution_id")
             if not execution_id or execution_id == trace_id:
                 execution_id = f"{trace_id}:step:{identifier}"
