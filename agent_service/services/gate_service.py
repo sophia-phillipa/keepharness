@@ -6,10 +6,9 @@ import time
 import uuid
 from contextlib import nullcontext
 
-from .budgets import timeout_seconds
-
 from ..errors import APIError
 from ..persistence.gates import GateRepository
+from .budgets import timeout_seconds
 
 
 def validate_options(request):
@@ -36,7 +35,8 @@ def validate_choice(spec, choice):
     ids = {option["id"] for option in spec["options"]}
     if spec.get("multi_select"):
         valid = (
-            isinstance(choice, list) and bool(choice)
+            isinstance(choice, list)
+            and bool(choice)
             and all(isinstance(item, str) and item in ids for item in choice)
             and len(set(choice)) == len(choice)
         )
@@ -56,21 +56,32 @@ class GateService:
         for row in self.repository.pending():
             with self.service.db:
                 if self.repository.close(row["gate_id"], "invalidated"):
-                    self.service.event(row["job_id"], "gate_invalidated", {
-                        "gate_id": row["gate_id"], "reason": "service_restarted", "reask": True,
-                    })
+                    self.service.event(
+                        row["job_id"],
+                        "gate_invalidated",
+                        {
+                            "gate_id": row["gate_id"],
+                            "reason": "service_restarted",
+                            "reask": True,
+                        },
+                    )
 
     async def ask(self, job_id, request, progress):
         validate_options(request)
         wait_limit = timeout_seconds(self.service.config, "approval_timeout_seconds", 1800)
         gate_id = uuid.uuid4().hex
         spec = {
-            "gate_id": gate_id, "step": request.get("step"),
-            "question": request["question"], "options": request["options"],
+            "gate_id": gate_id,
+            "step": request.get("step"),
+            "question": request["question"],
+            "options": request["options"],
             "multi_select": request.get("multi_select", False),
-            "risk": request.get("risk", "low"), "timeout_at": time.time() + wait_limit,
-            "on_timeout": "deny", "publish": request.get("publish") is True,
-            "evidence": request.get("evidence", []), "enforcement": "advisory",
+            "risk": request.get("risk", "low"),
+            "timeout_at": time.time() + wait_limit,
+            "on_timeout": "deny",
+            "publish": request.get("publish") is True,
+            "evidence": request.get("evidence", []),
+            "enforcement": "advisory",
         }
         future = asyncio.get_running_loop().create_future()
         with self.service.db:
@@ -95,7 +106,10 @@ class GateService:
             with self.service.db:
                 changed = self.repository.close(gate_id, "invalidated")
             if changed:
-                progress("gate_invalidated", {"gate_id": gate_id, "reason": "execution_ended", "reask": True})
+                progress(
+                    "gate_invalidated",
+                    {"gate_id": gate_id, "reason": "execution_ended", "reask": True},
+                )
 
     def resolve(self, gate_id, identity, data):
         row = self.repository.get(gate_id)
@@ -103,14 +117,22 @@ class GateService:
         if job["owner"] != identity[0]:
             raise APIError("approval_owner_denied", 403)
         if row["state"] != "pending":
-            raise APIError("gate_already_resolved" if row["state"] == "resolved" else "gate_" + row["state"], 409)
+            raise APIError(
+                "gate_already_resolved" if row["state"] == "resolved" else "gate_" + row["state"],
+                409,
+            )
         spec = json.loads(row["spec"])
         pending = self.service.approvals.get(gate_id)
         if not pending or pending[1].done() or time.time() >= spec["timeout_at"]:
             raise APIError("gate_expired", 409)
         choice = data.get("choice")
         validate_choice(spec, choice)
-        resolution = {"gate_id": gate_id, "choice": choice, "resolved_by": identity[0], "at": time.time()}
+        resolution = {
+            "gate_id": gate_id,
+            "choice": choice,
+            "resolved_by": identity[0],
+            "at": time.time(),
+        }
         with self.service.db:
             if not self.repository.resolve(gate_id, choice, identity[0], resolution["at"]):
                 raise APIError("gate_already_resolved", 409)

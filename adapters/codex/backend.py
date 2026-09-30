@@ -1,7 +1,9 @@
 """Public entry points for the Codex provider."""
 
 import json
+import tempfile
 
+from adapters.shared.resources import copy_resource
 from adapters.shared.workspace import prepare_workspace
 
 from .native import RuntimeOptions, build_command, run_turn
@@ -19,15 +21,36 @@ async def run_native(config, prompt, event, project, model, effort, session_dir,
     if model_provider:
         command += ["-c", "model_provider=" + json.dumps(model_provider)]
     runtime = RuntimeOptions(command, model_provider=model_provider)
-    return await run_turn(
-        config,
-        event,
-        project,
-        model,
-        effort,
-        session_dir,
-        approve,
-        workspace,
-        runtime,
-        "codex",
-    )
+    with tempfile.TemporaryDirectory(prefix="codex-agents-", dir=workspace.home) as directory:
+        if workspace.permissions.get("delegate"):
+            for item in project.get("_resources", []):
+                if item["kind"] != "agent":
+                    continue
+                path = copy_resource(item, directory, ".toml")
+                key = "agents." + json.dumps(item["name"])
+                command += [
+                    "-c",
+                    key + ".config_file=" + json.dumps(str(path)),
+                    "-c",
+                    key + ".description=" + json.dumps(item.get("description", item["name"])),
+                ]
+                event(
+                    "resource_materialized",
+                    {
+                        "resource_id": item["resource_id"],
+                        "revision": item["revision"],
+                        "kind": "agent",
+                    },
+                )
+        return await run_turn(
+            config,
+            event,
+            project,
+            model,
+            effort,
+            session_dir,
+            approve,
+            workspace,
+            runtime,
+            "codex",
+        )

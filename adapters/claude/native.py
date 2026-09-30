@@ -4,6 +4,7 @@ import asyncio
 import json
 
 from adapters.shared.process import child_environment, process_diagnostics
+from agent_service.tools import ToolError
 from control.integrations import configurations, inventory
 
 from .auth import cli_login_environment
@@ -23,7 +24,11 @@ def build_command(config, model, home, permissions, selected, access_mode, addit
         for p in inventory()["claude"]
         if p["kind"] == "plugin"
     }
-    tools = ["Read", "Glob", "Grep"] if permissions.get("read") else []
+    tools = ["AskUserQuestion"]
+    if permissions.get("read"):
+        tools += ["Read", "Glob", "Grep"]
+    if permissions.get("delegate"):
+        tools += ["Task"]
     if permissions.get("read") and config.get("resource_skills"):
         tools += ["Skill"]
     if permissions.get("write"):
@@ -54,6 +59,8 @@ def build_command(config, model, home, permissions, selected, access_mode, addit
         "--include-partial-messages",
         "--permission-prompt-tool",
         "stdio",
+        "--permission-prompts",
+        "host",
         "--model",
         model,
         "--tools",
@@ -61,6 +68,10 @@ def build_command(config, model, home, permissions, selected, access_mode, addit
         "--strict-mcp-config",
         "--mcp-config",
         str(mcp),
+        "--setting-sources",
+        "user,project"
+        if permissions.get("hooks") and config.get("global_hooks") is True
+        else "project",
         "--settings",
         json.dumps(settings),
     ]
@@ -72,7 +83,61 @@ def build_command(config, model, home, permissions, selected, access_mode, addit
         command += ["--permission-mode", "dontAsk"]
     if additional_roots:
         command += ["--add-dir", *additional_roots]
+    if permissions.get("delegate"):
+        command += ["--forward-subagent-text"]
     return command
+
+
+async def answer_questions(inputs, approve):
+    """Map Claude's question batch to typed gates, retaining provider input fields."""
+    questions = inputs.get("questions") if isinstance(inputs, dict) else None
+    if not isinstance(questions, list) or not 1 <= len(questions) <= 4:
+        raise ToolError("claude_invalid_question")
+    gates = []
+    seen = set()
+    for question in questions:
+        if not isinstance(question, dict):
+            raise ToolError("claude_invalid_question")
+        text = question.get("question")
+        options = question.get("options")
+        multi_select = question.get("multiSelect", False)
+        if (
+            not isinstance(text, str)
+            or not text.strip()
+            or text in seen
+            or not isinstance(options, list)
+            or not 1 <= len(options) <= 100
+            or type(multi_select) is not bool
+        ):
+            raise ToolError("claude_invalid_question")
+        seen.add(text)
+        labels = set()
+        mapped = []
+        for index, option in enumerate(options):
+            label = option.get("label") if isinstance(option, dict) else None
+            if not isinstance(label, str) or not label or label in labels:
+                raise ToolError("claude_invalid_question")
+            labels.add(label)
+            mapped.append(
+                {"id": str(index), "label": label, "description": option.get("description", "")}
+            )
+        gates.append({"question": text, "options": mapped, "multi_select": multi_select})
+    answers = {}
+    for gate in gates:
+        reply = await approve("gate", gate)
+        if not reply.get("approved"):
+            return None
+        choice = reply.get("choice")
+        choices = choice if gate["multi_select"] else [choice]
+        labels = {option["id"]: option["label"] for option in gate["options"]}
+        if (
+            not isinstance(choices, list)
+            or not choices
+            or any(not isinstance(item, str) or item not in labels for item in choices)
+        ):
+            raise ToolError("claude_invalid_question_answer")
+        answers[gate["question"]] = ", ".join(labels[item] for item in choices)
+    return {**inputs, "answers": answers}
 
 
 async def run(
@@ -96,6 +161,18 @@ async def run(
     )
     if effort != "configured":
         command += ["--effort", effort]
+    if config.get("append_system_prompt"):
+        command += ["--append-system-prompt", config["append_system_prompt"]]
+    event(
+        "hook_scope",
+        {
+            "scope": "global_and_project"
+            if permissions.get("hooks") and config.get("global_hooks") is True
+            else "project"
+            if permissions.get("hooks")
+            else "disabled"
+        },
+    )
     marker = home / "claude-session.json"
     if marker.exists():
         command += ["--resume", json.loads(marker.read_text())["id"]]
@@ -141,10 +218,15 @@ async def run(
                 session = item["session_id"]
             if item.get("type") == "control_request":
                 req = item.get("request", {})
-                reply = await approve("claude/" + req.get("subtype", "permission"), req)
-                decision = reply.get("approved", False)
+                updated = req.get("input", {})
+                if req.get("tool_name") == "AskUserQuestion":
+                    updated = await answer_questions(updated, approve)
+                    decision = updated is not None
+                else:
+                    reply = await approve("claude/" + req.get("subtype", "permission"), req)
+                    decision = reply.get("approved", False)
                 response = (
-                    {"behavior": "allow", "updatedInput": req.get("input", {})}
+                    {"behavior": "allow", "updatedInput": updated}
                     if decision
                     else {"behavior": "deny", "message": "Denied by user"}
                 )

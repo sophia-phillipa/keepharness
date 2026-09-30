@@ -50,8 +50,11 @@ def rate_limit_update(item):
 class Stream:
     def __init__(self, event, config=None):
         self.watchdog = IdleWatchdog(config)
+        self.parent_tool_use_id = None
 
         def emit(kind, data):
+            if self.parent_tool_use_id:
+                data = {**data, "parent_tool_use_id": self.parent_tool_use_id}
             self.watchdog.observe(kind, data)
             event(kind, data)
 
@@ -67,6 +70,8 @@ class Stream:
         self.first = None
 
     def consume(self, item):
+        parent = item.get("parent_tool_use_id")
+        self.parent_tool_use_id = parent if isinstance(parent, str) and parent else None
         kind = item.get("type")
         if kind == "assistant":
             # Keep only known codes, never credential-bearing provider text.
@@ -123,13 +128,15 @@ class Stream:
             delta = value.get("delta", {})
             if delta.get("type") == "text_delta":
                 text = delta.get("text", "")
-                self.answer += text
+                if not self.parent_tool_use_id:
+                    self.answer += text
                 if text and self.first is None:
                     self.first = time.monotonic() - self.started
                 self.event("answer_delta", {"text": text})
             elif delta.get("type") == "thinking_delta":
                 text = delta.get("thinking", "")
-                self.thinking += text
+                if not self.parent_tool_use_id:
+                    self.thinking += text
                 self.event("reasoning_delta", {"text": text})
         elif kind == "user":
             for block in item.get("message", {}).get("content", []):
