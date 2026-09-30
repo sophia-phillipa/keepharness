@@ -7,6 +7,8 @@ import tempfile
 import time
 from datetime import datetime
 
+from adapters.shared.process import child_environment, process_diagnostics
+
 from .auth import cli_login_environment
 
 # Active versions omitted by the CLI picker. Reviewed 2026-09-26 against
@@ -49,10 +51,11 @@ async def metadata(config, subtype="initialize"):
             '{"disableAllHooks":true,"enabledPlugins":{}}',
             "--no-session-persistence",
             cwd=cwd,
-            env=cli_login_environment() if config.get("use_cli_login") else None,
+            env=child_environment(cli_login_environment() if config.get("use_cli_login") else None),
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,
             limit=1024 * 1024,
         )
 
@@ -80,18 +83,10 @@ async def metadata(config, subtype="initialize"):
                 return response.get("response", {})
             raise ValueError("claude_metadata_incomplete")
 
-        try:
+        async with process_diagnostics(proc, "claude"):
             async with asyncio.timeout(12):
                 initialized = await request("initialize")
                 return initialized if subtype == "initialize" else await request(subtype)
-        finally:
-            if proc.returncode is None:
-                proc.terminate()
-                try:
-                    await asyncio.wait_for(proc.wait(), 2)
-                except asyncio.TimeoutError:
-                    proc.kill()
-                    await proc.wait()
 
 
 def model_catalog(data):

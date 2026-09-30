@@ -2,34 +2,16 @@
 
 import asyncio
 import json
-import os
-import signal
 import time
 from pathlib import Path
 
+from adapters.shared.process import process_diagnostics
 from agent_service.tools import ToolError
 
 from .policy import prepare
 
 MAX_OUTPUT_BYTES = 8 * 1024 * 1024
 MAX_TEXT_CHARS = 500000
-
-
-async def _stop_process_group(proc):
-    if proc.returncode is not None:
-        return
-    try:
-        os.killpg(proc.pid, signal.SIGTERM)
-    except ProcessLookupError:
-        return
-    try:
-        await asyncio.wait_for(proc.wait(), 3)
-    except asyncio.TimeoutError:
-        try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        await proc.wait()
 
 
 async def run(
@@ -228,7 +210,7 @@ async def run_acp(
         cwd=cwd,
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.PIPE,
         limit=1024 * 1024,
         start_new_session=True,
         env=environment,
@@ -237,7 +219,7 @@ async def run_acp(
     rpc = AcpConnection(proc, state, approve, permissions, access_mode)
     rpc.mcp_selected = bool(config.get("integrations")) and access_mode != "read_only"
     event("planning", {"backend": "gemini", "model": model, "effort": "configured"})
-    try:
+    async with process_diagnostics(proc, "gemini", event, environment):
         initialized = await asyncio.wait_for(
             rpc.call(
                 "initialize",
@@ -313,5 +295,3 @@ async def run_acp(
                 "billing": "Google account quota; monetary amount unavailable",
             },
         }
-    finally:
-        await _stop_process_group(proc)

@@ -46,7 +46,7 @@ async def run(
         usage = {}
         token_usage = {}
         seen_answer = False
-        async with connection(command) as rpc:
+        async with connection(command, event=event, config=config) as rpc:
             marker = home / "remote-thread.json"
             turn_started = False
             previous_usage = (

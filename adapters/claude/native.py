@@ -3,6 +3,7 @@
 import asyncio
 import json
 
+from adapters.shared.process import child_environment, process_diagnostics
 from control.integrations import configurations, inventory
 
 from .auth import cli_login_environment
@@ -103,20 +104,21 @@ async def run(
     proc = await asyncio.create_subprocess_exec(
         *command,
         cwd=cwd,
-        env=cli_login_environment() if config.get("use_cli_login") else None,
+        env=child_environment(cli_login_environment() if config.get("use_cli_login") else None),
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.PIPE,
+        start_new_session=True,
         limit=2 * 1024 * 1024,
     )
-    state = Stream(event)
+    state = Stream(event, config)
     session = None
 
     async def send(value):
         proc.stdin.write((json.dumps(value) + "\n").encode())
-        await proc.stdin.drain()
+        await state.watchdog.wait(proc.stdin.drain())
 
-    try:
+    async with process_diagnostics(proc, "claude", event):
         await send(
             {
                 "type": "user",
@@ -131,7 +133,7 @@ async def run(
             }
         )
         while True:
-            line = await proc.stdout.readline()
+            line = await state.watchdog.wait(proc.stdout.readline())
             if not line:
                 break
             item = json.loads(line)
@@ -166,11 +168,3 @@ async def run(
             result["thread_id"] = session
         result["context_strategy"] = "native_session"
         return result
-    finally:
-        if proc.returncode is None:
-            proc.terminate()
-            try:
-                await asyncio.wait_for(proc.wait(), 5)
-            except asyncio.TimeoutError:
-                proc.kill()
-                await proc.wait()

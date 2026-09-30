@@ -2,14 +2,17 @@
 
 import asyncio
 import json
-import os
-import signal
 from contextlib import asynccontextmanager
+
+from adapters.shared.process import IdleWatchdog, child_environment, process_diagnostics
 
 
 class RPC:
-    def __init__(self, process):
+    def __init__(self, process, idle_timeout_seconds=300, config=None):
         self.process = process
+        self.watchdog = IdleWatchdog(
+            {"idle_timeout_seconds": idle_timeout_seconds, **(config or {})}
+        )
         self.sequence = 0
 
     async def send(self, method, params=None, request=True):
@@ -18,14 +21,28 @@ class RPC:
         if request:
             value["id"] = self.sequence
         self.process.stdin.write((json.dumps(value) + "\n").encode())
-        await self.process.stdin.drain()
+        await self.watchdog.wait(self.process.stdin.drain())
         return self.sequence
 
     async def receive(self):
-        line = await self.process.stdout.readline()
+        line = await self.watchdog.wait(self.process.stdout.readline())
         if not line:
             raise RuntimeError("codex_connection_closed")
-        return json.loads(line)
+        item = json.loads(line)
+        kind = item.get("method")
+        content = item.get("params", {}).get("item", {})
+        if kind in ("item/started", "item/completed") and content.get("type") in (
+            "mcpToolCall",
+            "commandExecution",
+            "fileChange",
+            "webSearch",
+            "dynamicToolCall",
+        ):
+            self.watchdog.observe(
+                "tool_start" if kind == "item/started" else "tool_end",
+                {"tool_id": content.get("id"), "tool": content.get("type")},
+            )
+        return item
 
     async def call(self, method, params=None):
         request_id = await self.send(method, params)
@@ -66,34 +83,23 @@ async def sync_title(rpc, thread_id, title, event):
 
 
 @asynccontextmanager
-async def connection(command, stderr=asyncio.subprocess.DEVNULL, env=None):
+async def connection(
+    command, stderr=asyncio.subprocess.PIPE, env=None, event=None, config=None, provider="codex"
+):
+    environment = child_environment(env, provider=provider)
     proc = await asyncio.create_subprocess_exec(
         *command,
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=stderr,
-        env=env,
+        env=environment,
         start_new_session=True,
         limit=2 * 1024 * 1024,
     )
-    try:
-        rpc = RPC(proc)
+    async with process_diagnostics(proc, provider, event, env):
+        rpc = RPC(proc, config=config)
         await rpc.initialize()
         yield rpc
-    finally:
-        if proc.returncode is None:
-            try:
-                os.killpg(proc.pid, signal.SIGTERM)
-            except ProcessLookupError:
-                pass
-            try:
-                await asyncio.wait_for(proc.wait(), 5)
-            except asyncio.TimeoutError:
-                try:
-                    os.killpg(proc.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-                await proc.wait()
 
 
 async def metadata(binary, method):

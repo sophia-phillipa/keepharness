@@ -65,5 +65,5 @@ async def run(
         ]
         if effort != "configured":
             command += ["--effort", effort]
-        result = await stream(command, prompt, event, model, effort)
+        result = await stream(command, prompt, event, model, effort, config=config)
         return {**result, **collect_changes(workspace)}

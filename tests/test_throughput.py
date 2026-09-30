@@ -89,7 +89,7 @@ def test_scoped_codex_live_usage_excludes_other_sessions(tmp_path):
             return next(self.notifications)
 
     @asynccontextmanager
-    async def connection(*args):
+    async def connection(*args, **kwargs):
         yield RPC()
 
     workspace = SimpleNamespace(command=[], home=tmp_path)

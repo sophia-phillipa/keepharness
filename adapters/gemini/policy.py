@@ -9,6 +9,7 @@ import os
 import uuid
 from pathlib import Path
 
+from adapters.shared.process import child_environment
 from agent_service.tools import ToolError
 from control.integrations import configurations
 
@@ -80,7 +81,7 @@ def prepare(config, home, permissions, access_mode):
     policy_file.chmod(0o600)
     override.write_text(json.dumps(settings))
     override.chmod(0o600)
-    env = dict(os.environ)
+    env = child_environment()
     for key in (
         "GEMINI_API_KEY",
         "GOOGLE_API_KEY",

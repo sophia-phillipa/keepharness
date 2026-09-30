@@ -235,7 +235,9 @@ async def run_turn(
     token_usage = {}
     seen_answer = False
     file_changes = {}
-    async with connection(command, env=environment) as rpc:
+    async with connection(
+        command, env=environment, event=event, config=config, provider=provider
+    ) as rpc:
         selected_inputs = await resource_inputs(rpc, project, cwd)
         marker = home / "native-thread.json"
         turn_started = False
