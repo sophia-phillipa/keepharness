@@ -2639,6 +2639,14 @@ function event(e) {
   if (e.id <= last) return;
   last = e.id;
   if (e.type === "session_turn_started") return;
+  if (e.type === "gate_required") {
+    showGate(e.data);
+    return;
+  }
+  if (["gate_resolved", "gate_expired", "gate_invalidated"].includes(e.type)) {
+    finishGate(e.data.gate_id, e.type.slice(5), e.data);
+    return;
+  }
   if (e.type === "approval_required") {
     showApproval(e.data);
     return;
@@ -5408,6 +5416,75 @@ $("vpn-login-form").onsubmit = async (e) => {
     $("vpn-login-error").textContent = error.message;
   }
 };
+function finishGate(id, state, data = {}) {
+  const box = document.getElementById("gate-" + id);
+  if (!box) return;
+  if (box.contains(document.activeElement) || box.dataset.restoreFocus === "true")
+    $("prompt").focus({ preventScroll: true });
+  box.dataset.state = state;
+  box.querySelectorAll("button,input").forEach(node => { node.disabled = true; });
+  const note = box.querySelector('[role="status"]');
+  note.textContent = state === "resolved"
+    ? "Answered" + (data.resolved_by ? " by " + data.resolved_by : "") + "."
+    : state === "invalidated"
+      ? "This question is no longer active. Send a message to ask again."
+      : "This question expired. Send a message to ask again.";
+}
+function showGate(data) {
+  if (document.getElementById("gate-" + data.gate_id)) return;
+  const box = document.createElement("section"), title = document.createElement("h3"),
+    note = document.createElement("p"), fields = document.createElement("fieldset"),
+    legend = document.createElement("legend"), submit = document.createElement("button");
+  box.id = "gate-" + data.gate_id;
+  box.className = "approval-card gate-card";
+  box.dataset.state = "pending";
+  title.textContent = "Your choice is needed";
+  legend.textContent = data.question;
+  fields.append(legend);
+  for (const option of data.options || []) {
+    const label = document.createElement("label"), input = document.createElement("input"),
+      text = document.createElement("span"), description = document.createElement("small");
+    input.type = data.multi_select ? "checkbox" : "radio";
+    input.name = "gate-choice-" + data.gate_id;
+    input.value = option.id;
+    text.textContent = option.label;
+    description.textContent = option.description || "";
+    label.append(input, text, description);
+    fields.append(label);
+  }
+  note.setAttribute("role", "status");
+  submit.className = "btn";
+  submit.textContent = "Confirm choice";
+  submit.disabled = true;
+  fields.onchange = () => { submit.disabled = !fields.querySelector("input:checked"); };
+  submit.onclick = async () => {
+    if (box.dataset.state !== "pending") return;
+    const choices = [...fields.querySelectorAll("input:checked")].map(input => input.value);
+    if (!choices.length) return;
+    box.dataset.state = "submitting";
+    box.dataset.restoreFocus = String(box.contains(document.activeElement));
+    box.querySelectorAll("button,input").forEach(node => { node.disabled = true; });
+    note.textContent = "Sending your choice…";
+    try {
+      const result = await post("/v1/approvals/" + data.gate_id, { choice: data.multi_select ? choices : choices[0] });
+      finishGate(data.gate_id, "resolved", result);
+    } catch (error) {
+      if (error.code === "gate_already_resolved") finishGate(data.gate_id, "resolved");
+      else if (["gate_invalidated", "gate_expired"].includes(error.code)) finishGate(data.gate_id, error.code.slice(5));
+      else if (box.dataset.state === "submitting") {
+        box.dataset.state = "pending";
+        note.textContent = "Couldn't send your choice. " + error.message;
+        box.querySelectorAll("button,input").forEach(node => { node.disabled = false; });
+        if (box.dataset.restoreFocus === "true") submit.focus();
+      }
+    } finally { delete box.dataset.restoreFocus; }
+  };
+  box.append(title, fields, submit, note);
+  $("messages").append(box);
+  status("Waiting for your choice");
+  box.scrollIntoView({ block: "nearest" });
+}
+
 function expireApproval(id) {
   const box = document.getElementById("approval-" + id);
   if (!box) return;

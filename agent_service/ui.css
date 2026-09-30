@@ -4266,3 +4266,9 @@ body.panel-order-reversed #app-topbar #menu .th-icon {
   padding-top: 0.5rem;
   border-top: 1px solid var(--th-border);
 }
+
+.gate-card fieldset { border: 0; padding: 0; min-width: 0; }
+.gate-card legend { font-weight: 600; margin-bottom: 8px; overflow-wrap: anywhere; }
+.gate-card label { display: grid; grid-template-columns: auto 1fr; gap: 4px 8px; margin: 8px 0; }
+.gate-card label small { grid-column: 2; overflow-wrap: anywhere; }
+.gate-card input { width: auto; }
