@@ -106,3 +106,102 @@ def test_submitted_resource_chain_uses_declared_dispatch(tmp_path, monkeypatch):
     assert "evidence" in infer.call_args_list[1].args[1]["_invocation_context"]
     assert result["answer"] == "written"
     service.db.close()
+
+
+@pytest.mark.parametrize(
+    "failure,outcome",
+    [
+        (ToolError("provider_failed"), "failed"),
+        (asyncio.CancelledError(), "cancelled"),
+        (None, "completed"),
+    ],
+)
+def test_maestro_records_terminal_execution_metadata(tmp_path, failure, outcome):
+    service = Service(config(tmp_path))
+    identity = ("a", service.config["clients"]["a"])
+    submitted = service.submit(
+        identity,
+        {
+            "project_id": "p",
+            "backend": "codex",
+            "model": "gpt-6-astra",
+            "effort": "low",
+            "prompt": "Review",
+        },
+    )
+    row = service.job(identity, submitted["job_id"])
+    data = json.loads(row["payload"])
+    declared = {
+        "steps": [
+            {
+                "role": "review",
+                "backend": "codex",
+                "model": "gpt-6-astra",
+                "effort": "low",
+                "task": "Review",
+                "reason": "Declared",
+            }
+        ]
+    }
+    with patch.object(
+        service, "infer", AsyncMock(side_effect=failure, return_value={"answer": "done"})
+    ) as infer:
+        if failure:
+            with pytest.raises(type(failure)):
+                asyncio.run(maestro.execute_plan(service, row, data, declared))
+        else:
+            asyncio.run(maestro.execute_plan(service, row, data, declared))
+    events = service.message_repository.all_events(row["id"])
+    start = next(json.loads(event["data"]) for event in events if event["type"] == "maestro_step")
+    terminal = next(
+        json.loads(event["data"]) for event in events if event["type"] == "maestro_step_completed"
+    )
+    assert terminal["outcome"] == outcome
+    assert start["execution_id"] == terminal["execution_id"] != row["id"]
+    assert start["parent_execution_id"] == row["id"]
+    assert start["attempt"] == 1 and start["schema_version"] == 1
+    assert infer.call_args.args[1]["_execution_id"] == start["execution_id"]
+    service.db.close()
+
+
+def test_work_item_retag_during_execution_reaches_next_step(tmp_path):
+    service = Service(config(tmp_path))
+    identity = ("a", service.config["clients"]["a"])
+    submitted = service.submit(
+        identity,
+        {
+            "project_id": "p",
+            "backend": "codex",
+            "model": "gpt-6-astra",
+            "effort": "low",
+            "prompt": "Review",
+            "work_item": "TASK-1",
+        },
+    )
+    row = service.job(identity, submitted["job_id"])
+    data = json.loads(row["payload"])
+    declared = {
+        "steps": [
+            {
+                "role": role,
+                "backend": "codex",
+                "model": "gpt-6-astra",
+                "effort": "low",
+                "task": role,
+                "reason": "Declared",
+            }
+            for role in ("research", "review")
+        ]
+    }
+    observed = []
+
+    async def infer(row, payload):
+        observed.append(payload["work_item"])
+        service.tag_work_item(identity, row["id"], "TASK-2")
+        return {"answer": "done"}
+
+    with patch.object(service, "infer", infer):
+        result = asyncio.run(maestro.execute_plan(service, row, data, declared))
+    assert observed == ["TASK-1", "TASK-2"]
+    assert [step["work_item"] for step in result["orchestration"]["steps"]] == observed
+    service.db.close()

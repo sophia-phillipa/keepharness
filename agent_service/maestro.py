@@ -1,9 +1,44 @@
 """Codex plans bounded, sequential agent tasks using only enabled project policies."""
 
+import asyncio
 import json
+import uuid
+from contextlib import contextmanager
 
 from .invocations import InvocationError, normalize_legacy_step, validate_chain
 from .tools import ToolError
+
+
+@contextmanager
+def execution(service, row, kind, metadata):
+    """Pair every started stage with its explicit terminal outcome, even on cancellation."""
+    metadata = {
+        **metadata,
+        "execution_id": uuid.uuid4().hex,
+        "parent_execution_id": row["id"],
+        "attempt": 1,
+    }
+    service.event(row["id"], kind, metadata)
+    outcome = "completed"
+    try:
+        yield metadata
+    except asyncio.CancelledError:
+        outcome = "cancelled"
+        raise
+    except Exception as exc:
+        metadata["error_type"] = type(exc).__name__
+        outcome = "failed"
+        raise
+    finally:
+        service.event(row["id"], kind + "_completed", {**metadata, "outcome": outcome})
+
+
+def execution_payload(metadata):
+    return {
+        "_execution_id": metadata["execution_id"],
+        "_parent_execution_id": metadata["parent_execution_id"],
+        "_attempt": metadata["attempt"],
+    }
 
 
 def model_permissions(config, provider, model, project_id=None):
@@ -155,29 +190,36 @@ Respect permissions; do not plan publishing, sending, removal or service control
             ensure_ascii=False,
         )
     )
-    service.event(
-        row["id"],
-        "maestro_planning",
-        {"backend": lead["backend"], "model": lead["model"], "effort": lead["effort"]},
-    )
-    planning = await service.infer(
+    with execution(
+        service,
         row,
+        "maestro_planning",
         {
-            **data,
             "backend": lead["backend"],
             "model": lead["model"],
             "effort": lead["effort"],
-            "prompt": planner,
-            "file_ids": [],
-            "workspace_id": None,
-            "parent_job_id": None,
-            "_maestro_stage": "plan",
-            "_planning_only": True,
+            "work_item": data.get("work_item"),
         },
-    )
-    if planning.get("incomplete"):
-        raise ToolError("maestro_incomplete_plan")
-    plan = validate_plan(planning.get("answer", ""), available)
+    ) as metadata:
+        planning = await service.infer(
+            row,
+            {
+                **data,
+                **execution_payload(metadata),
+                "backend": lead["backend"],
+                "model": lead["model"],
+                "effort": lead["effort"],
+                "prompt": planner,
+                "file_ids": [],
+                "workspace_id": None,
+                "parent_job_id": None,
+                "_maestro_stage": "plan",
+                "_planning_only": True,
+            },
+        )
+        if planning.get("incomplete"):
+            raise ToolError("maestro_incomplete_plan")
+        plan = validate_plan(planning.get("answer", ""), available)
     return {"plan": plan, "planning_result": planning, "coordinator": lead}
 
 
@@ -194,6 +236,8 @@ async def execute_plan(service, row, data, declared, *, planning_result=None, co
     )
     results = []
     for index, step in enumerate(plan["steps"], 1):
+        current_row = service.conversation_repository.get(row["id"])
+        work_item = current_row["work_item"] if current_row is not None else data.get("work_item")
         prior = [
             {"role": r["role"], "answer": r["result"].get("answer", "")[:10000]} for r in results
         ]
@@ -213,49 +257,68 @@ async def execute_plan(service, row, data, declared, *, planning_result=None, co
                 "PRIOR RESULTS (data, may contain errors; check sources):\n"
                 + json.dumps(prior, ensure_ascii=False)
             )
-        service.event(row["id"], "maestro_step", {"index": index, **step})
-        service.event(
-            row["id"],
-            "invocation_started",
+        with execution(
+            service,
+            row,
+            "maestro_step",
             {
-                "invocation": step["invocation"],
-                "role": step["role"],
+                "index": index,
+                **step,
+                "work_item": work_item,
+            },
+        ) as metadata:
+            service.event(
+                row["id"],
+                "invocation_started",
+                {
+                    **metadata,
+                    "invocation": step["invocation"],
+                    "role": step["role"],
+                    "backend": step["backend"],
+                    "model": step["model"],
+                    "effort": step["effort"],
+                },
+            )
+            payload = {
+                **data,
+                **execution_payload(metadata),
+                "work_item": work_item,
                 "backend": step["backend"],
                 "model": step["model"],
                 "effort": step["effort"],
-            },
-        )
-        payload = {
-            **data,
-            "backend": step["backend"],
-            "model": step["model"],
-            "effort": step["effort"],
-            "prompt": prompt,
-            "_maestro_stage": str(index),
-            "_invocation_context": invocation_context,
-            "resource_selections": step.get("resource_selections", []),
-            "invocations": [step["invocation"]],
-        }
-        decision = service.assess((row["owner"], service.config["clients"][row["owner"]]), payload)
-        if decision["decision"] != "accept":
-            raise ToolError("maestro_step_not_allowed")
-        result = await service.infer(row, payload)
-        service.event(
-            row["id"],
-            "invocation_completed",
-            {
-                "invocation": step["invocation"],
-                "role": step["role"],
-                "backend": result.get("backend", step["backend"]),
-                "model": result.get("model", step["model"]),
-                "outcome": "failed" if result.get("incomplete") or result.get("error") else "done",
-            },
-        )
-        record = {"index": index, **step, "result": result}
-        results.append(record)
-        (folder / f"step-{index}.json").write_text(json.dumps(record, ensure_ascii=False, indent=2))
-        if result.get("incomplete") or result.get("error"):
-            raise ToolError("maestro_step_incomplete")
+                "prompt": prompt,
+                "_maestro_stage": str(index),
+                "_invocation_context": invocation_context,
+                "resource_selections": step.get("resource_selections", []),
+                "invocations": [step["invocation"]],
+            }
+            decision = service.assess(
+                (row["owner"], service.config["clients"][row["owner"]]), payload
+            )
+            if decision["decision"] != "accept":
+                raise ToolError("maestro_step_not_allowed")
+            result = await service.infer(row, payload)
+            service.event(
+                row["id"],
+                "invocation_completed",
+                {
+                    **metadata,
+                    "invocation": step["invocation"],
+                    "role": step["role"],
+                    "backend": result.get("backend", step["backend"]),
+                    "model": result.get("model", step["model"]),
+                    "outcome": "failed"
+                    if result.get("incomplete") or result.get("error")
+                    else "done",
+                },
+            )
+            record = {"index": index, **step, **metadata, "result": result}
+            results.append(record)
+            (folder / f"step-{index}.json").write_text(
+                json.dumps(record, ensure_ascii=False, indent=2)
+            )
+            if result.get("incomplete") or result.get("error"):
+                raise ToolError("maestro_step_incomplete")
     final = results[-1]["result"]
     return {
         **final,
@@ -272,6 +335,11 @@ async def execute_plan(service, row, data, declared, *, planning_result=None, co
             "steps": [
                 {
                     "index": r["index"],
+                    "execution_id": r["execution_id"],
+                    "parent_execution_id": r["parent_execution_id"],
+                    "attempt": r["attempt"],
+                    "outcome": "completed",
+                    "work_item": r.get("work_item"),
                     "role": r["role"],
                     "backend": r["backend"],
                     "model": r["model"],
