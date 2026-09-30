@@ -55,8 +55,13 @@ def baseline(db):
     db.execute("CREATE TABLE IF NOT EXISTS deleted_project_folders(id TEXT PRIMARY KEY)")
 
 
+def reset_legacy_approval_rules(db):
+    """Pre-0.7.0 rules may have been approved by workers rather than humans."""
+    db.execute("DELETE FROM approval_rules")
+
+
 # Append-only: migration N upgrades a database from version N-1 to N.
-MIGRATIONS = (baseline,)
+MIGRATIONS = (baseline, reset_legacy_approval_rules)
 
 
 def migrate(db):

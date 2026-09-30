@@ -30,7 +30,7 @@ from .. import (
     tools,
     workspaces,
 )
-from ..approval_sessions import session_identity
+from ..approval_sessions import SESSION_COOKIE, initialize_session_database, session_identity
 from ..config import (
     EXECUTION_MODES,
     KINDS,
@@ -103,6 +103,7 @@ class ConversationService:
         self.config = config
         self.root = Path(config["state_dir"])
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        initialize_session_database(config)
         self.db = connect(self.root)
         migrate(self.db)
         self.conversation_repository = ConversationRepository(self.db)
@@ -234,6 +235,7 @@ class ConversationService:
             self.event(job, state, result)
 
     def identity(self, request):
+        request.state.approval_session_owner = None
         origin = request.headers.get("origin")
         if origin and origin not in self.config.get("origins", []):
             raise APIError("origin_denied", 403)
@@ -247,8 +249,12 @@ class ConversationService:
         )
         if cross_site and not navigation:
             raise APIError("origin_denied", 403)
-        session_owner = session_identity(request, self.config)
+        session_owner = None
+        if request.cookies.get(SESSION_COOKIE):
+            self.limit(("public", "session"), 240, "session_rate_limit")
+            session_owner = session_identity(request, self.config)
         if session_owner is not None:
+            request.state.approval_session_owner = session_owner
             return self.throttle(session_owner, self.config["clients"][session_owner], request)
         auth = request.headers.get("authorization", "")
         if not auth and request.cookies.get("harness_token"):

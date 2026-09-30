@@ -20,24 +20,34 @@ ENROLLMENT_SECONDS = 600
 SESSION_SECONDS = 30 * 24 * 60 * 60
 
 
-@contextmanager
-def session_database(config):
+def initialize_session_database(config):
+    """Repair private storage and create the schema at startup or from the owner CLI."""
     root = Path(config["state_dir"])
-    root.mkdir(parents=True, exist_ok=True, mode=0o700)
-    root.chmod(0o700)
     path = root / "approval_sessions.sqlite3"
-    descriptor = private_file(path, os.O_CREAT | os.O_WRONLY | os.O_NOFOLLOW)
     try:
-        os.fchmod(descriptor, 0o600)
-    finally:
-        os.close(descriptor)
-    for suffix in ("-journal", "-wal", "-shm"):
+        root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        descriptor = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         try:
-            Path(str(path) + suffix).chmod(0o600, follow_symlinks=False)
-        except FileNotFoundError:
-            pass
-    database = sqlite3.connect(path)
-    try:
+            os.fchmod(descriptor, 0o700)
+        finally:
+            os.close(descriptor)
+        for suffix in ("", "-journal", "-wal", "-shm"):
+            try:
+                descriptor = private_file(
+                    Path(str(path) + suffix),
+                    os.O_WRONLY | os.O_NOFOLLOW | (os.O_CREAT if not suffix else 0),
+                )
+            except FileNotFoundError:
+                if suffix:
+                    continue
+                raise
+            try:
+                os.fchmod(descriptor, 0o600)
+            finally:
+                os.close(descriptor)
+    except (OSError, NotImplementedError) as exc:
+        raise APIError("approval_storage_unsafe", 503) from exc
+    with session_database(config) as database:
         database.executescript("""
             CREATE TABLE IF NOT EXISTS enrollments(
                 digest TEXT PRIMARY KEY, owner TEXT NOT NULL, expires REAL NOT NULL
@@ -47,6 +57,15 @@ def session_database(config):
                 approval_capable INTEGER NOT NULL
             );
         """)
+
+
+@contextmanager
+def session_database(config, *, readonly=False):
+    """Open existing storage without schema or permission changes on requests."""
+    path = Path(config["state_dir"]) / "approval_sessions.sqlite3"
+    mode = "ro" if readonly else "rw"
+    database = sqlite3.connect(path.resolve().as_uri() + f"?mode={mode}", uri=True)
+    try:
         with database:
             yield database
     finally:
@@ -61,6 +80,7 @@ def issue_enrollment(config, owner):
     """Owner CLI only: never expose issuance through an HTTP or MCP route."""
     if owner not in config["clients"]:
         raise APIError("approval_owner_unknown", 403)
+    initialize_session_database(config)
     nonce = secrets.token_urlsafe(32)
     with session_database(config) as database:
         database.execute("DELETE FROM enrollments WHERE expires <= ?", (time.time(),))
@@ -93,11 +113,30 @@ def consume_enrollment(config, nonce):
     return token
 
 
+def revoke_sessions(config, owner=None):
+    """Owner CLI: revoke existing sessions and links that could recreate them."""
+    if owner is not None and owner not in config["clients"]:
+        raise APIError("approval_owner_unknown", 403)
+    initialize_session_database(config)
+    with session_database(config) as database:
+        for table in ("sessions", "enrollments"):
+            if owner is None:
+                database.execute(f"DELETE FROM {table}")
+            else:
+                database.execute(f"DELETE FROM {table} WHERE owner=?", (owner,))
+
+
+def revoke_session(config, token):
+    """Remove only the current browser's session; other devices remain enrolled."""
+    with session_database(config) as database:
+        database.execute("DELETE FROM sessions WHERE digest=?", (token_digest(token),))
+
+
 def session_identity(request, config):
     token = request.cookies.get(SESSION_COOKIE)
     if not token or len(token) > 128:
         return None
-    with session_database(config) as database:
+    with session_database(config, readonly=True) as database:
         row = database.execute(
             "SELECT owner FROM sessions WHERE digest=? AND expires>? AND approval_capable=1",
             (token_digest(token), time.time()),
@@ -106,5 +145,5 @@ def session_identity(request, config):
 
 
 def require_approval_session(request, config, identity):
-    if session_identity(request, config) != identity[0]:
+    if getattr(request.state, "approval_session_owner", None) != identity[0]:
         raise APIError("approval_session_required", 403)

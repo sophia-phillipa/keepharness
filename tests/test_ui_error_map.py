@@ -30,6 +30,7 @@ DYNAMIC = {
     "service_restarted",  # conversation_service recovery
     "model_removed",  # conversation_service cancels a run on a config reload
     "configuration_changed",
+    "session_rate_limit",  # conversation_service passes this code to its limiter
     "restart_schedule_failed",  # queue_worker deployment
     "internal_error",  # routes/__init__.py 500 body
     "capability_unavailable",  # execution decision reasons

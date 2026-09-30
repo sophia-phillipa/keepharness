@@ -184,9 +184,13 @@ def test_mcp_cannot_resolve_any_lineage(monkeypatch):
 
     monkeypatch.setattr(mcp_bridge, "call", forbidden)
     for job in ("self", "ancestor", "unrelated"):
-        result = asyncio.run(mcp_bridge.resolve_approval(job, True))
-        assert result["http_status"] == 403
-        assert result["error"]["code"] == "approval_session_required"
+        result = asyncio.run(mcp_bridge.mcp.call_tool(
+            "resolve_approval", {"approval_id": job, "approved": True}
+        ))
+        assert result.isError is True
+        body = json.loads(result.content[0].text)
+        assert body["http_status"] == 403
+        assert body["error"]["code"] == "approval_session_required"
 
 
 def test_cli_enrolls_existing_owner_only(approval_app, tmp_path, capsys):
@@ -194,7 +198,7 @@ def test_cli_enrolls_existing_owner_only(approval_app, tmp_path, capsys):
 
     config = approval_app.state.service.config
     (tmp_path / "runtime.json").write_text(json.dumps(config))
-    main(["--state", str(tmp_path), "approve-device", "--owner", "owner@example.com"])
+    main(["--state", str(tmp_path), "approve-device", "--owner", "owner@example.com", "--yes"])
     link = capsys.readouterr().out.strip().splitlines()[-1]
     assert urlsplit(link).path == "/approve-device"
 

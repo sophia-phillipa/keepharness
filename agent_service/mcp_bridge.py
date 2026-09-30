@@ -6,6 +6,7 @@ from pathlib import Path
 
 import httpx
 from mcp.server.fastmcp import FastMCP
+from mcp.types import CallToolResult, TextContent
 
 
 def read_env(name, legacy, default=None):
@@ -161,15 +162,18 @@ async def submit_job(
 
 
 @mcp.tool()
-async def resolve_approval(approval_id: str, approved: bool, answers: dict | None = None) -> dict:
+async def resolve_approval(
+    approval_id: str, approved: bool, answers: dict | None = None
+) -> CallToolResult:
     """Approval decisions require the person's owner-enrolled browser session."""
-    return {
+    body = {
         "error": {
             "code": "approval_session_required",
             "message": "Use an enrolled browser to resolve this approval.",
         },
         "http_status": 403,
     }
+    return CallToolResult(isError=True, content=[TextContent(type="text", text=json.dumps(body))])
 
 
 @mcp.tool()

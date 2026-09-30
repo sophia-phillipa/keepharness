@@ -4,6 +4,7 @@ import hashlib
 import hmac
 from html import escape
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from starlette.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from starlette.routing import Route
@@ -11,11 +12,17 @@ from starlette.routing import Route
 import adapters
 from tail_ui import asset_response, static_response
 
-from ..approval_sessions import SESSION_COOKIE, SESSION_SECONDS, consume_enrollment
+from ..approval_sessions import SESSION_COOKIE, SESSION_SECONDS, consume_enrollment, revoke_session
 from ..config import PACKAGE_DIR, REPOSITORY_ROOT, VERSION_FILE
 from ..errors import APIError
 from ..persistence.db import encoded
 from . import api_route, body
+
+
+def secure_cookie(request, config):
+    """The browser may use TLS even when the trusted proxy forwards HTTP locally."""
+    browser_scheme = urlsplit(config.get("browser_url") or "").scheme
+    return request.url.scheme == "https" or browser_scheme == "https"
 
 
 async def approve_device(request, service, identity):
@@ -54,7 +61,7 @@ async def approve_device(request, service, identity):
         max_age=SESSION_SECONDS,
         httponly=True,
         samesite="strict",
-        secure=request.url.scheme == "https",
+        secure=secure_cookie(request, service.config),
     )
     return response
 
@@ -79,8 +86,19 @@ async def login(request, service, identity):
         token,
         httponly=True,
         samesite="strict",
-        secure=request.url.scheme == "https",
+        secure=secure_cookie(request, config),
     )
+    return response
+
+
+async def logout(request, service, identity):
+    if getattr(request.state, "approval_session_owner", None) == identity[0]:
+        revoke_session(service.config, request.cookies[SESSION_COOKIE])
+    response = JSONResponse({"authenticated": False})
+    for name in (SESSION_COOKIE, "harness_token"):
+        response.delete_cookie(
+            name, httponly=True, samesite="strict", secure=secure_cookie(request, service.config)
+        )
     return response
 
 
@@ -173,6 +191,7 @@ async def ui(request):
 ROUTES = [
     api_route("/approve-device", approve_device, methods=["GET", "POST"], authenticated=False),
     api_route("/v1/login", login, methods=["POST"], authenticated=False),
+    api_route("/v1/logout", logout, methods=["POST"]),
     api_route("/.well-known/agent-capabilities.json", capabilities),
     api_route("/v1/version", version),
     Route("/guide", ui),

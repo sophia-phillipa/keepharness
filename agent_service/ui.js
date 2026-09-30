@@ -922,12 +922,16 @@ const userErrors = {
     "This approval request expired. Send your message again if you still need it.",
   approval_session_required:
     "Enroll this browser using an owner-issued link. On the server, run tail-harness approve-device with your existing owner id and state directory.",
+  approval_storage_unsafe:
+    "Approval sessions could not be stored securely. Ask the server owner to check the state directory permissions before trying again.",
   approval_enrollment_invalid:
     "This device enrollment link expired or was already used. Ask the owner for a new link.",
   approval_owner_unknown:
     "Choose an existing owner id when enrolling this browser.",
   enrollment_rate_limit:
     "Too many enrollment attempts. Wait a moment before trying again.",
+  session_rate_limit:
+    "Too many session authentication attempts. Wait a moment before trying again.",
   invalid_provider_capacity:
     "The provider capacity is invalid. Ask the administrator to set a positive whole number.",
   provider_idle_timeout:
