@@ -29,6 +29,17 @@ ATTRIBUTE_NAMES = {
     "inference_seconds": "inference_seconds",
     "cost_usd": "cost_usd",
     "error_type": "error.type",
+    "effect_id": "effect_id",
+    "operation": "operation",
+    "integration": "integration",
+    "endpoint": "endpoint",
+    "destination": "destination",
+    "arguments_digest": "arguments_digest",
+    "artifact_digest": "artifact_digest",
+    "approved_by": "approved_by",
+    "idempotency_key": "idempotency_key",
+    "enforcement": "enforcement",
+    "decision": "decision",
 }
 
 
@@ -96,6 +107,7 @@ def events_to_spans(job, events):
             )
         )
     spans, by_id, executions, stages, tools, gates, chats = [], {}, {}, {}, {}, {}, {}
+    effects = {}
 
     def create(identifier, kind, name, start, parent, data):
         if identifier in by_id:
@@ -129,6 +141,12 @@ def events_to_spans(job, events):
         if cascade:
             for child in spans:
                 if child["parent_id"] == span["span_id"]:
+                    if child["kind"] == "harness.effect" or (
+                        child["kind"] == "harness.gate" and child["attrs"].get("effect_id")
+                    ):
+                        # Prepared publication remains actionable after inference ends.
+                        # Its own durable lifecycle establishes its terminal boundary.
+                        continue
                     # A parent's terminal proves its own outcome only. Missing child
                     # terminals may reflect legacy capture or a later persistence error.
                     close(child, timestamp, "unknown", cascade=True, inferred=True)
@@ -165,7 +183,54 @@ def events_to_spans(job, events):
         if parent_tool is not None:
             parent = parent_tool
         event_content = {"ts": timestamp, "name": kind, "data": data}
-        if kind == "queued":
+        if data.get("enforcement") in {"advisory", "unenforced"}:
+            data = {**data, "enforcement": "unenforced"}
+            root["attrs"]["enforcement"] = "unenforced"
+        elif kind == "publication_policy" and data.get("enforcement") == "mediated":
+            if root["attrs"].get("enforcement") != "unenforced":
+                root["attrs"]["enforcement"] = "mediated"
+        if kind and kind.startswith("effect_") and data.get("effect_id"):
+            effect_id = data["effect_id"]
+            if effect_id not in effects:
+                effects[effect_id] = create(
+                    f"{trace_id}:effect:{effect_id}",
+                    "harness.effect",
+                    "Publish " + str(data.get("operation") or "effect"),
+                    timestamp,
+                    parent["span_id"],
+                    data,
+                )
+            span = effects[effect_id]
+            span["attrs"].update(_attrs(data))
+            effect_status = data.get("status") or {
+                "effect_prepared": "prepared",
+                "effect_approved": "approved",
+                "effect_intent": "executing",
+                "effect_execution": "executing",
+                "effect_done": "done",
+                "effect_failed": "failed",
+                "effect_unknown": "unknown",
+                "effect_denied": "denied",
+                "effect_invalidated": "invalidated",
+            }.get(kind, span["attrs"].get("effect_status", "unknown"))
+            span["attrs"]["effect_status"] = effect_status
+            receipt = _object(data.get("receipt"))
+            if isinstance(receipt.get("issue_key"), str):
+                span["attrs"]["receipt_issue_key"] = receipt["issue_key"]
+            span["events"].append({"ts": timestamp, "name": kind, "attrs": _attrs(data)})
+            span["content"].append(event_content)
+            if effect_status in {"done", "failed", "unknown", "denied", "invalidated"}:
+                # Reconciliation can establish an outcome after an uncertain terminal.
+                outcome = {
+                    "done": "completed",
+                    "denied": "cancelled",
+                    "invalidated": "cancelled",
+                }.get(effect_status, effect_status)
+                span["end_ts"] = timestamp
+                span["attrs"]["outcome"] = outcome
+                span["attrs"].pop("end_inferred", None)
+                span["status"] = _status(outcome)
+        elif kind == "queued":
             queue = create(
                 f"{trace_id}:queue:{identifier}", "queue_wait", "Queue", timestamp, trace_id, data
             )
