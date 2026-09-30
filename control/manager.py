@@ -197,6 +197,19 @@ class Manager:
         if not isinstance(policy, str) or len(policy) > 12000:
             raise ValueError("Maestro instructions: maximum of 12,000 characters.")
         out["maestro_instructions"] = policy
+        coordinator = data.get("maestro_coordinator", {})
+        if (
+            not isinstance(coordinator, dict)
+            or set(coordinator) - {"backend", "model", "effort"}
+            or any(
+                not isinstance(value, str) or not 1 <= len(value) <= 200
+                for value in coordinator.values()
+            )
+            or coordinator.get("backend", "codex")
+            not in ("codex", "claude", "gemini", "local", "deepseek")
+        ):
+            raise ValueError("Invalid Maestro coordinator.")
+        out["maestro_coordinator"] = dict(coordinator)
         default = data.get("default_backend", "")
         if default not in ("", "codex", "claude", "gemini", "local", "deepseek"):
             raise ValueError("Invalid default executor.")
@@ -204,8 +217,7 @@ class Manager:
         catalogs = []
         catalog_ids = set()
         saved_catalog_roots = {
-            catalog.get("id"): catalog.get("root")
-            for catalog in self.settings.get("catalogs", [])
+            catalog.get("id"): catalog.get("root") for catalog in self.settings.get("catalogs", [])
         }
         raw_catalogs = data.get("catalogs", [])
         if not isinstance(raw_catalogs, list) or len(raw_catalogs) > 50:
@@ -229,9 +241,7 @@ class Manager:
             ):
                 raise ValueError("Invalid catalog configuration.")
             raw = Path(catalog_root_value).expanduser()
-            saved_missing = (
-                not raw.exists() and saved_catalog_roots.get(catalog_id) == str(raw)
-            )
+            saved_missing = not raw.exists() and saved_catalog_roots.get(catalog_id) == str(raw)
             if not raw.is_absolute() or (not raw.is_dir() and not saved_missing):
                 raise ValueError("Choose an existing, absolute catalog folder.")
             catalog_root = raw.resolve()
@@ -332,6 +342,8 @@ class Manager:
                 )
             ):
                 raise ValueError("Catalog not registered.")
+            if project.get("maestro_plan_policy", "review") not in ("review", "auto"):
+                raise ValueError("Invalid Maestro plan policy.")
             projects.append(
                 {
                     "id": pid,
@@ -340,6 +352,11 @@ class Manager:
                     "service_units": list(dict.fromkeys(units)),
                     "permissions": dict(overrides),
                     "catalogs": list(dict.fromkeys(project_catalogs)),
+                    **(
+                        {"maestro_plan_policy": project["maestro_plan_policy"]}
+                        if "maestro_plan_policy" in project
+                        else {}
+                    ),
                     **(
                         {"work_item_pattern": validate_pattern(project["work_item_pattern"])}
                         if "work_item_pattern" in project

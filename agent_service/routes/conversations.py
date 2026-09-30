@@ -161,6 +161,26 @@ async def submit_job(request, service, identity):
     )
 
 
+async def recover_workflow(request, service, identity):
+    return JSONResponse(
+        service.recover_workflow(
+            identity,
+            request.path_params["job"],
+            await body(request),
+            rerun=request.url.path.endswith("/rerun"),
+            idem=request.headers.get("idempotency-key"),
+        ),
+        status_code=202,
+    )
+
+
+async def save_workflow(request, service, identity):
+    data = await body(request)
+    return JSONResponse(
+        service.save_workflow(identity, request.path_params["job"], data.get("id")), status_code=201
+    )
+
+
 async def job(request, service, identity):
     row = service.job(identity, request.path_params["job"])
     row["gates"] = gate_records(service, row["id"])
@@ -293,6 +313,9 @@ ROUTES = [
     api_route("/v1/assess", assess, methods=["POST"]),
     api_route("/v1/jobs", submit_job, methods=["POST"]),
     api_route("/v1/jobs/{job}", job),
+    api_route("/v1/jobs/{job}/resume", recover_workflow, methods=["POST"]),
+    api_route("/v1/jobs/{job}/rerun", recover_workflow, methods=["POST"]),
+    api_route("/v1/jobs/{job}/save-workflow", save_workflow, methods=["POST"]),
     api_route("/v1/jobs/{job}/events", job_events),
     api_route("/v1/jobs/{job}/cancel", cancel_job, methods=["POST"]),
     api_route("/v1/jobs/{job}/artifacts/result.json", job_result),
