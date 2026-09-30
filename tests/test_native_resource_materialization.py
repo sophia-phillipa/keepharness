@@ -55,7 +55,7 @@ def test_codex_agent_regular_copy_and_model_effort(tmp_path, monkeypatch):
             lambda *_: None,
             {
                 "root": str(tmp_path),
-                "permissions": {"read": True, "delegate": True},
+                "permissions": {"read": True},
                 "_resources": [item],
             },
             "gpt-6-astra",

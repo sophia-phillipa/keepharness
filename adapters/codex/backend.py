@@ -22,7 +22,7 @@ async def run_native(config, prompt, event, project, model, effort, session_dir,
         command += ["-c", "model_provider=" + json.dumps(model_provider)]
     runtime = RuntimeOptions(command, model_provider=model_provider)
     with tempfile.TemporaryDirectory(prefix="codex-agents-", dir=workspace.home) as directory:
-        if workspace.permissions.get("delegate"):
+        if workspace.permissions.get("read"):
             for item in project.get("_resources", []):
                 if item["kind"] != "agent":
                     continue
