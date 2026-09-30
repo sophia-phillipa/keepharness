@@ -262,6 +262,9 @@ async def run(service):
                     row["project"], answer="Execution interrupted: " + code, finished=True
                 )
         finally:
+            descendants = cancel_descendants(service, row["id"])
+            if descendants:
+                await asyncio.gather(*descendants, return_exceptions=True)
             # Not on shutdown (the worker itself is cancelled): the refresh can wait up to
             # 25 s on the Codex CLI and would hold the process open after SIGTERM.
             if (
@@ -278,10 +281,32 @@ async def run(service):
             service.runtime_budgets.pop(row["id"], None)
 
 
-def cancel(service, identity, job):
-    row = service.job(identity, job)
-    if row["state"] == "queued":
-        service.finish(job, "cancelled", {"metrics": None})
+def cancel_descendants(service, job):
+    tasks = []
+    for row in service.conversation_repository.execution_descendants(job):
+        task = cancel_owned(service, row)
+        if task is not None and task is not asyncio.current_task():
+            tasks.append(task)
+    return tasks
+
+
+def cancel_owned(service, row):
+    job = row["id"]
+    task = service.job_tasks.get(job)
+    if task is not None:
+        task.cancel()
     elif row["state"] == "running" and service.active == job and service.task:
         service.task.cancel()
+    if row["state"] == "queued" or (row["state"] == "running" and service.active != job):
+        settle(service, job, "cancelled", with_partial_answer(service, job, {"metrics": None}))
+    for pending_job, future in list(service.approvals.values()):
+        if pending_job == job and not future.done():
+            future.cancel()
+    return task
+
+
+def cancel(service, identity, job):
+    row = service.job(identity, job)
+    cancel_descendants(service, job)
+    cancel_owned(service, row)
     return {"job_id": job, "cancel_requested": row["state"] not in TERMINAL}

@@ -53,12 +53,23 @@ class ConversationRepository:
         ).fetchone()
 
     def ready(self):
-        """Queued jobs whose parent is not itself queued or running, oldest first."""
+        """Serialize conversation turns, but allow execution children of a running job."""
         return self.db.execute(
             "SELECT child.* FROM jobs child LEFT JOIN jobs parent "
-            "ON parent.id=json_extract(child.payload,'$.parent_job_id') "
-            "WHERE child.state='queued' AND (parent.id IS NULL OR parent.state NOT IN ('queued','running')) "
+            "ON parent.id=coalesce(json_extract(child.payload,'$.execution_parent_id'), "
+            "json_extract(child.payload,'$.parent_job_id')) "
+            "WHERE child.state='queued' AND (parent.id IS NULL OR parent.state NOT IN ('queued','running') "
+            "OR (parent.state='running' AND json_extract(child.payload,'$.execution_parent_id')=parent.id)) "
             "ORDER BY child.created,child.id"
+        ).fetchall()
+
+    def execution_descendants(self, job):
+        return self.db.execute(
+            "WITH RECURSIVE descendants(id) AS (SELECT id FROM jobs WHERE "
+            "json_extract(payload,'$.execution_parent_id')=? UNION SELECT child.id FROM jobs child "
+            "JOIN descendants parent ON json_extract(child.payload,'$.execution_parent_id')=parent.id) "
+            "SELECT jobs.* FROM jobs JOIN descendants USING(id)",
+            (job,),
         ).fetchall()
 
     def by_idempotency_key(self, owner, project, idem):

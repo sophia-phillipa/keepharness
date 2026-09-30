@@ -58,7 +58,8 @@ def test_admission_errors_precede_executor_registration(tmp_path):
         with pytest.raises(APIError) as error:
             asyncio.run(instance.infer(row, {**data, "backend": "unknown"}))
         assert error.value.code == "backend_unavailable"
-        assert instance.active_executors[row["id"]] == ("unknown", "gpt-6-astra")
+        assert row["id"] not in instance.active_executors
+        assert not instance.provider_inflight
     finally:
         instance.db.close()
 

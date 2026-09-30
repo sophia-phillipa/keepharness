@@ -139,6 +139,8 @@ class ConversationService:
         self.active_executors = {}
         self.job_tasks = {}
         self.runtime_budgets = {}
+        self.provider_slots = {}
+        self.provider_inflight = {}
         for row in self.conversation_repository.running():
             self.finish(row["id"], "interrupted", {"error": "service_restarted", "metrics": None})
 
@@ -180,6 +182,9 @@ class ConversationService:
                 affected.append(dict(row))
         self.config.clear()
         self.config.update(candidate)
+        for condition in self.provider_slots.values():
+            async with condition:
+                condition.notify_all()
         # Grants are evaluated at execution time; remembered approvals cannot survive
         # a changed provider/model permission policy.
         affected_scopes = changed_scopes | {
@@ -207,9 +212,10 @@ class ConversationService:
             )
             if row["state"] == "queued":
                 self.finish(row["id"], "cancelled", {"error": reason, "metrics": None})
-            elif row["id"] == self.active and self.task:
+            elif row["state"] == "running":
                 self.cancellation_reasons[row["id"]] = reason
-                self.task.cancel()
+                queue_worker.cancel_descendants(self, row["id"])
+                queue_worker.cancel_owned(self, row)
         self.wake.set()
 
     def event(self, job, kind, data):
@@ -708,7 +714,7 @@ class ConversationService:
         data = dict(data)
         if data.get("project_id") in self.deleting_project_folders:
             raise APIError("project_folder_busy", 409)
-        if any(key in data for key in ("_maestro_stage", "_planning_only")):
+        if any(key in data for key in ("_maestro_stage", "_planning_only", "execution_parent_id")):
             raise APIError("invalid_internal_field")
         if "access_mode" not in data and data.get("parent_job_id"):
             data["access_mode"] = json.loads(
@@ -935,11 +941,39 @@ class ConversationService:
     async def infer(self, row, data):
         plan = await self._prepare_inference(row, data)
         backend = plan.backend
-        self.active_executors[row["id"]] = (backend, data.get("model"))
         if backend not in ("codex", "claude", "gemini", "local", "deepseek"):
             raise APIError("backend_unavailable")
-        result = await self._run_inference(plan)
-        return self._finalize_inference(plan, result)
+        # The singleton queue remains sequential. This guard also covers direct
+        # inference calls and every Maestro planner/step dispatch.
+        condition = self.provider_slots.setdefault(backend, asyncio.Condition())
+        previous_task = self.job_tasks.get(row["id"])
+        self.job_tasks[row["id"]] = asyncio.current_task()
+        try:
+            async with condition:
+                while True:
+                    maximum = (
+                        self.config.get("services", {}).get(backend, {}).get("max_concurrent", 1)
+                    )
+                    if type(maximum) is not int or maximum < 1:
+                        raise APIError("invalid_provider_capacity")
+                    if self.provider_inflight.get(backend, 0) < maximum:
+                        self.provider_inflight[backend] = self.provider_inflight.get(backend, 0) + 1
+                        break
+                    await condition.wait()
+            self.active_executors[row["id"]] = (backend, data.get("model"))
+            try:
+                result = await self._run_inference(plan)
+                return self._finalize_inference(plan, result)
+            finally:
+                self.active_executors.pop(row["id"], None)
+                async with condition:
+                    self.provider_inflight[backend] -= 1
+                    condition.notify_all()
+        finally:
+            if previous_task is None:
+                self.job_tasks.pop(row["id"], None)
+            else:
+                self.job_tasks[row["id"]] = previous_task
 
     async def _prepare_inference(self, row, data):
         """Resolve sources, history and the prompt; every admission error is raised here."""
