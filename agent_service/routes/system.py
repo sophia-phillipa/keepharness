@@ -2,18 +2,61 @@
 
 import hashlib
 import hmac
+from html import escape
 from pathlib import Path
 
-from starlette.responses import FileResponse, JSONResponse, RedirectResponse, Response
+from starlette.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from starlette.routing import Route
 
 import adapters
 from tail_ui import asset_response, static_response
 
+from ..approval_sessions import SESSION_COOKIE, SESSION_SECONDS, consume_enrollment
 from ..config import PACKAGE_DIR, REPOSITORY_ROOT, VERSION_FILE
 from ..errors import APIError
 from ..persistence.db import encoded
 from . import api_route, body
+
+
+async def approve_device(request, service, identity):
+    """A CLI-issued link requires a same-origin confirmation before redemption."""
+    headers = {
+        "Cache-Control": "no-store",
+        "Referrer-Policy": "no-referrer",
+        "Content-Security-Policy": "default-src 'none'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+        "X-Content-Type-Options": "nosniff",
+    }
+    nonce = request.query_params.get("nonce", "")
+    if not nonce or len(nonce) > 128:
+        raise APIError("approval_enrollment_invalid", 403)
+    if request.method == "GET":
+        return HTMLResponse(
+            '<!doctype html><html lang="en"><meta charset="utf-8">'
+            '<meta name="viewport" content="width=device-width, initial-scale=1">'
+            "<title>Enable human approvals</title><h1>Enable human approvals</h1>"
+            "<p>Continue only if you generated this link with the owner CLI. "
+            "This browser will be able to approve actions for that owner.</p>"
+            '<form method="post" action="/approve-device?nonce=' + escape(nonce, quote=True) + '">'
+            '<button type="submit">Enable approvals on this browser</button></form></html>',
+            headers=headers,
+        )
+    if (
+        request.headers.get("origin") not in service.config.get("origins", [])
+        or request.headers.get("sec-fetch-site") == "cross-site"
+    ):
+        raise APIError("origin_denied", 403)
+    service.limit(("public", "enrollment"), 20, "enrollment_rate_limit")
+    token = consume_enrollment(service.config, nonce)
+    response = RedirectResponse("/", status_code=303, headers=headers)
+    response.set_cookie(
+        SESSION_COOKIE,
+        token,
+        max_age=SESSION_SECONDS,
+        httponly=True,
+        samesite="strict",
+        secure=request.url.scheme == "https",
+    )
+    return response
 
 
 async def login(request, service, identity):
@@ -128,6 +171,7 @@ async def ui(request):
 
 
 ROUTES = [
+    api_route("/approve-device", approve_device, methods=["GET", "POST"], authenticated=False),
     api_route("/v1/login", login, methods=["POST"], authenticated=False),
     api_route("/.well-known/agent-capabilities.json", capabilities),
     api_route("/v1/version", version),

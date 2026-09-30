@@ -29,6 +29,7 @@ from .. import (
     tools,
     workspaces,
 )
+from ..approval_sessions import session_identity
 from ..config import (
     EXECUTION_MODES,
     KINDS,
@@ -236,6 +237,9 @@ class ConversationService:
         )
         if cross_site and not navigation:
             raise APIError("origin_denied", 403)
+        session_owner = session_identity(request, self.config)
+        if session_owner is not None:
+            return self.throttle(session_owner, self.config["clients"][session_owner], request)
         auth = request.headers.get("authorization", "")
         if not auth and request.cookies.get("harness_token"):
             auth = "Bearer " + request.cookies["harness_token"]

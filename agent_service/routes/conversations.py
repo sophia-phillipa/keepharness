@@ -6,6 +6,7 @@ import json
 
 from starlette.responses import JSONResponse, Response
 
+from ..approval_sessions import require_approval_session
 from ..config import TERMINAL
 from ..errors import APIError
 from ..persistence.db import encoded
@@ -13,6 +14,7 @@ from . import LimitedStream, api_route, body
 
 
 async def approval(request, service, identity):
+    require_approval_session(request, service.config, identity)
     aid = request.path_params["approval"]
     pending = service.approvals.get(aid)
     if not pending:
@@ -21,6 +23,8 @@ async def approval(request, service, identity):
     if row["owner"] != identity[0]:
         raise APIError("approval_owner_denied", 403)
     data = await body(request)
+    if service.approvals.get(aid) is not pending or pending[1].cancelled():
+        raise APIError("approval_expired", 404)
     scope = data.get("scope", "once")
     if scope not in ("once", "conversation"):
         raise APIError("invalid_approval_scope")

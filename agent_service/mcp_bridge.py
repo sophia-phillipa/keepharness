@@ -148,7 +148,7 @@ async def submit_job(
     Explicit backend overrides (codex/claude/gemini/local/deepseek) are for user-requested manual selection.
 
     Native mode uses CLI tools and permissions selected in administration. Approvals
-    arrive through job_events; use resolve_approval or the web interface to respond.
+    arrive through job_events; the person must use an enrolled web session to respond.
     Use the latest job id as parent_job_id to keep the conversation context.
     """
     data = locals().copy()
@@ -162,14 +162,14 @@ async def submit_job(
 
 @mcp.tool()
 async def resolve_approval(approval_id: str, approved: bool, answers: dict | None = None) -> dict:
-    """Respond to a pending native CLI approval for this client's job.
-
-    Obtain explicit user approval for the described action before approving it.
-    Use approval_id from an approval_required event; false rejects the request.
-    """
-    return await call(
-        "POST", "/v1/approvals/" + approval_id, {"approved": approved, "answers": answers or {}}
-    )
+    """Approval decisions require the person's owner-enrolled browser session."""
+    return {
+        "error": {
+            "code": "approval_session_required",
+            "message": "Use an enrolled browser to resolve this approval.",
+        },
+        "http_status": 403,
+    }
 
 
 @mcp.tool()

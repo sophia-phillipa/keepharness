@@ -14,10 +14,33 @@ def main(argv=None):
     parser.add_argument("--scan", action="store_true", help="Read-only local inventory")
     parser.add_argument("--port", type=int, default=8094)
     parser.add_argument("--state", default=str(Path.home() / ".local/share/tail-harness"))
+    commands = parser.add_subparsers(dest="command")
+    enroll = commands.add_parser(
+        "approve-device", help="Issue a single-use human approval enrollment link"
+    )
+    enroll.add_argument(
+        "--owner", required=True, help="Existing owner id or configured tailnet login"
+    )
     args = parser.parse_args(argv)
     os.umask(0o077)
     if not 1024 <= args.port <= 65535:
         parser.error("Port must be between 1024 and 65535")
+    if args.command == "approve-device":
+        from agent_service.approval_sessions import issue_enrollment
+        from agent_service.errors import APIError
+
+        try:
+            config = json.loads((Path(args.state) / "runtime.json").read_text())
+            owner = config.get("tailscale_logins", {}).get(args.owner, args.owner)
+            origin = (config.get("browser_url") or f"http://127.0.0.1:{config['port']}").rstrip("/")
+            if origin not in config.get("origins", []):
+                parser.error("The browser URL must be a configured harness origin")
+            nonce = issue_enrollment(config, owner)
+        except (OSError, ValueError, KeyError, APIError) as exc:
+            parser.error(f"Could not enroll this owner: {exc}")
+        print("Open this single-use link in the owner's browser within 10 minutes:")
+        print(origin + "/approve-device?nonce=" + nonce)
+        return
     if args.scan:
         print(json.dumps(asyncio.run(scan()), indent=2, ensure_ascii=False))
         return
