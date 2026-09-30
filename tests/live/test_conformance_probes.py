@@ -1,6 +1,6 @@
 """Synthetic fixture contracts and explicitly opt-in paid CLI conformance probes.
 
-Default collection performs only local fixture checks. Set HARNESS_LIVE_PROBES=1
+Default collection performs only local fixture checks. Set TAIL_HARNESS_LIVE=1
 and select a provider/probe with -k to authorize real model calls.
 """
 
@@ -14,7 +14,7 @@ import pytest
 from codex_probes import assert_codex_conformance, run_codex_probe
 from conformance import FIXTURE_ROOT, isolated_fixture, sanitized_argv
 
-LIVE_ENABLED = os.environ.get("HARNESS_LIVE_PROBES") == "1"
+LIVE_ENABLED = os.environ.get("TAIL_HARNESS_LIVE") == "1"
 CODEX_CASES = (
     "skills",
     "question",
@@ -131,13 +131,14 @@ def test_evidence_argv_redacts_inline_and_separate_secrets():
 
 
 def test_live_entrypoints_refuse_unapproved_execution(monkeypatch):
-    monkeypatch.delenv("HARNESS_LIVE_PROBES", raising=False)
+    monkeypatch.delenv("TAIL_HARNESS_LIVE", raising=False)
     for run, name in ((claude_probes.run_claude_probe, "command"), (run_codex_probe, "skills")):
-        with pytest.raises(RuntimeError, match="HARNESS_LIVE_PROBES=1"):
+        with pytest.raises(RuntimeError, match="TAIL_HARNESS_LIVE=1"):
             run(name)
 
 
-@pytest.mark.skipif(not LIVE_ENABLED, reason="paid probes: set HARNESS_LIVE_PROBES=1")
+@pytest.mark.live
+@pytest.mark.skipif(not LIVE_ENABLED, reason="paid probes: set TAIL_HARNESS_LIVE=1")
 @pytest.mark.parametrize("name", claude_probes.PROBES)
 def test_claude_conformance(name):
     if not shutil.which("claude"):
@@ -146,7 +147,8 @@ def test_claude_conformance(name):
     claude_probes.assert_claude_conformance(report)
 
 
-@pytest.mark.skipif(not LIVE_ENABLED, reason="paid probes: set HARNESS_LIVE_PROBES=1")
+@pytest.mark.live
+@pytest.mark.skipif(not LIVE_ENABLED, reason="paid probes: set TAIL_HARNESS_LIVE=1")
 @pytest.mark.parametrize("name", CODEX_CASES)
 def test_codex_conformance(name):
     if not shutil.which("codex"):

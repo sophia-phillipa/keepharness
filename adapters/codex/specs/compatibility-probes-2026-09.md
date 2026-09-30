@@ -39,7 +39,7 @@ Run from the repository root. The runner records its complete argv and protocol
 messages. `C(NAME)` in the table is this exact invocation with `NAME` substituted:
 
 ```sh
-HARNESS_LIVE_PROBES=1 .venv/bin/python tests/live/codex_probes.py NAME
+TAIL_HARNESS_LIVE=1 .venv/bin/python tests/live/codex_probes.py NAME
 ```
 
 Its common child command is below. `CODEX`, `PYTHON`, `SERVER`, and temporary paths
@@ -133,7 +133,7 @@ no schema generation was treated as proof of a successful model turn.
 .venv/bin/python -m pytest -q tests/live/test_conformance_probes.py
 
 # One paid representative; select other case IDs deliberately.
-HARNESS_LIVE_PROBES=1 .venv/bin/python -m pytest -q tests/live/test_conformance_probes.py -k 'test_codex_conformance and skills'
+TAIL_HARNESS_LIVE=1 .venv/bin/python -m pytest -q tests/live/test_conformance_probes.py -k 'test_codex_conformance and skills'
 ```
 
 The canonical Codex matrix has ten cases. Assertions check actual tool events,

@@ -26,7 +26,7 @@ claude --print --verbose --output-format stream-json
 The Results table uses this exact wrapper command:
 
 ```text
-C(NAME) = HARNESS_LIVE_PROBES=1 PYTHONPATH=tests/live \
+C(NAME) = TAIL_HARNESS_LIVE=1 PYTHONPATH=tests/live \
   python3 tests/live/claude_probes.py NAME
 ```
 
@@ -124,7 +124,7 @@ pytest collection performs only offline fixture checks. A selected paid probe is
 run explicitly, for example:
 
 ```sh
-HARNESS_LIVE_PROBES=1 PYTHONPATH=tests/live \
+TAIL_HARNESS_LIVE=1 PYTHONPATH=tests/live \
   .venv/bin/python -m pytest -q tests/live/test_conformance_probes.py \
   -k 'test_claude_conformance and command'
 ```

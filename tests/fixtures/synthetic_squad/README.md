@@ -10,7 +10,7 @@ The two hooks append distinct markers to a temporary log. Despite its name,
 effect. It represents an unrelated user hook so the probes can distinguish
 project-only hook scope from merged user and project scope.
 
-Live inference is disabled unless `HARNESS_LIVE_PROBES=1` is set. Authentication
+Live inference is disabled unless `TAIL_HARNESS_LIVE=1` is set. Authentication
 artifacts are copied only when a provider runner explicitly requests them; user
 settings, provider routing, session identifiers, and other parent environment
 state are not inherited.
