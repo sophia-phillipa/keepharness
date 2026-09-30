@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import math
 import os
 import re
 from pathlib import Path
@@ -24,6 +25,39 @@ def _json(value):
     )
 
 
+def _check_document(value):
+    """Bound the expanded JSON tree before serializing shared YAML alias graphs."""
+    pending = [(value, 0)]
+    remaining = MAX_DOCUMENT_BYTES
+    while pending:
+        item, depth = pending.pop()
+        if depth > 64:
+            raise WorkflowError("workflow_invalid_document")
+        if isinstance(item, (dict, list)):
+            remaining -= 2 + max(0, len(item) - 1)
+            if isinstance(item, dict):
+                remaining -= len(item)
+            if remaining < 0:
+                raise WorkflowError("workflow_too_large")
+            if isinstance(item, dict):
+                for key, child in item.items():
+                    if not isinstance(key, str):
+                        raise WorkflowError("workflow_invalid_document")
+                    pending.extend(((key, depth + 1), (child, depth + 1)))
+            else:
+                pending.extend((child, depth + 1) for child in item)
+        elif isinstance(item, str):
+            remaining -= len(item.encode()) + 2
+        elif item is None or type(item) in (bool, int, float):
+            if type(item) is float and not math.isfinite(item):
+                raise WorkflowError("workflow_invalid_document")
+            remaining -= len(json.dumps(item, allow_nan=False))
+        else:
+            raise WorkflowError("workflow_invalid_document")
+        if remaining < 0:
+            raise WorkflowError("workflow_too_large")
+
+
 def parse_document(text, suffix=".json"):
     if len(text.encode()) > MAX_DOCUMENT_BYTES:
         raise WorkflowError("workflow_too_large")
@@ -36,8 +70,9 @@ def parse_document(text, suffix=".json"):
             value = yaml.safe_load(text)
         else:
             value = json.loads(text)
-        # Also rejects YAML-only values, cycles and nonfinite numbers.
-        _json(value)
+        _check_document(value)
+        if len(_json(value).encode()) > MAX_DOCUMENT_BYTES:
+            raise WorkflowError("workflow_too_large")
     except WorkflowError:
         raise
     except (ValueError, TypeError, RecursionError):
@@ -152,6 +187,7 @@ def validate_result(value, schema):
 def validate_workflow(value, available=None, resources=None):
     """Normalize declarations; available=None performs document validation only."""
     try:
+        _check_document(value)
         document = _json(value)
         if len(document.encode()) > MAX_DOCUMENT_BYTES:
             raise WorkflowError("workflow_too_large")
