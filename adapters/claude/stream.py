@@ -119,6 +119,7 @@ class Stream:
                 metadata = {"tool": tool}
                 if isinstance(tool_id, str) and tool_id:
                     metadata["tool_id"] = tool_id
+                    metadata["tool_call_id"] = tool_id
                 if tool == "Bash" and isinstance(block.get("input"), dict):
                     name = command_name(block["input"].get("command"))
                     if name:
@@ -144,7 +145,7 @@ class Stream:
                     tid = block.get("tool_use_id")
                     metadata = self.tools.pop(tid, {"tool": "tool"})
                     if isinstance(tid, str) and tid:
-                        metadata = {**metadata, "tool_id": tid}
+                        metadata = {**metadata, "tool_id": tid, "tool_call_id": tid}
                     self.event(
                         "tool_end",
                         {
