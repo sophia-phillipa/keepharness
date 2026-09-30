@@ -226,6 +226,13 @@ class ConversationService:
         self.wake.set()
 
     def event(self, job, kind, data):
+        data = {
+            "schema_version": 1,
+            "execution_id": job,
+            "attempt": 1,
+            "parent_execution_id": None,
+            **data,
+        }
         if kind == "quota_update" and data.get("provider") == "claude":
             row = self.conversation_repository.owner(job)
             if row:
@@ -238,7 +245,7 @@ class ConversationService:
     def finish(self, job, state, result):
         with self.db:
             self.conversation_repository.set_result(job, state, encoded(result))
-            self.event(job, state, result)
+            self.event(job, state, {**result, "outcome": state})
 
     def identity(self, request):
         request.state.approval_session_owner = None
@@ -850,6 +857,9 @@ class ConversationService:
                 "_planning_only",
                 "_invocation_context",
                 "execution_parent_id",
+                "_execution_id",
+                "_parent_execution_id",
+                "_attempt",
             )
         ):
             raise APIError("invalid_internal_field")
@@ -1425,6 +1435,13 @@ class ConversationService:
                 )
             if data.get("_maestro_stage"):
                 value = {**value, "maestro_stage": data["_maestro_stage"]}
+            if data.get("_execution_id"):
+                value = {
+                    **value,
+                    "execution_id": data["_execution_id"],
+                    "attempt": data.get("_attempt", 1),
+                    "parent_execution_id": data.get("_parent_execution_id", row["id"]),
+                }
             self.event(row["id"], kind, value)
             if kind == "answer_delta" and not value.get("parent_tool_use_id"):
                 live["answer"] += value.get("text", "")
