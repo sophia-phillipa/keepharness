@@ -38,3 +38,4 @@ Each new version must add an English specification under `releases/v<VERSION>.md
 - [Canonical agent and skill model](canonical-agents-skills-model.md): naming, catalog and migration.
 
 - [0.9.0 — Run console, live attention inbox and work-item references](releases/v0.9.0.md)
+- [0.10.0 — Mediated Jira publication and evidence-based recovery](releases/v0.10.0.md)

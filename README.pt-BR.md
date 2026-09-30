@@ -2,7 +2,7 @@
 
 [![🇺🇸 English](https://img.shields.io/badge/%F0%9F%87%BA%F0%9F%87%B8-English-blue.svg)](README.md) [![🇧🇷 Português (Brasil)](https://img.shields.io/badge/%F0%9F%87%A7%F0%9F%87%B7-Portugu%C3%AAs%20(Brasil)-green.svg)](README.pt-BR.md)
 
-Painel local em Python para descobrir, configurar e executar o Codex CLI, o Claude Code, o Gemini CLI e modelos de IA locais, com uma interface de conversa acessível pela Tailscale ou outra VPN. Python 3.11+, licença MIT, versão **0.9.0**.
+Painel local em Python para descobrir, configurar e executar o Codex CLI, o Claude Code, o Gemini CLI e modelos de IA locais, com uma interface de conversa acessível pela Tailscale ou outra VPN. Python 3.11+, licença MIT, versão **0.10.0**.
 
 ## 🚀 Installation — agent-guided (start here)
 
@@ -228,7 +228,7 @@ PYTHON="$PWD/.venv/bin/python" PLAYWRIGHT_MODULE=/caminho/playwright ./scripts/t
 
 As fixtures de UI evitam inferência em nuvem e download de modelos. Uma suíte mocada passando não prova autenticação de terceiros, reinício físico ou desempenho em contexto completo. Para verificar o pacote instalado, use `"$TH_VENV/bin/python" -m control.install_check`, com `TH_VENV` apontando para o ambiente usado na instalação (`~/.local/share/tail-harness/venv` para `install.sh`, `.venv` para `setup.sh`). Esse smoke check roda fora do checkout, com estado temporário e uma porta disponível; ele não instala dependências nem valida a instância de produção e os provedores. Para simular uma instalação limpa, siga a seção dedicada da [spec](dossier/installation-agent-spec.md), preparando ambiente, estado e portas separados por comandos individuais.
 
-Toda nova versão exige uma especificação em inglês em `dossier/releases/v<VERSÃO>.md`, com comportamento, critérios de aceitação, diagramas relevantes, notas de migração e validação realmente executada. Atualize `README.md`, `README.pt-BR.md` e os identificadores de versão juntos. Veja a [versão 0.9.0](dossier/releases/v0.9.0.md) e o [dossiê](dossier/README.md). Referência de produto: [T3 Code](https://github.com/pingdotgg/t3code). Esta é uma implementação independente; não incorpora código ou recursos gráficos do T3 e não alega equivalência de recursos.
+Toda nova versão exige uma especificação em inglês em `dossier/releases/v<VERSÃO>.md`, com comportamento, critérios de aceitação, diagramas relevantes, notas de migração e validação realmente executada. Atualize `README.md`, `README.pt-BR.md` e os identificadores de versão juntos. Veja a [versão 0.10.0](dossier/releases/v0.10.0.md) e o [dossiê](dossier/README.md). Referência de produto: [T3 Code](https://github.com/pingdotgg/t3code). Esta é uma implementação independente; não incorpora código ou recursos gráficos do T3 e não alega equivalência de recursos.
 
 A suíte cobre políticas de acesso, autenticação, protocolos e aprovações, descoberta local, integridade de download, instalação, arquivos empacotados e recuperação após falha. O teste de navegador usa fixtures, então não consome contas nem baixa modelos. A configuração do GitHub Actions executa os testes Python, os testes de UI no Chromium e a construção de wheel/sdist; os artefatos ficam anexados ao job de empacotamento quando o pipeline passa. Autenticação de terceiros e reinício físico da máquina não são simulados como prova de operação real.
 
@@ -332,13 +332,13 @@ Os cartões **Modelo local via Codex** e **DeepSeek via Codex** identificam as c
 
 O Tail Harness distingue o modelo do motor de execução. Outras combinações, como DeepSeek ou um modelo local via Claude Code, exigem integração e validação próprias e ainda não são opções nesses cartões. Desenvolver este projeto com o Codex não torna o Harness exclusivo dos modelos OpenAI.
 
-## 🆕 Version 0.9.0
+## 🆕 Version 0.10.0
 
-O chat continua como tela inicial. A faixa de status abre um console redimensionável com **Ctrl/⌘+J**: Pipeline, Timeline, Logs, Runs e Agents. Cada resposta tem **View run**. Os spans mostram trabalho pendente e resultados antigos desconhecidos; o conteúdo fica oculto até o dono escolher **Show content**. Os logs carregam páginas além de 500 eventos. No celular, o console ocupa a tela inteira.
+A publicação preparada agora usa uma ferramenta MCP por execução nos modos nativo e scoped do Codex e Claude. A ferramenta retorna imediatamente com um gate que mostra o endpoint do Jira, projeto, pedido e digest do artefato. Somente uma sessão humana cadastrada pode aprovar ou negar; cada aprovação vale uma vez para o pedido exato. O harness então cria a issue no Jira e registra o comprovante. O modo de acesso nunca aprova a publicação automaticamente.
 
-**Needs you** lista somente gates e aprovações válidos e ativos. As decisões continuam exigindo a sessão humana cadastrada no P0. Referências de itens de trabalho associam execuções de conversas diferentes dentro de um projeto, sem bloqueio: configure `work_item_pattern` no projeto ou catálogo confiável (por exemplo `TASK-[0-9]{4}`), ou marque uma execução manualmente em Runs. O filtro de atividade sempre vincula a chave ao projeto.
+A primeira operação mediada é **criar issue no Jira Cloud**. Configure destinos permitidos e um vínculo privado de credenciais conforme a [especificação da release](dossier/releases/v0.10.0.md). As credenciais ficam em um armazenamento separado do harness. Os workers scoped recebem somente uma capacidade de preparação; os modos sem uma fronteira de sistema de arquivos verificada são identificados como **unenforced**. Atualizações, transições e outros caminhos de publicação continuam consultivos.
 
-Os eventos continuam sendo a fonte de verdade; os spans são calculados sob demanda. Tentativas de execução e identificadores de ferramentas melhoram a correlação sem invalidar eventos antigos. Veja a [especificação da release](dossier/releases/v0.9.0.md) para contratos, migração e validação realizada, e a [versão 0.8.0](dossier/releases/v0.8.0.md) para a release anterior.
+Pipeline e detalhes dos spans mostram intenção, aprovação, execução e comprovante. Um resultado incerto permanece **unknown**; **Reconcile** registra a consulta de evidências ou a decisão de uma pessoa cadastrada de manter o resultado desconhecido. Uma busca vazia no Jira não prova falha, e o harness nunca reenvia um efeito desconhecido. Chat e invocações avulsas aceitam efeitos preparados; workflows ficam para uma fase posterior. A [release anterior](dossier/releases/v0.9.0.md) descreve o console de execução e as referências de itens de trabalho.
 
 ### Composer agents, skills and commands
 

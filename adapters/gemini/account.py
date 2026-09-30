@@ -88,7 +88,7 @@ async def _check_authenticated_cli(binary):
                     "initialize",
                     {
                         "protocolVersion": 1,
-                        "clientInfo": {"name": "tail-harness", "version": "0.9.0"},
+                        "clientInfo": {"name": "tail-harness", "version": "0.10.0"},
                         "clientCapabilities": {
                             "auth": {"terminal": False},
                             "fs": {},
@@ -188,7 +188,7 @@ async def login(binary):
                 "initialize",
                 {
                     "protocolVersion": 1,
-                    "clientInfo": {"name": "tail-harness", "version": "0.9.0"},
+                    "clientInfo": {"name": "tail-harness", "version": "0.10.0"},
                     "clientCapabilities": {
                         "auth": {"terminal": False},
                         "fs": {},

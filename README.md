@@ -2,7 +2,7 @@
 
 [![🇺🇸 English](https://img.shields.io/badge/%F0%9F%87%BA%F0%9F%87%B8-English-blue.svg)](README.md) [![🇧🇷 Português (Brasil)](https://img.shields.io/badge/%F0%9F%87%A7%F0%9F%87%B7-Portugu%C3%AAs%20(Brasil)-green.svg)](README.pt-BR.md)
 
-A local Python control panel for discovering, configuring and running Codex CLI, Claude Code, Gemini CLI and local AI models, with a conversational harness accessible through Tailscale or another VPN. Python 3.11+, MIT license, version **0.9.0**.
+A local Python control panel for discovering, configuring and running Codex CLI, Claude Code, Gemini CLI and local AI models, with a conversational harness accessible through Tailscale or another VPN. Python 3.11+, MIT license, version **0.10.0**.
 
 ## 🚀 Installation — agent-guided (start here)
 
@@ -228,7 +228,7 @@ PYTHON="$PWD/.venv/bin/python" PLAYWRIGHT_MODULE=/path/to/playwright ./scripts/t
 
 UI fixtures avoid cloud inference and model downloads. A passing mocked suite does not prove third-party authentication, physical reboot or full-context performance. To check the installed package, use `"$TH_VENV/bin/python" -m control.install_check`, with `TH_VENV` set to the environment used by the installation (`~/.local/share/tail-harness/venv` for `install.sh`, `.venv` for `setup.sh`). This smoke check runs outside the checkout with temporary state and an available port; it does not install dependencies or validate the production instance and providers. For a clean installation simulation, follow the dedicated section of the [spec](dossier/installation-agent-spec.md), preparing separate environment, state and ports through individual commands.
 
-Every new version requires an English specification at `dossier/releases/v<VERSION>.md`, with behavior, acceptance criteria, relevant diagrams, migration notes and actual validation. Update `README.md`, `README.pt-BR.md` and the version identifiers together. See [version 0.9.0](dossier/releases/v0.9.0.md) and the [dossier](dossier/README.md). Product reference: [T3 Code](https://github.com/pingdotgg/t3code). This is an independent implementation; it does not incorporate T3's code or graphical assets and does not claim feature parity.
+Every new version requires an English specification at `dossier/releases/v<VERSION>.md`, with behavior, acceptance criteria, relevant diagrams, migration notes and actual validation. Update `README.md`, `README.pt-BR.md` and the version identifiers together. See [version 0.10.0](dossier/releases/v0.10.0.md) and the [dossier](dossier/README.md). Product reference: [T3 Code](https://github.com/pingdotgg/t3code). This is an independent implementation; it does not incorporate T3's code or graphical assets and does not claim feature parity.
 
 The suite covers access policies, authentication, protocols and approvals, local discovery, download integrity, installation, packaged files and recovery after a failure. The browser test uses fixtures so it does not consume accounts or download models. The GitHub Actions configuration runs Python tests, Chromium UI tests and the wheel/sdist build; artifacts are attached to the packaging job when the pipeline passes. Third-party authentication and a physical machine reboot are not simulated as proof of real operation.
 
@@ -332,13 +332,13 @@ The **Local model via Codex** and **DeepSeek via Codex** cards identify the comb
 
 Tail Harness distinguishes the model from the execution engine. Other combinations, such as DeepSeek or a local model through Claude Code, require their own integration and validation and are not yet options in these cards. Developing this project with Codex does not make the Harness exclusive to OpenAI models.
 
-## 🆕 Version 0.9.0
+## 🆕 Version 0.10.0
 
-Chat stays home. The status strip opens a resizable run console with **Ctrl/⌘+J**: Pipeline, Timeline, Logs, Runs and Agents. Each answer has **View run**. Timeline spans show pending work and honest unknown legacy outcomes; content stays hidden until the owner chooses **Show content**. Logs load additional pages beyond 500 events. The drawer becomes a full-screen sheet on phones.
+Prepared publication now uses an execution-scoped MCP tool in Codex and Claude native/scoped runs. The tool returns immediately with a publish gate showing the Jira endpoint, project, request and artifact digest. Only an enrolled human session can approve or deny; approvals apply once to the exact request. The harness then creates the Jira issue and records its receipt. Access mode never approves publication automatically.
 
-**Needs you** lists only live gates and approvals. Decisions still require the enrolled P0 human session. Work-item references associate runs across conversations within a project, without locking: configure `work_item_pattern` on a project or its trusted catalog (for example `TASK-[0-9]{4}`), or tag a run manually in Runs. The activity filter always binds a work-item key to its project.
+The first mediated operation is **Jira Cloud create issue**. Configure a destination allowlist and a private credential binding as described in the [release specification](dossier/releases/v0.10.0.md). Credentials stay in a separate harness store. Scoped workers receive only a prepare capability; modes without a verified filesystem boundary are labelled **unenforced**. Update, transition and other publication paths remain advisory.
 
-Events remain the source of truth; spans are computed on request. Execution attempts and tool-call identifiers improve correlation without invalidating old events. See the [release specification](dossier/releases/v0.9.0.md) for contracts, migration and actual validation, and [version 0.8.0](dossier/releases/v0.8.0.md) for the previous release.
+Pipeline and span detail show publication intent, approval, execution and receipt. An uncertain result stays **unknown**; **Reconcile** records an enrolled human's evidence check or decision to keep it unknown. An empty Jira search does not prove failure, and the harness never redispatches an unknown effect. Chat and standalone invocations both support prepared effects; workflows remain a later phase. The [previous release](dossier/releases/v0.9.0.md) describes the run console and work-item references.
 
 ### Composer agents, skills and commands
 
