@@ -54,8 +54,8 @@ from ..work_items import invocation_reference, validate_reference
 from . import queue_worker
 from .activity_service import summarize_activity
 from .budgets import timeout_seconds
-from .gate_service import GateService
 from .effect_service import EffectService
+from .gate_service import GateService
 from .project_service import ProjectService
 
 logger = logging.getLogger(__name__)
@@ -1403,6 +1403,24 @@ class ConversationService:
         )
 
     async def _run_inference(self, plan):
+        from ..effect_transport import effect_transport, transport_support
+
+        async with effect_transport(
+            self,
+            plan.row["id"],
+            plan.backend,
+            plan.execution_mode,
+            execution_id=plan.data.get("_execution_id", plan.row["id"]),
+        ) as capability:
+            if capability is None:
+                self.event(
+                    plan.row["id"],
+                    "publication_policy",
+                    transport_support(plan.backend, plan.execution_mode),
+                )
+            return await self._run_transport_inference(plan, capability)
+
+    async def _run_transport_inference(self, plan, capability):
         """Run the prepared turn on the native or scoped transport of its provider."""
         row, data, backend = plan.row, plan.data, plan.backend
         execution_mode, native_session = plan.execution_mode, plan.native_session
@@ -1462,6 +1480,22 @@ class ConversationService:
         if attachment_notice:
             progress("answer_delta", {"text": attachment_notice})
         project_config, backend_config, permissions = self._project_config(plan)
+        if capability:
+            if execution_mode == "scoped":
+                from ..effect_transport import scoped_enforcement
+
+                capability["enforcement"] = scoped_enforcement(
+                    self, project_config, backend_config, native_session
+                )
+            backend_config = {**backend_config, "_effect_capability": capability}
+            progress(
+                "publication_policy",
+                {
+                    "supported": True,
+                    "enforcement": capability["enforcement"],
+                    "reason": "execution_scoped_mcp",
+                },
+            )
         # Local's adapter has a scoped bubblewrap contract despite using the
         # native Codex RPC helper underneath.
         if execution_mode == "native" or backend == "local":

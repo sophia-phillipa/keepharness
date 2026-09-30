@@ -14,10 +14,15 @@ from .stream import Stream
 def build_command(config, model, home, permissions, selected, access_mode, additional_roots):
     """Configure only selected tools and connectors for this Claude process."""
     servers = configurations()["claude"]
+    selected_servers = {
+        k: v for k, v in servers.items() if "mcp:" + k in selected and k != "harness_effects"
+    }
+    if config.get("_effect_capability"):
+        from agent_service.effect_transport import server_spec
+
+        selected_servers["harness_effects"] = server_spec(config["_effect_capability"])
     mcp = home / "mcp.json"
-    mcp.write_text(
-        json.dumps({"mcpServers": {k: v for k, v in servers.items() if "mcp:" + k in selected}})
-    )
+    mcp.write_text(json.dumps({"mcpServers": selected_servers}))
     mcp.chmod(0o600)
     plugins = {
         p["id"].split(":", 1)[1]: p["id"] in selected

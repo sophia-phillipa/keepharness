@@ -33,6 +33,14 @@ async def run(
                 }
             )
         )
+        if config.get("_effect_capability"):
+            from agent_service.effect_transport import server_spec
+
+            mcp_config = json.loads((bridge / "mcp.json").read_text())
+            mcp_config["mcpServers"]["harness_effects"] = server_spec(
+                config["_effect_capability"], scoped=True
+            )
+            (bridge / "mcp.json").write_text(json.dumps(mcp_config))
         command += ["--setenv", "CLAUDE_CONFIG_DIR", "/codex"]
         command += [
             "--",
@@ -47,7 +55,9 @@ async def run(
             "--tools",
             "",
             "--allowedTools",
-            "mcp__selected_project__*",
+            "mcp__selected_project__*,mcp__harness_effects__prepare"
+            if config.get("_effect_capability")
+            else "mcp__selected_project__*",
             "--permission-mode",
             "dontAsk",
             "--strict-mcp-config",

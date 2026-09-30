@@ -17,6 +17,11 @@ __all__ = ["SPEC_REVISION", "run_native", "run_scoped"]
 async def run_native(config, prompt, event, project, model, effort, session_dir, approve):
     workspace = prepare_workspace(project, prompt, session_dir)
     command = build_command(config["binary"], workspace.permissions)
+    if config.get("_effect_capability"):
+        from agent_service.effect_transport import server_spec
+
+        for key, value in {**server_spec(config["_effect_capability"]), "enabled": True}.items():
+            command += ["-c", "mcp_servers.harness_effects." + key + "=" + json.dumps(value)]
     model_provider = config.get("local_provider")
     if model_provider:
         command += ["-c", "model_provider=" + json.dumps(model_provider)]

@@ -35,6 +35,8 @@ def build_command(binary, permissions, hosted_search=True):
         "-c",
         "features.apps=false",
         "-c",
+        "mcp_servers.harness_effects.enabled=false",
+        "-c",
         "features.shell_tool=" + str(bool(permissions.get("shell"))).lower(),
         "-c",
         "features.unified_exec=" + str(bool(permissions.get("shell"))).lower(),
@@ -89,7 +91,7 @@ def thread_parameters(config, project, model, workspace, runtime, unrestricted):
         if runtime.isolated
         else {
             "mcp_servers": {
-                name: {**spec, "enabled": "mcp:" + name in selected}
+                name: {**spec, "enabled": name != "harness_effects" and "mcp:" + name in selected}
                 for name, spec in configurations()["codex"].items()
             },
             "plugins": {
@@ -97,6 +99,13 @@ def thread_parameters(config, project, model, workspace, runtime, unrestricted):
             },
         }
     )
+    if config.get("_effect_capability"):
+        from agent_service.effect_transport import server_spec
+
+        params["config"]["mcp_servers"]["harness_effects"] = {
+            **server_spec(config["_effect_capability"]),
+            "enabled": True,
+        }
     if local_provider:
         params["modelProvider"] = local_provider
     return params

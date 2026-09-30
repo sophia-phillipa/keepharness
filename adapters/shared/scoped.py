@@ -137,6 +137,24 @@ def prepare_scoped(config, project, staged, session_dir, provider, auth_name):
             "--chdir",
             "/work",
         ]
+        if config.get("_effect_capability"):
+            from agent_service.effect_transport import server_spec
+
+            capability = config["_effect_capability"]
+            shutil.copyfile(
+                Path(agent_service.__file__).with_name("effect_mcp.py"), bridge / "effect_mcp.py"
+            )
+            (bridge / "effect.sock").touch(mode=0o600)
+            command += ["--ro-bind", capability["socket"], "/bridge/effect.sock"]
+            spec = server_spec(capability, scoped=True)
+            with (home / "config.toml").open("a") as stream:
+                stream.write(
+                    "\n[mcp_servers.harness_effects]\ncommand = "
+                    + json.dumps(spec["command"])
+                    + "\nargs = "
+                    + json.dumps(spec["args"])
+                    + "\n"
+                )
         code_host = binary.with_name("codex-code-mode-host")
         if code_host.exists():
             command += ["--ro-bind", str(code_host), "/codex-code-mode-host"]
