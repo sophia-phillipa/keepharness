@@ -68,7 +68,12 @@ def add_gates(db):
     )
 
 
-MIGRATIONS = (baseline, reset_legacy_approval_rules, add_gates)
+def add_work_item(db):
+    db.execute("ALTER TABLE jobs ADD COLUMN work_item TEXT")
+    db.execute("CREATE INDEX jobs_project_work_item ON jobs(project,work_item)")
+
+
+MIGRATIONS = (baseline, reset_legacy_approval_rules, add_gates, add_work_item)
 
 
 def migrate(db):

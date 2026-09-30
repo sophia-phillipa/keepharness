@@ -83,11 +83,26 @@ class ConversationRepository:
             (owner,),
         ).fetchone()[0]
 
-    def insert(self, job, project, owner, state, created, payload, result, idem, digest):
+    def insert(
+        self, job, project, owner, state, created, payload, result, idem, digest, work_item=None
+    ):
         self.db.execute(
-            "INSERT INTO jobs VALUES(?,?,?,?,?,?,?,?,?)",
-            (job, project, owner, state, created, payload, result, idem, digest),
+            "INSERT INTO jobs(id,project,owner,state,created,payload,result,idem,digest,work_item) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?)",
+            (job, project, owner, state, created, payload, result, idem, digest, work_item),
         )
+
+    def activity(self, owner, projects, work_item=None):
+        marks = ",".join("?" for _ in projects)
+        query = f"SELECT * FROM jobs WHERE owner=? AND project IN ({marks})"
+        parameters = [owner, *projects]
+        if work_item is not None:
+            query += " AND work_item=?"
+            parameters.append(work_item)
+        return self.db.execute(query + " ORDER BY created DESC,id", parameters).fetchall()
+
+    def set_work_item(self, job, work_item):
+        self.db.execute("UPDATE jobs SET work_item=? WHERE id=?", (work_item, job))
 
     def set_payload(self, job, payload):
         self.db.execute("UPDATE jobs SET payload=? WHERE id=?", (payload, job))
@@ -155,6 +170,15 @@ class MessageRepository:
         self.db.execute(
             "INSERT INTO events(job,time,type,data) VALUES(?,?,?,?)", (job, time, kind, data)
         )
+
+    def all_events(self, job):
+        return self.db.execute("SELECT * FROM events WHERE job=? ORDER BY id", (job,)).fetchall()
+
+    def requests(self, job):
+        return self.db.execute(
+            "SELECT type,data FROM events WHERE job=? AND type IN ('approval_required','gate_required') ORDER BY id DESC",
+            (job,),
+        ).fetchall()
 
     def last_event(self, job):
         return self.db.execute(

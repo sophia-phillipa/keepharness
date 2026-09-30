@@ -20,6 +20,7 @@ from adapters.codex.rpc import metadata
 from adapters.deepseek import account as deepseek
 from adapters.gemini import account as gemini
 from agent_service.config import VERSION_FILE
+from agent_service.work_items import validate_pattern
 
 from . import discovery, env, integration_catalog, integrations, runtime_config
 from .dashboard import DashboardReader
@@ -261,6 +262,11 @@ class Manager:
                     "trusted": catalog.get("trusted", False),
                     "namespace": namespace,
                     **({"pin": pin} if pin else {}),
+                    **(
+                        {"work_item_pattern": validate_pattern(catalog["work_item_pattern"])}
+                        if "work_item_pattern" in catalog
+                        else {}
+                    ),
                 }
             )
             catalog_ids.add(catalog_id)
@@ -334,6 +340,11 @@ class Manager:
                     "service_units": list(dict.fromkeys(units)),
                     "permissions": dict(overrides),
                     "catalogs": list(dict.fromkeys(project_catalogs)),
+                    **(
+                        {"work_item_pattern": validate_pattern(project["work_item_pattern"])}
+                        if "work_item_pattern" in project
+                        else {}
+                    ),
                 }
             )
             ids.add(pid)

@@ -50,7 +50,9 @@ from ..persistence.repositories import (
     MessageRepository,
     ProjectRepository,
 )
+from ..work_items import invocation_reference, validate_reference
 from . import queue_worker
+from .activity_service import summarize_activity
 from .budgets import timeout_seconds
 from .gate_service import GateService
 from .project_service import ProjectService
@@ -810,6 +812,33 @@ class ConversationService:
                 str(error) if not isinstance(error, TypeError) else "invalid_invocation", 422
             ) from None
 
+    def resolve_work_item(self, identity, data, parent=None):
+        project = self.project(identity, data.get("project_id"))
+        if parent is None and data.get("parent_job_id"):
+            parent = self.job(identity, data["parent_job_id"])
+        if parent is not None and (
+            parent["project"] != data["project_id"] or parent["owner"] != identity[0]
+        ):
+            raise APIError("invalid_parent_job")
+        if "work_item" in data:
+            return validate_reference(data["work_item"])
+        reference = invocation_reference(self.config, project, data)
+        return reference if reference is not None else parent["work_item"] if parent else None
+
+    def tag_work_item(self, identity, job, value):
+        row = self.job(identity, job)
+        reference = validate_reference(value)
+        with self.db:
+            self.conversation_repository.set_work_item(job, reference)
+            payload = json.loads(row["payload"])
+            payload["work_item"] = reference
+            self.conversation_repository.set_payload(job, encoded(payload))
+            self.event(job, "work_item_tagged", {"work_item": reference})
+        return {"job_id": job, "project_id": row["project"], "work_item": reference}
+
+    def activity(self, identity, project_id=None, work_item=None):
+        return summarize_activity(self, identity, project_id, work_item)
+
     def submit(self, identity, data, idem=None):
         data = dict(data)
         if data.get("project_id") in self.deleting_project_folders:
@@ -841,6 +870,9 @@ class ConversationService:
             raise APIError(decision.get("reason", "unsupported"), 422)
         self.normalize_invocations(identity, data)
         project = data["project_id"]
+        work_item = self.resolve_work_item(identity, data)
+        if work_item is not None or "work_item" in data:
+            data["work_item"] = work_item
         if len(encoded(data).encode()) > 150000:
             raise APIError("payload_limit", 413)
         if (
@@ -901,7 +933,16 @@ class ConversationService:
                 root_data["execution_mode"] = data["execution_mode"]
                 self.conversation_repository.set_payload(root_id, encoded(root_data))
             self.conversation_repository.insert(
-                job, project, identity[0], "queued", time.time(), payload, None, idem, digest
+                job,
+                project,
+                identity[0],
+                "queued",
+                time.time(),
+                payload,
+                None,
+                idem,
+                digest,
+                work_item=work_item,
             )
             self.event(job, "queued", {})
         self.wake.set()
