@@ -43,6 +43,7 @@ class EffectService:
         )
         self.driver = JiraEffectDriver()
         self.tasks = {}
+        self.execution_validators = {}
         for row in self.db.execute(
             "SELECT effect_id,status FROM effects WHERE status IN ('prepared','executing')"
         ).fetchall():
@@ -232,6 +233,9 @@ class EffectService:
             }
             validate_request(contract, request)
             expected = binding(request)
+            validator = self.execution_validators.get(effect["execution_id"])
+            if validator is not None and not validator():
+                raise APIError("effect_binding_changed")
             if (
                 canonical(contract) != stored["contract"]
                 or canonical(expected) != stored["binding"]
