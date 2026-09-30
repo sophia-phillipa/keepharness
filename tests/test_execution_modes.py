@@ -92,7 +92,7 @@ def test_legacy_conversation_uses_its_configured_service_mode(tmp_path):
     try:
         with instance.db:
             instance.db.execute(
-                "INSERT INTO jobs VALUES(?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO jobs(id,project,owner,state,created,payload,result,idem,digest) VALUES(?,?,?,?,?,?,?,?,?)",
                 (
                     "legacy",
                     "p",
@@ -132,7 +132,7 @@ def test_legacy_mode_stays_stable_after_its_first_continuation(tmp_path):
     try:
         with instance.db:
             instance.db.execute(
-                "INSERT INTO jobs VALUES(?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO jobs(id,project,owner,state,created,payload,result,idem,digest) VALUES(?,?,?,?,?,?,?,?,?)",
                 (
                     "legacy",
                     "p",
@@ -184,7 +184,7 @@ def test_local_legacy_native_configuration_is_reported_as_scoped(tmp_path):
     try:
         with instance.db:
             instance.db.execute(
-                "INSERT INTO jobs VALUES(?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO jobs(id,project,owner,state,created,payload,result,idem,digest) VALUES(?,?,?,?,?,?,?,?,?)",
                 (
                     "legacy-local",
                     "p",
@@ -217,7 +217,7 @@ def test_legacy_handoff_freezes_the_latest_provider_mode(tmp_path):
         instance.config["services"]["codex"]["mode"] = "native"
         with instance.db:
             instance.db.execute(
-                "INSERT INTO jobs VALUES(?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO jobs(id,project,owner,state,created,payload,result,idem,digest) VALUES(?,?,?,?,?,?,?,?,?)",
                 (
                     "local-root",
                     "p",
@@ -238,7 +238,7 @@ def test_legacy_handoff_freezes_the_latest_provider_mode(tmp_path):
                 ),
             )
             instance.db.execute(
-                "INSERT INTO jobs VALUES(?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO jobs(id,project,owner,state,created,payload,result,idem,digest) VALUES(?,?,?,?,?,?,?,?,?)",
                 (
                     "codex-child",
                     "p",

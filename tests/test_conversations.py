@@ -33,7 +33,7 @@ def api(tmp_path):
     client = TestClient(app, headers={"Authorization": "Bearer alice"})
     with app.state.service.db:
         app.state.service.db.execute(
-            "INSERT INTO jobs VALUES(?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO jobs(id,project,owner,state,created,payload,result,idem,digest) VALUES(?,?,?,?,?,?,?,?,?)",
             (
                 "conversation-1",
                 "shared",

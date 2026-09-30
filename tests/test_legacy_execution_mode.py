@@ -16,7 +16,7 @@ def legacy_root(service, backend):
     payload = {"project_id": "p", "backend": backend, "model": "auto", "prompt": "old"}
     with service.db:
         service.db.execute(
-            "INSERT INTO jobs VALUES(?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO jobs(id,project,owner,state,created,payload,result,idem,digest) VALUES(?,?,?,?,?,?,?,?,?)",
             ("legacy", "p", "a", "completed", 1, json.dumps(payload), "{}", None, "legacy"),
         )
     return service.job(("a", service.config["clients"]["a"]), "legacy")

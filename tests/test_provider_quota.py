@@ -40,7 +40,7 @@ def test_claude_stream_quota_cache_is_private_and_expires(tmp_path):
     service = app.state.service
     with service.db:
         service.db.execute(
-            "INSERT INTO jobs VALUES(?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO jobs(id,project,owner,state,created,payload,result,idem,digest) VALUES(?,?,?,?,?,?,?,?,?)",
             (
                 "quota-job",
                 "sem-projeto",

@@ -543,7 +543,7 @@ def test_seeded_completed_job_routes(client):
     app = client.app
     with app.state.service.db:
         app.state.service.db.execute(
-            "INSERT INTO jobs VALUES(?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO jobs(id,project,owner,state,created,payload,result,idem,digest) VALUES(?,?,?,?,?,?,?,?,?)",
             (
                 "job-1",
                 "p",
