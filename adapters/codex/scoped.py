@@ -3,7 +3,9 @@
 import json
 import time
 
-from adapters.shared.scoped import collect_changes, prepare_scoped
+from adapters.shared.scoped import (
+    collect_changes, prepare_scoped, scoped_home_read, scoped_home_write,
+)
 from agent_service.tool_metadata import event_metadata
 from agent_service.tools import ToolError
 
@@ -47,10 +49,11 @@ async def run(
         token_usage = {}
         seen_answer = False
         async with connection(command, event=event, config=config) as rpc:
-            marker = home / "remote-thread.json"
+            marker = "remote-thread.json"
+            saved = scoped_home_read(home, marker)
             turn_started = False
             previous_usage = (
-                json.loads(marker.read_text()).get("usage_total") if marker.exists() else {}
+                json.loads(saved).get("usage_total") if saved else {}
             )
             params = {
                 "model": model,
@@ -67,15 +70,15 @@ async def run(
                 params["developerInstructions"] += (
                     " Prepare only stages a Jira create-issue request for a human gate; the harness alone publishes after approval."
                 )
-            if marker.exists():
-                params["threadId"] = json.loads(marker.read_text())["id"]
+            if saved:
+                params["threadId"] = json.loads(saved)["id"]
                 thread = await rpc.call("thread/resume", params)
                 event("session_resumed", {"thread_id": params["threadId"]})
             else:
                 params["ephemeral"] = not bool(session_dir)
                 thread = await rpc.call("thread/start", params)
             thread_id = thread["thread"]["id"]
-            marker.write_text(
+            scoped_home_write(home, marker,
                 json.dumps(
                     {
                         "id": thread_id,
@@ -177,7 +180,7 @@ async def run(
                     ).items():
                         usage[key] = usage.get(key, 0) + value
                     previous_usage = total
-                    marker.write_text(json.dumps({"id": thread_id, "usage_total": total}))
+                    scoped_home_write(home, marker, json.dumps({"id": thread_id, "usage_total": total}))
                     event(
                         "context_usage",
                         {
