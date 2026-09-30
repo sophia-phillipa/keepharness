@@ -173,7 +173,9 @@ class EffectService:
             job_id, kind, data
         )
         self.service.event(job_id, "gate_required", spec)
-        self.tasks[effect_id] = asyncio.create_task(self._wait(effect_id, future, wait_limit))
+        task = asyncio.create_task(self._wait(effect_id, future, wait_limit))
+        self.tasks[effect_id] = task
+        task.add_done_callback(lambda _task: self.tasks.pop(effect_id, None))
         return effect
 
     async def _wait(self, effect_id, future, wait_limit):

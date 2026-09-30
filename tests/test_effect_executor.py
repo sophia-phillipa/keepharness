@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from unittest.mock import AsyncMock
 
 import pytest
 from test_approval_authority import ORIGIN, client_for, pending_approval
@@ -270,6 +271,35 @@ def test_prepare_limit_rejects_invalid_configuration(make_harness_config, limit)
             with pytest.raises(ValueError, match="invalid_effect_prepare_limit"):
                 await service.effects.prepare("job", request())
             assert len(service.effects.for_job("job")) == 1
+        finally:
+            await service.effects.close()
+            service.db.close()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("outcome", ["deny", "approve", "timeout", "cancel"])
+def test_finished_effect_waits_release_task_references(make_harness_config, outcome):
+    async def scenario():
+        config = make_harness_config(approval_timeout_seconds=0.01 if outcome == "timeout" else 30)
+        app, effect = await prepared(lambda: config)
+        service = app.state.service
+        task = service.effects.tasks[effect["effect_id"]]
+        try:
+            if outcome == "cancel":
+                # Let the coroutine enter its cancellation cleanup first.
+                await asyncio.sleep(0)
+                task.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await task
+            else:
+                if outcome != "timeout":
+                    service.effects.execute = AsyncMock(return_value=None)
+                    service.approvals[effect["gate_id"]][1].set_result({"choice": outcome})
+                await task
+            assert effect["effect_id"] not in service.effects.tasks
+            assert effect["gate_id"] not in service.approvals
+            assert effect["gate_id"] not in service.gates.progress
         finally:
             await service.effects.close()
             service.db.close()
