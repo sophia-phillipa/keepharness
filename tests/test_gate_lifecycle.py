@@ -4,6 +4,7 @@ import asyncio
 import json
 from types import SimpleNamespace
 
+import pytest
 from test_approval_authority import ORIGIN, client_for, pending_approval
 
 from agent_service.app import create_app
@@ -100,6 +101,31 @@ def test_full_mode_does_not_automatically_answer_gate(make_harness_config):
         reply = await callback("gate", gate_request())
         assert reply == {"approved": False, "reason": "gate_expired"}
         assert service.db.execute("SELECT state FROM gates").fetchone()[0] == "expired"
+        service.db.close()
+
+    asyncio.run(scenario())
+
+
+def test_committed_resolution_releases_waiter_when_event_delivery_fails(make_harness_config):
+    async def scenario():
+        app = create_app(make_harness_config())
+        service = app.state.service
+        pending_approval(app, "local")
+
+        def progress(kind, data):
+            if kind == "gate_resolved":
+                raise RuntimeError("synthetic_event_failure")
+
+        waiting = asyncio.create_task(service.gates.ask("job", gate_request(), progress))
+        await asyncio.sleep(0)
+        gate_id = service.db.execute("SELECT gate_id FROM gates").fetchone()[0]
+        identity = ("local", service.config["clients"]["local"])
+        with pytest.raises(RuntimeError, match="synthetic_event_failure"):
+            service.gates.resolve(gate_id, identity, {"choice": "blue"})
+        # Audit commit is authoritative even when the optional progress sink failed.
+        result = await asyncio.wait_for(waiting, 0.2)
+        assert result["approved"] is True and result["choice"] == "blue"
+        assert service.gates.repository.get(gate_id)["state"] == "resolved"
         service.db.close()
 
     asyncio.run(scenario())

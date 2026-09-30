@@ -136,6 +136,9 @@ class GateService:
         with self.service.db:
             if not self.repository.resolve(gate_id, choice, identity[0], resolution["at"]):
                 raise APIError("gate_already_resolved", 409)
-        self.progress[gate_id]("gate_resolved", resolution)
-        pending[1].set_result({"approved": True, **resolution})
+        try:
+            self.progress[gate_id]("gate_resolved", resolution)
+        finally:
+            # A committed answer must reach its waiter even if event delivery fails.
+            pending[1].set_result({"approved": True, **resolution})
         return {"resolved": True, **resolution}
