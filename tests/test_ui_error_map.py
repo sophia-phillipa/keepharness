@@ -18,7 +18,7 @@ SOURCES = [
     *sorted((ROOT / "agent_service").rglob("*.py")),
     *sorted((ROOT / "adapters").rglob("*.py")),
 ]
-RAISED = re.compile(r"\b(?:APIError|ToolError|ResourceError)\(\s*[\"']([a-z0-9_]+)[\"']")
+RAISED = re.compile(r"\b(?:APIError|ToolError|ResourceError|WorkflowError)\(\s*[\"']([a-z0-9_]+)[\"']")
 SKIP_REASON = re.compile(r"[\"']reason[\"']:\s*[\"']([a-z0-9_]+)[\"']")
 
 # Codes built at runtime or written without an exception class.

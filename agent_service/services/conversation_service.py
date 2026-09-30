@@ -879,7 +879,7 @@ class ConversationService:
             plan = workflows.resolve_workflow(self.config, row["project"], plan["resource_id"])
         data.update({key: value for key, value in changes.items() if key != "from_step"})
         recovery = {
-            "_declared_workflow": plan,
+            "_declared_workflow": maestro.declaration(plan),
             "_workflow_parent_job_id": job_id,
             "_workflow_resume": not rerun,
         }
@@ -892,17 +892,24 @@ class ConversationService:
         if row["owner"] != identity[0]:
             raise APIError("workflow_owner_denied", 403)
         result = json.loads(row["result"]) if row["result"] else {}
-        plan = result.get("orchestration", {}).get("plan")
+        orchestration = result.get("orchestration", {})
+        plan = orchestration.get("plan")
         if (
             row["state"] != "completed"
             or not plan
             or result.get("error")
             or result.get("incomplete")
+            or orchestration.get("approved") is False
+            or len(orchestration.get("steps", [])) != len(plan.get("steps", []))
         ):
             raise APIError("workflow_requires_successful_chain", 409)
         project = self.project(identity, row["project"])
         target = workflows.save_chain_as_workflow(
-            project, plan, workflow_id, successful=True, catalogs=self.config.get("catalogs", ())
+            project,
+            maestro.declaration(plan),
+            workflow_id,
+            successful=True,
+            catalogs=self.config.get("catalogs", ()),
         )
         return {"id": workflow_id, "path": "workflows/" + target.name, "project_id": row["project"]}
 
@@ -1860,7 +1867,12 @@ class ConversationService:
         if kind == "infer":
             invocation = data.get("invocations", [])
             if data.get("_declared_workflow"):
-                result = await maestro.execute_workflow(self, row, data, data["_declared_workflow"])
+                declared = data["_declared_workflow"]
+                if declared.get("resource_id"):
+                    declared = workflows.resolve_workflow(
+                        self.config, row["project"], declared["resource_id"]
+                    )
+                result = await maestro.execute_workflow(self, row, data, declared)
             elif len(invocation) == 1 and invocation[0]["kind"] == "workflow":
                 declared = workflows.resolve_workflow(
                     self.config, row["project"], invocation[0]["resource_id"]

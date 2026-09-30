@@ -173,3 +173,52 @@ def test_control_preserves_coordinator_and_project_plan_policy(tmp_path):
     settings["projects"][0]["maestro_plan_policy"] = "silent"
     with pytest.raises(ValueError, match="plan policy"):
         manager.validate(settings)
+
+
+def test_denied_plan_cannot_be_saved_as_successful_workflow(tmp_path):
+    service = Service(config(tmp_path))
+    try:
+        identity = ("a", service.config["clients"]["a"])
+        job = submitted(service, identity)["job_id"]
+        with service.db:
+            service.conversation_repository.set_result(
+                job,
+                "completed",
+                json.dumps(
+                    {
+                        "orchestration": {
+                            "plan": {"steps": [{"task": "Denied"}]},
+                            "steps": [],
+                            "approved": False,
+                        }
+                    }
+                ),
+            )
+        with pytest.raises(APIError, match="workflow_requires_successful_chain"):
+            service.save_workflow(identity, job, "denied")
+    finally:
+        service.db.close()
+
+
+def test_queued_recovery_resolves_current_workflow_revision(tmp_path):
+    service = Service(config(tmp_path))
+    try:
+        identity = ("a", service.config["clients"]["a"])
+        job = submitted(service, identity)["job_id"]
+        row = service.job(identity, job)
+        data = json.loads(row["payload"])
+        data["_declared_workflow"] = {"resource_id": "project/p/workflows/review.json", "steps": []}
+        with service.db:
+            service.conversation_repository.set_payload(job, json.dumps(data))
+        current = {"id": "review", "steps": [{"task": "Updated"}]}
+        with (
+            patch("agent_service.workflows.resolve_workflow", return_value=current) as resolve,
+            patch(
+                "agent_service.maestro.execute_workflow", AsyncMock(return_value={"answer": "done"})
+            ) as execute,
+        ):
+            asyncio.run(service.execute(service.job(identity, job)))
+        resolve.assert_called_once_with(service.config, "p", "project/p/workflows/review.json")
+        assert execute.call_args.args[3] == current
+    finally:
+        service.db.close()

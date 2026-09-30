@@ -19,7 +19,7 @@ def read_env(name, legacy, default=None):
 
 INSTRUCTIONS = """You connect the client computer (for example, a Mac running Claude) to the Tail Harness server.
 Use submit_job in auto mode: Maestro coordinates using an enabled backend. Without Maestro, the server directly uses the configured default executor or the first enabled and eligible executor.
-Do not select backend/model/effort manually unless the person asks. The project must have Codex enabled for planning.
+Do not select backend/model/effort manually unless the person asks. The configured coordinator must be enabled for the project.
 Client paths do NOT exist on the server. Never send a Mac path as if it were a server project.
 Before delegating, check local_capabilities, available_models and local_projects. Do not invent models, access or results.
 For a report with transcripts, emails, Slack or Drive: use the connectors available on the client to obtain the documents,
