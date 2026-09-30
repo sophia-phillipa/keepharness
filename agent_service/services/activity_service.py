@@ -95,9 +95,12 @@ def summarize_activity(service, identity, project_id=None, work_item=None):
         provider["state"] = (
             "busy" if provider["running"] else "queued" if provider["queued"] else "idle"
         )
-        provider["quota"] = (
-            service.observed_claude_quota(identity[0]) if provider["backend"] == "claude" else None
-        )
+        if provider["backend"] == "claude":
+            provider["quota"] = service.observed_claude_quota(identity[0])
+        elif provider["backend"] == "codex":
+            provider["quota"] = service.usage_cache
+        else:
+            provider["quota"] = None
     return dict(
         project_id=project_id,
         work_item=work_item,

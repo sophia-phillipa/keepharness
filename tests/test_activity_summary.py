@@ -181,3 +181,38 @@ def test_gate_requires_both_live_waiter_and_pending_durable_state(tmp_path, monk
         service.db.close()
 
     asyncio.run(scenario())
+
+
+def test_activity_reuses_reported_codex_quota_without_fetching(tmp_path, monkeypatch):
+    from unittest.mock import AsyncMock
+
+    service, identity = invocation_service(tmp_path, monkeypatch)
+    snapshot = {
+        "available": True,
+        "checked_at": 123456,
+        "shared_account": True,
+        "rateLimits": {"primary": {"usedPercent": 25, "resetsAt": 123999}},
+        "rateLimitsByLimitId": None,
+    }
+    service.usage_cache = snapshot
+    fetch = AsyncMock(side_effect=AssertionError("Activity must not fetch provider quota"))
+    monkeypatch.setattr(service, "quota", fetch)
+    activity = service.activity(identity, "p")
+    provider = next(
+        provider for provider in activity["providers"] if provider["backend"] == "codex"
+    )
+    assert provider["quota"] == snapshot
+    assert provider["quota"]["rateLimitsByLimitId"] is None
+    fetch.assert_not_called()
+    service.config["projects"]["q"] = {}
+    identity[1]["projects"].append("q")
+    assert service.activity(identity, "q")["providers"] == []
+    assert service.activity(("other", {"projects": []}))["providers"] == []
+    service.usage_cache = None
+    provider = next(
+        provider
+        for provider in service.activity(identity, "p")["providers"]
+        if provider["backend"] == "codex"
+    )
+    assert provider["quota"] is None
+    service.db.close()
