@@ -80,6 +80,19 @@ async def conversations(request, service, identity):
     )
 
 
+def gate_records(service, job_id):
+    return [
+        {
+            **json.loads(gate["spec"]),
+            "state": gate["state"],
+            "choice": json.loads(gate["choice"]) if gate["choice"] else None,
+            "resolved_by": gate["resolved_by"],
+            "at": gate["resolved_at"],
+        }
+        for gate in service.gates.repository.for_job(job_id)
+    ]
+
+
 async def conversation(request, service, identity):
     cid = request.path_params["conversation"]
     rows = service.conversation(identity, cid)
@@ -107,6 +120,7 @@ async def conversation(request, service, identity):
                     "project": r["project"],
                     "state": r["state"],
                     "attachments": service.message_attachments(r),
+                    "gates": gate_records(service, r["id"]),
                     "request": json.loads(r["payload"]),
                     "result": json.loads(r["result"] or "{}"),
                 }
@@ -149,12 +163,7 @@ async def submit_job(request, service, identity):
 
 async def job(request, service, identity):
     row = service.job(identity, request.path_params["job"])
-    row["gates"] = [
-        {**json.loads(gate["spec"]), "state": gate["state"],
-         "choice": json.loads(gate["choice"]) if gate["choice"] else None,
-         "resolved_by": gate["resolved_by"], "at": gate["resolved_at"]}
-        for gate in service.gates.repository.for_job(row["id"])
-    ]
+    row["gates"] = gate_records(service, row["id"])
     row["attachments"] = service.message_attachments(row)
     public_request = json.loads(row["payload"])
     row["request"] = {
@@ -166,6 +175,9 @@ async def job(request, service, identity):
             "effort",
             "parent_job_id",
             "task_label",
+            "invocations",
+            "resource_selections",
+            "release_persona",
             "kind",
             "access_mode",
             "execution_mode",
