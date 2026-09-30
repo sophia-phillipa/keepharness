@@ -110,7 +110,16 @@ const path = require("node:path");
         activityTitle({ type: "resource_fallback", data: { scope: "advisory" } }),
         activityTitle({
           type: "invocation_started",
-          data: { role: "reviewer", backend: "codex", model: "gpt-6-astra" },
+          data: {
+            invocation: {
+              kind: "agent",
+              resource_id: "catalog/demo/agents/reviewer.toml",
+              mode: "delegated",
+            },
+            role: "reviewer",
+            backend: "codex",
+            model: "gpt-6-astra",
+          },
         }),
       ]),
       [
@@ -128,6 +137,55 @@ const path = require("node:path");
     assert.equal(await page.locator(".resource-chip").innerText(), "/demo--reviewer ×");
     await page.locator(".resource-chip").click();
     assert.equal(await page.inputValue("#prompt"), "");
+
+    await page.fill("#prompt", "/check");
+    await page.locator('[data-resource-id="project/p/.agents/skills/check/SKILL.md"]').click();
+    await page.keyboard.type("/install");
+    await page.locator('[data-resource-id="catalog/demo/commands/install.md"]').click();
+    assert.equal(
+      await page.locator(".resource-chain-preview").innerText(),
+      "Runs in order: 1 /check → 2 /install",
+    );
+    assert.equal(
+      await page.evaluate(() => {
+        resourceSelections = [
+          { id: "short", revision: "1", token: "/write" },
+          { id: "long", revision: "1", token: "/writer" },
+        ];
+        $("prompt").value = "/writer a /write b";
+        renderResourceChips();
+        return document.querySelector(".resource-chain-preview").textContent;
+      }),
+      "Runs in order: 1 /writer → 2 /write",
+    );
+    assert.equal(
+      await page.evaluate(() =>
+        resourceMatchScore(
+          { name: "short", description: "x".repeat(140) + "late-suffix" },
+          "late-suffix",
+        ),
+      ),
+      1,
+    );
+    await page.evaluate(() => {
+      resourceSelections = [
+        { id: "project/p/.agents/skills/check/SKILL.md", revision: "s1", token: "/check" },
+        { id: "catalog/demo/commands/install.md", revision: "c1", token: "/install" },
+      ];
+      $("prompt").value = "before  /check   after\t";
+      renderResourceChips();
+    });
+    await page.locator('.resource-chip[aria-label="Remove /check"]').click();
+    assert.equal(await page.inputValue("#prompt"), "before    after\t");
+
+    await page.fill("#prompt", "/model");
+    await page.locator('[data-resource-id="builtin/model"]').waitFor();
+    assert.match(await page.locator("#resource-menu").innerText(), /BUILT-INS/);
+    await page.keyboard.press("Tab");
+    assert.equal(await page.inputValue("#prompt"), "");
+    assert(await page.locator("#model-menu").evaluate((node) => node.matches(":popover-open")));
+    await page.keyboard.press("Escape");
+    assert.equal(await page.evaluate(() => document.activeElement.id), "model-trigger");
 
     await page.fill("#prompt", "/");
     await page.locator('[data-resource-id="catalog/demo/commands/install.md"]').waitFor();

@@ -139,6 +139,8 @@ let composerProjectId = null,
   resourceRequest = 0,
   resourceItems = [],
   resourceSelections = [],
+  activePersona = null,
+  releasePersonaPending = false,
   invalidResourceTokens = new Set();
 const resourceToken = /(^|\s)(@@|\/\/|@|\/)([^\s@/]*)$/;
 function resourceEngine() {
@@ -176,7 +178,16 @@ function renderResourceChips() {
     $("prompt").closest(".prompt-editor").before(chips);
   }
   chips.replaceChildren();
-  for (const selection of resourceSelections) {
+  const prompt = $("prompt").value,
+    position = (selection) => {
+      const escaped = selection.token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+        match = new RegExp("(^|\\s)" + escaped + "(?=\\s|$)").exec(prompt);
+      return match ? match.index + match[1].length : Number.POSITIVE_INFINITY;
+    },
+    ordered = [...resourceSelections].sort(
+      (left, right) => position(left) - position(right),
+    );
+  for (const selection of ordered) {
     const chip = document.createElement("button");
     chip.type = "button";
     chip.className = "resource-chip";
@@ -184,11 +195,14 @@ function renderResourceChips() {
     chip.textContent = selection.token + " ×";
     chip.onclick = () => {
       const input = $("prompt"),
-        escaped = selection.token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      input.value = input.value
-        .replace(new RegExp("(^|\\s)" + escaped + "(?=\\s|$)", "g"), "$1")
-        .replace(/ {2,}/g, " ")
-        .trimStart();
+        escaped = selection.token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+        match = new RegExp("(^|\\s)" + escaped + "(?=\\s|$)").exec(input.value);
+      if (match) {
+        const start = match.index + match[1].length,
+          tokenEnd = start + selection.token.length,
+          end = tokenEnd + (input.value[tokenEnd] === " " ? 1 : 0);
+        input.value = input.value.slice(0, start) + input.value.slice(end);
+      }
       resourceSelections = resourceSelections.filter(
         (value) => value.token !== selection.token,
       );
@@ -199,7 +213,55 @@ function renderResourceChips() {
     };
     chips.append(chip);
   }
+  if (ordered.length > 1) {
+    const chain = document.createElement("span");
+    chain.className = "resource-chain-preview";
+    chain.textContent =
+      "Runs in order: " +
+      ordered.map((selection, index) => index + 1 + " " + selection.token).join(" → ");
+    chips.append(chain);
+  }
   chips.hidden = resourceSelections.length === 0;
+}
+function renderPersonaControl() {
+  let control = $("persona-control");
+  if (!control) {
+    control = document.createElement("div");
+    control.id = "persona-control";
+    control.className = "persona-control";
+    const label = document.createElement("span"),
+      end = document.createElement("button");
+    label.className = "persona-label";
+    end.type = "button";
+    end.className = "persona-end";
+    end.textContent = "End agent conversation";
+    end.onclick = () => {
+      if (!activePersona) return;
+      releasePersonaPending = true;
+      renderPersonaControl();
+      $("prompt").focus();
+      saveView();
+    };
+    control.append(label, end);
+    $("prompt").closest(".prompt-editor").before(control);
+  }
+  control.hidden = !activePersona;
+  if (!activePersona) return;
+  control.querySelector(".persona-label").textContent =
+    (releasePersonaPending ? "Ending after your next message: " : "Agent conversation: ") +
+    activePersona.name;
+  const end = control.querySelector(".persona-end");
+  end.disabled = releasePersonaPending;
+  end.textContent = releasePersonaPending ? "Ending…" : "End agent conversation";
+}
+function setActivePersona(value, preservePending = false) {
+  const keepPending =
+    preservePending &&
+    releasePersonaPending &&
+    activePersona?.resource_id === value?.resource_id;
+  activePersona = value;
+  releasePersonaPending = keepPending;
+  renderPersonaControl();
 }
 function renderPromptHighlights() {
   const input = $("prompt"),
@@ -328,6 +390,46 @@ function resourceIcon(item) {
   svg.append(use);
   return svg;
 }
+function builtinResources() {
+  return [
+    {
+      id: "builtin/model",
+      revision: "ui",
+      kind: "builtin",
+      name: "model",
+      description: "Choose the model for this conversation",
+      scope: "builtin",
+      origin: "Harness",
+      group: "Built-ins",
+      selectable: true,
+      action: "model-trigger",
+    },
+    {
+      id: "builtin/effort",
+      revision: "ui",
+      kind: "builtin",
+      name: "effort",
+      description: "Choose the reasoning effort",
+      scope: "builtin",
+      origin: "Harness",
+      group: "Built-ins",
+      selectable: true,
+      action: "effort-trigger",
+    },
+    {
+      id: "builtin/access",
+      revision: "ui",
+      kind: "builtin",
+      name: "access",
+      description: "Choose the access mode",
+      scope: "builtin",
+      origin: "Harness",
+      group: "Built-ins",
+      selectable: true,
+      action: "access-trigger",
+    },
+  ];
+}
 function renderResourceMenu(trigger, items, loading = false, warnings = []) {
   const menu = $("resource-menu"),
     groups = new Map();
@@ -367,8 +469,10 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
             ? "Project"
             : item.scope === "catalog"
               ? "Catalog"
+              : item.scope === "builtin"
+                ? "Built-in"
               : "User",
-        category = item.group || (item.kind === "agent" ? "Agents" : item.kind === "skill" ? "Skills" : "Commands"),
+        category = item.group || (item.kind === "agent" ? "Agents" : item.kind === "skill" ? "Skills" : item.kind === "builtin" ? "Built-ins" : "Commands"),
         groupKey = category + "\0" + scope + "\0" + item.origin;
       if (!groups.has(groupKey)) {
         const section = document.createElement("section"),
@@ -402,6 +506,8 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
           ? "Agent"
           : item.kind === "skill"
             ? "Skill"
+            : item.kind === "builtin"
+              ? "Built-in"
             : "Command") +
         (item.description ? " · " + item.description : "") +
         (item.unavailable_reason ? " · " + item.unavailable_reason : "");
@@ -459,6 +565,19 @@ function renderResourcePreview(item) {
 }
 function selectResource(item, trigger) {
   if (item.selectable === false) return;
+  if (item.kind === "builtin") {
+    const input = $("prompt"),
+      before = input.value.slice(0, trigger.start),
+      after = input.value.slice(trigger.end);
+    input.value = before + after;
+    closeResourceMenu();
+    updateComposer();
+    saveView();
+    const action = $(item.action);
+    action?.focus();
+    action?.click();
+    return;
+  }
   const marker = trigger.prefix[0] === "@" ? "@" : "/",
     token = marker + item.name,
     conflict = resourceSelections.find(
@@ -515,8 +634,8 @@ async function refreshResources(trigger) {
     )
       return;
     resourceItems = Array.isArray(data.items) ? data.items : [];
-    let filtered = resourceItems
-      .filter((item) => trigger.prefix === "@" ? item.kind === "agent" : ["agent", "skill", "command", "rule", "context"].includes(item.kind))
+    let filtered = [...resourceItems, ...builtinResources()]
+      .filter((item) => trigger.prefix === "@" ? item.kind === "agent" : ["agent", "skill", "command", "rule", "context", "builtin"].includes(item.kind))
       .map((item) => ({ item, score: resourceMatchScore(item, trigger.query) }))
       .filter((entry) => entry.score >= 0)
       .sort((left, right) => right.score - left.score)
@@ -543,7 +662,7 @@ function resourceMatchScore(item, query) {
   const needle = query.toLowerCase();
   if (!needle) return 0;
   const text = (item.name + " " + (item.description || "")).toLowerCase();
-  if (text.includes(needle)) return 100 - text.indexOf(needle);
+  if (text.includes(needle)) return Math.max(1, 100 - text.indexOf(needle));
   let offset = 0,
     score = 0;
   for (const character of needle) {
@@ -866,6 +985,10 @@ const userErrors = {
     "The provider stopped before the answer was complete. Send your message again.",
   claude_invalid_stream:
     "Claude returned an unexpected response. Try again; if it persists, update Claude Code.",
+  claude_invalid_question:
+    "Claude asked a question the harness could not safely display. Update Claude Code or revise the request.",
+  claude_invalid_question_answer:
+    "Claude could not use the selected answer. Ask the question again.",
   claude_output_limit:
     "Claude produced more output than allowed. Narrow the request and try again.",
   gemini_execution_failed:
@@ -931,6 +1054,37 @@ const userErrors = {
     "Maestro could not finish planning. Try again or choose a model yourself.",
   maestro_step_incomplete:
     "A Maestro step did not finish. Try again or choose a model yourself.",
+  // Invocations and human option gates.
+  invalid_invocation: "This resource invocation is invalid. Select it again.",
+  invalid_invocation_args:
+    "The resource arguments are too large or invalid. Shorten them and try again.",
+  invalid_invocation_backend:
+    "That resource cannot use the requested provider. Choose another resource or model.",
+  invalid_invocation_id:
+    "The invocation identifier is invalid. Select the resource again.",
+  invalid_invocation_kind:
+    "That resource type cannot be invoked. Select another resource.",
+  invalid_invocation_mode:
+    "That resource cannot run in the requested mode. Select it again.",
+  invalid_invocation_order:
+    "The resource chain order is invalid. Rebuild the chain and try again.",
+  invalid_invocation_resource_id:
+    "The selected resource identifier is invalid. Refresh the palette and select it again.",
+  invocation_chain_limit:
+    "A resource chain can contain at most 12 steps. Remove some steps and try again.",
+  invocation_selection_mismatch:
+    "The selected resources no longer match this invocation. Select them again.",
+  conversational_chain_unsupported:
+    "A conversational agent must run by itself. Remove the other resource steps.",
+  invalid_gate_question:
+    "The provider asked an invalid question. Revise the request and try again.",
+  invalid_gate_options:
+    "The provider supplied invalid answer choices. Revise the request and try again.",
+  invalid_gate_choice: "That answer is no longer available. Choose again.",
+  gate_already_resolved: "This question was already answered.",
+  gate_expired: "This question expired. Ask the agent to present it again.",
+  gate_invalidated:
+    "This question was invalidated by an execution change. Ask the agent to present it again.",
   // Projects, folders and workspaces.
   invalid_project: "This project is invalid. Choose another one.",
   project_busy: "This project is busy with another change. Try again shortly.",
@@ -1852,6 +2006,7 @@ function newConversation(title = "New Conversation") {
     );
     return;
   }
+  setActivePersona(null);
   // F-95: an unsent draft survives every way of starting a new conversation;
   // attachments too, unless they were uploaded to another project.
   const draft = $("prompt").value,
@@ -2472,6 +2627,22 @@ function messageAttachments(message, attachments = []) {
   }
   if (gallery.childElementCount) message.body.prepend(gallery);
 }
+function messageResourceChips(message, selections = []) {
+  const valid = selections.filter(
+    (selection) => typeof selection?.token === "string" && selection.token,
+  );
+  if (!valid.length) return;
+  const chips = document.createElement("div");
+  chips.className = "message-resource-chips";
+  chips.setAttribute("aria-label", "Selected resources");
+  for (const selection of valid) {
+    const chip = document.createElement("span");
+    chip.className = "message-resource-chip";
+    chip.textContent = selection.token;
+    chips.append(chip);
+  }
+  message.body.prepend(chips);
+}
 function bubble(role, text = "") {
   const el = document.createElement("article");
   el.className = "message chat-item " + role;
@@ -2521,8 +2692,12 @@ function activityTitle(e) {
       : "Resource fallback is advisory";
   if (["invocation_started", "invocation_completed"].includes(type)) {
     const invocation = data.invocation || data,
-      identity = invocation.role || invocation.resource_id || invocation.kind || "resource",
-      route = [invocation.backend, invocation.model, invocation.effort]
+      identity = data.role || invocation.role || invocation.resource_id || invocation.kind || "resource",
+      route = [
+        data.backend || invocation.backend,
+        data.model || invocation.model,
+        data.effort || invocation.effort,
+      ]
         .filter(Boolean)
         .join(" · ");
     return (
@@ -2753,6 +2928,11 @@ function event(e) {
   if (e.id <= last) return;
   last = e.id;
   if (e.type === "session_turn_started") return;
+  if (e.type === "invocation_started" && e.data?.invocation?.mode === "conversational")
+    setActivePersona({
+      name: e.data.role || e.data.invocation.resource_id,
+      resource_id: e.data.invocation.resource_id,
+    }, true);
   if (e.type === "gate_required") {
     showGate(e.data);
     return;
@@ -2913,6 +3093,7 @@ async function result(
 ) {
   const r = snapshot || (await json("/v1/jobs/" + expectedJob));
   if (job !== expectedJob || controller !== expectedController) return r;
+  restoreGates(r.gates);
   const terminal = {
     completed: "Completed",
     failed: "Failed run",
@@ -3119,6 +3300,7 @@ async function load(id, legacy = false, restoredView = null) {
     }
     if (request !== conversationLoad) return;
     if (!data.turns?.length) throw Error("Empty conversation");
+    setActivePersona(null);
     queuedTurns = [];
     parent = null;
     job = "";
@@ -3142,6 +3324,23 @@ async function load(id, legacy = false, restoredView = null) {
     $("messages").replaceChildren();
     $("prompt").value = "";
     for (const r of data.turns) {
+      if (r.request?.release_persona) setActivePersona(null);
+      else {
+        const persona = r.request?.invocations;
+        if (
+          Array.isArray(persona) &&
+          persona.length === 1 &&
+          persona[0]?.mode === "conversational"
+        ) {
+          const token = r.request?.resource_selections?.[0]?.token;
+          setActivePersona({
+            name:
+              (typeof token === "string" && token.slice(1)) ||
+              persona[0].resource_id,
+            resource_id: persona[0].resource_id,
+          });
+        }
+      }
       $("project").value = r.project;
       syncActiveProjectBadge();
       const model =
@@ -3151,11 +3350,11 @@ async function load(id, legacy = false, restoredView = null) {
         updateEfforts();
         $("effort").value = r.request?.effort || $("effort").value;
       }
-      messageAttachments(
-        bubble("user", r.request?.prompt || "Previous run"),
-        r.attachments,
-      );
+      const userMessage = bubble("user", r.request?.prompt || "Previous run");
+      messageAttachments(userMessage, r.attachments);
+      messageResourceChips(userMessage, r.request?.resource_selections);
       active = assistant(r.id, model, !["queued", "running"].includes(r.state));
+      restoreGates(r.gates);
       job = r.id;
       if (["queued", "running"].includes(r.state))
         queuedTurns.push({ id: r.id, response: active });
@@ -3396,8 +3595,8 @@ async function send() {
     return;
   const following = busy && !!job;
   const draft = $("prompt").value,
-    prompt = draft.trim();
-  if (!prompt) return;
+    prompt = draft;
+  if (!prompt.trim()) return;
   const reserved = prompt.match(/(?:^|\s)(@@|\/\/)[^\s@/]+/);
   if (reserved) {
     status(
@@ -3466,6 +3665,7 @@ async function send() {
         ({ id, revision, token }) => ({ id, revision, token }),
       ),
     };
+    if (releasePersonaPending) data.release_persona = true;
     if (parent) data.parent_job_id = parent;
     else if (Array.isArray(m.execution_modes))
       data.execution_mode = executionMode;
@@ -3481,9 +3681,12 @@ async function send() {
       },
       body: JSON.stringify(data),
     });
+    if (releasePersonaPending) setActivePersona(null);
     clearSubmission();
     $("welcome")?.remove();
-    messageAttachments(bubble("user", prompt), files);
+    const userMessage = bubble("user", prompt);
+    messageAttachments(userMessage, files);
+    messageResourceChips(userMessage, data.resource_selections);
     if (following) {
       queuedTurns.push({ id: r.job_id, response: assistant(r.job_id, m.id) });
       parent = r.job_id;
@@ -5551,6 +5754,14 @@ function finishGate(id, state, data = {}) {
     : state === "invalidated"
       ? "This question is no longer active. Send a message to ask again."
       : "This question expired. Send a message to ask again.";
+}
+function restoreGates(gates = []) {
+  for (const gate of Array.isArray(gates) ? gates : []) {
+    if (!gate?.gate_id) continue;
+    showGate(gate);
+    if (gate.state && gate.state !== "pending")
+      finishGate(gate.gate_id, gate.state, gate);
+  }
 }
 function showGate(data) {
   if (document.getElementById("gate-" + data.gate_id)) return;

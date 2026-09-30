@@ -4010,6 +4010,55 @@ body.panel-order-reversed #app-topbar #menu .th-icon {
   border-color: var(--th-accent);
   outline: none;
 }
+.message-resource-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 7px;
+}
+.message-resource-chip {
+  border: 1px solid color-mix(in srgb, var(--th-accent) 35%, var(--th-border));
+  border-radius: 999px;
+  padding: 2px 7px;
+  color: var(--th-accent);
+  font-size: 11px;
+}
+.resource-chain-preview {
+  flex-basis: 100%;
+  color: var(--th-muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.persona-control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 4px 8px;
+  padding: 7px 10px;
+  border: 1px solid color-mix(in srgb, var(--th-accent) 40%, var(--th-border));
+  border-radius: 10px;
+  background: var(--th-soft);
+  color: var(--th-text);
+  font-size: 12px;
+}
+.persona-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.persona-end {
+  flex: none;
+  border: 0;
+  padding: 3px 5px;
+  background: transparent;
+  color: var(--th-accent);
+  font: inherit;
+  font-weight: 600;
+}
+.persona-end:focus-visible {
+  outline: 2px solid var(--th-accent);
+  outline-offset: 2px;
+}
 .resource-menu {
   width: min(720px, calc(100vw - 24px));
 }
