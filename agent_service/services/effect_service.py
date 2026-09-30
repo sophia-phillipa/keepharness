@@ -64,8 +64,6 @@ class EffectService:
             arguments_digest=stored_binding["arguments_digest"],
             artifact_digest=stored_binding["artifact_digest"],
             effect_id=effect_id,
-            request_id=effect_id,
-            idempotency_key=effect_id,
             endpoint=json.loads(row["contract"])["endpoint"],
             job_id=row["job_id"],
             gate_id=row["gate_id"],

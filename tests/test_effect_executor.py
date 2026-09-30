@@ -62,6 +62,8 @@ def test_prepare_returns_immutable_digest_bound_gate(make_harness_config):
         app, effect = await prepared(make_harness_config)
         service = app.state.service
         assert effect["status"] == "prepared"
+        assert "request_id" not in effect
+        assert "idempotency_key" not in effect
         assert len(effect["artifact_digest"]) == len(effect["arguments_digest"]) == 64
         gate = json.loads(service.gates.repository.get(effect["gate_id"])["spec"])
         assert gate["artifact_digest"] == effect["artifact_digest"]

@@ -1142,6 +1142,8 @@ const userErrors = {
     "This publication request is invalid. Ask the agent to prepare it again with the required fields.",
   effect_request_too_large:
     "This publication request is too large. Reduce the artifact content and prepare it again.",
+  unsafe_scoped_home:
+    "This execution cannot start because its isolated workspace is unsafe. Ask the server owner to check its workspace configuration.",
   // Projects, folders and workspaces.
   invalid_project: "This project is invalid. Choose another one.",
   project_busy: "This project is busy with another change. Try again shortly.",
