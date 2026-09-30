@@ -1,4 +1,4 @@
-"""Inference capacity and execution ancestry do not create concurrent queue lanes."""
+"""Inference capacity and conversation turns retain their dispatch limits."""
 
 import asyncio
 from types import SimpleNamespace
@@ -60,39 +60,46 @@ def insert(instance, job, state="queued", **payload):
     )
 
 
-def test_execution_child_is_ready_but_conversation_turn_waits(tmp_path):
+def test_conversation_turn_waits_even_with_legacy_execution_parent(tmp_path):
     instance, _ = service(tmp_path)
     try:
         insert(instance, "parent", "running")
         insert(instance, "execution", parent_job_id="parent", execution_parent_id="parent")
         insert(instance, "turn", parent_job_id="parent")
-        assert [row["id"] for row in instance.conversation_repository.ready()] == ["execution"]
+        assert not instance.conversation_repository.ready()
         instance.conversation_repository.set_result("parent", "queued", None)
         assert [row["id"] for row in instance.conversation_repository.ready()] == ["parent"]
+        instance.conversation_repository.set_result("parent", "completed", None)
+        assert [row["id"] for row in instance.conversation_repository.ready()] == ["execution", "turn"]
     finally:
         instance.db.close()
 
 
-def test_cancel_execution_lineage_preserves_followup_and_other_jobs(tmp_path):
+def test_cancel_job_preserves_other_jobs_and_followup(tmp_path):
     async def scenario():
         instance, identity = service(tmp_path)
         insert(instance, "parent", "running")
         insert(instance, "child", "running", execution_parent_id="parent")
-        insert(instance, "grandchild", execution_parent_id="child")
         insert(instance, "turn", parent_job_id="parent")
         insert(instance, "other")
         parent = asyncio.create_task(asyncio.sleep(60))
         child = asyncio.create_task(asyncio.sleep(60))
         instance.job_tasks.update(parent=parent, child=child)
+        instance.active = "parent"
+        instance.task = parent
         await asyncio.sleep(0)
-        instance.cancel(identity, "parent")
-        results = await asyncio.gather(parent, child, return_exceptions=True)
-        assert all(isinstance(result, asyncio.CancelledError) for result in results)
-        assert instance.conversation_repository.state("grandchild")[0] == "cancelled"
-        assert instance.conversation_repository.state("child")[0] == "cancelled"
-        assert instance.conversation_repository.state("turn")[0] == "queued"
-        assert instance.conversation_repository.state("other")[0] == "queued"
-        instance.db.close()
+        try:
+            instance.cancel(identity, "parent")
+            with pytest.raises(asyncio.CancelledError):
+                await parent
+            assert not child.done()
+            assert instance.conversation_repository.state("child")[0] == "running"
+            assert instance.conversation_repository.state("turn")[0] == "queued"
+            assert instance.conversation_repository.state("other")[0] == "queued"
+        finally:
+            child.cancel()
+            await asyncio.gather(child, return_exceptions=True)
+            instance.db.close()
 
     asyncio.run(scenario())
 

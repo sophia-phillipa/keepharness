@@ -11,7 +11,7 @@ import shutil
 import sys
 import time
 import uuid
-from contextlib import ExitStack
+from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -215,7 +215,6 @@ class ConversationService:
                 self.finish(row["id"], "cancelled", {"error": reason, "metrics": None})
             elif row["state"] == "running":
                 self.cancellation_reasons[row["id"]] = reason
-                queue_worker.cancel_descendants(self, row["id"])
                 queue_worker.cancel_owned(self, row)
         self.wake.set()
 
@@ -1461,16 +1460,8 @@ class ConversationService:
                 },
             )
             try:
-                with ExitStack() as waits:
-                    current = row
-                    seen = set()
-                    while current and current["id"] not in seen:
-                        seen.add(current["id"])
-                        budget = self.runtime_budgets.get(current["id"])
-                        if budget is not None:
-                            waits.enter_context(budget.human_wait())
-                        parent = json.loads(current["payload"]).get("execution_parent_id")
-                        current = self.conversation_repository.get(parent) if parent else None
+                budget = self.runtime_budgets.get(row["id"])
+                with budget.human_wait() if budget is not None else nullcontext():
                     try:
                         reply = await asyncio.wait_for(future, wait_limit)
                     except TimeoutError:

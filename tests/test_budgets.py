@@ -171,3 +171,33 @@ def test_invalid_active_timeout_cannot_start_an_orphan_execution(tmp_path):
             instance.db.close()
 
     asyncio.run(scenario())
+
+
+def test_approval_pauses_only_its_own_job_budget(tmp_path):
+    from test_dispatch_capacity import insert
+
+    from agent_service.services.budgets import RuntimeBudget
+
+    async def scenario():
+        instance, identity = service(tmp_path)
+        insert(instance, "parent", "running")
+        insert(instance, "child", "running", execution_parent_id="parent")
+        instance.runtime_budgets.update(parent=RuntimeBudget(), child=RuntimeBudget())
+        plan = SimpleNamespace(
+            row=instance.job(identity, "child"), data={"model": "gpt-6-astra"}, backend="codex"
+        )
+        approve = instance._approval_handler(plan, lambda *_: None, {}, {})
+        task = asyncio.create_task(approve("command", {}))
+        try:
+            await asyncio.sleep(0)
+            assert instance.runtime_budgets["child"].wait_depth == 1
+            assert instance.runtime_budgets["parent"].wait_depth == 0
+            next(iter(instance.approvals.values()))[1].set_result({"approved": True})
+            await task
+            assert instance.runtime_budgets["child"].wait_depth == 0
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            instance.db.close()
+
+    asyncio.run(scenario())
