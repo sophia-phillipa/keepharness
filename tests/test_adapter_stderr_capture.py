@@ -10,6 +10,26 @@ import pytest
 from adapters.codex.rpc import connection
 
 
+@pytest.mark.parametrize("secret", ["x", "abcdefg", "abcdefgh"])
+def test_stderr_value_redaction_requires_eight_characters(secret, monkeypatch):
+    from adapters.shared.process import StderrCapture
+
+    monkeypatch.setattr("adapters.shared.process.os.environ", {})
+    capture = StderrCapture({"API_TOKEN": secret})
+    capture.buffer.extend(f"diagnostic {secret} suffix\ntoken={secret}\n".encode())
+    expected = "[redacted]" if len(secret) >= 8 else secret
+    assert capture.text() == f"diagnostic {expected} suffix\ntoken=[redacted]\n"
+
+
+@pytest.mark.parametrize("field", ["nonce", "NONCE", "enrollment_nonce"])
+def test_stderr_redacts_nonce_fields(field):
+    from adapters.shared.process import StderrCapture
+
+    capture = StderrCapture({})
+    capture.buffer.extend(f'{field}="short"\nuseful diagnostic\n'.encode())
+    assert capture.text() == f"{field}=[redacted]\nuseful diagnostic\n"
+
+
 def test_codex_stderr_flood_is_drained_bounded_and_redacted(monkeypatch):
     monkeypatch.setenv("TAIL_HARNESS_API_KEY", "harness-fixture-secret")
     monkeypatch.setenv("OPENAI_API_KEY", "provider-fixture-secret")

@@ -16,7 +16,7 @@ _SECRET_NAME = re.compile(
     re.I,
 )
 _SECRET_FIELD = re.compile(
-    r"""(?i)(?<![\w.-])([\w.-]*(?:token|secret|password|passwd|cookie|api[_-]?key|authorization|harness[_-]?session|enrollment[_-]?nonce)[\w.-]*["']?\s*[:=]\s*)(?:"[^"\n]*"|'[^'\n]*'|[^\s,;]+)"""
+    r"""(?i)(?<![\w.-])([\w.-]*(?:token|secret|password|passwd|cookie|api[_-]?key|authorization|harness[_-]?session|nonce)[\w.-]*["']?\s*[:=]\s*)(?:"[^"\n]*"|'[^'\n]*'|[^\s,;]+)"""
 )
 _CREDENTIAL_HEADER = re.compile(
     r"(?im)((?:(?:set-)?cookie|(?:proxy-)?authorization)\s*:\s*)[^\r\n]+"
@@ -80,7 +80,11 @@ class StderrCapture:
         self.truncated = False
         values = {**os.environ, **(environment or {})}
         self.secrets = sorted(
-            {value for key, value in values.items() if value and _SECRET_NAME.search(key)},
+            {
+                value
+                for key, value in values.items()
+                if len(value) >= 8 and _SECRET_NAME.search(key)
+            },
             key=len,
             reverse=True,
         )
