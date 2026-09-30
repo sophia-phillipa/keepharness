@@ -36,3 +36,5 @@ Each new version must add an English specification under `releases/v<VERSION>.md
 - [0.7.0 — provider deadlines and human approval authority](releases/v0.7.0.md)
 
 - [Canonical agent and skill model](canonical-agents-skills-model.md): naming, catalog and migration.
+
+- [0.9.0 — Run console, live attention inbox and work-item references](releases/v0.9.0.md)
