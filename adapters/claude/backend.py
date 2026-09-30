@@ -1,6 +1,8 @@
 """Public entry points for Claude Code; effort is passed explicitly when selected."""
 
+import json
 import tempfile
+from pathlib import Path
 
 from adapters.shared.resources import copy_resource
 from adapters.shared.workspace import prepare_workspace
@@ -25,6 +27,32 @@ async def run_native(config, prompt, event, project, model, effort, session_dir,
         config["append_system_prompt"] = workspace.prompt.removesuffix(prompt)
         workspace.prompt = prompt
     with tempfile.TemporaryDirectory(prefix="claude-rules-", dir=workspace.home) as directory:
+        agents = {}
+        if workspace.permissions.get("delegate"):
+            for item in project.get("_resources", []):
+                if item["kind"] != "agent" or item.get("mode") == "conversational":
+                    continue
+                copy_resource(item, directory, ".md")
+                agents[item["name"]] = {
+                    "description": item.get("description") or item["name"],
+                    "prompt": item["_body"],
+                    **({"model": item["model"]} if item.get("model") else {}),
+                }
+                event(
+                    "resource_fallback",
+                    {
+                        "kind": "agent",
+                        "resource_id": item["resource_id"],
+                        "revision": item["revision"],
+                        "mode": "delegated",
+                        "scope": "execution",
+                    },
+                )
+        if agents:
+            agents_file = Path(directory) / "agents.json"
+            agents_file.write_text(json.dumps(agents))
+            agents_file.chmod(0o600)
+            config["agents_file"] = str(agents_file)
         if workspace.permissions.get("read"):
             for item in project.get("_rules", []):
                 copy_resource(item, directory, ".md")

@@ -104,3 +104,31 @@ Claude Code 2.1.236 was checked on this host with non-inference control requests
 The shared native/scoped stream parser now emits live usage metrics from message_start and message_delta counts, retaining the latest cumulative output count per message. Source: [official streaming contract](https://platform.claude.com/docs/en/build-with-claude/streaming). Claude Code 2.1.258 was checked locally. Offline fixtures cover multiple messages, duplicate counts and invalid metrics; no live model inference was run.
 
 The displayed rate is output tokens divided by elapsed execution time, including tool waits; it is not decoder-only speed. Missing provider counts remain unavailable and are never estimated from text length. Final results remain authoritative when reopening a conversation.
+
+### Invocation and question support
+
+Native execution exposes `AskUserQuestion` and returns enrolled-human option
+answers in the stdio `updatedInput.answers` envelope. A question batch becomes
+sequential option gates; expiration denies the tool, and restart invalidates
+pending gates. Full access never supplies a human answer automatically.
+
+`Task` is available only with the selected project's delegation grant. The CLI
+may emit the alias `Agent`; child events retain `parent_tool_use_id`. `TodoWrite`
+remains unsupported by the recorded CLI probe. Selected delegated resources are
+passed as execution-local `--agents` definitions containing description, prompt
+and model, while tool grants remain controlled by the Harness. This catalog
+materialization route is covered by synthetic adapter tests, not a paid live
+certification of `--agents` execution.
+
+Hooks use `--setting-sources project` by default. The explicit backend option
+`global_hooks: true` also requires the hooks grant and changes the emitted scope
+to `global_and_project`. This opt-in adds the `user` setting source. An unrelated
+global hook is not enabled by a project hook grant alone.
+
+A leading native command is preserved only when the Harness can retain its
+native position and context. Other invocations use the inline fallback.
+Trusted path rules are copied into the private execution directory and their
+original frontmatter and body are included as advisory scoped instructions;
+the Harness does not claim this reproduces the CLI's native path matching. The
+catalog and project symlinks are never replaced. Temporary resource files are
+removed when the execution finishes.

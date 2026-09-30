@@ -105,3 +105,43 @@ def test_claude_rule_copy_preserves_scope_and_slash_start(tmp_path, monkeypatch)
     )
     assert not seen[0].exists()
     assert any(kind == "resource_fallback" and data["kind"] == "rule" for kind, data in events)
+
+
+def test_claude_catalog_agent_is_defined_without_tools_escalation(tmp_path, monkeypatch):
+    import json
+
+    text = "---\nname: writer\nmodel: haiku\ntools: Bash\n---\nReturn a synthetic result."
+    item = resource(
+        tmp_path / "agent.md", "agent", text, mode="delegated", model="haiku", scope="catalog"
+    )
+    item["_body"] = "Return a synthetic result."
+    seen = []
+
+    async def run(config, prompt, event, cwd, model, home, permissions, *args, **kwargs):
+        assert permissions["delegate"] is True
+        agents = json.loads(Path(config["agents_file"]).read_text())
+        assert agents == {
+            "demo--writer": {
+                "description": "demo--writer",
+                "prompt": "Return a synthetic result.",
+                "model": "haiku",
+            }
+        }
+        assert "tools" not in agents["demo--writer"]
+        seen.append(Path(config["agents_file"]))
+        return {"answer": "done"}
+
+    monkeypatch.setattr("adapters.claude.backend.native.run", run)
+    asyncio.run(
+        run_claude(
+            {"binary": "claude"},
+            "delegate",
+            lambda *_: None,
+            {"permissions": {"delegate": True}, "_resources": [item]},
+            "haiku",
+            "configured",
+            tmp_path / "session",
+            AsyncMock(),
+        )
+    )
+    assert not seen[0].exists()

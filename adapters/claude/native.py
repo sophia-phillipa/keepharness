@@ -85,6 +85,8 @@ def build_command(config, model, home, permissions, selected, access_mode, addit
         command += ["--add-dir", *additional_roots]
     if permissions.get("delegate"):
         command += ["--forward-subagent-text"]
+        if config.get("agents_file"):
+            command += ["--agents", config["agents_file"]]
     return command
 
 
