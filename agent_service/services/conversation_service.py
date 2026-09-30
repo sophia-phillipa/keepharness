@@ -226,13 +226,14 @@ class ConversationService:
         self.wake.set()
 
     def event(self, job, kind, data):
-        data = {
-            "schema_version": 1,
-            "execution_id": job,
-            "attempt": 1,
-            "parent_execution_id": None,
-            **data,
-        }
+        if isinstance(data, dict):
+            data = {
+                "schema_version": 1,
+                "execution_id": job,
+                "attempt": 1,
+                "parent_execution_id": None,
+                **data,
+            }
         if kind == "quota_update" and data.get("provider") == "claude":
             row = self.conversation_repository.owner(job)
             if row:
@@ -1433,9 +1434,9 @@ class ConversationService:
                 conversation_context.save_cursor(
                     native_session, row["id"], value, context_transport_mode, started=True
                 )
-            if data.get("_maestro_stage"):
+            if isinstance(value, dict) and data.get("_maestro_stage"):
                 value = {**value, "maestro_stage": data["_maestro_stage"]}
-            if data.get("_execution_id"):
+            if isinstance(value, dict) and data.get("_execution_id"):
                 value = {
                     **value,
                     "execution_id": data["_execution_id"],
