@@ -725,6 +725,15 @@ class ConversationService:
         try:
             explicit = data.get("invocations")
             supplied_selections = bool(data.get("resource_selections"))
+            if (
+                data.get("parent_job_id")
+                and not data.get("release_persona")
+                and (explicit or supplied_selections)
+            ):
+                previous = json.loads(self.job(identity, data["parent_job_id"])["payload"])
+                persona = previous.get("invocations", [])
+                if len(persona) == 1 and persona[0]["mode"] == "conversational":
+                    raise invocations.InvocationError("active_persona_resource_conflict")
             if explicit is not None:
                 if not isinstance(explicit, list) or not all(
                     isinstance(value, dict) for value in explicit

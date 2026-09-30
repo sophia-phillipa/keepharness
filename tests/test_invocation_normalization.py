@@ -217,3 +217,36 @@ def test_conversational_resource_supplies_body_without_delegation():
     )
     assert "Synthetic persona instructions." in prompt
     assert "Delegate" not in prompt
+
+
+def test_active_persona_requires_release_before_another_resource(tmp_path, monkeypatch):
+    import pytest
+
+    from agent_service.errors import APIError
+
+    service, identity = invocation_service(tmp_path, monkeypatch)
+    items = {
+        item["name"]: item
+        for item in service.resource_catalog(identity, "p", "codex", "gpt-6-astra")["items"]
+    }
+    base = {"project_id": "p", "backend": "codex", "model": "gpt-6-astra", "effort": "low"}
+
+    def ref(name):
+        return {"id": items[name]["id"], "revision": items[name]["revision"], "token": "/" + name}
+
+    first = service.submit(
+        identity,
+        {**base, "prompt": "/discussion hello", "resource_selections": [ref("discussion")]},
+    )
+    service.db.execute("UPDATE jobs SET state='completed' WHERE id=?", (first["job_id"],))
+    service.db.commit()
+    next_turn = {
+        **base,
+        "prompt": "/reviewer check",
+        "parent_job_id": first["job_id"],
+        "resource_selections": [ref("reviewer")],
+    }
+    with pytest.raises(APIError, match="active_persona_resource_conflict"):
+        service.submit(identity, next_turn)
+    assert service.submit(identity, {**next_turn, "release_persona": True})["job_id"]
+    service.db.close()
