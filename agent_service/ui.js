@@ -1102,6 +1102,42 @@ const userErrors = {
   gate_expired: "This question expired. Ask the agent to present it again.",
   gate_invalidated:
     "This question was invalidated by an execution change. Ask the agent to present it again.",
+  // Publication requests and evidence-based recovery.
+  effect_already_used:
+    "This publication request was already handled. Review its recorded outcome before preparing another request.",
+  effect_approval_required:
+    "This publication needs approval from an enrolled human session before it can be sent.",
+  effect_arguments_invalid:
+    "This publication has unsupported arguments. Ask the agent to prepare a valid request.",
+  effect_artifact_invalid:
+    "The publication artifact is invalid. Ask the agent to check its required fields and prepare it again.",
+  effect_binding_changed:
+    "The publication changed after it was prepared. Review a newly prepared request and approve it again.",
+  effect_contract_invalid:
+    "This publication integration is not configured correctly. Ask the server owner to check its settings.",
+  effect_credentials_not_private:
+    "The publication credentials are not stored privately. Ask the server owner to correct the credential store permissions.",
+  effect_credentials_unavailable:
+    "The harness cannot access this integration's credentials. Ask the server owner to check its credential binding.",
+  effect_destination_denied:
+    "This destination is not allowed for the publication integration. Choose an allowed destination.",
+  effect_execution_inactive:
+    "This run can no longer prepare a publication. Start a new message if you still need it.",
+  effect_integration_unavailable:
+    "This publication integration is unavailable. Ask the server owner to check its configuration.",
+  effect_not_found: "This publication request could not be found. Refresh the run console.",
+  effect_not_unknown:
+    "This publication no longer needs reconciliation. Refresh the run console to see its recorded outcome.",
+  effect_operation_unsupported:
+    "This integration does not support that publication operation. Only creating a Jira issue is available.",
+  effect_reconcile_backoff:
+    "Wait before checking again so Jira search has time to catch up. The outcome remains unknown; this will not retry publication.",
+  effect_reconcile_invalid:
+    "Choose whether to check external evidence or keep the publication outcome unknown.",
+  effect_request_invalid:
+    "This publication request is invalid. Ask the agent to prepare it again with the required fields.",
+  effect_request_too_large:
+    "This publication request is too large. Reduce the artifact content and prepare it again.",
   // Projects, folders and workspaces.
   invalid_project: "This project is invalid. Choose another one.",
   project_busy: "This project is busy with another change. Try again shortly.",
