@@ -18,7 +18,6 @@ async def approval(request, service, identity):
     aid = request.path_params["approval"]
     if service.gates.repository.get(aid):
         data = await body(request)
-        require_approval_session(request, service.config, identity)
         return JSONResponse(service.gates.resolve(aid, identity, data))
     pending = service.approvals.get(aid)
     if not pending:

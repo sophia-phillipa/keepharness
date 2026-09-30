@@ -19,6 +19,44 @@ def gate_request(**overrides):
     )
 
 
+@pytest.mark.parametrize("enrolled", [False, True])
+def test_gate_authorizes_human_once_before_resolution(make_harness_config, monkeypatch, enrolled):
+    from unittest.mock import Mock
+
+    from agent_service.routes import conversations
+
+    checked = Mock(wraps=conversations.require_approval_session)
+    monkeypatch.setattr(conversations, "require_approval_session", checked)
+
+    async def scenario():
+        app = create_app(make_harness_config())
+        service = app.state.service
+        pending_approval(app, "local")
+        task = asyncio.create_task(
+            service.gates.ask("job", gate_request(), lambda kind, data: service.event("job", kind, data))
+        )
+        await asyncio.sleep(0)
+        gate = service.db.execute("SELECT gate_id FROM gates").fetchone()[0]
+        try:
+            async with client_for(app) as client:
+                if enrolled:
+                    nonce = issue_enrollment(service.config, "local")
+                    await client.post("/approve-device?nonce=" + nonce, headers={"Origin": ORIGIN})
+                response = await client.post("/v1/approvals/" + gate, json={"choice": "blue"})
+                assert response.status_code == (200 if enrolled else 403)
+                checked.assert_called_once()
+                if enrolled:
+                    assert (await task)["choice"] == "blue"
+                else:
+                    assert not task.done()
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            service.db.close()
+
+    asyncio.run(scenario())
+
+
 def test_choice_validation_first_wins_and_audit(make_harness_config):
     async def scenario():
         app = create_app(make_harness_config())
