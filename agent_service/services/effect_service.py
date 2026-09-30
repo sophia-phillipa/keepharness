@@ -271,10 +271,15 @@ class EffectService:
         return self.get(effect_id)
 
     async def reconcile(self, effect_id, identity, decision):
+        owned = self.db.execute(
+            "SELECT effects.job_id FROM effects JOIN jobs ON jobs.id=effects.job_id "
+            "WHERE effects.effect_id=? AND jobs.owner=?",
+            (effect_id, identity[0]),
+        ).fetchone()
+        if owned is None:
+            raise APIError("effect_not_found", 404)
+        self.service.job(identity, owned["job_id"])
         effect = self.get(effect_id)
-        job = self.service.job(identity, effect["job_id"])
-        if job["owner"] != identity[0]:
-            raise APIError("approval_owner_denied", 403)
         if effect["status"] != "unknown":
             raise APIError("effect_not_unknown", 409)
         if decision not in ("check", "keep_unknown"):

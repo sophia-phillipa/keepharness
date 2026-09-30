@@ -206,3 +206,34 @@ def test_reconciliation_requires_unique_matching_marker_evidence(
         service.db.close()
 
     asyncio.run(scenario())
+
+
+def test_reconciliation_hides_other_owners_effect_existence(make_harness_config, jira_fixture):
+    async def scenario():
+        app, effect = await setup_effect(make_harness_config, jira_fixture)
+        service = app.state.service
+        with service.db:
+            service.db.execute("UPDATE jobs SET owner='another-owner' WHERE id='job'")
+        try:
+            async with client_for(app) as client:
+                await enroll(app, client)
+                responses = [
+                    await client.post(
+                        "/v1/effects/" + effect_id + "/reconcile",
+                        json={"decision": "check"},
+                    )
+                    for effect_id in (effect["effect_id"], "missing-effect")
+                ]
+            assert [response.status_code for response in responses] == [404, 404]
+            bodies = [response.json() for response in responses]
+            for response_body in bodies:
+                response_body.pop("request_id")
+            assert bodies[0] == bodies[1]
+            assert responses[0].json()["code"] == "effect_not_found"
+            assert not jira_fixture.searches
+            assert service.effects.get(effect["effect_id"])["status"] == "prepared"
+        finally:
+            await service.effects.close()
+            service.db.close()
+
+    asyncio.run(scenario())
