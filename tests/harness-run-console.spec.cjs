@@ -32,7 +32,7 @@ const { mount, run, span } = require('./run-console-fixture.cjs');
     await page.getByRole('separator', { name: 'Resize run console' }).focus();
     await page.keyboard.press('ArrowUp');
     assert((await page.locator('#run-console').boundingBox()).height > heightBefore);
-    await page.locator('#console-run').selectOption('run-a');
+    assert.equal(await page.locator('#console-run').inputValue(), 'run-a', 'Pipeline binds the latest run automatically');
     await page.getByRole('button', { name: /Fixture agent/ }).click();
     assert.equal(calls.some(p => p.includes('include_content=true')), false);
     await page.getByRole('button', { name: 'Show content', exact: true }).click();
@@ -81,7 +81,14 @@ const { mount, run, span } = require('./run-console-fixture.cjs');
     assert.equal(await page.locator('#run-console').isVisible(), true);
     await page.setViewportSize({ width: 400, height: 844 });
     const bounds = await page.locator('#run-console').boundingBox();
-    assert(bounds.width <= 400 && bounds.height >= 800);
+    assert(bounds.width <= 400 && bounds.height >= 300 && bounds.height <= 440);
+    const topbar = await page.locator('#app-topbar').boundingBox();
+    const strip = await page.locator('.run-status-strip').boundingBox();
+    assert(topbar.y === 0 && bounds.y >= topbar.y + topbar.height,
+      'the bounded mobile drawer preserves the top bar');
+    assert(bounds.y + bounds.height <= strip.y + 1 && strip.y + strip.height <= 844,
+      'the persistent status strip remains below the mobile drawer');
+    assert.equal(await page.locator('.run-console-body').evaluate(el => getComputedStyle(el).overflowY), 'auto');
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
     await page.getByRole('button', { name: 'Collapse run console' }).click();
     assert.equal(await page.locator('#run-console').isVisible(), false);

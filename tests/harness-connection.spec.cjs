@@ -120,6 +120,7 @@ const path = require("node:path");
       await gate.waitFor({ state: "hidden", timeout: 20000 });
       assert(!(await page.locator("main").evaluate((el) => el.inert)));
     }
+    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.10.1"));
     await page.goto("http://panel.test");
     await blocked();
     const before = requests;
@@ -182,6 +183,8 @@ const path = require("node:path");
       { timeout: 25000 },
     );
     assert.equal(await page.locator("#model").inputValue(), "fixture-local");
+    if (!(await page.locator("#project-tree").evaluate((el) => el.open)))
+      await page.locator("#project-tree > summary").click();
     await page.click("#add-project");
     await page.fill("#project-name", "Demo");
     await page

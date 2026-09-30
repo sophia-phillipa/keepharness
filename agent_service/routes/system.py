@@ -119,7 +119,9 @@ async def version(request, service, identity):
         for name in (
             "ui.js",
             "run-console.js",
+            "tour.js",
             "ui.css",
+            "tour.css",
             "vendor/markdown-it.min.js",
             "index.html",
             "app.py",
@@ -178,7 +180,9 @@ async def ui(request):
         "/vendor/markdown-it.min.js": "vendor/markdown-it.min.js",
         "/ui.js": "ui.js",
         "/run-console.js": "run-console.js",
+        "/tour.js": "tour.js",
         "/ui.css": "ui.css",
+        "/tour.css": "tour.css",
         "/mcp_bridge.py": "mcp_bridge.py",
     }.get(request.url.path, "index.html")
     return static_response(
@@ -203,7 +207,9 @@ ROUTES = [
     Route("/vendor/markdown-it.min.js", ui),
     Route("/ui.js", ui),
     Route("/run-console.js", ui),
+    Route("/tour.js", ui),
     Route("/ui.css", ui),
+    Route("/tour.css", ui),
     Route("/assets/{path:path}", ui),
     Route("/mcp_bridge.py", ui),
     Route("/setup-mcp.sh", ui),

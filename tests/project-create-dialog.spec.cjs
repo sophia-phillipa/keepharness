@@ -86,8 +86,11 @@ const assert = require("node:assert/strict"),
               : "text/html",
       });
     });
+    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.10.1"));
     await page.goto(origin);
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
+    if (!(await page.locator("#project-tree").evaluate((el) => el.open)))
+      await page.locator("#project-tree > summary").click();
     await page.click("#add-project");
     assert.equal(
       await page.locator("#project-dialog-title").innerText(),
@@ -161,6 +164,8 @@ const assert = require("node:assert/strict"),
     assert.equal(await page.locator("#project-selected-paths li").count(), 1);
     await page.click("#project-dialog-cancel");
     assert.equal(await page.locator("#project-dialog").isVisible(), false);
+    if (!(await page.locator("#project-tree").evaluate((el) => el.open)))
+      await page.locator("#project-tree > summary").click();
     await page.click("#add-project");
     assert.equal(await page.locator("#project-name").inputValue(), "");
     assert.equal(await page.locator("#project-selected-paths li").count(), 0);

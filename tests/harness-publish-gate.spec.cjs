@@ -98,7 +98,7 @@ const { mount, run } = require('./run-console-fixture.cjs');
     // P6 engineer: unknown is visible; reconciliation requires explicit human decision and cannot retry.
     loseResponse = false;
     await page.locator('#run-status-toggle').click();
-    await page.locator('#console-run').selectOption('run-a');
+    assert.equal(await page.locator('#console-run').inputValue(), 'run-a', 'Pipeline binds the current run automatically');
     await page.getByRole('button', { name: /Publish jira.create_issue/ }).click();
     const detail = page.getByRole('region', { name: 'Span detail' });
     assert.match(await detail.innerText(), /unknown/);
@@ -130,7 +130,8 @@ const { mount, run } = require('./run-console-fixture.cjs');
     await page.getByRole('button', { name: 'Collapse run console' }).click();
     needsYou = [{ ...metadata, gate_id: 'inbox-publish', job_id: 'run-a', kind: 'gate', publish: true,
       question: 'Publish from completed chat?', options: [{ id: 'approve', label: 'Approve' }, { id: 'deny', label: 'Deny' }] }];
-    await page.locator('#needs-you-toggle').click();
+    await page.locator('#attention-bell').click();
+    await page.locator('#attention-open-inbox').click();
     const inbox = page.getByRole('dialog', { name: 'Needs you', exact: true });
     await inbox.getByRole('button', { name: 'Approve', exact: true }).waitFor();
     assert((await inbox.innerText()).includes(metadata.artifact_digest));

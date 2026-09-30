@@ -205,7 +205,7 @@ runPersona("h27", [
         await page.locator("#search-results", { hasText: /found/ }).waitFor();
         assert.equal(
           await page.locator("#search-results").innerText(),
-          "1 conversation(s) found",
+          "1 result(s) found",
           "query " + JSON.stringify(query),
         );
       }
@@ -213,7 +213,7 @@ runPersona("h27", [
       await page.locator("#search-results", { hasText: /found/ }).waitFor();
       assert.equal(
         await page.locator("#search-results").innerText(),
-        "1 conversation(s) found",
+        "1 result(s) found",
         "accent-insensitive match on a Portuguese title",
       );
       await page.locator("#conversation-search-close").click();

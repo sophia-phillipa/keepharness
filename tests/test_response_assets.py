@@ -23,3 +23,16 @@ class ResponseAssetsTest(unittest.TestCase):
                 self.assertIn("javascript", bundle.headers["content-type"])
                 self.assertIn("markdownit", bundle.text)
                 self.assertIn("script-src 'self'", bundle.headers["content-security-policy"])
+
+    def test_tour_assets_use_local_routes_and_follow_the_console(self):
+        with tempfile.TemporaryDirectory() as root:
+            app = create_app({"state_dir": root, "projects": {}, "clients": {}})
+            with TestClient(app) as client:
+                page = client.get("/")
+                self.assertIn('/tour.css', page.text)
+                self.assertLess(page.text.index('/run-console.js'), page.text.index('/tour.js'))
+                for path, mime in (("/tour.js", "javascript"), ("/tour.css", "text/css")):
+                    response = client.get(path)
+                    self.assertEqual(response.status_code, 200)
+                    self.assertIn(mime, response.headers["content-type"])
+                    self.assertIn("script-src 'self'", response.headers["content-security-policy"])

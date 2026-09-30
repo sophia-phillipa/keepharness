@@ -252,6 +252,8 @@ runPersona("harness-runs-and-drafts", [
       });
       await page.goto("http://harness.test");
       await page.locator("#startup-gate").waitFor({ state: "hidden" });
+      if (!(await page.locator("#project-tree").evaluate((el) => el.open)))
+        await page.locator("#project-tree > summary").click();
       await page.click("#add-project");
       const list = page.locator("#project-directory-list");
       await page

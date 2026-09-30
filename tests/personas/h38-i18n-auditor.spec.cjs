@@ -312,6 +312,8 @@ runPersona("H38", [
       await audit(page, "search", sink);
       await page.keyboard.press("Escape");
 
+      if (!(await page.locator("#project-tree").evaluate((el) => el.open)))
+        await page.locator("#project-tree > summary").click();
       await page.click("#add-project");
       await visible(page, "#project-dialog");
       await page
@@ -357,9 +359,11 @@ runPersona("H38", [
         await audit(page, menu + " menu", sink);
         await page.keyboard.press("Escape");
       }
-      await page.click("#quota-toggle");
+      await page.click("#settings");
+      await page.click("#settings-quota");
       await audit(page, "quota", sink);
-      await page.click("#quota-toggle");
+      await page.keyboard.press("Escape");
+      await page.keyboard.press("Escape");
 
       await page.fill("#prompt", "Hello");
       await page.click("#send");
@@ -596,7 +600,7 @@ runPersona("H38", [
               (e) =>
                 e &&
                 (e.getAttribute("title") || e.getAttribute("aria-label") || "")
-                  .length >= 100,
+                  .length >= Math.min(100, el.textContent.replace(/\s+/g, " ").trim().length),
             );
             if (cut && !(ellipsis && full))
               out.push(
@@ -614,6 +618,8 @@ runPersona("H38", [
       assert.deepEqual(await clipped(), [], "model menu");
       await page.keyboard.press("Escape");
       const group = page.locator('#projects [data-project-id="long"]');
+      if (!(await page.locator("#project-tree").evaluate((el) => el.open)))
+        await page.locator("#project-tree > summary").click();
       await group.locator("summary > button").first().click();
       page.once("dialog", (d) => d.accept());
       await group.locator(".project-new").click();

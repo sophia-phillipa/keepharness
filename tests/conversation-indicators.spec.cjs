@@ -178,6 +178,7 @@ const assert = require("node:assert/strict"),
       });
     });
     await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.10.1"));
     await page.goto(origin);
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
 
@@ -209,6 +210,8 @@ const assert = require("node:assert/strict"),
       1,
       "unread survives reload",
     );
+    if (!(await page.locator("#project-tree").evaluate((el) => el.open)))
+      await page.locator("#project-tree > summary").click();
     await page.locator(".project-group > summary").click();
     await page.screenshot({ path: "/tmp/tail-conversation-indicators.png" });
     await page.locator("#projects .conversation-row > button").click();

@@ -80,8 +80,10 @@ const assert = require("node:assert/strict"),
         };
       return route.fulfill({ json: data });
     });
+    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.10.1"));
     await page.goto("http://panel.test");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
+    await page.locator("#project-tree > summary").click();
     await page.evaluate(() => {
       $("project").value = "alpha";
       conversation = "fixture-conversation";
@@ -218,6 +220,8 @@ const assert = require("node:assert/strict"),
     failure = null;
     await page.locator("#project-dialog-cancel").click();
     // P7: edit is discoverable with an icon; create remains an independent empty form.
+    if (!(await page.locator("#project-tree").evaluate((el) => el.open)))
+      await page.locator("#project-tree > summary").click();
     await page.locator("#add-project").click();
     assert.equal(
       await page.locator("#project-dialog-title").innerText(),

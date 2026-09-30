@@ -66,7 +66,7 @@ class GateService:
                         },
                     )
 
-    async def ask(self, job_id, request, progress):
+    async def ask(self, job_id, request, progress, *, plan=None):
         validate_options(request)
         wait_limit = timeout_seconds(self.service.config, "approval_timeout_seconds", 1800)
         gate_id = uuid.uuid4().hex
@@ -83,6 +83,8 @@ class GateService:
             "evidence": request.get("evidence", []),
             "enforcement": "advisory",
         }
+        if plan is not None:
+            spec.update(kind="maestro_plan", plan=plan)
         future = asyncio.get_running_loop().create_future()
         with self.service.db:
             self.repository.create(gate_id, job_id, spec)
@@ -133,8 +135,31 @@ class GateService:
             "resolved_by": identity[0],
             "at": time.time(),
         }
+        if spec.get("kind") == "maestro_plan" and choice == "approve":
+            from ..maestro import candidates, validate_plan
+
+            payload = json.loads(job["payload"])
+            available = candidates(
+                self.service.config, job["project"],
+                bool(payload.get("file_ids") or payload.get("workspace_id")),
+            )
+            if payload.get("workspace_id"):
+                available = [model for model in available if model["permissions"].get("read")]
+            edited_plan = data.get("plan", spec["plan"])
+            if isinstance(edited_plan, dict) and isinstance(edited_plan.get("steps"), list):
+                edited_plan = {
+                    **edited_plan,
+                    "steps": [
+                        {key: value for key, value in step.items() if key != "invocation"}
+                        if isinstance(step, dict) else step
+                        for step in edited_plan["steps"]
+                    ],
+                }
+            approved_plan = validate_plan(json.dumps(edited_plan), available)
+            spec["plan"] = approved_plan
+            resolution["plan"] = approved_plan
         with self.service.db:
-            if not self.repository.resolve(gate_id, choice, identity[0], resolution["at"]):
+            if not self.repository.resolve(gate_id, choice, identity[0], resolution["at"], spec=spec):
                 raise APIError("gate_already_resolved", 409)
         try:
             self.progress[gate_id]("gate_resolved", resolution)

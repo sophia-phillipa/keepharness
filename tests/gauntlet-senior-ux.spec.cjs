@@ -57,6 +57,7 @@ const assert = require("node:assert/strict");
       if (path === "/v1/conversations") data = { conversations: [] };
       return r.fulfill({ json: data });
     });
+    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.10.1"));
     await page.goto(process.env.HARNESS_URL || "http://127.0.0.1:8095/");
     await page.selectOption("#model", "gpt-5.6-sol");
     await page.waitForFunction(() =>
@@ -82,6 +83,7 @@ const assert = require("node:assert/strict");
       "Late OpenAI quota must not overwrite Claude status",
     );
     await page.fill("#prompt", "Important audit draft");
+    await page.locator("#project-tree > summary").click();
     await page
       .getByRole("button", { name: "Work project", exact: true })
       .click();

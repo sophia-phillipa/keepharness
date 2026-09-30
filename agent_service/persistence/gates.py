@@ -24,12 +24,12 @@ class GateRepository:
             (gate_id, job_id, encoded(spec)),
         )
 
-    def resolve(self, gate_id, choice, owner, at):
+    def resolve(self, gate_id, choice, owner, at, *, spec=None):
         return (
             self.db.execute(
-                "UPDATE gates SET state='resolved',choice=?,resolved_by=?,resolved_at=? "
+                "UPDATE gates SET state='resolved',choice=?,resolved_by=?,resolved_at=?,spec=COALESCE(?,spec) "
                 "WHERE gate_id=? AND state='pending'",
-                (encoded(choice), owner, at, gate_id),
+                (encoded(choice), owner, at, encoded(spec) if spec is not None else None, gate_id),
             ).rowcount
             == 1
         )

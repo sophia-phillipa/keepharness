@@ -121,7 +121,7 @@ test(0, "Search for a conversation with no result", async (p) => {
   await p.fill("#conversation-search", "nonexistent");
   assert.match(
     await p.locator("#search-results").innerText(),
-    /No conversation/,
+    /No run, plan step, or loaded file matched/,
   );
 });
 test(0, "Understand the lack of models", async (p, s) => {
@@ -210,6 +210,8 @@ test(1, "Close the files panel with Escape", async (p) => {
 });
 test(1, "Add a project without clipping the form", async (p) => {
   await sidebar(p);
+  if (!(await p.locator("#project-tree").evaluate((el) => el.open)))
+    await p.locator("#project-tree > summary").click();
   await p.click("#add-project");
   await fits(p, "#project-dialog");
   await visible(p, "#project-create");
@@ -280,6 +282,8 @@ test(2, "Persist the reading size", async (p) => {
 });
 test(2, "Keep draft when switching project", async (p) => {
   await p.fill("#prompt", "Keep");
+  if (!(await p.locator("#project-tree").evaluate((el) => el.open)))
+    await p.locator("#project-tree > summary").click();
   await p.locator("#projects summary button").first().click();
   assert.equal(await p.locator("#prompt").inputValue(), "Keep");
 });
@@ -388,6 +392,8 @@ test(3, "Reduced motion disables animated scrolling", async (p) => {
 });
 // Elisa: names, keyboard navigation, focus and semantics.
 test(4, "Project has an accessible name", async (p) => {
+  if (!(await p.locator("#project-tree").evaluate((el) => el.open)))
+    await p.locator("#project-tree > summary").click();
   await p.click("#add-project");
   await named(p, "#project-dialog");
 });
@@ -819,6 +825,7 @@ test(5, "A query limit does not simulate a disconnection", async (p, s) => {
         task: c.title,
       };
       try {
+        await p.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.10.1"));
         await p.goto("http://eval.test");
         await p.locator("#startup-gate").waitFor({ state: "hidden" });
         await c.run(p, s);

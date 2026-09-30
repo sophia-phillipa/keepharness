@@ -356,11 +356,29 @@ async def execute_plan(service, row, data, declared, *, planning_result=None, co
 
 async def run(service, row, data):
     planned = await plan(service, row, data)
+    resolution = await service.gates.ask(
+        row["id"],
+        {
+            "question": "Approve the Maestro plan before any steps run?",
+            "options": [
+                {"id": "approve", "label": "Approve plan & run"},
+                {"id": "deny", "label": "Discard plan"},
+            ],
+        },
+        lambda kind, value: service.event(row["id"], kind, value),
+        plan=planned["plan"],
+    )
+    if not resolution.get("approved") or resolution.get("choice") != "approve":
+        return {
+            "backend": "maestro",
+            "answer": "The Maestro plan was not approved. No steps were run.",
+            "orchestration": {"plan": planned["plan"], "steps": [], "approved": False},
+        }
     return await execute_plan(
         service,
         row,
         data,
-        planned["plan"],
+        resolution["plan"],
         planning_result=planned["planning_result"],
         coordinator=planned["coordinator"],
     )

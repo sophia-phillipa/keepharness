@@ -30,9 +30,9 @@
     for (const [value, label] of choices) node.add(new Option(label, value));
     return node;
   };
-  const state = { tab: 'Pipeline', run: '', spans: [], selectedSpan: '', content: false,
+  const state = { tab: 'Pipeline', run: '', spans: [], selectedSpan: '', content: false, attentionFilter: 'request', editPlan: false,
     activity: { jobs: [], providers: [], needs_you: [], counts: {} }, logs: [], after: 0,
-    more: true, logLoading: false, sequence: 0, activitySequence: 0, zoom: 1, detailTab: 'Metrics' };
+    more: true, logLoading: false, sequence: 0, activitySequence: 0, zoom: 1, detailTab: 'Metrics', filteredJobs: null, followLatest: true };
   const main = document.querySelector('main');
   const drawer = el('section', null, 'run-console');
   drawer.id = 'run-console';
@@ -46,6 +46,7 @@
   resizer.setAttribute('aria-controls', drawer.id);
   const header = el('div', null, 'run-console-header');
   const tabs = el('div', null, 'run-console-tabs');
+  tabs.dataset.tour = 'run-console-tabs';
   tabs.setAttribute('role', 'tablist');
   tabs.setAttribute('aria-label', 'Run console views');
   const tabButtons = [];
@@ -55,7 +56,9 @@
   body.tabIndex = -1;
   for (const name of ['Pipeline', 'Timeline', 'Logs', 'Runs', 'Agents']) {
     const tab = button(name, () => setTab(name));
+    tab.dataset.tab = name;
     tab.id = 'run-tab-' + name.toLowerCase();
+    tab.setAttribute('aria-label', name);
     tab.setAttribute('role', 'tab');
     tab.setAttribute('aria-controls', body.id);
     tabButtons.push(tab);
@@ -71,7 +74,7 @@
   });
   const close = button('Collapse run console', () => toggle(false));
   close.classList.add('run-console-close');
-  header.append(el('h2', 'Run console'), tabs, close);
+  header.append(el('h2', 'RUN CONSOLE'), tabs, close);
   const controls = el('div', null, 'run-console-controls');
   const runSelect = select('console-run', [['', 'Select a run']]);
   runSelect.addEventListener('change', () => chooseRun(runSelect.value));
@@ -80,6 +83,7 @@
   controls.append(field('Run', runSelect));
   drawer.append(resizer, header, controls, error, body);
   const strip = el('div', null, 'run-status-strip');
+  strip.dataset.tour = 'status-strip';
   strip.setAttribute('role', 'region');
   strip.setAttribute('aria-label', 'Run status');
   const toggleButton = button('Run console · checking activity…', () => toggle(drawer.hidden));
@@ -90,7 +94,14 @@
   const inboxButton = button('Needs you (0)', () => openInbox());
   inboxButton.id = 'needs-you-toggle';
   inboxButton.setAttribute('aria-haspopup', 'dialog');
-  strip.append(toggleButton, inboxButton);
+  const shortcut = el('span', 'Ctrl J', 'run-status-shortcut');
+  shortcut.setAttribute('aria-hidden', 'true');
+  const stripAction = button('Expand', () => toggle(drawer.hidden));
+  stripAction.id = 'run-status-action';
+  stripAction.setAttribute('aria-label', 'Toggle console from status strip');
+  stripAction.setAttribute('aria-controls', drawer.id);
+  stripAction.setAttribute('aria-expanded', 'false');
+  strip.append(toggleButton, inboxButton, stripAction, shortcut);
   main.append(drawer, strip);
   const inbox = el('dialog', null, 'needs-you-dialog');
   inbox.id = 'needs-you-inbox';
@@ -102,7 +113,10 @@
   const inboxList = el('div');
   inbox.append(inboxHeader, inboxList);
   document.body.append(inbox);
-  inbox.addEventListener('close', () => inboxButton.focus());
+  inbox.addEventListener('close', () => {
+    const fallback = document.getElementById('attention-bell');
+    (inboxButton.checkVisibility() ? inboxButton : fallback)?.focus();
+  });
   let previousFocus, refreshTimer, lastContext = '', inboxSignature = '';
   const projectFilter = select('console-project', []);
   const workFilter = input('console-work-item');
@@ -146,9 +160,11 @@
     if (open && drawer.hidden) previousFocus = document.activeElement;
     drawer.hidden = !open;
     toggleButton.setAttribute('aria-expanded', String(open));
+    stripAction.textContent = open ? 'Collapse' : 'Expand';
+    stripAction.setAttribute('aria-expanded', String(open));
     if (open) {
       setTab(state.tab);
-      tabButtons.find(node => node.textContent === state.tab).focus();
+      tabButtons.find(node => node.dataset.tab === state.tab)?.focus();
       void refresh();
     } else {
       (previousFocus?.isConnected ? previousFocus : toggleButton).focus();
@@ -157,12 +173,12 @@
   function setTab(name) {
     state.tab = name;
     for (const tab of tabButtons) {
-      const selected = tab.textContent === name;
+      const selected = tab.dataset.tab === name;
       tab.setAttribute('aria-selected', String(selected));
       tab.tabIndex = selected ? 0 : -1;
     }
     body.setAttribute('aria-labelledby', 'run-tab-' + name.toLowerCase());
-    controls.hidden = name === 'Agents' || name === 'Runs';
+    controls.hidden = name === 'Agents' || name === 'Runs' || (!!state.run && name !== 'Logs');
     render();
     if (name === 'Logs' && !state.logs.length) void loadLogs();
   }
@@ -204,6 +220,9 @@
     projectFilter.value = project.value;
     workFilter.value = '';
     state.run = job || '';
+    state.followLatest = true;
+    state.filteredJobs = null;
+    state.editPlan = false;
     state.content = false;
     state.detailTab = 'Metrics';
     state.selectedSpan = '';
@@ -219,19 +238,53 @@
     const params = new URLSearchParams({ project_id: currentProject() });
     if (workFilter.value.trim()) params.set('work_item', workFilter.value.trim());
     try {
-      const data = await json('/v1/activity?' + params);
+      const [data, filtered] = await Promise.all([
+        json('/v1/activity'),
+        state.tab === 'Runs' ? json('/v1/activity?' + params) : Promise.resolve(null),
+      ]);
       if (sequence !== state.activitySequence) return;
       const changed = JSON.stringify(state.activity) !== JSON.stringify(data);
+      const previousPlan = JSON.stringify(currentPlan());
       state.activity = { jobs: [], providers: [], needs_you: [], counts: {}, ...data };
+      state.filteredJobs = filtered?.jobs || null;
+      window.applyActivitySnapshot?.(state.activity);
+      const pendingConversations = new Set(state.activity.needs_you.map(item => item.conversation_id).filter(Boolean));
+      let sidebarChanged = false;
+      for (const item of (typeof conversations === 'undefined' ? [] : conversations)) {
+        const next = pendingConversations.has(item.id);
+        if (!!item.needs_you !== next) { item.needs_you = next; sidebarChanged = true; }
+      }
+      if (sidebarChanged) {
+        renderProjects();
+        const currentConversation = conversations.find(item => item.id === conversation);
+        if (currentConversation) renderConversationHeader(currentConversation);
+      }
       const counts = state.activity.counts;
-      toggleButton.textContent = `${counts.running || 0} running · ${counts.queued || 0} queued · ${counts.needs_you || 0} needs you · Run console`;
-      inboxButton.textContent = `Needs you (${counts.needs_you || 0})`;
       refreshRunOptions();
+      const pendingPlan = currentPlan();
+      const current = state.activity.jobs.find(item => item.job_id === state.run);
+      const highlight = pendingPlan ? 'Maestro plan awaiting approval' : current ? [current.work_item || current.title, current.state].filter(Boolean).join(' · ') : 'No active run';
+      toggleButton.textContent = `● ${counts.running || 0} running · ${counts.queued || 0} queued · ${counts.needs_you || 0} needs you · ${highlight}`;
+      inboxButton.textContent = `Needs you (${counts.needs_you || 0})`;
+      const attentionCount = document.getElementById('attention-count');
+      if (attentionCount) attentionCount.textContent = String(counts.needs_you || 0);
+      window.updateProviderQuotas?.(state.activity.providers);
+      for (const [name, count] of [['Runs', state.activity.jobs.length], ['Agents', state.activity.providers.length]]) {
+        const tab = tabButtons.find(node => node.dataset.tab === name);
+        let badge = tab.querySelector('.run-tab-count');
+        if (!badge) {
+          badge = el('span', '', 'run-tab-count');
+          badge.setAttribute('aria-hidden', 'true');
+          tab.append(badge);
+        }
+        badge.textContent = String(count);
+      }
       if (state.tab === 'Logs' && !state.more && data.jobs?.some(item => item.job_id === state.run && item.state === 'running')) {
         state.more = true;
         renderLogs();
       }
       if (!drawer.hidden) {
+        if (['Pipeline', 'Timeline'].includes(state.tab) && previousPlan !== JSON.stringify(currentPlan())) renderSpans();
         if (['Runs', 'Agents'].includes(state.tab)) {
           if (changed && !body.querySelector('[data-tag-form]')) render();
         }
@@ -245,14 +298,28 @@
     }
   }
   function refreshRunOptions() {
-    const jobs = state.activity.jobs.filter(item => !conversation || item.conversation_id === conversation || item.job_id === state.run);
+    const jobs = state.activity.jobs.filter(item => !conversation || item.conversation_id === conversation)
+      .sort((a, b) => (b.created || 0) - (a.created || 0));
+    if (jobs.length && (!state.run || (state.followLatest && conversation && jobs[0].job_id !== state.run))) {
+      state.run = jobs[0].job_id;
+      state.content = false;
+      state.selectedSpan = '';
+      state.spans = [];
+      state.logs = [];
+      state.after = 0;
+      state.more = true;
+      state.sequence++;
+      void fetchSpans();
+    }
     const options = jobs.map(item => [item.job_id, [item.work_item, item.model, item.state, item.job_id.slice(0, 8)].filter(Boolean).join(' · ')]);
     if (state.run && !options.some(([id]) => id === state.run)) options.push([state.run, state.run]);
     runSelect.replaceChildren(new Option('Select a run', ''), ...options.map(([id, label]) => new Option(label, id)));
     runSelect.value = state.run;
+    controls.hidden = ['Agents', 'Runs'].includes(state.tab) || (!!state.run && state.tab !== 'Logs');
   }
   async function chooseRun(id) {
     state.run = id;
+    state.followLatest = false;
     state.content = false;
     state.detailTab = 'Metrics';
     state.selectedSpan = '';
@@ -285,11 +352,38 @@
     else if (state.tab === 'Logs') renderLogs();
     else renderSpans();
   }
+  function currentPlan() {
+    return state.activity.needs_you.find(item => item.job_id === state.run &&
+      (!conversation || item.conversation_id === conversation) &&
+      (item.kind === 'maestro_plan' || item.approval_kind === 'maestro_plan') && item.plan?.steps);
+  }
   function renderSpans() {
     const focusedId = body.contains(document.activeElement) ? document.activeElement.id : '';
     const scrollTop = body.scrollTop;
     body.replaceChildren();
+    const pendingPlan = currentPlan();
+    if (pendingPlan) body.append(planApproval(pendingPlan));
     if (!state.run) { body.append(el('p', 'Select a run to inspect its recorded steps.')); return; }
+    const summary = el('div', null, 'run-pipeline-summary');
+    const current = state.activity.jobs.find(item => item.job_id === state.run);
+    summary.append(el('strong', current?.work_item || current?.title || 'Current run'), el('span', [current?.state, current?.backend, current?.model].filter(Boolean).join(' · ')));
+    const actions = el('div', null, 'run-pipeline-actions');
+    const rerun = button('↻ Re-run from span', () => {});
+    rerun.disabled = true; rerun.title = 'Re-running from a span is not available in this release.';
+    const fork = button('+ Fork', () => {});
+    fork.disabled = true; fork.title = 'Fork is not available in this release.';
+    const exportJson = button('Export OTLP JSON', () => {});
+    exportJson.disabled = true; exportJson.title = 'OTLP JSON export is not available in this release.';
+    for (const action of [rerun, fork, exportJson]) {
+      const explanation = el('span', null, 'run-action-help');
+      explanation.tabIndex = 0;
+      explanation.title = action.title;
+      explanation.dataset.tooltip = action.title;
+      explanation.setAttribute('aria-label', action.textContent + ': ' + action.title);
+      explanation.append(action);
+      actions.append(explanation);
+    }
+    summary.append(actions); body.append(summary);
     const split = el('div', null, 'run-span-split');
     const list = el('div', null, 'run-span-list');
     if (state.tab === 'Timeline') {
@@ -308,7 +402,11 @@
       row.id = 'run-span-' + span.span_id;
       row.dataset.state = outcome(span);
       row.setAttribute('aria-pressed', String(state.selectedSpan === span.span_id));
-      row.append(el('strong', span.name), el('span', `${outcome(span)} · ${span.attrs?.['gen_ai.request.model'] || span.kind} · ${duration(span)} · ${tokenCount(span)}`));
+      const spanState = el('span', outcome(span), 'run-span-state');
+      const backend = span.attrs?.['gen_ai.provider.name'] || span.attrs?.backend || '';
+      const route = el('span', [backend, span.attrs?.['gen_ai.request.model'] || span.attrs?.model || span.kind].filter(Boolean).join(' · '), 'backend-chip');
+      route.dataset.backend = backend;
+      row.append(el('strong', span.name), spanState, route, el('span', span.attrs?.effort || '', 'run-span-effort'), el('span', duration(span), 'run-span-duration'), el('span', tokenCount(span), 'run-span-tokens'));
       if (span.attrs?.enforcement) row.append(el('span', 'Publication: ' + span.attrs.enforcement));
       if (state.tab === 'Timeline') {
         const track = el('span', null, 'run-waterfall-track');
@@ -328,8 +426,47 @@
     if (focusedId) document.getElementById(focusedId)?.focus({ preventScroll: true });
     body.scrollTop = scrollTop;
   }
+  function planApproval(request) {
+    const bar = el('section', null, 'run-plan-approval');
+    bar.dataset.tour = 'maestro-plan';
+    bar.append(el('strong', 'Maestro plan · Awaiting approval'), el('p', 'Edit the plan JSON if needed. Nothing runs until you approve.'));
+    const editor = el('textarea');
+    editor.setAttribute('aria-label', 'Editable Maestro plan');
+    editor.value = JSON.stringify({ steps: request.plan.steps.map(step => Object.fromEntries(
+      ['role', 'backend', 'model', 'effort', 'task', 'reason']
+        .filter(key => step[key] != null)
+        .map(key => [key, step[key]]),
+    )) }, null, 2);
+    editor.hidden = !state.editPlan;
+    const feedback = el('p'); feedback.setAttribute('role', 'status');
+    const approve = button('✓ Approve plan & run', async () => {
+      let plan = request.plan;
+      if (state.editPlan) {
+        try { plan = JSON.parse(editor.value); }
+        catch { feedback.textContent = 'The plan must be valid JSON.'; editor.focus(); return; }
+      }
+      approve.disabled = true; editor.disabled = true; feedback.textContent = 'Approving plan…';
+      try {
+        await post('/v1/approvals/' + encodeURIComponent(request.gate_id), { choice: 'approve', plan });
+        feedback.textContent = 'Plan approved. Starting the run…';
+        await refresh();
+      } catch (failure) {
+        feedback.textContent = failure.message; approve.disabled = false; editor.disabled = false;
+      }
+    });
+    const discard = button('Discard', async () => {
+      discard.disabled = true;
+      try { await post('/v1/approvals/' + encodeURIComponent(request.gate_id), { choice: 'deny' }); await refresh(); }
+      catch (failure) { feedback.textContent = failure.message; discard.disabled = false; }
+    });
+    const edit = button(state.editPlan ? 'Hide editor' : 'Edit plan', () => { state.editPlan = !state.editPlan; renderSpans(); });
+    const actions = el('div', null, 'run-plan-actions'); actions.append(discard, edit, approve);
+    bar.append(editor, actions, feedback);
+    return bar;
+  }
   function spanDetail(span) {
     const detail = el('section', null, 'run-span-detail');
+    detail.dataset.tour = 'span-detail';
     detail.setAttribute('aria-label', 'Span detail');
     detail.append(el('h3', span.name));
     if (span.kind === 'harness.effect') {
@@ -465,7 +602,7 @@
     for (const title of ['Run / conversation', 'State', 'Provider / model', 'Work item']) head.append(el('th', title));
     const thead = el('thead'); thead.append(head); table.append(thead);
     const tbody = el('tbody');
-    for (const item of state.activity.jobs.filter(item => !stateFilter.value || item.state === stateFilter.value)) {
+    for (const item of (state.filteredJobs || state.activity.jobs).filter(item => !stateFilter.value || item.state === stateFilter.value)) {
       const row = el('tr');
       const name = el('td');
       name.append(button(item.job_id, async () => {
@@ -510,12 +647,30 @@
     }
     if (!body.children.length) body.append(el('p', 'No configured agents are available.'));
   }
-  async function openInbox() {
+  async function openInbox(filter = 'request') {
+    state.attentionFilter = filter;
+    inboxTitle.textContent = { complete: 'Completed runs', request: 'Needs you', error: 'Run errors' }[filter] || 'Needs you';
     inbox.showModal();
     renderInbox();
     await refresh();
   }
   function renderInbox() {
+    if (state.attentionFilter !== 'request') {
+      const states = state.attentionFilter === 'complete' ? ['completed'] : ['failed', 'cancelled', 'interrupted'];
+      const jobs = state.activity.jobs.filter(item => states.includes(item.state));
+      inboxList.replaceChildren(...jobs.map(item => {
+        const card = el('section', null, 'needs-you-card');
+        card.append(el('h3', item.title || item.work_item || item.job_id), el('p', [item.state, item.backend, item.model].filter(Boolean).join(' · ')));
+        card.append(button('View run', async () => {
+          inbox.close();
+          if (item.conversation_id) await load(item.conversation_id, false);
+          syncContext(); toggle(true); setTab('Pipeline'); await chooseRun(item.job_id);
+        }));
+        return card;
+      }));
+      if (!jobs.length) inboxList.append(el('p', state.attentionFilter === 'complete' ? 'No completed runs in this activity window.' : 'No failed runs in this activity window.'));
+      return;
+    }
     const requests = state.activity.needs_you.filter(item => {
       const deadline = item.timeout_at ?? item.expires_at;
       return !deadline || deadline > Date.now() / 1000;
@@ -597,6 +752,10 @@
     return card;
   }
   window.runConsole = {
+    getActivity() { return state.activity; },
+    async openRun(id) { syncContext(); toggle(true); setTab('Pipeline'); await chooseRun(id); },
+    openAttention(filter) { void openInbox(filter); },
+    openPlanEditor() { state.editPlan = true; toggle(true); setTab('Pipeline'); },
     attachAnswer(target, id) {
       if (!id) return;
       target.append(button('View run', async () => { syncContext(); toggle(true); setTab('Pipeline'); await chooseRun(id); }));
@@ -614,6 +773,8 @@
   };
   resize(330);
   void refresh();
+  document.addEventListener('tail:ready', refresh);
+  document.addEventListener('tail:history', refresh);
   setInterval(() => { if (!document.hidden) void refresh(); }, 4000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) void refresh(); });
 })();

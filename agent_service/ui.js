@@ -6,6 +6,8 @@ const $ = (id) => document.getElementById(id);
 let providers = {},
   models = [],
   files = [],
+  currentMaestroPlan = null,
+  observedActivityJobs = [],
   job = "",
   last = 0,
   controller = null,
@@ -1736,6 +1738,129 @@ function quotaSnapshot(kind, q) {
   }
   p.textContent = (kind === "before" ? "Before: " : "After: ") + quotaText(q);
 }
+function conversationState(c = {}) {
+  const value = String(c.state || "").toLowerCase();
+  if (c.needs_you || ["needs_you", "awaiting_approval", "approval_required"].includes(value))
+    return "needs-you";
+  if (["running", "loading", "planning"].includes(value)) return "running";
+  if (value === "queued") return "queued";
+  return "done";
+}
+function conversationAge(c = {}) {
+  const raw = c.updated ?? c.updated_at ?? c.created_at ?? c.created ?? 0;
+  let stamp = Number(raw);
+  if (!Number.isFinite(stamp) && typeof raw === "string")
+    stamp = Date.parse(raw) / 1000;
+  if (!stamp) return "";
+  const seconds = Math.max(0, Date.now() / 1000 - stamp);
+  if (seconds < 60) return "now";
+  if (seconds < 3600) return Math.floor(seconds / 60) + "m";
+  if (seconds < 86400) return Math.floor(seconds / 3600) + "h";
+  return Math.floor(seconds / 86400) + "d";
+}
+function conversationUpdated(c = {}) {
+  const raw = c.updated ?? c.updated_at ?? c.created_at ?? c.created ?? 0;
+  const numeric = Number(raw);
+  if (Number.isFinite(numeric) && numeric > 0) return numeric;
+  const parsed = typeof raw === "string" ? Date.parse(raw) / 1000 : 0;
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+function conversationSummary(c = {}) {
+  if (c.live_wait_reason || c.wait_reason)
+    return c.live_wait_reason || c.wait_reason;
+  const state = conversationState(c);
+  if (state === "needs-you") return "Waiting for your approval";
+  if (state === "running")
+    return c.live_activity || c.activity || "Run in progress";
+  if (state === "queued") return "Waiting in the queue";
+  return c.summary || "Completed";
+}
+function renderConversationHeader(c = null) {
+  const state = c ? conversationState(c) : "draft";
+  const states = { "needs-you": "Awaiting approval", running: "Running", queued: "Queued", done: "Completed", draft: "Draft" };
+  $("conversation-state-pill").textContent = states[state];
+  $("conversation-state-pill").dataset.state = state;
+  $("header-execution-mode").textContent = executionMode === "scoped" ? "Isolated conversation" : "Native conversation";
+  $("header-access").textContent = $("access-mode").value || "ask";
+}
+window.updateProviderQuotas = function updateProviderQuotas(items = []) {
+  const container = $("provider-quotas");
+  const meters = [];
+  const perProvider = new Map();
+  for (const item of items) {
+    const windows = item.quota ? quotaWindows(item.quota, item.backend) : [];
+    if (!windows.length) continue;
+    const remaining = Math.min(...windows.map((window) => window.remaining));
+    const previous = perProvider.get(item.backend);
+    if (!previous || remaining < previous.remaining)
+      perProvider.set(item.backend, { item, remaining });
+  }
+  for (const { item, remaining } of perProvider.values()) {
+    const meter = document.createElement("span");
+    meter.className = "provider-quota-meter";
+    meter.dataset.backend = item.backend;
+    const label = document.createElement("span");
+    label.textContent = ({ codex: "Codex", claude: "Claude", gemini: "Gemini", deepseek: "DeepSeek" })[item.backend] || item.backend;
+    const bar = document.createElement("i");
+    bar.style.setProperty("--quota", remaining + "%");
+    const value = document.createElement("b");
+    value.textContent = Math.round(remaining) + "%";
+    meter.append(label, bar, value);
+    meters.push(meter);
+  }
+  container.replaceChildren(...meters);
+  container.hidden = !meters.length;
+  container.tabIndex = meters.length ? 0 : -1;
+  container.setAttribute("role", meters.length ? "button" : "group");
+  container.title = meters.length
+    ? "Open quota details for the selected provider"
+    : "";
+};
+window.applyActivitySnapshot = function applyActivitySnapshot(data = {}) {
+  observedActivityJobs = Array.isArray(data.jobs) ? [...data.jobs] : [];
+  const pending = new Set(
+    (data.needs_you || []).map((item) => item.conversation_id).filter(Boolean),
+  );
+  const live = new Map();
+  for (const item of data.jobs || [])
+    if (item.conversation_id && !live.has(item.conversation_id))
+      live.set(item.conversation_id, item);
+  let changed = false;
+  for (const item of conversations) {
+    const job = live.get(item.id);
+    const nextNeeds = pending.has(item.id);
+    const nextWait = job?.wait_reason || "";
+    const nextActivity = job
+      ? [job.state === "running" ? "Run in progress" : "Waiting", job.work_item]
+          .filter(Boolean)
+          .join(": ")
+      : "";
+    if (
+      !!item.needs_you !== nextNeeds ||
+      (item.live_wait_reason || "") !== nextWait ||
+      (item.live_activity || "") !== nextActivity
+    ) {
+      item.needs_you = nextNeeds;
+      item.live_wait_reason = nextWait;
+      item.live_activity = nextActivity;
+      if (job?.state) item.state = job.state;
+      changed = true;
+    }
+  }
+  if (!changed) return;
+  renderProjects();
+  const current = conversations.find((item) => item.id === conversation);
+  if (current) renderConversationHeader(current);
+};
+$('provider-quotas').onclick = () => {
+  if (!$('provider-quotas').hidden) setQuotaOpen(true);
+};
+$('provider-quotas').onkeydown = (event) => {
+  if (["Enter", " "].includes(event.key) && !$('provider-quotas').hidden) {
+    event.preventDefault();
+    setQuotaOpen(true);
+  }
+};
 async function history(timeout = 30000) {
   const request = ++historyRequest;
   try {
@@ -1762,10 +1887,14 @@ async function history(timeout = 30000) {
     conversations.forEach(observeConversation);
     saveConversationActivity();
     renderProjects();
+    document.dispatchEvent(new Event("tail:history"));
     if ($("conversation-search-dialog").open) renderConversationSearch();
     if (conversation) {
       const current = conversations.find((item) => item.id === conversation);
-      if (current) setConversationTitle(current.title);
+      if (current) {
+        setConversationTitle(current.title);
+        renderConversationHeader(current);
+      }
     }
     $("history-note").textContent = legacyHistory
       ? "Compatible history: previous runs. Update the service to group turns."
@@ -1886,6 +2015,34 @@ function conversationRow(c) {
   ]
     .filter(Boolean)
     .join("\n");
+  const meta = document.createElement("span");
+  meta.className = "conversation-row-meta";
+  const summary = document.createElement("span");
+  summary.className = "conversation-summary";
+  summary.textContent = conversationSummary(c);
+  const age = document.createElement("time");
+  age.textContent = conversationAge(c);
+  const backend = document.createElement("span");
+  backend.className = "backend-chip";
+  backend.dataset.backend = c.execution?.backend || c.backend || "";
+  backend.textContent = c.execution?.backend || c.backend || "";
+  const project = document.createElement("span");
+  project.className = "conversation-project";
+  project.textContent = projectDetails[c.project]?.label || c.project || "No project";
+  meta.append(summary, age, backend, project);
+  open.append(meta);
+  if (conversationState(c) === "needs-you") {
+    const peek = document.createElement("button");
+    peek.type = "button";
+    peek.className = "conversation-peek";
+    peek.textContent = "Peek";
+    peek.onclick = (event) => {
+      event.stopPropagation();
+      load(c.id, c.legacy);
+    };
+    row.append(open, peek, actions);
+    return row;
+  }
   row.append(open, actions);
   return row;
 }
@@ -2052,6 +2209,9 @@ function syncExecutionMode() {
   indicator.title = label;
   indicator.setAttribute("aria-label", label);
   $("dropzone").classList.toggle("has-execution-mode", started && modeContract);
+  $("header-execution-mode").textContent = isolated
+    ? "Isolated conversation"
+    : "Native conversation";
 }
 $("isolation-toggle").onclick = () => {
   if (conversation || parent || busy || loading || submitting || uploads)
@@ -2061,6 +2221,14 @@ $("isolation-toggle").onclick = () => {
   invalidateResources();
   updateComposer();
   saveView();
+};
+$("header-execution-mode").onclick = () => {
+  if (!conversation && !parent && !$("isolation-toggle").disabled)
+    $("isolation-toggle").click();
+  else
+    status(
+      "Conversation mode is fixed after the first message. Start a new conversation to change it.",
+    );
 };
 function newConversation(title = "New Conversation") {
   resourceSelections = [];
@@ -2072,6 +2240,7 @@ function newConversation(title = "New Conversation") {
     return;
   }
   setActivePersona(null);
+  currentMaestroPlan = null;
   // F-95: an unsent draft survives every way of starting a new conversation;
   // attachments too, unless they were uploaded to another project.
   const draft = $("prompt").value,
@@ -2094,6 +2263,7 @@ function newConversation(title = "New Conversation") {
   conversation = "";
   executionMode = "native";
   executionModeChosen = false;
+  renderConversationHeader();
   $("access-mode").value = "ask";
   syncAccessMode();
   files = kept;
@@ -2536,15 +2706,29 @@ function renderProjects() {
     }
     $("projects").append(section);
   }
-  $("history").replaceChildren(
-    ...matches
-      .filter(
-        (c) =>
-          c.project == null || c.project === "" || c.project === "sem-projeto",
-      )
-      .map(conversationRow),
-  );
-  if (!$("history").children.length) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todaySeconds = today.getTime() / 1000;
+  const stateGroups = [
+    ["needs-you", "Needs you", (item) => conversationState(item) === "needs-you"],
+    ["running", "Running", (item) => conversationState(item) === "running"],
+    ["queued", "Queued", (item) => conversationState(item) === "queued"],
+    ["done", "Done today", (item) => conversationState(item) === "done" && conversationUpdated(item) >= todaySeconds],
+    ["older", "Older", (item) => conversationState(item) === "done" && conversationUpdated(item) < todaySeconds],
+  ];
+  $("history").replaceChildren(...stateGroups.map(([state, label, matchesGroup]) => {
+    const section = document.createElement("section");
+    section.className = "conversation-state-group";
+    section.dataset.state = state;
+    const items = matches.filter(matchesGroup);
+    const heading = document.createElement("h2");
+    const count = document.createElement("span");
+    count.textContent = String(items.length);
+    heading.append(document.createTextNode(label), count);
+    section.append(heading, ...items.map(conversationRow));
+    return section;
+  }));
+  if (!matches.length) {
     const empty = document.createElement("p");
     empty.className = "empty-history";
     empty.textContent = "Your conversations will appear here.";
@@ -2990,6 +3174,73 @@ function scroll() {
     box.scrollTop = box.scrollHeight;
   updateLatest();
 }
+function showMaestroPlan(data = {}) {
+  if (!active || !Array.isArray(data.steps)) return;
+  currentMaestroPlan = data;
+  active.el.querySelector(".maestro-plan-card")?.remove();
+  const card = document.createElement("section");
+  card.className = "maestro-plan-card";
+  if (data.gate_id) card.id = "gate-" + data.gate_id;
+  card.dataset.tour = "maestro-plan";
+  card.dataset.state = data.state || (data.gate_id ? "pending" : "running");
+  const heading = document.createElement("div");
+  heading.className = "maestro-plan-heading";
+  const title = document.createElement("strong");
+  title.textContent = "Plan";
+  const state = document.createElement("span");
+  state.className = "state-pill";
+  state.textContent = data.gate_id ? "Awaiting your approval" : "Approved · running";
+  const note = document.createElement("span");
+  note.setAttribute("role", "status");
+  note.textContent = data.gate_id ? "Nothing runs until you approve." : "Maestro is running the approved steps.";
+  heading.append(title, state, note);
+  const steps = document.createElement("ol");
+  for (const step of data.steps) {
+    const item = document.createElement("li");
+    const role = document.createElement("span");
+    role.className = "plan-role";
+    role.textContent = step.role || "Agent";
+    const model = document.createElement("span");
+    model.className = "backend-chip";
+    model.dataset.backend = step.backend || "";
+    model.textContent = [step.backend, step.model].filter(Boolean).join(" · ");
+    const effort = document.createElement("span");
+    effort.textContent = step.effort || "";
+    const task = document.createElement("p");
+    task.textContent = [step.task, step.reason].filter(Boolean).join(" · ");
+    item.append(role, model, effort, task);
+    steps.append(item);
+  }
+  const actions = document.createElement("div");
+  actions.className = "maestro-plan-actions";
+  if (data.gate_id) {
+    const approve = document.createElement("button");
+    approve.type = "button";
+    approve.className = "btn btn-primary";
+    approve.textContent = "✓ Approve plan & run";
+    approve.onclick = async () => {
+      approve.disabled = true;
+      try {
+        await post("/v1/approvals/" + encodeURIComponent(data.gate_id), { choice: "approve", plan: { steps: data.steps } });
+        card.dataset.state = "running";
+        state.textContent = "Approved · running";
+        note.textContent = "Maestro is running the approved steps.";
+      } catch (error) {
+        approve.disabled = false;
+        status("Couldn't approve the plan: " + error.message);
+      }
+    };
+    actions.append(approve);
+  }
+  const edit = document.createElement("button");
+  edit.type = "button";
+  edit.className = "btn";
+  edit.textContent = data.gate_id ? "Edit plan in Run console" : "View plan in Run console";
+  edit.onclick = () => window.runConsole?.openPlanEditor();
+  actions.append(edit);
+  card.append(heading, steps, actions);
+  active.el.insertBefore(card, active.body);
+}
 function event(e) {
   if (e.id <= last) return;
   last = e.id;
@@ -3020,6 +3271,7 @@ function event(e) {
     document.getElementById("approval-" + e.data.approval_id)?.remove();
     return;
   }
+  if (e.type === "maestro_plan") showMaestroPlan(e.data);
   if (active && !["context_usage", "usage_metrics"].includes(e.type)) {
     appendActivityTitle(active.milestones, e);
     if (active.milestones.children.length) {
@@ -3349,6 +3601,7 @@ async function load(id, legacy = false, restoredView = null) {
   if (submitting || cancelling || uploads) return;
   const request = ++conversationLoad,
     priorDraft = $("prompt").value;
+  currentMaestroPlan = null;
   loading = true;
   if (controller) {
     controller.abort();
@@ -3385,6 +3638,7 @@ async function load(id, legacy = false, restoredView = null) {
       conversations.find((c) => c.id === id)?.execution?.execution_mode ||
       "native";
     conversation = id;
+    renderConversationHeader(conversations.find((item) => item.id === id));
     if (!restoredView) saveView();
     files = [];
     renderFiles();
@@ -4250,7 +4504,7 @@ async function attachSelectedProjectFiles(
   }
   const maxFiles = Math.max(0, MAX_ATTACHMENTS - files.length),
     paths = [...new Set(selection.paths || [])];
-  if (!selection.root_id || !paths.length || !maxFiles) {
+  if (!(selection.root_id || selection.project_root_id) || !paths.length || !maxFiles) {
     status(
       maxFiles
         ? "Select files to attach."
@@ -4274,7 +4528,9 @@ async function attachSelectedProjectFiles(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        root_id: selection.root_id,
+        ...(selection.project_root_id
+          ? { project_root_id: selection.project_root_id }
+          : { root_id: selection.root_id }),
         paths,
         backend: selected().backend,
         model: selected().id,
@@ -4505,6 +4761,61 @@ $("menu").onclick = () => {
   toggleSidebar();
   fitPanels();
 };
+$("project-switcher").onclick = () => {
+  const tree = $("project-tree");
+  tree.open = !tree.open;
+  $("project-switcher").setAttribute("aria-expanded", String(tree.open));
+};
+$("about").onclick = () => $("about-dialog").showModal();
+$("about-close").onclick = () => $("about-dialog").close();
+$("about-dialog").addEventListener("close", () => $("about").focus());
+$("theme-toggle").onclick = () => {
+  const dark = document.documentElement.dataset.theme === "dark";
+  window.TailTheme?.apply(dark ? "porcelain" : "amethyst");
+  $("theme-toggle-label").textContent = dark ? "Light" : "Dark";
+};
+$("attention-bell").onclick = () => {
+  const popover = $("attention-popover");
+  popover.hidden = !popover.hidden;
+  $("attention-bell").setAttribute("aria-expanded", String(!popover.hidden));
+};
+const updateAttentionLabel = () => {
+  const count = Number($("attention-count").textContent) || 0;
+  $("attention-bell").setAttribute(
+    "aria-label",
+    `Attention, ${count} ${count === 1 ? "item" : "items"}`,
+  );
+};
+new MutationObserver(updateAttentionLabel).observe($("attention-count"), {
+  childList: true,
+  characterData: true,
+  subtree: true,
+});
+updateAttentionLabel();
+$("attention-open-inbox").onclick = () => {
+  $("attention-popover").hidden = true;
+  window.runConsole?.openAttention("request");
+};
+for (const button of document.querySelectorAll("[data-attention-filter]"))
+  button.onclick = () => {
+    document
+      .querySelectorAll("[data-attention-filter]")
+      .forEach((item) =>
+        item.setAttribute(
+          "aria-pressed",
+          String(item === button),
+        ),
+      );
+    $("attention-popover").hidden = true;
+    $("attention-bell").setAttribute("aria-expanded", "false");
+    window.runConsole?.openAttention(button.dataset.attentionFilter);
+  };
+document.addEventListener("pointerdown", (event) => {
+  if (!event.target.closest("#attention-bell, #attention-popover")) {
+    $("attention-popover").hidden = true;
+    $("attention-bell").setAttribute("aria-expanded", "false");
+  }
+});
 try {
   document.body.classList.toggle(
     "sidebar-collapsed",
@@ -4542,6 +4853,7 @@ let startupTimer,
   interfaceReady = false,
   readinessRetryAt = 0;
 function setReadiness(ready, message = "") {
+  if (!ready) window.tailHarnessTour?.stop(false);
   interfaceReady = ready;
   for (const node of [
     $("app-topbar"),
@@ -4557,6 +4869,7 @@ function setReadiness(ready, message = "") {
     : message ||
       "Waiting for the server… The connection will be checked automatically.";
   document.body.dataset.connectionReady = String(ready);
+  if (ready) document.dispatchEvent(new Event("tail:ready"));
   if (!ready) {
     for (const menu of document.querySelectorAll(".composer-menu:popover-open"))
       menu.hidePopover();
@@ -4693,8 +5006,10 @@ async function initialize() {
       }, 10000);
     }
     setReadiness(true);
-    if (!$("activity-panel").hidden && rightPanelView === "files")
+    if (!$("activity-panel").hidden && rightPanelView === "files") {
+      loadAuthorizedProjectRoots();
       loadProjectFileRoots();
+    }
     void Promise.all([quota(), checkVersion()]);
     updateComposer();
     // F-82: a stream cut by the outage re-attaches as soon as the server is back.
@@ -5111,13 +5426,131 @@ function setPanelOpen(open, persist = true) {
     "aria-expanded",
     String(open && rightPanelView === "activity"),
   );
-  if (open && rightPanelView === "files" && interfaceReady)
+  if (open && rightPanelView === "files" && interfaceReady) {
+    loadAuthorizedProjectRoots();
     loadProjectFileRoots();
+  }
   if (persist)
     try {
       localStorage.setItem("activity-open", open ? "1" : "0");
     } catch {}
 }
+let authorizedRootsRequest = 0;
+async function loadAuthorizedProjectRoots() {
+  const holder = $("authorized-project-roots"),
+    authorize = $("authorize-project-root"),
+    project = $("project").value,
+    request = ++authorizedRootsRequest;
+  holder.textContent = "Loading project roots…";
+  authorize.disabled = true;
+  authorize.title = "Checking project permissions";
+  try {
+    const base = new URLSearchParams({
+      view: "authorized",
+      project_id: project,
+      start: "1",
+      limit: "100",
+    });
+    const data = await json("/v1/project-files?" + base);
+    if (request !== authorizedRootsRequest) return;
+    authorize.disabled = !data.can_authorize || project === "sem-projeto";
+    authorize.title = authorize.disabled
+      ? "Additional roots are not available for this project."
+      : "Add a folder to this project";
+    const roots = Array.isArray(data.roots) ? [...data.roots] : [];
+    if (data.root_id) {
+      roots.sort((left, right) =>
+        left.id === data.root_id ? -1 : right.id === data.root_id ? 1 : 0,
+      );
+    }
+    holder.replaceChildren();
+    const rootListings = [];
+    for (const root of roots) {
+      const card = document.createElement("section");
+      card.className = "authorized-root-card";
+      const heading = document.createElement("strong");
+      heading.textContent = root.path || root.label;
+      const badge = document.createElement("span");
+      badge.className = "root-access-badge";
+      badge.textContent = "authorized";
+      const list = document.createElement("ul");
+      card.append(heading, badge, list);
+      holder.append(card);
+      rootListings.push({ root, list });
+    }
+    let nextRoot = 0;
+    async function loadNextRoot() {
+      while (nextRoot < rootListings.length) {
+        if (request !== authorizedRootsRequest) return;
+        const { root, list } = rootListings[nextRoot++];
+        const params = new URLSearchParams({
+          view: "authorized",
+          project_id: project,
+          root_id: root.id,
+          path: "",
+          start: "1",
+          limit: "100",
+        });
+      try {
+        const listing = await json("/v1/project-files?" + params);
+        if (request !== authorizedRootsRequest) return;
+        for (const entry of (listing.entries || []).slice(0, 12)) {
+          const row = document.createElement("li");
+          const name = document.createElement(
+            entry.type === "directory" ? "span" : "button",
+          );
+          name.textContent = entry.name;
+          if (name.tagName === "BUTTON") {
+            name.type = "button";
+            name.title = "Attach " + entry.name;
+            name.onclick = () =>
+              attachSelectedProjectFiles({
+                project_root_id: root.id,
+                paths: [entry.path],
+              });
+          }
+          row.append(name);
+          if (entry.status) {
+            const state = document.createElement("b");
+            state.className = "file-status-badge";
+            state.textContent = entry.status;
+            state.title = "Git status " + entry.status;
+            row.append(state);
+          }
+          list.append(row);
+        }
+        if (!list.children.length) {
+          const empty = document.createElement("li");
+          empty.textContent = "No files at this level.";
+          list.append(empty);
+        }
+      } catch {
+        if (request !== authorizedRootsRequest) return;
+        const unavailable = document.createElement("li");
+        unavailable.textContent = "Couldn't load this root.";
+        list.append(unavailable);
+      }
+      }
+    }
+    await Promise.all(
+      Array.from(
+        { length: Math.min(4, rootListings.length) },
+        () => loadNextRoot(),
+      ),
+    );
+    if (!roots.length) holder.textContent = "No project root is authorized.";
+  } catch {
+    if (request !== authorizedRootsRequest) return;
+    holder.textContent = "Project roots are unavailable in this service.";
+    authorize.disabled = true;
+    authorize.title = "Project root authorization is unavailable.";
+  }
+}
+$("authorize-project-root").onclick = () => {
+  const project = $("project").value;
+  if (project !== "sem-projeto" && !$("authorize-project-root").disabled)
+    openProjectDialog(project);
+};
 function togglePanelView(view) {
   if ($("activity-panel").hidden) {
     setPanelView(view);
@@ -5125,7 +5558,10 @@ function togglePanelView(view) {
   } else if (rightPanelView === view) setPanelOpen(false);
   else {
     setPanelView(view);
-    if (view === "files") loadProjectFileRoots();
+    if (view === "files") {
+      loadAuthorizedProjectRoots();
+      loadProjectFileRoots();
+    }
   }
 }
 let rightPanelView = "files";
@@ -5221,16 +5657,33 @@ try {
   rightPanelView = savedView || (preference === "1" ? "activity" : "files");
   setPanelView(rightPanelView, false);
   setPanelOpen(
-    preference === null
-      ? matchMedia("(min-width:1200px)").matches
-      : preference === "1",
+    matchMedia("(max-width:700px)").matches
+      ? false
+      : preference === null
+        ? matchMedia("(min-width:1200px)").matches
+        : preference === "1",
     false,
   );
 } catch {
   rightPanelView = "files";
   setPanelView("files", false);
-  setPanelOpen(matchMedia("(min-width:1200px)").matches, false);
+  setPanelOpen(
+    !matchMedia("(max-width:700px)").matches &&
+      matchMedia("(min-width:1200px)").matches,
+    false,
+  );
 }
+matchMedia("(max-width:700px)").addEventListener("change", (event) => {
+  if (event.matches) setPanelOpen(false, false);
+  else {
+    let preference = null;
+    try {
+      preference = localStorage.getItem("activity-open");
+    } catch {}
+    if (preference === null && matchMedia("(min-width:1200px)").matches)
+      setPanelOpen(true, false);
+  }
+});
 
 function boundedText(text, limit) {
   return text.length > limit
@@ -5292,7 +5745,7 @@ try {
   if (localStorage.getItem("panel-order") === "conversations-right")
     panelOrder = "conversations-right";
 } catch {}
-const panelWidths = { sidebar: 280, "activity-panel": 400 };
+const panelWidths = { sidebar: 300, "activity-panel": 390 };
 const panelIsLeft = (id) =>
   id === "sidebar"
     ? panelOrder === "conversations-left"
@@ -5414,8 +5867,8 @@ applyPanelOrder(panelOrder, false);
 for (const button of document.querySelectorAll("[data-panel-order]"))
   button.onclick = () => applyPanelOrder(button.dataset.panelOrder);
 $("panel-order-reset").onclick = () => {
-  panelWidths.sidebar = 280;
-  panelWidths["activity-panel"] = 400;
+  panelWidths.sidebar = 300;
+  panelWidths["activity-panel"] = 390;
   try {
     localStorage.removeItem("sidebar-width");
     localStorage.removeItem("activity-panel-width");
@@ -5560,6 +6013,13 @@ $("settings").onclick = () => {
   refreshCatalog();
 };
 $("settings-close").onclick = () => $("settings-dialog").close();
+$("settings-tour").onclick = () => $("settings-dialog").close();
+let quotaReturnsToSettings = false;
+$("settings-quota").onclick = () => {
+  quotaReturnsToSettings = true;
+  $("settings-dialog").close();
+  setQuotaOpen(true);
+};
 for (const id of ["settings-dialog", "conversation-search-dialog"]) {
   const dialog = $(id);
   dialog.addEventListener("click", (event) => {
@@ -5584,19 +6044,117 @@ function normalizeSearch(value) {
     .replace(/[\u0300-\u036f]/g, "")
     .toLocaleLowerCase();
 }
+let projectFileSearch = [],
+  projectFileSearchQuery = "",
+  projectFileSearchRequest = 0,
+  projectFileSearchTimer = 0;
+async function refreshProjectFileSearch(value) {
+  const query = value.trim(),
+    normalized = normalizeSearch(query),
+    request = ++projectFileSearchRequest;
+  if (normalized.length < 2) {
+    projectFileSearch = [];
+    projectFileSearchQuery = "";
+    renderConversationSearch();
+    return;
+  }
+  try {
+    const params = new URLSearchParams({
+      project_id: $("project").value,
+      query,
+      start: "1",
+      limit: "100",
+    });
+    const data = await json("/v1/project-files?" + params);
+    if (request !== projectFileSearchRequest) return;
+    projectFileSearch = Array.isArray(data.entries) ? data.entries : [];
+    projectFileSearchQuery = normalized;
+    renderConversationSearch();
+  } catch {
+    if (request !== projectFileSearchRequest) return;
+    projectFileSearch = [];
+    projectFileSearchQuery = normalized;
+    renderConversationSearch();
+  }
+}
 function renderConversationSearch() {
   const query = normalizeSearch($("conversation-search").value.trim());
-  const matches = conversations.filter((c) =>
-    normalizeSearch(c.title || "Conversation").includes(query),
+  const includes = (...values) =>
+    !query || normalizeSearch(values.filter(Boolean).join(" ")).includes(query);
+  const observedConversationIds = new Set();
+  const observedRuns = observedActivityJobs.map((item) => {
+    const source = conversations.find((conversation) => conversation.id === item.conversation_id);
+    if (item.conversation_id) observedConversationIds.add(item.conversation_id);
+    return {
+      ...source,
+      id: item.conversation_id || source?.id,
+      runId: item.job_id,
+      title: source?.title || item.title || "Run " + (item.job_id || ""),
+      project: item.project_id || source?.project,
+      state: item.state || source?.state,
+      wait_reason: item.wait_reason || source?.wait_reason,
+      activity: item.work_item || source?.activity,
+      execution: {
+        ...source?.execution,
+        backend: item.backend || source?.execution?.backend,
+        model: item.model || source?.execution?.model,
+      },
+    };
+  });
+  const searchableRuns = [
+    ...observedRuns,
+    ...conversations.filter((item) => !observedConversationIds.has(item.id)),
+  ];
+  const runMatches = searchableRuns.filter((c) =>
+    includes(
+      c.title || "Conversation",
+      c.runId,
+      c.state,
+      c.wait_reason,
+      c.activity,
+      c.execution?.backend,
+      c.execution?.model,
+      projectDetails[c.project]?.label,
+    ),
   );
+  const planMatches = (currentMaestroPlan?.steps || [])
+    .map((step, index) => ({ ...step, index }))
+    .filter((step) =>
+      includes(step.role, step.task, step.reason, step.backend, step.model),
+    );
+  const loadedFiles = new Map();
+  for (const file of files)
+    if (file?.name) loadedFiles.set(file.name, file);
+  for (const entries of fileTree.cache.values())
+    for (const file of entries || [])
+      if (file?.name && file.type !== "directory") loadedFiles.set(file.path || file.name, file);
+  if (projectFileSearchQuery === query)
+    for (const file of projectFileSearch)
+      if (file?.name && file.type !== "directory")
+        loadedFiles.set(file.path || file.name, file);
+  const fileMatches = [...loadedFiles.entries()].filter(([path, file]) =>
+    includes(path, file.name),
+  );
+  const total = runMatches.length + planMatches.length + fileMatches.length;
   $("search-clear").hidden = !query;
-  $("search-results").textContent = matches.length
-    ? matches.length + " conversation(s) found"
+  $("search-results").textContent = total
+    ? total + " result(s) found"
     : query
-      ? "No conversation found. Try a different title."
-      : "No conversation available.";
-  $("conversation-search-list").replaceChildren(
-    ...matches.map((c) => {
+      ? "No run, plan step, or loaded file matched."
+      : "No runs, plans, or loaded files are available.";
+  const sections = [];
+  const group = (name, items) => {
+    if (!items.length) return;
+    const section = document.createElement("section");
+    section.className = "search-result-group";
+    const heading = document.createElement("h3");
+    heading.textContent = name + " · " + items.length;
+    section.append(heading, ...items);
+    sections.push(section);
+  };
+  group(
+    "Runs",
+    runMatches.map((c) => {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "conversation-search-result";
@@ -5607,6 +6165,7 @@ function renderConversationSearch() {
         [...$("project").options].find((o) => o.value === c.project)
           ?.textContent || "No project";
       detail.append(document.createTextNode(project));
+      if (c.runId) detail.append(document.createTextNode(" · " + c.runId));
       if (c.execution?.model) {
         const icon = document.createElement("span");
         icon.className = "model-logo-icon";
@@ -5622,14 +6181,55 @@ function renderConversationSearch() {
       if (indicator) title.prepend(indicator);
       button.append(title, detail);
       button.disabled = submitting || cancelling || uploads > 0;
-      button.onclick = () => {
+      button.onclick = async () => {
         if (submitting || cancelling || uploads) return;
         $("conversation-search-dialog").close();
-        void load(c.id, c.legacy);
+        await load(c.id, c.legacy);
+        if (c.runId) window.runConsole?.openRun(c.runId);
       };
       return button;
     }),
   );
+  group(
+    "Current plan",
+    planMatches.map((step) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "conversation-search-result";
+      const title = document.createElement("strong");
+      title.textContent = `${step.index + 1}. ${step.role || "Agent"} · ${step.task || "Plan step"}`;
+      const detail = document.createElement("small");
+      detail.textContent = [step.backend, step.model, step.effort, step.reason]
+        .filter(Boolean)
+        .join(" · ");
+      button.append(title, detail);
+      button.onclick = () => {
+        $("conversation-search-dialog").close();
+        window.runConsole?.openPlanEditor();
+      };
+      return button;
+    }),
+  );
+  group(
+    "Project files",
+    fileMatches.map(([path]) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "conversation-search-result";
+      const title = document.createElement("strong");
+      title.textContent = path;
+      const detail = document.createElement("small");
+      detail.textContent = "Authorized project file";
+      button.append(title, detail);
+      button.onclick = () => {
+        $("conversation-search-dialog").close();
+        setPanelView("files");
+        setPanelOpen(true);
+      };
+      return button;
+    }),
+  );
+  $("conversation-search-list").replaceChildren(...sections);
 }
 function openConversationSearch() {
   renderConversationSearch();
@@ -5645,7 +6245,14 @@ $("conversation-search-dialog").addEventListener("keydown", (event) => {
     $("conversation-search-dialog").close();
   }
 });
-$("conversation-search").addEventListener("input", renderConversationSearch);
+$("conversation-search").addEventListener("input", () => {
+  renderConversationSearch();
+  clearTimeout(projectFileSearchTimer);
+  projectFileSearchTimer = setTimeout(
+    () => refreshProjectFileSearch($("conversation-search").value),
+    180,
+  );
+});
 $("search-clear").onclick = () => {
   $("conversation-search").value = "";
   renderConversationSearch();
@@ -5734,7 +6341,11 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     if (!$("quota-panel").hidden) {
       setQuotaOpen(false);
-      $("quota-toggle").focus();
+      if (quotaReturnsToSettings) {
+        quotaReturnsToSettings = false;
+        $("settings-dialog").showModal();
+        $("settings-quota").focus();
+      } else $("quota-toggle").focus();
     } else if (!$("activity-panel").hidden) {
       setPanelOpen(false);
       $("panel-toggle").focus();
@@ -5810,6 +6421,15 @@ function finishGate(id, state, data = {}) {
   if (box.contains(document.activeElement) || box.dataset.restoreFocus === "true")
     $("prompt").focus({ preventScroll: true });
   box.dataset.state = state;
+  if (box.classList.contains("maestro-plan-card")) {
+    box.querySelectorAll("button,input,textarea").forEach(node => { node.disabled = true; });
+    const note = box.querySelector('[role="status"]');
+    note.textContent = state === "resolved"
+      ? data.choice === "deny" ? "Plan discarded." : "Plan approved. The run can start."
+      : state === "invalidated" ? "This plan is no longer active."
+        : "This plan approval expired. Send the request again.";
+    return;
+  }
   if (state === "resolved" && data.choice !== undefined) {
     const choices = Array.isArray(data.choice) ? data.choice : [data.choice];
     box.querySelectorAll("input").forEach(input => { input.checked = choices.includes(input.value); });
@@ -5832,6 +6452,11 @@ function restoreGates(gates = []) {
 }
 function showGate(data) {
   if (document.getElementById("gate-" + data.gate_id)) return;
+  if (data.kind === "maestro_plan" && data.plan?.steps) {
+    showMaestroPlan({ ...data.plan, gate_id: data.gate_id, state: "pending" });
+    status("Waiting for plan approval");
+    return;
+  }
   if (data.publish && data.effect_id) { showPublishGate(data); return; }
   const box = document.createElement("section"), title = document.createElement("h3"),
     note = document.createElement("p"), fields = document.createElement("fieldset"),
@@ -5913,6 +6538,7 @@ function showPublishGate(data) {
   const box = document.createElement("section"), title = document.createElement("h3"), note = document.createElement("p");
   box.id = "gate-" + data.gate_id;
   box.className = "approval-card gate-card publish-gate-card";
+  box.dataset.tour = "publish-gate";
   box.dataset.state = "pending";
   box.dataset.publish = "true";
   title.textContent = "Publish approval";
@@ -6098,10 +6724,18 @@ for (const [id, name] of [
   const label = {
     "add-project": "Add project",
     new: "New Conversation",
+    send: "Send",
+    cancel: "Stop",
     reload: "Reload screen",
   }[id];
   b.replaceChildren(TailUI.icon(name));
-  if (label) b.append(document.createTextNode(label));
+  if (label) {
+    if (["send", "cancel"].includes(id)) {
+      const text = document.createElement("span");
+      text.textContent = label;
+      b.append(text);
+    } else b.append(document.createTextNode(label));
+  }
 }
 
 for (const [id, name, label] of [
@@ -6277,6 +6911,7 @@ function syncAccessMode() {
   $("access-mode-notice").textContent =
     "Access: " + $("access-label").textContent;
   $("access-trigger").dataset.mode = mode;
+  $("header-access").textContent = mode;
   const option = $("access-menu").querySelector('[data-access="' + mode + '"]'),
     optionIcon = option?.querySelector(".access-option-icon"),
     description = option?.querySelector("small")?.textContent || "";

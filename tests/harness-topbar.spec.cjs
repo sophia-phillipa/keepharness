@@ -60,6 +60,7 @@ const assert = require("node:assert/strict");
                   : {};
       return route.fulfill({ json: data });
     });
+    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.10.1"));
     await page.goto(process.env.HARNESS_URL || "http://panel.test/");
     await page.locator("#startup-gate").waitFor({ state: "visible" });
     assert.equal(
@@ -87,6 +88,7 @@ const assert = require("node:assert/strict");
     );
     assert.equal(await page.locator("#new").innerText(), "New Conversation");
     await page.locator("#prompt").fill("Preserved draft");
+    await page.locator("#project-tree > summary").click();
     const projectName = page
       .locator("#projects details summary button")
       .first();
@@ -236,12 +238,12 @@ const assert = require("node:assert/strict");
     assert(await page.locator("#composer-project").isHidden());
     await page.locator("#model").selectOption("cloud-fixture");
     await page.locator("#model").dispatchEvent("change");
-    await page.locator("#quota-toggle").waitFor({ state: "visible" });
+    await page.locator("#provider-quotas").waitFor({ state: "hidden" });
     await page.locator("#model").selectOption("fixture");
     await page.locator("#model").dispatchEvent("change");
-    await page.locator("#quota-toggle").waitFor({ state: "visible" });
+    await page.locator("#provider-quotas").waitFor({ state: "hidden" });
     assert.match(
-      await page.locator("#quota-short").innerText(),
+      await page.locator("#quota-short").textContent(),
       /No provider quota/,
     );
     assert.equal(
