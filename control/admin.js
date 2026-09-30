@@ -2766,6 +2766,28 @@ async function refreshExecution(row) {
         describeExecutionData(data.orchestration || agents.map((e) => e.data)),
       );
     }
+    if (data.spans?.length) {
+      nodes.push(element("h4", "Execution spans"));
+      const spans = element("ol", undefined, "execution-spans");
+      for (const span of data.spans) {
+        const item = element("li");
+        const outcome = span.attrs?.outcome || "unknown";
+        const status = outcome === "unknown"
+          ? span.end_ts == null
+            ? span.start_ts == null ? "Pending" : "In progress"
+            : "Outcome unknown"
+          : outcome;
+        const duration = Number.isFinite(span.start_ts) && Number.isFinite(span.end_ts)
+          ? ` · ${Math.max(0, span.end_ts - span.start_ts).toFixed(1)} s`
+          : "";
+        item.append(
+          element("strong", span.name || span.kind),
+          document.createTextNode(` · ${span.kind} · ${status}${duration}`),
+        );
+        spans.append(item);
+      }
+      nodes.push(spans);
+    }
     nodes.push(element("h4", "Activity · last 500 events"));
     const activity = element("ol", undefined, "execution-events");
     const labels = {
