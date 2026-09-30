@@ -10,6 +10,32 @@ from test_work_item_reference import submit
 from agent_service.errors import APIError
 
 
+def test_prepared_effect_activity_uses_one_query_for_all_jobs(make_harness_config):
+    from test_effect_executor import prepared
+
+    async def scenario():
+        app, effect = await prepared(make_harness_config)
+        service = app.state.service
+        service.db.execute("UPDATE jobs SET state='completed' WHERE id='job'")
+        for index in range(12):
+            service.conversation_repository.insert(
+                f"finished-{index}", "sem-projeto", "local", "completed", index,
+                "{}", None, None, None,
+            )
+        service.db.commit()
+        queries = []
+        service.db.set_trace_callback(queries.append)
+        activity = service.activity(("local", service.config["clients"]["local"]))
+        service.db.set_trace_callback(None)
+        assert any(item["gate_id"] == effect["gate_id"] for item in activity["needs_you"])
+        effect_queries = [query for query in queries if "FROM effects" in query]
+        assert len(effect_queries) == 1
+        await service.effects.close()
+        service.db.close()
+
+    asyncio.run(scenario())
+
+
 def test_activity_scopes_owners_projects_and_references(tmp_path, monkeypatch):
     service, identity = invocation_service(tmp_path, monkeypatch)
     first = submit(service, identity, work_item="TASK-1234")

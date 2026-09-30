@@ -19,6 +19,13 @@ def summarize_activity(service, identity, project_id=None, work_item=None):
     else:
         projects = [p for p in identity[1]["projects"] if p in service.config["projects"]]
     rows = service.conversation_repository.activity(identity[0], projects, work_item)
+    prepared_jobs = {
+        row["job_id"]
+        for row in service.db.execute(
+            "SELECT DISTINCT effects.job_id FROM effects JOIN jobs ON jobs.id=effects.job_id "
+            "WHERE effects.status='prepared' AND jobs.owner=?", (identity[0],)
+        )
+    }
     jobs, needs_you = [], []
     providers = {}
     for backend, settings in service.config.get("services", {}).items():
@@ -50,9 +57,7 @@ def summarize_activity(service, identity, project_id=None, work_item=None):
                 else "queue"
             )
         # Prepared publications remain actionable after their provider turn ends.
-        if row["state"] == "running" or service.db.execute(
-            "SELECT 1 FROM effects WHERE job_id=? AND status='prepared'", (row["id"],)
-        ).fetchone():
+        if row["state"] == "running" or row["id"] in prepared_jobs:
             for event in service.message_repository.requests(row["id"]):
                 spec = json.loads(event["data"])
                 is_gate = event["type"] == "gate_required"
