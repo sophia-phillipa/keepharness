@@ -2,7 +2,7 @@
 
 [![🇺🇸 English](https://img.shields.io/badge/%F0%9F%87%BA%F0%9F%87%B8-English-blue.svg)](README.md) [![🇧🇷 Português (Brasil)](https://img.shields.io/badge/%F0%9F%87%A7%F0%9F%87%B7-Portugu%C3%AAs%20(Brasil)-green.svg)](README.pt-BR.md)
 
-Painel local em Python para descobrir, configurar e executar o Codex CLI, o Claude Code, o Gemini CLI e modelos de IA locais, com uma interface de conversa acessível pela Tailscale ou outra VPN. Python 3.11+, licença MIT, versão **0.6.0**.
+Painel local em Python para descobrir, configurar e executar o Codex CLI, o Claude Code, o Gemini CLI e modelos de IA locais, com uma interface de conversa acessível pela Tailscale ou outra VPN. Python 3.11+, licença MIT, versão **0.7.0**.
 
 ## 🚀 Instalação — guiada por agente (comece aqui)
 
@@ -228,7 +228,7 @@ PYTHON="$PWD/.venv/bin/python" PLAYWRIGHT_MODULE=/caminho/playwright ./scripts/t
 
 As fixtures de UI evitam inferência em nuvem e download de modelos. Uma suíte mocada passando não prova autenticação de terceiros, reinício físico ou desempenho em contexto completo. Para verificar o pacote instalado, use `"$TH_VENV/bin/python" -m control.install_check`, com `TH_VENV` apontando para o ambiente usado na instalação (`~/.local/share/tail-harness/venv` para `install.sh`, `.venv` para `setup.sh`). Esse smoke check roda fora do checkout, com estado temporário e uma porta disponível; ele não instala dependências nem valida a instância de produção e os provedores. Para simular uma instalação limpa, siga a seção dedicada da [spec](dossier/installation-agent-spec.md), preparando ambiente, estado e portas separados por comandos individuais.
 
-Toda nova versão exige uma especificação em inglês em `dossier/releases/v<VERSÃO>.md`, com comportamento, critérios de aceitação, diagramas relevantes, notas de migração e validação realmente executada. Atualize `README.md`, `README.pt-BR.md` e os identificadores de versão juntos. Veja a [versão 0.6.0](dossier/releases/v0.6.0.md) e o [dossiê](dossier/README.md). Referência de produto: [T3 Code](https://github.com/pingdotgg/t3code). Esta é uma implementação independente; não incorpora código ou recursos gráficos do T3 e não alega equivalência de recursos.
+Toda nova versão exige uma especificação em inglês em `dossier/releases/v<VERSÃO>.md`, com comportamento, critérios de aceitação, diagramas relevantes, notas de migração e validação realmente executada. Atualize `README.md`, `README.pt-BR.md` e os identificadores de versão juntos. Veja a [versão 0.7.0](dossier/releases/v0.7.0.md) e o [dossiê](dossier/README.md). Referência de produto: [T3 Code](https://github.com/pingdotgg/t3code). Esta é uma implementação independente; não incorpora código ou recursos gráficos do T3 e não alega equivalência de recursos.
 
 A suíte cobre políticas de acesso, autenticação, protocolos e aprovações, descoberta local, integridade de download, instalação, arquivos empacotados e recuperação após falha. O teste de navegador usa fixtures, então não consome contas nem baixa modelos. A configuração do GitHub Actions executa os testes Python, os testes de UI no Chromium e a construção de wheel/sdist; os artefatos ficam anexados ao job de empacotamento quando o pipeline passa. Autenticação de terceiros e reinício físico da máquina não são simulados como prova de operação real.
 
@@ -332,9 +332,13 @@ Os cartões **Modelo local via Codex** e **DeepSeek via Codex** identificam as c
 
 O Tail Harness distingue o modelo do motor de execução. Outras combinações, como DeepSeek ou um modelo local via Claude Code, exigem integração e validação próprias e ainda não são opções nesses cartões. Desenvolver este projeto com o Codex não torna o Harness exclusivo dos modelos OpenAI.
 
-## 🆕 Versão 0.6.0
+## 🆕 Version 0.7.0
 
-Esta release menor consolida a rodada 01 de correções: as aprovações garantem um cartão de confirmação no modo Pedir aprovação (F-110); a escolha de isolamento e acesso saiu das alternâncias dentro da conversa, com toda nova conversa começando em Pedir aprovação (F-58); uma base de código só em inglês e um modelo de nomenclatura (`adapters/`, `local_ai/`, variáveis de ambiente `TAIL_HARNESS_*` com aliases obsoletos); Codex/Claude somente nativos, com o modo de acesso como a única restrição por conversa; e respostas parciais persistidas para execuções que falharam, foram interrompidas ou canceladas. Veja a [especificação da release](dossier/releases/v0.6.0.md) e a [versão 0.5.0](dossier/releases/v0.5.0.md) para a release anterior.
+Travamentos dos provedores agora têm limites configuráveis de inatividade, diagnóstico stderr limitado e com segredos ocultados, e orçamentos separados de execução ativa e espera humana. Aprovações pendentes expiram após 30 minutos; a interface mantém o cartão expirado com orientação para tentar novamente. Capacidade de despacho e cancelamento seguem a responsabilidade de cada execução, mantendo o worker único.
+
+Aprovações exigem um navegador humano cadastrado. No servidor, execute `tail-harness --state /caminho/do/estado-de-controle approve-device --owner local` (ou o id/login do proprietário tailnet existente), abra o link de uso único no navegador desejado e confirme o cadastro. Os ids dos proprietários e seus históricos são preservados; tokens de API, MCP e cookies comuns de login não podem aprovar. Links de cadastro duram 10 minutos e sessões duram 30 dias. Shell irrestrito sob o mesmo usuário continua sendo uma barreira apenas consultiva para segredos que esse usuário pode ler.
+
+Veja a [especificação da release](dossier/releases/v0.7.0.md) para configuração, migração e validação, e a [versão 0.6.0](dossier/releases/v0.6.0.md) para a release anterior.
 
 ### Agentes, skills e comandos no compositor
 

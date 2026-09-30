@@ -2,7 +2,7 @@
 
 [![🇺🇸 English](https://img.shields.io/badge/%F0%9F%87%BA%F0%9F%87%B8-English-blue.svg)](README.md) [![🇧🇷 Português (Brasil)](https://img.shields.io/badge/%F0%9F%87%A7%F0%9F%87%B7-Portugu%C3%AAs%20(Brasil)-green.svg)](README.pt-BR.md)
 
-A local Python control panel for discovering, configuring and running Codex CLI, Claude Code, Gemini CLI and local AI models, with a conversational harness accessible through Tailscale or another VPN. Python 3.11+, MIT license, version **0.6.0**.
+A local Python control panel for discovering, configuring and running Codex CLI, Claude Code, Gemini CLI and local AI models, with a conversational harness accessible through Tailscale or another VPN. Python 3.11+, MIT license, version **0.7.0**.
 
 ## 🚀 Installation — agent-guided (start here)
 
@@ -228,7 +228,7 @@ PYTHON="$PWD/.venv/bin/python" PLAYWRIGHT_MODULE=/path/to/playwright ./scripts/t
 
 UI fixtures avoid cloud inference and model downloads. A passing mocked suite does not prove third-party authentication, physical reboot or full-context performance. To check the installed package, use `"$TH_VENV/bin/python" -m control.install_check`, with `TH_VENV` set to the environment used by the installation (`~/.local/share/tail-harness/venv` for `install.sh`, `.venv` for `setup.sh`). This smoke check runs outside the checkout with temporary state and an available port; it does not install dependencies or validate the production instance and providers. For a clean installation simulation, follow the dedicated section of the [spec](dossier/installation-agent-spec.md), preparing separate environment, state and ports through individual commands.
 
-Every new version requires an English specification at `dossier/releases/v<VERSION>.md`, with behavior, acceptance criteria, relevant diagrams, migration notes and actual validation. Update `README.md`, `README.pt-BR.md` and the version identifiers together. See [version 0.6.0](dossier/releases/v0.6.0.md) and the [dossier](dossier/README.md). Product reference: [T3 Code](https://github.com/pingdotgg/t3code). This is an independent implementation; it does not incorporate T3's code or graphical assets and does not claim feature parity.
+Every new version requires an English specification at `dossier/releases/v<VERSION>.md`, with behavior, acceptance criteria, relevant diagrams, migration notes and actual validation. Update `README.md`, `README.pt-BR.md` and the version identifiers together. See [version 0.7.0](dossier/releases/v0.7.0.md) and the [dossier](dossier/README.md). Product reference: [T3 Code](https://github.com/pingdotgg/t3code). This is an independent implementation; it does not incorporate T3's code or graphical assets and does not claim feature parity.
 
 The suite covers access policies, authentication, protocols and approvals, local discovery, download integrity, installation, packaged files and recovery after a failure. The browser test uses fixtures so it does not consume accounts or download models. The GitHub Actions configuration runs Python tests, Chromium UI tests and the wheel/sdist build; artifacts are attached to the packaging job when the pipeline passes. Third-party authentication and a physical machine reboot are not simulated as proof of real operation.
 
@@ -332,9 +332,13 @@ The **Local model via Codex** and **DeepSeek via Codex** cards identify the comb
 
 Tail Harness distinguishes the model from the execution engine. Other combinations, such as DeepSeek or a local model through Claude Code, require their own integration and validation and are not yet options in these cards. Developing this project with Codex does not make the Harness exclusive to OpenAI models.
 
-## 🆕 Version 0.6.0
+## 🆕 Version 0.7.0
 
-This minor release consolidates fix round 01: approvals guarantee a confirmation card in Ask mode (F-110); isolation and access choice moved out of in-chat toggles, with every new conversation starting in Ask for approval (F-58); an English-only codebase and naming model (`adapters/`, `local_ai/`, `TAIL_HARNESS_*` environment variables with deprecated aliases); native-only Codex/Claude with access mode as the only per-conversation restriction; and persisted partial answers for failed, interrupted or cancelled runs. See the [release specification](dossier/releases/v0.6.0.md) and [version 0.5.0](dossier/releases/v0.5.0.md) for the prior release.
+Provider stalls now have configurable idle deadlines, bounded redacted stderr diagnostics, and separate active-runtime and human-wait budgets. Pending approvals expire after 30 minutes; the UI keeps an expired card with recovery guidance. Provider dispatch capacity and cancellation follow execution ownership while the queue remains a singleton.
+
+Approvals require an enrolled human browser. On the server, run `tail-harness --state /path/to/control-state approve-device --owner local` (or the existing tailnet owner id/login), open the one-time link in the intended browser, and confirm enrollment. Existing owner ids and history are preserved; API tokens, MCP and ordinary login cookies cannot approve. Enrollment links last 10 minutes and sessions last 30 days. Unrestricted same-user shell access remains advisory for secrets that user can read.
+
+See the [release specification](dossier/releases/v0.7.0.md) for configuration, migration and validation, and [version 0.6.0](dossier/releases/v0.6.0.md) for the previous release.
 
 ### Composer agents, skills and commands
 
