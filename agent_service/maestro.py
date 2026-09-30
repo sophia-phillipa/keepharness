@@ -3,6 +3,7 @@
 import json
 
 from .tools import ToolError
+from .invocations import InvocationError, normalize_legacy_step, validate_chain
 
 
 def model_permissions(config, provider, model, project_id=None):
@@ -96,6 +97,13 @@ def validate_plan(raw, available):
         for key in ("task", "role", "reason"):
             if not isinstance(step.get(key), str) or not 1 <= len(step[key]) <= 8000:
                 raise ToolError("maestro_invalid_step_description")
+    try:
+        invocations = [normalize_legacy_step(step, index) for index, step in enumerate(plan["steps"])]
+        validate_chain(invocations)
+    except InvocationError as error:
+        raise ToolError(str(error)) from None
+    for step, invocation in zip(plan["steps"], invocations):
+        step["invocation"] = invocation.to_dict()
     return plan
 
 
