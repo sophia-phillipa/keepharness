@@ -87,6 +87,7 @@ def test_native_turn_reports_quota_around_the_adapter_and_saves_the_cursor_last(
         assert order == ["quota", "adapter", "panel", "quota", "cursor"]
         assert events(instance, row["id"]) == [
             "queued",
+            "publication_policy",
             "quota_before",
             "answer_delta",
             "quota_after",
@@ -115,7 +116,7 @@ def test_scoped_turn_finishes_the_panel_before_quota_after(tmp_path):
         ):
             result = asyncio.run(instance.infer(row, data))
         assert order == ["quota", "adapter", "panel_finished", "quota", "cursor"]
-        assert events(instance, row["id"]) == ["queued", "quota_before", "quota_after"]
+        assert events(instance, row["id"]) == ["queued", "publication_policy", "quota_before", "quota_after"]
         assert result["quota_before"] == result["quota_after"] == {"available": True}
     finally:
         instance.db.close()

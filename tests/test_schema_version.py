@@ -33,6 +33,7 @@ def test_fresh_database_gets_the_baseline_schema_and_version(tmp_path):
         "workspaces",
         "approval_rules",
         "gates",
+        "effects",
         "registered_projects",
         "deleted_project_folders",
         "schema_version",
