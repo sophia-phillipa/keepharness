@@ -5540,6 +5540,10 @@ function finishGate(id, state, data = {}) {
   if (box.contains(document.activeElement) || box.dataset.restoreFocus === "true")
     $("prompt").focus({ preventScroll: true });
   box.dataset.state = state;
+  if (state === "resolved" && data.choice !== undefined) {
+    const choices = Array.isArray(data.choice) ? data.choice : [data.choice];
+    box.querySelectorAll("input").forEach(input => { input.checked = choices.includes(input.value); });
+  }
   box.querySelectorAll("button,input").forEach(node => { node.disabled = true; });
   const note = box.querySelector('[role="status"]');
   note.textContent = state === "resolved"
