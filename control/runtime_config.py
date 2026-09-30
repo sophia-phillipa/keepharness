@@ -111,6 +111,8 @@ def build_cli_provider(cfg, provider, spec, checked, info, state):
         "python": sys.executable,
         "integrations": spec.get("integrations", []),
     }
+    if provider == "claude" and "global_hooks" in spec:
+        cfg[provider]["global_hooks"] = spec["global_hooks"] is True
     if provider == "claude" and (state / "claude-cli-login").exists():
         cfg[provider]["use_cli_login"] = True
     cfg[provider + "_models"] = (

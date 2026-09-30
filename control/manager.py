@@ -310,7 +310,7 @@ class Manager:
             overrides = project.get("permissions", {})
             if (
                 not isinstance(overrides, dict)
-                or set(overrides) - set(PERMISSIONS)
+                or set(overrides) - {*PERMISSIONS, "delegate"}
                 or any(type(value) is not bool for value in overrides.values())
             ):
                 raise ValueError(
@@ -404,6 +404,10 @@ class Manager:
                 "projects": allowed_projects,
                 "permissions": perms,
             }
+            if provider == "claude" and "global_hooks" in spec:
+                if type(spec["global_hooks"]) is not bool:
+                    raise ValueError("Global hooks must be an explicit boolean.")
+                out["services"][provider]["global_hooks"] = spec["global_hooks"]
         logins = data.get("logins", [])
         if (
             not isinstance(logins, list)

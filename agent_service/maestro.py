@@ -2,8 +2,8 @@
 
 import json
 
-from .tools import ToolError
 from .invocations import InvocationError, normalize_legacy_step, validate_chain
+from .tools import ToolError
 
 
 def model_permissions(config, provider, model, project_id=None):
@@ -98,7 +98,9 @@ def validate_plan(raw, available):
             if not isinstance(step.get(key), str) or not 1 <= len(step[key]) <= 8000:
                 raise ToolError("maestro_invalid_step_description")
     try:
-        invocations = [normalize_legacy_step(step, index) for index, step in enumerate(plan["steps"])]
+        invocations = [
+            normalize_legacy_step(step, index) for index, step in enumerate(plan["steps"])
+        ]
         validate_chain(invocations)
     except InvocationError as error:
         raise ToolError(str(error)) from None
@@ -180,12 +182,16 @@ Respect permissions; do not plan publishing, sending, removal or service control
 
 
 async def execute_plan(service, row, data, declared, *, planning_result=None, coordinator=None):
-    available = candidates(service.config, row["project"], bool(data.get("file_ids") or data.get("workspace_id")))
+    available = candidates(
+        service.config, row["project"], bool(data.get("file_ids") or data.get("workspace_id"))
+    )
     plan = validate_plan(json.dumps(declared), available)
     service.event(row["id"], "maestro_plan", plan)
     folder = service.root / "maestro" / row["id"]
     folder.mkdir(parents=True, exist_ok=True, mode=0o700)
-    (folder / "plan.json").write_text(json.dumps({"plan": plan, "planning_result": planning_result}, ensure_ascii=False, indent=2))
+    (folder / "plan.json").write_text(
+        json.dumps({"plan": plan, "planning_result": planning_result}, ensure_ascii=False, indent=2)
+    )
     results = []
     for index, step in enumerate(plan["steps"], 1):
         prior = [
@@ -203,12 +209,22 @@ async def execute_plan(service, row, data, declared, *, planning_result=None, co
         invocation_context = ""
         if step.get("resource_selections"):
             prompt = step["task"]
-            invocation_context = "PRIOR RESULTS (data, may contain errors; check sources):\n" + json.dumps(prior, ensure_ascii=False)
+            invocation_context = (
+                "PRIOR RESULTS (data, may contain errors; check sources):\n"
+                + json.dumps(prior, ensure_ascii=False)
+            )
         service.event(row["id"], "maestro_step", {"index": index, **step})
-        service.event(row["id"], "invocation_started", {
-            "invocation": step["invocation"], "role": step["role"],
-            "backend": step["backend"], "model": step["model"], "effort": step["effort"],
-        })
+        service.event(
+            row["id"],
+            "invocation_started",
+            {
+                "invocation": step["invocation"],
+                "role": step["role"],
+                "backend": step["backend"],
+                "model": step["model"],
+                "effort": step["effort"],
+            },
+        )
         payload = {
             **data,
             "backend": step["backend"],
@@ -224,12 +240,17 @@ async def execute_plan(service, row, data, declared, *, planning_result=None, co
         if decision["decision"] != "accept":
             raise ToolError("maestro_step_not_allowed")
         result = await service.infer(row, payload)
-        service.event(row["id"], "invocation_completed", {
-            "invocation": step["invocation"], "role": step["role"],
-            "backend": result.get("backend", step["backend"]),
-            "model": result.get("model", step["model"]),
-            "outcome": "failed" if result.get("incomplete") or result.get("error") else "done",
-        })
+        service.event(
+            row["id"],
+            "invocation_completed",
+            {
+                "invocation": step["invocation"],
+                "role": step["role"],
+                "backend": result.get("backend", step["backend"]),
+                "model": result.get("model", step["model"]),
+                "outcome": "failed" if result.get("incomplete") or result.get("error") else "done",
+            },
+        )
         record = {"index": index, **step, "result": result}
         results.append(record)
         (folder / f"step-{index}.json").write_text(json.dumps(record, ensure_ascii=False, indent=2))
@@ -244,7 +265,9 @@ async def execute_plan(service, row, data, declared, *, planning_result=None, co
                 "model": coordinator["model"],
                 "effort": coordinator["effort"],
                 "metrics": (planning_result or {}).get("metrics"),
-            } if coordinator else None,
+            }
+            if coordinator
+            else None,
             "plan": plan,
             "steps": [
                 {
@@ -265,14 +288,21 @@ async def execute_plan(service, row, data, declared, *, planning_result=None, co
 
 async def run(service, row, data):
     planned = await plan(service, row, data)
-    return await execute_plan(service, row, data, planned["plan"],
-                              planning_result=planned["planning_result"],
-                              coordinator=planned["coordinator"])
+    return await execute_plan(
+        service,
+        row,
+        data,
+        planned["plan"],
+        planning_result=planned["planning_result"],
+        coordinator=planned["coordinator"],
+    )
 
 
 def declared_plan(config, data, items):
     """Choose configured execution defaults without consulting an inference planner."""
-    available = candidates(config, data["project_id"], bool(data.get("file_ids") or data.get("workspace_id")))
+    available = candidates(
+        config, data["project_id"], bool(data.get("file_ids") or data.get("workspace_id"))
+    )
     found = {item.get("resource_id", item["id"]): item for item in items}
     selections = {item["id"]: item for item in data.get("resource_selections", [])}
     steps = []
@@ -280,14 +310,28 @@ def declared_plan(config, data, items):
         item = found[invocation["resource_id"]]
         backend = invocation.get("requested_backend") or data["backend"]
         model = item.get("model") or data.get("model")
-        choice = next((value for value in available if value["backend"] == backend and value["model"] == model), None)
+        choice = next(
+            (
+                value
+                for value in available
+                if value["backend"] == backend and value["model"] == model
+            ),
+            None,
+        )
         if choice is None:
             raise ToolError("maestro_model_or_effort_denied")
         effort = item.get("effort") or data.get("effort") or choice["efforts"][0]
         ref = selections[item["id"]]
-        steps.append({
-            "role": item["name"], "backend": backend, "model": model, "effort": effort,
-            "task": ref["token"] + " " + invocation["args"], "reason": "Explicit resource selection",
-            "invocation": invocation, "resource_selections": [ref],
-        })
+        steps.append(
+            {
+                "role": item["name"],
+                "backend": backend,
+                "model": model,
+                "effort": effort,
+                "task": ref["token"] + " " + invocation["args"],
+                "reason": "Explicit resource selection",
+                "invocation": invocation,
+                "resource_selections": [ref],
+            }
+        )
     return validate_plan(json.dumps({"steps": steps}), available)

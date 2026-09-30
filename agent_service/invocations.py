@@ -41,10 +41,16 @@ class Invocation:
         if self.mode == "conversational" and self.kind != "agent":
             raise InvocationError("invalid_invocation_mode")
         if self.requested_backend is not None and self.requested_backend not in (
-            "codex", "claude", "gemini", "deepseek", "local"
+            "codex",
+            "claude",
+            "gemini",
+            "deepseek",
+            "local",
         ):
             raise InvocationError("invalid_invocation_backend")
-        if self.id is not None and (not isinstance(self.id, str) or not self.id or len(self.id) > 200):
+        if self.id is not None and (
+            not isinstance(self.id, str) or not self.id or len(self.id) > 200
+        ):
             raise InvocationError("invalid_invocation_id")
 
     def to_dict(self):
@@ -82,12 +88,16 @@ def normalize_chips(prompt, selections, items):
         # Consume one token delimiter only; every argument byte remains intact.
         if start < end and prompt[start] == " ":
             start += 1
-        result.append(Invocation(
-            kind=item["kind"], resource_id=item.get("resource_id", item["id"]),
-            args=prompt[start:end], order=index,
-            mode=item.get("mode") or ("delegated" if item["kind"] == "agent" else "inline"),
-            requested_backend=item.get("backend"),
-        ))
+        result.append(
+            Invocation(
+                kind=item["kind"],
+                resource_id=item.get("resource_id", item["id"]),
+                args=prompt[start:end],
+                order=index,
+                mode=item.get("mode") or ("delegated" if item["kind"] == "agent" else "inline"),
+                requested_backend=item.get("backend"),
+            )
+        )
     return validate_chain(result)
 
 
@@ -101,6 +111,10 @@ def normalize_legacy_step(step, order):
         except TypeError:
             raise InvocationError("invalid_invocation") from None
     return Invocation(
-        kind="agent", resource_id="builtin/roles/" + quote(step["role"], safe=""),
-        args=step["task"], order=order, mode="delegated", requested_backend=step["backend"],
+        kind="agent",
+        resource_id="builtin/roles/" + quote(step["role"], safe=""),
+        args=step["task"],
+        order=order,
+        mode="delegated",
+        requested_backend=step["backend"],
     )

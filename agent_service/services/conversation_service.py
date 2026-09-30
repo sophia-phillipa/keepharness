@@ -25,8 +25,8 @@ from .. import (
     approval_policy,
     conversation_context,
     deployment,
-    maestro,
     invocations,
+    maestro,
     resources,
     tools,
     workspaces,
@@ -51,8 +51,8 @@ from ..persistence.repositories import (
     ProjectRepository,
 )
 from . import queue_worker
-from .gate_service import GateService
 from .budgets import timeout_seconds
+from .gate_service import GateService
 from .project_service import ProjectService
 
 logger = logging.getLogger(__name__)
@@ -726,13 +726,23 @@ class ConversationService:
             explicit = data.get("invocations")
             supplied_selections = bool(data.get("resource_selections"))
             if explicit is not None:
-                if not isinstance(explicit, list) or not all(isinstance(value, dict) for value in explicit):
+                if not isinstance(explicit, list) or not all(
+                    isinstance(value, dict) for value in explicit
+                ):
                     raise invocations.InvocationError("invalid_invocation")
-                values = invocations.validate_chain([invocations.Invocation(**value) for value in explicit])
+                values = invocations.validate_chain(
+                    [invocations.Invocation(**value) for value in explicit]
+                )
             else:
                 values = None
             if values and not data.get("resource_selections"):
-                catalog = self.resource_catalog(identity, data["project_id"], data["backend"], data.get("model"), data.get("execution_mode"))
+                catalog = self.resource_catalog(
+                    identity,
+                    data["project_id"],
+                    data["backend"],
+                    data.get("model"),
+                    data.get("execution_mode"),
+                )
                 found = {item["resource_id"]: item for item in catalog["items"]}
                 refs = []
                 parts = []
@@ -746,22 +756,39 @@ class ConversationService:
                     refs.append({"id": item["id"], "revision": item["revision"], "token": token})
                     parts.append(token + " " + value.args)
                 data["resource_selections"] = refs
-                data["prompt"] = "\n".join(parts) + ("\n" + data["prompt"] if data.get("prompt") else "")
-            elif not data.get("resource_selections") and data.get("parent_job_id") and not data.get("release_persona"):
+                data["prompt"] = "\n".join(parts) + (
+                    "\n" + data["prompt"] if data.get("prompt") else ""
+                )
+            elif (
+                not data.get("resource_selections")
+                and data.get("parent_job_id")
+                and not data.get("release_persona")
+            ):
                 previous = json.loads(self.job(identity, data["parent_job_id"])["payload"])
                 persona = previous.get("invocations", [])
                 if len(persona) == 1 and persona[0]["mode"] == "conversational":
                     data["resource_selections"] = previous.get("resource_selections", [])
                     if data["resource_selections"]:
-                        data["prompt"] = data["resource_selections"][0]["token"] + " " + data.get("prompt", "")
+                        data["prompt"] = (
+                            data["resource_selections"][0]["token"] + " " + data.get("prompt", "")
+                        )
             selected = self.selected_resources(data)
-            normalized = invocations.normalize_chips(data.get("prompt", ""), data.get("resource_selections", []), selected)
+            normalized = invocations.normalize_chips(
+                data.get("prompt", ""), data.get("resource_selections", []), selected
+            )
             if values is not None:
-                if [(value.kind, value.resource_id, value.mode) for value in values] != [(value.kind, value.resource_id, value.mode) for value in normalized]:
+                if [(value.kind, value.resource_id, value.mode) for value in values] != [
+                    (value.kind, value.resource_id, value.mode) for value in normalized
+                ]:
                     raise invocations.InvocationError("invocation_selection_mismatch")
-                if any(value.requested_backend and value.requested_backend != actual.requested_backend for value, actual in zip(values, normalized)):
+                if any(
+                    value.requested_backend and value.requested_backend != actual.requested_backend
+                    for value, actual in zip(values, normalized)
+                ):
                     raise invocations.InvocationError("invocation_selection_mismatch")
-                if supplied_selections and any(value.args != actual.args for value, actual in zip(values, normalized)):
+                if supplied_selections and any(
+                    value.args != actual.args for value, actual in zip(values, normalized)
+                ):
                     raise invocations.InvocationError("invocation_selection_mismatch")
                 normalized = values
             if normalized:
@@ -770,13 +797,23 @@ class ConversationService:
                     maestro.declared_plan(self.config, data, selected)
             return selected
         except (invocations.InvocationError, TypeError, tools.ToolError) as error:
-            raise APIError(str(error) if not isinstance(error, TypeError) else "invalid_invocation", 422) from None
+            raise APIError(
+                str(error) if not isinstance(error, TypeError) else "invalid_invocation", 422
+            ) from None
 
     def submit(self, identity, data, idem=None):
         data = dict(data)
         if data.get("project_id") in self.deleting_project_folders:
             raise APIError("project_folder_busy", 409)
-        if any(key in data for key in ("_maestro_stage", "_planning_only", "_invocation_context", "execution_parent_id")):
+        if any(
+            key in data
+            for key in (
+                "_maestro_stage",
+                "_planning_only",
+                "_invocation_context",
+                "execution_parent_id",
+            )
+        ):
             raise APIError("invalid_internal_field")
         if "access_mode" not in data and data.get("parent_job_id"):
             data["access_mode"] = json.loads(
@@ -1028,13 +1065,35 @@ class ConversationService:
                 invocation = data.get("invocations", [])
                 attribution = None
                 if len(invocation) == 1 and not data.get("_maestro_stage"):
-                    resource = next((item for item in plan.selected_resources if item.get("resource_id") == invocation[0]["resource_id"]), None)
+                    resource = next(
+                        (
+                            item
+                            for item in plan.selected_resources
+                            if item.get("resource_id") == invocation[0]["resource_id"]
+                        ),
+                        None,
+                    )
                     if resource:
-                        attribution = {"invocation": invocation[0], "role": resource["name"], "backend": backend, "model": data.get("model"), "effort": data.get("effort")}
+                        attribution = {
+                            "invocation": invocation[0],
+                            "role": resource["name"],
+                            "backend": backend,
+                            "model": data.get("model"),
+                            "effort": data.get("effort"),
+                        }
                         self.event(row["id"], "invocation_started", attribution)
                 result = await self._run_inference(plan)
                 if attribution:
-                    self.event(row["id"], "invocation_completed", {**attribution, "outcome": "failed" if result.get("error") or result.get("incomplete") else "done"})
+                    self.event(
+                        row["id"],
+                        "invocation_completed",
+                        {
+                            **attribution,
+                            "outcome": "failed"
+                            if result.get("error") or result.get("incomplete")
+                            else "done",
+                        },
+                    )
                 return self._finalize_inference(plan, result)
             finally:
                 self.active_executors.pop(row["id"], None)
@@ -1146,11 +1205,21 @@ class ConversationService:
             raise APIError("source_context_limit")
         native_commands = [item for item in selected_resources if item.get("native_command")]
         if native_commands and (
-            turns or sources or attachment_notice or data.get("_invocation_context")
+            turns
+            or sources
+            or attachment_notice
+            or data.get("_invocation_context")
             or len(selected_resources) != 1
-            or not data.get("prompt", "").startswith(native_commands[0].get("_token", "/" + native_commands[0]["name"]))
+            or not data.get("prompt", "").startswith(
+                native_commands[0].get("_token", "/" + native_commands[0]["name"])
+            )
         ):
-            selected_resources = [{**item, "native_command": False, "_inline_fallback": True} if item.get("native_command") else item for item in selected_resources]
+            selected_resources = [
+                {**item, "native_command": False, "_inline_fallback": True}
+                if item.get("native_command")
+                else item
+                for item in selected_resources
+            ]
         prompt = resources.prepare_prompt(data.get("prompt", ""), selected_resources)
         if attachment_notice:
             prompt += (
@@ -1285,7 +1354,15 @@ class ConversationService:
         )
         for item in plan.selected_resources:
             if item.get("_inline_fallback"):
-                self.event(row["id"], "resource_fallback", {"resource_id": item["resource_id"], "mode": "inline", "reason": "command_with_context"})
+                self.event(
+                    row["id"],
+                    "resource_fallback",
+                    {
+                        "resource_id": item["resource_id"],
+                        "mode": "inline",
+                        "reason": "command_with_context",
+                    },
+                )
         before = await self.quota(True) if backend == "codex" else None
         if before is not None:
             self.event(row["id"], "quota_before", before)
@@ -1439,12 +1516,21 @@ class ConversationService:
         )
         mode = data.get("access_mode", "ask")
         permissions = approval_policy.effective_permissions(permissions, mode)
-        permissions["delegate"] = project_config.get("permissions", {}).get("delegate") is True
+        if backend == "claude":
+            permissions["delegate"] = project_config.get("permissions", {}).get("delegate") is True
         if backend == "claude" and permissions.get("read") and plan.execution_mode == "native":
-            project_config["_rules"] = [item for item in resources.discover(
-                self.config, row["project"], backend, data.get("model"), private=True,
-                execution_mode=plan.execution_mode,
-            )["items"] if item["kind"] == "rule" and item["scope"] in ("project", "catalog")]
+            project_config["_rules"] = [
+                item
+                for item in resources.discover(
+                    self.config,
+                    row["project"],
+                    backend,
+                    data.get("model"),
+                    private=True,
+                    execution_mode=plan.execution_mode,
+                )["items"]
+                if item["kind"] == "rule" and item["scope"] in ("project", "catalog")
+            ]
         project_config["access_mode"] = mode
         project_config["_images"] = [
             {
