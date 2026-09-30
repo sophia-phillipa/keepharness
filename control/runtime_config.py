@@ -24,6 +24,7 @@ def base_config(settings, state, admin_port, browser_url, provider_revisions):
         "browser_url": browser_url,
         "state_dir": str(state / "runs"),
         "projects": {"sem-projeto": {"label": "No project"}},
+        "catalogs": json.loads(json.dumps(settings.get("catalogs", []))),
         "clients": {},
         "services": json.loads(json.dumps(settings["services"])),
         "origins": [],

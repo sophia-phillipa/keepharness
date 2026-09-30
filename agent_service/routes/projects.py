@@ -56,7 +56,9 @@ async def catalog(request, service, identity):
     project_id = request.query_params.get("project_id")
     service.project(identity, project_id)
     return JSONResponse(
-        await asyncio.to_thread(project_catalog_items, config, config["projects"][project_id])
+        await asyncio.to_thread(
+            project_catalog_items, config, config["projects"][project_id], project_id
+        )
     )
 
 

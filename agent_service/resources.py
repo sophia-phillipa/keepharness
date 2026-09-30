@@ -9,7 +9,8 @@ import tomllib
 from itertools import islice
 from pathlib import Path
 
-MAX_BYTES = 65536
+MAX_METADATA_BYTES = 65536
+MAX_BODY_BYTES = 262144
 MAX_FILES = 500
 ENGINES = {
     "codex": "codex",
@@ -27,8 +28,8 @@ class ResourceError(ValueError):
 
 def read(path):
     with path.open("rb") as stream:
-        value = stream.read(MAX_BYTES + 1)
-    if len(value) > MAX_BYTES:
+        value = stream.read(MAX_BODY_BYTES + 1)
+    if len(value) > MAX_BODY_BYTES:
         raise ValueError("resource_too_large")
     return value.decode("utf-8")
 
@@ -41,6 +42,8 @@ def markdown(text):
     key = None
     for index, line in enumerate(lines[1:], 1):
         if line.strip() == "---":
+            if len("\n".join(lines[: index + 1]).encode()) > MAX_METADATA_BYTES:
+                raise ValueError("metadata_too_large")
             return meta, "\n".join(lines[index + 1 :])
         if line.startswith((" ", "\t")) and key:
             meta[key] += " " + line.strip()
@@ -53,6 +56,55 @@ def markdown(text):
         else:
             key = None
     raise ValueError("invalid_frontmatter")
+
+
+def unfenced(text):
+    """Return prose outside Markdown fences for static expansion checks."""
+    output = []
+    marker = None
+    for line in text.splitlines():
+        match = re.match(r"^\s*(`{3,}|~{3,})", line)
+        if match:
+            fence = match.group(1)
+            if marker is None:
+                marker = fence[0]
+            elif fence[0] == marker:
+                marker = None
+            continue
+        if marker is None:
+            output.append(line)
+    return "\n".join(output)
+
+
+def first_sentence(body):
+    prose = re.sub(r"^[#>*\s-]+", "", unfenced(body).strip())
+    match = re.search(r".+?(?:[.!?](?=\s|$)|$)", prose, re.S)
+    return re.sub(r"\s+", " ", match.group(0)).strip() if match else ""
+
+
+def argument_hint(meta, body, name):
+    hint = meta.get("argument_hint", meta.get("argument-hint", ""))
+    if isinstance(hint, str) and hint.strip():
+        return hint.strip()[:500]
+    example_text = str(meta.get("description", "")) + "\n" + unfenced(body)
+    match = re.search(r"(?<!\S)/" + re.escape(name) + r"\s+([^\n.!?]+)", example_text)
+    return match.group(1).strip()[:500] if match else ""
+
+
+def preflight_hint(reason):
+    if not reason:
+        return "Ready to invoke with the current provider and execution mode."
+    if "disabled" in reason.lower():
+        return "Enable this resource in the provider configuration."
+    if "delegation" in reason.lower():
+        return "Choose a provider and mode that supports native agent delegation."
+    if "expansion" in reason.lower():
+        return "Remove unsupported expansion syntax or run the command in its native provider."
+    if "user" in reason.lower():
+        return "Mark the resource as user-invocable to select it from chat."
+    if "automatically" in reason.lower():
+        return "This resource is shown for context and is loaded by its native engine."
+    return "Choose a compatible provider, model, and execution mode."
 
 
 def roots(engine):
@@ -111,12 +163,34 @@ def discover(config, project_id, backend, model=None, *, private=False, executio
     global_base, shared = roots(engine)
     sources = []
 
-    def add(base, scope, origin, boundary):
-        sources.extend(
-            (base / kind, scope, origin, boundary, kind[:-1])
-            for kind in ("agents", "skills", "commands")
-            if not (engine == "codex" and kind == "commands")
+    def source(base, scope, origin, boundary, kind, identity, identity_root, namespace=""):
+        sources.append(
+            {
+                "base": base,
+                "scope": scope,
+                "origin": origin,
+                "boundary": boundary,
+                "kind": kind,
+                "identity": identity,
+                "identity_root": identity_root,
+                "namespace": namespace,
+            }
         )
+
+    def add(base, scope, origin, boundary, identity, identity_root, namespace=""):
+        for folder, kind in (("agents", "agent"), ("skills", "skill"), ("commands", "command")):
+            if engine == "codex" and kind == "command" and scope != "catalog":
+                continue
+            source(
+                base / folder,
+                scope,
+                origin,
+                boundary,
+                kind,
+                identity,
+                identity_root,
+                namespace,
+            )
 
     if root:
         # Nearest project config first, bounded by the Git root when nested.
@@ -132,17 +206,114 @@ def discover(config, project_id, backend, model=None, *, private=False, executio
                 ancestors.extend(pending)
                 break
         for folder in ancestors:
-            add(folder / ("." + engine), "project", engine, folder)
+            add(
+                folder / ("." + engine),
+                "project",
+                engine,
+                folder,
+                "project/" + project_id,
+                folder,
+            )
             if engine in ("codex", "gemini"):
-                sources.append((folder / ".agents/skills", "project", "agents", folder, "skill"))
-    add(global_base, "global", engine, None)
+                source(
+                    folder / ".agents/skills",
+                    "project",
+                    "agents",
+                    folder,
+                    "skill",
+                    "project/" + project_id,
+                    folder,
+                )
+            if engine == "codex":
+                source(
+                    folder / ".codex/prompts",
+                    "project",
+                    "codex",
+                    folder,
+                    "command",
+                    "project/" + project_id,
+                    folder,
+                )
+        if engine == "claude":
+            source(
+                root / ".claude/rules",
+                "project",
+                "claude",
+                root,
+                "rule",
+                "project/" + project_id,
+                root,
+            )
+
+    enabled_catalogs = set(project.get("catalogs", []))
+    for catalog in config.get("catalogs", []):
+        if (
+            not isinstance(catalog, dict)
+            or catalog.get("trusted") is not True
+            or catalog.get("id") not in enabled_catalogs
+        ):
+            continue
+        catalog_root = Path(catalog.get("root", ""))
+        try:
+            catalog_root = catalog_root.resolve()
+        except OSError:
+            continue
+        catalog_id = str(catalog.get("id", ""))
+        identity = "catalog/" + catalog_id
+        namespace = str(catalog.get("namespace", ""))
+        add(
+            catalog_root,
+            "catalog",
+            catalog_id,
+            catalog_root,
+            identity,
+            catalog_root,
+            namespace,
+        )
+        for folder, kind in (("rules", "rule"), ("context", "context"), ("contexts", "context")):
+            source(
+                catalog_root / folder,
+                "catalog",
+                catalog_id,
+                catalog_root,
+                kind,
+                identity,
+                catalog_root,
+                namespace,
+            )
+        source(
+            catalog_root / "skills",
+            "catalog",
+            catalog_id,
+            catalog_root,
+            "context",
+            identity,
+            catalog_root,
+            namespace,
+        )
+
+    add(global_base, "user", engine, None, "user/" + engine, global_base)
     if engine == "codex":
-        sources.append((global_base / "prompts", "global", "codex", None, "command"))
-    sources.extend(
-        (p, "global", "agents" if p.parent.name == ".agents" else engine, None, "skill")
-        for p in shared
-    )
-    global_roots = [p for p, s, _, _, _ in sources if s == "global"]
+        source(
+            global_base / "prompts",
+            "user",
+            "codex",
+            None,
+            "command",
+            "user/codex",
+            global_base,
+        )
+    for shared_root in shared:
+        source(
+            shared_root,
+            "user",
+            "agents" if shared_root.parent.name == ".agents" else engine,
+            None,
+            "skill",
+            "user/agents",
+            shared_root.parent.parent,
+        )
+    global_roots = [item["base"] for item in sources if item["scope"] == "user"]
     disabled = set()
     if engine == "codex":
         for path in [global_base / "config.toml", *([root / ".codex/config.toml"] if root else [])]:
@@ -155,26 +326,34 @@ def discover(config, project_id, backend, model=None, *, private=False, executio
                 pass
             except (ValueError, OSError, TypeError, AttributeError):
                 result["warnings"].append("Could not check the Codex skills configuration.")
-    seen = set()
-    agent_names = set()
-    skill_names = set()
-    for base, scope, origin, boundary, kind in sources:
+    seen_paths = set()
+    seen_names = set()
+    for source_spec in sources:
+        base = source_spec["base"]
+        scope = source_spec["scope"]
+        origin = source_spec["origin"]
+        boundary = source_spec["boundary"]
+        kind = source_spec["kind"]
         try:
             for path in files(base, boundary, global_roots, kind):
                 if kind == "skill" and path.name != "SKILL.md":
                     continue
-                if kind != "skill" and path.suffix != (
-                    ".toml"
-                    if engine == "codex"
-                    and kind == "agent"
-                    or engine == "gemini"
-                    and kind == "command"
-                    else ".md"
+                if (
+                    kind == "context"
+                    and base.name == "skills"
+                    and not path.stem.startswith(("SKILL-", "KB-", "RL-"))
                 ):
                     continue
+                expected_suffix = (
+                    ".toml"
+                    if (engine == "codex" and kind == "agent")
+                    or (engine == "gemini" and kind == "command")
+                    else ".md"
+                )
+                if kind != "skill" and path.suffix != expected_suffix:
+                    continue
                 canonical = str(path.resolve())
-                key = (kind, canonical)
-                if key in seen:
+                if (kind, canonical) in seen_paths:
                     continue
                 try:
                     text = read(path)
@@ -191,6 +370,9 @@ def discover(config, project_id, backend, model=None, *, private=False, executio
                     name = meta.get("name") or (path.parent.name if kind == "skill" else path.stem)
                     if kind == "command":
                         name = str(path.relative_to(base).with_suffix("")).replace(os.sep, ":")
+                    namespace = source_spec["namespace"]
+                    if kind == "agent" and namespace and not str(name).startswith(namespace + "--"):
+                        name = namespace + "--" + str(name)
                     if not isinstance(name, str) or not NAME.fullmatch(name):
                         raise ValueError("invalid_name")
                     if (
@@ -206,50 +388,68 @@ def discover(config, project_id, backend, model=None, *, private=False, executio
                         reason = (
                             "The Gemini adapter still disables agents and skills in this execution."
                         )
-                    if engine == "claude" and kind == "agent":
-                        reason = "The Claude adapter does not yet offer native agent delegation."
-                    if backend in ("local", "deepseek") and (scope == "global" or kind == "agent"):
+                    if backend in ("local", "deepseek") and (scope == "user" or kind == "agent"):
                         reason = "This resource is not available in the isolated environment of this executor."
-                    if kind == "skill" and engine == "claude" and name in skill_names:
-                        reason = "Another skill with this name takes precedence in the engine; rename it to select it."
-                    if kind == "agent" and name in agent_names:
-                        reason = "Another agent with this name takes precedence in the engine; rename it to select it."
-                    if kind == "command" and (
-                        re.search(r"!\{|!`|@\{|\$\{|\$[A-Za-z_]+", body.replace("$ARGUMENTS", ""))
-                        or (
-                            engine == "claude"
-                            and re.search(r"^\s*(context|agent|hooks|allowed-tools):", text, re.M)
-                        )
-                    ):
+                    if kind in ("rule", "context"):
+                        reason = "This resource is loaded automatically and cannot be selected."
+                    if kind == "command" and re.search(r"!\{|!`|@\{", unfenced(body)):
                         reason = "This command requires native expansion features that are not yet supported."
                     if (
                         kind == "skill"
                         and str(meta.get("user-invocable", "true")).lower() == "false"
                     ):
                         reason = "Skill not available for invocation by the user."
-                    identity = hashlib.sha256(
-                        (engine + "\0" + kind + "\0" + canonical).encode()
-                    ).hexdigest()
+                    key = (kind, name.casefold())
+                    if key in seen_names:
+                        continue
+                    relative = path.resolve().relative_to(
+                        source_spec["identity_root"].resolve()
+                    ).as_posix()
+                    identity = source_spec["identity"] + "/" + relative
+                    description = str(meta.get("description", "")).strip()
+                    if not description:
+                        description = first_sentence(body)
+                    mode = str(meta.get("mode", "")).strip()
+                    if mode not in ("inline", "conversational", "delegated"):
+                        mode = "delegated" if kind == "agent" else "inline"
+                    maintenance = kind == "command" and name.rsplit(":", 1)[-1].casefold() in {
+                        "install",
+                        "update",
+                        "uninstall",
+                    }
                     item = {
                         "id": identity,
+                        "resource_id": identity,
                         "revision": hashlib.sha256(text.encode()).hexdigest(),
                         "kind": kind,
                         "name": name,
-                        "description": str(meta.get("description", ""))[:1000],
+                        "description": description[:1000],
                         "scope": scope,
                         "origin": origin,
                         "source": str(path),
+                        "namespace": namespace,
+                        "argument_hint": argument_hint(meta, body, name),
+                        "backend": str(meta.get("backend", backend)),
+                        "model": str(meta.get("model", model or "")),
+                        "effort": str(
+                            meta.get("effort", meta.get("model_reasoning_effort", ""))
+                        ),
+                        "mode": mode,
+                        "native_command": engine == "claude" and kind == "command",
+                        "maintenance": maintenance,
+                        "group": "Maintenance" if maintenance else kind.title() + "s",
                         "selectable": not bool(reason),
                         "unavailable_reason": reason,
+                        "preflight_hint": preflight_hint(reason),
+                        "compatibility": (
+                            {"claude_ai_connectors": "unknown"} if engine == "claude" else {}
+                        ),
                     }
                     if private:
                         item.update(_text=text, _body=body, _meta=meta)
                     result["items"].append(item)
-                    seen.add(key)
-                    if kind == "agent":
-                        agent_names.add(name)
-                    if kind == "skill":
-                        skill_names.add(name)
+                    seen_paths.add((kind, canonical))
+                    seen_names.add(key)
                 except (ValueError, OSError, TypeError):
                     result["warnings"].append("Could not read the resource " + str(path))
                 if len(result["items"]) >= MAX_FILES:
@@ -260,7 +460,12 @@ def discover(config, project_id, backend, model=None, *, private=False, executio
         except (OSError, RuntimeError):
             result["warnings"].append("Could not access " + str(base))
     result["items"].sort(
-        key=lambda i: (i["scope"] != "project", i["origin"], i["name"].casefold(), i["kind"])
+        key=lambda i: (
+            {"project": 0, "catalog": 1, "user": 2}.get(i["scope"], 3),
+            i["origin"],
+            i["name"].casefold(),
+            i["kind"],
+        )
     )
     return result
 
@@ -300,16 +505,21 @@ def resolve(config, data):
             raise ResourceError("resource_unavailable")
         if item["revision"] != selection.get("revision"):
             raise ResourceError("resource_changed")
-        token = ("@" if item["kind"] == "agent" else "/") + item["name"]
-        if selection.get("token") != token or not re.search(
+        accepted_tokens = (
+            ("/" + item["name"], "@" + item["name"])
+            if item["kind"] == "agent"
+            else ("/" + item["name"],)
+        )
+        token = selection.get("token")
+        if token not in accepted_tokens or not re.search(
             r"(?<!\S)" + re.escape(token) + r"(?=\s|$)", prompt
         ):
             raise ResourceError("resource_selection_missing")
         if token in tokens and tokens[token] != item["id"]:
             raise ResourceError("resource_name_ambiguous")
         tokens[token] = item["id"]
-        if item not in result:
-            result.append(item)
+        if not any(value["id"] == item["id"] for value in result):
+            result.append({**item, "_token": token})
     return result
 
 
@@ -319,15 +529,24 @@ def prepare_prompt(prompt, items):
     skills = {}
     for item in items:
         name = item["name"]
-        token = ("@" if item["kind"] == "agent" else "/") + name
+        token = item.get("_token", "/" + name)
         if item["kind"] == "agent":
-            notes.append(
-                "Delegate this task using the native agent "
-                + json.dumps(name)
-                + " defined at "
-                + json.dumps(item["source"])
-                + ". Use actual native delegation, not role-play. If unavailable, report that limitation without claiming delegation."
-            )
+            if item.get("mode") == "conversational":
+                notes.append(
+                    "Adopt the conversational agent "
+                    + json.dumps(name)
+                    + " defined at "
+                    + json.dumps(item["source"])
+                    + " for this main-thread conversation until it is released."
+                )
+            else:
+                notes.append(
+                    "Delegate this task using the native agent "
+                    + json.dumps(name)
+                    + " defined at "
+                    + json.dumps(item["source"])
+                    + ". Use actual native delegation, not role-play. If unavailable, report that limitation without claiming delegation."
+                )
         elif item["kind"] == "skill":
             if item["origin"] in ("codex", "agents"):
                 skills[token] = "$" + name
@@ -339,7 +558,8 @@ def prepare_prompt(prompt, items):
                 + ". Preserve its native instructions and dependencies; report unavailable tools instead of substituting silently."
             )
         else:
-            commands[token] = item
+            if not item.get("native_command"):
+                commands[token] = item
     patterns = []
     if commands:
         patterns.append(

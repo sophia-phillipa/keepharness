@@ -16,6 +16,21 @@ def cfg(root, backend="codex"):
     return {"projects": {"p": {"root": str(root)}}, "services": {backend: {"mode": "native"}}}
 
 
+def catalog_cfg(root, catalog, backend="codex"):
+    config = cfg(root, backend)
+    config["catalogs"] = [
+        {
+            "id": "demo",
+            "root": str(catalog),
+            "kind": "folder",
+            "trusted": True,
+            "namespace": "demo",
+        }
+    ]
+    config["projects"]["p"]["catalogs"] = ["demo"]
+    return config
+
+
 def test_live_engine_filter_and_scope_order(tmp_path, monkeypatch):
     home = tmp_path / "home"
     root = tmp_path / "project"
@@ -33,14 +48,97 @@ def test_live_engine_filter_and_scope_order(tmp_path, monkeypatch):
     )
     put(root, ".claude/agents/other.md", "---\nname: other\n---\nReview")
     before = resources.discover(cfg(root), "p", "codex")
-    assert [(i["name"], i["scope"]) for i in before["items"]] == [
-        ("reviewer", "project"),
-        ("reviewer", "global"),
-    ]
+    assert [(i["name"], i["scope"]) for i in before["items"]] == [("reviewer", "project")]
     put(root, ".agents/skills/new/SKILL.md", "---\nname: new\ndescription: New skill\n---\nDo work")
     after = resources.discover(cfg(root), "p", "codex")
     assert any(i["name"] == "new" for i in after["items"])
     assert all(i["origin"] != "claude" for i in after["items"])
+
+
+def test_trusted_catalog_precedence_relative_ids_and_symlink_boundary(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    project = tmp_path / "project"
+    catalog = tmp_path / "catalog"
+    outside = tmp_path / "outside"
+    put(tmp_path / "home", ".codex/agents/reviewer.toml", 'name="demo--reviewer"\ndeveloper_instructions="User"')
+    put(catalog, "agents/reviewer.toml", 'name="demo--reviewer"\ndeveloper_instructions="Catalog"')
+    put(project, ".codex/agents/reviewer.toml", 'name="demo--reviewer"\ndeveloper_instructions="Project"')
+    put(catalog, "skills/shared/SKILL.md", "---\nname: shared\n---\nInside")
+    alias = catalog / "skills/alias"
+    alias.symlink_to(catalog / "skills/shared")
+    put(outside, "SKILL.md", "---\nname: escaped\n---\nOutside")
+    (catalog / "skills/escaped").symlink_to(outside)
+
+    items = resources.discover(catalog_cfg(project, catalog), "p", "codex")["items"]
+    reviewer = next(item for item in items if item["name"] == "demo--reviewer")
+    shared = next(item for item in items if item["name"] == "shared")
+    assert reviewer["scope"] == "project"
+    assert reviewer["source"].endswith(".codex/agents/reviewer.toml")
+    assert reviewer["resource_id"] == reviewer["id"]
+    assert reviewer["resource_id"] == "project/p/.codex/agents/reviewer.toml"
+    assert shared["resource_id"] == "catalog/demo/skills/shared/SKILL.md"
+    assert [item["name"] for item in items].count("shared") == 1
+    assert not any(item["name"] == "escaped" for item in items)
+
+
+def test_large_body_metadata_fields_and_fenced_expansion_detection(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    project = tmp_path / "project"
+    body = "First sentence describes the command. More detail.\n" + "x" * 100_000
+    put(
+        project,
+        ".codex/prompts/review.md",
+        "---\nargument_hint: <file>\n---\n" + body + "\n```sh\necho '!{safe example}'\n```\n",
+    )
+    item = resources.discover(cfg(project), "p", "codex")["items"][0]
+    assert item["description"] == "First sentence describes the command."
+    assert item["argument_hint"] == "<file>"
+    assert item["selectable"] is True
+    put(project, ".codex/prompts/blocked.md", "Run !`unsafe` now")
+    blocked = next(
+        value
+        for value in resources.discover(cfg(project), "p", "codex")["items"]
+        if value["name"] == "blocked"
+    )
+    assert blocked["selectable"] is False
+    assert blocked["unavailable_reason"]
+    assert blocked["preflight_hint"]
+
+
+def test_catalog_kinds_namespace_maintenance_hints_and_agent_slash(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    project = tmp_path / "project"
+    catalog = tmp_path / "catalog"
+    put(catalog, "agents/writer.md", "---\nname: writer\ndescription: Writes.\n---\nWrite")
+    put(catalog, "commands/deploy.md", "Deploy. Example: /deploy <environment>")
+    put(catalog, "commands/install.md", "Install the catalog")
+    put(catalog, "rules/paths.md", "---\npaths: src/**\n---\nRule")
+    put(catalog, "context/guide.md", "Background context")
+    config = catalog_cfg(project, catalog, "claude")
+    items = resources.discover(config, "p", "claude", private=True)["items"]
+    writer = next(item for item in items if item["kind"] == "agent")
+    deploy = next(item for item in items if item["name"] == "deploy")
+    install = next(item for item in items if item["name"] == "install")
+    assert writer["name"] == "demo--writer"
+    assert writer["namespace"] == "demo"
+    assert writer["selectable"] is True
+    assert writer["preflight_hint"]
+    assert deploy["argument_hint"] == "<environment>"
+    assert install["maintenance"] is True and install["group"] == "Maintenance"
+    assert {item["kind"] for item in items if not item["selectable"]} >= {"rule", "context"}
+
+    # Slash is canonical for palette agents; @ remains accepted for old clients.
+    for token in ("/demo--writer", "@demo--writer"):
+        data = {
+            "project_id": "p",
+            "backend": "claude",
+            "prompt": token + " draft",
+            "resource_selections": [
+                {"id": writer["id"], "revision": writer["revision"], "token": token}
+            ],
+        }
+        selected = resources.resolve(config, data)
+        assert "Delegate this task" in resources.prepare_prompt(data["prompt"], selected)
 
 
 def test_global_symlink_dedup_and_project_escape(tmp_path, monkeypatch):
