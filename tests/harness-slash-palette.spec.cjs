@@ -104,6 +104,12 @@ const path = require("node:path");
 
     await page.goto("http://slash-palette.test");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
+    const promptBox = page.locator("#prompt");
+    assert.equal(await promptBox.getAttribute("role"), "combobox");
+    assert.equal(await promptBox.getAttribute("aria-autocomplete"), "list");
+    assert.equal(await promptBox.getAttribute("aria-haspopup"), "listbox");
+    assert.equal(await promptBox.getAttribute("aria-controls"), "resource-menu");
+    assert.equal(await promptBox.getAttribute("aria-expanded"), "false");
     assert.deepEqual(
       await page.evaluate(() => [
         activityTitle({ type: "hook_scope", data: { scope: "project" } }),
@@ -131,7 +137,19 @@ const path = require("node:path");
     await page.fill("#prompt", "/dmrv");
     const reviewer = page.locator('[data-resource-id="catalog/demo/agents/reviewer.toml"]');
     await reviewer.waitFor();
+    assert.equal(await promptBox.getAttribute("aria-expanded"), "true");
+    assert.equal(await reviewer.getAttribute("aria-selected"), "true");
+    assert.equal(
+      await promptBox.getAttribute("aria-activedescendant"),
+      await reviewer.getAttribute("id"),
+    );
     assert.match(await page.locator("#resource-menu").innerText(), /AGENTS · CATALOG · demo/i);
+    await page.evaluate(() => $("resource-menu").hidePopover());
+    assert.equal(await promptBox.getAttribute("aria-expanded"), "false");
+    assert.equal(await promptBox.getAttribute("aria-activedescendant"), null);
+    await page.fill("#prompt", "");
+    await page.fill("#prompt", "/dmrv");
+    await reviewer.waitFor();
     await page.keyboard.press("Tab");
     assert.equal(await page.inputValue("#prompt"), "/demo--reviewer ");
     assert.equal(await page.locator(".resource-chip").innerText(), "/demo--reviewer ×");
