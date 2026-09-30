@@ -49,7 +49,10 @@ def summarize_activity(service, identity, project_id=None, work_item=None):
                 if previous and previous["state"] in ("queued", "running")
                 else "queue"
             )
-        if row["state"] == "running":
+        # Prepared publications remain actionable after their provider turn ends.
+        if row["state"] == "running" or service.db.execute(
+            "SELECT 1 FROM effects WHERE job_id=? AND status='prepared'", (row["id"],)
+        ).fetchone():
             for event in service.message_repository.requests(row["id"]):
                 spec = json.loads(event["data"])
                 is_gate = event["type"] == "gate_required"

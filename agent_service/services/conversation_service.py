@@ -55,6 +55,7 @@ from . import queue_worker
 from .activity_service import summarize_activity
 from .budgets import timeout_seconds
 from .gate_service import GateService
+from .effect_service import EffectService
 from .project_service import ProjectService
 
 logger = logging.getLogger(__name__)
@@ -149,6 +150,7 @@ class ConversationService:
         self.provider_inflight = {}
         self.gates = GateService(self)
         self.gates.invalidate_pending()
+        self.effects = EffectService(self)
         for row in self.conversation_repository.running():
             self.finish(row["id"], "interrupted", {"error": "service_restarted", "metrics": None})
 

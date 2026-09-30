@@ -73,7 +73,18 @@ def add_work_item(db):
     db.execute("CREATE INDEX jobs_project_work_item ON jobs(project,work_item)")
 
 
-MIGRATIONS = (baseline, reset_legacy_approval_rules, add_gates, add_work_item)
+def add_effects(db):
+    db.execute("""CREATE TABLE effects(
+        effect_id TEXT PRIMARY KEY, job_id TEXT NOT NULL, gate_id TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL, request TEXT NOT NULL, artifact TEXT NOT NULL,
+        binding TEXT NOT NULL, contract TEXT NOT NULL, execution_id TEXT NOT NULL,
+        enforcement TEXT NOT NULL, approved_by TEXT, receipt TEXT,
+        reconcile_attempts INTEGER NOT NULL DEFAULT 0, next_reconcile_at REAL NOT NULL DEFAULT 0
+    )""")
+    db.execute("CREATE INDEX effects_job ON effects(job_id)")
+
+
+MIGRATIONS = (baseline, reset_legacy_approval_rules, add_gates, add_work_item, add_effects)
 
 
 def migrate(db):

@@ -18,6 +18,7 @@ from .routes import LimitedStream  # noqa: F401  (re-exported)
 from .routes import activity as activity_routes
 from .routes import conversations as conversation_routes
 from .routes import files as file_routes
+from .routes import effects as effect_routes
 from .routes import models as model_routes
 from .routes import projects as project_routes
 from .routes import spans as span_routes
@@ -72,6 +73,7 @@ def create_app(config, runtime_path=None):
                 await worker
             except asyncio.CancelledError:
                 pass
+            await service.effects.close()
             service.db.close()
 
     app = Starlette(
@@ -83,6 +85,7 @@ def create_app(config, runtime_path=None):
             *conversation_routes.ROUTES,
             *activity_routes.ROUTES,
             *span_routes.ROUTES,
+            *effect_routes.ROUTES,
         ],
         lifespan=lifespan,
     )
