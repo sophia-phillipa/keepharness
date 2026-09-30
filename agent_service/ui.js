@@ -920,6 +920,8 @@ const userErrors = {
   // Approvals.
   approval_expired:
     "This approval request expired. Send your message again if you still need it.",
+  approval_expiration_limit:
+    "The run was cancelled after repeated approval requests expired. Send your message again when you are ready to respond.",
   approval_session_required:
     "Enroll this browser using an owner-issued link. On the server, run tail-harness approve-device with your existing owner id and state directory.",
   approval_storage_unsafe:
@@ -2825,7 +2827,7 @@ async function result(
         ? executionError(data.error, data.error_detail)
         : "";
     if (notice) setAnswer(active, active.body.rawAnswer, notice, data.error);
-    if (r.state === "cancelled" && !active.body.rawAnswer)
+    if (r.state === "cancelled" && !active.body.rawAnswer && !notice)
       setAnswer(active, "Run cancelled.");
     // The notice asks to send again: put the prompt back in an empty composer.
     if (

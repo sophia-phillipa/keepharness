@@ -118,6 +118,7 @@ class ConversationService:
             config["projects"].update(self.project_repository.registered())
             self.share_projects()
         self.approvals = {}
+        self.approval_expirations = {}
         self.active = None
         self.task = None
         self.wake = asyncio.Event()
@@ -1419,6 +1420,7 @@ class ConversationService:
                 and mode != "read_only"
                 and self.conversation_repository.has_approval_rule(scope)
             ):
+                self.approval_expirations.pop(row["id"], None)
                 progress("approval_reused", {"scope": "conversation", "kind": kind})
                 return {"approved": True}
             if (
@@ -1428,6 +1430,7 @@ class ConversationService:
                 and permissions.get("shell")
                 and permissions.get("internet")
             ):
+                self.approval_expirations.pop(row["id"], None)
                 progress(
                     "approval_automatic",
                     {"scope": "configured_local_sandbox", "kind": kind},
@@ -1439,6 +1442,7 @@ class ConversationService:
                     backend == "local"
                     and approval_policy.full_approval_allowed(kind, params, permissions)
                 )
+                self.approval_expirations.pop(row["id"], None)
                 progress(
                     "approval_automatic" if approved else "approval_denied",
                     {"scope": "configured_permissions", "kind": kind},
@@ -1447,6 +1451,9 @@ class ConversationService:
             aid = uuid.uuid4().hex
             future = asyncio.get_running_loop().create_future()
             wait_limit = timeout_seconds(self.config, "approval_timeout_seconds", 1800)
+            expiration_limit = self.config.get("approval_max_consecutive_expirations", 2)
+            if type(expiration_limit) is not int or expiration_limit < 1:
+                raise ValueError("invalid_approval_max_consecutive_expirations")
             expired = False
             self.approvals[aid] = (row["id"], future)
             progress(
@@ -1467,7 +1474,16 @@ class ConversationService:
                     except TimeoutError:
                         expired = True
                         progress("approval_expired", {"approval_id": aid})
+                        count = self.approval_expirations.get(row["id"], 0) + 1
+                        self.approval_expirations[row["id"]] = count
+                        if count >= expiration_limit:
+                            self.cancellation_reasons[row["id"]] = "approval_expiration_limit"
+                            task = self.job_tasks.get(row["id"])
+                            if task is not None and task is not asyncio.current_task():
+                                task.cancel()
+                            raise asyncio.CancelledError
                         return {"approved": False, "reason": "approval_expired"}
+                self.approval_expirations.pop(row["id"], None)
                 if (
                     reply.get("approved")
                     and reply.get("scope") == "conversation"

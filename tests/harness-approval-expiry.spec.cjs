@@ -100,6 +100,18 @@ const path = require("node:path");
     assert.match(guidance, /enroll/i);
     assert.match(guidance, /approve-device/);
     console.log("PASS P6: denied worker credentials have human enrollment guidance");
+    await page.evaluate(async () => {
+      job = "expired-waits";
+      active = assistant(job, "fixture");
+      await result(job, controller, {
+        state: "cancelled",
+        result: { error: "approval_expiration_limit" },
+        request: { model: "fixture" },
+      });
+    });
+    assert.match(await page.locator(".run-notice").last().innerText(), /cancelled after repeated approval requests expired/);
+    assert.match(await page.locator(".run-notice").last().innerText(), /Send your message again/);
+    console.log("PASS P6 recovery: cancellation without streamed output preserves its recovery guidance");
     assert.match(await page.locator("#approval-mobile h3").innerText(), /^Approval expired$/);
     assert.equal(errors.length, 0, errors.join("\n"));
     console.log("PASS P7: consistent expiry label, no raw error or browser exceptions");

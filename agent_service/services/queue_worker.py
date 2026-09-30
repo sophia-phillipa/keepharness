@@ -276,6 +276,7 @@ async def run(service):
             service.active_executors.pop(row["id"], None)
             service.job_tasks.pop(row["id"], None)
             service.runtime_budgets.pop(row["id"], None)
+            service.approval_expirations.pop(row["id"], None)
 
 
 def cancel_owned(service, row):
