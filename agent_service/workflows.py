@@ -431,6 +431,9 @@ def discover_workflows(config, project_id, backend, *, private=False):
                     if private:
                         item.update(_text=text, _body=text, _meta=document)
                     result["items"].append(item)
+                    if len(result["items"]) >= resources.MAX_FILES:
+                        result["warnings"].append("Catalog limited to 500 resources.")
+                        return result
                 except (WorkflowError, ValueError, OSError, TypeError):
                     result["warnings"].append("Could not read the workflow " + str(path))
         except (resources.ResourceError, OSError, RuntimeError):
