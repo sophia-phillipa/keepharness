@@ -20,8 +20,12 @@ async def run_native(config, prompt, event, project, model, effort, session_dir,
     if config.get("_effect_capability"):
         from agent_service.effect_transport import server_spec
 
-        for key, value in {**server_spec(config["_effect_capability"]), "enabled": True}.items():
-            command += ["-c", "mcp_servers.harness_effects." + key + "=" + json.dumps(value)]
+        spec = server_spec(config["_effect_capability"])
+        # Codex deep-merges config tables. A fresh, unguessable execution name
+        # prevents inherited host URL/env/tool filters from entering this server.
+        name = config["_effect_capability"]["server_name"]
+        for key, value in {**spec, "enabled": True}.items():
+            command += ["-c", "mcp_servers." + name + "." + key + "=" + json.dumps(value)]
     model_provider = config.get("local_provider")
     if model_provider:
         command += ["-c", "model_provider=" + json.dumps(model_provider)]

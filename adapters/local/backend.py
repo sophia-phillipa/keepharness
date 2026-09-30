@@ -14,7 +14,9 @@ SPEC_REVISION = 2
 
 async def run_native(config, prompt, event, project, model, effort, session_dir, approve):
     workspace = prepare_workspace(project, prompt, session_dir)
-    command = build_command(config["binary"], workspace.permissions, hosted_search=False)
+    command = build_command(
+        config["binary"], workspace.permissions, hosted_search=False, host_config=False
+    )
     model_provider = config.get("local_provider")
     environment = None
     endpoint = config.get("local_models", {}).get(model)

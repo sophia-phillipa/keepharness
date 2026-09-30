@@ -35,7 +35,11 @@ async def effect_transport(service, job_id, backend, mode, *, execution_id=None)
     clients = set()
     # Native processes share the owner's filesystem. The scoped adapter may upgrade
     # this only after checking every bind against the harness's private stores.
-    capability = {"token": token, "enforcement": "unenforced"}
+    capability = {
+        "token": token,
+        "enforcement": "unenforced",
+        "server_name": "harness_effects_" + secrets.token_hex(16),
+    }
 
     async def handle(reader, writer):
         task = asyncio.current_task()

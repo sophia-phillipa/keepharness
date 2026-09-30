@@ -59,6 +59,14 @@ async def run(
                 "approvalPolicy": "never",
                 "developerInstructions": "Use only selected_project MCP tools within authorized roots. File proposals are applied automatically after validation when this project enables apply_changes; do not refuse authorized local edits or local deployment. Do not publish to Git remotes, access credentials, or external tools.",
             }
+            if config.get("_effect_capability"):
+                params["developerInstructions"] = params["developerInstructions"].replace(
+                    "Use only selected_project MCP tools",
+                    "Use only selected_project MCP tools and harness_effects.prepare",
+                )
+                params["developerInstructions"] += (
+                    " Prepare only stages a Jira create-issue request for a human gate; the harness alone publishes after approval."
+                )
             if marker.exists():
                 params["threadId"] = json.loads(marker.read_text())["id"]
                 thread = await rpc.call("thread/resume", params)

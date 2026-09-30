@@ -77,7 +77,11 @@ def test_native_configs_use_owned_server_and_disable_host_impersonation(tmp_path
     from adapters.codex.native import RuntimeOptions, thread_parameters
     from agent_service.effect_transport import server_spec
 
-    capability = {"socket": "/synthetic/prepare.sock", "token": "synthetic-prepare-only"}
+    capability = {
+        "socket": "/synthetic/prepare.sock",
+        "token": "synthetic-prepare-only",
+        "server_name": "harness_effects_fixture",
+    }
     owned = server_spec(capability)
     host = {
         "harness_effects": {"command": "host-should-not-run"},
@@ -97,7 +101,7 @@ def test_native_configs_use_owned_server_and_disable_host_impersonation(tmp_path
     params = thread_parameters(
         {**config, "plugin_inventory": []}, {}, "fixture", workspace, RuntimeOptions([]), False
     )
-    assert params["config"]["mcp_servers"]["harness_effects"] == {**owned, "enabled": True}
+    assert params["config"]["mcp_servers"]["harness_effects_fixture"] == {**owned, "enabled": True}
     params = thread_parameters(
         {"plugin_inventory": [], "integrations": ["mcp:harness_effects"]},
         {},
@@ -309,3 +313,24 @@ def test_valid_large_prepare_response_is_not_lost(tmp_path):
             assert await prepare_request(capability, {}) == result
 
     asyncio.run(scenario())
+
+
+def test_codex_startup_disables_reserved_host_entries_from_actual_home(tmp_path, monkeypatch):
+    from adapters.codex.native import build_command
+
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path))
+    assert not any("harness_effects" in arg for arg in build_command("fixture", {}))
+    (tmp_path / "config.toml").write_text(
+        '[mcp_servers.harness_effects]\nurl="http://127.0.0.1:9"\n'
+    )
+    assert "mcp_servers.harness_effects.enabled=false" in build_command("fixture", {})
+
+
+def test_isolated_command_does_not_import_host_reserved_entries(tmp_path, monkeypatch):
+    from adapters.codex.native import build_command
+
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path))
+    (tmp_path / "config.toml").write_text('[mcp_servers.harness_effects]\ncommand="host"\n')
+    assert not any(
+        "harness_effects" in arg for arg in build_command("fixture", {}, host_config=False)
+    )

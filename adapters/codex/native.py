@@ -2,7 +2,10 @@
 
 import hashlib
 import json
+import os
+import re
 import time
+import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -24,8 +27,8 @@ class RuntimeOptions:
     developer_instructions: str = ""
 
 
-def build_command(binary, permissions, hosted_search=True):
-    return [
+def build_command(binary, permissions, hosted_search=True, *, host_config=True):
+    command = [
         binary,
         "app-server",
         "--listen",
@@ -35,8 +38,6 @@ def build_command(binary, permissions, hosted_search=True):
         "-c",
         "features.apps=false",
         "-c",
-        "mcp_servers.harness_effects.enabled=false",
-        "-c",
         "features.shell_tool=" + str(bool(permissions.get("shell"))).lower(),
         "-c",
         "features.unified_exec=" + str(bool(permissions.get("shell"))).lower(),
@@ -45,6 +46,19 @@ def build_command(binary, permissions, hosted_search=True):
         + ("live" if permissions.get("internet") and hosted_search else "disabled")
         + '"',
     ]
+    if not host_config:
+        return command
+    # Never synthesize a disabled server without a transport. Only existing host
+    # entries are disabled, using the home the CLI actually receives.
+    home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
+    try:
+        configured = tomllib.loads((home / "config.toml").read_text()).get("mcp_servers", {})
+    except (OSError, ValueError):
+        configured = {}
+    for name in configured:
+        if re.fullmatch(r"harness_effects[\w-]*", name, re.ASCII):
+            command += ["-c", "mcp_servers." + name + ".enabled=false"]
+    return command
 
 
 def thread_parameters(config, project, model, workspace, runtime, unrestricted):
@@ -91,7 +105,10 @@ def thread_parameters(config, project, model, workspace, runtime, unrestricted):
         if runtime.isolated
         else {
             "mcp_servers": {
-                name: {**spec, "enabled": name != "harness_effects" and "mcp:" + name in selected}
+                name: {
+                    **spec,
+                    "enabled": not name.startswith("harness_effects") and "mcp:" + name in selected,
+                }
                 for name, spec in configurations()["codex"].items()
             },
             "plugins": {
@@ -102,7 +119,7 @@ def thread_parameters(config, project, model, workspace, runtime, unrestricted):
     if config.get("_effect_capability"):
         from agent_service.effect_transport import server_spec
 
-        params["config"]["mcp_servers"]["harness_effects"] = {
+        params["config"]["mcp_servers"][config["_effect_capability"]["server_name"]] = {
             **server_spec(config["_effect_capability"]),
             "enabled": True,
         }

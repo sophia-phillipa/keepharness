@@ -73,6 +73,15 @@ async def run(
             "Do not access credentials, network, other folders or Git remotes. Save edits through propose_file. "
             "Run only registered tests. Cite sources and never invent execution.",
         ]
+        if config.get("_effect_capability"):
+            index = command.index("--append-system-prompt") + 1
+            command[index] = command[index].replace(
+                "Use only selected_project MCP tools",
+                "Use only selected_project MCP tools and harness_effects.prepare",
+            )
+            command[index] += (
+                " Prepare only stages a Jira create-issue request for a human gate; the harness alone publishes after approval."
+            )
         if effort != "configured":
             command += ["--effort", effort]
         result = await stream(command, prompt, event, model, effort, config=config)
