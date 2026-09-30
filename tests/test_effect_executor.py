@@ -92,10 +92,12 @@ def test_changed_artifact_rejected_after_human_approval(make_harness_config):
     async def scenario():
         app, effect = await prepared(make_harness_config)
         service = app.state.service
+        changed = request()["artifact"]
+        changed["fields"]["summary"] = "Changed but still valid publication"
         with service.db:
             service.db.execute(
                 "UPDATE effects SET artifact=? WHERE effect_id=?",
-                ('{"fields":{}}', effect["effect_id"]),
+                (json.dumps(changed), effect["effect_id"]),
             )
         async with client_for(app) as client:
             await enroll(app, client)

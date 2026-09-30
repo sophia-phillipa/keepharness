@@ -16,7 +16,7 @@ from agent_service.errors import APIError
 
 @pytest.fixture
 def jira_fixture():
-    state = SimpleNamespace(posts=[], searches=[], visible=False, lose_response=False)
+    state = SimpleNamespace(posts=[], searches=[], visible=False, lose_response=False, lookup=None)
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *_args):
@@ -37,6 +37,8 @@ def jira_fixture():
                     if state.visible and state.posts
                     else []
                 )
+                if state.lookup is not None:
+                    issues = state.lookup
                 status, result = 200, {"issues": issues, "isLast": True}
             else:
                 status, result = 404, {}
@@ -169,5 +171,38 @@ def test_crash_after_send_before_checkpoint_recovers_unknown(make_harness_config
         await restarted.effects.close()
         service.db.close()
         restarted.db.close()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("evidence", ["missing_marker", "wrong_project", "duplicate"])
+def test_reconciliation_requires_unique_matching_marker_evidence(
+    make_harness_config, jira_fixture, evidence
+):
+    async def scenario():
+        jira_fixture.lose_response = True
+        app, effect = await setup_effect(make_harness_config, jira_fixture)
+        service = app.state.service
+        await approve(app, effect)
+        issue = {
+            "key": "TEST-1",
+            "fields": {
+                "project": {"key": "TEST"},
+                "labels": ["harness-effect-" + effect["effect_id"]],
+            },
+        }
+        if evidence == "missing_marker":
+            issue["fields"]["labels"] = []
+        elif evidence == "wrong_project":
+            issue["fields"]["project"]["key"] = "OTHER"
+        jira_fixture.lookup = [issue, issue] if evidence == "duplicate" else [issue]
+        result = await service.effects.reconcile(
+            effect["effect_id"], ("local", service.config["clients"]["local"]), "check"
+        )
+        assert result["status"] == "unknown"
+        assert result["receipt"] is None
+        assert len(jira_fixture.posts) == 1
+        await service.effects.close()
+        service.db.close()
 
     asyncio.run(scenario())
