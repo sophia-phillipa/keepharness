@@ -880,9 +880,6 @@ class ConversationService:
             raise APIError(decision.get("reason", "unsupported"), 422)
         self.normalize_invocations(identity, data)
         project = data["project_id"]
-        work_item = self.resolve_work_item(identity, data)
-        if work_item is not None or "work_item" in data:
-            data["work_item"] = work_item
         if len(encoded(data).encode()) > 150000:
             raise APIError("payload_limit", 413)
         if (
@@ -899,7 +896,6 @@ class ConversationService:
             raise APIError("invalid_max_tokens")
         if idem is not None and (not isinstance(idem, str) or not 1 <= len(idem) <= 128):
             raise APIError("invalid_idempotency_key")
-        payload = encoded(data)
         digest = hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
         old = (
             self.conversation_repository.by_idempotency_key(identity[0], project, idem)
@@ -910,6 +906,10 @@ class ConversationService:
             if old["digest"] != digest:
                 raise APIError("idempotency_conflict", 409)
             return {"job_id": old["id"], "reused": True}
+        work_item = self.resolve_work_item(identity, data)
+        if work_item is not None or "work_item" in data:
+            data["work_item"] = work_item
+        payload = encoded(data)
         self.selected_resources(data)
         legacy_root = None
         if data.get("parent_job_id"):

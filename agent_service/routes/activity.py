@@ -10,7 +10,8 @@ async def activity(request, service, identity):
     return JSONResponse(
         service.activity(
             identity, request.query_params.get("project_id"), request.query_params.get("work_item")
-        )
+        ),
+        headers={"Cache-Control": "no-store"},
     )
 
 

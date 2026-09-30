@@ -159,3 +159,24 @@ def test_invalid_or_ambiguous_pattern_does_not_choose_arbitrary_reference(
             dict(project_id="p", invocations=[dict(resource_id="project/review", args=args)]),
         )
     service.db.close()
+
+
+def test_retry_keeps_idempotency_when_parent_reference_changes(tmp_path, monkeypatch):
+    service, identity = invocation_service(tmp_path, monkeypatch)
+    parent = submit(service, identity, work_item="TASK-1")
+    request = dict(
+        project_id="p",
+        backend="codex",
+        model="gpt-6-astra",
+        effort="low",
+        prompt="Continue",
+        parent_job_id=parent,
+    )
+    first = service.submit(identity, request, idem="retry")
+    service.tag_work_item(identity, parent, "TASK-2")
+    assert service.submit(identity, request, idem="retry") == {
+        "job_id": first["job_id"],
+        "reused": True,
+    }
+    assert service.job(identity, first["job_id"])["work_item"] == "TASK-1"
+    service.db.close()
