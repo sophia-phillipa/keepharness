@@ -76,6 +76,9 @@ const assert = require("node:assert/strict"),
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     await page.fill("#prompt", "@review");
     await page.locator('[data-resource-id="reviewer"]').click();
+    const submittedDraft = "@reviewer   with  spaces  ";
+    await page.keyboard.type("  with  spaces  ");
+    assert.equal(await page.inputValue("#prompt"), submittedDraft);
     delay = true;
     await page.click("#send");
     await page.waitForFunction(() => submitting);
@@ -85,7 +88,7 @@ const assert = require("node:assert/strict"),
     releaseQuota();
     await page.waitForFunction(() => job === "first" && !submitting);
     assert.equal(posts.length, 1);
-    assert.equal(posts[0].prompt, "@reviewer");
+    assert.equal(posts[0].prompt, submittedDraft);
     assert.deepEqual(posts[0].resource_selections, [
       { id: "reviewer", revision: "v1", token: "@reviewer" },
     ]);
