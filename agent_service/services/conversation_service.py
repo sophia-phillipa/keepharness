@@ -1481,21 +1481,22 @@ class ConversationService:
             progress("answer_delta", {"text": attachment_notice})
         project_config, backend_config, permissions = self._project_config(plan)
         if capability:
-            if execution_mode == "scoped":
-                from ..effect_transport import scoped_enforcement
-
-                capability["enforcement"] = scoped_enforcement(
-                    self, project_config, backend_config, native_session
-                )
             backend_config = {**backend_config, "_effect_capability": capability}
-            progress(
-                "publication_policy",
-                {
-                    "supported": True,
-                    "enforcement": capability["enforcement"],
-                    "reason": "execution_scoped_mcp",
-                },
-            )
+
+            def publication_policy():
+                progress(
+                    "publication_policy",
+                    {
+                        "supported": True,
+                        "enforcement": capability["enforcement"],
+                        "reason": "execution_scoped_mcp",
+                    },
+                )
+
+            if execution_mode == "scoped":
+                capability["_publication_policy"] = publication_policy
+            else:
+                publication_policy()
         # Local's adapter has a scoped bubblewrap contract despite using the
         # native Codex RPC helper underneath.
         if execution_mode == "native" or backend == "local":

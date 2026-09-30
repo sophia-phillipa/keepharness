@@ -4,8 +4,8 @@ import difflib
 import json
 import os
 import secrets
-import stat
 import shutil
+import stat
 import tempfile
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -235,6 +235,11 @@ def prepare_scoped(config, project, staged, session_dir, provider, auth_name):
             if Path(source).exists():
                 command += ["--ro-bind", source, source]
         scoped_home_write(home, "config.toml", home_config)
+        capability = config.get("_effect_capability")
+        if capability and capability.get("_validate_scoped"):
+            capability["enforcement"] = capability["_validate_scoped"](command, auth)
+            if capability.get("_publication_policy"):
+                capability["_publication_policy"]()
         yield ScopedWorkspace(command, home, work, bridge, roots)
 
 

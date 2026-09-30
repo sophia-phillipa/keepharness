@@ -41,6 +41,11 @@ async def effect_transport(service, job_id, backend, mode, *, execution_id=None)
         "server_name": "harness_effects_" + secrets.token_hex(16),
     }
 
+    if mode == "scoped":
+        capability["_validate_scoped"] = lambda command, auth: scoped_enforcement(
+            service, command, copied_paths=[auth]
+        )
+
     async def handle(reader, writer):
         task = asyncio.current_task()
         clients.add(task)
@@ -122,51 +127,37 @@ def server_spec(capability, *, scoped=False):
     }
 
 
-def scoped_enforcement(service, project, config, session_dir):
-    """Fail closed when a sandbox bind could expose an approval/credential store."""
-    private = [
-        Path(service.root).resolve(),
-        Path(
-            service.config.get(
-                "effect_credentials_path", service.root / "harness.effect_credentials.json"
-            )
-        ).resolve(),
-    ]
-    exposed = [
-        Path("/usr"),
-        Path(config.get("python", "/usr/bin/python")).parent.parent.resolve(),
-        Path(config.get("binary", "/usr/bin/false")).resolve(),
-    ]
-    exposed += [
-        Path(p).resolve() for p in [project.get("root"), *project.get("additional_roots", [])] if p
-    ]
-    exposed += [
-        Path(path).resolve()
-        for path in ("/etc/ssl", "/etc/pki", "/etc/resolv.conf", "/etc/hosts", "/etc/nsswitch.conf")
-        if Path(path).exists()
-    ]
-    code_host = (
-        Path(config.get("binary", "/usr/bin/false")).resolve().with_name("codex-code-mode-host")
-    )
-    if code_host.exists():
-        exposed.append(code_host.resolve())
-    if config.get("auth_file"):
-        auth = Path(config["auth_file"]).resolve()
-        if auth.is_relative_to(Path(service.root).resolve()):
-            return "unenforced"
-        exposed.append(auth)
-    private.append(Path(service.root).resolve() / "approval_sessions.sqlite3")
-    # A dedicated session subdirectory is safe; binding the entire state is not.
-    if session_dir:
-        exposed.append(Path(session_dir).resolve())
-        private += [
-            Path(service.root).resolve() / "approval_sessions.sqlite3",
-            Path(service.root).resolve() / "harness.effect_credentials.json",
-        ]
+def scoped_enforcement(service, command, *, copied_paths=()):
+    """Classify the actual sandbox mounts and copied inputs, never a parallel plan."""
+    private = [Path(service.root).resolve()]
+    credentials = Path(
+        service.config.get(
+            "effect_credentials_path", service.root / "harness.effect_credentials.json"
+        )
+    ).resolve()
+    if not credentials.is_relative_to(private[0]):
+        private.append(credentials)
+    exposed = [Path(path).resolve() for path in copied_paths]
+    index = 1
+    while index < len(command):
+        argument = command[index]
+        if argument == "--":
+            break
+        if argument in ("--bind", "--ro-bind"):
+            if index + 2 >= len(command):
+                return "unenforced"
+            exposed.append(Path(command[index + 1]).resolve())
+            index += 3
+        else:
+            index += 1
+    # Persistent harness subdirectories are worker-writable and untrusted, even
+    # if their parent approval store is not directly mounted in this execution.
     return (
         "unenforced"
         if any(
-            secret == root or secret.is_relative_to(root) for root in exposed for secret in private
+            source.is_relative_to(secret) or secret.is_relative_to(source)
+            for source in exposed
+            for secret in private
         )
         else "mediated"
     )
