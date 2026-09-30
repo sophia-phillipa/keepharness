@@ -26,6 +26,7 @@ from .. import (
     conversation_context,
     deployment,
     maestro,
+    invocations,
     resources,
     tools,
     workspaces,
@@ -719,11 +720,58 @@ class ConversationService:
                 409 if str(error) in ("resource_changed", "resource_unavailable") else 422,
             ) from None
 
+    def normalize_invocations(self, identity, data):
+        """Resolve every resource before admitting a portable invocation."""
+        try:
+            explicit = data.get("invocations")
+            if explicit is not None:
+                if not isinstance(explicit, list) or not all(isinstance(value, dict) for value in explicit):
+                    raise invocations.InvocationError("invalid_invocation")
+                values = invocations.validate_chain([invocations.Invocation(**value) for value in explicit])
+            else:
+                values = None
+            if values and not data.get("resource_selections"):
+                catalog = self.resource_catalog(identity, data["project_id"], data["backend"], data.get("model"), data.get("execution_mode"))
+                found = {item["resource_id"]: item for item in catalog["items"]}
+                refs = []
+                parts = []
+                for value in values:
+                    item = found.get(value.resource_id)
+                    if not item or not item["selectable"] or item["kind"] != value.kind:
+                        raise invocations.InvocationError("resource_unavailable")
+                    if value.mode != item.get("mode", "inline"):
+                        raise invocations.InvocationError("invalid_invocation_mode")
+                    token = "/" + item["name"]
+                    refs.append({"id": item["id"], "revision": item["revision"], "token": token})
+                    parts.append(token + " " + value.args)
+                data["resource_selections"] = refs
+                data["prompt"] = "\n".join(parts) + ("\n" + data["prompt"] if data.get("prompt") else "")
+            elif not data.get("resource_selections") and data.get("parent_job_id") and not data.get("release_persona"):
+                previous = json.loads(self.job(identity, data["parent_job_id"])["payload"])
+                persona = previous.get("invocations", [])
+                if len(persona) == 1 and persona[0]["mode"] == "conversational":
+                    data["resource_selections"] = previous.get("resource_selections", [])
+                    if data["resource_selections"]:
+                        data["prompt"] = data["resource_selections"][0]["token"] + " " + data.get("prompt", "")
+            selected = self.selected_resources(data)
+            normalized = invocations.normalize_chips(data.get("prompt", ""), data.get("resource_selections", []), selected)
+            if values is not None:
+                if [(value.kind, value.resource_id, value.mode) for value in values] != [(value.kind, value.resource_id, value.mode) for value in normalized]:
+                    raise invocations.InvocationError("invocation_selection_mismatch")
+                normalized = values
+            if normalized:
+                data["invocations"] = [value.to_dict() for value in normalized]
+                if len(normalized) > 1:
+                    maestro.declared_plan(self.config, data, selected)
+            return selected
+        except (invocations.InvocationError, TypeError, tools.ToolError) as error:
+            raise APIError(str(error) if not isinstance(error, TypeError) else "invalid_invocation", 422) from None
+
     def submit(self, identity, data, idem=None):
         data = dict(data)
         if data.get("project_id") in self.deleting_project_folders:
             raise APIError("project_folder_busy", 409)
-        if any(key in data for key in ("_maestro_stage", "_planning_only", "execution_parent_id")):
+        if any(key in data for key in ("_maestro_stage", "_planning_only", "_invocation_context", "execution_parent_id")):
             raise APIError("invalid_internal_field")
         if "access_mode" not in data and data.get("parent_job_id"):
             data["access_mode"] = json.loads(
@@ -740,6 +788,7 @@ class ConversationService:
         decision = self.assess(identity, data)
         if decision["decision"] != "accept":
             raise APIError(decision.get("reason", "unsupported"), 422)
+        self.normalize_invocations(identity, data)
         project = data["project_id"]
         if len(encoded(data).encode()) > 150000:
             raise APIError("payload_limit", 413)
@@ -971,7 +1020,16 @@ class ConversationService:
                     await condition.wait()
             self.active_executors[row["id"]] = (backend, data.get("model"))
             try:
+                invocation = data.get("invocations", [])
+                attribution = None
+                if len(invocation) == 1 and not data.get("_maestro_stage"):
+                    resource = next((item for item in plan.selected_resources if item.get("resource_id") == invocation[0]["resource_id"]), None)
+                    if resource:
+                        attribution = {"invocation": invocation[0], "role": resource["name"], "backend": backend, "model": data.get("model"), "effort": data.get("effort")}
+                        self.event(row["id"], "invocation_started", attribution)
                 result = await self._run_inference(plan)
+                if attribution:
+                    self.event(row["id"], "invocation_completed", {**attribution, "outcome": "failed" if result.get("error") or result.get("incomplete") else "done"})
                 return self._finalize_inference(plan, result)
             finally:
                 self.active_executors.pop(row["id"], None)
@@ -1081,6 +1139,13 @@ class ConversationService:
         context = encoded(sources)
         if len(context) > 100000:
             raise APIError("source_context_limit")
+        native_commands = [item for item in selected_resources if item.get("native_command")]
+        if native_commands and (
+            turns or sources or attachment_notice or data.get("_invocation_context")
+            or len(selected_resources) != 1
+            or not data.get("prompt", "").startswith(native_commands[0].get("_token", "/" + native_commands[0]["name"]))
+        ):
+            selected_resources = [{**item, "native_command": False, "_inline_fallback": True} if item.get("native_command") else item for item in selected_resources]
         prompt = resources.prepare_prompt(data.get("prompt", ""), selected_resources)
         if attachment_notice:
             prompt += (
@@ -1176,6 +1241,8 @@ class ConversationService:
                 "The previous execution was interrupted. Check the state of tools and files before repeating actions; resume the task from the preserved session.\n"
                 + prompt
             )
+        if data.get("_invocation_context"):
+            prompt = data["_invocation_context"] + "\nCURRENT REQUEST:\n" + prompt
         if len(prompt) + len(context) > 150000:
             raise APIError("conversation_context_limit")
         if not prompt.strip():
@@ -1211,6 +1278,9 @@ class ConversationService:
             + ". Do not publish to a remote Git. Run tests only through registered commands. Cite the sources; do not invent execution.\n"
             + with_sources(prompt, context)
         )
+        for item in plan.selected_resources:
+            if item.get("_inline_fallback"):
+                self.event(row["id"], "resource_fallback", {"resource_id": item["resource_id"], "mode": "inline", "reason": "command_with_context"})
         before = await self.quota(True) if backend == "codex" else None
         if before is not None:
             self.event(row["id"], "quota_before", before)
@@ -1364,6 +1434,12 @@ class ConversationService:
         )
         mode = data.get("access_mode", "ask")
         permissions = approval_policy.effective_permissions(permissions, mode)
+        permissions["delegate"] = project_config.get("permissions", {}).get("delegate") is True
+        if backend == "claude" and permissions.get("read") and plan.execution_mode == "native":
+            project_config["_rules"] = [item for item in resources.discover(
+                self.config, row["project"], backend, data.get("model"), private=True,
+                execution_mode=plan.execution_mode,
+            )["items"] if item["kind"] == "rule" and item["scope"] in ("project", "catalog")]
         project_config["access_mode"] = mode
         project_config["_images"] = [
             {
@@ -1510,11 +1586,13 @@ class ConversationService:
         kind = data.get("kind", "infer")
         project = self.config["projects"][row["project"]]
         if kind == "infer":
-            result = (
-                await maestro.run(self, row, data)
-                if data.get("backend", "auto") == "maestro"
-                else await self.infer(row, data)
-            )
+            if len(data.get("invocations", [])) > 1:
+                declared = maestro.declared_plan(self.config, data, self.selected_resources(data))
+                result = await maestro.execute_plan(self, row, data, declared)
+            elif data.get("backend", "auto") == "maestro":
+                result = await maestro.run(self, row, data)
+            else:
+                result = await self.infer(row, data)
             if data.get("workspace_id"):
                 root = self.workspace_root(data["workspace_id"])
                 output = root / "_harness_results" / row["id"]

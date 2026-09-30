@@ -21,3 +21,48 @@ def test_legacy_planner_remains_accepted_and_canonical():
     assert plan["steps"][0]["role"] == "reviewer"
     assert plan["steps"][0]["invocation"]["args"] == "  review\n"
     assert plan["steps"][0]["invocation"]["resource_id"] == "builtin/roles/reviewer"
+
+
+def invocation_service(tmp_path, monkeypatch):
+    from agent_service.app import Service
+    from test_workspaces import config
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("CODEX_HOME", raising=False)
+    root = tmp_path / "project"
+    agents = root / ".codex/agents"
+    agents.mkdir(parents=True)
+    for name, mode in (("reviewer", "delegated"), ("writer", "delegated"), ("discussion", "conversational")):
+        (agents / (name + ".toml")).write_text(f'name="{name}"\ndescription="Synthetic role"\ndeveloper_instructions="Help"\nmode="{mode}"')
+    configuration = config(tmp_path / "state")
+    configuration["projects"]["p"]["root"] = str(root)
+    service = Service(configuration)
+    return service, ("a", configuration["clients"]["a"])
+
+
+def test_service_normalizes_chips_rejects_conversational_chain(tmp_path, monkeypatch):
+    import pytest
+    from agent_service.errors import APIError
+    service, identity = invocation_service(tmp_path, monkeypatch)
+    items = service.resource_catalog(identity, "p", "codex", "gpt-6-astra")["items"]
+    refs = [{"id": item["id"], "revision": item["revision"], "token": "/" + item["name"]} for item in items if item["name"] in ("discussion", "reviewer")]
+    with pytest.raises(APIError, match="conversational_chain_unsupported"):
+        service.submit(identity, {"project_id": "p", "backend": "codex", "model": "gpt-6-astra", "effort": "low", "prompt": "/discussion hello /reviewer check", "resource_selections": refs})
+    service.db.close()
+
+
+def test_canonical_request_retains_arguments_and_persona_until_released(tmp_path, monkeypatch):
+    service, identity = invocation_service(tmp_path, monkeypatch)
+    item = next(item for item in service.resource_catalog(identity, "p", "codex", "gpt-6-astra")["items"] if item["name"] == "discussion")
+    first = service.submit(identity, {"project_id": "p", "backend": "codex", "model": "gpt-6-astra", "effort": "low", "invocations": [{"kind": "agent", "resource_id": item["resource_id"], "args": "  hello\n", "order": 0, "mode": "conversational"}]})
+    payload = json.loads(service.job(identity, first["job_id"])["payload"])
+    assert payload["invocations"][0]["args"] == "  hello\n"
+    service.db.execute("UPDATE jobs SET state='completed' WHERE id=?", (first["job_id"],))
+    service.db.commit()
+    second = service.submit(identity, {"project_id": "p", "backend": "codex", "model": "gpt-6-astra", "effort": "low", "parent_job_id": first["job_id"], "prompt": "continue"})
+    payload = json.loads(service.job(identity, second["job_id"])["payload"])
+    assert payload["invocations"][0]["mode"] == "conversational"
+    service.db.execute("UPDATE jobs SET state='completed' WHERE id=?", (second["job_id"],))
+    service.db.commit()
+    third = service.submit(identity, {"project_id": "p", "backend": "codex", "model": "gpt-6-astra", "effort": "low", "parent_job_id": second["job_id"], "prompt": "ordinary chat", "release_persona": True})
+    assert not json.loads(service.job(identity, third["job_id"])["payload"]).get("invocations")
+    service.db.close()
