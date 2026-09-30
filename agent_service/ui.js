@@ -1076,6 +1076,8 @@ const userErrors = {
     "The selected resources no longer match this invocation. Select them again.",
   conversational_chain_unsupported:
     "A conversational agent must run by itself. Remove the other resource steps.",
+  active_persona_resource_conflict:
+    "End the current agent conversation before selecting another resource.",
   invalid_gate_question:
     "The provider asked an invalid question. Revise the request and try again.",
   invalid_gate_options:
