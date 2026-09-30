@@ -11,6 +11,7 @@ import shutil
 import sys
 import time
 import uuid
+from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -49,6 +50,7 @@ from ..persistence.repositories import (
     ProjectRepository,
 )
 from . import queue_worker
+from .budgets import timeout_seconds
 from .project_service import ProjectService
 
 logger = logging.getLogger(__name__)
@@ -135,6 +137,8 @@ class ConversationService:
         self.config_reload_error = None
         self.cancellation_reasons = {}
         self.active_executors = {}
+        self.job_tasks = {}
+        self.runtime_budgets = {}
         for row in self.conversation_repository.running():
             self.finish(row["id"], "interrupted", {"error": "service_restarted", "metrics": None})
 
@@ -1403,6 +1407,8 @@ class ConversationService:
                 return {"approved": approved}
             aid = uuid.uuid4().hex
             future = asyncio.get_running_loop().create_future()
+            wait_limit = timeout_seconds(self.config, "approval_timeout_seconds", 1800)
+            expired = False
             self.approvals[aid] = (row["id"], future)
             progress(
                 "approval_required",
@@ -1411,10 +1417,26 @@ class ConversationService:
                     "kind": kind,
                     "request": params,
                     "can_remember": bool(fingerprint) and mode != "read_only",
+                    "expires_at": time.time() + wait_limit,
                 },
             )
             try:
-                reply = await future
+                with ExitStack() as waits:
+                    current = row
+                    seen = set()
+                    while current and current["id"] not in seen:
+                        seen.add(current["id"])
+                        budget = self.runtime_budgets.get(current["id"])
+                        if budget is not None:
+                            waits.enter_context(budget.human_wait())
+                        parent = json.loads(current["payload"]).get("execution_parent_id")
+                        current = self.conversation_repository.get(parent) if parent else None
+                    try:
+                        reply = await asyncio.wait_for(future, wait_limit)
+                    except TimeoutError:
+                        expired = True
+                        progress("approval_expired", {"approval_id": aid})
+                        return {"approved": False, "reason": "approval_expired"}
                 if (
                     reply.get("approved")
                     and reply.get("scope") == "conversation"
@@ -1426,7 +1448,8 @@ class ConversationService:
                 return reply
             finally:
                 self.approvals.pop(aid, None)
-                progress("approval_resolved", {"approval_id": aid})
+                if not expired:
+                    progress("approval_resolved", {"approval_id": aid})
 
         return approve
 

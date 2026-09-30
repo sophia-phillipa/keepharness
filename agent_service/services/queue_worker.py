@@ -14,6 +14,7 @@ from .. import tools
 from ..config import TERMINAL
 from ..conversation_context import context_overflow
 from ..errors import APIError
+from .budgets import RuntimeBudget, timeout_seconds
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +111,8 @@ def next_job(service):
 
 def settle(service, job, state, result):
     """Record an error path's terminal state; a failure here must not end the worker loop."""
+    if job in service.runtime_budgets:
+        result.update(service.runtime_budgets[job].metrics())
     for attempt in (1, 2):
         try:
             return service.finish(job, state, result)
@@ -132,7 +135,8 @@ async def run(service):
         with service.db:
             service.conversation_repository.set_running(row["id"])
         service.event(row["id"], "running", {})
-        service.task = asyncio.create_task(service.execute(row))
+        budget = RuntimeBudget()
+        service.runtime_budgets[row["id"]] = budget
         try:
             request_data = json.loads(row["payload"])
             native_codex = (
@@ -140,10 +144,20 @@ async def run(service):
                 and request_data.get("execution_mode", service.configured_execution_mode("codex"))
                 == "native"
             )
-            async with asyncio.timeout(
-                None if native_codex else 3600 if request_data.get("backend") == "maestro" else 600
-            ):
+            maximum = (
+                None
+                if native_codex
+                else timeout_seconds(
+                    service.config,
+                    "active_timeout_seconds",
+                    3600 if request_data.get("backend") == "maestro" else 600,
+                )
+            )
+            async with budget.limit(maximum):
+                service.task = asyncio.create_task(service.execute(row))
+                service.job_tasks[row["id"]] = service.task
                 result = await service.task
+            result.update(budget.metrics())
             result["queue_seconds"] = started - row["created"]
             result["total_seconds"] = time.time() - row["created"]
             service.finish(row["id"], "completed", result)
@@ -192,6 +206,8 @@ async def run(service):
             code = (
                 exc.code
                 if isinstance(exc, APIError)
+                else "active_runtime_timeout"
+                if isinstance(exc, TimeoutError)
                 else str(exc)
                 if isinstance(exc, tools.ToolError)
                 # The provider CLI was removed or moved after the harness started.
@@ -214,7 +230,9 @@ async def run(service):
                             "condition": condition,
                             "backend": backend,
                             # A provider message (e.g. Codex's reset time), never a bare code.
-                            "error_detail": code if ": " in code else None,
+                            "error_detail": getattr(
+                                exc, "error_detail", code if ": " in code else None
+                            ),
                             "metrics": None,
                         },
                     ),
@@ -233,7 +251,9 @@ async def run(service):
                         row["id"],
                         {
                             "error": "context_limit_exceeded" if context_overflow(code) else code,
-                            "error_detail": code if context_overflow(code) else None,
+                            "error_detail": getattr(
+                                exc, "error_detail", code if context_overflow(code) else None
+                            ),
                             "metrics": None,
                         },
                     ),
@@ -254,6 +274,8 @@ async def run(service):
             service.active = None
             service.task = None
             service.active_executors.pop(row["id"], None)
+            service.job_tasks.pop(row["id"], None)
+            service.runtime_budgets.pop(row["id"], None)
 
 
 def cancel(service, identity, job):

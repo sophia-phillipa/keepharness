@@ -920,6 +920,20 @@ const userErrors = {
   // Approvals.
   approval_expired:
     "This approval request expired. Send your message again if you still need it.",
+  approval_session_required:
+    "Enroll this browser using an owner-issued link. On the server, run tail-harness approve-device with your existing owner id and state directory.",
+  approval_enrollment_invalid:
+    "This device enrollment link expired or was already used. Ask the owner for a new link.",
+  approval_owner_unknown:
+    "Choose an existing owner id when enrolling this browser.",
+  enrollment_rate_limit:
+    "Too many enrollment attempts. Wait a moment before trying again.",
+  invalid_provider_capacity:
+    "The provider capacity is invalid. Ask the administrator to set a positive whole number.",
+  provider_idle_timeout:
+    "The provider stopped responding. Review the run details and try again.",
+  active_runtime_timeout:
+    "The run reached its active time limit. Human approval waiting time was excluded.",
   approval_owner_denied: "This approval request belongs to another user.",
   invalid_approval_scope: "That approval option is not available.",
   // Resources.
@@ -2621,6 +2635,10 @@ function event(e) {
   if (e.type === "session_turn_started") return;
   if (e.type === "approval_required") {
     showApproval(e.data);
+    return;
+  }
+  if (e.type === "approval_expired") {
+    expireApproval(e.data.approval_id);
     return;
   }
   if (e.type === "approval_resolved") {
@@ -5384,6 +5402,22 @@ $("vpn-login-form").onsubmit = async (e) => {
     $("vpn-login-error").textContent = error.message;
   }
 };
+function expireApproval(id) {
+  const box = document.getElementById("approval-" + id);
+  if (!box) return;
+  if (box.contains(document.activeElement) ||
+      (box.dataset.restoreFocus === "true" && document.activeElement === document.body)) {
+    $("prompt").focus({ preventScroll: true });
+  }
+  box.dataset.state = "expired";
+  box.querySelector("h3").textContent = "Approval expired";
+  box.querySelectorAll("button,input").forEach((node) => (node.disabled = true));
+  const progress = box.querySelector('[role="status"]');
+  progress.hidden = false;
+  progress.textContent = userErrors.approval_expired;
+  status("Approval expired");
+}
+
 function showApproval(data) {
   if (document.getElementById("approval-" + data.approval_id)) return;
   const box = document.createElement("section");
@@ -5460,6 +5494,7 @@ function showApproval(data) {
       deciding = true;
       // F-60: disabling the buttons drops focus to <body>; restore it afterwards.
       const hadFocus = box.contains(document.activeElement);
+      box.dataset.restoreFocus = String(hadFocus);
       box
         .querySelectorAll("button,input")
         .forEach((node) => (node.disabled = true));
@@ -5475,15 +5510,17 @@ function showApproval(data) {
           scope,
         });
         if (hadFocus) $("prompt").focus({ preventScroll: true });
-        box.remove();
+        if (box.dataset.state !== "expired") box.remove();
       } catch (e) {
-        progress.textContent = "Couldn't confirm your decision. " + e.message;
+        if (e.code === "approval_expired") expireApproval(data.approval_id);
+        else if (box.dataset.state !== "expired") progress.textContent = "Couldn't confirm your decision. " + e.message;
       } finally {
         deciding = false;
-        box
-          .querySelectorAll("button,input")
-          .forEach((node) => (node.disabled = false));
-        if (hadFocus && box.isConnected) button.focus();
+        if (box.dataset.state !== "expired") {
+          box.querySelectorAll("button,input").forEach((node) => (node.disabled = false));
+          if (hadFocus && box.isConnected) button.focus();
+        }
+        delete box.dataset.restoreFocus;
       }
     };
     box.append(button);
