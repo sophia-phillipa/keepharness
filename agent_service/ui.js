@@ -1121,6 +1121,8 @@ const userErrors = {
     "The harness cannot access this integration's credentials. Ask the server owner to check its credential binding.",
   effect_destination_denied:
     "This destination is not allowed for the publication integration. Choose an allowed destination.",
+  effect_duplicate_outcome_pending:
+    "An identical publication is already executing, complete, or has an unknown outcome. Review its recorded outcome before preparing another publication.",
   effect_execution_inactive:
     "This run can no longer prepare a publication. Start a new message if you still need it.",
   effect_integration_unavailable:
@@ -1130,6 +1132,8 @@ const userErrors = {
     "This publication no longer needs reconciliation. Refresh the run console to see its recorded outcome.",
   effect_operation_unsupported:
     "This integration does not support that publication operation. Only creating a Jira issue is available.",
+  effect_prepare_limit:
+    "This execution has reached its publication preparation limit. Review its existing publication requests.",
   effect_reconcile_backoff:
     "Wait before checking again so Jira search has time to catch up. The outcome remains unknown; this will not retry publication.",
   effect_reconcile_invalid:

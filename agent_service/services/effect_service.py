@@ -111,9 +111,25 @@ class EffectService:
         request = json.loads(canonical(request))
         artifact = request.pop("artifact")
         action_binding = binding({**request, "artifact": artifact})
+        execution_id = execution_id or job_id
+        prepare_limit = self.service.config.get("effect_prepare_limit", 5)
+        if type(prepare_limit) is not int or prepare_limit < 1:
+            raise ValueError("invalid_effect_prepare_limit")
         effect_id, gate_id = uuid.uuid4().hex, uuid.uuid4().hex
         wait_limit = timeout_seconds(self.service.config, "approval_timeout_seconds", 1800)
         with self.db:
+            if self.db.execute(
+                "SELECT 1 FROM effects WHERE job_id=? AND binding=? "
+                "AND status IN ('unknown','executing','done') LIMIT 1",
+                (job_id, canonical(action_binding)),
+            ).fetchone():
+                raise APIError("effect_duplicate_outcome_pending", 409)
+            count = self.db.execute(
+                "SELECT COUNT(*) FROM effects WHERE job_id=? AND execution_id=?",
+                (job_id, execution_id),
+            ).fetchone()[0]
+            if count >= prepare_limit:
+                raise APIError("effect_prepare_limit", 429)
             self.db.execute(
                 "INSERT INTO effects(effect_id,job_id,gate_id,status,request,artifact,binding,contract,execution_id,enforcement) VALUES(?,?,?,'prepared',?,?,?,?,?,?)",
                 (
@@ -124,7 +140,7 @@ class EffectService:
                     canonical(artifact),
                     canonical(action_binding),
                     canonical(contract),
-                    execution_id or job_id,
+                    execution_id,
                     enforcement,
                 ),
             )

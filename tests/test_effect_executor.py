@@ -8,6 +8,7 @@ from test_approval_authority import ORIGIN, client_for, pending_approval
 
 from agent_service.app import create_app
 from agent_service.approval_sessions import issue_enrollment
+from agent_service.errors import APIError
 
 
 def configure_effects(config, endpoint="http://127.0.0.1:9"):
@@ -205,5 +206,72 @@ def test_restart_invalidates_prepared_effect_and_requires_new_gate(make_harness_
         await restarted.effects.close()
         service.db.close()
         restarted.db.close()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("status", ["unknown", "executing", "done"])
+def test_prepare_rejects_duplicate_outcome_across_executions(make_harness_config, status):
+    async def scenario():
+        app, effect = await prepared(make_harness_config)
+        service = app.state.service
+        service.effects._status(effect["effect_id"], status)
+        try:
+            with pytest.raises(APIError, match="effect_duplicate_outcome_pending") as error:
+                await service.effects.prepare("job", request(), execution_id="next-execution")
+            assert error.value.status == 409
+            assert len(service.effects.for_job("job")) == 1
+            changed = request()
+            changed["artifact"]["fields"]["summary"] = "A different publication"
+            assert (await service.effects.prepare("job", changed))["status"] == "prepared"
+            pending_approval(app, "local", job="other-job")
+            assert (await service.effects.prepare("other-job", request()))["status"] == "prepared"
+        finally:
+            await service.effects.close()
+            service.db.close()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("limit", [None, 2])
+def test_prepare_limit_is_durable_and_scoped_to_execution(make_harness_config, limit):
+    async def scenario():
+        app, effect = await prepared(make_harness_config)
+        service = app.state.service
+        if limit is not None:
+            service.config["effect_prepare_limit"] = limit
+        maximum = 5 if limit is None else limit
+        try:
+            # Resolving an earlier gate cannot reset the execution's quota.
+            service.effects._status(effect["effect_id"], "denied")
+            for _ in range(maximum - 1):
+                await service.effects.prepare("job", request())
+            with pytest.raises(APIError, match="effect_prepare_limit") as error:
+                await service.effects.prepare("job", request())
+            assert error.value.status == 429
+            assert len(service.effects.for_job("job")) == maximum
+            assert (await service.effects.prepare(
+                "job", request(), execution_id="next-execution"
+            ))["status"] == "prepared"
+        finally:
+            await service.effects.close()
+            service.db.close()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("limit", [0, -1, True, 1.5, "5"])
+def test_prepare_limit_rejects_invalid_configuration(make_harness_config, limit):
+    async def scenario():
+        app, effect = await prepared(make_harness_config)
+        service = app.state.service
+        service.config["effect_prepare_limit"] = limit
+        try:
+            with pytest.raises(ValueError, match="invalid_effect_prepare_limit"):
+                await service.effects.prepare("job", request())
+            assert len(service.effects.for_job("job")) == 1
+        finally:
+            await service.effects.close()
+            service.db.close()
 
     asyncio.run(scenario())
