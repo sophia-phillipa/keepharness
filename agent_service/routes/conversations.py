@@ -201,6 +201,33 @@ async def job_events(request, service, identity):
         raise APIError("invalid_event_id")
     if after < 0:
         raise APIError("invalid_event_id")
+    if request.query_params.get("format") == "json":
+        try:
+            limit = int(request.query_params.get("limit", "200"))
+        except ValueError:
+            raise APIError("invalid_event_limit")
+        if not 1 <= limit <= 200:
+            raise APIError("invalid_event_limit")
+        rows = service.message_repository.events_after(job, after)[:limit]
+        next_after = rows[-1]["id"] if rows else after
+        has_more = bool(service.message_repository.events_after(job, next_after)) if rows else False
+        return JSONResponse(
+            {
+                "events": [
+                    {
+                        "id": event["id"],
+                        "job_id": job,
+                        "timestamp": event["time"],
+                        "type": event["type"],
+                        "data": json.loads(event["data"]),
+                    }
+                    for event in rows
+                ],
+                "next_after": next_after,
+                "has_more": has_more,
+            },
+            headers={"Cache-Control": "no-store"},
+        )
     if service.streams.get(identity[0], 0) >= 4:
         raise APIError("stream_limit", 429, 5)
     service.streams[identity[0]] = service.streams.get(identity[0], 0) + 1
