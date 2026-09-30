@@ -537,7 +537,8 @@ def prepare_prompt(prompt, items):
                     + json.dumps(name)
                     + " defined at "
                     + json.dumps(item["source"])
-                    + " for this main-thread conversation until it is released."
+                    + " for this main-thread conversation until it is released.\n"
+                    + item.get("_body", "")
                 )
             else:
                 notes.append(
@@ -573,7 +574,9 @@ def prepare_prompt(prompt, items):
             groups = match.groupdict()
             if groups.get("skill") is not None:
                 return skills[groups["skill"]]
-            args = groups["args"].strip()
+            args = groups["args"]
+            if args.startswith(" "):
+                args = args[1:]
             try:
                 positional = shlex.split(args)
             except ValueError:

@@ -66,3 +66,26 @@ def test_canonical_request_retains_arguments_and_persona_until_released(tmp_path
     third = service.submit(identity, {"project_id": "p", "backend": "codex", "model": "gpt-6-astra", "effort": "low", "parent_job_id": second["job_id"], "prompt": "ordinary chat", "release_persona": True})
     assert not json.loads(service.job(identity, third["job_id"])["payload"]).get("invocations")
     service.db.close()
+
+
+def test_inline_expansion_preserves_verbatim_arguments():
+    from agent_service.resources import prepare_prompt
+    item = {"kind": "command", "name": "inspect", "_body": "ARGS=[$ARGUMENTS]"}
+    assert prepare_prompt('/inspect  "two words"  ', [item]) == 'ARGS=[ "two words"  ]'
+
+
+def test_explicit_invocation_cannot_disagree_with_chip_arguments(tmp_path, monkeypatch):
+    import pytest
+    from agent_service.errors import APIError
+    service, identity = invocation_service(tmp_path, monkeypatch)
+    item = next(item for item in service.resource_catalog(identity, "p", "codex", "gpt-6-astra")["items"] if item["name"] == "reviewer")
+    with pytest.raises(APIError, match="invocation_selection_mismatch"):
+        service.submit(identity, {"project_id": "p", "backend": "codex", "model": "gpt-6-astra", "effort": "low", "prompt": "/reviewer actual", "resource_selections": [{"id": item["id"], "revision": item["revision"], "token": "/reviewer"}], "invocations": [{"kind": "agent", "resource_id": item["resource_id"], "args": "different", "mode": "delegated", "order": 0}]})
+    service.db.close()
+
+
+def test_conversational_resource_supplies_body_without_delegation():
+    from agent_service.resources import prepare_prompt
+    prompt = prepare_prompt("/discussion hello", [{"name": "discussion", "kind": "agent", "mode": "conversational", "source": "catalog/agents/discussion.md", "_body": "Synthetic persona instructions."}])
+    assert "Synthetic persona instructions." in prompt
+    assert "Delegate" not in prompt

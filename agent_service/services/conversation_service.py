@@ -724,6 +724,7 @@ class ConversationService:
         """Resolve every resource before admitting a portable invocation."""
         try:
             explicit = data.get("invocations")
+            supplied_selections = bool(data.get("resource_selections"))
             if explicit is not None:
                 if not isinstance(explicit, list) or not all(isinstance(value, dict) for value in explicit):
                     raise invocations.InvocationError("invalid_invocation")
@@ -757,6 +758,10 @@ class ConversationService:
             normalized = invocations.normalize_chips(data.get("prompt", ""), data.get("resource_selections", []), selected)
             if values is not None:
                 if [(value.kind, value.resource_id, value.mode) for value in values] != [(value.kind, value.resource_id, value.mode) for value in normalized]:
+                    raise invocations.InvocationError("invocation_selection_mismatch")
+                if any(value.requested_backend and value.requested_backend != actual.requested_backend for value, actual in zip(values, normalized)):
+                    raise invocations.InvocationError("invocation_selection_mismatch")
+                if supplied_selections and any(value.args != actual.args for value, actual in zip(values, normalized)):
                     raise invocations.InvocationError("invocation_selection_mismatch")
                 normalized = values
             if normalized:
@@ -1294,7 +1299,7 @@ class ConversationService:
             if data.get("_maestro_stage"):
                 value = {**value, "maestro_stage": data["_maestro_stage"]}
             self.event(row["id"], kind, value)
-            if kind == "answer_delta":
+            if kind == "answer_delta" and not value.get("parent_tool_use_id"):
                 live["answer"] += value.get("text", "")
             if kind in ("reasoning_delta", "reasoning_summary"):
                 live["thinking"] += value.get("text", "")
