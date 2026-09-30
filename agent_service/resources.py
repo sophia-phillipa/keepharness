@@ -34,6 +34,31 @@ def read(path):
     return value.decode("utf-8")
 
 
+def dependency_snapshot(path, meta, boundary):
+    """Hash explicitly declared, resource-relative files within the owning root."""
+    declared = meta.get("dependencies", [])
+    if isinstance(declared, str):
+        declared = json.loads(declared)
+    if not isinstance(declared, list) or len(declared) > 32:
+        raise ValueError("invalid_resource_dependencies")
+    revisions, contents = {}, {}
+    size = 0
+    for relative in declared:
+        if not isinstance(relative, str) or not relative or Path(relative).is_absolute():
+            raise ValueError("invalid_resource_dependencies")
+        dependency = (path.parent / relative).resolve()
+        if not dependency.is_relative_to(boundary.resolve()):
+            raise ValueError("resource_dependency_outside_root")
+        text = read(dependency)
+        size += len(text.encode())
+        if size > MAX_BODY_BYTES:
+            raise ValueError("resource_dependencies_too_large")
+        name = dependency.relative_to(boundary.resolve()).as_posix()
+        revisions[name] = hashlib.sha256(text.encode()).hexdigest()
+        contents[name] = text
+    return revisions, contents
+
+
 def markdown(text):
     lines = text.splitlines()
     if not lines or lines[0].strip() != "---":
@@ -150,8 +175,10 @@ def files(base, boundary, global_roots, kind):
 
 
 def discover(config, project_id, backend, model=None, *, private=False, execution_mode=None):
+    from .workflows import discover_workflows
+
     engine = ENGINES.get(backend)
-    result = {"engine": engine, "items": [], "warnings": []}
+    result = {"engine": engine, **discover_workflows(config, project_id, backend, private=private)}
     if engine is None:
         result["warnings"].append("Choose a concrete engine to query its resources.")
         return result
@@ -411,10 +438,15 @@ def discover(config, project_id, backend, model=None, *, private=False, executio
                     key = (kind, name.casefold())
                     if key in seen_names:
                         continue
-                    relative = path.resolve().relative_to(
-                        source_spec["identity_root"].resolve()
-                    ).as_posix()
+                    relative = (
+                        path.resolve()
+                        .relative_to(source_spec["identity_root"].resolve())
+                        .as_posix()
+                    )
                     identity = source_spec["identity"] + "/" + relative
+                    deps_revisions, dependency_texts = dependency_snapshot(
+                        path, meta, source_spec["identity_root"]
+                    )
                     description = str(meta.get("description", "")).strip()
                     if not description:
                         description = first_sentence(body)
@@ -431,6 +463,7 @@ def discover(config, project_id, backend, model=None, *, private=False, executio
                         "id": identity,
                         "resource_id": identity,
                         "revision": hashlib.sha256(text.encode()).hexdigest(),
+                        "deps_revisions": deps_revisions,
                         "kind": kind,
                         "name": name,
                         "description": description[:1000],
@@ -441,9 +474,7 @@ def discover(config, project_id, backend, model=None, *, private=False, executio
                         "argument_hint": argument_hint(meta, body, name),
                         "backend": str(meta.get("backend", backend)),
                         "model": str(meta.get("model", model or "")),
-                        "effort": str(
-                            meta.get("effort", meta.get("model_reasoning_effort", ""))
-                        ),
+                        "effort": str(meta.get("effort", meta.get("model_reasoning_effort", ""))),
                         "mode": mode,
                         "native_command": (
                             engine == "claude" and kind == "command" and scope != "catalog"
@@ -458,7 +489,9 @@ def discover(config, project_id, backend, model=None, *, private=False, executio
                         ),
                     }
                     if private:
-                        item.update(_text=text, _body=body, _meta=meta)
+                        item.update(
+                            _text=text, _body=body, _meta=meta, _dependency_texts=dependency_texts
+                        )
                     result["items"].append(item)
                     seen_paths.add((kind, canonical))
                     seen_names.add(key)
