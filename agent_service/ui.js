@@ -315,18 +315,11 @@ function setActiveResourceOption(option = null) {
   const menu = $("resource-menu");
   for (const candidate of menu.querySelectorAll("[role=option]"))
     candidate.setAttribute("aria-selected", String(candidate === option));
-  if (option?.id) $("prompt").setAttribute("aria-activedescendant", option.id);
-  else $("prompt").removeAttribute("aria-activedescendant");
-}
-function syncResourceMenuState(open = $("resource-menu").matches(":popover-open")) {
-  $("prompt").setAttribute("aria-expanded", String(open));
-  if (!open) setActiveResourceOption();
 }
 function closeResourceMenu() {
   resourceRequest++;
   const menu = $("resource-menu");
   if (menu.matches(":popover-open")) menu.hidePopover();
-  syncResourceMenuState(false);
   menu.replaceChildren();
 }
 function resourceKeydown(event) {
@@ -382,9 +375,6 @@ function resourceKeydown(event) {
   return false;
 }
 $("resource-menu").addEventListener("keydown", resourceKeydown);
-$("resource-menu").addEventListener("toggle", (event) =>
-  syncResourceMenuState(event.newState === "open"),
-);
 function resourceIcon(item) {
   const origin = String(item.origin || "").toLowerCase(),
     symbol = origin.includes("claude")
@@ -561,7 +551,6 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
   if (first) renderResourcePreview(first);
   menu.hidden = false;
   if (!menu.matches(":popover-open")) menu.showPopover();
-  syncResourceMenuState(true);
   setActiveResourceOption(
     menu.querySelector("[role=option]:not(:disabled)") ||
       menu.querySelector("[role=option]"),

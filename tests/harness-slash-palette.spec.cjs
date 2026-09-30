@@ -105,11 +105,11 @@ const path = require("node:path");
     await page.goto("http://slash-palette.test");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     const promptBox = page.locator("#prompt");
-    assert.equal(await promptBox.getAttribute("role"), "combobox");
-    assert.equal(await promptBox.getAttribute("aria-autocomplete"), "list");
+    assert.equal(await promptBox.getAttribute("role"), null);
+    assert.equal(await page.getByRole("textbox", { name: "Message" }).count(), 1);
     assert.equal(await promptBox.getAttribute("aria-haspopup"), "listbox");
     assert.equal(await promptBox.getAttribute("aria-controls"), "resource-menu");
-    assert.equal(await promptBox.getAttribute("aria-expanded"), "false");
+    assert.equal(await promptBox.getAttribute("aria-expanded"), null);
     assert.deepEqual(
       await page.evaluate(() => [
         activityTitle({ type: "hook_scope", data: { scope: "project" } }),
@@ -137,16 +137,31 @@ const path = require("node:path");
     await page.fill("#prompt", "/dmrv");
     const reviewer = page.locator('[data-resource-id="catalog/demo/agents/reviewer.toml"]');
     await reviewer.waitFor();
-    assert.equal(await promptBox.getAttribute("aria-expanded"), "true");
     assert.equal(await reviewer.getAttribute("aria-selected"), "true");
-    assert.equal(
-      await promptBox.getAttribute("aria-activedescendant"),
-      await reviewer.getAttribute("id"),
-    );
     assert.match(await page.locator("#resource-menu").innerText(), /AGENTS · CATALOG · demo/i);
-    await page.evaluate(() => $("resource-menu").hidePopover());
-    assert.equal(await promptBox.getAttribute("aria-expanded"), "false");
-    assert.equal(await promptBox.getAttribute("aria-activedescendant"), null);
+    await page.keyboard.press("ArrowDown");
+    assert.equal(
+      await page.evaluate(() => document.activeElement.dataset.resourceId),
+      "catalog/demo/agents/reviewer.toml",
+    );
+    assert.equal(await reviewer.getAttribute("aria-selected"), "true");
+    await page.keyboard.press("Escape");
+    assert.equal(await page.evaluate(() => document.activeElement.id), "prompt");
+    assert.equal(
+      await page.locator("#resource-menu").evaluate((menu) =>
+        menu.matches(":popover-open"),
+      ),
+      false,
+    );
+    await page.fill("#prompt", "/dmrv");
+    await reviewer.waitFor();
+    await page.mouse.click(1270, 10);
+    assert.equal(
+      await page.locator("#resource-menu").evaluate((menu) =>
+        menu.matches(":popover-open"),
+      ),
+      false,
+    );
     await page.fill("#prompt", "");
     await page.fill("#prompt", "/dmrv");
     await reviewer.waitFor();
