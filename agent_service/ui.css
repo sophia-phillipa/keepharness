@@ -4378,6 +4378,9 @@ body.panel-order-reversed #app-topbar #menu .th-icon {
 .gate-card label { display: grid; grid-template-columns: auto 1fr; gap: 4px 8px; margin: 8px 0; }
 .gate-card label small { grid-column: 2; overflow-wrap: anywhere; }
 .gate-card input { width: auto; }
+.publish-evidence { min-width: 0; overflow-wrap: anywhere; }
+.publish-evidence pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow: auto; }
+.effect-reconciliation { min-width: 0; overflow-wrap: anywhere; }
 
 /* Run console: an optional drawer below the chat composer. */
 .run-status-strip { display:flex; flex-shrink:0; gap:8px; border-top:1px solid var(--th-border); background:var(--th-panel); padding:4px 12px; font-size:12px; }

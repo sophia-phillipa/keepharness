@@ -119,7 +119,7 @@
     const seconds = Math.max(0, (span.end_ts ?? Date.now() / 1000) - span.start_ts);
     return seconds.toFixed(1) + ' s' + (span.end_ts == null ? ' · pending' : '');
   };
-  const outcome = span => span.end_ts == null ? 'pending' : span.attrs?.outcome || span.status;
+  const outcome = span => span.attrs?.effect_status || (span.end_ts == null ? 'pending' : span.attrs?.outcome || span.status);
   const tokenCount = span => {
     const attrs = span.attrs || {};
     const values = ['input', 'output'].map(key => attrs['gen_ai.usage.' + key + '_tokens']);
@@ -309,6 +309,7 @@
       row.dataset.state = outcome(span);
       row.setAttribute('aria-pressed', String(state.selectedSpan === span.span_id));
       row.append(el('strong', span.name), el('span', `${outcome(span)} · ${span.attrs?.['gen_ai.request.model'] || span.kind} · ${duration(span)} · ${tokenCount(span)}`));
+      if (span.attrs?.enforcement) row.append(el('span', 'Publication: ' + span.attrs.enforcement));
       if (state.tab === 'Timeline') {
         const track = el('span', null, 'run-waterfall-track');
         track.style.width = state.zoom * 100 + '%';
@@ -331,6 +332,26 @@
     const detail = el('section', null, 'run-span-detail');
     detail.setAttribute('aria-label', 'Span detail');
     detail.append(el('h3', span.name));
+    if (span.kind === 'harness.effect') {
+      const attrs = span.attrs || {};
+      detail.append(el('p', 'Effect status: ' + outcome(span)), el('p', 'Publication: ' + (attrs.enforcement || 'unenforced')));
+      for (const [label, value] of [['Operation', attrs.operation], ['Destination', attrs.destination],
+        ['Integration', attrs.integration], ['Jira site', attrs.endpoint],
+        ['Artifact digest', attrs.artifact_digest], ['Arguments digest', attrs.arguments_digest],
+        ['Approval', attrs.approved_by], ['Gate', attrs.gate_id], ['Receipt', attrs.receipt_issue_key]]) {
+        if (value) detail.append(el('p', label + ': ' + value));
+      }
+      const history = el('ol', null, 'effect-history');
+      const names = { effect_prepared: 'Prepared', effect_intent: 'Intent recorded', effect_approved: 'Approval recorded',
+        effect_execution: 'Execution started', effect_done: 'Receipt recorded', effect_failed: 'Failed',
+        effect_unknown: 'Outcome unknown', effect_reconciled: 'Human reconciliation decision' };
+      for (const event of span.events || []) history.append(el('li', names[event.name] || event.name));
+      detail.append(history);
+      if (attrs.effect_status === 'unknown') {
+        detail.append(el('p', 'The outcome is unknown. An empty search is inconclusive. Publication will not be retried automatically.'));
+        detail.append(button('Reconcile', () => showReconciliation(detail, attrs.effect_id)));
+      }
+    }
     const reveal = button(state.content ? 'Hide content' : 'Show content', async () => {
       state.content = !state.content;
       state.sequence++;
@@ -374,6 +395,27 @@
     detailBody.textContent = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
     detail.append(detailTabs, detailBody);
     return detail;
+  }
+  function showReconciliation(detail, effectId) {
+    if (detail.querySelector('.effect-reconciliation')) return;
+    const form = el('section', null, 'effect-reconciliation');
+    form.append(el('p', 'Record your decision: check external evidence or keep this outcome unknown. This never republishes the artifact. An enrolled human session is required.'));
+    const feedback = el('p'); feedback.setAttribute('role', 'status');
+    let deciding = false;
+    const decide = async decision => {
+      if (deciding) return;
+      deciding = true;
+      form.querySelectorAll('button').forEach(node => { node.disabled = true; });
+      try {
+        const result = await post('/v1/effects/' + encodeURIComponent(effectId) + '/reconcile', { decision });
+        feedback.textContent = 'Decision recorded. Effect status: ' + (result.status || result.effect?.status || 'unknown') + '.';
+        await fetchSpans();
+      } catch (failure) { feedback.textContent = failure.message; }
+      finally { deciding = false; form.querySelectorAll('button').forEach(node => { node.disabled = false; }); }
+    };
+    form.append(button('Check evidence', () => decide('check')), button('Keep unknown', () => decide('keep_unknown')), feedback);
+    detail.append(form);
+    form.querySelector('button').focus();
   }
   async function loadLogs() {
     if (!state.run || state.logLoading || !state.more) return;
@@ -498,7 +540,10 @@
     card.append(el('h3', item.question || item.tool || 'Approval required'), el('p', [item.work_item, item.project_id, item.job_id].filter(Boolean).join(' · ')));
     const choices = [];
     const questions = [];
-    if (item.kind === 'gate') {
+    const publish = item.publish && item.effect_id;
+    const isGate = item.kind === 'gate' || item.kind === 'publish';
+    if (publish) appendPublishEvidence(card, item);
+    else if (isGate) {
       const group = el('fieldset'); group.append(el('legend', item.multi_select ? 'Choose options' : 'Choose one option'));
       for (const option of item.options || []) {
         const choice = input('needs-' + id + '-' + option.id, item.multi_select ? 'checkbox' : 'radio');
@@ -535,7 +580,9 @@
         else { fields.forEach(node => { node.disabled = false; }); fields.find(node => node.tagName === 'BUTTON')?.focus(); }
       } finally { deciding = false; }
     };
-    if (item.kind === 'gate') {
+    if (publish) {
+      card.append(button('Approve', () => resolve({ choice: 'approve' })), button('Deny', () => resolve({ choice: 'deny' })));
+    } else if (isGate) {
       const submit = button('Submit answer', () => {
         const selected = choices.filter(choice => choice.checked).map(choice => choice.value);
         if (selected.length) void resolve({ choice: item.multi_select ? selected : selected[0] });

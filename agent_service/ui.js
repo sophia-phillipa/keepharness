@@ -5775,7 +5775,7 @@ function finishGate(id, state, data = {}) {
   box.querySelectorAll("button,input").forEach(node => { node.disabled = true; });
   const note = box.querySelector('[role="status"]');
   note.textContent = state === "resolved"
-    ? "Answered" + (data.resolved_by ? " by " + data.resolved_by : "") + "."
+    ? (box.dataset.publish === "true" ? (data.choice === "deny" ? "Publication denied" : data.choice === "approve" ? "Publication approved" : "Publication decision recorded") : "Answered") + (data.resolved_by ? " by " + data.resolved_by : "") + "."
     : state === "invalidated"
       ? "This question is no longer active. Send a message to ask again."
       : "This question expired. Send a message to ask again.";
@@ -5790,6 +5790,7 @@ function restoreGates(gates = []) {
 }
 function showGate(data) {
   if (document.getElementById("gate-" + data.gate_id)) return;
+  if (data.publish && data.effect_id) { showPublishGate(data); return; }
   const box = document.createElement("section"), title = document.createElement("h3"),
     note = document.createElement("p"), fields = document.createElement("fieldset"),
     legend = document.createElement("legend"), submit = document.createElement("button");
@@ -5838,8 +5839,75 @@ function showGate(data) {
     } finally { delete box.dataset.restoreFocus; }
   };
   box.append(title, fields, submit, note);
+  if (data.publish) appendPublishEvidence(box, data);
   $("messages").append(box);
   status("Waiting for your choice");
+  box.scrollIntoView({ block: "nearest" });
+}
+
+function appendPublishEvidence(container, data) {
+  const evidence = document.createElement("div");
+  evidence.className = "publish-evidence";
+  const add = (label, value, pre = false) => {
+    if (value == null) return;
+    const node = document.createElement(pre ? "pre" : "p");
+    node.textContent = label + ": " + (typeof value === "string" ? value : JSON.stringify(value, null, 2));
+    evidence.append(node);
+  };
+  add("Publication", data.enforcement === "mediated" ? "mediated" : "unenforced");
+  add("Operation", data.operation);
+  add("Integration", data.integration);
+  add("Jira site", data.endpoint);
+  add("Destination", data.destination);
+  add("Arguments", data.arguments, true);
+  add("Arguments digest", data.arguments_digest);
+  add("Artifact preview", data.artifact_preview, true);
+  add("Artifact digest", data.artifact_digest);
+  add("Approval", "An enrolled human session is required. This decision applies once to this exact request and artifact.");
+  container.append(evidence);
+}
+
+function showPublishGate(data) {
+  const box = document.createElement("section"), title = document.createElement("h3"), note = document.createElement("p");
+  box.id = "gate-" + data.gate_id;
+  box.className = "approval-card gate-card publish-gate-card";
+  box.dataset.state = "pending";
+  box.dataset.publish = "true";
+  title.textContent = "Publish approval";
+  box.append(title);
+  appendPublishEvidence(box, data);
+  note.setAttribute("role", "status");
+  for (const [choice, label] of [["approve", "Approve"], ["deny", "Deny"]]) {
+    const action = document.createElement("button");
+    action.className = "btn";
+    action.type = "button";
+    action.textContent = label;
+    action.onclick = async () => {
+      if (box.dataset.state !== "pending") return;
+      box.dataset.state = "submitting";
+      box.dataset.restoreFocus = String(box.contains(document.activeElement));
+      box.querySelectorAll("button").forEach(node => { node.disabled = true; });
+      note.textContent = "Sending your decision…";
+      try {
+        const result = await post("/v1/approvals/" + encodeURIComponent(data.gate_id), { choice });
+        if (box.dataset.state === "submitting") finishGate(data.gate_id, "resolved", result);
+      } catch (error) {
+        if (box.dataset.state !== "submitting") return;
+        if (error.code === "gate_already_resolved") finishGate(data.gate_id, "resolved");
+        else if (["gate_invalidated", "gate_expired"].includes(error.code)) finishGate(data.gate_id, error.code.slice(5));
+        else if (box.dataset.state === "submitting") {
+          box.dataset.state = "pending";
+          note.textContent = "Couldn't send your decision. " + error.message;
+          box.querySelectorAll("button").forEach(node => { node.disabled = false; });
+          if (box.dataset.restoreFocus === "true") action.focus();
+        }
+      } finally { delete box.dataset.restoreFocus; }
+    };
+    box.append(action);
+  }
+  box.append(note);
+  $("messages").append(box);
+  status("Waiting for publication approval");
   box.scrollIntoView({ block: "nearest" });
 }
 
