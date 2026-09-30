@@ -115,6 +115,7 @@ def test_catalog_kinds_namespace_maintenance_hints_and_agent_slash(tmp_path, mon
     put(catalog, "agents/writer.md", "---\nname: writer\ndescription: Writes.\n---\nWrite")
     put(catalog, "commands/deploy.md", "Deploy. Example: /deploy <environment>")
     put(catalog, "commands/install.md", "Install the catalog")
+    put(catalog, "commands/demo--update.md", "Update the catalog")
     put(catalog, "rules/paths.md", "---\npaths: src/**\n---\nRule")
     put(catalog, "context/guide.md", "Background context")
     config = catalog_cfg(project, catalog, "claude")
@@ -122,14 +123,19 @@ def test_catalog_kinds_namespace_maintenance_hints_and_agent_slash(tmp_path, mon
     writer = next(item for item in items if item["kind"] == "agent")
     deploy = next(item for item in items if item["name"] == "deploy")
     install = next(item for item in items if item["name"] == "install")
+    update = next(item for item in items if item["name"] == "demo--update")
     assert writer["name"] == "demo--writer"
     assert writer["namespace"] == "demo"
     assert writer["selectable"] is True
     assert writer["preflight_hint"]
     assert deploy["argument_hint"] == "<environment>"
     assert install["maintenance"] is True and install["group"] == "Maintenance"
+    assert update["maintenance"] is True and update["group"] == "Maintenance"
     assert deploy["native_command"] is False
     assert {item["kind"] for item in items if not item["selectable"]} >= {"rule", "context"}
+    reference = next(item for item in items if item["kind"] == "context")
+    assert reference["unavailable_reason"] == "Reference resource; cannot be invoked directly."
+    assert "source" in reference["preflight_hint"].lower()
 
     # Slash is canonical for palette agents; @ remains accepted for old clients.
     for token in ("/demo--writer", "@demo--writer"):
@@ -222,6 +228,14 @@ def test_command_expansion_no_execution(tmp_path, monkeypatch):
     put(root, ".gemini/commands/review.toml", 'prompt="!{touch forbidden}"')
     new = resources.discover(cfg(root, "gemini"), "p", "gemini")["items"][0]
     assert not new["selectable"]
+
+
+def test_single_leading_command_expands_all_verbatim_arguments():
+    item = {"kind": "command", "name": "inspect", "_body": "ARGS=[$ARGUMENTS]"}
+    assert (
+        resources.prepare_prompt("/inspect first\nsecond  ", [item])
+        == "ARGS=[first\nsecond  ]"
+    )
 
 
 def test_api_permissions_and_revalidation_before_queue(tmp_path, monkeypatch):

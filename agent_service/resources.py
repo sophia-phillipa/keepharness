@@ -102,8 +102,8 @@ def preflight_hint(reason):
         return "Remove unsupported expansion syntax or run the command in its native provider."
     if "user" in reason.lower():
         return "Mark the resource as user-invocable to select it from chat."
-    if "automatically" in reason.lower():
-        return "This resource is shown for context and is loaded by its native engine."
+    if "reference resource" in reason.lower():
+        return "Open the source to review how this reference applies to the project."
     return "Choose a compatible provider, model, and execution mode."
 
 
@@ -400,7 +400,7 @@ def discover(config, project_id, backend, model=None, *, private=False, executio
                     ):
                         reason = "Agent delegation is disabled for this project and provider."
                     if kind in ("rule", "context"):
-                        reason = "This resource is loaded automatically and cannot be selected."
+                        reason = "Reference resource; cannot be invoked directly."
                     if kind == "command" and re.search(r"!\{|!`|@\{", unfenced(body)):
                         reason = "This command requires native expansion features that are not yet supported."
                     if (
@@ -421,7 +421,8 @@ def discover(config, project_id, backend, model=None, *, private=False, executio
                     mode = str(meta.get("mode", "")).strip()
                     if mode not in ("inline", "conversational", "delegated"):
                         mode = "delegated" if kind == "agent" else "inline"
-                    maintenance = kind == "command" and name.rsplit(":", 1)[-1].casefold() in {
+                    maintenance_name = name.rsplit(":", 1)[-1].rsplit("--", 1)[-1]
+                    maintenance = kind == "command" and maintenance_name.casefold() in {
                         "install",
                         "update",
                         "uninstall",
@@ -574,8 +575,17 @@ def prepare_prompt(prompt, items):
                 commands[token] = item
     patterns = []
     if commands:
+        command_args = r"[^\n]*"
+        if len(items) == 1 and len(commands) == 1:
+            token = next(iter(commands))
+            if re.match(r"^" + re.escape(token) + r"(?=\s|$)", prompt):
+                command_args = r"[\s\S]*"
         patterns.append(
-            r"(?P<command>" + "|".join(map(re.escape, commands)) + r")(?=\s|$)(?P<args>[^\n]*)"
+            r"(?P<command>"
+            + "|".join(map(re.escape, commands))
+            + r")(?=\s|$)(?P<args>"
+            + command_args
+            + ")"
         )
     if skills:
         patterns.append(r"(?P<skill>" + "|".join(map(re.escape, skills)) + r")(?=\s|$)")
