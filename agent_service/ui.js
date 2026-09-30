@@ -1178,6 +1178,12 @@ const userErrors = {
   service_manager_unavailable_requires_systemd_user:
     "Service control needs the user systemd manager on the server.",
   // Approvals.
+  ambiguous_work_item: "The invocation matches more than one work item. Tag the run with one key or make the arguments unambiguous.",
+  invalid_work_item: "Use a work-item key with at most 128 characters and no control characters.",
+  invalid_work_item_pattern: "The configured work-item pattern is invalid. Ask the project administrator to correct it.",
+  work_item_project_required: "Choose a project before filtering by work item.",
+  invalid_event_limit: "The event page size is invalid. Reload the run console and try again.",
+  invalid_include_content: "The content visibility option is invalid. Reload the run console and try again.",
   approval_expired:
     "This approval request expired. Send your message again if you still need it.",
   approval_expiration_limit:
@@ -2847,6 +2853,7 @@ function assistant(id = "", model = $("model").value, replayTools = false) {
   const meta = document.createElement("div");
   meta.className = "run-meta";
   a.el.append(meta);
+  window.runConsole?.attachAnswer(a.el, id);
   return { ...a, activity, activitySummary, milestones, meta, chip };
 }
 async function loadResponseTools(id, target) {
@@ -2944,6 +2951,7 @@ function scroll() {
 function event(e) {
   if (e.id <= last) return;
   last = e.id;
+  window.runConsole?.observe(e);
   if (e.type === "session_turn_started") return;
   if (e.type === "invocation_started" && e.data?.invocation?.mode === "conversational")
     setActivePersona({

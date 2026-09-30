@@ -118,12 +118,15 @@ async def version(request, service, identity):
         PACKAGE_DIR / name
         for name in (
             "ui.js",
+            "run-console.js",
             "ui.css",
             "vendor/markdown-it.min.js",
             "index.html",
             "app.py",
             "config.py",
             "maestro.py",
+            "spans.py",
+            "work_items.py",
             "workspaces.py",
             "mcp_bridge.py",
             "VERSION",
@@ -174,6 +177,7 @@ async def ui(request):
     name = {
         "/vendor/markdown-it.min.js": "vendor/markdown-it.min.js",
         "/ui.js": "ui.js",
+        "/run-console.js": "run-console.js",
         "/ui.css": "ui.css",
         "/mcp_bridge.py": "mcp_bridge.py",
     }.get(request.url.path, "index.html")
@@ -198,6 +202,7 @@ ROUTES = [
     Route("/", ui),
     Route("/vendor/markdown-it.min.js", ui),
     Route("/ui.js", ui),
+    Route("/run-console.js", ui),
     Route("/ui.css", ui),
     Route("/assets/{path:path}", ui),
     Route("/mcp_bridge.py", ui),
