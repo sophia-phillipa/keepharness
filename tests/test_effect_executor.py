@@ -169,3 +169,41 @@ def test_stale_authorization_never_dispatches(make_harness_config, mutation):
         service.db.close()
 
     asyncio.run(scenario())
+
+
+def test_publish_gate_timeout_denies_without_dispatch(make_harness_config):
+    async def scenario():
+        app = create_app(configure_effects(make_harness_config(approval_timeout_seconds=0.01)))
+        pending_approval(app, "local")
+        service = app.state.service
+        service.effects.credentials.set(
+            "synthetic", {"email": "fixture@example.invalid", "token": "fixture-secret"}
+        )
+        effect = await service.effects.prepare("job", request())
+        await service.effects.tasks[effect["effect_id"]]
+        assert service.effects.get(effect["effect_id"])["status"] == "denied"
+        assert service.gates.repository.get(effect["gate_id"])["state"] == "expired"
+        assert not any(
+            event["type"] == "effect_intent"
+            for event in service.message_repository.all_events("job")
+        )
+        await service.effects.close()
+        service.db.close()
+
+    asyncio.run(scenario())
+
+
+def test_restart_invalidates_prepared_effect_and_requires_new_gate(make_harness_config):
+    async def scenario():
+        app, effect = await prepared(make_harness_config)
+        service = app.state.service
+        restarted = create_app(service.config).state.service
+        assert restarted.effects.get(effect["effect_id"])["status"] == "invalidated"
+        assert restarted.gates.repository.get(effect["gate_id"])["state"] == "invalidated"
+        assert not restarted.effects.tasks
+        await service.effects.close()
+        await restarted.effects.close()
+        service.db.close()
+        restarted.db.close()
+
+    asyncio.run(scenario())
