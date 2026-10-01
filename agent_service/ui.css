@@ -2487,6 +2487,7 @@ body[data-connection-ready="false"] > #activity-panel {
   --th-app-topbar-height: 52px;
 }
 html {
+  scrollbar-gutter: auto;
   overflow: hidden;
 }
 body {
@@ -4753,3 +4754,11 @@ main > header { flex-wrap:nowrap; overflow-x:auto; }
 @media (max-width:620px) {
   .attention-popover { left:12px; right:auto; width:min(260px, calc(100% - 24px)); }
 }
+
+/* Timeline controls share one row; zoom expands whole cards in the horizontal scroller. */
+.run-timeline-zoom { flex-direction:row; align-items:center; gap:8px; margin:0; }
+.run-timeline-zoom input { width:140px; height:24px; padding:0; }
+.run-span-list:has(.run-waterfall-track) { padding-block:6px; }
+.run-span-list:has(.run-waterfall-track) .run-span-row { display:grid; grid-template-columns:minmax(0,1fr) auto; align-content:start; }
+.run-span-list:has(.run-waterfall-track) .run-span-row > strong,
+.run-span-list:has(.run-waterfall-track) .run-span-row > span:not(.run-span-effort):not(.run-span-duration) { grid-column:1/-1; }

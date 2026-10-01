@@ -219,8 +219,16 @@
         return sum + node.getBoundingClientRect().height + parseFloat(style.marginTop) + parseFloat(style.marginBottom);
       }, 0);
     const evidenceSpace = hasPublicationEvidence() ? 128 : 0;
-    return Math.max(190, main.clientHeight - reserved - verticalPadding(main) - verticalPadding(document.getElementById('messages')) - evidenceSpace);
+    return Math.max(80, main.clientHeight - reserved - verticalPadding(main) - verticalPadding(document.getElementById('messages')) - evidenceSpace);
   }
+  function revealFocusedControl() {
+    const focused = document.activeElement;
+    if (!body.contains(focused)) return;
+    const box = focused.getBoundingClientRect(), viewport = body.getBoundingClientRect();
+    if (box.bottom > viewport.bottom) body.scrollTop += box.bottom - viewport.bottom;
+    else if (box.top < viewport.top) body.scrollTop -= viewport.top - box.top;
+  }
+  body.addEventListener('focusin', () => requestAnimationFrame(revealFocusedControl));
   function resize(height, persist = true) {
     const max = consoleLimit(), publication = hasPublicationEvidence(), min = Math.min(publication ? 190 : 340, max);
     if (persist) manuallyResized = true;
@@ -236,6 +244,7 @@
     resizer.setAttribute('aria-valuenow', String(next));
     resizer.setAttribute('aria-valuemin', String(min));
     resizer.setAttribute('aria-valuemax', String(Math.round(max)));
+    revealFocusedControl();
     if (!maximized) consoleHeight = next;
     if (persist && !maximized) try { localStorage.setItem('run-console-height', String(next)); } catch {}
   }
@@ -287,6 +296,7 @@
     state.logs = [];
     state.after = 0;
     state.sequence++;
+    if (!drawer.hidden) render();
   }
   async function refresh() {
     if (document.body.dataset.connectionReady !== 'true') return;
@@ -468,7 +478,9 @@
       const zoom = input('console-zoom', 'range');
       zoom.min = '1'; zoom.max = '8'; zoom.step = '.5'; zoom.value = state.zoom;
       zoom.addEventListener('input', () => { state.zoom = Number(zoom.value); renderSpans(); document.getElementById('console-zoom').focus(); });
-      body.append(field('Timeline zoom', zoom));
+      const zoomField = field('Timeline zoom', zoom);
+      zoomField.classList.add('run-timeline-zoom');
+      body.append(zoomField);
     }
     if (!state.spans.length) list.append(el('p', 'No spans recorded yet.'));
     const starts = state.spans.map(span => span.start_ts).filter(value => value != null);
@@ -489,7 +501,8 @@
       if (span.attrs?.enforcement) row.append(el('span', 'Publication: ' + span.attrs.enforcement));
       if (state.tab === 'Timeline') {
         const track = el('span', null, 'run-waterfall-track');
-        track.style.width = state.zoom * 100 + '%';
+        row.style.flexBasis = 160 * state.zoom + 'px';
+        track.style.width = '100%';
         const bar = el('span', null, 'run-waterfall-bar');
         bar.style.marginLeft = Math.max(0, ((span.start_ts ?? start) - start) / Math.max(1, end - start) * 100) + '%';
         bar.style.width = Math.max(.5, ((span.end_ts ?? end) - (span.start_ts ?? start)) / Math.max(1, end - start) * 100) + '%';
@@ -678,10 +691,13 @@
   }
   function renderRuns() {
     if (state.tab !== 'Runs') return;
+    const focusedId = body.contains(document.activeElement) ? document.activeElement.id : null;
+    const scrollTop = body.scrollTop;
     const filters = el('form', null, 'run-console-controls');
     filters.addEventListener('submit', event => { event.preventDefault(); void refresh(); });
     const apply = el('button', 'Apply filters', 'btn');
     apply.type = 'submit';
+    apply.id = 'console-apply-filters';
     filters.append(field('Project filter', projectFilter), field('Work item filter', workFilter), field('Run state', stateFilter), apply);
     const table = el('table', null, 'run-table');
     const head = el('tr');
@@ -691,18 +707,25 @@
     for (const item of (state.filteredJobs || state.activity.jobs).filter(item => !stateFilter.value || item.state === stateFilter.value)) {
       const row = el('tr');
       const name = el('td');
-      name.append(button(item.job_id, async () => {
+      const open = button(item.job_id, async () => {
         try { await load(item.conversation_id || item.job_id, !item.conversation_id); syncContext(); await chooseRun(item.job_id); setTab('Pipeline'); }
         catch (failure) { showError(failure.message); }
-      }));
+      });
+      open.id = 'console-open-' + item.job_id;
+      name.append(open);
       const work = el('td', item.work_item || '—');
-      work.append(button('Tag work item', () => tagWorkItem(item, work)));
+      const tag = button('Tag work item', () => tagWorkItem(item, work));
+      tag.id = 'console-tag-action-' + item.job_id;
+      work.append(tag);
       row.append(name, el('td', item.state + (item.wait_reason ? ' · ' + waitReasonLabel(item.wait_reason) : '')), el('td', [item.backend, item.model].filter(Boolean).join(' / ')), work);
       tbody.append(row);
     }
     table.append(tbody);
     body.replaceChildren(filters, table);
     if (!tbody.children.length) body.append(el('p', 'No runs match these filters.'));
+    if (focusedId) (document.getElementById(focusedId) || workFilter).focus({ preventScroll: true });
+    body.scrollTop = scrollTop;
+    revealFocusedControl();
   }
   function tagWorkItem(item, holder) {
     const form = el('form');
