@@ -91,7 +91,7 @@ async function routeVisual(route, options = {}) {
     providers: [{ backend: "codex", model: "fixture", state: "ready", running: 1, queued: 1 }],
     needs_you: [],
   };
-  else if (url.pathname === "/v1/jobs/run-a") data = { id: "run-a", project: "sem-projeto", state: "running", request: { backend: "codex", model: "fixture" }, result: {}, gates: [PLAN_GATE, PUBLISH_GATE] };
+  else if (url.pathname === "/v1/jobs/run-a") data = { id: "run-a", project: "sem-projeto", state: "running", request: { backend: "codex", model: "fixture" }, result: {}, gates: options.autoPlan ? [PUBLISH_GATE] : [PLAN_GATE, PUBLISH_GATE] };
   else if (url.pathname === "/v1/jobs/run-a/spans") data = { spans: [{ span_id: "span-a", trace_id: "run-a", parent_id: null, kind: "invoke_agent", name: "Visual verifier", start_ts: Date.now() / 1000 - 4, end_ts: null, status: "unset", attrs: { "gen_ai.request.model": "fixture", "gen_ai.usage.input_tokens": 23, "harness.outcome": "pending" }, events: [] }] };
   else if (url.pathname === "/v1/resources") data = { items: [
     { id: "agent-reviewer", revision: "1", kind: "agent", name: "reviewer", description: "Review accessibility and geometry", scope: "project", origin: "Codex", selectable: true },
@@ -150,6 +150,8 @@ async function resetState(page) {
 }
 
 async function selectState(page, state) {
+  await page.unroute("http://visual.test/v1/jobs/run-a");
+  await page.route("http://visual.test/v1/jobs/run-a", route => routeVisual(route, { autoPlan: state === "plan-card-auto" }));
   await resetState(page);
   if (state === "console-open") {
     await page.keyboard.press("Control+j");

@@ -50,7 +50,7 @@ async function assertPaletteReachability(page, label) {
     await option.evaluate(node => node.scrollIntoView({ block: "nearest", behavior: "instant" }));
     const result = await option.evaluate(node => {
       const rect = node.getBoundingClientRect();
-      const menu = node.closest("#resource-menu").getBoundingClientRect();
+      const menu = node.closest(".resource-options").getBoundingClientRect();
       const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
       return {
         withinMenu: rect.top >= menu.top - 1 && rect.bottom <= menu.bottom + 1,
@@ -60,7 +60,7 @@ async function assertPaletteReachability(page, label) {
     assert(result.withinMenu, `${label}: palette option ${index + 1}/${count} must scroll fully into the menu`);
     assert(result.reachable, `${label}: palette option ${index + 1}/${count} must be uncovered after scrolling`);
   }
-  await page.locator("#resource-menu").evaluate(node => { node.scrollTop = 0; });
+  await page.locator("#resource-menu .resource-options").evaluate(node => { node.scrollTop = 0; });
 }
 
 async function captureMatrix(browser, directory, summary) {
