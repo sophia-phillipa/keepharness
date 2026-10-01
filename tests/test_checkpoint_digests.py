@@ -20,3 +20,11 @@ def test_changed_inputs_or_dependency_or_output_cannot_reuse(tmp_path):
     assert changed.load(1, []) is None
     plan["steps"][0]["deps_revisions"]["guide"] = "v2"
     assert Checkpoints(tmp_path, "run", plan, {"workflow_inputs": {"x": 1}}).load(1, []) is None
+
+
+def test_workflow_file_revision_invalidates_even_unchanged_step(tmp_path):
+    plan = {"steps": [{"id": "one"}], "workflow_snapshot": {"revision": "before"}}
+    store = Checkpoints(tmp_path, "run", plan, {})
+    store.save(1, {"result": {"answer": "first"}}, [])
+    plan["workflow_snapshot"]["revision"] = "after-whitespace-edit"
+    assert Checkpoints(tmp_path, "run", plan, {}).load(1, []) is None

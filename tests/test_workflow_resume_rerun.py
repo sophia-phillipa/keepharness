@@ -109,6 +109,7 @@ def test_resume_after_service_restart_reuses_durable_checkpoint(tmp_path):
             asyncio.run(maestro.execute_plan(service, row, data, plan))
     job_id = row["id"]
     service.db.close()
+
     service = Service(config(tmp_path))
     row = service.job(identity, job_id)
     with patch.object(service, "infer", AsyncMock(return_value={"answer": "resumed"})) as infer:
@@ -122,4 +123,44 @@ def test_resume_after_service_restart_reuses_durable_checkpoint(tmp_path):
         )
     assert infer.await_count == 1
     assert "retained" in infer.call_args.args[1]["prompt"]
+    service.db.close()
+
+
+def test_retained_large_resource_bodies_do_not_count_as_declaration_size(tmp_path):
+    service, identity, row, data, plan = setup_run(tmp_path)
+    plan["steps"][0]["resource_snapshots"] = [{"_text": "x" * 150000, "_body": "x" * 150000}]
+    with patch.object(service, "infer", AsyncMock(return_value={"answer": "done"})) as infer:
+        asyncio.run(maestro.execute_workflow(service, row, data, plan))
+    assert infer.await_count == 2
+    assert "resource_snapshots" not in maestro.declaration(plan)["steps"][0]
+    service.db.close()
+
+
+def test_actual_workflow_whitespace_revision_invalidates_resume(tmp_path):
+    from agent_service import resources, workflows
+
+    service, identity, row, data, plan = setup_run(tmp_path)
+    root = tmp_path / "project"
+    folder = root / "workflows"
+    folder.mkdir(parents=True)
+    path = folder / "review.json"
+    path.write_text(json.dumps(plan))
+    service.config["projects"]["p"]["root"] = str(root)
+    item = next(
+        item
+        for item in resources.discover(service.config, "p", "codex")["items"]
+        if item["kind"] == "workflow"
+    )
+    plan = workflows.resolve_workflow(service.config, "p", item["resource_id"])
+    with patch.object(service, "infer", AsyncMock(return_value={"answer": "first"})):
+        asyncio.run(maestro.execute_workflow(service, row, data, plan))
+    path.write_text(path.read_text() + "\n")
+    changed = workflows.resolve_workflow(service.config, "p", item["resource_id"])
+    with patch.object(
+        service, "infer", AsyncMock(return_value={"answer": "new revision"})
+    ) as infer:
+        asyncio.run(
+            maestro.execute_workflow(service, row, {**data, "_workflow_resume": True}, changed)
+        )
+    assert infer.await_count == 2
     service.db.close()

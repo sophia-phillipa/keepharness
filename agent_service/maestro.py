@@ -69,6 +69,9 @@ def model_efforts(config, provider, model):
 
 
 def candidates(config, project, uploads=False):
+    from .effect_transport import transport_support
+    from .integrations import integration_contract
+
     result = []
     for provider, spec in config.get("services", {}).items():
         if not spec.get("enabled") or project not in spec.get("projects", []):
@@ -79,6 +82,14 @@ def candidates(config, project, uploads=False):
                 continue
             efforts = model_efforts(config, provider, model)
             if efforts:
+                operations = []
+                if transport_support(provider, spec.get("mode", "native"))["supported"]:
+                    for contract in config.get("effect_integrations", []):
+                        try:
+                            valid = integration_contract(config, contract.get("integration"))
+                            operations.append(valid["operation"])
+                        except (HarnessError, AttributeError):
+                            continue
                 result.append(
                     {
                         "backend": provider,
@@ -89,6 +100,7 @@ def candidates(config, project, uploads=False):
                         if provider == "local" and "model_permissions" in spec
                         else spec.get("integrations", []),
                         "mode": spec.get("mode", "native"),
+                        "operations": sorted(set(operations)),
                     }
                 )
     return result
@@ -114,7 +126,7 @@ def coordinator(config, project):
     if not models:
         raise ToolError(
             "maestro_coordinator_unavailable"
-            if configured is not None
+            if configured
             else "maestro_requires_enabled_codex_for_project"
         )
     selected = models[0]
@@ -249,6 +261,17 @@ def saved_plan(service, job_id):
         raise ToolError("workflow_checkpoint_missing") from None
 
 
+def declaration(plan):
+    """Retention is execution state, not part of a bounded workflow declaration."""
+    return {
+        **{key: value for key, value in plan.items() if key != "workflow_snapshot"},
+        "steps": [
+            {key: value for key, value in step.items() if key != "resource_snapshots"}
+            for step in plan.get("steps", [])
+        ],
+    }
+
+
 def ensure_recovery_safe(service, job_id):
     """A child run cannot silently replay an ancestor's uncertain publication."""
     seen = set()
@@ -339,14 +362,56 @@ def resources_unchanged(service, data, plan):
         return False
 
 
+def source_digest(root, name, maximum):
+    path = root / name
+    if (
+        Path(name).is_absolute()
+        or ".." in Path(name).parts
+        or any(part.is_symlink() for part in (path, *path.parents))
+        or not path.resolve().is_relative_to(root.resolve())
+    ):
+        raise ToolError("workflow_source_path_denied")
+    checksum, total = hashlib.sha256(), 0
+    with path.open("rb") as stream:
+        while chunk := stream.read(65536):
+            total += len(chunk)
+            if total > maximum:
+                raise ToolError("workflow_source_size_limit")
+            checksum.update(chunk)
+    return checksum.hexdigest()
+
+
 def input_sources(service, row, data):
+    from .tools import MAX_ATTACHMENT_BYTES
+
+    turns = service.context_turns(row, data)
+    file_ids = list(
+        dict.fromkeys(
+            [fid for payload, _ in turns for fid in payload.get("file_ids", [])]
+            + data.get("file_ids", [])
+        )
+    )
     sources = {
-        "files": [
-            service.file(row["project"], fid, row["owner"]) for fid in data.get("file_ids", [])
-        ]
+        "files": [service.file(row["project"], fid, row["owner"]) for fid in file_ids],
+        "history": [
+            {"prompt": payload.get("prompt"), "answer": result.get("answer")}
+            for payload, result in turns
+        ],
+        "media": [],
     }
+    for record in sources["files"]:
+        root = service.root / "files" / row["project"] / record["id"]
+        for page in json.loads(record["pages"]):
+            if page.get("media_type"):
+                name = page.get("frame") or "source"
+                sources["media"].append(
+                    {
+                        "file_id": record["id"],
+                        "name": name,
+                        "digest": source_digest(root, name, MAX_ATTACHMENT_BYTES),
+                    }
+                )
     if data.get("workspace_id"):
-        from .tools import safe_file
         from .workspaces import MAX_BYTES
 
         record = service.workspace(
@@ -355,18 +420,10 @@ def input_sources(service, row, data):
             row["project"],
         )
         root = service.workspace_root(data["workspace_id"])
-        sources["workspace"] = []
-        total = 0
-        for entry in json.loads(record["manifest"]):
-            path = safe_file(root, entry["path"])
-            checksum = hashlib.sha256()
-            with path.open("rb") as stream:
-                while chunk := stream.read(65536):
-                    total += len(chunk)
-                    if total > MAX_BYTES:
-                        raise ToolError("workspace_size_limit")
-                    checksum.update(chunk)
-            sources["workspace"].append({"path": entry["path"], "digest": checksum.hexdigest()})
+        sources["workspace"] = [
+            {"path": entry["path"], "digest": source_digest(root, entry["path"], MAX_BYTES)}
+            for entry in json.loads(record["manifest"])
+        ]
     return sources
 
 
@@ -472,6 +529,7 @@ async def execute_workflow(service, row, data, workflow):
     from . import resources
     from .workflows import validate_workflow
 
+    workflow = declaration(workflow)
     available = candidates(
         service.config, row["project"], bool(data.get("file_ids") or data.get("workspace_id"))
     )
@@ -499,7 +557,7 @@ async def execute_plan(service, row, data, declared, *, planning_result=None, co
     )
     from .workflows import validate_workflow
 
-    plan = validate_plan(json.dumps(validate_workflow(declared)), available)
+    plan = validate_plan(json.dumps(validate_workflow(declaration(declared))), available)
     retain_resources(service, data, plan)
     data = {**data, "_checkpoint_sources": input_sources(service, row, data)}
     service.event(row["id"], "maestro_plan", plan)
@@ -617,9 +675,13 @@ async def execute_plan(service, row, data, declared, *, planning_result=None, co
             )
             if decision["decision"] != "accept":
                 raise ToolError("maestro_step_not_allowed")
+
             def validator():
                 return binding_valid(service, row, data, plan, input_binding)
+
             service.effects.execution_validators[metadata["execution_id"]] = validator
+            ready = asyncio.get_running_loop().create_future()
+            service.effects.execution_barriers[metadata["execution_id"]] = ready
             try:
                 if not validator():
                     raise ToolError("workflow_binding_changed")
@@ -650,6 +712,7 @@ async def execute_plan(service, row, data, declared, *, planning_result=None, co
                         )
                         if not resolution.get("approved") or resolution.get("choice") != "approve":
                             raise ToolError("workflow_output_not_approved")
+                    ready.set_result(True)
                     if step.get("effect"):
                         await service.effects.prepare(
                             row["id"], step["effect"], execution_id=metadata["execution_id"]
@@ -658,6 +721,23 @@ async def execute_plan(service, row, data, declared, *, planning_result=None, co
                 if not validator():
                     raise ToolError("workflow_binding_changed")
             finally:
+                if not ready.done():
+                    ready.set_result(False)
+                pending_tasks = []
+                for effect in service.effects.for_job(row["id"]):
+                    if (
+                        effect["execution_id"] == metadata["execution_id"]
+                        and effect["status"] == "prepared"
+                    ):
+                        service.effects._status(
+                            effect["effect_id"], "invalidated", reason="workflow_step_ended"
+                        )
+                        task = service.effects.tasks.get(effect["effect_id"])
+                        if task:
+                            task.cancel()
+                            pending_tasks.append(task)
+                await asyncio.gather(*pending_tasks, return_exceptions=True)
+                service.effects.execution_barriers.pop(metadata["execution_id"], None)
                 service.effects.execution_validators.pop(metadata["execution_id"], None)
             service.event(
                 row["id"],

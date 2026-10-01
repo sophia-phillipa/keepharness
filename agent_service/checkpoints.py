@@ -54,6 +54,8 @@ class Checkpoints:
             for key, value in self.plan.items()
             if key not in ("steps", "digest", "revision", "source", "workflow_snapshot")
         }
+        if self.plan.get("workflow_snapshot"):
+            header["workflow_resource_revision"] = self.plan["workflow_snapshot"]["revision"]
         return digest(
             {
                 "workflow": header,

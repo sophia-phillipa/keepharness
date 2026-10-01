@@ -205,3 +205,19 @@ def test_work_item_retag_during_execution_reaches_next_step(tmp_path):
     assert observed == ["TASK-1", "TASK-2"]
     assert [step["work_item"] for step in result["orchestration"]["steps"]] == observed
     service.db.close()
+
+
+def test_declared_workflow_bypasses_planner_and_plan_review(tmp_path):
+    from test_workflow_resume_rerun import setup_run
+
+    service, identity, row, data, plan = setup_run(tmp_path)
+    with (
+        patch.object(maestro, "plan", AsyncMock()) as planner,
+        patch.object(service, "infer", AsyncMock(return_value={"answer": "done"})) as infer,
+        patch.object(service.gates, "ask", AsyncMock()) as gate,
+    ):
+        asyncio.run(maestro.execute_workflow(service, row, data, plan))
+    assert infer.await_count == 2
+    planner.assert_not_called()
+    gate.assert_not_called()
+    service.db.close()
