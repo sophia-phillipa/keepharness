@@ -25,6 +25,7 @@ from agent_service.work_items import validate_pattern
 from . import discovery, env, integration_catalog, integrations, runtime_config
 from .dashboard import DashboardReader
 from .operations import Operations
+from .product import PRODUCT, ensure_lineage
 from .persistence import ControlStateRepository, private_file
 
 ROOT = env.REPOSITORY_ROOT
@@ -55,6 +56,7 @@ def migrate_local_ai_directory(root: Path, state: Path) -> None:
 class Manager:
     def __init__(self, state):
         self.state = Path(state)
+        ensure_lineage(self.state)
         self.state.mkdir(parents=True, exist_ok=True, mode=0o700)
         # mkdir keeps an existing folder's mode (e.g. one a venv created as 0755).
         if self.state.stat().st_uid == os.getuid():
@@ -669,7 +671,7 @@ class Manager:
             "-m",
             "agent_service.app",
             cwd=ROOT,
-            env={**os.environ, "TAIL_HARNESS_AGENT_CONFIG": str(path)},
+            env={**os.environ, PRODUCT.env_prefix + "_AGENT_CONFIG": str(path)},
             stdout=log,
             stderr=log,
         )

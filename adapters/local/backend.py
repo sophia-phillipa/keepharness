@@ -1,5 +1,7 @@
 """Local inference endpoints and sandbox policy, using Codex as the tool agent."""
 
+from control.product import PRODUCT
+
 import json
 import os
 from pathlib import Path
@@ -33,13 +35,10 @@ async def run_native(config, prompt, event, project, model, effort, session_dir,
             "model_providers.tail_local.requires_openai_auth=false",
         ]
         if endpoint.get("key_file"):
-            environment = dict(
-                os.environ,
-                TAIL_HARNESS_LOCAL_KEY=Path(endpoint["key_file"]).read_text().strip(),
-            )
+            environment = {**os.environ, PRODUCT.env_prefix + "_LOCAL_KEY": Path(endpoint["key_file"]).read_text().strip()}
             command += [
                 "-c",
-                'model_providers.tail_local.env_key="TAIL_HARNESS_LOCAL_KEY"',
+                'model_providers.tail_local.env_key=' + json.dumps(PRODUCT.env_prefix + '_LOCAL_KEY'),
             ]
     if model_provider:
         command += ["-c", "model_provider=" + json.dumps(model_provider)]

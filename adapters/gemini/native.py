@@ -1,5 +1,7 @@
 """Gemini CLI ACP adapter with turn-scoped permissions."""
 
+from control.product import PRODUCT
+
 import asyncio
 import json
 import time
@@ -225,7 +227,7 @@ async def run_acp(
                 "initialize",
                 {
                     "protocolVersion": 1,
-                    "clientInfo": {"name": "tail-harness", "version": "0.11.0"},
+                    "clientInfo": {"name": PRODUCT.mcp_name, "version": "0.11.0"},
                     # Files and terminals are intentionally not proxied in this revision;
                     # admin policy routes the enabled native tools through ACP approval.
                     "clientCapabilities": {

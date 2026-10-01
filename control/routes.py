@@ -19,6 +19,7 @@ from adapters.deepseek import account as deepseek
 from tail_ui import asset_response, static_response
 
 from . import env
+from .product import PRODUCT
 from .dashboard import execution as dashboard_execution
 from .integration_catalog import catalog as integration_catalog
 from .integrations import inventory
@@ -220,7 +221,7 @@ async def delete_provider(request, manager, data):
 
 async def export_settings(request, manager, data):
     result = {
-        "format": "tail-harness-settings",
+        "format": PRODUCT.slug + "-settings",
         "version": 1,
         "settings": manager.settings,
         "local_profile": load_profile(manager.state),
@@ -233,18 +234,18 @@ async def import_settings(request, manager, data):
     bundle = data.get("bundle", {})
     if (
         not isinstance(bundle, dict)
-        or bundle.get("format") != "tail-harness-settings"
+        or bundle.get("format") != PRODUCT.slug + "-settings"
         or bundle.get("version") != 1
     ):
         raise ValueError("Incompatible configuration format.")
     imported = manager.validate(bundle.get("settings"))
-    profile = validate_profile(bundle.get("local_profile", {}))
+    profile = validate_profile(bundle.get("local_profile", {}), state_dir=manager.state)
     profiles = bundle.get("local_profiles", {})
     if not isinstance(profiles, dict):
         raise ValueError("Invalid local profile catalog.")
     validated = {}
     for key, value in profiles.items():
-        item = validate_profile(value)
+        item = validate_profile(value, state_dir=manager.state)
         if not item or str(Path(key).expanduser().resolve()) != item["model_file"]:
             raise ValueError("The profile does not match the given weights file.")
         validated[item["model_file"]] = item
@@ -409,7 +410,7 @@ async def import_local_profile(request, manager, data):
         if k in active[0] and active[0][k]
     }
     with manager.configuration_change():
-        result = save_profile(manager.state, validate_profile(selected))
+        result = save_profile(manager.state, validate_profile(selected, state_dir=manager.state))
         if manager.running():
             await manager.apply_settings(manager.settings)
     manager.audit("local_profile_imported")
@@ -417,7 +418,7 @@ async def import_local_profile(request, manager, data):
 
 
 async def save_local_profile(request, manager, data):
-    profile = validate_profile(data)
+    profile = validate_profile(data, state_dir=manager.state)
     if not profile:
         raise ValueError("Provide the model and executable for this profile.")
     with manager.configuration_change():
@@ -469,7 +470,7 @@ async def start_local_model(request, manager, data):
             "This model does not have a saved profile yet. Set one up before starting."
         )
     if profile:
-        profile = validate_profile(profile)
+        profile = validate_profile(profile, state_dir=manager.state)
     cpu_only = bool(profile) and profile.get("performance", {}).get("n-gpu-layers") == "0"
     if active and not cpu_only:
         raise ValueError(

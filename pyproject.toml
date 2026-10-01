@@ -1,6 +1,7 @@
 [build-system]
 requires = ["setuptools>=77"]
-build-backend = "setuptools.build_meta"
+build-backend = "product_build"
+backend-path = ["."]
 
 [project]
 name = "tail-harness"

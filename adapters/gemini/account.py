@@ -1,5 +1,7 @@
 """Non-inference Gemini CLI ACP capability probe and explicit OAuth launcher."""
 
+from control.product import PRODUCT
+
 import asyncio
 import json
 import signal
@@ -88,7 +90,7 @@ async def _check_authenticated_cli(binary):
                     "initialize",
                     {
                         "protocolVersion": 1,
-                        "clientInfo": {"name": "tail-harness", "version": "0.11.0"},
+                        "clientInfo": {"name": PRODUCT.mcp_name, "version": "0.11.0"},
                         "clientCapabilities": {
                             "auth": {"terminal": False},
                             "fs": {},
@@ -188,7 +190,7 @@ async def login(binary):
                 "initialize",
                 {
                     "protocolVersion": 1,
-                    "clientInfo": {"name": "tail-harness", "version": "0.11.0"},
+                    "clientInfo": {"name": PRODUCT.mcp_name, "version": "0.11.0"},
                     "clientCapabilities": {
                         "auth": {"terminal": False},
                         "fs": {},

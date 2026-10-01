@@ -10,7 +10,9 @@ import time
 import urllib.request
 from pathlib import Path
 
-SERVICE = "tail-harness.service"
+from .product import PRODUCT
+
+SERVICE = PRODUCT.slug + ".service"
 
 
 def wait_ready(port):
@@ -23,7 +25,7 @@ def wait_ready(port):
             pass
         time.sleep(0.25)
     raise RuntimeError(
-        "The service did not become available; check journalctl --user -u tail-harness."
+        f"The service did not become available; check journalctl --user -u {PRODUCT.slug}."
     )
 
 
@@ -33,9 +35,9 @@ def quoted(value):
 
 def files(home, python, port=8094):
     home = Path(home)
-    state = home / ".local/share/tail-harness"
+    state = PRODUCT.state_path(home)
     unit = f"""[Unit]
-Description=Tail Harness local administration
+Description={PRODUCT.name} local administration
 After=network-online.target
 Wants=network-online.target
 
@@ -60,18 +62,18 @@ exec xdg-open http://127.0.0.1:{port}/
 """
     desktop = f'''[Desktop Entry]
 Type=Application
-Name=Tail Harness
+Name={PRODUCT.name}
 Comment=Manage local AI services
-Exec="{home}/.local/bin/tail-harness-open"
-Icon=utilities-terminal
+Exec="{home}/.local/bin/{PRODUCT.slug}-open"
+Icon={PRODUCT.desktop_icon}
 Terminal=false
 Categories=Development;
 StartupNotify=false
 '''
     return {
         home / ".config/systemd/user" / SERVICE: (unit, 0o600),
-        home / ".local/bin/tail-harness-open": (launcher, 0o700),
-        home / ".local/share/applications/tail-harness.desktop": (desktop, 0o644),
+        home / (".local/bin/" + PRODUCT.slug + "-open"): (launcher, 0o700),
+        home / (".local/share/applications/" + PRODUCT.slug + ".desktop"): (desktop, 0o644),
     }
 
 
@@ -82,7 +84,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if not sys.platform.startswith("linux"):
         parser.error(
-            "Service installation requires Linux/systemd; use tail-harness for manual execution."
+            f"Service installation requires Linux/systemd; use {PRODUCT.slug} for manual execution."
         )
     if not 1024 <= args.port <= 65535:
         parser.error("Invalid port")
@@ -98,7 +100,7 @@ def main(argv=None):
         subprocess.run(["loginctl", "enable-linger", str(os.getuid())], check=True)
     subprocess.run(["systemctl", "--user", "is-active", SERVICE], check=True)
     wait_ready(args.port)
-    print(f"Service installed. Open Tail Harness from the menu or http://127.0.0.1:{args.port}/")
+    print(f"Service installed. Open {PRODUCT.name} from the menu or http://127.0.0.1:{args.port}/")
 
 
 if __name__ == "__main__":

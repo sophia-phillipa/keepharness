@@ -1,5 +1,7 @@
 """Filesystem boundary for local inference agents, independent of CLI approvals."""
 
+from control.product import PRODUCT
+
 import os
 import shutil
 import sys
@@ -83,7 +85,7 @@ def wrap(command, session, cwd, project, environment=None):
     # Runtime credentials/backups now live inside the checkout, not in model context.
     private_runtime = (
         Path(
-            os.environ.get("TAIL_HARNESS_ROOT", str(Path(__file__).resolve().parents[2]))
+            os.environ.get(PRODUCT.env_prefix + "_ROOT", str(Path(__file__).resolve().parents[2]))
         ).resolve()
         / "local_ai"
     )
@@ -115,10 +117,10 @@ def wrap(command, session, cwd, project, environment=None):
             str(Path(__file__).with_name("web_search.py").resolve()),
             "/tail-web-search.py",
         ]
-    if environment and environment.get("TAIL_HARNESS_LOCAL_KEY"):
+    if environment and environment.get(PRODUCT.env_prefix + "_LOCAL_KEY"):
         args += [
             "--setenv",
-            "TAIL_HARNESS_LOCAL_KEY",
-            environment["TAIL_HARNESS_LOCAL_KEY"],
+            PRODUCT.env_prefix + "_LOCAL_KEY",
+            environment[PRODUCT.env_prefix + "_LOCAL_KEY"],
         ]
     return [*args, "--chdir", str(cwd), "--", "/codex-cli", *command[1:]]

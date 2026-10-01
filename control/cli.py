@@ -8,13 +8,14 @@ import sys
 from pathlib import Path
 
 from .discovery import scan
+from .product import PRODUCT
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Tail Harness — local AI services")
+    parser = argparse.ArgumentParser(description=f"{PRODUCT.name} — local AI services")
     parser.add_argument("--scan", action="store_true", help="Read-only local inventory")
     parser.add_argument("--port", type=int, default=8094)
-    parser.add_argument("--state", default=str(Path.home() / ".local/share/tail-harness"))
+    parser.add_argument("--state", default=str(PRODUCT.state_path()))
     commands = parser.add_subparsers(dest="command")
     enroll = commands.add_parser(
         "approve-device", help="Enroll a browser or revoke human approval authority"

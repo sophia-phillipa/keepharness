@@ -11,6 +11,8 @@ import os
 import warnings
 from pathlib import Path
 
+from .product import PRODUCT
+
 # Maps the suffix passed to read() to the legacy, unprefixed environment variable it replaces.
 _LEGACY_ALIASES = {
     "AGENT_URL": "LOCAL_AGENT_URL",
@@ -24,10 +26,10 @@ _WARNED: set[str] = set()
 
 def read(name: str, default: str | None = None) -> str | None:
     """Read ``TAIL_HARNESS_<name>``, falling back to its deprecated legacy alias, if any."""
-    preferred = f"TAIL_HARNESS_{name}"
+    preferred = f"{PRODUCT.env_prefix}_{name}"
     if preferred in os.environ:
         return os.environ[preferred]
-    legacy = _LEGACY_ALIASES.get(name)
+    legacy = _LEGACY_ALIASES.get(name) if PRODUCT.lineage == "tail-harness" else None
     if legacy and legacy in os.environ:
         if name not in _WARNED:
             _WARNED.add(name)

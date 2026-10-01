@@ -106,7 +106,7 @@ if __name__ == "__main__":
     os.umask(0o077)
     agent_config = env.read("AGENT_CONFIG")
     if agent_config is None:
-        raise KeyError("TAIL_HARNESS_AGENT_CONFIG")
+        raise KeyError(env.PRODUCT.env_prefix + "_AGENT_CONFIG")
     config = json.loads(Path(agent_config).read_text())
     uvicorn.run(
         create_app(config, Path(agent_config)),
