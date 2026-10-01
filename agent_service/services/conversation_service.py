@@ -288,7 +288,10 @@ class ConversationService:
             self.conversation_repository.set_result(job, state, encoded(result))
             self.event(job, state, {**result, "outcome": state})
 
-    def identity(self, request):
+    def identity(self, request, *, revalidate=False):
+        def identified(name, client):
+            return (name, client) if revalidate else self.throttle(name, client, request)
+
         request.state.approval_session_owner = None
         origin = request.headers.get("origin")
         if origin and origin not in self.config.get("origins", []):
@@ -305,11 +308,12 @@ class ConversationService:
             raise APIError("origin_denied", 403)
         session_owner = None
         if request.cookies.get(SESSION_COOKIE):
-            self.limit(("public", "session"), 240, "session_rate_limit")
+            if not revalidate:
+                self.limit(("public", "session"), 240, "session_rate_limit")
             session_owner = session_identity(request, self.config)
         if session_owner is not None:
             request.state.approval_session_owner = session_owner
-            return self.throttle(session_owner, self.config["clients"][session_owner], request)
+            return identified(session_owner, self.config["clients"][session_owner])
         auth = request.headers.get("authorization", "")
         if not auth and request.cookies.get("harness_token"):
             auth = "Bearer " + request.cookies["harness_token"]
@@ -323,7 +327,7 @@ class ConversationService:
             and not request.headers.get("tailscale-user-login")
             and self.config.get("local_access")
         ):
-            return self.throttle("local", self.config["clients"]["local"], request)
+            return identified("local", self.config["clients"]["local"])
         token = auth[7:] if auth.startswith("Bearer ") else ""
         # Intentional (owner decision, F-25): unlike local_access above, a user-activated
         # cross-site top-level GET navigation still gets the Tailscale identity; every other
@@ -332,11 +336,11 @@ class ConversationService:
             login = request.headers.get("tailscale-user-login", "")
             client_name = self.config.get("tailscale_logins", {}).get(login)
             if client_name in self.config["clients"]:
-                return self.throttle(client_name, self.config["clients"][client_name], request)
+                return identified(client_name, self.config["clients"][client_name])
         digest = hashlib.sha256(token.encode()).hexdigest()
         for name, client in self.config["clients"].items():
             if token and hmac.compare_digest(digest, client["sha256"]):
-                return self.throttle(name, client, request)
+                return identified(name, client)
         raise APIError("authentication_required", 401)
 
     def limit(self, key, maximum, code="rate_limit"):

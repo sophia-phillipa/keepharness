@@ -24,9 +24,11 @@ async def models(request, service, identity):
         else next(iter(identity[1]["projects"]), None)
     )
     service.project(identity, project_id)
+    models = await service.models_with_context(project_id)
+    service.project(service.identity(request, revalidate=True), project_id)
     return JSONResponse(
         {
-            "models": await service.models_with_context(project_id),
+            "models": models,
             "project_id": project_id,
             "providers": {
                 p: c.get("enabled", False) for p, c in config.get("services", {}).items()

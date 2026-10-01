@@ -1,5 +1,6 @@
 """Minimal owner-provisioned publication contracts and separate credential storage."""
 
+import ipaddress
 import json
 import os
 import re
@@ -35,7 +36,7 @@ def endpoint_identity(endpoint):
 
         host = httpx.URL(endpoint).raw_host.decode("ascii")
     if ":" in host:
-        host = "[" + host + "]"
+        host = "[" + ipaddress.IPv6Address(host).compressed + "]"
     port = parsed.port
     if port and port != {"http": 80, "https": 443}.get(parsed.scheme):
         host += ":" + str(port)

@@ -95,18 +95,29 @@ def wrap(command, session, cwd, project, environment=None):
         / "local_ai"
     )
     private_inodes = set()
-    for name in ("config", "migration-backup"):
-        hidden = (private_runtime / name).resolve()
-        if hidden.is_dir():
-
-            def failed(error):
-                raise ToolError("local_project_scope_invalid") from error
-
-            for directory, _, files in os.walk(hidden, followlinks=False, onerror=failed):
-                for filename in files:
-                    info = (Path(directory) / filename).lstat()
-                    if stat.S_ISREG(info.st_mode) and info.st_nlink > 1:
-                        private_inodes.add((info.st_dev, info.st_ino))
+    visited = set()
+    pending = [private_runtime / name for name in ("config", "migration-backup")]
+    while pending:
+        path = pending.pop()
+        try:
+            if not path.exists() and not path.is_symlink():
+                continue
+            info = path.stat()
+            inode = (info.st_dev, info.st_ino)
+            if inode in visited:
+                continue
+            visited.add(inode)
+            if len(visited) > 100000:
+                raise ToolError("local_project_scope_invalid")
+            if stat.S_ISDIR(info.st_mode):
+                for child in path.iterdir():
+                    if len(visited) + len(pending) >= 100000:
+                        raise ToolError("local_project_scope_invalid")
+                    pending.append(child)
+            elif stat.S_ISREG(info.st_mode) and info.st_nlink > 1:
+                private_inodes.add(inode)
+        except (OSError, RuntimeError) as error:
+            raise ToolError("local_project_scope_invalid") from error
     permissions = project.get("permissions", {})
     if permissions.get("read"):
         roots = [project.get("root"), *project.get("additional_roots", [])]

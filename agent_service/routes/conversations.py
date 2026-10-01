@@ -272,8 +272,16 @@ async def job_events(request, service, identity):
     async def events():
         cursor = after
         while True:
+            try:
+                service.job(service.identity(request, revalidate=True), job)
+            except APIError:
+                break
             rows = service.message_repository.events_after(job, cursor)
             for event in rows:
+                try:
+                    service.job(service.identity(request, revalidate=True), job)
+                except APIError:
+                    return
                 cursor = event["id"]
                 envelope = {
                     "id": cursor,
