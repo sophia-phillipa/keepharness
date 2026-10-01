@@ -55,7 +55,7 @@ const path = require("node:path");
               : {};
       return route.fulfill({ json: data });
     });
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.11.0"));
+    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.11.1"));
     await page.goto("http://panel.test/");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     await page.evaluate(() =>

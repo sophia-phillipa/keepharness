@@ -137,6 +137,9 @@ runPersona("H12", [
         "status",
       );
 
+      // Close the stacked workspace explicitly to check independent live progress.
+      if (await page.locator("#activity-panel").isVisible())
+        await page.locator("#panel-toggle").click();
       await page.fill("#prompt", "Summarize my notes");
       await page.keyboard.press("Enter");
       await page.locator("#cancel").waitFor();
@@ -146,7 +149,7 @@ runPersona("H12", [
       assert.match(midTurn.trim(), /^(Sending|Working|Running|Checking)/);
       assert(
         await page.locator("#activity-view").isHidden(),
-        "the Activity live region is not rendered by default",
+        "the closed workspace keeps its Activity live region out of view",
       );
       assert.deepEqual(
         await unnamedControls(page),
