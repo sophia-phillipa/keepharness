@@ -164,3 +164,24 @@ def test_actual_workflow_whitespace_revision_invalidates_resume(tmp_path):
         )
     assert infer.await_count == 2
     service.db.close()
+
+
+def test_recovery_restores_original_context_for_inputs_and_inference(tmp_path):
+    service, identity, row, data, plan = setup_run(tmp_path)
+    seen = []
+
+    def context(current, payload):
+        seen.append(payload.get("parent_job_id"))
+        return []
+
+    data["_workflow_context_parent_id"] = "original-context-parent"
+    with (
+        patch.object(service, "context_turns", context),
+        patch.object(service, "infer", AsyncMock(return_value={"answer": "done"})) as infer,
+    ):
+        asyncio.run(maestro.execute_plan(service, row, data, plan))
+    assert seen and set(seen) == {"original-context-parent"}
+    assert all(
+        call.args[1]["parent_job_id"] == "original-context-parent" for call in infer.call_args_list
+    )
+    service.db.close()

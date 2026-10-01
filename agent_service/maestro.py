@@ -552,6 +552,8 @@ async def execute_workflow(service, row, data, workflow):
 
 
 async def execute_plan(service, row, data, declared, *, planning_result=None, coordinator=None):
+    if "_workflow_context_parent_id" in data:
+        data = {**data, "parent_job_id": data["_workflow_context_parent_id"]}
     available = candidates(
         service.config, row["project"], bool(data.get("file_ids") or data.get("workspace_id"))
     )
