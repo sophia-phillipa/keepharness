@@ -95,6 +95,8 @@ def test_local_maestro_discovers_and_executes_workflow_in_scoped_mode(tmp_path, 
         )
     )
     try:
+        with pytest.raises(APIError, match="execution_mode_unsupported"):
+            service.resource_catalog(identity, "p", "maestro", "auto", "invalid")
         catalog = service.resource_catalog(identity, "p", "maestro", "auto", "native")
         item = next(item for item in catalog["items"] if item["name"] == "local-review")
         assert item["selectable"]

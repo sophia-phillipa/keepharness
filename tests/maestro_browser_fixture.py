@@ -15,7 +15,9 @@ project = root / "project"
 project.mkdir()
 agents = project / ".codex" / "agents"
 agents.mkdir(parents=True)
-(agents / "reviewer.toml").write_text('name = "reviewer"\ndescription = "Synthetic reviewer"\ndeveloper_instructions = "Review synthetic facts"\n')
+(agents / "reviewer.toml").write_text(
+    'name = "reviewer"\ndescription = "Synthetic reviewer"\ndeveloper_instructions = "Review synthetic facts"\n'
+)
 sock = socket.socket()
 sock.bind(("127.0.0.1", 0))
 port = sock.getsockname()[1]
@@ -36,6 +38,33 @@ config = {
     "codex_models": {"gpt-6-astra": ["low"]},
     "maestro_plan_policy": "review",
 }
+if len(sys.argv) > 2 and sys.argv[2] == "local":
+    config["services"]["local"] = {
+        "enabled": True,
+        "models": ["installed-model"],
+        "projects": ["sem-projeto"],
+        "permissions": {"read": True},
+    }
+    config["maestro_coordinator"] = {"backend": "local", "model": "installed-model"}
+    workflows = project / "workflows"
+    workflows.mkdir()
+    (workflows / "local-review.json").write_text(
+        json.dumps(
+            {
+                "id": "local-review",
+                "steps": [
+                    {
+                        "role": "Reviewer",
+                        "task": "Review synthetic facts",
+                        "reason": "Check facts",
+                        "backend": "local",
+                        "model": "installed-model",
+                        "effort": "configured",
+                    }
+                ],
+            }
+        )
+    )
 app = create_app(config)
 service = app.state.service
 inference_stages = []

@@ -4180,7 +4180,7 @@ async function send() {
     );
     return;
   }
-  const m = selected();
+  let m = selected();
   if (!supportedExecutionModes().includes(executionMode)) {
     status(
       parent
@@ -4245,6 +4245,15 @@ async function send() {
       },
       body: JSON.stringify(data),
     });
+    if (r.execution_mode) executionMode = r.execution_mode;
+    const executor = models.find(model => model.id === r.model && model.backend === r.backend);
+    if (executor) {
+      m = executor;
+      $("model").value = executor.id;
+      updateEfforts();
+      if (r.effort) $("effort").value = r.effort;
+      rememberSelection();
+    }
     if (releasePersonaPending) setActivePersona(null);
     clearSubmission();
     $("welcome")?.remove();

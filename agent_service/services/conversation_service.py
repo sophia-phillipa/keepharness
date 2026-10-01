@@ -799,6 +799,8 @@ class ConversationService:
     def resource_catalog(self, identity, project_id, backend, model, execution_mode=None):
         self.project(identity, project_id)
         if backend == "maestro":
+            if execution_mode is not None:
+                self.validate_execution_mode(backend, execution_mode)
             lead = maestro.coordinator(self.config, project_id)
             backend, model = lead["backend"], lead["model"]
             if backend == "local":
@@ -1217,6 +1219,7 @@ class ConversationService:
         if idem is not None and (not isinstance(idem, str) or not 1 <= len(idem) <= 128):
             raise APIError("invalid_idempotency_key")
         digest = hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
+        execution = {key: data.get(key) for key in ("backend", "model", "effort", "execution_mode")}
         old = (
             self.conversation_repository.by_idempotency_key(identity[0], project, idem)
             if idem
@@ -1225,7 +1228,7 @@ class ConversationService:
         if old:
             if old["digest"] != digest:
                 raise APIError("idempotency_conflict", 409)
-            return {"job_id": old["id"], "reused": True}
+            return {"job_id": old["id"], "reused": True, **execution}
         work_item = self.resolve_work_item(identity, data)
         if work_item is not None or "work_item" in data:
             data["work_item"] = work_item
@@ -1285,7 +1288,7 @@ class ConversationService:
             "job_id": job,
             "status_url": f"/v1/jobs/{job}",
             "events_url": f"/v1/jobs/{job}/events",
-            "execution_mode": data["execution_mode"],
+            **execution,
         }
 
     def panel(
