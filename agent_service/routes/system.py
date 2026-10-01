@@ -29,7 +29,7 @@ async def approve_device(request, service, identity):
     """A CLI-issued link requires a same-origin confirmation before redemption."""
     headers = {
         "Cache-Control": "no-store",
-        "Referrer-Policy": "no-referrer",
+        "Referrer-Policy": "same-origin",
         "Content-Security-Policy": "default-src 'none'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
         "X-Content-Type-Options": "nosniff",
     }

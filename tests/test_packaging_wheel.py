@@ -102,8 +102,10 @@ def installed_wheel_venv(tmp_path_factory, built_wheel):
     """A throwaway venv with the built wheel installed, ``uv``-managed."""
     venv_dir = tmp_path_factory.mktemp("venv") / "v"
     uv = _uv_binary()
+    environment = {**os.environ, "UV_CACHE_DIR": str(venv_dir.parent / "uv_cache")}
     subprocess.run(
         [uv, "venv", str(venv_dir), "--python", sys.executable],
+        env=environment,
         check=True,
         capture_output=True,
         text=True,
@@ -112,6 +114,7 @@ def installed_wheel_venv(tmp_path_factory, built_wheel):
     python = venv_dir / "bin" / "python"
     subprocess.run(
         [uv, "pip", "install", "--python", str(python), str(built_wheel)],
+        env=environment,
         check=True,
         capture_output=True,
         text=True,
@@ -130,6 +133,7 @@ def test_scan_and_install_check_pass_from_a_clean_install_outside_the_checkout(
     fake_home.mkdir()
     clean_env = {key: value for key, value in os.environ.items() if key != "PYTHONPATH"}
     clean_env["HOME"] = str(fake_home)
+    clean_env["UV_CACHE_DIR"] = str(installed_wheel_venv.parent / "uv_cache")
 
     scan = subprocess.run(
         [str(tail_harness), "--scan"],
@@ -156,6 +160,7 @@ def test_scan_and_install_check_pass_from_a_clean_install_outside_the_checkout(
 
     uv_check = subprocess.run(
         [_uv_binary(), "pip", "check", "--python", str(python)],
+        env=clean_env,
         capture_output=True,
         text=True,
         timeout=30,

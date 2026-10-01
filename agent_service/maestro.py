@@ -547,7 +547,7 @@ async def execute_workflow(service, row, data, workflow):
                 private=True,
             )["items"]
         )
-    normalized = validate_workflow(workflow, available, selected)
+    normalized = validate_workflow(workflow, available, selected, retained=True)
     return await execute_plan(service, row, data, normalized)
 
 
@@ -559,7 +559,7 @@ async def execute_plan(service, row, data, declared, *, planning_result=None, co
     )
     from .workflows import validate_workflow
 
-    plan = validate_plan(json.dumps(validate_workflow(declaration(declared))), available)
+    plan = validate_plan(json.dumps(validate_workflow(declaration(declared), retained=True)), available)
     retain_resources(service, data, plan)
     data = {**data, "_checkpoint_sources": input_sources(service, row, data)}
     service.event(row["id"], "maestro_plan", plan)

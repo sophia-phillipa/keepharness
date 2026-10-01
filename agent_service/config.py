@@ -120,13 +120,35 @@ def runtime_job_affected(config, active_executors, row, candidate):
         item for item in candidate.get("catalogs", []) if item.get("id") in catalog_ids
     ]:
         return True
+    orchestrated = (
+        backend in ("auto", "maestro")
+        or data.get("_declared_workflow")
+        or len(data.get("invocations", [])) > 1
+        or any(item.get("kind") == "workflow" for item in data.get("invocations", []))
+    )
+    if (
+        row["state"] == "running"
+        and orchestrated
+        and config.get("local", {}).get("model_roots", {})
+        != candidate.get("local", {}).get("model_roots", {})
+    ):
+        return True
     executor = active_executors.get(row["id"]) if row["state"] == "running" else None
     if backend == "maestro" and executor:
         backend, model = executor
     elif backend in ("auto", "maestro"):
-        return not any(
-            item["backend"] == "codex" for item in maestro.candidates(candidate, row["project"])
-        )
+        try:
+            previous = maestro.coordinator(config, row["project"])
+            selected = maestro.coordinator(candidate, row["project"])
+        except maestro.ToolError:
+            return True
+        if (previous["backend"], previous["model"], previous["effort"]) != (
+            selected["backend"],
+            selected["model"],
+            selected["effort"],
+        ):
+            return True
+        backend, model = selected["backend"], selected["model"]
     old = config.get("services", {}).get(backend, {})
     new = candidate.get("services", {}).get(backend, {})
     if not new.get("enabled") or model not in new.get("models", []):

@@ -467,6 +467,9 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
   const menu = $("resource-menu"),
     groups = new Map();
   menu.replaceChildren();
+  const options = document.createElement("div");
+  options.className = "resource-options";
+  menu.append(options);
   const heading = document.createElement("p");
   heading.className = "access-menu-heading";
   heading.textContent =
@@ -477,24 +480,24 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
         : trigger.prefix === "@"
           ? "Available agents"
           : "Agents, skills and commands";
-  menu.append(heading);
+  options.append(heading);
   for (const warning of warnings) {
     const note = document.createElement("p");
     note.className = "resource-warning";
     note.setAttribute("role", "status");
     note.textContent = warning;
-    menu.append(note);
+    options.append(note);
   }
   if (trigger.prefix === "@@" || trigger.prefix === "//") {
     const empty = document.createElement("p");
     empty.className = "resource-empty";
     empty.textContent = "Tail Harness resources are not available yet.";
-    menu.append(empty);
+    options.append(empty);
   } else if (loading) {
     const row = document.createElement("p");
     row.className = "resource-empty";
     row.textContent = "Refreshing resources…";
-    menu.append(row);
+    options.append(row);
   } else {
     let optionIndex = 0;
     for (const item of items) {
@@ -515,7 +518,7 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
         title.textContent = category + " · " + scope + " · " + item.origin;
         section.append(title);
         groups.set(groupKey, section);
-        menu.append(section);
+        options.append(section);
       }
       const option = document.createElement("button");
       option.type = "button";
@@ -572,9 +575,9 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
     empty.textContent = loading
       ? ""
       : "No resource compatible with this engine.";
-    menu.append(empty);
+    options.append(empty);
   }
-  const preview = document.createElement("aside");
+  const preview = document.createElement("div");
   preview.id = "resource-preview";
   preview.className = "resource-preview";
   preview.setAttribute("aria-live", "polite");
@@ -950,6 +953,8 @@ const userErrors = {
   workflow_inputs_invalid: "The workflow inputs do not match the step schema.",
   workflow_invalid_condition: "Use a condition that references a prior step with from and is or equals.",
   workflow_invalid_document: "The workflow document is invalid. Check its JSON or YAML.",
+  workflow_unknown_field: "The workflow contains an unsupported field. Check its field names and remove unrecognized entries.",
+  workflow_unknown_step_field: "A workflow step contains an unsupported field. Check that step's field names and remove unrecognized entries.",
   workflow_invalid_effect: "Publication requires a valid effect request and publish enabled.",
   workflow_invalid_from_step: "Choose a valid starting step for this workflow.",
   workflow_invalid_gate: "The workflow gate needs a question and distinct choices.",
@@ -1874,12 +1879,12 @@ function conversationSummary(c = {}) {
   if (state === "running")
     return c.live_activity || c.activity || "Run in progress";
   if (state === "queued") return "Waiting in the queue";
-  return c.summary || "Completed";
+  return ({ failed: "Failed", cancelled: "Cancelled", interrupted: "Interrupted" })[c.state] || c.summary || "Completed";
 }
 function renderConversationHeader(c = null) {
   const state = c ? conversationState(c) : "draft";
   const states = { "needs-you": "Awaiting approval", running: "Running", queued: "Queued", done: "Completed", draft: "Draft" };
-  $("conversation-state-pill").textContent = states[state];
+  $("conversation-state-pill").textContent = ({ failed: "Failed", cancelled: "Cancelled", interrupted: "Interrupted" })[c?.state] || states[state];
   $("conversation-state-pill").dataset.state = state;
   $("header-execution-mode").textContent = executionMode === "scoped" ? "Isolated conversation" : "Native conversation";
   $("header-access").textContent = $("access-mode").value || "ask";
@@ -2333,14 +2338,17 @@ $("header-execution-mode").onclick = () => {
     );
 };
 function newConversation(title = "New Conversation") {
-  resourceSelections = [];
-  invalidResourceTokens.clear();
   if (submitting || cancelling || loading || uploads) {
     status(
       "Wait for the current send to finish before starting another conversation.",
     );
     return;
   }
+  saveView();
+  let newDraft = null;
+  try { newDraft = JSON.parse(sessionStorage.getItem("conversation-draft:new:" + $("project").value) || "null"); } catch {}
+  resourceSelections = [];
+  invalidResourceTokens.clear();
   setActivePersona(null);
   currentMaestroPlan = null;
   // F-95: an unsent draft survives every way of starting a new conversation;
@@ -2374,6 +2382,7 @@ function newConversation(title = "New Conversation") {
   bindSuggestions();
   modelAvailability();
   $("prompt").value = draft;
+  if (newDraft?.draft || newDraft?.files?.length) restoreView(newDraft);
   updateComposer();
   saveView();
   $("context-meter").textContent = "New conversation · independent context";
@@ -3276,6 +3285,51 @@ function scroll() {
     box.scrollTop = box.scrollHeight;
   updateLatest();
 }
+function renderPlanOutcome(card, runState = card.dataset.runState) {
+  if (!card) return;
+  if (runState) card.dataset.runState = runState;
+  const state = card.dataset.state, choice = card.dataset.choice;
+  const terminal = { completed: "Completed", failed: "Failed", cancelled: "Cancelled", interrupted: "Interrupted" }[runState];
+  let label, note;
+  if (choice === "deny") { label = "Discarded"; note = "Plan discarded."; }
+  else if (state === "expired" || state === "invalidated") {
+    label = state === "expired" ? "Expired" : "Inactive";
+    note = "This plan approval is no longer active.";
+  } else if (choice === "approve") {
+    label = "Approved · " + (terminal || "running");
+    note = terminal ? "The approved run is " + terminal.toLowerCase() + "." : "Maestro is running the approved steps.";
+  } else if (state === "resolved") { label = "Decision recorded"; note = "The plan decision was recorded."; }
+  else { label = "Awaiting your approval"; note = "Nothing runs until you approve."; }
+  card.querySelector(".state-pill").textContent = label;
+  card.querySelector('[role="status"]').textContent = note;
+}
+function showWorkflowRecovery(run) {
+  const target = active?.el;
+  if (!target || !["failed", "cancelled", "interrupted"].includes(run.state) || target.querySelector(".workflow-recovery")) return;
+  if (!run.workflow_checkpoint) return;
+  const section = document.createElement("section"), note = document.createElement("p"), resume = document.createElement("button");
+  section.className = "workflow-recovery";
+  note.textContent = "Resume from the last valid checkpoint. Completed steps are reused when their inputs and workflow are unchanged; remaining steps run again.";
+  note.setAttribute("role", "status");
+  resume.type = "button";
+  resume.className = "btn";
+  resume.textContent = "Resume workflow";
+  resume.onclick = async () => {
+    resume.disabled = true;
+    try {
+      const child = await post("/v1/jobs/" + encodeURIComponent(run.id) + "/resume", {});
+      await history();
+      await load(child.conversation_id || child.job_id);
+    } catch (error) {
+      note.textContent = error.code === "workflow_effect_outcome_unknown"
+        ? "Resolve the uncertain publication outcome before resuming this workflow."
+        : "Couldn't resume the workflow: " + error.message;
+      resume.disabled = false;
+    }
+  };
+  section.append(note, resume);
+  target.append(section);
+}
 function showMaestroPlan(data = {}) {
   if (!active || !Array.isArray(data.steps)) return;
   currentMaestroPlan = data;
@@ -3285,6 +3339,7 @@ function showMaestroPlan(data = {}) {
   if (data.gate_id) card.id = "gate-" + data.gate_id;
   card.dataset.tour = "maestro-plan";
   card.dataset.state = data.state || (data.gate_id ? "pending" : "running");
+  card.dataset.choice = data.choice || (data.gate_id ? "" : "approve");
   const heading = document.createElement("div");
   heading.className = "maestro-plan-heading";
   const title = document.createElement("strong");
@@ -3325,6 +3380,7 @@ function showMaestroPlan(data = {}) {
       try {
         await post("/v1/approvals/" + encodeURIComponent(data.gate_id), { choice: "approve", plan: { steps: data.steps } });
         card.dataset.state = "running";
+        card.dataset.choice = "approve";
         state.textContent = "Approved · running";
         note.textContent = "Maestro is running the approved steps.";
       } catch (error) {
@@ -3341,6 +3397,7 @@ function showMaestroPlan(data = {}) {
   edit.onclick = () => window.runConsole?.openPlanEditor();
   actions.append(edit);
   card.append(heading, steps, actions);
+  renderPlanOutcome(card);
   active.el.insertBefore(card, active.body);
 }
 function event(e) {
@@ -3515,6 +3572,9 @@ async function result(
   const r = snapshot || (await json("/v1/jobs/" + expectedJob));
   if (job !== expectedJob || controller !== expectedController) return r;
   restoreGates(r.gates);
+  const planCard = active?.el.querySelector(".maestro-plan-card");
+  if (planCard) renderPlanOutcome(planCard, r.state);
+  showWorkflowRecovery(r);
   const terminal = {
     completed: "Completed",
     failed: "Failed run",
@@ -3701,6 +3761,11 @@ async function watch(retries = 0) {
 }
 async function load(id, legacy = false, restoredView = null) {
   if (submitting || cancelling || uploads) return;
+  if (!loading && !restoredView) saveView();
+  let savedDraft = restoredView;
+  if (!savedDraft) {
+    try { savedDraft = JSON.parse(sessionStorage.getItem("conversation-draft:" + id) || "null"); } catch {}
+  }
   const request = ++conversationLoad,
     priorDraft = $("prompt").value;
   currentMaestroPlan = null;
@@ -3741,8 +3806,9 @@ async function load(id, legacy = false, restoredView = null) {
       "native";
     conversation = id;
     renderConversationHeader(conversations.find((item) => item.id === id));
-    if (!restoredView) saveView();
     files = [];
+    resourceSelections = [];
+    invalidResourceTokens = new Set();
     renderFiles();
     $("messages").replaceChildren();
     $("prompt").value = "";
@@ -3778,6 +3844,9 @@ async function load(id, legacy = false, restoredView = null) {
       messageResourceChips(userMessage, r.request?.resource_selections);
       active = assistant(r.id, model, !["queued", "running"].includes(r.state));
       restoreGates(r.gates);
+      const planCard = active.el.querySelector(".maestro-plan-card");
+      if (planCard) renderPlanOutcome(planCard, r.state);
+      showWorkflowRecovery(r);
       job = r.id;
       if (["queued", "running"].includes(r.state))
         queuedTurns.push({ id: r.id, response: active });
@@ -3847,7 +3916,8 @@ async function load(id, legacy = false, restoredView = null) {
     last = 0;
     closeSidebar();
     loading = false;
-    if (restoredView) restoreView(restoredView);
+    if (savedDraft) restoreView(savedDraft);
+    else updateComposer();
     const latest = data.turns.find((turn) => turn.id === job);
     if (
       ["completed", "failed", "cancelled", "interrupted"].includes(latest.state)
@@ -4136,6 +4206,7 @@ async function send() {
     $("cancel").disabled = false;
     parent = job;
     if (!conversation) {
+      try { sessionStorage.removeItem("conversation-draft:new:" + $("project").value); } catch {}
       conversation = job;
       setConversationTitle(prompt);
     }
@@ -4893,6 +4964,7 @@ new MutationObserver(updateAttentionLabel).observe($("attention-count"), {
 updateAttentionLabel();
 $("attention-open-inbox").onclick = () => {
   $("attention-popover").hidden = true;
+  $("attention-bell").setAttribute("aria-expanded", "false");
   window.runConsole?.openAttention("request");
 };
 for (const button of document.querySelectorAll("[data-attention-filter]"))
@@ -5352,10 +5424,9 @@ function restoreView(saved) {
   updateComposer();
 }
 function saveView() {
+  if (loading) return true;
   try {
-    sessionStorage.setItem(
-      "remote-view",
-      JSON.stringify({
+    const snapshot = JSON.stringify({
         conversation,
         composer_selection: {
           model: $("model").value,
@@ -5369,8 +5440,9 @@ function saveView() {
         resource_selections: resourceSelections,
         invalid_resource_tokens: [...invalidResourceTokens],
         resource_context: { project: $("project").value, ...resourceEngine() },
-      }),
-    );
+      });
+    sessionStorage.setItem("remote-view", snapshot);
+    sessionStorage.setItem("conversation-draft:" + (conversation || "new:" + $("project").value), snapshot);
     return true;
   } catch {
     return false;
@@ -5513,6 +5585,12 @@ function syncQuotaDock() {
 }
 function setPanelOpen(open, persist = true) {
   $("activity-panel").hidden = !open;
+  const overlay = open && innerWidth < 1000;
+  const panel = $("activity-panel");
+  panel.setAttribute("role", overlay ? "dialog" : "complementary");
+  if (overlay) panel.setAttribute("aria-modal", "true");
+  else panel.removeAttribute("aria-modal");
+  if (overlay && !panel.contains(document.activeElement)) $("files-toggle").focus();
   syncQuotaDock();
   $("panel-toggle").setAttribute("aria-expanded", String(open));
   if (!open && $("activity-panel").contains(document.activeElement))
@@ -5535,6 +5613,17 @@ function setPanelOpen(open, persist = true) {
       localStorage.setItem("activity-open", open ? "1" : "0");
     } catch {}
 }
+document.addEventListener("keydown", event => {
+  const panel = $("activity-panel");
+  if (event.key !== "Tab" || panel.hidden || innerWidth >= 1000 || document.querySelector("dialog[open], #tour-root")) return;
+  const controls = [...panel.querySelectorAll("a[href],button,input,select,textarea,summary,[tabindex]")]
+    .filter(node => node.tabIndex >= 0 && !node.disabled && node.checkVisibility());
+  if (!controls.length) return;
+  const index = controls.indexOf(document.activeElement);
+  event.preventDefault();
+  const next = index < 0 ? (event.shiftKey ? controls.length - 1 : 0) : (index + (event.shiftKey ? -1 : 1) + controls.length) % controls.length;
+  controls[next].focus();
+});
 let authorizedRootsRequest = 0;
 async function loadAuthorizedProjectRoots() {
   const holder = $("authorized-project-roots"),
@@ -5766,6 +5855,9 @@ try {
     false,
   );
 }
+matchMedia("(max-width:999px)").addEventListener("change", () => {
+  if (!$("activity-panel").hidden) setPanelOpen(true, false);
+});
 matchMedia("(max-width:700px)").addEventListener("change", (event) => {
   if (event.matches) setPanelOpen(false, false);
   else {
@@ -5929,6 +6021,9 @@ for (const id of Object.keys(panelWidths)) {
   });
 }
 function fitPanels() {
+  $("menu").setAttribute("aria-expanded", String(
+    matchMedia("(max-width:620px)").matches ? $("sidebar").classList.contains("open") : !document.body.classList.contains("sidebar-collapsed")
+  ));
   sizePanel("sidebar", panelWidths.sidebar, false);
   sizePanel("activity-panel", panelWidths["activity-panel"], false);
 }
@@ -6432,6 +6527,13 @@ document.addEventListener("keydown", (e) => {
     else openConversationSearch();
   }
   if (e.key === "Escape") {
+    if (!$("attention-popover").hidden) {
+      $("attention-popover").hidden = true;
+      $("attention-bell").setAttribute("aria-expanded", "false");
+      $("attention-bell").focus();
+      e.preventDefault();
+      return;
+    }
     if (!$("quota-panel").hidden) {
       setQuotaOpen(false);
       if (quotaReturnsToSettings) {
@@ -6516,11 +6618,8 @@ function finishGate(id, state, data = {}) {
   box.dataset.state = state;
   if (box.classList.contains("maestro-plan-card")) {
     box.querySelectorAll("button,input,textarea").forEach(node => { node.disabled = true; });
-    const note = box.querySelector('[role="status"]');
-    note.textContent = state === "resolved"
-      ? data.choice === "deny" ? "Plan discarded." : "Plan approved. The run can start."
-      : state === "invalidated" ? "This plan is no longer active."
-        : "This plan approval expired. Send the request again.";
+    if (data.choice) box.dataset.choice = data.choice;
+    renderPlanOutcome(box);
     return;
   }
   if (state === "resolved" && data.choice !== undefined) {
@@ -7711,7 +7810,7 @@ for (const section of document.querySelectorAll(".workspace-section")) {
     handle.setAttribute("aria-valuenow", String(Math.round(next))); save();
   };
   handle.setAttribute("aria-valuemin", "64"); handle.setAttribute("aria-valuemax", "600");
-  handle.setAttribute("aria-valuenow", String(parseFloat(content.style.height) || (name === "files" ? 128 : name === "background-tasks" ? 64 : 96)));
+  handle.setAttribute("aria-valuenow", String(parseFloat(content.style.height) || (name === "files" ? 112 : name === "background-tasks" ? 64 : 80)));
   let drag;
   handle.onpointerdown = event => { if (event.button !== 0) return; event.preventDefault(); drag = { y: event.clientY, height: content.getBoundingClientRect().height }; handle.setPointerCapture(event.pointerId); };
   handle.onpointermove = event => { if (drag) size(drag.height + event.clientY - drag.y); };

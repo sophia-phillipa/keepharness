@@ -44,6 +44,7 @@ async def body(request):
         raise APIError("request_timeout", 408)
     try:
         data = json.loads(chunks)
+        json.dumps(data, allow_nan=False)
     except (ValueError, UnicodeError):
         raise APIError("invalid_json")
     if not isinstance(data, dict):

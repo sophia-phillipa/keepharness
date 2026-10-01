@@ -15,6 +15,32 @@ MAX_RESULT_BYTES = 16384
 IDENTIFIER = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$")
 
 
+STEP_FIELDS = frozenset(
+    {
+        "id",
+        "invocation",
+        "kind",
+        "resource_id",
+        "args",
+        "mode",
+        "requested_backend",
+        "backend",
+        "model",
+        "effort",
+        "role",
+        "task",
+        "reason",
+        "gate",
+        "publish",
+        "requires",
+        "inputs",
+        "outputs",
+        "condition",
+        "effect",
+    }
+)
+
+
 class WorkflowError(ToolError):
     pass
 
@@ -184,7 +210,7 @@ def validate_result(value, schema):
     return True
 
 
-def validate_workflow(value, available=None, resources=None):
+def validate_workflow(value, available=None, resources=None, *, retained=False):
     """Normalize declarations; available=None performs document validation only."""
     try:
         _check_document(value)
@@ -202,6 +228,11 @@ def validate_workflow(value, available=None, resources=None):
         raise WorkflowError("workflow_invalid_version")
     if any(key in value for key in ("parallel", "repeat")):
         raise WorkflowError("workflow_sequential_only")
+    document_fields = {"id", "version", "name", "description", "steps"}
+    if retained:
+        document_fields |= {"digest", "revision", "resource_id", "planner_revision"}
+    if set(value) - document_fields:
+        raise WorkflowError("workflow_unknown_field")
     steps = value.get("steps")
     if not isinstance(steps, list) or not 1 <= len(steps) <= 12:
         raise WorkflowError("workflow_invalid_steps")
@@ -215,6 +246,17 @@ def validate_workflow(value, available=None, resources=None):
     for index, raw in enumerate(steps):
         if not isinstance(raw, dict) or any(key in raw for key in ("parallel", "repeat")):
             raise WorkflowError("workflow_invalid_step")
+        allowed = STEP_FIELDS
+        if retained:
+            allowed = allowed | {
+                "enforcement",
+                "resource_revision",
+                "deps_revisions",
+                "resource_selections",
+                "resource_snapshots",
+            }
+        if set(raw) - allowed:
+            raise WorkflowError("workflow_unknown_step_field")
         step = dict(raw)
         step_id = step.get("id", "step-" + str(index + 1))
         if not isinstance(step_id, str) or not IDENTIFIER.fullmatch(step_id) or step_id in seen:
@@ -304,6 +346,15 @@ def validate_workflow(value, available=None, resources=None):
                 )
                 for option in options
             ) or len({option["id"] for option in options}) != len(options):
+                raise WorkflowError("workflow_invalid_gate")
+            if (
+                gate.get("multi_select", False) is not False
+                or any(
+                    option["id"] not in {"approve", "continue", "skip", "deny"}
+                    for option in options
+                )
+                or not any(option["id"] in {"approve", "continue", "skip"} for option in options)
+            ):
                 raise WorkflowError("workflow_invalid_gate")
             gate = {**gate, "options": options}
         if type(step.get("publish", False)) is not bool:
@@ -573,33 +624,11 @@ def save_chain_as_workflow(project, plan, workflow_id, *, successful, catalogs=(
             if folder.resolve().is_relative_to(catalog_root):
                 raise WorkflowError("workflow_catalog_read_only")
     # Keep declarations only; never persist checkpoints, output, or approval state.
-    keys = {
-        "id",
-        "invocation",
-        "kind",
-        "resource_id",
-        "args",
-        "mode",
-        "requested_backend",
-        "backend",
-        "model",
-        "effort",
-        "role",
-        "task",
-        "reason",
-        "gate",
-        "publish",
-        "requires",
-        "inputs",
-        "outputs",
-        "condition",
-        "effect",
-    }
     value = {
         "version": 1,
         "id": workflow_id,
         "steps": [
-            {key: item for key, item in step.items() if key in keys}
+            {key: item for key, item in step.items() if key in STEP_FIELDS}
             for step in plan.get("steps", [])
         ],
     }

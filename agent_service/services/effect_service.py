@@ -267,10 +267,18 @@ class EffectService:
         # connection's transaction must commit before the first network instruction.
         with self.db:
             changed = self.db.execute(
-                "UPDATE effects SET status='executing',approved_by=? WHERE effect_id=? AND status='prepared'",
+                "UPDATE effects SET status='executing',approved_by=? WHERE effect_id=? AND status='prepared' "
+                "AND NOT EXISTS (SELECT 1 FROM effects AS other WHERE other.job_id=effects.job_id "
+                "AND other.binding=effects.binding AND other.effect_id!=effects.effect_id "
+                "AND other.status IN ('unknown','executing','done'))",
                 (gate["resolved_by"], effect_id),
             ).rowcount
             if changed != 1:
+                if self.get(effect_id)["status"] == "prepared":
+                    self._status(
+                        effect_id, "invalidated", reason="effect_duplicate_outcome_pending"
+                    )
+                    return self.get(effect_id)
                 raise APIError("effect_already_used", 409)
             self._event(effect_id, "effect_approved", approved_by=gate["resolved_by"])
             self._event(effect_id, "effect_intent", idempotency_key=effect_id)

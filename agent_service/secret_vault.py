@@ -28,7 +28,9 @@ def redact_secrets(value):
             value = value.replace(secret, "[redacted]")
         return value
     if isinstance(value, dict):
-        return {key: redact_secrets(item) for key, item in value.items()}
+        return {redact_secrets(key): redact_secrets(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return tuple(redact_secrets(item) for item in value)
     if isinstance(value, list):
         return [redact_secrets(item) for item in value]
     return value

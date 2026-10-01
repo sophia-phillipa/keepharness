@@ -88,14 +88,16 @@ def unfenced(text):
     output = []
     marker = None
     for line in text.splitlines():
-        match = re.match(r"^\s*(`{3,}|~{3,})", line)
+        match = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
         if match:
-            fence = match.group(1)
+            fence, suffix = match.groups()
             if marker is None:
-                marker = fence[0]
-            elif fence[0] == marker:
+                if fence[0] != "`" or "`" not in suffix:
+                    marker = fence
+                    continue
+            elif fence[0] == marker[0] and len(fence) >= len(marker) and not suffix.strip():
                 marker = None
-            continue
+                continue
         if marker is None:
             output.append(line)
     return "\n".join(output)

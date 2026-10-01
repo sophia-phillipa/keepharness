@@ -45,13 +45,13 @@ def test_environment_isolated_between_concurrent_subprocesses():
     assert "SYNTHETIC_CREDENTIAL" not in child_environment()
 
 
-def test_short_secrets_preserve_structure_and_split_stream_is_redacted(tmp_path):
+def test_short_secrets_redact_keys_values_and_split_stream(tmp_path):
     from agent_service.secret_vault import SecretStream
 
     store = SecretVault(tmp_path / "vault")
     store.set("demo", {"short": "x", "token": "fake-private-value"})
     assert redact_secrets({"x": "sample", "answer": "x"}) == {
-        "x": "sample",
+        "[redacted]": "sample",
         "answer": "[redacted]",
     }
     assert redact_secrets("embedded x credential") == "embedded [redacted] credential"

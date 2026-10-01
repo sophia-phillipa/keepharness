@@ -144,6 +144,11 @@ def session_identity(request, config):
     return row[0] if row and row[0] in config["clients"] else None
 
 
-def require_approval_session(request, config, identity):
-    if getattr(request.state, "approval_session_owner", None) != identity[0]:
+def require_approval_session(request, config, identity, *, revalidate=False):
+    owner = (
+        session_identity(request, config)
+        if revalidate
+        else getattr(request.state, "approval_session_owner", None)
+    )
+    if owner != identity[0]:
         raise APIError("approval_session_required", 403)

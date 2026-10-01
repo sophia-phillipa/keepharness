@@ -18,6 +18,7 @@ async def approval(request, service, identity):
     aid = request.path_params["approval"]
     if service.gates.repository.get(aid):
         data = await body(request)
+        require_approval_session(request, service.config, identity, revalidate=True)
         return JSONResponse(service.gates.resolve(aid, identity, data))
     pending = service.approvals.get(aid)
     if not pending:
@@ -26,6 +27,7 @@ async def approval(request, service, identity):
     if row["owner"] != identity[0]:
         raise APIError("approval_owner_denied", 403)
     data = await body(request)
+    require_approval_session(request, service.config, identity, revalidate=True)
     if service.approvals.get(aid) is not pending or pending[1].cancelled():
         raise APIError("approval_expired", 404)
     scope = data.get("scope", "once")
@@ -121,6 +123,7 @@ async def conversation(request, service, identity):
                     "state": r["state"],
                     "attachments": service.message_attachments(r),
                     "gates": gate_records(service, r["id"]),
+                    "workflow_checkpoint": service.has_workflow_checkpoint(r),
                     "request": json.loads(r["payload"]),
                     "result": json.loads(r["result"] or "{}"),
                 }
@@ -184,6 +187,7 @@ async def save_workflow(request, service, identity):
 async def job(request, service, identity):
     row = service.job(identity, request.path_params["job"])
     row["gates"] = gate_records(service, row["id"])
+    row["workflow_checkpoint"] = service.has_workflow_checkpoint(row)
     row["attachments"] = service.message_attachments(row)
     public_request = json.loads(row["payload"])
     row["request"] = {

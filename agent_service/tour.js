@@ -2,7 +2,7 @@
   "use strict";
 
   const STORAGE_KEY = "tail-harness-tour-seen";
-  const RELEASE = "0.12.1";
+  const RELEASE = "0.13.1";
   const steps = [
     { target: "top-search", title: "Search everything", text: "Search runs, plans, conversations, and files from one place. Use Ctrl/⌘+K to open it without leaving the keyboard." },
     { target: "quota-meters", title: "Provider quota", text: "These meters show the latest known allowance for each configured provider. Providers without quota data stay out of the way." },
@@ -147,12 +147,6 @@
     const spotRight = Math.max(spotLeft, Math.min(innerWidth - edge, rect.right + 6));
     const spotBottom = Math.max(spotTop, Math.min(innerHeight - edge, rect.bottom + 6));
     spotlight.style.cssText = `left:${spotLeft}px;top:${spotTop}px;width:${spotRight - spotLeft}px;height:${spotBottom - spotTop}px`;
-    if (innerWidth <= 600) {
-      card.removeAttribute("style");
-      root.dataset.side = "mobile";
-      pointer.style.cssText = `left:${Math.max(18, Math.min(innerWidth - 26, rect.left + rect.width / 2))}px;top:${Math.max(8, Math.min(innerHeight - 26, rect.bottom + 7))}px`;
-      return;
-    }
     card.style.left = "0";
     card.style.top = "0";
     const box = card.getBoundingClientRect();
@@ -229,7 +223,9 @@
     root.remove();
     root = null;
     target = null;
-    if (previousFocus?.isConnected && !previousFocus.closest("dialog:not([open])")) previousFocus.focus({ preventScroll: true });
+    const restore = visible(previousFocus) && !previousFocus.closest("dialog:not([open])")
+      ? previousFocus : document.querySelector("#prompt");
+    restore?.focus({ preventScroll: true });
   }
 
   function autoStart() {

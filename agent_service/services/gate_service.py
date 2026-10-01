@@ -69,6 +69,9 @@ class GateService:
     async def ask(self, job_id, request, progress, *, plan=None):
         validate_options(request)
         wait_limit = timeout_seconds(self.service.config, "approval_timeout_seconds", 1800)
+        expiration_limit = self.service.config.get("approval_max_consecutive_expirations", 2)
+        if type(expiration_limit) is not int or expiration_limit < 1:
+            raise ValueError("invalid_approval_max_consecutive_expirations")
         gate_id = uuid.uuid4().hex
         spec = {
             "gate_id": gate_id,
@@ -95,12 +98,15 @@ class GateService:
             budget = self.service.runtime_budgets.get(job_id)
             with budget.human_wait() if budget else nullcontext():
                 try:
-                    return await asyncio.wait_for(future, wait_limit)
+                    reply = await asyncio.wait_for(future, wait_limit)
+                    self.service.approval_expirations.pop(job_id, None)
+                    return reply
                 except TimeoutError:
                     with self.service.db:
                         changed = self.repository.close(gate_id, "expired")
                     if changed:
                         progress("gate_expired", {"gate_id": gate_id})
+                    self.service.expire_approval(job_id, expiration_limit)
                     return {"approved": False, "reason": "gate_expired"}
         finally:
             self.service.approvals.pop(gate_id, None)
@@ -140,7 +146,8 @@ class GateService:
 
             payload = json.loads(job["payload"])
             available = candidates(
-                self.service.config, job["project"],
+                self.service.config,
+                job["project"],
                 bool(payload.get("file_ids") or payload.get("workspace_id")),
             )
             if payload.get("workspace_id"):
@@ -151,7 +158,8 @@ class GateService:
                     **edited_plan,
                     "steps": [
                         {key: value for key, value in step.items() if key != "invocation"}
-                        if isinstance(step, dict) else step
+                        if isinstance(step, dict)
+                        else step
                         for step in edited_plan["steps"]
                     ],
                 }
@@ -159,7 +167,9 @@ class GateService:
             spec["plan"] = approved_plan
             resolution["plan"] = approved_plan
         with self.service.db:
-            if not self.repository.resolve(gate_id, choice, identity[0], resolution["at"], spec=spec):
+            if not self.repository.resolve(
+                gate_id, choice, identity[0], resolution["at"], spec=spec
+            ):
                 raise APIError("gate_already_resolved", 409)
         try:
             self.progress[gate_id]("gate_resolved", resolution)

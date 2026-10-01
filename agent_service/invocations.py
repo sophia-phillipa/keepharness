@@ -71,14 +71,23 @@ def normalize_chips(prompt, selections, items):
     """Selection identity is resolved by resources before text is interpreted here."""
     found = {item["id"]: item for item in items}
     matches = []
+    consumed = set()
     for selection in selections:
         item = found.get(selection["id"])
         if item is None:
             raise InvocationError("resource_unavailable")
         token = selection["token"]
-        match = re.search(r"(?<!\S)" + re.escape(token) + r"(?=\s|$)", prompt)
+        match = next(
+            (
+                candidate
+                for candidate in re.finditer(r"(?<!\S)" + re.escape(token) + r"(?=\s|$)", prompt)
+                if candidate.start() not in consumed
+            ),
+            None,
+        )
         if match is None:
             raise InvocationError("resource_selection_missing")
+        consumed.add(match.start())
         matches.append((match, item))
     matches.sort(key=lambda value: value[0].start())
     result = []
