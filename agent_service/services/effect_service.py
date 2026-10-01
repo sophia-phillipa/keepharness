@@ -153,75 +153,93 @@ class EffectService:
             raise ValueError("invalid_effect_prepare_limit")
         effect_id, gate_id = uuid.uuid4().hex, uuid.uuid4().hex
         wait_limit = timeout_seconds(self.service.config, "approval_timeout_seconds", 1800)
-        with self.db:
-            if self.db.execute(
-                "SELECT 1 FROM effects WHERE job_id=? AND binding=? "
-                "AND status IN ('unknown','executing','done') LIMIT 1",
-                (job_id, canonical(action_binding)),
-            ).fetchone():
-                raise APIError("effect_duplicate_outcome_pending", 409)
-            count = self.db.execute(
-                "SELECT COUNT(*) FROM effects WHERE job_id=? AND execution_id=?",
-                (job_id, execution_id),
-            ).fetchone()[0]
-            if count >= prepare_limit:
-                raise APIError("effect_prepare_limit", 429)
-            self.db.execute(
-                "INSERT INTO effects(effect_id,job_id,gate_id,status,request,artifact,binding,contract,execution_id,enforcement) VALUES(?,?,?,'prepared',?,?,?,?,?,?)",
-                (
-                    effect_id,
-                    job_id,
-                    gate_id,
-                    canonical(request),
-                    canonical(artifact),
-                    canonical(action_binding),
-                    canonical(contract),
-                    execution_id,
-                    enforcement,
-                ),
-            )
-        with self.db:
-            self.db.execute(
-                "UPDATE effects SET public_content=? WHERE effect_id=?",
-                (
-                    canonical(
-                        {**request, "artifact": artifact, "artifact_preview": canonical(artifact)}
+        future = None
+        try:
+            with self.db:
+                if self.db.execute(
+                    "SELECT 1 FROM effects WHERE job_id=? AND binding=? "
+                    "AND status IN ('unknown','executing','done') LIMIT 1",
+                    (job_id, canonical(action_binding)),
+                ).fetchone():
+                    raise APIError("effect_duplicate_outcome_pending", 409)
+                count = self.db.execute(
+                    "SELECT COUNT(*) FROM effects WHERE job_id=? AND execution_id=?",
+                    (job_id, execution_id),
+                ).fetchone()[0]
+                if count >= prepare_limit:
+                    raise APIError("effect_prepare_limit", 429)
+                self.db.execute(
+                    "INSERT INTO effects(effect_id,job_id,gate_id,status,request,artifact,binding,contract,execution_id,enforcement) VALUES(?,?,?,'prepared',?,?,?,?,?,?)",
+                    (
+                        effect_id,
+                        job_id,
+                        gate_id,
+                        canonical(request),
+                        canonical(artifact),
+                        canonical(action_binding),
+                        canonical(contract),
+                        execution_id,
+                        enforcement,
                     ),
-                    effect_id,
-                ),
+                )
+            with self.db:
+                self.db.execute(
+                    "UPDATE effects SET public_content=? WHERE effect_id=?",
+                    (
+                        canonical(
+                            {
+                                **request,
+                                "artifact": artifact,
+                                "artifact_preview": canonical(artifact),
+                            }
+                        ),
+                        effect_id,
+                    ),
+                )
+            effect = self.get(effect_id)
+            spec = dict(
+                effect,
+                kind="publish",
+                publish=True,
+                question="Approve publication?",
+                options=[{"id": "approve", "label": "Approve"}, {"id": "deny", "label": "Deny"}],
+                multi_select=False,
+                risk="high",
+                timeout_at=time.time() + wait_limit,
+                on_timeout="deny",
+                evidence=[
+                    {
+                        "operation": effect["operation"],
+                        "destination": effect["destination"],
+                        "artifact_digest": effect["artifact_digest"],
+                        "arguments_digest": effect["arguments_digest"],
+                    }
+                ],
             )
-        effect = self.get(effect_id)
-        spec = dict(
-            effect,
-            kind="publish",
-            publish=True,
-            question="Approve publication?",
-            options=[{"id": "approve", "label": "Approve"}, {"id": "deny", "label": "Deny"}],
-            multi_select=False,
-            risk="high",
-            timeout_at=time.time() + wait_limit,
-            on_timeout="deny",
-            evidence=[
-                {
-                    "operation": effect["operation"],
-                    "destination": effect["destination"],
-                    "artifact_digest": effect["artifact_digest"],
-                    "arguments_digest": effect["arguments_digest"],
-                }
-            ],
-        )
-        future = asyncio.get_running_loop().create_future()
-        with self.db:
-            self.service.gates.repository.create(gate_id, job_id, spec)
-            self._event(effect_id, "effect_prepared")
-        self.service.approvals[gate_id] = (job_id, future)
-        self.service.gates.progress[gate_id] = lambda kind, data: self.service.event(
-            job_id, kind, data
-        )
-        self.service.event(job_id, "gate_required", spec)
-        task = asyncio.create_task(self._wait(effect_id, future, wait_limit))
-        self.tasks[effect_id] = task
-        task.add_done_callback(lambda _task: self.tasks.pop(effect_id, None))
+            future = asyncio.get_running_loop().create_future()
+            with self.db:
+                self.service.gates.repository.create(gate_id, job_id, spec)
+                self._event(effect_id, "effect_prepared")
+            self.service.approvals[gate_id] = (job_id, future)
+            self.service.gates.progress[gate_id] = lambda kind, data: self.service.event(
+                job_id, kind, data
+            )
+            self.service.event(job_id, "gate_required", spec)
+            task = asyncio.create_task(self._wait(effect_id, future, wait_limit))
+            self.tasks[effect_id] = task
+            task.add_done_callback(lambda _task: self.tasks.pop(effect_id, None))
+        except BaseException:
+            self.service.approvals.pop(gate_id, None)
+            self.service.gates.progress.pop(gate_id, None)
+            if future is not None:
+                future.cancel()
+            with self.db:
+                self.service.gates.repository.close(gate_id, "invalidated")
+                self.db.execute(
+                    "UPDATE effects SET status='invalidated' WHERE effect_id=? AND status='prepared'",
+                    (effect_id,),
+                )
+            raise
         return effect
 
     async def _wait(self, effect_id, future, wait_limit):

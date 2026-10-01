@@ -49,6 +49,11 @@ async def body(request):
         raise APIError("invalid_json")
     if not isinstance(data, dict):
         raise APIError("object_required")
+    owner = getattr(request.state, "authenticated_owner", None)
+    if owner is not None:
+        current = request.app.state.service.identity(request, revalidate=True)
+        if current[0] != owner:
+            raise APIError("authentication_required", 401)
     return data
 
 
@@ -81,6 +86,7 @@ def api_route(path, handler, methods=None, *, authenticated=True):
         service = request.app.state.service
         try:
             identity = service.identity(request) if authenticated else None
+            request.state.authenticated_owner = identity[0] if identity else None
             return await handler(request, service, identity)
         except (APIError, tools.ToolError) as exc:
             return error_response(exc)
