@@ -2,7 +2,7 @@
 
 [![🇺🇸 English](https://img.shields.io/badge/%F0%9F%87%BA%F0%9F%87%B8-English-blue.svg)](README.md) [![🇧🇷 Português (Brasil)](https://img.shields.io/badge/%F0%9F%87%A7%F0%9F%87%B7-Portugu%C3%AAs%20(Brasil)-green.svg)](README.pt-BR.md)
 
-A local Python control panel for discovering, configuring and running Codex CLI, Claude Code, Gemini CLI and local AI models, with a conversational harness accessible through Tailscale or another VPN. Python 3.11+, MIT license, version **0.13.4**.
+A local Python control panel for discovering, configuring and running Codex CLI, Claude Code, Gemini CLI and local AI models, with a conversational harness accessible through Tailscale or another VPN. Python 3.11+, MIT license, version **0.13.5**.
 
 ## 🚀 Installation — agent-guided (start here)
 
@@ -228,7 +228,7 @@ PYTHON="$PWD/.venv/bin/python" PLAYWRIGHT_MODULE=/path/to/playwright ./scripts/t
 
 UI fixtures avoid cloud inference and model downloads. A passing mocked suite does not prove third-party authentication, physical reboot or full-context performance. To check the installed package, use `"$TH_VENV/bin/python" -m control.install_check`, with `TH_VENV` set to the environment used by the installation (`~/.local/share/tail-harness/venv` for `install.sh`, `.venv` for `setup.sh`). This smoke check runs outside the checkout with temporary state and an available port; it does not install dependencies or validate the production instance and providers. For a clean installation simulation, follow the dedicated section of the [spec](dossier/installation-agent-spec.md), preparing separate environment, state and ports through individual commands.
 
-Every new version requires an English specification at `dossier/releases/v<VERSION>.md`, with behavior, acceptance criteria, relevant diagrams, migration notes and actual validation. Update `README.md`, `README.pt-BR.md` and the version identifiers together. See [version 0.13.4](dossier/releases/v0.13.4.md) and the [dossier](dossier/README.md). Product reference: [T3 Code](https://github.com/pingdotgg/t3code). This is an independent implementation; it does not incorporate T3's code or graphical assets and does not claim feature parity.
+Every new version requires an English specification at `dossier/releases/v<VERSION>.md`, with behavior, acceptance criteria, relevant diagrams, migration notes and actual validation. Update `README.md`, `README.pt-BR.md` and the version identifiers together. See [version 0.13.5](dossier/releases/v0.13.5.md) and the [dossier](dossier/README.md). Product reference: [T3 Code](https://github.com/pingdotgg/t3code). This is an independent implementation; it does not incorporate T3's code or graphical assets and does not claim feature parity.
 
 The suite covers access policies, authentication, protocols and approvals, local discovery, download integrity, installation, packaged files and recovery after a failure. The browser test uses fixtures so it does not consume accounts or download models. The GitHub Actions configuration runs Python tests, Chromium UI tests and the wheel/sdist build; artifacts are attached to the packaging job when the pipeline passes. Third-party authentication and a physical machine reboot are not simulated as proof of real operation.
 
@@ -379,6 +379,6 @@ This release integrates P5 catalog manifests, pins, vault, drift reports and pro
 
 Round 1 repairs human approval enrollment, publication safeguards, workflow admission and execution ownership, responsive controls, draft preservation and workflow recovery. Chat remains home at the approved interface scale. See the [release specification](dossier/releases/v0.13.1.md) for behavior, migration and actual validation.
 
-## 🆕 Version 0.13.4
+## 🆕 Version 0.13.5
 
-Round 3 revalidates current project grants, isolates planning from publication and catalog hooks, and preserves credential redaction across streams and replay. Workflow recovery respects publication ancestry and reports reusable progress. Drafts, selected invocations and plan edits survive navigation; responsive actions and mobile keyboard focus stay reachable. See the [release specification](dossier/releases/v0.13.4.md) for migration and validation.
+Round 5 closes catalog and sandbox isolation gaps, validates workflow requirements and inputs, and makes recovery failures actionable. Edited plans are shared by all approval surfaces and survive reload; modal focus, publication evidence, and responsive mock-4 pane widths remain usable at the accepted text scale. See the [release specification](dossier/releases/v0.13.5.md) for migration and validation.

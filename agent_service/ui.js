@@ -1215,6 +1215,7 @@ const userErrors = {
     "The provider supplied invalid answer choices. Revise the request and try again.",
   invalid_gate_choice: "That answer is no longer available. Choose again.",
   approval_already_resolved: "This approval was already decided in another view. Refresh to see the accepted decision.",
+  workflow_source_unavailable: "A workflow input file is missing or unreadable. Restore the workspace input files or attachment sources before resuming.",
   gate_already_resolved: "This question was already answered.",
   gate_expired: "This question expired. Ask the agent to present it again.",
   gate_invalidated:
@@ -2141,6 +2142,7 @@ function conversationRow(c) {
   const summary = document.createElement("span");
   summary.className = "conversation-summary";
   summary.textContent = conversationSummary(c);
+  summary.title = summary.textContent;
   const age = document.createElement("time");
   age.textContent = conversationAge(c);
   const backend = document.createElement("span");
@@ -3403,7 +3405,8 @@ function showMaestroPlan(data = {}) {
     approve.onclick = async () => {
       approve.disabled = true;
       try {
-        await post("/v1/approvals/" + encodeURIComponent(data.gate_id), { choice: "approve", plan: { steps: data.steps } });
+        await post("/v1/approvals/" + encodeURIComponent(data.gate_id), { choice: "approve", plan: window.runConsole.planForApproval(data.gate_id, { steps: data.steps }) });
+        window.runConsole.clearPlanDraft(data.gate_id);
         if (card.dataset.state === "pending") card.dataset.state = "running";
         card.dataset.choice = "approve";
         renderPlanOutcome(card);
@@ -3946,6 +3949,7 @@ async function load(id, legacy = false, restoredView = null) {
     loading = false;
     if (savedDraft) restoreView(savedDraft);
     else updateComposer();
+    saveView();
     const latest = data.turns.find((turn) => turn.id === job);
     if (
       ["completed", "failed", "cancelled", "interrupted"].includes(latest.state)
@@ -4234,8 +4238,7 @@ async function send() {
     $("cancel").disabled = false;
     parent = job;
     if (!conversation) {
-      draftViews.delete("conversation-draft:new:" + $("project").value);
-      try { sessionStorage.removeItem("conversation-draft:new:" + $("project").value); } catch {}
+      retireDraft("conversation-draft:new:" + $("project").value);
       conversation = job;
       setConversationTitle(prompt);
     }
@@ -4951,12 +4954,43 @@ function toggleSidebar() {
 }
 // Every site that closes the phone sidebar outside of toggleSidebar() must
 // also clear #menu's aria-expanded, so assistive tech sees the same state.
+const workspaceCoveredContent = new Map();
+function syncWorkspaceModal() {
+  if (!interfaceReady || document.querySelector("#tour-root")) return;
+  for (const [node, inert] of workspaceCoveredContent) node.inert = inert;
+  workspaceCoveredContent.clear();
+  const sidebar = $("sidebar"), panel = $("activity-panel"), console = $("run-console");
+  const active = console && !console.hidden && innerWidth <= 700 ? console
+    : innerWidth <= 620 && sidebar.classList.contains("open") ? sidebar
+    : innerWidth < 1000 && !panel.hidden ? panel : null;
+  for (const node of [sidebar, panel, console].filter(Boolean)) {
+    node.removeAttribute("aria-modal"); node.removeAttribute("aria-owns");
+  }
+  if (!active) return;
+  active.setAttribute("aria-modal", "true");
+  const main = document.querySelector("main");
+  const covered = active === console
+    ? [...main.children].filter(node => node !== console && node.id !== "run-status-strip").concat(sidebar, panel)
+    : [main, active === sidebar ? panel : sidebar];
+  active.setAttribute("aria-owns", active === console ? "run-status-strip app-topbar" : "app-topbar");
+  const skip = document.querySelector(".skip-link");
+  if (skip) covered.push(skip);
+  for (const node of covered) {
+    workspaceCoveredContent.set(node, node.inert);
+    node.inert = true;
+  }
+  if (document.activeElement.closest("[inert]") || document.activeElement === document.body) {
+    [...active.querySelectorAll("button,summary,input,select,textarea,a[href],[tabindex]")]
+      .find(node => !node.disabled && node.tabIndex >= 0 && node.checkVisibility())?.focus({ preventScroll: true });
+  }
+}
 function syncSidebarFocus() {
   const sidebar = $("sidebar"), overlay = innerWidth <= 620 && sidebar.classList.contains("open");
   if (overlay) {
     sidebar.setAttribute("role", "dialog"); sidebar.setAttribute("aria-modal", "true"); sidebar.setAttribute("aria-label", "Conversations");
     if (!sidebar.contains(document.activeElement)) sidebar.querySelector("button:not(:disabled)")?.focus();
   } else { sidebar.removeAttribute("role"); sidebar.removeAttribute("aria-modal"); sidebar.removeAttribute("aria-label"); }
+  syncWorkspaceModal();
 }
 function closeSidebar() {
   $("sidebar").classList.remove("open");
@@ -4976,7 +5010,10 @@ $("project-switcher").onclick = () => {
 };
 $("about").onclick = () => $("about-dialog").showModal();
 $("about-close").onclick = () => $("about-dialog").close();
-$("about-dialog").addEventListener("close", () => $("about").focus());
+$("about-dialog").addEventListener("close", () => {
+  if (document.querySelector("#tour-root")) return;
+  ($("about").checkVisibility() ? $("about") : $("settings")).focus();
+});
 $("theme-toggle").onclick = () => {
   const dark = document.documentElement.dataset.theme === "dark";
   window.TailTheme?.apply(dark ? "porcelain" : "amethyst");
@@ -5078,7 +5115,7 @@ function setReadiness(ready, message = "") {
     : message ||
       "Waiting for the server… The connection will be checked automatically.";
   document.body.dataset.connectionReady = String(ready);
-  if (ready) document.dispatchEvent(new Event("tail:ready"));
+  if (ready) { syncWorkspaceModal(); document.dispatchEvent(new Event("tail:ready")); }
   if (!ready) {
     for (const menu of document.querySelectorAll(".composer-menu:popover-open"))
       menu.hidePopover();
@@ -5483,6 +5520,11 @@ window.addEventListener("beforeunload", event => {
 });
 window.addEventListener("pagehide", flushDrafts);
 document.addEventListener("visibilitychange", () => { if (document.hidden) flushDrafts(); });
+function retireDraft(key) {
+  draftViews.delete(key);
+  unsavedDrafts.delete(key);
+  try { sessionStorage.removeItem(key); } catch {}
+}
 function readDraft(key) {
   try { return JSON.parse(draftViews.get(key) || sessionStorage.getItem(key) || "null"); }
   catch { return null; }
@@ -5670,6 +5712,7 @@ function setPanelOpen(open, persist = true) {
     "aria-expanded",
     String(open && document.querySelector('[data-workspace-section="activity"]').open),
   );
+  syncWorkspaceModal();
   if (open && interfaceReady) {
     void refreshWorkspaceResources();
     loadAuthorizedProjectRoots();
@@ -6002,6 +6045,7 @@ try {
     panelOrder = "conversations-right";
 } catch {}
 const panelWidths = { sidebar: 300, "activity-panel": 390 };
+const customizedPanels = new Set();
 const panelIsLeft = (id) =>
   id === "sidebar"
     ? panelOrder === "conversations-left"
@@ -6041,6 +6085,7 @@ function sizePanel(id, width, persist = true) {
   handle.setAttribute("aria-valuetext", value + " pixels");
   if (persist) {
     panelWidths[id] = value;
+    customizedPanels.add(id);
     try {
       localStorage.setItem(id + "-width", String(value));
     } catch {}
@@ -6049,7 +6094,7 @@ function sizePanel(id, width, persist = true) {
 for (const id of Object.keys(panelWidths)) {
   try {
     const saved = Number(localStorage.getItem(id + "-width"));
-    if (saved >= 220 && saved <= 720) panelWidths[id] = saved;
+    if (saved >= 220 && saved <= 720) { panelWidths[id] = saved; customizedPanels.add(id); }
   } catch {}
   const handle = $(id + "-resize");
   let drag = null;
@@ -6096,8 +6141,9 @@ function fitPanels() {
   $("menu").setAttribute("aria-expanded", String(
     matchMedia("(max-width:620px)").matches ? $("sidebar").classList.contains("open") : !document.body.classList.contains("sidebar-collapsed")
   ));
-  sizePanel("sidebar", panelWidths.sidebar, false);
-  sizePanel("activity-panel", panelWidths["activity-panel"], false);
+  const narrow = innerWidth >= 1000 && innerWidth < 1200;
+  sizePanel("sidebar", narrow && !customizedPanels.has("sidebar") ? 260 : panelWidths.sidebar, false);
+  sizePanel("activity-panel", narrow && !customizedPanels.has("activity-panel") ? 340 : panelWidths["activity-panel"], false);
 }
 window.addEventListener("resize", fitPanels);
 function applyPanelOrder(value, persist = true) {
@@ -6556,8 +6602,10 @@ function updateComposer() {
 }
 function updateLatest() {
   const box = $("messages");
-  $("latest-message").hidden =
-    box.scrollHeight - box.scrollTop - box.clientHeight < 150;
+  const latest = $("latest-message");
+  latest.hidden = box.scrollHeight - box.scrollTop - box.clientHeight < 150;
+  latest.classList.toggle("latest-message-compact", box.clientHeight < 60);
+  latest.classList.toggle("latest-message-inline", box.clientHeight < 24);
 }
 $("messages").addEventListener("scroll", updateLatest, { passive: true });
 new MutationObserver(updateLatest).observe($("messages"), {

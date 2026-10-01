@@ -22,7 +22,8 @@ def reject_writable_hardlinks(root, private_inodes=None):
         for name in files:
             info = (Path(directory) / name).lstat()
             if (
-                stat.S_ISREG(info.st_mode) and info.st_nlink > 1
+                stat.S_ISREG(info.st_mode)
+                and info.st_nlink > 1
                 and (private_inodes is None or (info.st_dev, info.st_ino) in private_inodes)
             ):
                 raise ToolError("local_project_hardlink_denied")
@@ -97,6 +98,7 @@ def wrap(command, session, cwd, project, environment=None):
     for name in ("config", "migration-backup"):
         hidden = (private_runtime / name).resolve()
         if hidden.is_dir():
+
             def failed(error):
                 raise ToolError("local_project_scope_invalid") from error
 
@@ -113,9 +115,7 @@ def wrap(command, session, cwd, project, environment=None):
             # Mounting broad ancestors would expose private state or the host home.
             if not root.is_dir() or root == Path("/") or session.is_relative_to(root):
                 raise ToolError("local_project_scope_invalid")
-            reject_writable_hardlinks(
-                root, None if permissions.get("write") else private_inodes
-            )
+            reject_writable_hardlinks(root, None if permissions.get("write") else private_inodes)
             args += [
                 "--bind" if permissions.get("write") else "--ro-bind",
                 str(root),

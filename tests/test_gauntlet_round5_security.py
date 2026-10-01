@@ -6,8 +6,10 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from test_approval_authority import ORIGIN, approval_app, client_for, pending_approval
-from test_catalog_pin import git, repository
+from test_approval_authority import ORIGIN, client_for, pending_approval
+from test_approval_authority import approval_app as approval_app
+from test_catalog_pin import git
+from test_catalog_pin import repository as repository
 
 from adapters.local.sandbox import wrap
 from agent_service.approval_sessions import issue_enrollment
@@ -55,8 +57,12 @@ def test_readonly_private_hardlink_is_not_readable(tmp_path, monkeypatch, privat
     session.mkdir()
     monkeypatch.setenv("TAIL_HARNESS_ROOT", str(install))
     try:
-        command = wrap(["/usr/bin/python3", "-c", f"print(open({str(alias)!r}).read())"], session, root,
-                       {"root": str(root), "additional_roots": [str(extra)], "permissions": {"read": True}})
+        command = wrap(
+            ["/usr/bin/python3", "-c", f"print(open({str(alias)!r}).read())"],
+            session,
+            root,
+            {"root": str(root), "additional_roots": [str(extra)], "permissions": {"read": True}},
+        )
     except ToolError as error:
         assert str(error) == "local_project_hardlink_denied"
         return
@@ -78,13 +84,25 @@ def test_relocated_private_root_is_not_readable(tmp_path, monkeypatch, private_n
     sentinel.write_text("synthetic-relocated-runtime-private")
     ordinary = tmp_path / "project"
     ordinary.mkdir()
-    root = ordinary if location == "additional" else runtime / private_name / ("child" if location == "child" else "")
+    root = (
+        ordinary
+        if location == "additional"
+        else runtime / private_name / ("child" if location == "child" else "")
+    )
     session = tmp_path / "session"
     session.mkdir()
     monkeypatch.setenv("TAIL_HARNESS_ROOT", str(install))
     try:
-        command = wrap(["/usr/bin/python3", "-c", f"print(open({str(sentinel)!r}).read())"], session, root,
-                       {"root": str(root), "additional_roots": [str(exposed)] if location == "additional" else [], "permissions": {"read": True}})
+        command = wrap(
+            ["/usr/bin/python3", "-c", f"print(open({str(sentinel)!r}).read())"],
+            session,
+            root,
+            {
+                "root": str(root),
+                "additional_roots": [str(exposed)] if location == "additional" else [],
+                "permissions": {"read": True},
+            },
+        )
     except ToolError as error:
         assert str(error) == "local_project_scope_invalid"
         return
@@ -98,11 +116,14 @@ def test_native_decision_loser_receives_conflict(approval_app, first):
         future = pending_approval(approval_app, "local")
         nonce = issue_enrollment(approval_app.state.service.config, "local")
         async with client_for(approval_app) as client:
-            assert (await client.post("/approve-device?nonce=" + nonce, headers={"Origin": ORIGIN})).status_code == 303
+            assert (
+                await client.post("/approve-device?nonce=" + nonce, headers={"Origin": ORIGIN})
+            ).status_code == 303
             accepted = await client.post("/v1/approvals/job", json={"approved": first})
             loser = await client.post("/v1/approvals/job", json={"approved": not first})
         assert accepted.status_code == 200
         assert future.result()["approved"] is first
         assert loser.status_code == 409
         assert loser.json()["code"] == "approval_already_resolved"
+
     asyncio.run(scenario())
