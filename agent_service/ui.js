@@ -398,6 +398,31 @@ function resourceIcon(item) {
   svg.append(use);
   return svg;
 }
+function catalogResourceMeta(item) {
+  if (item.scope !== "catalog") return null;
+  const commit = String(item.catalog_commit || "").trim(),
+    revision = commit ? commit.slice(0, 12) : "",
+    state = item.catalog_pinned ? "Pinned" : "Source",
+    short = [state, revision].filter(Boolean).join(" · "),
+    full = commit
+      ? (item.catalog_pinned ? "pinned commit " : "source commit ") + commit
+      : item.catalog_pinned
+        ? "pinned commit"
+        : "source catalog";
+  return {
+    short: short + (item.catalog_dirty ? " · Modified" : ""),
+    preview:
+      (item.catalog_pinned ? "Pinned commit " : "Source commit ") +
+      (revision || "unknown") +
+      (item.catalog_dirty ? " · modified working tree" : ""),
+    title:
+      "Catalog " +
+      (item.origin || "resource") +
+      " · " +
+      full +
+      (item.catalog_dirty ? " · modified working tree" : ""),
+  };
+}
 function builtinResources() {
   return [
     {
@@ -510,7 +535,8 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
       glyph.append(resourceIcon(item));
       const text = document.createElement("span"),
         name = document.createElement("strong"),
-        description = document.createElement("small");
+        description = document.createElement("small"),
+        catalog = catalogResourceMeta(item);
       name.textContent = item.name;
       description.textContent =
         (item.kind === "agent"
@@ -523,6 +549,7 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
               ? "Built-in"
             : "Command") +
         (item.description ? " · " + item.description : "") +
+        (catalog?.short ? " · " + catalog.short : "") +
         (item.unavailable_reason ? " · " + item.unavailable_reason : "");
       text.append(name, description);
       option.append(glyph, text);
@@ -575,13 +602,16 @@ function renderResourcePreview(item) {
     details = document.createElement("small");
   title.textContent = (item.kind || "Resource") + " · " + item.name;
   description.textContent = item.description || "No description provided.";
+  const catalog = catalogResourceMeta(item);
   details.textContent = [
     item.argument_hint ? "Arguments " + item.argument_hint : "",
+    catalog?.preview || "",
     item.source || "",
     item.preflight_hint || item.unavailable_reason || "",
   ]
     .filter(Boolean)
     .join(" · ");
+  preview.title = catalog?.title || "";
   preview.replaceChildren(title, description, details);
 }
 function selectResource(item, trigger) {
@@ -880,6 +910,28 @@ const efforts = {
   ultra: "Ultra",
 };
 const userErrors = {
+  catalog_cwd_conflict: "Selected catalogs require different working folders. Run them separately.",
+  catalog_environment_conflict: "Selected catalogs require incompatible environments. Run them separately.",
+  catalog_hook_filter_unsupported: "This execution mode cannot enforce the catalog hook list. Choose a supported native provider.",
+  catalog_runtime_mode_unsupported: "This isolated execution mode cannot provide the catalog runtime. Choose a supported native provider.",
+  catalog_runtime_unavailable: "The catalog runtime is unavailable. Check its prerequisites in Admin.",
+  catalog_preflight_failed: "Catalog prerequisites are missing. Check the catalog in Admin before trying again.",
+  catalog_hook_failed: "A catalog hook failed. Check its run event before trying again.",
+  catalog_hook_timeout: "A catalog hook exceeded its time limit and was stopped.",
+  catalog_hook_unavailable: "A catalog hook could not start. Check its executable path in the manifest.",
+  catalog_hook_output_limit: "A catalog hook exceeded the output limit and was stopped.",
+  effect_integration_scope_denied: "This integration is not bound to the selected project and catalog. Update its binding in Admin.",
+  integration_contract_ambiguous: "Integration contracts conflict. Keep one consistent contract in Admin and the catalog.",
+  integration_contract_invalid: "The integration contract is invalid. Check its declared providers and credential fields in Admin.",
+  integration_contract_unavailable: "The integration contract is missing. Configure it in Admin or the catalog manifest.",
+  integration_credential_field_missing: "A required credential field is missing. Update the write-only binding in Admin.",
+  integration_environment_ambiguous: "Two integrations assign conflicting values to the same environment variable.",
+  integration_environment_unsupported: "This execution mode cannot inject integration credentials. Choose a supported native provider.",
+  secret_binding_invalid: "The credential binding name is invalid. Update it in Admin.",
+  secret_value_invalid: "A credential field is invalid. Enter a nonempty single-line value in Admin.",
+  work_item_locked: "This work item is owned by a running job. Wait until its write access is released.",
+  hooks_not_granted: "Catalog hooks were skipped because hook permission was not granted.",
+
   workflow_source_path_denied: "A workflow input moved outside its authorized folder. Restore it or choose a new input.",
   workflow_source_size_limit: "A workflow input exceeds the supported size. Reduce it before resuming.",
   workflow_requirement_denied: "The selected executor does not support this workflow requirement. Check permissions, integrations, operations and mode.",
@@ -7597,10 +7649,13 @@ async function refreshWorkspaceResources() {
     for (const item of items) {
       const row = document.createElement("div"), name = document.createElement("span"), badge = document.createElement("span");
       row.className = "workspace-row";
+      row.dataset.resourceId = item.id;
+      row.dataset.resourceRevision = item.revision;
       name.textContent = item.name; name.className = "workspace-item-name";
-      row.title = [item.name, item.description, item.kind, item.scope, item.origin].filter(Boolean).join(" · ");
+      const catalog = catalogResourceMeta(item);
+      row.title = [item.name, item.description, item.kind, item.scope, item.origin, catalog?.title].filter(Boolean).join(" · ");
       badge.className = "workspace-source";
-      badge.textContent = [item.scope, item.origin].filter(Boolean).join(" · ");
+      badge.textContent = [item.scope, item.origin, catalog?.short].filter(Boolean).join(" · ");
       row.append(name, badge); target.append(row);
     }
     if (!items.length) target.textContent = "No resources for this project and model.";

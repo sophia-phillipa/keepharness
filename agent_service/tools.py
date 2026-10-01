@@ -11,6 +11,8 @@ import tempfile
 import urllib.parse
 from pathlib import Path
 
+from control.product import PRODUCT
+
 try:
     from .errors import ToolError
 except ImportError:  # copied beside project_mcp.py into the scoped sandbox bridge
@@ -30,7 +32,7 @@ def video_tools_available():
 def transcription_available():
     runtime = Path(
         os.environ.get(
-            "TAIL_HARNESS_WHISPER_DIR", str(Path.home() / ".local/share/tail-harness/whisper.cpp")
+            PRODUCT.env_prefix + "_WHISPER_DIR", str(PRODUCT.state_path() / "whisper.cpp")
         )
     )
     return (runtime / "build/bin/whisper-cli").is_file() and (
@@ -668,7 +670,7 @@ async def transcribe_audio(path):
     """CPU-only, offline speech transcription; uploaded media has no network access."""
     runtime = Path(
         os.environ.get(
-            "TAIL_HARNESS_WHISPER_DIR", str(Path.home() / ".local/share/tail-harness/whisper.cpp")
+            PRODUCT.env_prefix + "_WHISPER_DIR", str(PRODUCT.state_path() / "whisper.cpp")
         )
     ).resolve()
     binary = runtime / "build/bin/whisper-cli"

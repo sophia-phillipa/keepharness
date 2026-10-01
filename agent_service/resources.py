@@ -175,10 +175,18 @@ def files(base, boundary, global_roots, kind):
 
 
 def discover(config, project_id, backend, model=None, *, private=False, execution_mode=None):
+    from .catalog_manifest import load_manifest, preflight
+    from .catalog_pin import effective_catalogs, snapshot_catalogs
+    from .integrations import integration_preflight
     from .workflows import discover_workflows
 
     engine = ENGINES.get(backend)
-    result = {"engine": engine, **discover_workflows(config, project_id, backend, private=private)}
+    result = {
+        "engine": engine,
+        **discover_workflows(
+            config, project_id, backend, private=private, execution_mode=execution_mode
+        ),
+    }
     if engine is None:
         result["warnings"].append("Choose a concrete engine to query its resources.")
         return result
@@ -273,7 +281,8 @@ def discover(config, project_id, backend, model=None, *, private=False, executio
             )
 
     enabled_catalogs = set(project.get("catalogs", []))
-    for catalog in config.get("catalogs", []):
+    catalog_details = {}
+    for catalog in effective_catalogs(config, project):
         if (
             not isinstance(catalog, dict)
             or catalog.get("trusted") is not True
@@ -287,6 +296,32 @@ def discover(config, project_id, backend, model=None, *, private=False, executio
             continue
         catalog_id = str(catalog.get("id", ""))
         identity = "catalog/" + catalog_id
+        try:
+            manifest = load_manifest(catalog_root)
+            problems = (
+                preflight(
+                    catalog_root,
+                    manifest,
+                    config.get("control_state_dir", config.get("state_dir", "state")),
+                    catalog_id,
+                )
+                if manifest
+                else []
+            )
+        except (ValueError, OSError) as error:
+            manifest, problems = None, ["Invalid catalog manifest: " + str(error)]
+        snapshot = snapshot_catalogs({**config, "catalogs": [catalog]}, project)[0]
+        problems.extend(
+            integration_preflight(
+                config,
+                project_id,
+                catalog_id,
+                backend,
+                execution_mode or config.get("services", {}).get(backend, {}).get("mode"),
+                (manifest or {}).get("integrations", []),
+            )
+        )
+        catalog_details[catalog_id] = (manifest, problems, snapshot)
         namespace = str(catalog.get("namespace", ""))
         add(
             catalog_root,
@@ -308,6 +343,23 @@ def discover(config, project_id, backend, model=None, *, private=False, executio
                 catalog_root,
                 namespace,
             )
+        if manifest:
+            declared = dict(manifest.get("resources", {}))
+            for field, kind in (("context", "context"), ("rules", "rule")):
+                declared.setdefault(kind, []).extend(manifest.get(field, []))
+            for kind, folders in declared.items():
+                if kind != "workflow":
+                    for folder in folders:
+                        source(
+                            catalog_root / folder,
+                            "catalog",
+                            catalog_id,
+                            catalog_root,
+                            kind,
+                            identity,
+                            catalog_root,
+                            namespace,
+                        )
         source(
             catalog_root / "skills",
             "catalog",
@@ -459,10 +511,29 @@ def discover(config, project_id, backend, model=None, *, private=False, executio
                         "update",
                         "uninstall",
                     }
+                    manifest, problems, snapshot = catalog_details.get(origin, (None, [], {}))
+                    if (
+                        maintenance
+                        and manifest
+                        and manifest.get("provisions_maintenance")
+                        and not problems
+                    ):
+                        continue
+                    if problems:
+                        reason = "; ".join(problems)
+                    elif (
+                        maintenance
+                        and snapshot.get("pinned")
+                        and maintenance_name.casefold() == "update"
+                    ):
+                        reason = "Pinned catalogs update only through Admin."
                     item = {
                         "id": identity,
                         "resource_id": identity,
                         "revision": hashlib.sha256(text.encode()).hexdigest(),
+                        "catalog_commit": snapshot.get("commit"),
+                        "catalog_dirty": snapshot.get("dirty"),
+                        "catalog_pinned": snapshot.get("pinned", False),
                         "deps_revisions": deps_revisions,
                         "kind": kind,
                         "name": name,
@@ -483,7 +554,7 @@ def discover(config, project_id, backend, model=None, *, private=False, executio
                         "group": "Maintenance" if maintenance else kind.title() + "s",
                         "selectable": not bool(reason),
                         "unavailable_reason": reason,
-                        "preflight_hint": preflight_hint(reason),
+                        "preflight_hint": reason if problems else preflight_hint(reason),
                         "compatibility": (
                             {"claude_ai_connectors": "unknown"} if engine == "claude" else {}
                         ),

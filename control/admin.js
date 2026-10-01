@@ -1532,6 +1532,7 @@ executionPage.append(
 emptyInspector.after(executionPage);
 
 const panelCopy = {
+  catalogs: ["Catalogs and vault", "Manage pinned resources, prerequisites and private integration bindings."],
   home: ["Home", "Track operations and server usage in real time."],
   providers: [
     "AI Providers",
@@ -1544,6 +1545,7 @@ function renderPanel() {
     ? location.hash.slice(1)
     : "home";
   $("dashboard").hidden = section !== "providers";
+  $("catalog-panel").hidden = section !== "catalogs";
   emptyInspector.hidden = section !== "home";
   executionPage.hidden = section !== "runs";
   document.querySelector("#overview h1").textContent = panelCopy[section][0];
@@ -1569,6 +1571,7 @@ for (const [section, name] of [
   ["home", "home"],
   ["providers", "plug"],
   ["runs", "list"],
+  ["catalogs", "list"],
 ])
   document.querySelector('[data-panel="' + section + '"]').prepend(icon(name));
 providerDialog.addEventListener("cancel", (event) => {
@@ -3241,6 +3244,11 @@ renderIntegrationForm();
 
 // One action vocabulary keeps dynamic and static panel buttons consistent.
 const buttonActions = [
+  [/^Pin catalog/, "lock", "Runs this catalog from the chosen immutable revision."],
+  [/^Provision runtime/, "download", "Creates the catalog environment and writable state declared by its manifest."],
+  [/^Preview update/, "search", "Fetches the catalog and compares resource revisions without moving its pin."],
+  [/^Move pin/, "check", "Applies the exact revision shown in the current update preview."],
+  [/^Remove binding/, "trash", "Removes stored credentials and their project bindings."],
   [
     /^(Save|Complete and save|Apply)/,
     "device-floppy",

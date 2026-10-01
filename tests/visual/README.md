@@ -2,6 +2,8 @@
 
 `tests/harness-visual-compact.spec.cjs` generates the complete compact-workspace matrix: four viewports, six themes, and nine UI states (216 screenshots). The states include the workflow palette, plan review selector, and generated plan cards under review and auto policies. It retains the approved application scale while testing the denser workspace structure. It also writes `summary.json` with geometry, contrast, 14 main/recovery scenarios for the seven simulated profiles, and one separate mobile empty-state scenario.
 
+`tests/admin-catalog-vault.spec.cjs` adds the P5 administration matrix with three reviewable states (pin update preview, a focused drift report, and configured write-only vault status), the same six themes, and the same four viewports (72 screenshots). Its seven-profile flow also verifies that previewing does not move a pin, keyboard activation moves only the reviewed commit, credential values are never echoed or retained, reload restores status, and malformed refresh data can be retried. All catalog, commit, credential, and drift values are synthetic.
+
 Run it directly with the repository's approved Playwright installation:
 
 ```sh

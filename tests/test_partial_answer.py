@@ -109,7 +109,7 @@ def test_cancelled_run_keeps_the_streamed_answer(tmp_path):
         try:
             async with asyncio.timeout(2):
                 await started.wait()
-                while service.active != job_id:
+                while job_id not in service.job_tasks:
                     await asyncio.sleep(0.01)
             service.cancel(identity, job_id)
             async with asyncio.timeout(2):

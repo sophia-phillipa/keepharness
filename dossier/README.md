@@ -43,3 +43,5 @@ Each new version must add an English specification under `releases/v<VERSION>.md
 - [0.10.2 — Workspace sections and extensive visual QA](releases/v0.10.2.md)
 - [0.11.0 — Declarative workflows and general Maestro](releases/v0.11.0.md)
 - [0.11.1 — Integrated workflow and workspace experience](releases/v0.11.1.md)
+- [0.12.0 — Catalog provisioning, private credentials and concurrent providers](releases/v0.12.0.md)
+- [0.12.1 — Integrated catalog and workspace gauntlet baseline](releases/v0.12.1.md)

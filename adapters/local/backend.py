@@ -6,6 +6,7 @@ from pathlib import Path
 
 from adapters.codex.native import RuntimeOptions, build_command, run_turn
 from adapters.shared.workspace import prepare_workspace
+from control.product import PRODUCT
 
 from .sandbox import ISOLATION_VERSION, wrap
 
@@ -33,13 +34,10 @@ async def run_native(config, prompt, event, project, model, effort, session_dir,
             "model_providers.tail_local.requires_openai_auth=false",
         ]
         if endpoint.get("key_file"):
-            environment = dict(
-                os.environ,
-                TAIL_HARNESS_LOCAL_KEY=Path(endpoint["key_file"]).read_text().strip(),
-            )
+            environment = {**os.environ, PRODUCT.env_prefix + "_LOCAL_KEY": Path(endpoint["key_file"]).read_text().strip()}
             command += [
                 "-c",
-                'model_providers.tail_local.env_key="TAIL_HARNESS_LOCAL_KEY"',
+                'model_providers.tail_local.env_key=' + json.dumps(PRODUCT.env_prefix + '_LOCAL_KEY'),
             ]
     if model_provider:
         command += ["-c", "model_provider=" + json.dumps(model_provider)]

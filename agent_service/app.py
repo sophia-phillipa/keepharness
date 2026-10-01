@@ -17,8 +17,8 @@ from .errors import APIError
 from .routes import LimitedStream  # noqa: F401  (re-exported)
 from .routes import activity as activity_routes
 from .routes import conversations as conversation_routes
-from .routes import files as file_routes
 from .routes import effects as effect_routes
+from .routes import files as file_routes
 from .routes import models as model_routes
 from .routes import projects as project_routes
 from .routes import spans as span_routes
@@ -106,7 +106,7 @@ if __name__ == "__main__":
     os.umask(0o077)
     agent_config = env.read("AGENT_CONFIG")
     if agent_config is None:
-        raise KeyError("TAIL_HARNESS_AGENT_CONFIG")
+        raise KeyError(env.PRODUCT.env_prefix + "_AGENT_CONFIG")
     config = json.loads(Path(agent_config).read_text())
     uvicorn.run(
         create_app(config, Path(agent_config)),

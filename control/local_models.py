@@ -234,7 +234,7 @@ def launch_command(profile, *, key_file, port=8096, alias="managed-local"):
     return [*command, *launch_options(profile)]
 
 
-def validate_profile(profile):
+def validate_profile(profile, *, state_dir=None):
     if not profile:
         return {}
     if not isinstance(profile, dict) or set(profile) - {
@@ -369,6 +369,11 @@ def validate_profile(profile):
                 ".local/share/tail-harness",
             )
         ]
+        from .product import PRODUCT
+
+        sensitive.append(PRODUCT.state_path().resolve())
+        if state_dir is not None:
+            sensitive.append(Path(state_dir).expanduser().resolve())
         checked = []
         for value in roots:
             root = Path(value).expanduser()

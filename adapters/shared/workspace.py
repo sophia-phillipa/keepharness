@@ -25,6 +25,8 @@ def prepare_workspace(project, prompt, session_dir):
     permissions = project.get("permissions", {})
     can_read_root = project.get("root") and permissions.get("read")
     cwd = Path(project["root"]).resolve() if can_read_root else home / "workspace"
+    if project.get("_catalog_cwd") and permissions.get("read"):
+        cwd = Path(project["_catalog_cwd"]).resolve()
     if can_read_root and not cwd.is_dir():
         raise ToolError("project_root_unavailable")
     cwd.mkdir(parents=True, exist_ok=True)

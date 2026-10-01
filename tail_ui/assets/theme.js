@@ -10,8 +10,8 @@
   {id:'arizona',name:'Arizona',mode:'dark',colors:['#232323','#fc4c02','#eeeeee']}
  ];
  const key='tail-harness:theme:'+surface;
- const defaultLight=themes.find(t=>t.mode==='light').id;
- const defaultDark=themes.find(t=>t.mode==='dark').id;
+ const defaultLight="violet-bordeaux";
+ const defaultDark="amethyst";
  let initial=defaultLight;
  try{
   const saved=localStorage.getItem(key);

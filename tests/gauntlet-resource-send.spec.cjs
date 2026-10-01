@@ -72,11 +72,15 @@ const assert = require("node:assert/strict"),
               : "text/html",
       });
     });
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.11.1"));
+    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.12.1"));
     await page.goto("http://resource-send.test");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     await page.fill("#prompt", "@review");
-    await page.locator('[data-resource-id="reviewer"]').click();
+    const reviewerOption = page.locator(
+      '#resource-menu [role="option"][data-resource-id="reviewer"]',
+    );
+    assert.equal(await reviewerOption.getAttribute("role"), "option");
+    await reviewerOption.click();
     const submittedDraft = "@reviewer   with  spaces  ";
     await page.keyboard.type("  with  spaces  ");
     assert.equal(await page.inputValue("#prompt"), submittedDraft);
@@ -84,7 +88,11 @@ const assert = require("node:assert/strict"),
     await page.click("#send");
     await page.waitForFunction(() => submitting);
     await page.fill("#prompt", "@writer");
-    await page.locator('[data-resource-id="writer"]').click();
+    const writerOption = page.locator(
+      '#resource-menu [role="option"][data-resource-id="writer"]',
+    );
+    assert.equal(await writerOption.getAttribute("role"), "option");
+    await writerOption.click();
     delay = false;
     releaseQuota();
     await page.waitForFunction(() => job === "first" && !submitting);

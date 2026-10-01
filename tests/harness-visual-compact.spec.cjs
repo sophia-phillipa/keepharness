@@ -293,6 +293,8 @@ async function runProfileMatrix(browser, summary) {
           assert.equal(await page.locator(`#workspace-${name}-resize`).getAttribute("aria-controls"), `workspace-${name}`);
         }
         assert.equal(await page.locator("#workspace-resources .workspace-row").count(), 4);
+        const pinned = page.locator('#workspace-resources [data-resource-id="catalog/demo/commands/build.md"]');
+        assert.match(await pinned.innerText(), /catalog · demo[\s\S]*Pinned · 0123456789ab/i);
         assert.equal(await page.locator("#workspace-background-tasks .workspace-row").count(), 2);
         const pane = await page.locator("#activity-panel").evaluate(node => ({ overflow: getComputedStyle(node).overflowY, scrollHeight: node.scrollHeight, clientHeight: node.clientHeight }));
         assert.equal(pane.overflow, "auto");
@@ -317,6 +319,10 @@ async function runProfileMatrix(browser, summary) {
         await page.locator('#resource-menu [role="option"]').first().waitFor();
         assert.equal(await page.locator("#resource-menu .resource-group").count() >= 2, true);
         assert(await page.locator("#resource-preview").isVisible());
+        const pinned = page.locator('#resource-menu [data-resource-id="catalog/demo/commands/build.md"]');
+        assert.match(await pinned.innerText(), /Pinned · 0123456789ab/);
+        await pinned.focus();
+        assert.match(await page.locator("#resource-preview").innerText(), /Pinned commit 0123456789ab/);
         assertGeometry(await geometry(page, "slash-palette"), "P7-S1");
       });
       await runScenario(summary, { id: "P7-R1", profile: "UI/UX specialist", familiarity: "interaction and hierarchy", goal: "dismiss help and resume writing", expected: "Escape closes the palette and returns focus to the composer" }, async () => {

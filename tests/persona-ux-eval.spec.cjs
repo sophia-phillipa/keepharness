@@ -825,7 +825,7 @@ test(5, "A query limit does not simulate a disconnection", async (p, s) => {
         task: c.title,
       };
       try {
-        await p.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.11.1"));
+        await p.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.12.1"));
         await p.goto("http://eval.test");
         await p.locator("#startup-gate").waitFor({ state: "hidden" });
         await c.run(p, s);

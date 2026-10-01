@@ -14,3 +14,5 @@ prune local-ai
 prune local_ai
 prune pytest-of-unknown
 exclude AGENTS.md
+
+include product_build.py

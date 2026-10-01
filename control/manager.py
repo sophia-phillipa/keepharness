@@ -26,6 +26,7 @@ from . import discovery, env, integration_catalog, integrations, runtime_config
 from .dashboard import DashboardReader
 from .operations import Operations
 from .persistence import ControlStateRepository, private_file
+from .product import PRODUCT, ensure_lineage
 
 ROOT = env.REPOSITORY_ROOT
 PERMISSIONS = ("read", "write", "upload", "tests", "internet", "shell", "hooks")
@@ -55,6 +56,7 @@ def migrate_local_ai_directory(root: Path, state: Path) -> None:
 class Manager:
     def __init__(self, state):
         self.state = Path(state)
+        ensure_lineage(self.state)
         self.state.mkdir(parents=True, exist_ok=True, mode=0o700)
         # mkdir keeps an existing folder's mode (e.g. one a venv created as 0755).
         if self.state.stat().st_uid == os.getuid():
@@ -344,6 +346,9 @@ class Manager:
                 raise ValueError("Catalog not registered.")
             if project.get("maestro_plan_policy", "review") not in ("review", "auto"):
                 raise ValueError("Invalid Maestro plan policy.")
+            from .catalog_admin import validate_pins
+
+            catalog_pins = validate_pins(project, catalogs, self.state)
             projects.append(
                 {
                     "id": pid,
@@ -352,6 +357,7 @@ class Manager:
                     "service_units": list(dict.fromkeys(units)),
                     "permissions": dict(overrides),
                     "catalogs": list(dict.fromkeys(project_catalogs)),
+                    **({"catalog_pins": catalog_pins} if catalog_pins else {}),
                     **(
                         {"maestro_plan_policy": project["maestro_plan_policy"]}
                         if "maestro_plan_policy" in project
@@ -366,6 +372,9 @@ class Manager:
             )
             ids.add(pid)
         out["projects"] = projects
+        from .vault_admin import validate_settings
+
+        out.update(validate_settings(data, ids | {"sem-projeto"}, catalog_ids))
         out["services"] = {}
         for provider in ("codex", "claude", "gemini", "local", "deepseek"):
             spec = data.get("services", {}).get(provider, {})
@@ -669,7 +678,7 @@ class Manager:
             "-m",
             "agent_service.app",
             cwd=ROOT,
-            env={**os.environ, "TAIL_HARNESS_AGENT_CONFIG": str(path)},
+            env={**os.environ, PRODUCT.env_prefix + "_AGENT_CONFIG": str(path)},
             stdout=log,
             stderr=log,
         )

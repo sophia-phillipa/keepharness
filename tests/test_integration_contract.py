@@ -96,3 +96,203 @@ def test_credentials_absent_from_config_events_and_logs(make_harness_config, cap
         service.db.close()
 
     asyncio.run(scenario())
+
+
+def test_generic_binding_scope_precedence_and_mediation(tmp_path, monkeypatch):
+    from agent_service.integrations import integration_environment
+    from agent_service.secret_vault import SecretVault
+
+    path = tmp_path / "vault"
+    SecretVault(path).set("demo", {"token": "fake-binding-value"})
+    config = {
+        "secret_vault_path": str(path),
+        "state_dir": str(tmp_path),
+        "integrations": [
+            {
+                "integration": "demo",
+                "consumers": ["codex"],
+                "environment": {"DEMO_TOKEN": "token"},
+                "precedence": "vault",
+                "mediated": False,
+            }
+        ],
+        "integration_bindings": [
+            {
+                "integration": "demo",
+                "project_id": "p",
+                "catalog_id": "c",
+                "credential_binding": "demo",
+            }
+        ],
+    }
+    monkeypatch.setenv("DEMO_TOKEN", "host-value")
+    assert integration_environment(config, "p", ["c"], "codex") == {
+        "DEMO_TOKEN": "fake-binding-value"
+    }
+    assert integration_environment(config, "other", ["c"], "codex") == {}
+    assert integration_environment(config, "p", ["other"], "codex") == {}
+    config["integrations"][0]["precedence"] = "environment"
+    assert integration_environment(config, "p", ["c"], "codex") == {"DEMO_TOKEN": "host-value"}
+    config["integrations"][0]["mediated"] = True
+    assert integration_environment(config, "p", ["c"], "codex") == {}
+
+
+@pytest.mark.parametrize(
+    "name", ["HARNESS_SESSION", "TAIL_HARNESS_API_KEY", "LD_PRELOAD", "PATH", "PYTHONPATH"]
+)
+def test_contract_rejects_authority_and_loader_environment(name):
+    from agent_service.integrations import validate_integration
+
+    with pytest.raises(APIError):
+        validate_integration(
+            {
+                "integration": "demo",
+                "consumers": ["codex"],
+                "environment": {name: "token"},
+                "precedence": "vault",
+                "mediated": False,
+            }
+        )
+
+
+def test_effect_scope_checks_project_and_current_catalog():
+    config = configure_effects({"projects": {"p": {}, "q": {}}, "catalogs": []})
+    config["integration_bindings"] = [
+        {"integration": "synthetic", "project_id": "p", "credential_binding": "project-binding"}
+    ]
+    assert integration_contract(config, "synthetic", "p")["credential_binding"] == "project-binding"
+    with pytest.raises(APIError, match="effect_integration_scope_denied"):
+        integration_contract(config, "synthetic", "q")
+    config["integration_bindings"][0]["catalog_id"] = "missing"
+    with pytest.raises(APIError, match="effect_integration_scope_denied"):
+        integration_contract(config, "synthetic", "p")
+
+
+def test_runtime_dispatch_injects_and_redacts_result(tmp_path):
+    from types import SimpleNamespace
+
+    from test_execution_modes import service
+
+    from adapters.shared.process import child_environment
+
+    async def scenario():
+        instance, _ = service(tmp_path)
+        instance.vault.set("demo", {"token": "fake-runtime-value"})
+        instance.config.update(
+            integrations=[
+                {
+                    "integration": "demo",
+                    "consumers": ["claude"],
+                    "environment": {"DEMO_TOKEN": "token"},
+                    "precedence": "vault",
+                    "mediated": False,
+                }
+            ],
+            integration_bindings=[
+                {"integration": "demo", "project_id": "p", "credential_binding": "demo"}
+            ],
+        )
+        instance.conversation_repository.insert(
+            "job", "p", "a", "running", 0, "{}", None, None, "job"
+        )
+
+        async def execute(plan, capability):
+            assert child_environment()["DEMO_TOKEN"] == "fake-runtime-value"
+            instance.event("job", "answer_delta", {"text": "fake-runtime-value"})
+            return {"answer": "fake-runtime-value"}
+
+        instance._run_transport_inference = execute
+        plan = SimpleNamespace(
+            row={"id": "job", "project": "p"},
+            data={},
+            backend="claude",
+            execution_mode="native",
+            prompt="hello",
+        )
+        assert await instance._run_inference(plan) == {"answer": "[redacted]"}
+        assert "DEMO_TOKEN" not in child_environment()
+        assert "fake-runtime-value" not in str(
+            [dict(row) for row in instance.message_repository.all_events("job")]
+        )
+        plan.execution_mode = "scoped"
+        with pytest.raises(APIError, match="integration_environment_unsupported"):
+            await instance._run_inference(plan)
+        instance.db.close()
+
+    asyncio.run(scenario())
+
+
+def test_reload_revokes_binding_scope_and_refreshes_credential_path(tmp_path):
+    import copy
+
+    from test_execution_modes import service
+
+    from agent_service.secret_vault import SecretVault
+
+    async def scenario():
+        instance, _ = service(tmp_path)
+        instance.config["services"]["codex"]["models"] = ["fixture"]
+        instance.config["projects"]["q"] = dict(instance.config["projects"]["p"])
+        instance.config["clients"]["a"]["projects"].append("q")
+        instance.config["services"]["codex"]["projects"].append("q")
+        instance.config["integration_bindings"] = [
+            {"integration": "demo", "project_id": "p", "credential_binding": "demo"}
+        ]
+        for job, project in [("affected", "p"), ("unrelated", "q")]:
+            instance.conversation_repository.insert(
+                job,
+                project,
+                "a",
+                "running",
+                0,
+                json.dumps({"backend": "codex", "model": "fixture"}),
+                None,
+                None,
+                job,
+            )
+        first = asyncio.create_task(asyncio.sleep(30))
+        second = asyncio.create_task(asyncio.sleep(30))
+        instance.job_tasks.update(affected=first, unrelated=second)
+        candidate = copy.deepcopy(instance.config)
+        candidate["integration_bindings"] = []
+        await instance.apply_runtime_config(candidate)
+        await asyncio.sleep(0)
+        assert first.cancelled()
+        assert not second.done()
+        second.cancel()
+        await asyncio.gather(first, second, return_exceptions=True)
+        path = tmp_path / "new-vault"
+        SecretVault(path).set("demo", {"email": "fake@example.invalid", "token": "fake-new-value"})
+        candidate = copy.deepcopy(instance.config)
+        candidate["secret_vault_path"] = str(path)
+        await instance.apply_runtime_config(candidate)
+        assert instance.effects.credentials.get("demo")["token"] == "fake-new-value"
+        instance.db.close()
+
+    asyncio.run(scenario())
+
+
+def test_palette_credentials_use_safe_status_and_explain_modes(tmp_path):
+    from agent_service.integrations import integration_preflight
+    from agent_service.secret_vault import SecretVault
+
+    config = {"state_dir": str(tmp_path), "integrations": [], "integration_bindings": []}
+    contract = {
+        "integration": "demo",
+        "consumers": ["codex"],
+        "environment": {"DEMO_TOKEN": "token"},
+        "precedence": "vault",
+        "mediated": False,
+    }
+    assert "binding" in integration_preflight(config, "p", "c", "codex", "native", [contract])[0]
+    config["integration_bindings"] = [
+        {"integration": "demo", "project_id": "p", "catalog_id": "c", "credential_binding": "demo"}
+    ]
+    store = SecretVault(tmp_path / "harness.secrets.json")
+    store.set("demo", {"other": "fake-private-value"})
+    assert "field" in integration_preflight(config, "p", "c", "codex", "native", [contract])[0]
+    store.set("demo", {"token": "fake-private-value"})
+    assert integration_preflight(config, "p", "c", "codex", "native", [contract]) == []
+    problems = integration_preflight(config, "p", "c", "codex", "scoped", [contract])
+    assert "native" in problems[0]
+    assert "fake-private-value" not in str(problems)

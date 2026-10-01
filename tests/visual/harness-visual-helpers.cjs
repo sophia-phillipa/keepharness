@@ -96,7 +96,7 @@ async function routeVisual(route, options = {}) {
   else if (url.pathname === "/v1/resources") data = { items: [
     { id: "agent-reviewer", revision: "1", kind: "agent", name: "reviewer", description: "Review accessibility and geometry", scope: "project", origin: "Codex", selectable: true },
     { id: "skill-ponytail", revision: "1", kind: "skill", name: "ponytail", description: "Prefer the smallest complete implementation", scope: "project", origin: "Codex", selectable: true },
-    { id: "command-build", revision: "1", kind: "command", name: "build", description: "Build the project", scope: "project", origin: "Harness", selectable: true },
+    { id: "catalog/demo/commands/build.md", revision: "1", kind: "command", name: "build", description: "Build the project", scope: "catalog", origin: "demo", catalog_commit: "0123456789abcdef0123456789abcdef01234567", catalog_pinned: true, catalog_dirty: false, selectable: true },
     { id: "project/sem-projeto/workflows/release-review.json", revision: "1", kind: "workflow", name: "release-review", description: "Review a release in two sequential steps", group: "Workflows", scope: "project", origin: "project", selectable: true },
   ], warnings: [] };
   else if (url.pathname === "/v1/project-files") {
@@ -111,14 +111,14 @@ async function routeVisual(route, options = {}) {
   }
   else if (url.pathname === "/v1/catalog") data = { agents: [], skills: [], warnings: [] };
   else if (url.pathname === "/v1/usage") data = { available: false };
-  else if (url.pathname === "/v1/version") data = { version: "0.11.1", build: "visual-fixture" };
+  else if (url.pathname === "/v1/version") data = { version: "0.12.1", build: "visual-fixture" };
   else if (url.pathname.startsWith("/v1/approvals/") && method === "POST") data = { state: "resolved", choice: route.request().postDataJSON()?.choice };
   return route.fulfill({ json: data });
 }
 
 async function mountVisual(page, options = {}) {
   await page.addInitScript(() => {
-    localStorage.setItem("tail-harness-tour-seen", "0.11.1");
+    localStorage.setItem("tail-harness-tour-seen", "0.12.1");
     localStorage.setItem("activity-open", "1");
   });
   await page.route("http://visual.test/**", route => routeVisual(route, options));

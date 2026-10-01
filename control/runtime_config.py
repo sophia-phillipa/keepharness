@@ -43,6 +43,11 @@ def base_config(settings, state, admin_port, browser_url, provider_revisions):
         "config_revision": str(uuid.uuid4()),
         "provider_revisions": provider_revisions,
     }
+    for key in ("integrations", "integration_bindings", "effect_integrations", "secret_vault_revision"):
+        if key in settings:
+            cfg[key] = json.loads(json.dumps(settings[key]))
+    if settings.get("integration_bindings"):
+        cfg["secret_vault_path"] = str(state / "harness.secrets.json")
     for project in settings["projects"]:
         cfg["projects"][project["id"]] = {
             **project,

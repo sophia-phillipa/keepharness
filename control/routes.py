@@ -16,9 +16,11 @@ from starlette.routing import Route
 
 from adapters.claude.auth import cli_login_environment
 from adapters.deepseek import account as deepseek
+from agent_service.errors import APIError
 from tail_ui import asset_response, static_response
 
 from . import env
+from .catalog_admin import change_pin, read_catalogs
 from .dashboard import execution as dashboard_execution
 from .integration_catalog import catalog as integration_catalog
 from .integrations import inventory
@@ -32,6 +34,8 @@ from .local_models import (
 )
 from .manager import PERMISSIONS
 from .operations import operation
+from .product import PRODUCT
+from .vault_admin import change_vault, read_vault
 
 ADMIN_BODY_LIMIT = 64000
 ADMIN_BODY_TIMEOUT = 10
@@ -77,7 +81,7 @@ def admin_guard(request, manager, port):
         return r
     if path.startswith("/assets/"):
         return asset_response(path, request.headers)
-    if path in ("/admin.js", "/admin.css"):
+    if path in ("/admin.js", "/catalogs.js", "/admin.css"):
         return static_response(PANEL_DIR / path[1:], request.headers)
     if not secrets.compare_digest(
         request.cookies.get("admin", "").encode("utf-8"), manager.cookie.encode("utf-8")
@@ -220,7 +224,7 @@ async def delete_provider(request, manager, data):
 
 async def export_settings(request, manager, data):
     result = {
-        "format": "tail-harness-settings",
+        "format": PRODUCT.slug + "-settings",
         "version": 1,
         "settings": manager.settings,
         "local_profile": load_profile(manager.state),
@@ -233,18 +237,18 @@ async def import_settings(request, manager, data):
     bundle = data.get("bundle", {})
     if (
         not isinstance(bundle, dict)
-        or bundle.get("format") != "tail-harness-settings"
+        or bundle.get("format") != PRODUCT.slug + "-settings"
         or bundle.get("version") != 1
     ):
         raise ValueError("Incompatible configuration format.")
     imported = manager.validate(bundle.get("settings"))
-    profile = validate_profile(bundle.get("local_profile", {}))
+    profile = validate_profile(bundle.get("local_profile", {}), state_dir=manager.state)
     profiles = bundle.get("local_profiles", {})
     if not isinstance(profiles, dict):
         raise ValueError("Invalid local profile catalog.")
     validated = {}
     for key, value in profiles.items():
-        item = validate_profile(value)
+        item = validate_profile(value, state_dir=manager.state)
         if not item or str(Path(key).expanduser().resolve()) != item["model_file"]:
             raise ValueError("The profile does not match the given weights file.")
         validated[item["model_file"]] = item
@@ -409,7 +413,7 @@ async def import_local_profile(request, manager, data):
         if k in active[0] and active[0][k]
     }
     with manager.configuration_change():
-        result = save_profile(manager.state, validate_profile(selected))
+        result = save_profile(manager.state, validate_profile(selected, state_dir=manager.state))
         if manager.running():
             await manager.apply_settings(manager.settings)
     manager.audit("local_profile_imported")
@@ -417,7 +421,7 @@ async def import_local_profile(request, manager, data):
 
 
 async def save_local_profile(request, manager, data):
-    profile = validate_profile(data)
+    profile = validate_profile(data, state_dir=manager.state)
     if not profile:
         raise ValueError("Provide the model and executable for this profile.")
     with manager.configuration_change():
@@ -469,7 +473,7 @@ async def start_local_model(request, manager, data):
             "This model does not have a saved profile yet. Set one up before starting."
         )
     if profile:
-        profile = validate_profile(profile)
+        profile = validate_profile(profile, state_dir=manager.state)
     cpu_only = bool(profile) and profile.get("performance", {}).get("n-gpu-layers") == "0"
     if active and not cpu_only:
         raise ValueError(
@@ -546,11 +550,15 @@ async def set_tailnet(request, manager, data):
 
 
 GET_ROUTES = {
+    "/api/catalogs": read_catalogs,
+    "/api/vault": read_vault,
     "/api/folders": list_folders,
     "/api/dashboard": read_dashboard,
     "/api/state": read_state,
 }
 POST_ROUTES = {
+    "/api/catalog-pin": change_pin,
+    "/api/vault": change_vault,
     "/api/folders/create": create_folder,
     "/api/scan": scan_inventory,
     "/api/check": check_provider,
@@ -629,6 +637,8 @@ async def endpoint(request: Request):
                 return JSONResponse({"error": "Not found"}, 404)
             result = await handler(request, manager, data)
         return JSONResponse(result)
+    except APIError as exc:
+        return JSONResponse({"error": exc.code}, exc.status)
     except TimeoutError:
         return JSONResponse({"error": "Sending the request took too long. Try again."}, 408)
     except (TypeError, AttributeError, RecursionError):
@@ -642,6 +652,7 @@ async def endpoint(request: Request):
 ROUTES = [
     Route("/", endpoint),
     Route("/admin.js", endpoint),
+    Route("/catalogs.js", endpoint),
     Route("/admin.css", endpoint),
     Route("/assets/{path:path}", endpoint),
     Route("/api/{path:path}", endpoint, methods=["GET", "POST"]),

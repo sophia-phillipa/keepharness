@@ -86,6 +86,7 @@ class InferencePlan:
     history_folder: Path | None
     attachment_notice: str
     selected_resources: object
+    catalog_runtime: dict | None = None
 
 
 def preview_metadata(file_id, pages):
@@ -107,7 +108,15 @@ def preview_metadata(file_id, pages):
 class ConversationService:
     def __init__(self, config):
         self.config = config
+        from agent_service.secret_vault import SecretVault
+        from control.product import ensure_lineage
+
         self.root = Path(config["state_dir"])
+        ensure_lineage(self.root)
+        self.vault = SecretVault(
+            config.get("secret_vault_path", self.root / "harness.secrets.json")
+        )
+        self.vault.status()
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         initialize_session_database(config)
         self.db = connect(self.root)
@@ -146,6 +155,9 @@ class ConversationService:
         self.cancellation_reasons = {}
         self.active_executors = {}
         self.job_tasks = {}
+        from agent_service.write_ownership import WriteOwnership
+
+        self.write_ownership = WriteOwnership()
         self.runtime_budgets = {}
         self.provider_slots = {}
         self.provider_inflight = {}
@@ -191,6 +203,19 @@ class ConversationService:
         for row in self.conversation_repository.pending():
             if runtime_job_affected(self.config, self.active_executors, row, candidate):
                 affected.append(dict(row))
+        from agent_service.secret_vault import SecretVault
+
+        vault_path = candidate.get("secret_vault_path", self.root / "harness.secrets.json")
+        effect_path = candidate.get(
+            "effect_credentials_path",
+            candidate.get("secret_vault_path", self.root / "harness.effect_credentials.json"),
+        )
+        SecretVault(vault_path).status()
+        SecretVault(effect_path).status()
+        self.vault.path = Path(vault_path)
+        self.vault.status()
+        self.effects.credentials.path = Path(effect_path)
+        self.effects.credentials.status()
         self.config.clear()
         self.config.update(candidate)
         for condition in self.provider_slots.values():
@@ -229,6 +254,9 @@ class ConversationService:
         self.wake.set()
 
     def event(self, job, kind, data):
+        from agent_service.secret_vault import redact_secrets
+
+        data = redact_secrets(data)
         if isinstance(data, dict):
             data = {
                 "schema_version": 1,
@@ -247,6 +275,9 @@ class ConversationService:
             self.message_repository.add_event(job, time.time(), kind, encoded(data))
 
     def finish(self, job, state, result):
+        from agent_service.secret_vault import redact_secrets
+
+        result = redact_secrets(result)
         with self.db:
             self.conversation_repository.set_result(job, state, encoded(result))
             self.event(job, state, {**result, "outcome": state})
@@ -839,6 +870,8 @@ class ConversationService:
     def tag_work_item(self, identity, job, value):
         row = self.job(identity, job)
         reference = validate_reference(value)
+        if row["state"] == "running" and reference != row["work_item"]:
+            raise APIError("work_item_locked", 409)
         with self.db:
             self.conversation_repository.set_work_item(job, reference)
             payload = json.loads(row["payload"])
@@ -1061,6 +1094,9 @@ class ConversationService:
         timings=None,
         model="Qwen3.6-35B-A3B UD-Q3_K_M",
     ):
+        from agent_service.secret_vault import redact_secrets
+
+        thinking, answer = redact_secrets(thinking), redact_secrets(answer)
         if not self.config["projects"][project].get("display", False):
             return
         path = Path(self.config["turzx_state"])
@@ -1192,8 +1228,7 @@ class ConversationService:
         backend = plan.backend
         if backend not in ("codex", "claude", "gemini", "local", "deepseek"):
             raise APIError("backend_unavailable")
-        # The singleton queue remains sequential. This guard also covers direct
-        # inference calls and every Maestro planner/step dispatch.
+        # Capacity is checked at every inference, including Maestro planner/steps.
         condition = self.provider_slots.setdefault(backend, asyncio.Condition())
         previous_task = self.job_tasks.get(row["id"])
         self.job_tasks[row["id"]] = asyncio.current_task()
@@ -1489,22 +1524,113 @@ class ConversationService:
         )
 
     async def _run_inference(self, plan):
+        from ..catalog_hooks import run_hooks
+        from ..catalog_manifest import load_manifest, runtime_for_project
+        from ..catalog_pin import effective_catalogs
         from ..effect_transport import effect_transport, transport_support
+        from ..execution_catalogs import runtime_config
+        from ..integrations import integration_environment
+        from ..secret_vault import execution_environment, redact_secrets
 
-        async with effect_transport(
-            self,
-            plan.row["id"],
+        project_id = plan.row["project"]
+        selected_config = runtime_config(
+            self.config, project_id, getattr(plan, "selected_resources", [])
+        )
+        try:
+            runtime = runtime_for_project(selected_config, project_id)
+        except (ValueError, OSError):
+            raise APIError("catalog_runtime_unavailable") from None
+        plan.catalog_runtime = runtime
+        catalogs = effective_catalogs(selected_config, selected_config["projects"][project_id])
+        if (plan.execution_mode != "native" or plan.backend == "local") and any(
+            any(
+                key in (load_manifest(catalog["root"]) or {})
+                for key in ("cwd", "runtime", "writable_state")
+            )
+            for catalog in catalogs
+        ):
+            raise APIError("catalog_runtime_mode_unsupported")
+        contracts = [
+            contract
+            for catalog in catalogs
+            for contract in (load_manifest(catalog["root"]) or {}).get("integrations", [])
+        ]
+        environment = integration_environment(
+            self.config,
+            project_id,
+            [catalog["id"] for catalog in catalogs],
             plan.backend,
-            plan.execution_mode,
-            execution_id=plan.data.get("_execution_id", plan.row["id"]),
-        ) as capability:
-            if capability is None:
-                self.event(
-                    plan.row["id"],
-                    "publication_policy",
-                    transport_support(plan.backend, plan.execution_mode),
-                )
-            return await self._run_transport_inference(plan, capability)
+            contracts,
+        )
+        self.vault.remember(environment.values())
+        if environment and (plan.execution_mode != "native" or plan.backend == "local"):
+            raise APIError("integration_environment_unsupported")
+        if runtime["catalogs"]:
+            self.event(
+                plan.row["id"],
+                "catalog_snapshot",
+                {
+                    "catalogs": [
+                        {
+                            "catalog_id": item["catalog_id"],
+                            "catalog_commit": item["commit"],
+                            "catalog_dirty": item["dirty"],
+                            "pinned": item["pinned"],
+                        }
+                        for item in runtime["catalogs"]
+                    ]
+                },
+            )
+        for path in [*runtime["contexts"], *runtime["rules"]]:
+            with Path(path).open() as stream:
+                text = stream.read(150001)
+            if len(plan.prompt) + len(plan.context) + len(text) > 150000:
+                raise APIError("resource_prompt_limit")
+            plan.prompt += "\nCATALOG CONTEXT:\n" + text
+        if runtime["allowed_hooks"] and (
+            plan.execution_mode != "native" or plan.backend == "local"
+        ):
+            raise APIError("catalog_runtime_mode_unsupported")
+        if runtime["read_only_roots"]:
+            plan.prompt += "\nPinned catalogs are immutable. Do not run catalog update or maintenance commands; write state only to the declared writable state directories."
+        if environment:
+            self.event(
+                plan.row["id"],
+                "integration_policy",
+                {"enforcement": "unenforced", "reason": "credential_environment"},
+            )
+        blocked = [
+            name
+            for contract in [*self.config.get("integrations", []), *contracts]
+            if contract.get("mediated")
+            for name in contract.get("environment", {})
+        ]
+        with execution_environment({**runtime["environment"], **environment}, blocked):
+            grants = maestro.model_permissions(
+                self.config, plan.backend, plan.data.get("model"), project_id
+            )
+            grants = approval_policy.effective_permissions(
+                grants, plan.data.get("access_mode", "ask")
+            )
+            await run_hooks(
+                runtime,
+                grants.get("hooks") is True,
+                lambda kind, value: self.event(plan.row["id"], kind, value),
+            )
+            async with effect_transport(
+                self,
+                plan.row["id"],
+                plan.backend,
+                plan.execution_mode,
+                execution_id=plan.data.get("_execution_id", plan.row["id"]),
+            ) as capability:
+                if capability is None:
+                    self.event(
+                        plan.row["id"],
+                        "publication_policy",
+                        transport_support(plan.backend, plan.execution_mode),
+                    )
+                return redact_secrets(await self._run_transport_inference(plan, capability))
 
     async def _run_transport_inference(self, plan, capability):
         """Run the prepared turn on the native or scoped transport of its provider."""
@@ -1534,8 +1660,18 @@ class ConversationService:
         if before is not None:
             self.event(row["id"], "quota_before", before)
         live = {"answer": "", "thinking": "", "at": 0}
+        from agent_service.secret_vault import SecretStream
+
+        secret_stream = SecretStream()
 
         def progress(kind, value):
+            from agent_service.secret_vault import redact_secrets
+
+            if kind in ("answer_delta", "reasoning_delta", "reasoning_summary") and isinstance(
+                value, dict
+            ):
+                value = {**value, "text": secret_stream.feed(kind, value.get("text", ""))}
+            value = redact_secrets(value)
             if kind == "session_turn_started" and backend == "codex" and execution_mode == "native":
                 conversation_context.save_cursor(
                     native_session, row["id"], value, context_transport_mode, started=True
@@ -1673,6 +1809,13 @@ class ConversationService:
         persisted_session, pending_files = plan.persisted_session, plan.pending_files
         history_folder = plan.history_folder
         project_config = dict(self.config["projects"][row["project"]])
+        runtime = plan.catalog_runtime or {}
+        project_config["_catalog_cwd"] = runtime.get("cwd")
+        project_config["additional_roots"] = [
+            *project_config.get("additional_roots", []),
+            *runtime.get("writable_roots", []),
+        ]
+        project_config["_catalog_read_only_roots"] = runtime.get("read_only_roots", [])
         project_config["_resources"] = selected_resources
         if not data.get("_maestro_stage"):
             project_config["_conversation_title"] = self.conversation_title(row)
@@ -1739,6 +1882,8 @@ class ConversationService:
             for page in source["pages"]
             if page.get("media_type")
         ]
+        if runtime.get("catalogs"):
+            permissions["hooks"] = False
         project_config["permissions"] = permissions
         if history_folder is not None:
             project_config["additional_roots"] = [

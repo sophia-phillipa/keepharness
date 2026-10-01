@@ -7,6 +7,7 @@ from pathlib import Path
 
 from adapters.shared.process import process_diagnostics
 from agent_service.tools import ToolError
+from control.product import PRODUCT
 
 from .policy import prepare
 
@@ -225,7 +226,7 @@ async def run_acp(
                 "initialize",
                 {
                     "protocolVersion": 1,
-                    "clientInfo": {"name": "tail-harness", "version": "0.11.1"},
+                    "clientInfo": {"name": PRODUCT.mcp_name, "version": "0.12.1"},
                     # Files and terminals are intentionally not proxied in this revision;
                     # admin policy routes the enabled native tools through ACP approval.
                     "clientCapabilities": {

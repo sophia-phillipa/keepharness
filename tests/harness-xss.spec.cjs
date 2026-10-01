@@ -88,7 +88,7 @@ const fs = require("node:fs/promises"),
               : "text/html",
       });
     });
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.11.1"));
+    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.12.1"));
     await page.goto(origin);
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     // The conversation list renders the malicious title before any conversation is opened.

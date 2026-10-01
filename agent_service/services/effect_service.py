@@ -38,7 +38,10 @@ class EffectService:
         self.db = service.db
         self.credentials = CredentialStore(
             service.config.get(
-                "effect_credentials_path", service.root / "harness.effect_credentials.json"
+                "effect_credentials_path",
+                service.config.get(
+                    "secret_vault_path", service.root / "harness.effect_credentials.json"
+                ),
             )
         )
         self.driver = JiraEffectDriver()
@@ -104,7 +107,9 @@ class EffectService:
         if not job or job["state"] != "running":
             raise APIError("effect_execution_inactive", 409)
         contract = integration_contract(
-            self.service.config, request.get("integration") if isinstance(request, dict) else None
+            self.service.config,
+            request.get("integration") if isinstance(request, dict) else None,
+            job["project"],
         )
         validate_request(contract, request)
         self.credentials.get(contract["credential_binding"])
@@ -228,7 +233,11 @@ class EffectService:
         spec = json.loads(gate["spec"])
         job = self.service.conversation_repository.get(effect["job_id"])
         try:
-            contract = integration_contract(self.service.config, effect["integration"])
+            contract = integration_contract(
+                self.service.config,
+                effect["integration"],
+                self.service.conversation_repository.get(effect["job_id"])["project"],
+            )
             stored = self.db.execute(
                 "SELECT contract,binding FROM effects WHERE effect_id=?", (effect_id,)
             ).fetchone()
@@ -308,7 +317,11 @@ class EffectService:
                     (time.time() + min(300, 2 ** min(attempts + 1, 9)), effect_id),
                 )
             try:
-                contract = integration_contract(self.service.config, effect["integration"])
+                contract = integration_contract(
+                    self.service.config,
+                    effect["integration"],
+                    self.service.conversation_repository.get(effect["job_id"])["project"],
+                )
                 stored = self.db.execute(
                     "SELECT contract FROM effects WHERE effect_id=?", (effect_id,)
                 ).fetchone()[0]

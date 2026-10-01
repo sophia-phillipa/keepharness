@@ -7,6 +7,7 @@ from pathlib import Path
 from adapters.codex.native import RuntimeOptions, build_command, run_turn
 from adapters.shared.workspace import prepare_workspace
 from agent_service.tools import ToolError
+from control.product import PRODUCT
 
 SPEC_REVISION = 1
 EFFORTS = ("configured", "none", "low", "high", "max")
@@ -17,7 +18,7 @@ def runtime_options(config, permissions):
     api = config.get("api_provider") or {}
     if not config.get("binary") or not api.get("url") or not api.get("key_file"):
         raise ToolError("deepseek_api_configuration_required")
-    environment = dict(os.environ, TAIL_HARNESS_API_KEY=Path(api["key_file"]).read_text().strip())
+    environment = {**os.environ, PRODUCT.env_prefix + "_API_KEY": Path(api["key_file"]).read_text().strip()}
     command = build_command(config["binary"], permissions, hosted_search=False)
     command += [
         "-c",
@@ -31,7 +32,7 @@ def runtime_options(config, permissions):
         "-c",
         "model_providers.tail_api.requires_openai_auth=false",
         "-c",
-        'model_providers.tail_api.env_key="TAIL_HARNESS_API_KEY"',
+        'model_providers.tail_api.env_key=' + json.dumps(PRODUCT.env_prefix + '_API_KEY'),
         # The stateless HTTP API needs full client history, not websocket deltas.
         "-c",
         "model_providers.tail_api.supports_websockets=false",

@@ -8,6 +8,7 @@ from pathlib import Path
 
 from adapters.shared.process import process_diagnostics
 from agent_service.tools import ToolError
+from control.product import PRODUCT
 
 from .policy import prepare
 
@@ -88,7 +89,7 @@ async def _check_authenticated_cli(binary):
                     "initialize",
                     {
                         "protocolVersion": 1,
-                        "clientInfo": {"name": "tail-harness", "version": "0.11.1"},
+                        "clientInfo": {"name": PRODUCT.mcp_name, "version": "0.12.1"},
                         "clientCapabilities": {
                             "auth": {"terminal": False},
                             "fs": {},
@@ -188,7 +189,7 @@ async def login(binary):
                 "initialize",
                 {
                     "protocolVersion": 1,
-                    "clientInfo": {"name": "tail-harness", "version": "0.11.1"},
+                    "clientInfo": {"name": PRODUCT.mcp_name, "version": "0.12.1"},
                     "clientCapabilities": {
                         "auth": {"terminal": False},
                         "fs": {},
