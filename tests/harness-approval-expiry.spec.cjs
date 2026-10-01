@@ -34,7 +34,7 @@ const path = require("node:path");
     const errors = [];
     page.on("pageerror", error => errors.push(error.message));
     async function open() {
-      await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.8"));
+      await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.9"));
       await page.goto("http://approval.test");
       await page.locator("#startup-gate").waitFor({ state: "hidden" });
     }

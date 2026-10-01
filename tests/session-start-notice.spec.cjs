@@ -105,7 +105,7 @@ const assert = require("node:assert/strict"),
     };
     const idle = () => page.waitForFunction(() => !busy && !submitting);
 
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.8"));
+    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.9"));
 
     await page.goto("http://panel.test/");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
