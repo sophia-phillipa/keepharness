@@ -158,6 +158,9 @@ def _runtime_options(root, manifest, state_dir, catalog_id):
 def preflight(root, manifest, state_dir, catalog_id):
     options = _runtime_options(root, manifest, state_dir, catalog_id)
     problems = []
+    for relative, path in zip(manifest.get("writable_state", []), options["writable_roots"]):
+        if not Path(path).is_dir():
+            problems.append("Provision the catalog writable state in Admin: " + relative)
     for key in ("context", "rules", "allowed_hooks"):
         for value in manifest.get(key, []):
             if not _inside(root, value).is_file():

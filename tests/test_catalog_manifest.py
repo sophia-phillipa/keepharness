@@ -97,6 +97,9 @@ def test_runtime_context_rules_and_two_catalogs(tmp_path):
         write_manifest(root, context=["context.md"], rules=["rules.md"], writable_state=["memory"])
         (root / "context.md").write_text("Context")
         (root / "rules.md").write_text("Rules")
+        manifests.materialize_runtime(
+            root, manifests.load_manifest(root), tmp_path / "state", catalog_id
+        )
         config["catalogs"].append({"id": catalog_id, "root": str(root), "trusted": True})
     result = manifests.runtime_for_project(config, "p")
     assert len(result["contexts"]) == len(result["rules"]) == len(result["writable_roots"]) == 2
@@ -122,3 +125,14 @@ def test_selective_hooks_are_unavailable_in_palette(tmp_path, monkeypatch):
     assert item["selectable"] is False
     assert "hooks are unsupported" in item["unavailable_reason"]
     assert item["preflight_hint"] == item["unavailable_reason"]
+
+
+def test_missing_writable_state_requires_provisioning(tmp_path):
+    root = tmp_path / "catalog"
+    manifest = write_manifest(root, writable_state=["memory"])
+    state = tmp_path / "state"
+    assert manifests.preflight(root, manifest, state, "demo") == [
+        "Provision the catalog writable state in Admin: memory"
+    ]
+    manifests.materialize_runtime(root, manifest, state, "demo")
+    assert manifests.preflight(root, manifest, state, "demo") == []
