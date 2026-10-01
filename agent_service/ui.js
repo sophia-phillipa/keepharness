@@ -340,12 +340,17 @@ function setActiveResourceOption(option = null) {
   const menu = $("resource-menu");
   for (const candidate of menu.querySelectorAll("[role=option]"))
     candidate.setAttribute("aria-selected", String(candidate === option));
+  $("prompt").setAttribute("aria-expanded", String(menu.matches(":popover-open")));
+  if (option) $("prompt").setAttribute("aria-activedescendant", option.id);
+  else $("prompt").removeAttribute("aria-activedescendant");
 }
 function closeResourceMenu() {
   resourceRequest++;
   const menu = $("resource-menu");
   if (menu.matches(":popover-open")) menu.hidePopover();
   menu.replaceChildren();
+  setActiveResourceOption();
+  $("resource-status").textContent = "";
 }
 function resourceKeydown(event) {
   const menu = $("resource-menu");
@@ -406,6 +411,9 @@ function resourceKeydown(event) {
   return false;
 }
 $("resource-menu").addEventListener("keydown", resourceKeydown);
+$("resource-menu").addEventListener("toggle", event => {
+  if (event.newState === "closed") setActiveResourceOption();
+});
 function resourceIcon(item) {
   const origin = String(item.origin || "").toLowerCase(),
     symbol = origin.includes("claude")
@@ -619,8 +627,13 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
     menu.querySelector('[role=option]:not([aria-disabled="true"])') ||
       menu.querySelector("[role=option]"),
   );
+  $("resource-status").textContent = loading ? "Refreshing resources…" :
+    (menu.querySelector(".resource-empty")?.textContent || "");
   const rect = $("prompt").getBoundingClientRect();
-  menu.style.maxHeight = Math.max(24, rect.top - 20) + "px";
+  const availableHeight = Math.max(24, rect.top - 20);
+  menu.style.maxHeight = availableHeight + "px";
+  // Reserve the majority of the visible menu for selectable rows, even at native zoom.
+  menu.style.setProperty("--resource-preview-height", Math.max(0, Math.min(160, (availableHeight - 24) * 0.4)) + "px");
   menu.style.left =
     Math.max(12, Math.min(rect.left, innerWidth - menu.offsetWidth - 12)) +
     "px";
@@ -841,6 +854,7 @@ const labels = {
   reasoning_summary: "Reasoning summary",
   interrupted: "Interrupted",
   queued: "Queued",
+  queue_wait: "Waiting in the queue",
   running: "Running",
   thinking: "Thinking",
   planning: "Preparing the run",
@@ -1920,7 +1934,7 @@ function conversationUpdated(c = {}) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 function waitReasonLabel(reason) {
-  return ({ human_approval: "Waiting for your approval", conversation_parent: "Waiting for the previous response", queue: "Waiting in the queue" })[reason] || reason;
+  return ({ human_approval: "Waiting for your approval", conversation_parent: "Waiting for the previous response", provider_capacity: "Waiting for another task on this provider", conversation: "Waiting for this conversation", work_item: "Waiting for this work item", writable_root: "Waiting for access to project files", queue: "Waiting in the queue" })[reason] || reason;
 }
 function conversationSummary(c = {}) {
   if (c.live_wait_reason || c.wait_reason)
@@ -3557,7 +3571,7 @@ function event(e) {
       void quota();
     return;
   } else {
-    status(labels[e.type] || e.type);
+    status(e.type === "queue_wait" ? waitReasonLabel(e.data?.reason || "queue") : labels[e.type] || e.type);
   }
   pendingGateStatus();
   // Deltas scroll after their batched render; reading layout here per delta
@@ -5090,9 +5104,20 @@ $("theme-toggle").onclick = () => {
   window.TailTheme?.apply(dark ? "porcelain" : "amethyst");
   $("theme-toggle-label").textContent = dark ? "Light" : "Dark";
 };
+function positionAttentionPopover() {
+  const popover = $("attention-popover");
+  if (popover.hidden) return;
+  const anchor = $("attention-bell").getBoundingClientRect();
+  popover.style.right = "auto";
+  popover.style.left = Math.max(12, Math.min(anchor.right - popover.offsetWidth, innerWidth - popover.offsetWidth - 12)) + "px";
+  popover.style.top = anchor.bottom + 8 + "px";
+}
+window.addEventListener("resize", positionAttentionPopover);
+new ResizeObserver(positionAttentionPopover).observe($("provider-quotas"));
 $("attention-bell").onclick = () => {
   const popover = $("attention-popover");
   popover.hidden = !popover.hidden;
+  positionAttentionPopover();
   $("attention-bell").setAttribute("aria-expanded", String(!popover.hidden));
 };
 const updateAttentionLabel = () => {
@@ -5168,8 +5193,13 @@ let startupTimer,
   initializing = false,
   probing = false,
   interfaceReady = false,
-  readinessRetryAt = 0;
+  readinessRetryAt = 0,
+  readinessFocus = null;
 function setReadiness(ready, message = "") {
+  if (!ready && interfaceReady) {
+    const active = document.activeElement;
+    readinessFocus = active.closest("#settings-dialog") ? $("settings") : active;
+  }
   if (!ready) window.tailHarnessTour?.stop(false);
   interfaceReady = ready;
   for (const node of [
@@ -5186,7 +5216,13 @@ function setReadiness(ready, message = "") {
     : message ||
       "Waiting for the server… The connection will be checked automatically.";
   document.body.dataset.connectionReady = String(ready);
-  if (ready) { syncWorkspaceModal(); document.dispatchEvent(new Event("tail:ready")); }
+  if (ready) {
+    syncWorkspaceModal();
+    if (readinessFocus?.isConnected && readinessFocus.checkVisibility() && !readinessFocus.closest("[inert]"))
+      readinessFocus.focus({ preventScroll: true });
+    readinessFocus = null;
+    document.dispatchEvent(new Event("tail:ready"));
+  }
   if (!ready) {
     for (const menu of document.querySelectorAll(".composer-menu:popover-open"))
       menu.hidePopover();
