@@ -46,3 +46,22 @@ def test_pin_preview_move_and_stale_preview(tmp_path):
     status = client.get('/api/catalogs')
     assert status.status_code == 200, status.text
     assert status.json()['projects'][0]['catalog_pins']['demo']['commit'] == second
+
+
+def test_provision_requires_stopped_harness(tmp_path, monkeypatch):
+    import asyncio
+
+    import pytest
+
+    from control.catalog_admin import change_pin
+    from control.server import Manager
+    root = tmp_path / 'catalog'
+    root.mkdir()
+    (root / 'harness.catalog.json').write_text('{"version":1,"writable_state":["memory"]}')
+    manager = Manager(tmp_path / 'state')
+    manager.settings['catalogs'] = [{'id': 'demo', 'root': str(root), 'trusted': True, 'kind': 'folder'}]
+    manager.settings['projects'] = [{'id': 'p', 'root': str(tmp_path), 'catalogs': ['demo']}]
+    monkeypatch.setattr(manager, 'running', lambda: True)
+    with pytest.raises(ValueError, match='Stop the harness'):
+        asyncio.run(change_pin(None, manager, {'action': 'provision', 'catalog_id': 'demo', 'project_id': 'p'}))
+    assert not (manager.state / 'catalog_runtime').exists()

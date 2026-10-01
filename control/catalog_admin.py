@@ -37,9 +37,13 @@ def _status(manager):
             manifest = load_manifest(catalog['root'])
             checks.append({'project_id': project_id, 'catalog_id': catalog['id'],
                            'manifest': manifest is not None,
+                           'integrations': (manifest or {}).get('integrations', []),
                            'preflight': preflight(catalog['root'], manifest, manager.state, catalog['id']) if manifest else []})
-        resources = discover(config, project_id, 'codex', execution_mode='native')
-        snapshots[project_id] = resources['items'] if isinstance(resources, dict) else resources
+        items = {}
+        for backend in ('codex', 'claude', 'gemini'):
+            for item in discover(config, project_id, backend, execution_mode='native')['items']:
+                items[item['resource_id']] = item
+        snapshots[project_id] = list(items.values())
     return {'catalogs': manager.settings.get('catalogs', []), 'projects': manager.settings['projects'],
             'preflight': checks, 'drift': [item for item in compare_resources(snapshots) if item['drift']]}
 
@@ -84,6 +88,8 @@ async def change_pin(request, manager, data):
             raise ValueError('Preview is missing or stale. Preview the update again.')
         pins[catalog_id] = await asyncio.to_thread(pin_catalog, catalog, manager.state, preview['pin']['commit'], owner=True)
     elif action == 'provision':
+        if manager.running():
+            raise ValueError('Stop the harness before provisioning a shared catalog runtime.')
         effective = next(item for item in effective_catalogs(catalog_config(manager), project) if item['id'] == catalog_id)
         manifest = load_manifest(effective['root'])
         if manifest is None:
