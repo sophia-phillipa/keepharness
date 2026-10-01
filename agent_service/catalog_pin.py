@@ -18,6 +18,8 @@ def _git(root, *arguments, strip=True):
             "--no-replace-objects",
             "-c",
             "core.hooksPath=/dev/null",
+            "-c",
+            "core.fsmonitor=false",
             "-C",
             str(root),
             *arguments,
@@ -32,9 +34,9 @@ def _git(root, *arguments, strip=True):
 
 
 def _verify_pin(root, commit):
-    if _git(root, "rev-parse", "HEAD") != commit or _git(
-        root, "status", "--porcelain", "--ignored", "--untracked-files=all"
-    ):
+    # Status can invoke mutable clean filters. Exact tree verification below
+    # checks content and extra paths without consulting those callbacks.
+    if _git(root, "rev-parse", "HEAD") != commit:
         raise CatalogPinError("catalog_pin_modified")
     # Read the immutable tree, not the mutable index (which can suppress status).
     algorithm = "sha256" if len(commit) == 64 else "sha1"
@@ -191,13 +193,17 @@ def snapshot_catalogs(config, project):
         if catalog.get("kind") == "git":
             try:
                 commit = _git(catalog["root"], "rev-parse", "HEAD")
-                dirty = bool(
-                    _git(
-                        catalog["root"],
-                        "status",
-                        "--porcelain",
-                        "--ignored",
-                        "--untracked-files=all",
+                dirty = (
+                    False
+                    if catalog.get("pin")
+                    else bool(
+                        _git(
+                            catalog["root"],
+                            "status",
+                            "--porcelain",
+                            "--ignored",
+                            "--untracked-files=all",
+                        )
                     )
                 )
             except CatalogPinError as failure:

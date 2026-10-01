@@ -23,6 +23,14 @@ from . import api_route, body
 BIDI_CONTROLS = frozenset("\u061c\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069")
 
 
+def require_current_read(request, service, project):
+    identity = service.identity(request, revalidate=True)
+    service.project(identity, project)
+    if not service.can_read_project(project):
+        raise APIError("read_denied", 403)
+    return identity
+
+
 async def workspaces_collection(request, service, identity):
     if request.method == "POST":
         return await upload_workspace(request, service, identity)
@@ -109,6 +117,7 @@ async def workspace(request, service, identity):
             output = Path(tmp.name)
         try:
             await asyncio.to_thread(workspaces.pack, root, output)
+            require_current_read(request, service, record["project"])
         except BaseException:
             output.unlink(missing_ok=True)
             raise
@@ -131,6 +140,7 @@ async def workspace(request, service, identity):
         start,
         limit,
     )
+    require_current_read(request, service, record["project"])
     return JSONResponse({"workspace_id": wid, **result})
 
 
@@ -205,6 +215,7 @@ async def authorized_project_files(request, service, identity):
         workspaces.browse_project, root, params.get("path", ""), start, limit
     )
     await asyncio.to_thread(project_file_status, root, listing["entries"])
+    require_current_read(request, service, project)
     return JSONResponse(
         {**result, **listing, "root_id": root_id}, headers={"Cache-Control": "no-store"}
     )
@@ -263,16 +274,16 @@ async def project_files(request, service, identity):
         limit = int(params.get("limit", 100))
     except ValueError:
         raise APIError("invalid_range")
-    return JSONResponse(
-        await asyncio.to_thread(
-            workspaces.inspect,
-            spec["root"],
-            params.get("query", ""),
-            params.get("path", ""),
-            start,
-            limit,
-        )
+    result = await asyncio.to_thread(
+        workspaces.inspect,
+        spec["root"],
+        params.get("query", ""),
+        params.get("path", ""),
+        start,
+        limit,
     )
+    require_current_read(request, service, project)
+    return JSONResponse(result)
 
 
 async def attach_project_files(request, service, identity):
@@ -286,7 +297,7 @@ async def attach_project_files(request, service, identity):
     ):
         raise APIError("uploads_denied", 403)
     data = await body(request)
-    service.project(identity, project)
+    identity = require_current_read(request, service, project)
     try:
         maximum = int(request.query_params.get("max_files", workspaces.MAX_ATTACHMENTS))
     except ValueError:
@@ -302,6 +313,7 @@ async def attach_project_files(request, service, identity):
             workspaces.selected_system_files, root, data.get("paths"), maximum
         )
     backend = request.query_params.get("backend", data.get("backend"))
+    identity = require_current_read(request, service, project)
     model = request.query_params.get("model", data.get("model"))
     execution_mode = data.get("execution_mode") or request.query_params.get("execution_mode")
     if backend:
@@ -309,7 +321,14 @@ async def attach_project_files(request, service, identity):
         service.validate_execution_mode(backend, execution_mode)
     return JSONResponse(
         await service.attach_project_files(
-            identity, project, selected, skipped, backend, model, execution_mode
+            identity,
+            project,
+            selected,
+            skipped,
+            backend,
+            model,
+            execution_mode,
+            revalidate=lambda: require_current_read(request, service, project),
         )
     )
 

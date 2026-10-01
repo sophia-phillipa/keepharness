@@ -77,8 +77,14 @@ def test_approval_lookup_is_one_select_without_permission_or_schema_writes(
             assert response.json()["code"] == "approval_expired"
 
     asyncio.run(scenario())
-    assert len(statements) == 1
-    assert statements[0].lstrip().startswith("SELECT owner FROM sessions")
+    assert statements == [
+        "SELECT digest, owner, expires, approval_capable FROM sessions",
+        next(
+            statement
+            for statement in statements
+            if statement.startswith("SELECT owner FROM sessions")
+        ),
+    ]
 
 
 def test_unknown_cookie_is_throttled_before_database_lookup(session_app, monkeypatch):

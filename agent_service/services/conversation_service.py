@@ -32,7 +32,13 @@ from .. import (
     workflows,
     workspaces,
 )
-from ..approval_sessions import SESSION_COOKIE, initialize_session_database, session_identity
+from ..approval_sessions import (
+    SESSION_COOKIE,
+    initialize_session_database,
+    session_database,
+    session_identity,
+    token_digest,
+)
 from ..config import (
     EXECUTION_MODES,
     KINDS,
@@ -133,6 +139,8 @@ class ConversationService:
             config["projects"].update(self.project_repository.registered())
             self.share_projects()
         self.approvals = {}
+        self.session_lookup_stamp = None
+        self.session_lookup_owners = {}
         self.approval_expirations = {}
         self.active = None
         self.task = None
@@ -309,7 +317,34 @@ class ConversationService:
         session_owner = None
         if request.cookies.get(SESSION_COOKIE):
             if not revalidate:
-                self.limit(("public", "session"), 240, "session_rate_limit")
+                path = Path(self.config["state_dir"]) / "approval_sessions.sqlite3"
+                fingerprint = []
+                for candidate in (path, Path(str(path) + "-wal"), Path(str(path) + "-journal")):
+                    try:
+                        stamp = candidate.stat()
+                        fingerprint.append((stamp.st_ino, stamp.st_mtime_ns, stamp.st_size))
+                    except FileNotFoundError:
+                        fingerprint.append(None)
+                if fingerprint != self.session_lookup_stamp:
+                    # This index allocates lookup budgets only; it never authenticates.
+                    with session_database(self.config, readonly=True) as database:
+                        owners = {
+                            row[0]: row[1:]
+                            for row in database.execute(
+                                "SELECT digest, owner, expires, approval_capable FROM sessions"
+                            )
+                        }
+                    self.session_lookup_owners = owners
+                    self.session_lookup_stamp = fingerprint
+                owner, expires, capable = self.session_lookup_owners.get(
+                    token_digest(request.cookies[SESSION_COOKIE]), (None, 0, False)
+                )
+                lane = (
+                    owner
+                    if capable and expires > time.time() and owner in self.config["clients"]
+                    else "public"
+                )
+                self.limit((lane, "session"), 240, "session_rate_limit")
             session_owner = session_identity(request, self.config)
         if session_owner is not None:
             request.state.approval_session_owner = session_owner
@@ -427,7 +462,16 @@ class ConversationService:
         return bool(self.config.get("uploads_enabled")) or override is True or explicit_model
 
     async def attach_project_files(
-        self, identity, project, selected, skipped, backend, model, execution_mode=None
+        self,
+        identity,
+        project,
+        selected,
+        skipped,
+        backend,
+        model,
+        execution_mode=None,
+        *,
+        revalidate=None,
     ):
         self.project(identity, project)
         attachments = []
@@ -475,6 +519,10 @@ class ConversationService:
                             backend, model, execution_mode or self.default_execution_mode(backend)
                         )
                     self.project(identity, project)
+                    if revalidate:
+                        revalidate()
+                    if not self.can_read_project(project):
+                        raise APIError("read_denied", 403)
                     with self.db:
                         self.message_repository.add_file(
                             fid,
@@ -491,6 +539,8 @@ class ConversationService:
                     )
                 except (APIError, tools.ToolError, OSError) as exc:
                     shutil.rmtree(folder)
+                    if isinstance(exc, APIError) and exc.status in (401, 403):
+                        raise
                     skipped.append(
                         {
                             "path": name,
