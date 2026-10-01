@@ -18,6 +18,8 @@ from adapters.claude.auth import cli_login_environment
 from adapters.deepseek import account as deepseek
 from tail_ui import asset_response, static_response
 
+from agent_service.errors import APIError
+
 from . import env
 from .product import PRODUCT
 from .dashboard import execution as dashboard_execution
@@ -33,6 +35,7 @@ from .local_models import (
 )
 from .manager import PERMISSIONS
 from .operations import operation
+from .vault_admin import change_vault, read_vault
 
 ADMIN_BODY_LIMIT = 64000
 ADMIN_BODY_TIMEOUT = 10
@@ -547,11 +550,13 @@ async def set_tailnet(request, manager, data):
 
 
 GET_ROUTES = {
+    "/api/vault": read_vault,
     "/api/folders": list_folders,
     "/api/dashboard": read_dashboard,
     "/api/state": read_state,
 }
 POST_ROUTES = {
+    "/api/vault": change_vault,
     "/api/folders/create": create_folder,
     "/api/scan": scan_inventory,
     "/api/check": check_provider,
@@ -630,6 +635,8 @@ async def endpoint(request: Request):
                 return JSONResponse({"error": "Not found"}, 404)
             result = await handler(request, manager, data)
         return JSONResponse(result)
+    except APIError as exc:
+        return JSONResponse({"error": exc.code}, exc.status)
     except TimeoutError:
         return JSONResponse({"error": "Sending the request took too long. Try again."}, 408)
     except (TypeError, AttributeError, RecursionError):

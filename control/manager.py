@@ -368,6 +368,9 @@ class Manager:
             )
             ids.add(pid)
         out["projects"] = projects
+        from .vault_admin import validate_settings
+
+        out.update(validate_settings(data, ids | {"sem-projeto"}, catalog_ids))
         out["services"] = {}
         for provider in ("codex", "claude", "gemini", "local", "deepseek"):
             spec = data.get("services", {}).get(provider, {})
