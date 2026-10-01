@@ -306,6 +306,7 @@
     if (document.body.dataset.connectionReady !== 'true') return;
     syncContext();
     const sequence = ++state.activitySequence;
+    const context = lastContext;
     const params = new URLSearchParams({ project_id: currentProject() });
     if (workFilter.value.trim()) params.set('work_item', workFilter.value.trim());
     try {
@@ -314,6 +315,8 @@
         state.tab === 'Runs' ? json('/v1/activity?' + params) : Promise.resolve(null),
       ]);
       if (sequence !== state.activitySequence) return;
+      syncContext();
+      if (context !== lastContext) { void refresh(); return; }
       const changed = JSON.stringify(state.activity) !== JSON.stringify(data);
       const previousPlan = JSON.stringify(currentPlan());
       const liveRequests = new Set((data.needs_you || []).map(item => item.gate_id || item.approval_id));
