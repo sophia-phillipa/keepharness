@@ -56,8 +56,11 @@ const path = require('node:path');
     assert.equal(await page.evaluate(()=>document.activeElement.id),'catalog-message');
     assert.match(await page.locator('#catalog-drift').innerText(), /other/); // P3 cross-project provenance
     await page.locator('#vault-binding').fill('demo-reader');
+    await page.locator('#vault-mode').selectOption('mediated');
     await page.locator('#vault-integration').fill('reader');
-    await page.locator('#vault-variable').fill('ISSUE_TOKEN');
+    assert.equal(await page.locator('#vault-mode').inputValue(),'environment');
+    assert.equal(await page.locator('#vault-mode').isDisabled(),true);
+    assert.equal(await page.locator('#vault-variable').inputValue(),'ISSUE_TOKEN');
     await page.locator('#vault-secret').fill('synthetic-secret-never-echo');
     assert.equal(await page.locator('#vault-secret').getAttribute('type'),'password');
     await page.locator('#vault-save').click();

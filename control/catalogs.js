@@ -16,7 +16,17 @@
     return check?.integrations?.find(item=>item.integration===name) || vaultState?.contracts?.find(item=>item.integration===name);
   }
   function credentialFields() {
-    const contract=declaredContract(), fields=contract && !contract.mediated ? [...new Set(Object.values(contract.environment))] : ['token'];
+    const contract=declaredContract();
+    for(const id of ['vault-mode','vault-consumer','vault-variable','vault-endpoint'])byId(id).disabled=!!contract;
+    if(contract) {
+      byId('vault-mode').value=contract.mediated?'mediated':'environment';
+      byId('vault-consumer').value=contract.consumers[0];
+      byId('vault-consumer').title='Declared consumers: '+contract.consumers.join(', ');
+      byId('vault-variable').value=Object.keys(contract.environment).join(', ');
+      byId('vault-endpoint').value=contract.endpoint||'';
+    }
+    byId('vault-mediated').hidden=byId('vault-mode').value!=='mediated';
+    const fields=contract && !contract.mediated ? [...new Set(Object.values(contract.environment))] : ['token'];
     byId('vault-fields').replaceChildren(...fields.flatMap((field,index)=>{
       const id=index===0?'vault-secret':'vault-secret-'+index, label=text('label','Secret value · '+field), input=document.createElement('input');
       label.htmlFor=id;input.id=id;input.type='password';input.required=true;input.autocomplete='new-password';input.dataset.credentialField=field;

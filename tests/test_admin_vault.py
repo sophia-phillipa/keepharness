@@ -84,3 +84,11 @@ def test_conflicting_manifest_contract_rejected_without_storing_secret(tmp_path)
     response = client.post('/api/vault', headers={'X-Harness-Admin': '1'}, json={'action': 'set', 'binding': 'reader', 'values': {'token': 'fake-conflict-test-123456'}, 'project_id': 'demo', 'catalog_id': 'demo', 'integration': 'reader', 'contract': {**declared, 'consumers': ['codex']}})
     assert response.status_code == 400
     assert not (manager.state / 'harness.secrets.json').exists()
+
+
+def test_advisory_contract_cannot_claim_mediation(tmp_path):
+    client, manager = client_for(tmp_path)
+    contract = {'integration': 'reader', 'consumers': ['codex'], 'environment': {'READER_TOKEN': 'token'}, 'precedence': 'vault', 'mediated': False}
+    response = client.post('/api/vault', headers={'X-Harness-Admin': '1'}, json={'action': 'set', 'binding': 'reader', 'values': {'token': 'fake-mediation-mismatch'}, 'project_id': 'demo', 'integration': 'reader', 'contract': contract, 'effect_contract': {'integration': 'reader', 'mediated': True}})
+    assert response.status_code == 400
+    assert not (manager.state / 'harness.secrets.json').exists()

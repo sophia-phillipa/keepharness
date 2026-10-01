@@ -100,6 +100,8 @@ async def change_vault(request, manager, data):
         available = [item for item in draft.get('integrations', []) if item['integration'] == integration] + declared
         if not available or any(item != available[0] for item in available):
             raise ValueError('Configure one unambiguous integration contract before saving credentials.')
+        if data.get('effect_contract') is not None and not available[0]['mediated']:
+            raise ValueError('This integration uses advisory credentials, not a mediated executor.')
         values = data.get('values')
         SecretVault._validate(binding, values)
         if not set(available[0]['environment'].values()) <= set(values):
