@@ -68,3 +68,34 @@ def test_pin_refuses_dirty_checkout_and_symlink_storage(repository, tmp_path):
     config = {"state_dir": str(state), "catalogs": [catalog]}
     with pytest.raises(ValueError, match="modified"):
         pins.effective_catalogs(config, {"catalogs": ["demo"], "catalog_pins": {"demo": pin}})
+
+
+def test_update_diff_includes_manifest_custom_resources_and_runtime_dependencies(
+    repository, tmp_path
+):
+    import json
+
+    catalog, first = repository
+    root = Path(catalog["root"])
+    pin = pins.pin_catalog(catalog, tmp_path / "state", first, owner=True)
+    (root / "ports").mkdir()
+    (root / "ports/task.md").write_text("Custom command")
+    (root / "requirements.txt").write_text("fixture-package==1")
+    (root / "harness.catalog.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "resources": {"command": ["ports"]},
+                "runtime": {"venv": True, "requirements": "requirements.txt"},
+            }
+        )
+    )
+    git(root, "add", ".")
+    git(root, "commit", "-qm", "manifest")
+    preview = pins.preview_update(catalog, pin, tmp_path / "state", "HEAD", owner=True, fetch=False)
+    identities = {item["resource_id"] for item in preview["diff"]}
+    assert {
+        "catalog/demo/ports/task.md",
+        "catalog/demo/requirements.txt",
+        "catalog/demo/harness.catalog.json",
+    } <= identities

@@ -11,7 +11,7 @@ class CatalogPinError(ValueError):
     pass
 
 
-def _git(root, *arguments):
+def _git(root, *arguments, strip=True):
     result = subprocess.run(
         ["git", "-c", "core.hooksPath=/dev/null", "-C", str(root), *arguments],
         capture_output=True,
@@ -20,7 +20,7 @@ def _git(root, *arguments):
     )
     if result.returncode:
         raise CatalogPinError("catalog_git_failed")
-    return result.stdout.strip()
+    return result.stdout.strip() if strip else result.stdout
 
 
 def _catalog_id(catalog):
@@ -63,19 +63,20 @@ def pin_catalog(catalog, state_dir, ref, *, owner=False):
 
 def _revisions(root):
     result = {}
-    for directory in ("agents", "commands", "skills", "rules", "context", "contexts", "workflows"):
-        base = Path(root) / directory
-        if not base.is_dir():
+    root = Path(root)
+    # Include all versioned dependencies and manifest-defined locations, not just
+    # conventional resource directories. Links are hashed as links, never followed.
+    for relative in _git(root, "ls-files", "-z", strip=False).split("\0"):
+        if not relative:
             continue
-        for path in base.rglob("*"):
-            if (
-                path.is_file()
-                and not path.is_symlink()
-                and path.resolve().is_relative_to(Path(root).resolve())
-            ):
-                result[path.relative_to(root).as_posix()] = hashlib.sha256(
-                    path.read_bytes()
-                ).hexdigest()
+        path = root / relative
+        if path.is_symlink():
+            content = os.readlink(path).encode()
+        elif path.is_file() and path.resolve().is_relative_to(root.resolve()):
+            content = path.read_bytes()
+        else:
+            continue
+        result[relative] = hashlib.sha256(content).hexdigest()
     return result
 
 
