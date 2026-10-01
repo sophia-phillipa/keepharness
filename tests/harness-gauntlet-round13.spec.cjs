@@ -64,12 +64,15 @@ async function fixture(browser,width=1280,kind='plan'){
   }
  });
  await check('A4-F2 tabbed fence selection',async()=>{
-  const f=await fixture(browser,1280,'empty'),p=f.page;
   for(const marker of ['-','1.'])for(const fence of ['```','~~~']){
-   const text=`> ${marker}\t${fence}text\n>    /reviewer example\n>    ${fence}\n/rev`;
+   const f=await fixture(browser,1280,'empty'),p=f.page;
+   const indent=marker==='-'?'    ':'       ';
+   const text=`> ${marker}\t${fence}text\n>${indent}/reviewer example\n>${indent}${fence}\n/rev`;
+   const rendered=await p.evaluate(text=>{const container=document.createElement('div');container.innerHTML=answerMarkdown.render(text);return [...container.querySelectorAll('pre code')].map(n=>n.textContent).join('\n');},text);
+   assert(rendered.includes('/reviewer example'),'Fixture example must actually render as code');
    await p.locator('#prompt').fill(text);await p.locator('#resource-menu [role=option]').first().waitFor();await p.keyboard.press('ArrowDown');await p.keyboard.press('Enter');
-   const selected=await p.evaluate(()=>selectedOccurrences().map(x=>({start:x.start,token:x.ref.token})));assert.equal(selected.at(-1).start,text.lastIndexOf('/rev'));assert((await p.locator('#prompt').inputValue()).includes('/reviewer example'));
-  }await p.close();
+   const selected=await p.evaluate(()=>selectedOccurrences().map(x=>({start:x.start,token:x.ref.token})));assert.equal(selected.length,1);assert.equal(selected[0].start,text.lastIndexOf('/rev'));assert((await p.locator('#prompt').inputValue()).includes('/reviewer example'));await p.close();
+  }
  });
  await check('A5-F1 accepted resume navigation recovery',async()=>{
   const f=await fixture(browser,1280,'recovery'),p=f.page;await f.open();await p.locator('#prompt').fill('Preserved synthetic draft');

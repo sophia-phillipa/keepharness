@@ -15,6 +15,6 @@
   "- > ```text\n  > @@review literal\n  > /review example\n  > ```\n\n/review actual",
   "> -\t```text\n>    /review example\n>    ```\n/review actual",
   "> -\t~~~text\n>    /review example\n>    ~~~\n/review actual",
-  "> 1.\t```text\n>    /review example\n>    ```\n/review actual",
-  "> 1.\t~~~text\n>    /review example\n>    ~~~\n/review actual"
+  "> 1.\t```text\n>       /review example\n>       ```\n/review actual",
+  "> 1.\t~~~text\n>       /review example\n>       ~~~\n/review actual"
 ]
