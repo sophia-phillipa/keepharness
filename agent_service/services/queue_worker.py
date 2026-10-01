@@ -254,12 +254,20 @@ async def run(service):
                         else ("provider_capacity" if lanes.get(backend, 0) >= maximum else None)
                     )
                     if reason is None:
-                        reason = service.write_ownership.acquire(
-                            row["id"],
-                            row["project"],
-                            row.get("work_item"),
-                            ownership_roots(service, row),
-                        )
+                        try:
+                            reason = service.write_ownership.acquire(
+                                row["id"],
+                                row["project"],
+                                row.get("work_item"),
+                                ownership_roots(service, row),
+                            )
+                        except (OSError, RuntimeError):
+                            reasons.pop(row["id"], None)
+                            service.write_ownership.release(row["id"])
+                            settle(
+                                service, row["id"], "failed", {"error": "project_root_unavailable"}
+                            )
+                            continue
                     if reason:
                         if reasons.get(row["id"]) != reason:
                             service.event(row["id"], "queue_wait", {"reason": reason})

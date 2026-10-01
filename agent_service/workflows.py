@@ -346,6 +346,8 @@ def validate_workflow(value, available=None, resources=None, *, retained=False):
         if not isinstance(gate, (bool, dict)):
             raise WorkflowError("workflow_invalid_gate")
         if isinstance(gate, dict):
+            if set(gate) - {"question", "options", "multi_select", "risk", "evidence"}:
+                raise WorkflowError("workflow_invalid_gate")
             if not isinstance(gate.get("question"), str) or not gate["question"].strip():
                 raise WorkflowError("workflow_invalid_gate")
             options = gate.get("options", ["continue", "skip"])
@@ -357,6 +359,7 @@ def validate_workflow(value, available=None, resources=None, *, retained=False):
             ]
             if any(
                 not isinstance(option, dict)
+                or set(option) - {"id", "label", "description"}
                 or any(
                     not isinstance(option.get(key), str) or not option[key]
                     for key in ("id", "label")
@@ -378,6 +381,27 @@ def validate_workflow(value, available=None, resources=None, *, retained=False):
             raise WorkflowError("workflow_invalid_publish")
         if "effect" in step and (not isinstance(step["effect"], dict) or not step.get("publish")):
             raise WorkflowError("workflow_invalid_effect")
+        if "effect" in step:
+            from .errors import APIError
+            from .integrations import validate_request
+
+            effect = step["effect"]
+            try:
+                validate_request(
+                    {
+                        "integration": effect.get("integration"),
+                        "operation": effect.get("operation"),
+                        "destination_allowlist": [effect.get("destination")],
+                    },
+                    effect,
+                )
+                if any(
+                    not isinstance(effect[key], str) or not effect[key].strip()
+                    for key in ("integration", "operation", "destination")
+                ):
+                    raise WorkflowError("workflow_invalid_effect")
+            except APIError:
+                raise WorkflowError("workflow_invalid_effect") from None
         for key in ("inputs", "outputs"):
             if key in step:
                 _schema(step[key])
