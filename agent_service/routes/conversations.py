@@ -35,14 +35,15 @@ async def approval(request, service, identity):
     scope = data.get("scope", "once")
     if scope not in ("once", "conversation"):
         raise APIError("invalid_approval_scope")
-    if not pending[1].done():
-        pending[1].set_result(
-            {
-                "approved": data.get("approved") is True,
-                "answers": data.get("answers", {}),
-                "scope": scope,
-            }
-        )
+    if pending[1].done():
+        raise APIError("approval_already_resolved", 409)
+    pending[1].set_result(
+        {
+            "approved": data.get("approved") is True,
+            "answers": data.get("answers", {}),
+            "scope": scope,
+        }
+    )
     return JSONResponse({"resolved": True})
 
 

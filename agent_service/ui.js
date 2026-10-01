@@ -949,7 +949,7 @@ const userErrors = {
   maestro_coordinator_workspace_denied: "The configured coordinator needs Read and Upload access to this workspace. Check its permissions.",
   invocation_model_or_effort_mismatch: "This resource requires a different model or effort. Select its execution settings before submitting.",
   invocation_backend_mismatch: "This resource requires a different provider. Select its provider before submitting.",
-  local_project_hardlink_denied: "A writable folder contains hardlinked files. Use a folder without hardlinks or read-only access.",
+  local_project_hardlink_denied: "A folder contains hardlinks that cannot be safely isolated. Remove the aliases or choose another folder.",
   maestro_coordinator_unavailable: "The configured coordinator is unavailable for this project. Check its model and effort.",
   workflow_already_exists: "A workflow with this name already exists. Choose another name.",
   workflow_backend_mismatch: "The workflow backend must match its invocation.",
@@ -1214,6 +1214,7 @@ const userErrors = {
   invalid_gate_options:
     "The provider supplied invalid answer choices. Revise the request and try again.",
   invalid_gate_choice: "That answer is no longer available. Choose again.",
+  approval_already_resolved: "This approval was already decided in another view. Refresh to see the accepted decision.",
   gate_already_resolved: "This question was already answered.",
   gate_expired: "This question expired. Ask the agent to present it again.",
   gate_invalidated:
@@ -6978,7 +6979,11 @@ function showApproval(data) {
         if (hadFocus) $("prompt").focus({ preventScroll: true });
         if (box.dataset.state !== "expired") box.remove();
       } catch (e) {
-        if (e.code === "approval_expired") expireApproval(data.approval_id);
+        if (e.code === "approval_already_resolved") {
+          progress.textContent = e.message;
+          box.querySelectorAll("button,input").forEach(node => node.remove());
+          if (hadFocus) $("prompt").focus({ preventScroll: true });
+        } else if (e.code === "approval_expired") expireApproval(data.approval_id);
         else if (box.dataset.state !== "expired") progress.textContent = "Couldn't confirm your decision. " + e.message;
       } finally {
         deciding = false;

@@ -12,8 +12,8 @@ from control.product import PRODUCT
 ISOLATION_VERSION = "local-bwrap-v3"
 
 
-def reject_writable_hardlinks(root):
-    """A writable bind cannot isolate pre-existing aliases to excluded inodes."""
+def reject_writable_hardlinks(root, private_inodes=None):
+    """A bind cannot isolate pre-existing aliases to excluded private inodes."""
 
     def failed(error):
         raise ToolError("local_project_scope_invalid") from error
@@ -21,7 +21,10 @@ def reject_writable_hardlinks(root):
     for directory, _, files in os.walk(root, followlinks=False, onerror=failed):
         for name in files:
             info = (Path(directory) / name).lstat()
-            if stat.S_ISREG(info.st_mode) and info.st_nlink > 1:
+            if (
+                stat.S_ISREG(info.st_mode) and info.st_nlink > 1
+                and (private_inodes is None or (info.st_dev, info.st_ino) in private_inodes)
+            ):
                 raise ToolError("local_project_hardlink_denied")
 
 
@@ -83,6 +86,25 @@ def wrap(command, session, cwd, project, environment=None):
     host = binary.with_name("codex-code-mode-host")
     if host.is_file():
         args += ["--ro-bind", str(host), "/codex-code-mode-host"]
+    # Runtime credentials/backups now live inside the checkout, not in model context.
+    private_runtime = (
+        Path(
+            os.environ.get(PRODUCT.env_prefix + "_ROOT", str(Path(__file__).resolve().parents[2]))
+        ).resolve()
+        / "local_ai"
+    )
+    private_inodes = set()
+    for name in ("config", "migration-backup"):
+        hidden = (private_runtime / name).resolve()
+        if hidden.is_dir():
+            def failed(error):
+                raise ToolError("local_project_scope_invalid") from error
+
+            for directory, _, files in os.walk(hidden, followlinks=False, onerror=failed):
+                for filename in files:
+                    info = (Path(directory) / filename).lstat()
+                    if stat.S_ISREG(info.st_mode) and info.st_nlink > 1:
+                        private_inodes.add((info.st_dev, info.st_ino))
     permissions = project.get("permissions", {})
     if permissions.get("read"):
         roots = [project.get("root"), *project.get("additional_roots", [])]
@@ -91,22 +113,16 @@ def wrap(command, session, cwd, project, environment=None):
             # Mounting broad ancestors would expose private state or the host home.
             if not root.is_dir() or root == Path("/") or session.is_relative_to(root):
                 raise ToolError("local_project_scope_invalid")
-            if permissions.get("write"):
-                reject_writable_hardlinks(root)
+            reject_writable_hardlinks(
+                root, None if permissions.get("write") else private_inodes
+            )
             args += [
                 "--bind" if permissions.get("write") else "--ro-bind",
                 str(root),
                 str(root),
             ]
-    # Runtime credentials/backups now live inside the checkout, not in model context.
-    private_runtime = (
-        Path(
-            os.environ.get(PRODUCT.env_prefix + "_ROOT", str(Path(__file__).resolve().parents[2]))
-        ).resolve()
-        / "local_ai"
-    )
     for name in ("config", "migration-backup"):
-        hidden = private_runtime / name
+        hidden = (private_runtime / name).resolve()
         if not hidden.is_dir():
             continue
         for value in [project.get("root"), *project.get("additional_roots", [])]:

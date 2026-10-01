@@ -824,7 +824,7 @@
         await refresh();
       } catch (failure) {
         feedback.textContent = failure.message;
-        if (['approval_expired', 'gate_expired', 'gate_invalidated', 'gate_already_resolved'].includes(failure.code)) await refresh();
+        if (['approval_already_resolved', 'approval_expired', 'gate_expired', 'gate_invalidated', 'gate_already_resolved'].includes(failure.code)) await refresh();
         else { fields.forEach(node => { node.disabled = false; }); fields.find(node => node.tagName === 'BUTTON')?.focus(); }
       } finally { deciding = false; }
     };
