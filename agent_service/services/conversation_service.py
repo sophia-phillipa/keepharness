@@ -238,6 +238,12 @@ class ConversationService:
             backend, model = self.active_executors.get(
                 row["id"], (payload.get("backend"), payload.get("model"))
             )
+            if backend in ("maestro", "auto"):
+                try:
+                    selected = maestro.coordinator(self.config, row["project"])
+                    backend, model = selected["backend"], selected["model"]
+                except tools.ToolError:
+                    pass
             provider = self.config.get("services", {}).get(backend, {})
             removed = not provider.get("enabled") or model not in provider.get("models", [])
             reason = "model_removed" if removed else "configuration_changed"
@@ -894,8 +900,6 @@ class ConversationService:
         maestro.ensure_recovery_safe(self, job_id)
         plan = maestro.saved_plan(self, job_id)
         from_step = changes.get("from_step", 1)
-        if type(from_step) is not int or not 1 <= from_step <= len(plan["steps"]):
-            raise APIError("invalid_workflow_step")
         if not rerun and "from_step" in changes:
             raise APIError("invalid_workflow_recovery")
         data = json.loads(row["payload"])
@@ -911,6 +915,8 @@ class ConversationService:
             )
         elif plan.get("resource_id"):
             plan = workflows.resolve_workflow(self.config, row["project"], plan["resource_id"])
+        if type(from_step) is not int or not 1 <= from_step <= len(plan["steps"]):
+            raise APIError("invalid_workflow_step")
         data.update({key: value for key, value in changes.items() if key != "from_step"})
         recovery = {
             "_declared_workflow": maestro.declaration(plan),
@@ -972,8 +978,13 @@ class ConversationService:
             raise APIError("invalid_internal_field")
         if "maestro_plan_policy" in data and data["maestro_plan_policy"] not in ("review", "auto"):
             raise APIError("invalid_maestro_plan_policy")
-        if "workflow_inputs" in data and not isinstance(data["workflow_inputs"], dict):
-            raise APIError("invalid_workflow_inputs")
+        if "workflow_inputs" in data:
+            try:
+                if not isinstance(data["workflow_inputs"], dict):
+                    raise ValueError
+                json.dumps(data["workflow_inputs"], allow_nan=False)
+            except (TypeError, ValueError):
+                raise APIError("invalid_workflow_inputs") from None
         if "access_mode" not in data and data.get("parent_job_id"):
             data["access_mode"] = json.loads(
                 self.job(identity, data["parent_job_id"])["payload"]
@@ -1907,6 +1918,17 @@ class ConversationService:
             backend_config = {**backend_config, "integrations": [], "unrestricted": False}
         return project_config, backend_config, permissions
 
+    def expire_approval(self, job_id, expiration_limit):
+        """Apply the consecutive human-wait limit across approval transports."""
+        count = self.approval_expirations.get(job_id, 0) + 1
+        self.approval_expirations[job_id] = count
+        if count >= expiration_limit:
+            self.cancellation_reasons[job_id] = "approval_expiration_limit"
+            task = self.job_tasks.get(job_id)
+            if task is not None and task is not asyncio.current_task():
+                task.cancel()
+            raise asyncio.CancelledError
+
     def _approval_handler(self, plan, progress, permissions, backend_config):
         """The native approval callback: remembered rules, access mode, then the owner."""
         row, data, backend = plan.row, plan.data, plan.backend
@@ -1982,14 +2004,7 @@ class ConversationService:
                     except TimeoutError:
                         expired = True
                         progress("approval_expired", {"approval_id": aid})
-                        count = self.approval_expirations.get(row["id"], 0) + 1
-                        self.approval_expirations[row["id"]] = count
-                        if count >= expiration_limit:
-                            self.cancellation_reasons[row["id"]] = "approval_expiration_limit"
-                            task = self.job_tasks.get(row["id"])
-                            if task is not None and task is not asyncio.current_task():
-                                task.cancel()
-                            raise asyncio.CancelledError
+                        self.expire_approval(row["id"], expiration_limit)
                         return {"approved": False, "reason": "approval_expired"}
                 self.approval_expirations.pop(row["id"], None)
                 if (

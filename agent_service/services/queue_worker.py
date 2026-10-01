@@ -12,7 +12,7 @@ import time
 import traceback
 from pathlib import Path
 
-from .. import tools
+from .. import maestro, tools
 from ..config import TERMINAL
 from ..conversation_context import context_overflow
 from ..errors import APIError
@@ -149,6 +149,19 @@ def ownership_roots(service, row):
         roots.extend(
             service.config.get("local", {}).get("model_roots", {}).get(data.get("model"), [])
         )
+    if (
+        data.get("backend") in ("maestro", "auto")
+        or data.get("_declared_workflow")
+        or len(data.get("invocations", [])) > 1
+        or any(item.get("kind") == "workflow" for item in data.get("invocations", []))
+    ):
+        for candidate in maestro.candidates(service.config, row["project"]):
+            if candidate["backend"] == "local":
+                roots.extend(
+                    service.config.get("local", {})
+                    .get("model_roots", {})
+                    .get(candidate["model"], [])
+                )
     state = service.config.get("control_state_dir", service.config["state_dir"])
     roots.extend(
         Path(state) / "catalog_runtime" / catalog_id for catalog_id in project.get("catalogs", [])
