@@ -2506,7 +2506,7 @@ body {
   padding: 0 12px;
   background: var(--th-bg);
   border-bottom: 1px solid var(--th-border);
-  z-index: 15;
+  z-index: 40;
 }
 #app-topbar #menu {
   display: grid;
@@ -2802,9 +2802,9 @@ main > header > #project {
 .file-chevron {
   display: grid;
   place-items: center;
-  width: 18px;
+  width: 24px;
   height: 22px;
-  flex: 0 0 18px;
+  flex: 0 0 24px;
   padding: 0;
   border: 0;
   background: transparent;

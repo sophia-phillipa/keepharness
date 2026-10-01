@@ -946,6 +946,10 @@ const userErrors = {
   invalid_workflow_inputs: "Workflow inputs must be a JSON object.",
   invalid_workflow_recovery: "Use resume or re-run from a valid step with optional workflow inputs.",
   invalid_workflow_step: "Choose a step number from this workflow.",
+  maestro_coordinator_workspace_denied: "The configured coordinator needs Read and Upload access to this workspace. Check its permissions.",
+  invocation_model_or_effort_mismatch: "This resource requires a different model or effort. Select its execution settings before submitting.",
+  invocation_backend_mismatch: "This resource requires a different provider. Select its provider before submitting.",
+  local_project_hardlink_denied: "A writable folder contains hardlinked files. Use a folder without hardlinks or read-only access.",
   maestro_coordinator_unavailable: "The configured coordinator is unavailable for this project. Check its model and effort.",
   workflow_already_exists: "A workflow with this name already exists. Choose another name.",
   workflow_backend_mismatch: "The workflow backend must match its invocation.",
@@ -1877,9 +1881,12 @@ function conversationUpdated(c = {}) {
   const parsed = typeof raw === "string" ? Date.parse(raw) / 1000 : 0;
   return Number.isFinite(parsed) ? parsed : 0;
 }
+function waitReasonLabel(reason) {
+  return ({ human_approval: "Waiting for your approval", conversation_parent: "Waiting for the previous response", queue: "Waiting in the queue" })[reason] || reason;
+}
 function conversationSummary(c = {}) {
   if (c.live_wait_reason || c.wait_reason)
-    return c.live_wait_reason || c.wait_reason;
+    return waitReasonLabel(c.live_wait_reason || c.wait_reason);
   const state = conversationState(c);
   if (state === "needs-you") return "Waiting for your approval";
   if (state === "running")
@@ -2366,6 +2373,7 @@ function newConversation(title = "New Conversation", projectId = $("project").va
     kept = files.filter((f) => f.project === $("project").value);
   conversationLoad++;
   streamDisconnected = false;
+  if (document.activeElement === $("resume-execution")) $("prompt").focus({ preventScroll: true });
   $("resume-execution").hidden = true;
   restoreSelection();
   clearSubmission();
@@ -3715,6 +3723,7 @@ async function watchQueuedTurn() {
 }
 async function watch(retries = 0) {
   streamDisconnected = false;
+  if (document.activeElement === $("resume-execution")) $("prompt").focus({ preventScroll: true });
   $("resume-execution").hidden = true;
   if (controller) controller.abort();
   controller = new AbortController();
@@ -4917,6 +4926,7 @@ $("dropzone").ondrop = (e) => {
 $("quota-toggle").onclick = () => setQuotaOpen($("quota-panel").hidden);
 $("quota-refresh").onclick = quota;
 function toggleSidebar() {
+  window.runConsole?.closeForPanel();
   if (matchMedia("(max-width:620px)").matches) {
     $("sidebar").classList.toggle("open");
   } else {
@@ -5451,6 +5461,27 @@ function restoreView(saved) {
   updateComposer();
 }
 const draftViews = new Map();
+const unsavedDrafts = new Map();
+let latestDraftSnapshot = null, draftRetry = 0;
+function flushDrafts() {
+  clearTimeout(draftRetry);
+  try {
+    for (const [key, snapshot] of unsavedDrafts) sessionStorage.setItem(key, snapshot);
+    if (latestDraftSnapshot !== null) sessionStorage.setItem("remote-view", latestDraftSnapshot);
+    unsavedDrafts.clear();
+    latestDraftSnapshot = null;
+  } catch {
+    draftRetry = setTimeout(flushDrafts, 2000);
+  }
+  const dirty = unsavedDrafts.size > 0 || latestDraftSnapshot !== null;
+  $("draft-storage-warning").hidden = !dirty;
+  return !dirty;
+}
+window.addEventListener("beforeunload", event => {
+  if (!flushDrafts()) { event.preventDefault(); event.returnValue = ""; }
+});
+window.addEventListener("pagehide", flushDrafts);
+document.addEventListener("visibilitychange", () => { if (document.hidden) flushDrafts(); });
 function readDraft(key) {
   try { return JSON.parse(draftViews.get(key) || sessionStorage.getItem(key) || "null"); }
   catch { return null; }
@@ -5475,9 +5506,9 @@ function saveView() {
       });
     const key = "conversation-draft:" + (conversation || "new:" + $("project").value);
     draftViews.set(key, snapshot);
-    sessionStorage.setItem("remote-view", snapshot);
-    sessionStorage.setItem(key, snapshot);
-    return true;
+    unsavedDrafts.set(key, snapshot);
+    latestDraftSnapshot = snapshot;
+    return flushDrafts();
   } catch {
     return false;
   }
@@ -5618,6 +5649,7 @@ function syncQuotaDock() {
   updateHeaderToastOffset();
 }
 function setPanelOpen(open, persist = true) {
+  if (open && persist) window.runConsole?.closeForPanel();
   $("activity-panel").hidden = !open;
   const overlay = open && innerWidth < 1000;
   const panel = $("activity-panel");
@@ -6672,8 +6704,8 @@ function finishGate(id, state, data = {}) {
     renderPlanOutcome(box);
     return;
   }
-  if (state === "resolved" && data.choice !== undefined) {
-    const choices = Array.isArray(data.choice) ? data.choice : [data.choice];
+  if (state === "resolved") {
+    const choices = data.choice === undefined ? [] : Array.isArray(data.choice) ? data.choice : [data.choice];
     box.querySelectorAll("input").forEach(input => { input.checked = choices.includes(input.value); });
   }
   box.querySelectorAll("button,input").forEach(node => { node.disabled = true; });
@@ -6683,6 +6715,11 @@ function finishGate(id, state, data = {}) {
     : box.dataset.publish === "true" ? (state === "invalidated" ? "Publication approval closed" : "Publication approval expired")
     : state === "invalidated" ? "Question closed" : "Question expired";
   const note = box.querySelector('[role="status"]');
+  if (state === "resolved" && data.choice === undefined && box.dataset.publish !== "true") {
+    title.textContent = "Answered in another session";
+    note.textContent = "The recorded answer is not available yet. Reload to see it.";
+    return;
+  }
   note.textContent = state === "resolved"
     ? (box.dataset.publish === "true" ? (data.choice === "deny" ? "Publication denied" : data.choice === "approve" ? "Publication approved" : "Publication decision recorded") : "Answered") + (data.resolved_by ? " by " + data.resolved_by : "") + "."
     : box.dataset.publish === "true" ? "This publication approval is no longer active; ask again for a fresh approval before publishing."
@@ -6742,7 +6779,7 @@ function showGate(data) {
     note.textContent = "Sending your choice…";
     try {
       const result = await post("/v1/approvals/" + data.gate_id, { choice: data.multi_select ? choices : choices[0] });
-      finishGate(data.gate_id, "resolved", result);
+      finishGate(data.gate_id, "resolved", { choice: data.multi_select ? choices : choices[0], ...result });
     } catch (error) {
       if (error.code === "gate_already_resolved") finishGate(data.gate_id, "resolved");
       else if (["gate_invalidated", "gate_expired"].includes(error.code)) finishGate(data.gate_id, error.code.slice(5));

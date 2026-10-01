@@ -111,14 +111,14 @@ async function routeVisual(route, options = {}) {
   }
   else if (url.pathname === "/v1/catalog") data = { agents: [], skills: [], warnings: [] };
   else if (url.pathname === "/v1/usage") data = { available: false };
-  else if (url.pathname === "/v1/version") data = { version: "0.13.3", build: "visual-fixture" };
+  else if (url.pathname === "/v1/version") data = { version: "0.13.4", build: "visual-fixture" };
   else if (url.pathname.startsWith("/v1/approvals/") && method === "POST") data = { state: "resolved", choice: route.request().postDataJSON()?.choice };
   return route.fulfill({ json: data });
 }
 
 async function mountVisual(page, options = {}) {
   await page.addInitScript(() => {
-    localStorage.setItem("tail-harness-tour-seen", "0.13.3");
+    localStorage.setItem("tail-harness-tour-seen", "0.13.4");
     localStorage.setItem("activity-open", "1");
   });
   await page.route("http://visual.test/**", route => routeVisual(route, options));

@@ -678,7 +678,9 @@ class ConversationService:
                 backend, data["execution_mode"], bool(data.get("_maestro_stage"))
             )
         if backend == "maestro":
-            maestro.coordinator(self.config, data.get("project_id"))
+            maestro.coordinator(
+                self.config, data.get("project_id"), workspace=bool(data.get("workspace_id"))
+            )
             available = maestro.candidates(
                 self.config,
                 data.get("project_id"),
@@ -854,6 +856,23 @@ class ConversationService:
                 normalized = values
             if normalized:
                 data["invocations"] = [value.to_dict() for value in normalized]
+                if (
+                    len(normalized) == 1
+                    and normalized[0].kind != "workflow"
+                    and normalized[0].requested_backend
+                    and normalized[0].requested_backend != data["backend"]
+                ):
+                    raise invocations.InvocationError("invocation_backend_mismatch")
+                if len(normalized) == 1 and normalized[0].kind != "workflow":
+                    item = next(
+                        item
+                        for item in selected
+                        if item.get("resource_id", item["id"]) == normalized[0].resource_id
+                    )
+                    if any(
+                        item.get(key) and item[key] != data.get(key) for key in ("model", "effort")
+                    ):
+                        raise invocations.InvocationError("invocation_model_or_effort_mismatch")
                 if len(normalized) > 1:
                     maestro.declared_plan(self.config, data, selected)
             return selected
@@ -906,7 +925,10 @@ class ConversationService:
 
         plan = maestro.saved_plan(self, row["id"])
         data = json.loads(row["payload"])
-        data["_checkpoint_sources"] = maestro.input_sources(self, row, data)
+        try:
+            data["_checkpoint_sources"] = maestro.input_sources(self, row, data)
+        except (APIError, tools.ToolError, OSError, ValueError, TypeError):
+            return 0
         checkpoints = Checkpoints(self.root, row["id"], plan, data)
         prior = []
         for index in range(1, len(plan["steps"]) + 1):
@@ -2024,17 +2046,19 @@ class ConversationService:
                 raise ValueError("invalid_approval_max_consecutive_expirations")
             expired = False
             self.approvals[aid] = (row["id"], future)
-            progress(
-                "approval_required",
-                {
-                    "approval_id": aid,
-                    "kind": kind,
-                    "request": params,
-                    "can_remember": bool(fingerprint) and mode != "read_only",
-                    "expires_at": time.time() + wait_limit,
-                },
-            )
+            opened = False
             try:
+                progress(
+                    "approval_required",
+                    {
+                        "approval_id": aid,
+                        "kind": kind,
+                        "request": params,
+                        "can_remember": bool(fingerprint) and mode != "read_only",
+                        "expires_at": time.time() + wait_limit,
+                    },
+                )
+                opened = True
                 budget = self.runtime_budgets.get(row["id"])
                 with budget.human_wait() if budget is not None else nullcontext():
                     try:
@@ -2056,7 +2080,9 @@ class ConversationService:
                 return reply
             finally:
                 self.approvals.pop(aid, None)
-                if not expired:
+                if not future.done():
+                    future.cancel()
+                if opened and not expired:
                     progress("approval_resolved", {"approval_id": aid})
 
         return approve

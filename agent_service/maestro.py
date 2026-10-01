@@ -106,7 +106,7 @@ def candidates(config, project, uploads=False):
     return result
 
 
-def coordinator(config, project):
+def coordinator(config, project, *, workspace=False):
     if config.get("maestro_enabled", True) is not True:
         raise ToolError("maestro_disabled")
     configured = (
@@ -135,6 +135,8 @@ def coordinator(config, project):
     )
     if effort not in selected["efforts"]:
         raise ToolError("maestro_coordinator_unavailable")
+    if workspace and not all(selected["permissions"].get(key) for key in ("read", "upload")):
+        raise ToolError("maestro_coordinator_workspace_denied")
     return {**selected, "effort": effort}
 
 
@@ -190,7 +192,7 @@ async def plan(service, row, data):
         available = [m for m in available if m["permissions"].get("read")]
     if not available:
         raise ToolError("maestro_no_eligible_agents")
-    lead = coordinator(service.config, row["project"])
+    lead = coordinator(service.config, row["project"], workspace=bool(data.get("workspace_id")))
     manifest = []
     if data.get("workspace_id"):
         record = service.workspace(

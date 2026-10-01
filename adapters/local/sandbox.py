@@ -2,13 +2,27 @@
 
 import os
 import shutil
+import stat
 import sys
 from pathlib import Path
 
 from agent_service.tools import ToolError
 from control.product import PRODUCT
 
-ISOLATION_VERSION = "local-bwrap-v2"
+ISOLATION_VERSION = "local-bwrap-v3"
+
+
+def reject_writable_hardlinks(root):
+    """A writable bind cannot isolate pre-existing aliases to excluded inodes."""
+
+    def failed(error):
+        raise ToolError("local_project_scope_invalid") from error
+
+    for directory, _, files in os.walk(root, followlinks=False, onerror=failed):
+        for name in files:
+            info = (Path(directory) / name).lstat()
+            if stat.S_ISREG(info.st_mode) and info.st_nlink > 1:
+                raise ToolError("local_project_hardlink_denied")
 
 
 def wrap(command, session, cwd, project, environment=None):
@@ -20,6 +34,7 @@ def wrap(command, session, cwd, project, environment=None):
         raise ToolError("local_cli_binary_unavailable")
     session = Path(session).resolve()
     cwd = Path(cwd).resolve()
+    reject_writable_hardlinks(session)
     private = session / "agent-home"
     private.mkdir(exist_ok=True, mode=0o700)
     codex_home = private / ".codex"
@@ -76,6 +91,8 @@ def wrap(command, session, cwd, project, environment=None):
             # Mounting broad ancestors would expose private state or the host home.
             if not root.is_dir() or root == Path("/") or session.is_relative_to(root):
                 raise ToolError("local_project_scope_invalid")
+            if permissions.get("write"):
+                reject_writable_hardlinks(root)
             args += [
                 "--bind" if permissions.get("write") else "--ro-bind",
                 str(root),

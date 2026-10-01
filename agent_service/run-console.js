@@ -76,7 +76,7 @@
   });
   const close = button('Collapse run console', () => toggle(false));
   close.classList.add('run-console-close');
-  let consoleHeight = Math.max(340, innerHeight * .45), restoreHeight = consoleHeight, maximized = false;
+  let consoleHeight = Math.max(340, innerHeight * .45), restoreHeight = consoleHeight, maximized = false, manuallyResized = false;
   try { const saved = Number(localStorage.getItem('run-console-height')); if (saved >= 190) consoleHeight = saved; } catch {}
   const maximize = button('Maximize', () => {
     if (!maximized) restoreHeight = consoleHeight;
@@ -107,7 +107,7 @@
   toggleButton.setAttribute('aria-controls', drawer.id);
   toggleButton.setAttribute('aria-expanded', 'false');
   toggleButton.title = 'Open run console (Ctrl/⌘+J)';
-  const inboxButton = button('Needs you (0)', () => openInbox());
+  const inboxButton = button('Needs you (0)', () => openInbox('request', inboxButton));
   inboxButton.id = 'needs-you-toggle';
   inboxButton.setAttribute('aria-haspopup', 'dialog');
   const shortcut = el('span', 'Ctrl J', 'run-status-shortcut');
@@ -131,9 +131,9 @@
   document.body.append(inbox);
   inbox.addEventListener('close', () => {
     const fallback = document.getElementById('attention-bell');
-    (inboxButton.checkVisibility() ? inboxButton : fallback)?.focus();
+    (inboxOpener?.isConnected && inboxOpener.checkVisibility() ? inboxOpener : inboxButton.checkVisibility() ? inboxButton : fallback)?.focus();
   });
-  let previousFocus, refreshTimer, lastContext = '', inboxSignature = '';
+  let inboxOpener, previousFocus, refreshTimer, lastContext = '', inboxSignature = '';
   const projectFilter = select('console-project', []);
   const workFilter = input('console-work-item');
   const stateFilter = select('console-state', [['', 'All states'], ...['running', 'queued', 'completed', 'failed', 'cancelled', 'interrupted'].map(v => [v, v])]);
@@ -172,9 +172,28 @@
     if (!values.length) return 'Not recorded';
     return values.every(value => typeof value === 'string') ? values.join('') : values;
   }
+  const coveredContent = new Map();
+  function syncConsoleModal() {
+    const modal = !drawer.hidden && innerWidth <= 700;
+    drawer.setAttribute('role', modal ? 'dialog' : 'region');
+    if (modal) {
+      drawer.setAttribute('aria-modal', 'true');
+      for (const node of [...main.children, document.getElementById('sidebar'), document.getElementById('activity-panel')]) {
+        if (!node || node === drawer || node === strip) continue;
+        if (!coveredContent.has(node)) coveredContent.set(node, node.inert);
+        node.inert = true;
+      }
+      if (document.activeElement.closest('[inert]')) tabButtons.find(node => node.dataset.tab === state.tab)?.focus();
+    } else {
+      drawer.removeAttribute('aria-modal');
+      for (const [node, inert] of coveredContent) node.inert = inert;
+      coveredContent.clear();
+    }
+  }
   function toggle(open) {
     if (open && drawer.hidden) previousFocus = document.activeElement;
     drawer.hidden = !open;
+    syncConsoleModal();
     toggleButton.setAttribute('aria-expanded', String(open));
     stripAction.textContent = open ? 'Collapse' : 'Expand';
     stripAction.setAttribute('aria-expanded', String(open));
@@ -213,6 +232,12 @@
   }
   function resize(height, persist = true) {
     const max = consoleLimit(), min = Math.min(340, max);
+    if (persist) manuallyResized = true;
+    if (!manuallyResized && currentPlan() && !state.editPlan && body.querySelector('.run-plan-actions')) {
+      const end = body.lastElementChild;
+      const contentHeight = end.getBoundingClientRect().bottom + body.scrollTop - body.getBoundingClientRect().top + parseFloat(getComputedStyle(body).paddingBottom) + parseFloat(getComputedStyle(end).marginBottom) + drawer.getBoundingClientRect().height - body.clientHeight;
+      height = Math.max(height, Math.ceil(contentHeight));
+    }
     const next = Math.round(Math.max(min, Math.min(max, height)));
     drawer.style.setProperty('--th-console-height', next + 'px');
     resizer.setAttribute('aria-valuenow', String(next));
@@ -221,7 +246,7 @@
     if (!maximized) consoleHeight = next;
     if (persist && !maximized) try { localStorage.setItem('run-console-height', String(next)); } catch {}
   }
-  const fitConsole = () => { if (!drawer.hidden) resize(maximized ? consoleLimit() : consoleHeight, false); };
+  const fitConsole = () => { syncConsoleModal(); if (!drawer.hidden) resize(maximized ? consoleLimit() : consoleHeight, false); };
   window.addEventListener('resize', fitConsole);
   const composerObserver = new ResizeObserver(fitConsole);
   composerObserver.observe(main.querySelector('.composer-area'));
@@ -399,6 +424,7 @@
   function renderSpans() {
     const focusedId = body.contains(document.activeElement) ? document.activeElement.id : '';
     const scrollTop = body.scrollTop;
+    const scrollLeft = body.querySelector('.run-span-list')?.scrollLeft || 0;
     body.replaceChildren();
     const pendingPlan = currentPlan();
     if (pendingPlan && state.editPlan) body.append(planApproval(pendingPlan));
@@ -422,7 +448,8 @@
       explanation.append(action);
       actions.append(explanation);
     }
-    summary.append(actions); body.append(summary);
+    summary.append(actions);
+    if (!pendingPlan || state.editPlan) body.append(summary);
     const split = el('div', null, 'run-span-split');
     const list = el('div', null, 'run-span-list');
     if (state.tab === 'Timeline') {
@@ -466,11 +493,14 @@
     if (pendingPlan && !state.editPlan) body.append(planApproval(pendingPlan));
     if (focusedId) document.getElementById(focusedId)?.focus({ preventScroll: true });
     body.scrollTop = scrollTop;
+    list.scrollLeft = scrollLeft;
+    fitConsole();
   }
   function planApproval(request) {
     const bar = el('section', null, 'run-plan-approval');
     bar.dataset.tour = 'maestro-plan';
-    bar.append(el('strong', 'Maestro plan · Awaiting approval'), el('p', 'Edit the plan JSON if needed. Nothing runs until you approve.'));
+    bar.append(el('strong', 'Maestro plan · Awaiting approval'));
+    if (state.editPlan) bar.append(el('p', 'Edit the plan JSON if needed. Nothing runs until you approve.'));
     const editor = el('textarea');
     editor.setAttribute('aria-label', 'Editable Maestro plan');
     editor.value = planDrafts.get(request.gate_id) ?? JSON.stringify({ steps: request.plan.steps.map(step => Object.fromEntries(
@@ -655,7 +685,7 @@
       }));
       const work = el('td', item.work_item || '—');
       work.append(button('Tag work item', () => tagWorkItem(item, work)));
-      row.append(name, el('td', item.state + (item.wait_reason ? ' · ' + item.wait_reason : '')), el('td', [item.backend, item.model].filter(Boolean).join(' / ')), work);
+      row.append(name, el('td', item.state + (item.wait_reason ? ' · ' + waitReasonLabel(item.wait_reason) : '')), el('td', [item.backend, item.model].filter(Boolean).join(' / ')), work);
       tbody.append(row);
     }
     table.append(tbody);
@@ -691,7 +721,8 @@
     }
     if (!body.children.length) body.append(el('p', 'No configured agents are available.'));
   }
-  async function openInbox(filter = 'request') {
+  async function openInbox(filter = 'request', opener = document.getElementById('attention-bell')) {
+    if (!inbox.open) inboxOpener = opener;
     state.attentionFilter = filter;
     inboxTitle.textContent = { complete: 'Completed runs', request: 'Needs you', error: 'Run errors' }[filter] || 'Needs you';
     inbox.showModal();
@@ -700,6 +731,7 @@
   }
   function renderInbox() {
     if (state.attentionFilter !== 'request') {
+      inboxSignature = '';
       const states = state.attentionFilter === 'complete' ? ['completed'] : ['failed', 'cancelled', 'interrupted'];
       const jobs = state.activity.jobs.filter(item => states.includes(item.state));
       inboxList.replaceChildren(...jobs.map(item => {
@@ -740,14 +772,31 @@
     const choices = [];
     const questions = [];
     const publish = item.publish && item.effect_id;
-    const isGate = item.kind === 'gate' || item.kind === 'publish';
+    const isGate = item.kind === 'gate' || item.kind === 'publish' || item.kind === 'maestro_plan';
+    if ((item.approval_kind === 'maestro_plan' || item.kind === 'maestro_plan') && item.plan?.steps) {
+      const steps = el('ol');
+      for (const step of item.plan.steps) {
+        const row = el('li');
+        row.append(el('strong', step.role), el('p', step.task), el('p', [step.backend, step.model, step.effort].filter(Boolean).join(' · ')));
+        if (step.reason) row.append(el('p', step.reason));
+        steps.append(row);
+      }
+      card.append(steps);
+    }
     if (publish) appendPublishEvidence(card, item);
     else if (isGate) {
       const group = el('fieldset'); group.append(el('legend', item.multi_select ? 'Choose options' : 'Choose one option'));
       for (const option of item.options || []) {
         const choice = input('needs-' + id + '-' + option.id, item.multi_select ? 'checkbox' : 'radio');
         choice.name = 'needs-' + id; choice.value = option.id; choices.push(choice);
-        group.append(field(option.label || option.id, choice));
+        const label = field(option.label || option.id, choice);
+        if (option.description) {
+          const description = el('small', option.description);
+          description.id = choice.id + '-description';
+          choice.setAttribute('aria-describedby', description.id);
+          label.append(description);
+        }
+        group.append(label);
       }
       card.append(group);
       if (item.risk || item.publish) card.append(el('p', [item.risk && 'Risk: ' + item.risk, item.publish && 'Publication approval'].filter(Boolean).join(' · ')));
@@ -796,6 +845,7 @@
     return card;
   }
   window.runConsole = {
+    closeForPanel() { if (innerWidth <= 700 && !drawer.hidden) toggle(false); },
     getActivity() { return state.activity; },
     async openRun(id) { syncContext(); toggle(true); setTab('Pipeline'); await chooseRun(id); },
     openAttention(filter) { void openInbox(filter); },
