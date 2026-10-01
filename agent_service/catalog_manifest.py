@@ -6,6 +6,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import venv
 from pathlib import Path
 
@@ -156,6 +157,13 @@ def _runtime_options(root, manifest, state_dir, catalog_id):
     }
 
 
+def _dependency_stamp(runtime_root):
+    stamp = runtime_root / "requirements.sha256"
+    if stamp.is_symlink() or (stamp.exists() and not stamp.is_file()):
+        raise ValueError("invalid_catalog_dependency_stamp")
+    return stamp
+
+
 def preflight(root, manifest, state_dir, catalog_id):
     options = _runtime_options(root, manifest, state_dir, catalog_id)
     problems = []
@@ -177,7 +185,7 @@ def preflight(root, manifest, state_dir, catalog_id):
             import hashlib
 
             path = _inside(root, requirements)
-            stamp = python_home.parent / "requirements.sha256"
+            stamp = _dependency_stamp(python_home.parent)
             digest = hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else ""
             if not digest or not stamp.is_file() or stamp.read_text() != digest:
                 problems.append("Provision the catalog Python dependencies in Admin.")
@@ -213,6 +221,7 @@ def materialize_runtime(root, manifest, state_dir, catalog_id):
             import hashlib
 
             path = _inside(root, requirements)
+            stamp = _dependency_stamp(python_home.parent)
             subprocess.run(
                 [
                     sys.executable,
@@ -229,9 +238,15 @@ def materialize_runtime(root, manifest, state_dir, catalog_id):
                 capture_output=True,
                 timeout=300,
             )
-            (python_home.parent / "requirements.sha256").write_text(
-                hashlib.sha256(path.read_bytes()).hexdigest()
+            descriptor, temporary = tempfile.mkstemp(
+                prefix=".requirements-", dir=python_home.parent
             )
+            try:
+                with os.fdopen(descriptor, "w") as stream:
+                    stream.write(hashlib.sha256(path.read_bytes()).hexdigest())
+                os.replace(temporary, stamp)
+            finally:
+                Path(temporary).unlink(missing_ok=True)
     return options
 
 

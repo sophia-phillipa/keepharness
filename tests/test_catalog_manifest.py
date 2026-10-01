@@ -149,3 +149,19 @@ def test_requirements_can_be_added_to_existing_venv(tmp_path, monkeypatch):
     manifest = write_manifest(root, runtime={"venv": True, "requirements": "requirements.txt"})
     manifests.materialize_runtime(root, manifest, state, "demo")
     assert manifests.preflight(root, manifest, state, "demo") == []
+
+
+def test_provisioning_rejects_dependency_stamp_symlink(tmp_path, monkeypatch):
+    monkeypatch.setenv("PIP_NO_INDEX", "1")
+    monkeypatch.setenv("PIP_DISABLE_PIP_VERSION_CHECK", "1")
+    root, state = tmp_path / "catalog", tmp_path / "state"
+    manifest = write_manifest(root, runtime={"venv": True})
+    manifests.materialize_runtime(root, manifest, state, "demo")
+    external = tmp_path / "external"
+    external.write_text("preserve")
+    (state / "catalog_runtime/demo/requirements.sha256").symlink_to(external)
+    (root / "requirements.txt").write_text("")
+    manifest = write_manifest(root, runtime={"venv": True, "requirements": "requirements.txt"})
+    with pytest.raises(ValueError, match="stamp"):
+        manifests.materialize_runtime(root, manifest, state, "demo")
+    assert external.read_text() == "preserve"

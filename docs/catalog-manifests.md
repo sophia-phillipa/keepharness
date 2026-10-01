@@ -26,7 +26,10 @@ are `command`, `agent`, `skill`, `rule`, `context`, and `workflow`. Existing pro
 format constraints still apply. Context and rules are reference files, never slash
 commands. Preflight checks accept exactly one of `file`, `executable`, or
 `environment`, with an optional explanatory `hint`. Discovery never executes a
-check or installs a dependency. Failed prerequisites appear in the palette.
+check or installs a dependency. An `environment` check is a host prerequisite;
+integration credential availability is validated through the separate binding
+contract at dispatch, without exporting vault values into the host environment.
+Failed prerequisites appear in the palette.
 
 Admin provisioning creates a separate `catalog_runtime/<catalog_id>/` directory
 under the control state directory. `writable_state` names directories below that
@@ -43,7 +46,8 @@ Project settings retain the `catalogs` list and add an optional `catalog_pins` m
 from catalog ID to `{ "commit": "<full commit>", "root": "<managed worktree>" }`.
 An owner can prepare a detached Git worktree beneath
 `catalog_pins/<catalog_id>/<commit>/`. Files have write bits removed. Each update
-prepares another worktree, returning a resource revision diff before the project
+prepares another worktree, returning a revision diff for all tracked files
+(including manifest resources and runtime dependencies) before the project
 reference changes; previous trees remain available to existing references.
 The update operation fetches by default. Pin operations suppress repository Git
 hooks. A checkout with modified content fails validation.
