@@ -9,6 +9,8 @@ import json
 import logging
 import re
 import time
+import traceback
+from pathlib import Path
 
 from .. import tools
 from ..config import TERMINAL
@@ -122,161 +124,270 @@ def settle(service, job, state, result):
             logger.exception("Could not record job %s as %s (attempt %d)", job, state, attempt)
 
 
+def conversation_key(service, row):
+    current = dict(row)
+    seen = set()
+    while current["id"] not in seen:
+        seen.add(current["id"])
+        parent = json.loads(current["payload"]).get("parent_job_id")
+        if not parent:
+            return current["id"]
+        ancestor = service.conversation_repository.get(parent)
+        if ancestor is None:
+            return parent
+        current = dict(ancestor)
+    return min(seen)
+
+
+def ownership_roots(service, row):
+    project = service.config.get("projects", {}).get(row["project"], {})
+    roots = [project.get("root"), *project.get("additional_roots", [])]
+    data = json.loads(row["payload"])
+    if data.get("workspace_id"):
+        roots.append(service.workspace_root(data["workspace_id"]))
+    if data.get("backend") == "local":
+        roots.extend(
+            service.config.get("local", {}).get("model_roots", {}).get(data.get("model"), [])
+        )
+    state = service.config.get("control_state_dir", service.config["state_dir"])
+    roots.extend(
+        Path(state) / "catalog_runtime" / catalog_id for catalog_id in project.get("catalogs", [])
+    )
+    for catalog in service.config.get("catalogs", []):
+        if catalog.get("trusted") is True and catalog.get("id") in project.get("catalogs", []):
+            if catalog["id"] not in project.get("catalog_pins", {}):
+                roots.append(catalog["root"])
+    return roots
+
+
 async def run(service):
-    while True:
-        row = service.next_job()
-        if not row:
+    """Schedule independent provider lanes after acquiring write ownership."""
+    tasks = {}
+    conversations = {}
+    lanes = {}
+    reasons = {}
+
+    def released(task, job, backend, conversation):
+        service.write_ownership.release(job)
+        conversations.pop(conversation, None)
+        lanes[backend] -= 1
+        tasks.pop(job, None)
+        if service.job_tasks.get(job) is task:
+            service.job_tasks.pop(job, None)
+        if task.cancelled() and service.conversation_repository.state(job)[0] == "running":
+            settle(service, job, "cancelled", {"metrics": None})
+        service.wake.set()
+
+    try:
+        while True:
             service.wake.clear()
-            await service.wake.wait()
-            continue
-        row = dict(row)
-        service.active = row["id"]
-        started = time.time()
-        with service.db:
-            service.conversation_repository.set_running(row["id"])
-        service.event(row["id"], "running", {})
-        budget = RuntimeBudget()
-        service.runtime_budgets[row["id"]] = budget
-        try:
-            request_data = json.loads(row["payload"])
-            native_codex = (
-                request_data.get("backend") == "codex"
-                and request_data.get("execution_mode", service.configured_execution_mode("codex"))
-                == "native"
-            )
-            maximum = (
-                None
-                if native_codex
-                else timeout_seconds(
-                    service.config,
-                    "active_timeout_seconds",
-                    3600 if request_data.get("backend") == "maestro" else 600,
+            rows = list(service.conversation_repository.ready())
+            while rows:
+                source = min(
+                    rows,
+                    key=lambda item: (
+                        service.last_served.get(item["owner"], 0),
+                        item["created"],
+                        item["id"],
+                    ),
                 )
-            )
-            async with budget.limit(maximum):
-                service.task = asyncio.create_task(service.execute(row))
-                service.job_tasks[row["id"]] = service.task
-                result = await service.task
-            result.update(budget.metrics())
-            result["queue_seconds"] = started - row["created"]
-            result["total_seconds"] = time.time() - row["created"]
-            service.finish(row["id"], "completed", result)
-            if result.get("deployment", {}).get("restart_required"):
-                unit = service.config["projects"][row["project"]]["restart_service"]
-                proc = await asyncio.create_subprocess_exec(
-                    "systemd-run",
-                    "--user",
-                    "--on-active=3s",
-                    "--collect",
-                    "--unit=local-agent-reload-" + row["id"],
-                    "systemctl",
-                    "--user",
-                    "restart",
-                    unit,
-                    stdout=asyncio.subprocess.DEVNULL,
-                    stderr=asyncio.subprocess.DEVNULL,
+                rows.remove(source)
+                row = dict(source)
+                if row["id"] in tasks:
+                    continue
+                backend = json.loads(row["payload"]).get("backend", "codex")
+                maximum = (
+                    service.config.get("services", {}).get(backend, {}).get("max_concurrent", 1)
                 )
-                if await proc.wait() == 0:
-                    service.event(row["id"], "reload_scheduled", {})
-                    await asyncio.Future()
-                else:
-                    service.event(
-                        row["id"], "deployment_failed", {"error": "restart_schedule_failed"}
+                if type(maximum) is not int or maximum < 1:
+                    maximum = 1  # Dispatch validates the configured capacity.
+                conversation = conversation_key(service, row)
+                reason = (
+                    "conversation"
+                    if conversation in conversations
+                    else ("provider_capacity" if lanes.get(backend, 0) >= maximum else None)
+                )
+                if reason is None:
+                    reason = service.write_ownership.acquire(
+                        row["id"],
+                        row["project"],
+                        row.get("work_item"),
+                        ownership_roots(service, row),
                     )
-        except asyncio.CancelledError:
-            if service.conversation_repository.state(row["id"])[0] == "completed":
-                raise
-            reason = service.cancellation_reasons.pop(row["id"], None)
+                if reason:
+                    if reasons.get(row["id"]) != reason:
+                        service.event(row["id"], "queue_wait", {"reason": reason})
+                        reasons[row["id"]] = reason
+                    continue
+                reasons.pop(row["id"], None)
+                conversations[conversation] = row["id"]
+                lanes[backend] = lanes.get(backend, 0) + 1
+                service.dispatch_sequence += 1
+                service.last_served[row["owner"]] = service.dispatch_sequence
+                with service.db:
+                    service.conversation_repository.set_running(row["id"])
+                task = asyncio.create_task(run_job(service, row))
+                tasks[row["id"]] = task
+                service.job_tasks[row["id"]] = task
+                task.add_done_callback(
+                    lambda completed, job=row["id"], lane=backend, key=conversation: released(
+                        completed, job, lane, key
+                    )
+                )
+            await service.wake.wait()
+    finally:
+        remaining = list(tasks.values())
+        for task in remaining:
+            task.cancel()
+        await asyncio.gather(*remaining, return_exceptions=True)
+
+
+async def run_job(service, row):
+    row = dict(row)
+    started = time.time()
+    with service.db:
+        service.conversation_repository.set_running(row["id"])
+    service.event(row["id"], "running", {})
+    budget = RuntimeBudget()
+    service.runtime_budgets[row["id"]] = budget
+    try:
+        request_data = json.loads(row["payload"])
+        native_codex = (
+            request_data.get("backend") == "codex"
+            and request_data.get("execution_mode", service.configured_execution_mode("codex"))
+            == "native"
+        )
+        maximum = (
+            None
+            if native_codex
+            else timeout_seconds(
+                service.config,
+                "active_timeout_seconds",
+                3600 if request_data.get("backend") == "maestro" else 600,
+            )
+        )
+        async with budget.limit(maximum):
+            task = asyncio.create_task(service.execute(row))
+            service.job_tasks[row["id"]] = task
+            result = await task
+        result.update(budget.metrics())
+        result["queue_seconds"] = started - row["created"]
+        result["total_seconds"] = time.time() - row["created"]
+        service.finish(row["id"], "completed", result)
+        if result.get("deployment", {}).get("restart_required"):
+            unit = service.config["projects"][row["project"]]["restart_service"]
+            proc = await asyncio.create_subprocess_exec(
+                "systemd-run",
+                "--user",
+                "--on-active=3s",
+                "--collect",
+                "--unit=local-agent-reload-" + row["id"],
+                "systemctl",
+                "--user",
+                "restart",
+                unit,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            if await proc.wait() == 0:
+                service.event(row["id"], "reload_scheduled", {})
+                await asyncio.Future()
+            else:
+                service.event(row["id"], "deployment_failed", {"error": "restart_schedule_failed"})
+    except asyncio.CancelledError:
+        if service.conversation_repository.state(row["id"])[0] == "completed":
+            raise
+        reason = service.cancellation_reasons.pop(row["id"], None)
+        settle(
+            service,
+            row["id"],
+            "cancelled",
+            with_partial_answer(
+                service,
+                row["id"],
+                {"partial_output": "persisted_events", "error": reason, "metrics": None},
+            ),
+        )
+        service.panel(row["project"], answer="Execution cancelled", finished=True)
+        if asyncio.current_task().cancelling():
+            raise
+    except Exception as exc:
+        backend = json.loads(row["payload"]).get("backend")
+        binary = service.config.get(backend, {}).get("binary")
+        code = (
+            exc.code
+            if isinstance(exc, APIError)
+            else "active_runtime_timeout"
+            if isinstance(exc, TimeoutError)
+            else str(exc)
+            if isinstance(exc, tools.ToolError)
+            # The provider CLI was removed or moved after the harness started.
+            else "cli_missing"
+            if isinstance(exc, FileNotFoundError) and binary and exc.filename == binary
+            else type(exc).__name__
+        )
+        if not isinstance(exc, (APIError, tools.ToolError)):
+            from agent_service.log_config import redact
+
+            logger.error(
+                "Job %s failed unexpectedly: %s", row["id"], redact(traceback.format_exc())
+            )
+        condition = provider_condition(code)
+        if condition:
             settle(
                 service,
                 row["id"],
-                "cancelled",
+                "interrupted",
                 with_partial_answer(
                     service,
                     row["id"],
-                    {"partial_output": "persisted_events", "error": reason, "metrics": None},
+                    {
+                        "condition": condition,
+                        "backend": backend,
+                        # A provider message (e.g. Codex's reset time), never a bare code.
+                        "error_detail": getattr(
+                            exc, "error_detail", code if ": " in code else None
+                        ),
+                        "metrics": None,
+                    },
                 ),
             )
-            service.panel(row["project"], answer="Execution cancelled", finished=True)
-            if asyncio.current_task().cancelling():
-                raise
-        except Exception as exc:
-            backend = json.loads(row["payload"]).get("backend")
-            binary = service.config.get(backend, {}).get("binary")
-            code = (
-                exc.code
-                if isinstance(exc, APIError)
-                else "active_runtime_timeout"
-                if isinstance(exc, TimeoutError)
-                else str(exc)
-                if isinstance(exc, tools.ToolError)
-                # The provider CLI was removed or moved after the harness started.
-                else "cli_missing"
-                if isinstance(exc, FileNotFoundError) and binary and exc.filename == binary
-                else type(exc).__name__
+            name = PROVIDER_NAMES.get(backend, backend)
+            service.panel(
+                row["project"], answer=CONDITION_ANSWERS[condition].format(name), finished=True
             )
-            if not isinstance(exc, (APIError, tools.ToolError)):
-                logger.exception("Job %s failed unexpectedly", row["id"])
-            condition = provider_condition(code)
-            if condition:
-                settle(
+        else:
+            settle(
+                service,
+                row["id"],
+                "failed",
+                with_partial_answer(
                     service,
                     row["id"],
-                    "interrupted",
-                    with_partial_answer(
-                        service,
-                        row["id"],
-                        {
-                            "condition": condition,
-                            "backend": backend,
-                            # A provider message (e.g. Codex's reset time), never a bare code.
-                            "error_detail": getattr(
-                                exc, "error_detail", code if ": " in code else None
-                            ),
-                            "metrics": None,
-                        },
-                    ),
-                )
-                name = PROVIDER_NAMES.get(backend, backend)
-                service.panel(
-                    row["project"], answer=CONDITION_ANSWERS[condition].format(name), finished=True
-                )
-            else:
-                settle(
-                    service,
-                    row["id"],
-                    "failed",
-                    with_partial_answer(
-                        service,
-                        row["id"],
-                        {
-                            "error": "context_limit_exceeded" if context_overflow(code) else code,
-                            "error_detail": getattr(
-                                exc, "error_detail", code if context_overflow(code) else None
-                            ),
-                            "metrics": None,
-                        },
-                    ),
-                )
-                service.panel(
-                    row["project"], answer="Execution interrupted: " + code, finished=True
-                )
-        finally:
-            # Not on shutdown (the worker itself is cancelled): the refresh can wait up to
-            # 25 s on the Codex CLI and would hold the process open after SIGTERM.
-            if (
-                json.loads(row["payload"]).get("backend") == "codex"
-                and not asyncio.current_task().cancelling()
-            ):
-                state = service.conversation_repository.state(row["id"])[0]
-                if state != "completed":
-                    service.event(row["id"], "quota_after", await service.quota(True))
-            service.active = None
-            service.task = None
-            service.active_executors.pop(row["id"], None)
-            service.job_tasks.pop(row["id"], None)
-            service.runtime_budgets.pop(row["id"], None)
-            service.approval_expirations.pop(row["id"], None)
+                    {
+                        "error": "context_limit_exceeded" if context_overflow(code) else code,
+                        "error_detail": getattr(
+                            exc, "error_detail", code if context_overflow(code) else None
+                        ),
+                        "metrics": None,
+                    },
+                ),
+            )
+            service.panel(row["project"], answer="Execution interrupted: " + code, finished=True)
+    finally:
+        # Not on shutdown (the worker itself is cancelled): the refresh can wait up to
+        # 25 s on the Codex CLI and would hold the process open after SIGTERM.
+        if (
+            json.loads(row["payload"]).get("backend") == "codex"
+            and not asyncio.current_task().cancelling()
+        ):
+            state = service.conversation_repository.state(row["id"])[0]
+            if state != "completed":
+                service.event(row["id"], "quota_after", await service.quota(True))
+        service.active_executors.pop(row["id"], None)
+        service.job_tasks.pop(row["id"], None)
+        service.runtime_budgets.pop(row["id"], None)
+        service.approval_expirations.pop(row["id"], None)
 
 
 def cancel_owned(service, row):
@@ -286,7 +397,9 @@ def cancel_owned(service, row):
         task.cancel()
     elif row["state"] == "running" and service.active == job and service.task:
         service.task.cancel()
-    if row["state"] == "queued" or (row["state"] == "running" and service.active != job):
+    if row["state"] == "queued" or (
+        row["state"] == "running" and task is None and service.active != job
+    ):
         settle(service, job, "cancelled", with_partial_answer(service, job, {"metrics": None}))
     for pending_job, future in list(service.approvals.values()):
         if pending_job == job and not future.done():

@@ -79,6 +79,47 @@ def runtime_job_affected(config, active_executors, row, candidate):
         "projects", []
     ):
         return True
+    project = row["project"]
+    old_project = config.get("projects", {}).get(project, {})
+    new_project = candidate.get("projects", {}).get(project, {})
+    for key in ("root", "additional_roots", "catalogs", "catalog_pins"):
+        if old_project.get(key) != new_project.get(key):
+            return True
+
+    def credential_scope(current):
+        bindings = [
+            item
+            for item in current.get("integration_bindings", [])
+            if item.get("project_id") == project
+        ]
+        names = {item.get("integration") for item in bindings}
+        return {
+            "bindings": bindings,
+            "integrations": [
+                item for item in current.get("integrations", []) if item.get("integration") in names
+            ],
+            "effects": [
+                item
+                for item in current.get("effect_integrations", [])
+                if item.get("integration") in names
+            ],
+            "vault": current.get("secret_vault_path") if bindings else None,
+            "revision": current.get("secret_vault_revision") if bindings else None,
+            "binding_revisions": {
+                item["credential_binding"]: current.get("secret_binding_revisions", {}).get(
+                    item["credential_binding"]
+                )
+                for item in bindings
+            },
+        }
+
+    if credential_scope(config) != credential_scope(candidate):
+        return True
+    catalog_ids = set(old_project.get("catalogs", []))
+    if [item for item in config.get("catalogs", []) if item.get("id") in catalog_ids] != [
+        item for item in candidate.get("catalogs", []) if item.get("id") in catalog_ids
+    ]:
+        return True
     executor = active_executors.get(row["id"]) if row["state"] == "running" else None
     if backend == "maestro" and executor:
         backend, model = executor
