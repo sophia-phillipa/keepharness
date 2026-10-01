@@ -344,6 +344,7 @@
       const current = state.activity.jobs.find(item => item.job_id === state.run);
       const highlight = pendingPlan ? 'Maestro plan awaiting approval' : current ? [current.work_item || current.title, current.state].filter(Boolean).join(' · ') : 'No active run';
       toggleButton.textContent = `● ${counts.running || 0} running · ${counts.queued || 0} queued · ${counts.needs_you || 0} needs you · ${highlight}`;
+      toggleButton.title = toggleButton.textContent + ' · Toggle run console (Ctrl/⌘+J)';
       inboxButton.textContent = `Needs you (${counts.needs_you || 0})`;
       const attentionCount = document.getElementById('attention-count');
       if (attentionCount) attentionCount.textContent = String(counts.needs_you || 0);
@@ -460,6 +461,28 @@
       (item.kind === 'maestro_plan' || item.approval_kind === 'maestro_plan') && item.plan?.steps);
   }
   const planDecisions = new Map();
+  function renderPlanDecision(gateId) {
+    renderSpans();
+    const card = document.getElementById('gate-' + gateId);
+    if (card?.classList.contains('maestro-plan-card')) renderPlanOutcome(card);
+  }
+  async function submitPlanDecision(gateId, choice, plan) {
+    if (planDecisions.get(gateId)?.pending) return;
+    const decision = { pending: true, message: choice === 'approve' ? 'Approving plan…' : 'Discarding plan…' };
+    planDecisions.set(gateId, decision);
+    renderPlanDecision(gateId);
+    try {
+      await post('/v1/approvals/' + encodeURIComponent(gateId), { choice, ...(plan ? { plan } : {}) });
+      clearPlanDraft(gateId);
+      decision.message = choice === 'approve' ? 'Plan approved. Starting the run…' : 'Plan discarded.';
+    } catch (failure) {
+      decision.pending = false;
+      decision.message = failure.message;
+      throw failure;
+    } finally {
+      renderPlanDecision(gateId);
+    }
+  }
   function renderSpans() {
     const focused = body.contains(document.activeElement) ? document.activeElement : null;
     const selection = focused?.tagName === "TEXTAREA" ? [focused.selectionStart, focused.selectionEnd, focused.selectionDirection, focused.scrollTop] : null;
@@ -662,17 +685,11 @@
         try { plan = planForApproval(request.gate_id, request.plan); }
         catch (failure) { feedback.textContent = failure.message; editor.querySelector('textarea')?.focus(); return; }
       }
-      const pending = { pending: true, message: choice === 'approve' ? 'Approving plan…' : 'Discarding plan…' };
-      planDecisions.set(request.gate_id, pending);
-      renderSpans();
       try {
-        await post('/v1/approvals/' + encodeURIComponent(request.gate_id), { choice, ...(plan ? { plan } : {}) });
-        clearPlanDraft(request.gate_id);
-        pending.message = choice === 'approve' ? 'Plan approved. Starting the run…' : 'Plan discarded.';
+        await submitPlanDecision(request.gate_id, choice, plan);
         await refresh();
       } catch (failure) {
-        pending.pending = false;
-        pending.message = failure.message;
+        feedback.textContent = failure.message;
       }
       if (currentPlan()?.gate_id === request.gate_id) renderSpans();
       else planDecisions.delete(request.gate_id);
@@ -1026,6 +1043,8 @@
     return card;
   }
   window.runConsole = {
+    planDecision: id => planDecisions.get(id),
+    submitPlanDecision,
     planForApproval,
     clearPlanDraft,
     closeForPanel() { if ((innerWidth <= 700 || innerHeight <= 500) && !drawer.hidden) toggle(false); },
