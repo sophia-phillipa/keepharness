@@ -419,6 +419,7 @@ def cancel_owned(service, row):
     for pending_job, future in list(service.approvals.values()):
         if pending_job == job and not future.done():
             future.cancel()
+    service.wake.set()
     return task
 
 

@@ -141,7 +141,7 @@ def coordinator(config, project, *, workspace=False):
     return {**selected, "effort": effort}
 
 
-def validate_plan(raw, available):
+def validate_plan(raw, available, *, declared=False):
     text = raw.strip()
     if text.startswith("```"):
         text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
@@ -174,7 +174,8 @@ def validate_plan(raw, available):
 
         validate_requirements(step.get("requires", {}), choice)
         for key in ("task", "role", "reason"):
-            if not isinstance(step.get(key), str) or not 1 <= len(step[key]) <= 8000:
+            limit = 151000 if declared and key == "task" else 8000
+            if not isinstance(step.get(key), str) or not 1 <= len(step[key]) <= limit:
                 raise ToolError("maestro_invalid_step_description")
     try:
         invocations = [
@@ -190,7 +191,9 @@ def validate_plan(raw, available):
 
 async def plan(service, row, data):
     available = candidates(
-        service.config, row["project"], bool(data.get("file_ids") or data.get("workspace_id")),
+        service.config,
+        row["project"],
+        bool(data.get("file_ids") or data.get("workspace_id")),
         execution_mode=data.get("execution_mode"),
     )
     if data.get("workspace_id"):
@@ -560,7 +563,9 @@ async def execute_workflow(service, row, data, workflow):
 
     workflow = declaration(workflow)
     available = candidates(
-        service.config, row["project"], bool(data.get("file_ids") or data.get("workspace_id")),
+        service.config,
+        row["project"],
+        bool(data.get("file_ids") or data.get("workspace_id")),
         execution_mode=data.get("execution_mode"),
     )
     selected = []
@@ -575,7 +580,8 @@ async def execute_workflow(service, row, data, workflow):
                 step.get("backend") or invocation.get("requested_backend"),
                 step.get("model"),
                 private=True,
-                execution_mode=data.get("execution_mode") or service.default_execution_mode(
+                execution_mode=data.get("execution_mode")
+                or service.default_execution_mode(
                     step.get("backend") or invocation.get("requested_backend")
                 ),
             )["items"]
@@ -588,13 +594,17 @@ async def execute_plan(service, row, data, declared, *, planning_result=None, co
     if "_workflow_context_parent_id" in data:
         data = {**data, "parent_job_id": data["_workflow_context_parent_id"]}
     available = candidates(
-        service.config, row["project"], bool(data.get("file_ids") or data.get("workspace_id")),
+        service.config,
+        row["project"],
+        bool(data.get("file_ids") or data.get("workspace_id")),
         execution_mode=data.get("execution_mode"),
     )
     from .workflows import validate_workflow
 
     plan = validate_plan(
-        json.dumps(validate_workflow(declaration(declared), retained=True)), available
+        json.dumps(validate_workflow(declaration(declared), retained=True)),
+        available,
+        declared=True,
     )
     retain_resources(service, data, plan)
     data = {**data, "_checkpoint_sources": input_sources(service, row, data)}

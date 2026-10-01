@@ -141,6 +141,7 @@ class ConversationService:
         self.approvals = {}
         self.session_lookup_stamp = None
         self.session_lookup_owners = {}
+        self.approval_deadlines = {}
         self.approval_expirations = {}
         self.active = None
         self.task = None
@@ -379,7 +380,7 @@ class ConversationService:
         raise APIError("authentication_required", 401)
 
     def limit(self, key, maximum, code="rate_limit"):
-        # Keys come from configured identities and fixed lanes, never client headers.
+        # Keys come from configured identities, fixed lanes.
         now = time.monotonic()
         entries = self.requests.setdefault(key, [])
         entries[:] = [stamp for stamp in entries if now - stamp < 60]
@@ -820,7 +821,9 @@ class ConversationService:
             raise APIError("resource_read_denied", 403)
         try:
             selected = resources.resolve(self.config, data)
-            resources.prepare_prompt(data.get("prompt", ""), selected)
+            resources.prepare_prompt(
+                data.get("prompt", ""), selected, data.get("resource_selections")
+            )
             return selected
         except resources.ResourceError as error:
             raise APIError(
@@ -907,7 +910,12 @@ class ConversationService:
                     value.args != actual.args for value, actual in zip(values, normalized)
                 ):
                     raise invocations.InvocationError("invocation_selection_mismatch")
-                normalized = values
+                normalized = [
+                    invocations.Invocation(
+                        **{**value.to_dict(), "requested_backend": actual.requested_backend}
+                    )
+                    for value, actual in zip(values, normalized)
+                ]
             if normalized:
                 data["invocations"] = [value.to_dict() for value in normalized]
                 if (
@@ -959,6 +967,7 @@ class ConversationService:
             payload["work_item"] = reference
             self.conversation_repository.set_payload(job, encoded(payload))
             self.event(job, "work_item_tagged", {"work_item": reference})
+        self.wake.set()
         return {"job_id": job, "project_id": row["project"], "work_item": reference}
 
     def activity(self, identity, project_id=None, work_item=None):
@@ -1018,10 +1027,18 @@ class ConversationService:
         data.pop("resource_selections", None)
         if len(source_invocations) == 1 and source_invocations[0]["kind"] == "workflow":
             plan = workflows.resolve_workflow(
-                self.config, row["project"], source_invocations[0]["resource_id"]
+                self.config,
+                row["project"],
+                source_invocations[0]["resource_id"],
+                execution_mode=data.get("execution_mode"),
             )
         elif plan.get("resource_id"):
-            plan = workflows.resolve_workflow(self.config, row["project"], plan["resource_id"])
+            plan = workflows.resolve_workflow(
+                self.config,
+                row["project"],
+                plan["resource_id"],
+                execution_mode=data.get("execution_mode"),
+            )
         if type(from_step) is not int or not 1 <= from_step <= len(plan["steps"]):
             raise APIError("invalid_workflow_step")
         data.update({key: value for key, value in changes.items() if key != "from_step"})
@@ -1125,7 +1142,10 @@ class ConversationService:
             if len(data["invocations"]) != 1:
                 raise APIError("workflow_must_be_standalone", 422)
             workflows.resolve_workflow(
-                self.config, data["project_id"], workflow_invocations[0]["resource_id"]
+                self.config,
+                data["project_id"],
+                workflow_invocations[0]["resource_id"],
+                execution_mode=data.get("execution_mode"),
             )
         if workflow_recovery is not None:
             data.update(workflow_recovery)
@@ -2105,6 +2125,7 @@ class ConversationService:
                 raise ValueError("invalid_approval_max_consecutive_expirations")
             expired = False
             self.approvals[aid] = (row["id"], future)
+            self.approval_deadlines[aid] = time.time() + wait_limit
             opened = False
             try:
                 progress(
@@ -2114,7 +2135,7 @@ class ConversationService:
                         "kind": kind,
                         "request": params,
                         "can_remember": bool(fingerprint) and mode != "read_only",
-                        "expires_at": time.time() + wait_limit,
+                        "expires_at": self.approval_deadlines[aid],
                     },
                 )
                 opened = True
@@ -2139,6 +2160,7 @@ class ConversationService:
                 return reply
             finally:
                 self.approvals.pop(aid, None)
+                self.approval_deadlines.pop(aid, None)
                 if not future.done():
                     future.cancel()
                 if opened and not expired:
@@ -2156,12 +2178,18 @@ class ConversationService:
                 declared = data["_declared_workflow"]
                 if declared.get("resource_id"):
                     declared = workflows.resolve_workflow(
-                        self.config, row["project"], declared["resource_id"]
+                        self.config,
+                        row["project"],
+                        declared["resource_id"],
+                        execution_mode=data.get("execution_mode"),
                     )
                 result = await maestro.execute_workflow(self, row, data, declared)
             elif len(invocation) == 1 and invocation[0]["kind"] == "workflow":
                 declared = workflows.resolve_workflow(
-                    self.config, row["project"], invocation[0]["resource_id"]
+                    self.config,
+                    row["project"],
+                    invocation[0]["resource_id"],
+                    execution_mode=data.get("execution_mode"),
                 )
                 result = await maestro.execute_workflow(self, row, data, declared)
             elif len(invocation) > 1:
