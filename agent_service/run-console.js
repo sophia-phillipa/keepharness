@@ -619,6 +619,7 @@
   }
   function renderLogs() {
     if (state.tab !== 'Logs') return;
+    const focusedControl = [logSearch, logType].find(control => control === document.activeElement);
     const toolbar = el('div', null, 'run-console-controls');
     toolbar.append(field('Search logs', logSearch), field('Event type', logType));
     const list = el('ol', null, 'run-log-list');
@@ -630,9 +631,8 @@
     }
     const more = button(state.logLoading ? 'Loading events…' : 'Load more events', loadLogs);
     more.disabled = !state.run || state.logLoading || !state.more;
-    const searchFocus = document.activeElement === logSearch;
     body.replaceChildren(toolbar, el('p', `${state.logs.length} events loaded · search applies to loaded events`), list, more);
-    if (searchFocus) logSearch.focus();
+    focusedControl?.focus({ preventScroll: true });
   }
   function renderRuns() {
     if (state.tab !== 'Runs') return;
