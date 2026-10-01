@@ -43,6 +43,8 @@ const path = require('node:path');
     });
     await page.goto('http://admin.test/#catalogs');
     await page.locator('#catalog-project').selectOption('demo');
+    const duplicates=await page.locator('[id]').evaluateAll(nodes=>{const seen=new Set();return nodes.filter(node=>{if(seen.has(node.id))return true;seen.add(node.id);return false;}).map(node=>node.id);});
+    assert.deepEqual(duplicates,[],'Panel IDs must remain unique across provider and catalog views');
     assert.match(await page.locator('#catalog-preflight').innerText(), /Provision/); // P1 prerequisite
     await page.locator('#catalog-ref').fill('main');
     await page.locator('#catalog-preview').click();

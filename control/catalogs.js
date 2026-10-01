@@ -94,7 +94,7 @@
   byId('catalog-project').onchange=renderSelection;
   byId('catalog-source').onchange=renderSelection;
   byId('catalog-ref').oninput=clearPreview;
-  byId('catalog-refresh').onclick=load;
+  byId('catalog-admin-refresh').onclick=load;
   for(const [id,action] of [['catalog-pin','pin'],['catalog-provision','provision']]) {
     byId(id).onclick=()=>operate(async()=>{
       renderCatalogs(await request('catalog-pin',{...selected(),action,ref:byId('catalog-ref').value.trim()}));
