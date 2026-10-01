@@ -80,6 +80,14 @@ async function publication(page){await page.evaluate(()=>showGate({gate_id:'publ
   await task.fill('Restored task');await p.getByRole('button',{name:'Run with edits (1)',exact:true}).click();
   await p.waitForTimeout(100);assert.equal(f.state.posts.length,1);assert.equal(f.state.posts[0].data.plan.steps[0].task,'Restored task');await p.close();
  });
+ await check('A5-F1 Storage warnings survive field validation',async()=>{
+  const f=await fixture(browser,1440,900,true),p=f.page;await f.consoleOpen();await p.locator('#run-plan-edit').click();
+  await p.evaluate(()=>{const original=Storage.prototype.setItem;Storage.prototype.setItem=function(key,value){if(key.startsWith('plan-draft:'))throw Error('synthetic storage unavailable');return original.call(this,key,value);};});
+  await p.getByLabel('Task for step 1',{exact:true}).fill('');
+  const feedback=await p.locator('.run-plan-approval [role=status]').innerText();assert.match(feedback,/not saved/);assert.match(feedback,/Enter a task for step 1/);assert.equal(f.state.posts.length,0);
+  await p.getByRole('button',{name:'Hide editor',exact:true}).click();await p.getByRole('button',{name:'Run with edits (1)',exact:true}).click();
+  const restored=await p.locator('.run-plan-approval [role=status]').innerText();assert.match(restored,/not saved/);assert.match(restored,/Enter a task for step 1/);assert.equal(f.state.posts.length,0);assert(await p.getByLabel('Task for step 1',{exact:true}).evaluate(n=>n===document.activeElement));await p.close();
+ });
  await check('A5-F1 Unavailable model and effort stay local',async()=>{
   for(const field of ['model','effort']){
    const f=await fixture(browser,1440,900,true),p=f.page;

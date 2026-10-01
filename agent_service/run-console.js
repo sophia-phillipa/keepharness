@@ -554,8 +554,10 @@
       ['role', 'backend', 'model', 'effort', 'task', 'reason']
         .filter(key => step[key] != null).map(key => [key, step[key]]),
     )) };
-    let draft, invalidDraft = false;
+    const unsavedMessage = 'Plan edit is not saved. Keep this page open until browser storage is available.';
+    let draft, invalidDraft = false, storageWarning = unsavedDrafts.has(planDraftKey(request.gate_id)) ? unsavedMessage : '';
     const feedback = el('p'); feedback.setAttribute('role', 'status');
+    feedback.textContent = storageWarning;
     try { draft = planForApproval(request.gate_id, structuredClone(original)); }
     catch { draft = structuredClone(original); invalidDraft = true; feedback.textContent = 'The saved plan could not be loaded. Reset edits or edit a step to continue.'; }
     const editor = el('ol', null, 'run-plan-steps');
@@ -584,9 +586,9 @@
     function updateDraft() {
       invalidDraft = false;
       approve.disabled = !!decision?.pending;
-      feedback.textContent = savePlanDraft(request.gate_id, JSON.stringify(draft)) ? '' : 'Plan edit is not saved. Keep this page open until browser storage is available.';
+      storageWarning = savePlanDraft(request.gate_id, JSON.stringify(draft)) ? '' : unsavedMessage;
       const invalid = validateEdits();
-      if (invalid) feedback.textContent = invalid.message;
+      feedback.textContent = [invalid?.message, storageWarning].filter(Boolean).join(' ');
       const count = editedCount();
       approve.textContent = count ? `Run with edits (${count})` : '✓ Approve plan & run';
       if (count && !reset.isConnected) actions.insertBefore(reset, approve);
@@ -654,7 +656,7 @@
         const invalid = validateEdits();
         if (invalid) {
           state.editPlan = true; editor.hidden = false;
-          feedback.textContent = invalid.message;
+          feedback.textContent = [invalid.message, storageWarning].filter(Boolean).join(' ');
           invalid.input?.focus(); return;
         }
         try { plan = planForApproval(request.gate_id, request.plan); }
