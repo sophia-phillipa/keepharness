@@ -122,6 +122,7 @@ const settle = page => page.evaluate(() => Promise.all(document.getAnimations().
       const { page } = await fixture(browser, 1280, 900); await page.keyboard.press('Control+j');
       for (const id of ['model','access','effort']) { await page.locator('#' + id + '-trigger').click(); await page.keyboard.press('Escape'); assert(await page.locator('#run-console').isVisible(), id); assert.equal(await page.locator('.composer-menu:popover-open').count(), 0); }
       await page.locator('#attention-bell').click(); await page.locator('#attention-popover button').first().focus(); await page.keyboard.press('Escape'); assert(await page.locator('#attention-popover').isHidden()); assert(await page.locator('#run-console').isVisible());
+      await page.evaluate(() => setQuotaOpen(true)); await page.keyboard.press('Escape'); assert(await page.locator('#quota-panel').isHidden()); assert(await page.locator('#run-console').isVisible());
       await page.keyboard.press('Control+j'); await page.locator('#search-conversations').click(); await page.keyboard.press('Control+j'); assert(await page.locator('#run-console').isHidden()); await page.close();
     });
     await check('A4-F1 code examples submit byte-preserved from composer', async () => {

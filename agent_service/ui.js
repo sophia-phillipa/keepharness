@@ -2360,7 +2360,7 @@ function newConversation(title = "New Conversation", projectId = $("project").va
   currentMaestroPlan = null;
   // F-95: an unsent draft survives every way of starting a new conversation;
   // attachments too, unless they were uploaded to another project.
-  const draft = changedProject ? "" : $("prompt").value,
+  const draft = $("prompt").value,
     kept = files.filter((f) => f.project === $("project").value);
   conversationLoad++;
   streamDisconnected = false;
@@ -5633,7 +5633,7 @@ function setPanelOpen(open, persist = true) {
     } catch {}
 }
 document.addEventListener("keydown", event => {
-  if (event.defaultPrevented || event.key !== "Tab" || document.querySelector("dialog[open], #tour-root, .composer-menu:popover-open")) return;
+  if (event.defaultPrevented || event.key !== "Tab" || document.querySelector("dialog[open], #tour-root, [popover]:popover-open")) return;
   const panel = !$("attention-popover").hidden ? $("attention-popover")
     : innerWidth <= 620 && $("sidebar").classList.contains("open") ? $("sidebar")
     : innerWidth < 1000 && !$("activity-panel").hidden ? $("activity-panel") : null;
@@ -6537,7 +6537,7 @@ document.addEventListener("keydown", (e) => {
     e.defaultPrevented ||
     !interfaceReady ||
     document.querySelector("dialog[open]") ||
-    document.querySelector(".composer-menu:popover-open")
+    document.querySelector("[popover]:popover-open")
   )
     return;
   if (
@@ -6550,6 +6550,7 @@ document.addEventListener("keydown", (e) => {
     else openConversationSearch();
   }
   if (e.key === "Escape") {
+    if ($("attention-popover").hidden && $("quota-panel").hidden && document.querySelector("#run-console:not([hidden])")) return;
     if (!$("attention-popover").hidden) {
       $("attention-popover").hidden = true;
       $("attention-bell").setAttribute("aria-expanded", "false");
@@ -6558,6 +6559,7 @@ document.addEventListener("keydown", (e) => {
       return;
     }
     if (!$("quota-panel").hidden) {
+      e.preventDefault();
       setQuotaOpen(false);
       if (quotaReturnsToSettings) {
         quotaReturnsToSettings = false;

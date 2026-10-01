@@ -46,3 +46,4 @@ Each new version must add an English specification under `releases/v<VERSION>.md
 - [0.12.0 — Catalog provisioning, private credentials and concurrent providers](releases/v0.12.0.md)
 - [0.12.1 — Integrated catalog and workspace gauntlet baseline](releases/v0.12.1.md)
 - [0.13.1 — Round-one approval, workflow and interface repairs](releases/v0.13.1.md)
+- [0.13.2 — Round-two safety, workflow and interface repairs](releases/v0.13.2.md)

@@ -4689,12 +4689,12 @@ main { padding-bottom:28px; }
 .authorized-root-card strong { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .run-console { height:var(--th-console-height,max(340px,45dvh)); max-height:none; }
 .run-console-resizer { position:relative; height:24px; }
-.run-console-header { flex-wrap:nowrap; }
-.run-console-header h2 { flex:none; }
-.run-console-tabs { min-width:0; overflow-x:auto; flex-wrap:nowrap; }
-.run-console-tabs [role="tab"] { flex:none; min-height:24px; }
-#run-console-maximize { min-width:80px; min-height:30px; padding:4px 8px; font-size:12px; }
-.run-console-close { min-width:24px; min-height:24px; }
+.run-console-header { flex-wrap:nowrap; min-height:26px; padding:0 12px; }
+.run-console-header h2 { flex:none; line-height:24px; }
+.run-console-tabs { height:26px; min-width:0; overflow-x:auto; flex-wrap:nowrap; }
+.run-console-tabs [role="tab"] { height:26px; padding:2px 12px; flex:none; min-height:24px; }
+#run-console-maximize { min-width:80px; min-height:24px; padding:2px 8px; font-size:12px; }
+#run-console .run-console-close { min-width:24px; min-height:24px; height:26px; padding:2px 8px; }
 .workspace-resize:focus-visible,.run-console-resizer:focus-visible { outline:2px solid var(--th-accent); outline-offset:-2px; }
 @media (max-width:700px) {
   body,body.sidebar-collapsed { grid-template-columns:minmax(0,1fr); }
@@ -4724,12 +4724,14 @@ main { padding-bottom:28px; }
 .conversation-peek { min-width:24px; min-height:24px; }
 .run-console-body { container:run-console / inline-size; }
 @container run-console (max-width:480px) {
-  .run-pipeline-summary { display:grid; grid-template-columns:minmax(0,1fr); gap:4px; }
+  .run-pipeline-summary { display:grid; grid-template-columns:auto minmax(0,1fr); gap:4px 8px; }
   .run-plan-approval { grid-template-columns:minmax(0,1fr); }
   .run-plan-approval > * { min-width:0; }
-  .run-pipeline-actions { margin-left:0; flex-wrap:nowrap; overflow-x:auto; }
+  .run-pipeline-actions { grid-column:1/-1; margin-left:0; flex-wrap:nowrap; overflow-x:auto; }
   .run-pipeline-actions > * { flex:none; }
   .run-pipeline-actions button { white-space:nowrap; }
+  .run-span-row { display:grid; grid-template-columns:minmax(0,1fr) auto; align-content:start; }
+  .run-span-row > strong,.run-span-row > span:not(.run-span-effort):not(.run-span-duration) { grid-column:1/-1; }
 }
 main > header { flex-wrap:nowrap; overflow-x:auto; }
 #workspace-files #files-help { margin-top:0; }
