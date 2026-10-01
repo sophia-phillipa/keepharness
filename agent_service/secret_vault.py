@@ -53,11 +53,17 @@ class SecretStream:
     """Bounded authority syntax state and known-vault prefixes across provider deltas."""
 
     def __init__(self):
+        self.channels = set()
         self.pending = {}
         self.authority = {}
         self.vault_pending = {}
 
     def feed(self, channel, value):
+        # Never evict unfinished redaction state when a provider emits many sources.
+        if channel not in self.channels:
+            if len(self.channels) >= 256:
+                return "[redacted]" if value else ""
+            self.channels.add(channel)
         # Parse authority syntax before vault literals can replace its field name.
         # Buffer the resulting text separately so authority names inside a vault
         # credential cannot be emitted ahead of its remaining bytes.

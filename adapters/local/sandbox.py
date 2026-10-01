@@ -120,6 +120,7 @@ def wrap(command, session, cwd, project, environment=None):
                 private_inodes.add(inode)
         except (OSError, RuntimeError) as error:
             raise ToolError("local_project_scope_invalid") from error
+    reject_writable_hardlinks(session, private_inodes)
     permissions = project.get("permissions", {})
     hidden_roots = [
         (private_runtime / name).resolve()

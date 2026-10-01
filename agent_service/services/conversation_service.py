@@ -1943,7 +1943,8 @@ class ConversationService:
             if kind in ("answer_delta", "reasoning_delta", "reasoning_summary") and isinstance(
                 value, dict
             ):
-                value = {**value, "text": secret_stream.feed(kind, value.get("text", ""))}
+                channel = (kind, value.get("parent_tool_use_id") or None)
+                value = {**value, "text": secret_stream.feed(channel, value.get("text", ""))}
             value = redact_secrets(value)
             if kind == "session_turn_started" and backend == "codex" and execution_mode == "native":
                 conversation_context.save_cursor(
