@@ -1980,6 +1980,14 @@ class ConversationService:
         if attachment_notice:
             progress("answer_delta", {"text": attachment_notice})
         project_config, backend_config, permissions = self._project_config(plan)
+        if execution_mode == "scoped":
+            from agent_service.effect_transport import validate_scoped_private_files
+
+            validate_scoped_private_files(self)
+            backend_config = {
+                **backend_config,
+                "_validate_private_files": lambda: validate_scoped_private_files(self),
+            }
         if capability:
             backend_config = {**backend_config, "_effect_capability": capability}
 
@@ -2255,6 +2263,7 @@ class ConversationService:
             self.approvals[aid] = (row["id"], future)
             self.approval_deadlines[aid] = time.time() + wait_limit
             opened = False
+            reply = None
             try:
                 progress(
                     "approval_required",
@@ -2292,7 +2301,17 @@ class ConversationService:
                 if not future.done():
                     future.cancel()
                 if opened and not expired:
-                    progress("approval_resolved", {"approval_id": aid})
+                    resolution = {"approval_id": aid, "outcome": "cancelled"}
+                    if reply is not None:
+                        resolution.update(
+                            approved=reply.get("approved") is True,
+                            decision="approved" if reply.get("approved") else "denied",
+                            outcome="completed" if reply.get("approved") else "cancelled",
+                            scope=reply.get("scope", "once"),
+                            resolved_by=reply.get("resolved_by"),
+                            resolved_at=reply.get("resolved_at"),
+                        )
+                    progress("approval_resolved", resolution)
 
         return approve
 

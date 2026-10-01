@@ -324,7 +324,9 @@ def test_authority_stream_pending_is_bounded_and_emits_terminal_redaction():
     chunks = []
     for char in "nonce=" + "X" * 20000:
         chunks.append(stream.feed("answer", char))
-        assert len(stream.pending.get("answer", "")) <= 32
+        raw, parts = stream.pending.get("answer", ("", []))
+        assert len(raw) <= 32
+        assert len(raw) == len(parts)
     assert "".join(chunks) == "nonce=[redacted]"
     assert stream.feed("answer", "; ordinary text") == "; ordinary text"
 

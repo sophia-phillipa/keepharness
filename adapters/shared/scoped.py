@@ -89,6 +89,8 @@ def scoped_home_write(home, name, content):
 
 @contextmanager
 def prepare_scoped(config, project, staged, session_dir, provider, auth_name):
+    if config.get("_validate_private_files"):
+        config["_validate_private_files"]()
     binary = Path(config["binary"]).resolve()
     auth = Path(config["auth_file"])
     if not binary.is_file() or not auth.is_file():

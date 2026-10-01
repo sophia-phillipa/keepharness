@@ -5,7 +5,7 @@ backend-path = ["."]
 
 [project]
 name = "tail-harness"
-version = "0.13.12"
+version = "0.13.13"
 description = "Local AI CLI control panel and private-network harness"
 readme = "README.md"
 requires-python = ">=3.11"

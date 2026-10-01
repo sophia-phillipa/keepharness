@@ -57,6 +57,11 @@ def validate_runtime_config(candidate):
             return False
     if any(not isinstance(spec, dict) for spec in candidate["projects"].values()):
         return False
+    if any(
+        spec.get("maestro_plan_policy", "review") not in ("review", "auto")
+        for spec in [candidate, *candidate["projects"].values()]
+    ):
+        return False
     for spec in candidate["clients"].values():
         if (
             not isinstance(spec, dict)

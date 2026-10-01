@@ -167,7 +167,12 @@ function unfencedPrompt(text) {
   let marker = null, markerDepth = 0, markerIndent = 0, listIndent = 0;
   let previousBlank = true, indented = false, quoteInList = false;
   return text.split(/(?<=\n)/).map(source => {
-    let line = source;
+    let column = 0;
+    let line = Array.from(source, character => {
+      const expanded = character === "\t" ? " ".repeat(4 - column % 4) : character;
+      column += expanded.length;
+      return expanded;
+    }).join("");
     if (quoteInList) {
       if (line.startsWith(" ".repeat(listIndent))) line = line.slice(listIndent);
       else if (line.trim()) { quoteInList = false; listIndent = 0; }
@@ -417,6 +422,9 @@ function resourceKeydown(event) {
     event.stopPropagation();
     chosen.click();
     return true;
+  }
+  if (index >= 0 && (event.key.length === 1 || ["Backspace", "Delete", "ArrowLeft", "ArrowRight"].includes(event.key))) {
+    $("prompt").focus();
   }
   return false;
 }
@@ -1319,6 +1327,10 @@ const userErrors = {
     "This publication request is too large. Reduce the artifact content and prepare it again.",
   unsafe_scoped_home:
     "This execution cannot start because its isolated workspace is unsafe. Ask the server owner to check its workspace configuration.",
+  scoped_private_file_linked:
+    "This isolated run cannot start because private server state has a linked copy. Ask the server owner to remove the link before retrying.",
+  scoped_private_files_unavailable:
+    "This isolated run cannot verify private server state. Ask the server owner to check its storage and permissions, then retry.",
   // Projects, folders and workspaces.
   invalid_project: "This project is invalid. Choose another one.",
   project_busy: "This project is busy with another change. Try again shortly.",
@@ -3380,6 +3392,10 @@ function renderPlanOutcome(card, runState = card.dataset.runState) {
     note = terminal ? "The approved run is " + terminal.toLowerCase() + "." : "Maestro is running the approved steps.";
   } else if (state === "resolved") { label = "Decision recorded"; note = "The plan decision was recorded."; }
   else { label = "Awaiting your approval"; note = "Nothing runs until you approve."; }
+  const decision = window.runConsole?.planDecision(card.id.slice(5));
+  const approve = card.querySelector(".maestro-plan-actions .btn-primary");
+  if (approve) approve.disabled = !!decision?.pending || state !== "pending";
+  if (decision?.pending && state === "pending") note = decision.message;
   card.querySelector(".state-pill").textContent = label;
   card.querySelector('[role="status"]').textContent = note;
 }
@@ -3397,6 +3413,7 @@ function showWorkflowRecovery(run) {
   resume.type = "button";
   resume.className = "btn";
   resume.textContent = "Resume workflow";
+  let resumedConversation;
   resume.onclick = async () => {
     resume.disabled = true;
     try {
@@ -3406,15 +3423,23 @@ function showWorkflowRecovery(run) {
       key ||= crypto.randomUUID?.() || Array.from(crypto.getRandomValues(new Uint8Array(16)), n => n.toString(16).padStart(2, "0")).join("");
       workflowResumeKeys.set(run.id, key);
       try { sessionStorage.setItem(storageKey, key); } catch {}
-      const child = await json("/v1/jobs/" + encodeURIComponent(run.id) + "/resume", {
-        method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": key }, body: "{}",
-      });
-      await history();
-      await load(child.conversation_id || child.job_id);
+      if (!resumedConversation) {
+        const child = await json("/v1/jobs/" + encodeURIComponent(run.id) + "/resume", {
+          method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": key }, body: "{}",
+        });
+        resumedConversation = child.conversation_id || child.job_id;
+        resume.textContent = "Open resumed run";
+      }
+      await load(resumedConversation);
+      if (conversation !== resumedConversation) {
+        note.textContent = "The workflow was resumed. Couldn't open its conversation; use Open resumed run to try again.";
+        resume.disabled = false;
+      }
+      void history();
     } catch (error) {
       note.textContent = error.code === "workflow_effect_outcome_unknown"
         ? "Resolve the uncertain publication outcome before resuming this workflow."
-        : "Couldn't resume the workflow: " + error.message;
+        : (resumedConversation ? "The workflow was resumed. Couldn't open its conversation: " : "Couldn't resume the workflow: ") + error.message;
       resume.disabled = false;
     }
   };
@@ -3468,10 +3493,11 @@ function showMaestroPlan(data = {}) {
     approve.className = "btn btn-primary";
     approve.textContent = "✓ Approve plan & run";
     approve.onclick = async () => {
+      if (window.runConsole.planDecision(data.gate_id)?.pending) return;
       card.dataset.restoreFocus = String(card.contains(document.activeElement));
       approve.disabled = true;
       try {
-        await post("/v1/approvals/" + encodeURIComponent(data.gate_id), { choice: "approve", plan: window.runConsole.planForApproval(data.gate_id, { steps: data.steps }) });
+        await window.runConsole.submitPlanDecision(data.gate_id, "approve", window.runConsole.planForApproval(data.gate_id, { steps: data.steps }));
         window.runConsole.clearPlanDraft(data.gate_id);
         if (card.dataset.state === "pending") card.dataset.state = "running";
         card.dataset.choice = "approve";

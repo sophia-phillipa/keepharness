@@ -867,15 +867,17 @@ async def execute_plan(service, row, data, declared, *, planning_result=None, co
 
 
 async def run(service, row, data):
-    planned = await plan(service, row, data)
     policy = data.get(
         "maestro_plan_policy",
         service.config.get("projects", {})
         .get(row["project"], {})
         .get("maestro_plan_policy", "review"),
     )
-    if policy not in ("auto", "review"):
+    if policy not in ("auto", "review") or service.config.get(
+        "maestro_plan_policy", "review"
+    ) not in ("auto", "review"):
         raise ToolError("invalid_maestro_plan_policy")
+    planned = await plan(service, row, data)
     if policy == "auto":
         resolution = {"approved": True, "choice": "approve", "plan": planned["plan"]}
         service.event(row["id"], "maestro_plan_auto", {"policy": "auto"})

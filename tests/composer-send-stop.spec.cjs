@@ -88,7 +88,7 @@ const assert = require("node:assert/strict"),
       });
     });
     page.on("pageerror", (e) => errors.push(e.message));
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.12"));
+    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.13"));
     await page.goto("http://composer.test");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     await page.evaluate(() => {
@@ -207,7 +207,7 @@ const assert = require("node:assert/strict"),
             : "text/html",
       });
     });
-    await race.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.12"));
+    await race.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.13"));
     await race.goto("http://race.test");
     await race.locator("#startup-gate").waitFor({ state: "hidden" });
     await race.fill("#prompt", "First");

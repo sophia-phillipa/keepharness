@@ -22,17 +22,32 @@ _authority_fields = re.compile(
 )
 
 
+def _redaction_parts(value, *, authority=False, parts=None):
+    """Mask overlapping matches on the original text, preserving parser offsets."""
+    parts = list(value) if parts is None else parts
+    spans = []
+    for secret in {item for values in list(_known_secrets.values()) for item in values}:
+        start = value.find(secret)
+        while start >= 0:
+            spans.append((start, start + len(secret)))
+            start = value.find(secret, start + 1)
+    if authority:
+        for pattern in (_authority_fields, re.compile(r"(\bBearer\s+)[^\s\"',;}]+", re.I)):
+            spans.extend((match.end(1), match.end()) for match in pattern.finditer(value))
+    merged = []
+    for start, end in sorted(spans):
+        if merged and start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(end, merged[-1][1]))
+        else:
+            merged.append((start, end))
+    for start, end in merged:
+        parts[start:end] = ["[redacted]"] + [""] * (end - start - 1)
+    return parts
+
+
 def redact_secrets(value):
     if isinstance(value, str):
-        value = re.sub(r"(\bBearer\s+)[^\s\"',;}]+", r"\1[redacted]", value, flags=re.IGNORECASE)
-        value = _authority_fields.sub(r"\1[redacted]", value)
-        for secret in sorted(
-            {item for values in list(_known_secrets.values()) for item in values},
-            key=len,
-            reverse=True,
-        ):
-            value = value.replace(secret, "[redacted]")
-        return value
+        return "".join(_redaction_parts(value, authority=True))
     if isinstance(value, dict):
         return {
             redact_secrets(key): "[redacted]"
@@ -64,13 +79,13 @@ class SecretStream:
             if len(self.channels) >= 256:
                 return "[redacted]" if value else ""
             self.channels.add(channel)
-        # Parse authority syntax before vault literals can replace its field name.
-        # Buffer the resulting text separately so authority names inside a vault
-        # credential cannot be emitted ahead of its remaining bytes.
-        value = self.vault_pending.pop(channel, "") + self._authority_feed(channel, value)
+        # Hold raw literal prefixes before parsing authority syntax. Both masks
+        # see the original characters, even if a secret is itself a field name.
+        previous, parts = self.vault_pending.pop(channel, ("", []))
+        parts.extend(value)
+        value = previous + value
+        parts = _redaction_parts(value, parts=parts)
         secrets = {item for values in list(_known_secrets.values()) for item in values}
-        for secret in sorted(secrets, key=len, reverse=True):
-            value = value.replace(secret, "[redacted]")
         suffix = max(
             (
                 size
@@ -81,12 +96,13 @@ class SecretStream:
             default=0,
         )
         if suffix:
-            self.vault_pending[channel] = value[-suffix:]
-            value = value[:-suffix]
-        return value
+            self.vault_pending[channel] = (value[-suffix:], parts[-suffix:])
+            value, parts = value[:-suffix], parts[:-suffix]
+        return self._authority_feed(channel, value, parts)
 
-    def _authority_feed(self, channel, value):
-        value = self.pending.pop(channel, "") + value
+    def _authority_feed(self, channel, value, parts):
+        previous, held_parts = self.pending.pop(channel, ("", []))
+        value, parts = previous + value, held_parts + parts
         output = []
         while value:
             mode = self.authority.get(channel)
@@ -94,6 +110,7 @@ class SecretStream:
                 end = re.search(r"[\s\"'&,;}]", value)
                 if end is None:
                     return "".join(output)
+                parts = parts[end.start() :]
                 value = value[end.start() :]
                 self.authority.pop(channel, None)
             elif mode in ("separator", "leading", "bearer"):
@@ -101,7 +118,8 @@ class SecretStream:
                     self.authority.pop(channel, None)
                     continue
                 prefix = re.match(r"[\s\"']*", value).group()
-                output.append(prefix)
+                output.append("".join(parts[: len(prefix)]))
+                parts = parts[len(prefix) :]
                 value = value[len(prefix) :]
                 if mode == "bearer":
                     self.authority[channel] = "leading"
@@ -109,7 +127,8 @@ class SecretStream:
                     break
                 if mode == "separator":
                     if value[0] in ":=":
-                        output.append(value[0])
+                        output.append(parts[0])
+                        parts = parts[1:]
                         value = value[1:]
                         self.authority[channel] = "leading"
                         continue
@@ -126,7 +145,8 @@ class SecretStream:
                 re.IGNORECASE,
             )
             if match:
-                output.append(value[: match.end()])
+                output.append("".join(parts[: match.end()]))
+                parts = parts[match.end() :]
                 value = value[match.end() :]
                 self.authority[channel] = (
                     "bearer" if match.group().lower() == "bearer" else "separator"
@@ -144,9 +164,9 @@ class SecretStream:
                 default=0,
             )
             if suffix:
-                self.pending[channel] = value[-suffix:]
-                value = value[:-suffix]
-            output.append(value)
+                self.pending[channel] = (value[-suffix:], parts[-suffix:])
+                parts = parts[:-suffix]
+            output.append("".join(parts))
             break
         return "".join(output)
 

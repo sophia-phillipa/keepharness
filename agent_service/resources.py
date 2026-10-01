@@ -63,13 +63,14 @@ def dependency_snapshot(path, meta, boundary):
 
 def markdown(text):
     lines = text.splitlines()
+    raw_lines = text.splitlines(keepends=True)
     if not lines or lines[0].strip() != "---":
         return {}, text
     meta = {}
     key = None
     for index, line in enumerate(lines[1:], 1):
         if line.strip() == "---":
-            if len("\n".join(lines[: index + 1]).encode()) > MAX_METADATA_BYTES:
+            if len("".join(raw_lines[: index + 1]).encode()) > MAX_METADATA_BYTES:
                 raise ValueError("metadata_too_large")
             return meta, "\n".join(lines[index + 1 :])
         if line.startswith((" ", "\t")) and key:
@@ -96,6 +97,7 @@ def unfenced(text, *, preserve_offsets=False, keep_language=None):
     keep_block = False
     for line in text.splitlines(keepends=True):
         source = line
+        line = line.expandtabs(4)
         if quote_in_list:
             if line.startswith(" " * list_indent):
                 line = line[list_indent:]
