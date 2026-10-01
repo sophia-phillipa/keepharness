@@ -346,7 +346,12 @@ class ConversationService:
                     if capable and expires > time.time() and owner in self.config["clients"]
                     else "public"
                 )
-                self.limit((lane, "session"), 240, "session_rate_limit")
+                control = self.control_request(request)
+                self.limit(
+                    (lane, "session_control" if control else "session"),
+                    120 if control else 240,
+                    "session_rate_limit",
+                )
             session_owner = session_identity(request, self.config)
         if session_owner is not None:
             request.state.approval_session_owner = session_owner
@@ -389,13 +394,29 @@ class ConversationService:
             raise APIError(code, 429, max(1, math.ceil(60 - (now - entries[0]))))
         entries.append(now)
 
-    def throttle(self, name, client, request=None):
+    @staticmethod
+    def control_request(request):
         path = request.url.path if request else ""
-        control = path.endswith("/cancel") or path.startswith("/v1/approvals/")
+        return bool(
+            request
+            and request.method == "POST"
+            and (
+                path.endswith("/cancel")
+                or path.startswith("/v1/approvals/")
+                or path == "/v1/logout"
+            )
+        )
+
+    def throttle(self, name, client, request=None):
+        control = self.control_request(request)
         lane = (
             "control" if control else ("write" if request and request.method != "GET" else "read")
         )
-        self.limit((name, lane), 120 if control else 60 if lane == "write" else 240)
+        human = control and getattr(request.state, "approval_session_owner", None) == name
+        self.limit(
+            (name, "human_control" if human else lane),
+            120 if control else 60 if lane == "write" else 240,
+        )
         return name, client
 
     def job(self, identity, job):

@@ -127,7 +127,8 @@ class EffectService:
                 "UPDATE effects SET status=?,receipt=? WHERE effect_id=?",
                 (status, encoded(receipt) if receipt else None, effect_id),
             )
-            self._event(effect_id, "effect_" + status, **extra)
+        # A notification failure must not roll back a known publication outcome.
+        self._event(effect_id, "effect_" + status, **extra)
 
     async def prepare(self, job_id, request, *, execution_id=None, enforcement="unenforced"):
         job = self.service.conversation_repository.get(job_id)
@@ -251,8 +252,8 @@ class EffectService:
             except TimeoutError:
                 with self.db:
                     self.service.gates.repository.close(gate_id, "expired")
-                self.service.event(effect["job_id"], "gate_expired", {"gate_id": gate_id})
                 self._status(effect_id, "denied", reason="gate_expired")
+                self.service.event(effect["job_id"], "gate_expired", {"gate_id": gate_id})
                 return
             if resolution["choice"] != "approve":
                 self._status(effect_id, "denied")
@@ -265,6 +266,14 @@ class EffectService:
             elif current["status"] == "prepared":
                 self._status(effect_id, "invalidated", reason="service_stopped")
             raise
+        except Exception:
+            current = self.get(effect_id)
+            if current["status"] in ("prepared", "executing"):
+                self._status(
+                    effect_id,
+                    "unknown" if current["status"] == "executing" else "invalidated",
+                    reason="execution_failed",
+                )
         finally:
             self.service.approvals.pop(gate_id, None)
             self.service.gates.progress.pop(gate_id, None)
