@@ -52,8 +52,31 @@ class SecretStream:
     def __init__(self):
         self.pending = {}
         self.authority = {}
+        self.vault_pending = {}
 
     def feed(self, channel, value):
+        # Parse authority syntax before vault literals can replace its field name.
+        # Buffer the resulting text separately so authority names inside a vault
+        # credential cannot be emitted ahead of its remaining bytes.
+        value = self.vault_pending.pop(channel, "") + self._authority_feed(channel, value)
+        secrets = {item for values in list(_known_secrets.values()) for item in values}
+        for secret in sorted(secrets, key=len, reverse=True):
+            value = value.replace(secret, "[redacted]")
+        suffix = max(
+            (
+                size
+                for secret in secrets
+                for size in range(1, len(secret))
+                if value.endswith(secret[:size])
+            ),
+            default=0,
+        )
+        if suffix:
+            self.vault_pending[channel] = value[-suffix:]
+            value = value[:-suffix]
+        return value
+
+    def _authority_feed(self, channel, value):
         value = self.pending.pop(channel, "") + value
         output = []
         while value:
@@ -85,16 +108,15 @@ class SecretStream:
                     self.authority.pop(channel, None)
             match = re.search(r"\b(?:harness_session|nonce)\b", value, re.IGNORECASE)
             if match:
-                output.append(redact_secrets(value[: match.end()]))
+                output.append(value[: match.end()])
                 value = value[match.end() :]
                 self.authority[channel] = "separator"
                 continue
-            secrets = {item for values in list(_known_secrets.values()) for item in values}
             names = {"harness_session", "nonce"}
             suffix = max(
                 (
                     size
-                    for secret in secrets | names
+                    for secret in names
                     for size in range(1, len(secret))
                     if (value.lower() if secret in names else value).endswith(secret[:size])
                 ),
@@ -103,7 +125,7 @@ class SecretStream:
             if suffix:
                 self.pending[channel] = value[-suffix:]
                 value = value[:-suffix]
-            output.append(redact_secrets(value))
+            output.append(value)
             break
         return "".join(output)
 

@@ -13,7 +13,15 @@ class CatalogPinError(ValueError):
 
 def _git(root, *arguments, strip=True):
     result = subprocess.run(
-        ["git", "-c", "core.hooksPath=/dev/null", "-C", str(root), *arguments],
+        [
+            "git",
+            "--no-replace-objects",
+            "-c",
+            "core.hooksPath=/dev/null",
+            "-C",
+            str(root),
+            *arguments,
+        ],
         capture_output=True,
         text=True,
         timeout=60,
@@ -21,6 +29,43 @@ def _git(root, *arguments, strip=True):
     if result.returncode:
         raise CatalogPinError("catalog_git_failed")
     return result.stdout.strip() if strip else result.stdout
+
+
+def _verify_pin(root, commit):
+    if _git(root, "rev-parse", "HEAD") != commit or _git(
+        root, "status", "--porcelain", "--ignored"
+    ):
+        raise CatalogPinError("catalog_pin_modified")
+    # Read the immutable tree, not the mutable index (which can suppress status).
+    algorithm = "sha256" if len(commit) == 64 else "sha1"
+    for entry in _git(root, "ls-tree", "-rz", commit, strip=False).split("\0"):
+        if not entry:
+            continue
+        metadata, relative = entry.split("\t", 1)
+        mode, kind, expected = metadata.split()
+        path = Path(root) / relative
+        try:
+            if kind != "blob" or any(
+                parent.is_symlink()
+                for parent in path.parents
+                if parent != Path(root) and Path(root) in parent.parents
+            ):
+                raise CatalogPinError("catalog_pin_modified")
+            if mode == "120000" and path.is_symlink():
+                content = os.fsencode(os.readlink(path))
+            elif mode in ("100644", "100755") and path.is_file() and not path.is_symlink():
+                if bool(path.stat().st_mode & 0o111) != (mode == "100755"):
+                    raise CatalogPinError("catalog_pin_modified")
+                content = path.read_bytes()
+            else:
+                raise CatalogPinError("catalog_pin_modified")
+        except OSError:
+            raise CatalogPinError("catalog_pin_modified") from None
+        actual = hashlib.new(
+            algorithm, b"blob " + str(len(content)).encode() + b"\0" + content
+        ).hexdigest()
+        if actual != expected:
+            raise CatalogPinError("catalog_pin_modified")
 
 
 def _catalog_id(catalog):
@@ -56,10 +101,7 @@ def pin_catalog(catalog, state_dir, ref, *, owner=False):
                 if not path.is_symlink():
                     path.chmod(path.stat().st_mode & ~0o222)
         target.chmod(target.stat().st_mode & ~0o222)
-    if _git(target, "rev-parse", "HEAD") != commit or _git(
-        target, "status", "--porcelain", "--ignored"
-    ):
-        raise CatalogPinError("catalog_pin_modified")
+    _verify_pin(target, commit)
     return {"commit": commit, "root": str(target)}
 
 
@@ -119,10 +161,7 @@ def effective_catalogs(config, project):
             root = Path(pin.get("root", expected)).resolve()
             if root != expected or not root.is_dir():
                 raise CatalogPinError("invalid_catalog_pin")
-            if _git(root, "rev-parse", "HEAD") != commit or _git(
-                root, "status", "--porcelain", "--ignored"
-            ):
-                raise CatalogPinError("catalog_pin_modified")
+            _verify_pin(root, commit)
             value.update(root=str(root), pin={"commit": commit, "root": str(root)})
         result.append(value)
     return result

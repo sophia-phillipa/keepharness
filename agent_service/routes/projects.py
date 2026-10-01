@@ -48,6 +48,7 @@ async def resources(request, service, identity):
         params.get("model"),
         params.get("execution_mode"),
     )
+    service.project(identity, params.get("project_id"))
     return JSONResponse(value, headers={"Cache-Control": "no-store"})
 
 
@@ -55,11 +56,11 @@ async def catalog(request, service, identity):
     config = service.config
     project_id = request.query_params.get("project_id")
     service.project(identity, project_id)
-    return JSONResponse(
-        await asyncio.to_thread(
-            project_catalog_items, config, config["projects"][project_id], project_id
-        )
+    value = await asyncio.to_thread(
+        project_catalog_items, config, config["projects"][project_id], project_id
     )
+    service.project(identity, project_id)
+    return JSONResponse(value, headers={"Cache-Control": "no-store"})
 
 
 async def project_directories(request, service, identity):
