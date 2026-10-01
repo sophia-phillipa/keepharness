@@ -2,7 +2,7 @@
 
 [![🇺🇸 English](https://img.shields.io/badge/%F0%9F%87%BA%F0%9F%87%B8-English-blue.svg)](README.md) [![🇧🇷 Português (Brasil)](https://img.shields.io/badge/%F0%9F%87%A7%F0%9F%87%B7-Portugu%C3%AAs%20(Brasil)-green.svg)](README.pt-BR.md)
 
-Painel local em Python para descobrir, configurar e executar o Codex CLI, o Claude Code, o Gemini CLI e modelos de IA locais, com uma interface de conversa acessível pela Tailscale ou outra VPN. Python 3.11+, licença MIT, versão **0.10.1**.
+Painel local em Python para descobrir, configurar e executar o Codex CLI, o Claude Code, o Gemini CLI e modelos de IA locais, com uma interface de conversa acessível pela Tailscale ou outra VPN. Python 3.11+, licença MIT, versão **0.11.1**.
 
 ## 🚀 Installation — agent-guided (start here)
 
@@ -228,7 +228,7 @@ PYTHON="$PWD/.venv/bin/python" PLAYWRIGHT_MODULE=/caminho/playwright ./scripts/t
 
 As fixtures de UI evitam inferência em nuvem e download de modelos. Uma suíte mocada passando não prova autenticação de terceiros, reinício físico ou desempenho em contexto completo. Para verificar o pacote instalado, use `"$TH_VENV/bin/python" -m control.install_check`, com `TH_VENV` apontando para o ambiente usado na instalação (`~/.local/share/tail-harness/venv` para `install.sh`, `.venv` para `setup.sh`). Esse smoke check roda fora do checkout, com estado temporário e uma porta disponível; ele não instala dependências nem valida a instância de produção e os provedores. Para simular uma instalação limpa, siga a seção dedicada da [spec](dossier/installation-agent-spec.md), preparando ambiente, estado e portas separados por comandos individuais.
 
-Toda nova versão exige uma especificação em inglês em `dossier/releases/v<VERSÃO>.md`, com comportamento, critérios de aceitação, diagramas relevantes, notas de migração e validação realmente executada. Atualize `README.md`, `README.pt-BR.md` e os identificadores de versão juntos. Veja a [versão 0.10.1](dossier/releases/v0.10.1.md) e o [dossiê](dossier/README.md). Referência de produto: [T3 Code](https://github.com/pingdotgg/t3code). Esta é uma implementação independente; não incorpora código ou recursos gráficos do T3 e não alega equivalência de recursos.
+Toda nova versão exige uma especificação em inglês em `dossier/releases/v<VERSÃO>.md`, com comportamento, critérios de aceitação, diagramas relevantes, notas de migração e validação realmente executada. Atualize `README.md`, `README.pt-BR.md` e os identificadores de versão juntos. Veja a [versão 0.11.1](dossier/releases/v0.11.1.md) e o [dossiê](dossier/README.md). Referência de produto: [T3 Code](https://github.com/pingdotgg/t3code). Esta é uma implementação independente; não incorpora código ou recursos gráficos do T3 e não alega equivalência de recursos.
 
 A suíte cobre políticas de acesso, autenticação, protocolos e aprovações, descoberta local, integridade de download, instalação, arquivos empacotados e recuperação após falha. O teste de navegador usa fixtures, então não consome contas nem baixa modelos. A configuração do GitHub Actions executa os testes Python, os testes de UI no Chromium e a construção de wheel/sdist; os artefatos ficam anexados ao job de empacotamento quando o pipeline passa. Autenticação de terceiros e reinício físico da máquina não são simulados como prova de operação real.
 
@@ -286,7 +286,7 @@ Projetos criados na conversa ficam em `runs/jobs.sqlite3`; inclua esse banco nos
 
 As pastas são fornecidas em cada execução e retomada: o Codex usa o diretório de trabalho principal e as permissões de execução para raízes adicionais; o Claude recebe `--add-dir`; os modelos locais e o DeepSeek via API usam o runtime de ferramentas existente para inspecionar arquivos e devolver resultados ao modelo. Pastas inteiras não são enviadas automaticamente como texto. As permissões de leitura e escrita continuam valendo.
 
-**Buscar** no menu lateral abre uma caixa de diálogo de busca só por título, sem diferenciar maiúsculas ou acentos. Os painéis laterais têm 280 e 400 pixels por padrão e continuam redimensionáveis; o rodapé é compacto.
+**Buscar** no menu lateral abre uma caixa de diálogo de busca só por título, sem diferenciar maiúsculas ou acentos. Os painéis laterais têm 300 e 390 pixels por padrão e continuam redimensionáveis; o rodapé é compacto.
 
 Veja [contratos de pastas de projeto e fontes oficiais](docs/PROJECT-FOLDERS-20260919.md).
 
@@ -354,8 +354,12 @@ Novas conversas oferecem a escolha de isolamento antes da primeira mensagem, com
 
 MIT — veja [LICENSE](LICENSE).
 
-## 🆕 Version 0.10.1
+## 🆕 Version 0.11.1
 
-A página de conversa segue o layout aprovado Chat + Run console: conversas agrupadas por estado, barra compacta de busca e atenção, planos Maestro na conversa, controles identificados no compositor, Files/Activity e uma faixa permanente de status ao vivo. O Pipeline acompanha a execução mais recente da conversa atual.
+Declare até doze invocações sequenciais em `workflows/<id>.json`, com portões de aprovação, condições sobre resultados limitados e checkpoints vinculados a digests. A paleta `/` lista workflows do projeto e de catálogos confiáveis. JSON funciona sem pacotes extras; YAML usa `yaml.safe_load` somente quando PyYAML está instalado.
 
-Um tour guiado começa na primeira visita do navegador e pode ser reaberto em **About → Take the tour**. Ele suporta navegação por teclado, movimento reduzido e telas estreitas; áreas indisponíveis são puladas. Veja a [especificação da release](dossier/releases/v0.10.1.md) para comportamento e validação.
+O Maestro pode usar qualquer backend habilitado e configurado como coordenador (Codex continua sendo o padrão). Planos gerados exigem revisão humana por padrão. Defina `maestro_plan_policy: "auto"` por projeto ou execução para planejamento sem espera humana; publicação e portões de etapas mantêm suas aprovações. Settings → Agents and models oferece a escolha por execução. Workflows declarados dispensam o planejamento.
+
+A conversa mantém a estrutura do mock-4 aprovado e a escala existente da interface com zoom do navegador em 100%. O painel direito empilha **Files**, **Background tasks**, **Resources** e **Activity**, com seções recolhíveis e tamanhos salvos.
+
+O Run console abre com altura útil para inspecionar os cartões do pipeline e suas ações, lembra a altura ajustada, permite redimensionamento por teclado e maximizar/restaurar, e ocupa a tela disponível no celular. As interfaces HTTP e MCP permitem retomar, executar novamente a partir de uma etapa como execução filha e salvar uma cadeia bem-sucedida na coleção gravável `workflows/` do projeto. Mudanças em entradas ou revisões invalidam os checkpoints e aprovações afetados; publicações incertas exigem reconciliação antes da retomada. Uma matriz visual Playwright cobre a paleta de workflows, a política de revisão de planos, os cartões de plano gerados, quatro resoluções e os seis temas. Veja a [especificação da release 0.11.1](dossier/releases/v0.11.1.md); as especificações [0.10.2](dossier/releases/v0.10.2.md) e [0.11.0](dossier/releases/v0.11.0.md) preservam os registros das releases de origem.

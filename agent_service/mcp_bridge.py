@@ -18,8 +18,8 @@ def read_env(name, legacy, default=None):
 
 
 INSTRUCTIONS = """You connect the client computer (for example, a Mac running Claude) to the Tail Harness server.
-Use submit_job in auto mode: Maestro coordinates when enabled with Codex. Without Maestro, the server directly uses the configured default executor or the first enabled and eligible executor.
-Do not select backend/model/effort manually unless the person asks. The project must have Codex enabled for planning.
+Use submit_job in auto mode: Maestro coordinates using an enabled backend. Without Maestro, the server directly uses the configured default executor or the first enabled and eligible executor.
+Do not select backend/model/effort manually unless the person asks. The configured coordinator must be enabled for the project.
 Client paths do NOT exist on the server. Never send a Mac path as if it were a server project.
 Before delegating, check local_capabilities, available_models and local_projects. Do not invent models, access or results.
 For a report with transcripts, emails, Slack or Drive: use the connectors available on the client to obtain the documents,
@@ -142,8 +142,11 @@ async def submit_job(
     effort: str = "auto",
     parent_job_id: str | None = None,
     workspace_id: str | None = None,
+    maestro_plan_policy: str | None = None,
+    invocations: list[dict] | None = None,
+    workflow_inputs: dict | None = None,
 ) -> dict:
-    """Auto uses Maestro only when Codex and Maestro are enabled; otherwise uses the configured default or first eligible executor directly.
+    """Auto uses Maestro when enabled with an eligible coordinator; otherwise uses an eligible executor directly.
     Use available_models to request a specific enabled executor when the person asks. Never assume Codex or a local model exists.
     Pass workspace_id for an uploaded folder. Return concise results, not full source documents.
     Explicit backend overrides (codex/claude/gemini/local/deepseek) are for user-requested manual selection.
@@ -151,14 +154,42 @@ async def submit_job(
     Native mode uses CLI tools and permissions selected in administration. Approvals
     arrive through job_events; the person must use an enrolled web session to respond.
     Use the latest job id as parent_job_id to keep the conversation context.
+    Set maestro_plan_policy="auto" explicitly for unattended planning; the default
+    is project policy or "review". Auto never approves publication or step gates.
+    A standalone workflow invocation bypasses planning. workflow_inputs binds checkpoints.
     """
     data = locals().copy()
     data.pop("idempotency_key")
+    for key in ("maestro_plan_policy", "invocations", "workflow_inputs"):
+        if data[key] is None:
+            data.pop(key)
     data["file_ids"] = file_ids or []
     data["arguments"] = arguments or {}
     return await call(
         "POST", "/v1/jobs", data, {"Idempotency-Key": idempotency_key} if idempotency_key else {}
     )
+
+
+@mcp.tool()
+async def resume_workflow(job_id: str, workflow_inputs: dict | None = None) -> dict:
+    """Continue an owned terminal workflow from valid checkpoints; publication still needs human approval."""
+    data = {"workflow_inputs": workflow_inputs} if workflow_inputs is not None else {}
+    return await call("POST", "/v1/jobs/" + job_id + "/resume", data)
+
+
+@mcp.tool()
+async def rerun_workflow(job_id: str, from_step: int, workflow_inputs: dict | None = None) -> dict:
+    """Create a child run from a one-based step, with fresh publication approval and idempotency."""
+    data = {"from_step": from_step}
+    if workflow_inputs is not None:
+        data["workflow_inputs"] = workflow_inputs
+    return await call("POST", "/v1/jobs/" + job_id + "/rerun", data)
+
+
+@mcp.tool()
+async def save_chain_as_workflow(job_id: str, workflow_id: str) -> dict:
+    """Save a successful chain into its project's writable workflows collection."""
+    return await call("POST", "/v1/jobs/" + job_id + "/save-workflow", {"id": workflow_id})
 
 
 @mcp.tool()

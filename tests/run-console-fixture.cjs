@@ -1,7 +1,7 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 async function mount(page, handler) {
-  await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.10.1"));
+  await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.11.1"));
   await page.route('http://console.test/**', async route => {
     const url = new URL(route.request().url());
     if (url.pathname.startsWith('/v1/')) {
@@ -14,7 +14,7 @@ async function mount(page, handler) {
       return route.fulfill({ json: data });
     }
     const file = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);
-    return route.fulfill({ body: await fs.readFile(path.join(__dirname, file.startsWith('assets/') ? '../tail_ui' : '../agent_service', file)), contentType: file.endsWith('.js') ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html' });
+    return route.fulfill({ body: await fs.readFile(path.join(__dirname, file.startsWith('assets/') ? '../tail_ui' : '../agent_service', file)), contentType: file.endsWith('.svg') ? 'image/svg+xml' : file.endsWith('.js') ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html' });
   });
   await page.goto('http://console.test');
   await page.locator('#startup-gate').waitFor({ state: 'hidden' });

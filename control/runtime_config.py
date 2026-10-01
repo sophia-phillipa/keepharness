@@ -33,6 +33,7 @@ def base_config(settings, state, admin_port, browser_url, provider_revisions):
         "default_backend": settings.get("default_backend", ""),
         "maestro_enabled": settings.get("maestro_enabled", True),
         "maestro_instructions": settings.get("maestro_instructions", ""),
+        "maestro_coordinator": settings.get("maestro_coordinator", {}),
         "shared_projects": True,
         "control_state_dir": str(state),
         "admin_url": f"http://127.0.0.1:{admin_port}/",

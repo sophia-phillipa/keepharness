@@ -43,6 +43,8 @@ class EffectService:
         )
         self.driver = JiraEffectDriver()
         self.tasks = {}
+        self.execution_validators = {}
+        self.execution_barriers = {}
         for row in self.db.execute(
             "SELECT effect_id,status FROM effects WHERE status IN ('prepared','executing')"
         ).fetchall():
@@ -214,6 +216,10 @@ class EffectService:
     async def execute(self, effect_id):
         """Not exposed to HTTP/MCP. The committed human gate is the only authority."""
         effect = self.get(effect_id)
+        barrier = self.execution_barriers.get(effect["execution_id"])
+        if barrier is not None and not await asyncio.shield(barrier):
+            self._status(effect_id, "invalidated", reason="workflow_step_incomplete")
+            return self.get(effect_id)
         if effect["status"] != "prepared":
             raise APIError("effect_already_used", 409)
         gate = self.service.gates.repository.get(effect["gate_id"])
@@ -232,6 +238,9 @@ class EffectService:
             }
             validate_request(contract, request)
             expected = binding(request)
+            validator = self.execution_validators.get(effect["execution_id"])
+            if validator is not None and not validator():
+                raise APIError("effect_binding_changed")
             if (
                 canonical(contract) != stored["contract"]
                 or canonical(expected) != stored["binding"]

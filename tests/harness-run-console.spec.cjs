@@ -81,11 +81,11 @@ const { mount, run, span } = require('./run-console-fixture.cjs');
     assert.equal(await page.locator('#run-console').isVisible(), true);
     await page.setViewportSize({ width: 400, height: 844 });
     const bounds = await page.locator('#run-console').boundingBox();
-    assert(bounds.width <= 400 && bounds.height >= 300 && bounds.height <= 440);
+    assert(bounds.width <= 400 && bounds.height >= 760 && bounds.height <= 770);
     const topbar = await page.locator('#app-topbar').boundingBox();
     const strip = await page.locator('.run-status-strip').boundingBox();
     assert(topbar.y === 0 && bounds.y >= topbar.y + topbar.height,
-      'the bounded mobile drawer preserves the top bar');
+      'the mobile sheet preserves the top bar');
     assert(bounds.y + bounds.height <= strip.y + 1 && strip.y + strip.height <= 844,
       'the persistent status strip remains below the mobile drawer');
     assert.equal(await page.locator('.run-console-body').evaluate(el => getComputedStyle(el).overflowY), 'auto');

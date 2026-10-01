@@ -235,6 +235,7 @@ def test_build_runtime_config_matches_golden_shape(tmp_path):
         "default_backend": "",
         "maestro_enabled": True,
         "maestro_instructions": "",
+        "maestro_coordinator": {},
         "shared_projects": True,
         "control_state_dir": "<TMP>/control",
         "admin_url": "http://127.0.0.1:8094/",

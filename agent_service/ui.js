@@ -1,3 +1,4 @@
+let workspaceResourceRequest = 0;
 const MAX_ATTACHMENTS = 20;
 const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024;
 const AUDIO_ATTACHMENT_TIMEOUT_MS = 8200000;
@@ -480,7 +481,7 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
               : item.scope === "builtin"
                 ? "Built-in"
               : "User",
-        category = item.group || (item.kind === "agent" ? "Agents" : item.kind === "skill" ? "Skills" : item.kind === "builtin" ? "Built-ins" : "Commands"),
+        category = item.group || (item.kind === "agent" ? "Agents" : item.kind === "skill" ? "Skills" : item.kind === "workflow" ? "Workflows" : item.kind === "builtin" ? "Built-ins" : "Commands"),
         groupKey = category + "\0" + scope + "\0" + item.origin;
       if (!groups.has(groupKey)) {
         const section = document.createElement("section"),
@@ -516,6 +517,8 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
           ? "Agent"
           : item.kind === "skill"
             ? "Skill"
+            : item.kind === "workflow"
+              ? "Workflow"
             : item.kind === "builtin"
               ? "Built-in"
             : "Command") +
@@ -558,6 +561,7 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
       menu.querySelector("[role=option]"),
   );
   const rect = $("prompt").getBoundingClientRect();
+  menu.style.maxHeight = Math.max(24, rect.top - 20) + "px";
   menu.style.left =
     Math.max(12, Math.min(rect.left, innerWidth - menu.offsetWidth - 12)) +
     "px";
@@ -652,7 +656,7 @@ async function refreshResources(trigger) {
       return;
     resourceItems = Array.isArray(data.items) ? data.items : [];
     let filtered = [...resourceItems, ...builtinResources()]
-      .filter((item) => trigger.prefix === "@" ? item.kind === "agent" : ["agent", "skill", "command", "rule", "context", "builtin"].includes(item.kind))
+      .filter((item) => trigger.prefix === "@" ? item.kind === "agent" : ["agent", "skill", "command", "workflow", "rule", "context", "builtin"].includes(item.kind))
       .map((item) => ({ item, score: resourceMatchScore(item, trigger.query) }))
       .filter((entry) => entry.score >= 0)
       .sort((left, right) => right.score - left.score)
@@ -706,6 +710,7 @@ function invalidateResources() {
   for (const ref of resourceSelections) invalidResourceTokens.add(ref.token);
   resourceSelections = [];
   resourceItems = [];
+  void refreshWorkspaceResources();
   closeResourceMenu();
   renderPromptHighlights();
   saveView();
@@ -875,6 +880,50 @@ const efforts = {
   ultra: "Ultra",
 };
 const userErrors = {
+  workflow_source_path_denied: "A workflow input moved outside its authorized folder. Restore it or choose a new input.",
+  workflow_source_size_limit: "A workflow input exceeds the supported size. Reduce it before resuming.",
+  workflow_requirement_denied: "The selected executor does not support this workflow requirement. Check permissions, integrations, operations and mode.",
+  invalid_maestro_plan_policy: "Choose review or auto for Maestro planning.",
+  invalid_workflow_inputs: "Workflow inputs must be a JSON object.",
+  invalid_workflow_recovery: "Use resume or re-run from a valid step with optional workflow inputs.",
+  invalid_workflow_step: "Choose a step number from this workflow.",
+  maestro_coordinator_unavailable: "The configured coordinator is unavailable for this project. Check its model and effort.",
+  workflow_already_exists: "A workflow with this name already exists. Choose another name.",
+  workflow_backend_mismatch: "The workflow backend must match its invocation.",
+  workflow_binding_changed: "Workflow inputs or revisions changed. Resume to validate again and request fresh approval.",
+  workflow_catalog_read_only: "Save workflows in the project collection. Catalogs are read only.",
+  workflow_checkpoint_missing: "This run has no recoverable workflow plan.",
+  workflow_effect_not_completed: "Publication is not confirmed. Inspect its gate and effect record before retrying.",
+  workflow_effect_outcome_unknown: "Publication may have happened. Reconcile its outcome before resuming or rerunning.",
+  workflow_inputs_invalid: "The workflow inputs do not match the step schema.",
+  workflow_invalid_condition: "Use a condition that references a prior step with from and is or equals.",
+  workflow_invalid_document: "The workflow document is invalid. Check its JSON or YAML.",
+  workflow_invalid_effect: "Publication requires a valid effect request and publish enabled.",
+  workflow_invalid_from_step: "Choose a valid starting step for this workflow.",
+  workflow_invalid_gate: "The workflow gate needs a question and distinct choices.",
+  workflow_invalid_id: "Use a short workflow identifier containing letters, numbers, underscores or hyphens.",
+  workflow_invalid_name: "Choose a valid name for the saved workflow.",
+  workflow_invalid_publish: "The workflow publish field must be true or false.",
+  workflow_invalid_requirements: "This workflow requires capabilities the selected executor does not provide.",
+  workflow_invalid_save_target: "Choose a project with a writable workflows collection.",
+  workflow_invalid_schema: "Use the supported JSON schema fields for workflow inputs and outputs.",
+  workflow_invalid_step: "The workflow contains an invalid sequential step.",
+  workflow_invalid_step_id: "Each workflow step needs a unique valid identifier.",
+  workflow_invalid_steps: "A workflow must contain one to twelve sequential steps.",
+  workflow_invalid_version: "This server supports workflow version 1.",
+  workflow_model_or_effort_denied: "Choose a model and effort enabled for this project.",
+  workflow_must_be_standalone: "Select one workflow at a time.",
+  workflow_output_not_approved: "The step output was not approved. Review the evidence before continuing.",
+  workflow_owner_denied: "Only the owner of this run can recover or save it.",
+  workflow_published_step_requires_explicit_rerun: "This changed step already published. Use an explicit re-run with fresh approval.",
+  workflow_requires_successful_chain: "Only a completed, successful chain can be saved as a workflow.",
+  workflow_resource_unavailable: "A required workflow resource is missing or unavailable. Refresh the catalog.",
+  workflow_sequential_only: "This release supports sequential workflows without parallel or repeat steps.",
+  workflow_source_busy: "Wait for the original run to finish or cancel it before recovery.",
+  workflow_step_not_approved: "The workflow step was not approved. No further steps ran.",
+  workflow_too_large: "The workflow exceeds the supported document size.",
+  workflow_yaml_unavailable_use_json: "Use JSON, or install PyYAML to read YAML workflows.",
+
   rate_limit:
     "Too many requests in a short time. The server has temporarily limited this access.",
   submission_rate_limit:
@@ -1818,6 +1867,7 @@ window.updateProviderQuotas = function updateProviderQuotas(items = []) {
 };
 window.applyActivitySnapshot = function applyActivitySnapshot(data = {}) {
   observedActivityJobs = Array.isArray(data.jobs) ? [...data.jobs] : [];
+  renderWorkspaceTasks(observedActivityJobs);
   const pending = new Set(
     (data.needs_you || []).map((item) => item.conversation_id).filter(Boolean),
   );
@@ -3986,6 +4036,8 @@ async function send() {
         ({ id, revision, token }) => ({ id, revision, token }),
       ),
     };
+    const planPolicy = $("maestro-plan-policy")?.value;
+    if (planPolicy) data.maestro_plan_policy = planPolicy;
     if (releasePersonaPending) data.release_persona = true;
     if (parent) data.parent_job_id = parent;
     else if (Array.isArray(m.execution_modes))
@@ -4350,12 +4402,7 @@ async function navigateProjectFolder(project) {
   }
 }
 async function loadProjectFileRoots(force = false) {
-  if (
-    !interfaceReady ||
-    $("activity-panel").hidden ||
-    rightPanelView !== "files"
-  )
-    return;
+  if (!interfaceReady || $("activity-panel").hidden) return;
   const project = $("project").value;
   if (fileTree.project !== project) resetProjectFiles();
   if (fileTree.ready && !force) return;
@@ -5006,7 +5053,7 @@ async function initialize() {
       }, 10000);
     }
     setReadiness(true);
-    if (!$("activity-panel").hidden && rightPanelView === "files") {
+    if (!$("activity-panel").hidden) {
       loadAuthorizedProjectRoots();
       loadProjectFileRoots();
     }
@@ -5377,17 +5424,17 @@ const activityIcons = {
 };
 function setPanelView(view, persist = true) {
   rightPanelView = view;
-  $("files-view").hidden = view !== "files";
-  $("activity-view").hidden = view !== "activity";
+  const section = document.querySelector('[data-workspace-section="' + view + '"]');
+  if (section && persist) section.open = true;
   $("files-title").textContent = "Files";
   $("activity-title").textContent = "Activity";
   $("files-toggle").setAttribute(
     "aria-expanded",
-    String(!$("activity-panel").hidden && view === "files"),
+    String(!$("activity-panel").hidden && document.querySelector('[data-workspace-section="files"]').open),
   );
   $("activity-toggle").setAttribute(
     "aria-expanded",
-    String(!$("activity-panel").hidden && view === "activity"),
+    String(!$("activity-panel").hidden && document.querySelector('[data-workspace-section="activity"]').open),
   );
   if (persist)
     try {
@@ -5420,13 +5467,14 @@ function setPanelOpen(open, persist = true) {
     $("panel-toggle").focus();
   $("files-toggle").setAttribute(
     "aria-expanded",
-    String(open && rightPanelView === "files"),
+    String(open && document.querySelector('[data-workspace-section="files"]').open),
   );
   $("activity-toggle").setAttribute(
     "aria-expanded",
-    String(open && rightPanelView === "activity"),
+    String(open && document.querySelector('[data-workspace-section="activity"]').open),
   );
-  if (open && rightPanelView === "files" && interfaceReady) {
+  if (open && interfaceReady) {
+    void refreshWorkspaceResources();
     loadAuthorizedProjectRoots();
     loadProjectFileRoots();
   }
@@ -5470,6 +5518,7 @@ async function loadAuthorizedProjectRoots() {
       card.className = "authorized-root-card";
       const heading = document.createElement("strong");
       heading.textContent = root.path || root.label;
+      heading.title = heading.textContent;
       const badge = document.createElement("span");
       badge.className = "root-access-badge";
       badge.textContent = "authorized";
@@ -5552,17 +5601,9 @@ $("authorize-project-root").onclick = () => {
     openProjectDialog(project);
 };
 function togglePanelView(view) {
-  if ($("activity-panel").hidden) {
-    setPanelView(view);
-    setPanelOpen(true);
-  } else if (rightPanelView === view) setPanelOpen(false);
-  else {
-    setPanelView(view);
-    if (view === "files") {
-      loadAuthorizedProjectRoots();
-      loadProjectFileRoots();
-    }
-  }
+  setPanelView(view);
+  if ($("activity-panel").hidden) setPanelOpen(true);
+  document.querySelector('[data-workspace-section="' + view + '"]')?.scrollIntoView({ block: "nearest" });
 }
 let rightPanelView = "files";
 function resetActivity(clearHistory = true) {
@@ -5752,7 +5793,7 @@ const panelIsLeft = (id) =>
     : panelOrder === "conversations-right";
 function panelLimits(id) {
   const mobile = innerWidth <= 620,
-    docked = innerWidth >= 1200;
+    docked = innerWidth >= 1000;
   const other = id === "sidebar" ? $("activity-panel") : $("sidebar");
   const otherWidth =
     (id === "sidebar" ? docked : !mobile) && other.getClientRects().length
@@ -5764,7 +5805,7 @@ function panelLimits(id) {
       720,
       (id === "activity-panel" && !docked) || mobile
         ? innerWidth - 24
-        : innerWidth - otherWidth - 480,
+        : innerWidth - otherWidth - (innerWidth < 1200 ? 320 : 480),
     ),
   );
   return { min: 220, max };
@@ -6515,6 +6556,9 @@ function showGate(data) {
 function appendPublishEvidence(container, data) {
   const evidence = document.createElement("div");
   evidence.className = "publish-evidence";
+  evidence.tabIndex = 0;
+  evidence.setAttribute("role", "region");
+  evidence.setAttribute("aria-label", "Publication evidence");
   const add = (label, value, pre = false) => {
     if (value == null) return;
     const node = document.createElement(pre ? "pre" : "p");
@@ -7531,3 +7575,99 @@ $("project-form").onsubmit = async (event) => {
     controls.forEach(([node, disabled]) => (node.disabled = disabled));
   }
 };
+
+// The workspace uses the same project/model resource contract as the composer.
+
+async function refreshWorkspaceResources() {
+  const target = $("workspace-resources");
+  if (!target) return;
+  const request = ++workspaceResourceRequest, engine = resourceEngine();
+  const project = $("project").value;
+  target.textContent = "Loading resources…";
+  $("workspace-resources-count").textContent = "0";
+  if (!engine.backend) { target.textContent = "Select a model to see resources."; return; }
+  try {
+    const query = new URLSearchParams({ project_id: project, backend: engine.backend,
+      model: engine.model, execution_mode: engine.execution_mode });
+    const data = await json("/v1/resources?" + query, { signal: AbortSignal.timeout(5000) });
+    if (request !== workspaceResourceRequest) return;
+    const items = Array.isArray(data.items) ? data.items : [];
+    target.replaceChildren();
+    $("workspace-resources-count").textContent = String(items.length);
+    for (const item of items) {
+      const row = document.createElement("div"), name = document.createElement("span"), badge = document.createElement("span");
+      row.className = "workspace-row";
+      name.textContent = item.name; name.className = "workspace-item-name";
+      row.title = [item.name, item.description, item.kind, item.scope, item.origin].filter(Boolean).join(" · ");
+      badge.className = "workspace-source";
+      badge.textContent = [item.scope, item.origin].filter(Boolean).join(" · ");
+      row.append(name, badge); target.append(row);
+    }
+    if (!items.length) target.textContent = "No resources for this project and model.";
+    for (const warning of data.warnings || []) {
+      const note = document.createElement("p"); note.textContent = warning; target.append(note);
+    }
+  } catch {
+    if (request === workspaceResourceRequest) target.textContent = "Couldn't load resources. Change the model or reopen the panel to retry.";
+  }
+}
+function renderWorkspaceTasks(jobs) {
+  const target = $("workspace-background-tasks");
+  if (!target) return;
+  const active = jobs.filter(item => !["completed", "failed", "cancelled", "interrupted"].includes(item.state));
+  target.replaceChildren();
+  $("workspace-background-tasks-count").textContent = String(active.length);
+  for (const item of active) {
+    const row = document.createElement("button"), name = document.createElement("span"), state = document.createElement("span");
+    row.type = "button"; row.className = "workspace-row";
+    name.className = "workspace-item-name";
+    name.textContent = item.title || item.work_item || item.job_id;
+    state.className = "workspace-source"; state.textContent = item.state;
+    row.title = [name.textContent, item.wait_reason, item.state].filter(Boolean).join(" · ");
+    row.onclick = () => window.runConsole?.openRun(item.job_id);
+    row.append(name, state); target.append(row);
+  }
+  if (!active.length) target.textContent = "No background tasks.";
+}
+for (const section of document.querySelectorAll(".workspace-section")) {
+  const name = section.dataset.workspaceSection, content = $("workspace-" + name);
+  const key = "workspace-section-" + name;
+  try {
+    const saved = JSON.parse(localStorage.getItem(key) || "null");
+    if (saved) {
+      section.open = saved.open !== false;
+      if (Number.isFinite(saved.height)) content.style.height = Math.max(64, Math.min(600, saved.height)) + "px";
+    }
+  } catch {}
+  const save = () => { try { localStorage.setItem(key, JSON.stringify({ open: section.open, height: parseFloat(content.style.height) || null })); } catch {} };
+  section.addEventListener("toggle", () => { save();
+    const shortcut = $(name + "-toggle");
+    if (shortcut) shortcut.setAttribute("aria-expanded", String(section.open && !$("activity-panel").hidden));
+  });
+  const handle = document.createElement("div");
+  handle.id = "workspace-" + name + "-resize"; handle.className = "workspace-resize";
+  handle.tabIndex = 0; handle.setAttribute("role", "separator");
+  handle.setAttribute("aria-orientation", "horizontal");
+  handle.setAttribute("aria-label", "Resize " + name.replaceAll("-", " "));
+  handle.setAttribute("aria-controls", content.id);
+  handle.title = "Drag or use Up and Down arrow keys to resize";
+  const size = height => {
+    const next = Math.max(64, Math.min(600, height)); content.style.height = next + "px";
+    handle.setAttribute("aria-valuenow", String(Math.round(next))); save();
+  };
+  handle.setAttribute("aria-valuemin", "64"); handle.setAttribute("aria-valuemax", "600");
+  handle.setAttribute("aria-valuenow", String(parseFloat(content.style.height) || (name === "files" ? 128 : name === "background-tasks" ? 64 : 96)));
+  let drag;
+  handle.onpointerdown = event => { if (event.button !== 0) return; event.preventDefault(); drag = { y: event.clientY, height: content.getBoundingClientRect().height }; handle.setPointerCapture(event.pointerId); };
+  handle.onpointermove = event => { if (drag) size(drag.height + event.clientY - drag.y); };
+  handle.onpointerup = handle.onpointercancel = handle.onlostpointercapture = () => { drag = null; };
+  handle.onkeydown = event => { if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return; event.preventDefault(); size(event.key === "Home" ? 64 : event.key === "End" ? 600 : content.getBoundingClientRect().height + (event.key === "ArrowDown" ? 24 : -24)); };
+  section.append(handle);
+}
+function updateWorkspaceCounts() {
+  $("workspace-files-count").textContent = String($("files-view").querySelectorAll('[role="treeitem"], .authorized-root-card li:has(button, span)').length);
+  $("workspace-activity-count").textContent = String($("activity-events").querySelectorAll("li[data-state]").length);
+}
+for (const id of ["files-view", "activity-events"])
+  new MutationObserver(updateWorkspaceCounts).observe($(id), { childList: true, subtree: true });
+document.addEventListener("tail:ready", refreshWorkspaceResources);

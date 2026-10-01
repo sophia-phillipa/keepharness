@@ -17,6 +17,45 @@ def proposed_plan(task="Inspect the change"):
                        "effort": "low", "task": task, "reason": "Review before delivery"}]}
 
 
+@pytest.mark.parametrize("spoofed_revision", [None, "client-supplied-revision"])
+def test_plan_edit_keeps_server_planner_revision(tmp_path, spoofed_revision):
+    from test_workflow_resume_rerun import setup_run
+
+    async def scenario():
+        service, identity, row, data, declared = setup_run(tmp_path)
+        with patch.object(
+            service,
+            "infer",
+            AsyncMock(
+                side_effect=[{"answer": json.dumps(proposed_plan())}, {"answer": "Reviewed"}]
+            ),
+        ):
+            task = asyncio.create_task(maestro.run(service, row, data))
+            for _ in range(20):
+                if service.approvals or task.done():
+                    break
+                await asyncio.sleep(0)
+            gate_id = next(iter(service.approvals))
+            original = json.loads(service.gates.repository.get(gate_id)["spec"])["plan"]
+            edited = {"steps": proposed_plan("Edited task")["steps"]}
+            if spoofed_revision is not None:
+                edited["planner_revision"] = spoofed_revision
+            service.gates.resolve(gate_id, identity, {"choice": "approve", "plan": edited})
+            result = await task
+            assert (
+                result["orchestration"]["plan"]["planner_revision"] == original["planner_revision"]
+            )
+            emitted = next(
+                json.loads(event["data"])
+                for event in service.message_repository.all_events(row["id"])
+                if event["type"] == "maestro_plan"
+            )
+            assert emitted["planner_revision"] == original["planner_revision"]
+        service.db.close()
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("decision", ["approve", "deny", "expire", "cancel"])
 def test_generated_plan_waits_and_only_approval_runs_steps(tmp_path, decision):
     async def scenario():

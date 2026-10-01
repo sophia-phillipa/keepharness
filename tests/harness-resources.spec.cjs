@@ -153,12 +153,12 @@ const path = require("node:path");
               : "text/html",
       });
     });
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.10.1"));
+    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.11.1"));
     await page.goto("http://resources.test");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     await page.fill("#prompt", "@");
     await page.waitForSelector('#resource-menu [data-resource-id="p-agent"]');
-    assert.equal(resourceQueries.length, 1);
+    assert.equal(resourceQueries.length, 2, "workspace and composer each load the current resource catalog");
     const description = page.locator(
       '#resource-menu [data-resource-id="p-agent"] small',
     );
@@ -315,7 +315,7 @@ const path = require("node:path");
     await page.waitForTimeout(100);
     assert.equal(resourceQueries.at(-1).backend, "claude");
     assert.equal(resourceQueries.at(-1).project_id, "project-b");
-    assert.equal(resourceQueries.length, before + 2);
+    assert.equal(resourceQueries.length, before + 4, "model and project changes refresh both workspace and composer catalogs");
     delayResources = true;
     await page.fill("#prompt", "@late");
     await page.waitForTimeout(50);

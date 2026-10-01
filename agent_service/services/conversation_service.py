@@ -29,6 +29,7 @@ from .. import (
     maestro,
     resources,
     tools,
+    workflows,
     workspaces,
 )
 from ..approval_sessions import SESSION_COOKIE, initialize_session_database, session_identity
@@ -849,7 +850,72 @@ class ConversationService:
     def activity(self, identity, project_id=None, work_item=None):
         return summarize_activity(self, identity, project_id, work_item)
 
-    def submit(self, identity, data, idem=None):
+    def recover_workflow(self, identity, job_id, changes, *, rerun=False, idem=None):
+        row = self.job(identity, job_id)
+        if row["owner"] != identity[0]:
+            raise APIError("workflow_owner_denied", 403)
+        if row["state"] not in TERMINAL:
+            raise APIError("workflow_source_busy", 409)
+        if set(changes) - {"workflow_inputs", "from_step", "maestro_plan_policy"}:
+            raise APIError("invalid_workflow_recovery")
+        maestro.ensure_recovery_safe(self, job_id)
+        plan = maestro.saved_plan(self, job_id)
+        from_step = changes.get("from_step", 1)
+        if type(from_step) is not int or not 1 <= from_step <= len(plan["steps"]):
+            raise APIError("invalid_workflow_step")
+        if not rerun and "from_step" in changes:
+            raise APIError("invalid_workflow_recovery")
+        data = json.loads(row["payload"])
+        context_parent = data.get("_workflow_context_parent_id", data.get("parent_job_id"))
+        for key in tuple(data):
+            if key.startswith("_") or key in ("parent_job_id", "execution_parent_id"):
+                data.pop(key)
+        source_invocations = data.pop("invocations", [])
+        data.pop("resource_selections", None)
+        if len(source_invocations) == 1 and source_invocations[0]["kind"] == "workflow":
+            plan = workflows.resolve_workflow(
+                self.config, row["project"], source_invocations[0]["resource_id"]
+            )
+        elif plan.get("resource_id"):
+            plan = workflows.resolve_workflow(self.config, row["project"], plan["resource_id"])
+        data.update({key: value for key, value in changes.items() if key != "from_step"})
+        recovery = {
+            "_declared_workflow": maestro.declaration(plan),
+            "_workflow_parent_job_id": job_id,
+            "_workflow_resume": not rerun,
+            "_workflow_context_parent_id": context_parent,
+        }
+        if rerun:
+            recovery["_workflow_from_step"] = from_step
+        return self.submit(identity, data, idem, workflow_recovery=recovery)
+
+    def save_workflow(self, identity, job_id, workflow_id):
+        row = self.job(identity, job_id)
+        if row["owner"] != identity[0]:
+            raise APIError("workflow_owner_denied", 403)
+        result = json.loads(row["result"]) if row["result"] else {}
+        orchestration = result.get("orchestration", {})
+        plan = orchestration.get("plan")
+        if (
+            row["state"] != "completed"
+            or not plan
+            or result.get("error")
+            or result.get("incomplete")
+            or orchestration.get("approved") is False
+            or len(orchestration.get("steps", [])) != len(plan.get("steps", []))
+        ):
+            raise APIError("workflow_requires_successful_chain", 409)
+        project = self.project(identity, row["project"])
+        target = workflows.save_chain_as_workflow(
+            project,
+            maestro.declaration(plan),
+            workflow_id,
+            successful=True,
+            catalogs=self.config.get("catalogs", ()),
+        )
+        return {"id": workflow_id, "path": "workflows/" + target.name, "project_id": row["project"]}
+
+    def submit(self, identity, data, idem=None, *, workflow_recovery=None):
         data = dict(data)
         if data.get("project_id") in self.deleting_project_folders:
             raise APIError("project_folder_busy", 409)
@@ -863,9 +929,18 @@ class ConversationService:
                 "_execution_id",
                 "_parent_execution_id",
                 "_attempt",
+                "_declared_workflow",
+                "_workflow_parent_job_id",
+                "_workflow_from_step",
+                "_workflow_resume",
+                "_workflow_context_parent_id",
             )
         ):
             raise APIError("invalid_internal_field")
+        if "maestro_plan_policy" in data and data["maestro_plan_policy"] not in ("review", "auto"):
+            raise APIError("invalid_maestro_plan_policy")
+        if "workflow_inputs" in data and not isinstance(data["workflow_inputs"], dict):
+            raise APIError("invalid_workflow_inputs")
         if "access_mode" not in data and data.get("parent_job_id"):
             data["access_mode"] = json.loads(
                 self.job(identity, data["parent_job_id"])["payload"]
@@ -882,6 +957,17 @@ class ConversationService:
         if decision["decision"] != "accept":
             raise APIError(decision.get("reason", "unsupported"), 422)
         self.normalize_invocations(identity, data)
+        workflow_invocations = [
+            value for value in data.get("invocations", []) if value["kind"] == "workflow"
+        ]
+        if workflow_invocations:
+            if len(data["invocations"]) != 1:
+                raise APIError("workflow_must_be_standalone", 422)
+            workflows.resolve_workflow(
+                self.config, data["project_id"], workflow_invocations[0]["resource_id"]
+            )
+        if workflow_recovery is not None:
+            data.update(workflow_recovery)
         project = data["project_id"]
         if len(encoded(data).encode()) > 150000:
             raise APIError("payload_limit", 413)
@@ -1782,7 +1868,20 @@ class ConversationService:
         kind = data.get("kind", "infer")
         project = self.config["projects"][row["project"]]
         if kind == "infer":
-            if len(data.get("invocations", [])) > 1:
+            invocation = data.get("invocations", [])
+            if data.get("_declared_workflow"):
+                declared = data["_declared_workflow"]
+                if declared.get("resource_id"):
+                    declared = workflows.resolve_workflow(
+                        self.config, row["project"], declared["resource_id"]
+                    )
+                result = await maestro.execute_workflow(self, row, data, declared)
+            elif len(invocation) == 1 and invocation[0]["kind"] == "workflow":
+                declared = workflows.resolve_workflow(
+                    self.config, row["project"], invocation[0]["resource_id"]
+                )
+                result = await maestro.execute_workflow(self, row, data, declared)
+            elif len(invocation) > 1:
                 declared = maestro.declared_plan(self.config, data, self.selected_resources(data))
                 result = await maestro.execute_plan(self, row, data, declared)
             elif data.get("backend", "auto") == "maestro":
@@ -2016,6 +2115,14 @@ class ConversationService:
         ]
 
     def capabilities(self):
+        maestro_available = False
+        for project in self.config.get("projects", {}):
+            try:
+                maestro.coordinator(self.config, project)
+                maestro_available = True
+                break
+            except tools.ToolError:
+                continue
         return {
             "schema_version": "1.0",
             "service": "tail-harness",
@@ -2036,13 +2143,11 @@ class ConversationService:
             "default_backend": self.config.get("default_backend"),
             "direct_fallback": "configured default or first eligible enabled executor",
             "maestro": {
-                "enabled": bool(
-                    self.config.get("maestro_enabled", True)
-                    and self.config.get("services", {}).get("codex", {}).get("enabled")
-                ),
-                "planner": "Codex",
+                "enabled": maestro_available,
+                "planner": self.config.get("maestro_coordinator", {}).get("backend", "codex"),
                 "selection": "model-generated plan from enabled agents and efforts",
-                "max_steps": 6,
+                "max_steps": 12,
+                "plan_policy": "review",
                 "sequential": True,
             },
             "service_control": {
