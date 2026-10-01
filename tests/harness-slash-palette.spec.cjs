@@ -110,11 +110,11 @@ const path = require("node:path");
     await page.goto("http://slash-palette.test");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     const promptBox = page.locator("#prompt");
-    assert.equal(await promptBox.getAttribute("role"), null);
-    assert.equal(await page.getByRole("textbox", { name: "Message" }).count(), 1);
+    assert.equal(await promptBox.getAttribute("role"), "combobox");
+    assert.equal(await page.getByRole("combobox", { name: "Message" }).count(), 1);
     assert.equal(await promptBox.getAttribute("aria-haspopup"), "listbox");
     assert.equal(await promptBox.getAttribute("aria-controls"), "resource-menu");
-    assert.equal(await promptBox.getAttribute("aria-expanded"), null);
+    assert.equal(await promptBox.getAttribute("aria-expanded"), "false");
     assert.deepEqual(
       await page.evaluate(() => [
         activityTitle({ type: "hook_scope", data: { scope: "project" } }),

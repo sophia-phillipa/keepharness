@@ -145,10 +145,12 @@ async def finish_when_available(service, job, state, result):
 async def settle_running(service, job, state, result):
     if job in service.runtime_budgets:
         result.update(service.runtime_budgets[job].metrics())
-    try:
-        await finish_when_available(service, job, state, result)
-    except Exception:
-        logger.exception("Could not record job %s as %s", job, state)
+    for attempt in (1, 2):
+        try:
+            return await finish_when_available(service, job, state, result)
+        except Exception:
+            # Preserve the bounded retry for other transient storage failures.
+            logger.exception("Could not record job %s as %s (attempt %d)", job, state, attempt)
 
 
 def conversation_key(service, row):
