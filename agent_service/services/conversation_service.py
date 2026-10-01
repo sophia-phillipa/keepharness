@@ -866,6 +866,7 @@ class ConversationService:
         if not rerun and "from_step" in changes:
             raise APIError("invalid_workflow_recovery")
         data = json.loads(row["payload"])
+        context_parent = data.get("_workflow_context_parent_id", data.get("parent_job_id"))
         for key in tuple(data):
             if key.startswith("_") or key in ("parent_job_id", "execution_parent_id"):
                 data.pop(key)
@@ -882,6 +883,7 @@ class ConversationService:
             "_declared_workflow": maestro.declaration(plan),
             "_workflow_parent_job_id": job_id,
             "_workflow_resume": not rerun,
+            "_workflow_context_parent_id": context_parent,
         }
         if rerun:
             recovery["_workflow_from_step"] = from_step
@@ -931,6 +933,7 @@ class ConversationService:
                 "_workflow_parent_job_id",
                 "_workflow_from_step",
                 "_workflow_resume",
+                "_workflow_context_parent_id",
             )
         ):
             raise APIError("invalid_internal_field")

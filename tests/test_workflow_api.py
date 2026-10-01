@@ -27,7 +27,13 @@ def submitted(service, identity, **fields):
 
 @pytest.mark.parametrize(
     "field",
-    ["_declared_workflow", "_workflow_parent_job_id", "_workflow_from_step", "_workflow_resume"],
+    [
+        "_declared_workflow",
+        "_workflow_parent_job_id",
+        "_workflow_from_step",
+        "_workflow_resume",
+        "_workflow_context_parent_id",
+    ],
 )
 def test_clients_cannot_forge_workflow_recovery(tmp_path, field):
     service = Service(config(tmp_path))
@@ -220,5 +226,48 @@ def test_queued_recovery_resolves_current_workflow_revision(tmp_path):
             asyncio.run(service.execute(service.job(identity, job)))
         resolve.assert_called_once_with(service.config, "p", "project/p/workflows/review.json")
         assert execute.call_args.args[3] == current
+    finally:
+        service.db.close()
+
+
+def test_recovery_preserves_original_conversation_inputs(tmp_path):
+    from agent_service import maestro
+
+    service = Service(config(tmp_path))
+    try:
+        identity = ("a", service.config["clients"]["a"])
+        context_job = submitted(service, identity, prompt="Evidence from the original context")[
+            "job_id"
+        ]
+        with service.db:
+            service.conversation_repository.set_result(
+                context_job, "completed", json.dumps({"answer": "Evidence"})
+            )
+        source = submitted(service, identity, parent_job_id=context_job)["job_id"]
+        row = service.job(identity, source)
+        data = json.loads(row["payload"])
+        plan = {
+            "steps": [
+                {
+                    "role": "review",
+                    "backend": "codex",
+                    "model": "gpt-6-astra",
+                    "effort": "low",
+                    "task": "Review evidence",
+                    "reason": "Requested",
+                }
+            ]
+        }
+        with patch.object(service, "infer", AsyncMock(return_value={"answer": "Reviewed"})):
+            result = asyncio.run(maestro.execute_plan(service, row, data, plan))
+        with service.db:
+            service.conversation_repository.set_result(source, "completed", json.dumps(result))
+        child = service.recover_workflow(identity, source, {})["job_id"]
+        with patch.object(
+            service, "infer", AsyncMock(return_value={"answer": "Repeated"})
+        ) as infer:
+            resumed = asyncio.run(service.execute(service.job(identity, child)))
+        assert infer.await_count == 0
+        assert resumed["answer"] == "Reviewed"
     finally:
         service.db.close()

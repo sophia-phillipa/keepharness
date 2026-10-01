@@ -142,12 +142,12 @@ def _requirements(value, candidate):
                 )
                 for item in required
             ):
-                raise WorkflowError("workflow_requirement_denied:" + name)
+                raise WorkflowError("workflow_requirement_denied")
     if "mode" in value:
         if not isinstance(value["mode"], str):
             raise WorkflowError("workflow_invalid_requirements")
         if candidate is not None and value["mode"] != candidate.get("mode"):
-            raise WorkflowError("workflow_requirement_denied:mode")
+            raise WorkflowError("workflow_requirement_denied")
 
 
 def validate_result(value, schema):

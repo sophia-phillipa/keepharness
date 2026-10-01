@@ -877,6 +877,9 @@ const efforts = {
   ultra: "Ultra",
 };
 const userErrors = {
+  workflow_source_path_denied: "A workflow input moved outside its authorized folder. Restore it or choose a new input.",
+  workflow_source_size_limit: "A workflow input exceeds the supported size. Reduce it before resuming.",
+  workflow_requirement_denied: "The selected executor does not support this workflow requirement. Check permissions, integrations, operations and mode.",
   invalid_maestro_plan_policy: "Choose review or auto for Maestro planning.",
   invalid_workflow_inputs: "Workflow inputs must be a JSON object.",
   invalid_workflow_recovery: "Use resume or re-run from a valid step with optional workflow inputs.",
