@@ -953,6 +953,8 @@ const userErrors = {
   workflow_inputs_invalid: "The workflow inputs do not match the step schema.",
   workflow_invalid_condition: "Use a condition that references a prior step with from and is or equals.",
   workflow_invalid_document: "The workflow document is invalid. Check its JSON or YAML.",
+  workflow_unknown_field: "The workflow contains an unsupported field. Check its field names and remove unrecognized entries.",
+  workflow_unknown_step_field: "A workflow step contains an unsupported field. Check that step's field names and remove unrecognized entries.",
   workflow_invalid_effect: "Publication requires a valid effect request and publish enabled.",
   workflow_invalid_from_step: "Choose a valid starting step for this workflow.",
   workflow_invalid_gate: "The workflow gate needs a question and distinct choices.",
@@ -7808,7 +7810,7 @@ for (const section of document.querySelectorAll(".workspace-section")) {
     handle.setAttribute("aria-valuenow", String(Math.round(next))); save();
   };
   handle.setAttribute("aria-valuemin", "64"); handle.setAttribute("aria-valuemax", "600");
-  handle.setAttribute("aria-valuenow", String(parseFloat(content.style.height) || (name === "files" ? 128 : name === "background-tasks" ? 64 : 96)));
+  handle.setAttribute("aria-valuenow", String(parseFloat(content.style.height) || (name === "files" ? 112 : name === "background-tasks" ? 64 : 80)));
   let drag;
   handle.onpointerdown = event => { if (event.button !== 0) return; event.preventDefault(); drag = { y: event.clientY, height: content.getBoundingClientRect().height }; handle.setPointerCapture(event.pointerId); };
   handle.onpointermove = event => { if (drag) size(drag.height + event.clientY - drag.y); };

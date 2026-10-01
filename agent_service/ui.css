@@ -4671,10 +4671,10 @@ main { padding-bottom:28px; }
 .workspace-section[open] > summary::before { content:'⌄'; }
 .workspace-section > summary::-webkit-details-marker { display:none; }
 .workspace-count { margin-left:auto; color:var(--th-muted); font-size:11px; font-weight:400; }
-.workspace-section-body { height:96px; min-height:64px; overflow:auto; }
-#workspace-files { height:128px; }
+.workspace-section-body { height:80px; min-height:64px; overflow:auto; }
+#workspace-files { height:112px; }
 #workspace-background-tasks { height:64px; }
-#workspace-activity { height:96px; }
+#workspace-activity { height:80px; }
 .workspace-section-body p { margin:4px 0; }
 .workspace-section-body #files-view,.workspace-section-body #activity-view { overflow:visible; height:auto; max-height:none; }
 .workspace-section-body .activity-scroll { overflow:visible; }
