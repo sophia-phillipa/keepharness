@@ -24,9 +24,11 @@ def summarize_activity(service, identity, project_id=None, work_item=None):
         row["job_id"]
         for row in service.db.execute(
             "SELECT DISTINCT effects.job_id FROM effects JOIN jobs ON jobs.id=effects.job_id "
-            "WHERE effects.status='prepared' AND jobs.owner=?", (identity[0],)
+            "WHERE effects.status='prepared' AND jobs.owner=?",
+            (identity[0],),
         )
     }
+    titles = service.conversation_repository.titles()
     jobs, needs_you = [], []
     providers = {}
     for backend, settings in service.config.get("services", {}).items():
@@ -39,7 +41,13 @@ def summarize_activity(service, identity, project_id=None, work_item=None):
     seen_requests = set()
     for row in rows:
         data = json.loads(row["payload"])
+        conversation_id = service.conversation_id(row)
+        root = service.conversation_repository.get(conversation_id) or row
+        title = titles.get(
+            conversation_id, json.loads(root["payload"]).get("prompt", "Conversation")[:100]
+        )
         job = dict(
+            title=title,
             job_id=row["id"],
             conversation_id=service.conversation_id(row),
             project_id=row["project"],

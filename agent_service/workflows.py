@@ -481,6 +481,25 @@ def evaluate_condition(condition, outputs):
     return type(value) is type(expected) and value == expected
 
 
+def dependency_catalog(config, project_id, *, execution_mode=None):
+    from . import maestro, resources
+
+    available = maestro.candidates(config, project_id, execution_mode=execution_mode)
+    items = [
+        item
+        for backend in dict.fromkeys(choice["backend"] for choice in available)
+        for item in resources.discover(
+            config,
+            project_id,
+            backend,
+            private=True,
+            execution_mode=execution_mode,
+            include_workflows=False,
+        )["items"]
+    ]
+    return available, items
+
+
 def discover_workflows(config, project_id, backend, *, private=False, execution_mode=None):
     from . import resources
     from .catalog_manifest import load_manifest, preflight
@@ -506,6 +525,7 @@ def discover_workflows(config, project_id, backend, *, private=False, execution_
                 )
             )
     catalogs = {item["id"]: item for item in effective_catalogs(config, project)}
+    dependencies = None
     for root, scope, identity, namespace, origin in locations:
         manifest, problems, snapshot = None, [], {}
         if scope == "catalog":
@@ -564,6 +584,22 @@ def discover_workflows(config, project_id, backend, *, private=False, execution_
                     name = document.get("name") or document["id"]
                     if not isinstance(name, str) or not resources.NAME.fullmatch(name):
                         raise WorkflowError("workflow_invalid_name")
+                    if dependencies is None:
+                        dependencies = dependency_catalog(
+                            config, project_id, execution_mode=execution_mode
+                        )
+                    item_problems = list(problems)
+                    try:
+                        validate_workflow(parse_document(text, path.suffix), *dependencies)
+                    except WorkflowError as error:
+                        item_problems.append(
+                            {
+                                "workflow_resource_unavailable": "A workflow step resource is missing or unavailable. Restore its resource before running this workflow.",
+                                "workflow_model_or_effort_denied": "A workflow step model or effort is unavailable. Update the workflow or enable its model.",
+                            }.get(
+                                str(error), "Workflow prerequisites are unavailable: " + str(error)
+                            )
+                        )
                     item = dict(
                         id=resource_id,
                         resource_id=resource_id,
@@ -586,9 +622,9 @@ def discover_workflows(config, project_id, backend, *, private=False, execution_
                         native_command=False,
                         maintenance=False,
                         group="Workflows",
-                        selectable=not bool(problems),
-                        unavailable_reason="; ".join(problems),
-                        preflight_hint="; ".join(problems)
+                        selectable=not bool(item_problems),
+                        unavailable_reason="; ".join(item_problems),
+                        preflight_hint="; ".join(item_problems)
                         or "Review the sequential workflow before execution.",
                         compatibility={},
                     )
@@ -635,7 +671,9 @@ def resolve_workflow(config, project_id, resource_id, available=None, *, executi
     return result
 
 
-def save_chain_as_workflow(project, plan, workflow_id, *, successful, catalogs=()):
+def save_chain_as_workflow(
+    project, plan, workflow_id, *, successful, catalogs=(), dependencies=(None, None)
+):
     if successful is not True:
         raise WorkflowError("workflow_requires_successful_chain")
     if (
@@ -662,7 +700,7 @@ def save_chain_as_workflow(project, plan, workflow_id, *, successful, catalogs=(
             for step in plan.get("steps", [])
         ],
     }
-    validate_workflow(value)
+    validate_workflow(value, *dependencies)
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / (workflow_id + ".json")
     folder_descriptor = os.open(folder, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)

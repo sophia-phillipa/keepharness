@@ -7,6 +7,7 @@ import json
 import logging
 import math
 import os
+import re
 import shutil
 import sys
 import time
@@ -797,6 +798,9 @@ class ConversationService:
 
     def resource_catalog(self, identity, project_id, backend, model, execution_mode=None):
         self.project(identity, project_id)
+        if backend == "maestro":
+            lead = maestro.coordinator(self.config, project_id)
+            backend, model = lead["backend"], lead["model"]
         policy = self.config.get("services", {}).get(backend, {})
         if not policy.get("enabled") or project_id not in policy.get("projects", []):
             raise APIError("service_project_denied", 403)
@@ -814,16 +818,29 @@ class ConversationService:
             self.config, project_id, backend, model, execution_mode=execution_mode
         )
 
-    def selected_resources(self, data):
+    def selected_resources(self, data, *, canonical=None):
+        if data.get("backend") == "maestro":
+            lead = maestro.coordinator(self.config, data["project_id"])
+            data = {**data, "backend": lead["backend"], "model": lead["model"]}
         if data.get("resource_selections") and not maestro.model_permissions(
             self.config, data["backend"], data.get("model"), data["project_id"]
         ).get("read"):
             raise APIError("resource_read_denied", 403)
         try:
             selected = resources.resolve(self.config, data)
-            resources.prepare_prompt(
-                data.get("prompt", ""), selected, data.get("resource_selections")
-            )
+            if canonical is None:
+                resources.prepare_prompt(
+                    data.get("prompt", ""), selected, data.get("resource_selections")
+                )
+            else:
+                found = {item["resource_id"]: item for item in selected}
+                for value in canonical:
+                    if value.resource_id.startswith("builtin/"):
+                        continue
+                    item = found.get(value.resource_id)
+                    if item is None:
+                        raise resources.ResourceError("resource_unavailable")
+                    resources.prepare_prompt(item["_token"] + " " + value.args, [item])
             return selected
         except resources.ResourceError as error:
             raise APIError(
@@ -834,6 +851,11 @@ class ConversationService:
     def normalize_invocations(self, identity, data):
         """Resolve every resource before admitting a portable invocation."""
         try:
+            if data.get("backend") == "maestro" and (
+                data.get("invocations") or data.get("resource_selections")
+            ):
+                lead = maestro.coordinator(self.config, data["project_id"])
+                data.update(backend=lead["backend"], model=lead["model"], effort=lead["effort"])
             explicit = data.get("invocations")
             supplied_selections = bool(data.get("resource_selections"))
             if (
@@ -892,9 +914,23 @@ class ConversationService:
                         data["prompt"] = (
                             data["resource_selections"][0]["token"] + " " + data.get("prompt", "")
                         )
-            selected = self.selected_resources(data)
-            normalized = invocations.normalize_chips(
-                data.get("prompt", ""), data.get("resource_selections", []), selected
+            canonical = values if values is not None and not supplied_selections else None
+            selected = self.selected_resources(data, canonical=canonical)
+            selected_by_id = {item["resource_id"]: item for item in selected}
+            normalized = (
+                [
+                    invocations.Invocation(
+                        **{
+                            **value.to_dict(),
+                            "requested_backend": selected_by_id[value.resource_id].get("backend"),
+                        }
+                    )
+                    for value in canonical
+                ]
+                if canonical is not None
+                else invocations.normalize_chips(
+                    data.get("prompt", ""), data.get("resource_selections", []), selected
+                )
             )
             if values is not None:
                 if [(value.kind, value.resource_id, value.mode) for value in values] != [
@@ -1077,12 +1113,18 @@ class ConversationService:
         if conflict:
             raise APIError("project_folder_busy", 409)
         try:
+            declaration = maestro.declaration(plan)
             target = workflows.save_chain_as_workflow(
                 project,
-                maestro.declaration(plan),
+                declaration,
                 workflow_id,
                 successful=True,
                 catalogs=self.config.get("catalogs", ()),
+                dependencies=workflows.dependency_catalog(
+                    self.config,
+                    row["project"],
+                    execution_mode=self.conversation_execution_mode(row),
+                ),
             )
         finally:
             self.write_ownership.release(lease)
@@ -1180,7 +1222,12 @@ class ConversationService:
         if work_item is not None or "work_item" in data:
             data["work_item"] = work_item
         payload = encoded(data)
-        self.selected_resources(data)
+        self.selected_resources(
+            data,
+            canonical=[invocations.Invocation(**value) for value in data["invocations"]]
+            if data.get("invocations")
+            else None,
+        )
         legacy_root = None
         if data.get("parent_job_id"):
             previous = self.job(identity, data["parent_job_id"])
@@ -1440,7 +1487,12 @@ class ConversationService:
 
     async def _prepare_inference(self, row, data):
         """Resolve sources, history and the prompt; every admission error is raised here."""
-        selected_resources = self.selected_resources(data)
+        selected_resources = self.selected_resources(
+            data,
+            canonical=[invocations.Invocation(**value) for value in data["invocations"]]
+            if data.get("invocations")
+            else None,
+        )
         sources = []
         turns = [] if data.get("_planning_only") else self.context_turns(row, data)
         file_ids = list(
@@ -1542,8 +1594,10 @@ class ConversationService:
             or attachment_notice
             or data.get("_invocation_context")
             or len(selected_resources) != 1
-            or not data.get("prompt", "").startswith(
-                native_commands[0].get("_token", "/" + native_commands[0]["name"])
+            or not re.match(
+                re.escape(native_commands[0].get("_token", "/" + native_commands[0]["name"]))
+                + r"(?=\s|$)",
+                data.get("prompt", ""),
             )
         ):
             selected_resources = [
@@ -2193,7 +2247,16 @@ class ConversationService:
                 )
                 result = await maestro.execute_workflow(self, row, data, declared)
             elif len(invocation) > 1:
-                declared = maestro.declared_plan(self.config, data, self.selected_resources(data))
+                declared = maestro.declared_plan(
+                    self.config,
+                    data,
+                    self.selected_resources(
+                        data,
+                        canonical=[invocations.Invocation(**value) for value in data["invocations"]]
+                        if data.get("invocations")
+                        else None,
+                    ),
+                )
                 result = await maestro.execute_plan(self, row, data, declared)
             elif data.get("backend", "auto") == "maestro":
                 result = await maestro.run(self, row, data)

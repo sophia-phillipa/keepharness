@@ -183,7 +183,16 @@ def files(base, boundary, global_roots, kind):
         raise ResourceError("resource_scan_limit")
 
 
-def discover(config, project_id, backend, model=None, *, private=False, execution_mode=None):
+def discover(
+    config,
+    project_id,
+    backend,
+    model=None,
+    *,
+    private=False,
+    execution_mode=None,
+    include_workflows=True,
+):
     from .catalog_manifest import load_manifest, preflight
     from .catalog_pin import effective_catalogs, snapshot_catalogs
     from .integrations import integration_preflight
@@ -192,8 +201,12 @@ def discover(config, project_id, backend, model=None, *, private=False, executio
     engine = ENGINES.get(backend)
     result = {
         "engine": engine,
-        **discover_workflows(
-            config, project_id, backend, private=private, execution_mode=execution_mode
+        **(
+            discover_workflows(
+                config, project_id, backend, private=private, execution_mode=execution_mode
+            )
+            if include_workflows
+            else {"items": [], "warnings": []}
         ),
     }
     if engine is None:
