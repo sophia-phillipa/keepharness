@@ -159,22 +159,16 @@ def pin_catalog(catalog, state_dir, ref, *, owner=False):
     return {"commit": commit, "root": str(target)}
 
 
-def _revisions(root):
+def _revisions(root, commit):
     result = {}
-    root = Path(root)
+    _verify_pin(Path(root), commit)
     # Include all versioned dependencies and manifest-defined locations, not just
     # conventional resource directories. Links are hashed as links, never followed.
-    for relative in _git(root, "ls-files", "-z", strip=False).split("\0"):
-        if not relative:
+    for entry in _git(root, "ls-tree", "-rz", commit, strip=False).split("\0"):
+        if not entry:
             continue
-        path = root / relative
-        if path.is_symlink():
-            content = os.readlink(path).encode()
-        elif path.is_file() and path.resolve().is_relative_to(root.resolve()):
-            content = path.read_bytes()
-        else:
-            continue
-        result[relative] = hashlib.sha256(content).hexdigest()
+        metadata, relative = entry.split("\t", 1)
+        result[relative] = hashlib.sha256(metadata.encode()).hexdigest()
     return result
 
 
@@ -184,7 +178,8 @@ def preview_update(catalog, pin, state_dir, ref, *, owner=False, fetch=True):
     if fetch:
         _git(catalog["root"], "fetch", "--all", "--prune")
     candidate = pin_catalog(catalog, state_dir, ref, owner=owner)
-    before, after = _revisions(pin["root"]), _revisions(candidate["root"])
+    before = _revisions(pin["root"], pin["commit"])
+    after = _revisions(candidate["root"], candidate["commit"])
     diff = [
         {
             "resource_id": "catalog/" + _catalog_id(catalog) + "/" + path,

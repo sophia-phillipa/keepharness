@@ -45,6 +45,8 @@ async def approval(request, service, identity):
             "approved": data.get("approved") is True,
             "answers": data.get("answers", {}),
             "scope": scope,
+            "resolved_by": identity[0],
+            "resolved_at": time.time(),
         }
     )
     return JSONResponse({"resolved": True})
