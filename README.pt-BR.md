@@ -2,7 +2,7 @@
 
 [![🇺🇸 English](https://img.shields.io/badge/%F0%9F%87%BA%F0%9F%87%B8-English-blue.svg)](README.md) [![🇧🇷 Português (Brasil)](https://img.shields.io/badge/%F0%9F%87%A7%F0%9F%87%B7-Portugu%C3%AAs%20(Brasil)-green.svg)](README.pt-BR.md)
 
-Painel local em Python para descobrir, configurar e executar o Codex CLI, o Claude Code, o Gemini CLI e modelos de IA locais, com uma interface de conversa acessível pela Tailscale ou outra VPN. Python 3.11+, licença MIT, versão **0.13.7**.
+Painel local em Python para descobrir, configurar e executar o Codex CLI, o Claude Code, o Gemini CLI e modelos de IA locais, com uma interface de conversa acessível pela Tailscale ou outra VPN. Python 3.11+, licença MIT, versão **0.13.8**.
 
 ## 🚀 Installation — agent-guided (start here)
 
@@ -228,7 +228,7 @@ PYTHON="$PWD/.venv/bin/python" PLAYWRIGHT_MODULE=/caminho/playwright ./scripts/t
 
 As fixtures de UI evitam inferência em nuvem e download de modelos. Uma suíte mocada passando não prova autenticação de terceiros, reinício físico ou desempenho em contexto completo. Para verificar o pacote instalado, use `"$TH_VENV/bin/python" -m control.install_check`, com `TH_VENV` apontando para o ambiente usado na instalação (`~/.local/share/tail-harness/venv` para `install.sh`, `.venv` para `setup.sh`). Esse smoke check roda fora do checkout, com estado temporário e uma porta disponível; ele não instala dependências nem valida a instância de produção e os provedores. Para simular uma instalação limpa, siga a seção dedicada da [spec](dossier/installation-agent-spec.md), preparando ambiente, estado e portas separados por comandos individuais.
 
-Toda nova versão exige uma especificação em inglês em `dossier/releases/v<VERSÃO>.md`, com comportamento, critérios de aceitação, diagramas relevantes, notas de migração e validação realmente executada. Atualize `README.md`, `README.pt-BR.md` e os identificadores de versão juntos. Veja a [versão 0.13.7](dossier/releases/v0.13.7.md) e o [dossiê](dossier/README.md). Referência de produto: [T3 Code](https://github.com/pingdotgg/t3code). Esta é uma implementação independente; não incorpora código ou recursos gráficos do T3 e não alega equivalência de recursos.
+Toda nova versão exige uma especificação em inglês em `dossier/releases/v<VERSÃO>.md`, com comportamento, critérios de aceitação, diagramas relevantes, notas de migração e validação realmente executada. Atualize `README.md`, `README.pt-BR.md` e os identificadores de versão juntos. Veja a [versão 0.13.8](dossier/releases/v0.13.8.md) e o [dossiê](dossier/README.md). Referência de produto: [T3 Code](https://github.com/pingdotgg/t3code). Esta é uma implementação independente; não incorpora código ou recursos gráficos do T3 e não alega equivalência de recursos.
 
 A suíte cobre políticas de acesso, autenticação, protocolos e aprovações, descoberta local, integridade de download, instalação, arquivos empacotados e recuperação após falha. O teste de navegador usa fixtures, então não consome contas nem baixa modelos. A configuração do GitHub Actions executa os testes Python, os testes de UI no Chromium e a construção de wheel/sdist; os artefatos ficam anexados ao job de empacotamento quando o pipeline passa. Autenticação de terceiros e reinício físico da máquina não são simulados como prova de operação real.
 
@@ -383,6 +383,6 @@ A rodada 1 corrige a matrícula para aprovações humanas, as proteções de pub
 
 A rodada 6 fecha falhas de aliases de arquivos privados e catálogos, revalida acessos revogados e evita publicação duplicada por endpoints IPv6 equivalentes. Requisitos de workflows seguem o modo efetivo da conversa; projeções de fila e recuperação e atualizações responsivas do console, composer, tour, teclado e contexto de projeto preservam a escala de texto aprovada. Veja a [especificação da release](dossier/releases/v0.13.6.md) para migração e validação.
 
-## 🆕 Version 0.13.7
+## 🆕 Version 0.13.8
 
-A rodada 7 corrige callbacks de catálogo, acesso a arquivos privados, revogação e limites de aprovação; alinha contratos de roteamento, argumentos e prazos dos workflows; e adiciona planejamento Maestro visível pelo chat. Decisões no console, foco por teclado, escolhas pendentes e replay de aprovação preservam a escala aprovada, inclusive no zoom nativo de 200%. Veja a [especificação da release](dossier/releases/v0.13.7.md) para migração e validação.
+A rodada 8 revalida mutações em espera, oculta credenciais, recupera o despacho da fila e alinha a validação de recursos e workflows. Recursos no Maestro, edição de planos durante atualizações, decisões pendentes, escolhas salvas e evidências de publicação permanecem utilizáveis na escala aprovada. Veja a [especificação da release](dossier/releases/v0.13.8.md) para migração e validação.

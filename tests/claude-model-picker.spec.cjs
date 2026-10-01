@@ -74,7 +74,7 @@ const path = require("node:path");
               : "text/html",
       });
     });
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.7"));
+    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.8"));
     await page.goto("http://picker.test");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     const choices = () =>
