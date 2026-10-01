@@ -461,7 +461,15 @@ def cancel_owned(service, row):
     if row["state"] == "queued" or (
         row["state"] == "running" and task is None and service.active != job
     ):
-        settle(service, job, "cancelled", with_partial_answer(service, job, {"metrics": None}))
+        try:
+            service.finish(job, "cancelled", with_partial_answer(service, job, {"metrics": None}))
+        except sqlite3.OperationalError as exc:
+            if getattr(exc, "sqlite_errorcode", 0) & 0xFF not in (
+                sqlite3.SQLITE_BUSY,
+                sqlite3.SQLITE_LOCKED,
+            ):
+                raise
+            raise APIError("cancellation_retry_required", 503, retry_after=1) from exc
     for pending_job, future in list(service.approvals.values()):
         if pending_job == job and not future.done():
             future.cancel()
