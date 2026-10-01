@@ -258,12 +258,12 @@ async def run(service):
 async def run_job(service, row):
     row = dict(row)
     started = time.time()
-    with service.db:
-        service.conversation_repository.set_running(row["id"])
-    service.event(row["id"], "running", {})
     budget = RuntimeBudget()
     service.runtime_budgets[row["id"]] = budget
     try:
+        with service.db:
+            service.conversation_repository.set_running(row["id"])
+        service.event(row["id"], "running", {})
         request_data = json.loads(row["payload"])
         native_codex = (
             request_data.get("backend") == "codex"
@@ -388,19 +388,21 @@ async def run_job(service, row):
             )
             service.panel(row["project"], answer="Execution interrupted: " + code, finished=True)
     finally:
-        # Not on shutdown (the worker itself is cancelled): the refresh can wait up to
-        # 25 s on the Codex CLI and would hold the process open after SIGTERM.
-        if (
-            json.loads(row["payload"]).get("backend") == "codex"
-            and not asyncio.current_task().cancelling()
-        ):
-            state = service.conversation_repository.state(row["id"])[0]
-            if state != "completed":
-                service.event(row["id"], "quota_after", await service.quota(True))
-        service.active_executors.pop(row["id"], None)
-        service.job_tasks.pop(row["id"], None)
-        service.runtime_budgets.pop(row["id"], None)
-        service.approval_expirations.pop(row["id"], None)
+        try:
+            # Not on shutdown (the worker itself is cancelled): the refresh can wait up to
+            # 25 s on the Codex CLI and would hold the process open after SIGTERM.
+            if (
+                json.loads(row["payload"]).get("backend") == "codex"
+                and not asyncio.current_task().cancelling()
+            ):
+                state = service.conversation_repository.state(row["id"])[0]
+                if state != "completed":
+                    service.event(row["id"], "quota_after", await service.quota(True))
+        finally:
+            service.active_executors.pop(row["id"], None)
+            service.job_tasks.pop(row["id"], None)
+            service.runtime_budgets.pop(row["id"], None)
+            service.approval_expirations.pop(row["id"], None)
 
 
 def cancel_owned(service, row):
