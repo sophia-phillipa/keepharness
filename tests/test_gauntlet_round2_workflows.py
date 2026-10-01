@@ -15,7 +15,7 @@ from agent_service.errors import APIError
 from agent_service.invocations import normalize_chips
 
 
-@pytest.mark.parametrize("prompt", ["Explain:\n```js\n// comment\nconst n=1;\n```", "```diff\n@@ -1 +1 @@\n-old\n+new\n```", "What is 7 // 2 in Python?"])
+@pytest.mark.parametrize("prompt", ["Explain:\n```js\n// comment\nconst n=1;\n```", "```diff\n@@ -1 +1 @@\n-old\n+new\n```", "What is 7 // 2 in Python?", "//www.example.invalid", "@@local.example"])
 def test_plain_chat_accepts_code_unchanged(tmp_path, prompt):
     service, identity, _, data, _ = setup_run(tmp_path)
     try:
@@ -117,3 +117,20 @@ def test_directory_sync_failure_rolls_back_published_workflow(tmp_path, monkeypa
             workflows.save_chain_as_workflow({"root": str(tmp_path)}, workflow(), "saved", successful=True)
     assert not (tmp_path / "workflows/saved.json").exists()
     assert workflows.save_chain_as_workflow({"root": str(tmp_path)}, workflow(), "saved", successful=True).is_file()
+
+
+def test_resume_retry_with_same_identity_creates_one_child(tmp_path):
+    service, identity, row, data, plan = setup_run(tmp_path)
+    try:
+        with patch.object(service, "infer", AsyncMock(return_value={"answer": "done"})):
+            result = asyncio.run(maestro.execute_plan(service, row, data, plan))
+        with service.db:
+            service.conversation_repository.set_result(row["id"], "failed", json.dumps(result))
+        before = service.db.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
+        first = service.recover_workflow(identity, row["id"], {}, idem="stable-browser-recovery")
+        second = service.recover_workflow(identity, row["id"], {}, idem="stable-browser-recovery")
+        assert first["job_id"] == second["job_id"]
+        assert second["reused"] is True
+        assert service.db.execute("SELECT COUNT(*) FROM jobs").fetchone()[0] == before + 1
+    finally:
+        service.db.close()

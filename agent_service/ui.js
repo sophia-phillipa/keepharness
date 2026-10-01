@@ -162,14 +162,35 @@ function triggerAtCaret() {
   const start = match.index + match[1].length;
   return { prefix: match[2], query: match[3], start, end: before.length };
 }
+function unfencedPrompt(text) {
+  // Preserve offsets while excluding fenced examples from invocation boundaries.
+  let marker = null;
+  return text.split(/(?<=\n)/).map(line => {
+    const fence = /^ {0,3}(`{3,}|~{3,})(.*)/.exec(line);
+    let hidden = !!marker;
+    if (fence) {
+      if (!marker && (fence[1][0] !== "`" || !fence[2].includes("`"))) { marker = fence[1]; hidden = true; }
+      else if (marker && fence[1][0] === marker[0] && fence[1].length >= marker.length && !fence[2].trim()) { marker = null; hidden = true; }
+    }
+    return hidden ? " ".repeat(line.length) : line;
+  }).join("");
+}
+function selectedOccurrences() {
+  const prose = unfencedPrompt($("prompt").value);
+  const used = new Set();
+  return resourceSelections.flatMap(ref => {
+    const escaped = ref.token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const match = [...prose.matchAll(new RegExp("(^|\\s)" + escaped + "(?=\\s|$)", "g"))].find(m => !used.has(m.index + m[1].length));
+    if (!match) return [];
+    const start = match.index + match[1].length;
+    used.add(start);
+    return [{ ref, start }];
+  }).sort((a, b) => a.start - b.start);
+}
 function syncResourceSelections() {
+  resourceSelections = selectedOccurrences().map(item => item.ref);
   const tokens = new Set($("prompt").value.split(/\s+/));
-  resourceSelections = resourceSelections.filter((ref) =>
-    tokens.has(ref.token),
-  );
-  invalidResourceTokens = new Set(
-    [...invalidResourceTokens].filter((token) => tokens.has(token)),
-  );
+  invalidResourceTokens = new Set([...invalidResourceTokens].filter(token => tokens.has(token)));
 }
 function renderResourceChips() {
   let chips = $("resource-chips");
@@ -181,34 +202,18 @@ function renderResourceChips() {
     $("prompt").closest(".prompt-editor").before(chips);
   }
   chips.replaceChildren();
-  const prompt = $("prompt").value,
-    position = (selection) => {
-      const escaped = selection.token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
-        match = new RegExp("(^|\\s)" + escaped + "(?=\\s|$)").exec(prompt);
-      return match ? match.index + match[1].length : Number.POSITIVE_INFINITY;
-    },
-    ordered = [...resourceSelections].sort(
-      (left, right) => position(left) - position(right),
-    );
-  for (const selection of ordered) {
+  const ordered = selectedOccurrences();
+  for (const { ref: selection, start } of ordered) {
     const chip = document.createElement("button");
     chip.type = "button";
     chip.className = "resource-chip";
     chip.setAttribute("aria-label", "Remove " + selection.token);
     chip.textContent = selection.token + " ×";
     chip.onclick = () => {
-      const input = $("prompt"),
-        escaped = selection.token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
-        match = new RegExp("(^|\\s)" + escaped + "(?=\\s|$)").exec(input.value);
-      if (match) {
-        const start = match.index + match[1].length,
-          tokenEnd = start + selection.token.length,
-          end = tokenEnd + (input.value[tokenEnd] === " " ? 1 : 0);
-        input.value = input.value.slice(0, start) + input.value.slice(end);
-      }
-      resourceSelections = resourceSelections.filter(
-        (value) => value.token !== selection.token,
-      );
+      const input = $("prompt"), tokenEnd = start + selection.token.length,
+        end = tokenEnd + (input.value[tokenEnd] === " " ? 1 : 0);
+      input.value = input.value.slice(0, start) + input.value.slice(end);
+      resourceSelections = resourceSelections.filter(value => value !== selection);
       invalidResourceTokens.delete(selection.token);
       updateComposer();
       input.focus();
@@ -221,7 +226,7 @@ function renderResourceChips() {
     chain.className = "resource-chain-preview";
     chain.textContent =
       "Runs in order: " +
-      ordered.map((selection, index) => index + 1 + " " + selection.token).join(" → ");
+      ordered.map(({ ref }, index) => index + 1 + " " + ref.token).join(" → ");
     chips.append(chain);
   }
   chips.hidden = resourceSelections.length === 0;
@@ -652,7 +657,6 @@ function selectResource(item, trigger) {
   input.value = before + token + " " + after;
   const caret = (before + token + " ").length;
   input.setSelectionRange(caret, caret);
-  resourceSelections = resourceSelections.filter((ref) => ref.token !== token);
   resourceSelections.push({ id: item.id, revision: item.revision, token });
   invalidResourceTokens.delete(token);
   closeResourceMenu();
@@ -1458,6 +1462,7 @@ function selected() {
 function setBusy(value) {
   value = value || streamDisconnected;
   busy = value;
+  $("prompt").readOnly = loading;
   $("add-project").disabled = value || loading;
   if (!value) paintMotion("");
   $("send").disabled =
@@ -2337,7 +2342,7 @@ $("header-execution-mode").onclick = () => {
       "Conversation mode is fixed after the first message. Start a new conversation to change it.",
     );
 };
-function newConversation(title = "New Conversation") {
+function newConversation(title = "New Conversation", projectId = $("project").value) {
   if (submitting || cancelling || loading || uploads) {
     status(
       "Wait for the current send to finish before starting another conversation.",
@@ -2345,6 +2350,8 @@ function newConversation(title = "New Conversation") {
     return;
   }
   saveView();
+  const changedProject = projectId !== $("project").value;
+  $("project").value = projectId;
   let newDraft = null;
   try { newDraft = JSON.parse(sessionStorage.getItem("conversation-draft:new:" + $("project").value) || "null"); } catch {}
   resourceSelections = [];
@@ -2353,7 +2360,7 @@ function newConversation(title = "New Conversation") {
   currentMaestroPlan = null;
   // F-95: an unsent draft survives every way of starting a new conversation;
   // attachments too, unless they were uploaded to another project.
-  const draft = $("prompt").value,
+  const draft = changedProject ? "" : $("prompt").value,
     kept = files.filter((f) => f.project === $("project").value);
   conversationLoad++;
   streamDisconnected = false;
@@ -2390,18 +2397,14 @@ function newConversation(title = "New Conversation") {
   status("");
   $("prompt").focus({ preventScroll: true });
   refreshProjectPermissions();
+  if (changedProject) { resourceItems = []; void refreshWorkspaceResources(); }
 }
 function chooseProject(id) {
   if (busy || loading || uploads) return;
-  $("project").value = id;
-  invalidateResources();
-  const stale = [...invalidResourceTokens];
-  newConversation();
-  invalidResourceTokens = new Set(stale);
-  updateComposer();
-  saveView();
+  newConversation("New Conversation", id);
   renderProjects();
-  syncActiveProjectBadge();
+  history();
+  closeSidebar();
 }
 let projectIcons = {},
   projectAliases = {},
@@ -2776,8 +2779,7 @@ function renderProjects() {
             );
             return;
           }
-          $("project").value = o.value;
-          newConversation("New Conversation in project " + o.textContent);
+          newConversation("New Conversation in project " + o.textContent, o.value);
           expandedProjects.set(o.value, true);
           renderProjects();
           closeSidebar();
@@ -3303,6 +3305,7 @@ function renderPlanOutcome(card, runState = card.dataset.runState) {
   card.querySelector(".state-pill").textContent = label;
   card.querySelector('[role="status"]').textContent = note;
 }
+const workflowResumeKeys = new Map();
 function showWorkflowRecovery(run) {
   const target = active?.el;
   if (!target || !["failed", "cancelled", "interrupted"].includes(run.state) || target.querySelector(".workflow-recovery")) return;
@@ -3317,7 +3320,15 @@ function showWorkflowRecovery(run) {
   resume.onclick = async () => {
     resume.disabled = true;
     try {
-      const child = await post("/v1/jobs/" + encodeURIComponent(run.id) + "/resume", {});
+      const storageKey = "workflow-resume:" + run.id;
+      let key = workflowResumeKeys.get(run.id);
+      try { key ||= sessionStorage.getItem(storageKey); } catch {}
+      key ||= crypto.randomUUID?.() || Array.from(crypto.getRandomValues(new Uint8Array(16)), n => n.toString(16).padStart(2, "0")).join("");
+      workflowResumeKeys.set(run.id, key);
+      try { sessionStorage.setItem(storageKey, key); } catch {}
+      const child = await json("/v1/jobs/" + encodeURIComponent(run.id) + "/resume", {
+        method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": key }, body: "{}",
+      });
       await history();
       await load(child.conversation_id || child.job_id);
     } catch (error) {
@@ -4090,10 +4101,10 @@ async function send() {
   const draft = $("prompt").value,
     prompt = draft;
   if (!prompt.trim()) return;
-  const reserved = prompt.match(/(?:^|\s)(@@|\/\/)[^\s@/]+/);
+  const reserved = unfencedPrompt(prompt).match(/(?:^|\s)(@@)[\w:-]+(?=\s|$)|^\s*(\/\/)[A-Za-z_][\w:-]*(?=\s|$)/);
   if (reserved) {
     status(
-      reserved[1].startsWith("@@")
+      reserved[1] === "@@"
         ? "Tail Harness agents are not available yet."
         : "Tail Harness skills and commands are not available yet.",
     );
@@ -4817,29 +4828,28 @@ $("new").onclick = () => {
   const loose = Array.from($("project").options).some(
     (o) => o.value === "sem-projeto",
   );
-  if (loose) $("project").value = "sem-projeto";
   newConversation(
     loose
       ? "New Conversation"
       : "New Conversation in project " +
           $("project").selectedOptions[0]?.textContent,
+    loose ? "sem-projeto" : $("project").value,
   );
   renderProjects();
   history();
   closeSidebar();
 };
 $("project").onchange = () => {
-  const draft = $("prompt").value;
-  invalidateResources();
-  const stale = [...invalidResourceTokens];
-  newConversation();
-  invalidResourceTokens = new Set(stale);
+  const destination = $("project").value, draft = $("prompt").value,
+    stale = [...invalidResourceTokens, ...resourceSelections.map(ref => ref.token)];
+  if ([...$("project").options].some(option => option.value === composerProjectId))
+    $("project").value = composerProjectId;
+  chooseProject(destination);
   $("prompt").value = draft;
   resourceSelections = [];
+  invalidResourceTokens = new Set(stale);
   updateComposer();
   saveView();
-  renderProjects();
-  history();
 };
 $("model").onchange = () => {
   invalidateResources();
@@ -4910,6 +4920,7 @@ function toggleSidebar() {
       );
     } catch {}
   }
+  syncSidebarFocus();
   $("menu").setAttribute(
     "aria-expanded",
     String(
@@ -4921,8 +4932,16 @@ function toggleSidebar() {
 }
 // Every site that closes the phone sidebar outside of toggleSidebar() must
 // also clear #menu's aria-expanded, so assistive tech sees the same state.
+function syncSidebarFocus() {
+  const sidebar = $("sidebar"), overlay = innerWidth <= 620 && sidebar.classList.contains("open");
+  if (overlay) {
+    sidebar.setAttribute("role", "dialog"); sidebar.setAttribute("aria-modal", "true");
+    if (!sidebar.contains(document.activeElement)) sidebar.querySelector("button:not(:disabled)")?.focus();
+  } else { sidebar.removeAttribute("role"); sidebar.removeAttribute("aria-modal"); }
+}
 function closeSidebar() {
   $("sidebar").classList.remove("open");
+  syncSidebarFocus();
   if (matchMedia("(max-width:620px)").matches) {
     $("menu").setAttribute("aria-expanded", "false");
   }
@@ -5614,8 +5633,11 @@ function setPanelOpen(open, persist = true) {
     } catch {}
 }
 document.addEventListener("keydown", event => {
-  const panel = $("activity-panel");
-  if (event.key !== "Tab" || panel.hidden || innerWidth >= 1000 || document.querySelector("dialog[open], #tour-root")) return;
+  if (event.defaultPrevented || event.key !== "Tab" || document.querySelector("dialog[open], #tour-root, .composer-menu:popover-open")) return;
+  const panel = !$("attention-popover").hidden ? $("attention-popover")
+    : innerWidth <= 620 && $("sidebar").classList.contains("open") ? $("sidebar")
+    : innerWidth < 1000 && !$("activity-panel").hidden ? $("activity-panel") : null;
+  if (!panel) return;
   const controls = [...panel.querySelectorAll("a[href],button,input,select,textarea,summary,[tabindex]")]
     .filter(node => node.tabIndex >= 0 && !node.disabled && node.checkVisibility());
   if (!controls.length) return;
@@ -6021,6 +6043,7 @@ for (const id of Object.keys(panelWidths)) {
   });
 }
 function fitPanels() {
+  syncSidebarFocus();
   $("menu").setAttribute("aria-expanded", String(
     matchMedia("(max-width:620px)").matches ? $("sidebar").classList.contains("open") : !document.body.classList.contains("sidebar-collapsed")
   ));
@@ -6460,7 +6483,7 @@ function updateComposer() {
     (count === 1 ? " character" : " characters");
   const hasPrompt = !!prompt.value.trim();
   $("send").hidden = busy && !hasPrompt;
-  $("cancel").hidden = !busy || hasPrompt;
+  $("cancel").hidden = !busy;
   $("cancel").disabled = submitting || cancelling || !job;
   const cooldown = sendCooldownSeconds();
   if (cooldown) $("send").dataset.countdown = cooldown;
@@ -6542,9 +6565,11 @@ document.addEventListener("keydown", (e) => {
         $("settings-quota").focus();
       } else $("quota-toggle").focus();
     } else if (!$("activity-panel").hidden) {
+      e.preventDefault();
       setPanelOpen(false);
       $("panel-toggle").focus();
     } else if ($("sidebar").classList.contains("open")) {
+      e.preventDefault();
       closeSidebar();
       $("menu").setAttribute("aria-expanded", "false");
       $("menu").focus();
@@ -6627,6 +6652,10 @@ function finishGate(id, state, data = {}) {
     box.querySelectorAll("input").forEach(input => { input.checked = choices.includes(input.value); });
   }
   box.querySelectorAll("button,input").forEach(node => { node.disabled = true; });
+  const title = box.querySelector("h3");
+  if (title) title.textContent = state === "resolved"
+    ? (box.dataset.publish === "true" ? (data.choice === "deny" ? "Publication denied" : data.choice === "approve" ? "Publication approved" : "Publication decision recorded") : "Answered")
+    : state === "invalidated" ? "Question closed" : "Question expired";
   const note = box.querySelector('[role="status"]');
   note.textContent = state === "resolved"
     ? (box.dataset.publish === "true" ? (data.choice === "deny" ? "Publication denied" : data.choice === "approve" ? "Publication approved" : "Publication decision recorded") : "Answered") + (data.resolved_by ? " by " + data.resolved_by : "") + "."
@@ -6655,6 +6684,7 @@ function showGate(data) {
     legend = document.createElement("legend"), submit = document.createElement("button");
   box.id = "gate-" + data.gate_id;
   box.className = "approval-card gate-card";
+  box.dataset.publish = String(!!data.publish);
   box.dataset.state = "pending";
   title.textContent = "Your choice is needed";
   legend.textContent = data.question;
@@ -7701,6 +7731,7 @@ $("project-form").onsubmit = async (event) => {
       }
       saveView();
     } else {
+      $("project").value = current;
       policyProject = null;
       chooseProject(result.project_id);
     }

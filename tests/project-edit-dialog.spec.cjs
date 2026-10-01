@@ -80,7 +80,7 @@ const assert = require("node:assert/strict"),
         };
       return route.fulfill({ json: data });
     });
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.1"));
+    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.2"));
     await page.goto("http://panel.test");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     await page.locator("#project-tree > summary").click();

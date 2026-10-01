@@ -65,7 +65,7 @@ const path = require("node:path");
             : "text/html",
       });
     });
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.1"));
+    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.2"));
     await page.goto(origin);
     await page.waitForFunction(() => models.length === 1);
     // Real event handler, including a Markdown token split across chunks.

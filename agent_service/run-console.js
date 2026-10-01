@@ -76,7 +76,7 @@
   });
   const close = button('Collapse run console', () => toggle(false));
   close.classList.add('run-console-close');
-  let consoleHeight = Math.max(340, innerHeight * .45), restoreHeight = consoleHeight, maximized = false;
+  let consoleHeight = Math.max(400, innerHeight * .45), restoreHeight = consoleHeight, maximized = false;
   try { const saved = Number(localStorage.getItem('run-console-height')); if (saved >= 190) consoleHeight = saved; } catch {}
   const maximize = button('Maximize', () => {
     if (!maximized) restoreHeight = consoleHeight;
@@ -239,6 +239,7 @@
     resize(drawer.getBoundingClientRect().height + (event.key === 'ArrowUp' ? 30 : -30));
   });
   document.addEventListener('keydown', event => {
+    if (event.defaultPrevented || document.querySelector('dialog[open], .composer-menu:popover-open, #tour-root') || !document.getElementById('attention-popover').hidden) return;
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'j' && !inbox.open) {
       event.preventDefault();
       toggle(drawer.hidden);
@@ -442,6 +443,7 @@
       const backend = span.attrs?.['gen_ai.provider.name'] || span.attrs?.backend || '';
       const route = el('span', [backend, span.attrs?.['gen_ai.request.model'] || span.attrs?.model || span.kind].filter(Boolean).join(' · '), 'backend-chip');
       route.dataset.backend = backend;
+      route.title = route.textContent;
       row.append(el('strong', span.name), spanState, route, el('span', span.attrs?.effort || '', 'run-span-effort'), el('span', duration(span), 'run-span-duration'), el('span', tokenCount(span), 'run-span-tokens'));
       if (span.attrs?.enforcement) row.append(el('span', 'Publication: ' + span.attrs.enforcement));
       if (state.tab === 'Timeline') {

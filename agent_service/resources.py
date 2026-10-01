@@ -598,7 +598,7 @@ def discover(config, project_id, backend, model=None, *, private=False, executio
 
 def resolve(config, data):
     prompt = data.get("prompt", "")
-    if re.match(r"\s*(?:@@|//)[\w:-]+(?=\s|$)", unfenced(prompt, preserve_offsets=True)):
+    if re.search(r"(?<!\S)@@[\w:-]+(?=\s|$)|^\s*//[A-Za-z_][\w:-]*(?=\s|$)", unfenced(prompt, preserve_offsets=True)):
         raise ResourceError("tail_resources_unavailable")
     selections = data.get("resource_selections", [])
     if not isinstance(selections, list) or len(selections) > 20:

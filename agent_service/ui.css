@@ -4591,10 +4591,11 @@ main { padding-bottom:28px; }
 .maestro-plan-heading > strong { flex:none; white-space:nowrap; }
 .maestro-plan-heading > span:last-child { color:var(--th-muted); }
 .maestro-plan-card ol { display:grid; gap:5px; margin:0; padding:0; list-style:none; counter-reset:maestro-step; }
-.maestro-plan-card li { position:relative; display:grid; grid-template-columns:auto auto auto 1fr; align-items:center; gap:4px 7px; min-height:30px; padding:2px 0 2px 34px; font-size:11px; counter-increment:maestro-step; }
+.maestro-plan-card li { position:relative; display:flex; flex-wrap:wrap; align-items:center; gap:4px 7px; min-width:0; min-height:30px; padding:2px 0 2px 34px; font-size:11px; counter-increment:maestro-step; }
 .maestro-plan-card li::before { content:counter(maestro-step); position:absolute; left:0; top:3px; display:grid; place-items:center; width:24px; height:24px; border:1px solid var(--th-border); border-radius:50%; background:var(--th-soft); color:var(--th-text); }
-.maestro-plan-card li > * { margin-right:7px; }
-.maestro-plan-card li p { grid-column:1/-1; display:block; margin:0!important; color:var(--th-muted); font-size:10px; line-height:1.25; letter-spacing:normal; }
+.maestro-plan-card li > * { margin:0; max-width:100%; min-width:0; }
+.maestro-plan-card li > span:last-of-type { white-space:nowrap; }
+.maestro-plan-card li p { flex-basis:100%; display:block; margin:0!important; color:var(--th-muted); font-size:10px; line-height:1.25; letter-spacing:normal; }
 .plan-role { display:inline-flex; min-width:70px; padding:1px 7px; border:1px solid var(--th-border); border-radius:10px; }
 .maestro-plan-actions { display:flex; gap:7px; margin-top:8px; }
 .maestro-plan-actions button { padding:5px 10px; border:1px solid var(--th-border); border-radius:7px; }
@@ -4687,7 +4688,7 @@ main { padding-bottom:28px; }
 #files-view button,#files-view summary { min-height:24px; }
 .authorized-root-card strong { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .run-console { height:var(--th-console-height,max(340px,45dvh)); max-height:none; }
-.run-console-resizer { position:relative; height:10px; }
+.run-console-resizer { position:relative; height:24px; }
 .run-console-header { flex-wrap:nowrap; }
 .run-console-header h2 { flex:none; }
 .run-console-tabs { min-width:0; overflow-x:auto; flex-wrap:nowrap; }
