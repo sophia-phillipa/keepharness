@@ -24,7 +24,8 @@ class ProjectService:
         self.deleting_project_folders = set()
 
     def project(self, identity, project):
-        if project not in identity[1]["projects"] or project not in self.config["projects"]:
+        client = self.config.get("clients", {}).get(identity[0], {})
+        if project not in client.get("projects", []) or project not in self.config["projects"]:
             raise APIError("project_denied", 403)
         return self.config["projects"][project]
 

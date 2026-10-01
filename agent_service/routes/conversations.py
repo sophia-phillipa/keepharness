@@ -10,6 +10,7 @@ from ..approval_sessions import require_approval_session
 from ..config import TERMINAL
 from ..errors import APIError
 from ..persistence.db import encoded
+from ..secret_vault import redact_secrets
 from . import LimitedStream, api_route, body
 
 
@@ -28,6 +29,7 @@ async def approval(request, service, identity):
         raise APIError("approval_owner_denied", 403)
     data = await body(request)
     require_approval_session(request, service.config, identity, revalidate=True)
+    service.job(identity, pending[0])
     if service.approvals.get(aid) is not pending or pending[1].cancelled():
         raise APIError("approval_expired", 404)
     scope = data.get("scope", "once")
@@ -83,16 +85,23 @@ async def conversations(request, service, identity):
 
 
 def gate_records(service, job_id):
-    return [
-        {
-            **json.loads(gate["spec"]),
-            "state": gate["state"],
-            "choice": json.loads(gate["choice"]) if gate["choice"] else None,
-            "resolved_by": gate["resolved_by"],
-            "at": gate["resolved_at"],
-        }
-        for gate in service.gates.repository.for_job(job_id)
-    ]
+    return redact_secrets(
+        [
+            {
+                **json.loads(gate["spec"]),
+                **(
+                    service.effects.public(json.loads(gate["spec"])["effect_id"])
+                    if json.loads(gate["spec"]).get("effect_id")
+                    else {}
+                ),
+                "state": gate["state"],
+                "choice": json.loads(gate["choice"]) if gate["choice"] else None,
+                "resolved_by": gate["resolved_by"],
+                "at": gate["resolved_at"],
+            }
+            for gate in service.gates.repository.for_job(job_id)
+        ]
+    )
 
 
 async def conversation(request, service, identity):
@@ -100,6 +109,7 @@ async def conversation(request, service, identity):
     rows = service.conversation(identity, cid)
     if request.method == "PATCH":
         data = await body(request)
+        service.conversation(identity, cid)
         title = data.get("title")
         if not isinstance(title, str) or not (title := title.strip()) or len(title) > 100:
             raise APIError("invalid_conversation_title")
@@ -124,6 +134,7 @@ async def conversation(request, service, identity):
                     "attachments": service.message_attachments(r),
                     "gates": gate_records(service, r["id"]),
                     "workflow_checkpoint": service.has_workflow_checkpoint(r),
+                    "workflow_completed_steps": service.workflow_completed_steps(r),
                     "request": json.loads(r["payload"]),
                     "result": json.loads(r["result"] or "{}"),
                 }
@@ -188,6 +199,7 @@ async def job(request, service, identity):
     row = service.job(identity, request.path_params["job"])
     row["gates"] = gate_records(service, row["id"])
     row["workflow_checkpoint"] = service.has_workflow_checkpoint(row)
+    row["workflow_completed_steps"] = service.workflow_completed_steps(row)
     row["attachments"] = service.message_attachments(row)
     public_request = json.loads(row["payload"])
     row["request"] = {

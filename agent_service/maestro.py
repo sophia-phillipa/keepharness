@@ -272,18 +272,24 @@ def declaration(plan):
     }
 
 
-def ensure_recovery_safe(service, job_id):
-    """A child run cannot silently replay an ancestor's uncertain publication."""
+def recovery_ancestors(service, job_id):
+    """Walk durable recovery parents once, including the requested source."""
     seen = set()
     while job_id and job_id not in seen:
         seen.add(job_id)
-        if service.db.execute(
-            "SELECT 1 FROM effects WHERE job_id=? AND status IN ('unknown','executing')",
-            (job_id,),
-        ).fetchone():
-            raise ToolError("workflow_effect_outcome_unknown")
+        yield job_id
         row = service.conversation_repository.get(job_id)
         job_id = json.loads(row["payload"]).get("_workflow_parent_job_id") if row else None
+
+
+def ensure_recovery_safe(service, job_id):
+    """A child run cannot silently replay an ancestor's uncertain publication."""
+    for ancestor in recovery_ancestors(service, job_id):
+        if service.db.execute(
+            "SELECT 1 FROM effects WHERE job_id=? AND status IN ('unknown','executing')",
+            (ancestor,),
+        ).fetchone():
+            raise ToolError("workflow_effect_outcome_unknown")
 
 
 def retain_resources(service, data, plan):
@@ -511,16 +517,29 @@ async def allow_step(service, row, data, step, results, index):
 
 
 async def wait_step_effects(service, job_id, execution_id):
-    for effect in service.effects.for_job(job_id):
-        if effect["execution_id"] != execution_id:
-            continue
+    from contextlib import nullcontext
+
+    effects = [
+        effect
+        for effect in service.effects.for_job(job_id)
+        if effect["execution_id"] == execution_id
+    ]
+    budget = service.runtime_budgets.get(job_id)
+    # Dispatch stays behind the step barrier until all human waits have ended.
+    # A decision made during inference does not pause its active deadline.
+    for effect in effects:
+        task = service.effects.tasks.get(effect["effect_id"])
+        pending = service.approvals.get(effect["gate_id"])
+        if task and pending and not pending[1].done():
+            with budget.human_wait() if budget else nullcontext():
+                await asyncio.wait((pending[1], task), return_when=asyncio.FIRST_COMPLETED)
+    ready = service.effects.execution_barriers.get(execution_id)
+    if ready is not None and not ready.done():
+        ready.set_result(True)
+    for effect in effects:
         task = service.effects.tasks.get(effect["effect_id"])
         if task:
-            budget = service.runtime_budgets.get(job_id)
-            from contextlib import nullcontext
-
-            with budget.human_wait() if budget else nullcontext():
-                await task
+            await task
         if service.effects.get(effect["effect_id"])["status"] != "done":
             raise ToolError("workflow_effect_not_completed")
 
@@ -559,7 +578,9 @@ async def execute_plan(service, row, data, declared, *, planning_result=None, co
     )
     from .workflows import validate_workflow
 
-    plan = validate_plan(json.dumps(validate_workflow(declaration(declared), retained=True)), available)
+    plan = validate_plan(
+        json.dumps(validate_workflow(declaration(declared), retained=True)), available
+    )
     retain_resources(service, data, plan)
     data = {**data, "_checkpoint_sources": input_sources(service, row, data)}
     service.event(row["id"], "maestro_plan", plan)
@@ -604,17 +625,28 @@ async def execute_plan(service, row, data, declared, *, planning_result=None, co
             )
             continue
         if (source_id or data.get("_workflow_resume")) and index < from_step:
-            executions = {
-                json.loads(event["data"]).get("execution_id")
-                for event in service.message_repository.all_events(source_id or row["id"])
-                if event["type"] == "maestro_step"
-                and json.loads(event["data"]).get("index") == index
-            }
-            if any(
-                effect["status"] == "done" and effect["execution_id"] in executions
-                for effect in service.effects.for_job(source_id or row["id"])
-            ):
-                raise ToolError("workflow_published_step_requires_explicit_rerun")
+            for ancestor in recovery_ancestors(service, source_id or row["id"]):
+                executions = {
+                    json.loads(event["data"]).get("execution_id")
+                    for event in service.message_repository.all_events(ancestor)
+                    if event["type"] == "maestro_step"
+                    and json.loads(event["data"]).get("index") == index
+                }
+                if any(
+                    effect["execution_id"] in executions
+                    for effect in service.db.execute(
+                        "SELECT execution_id FROM effects WHERE job_id=? AND status='done'",
+                        (ancestor,),
+                    )
+                ):
+                    raise ToolError("workflow_published_step_requires_explicit_rerun")
+                ancestor_row = service.conversation_repository.get(ancestor)
+                recovery = json.loads(ancestor_row["payload"]) if ancestor_row else {}
+                if (
+                    recovery.get("_workflow_resume") is False
+                    and recovery.get("_workflow_from_step", index + 1) <= index
+                ):
+                    break
         reuse = False
         if not invalidated:
             invalidate_downstream(service, source_id or row["id"], index)
@@ -714,7 +746,6 @@ async def execute_plan(service, row, data, declared, *, planning_result=None, co
                         )
                         if not resolution.get("approved") or resolution.get("choice") != "approve":
                             raise ToolError("workflow_output_not_approved")
-                    ready.set_result(True)
                     if step.get("effect"):
                         await service.effects.prepare(
                             row["id"], step["effect"], execution_id=metadata["execution_id"]
@@ -727,15 +758,13 @@ async def execute_plan(service, row, data, declared, *, planning_result=None, co
                     ready.set_result(False)
                 pending_tasks = []
                 for effect in service.effects.for_job(row["id"]):
-                    if (
-                        effect["execution_id"] == metadata["execution_id"]
-                        and effect["status"] == "prepared"
-                    ):
-                        service.effects._status(
-                            effect["effect_id"], "invalidated", reason="workflow_step_ended"
-                        )
+                    if effect["execution_id"] == metadata["execution_id"]:
+                        if effect["status"] == "prepared":
+                            service.effects._status(
+                                effect["effect_id"], "invalidated", reason="workflow_step_ended"
+                            )
                         task = service.effects.tasks.get(effect["effect_id"])
-                        if task:
+                        if task and not task.done():
                             task.cancel()
                             pending_tasks.append(task)
                 await asyncio.gather(*pending_tasks, return_exceptions=True)

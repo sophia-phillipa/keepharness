@@ -101,7 +101,8 @@ def test_generated_plan_waits_and_only_approval_runs_steps(tmp_path, decision):
     asyncio.run(scenario())
 
 
-def test_plan_edits_are_validated_before_consuming_the_approval(tmp_path):
+@pytest.mark.parametrize("invalid", [{"model": "not-allowed"}, {"publsih": True}, {"gate": {"question": "Mode?", "options": ["quick", "slow"]}}])
+def test_plan_edits_are_validated_before_consuming_the_approval(tmp_path, invalid):
     async def scenario():
         service = Service(config(tmp_path))
         identity = ("a", service.config["clients"]["a"])
@@ -123,8 +124,8 @@ def test_plan_edits_are_validated_before_consuming_the_approval(tmp_path):
                 assert not task.done()
                 gate_id = next(iter(service.approvals))
                 forbidden = proposed_plan()
-                forbidden["steps"][0]["model"] = "not-allowed"
-                with pytest.raises(ToolError, match="maestro_model_or_effort_denied"):
+                forbidden["steps"][0].update(invalid)
+                with pytest.raises(ToolError, match="maestro_model_or_effort_denied" if "model" in invalid else "workflow_"):
                     service.gates.resolve(gate_id, identity, {"choice": "approve", "plan": forbidden})
                 assert service.gates.repository.get(gate_id)["state"] == "pending"
                 assert not task.done()

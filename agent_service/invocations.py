@@ -69,6 +69,9 @@ def validate_chain(values):
 
 def normalize_chips(prompt, selections, items):
     """Selection identity is resolved by resources before text is interpreted here."""
+    from .resources import unfenced
+
+    prose = unfenced(prompt, preserve_offsets=True)
     found = {item["id"]: item for item in items}
     matches = []
     consumed = set()
@@ -80,7 +83,7 @@ def normalize_chips(prompt, selections, items):
         match = next(
             (
                 candidate
-                for candidate in re.finditer(r"(?<!\S)" + re.escape(token) + r"(?=\s|$)", prompt)
+                for candidate in re.finditer(r"(?<!\S)" + re.escape(token) + r"(?=\s|$)", prose)
                 if candidate.start() not in consumed
             ),
             None,

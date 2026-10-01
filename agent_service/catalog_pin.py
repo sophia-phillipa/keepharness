@@ -56,7 +56,9 @@ def pin_catalog(catalog, state_dir, ref, *, owner=False):
                 if not path.is_symlink():
                     path.chmod(path.stat().st_mode & ~0o222)
         target.chmod(target.stat().st_mode & ~0o222)
-    if _git(target, "rev-parse", "HEAD") != commit or _git(target, "status", "--porcelain"):
+    if _git(target, "rev-parse", "HEAD") != commit or _git(
+        target, "status", "--porcelain", "--ignored"
+    ):
         raise CatalogPinError("catalog_pin_modified")
     return {"commit": commit, "root": str(target)}
 
@@ -117,7 +119,9 @@ def effective_catalogs(config, project):
             root = Path(pin.get("root", expected)).resolve()
             if root != expected or not root.is_dir():
                 raise CatalogPinError("invalid_catalog_pin")
-            if _git(root, "rev-parse", "HEAD") != commit or _git(root, "status", "--porcelain"):
+            if _git(root, "rev-parse", "HEAD") != commit or _git(
+                root, "status", "--porcelain", "--ignored"
+            ):
                 raise CatalogPinError("catalog_pin_modified")
             value.update(root=str(root), pin={"commit": commit, "root": str(root)})
         result.append(value)
@@ -130,7 +134,7 @@ def snapshot_catalogs(config, project):
         commit, dirty = None, None
         if catalog.get("kind") == "git":
             commit = _git(catalog["root"], "rev-parse", "HEAD")
-            dirty = bool(_git(catalog["root"], "status", "--porcelain"))
+            dirty = bool(_git(catalog["root"], "status", "--porcelain", "--ignored"))
         result.append(
             {
                 "catalog_id": catalog["id"],

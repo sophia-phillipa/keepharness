@@ -93,8 +93,8 @@ class GateService:
             self.repository.create(gate_id, job_id, spec)
         self.service.approvals[gate_id] = (job_id, future)
         self.progress[gate_id] = progress
-        progress("gate_required", spec)
         try:
+            progress("gate_required", spec)
             budget = self.service.runtime_budgets.get(job_id)
             with budget.human_wait() if budget else nullcontext():
                 try:
@@ -164,6 +164,10 @@ class GateService:
                     ],
                 }
             approved_plan = validate_plan(json.dumps(edited_plan), available)
+            from ..maestro import declaration
+            from ..workflows import validate_workflow
+
+            validate_workflow(declaration(approved_plan), retained=True)
             spec["plan"] = approved_plan
             resolution["plan"] = approved_plan
         with self.service.db:

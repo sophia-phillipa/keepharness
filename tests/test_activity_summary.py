@@ -45,7 +45,8 @@ def test_activity_scopes_owners_projects_and_references(tmp_path, monkeypatch):
     activity = service.activity(identity, "p", "TASK-1234")
     assert activity["counts"] == dict(running=1, queued=0, needs_you=0)
     assert [j["job_id"] for j in activity["jobs"]] == [first]
-    assert service.activity(("other", identity[1]), "p")["jobs"] == []
+    service.config["clients"]["other"] = {"projects": ["p"]}
+    assert service.activity(("other", service.config["clients"]["other"]), "p")["jobs"] == []
     assert len(service.activity(identity)["jobs"]) == 2
     with pytest.raises(APIError, match="work_item_project_required"):
         service.activity(identity, work_item="TASK-1234")

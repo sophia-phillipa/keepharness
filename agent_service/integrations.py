@@ -26,6 +26,22 @@ class CredentialStore(SecretVault):
         return value
 
 
+def endpoint_identity(endpoint):
+    """Canonical destination for duplicate detection, matching HTTP URL semantics."""
+    parsed = urlsplit(endpoint)
+    host = parsed.hostname.lower()
+    if ":" not in host:
+        import httpx
+
+        host = httpx.URL(endpoint).raw_host.decode("ascii")
+    if ":" in host:
+        host = "[" + host + "]"
+    port = parsed.port
+    if port and port != {"http": 80, "https": 443}.get(parsed.scheme):
+        host += ":" + str(port)
+    return parsed.scheme.lower() + "://" + host + parsed.path.rstrip("/")
+
+
 def validate_integration(contract):
     """Generic, explicit provider consumers and environment precedence."""
     required = {"integration", "consumers", "environment", "precedence", "mediated"}

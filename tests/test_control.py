@@ -265,8 +265,9 @@ class OwnershipTest(unittest.TestCase):
                 },
             }
             service = Service(cfg)
-            alice = ("alice", {"projects": ["p"]})
-            bob = ("bob", {"projects": ["p"]})
+            cfg["clients"].update(alice={"projects": ["p"]}, bob={"projects": ["p"]})
+            alice = ("alice", cfg["clients"]["alice"])
+            bob = ("bob", cfg["clients"]["bob"])
             job = service.submit(
                 alice, {"project_id": "p", "backend": "local", "model": "m", "prompt": "test"}
             )

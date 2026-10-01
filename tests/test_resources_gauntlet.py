@@ -141,7 +141,7 @@ def test_round08_escape_and_malformed_neighbor(project):
 def test_round09_unicode_and_argument_recovery(project):
     item = command(project, "Review {{args}}")
     with pytest.raises(resources.ResourceError, match="invalid_command_arguments"):
-        resources.prepare_prompt('/review "unfinished', [item])
+        resources.prepare_prompt('/review "unfinished', [{**item, "_body": "Review $1"}])
     assert (
         resources.prepare_prompt('/review "café façade"\nDraft intact', [item])
         == 'Review "café façade"\nDraft intact'

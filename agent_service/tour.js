@@ -2,9 +2,9 @@
   "use strict";
 
   const STORAGE_KEY = "tail-harness-tour-seen";
-  const RELEASE = "0.13.1";
+  const RELEASE = "0.13.3";
   const steps = [
-    { target: "top-search", title: "Search everything", text: "Search runs, plans, conversations, and files from one place. Use Ctrl/⌘+K to open it without leaving the keyboard." },
+    { target: "top-search", title: "Search the workspace", text: "Search runs and conversations, steps in the current plan, and loaded files from one place. Use Ctrl/⌘+K to open it without leaving the keyboard." },
     { target: "quota-meters", title: "Provider quota", text: "These meters show the latest known allowance for each configured provider. Providers without quota data stay out of the way." },
     { target: "attention-bell", title: "Attention inbox", text: "The bell gathers completed work, requests, and errors that need a look. Its count and filters help you focus on the right events." },
     { target: "sidebar-state-groups", title: "Conversations by state", text: "Conversations are grouped into Needs you, Running, Queued, and Done. Each row shows its live activity, age, backend, and project." },
@@ -52,6 +52,8 @@
       if (drawer?.hidden) document.querySelector("#run-status-toggle")?.click();
     }
     if (step.reveal === "panel") {
+      if (innerWidth <= 700 && !document.querySelector("#run-console")?.hidden)
+        document.querySelector("#run-status-toggle")?.click();
       const panel = document.querySelector("#activity-panel");
       if (panel?.hidden) document.querySelector("#panel-toggle")?.click();
     }

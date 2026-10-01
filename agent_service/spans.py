@@ -230,6 +230,11 @@ def events_to_spans(job, events):
                 span["attrs"]["outcome"] = outcome
                 span["attrs"].pop("end_inferred", None)
                 span["status"] = _status(outcome)
+        elif kind == "invocation_started" and not workflow:
+            root["attrs"].update(_attrs(data))
+            root["name"] = data.get("role") or root["name"]
+            root["events"].append({"ts": timestamp, "name": kind, "attrs": _attrs(data)})
+            root["content"].append(event_content)
         elif kind == "queued":
             queue = create(
                 f"{trace_id}:queue:{identifier}", "queue_wait", "Queue", timestamp, trace_id, data

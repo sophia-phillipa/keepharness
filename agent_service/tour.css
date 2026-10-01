@@ -75,6 +75,7 @@
 .tour-actions button:focus-visible { outline: 3px solid color-mix(in srgb, var(--tour-accent) 45%, transparent); outline-offset: 2px; }
 .tour-actions button:disabled { opacity: .45; cursor: default; }
 #tour-next { border-color: var(--th-action, var(--tour-accent)); background: var(--th-action, var(--tour-accent)); color: var(--th-on-action, #fff); }
+body #tour-next:hover { background-color: var(--th-action, var(--tour-accent)) !important; }
 #tour-skip { border-color: transparent; background: transparent; color: var(--th-muted, var(--muted, #596171)); }
 
 @media (max-width: 600px) {

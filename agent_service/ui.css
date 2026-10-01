@@ -4591,10 +4591,11 @@ main { padding-bottom:28px; }
 .maestro-plan-heading > strong { flex:none; white-space:nowrap; }
 .maestro-plan-heading > span:last-child { color:var(--th-muted); }
 .maestro-plan-card ol { display:grid; gap:5px; margin:0; padding:0; list-style:none; counter-reset:maestro-step; }
-.maestro-plan-card li { position:relative; display:grid; grid-template-columns:auto auto auto 1fr; align-items:center; gap:4px 7px; min-height:30px; padding:2px 0 2px 34px; font-size:11px; counter-increment:maestro-step; }
+.maestro-plan-card li { position:relative; display:flex; flex-wrap:wrap; align-items:center; gap:4px 7px; min-width:0; min-height:30px; padding:2px 0 2px 34px; font-size:11px; counter-increment:maestro-step; }
 .maestro-plan-card li::before { content:counter(maestro-step); position:absolute; left:0; top:3px; display:grid; place-items:center; width:24px; height:24px; border:1px solid var(--th-border); border-radius:50%; background:var(--th-soft); color:var(--th-text); }
-.maestro-plan-card li > * { margin-right:7px; }
-.maestro-plan-card li p { grid-column:1/-1; display:block; margin:0!important; color:var(--th-muted); font-size:10px; line-height:1.25; letter-spacing:normal; }
+.maestro-plan-card li > * { margin:0; max-width:100%; min-width:0; }
+.maestro-plan-card li > span:last-of-type { white-space:nowrap; }
+.maestro-plan-card li p { flex-basis:100%; display:block; margin:0!important; color:var(--th-muted); font-size:10px; line-height:1.25; letter-spacing:normal; }
 .plan-role { display:inline-flex; min-width:70px; padding:1px 7px; border:1px solid var(--th-border); border-radius:10px; }
 .maestro-plan-actions { display:flex; gap:7px; margin-top:8px; }
 .maestro-plan-actions button { padding:5px 10px; border:1px solid var(--th-border); border-radius:7px; }
@@ -4687,13 +4688,13 @@ main { padding-bottom:28px; }
 #files-view button,#files-view summary { min-height:24px; }
 .authorized-root-card strong { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .run-console { height:var(--th-console-height,max(340px,45dvh)); max-height:none; }
-.run-console-resizer { position:relative; height:10px; }
-.run-console-header { flex-wrap:nowrap; }
-.run-console-header h2 { flex:none; }
-.run-console-tabs { min-width:0; overflow-x:auto; flex-wrap:nowrap; }
-.run-console-tabs [role="tab"] { flex:none; min-height:24px; }
-#run-console-maximize { min-width:80px; min-height:30px; padding:4px 8px; font-size:12px; }
-.run-console-close { min-width:24px; min-height:24px; }
+.run-console-resizer { position:relative; height:24px; }
+.run-console-header { flex-wrap:nowrap; min-height:26px; padding:0 12px; }
+.run-console-header h2 { flex:none; line-height:24px; }
+.run-console-tabs { height:26px; min-width:0; overflow-x:auto; flex-wrap:nowrap; }
+.run-console-tabs [role="tab"] { height:26px; padding:2px 12px; flex:none; min-height:24px; }
+#run-console-maximize { min-width:80px; min-height:24px; padding:2px 8px; font-size:12px; }
+#run-console .run-console-close { min-width:24px; min-height:24px; height:26px; padding:2px 8px; }
 .workspace-resize:focus-visible,.run-console-resizer:focus-visible { outline:2px solid var(--th-accent); outline-offset:-2px; }
 @media (max-width:700px) {
   body,body.sidebar-collapsed { grid-template-columns:minmax(0,1fr); }
@@ -4723,12 +4724,24 @@ main { padding-bottom:28px; }
 .conversation-peek { min-width:24px; min-height:24px; }
 .run-console-body { container:run-console / inline-size; }
 @container run-console (max-width:480px) {
-  .run-pipeline-summary { display:grid; grid-template-columns:minmax(0,1fr); gap:4px; }
+  .run-pipeline-summary { display:grid; grid-template-columns:auto minmax(0,1fr); gap:4px 8px; }
   .run-plan-approval { grid-template-columns:minmax(0,1fr); }
   .run-plan-approval > * { min-width:0; }
-  .run-pipeline-actions { margin-left:0; flex-wrap:nowrap; overflow-x:auto; }
+  .run-pipeline-actions { grid-column:1/-1; margin-left:0; flex-wrap:nowrap; overflow-x:auto; }
   .run-pipeline-actions > * { flex:none; }
   .run-pipeline-actions button { white-space:nowrap; }
+  .run-span-row { display:grid; grid-template-columns:minmax(0,1fr) auto; align-content:start; }
+  .run-span-row > strong,.run-span-row > span:not(.run-span-effort):not(.run-span-duration) { grid-column:1/-1; }
 }
 main > header { flex-wrap:nowrap; overflow-x:auto; }
 #workspace-files #files-help { margin-top:0; }
+
+/* Narrow chat columns keep action labels and active-run controls in their own targets. */
+.maestro-plan-actions { flex-wrap:wrap; }
+.maestro-plan-actions > button { flex:0 1 auto; max-width:100%; white-space:normal; }
+@container composer (max-width:650px) {
+  .composer-toolbar:has(#send:not([hidden])):has(#cancel:not([hidden])) { grid-template-columns:minmax(0,1fr); }
+  .composer-toolbar:has(#send:not([hidden])):has(#cancel:not([hidden])) .composer-actions { grid-column:1; grid-row:1; flex-wrap:wrap; }
+  .composer-toolbar:has(#send:not([hidden])):has(#cancel:not([hidden])) .composer-models { grid-column:1; grid-row:2; }
+  .composer-toolbar:has(#send:not([hidden])):has(#cancel:not([hidden])) .composer-submit { grid-column:1; grid-row:3; justify-content:flex-end; }
+}

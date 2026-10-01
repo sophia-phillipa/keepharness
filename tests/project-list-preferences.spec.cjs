@@ -31,6 +31,8 @@ const path = require("node:path");
           projects: ["sem-projeto", "alpha", "beta"],
           details: { alpha: { label: "Alpha" }, beta: { label: "Beta" } },
         };
+      else if (url.pathname === "/v1/resources")
+        data = { items: [], warnings: [] };
       else if (url.pathname === "/v1/models")
         data = {
           models: [
@@ -61,7 +63,7 @@ const path = require("node:path");
       return route.fulfill({ json: data });
     });
     const ready = async () => {
-      await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.1"));
+      await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.3"));
       await page.goto("http://panel.test");
       await page.locator("#startup-gate").waitFor({ state: "hidden" });
     await page.locator("#project-tree > summary").click();
@@ -187,14 +189,15 @@ const path = require("node:path");
       .locator(".project-actions-menu:popover-open")
       .boundingBox();
     assert(box.x >= 0 && box.x + box.width <= 390 && box.y + box.height <= 844);
-    await page.route("**/v1/**", (route) => route.abort());
+    const offline = route => route.abort();
+    await page.route("**/v1/**", offline);
     await page
       .getByRole("button", { name: "Add to favorites", exact: true })
       .click();
     await action("Alpha", "Remove from list");
     await restore("Alpha");
     await page.screenshot({ path: "/tmp/project-list-preferences-mobile.png" });
-    await page.unroute("**/v1/**"); // Remaining checks use existing DOM only.
+    await page.unroute("**/v1/**", offline); // Restore the original synthetic API routes.
     console.log("PASS P5: mobile bounds and offline remove/restore/favorite");
     // P6: removal is strictly a UI preference; failed storage writes do not pretend success.
     assert.deepEqual(writes, []);
