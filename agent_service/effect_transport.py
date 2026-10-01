@@ -132,7 +132,10 @@ def scoped_enforcement(service, command, *, copied_paths=()):
     private = [Path(service.root).resolve()]
     credentials = Path(
         service.config.get(
-            "effect_credentials_path", service.root / "harness.effect_credentials.json"
+            "effect_credentials_path",
+            service.config.get(
+                "secret_vault_path", service.root / "harness.effect_credentials.json"
+            ),
         )
     ).resolve()
     if not credentials.is_relative_to(private[0]):

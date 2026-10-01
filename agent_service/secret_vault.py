@@ -1,0 +1,173 @@
+"""Private local bindings and execution-local, explicitly advisory injection."""
+
+import fcntl
+import json
+import os
+import re
+import stat
+import tempfile
+import weakref
+from contextlib import contextmanager
+from contextvars import ContextVar
+from pathlib import Path
+
+from .errors import APIError
+
+_known_secrets = weakref.WeakKeyDictionary()
+_environment = ContextVar("integration_environment", default=None)
+_blocked_environment = ContextVar("mediated_environment", default=())
+
+
+def redact_secrets(value):
+    if isinstance(value, str):
+        for secret in sorted(
+            {item for values in list(_known_secrets.values()) for item in values},
+            key=len,
+            reverse=True,
+        ):
+            value = value.replace(secret, "[redacted]")
+        return value
+    if isinstance(value, dict):
+        return {key: redact_secrets(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [redact_secrets(item) for item in value]
+    return value
+
+
+class SecretStream:
+    """Hold credential prefixes so split provider deltas cannot reconstruct a secret."""
+
+    def __init__(self):
+        self.pending = {}
+
+    def feed(self, channel, value):
+        value = self.pending.pop(channel, "") + value
+        secrets = {item for values in list(_known_secrets.values()) for item in values}
+        value = redact_secrets(value)
+        suffix = max(
+            (
+                size
+                for secret in secrets
+                for size in range(1, len(secret))
+                if value.endswith(secret[:size])
+            ),
+            default=0,
+        )
+        if suffix:
+            self.pending[channel] = value[-suffix:]
+            return value[:-suffix]
+        return value
+
+
+@contextmanager
+def execution_environment(environment, blocked=()):
+    token = _environment.set(dict(environment))
+    blocked_token = _blocked_environment.set(tuple(blocked))
+    try:
+        yield
+    finally:
+        _environment.reset(token)
+        _blocked_environment.reset(blocked_token)
+
+
+def blocked_environment():
+    return _blocked_environment.get()
+
+
+def injected_environment():
+    return dict(_environment.get() or {})
+
+
+class SecretVault:
+    """0600 atomic store. Same-user unrestricted shells remain advisory."""
+
+    def __init__(self, path):
+        self.path = Path(path)
+        _known_secrets[self] = set()
+
+    def _read(self):
+        try:
+            descriptor = os.open(self.path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        except FileNotFoundError:
+            return {}
+        except OSError:
+            raise APIError("effect_credentials_unavailable") from None
+        with os.fdopen(descriptor) as stream:
+            info = os.fstat(stream.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_mode & 0o077 or info.st_nlink != 1:
+                raise APIError("effect_credentials_not_private")
+            try:
+                values = json.load(stream)
+            except (ValueError, UnicodeError):
+                raise APIError("effect_credentials_unavailable") from None
+        if not isinstance(values, dict):
+            raise APIError("effect_credentials_unavailable")
+        for binding, value in values.items():
+            self._validate(binding, value)
+            _known_secrets[self].update(value.values())
+        return values
+
+    @staticmethod
+    def _validate(binding, value):
+        if not isinstance(binding, str) or not re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", binding):
+            raise APIError("secret_binding_invalid")
+        if (
+            not isinstance(value, dict)
+            or not value
+            or not all(
+                isinstance(key, str)
+                and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key)
+                and isinstance(item, str)
+                and item
+                and not any(c in item for c in "\r\n\x00")
+                for key, item in value.items()
+            )
+        ):
+            raise APIError("secret_value_invalid")
+
+    def get(self, binding):
+        value = self._read().get(binding)
+        if value is None:
+            raise APIError("effect_credentials_unavailable")
+        return value
+
+    def remember(self, values):
+        _known_secrets[self].update(values)
+
+    def status(self):
+        return [
+            {"binding": key, "fields": sorted(value)} for key, value in sorted(self._read().items())
+        ]
+
+    def set(self, binding, value):
+        self._validate(binding, value)
+        self._update(binding, value)
+        _known_secrets[self].update(value.values())
+
+    def delete(self, binding):
+        self._update(binding, None)
+
+    def _update(self, binding, value):
+        self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        descriptor = os.open(
+            str(self.path) + ".lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600
+        )
+        with os.fdopen(descriptor, "w") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            values = self._read()
+            if value is None:
+                values.pop(binding, None)
+            else:
+                values[binding] = value
+            descriptor, temporary = tempfile.mkstemp(
+                prefix=".harness-secrets-", dir=self.path.parent
+            )
+            try:
+                with os.fdopen(descriptor, "w") as stream:
+                    json.dump(values, stream)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                os.replace(temporary, self.path)
+            finally:
+                if os.path.exists(temporary):
+                    os.unlink(temporary)

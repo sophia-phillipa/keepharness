@@ -16,6 +16,9 @@ REDACTIONS = (
 
 
 def redact(text):
+    from .secret_vault import redact_secrets
+
+    text = redact_secrets(text)
     for pattern, replacement in REDACTIONS:
         text = pattern.sub(replacement, text)
     return text

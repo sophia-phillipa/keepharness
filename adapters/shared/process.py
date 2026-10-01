@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 
 from agent_service.log_config import redact
 from agent_service.tools import ToolError
+from control.product import PRODUCT
 
 STDERR_LIMIT = 64 * 1024
 _SECRET_NAME = re.compile(
@@ -30,15 +31,24 @@ def child_environment(environment=None, *, provider=None):
         key: value
         for key, value in source.items()
         if not (
-            key.upper().startswith(("TAIL_HARNESS_", "LOCAL_AGENT_", "HARNESS_"))
+            key.upper().startswith(
+                ("TAIL_HARNESS_", "LOCAL_AGENT_", "HARNESS_", PRODUCT.env_prefix + "_")
+            )
             or "COOKIE" in key.upper()
             or key.upper() in {"ADMIN_TOKEN", "ADMIN_SECRET", "ADMIN_PASSWORD"}
         )
     }
     # DeepSeek supplies this inference credential explicitly from its key file.
     # A host variable with the same name is never enough to grant this exception.
-    if provider == "deepseek" and environment is not None and "TAIL_HARNESS_API_KEY" in environment:
-        clean["TAIL_HARNESS_API_KEY"] = environment["TAIL_HARNESS_API_KEY"]
+    provider_key = PRODUCT.env_prefix + "_API_KEY"
+    if provider == "deepseek" and environment is not None and provider_key in environment:
+        clean[provider_key] = environment[provider_key]
+    from agent_service.secret_vault import blocked_environment, injected_environment
+
+    for name in blocked_environment():
+        clean.pop(name, None)
+
+    clean.update(injected_environment())
     return clean
 
 
