@@ -224,7 +224,12 @@ def test_queued_recovery_resolves_current_workflow_revision(tmp_path):
             ) as execute,
         ):
             asyncio.run(service.execute(service.job(identity, job)))
-        resolve.assert_called_once_with(service.config, "p", "project/p/workflows/review.json")
+        resolve.assert_called_once_with(
+            service.config,
+            "p",
+            "project/p/workflows/review.json",
+            execution_mode=data["execution_mode"],
+        )
         assert execute.call_args.args[3] == current
     finally:
         service.db.close()

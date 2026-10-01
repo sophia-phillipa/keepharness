@@ -35,9 +35,12 @@ config = {
 }
 app = create_app(config)
 service = app.state.service
+inference_stages = []
 
 
 async def infer(row, data):
+    inference_stages.append(data.get("_maestro_stage", "direct"))
+    (root / "inference.json").write_text(json.dumps(inference_stages))
     if data.get("_maestro_stage") == "plan":
         return {
             "answer": json.dumps(

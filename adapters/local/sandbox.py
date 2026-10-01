@@ -12,21 +12,21 @@ from control.product import PRODUCT
 ISOLATION_VERSION = "local-bwrap-v3"
 
 
-def reject_writable_hardlinks(root, private_inodes=None):
+def reject_writable_hardlinks(root, private_inodes=None, *, hidden=()):
     """A bind cannot isolate pre-existing aliases to excluded private inodes."""
 
     def failed(error):
         raise ToolError("local_project_scope_invalid") from error
 
-    for directory, _, files in os.walk(root, followlinks=False, onerror=failed):
+    for directory, directories, files in os.walk(root, followlinks=False, onerror=failed):
+        if any(Path(directory).is_relative_to(path) for path in hidden):
+            directories.clear()
+            continue
         for name in files:
             info = (Path(directory) / name).lstat()
-            if (
-                stat.S_ISREG(info.st_mode)
-                and (
-                    (private_inodes is None and info.st_nlink > 1)
-                    or (private_inodes is not None and (info.st_dev, info.st_ino) in private_inodes)
-                )
+            if stat.S_ISREG(info.st_mode) and (
+                (private_inodes is None and info.st_nlink > 1)
+                or (private_inodes is not None and (info.st_dev, info.st_ino) in private_inodes)
             ):
                 raise ToolError("local_project_hardlink_denied")
 
@@ -121,6 +121,11 @@ def wrap(command, session, cwd, project, environment=None):
         except (OSError, RuntimeError) as error:
             raise ToolError("local_project_scope_invalid") from error
     permissions = project.get("permissions", {})
+    hidden_roots = [
+        (private_runtime / name).resolve()
+        for name in ("config", "migration-backup")
+        if (private_runtime / name).is_dir()
+    ]
     if permissions.get("read"):
         roots = [project.get("root"), *project.get("additional_roots", [])]
         for value in dict.fromkeys(value for value in roots if value):
@@ -128,7 +133,9 @@ def wrap(command, session, cwd, project, environment=None):
             # Mounting broad ancestors would expose private state or the host home.
             if not root.is_dir() or root == Path("/") or session.is_relative_to(root):
                 raise ToolError("local_project_scope_invalid")
-            reject_writable_hardlinks(root, private_inodes)
+            if any(root.is_relative_to(hidden) for hidden in hidden_roots):
+                raise ToolError("local_project_scope_invalid")
+            reject_writable_hardlinks(root, private_inodes, hidden=hidden_roots)
             if permissions.get("write"):
                 reject_writable_hardlinks(root)
             args += [
