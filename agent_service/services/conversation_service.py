@@ -801,6 +801,8 @@ class ConversationService:
         if backend == "maestro":
             lead = maestro.coordinator(self.config, project_id)
             backend, model = lead["backend"], lead["model"]
+            if backend == "local":
+                execution_mode = "scoped"
         policy = self.config.get("services", {}).get(backend, {})
         if not policy.get("enabled") or project_id not in policy.get("projects", []):
             raise APIError("service_project_denied", 403)
@@ -822,6 +824,8 @@ class ConversationService:
         if data.get("backend") == "maestro":
             lead = maestro.coordinator(self.config, data["project_id"])
             data = {**data, "backend": lead["backend"], "model": lead["model"]}
+            if lead["backend"] == "local":
+                data["execution_mode"] = "scoped"
         if data.get("resource_selections") and not maestro.model_permissions(
             self.config, data["backend"], data.get("model"), data["project_id"]
         ).get("read"):
@@ -855,6 +859,10 @@ class ConversationService:
                 data.get("invocations") or data.get("resource_selections")
             ):
                 lead = maestro.coordinator(self.config, data["project_id"])
+                if lead["backend"] == "local":
+                    if data.get("parent_job_id") and data.get("execution_mode") != "scoped":
+                        raise APIError("conversation_execution_mode_locked", 409)
+                    data["execution_mode"] = "scoped"
                 data.update(backend=lead["backend"], model=lead["model"], effort=lead["effort"])
             explicit = data.get("invocations")
             supplied_selections = bool(data.get("resource_selections"))
