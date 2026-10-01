@@ -16,7 +16,7 @@
     { target: "run-console-tabs", title: "Run console views", text: "Pipeline shows the current plan while Timeline and Logs expose execution detail. Runs and Agents let you inspect work across the project.", reveal: "console" },
     { target: "span-detail", title: "Span details", text: "Select a pipeline span to inspect its timing, tokens, and recorded events. Prompt and tool content remains hidden until you choose Show content.", reveal: "console" },
     { target: "publish-gate", title: "Publication gate", text: "A mediated publish waits for your explicit approval and records the outcome. An unenforced destination is clearly marked so you can judge the risk before continuing." },
-    { target: "right-pane", title: "Files and activity", text: "Files lists the roots this conversation can use, including their access badges. Activity follows milestones and responses without taking you away from the chat.", reveal: "panel" },
+    { target: "right-pane", title: "Files and activity", text: "Files, background tasks, resources and activity stay together here. Collapse section headings or drag their handles to make room for what you need.", reveal: "panel" },
     { target: "settings-admin", title: "Settings, Admin, and help", text: "Settings controls this browser's appearance and working preferences; Admin opens server configuration. Open About or Help later and choose Take the tour to replay this guide." },
   ];
 

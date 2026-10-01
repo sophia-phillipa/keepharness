@@ -127,6 +127,12 @@ const path = require("node:path");
     assert.equal(await page.locator("#project-folder-location").count(), 0);
     await trigger.click();
     await page.keyboard.press("Escape");
+    await page.locator(".project-actions-menu:popover-open").waitFor({ state: "hidden" });
+    // Native popover closure queues the toggle event that updates the ARIA state.
+    await page.waitForFunction(
+      (button) => button.getAttribute("aria-expanded") === "false",
+      await trigger.elementHandle(),
+    );
     assert.equal(await trigger.getAttribute("aria-expanded"), "false");
     await page
       .getByRole("button", {

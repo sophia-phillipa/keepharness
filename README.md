@@ -2,7 +2,7 @@
 
 [![🇺🇸 English](https://img.shields.io/badge/%F0%9F%87%BA%F0%9F%87%B8-English-blue.svg)](README.md) [![🇧🇷 Português (Brasil)](https://img.shields.io/badge/%F0%9F%87%A7%F0%9F%87%B7-Portugu%C3%AAs%20(Brasil)-green.svg)](README.pt-BR.md)
 
-A local Python control panel for discovering, configuring and running Codex CLI, Claude Code, Gemini CLI and local AI models, with a conversational harness accessible through Tailscale or another VPN. Python 3.11+, MIT license, version **0.10.1**.
+A local Python control panel for discovering, configuring and running Codex CLI, Claude Code, Gemini CLI and local AI models, with a conversational harness accessible through Tailscale or another VPN. Python 3.11+, MIT license, version **0.10.2**.
 
 ## 🚀 Installation — agent-guided (start here)
 
@@ -228,7 +228,7 @@ PYTHON="$PWD/.venv/bin/python" PLAYWRIGHT_MODULE=/path/to/playwright ./scripts/t
 
 UI fixtures avoid cloud inference and model downloads. A passing mocked suite does not prove third-party authentication, physical reboot or full-context performance. To check the installed package, use `"$TH_VENV/bin/python" -m control.install_check`, with `TH_VENV` set to the environment used by the installation (`~/.local/share/tail-harness/venv` for `install.sh`, `.venv` for `setup.sh`). This smoke check runs outside the checkout with temporary state and an available port; it does not install dependencies or validate the production instance and providers. For a clean installation simulation, follow the dedicated section of the [spec](dossier/installation-agent-spec.md), preparing separate environment, state and ports through individual commands.
 
-Every new version requires an English specification at `dossier/releases/v<VERSION>.md`, with behavior, acceptance criteria, relevant diagrams, migration notes and actual validation. Update `README.md`, `README.pt-BR.md` and the version identifiers together. See [version 0.10.1](dossier/releases/v0.10.1.md) and the [dossier](dossier/README.md). Product reference: [T3 Code](https://github.com/pingdotgg/t3code). This is an independent implementation; it does not incorporate T3's code or graphical assets and does not claim feature parity.
+Every new version requires an English specification at `dossier/releases/v<VERSION>.md`, with behavior, acceptance criteria, relevant diagrams, migration notes and actual validation. Update `README.md`, `README.pt-BR.md` and the version identifiers together. See [version 0.10.2](dossier/releases/v0.10.2.md) and the [dossier](dossier/README.md). Product reference: [T3 Code](https://github.com/pingdotgg/t3code). This is an independent implementation; it does not incorporate T3's code or graphical assets and does not claim feature parity.
 
 The suite covers access policies, authentication, protocols and approvals, local discovery, download integrity, installation, packaged files and recovery after a failure. The browser test uses fixtures so it does not consume accounts or download models. The GitHub Actions configuration runs Python tests, Chromium UI tests and the wheel/sdist build; artifacts are attached to the packaging job when the pipeline passes. Third-party authentication and a physical machine reboot are not simulated as proof of real operation.
 
@@ -286,7 +286,7 @@ Conversation-created projects live in `runs/jobs.sqlite3`; include that database
 
 Folders are supplied on each run and resume: Codex uses the primary working directory and execution permissions for additional roots; Claude receives `--add-dir`; local and DeepSeek API models use the existing tool runtime to inspect files and return results to the model. Entire folders are not automatically uploaded as text. Read and write permissions still apply.
 
-**Search** in the sidebar menu opens a title-only, case- and accent-insensitive search dialog. Side panels default to 280 and 400 pixels and remain resizable; the footer is compact.
+**Search** in the sidebar menu opens a title-only, case- and accent-insensitive search dialog. Side panels default to 300 and 390 pixels and remain resizable; the footer is compact.
 
 See [project folder contracts and official sources](docs/PROJECT-FOLDERS-20260919.md).
 
@@ -354,8 +354,8 @@ New conversations offer isolation before the first message, defaulting to native
 
 MIT — see [LICENSE](LICENSE).
 
-## 🆕 Version 0.10.1
+## 🆕 Version 0.10.2
 
-The chat home now follows the approved Chat + Run console layout: state-grouped conversations, a compact search and attention bar, inline Maestro plans, labeled composer controls, Files/Activity and a permanent live status strip. The Pipeline follows the current conversation’s latest run.
+The chat keeps the approved mock-4 structure and the existing interface scale at 100% browser zoom. The right pane stacks **Files**, **Background tasks**, **Resources** and **Activity**, with collapsible sections and saved sizes.
 
-A guided tour starts on the first browser visit and can be replayed from **About → Take the tour**. It supports keyboard navigation, reduced motion and narrow screens; unavailable areas are skipped. See the [release specification](dossier/releases/v0.10.1.md) for behavior and validation.
+The Run console opens tall enough to inspect pipeline cards and their actions, remembers its resized height, supports keyboard resizing and maximize/restore, and fills the available screen on phones. A Playwright visual matrix covers four viewport sizes, all six themes and six important UI states. See the [release specification](dossier/releases/v0.10.2.md) for behavior, validation and remaining visual differences.

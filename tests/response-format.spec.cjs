@@ -176,11 +176,7 @@ const path = require("node:path");
     assert.equal(await page.evaluate(() => window.injected), undefined);
     await finalAnswer(markdown + "\n\n```text\n" + "a".repeat(220) + "\n```");
     if (await page.locator("#activity-panel").isVisible())
-      await page
-        .locator(
-          "#files-toggle[aria-expanded=true],#activity-toggle[aria-expanded=true]",
-        )
-        .click();
+      await page.locator("#panel-toggle").click();
     for (const width of [1280, 390]) {
       await page.setViewportSize({ width, height: 960 });
       for (const theme of ["light", "dark"]) {

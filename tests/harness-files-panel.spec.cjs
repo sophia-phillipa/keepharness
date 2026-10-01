@@ -345,7 +345,7 @@ const path = require("node:path");
         .count(),
       0,
     );
-    assert.equal(await page.locator("#activity-view").isVisible(), false);
+    assert.equal(await page.locator("#activity-view").isVisible(), true, "stacked workspace shows activity alongside files");
     assert.equal(
       await page.locator("#files-toggle").getAttribute("aria-expanded"),
       "true",
@@ -841,7 +841,7 @@ const path = require("node:path");
     assert.equal(
       await page.locator("#activity-view").isVisible(),
       true,
-      "alternate panel control switches to activity without closing drawer",
+      "activity shortcut expands its section without closing the workspace",
     );
     assert.equal(await page.locator("#activity-panel").isVisible(), true);
     await page.click("#files-toggle");
@@ -849,8 +849,8 @@ const path = require("node:path");
     await page.click("#files-toggle");
     assert.equal(
       await page.locator("#activity-panel").isVisible(),
-      false,
-      "clicking the active view collapses the drawer",
+      true,
+      "clicking the section shortcut keeps the workspace open",
     );
     await page.setViewportSize({ width: 390, height: 844 });
     assert.equal(
