@@ -93,8 +93,8 @@ class GateService:
             self.repository.create(gate_id, job_id, spec)
         self.service.approvals[gate_id] = (job_id, future)
         self.progress[gate_id] = progress
-        progress("gate_required", spec)
         try:
+            progress("gate_required", spec)
             budget = self.service.runtime_budgets.get(job_id)
             with budget.human_wait() if budget else nullcontext():
                 try:

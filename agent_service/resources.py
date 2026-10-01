@@ -537,6 +537,19 @@ def discover(config, project_id, backend, model=None, *, private=False, executio
                         and maintenance_name.casefold() == "update"
                     ):
                         reason = "Pinned catalogs update only through Admin."
+                    if (
+                        not reason
+                        and kind == "command"
+                        and not (engine == "claude" and scope != "catalog")
+                    ):
+                        try:
+                            prepare_prompt(
+                                "/" + name, [{"kind": kind, "name": name, "_body": body}]
+                            )
+                        except ResourceError as error:
+                            if str(error) != "resource_prompt_limit":
+                                raise
+                            reason = "Command exceeds the executable prompt limit."
                     item = {
                         "id": identity,
                         "resource_id": identity,
@@ -598,7 +611,10 @@ def discover(config, project_id, backend, model=None, *, private=False, executio
 
 def resolve(config, data):
     prompt = data.get("prompt", "")
-    if re.search(r"(?<!\S)@@[\w:-]+(?=\s|$)|^\s*//[A-Za-z_][\w:-]*(?=\s|$)", unfenced(prompt, preserve_offsets=True)):
+    if re.search(
+        r"(?<!\S)@@[\w:-]+(?=\s|$)|^\s*//[A-Za-z_][\w:-]*(?=\s|$)",
+        unfenced(prompt, preserve_offsets=True),
+    ):
         raise ResourceError("tail_resources_unavailable")
     selections = data.get("resource_selections", [])
     if not isinstance(selections, list) or len(selections) > 20:
@@ -622,7 +638,8 @@ def resolve(config, data):
     tokens = {}
     for selection in selections:
         if not isinstance(selection, dict) or not all(
-            isinstance(selection.get(key), str) and len(selection[key]) <= (1000 if key == "id" else 200)
+            isinstance(selection.get(key), str)
+            and len(selection[key]) <= (1000 if key == "id" else 200)
             for key in ("id", "revision", "token")
         ):
             raise ResourceError("invalid_resource_selections")
@@ -709,7 +726,7 @@ def prepare_prompt(prompt, items):
             groups = match.groupdict()
             if groups.get("skill") is not None:
                 return skills[groups["skill"]]
-            args = groups["args"]
+            args = prompt[match.start("args") : match.end("args")]
             if args.startswith(" "):
                 args = args[1:]
             command_body = commands[groups["command"]]["_body"]
@@ -733,7 +750,12 @@ def prepare_prompt(prompt, items):
             )
 
         # Match the original text once; arguments and inserted bodies remain data.
-        prompt = re.sub(r"(?<!\S)(?:" + "|".join(patterns) + ")", expand, prompt)
+        pattern = re.compile(r"(?<!\S)(?:" + "|".join(patterns) + ")")
+        pieces, end = [], 0
+        for match in pattern.finditer(unfenced(prompt, preserve_offsets=True)):
+            pieces.extend((prompt[end : match.start()], expand(match)))
+            end = match.end()
+        prompt = "".join(pieces) + prompt[end:]
     prompt += "\n\nEXPLICIT RESOURCE SELECTIONS:\n" + "\n".join(notes) if notes else ""
     if len(prompt) > 150000:
         raise ResourceError("resource_prompt_limit")

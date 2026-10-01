@@ -899,6 +899,23 @@ class ConversationService:
         except tools.ToolError:
             return False
 
+    def workflow_completed_steps(self, row):
+        if not self.has_workflow_checkpoint(row):
+            return 0
+        from ..checkpoints import Checkpoints
+
+        plan = maestro.saved_plan(self, row["id"])
+        data = json.loads(row["payload"])
+        data["_checkpoint_sources"] = maestro.input_sources(self, row, data)
+        checkpoints = Checkpoints(self.root, row["id"], plan, data)
+        prior = []
+        for index in range(1, len(plan["steps"]) + 1):
+            record = checkpoints.load(index, prior)
+            if record is None:
+                break
+            prior.append(record["result"])
+        return len(prior)
+
     def recover_workflow(self, identity, job_id, changes, *, rerun=False, idem=None):
         row = self.job(identity, job_id)
         if row["owner"] != identity[0]:
@@ -963,7 +980,10 @@ class ConversationService:
             raise APIError("project_folder_busy", 409)
         try:
             target = workflows.save_chain_as_workflow(
-                project, maestro.declaration(plan), workflow_id, successful=True,
+                project,
+                maestro.declaration(plan),
+                workflow_id,
+                successful=True,
                 catalogs=self.config.get("catalogs", ()),
             )
         finally:
@@ -1559,6 +1579,8 @@ class ConversationService:
         from ..integrations import integration_environment
         from ..secret_vault import execution_environment, redact_secrets
 
+        if plan.data.get("_planning_only"):
+            return redact_secrets(await self._run_transport_inference(plan, None))
         project_id = plan.row["project"]
         selected_config = runtime_config(
             self.config, project_id, getattr(plan, "selected_resources", [])
