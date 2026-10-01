@@ -132,7 +132,7 @@ const path = require("node:path");
       });
     });
 
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.3"));
+    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.4"));
 
     await page.goto("http://persona.test");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
