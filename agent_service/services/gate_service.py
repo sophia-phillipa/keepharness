@@ -164,6 +164,10 @@ class GateService:
                     ],
                 }
             approved_plan = validate_plan(json.dumps(edited_plan), available)
+            from ..maestro import declaration
+            from ..workflows import validate_workflow
+
+            validate_workflow(declaration(approved_plan), retained=True)
             spec["plan"] = approved_plan
             resolution["plan"] = approved_plan
         with self.service.db:

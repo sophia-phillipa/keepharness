@@ -953,13 +953,19 @@ class ConversationService:
         ):
             raise APIError("workflow_requires_successful_chain", 409)
         project = self.project(identity, row["project"])
-        target = workflows.save_chain_as_workflow(
-            project,
-            maestro.declaration(plan),
-            workflow_id,
-            successful=True,
-            catalogs=self.config.get("catalogs", ()),
+        lease = "save-workflow-" + uuid.uuid4().hex
+        conflict = self.write_ownership.acquire(
+            lease, row["project"], row["work_item"], [project.get("root")]
         )
+        if conflict:
+            raise APIError("project_folder_busy", 409)
+        try:
+            target = workflows.save_chain_as_workflow(
+                project, maestro.declaration(plan), workflow_id, successful=True,
+                catalogs=self.config.get("catalogs", ()),
+            )
+        finally:
+            self.write_ownership.release(lease)
         return {"id": workflow_id, "path": "workflows/" + target.name, "project_id": row["project"]}
 
     def submit(self, identity, data, idem=None, *, workflow_recovery=None):

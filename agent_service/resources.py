@@ -83,24 +83,30 @@ def markdown(text):
     raise ValueError("invalid_frontmatter")
 
 
-def unfenced(text):
+def unfenced(text, *, preserve_offsets=False):
     """Return prose outside Markdown fences for static expansion checks."""
     output = []
     marker = None
-    for line in text.splitlines():
+    for line in text.splitlines(keepends=True):
         match = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
         if match:
             fence, suffix = match.groups()
             if marker is None:
                 if fence[0] != "`" or "`" not in suffix:
                     marker = fence
+                    if preserve_offsets:
+                        output.append(" " * len(line))
                     continue
             elif fence[0] == marker[0] and len(fence) >= len(marker) and not suffix.strip():
                 marker = None
+                if preserve_offsets:
+                    output.append(" " * len(line))
                 continue
         if marker is None:
-            output.append(line)
-    return "\n".join(output)
+            output.append(line if preserve_offsets else line.rstrip("\r\n"))
+        elif preserve_offsets:
+            output.append(" " * len(line))
+    return ("" if preserve_offsets else "\n").join(output)
 
 
 def first_sentence(body):
@@ -498,6 +504,8 @@ def discover(config, project_id, backend, model=None, *, private=False, executio
                         .as_posix()
                     )
                     identity = source_spec["identity"] + "/" + relative
+                    if len(identity) > 1000:
+                        reason = "Resource path exceeds the invocation identity limit."
                     deps_revisions, dependency_texts = dependency_snapshot(
                         path, meta, source_spec["identity_root"]
                     )
@@ -590,7 +598,7 @@ def discover(config, project_id, backend, model=None, *, private=False, executio
 
 def resolve(config, data):
     prompt = data.get("prompt", "")
-    if re.search(r"(?<!\S)(@@|//)[\w:-]*", prompt):
+    if re.match(r"\s*(?:@@|//)[\w:-]+(?=\s|$)", unfenced(prompt, preserve_offsets=True)):
         raise ResourceError("tail_resources_unavailable")
     selections = data.get("resource_selections", [])
     if not isinstance(selections, list) or len(selections) > 20:
@@ -614,7 +622,7 @@ def resolve(config, data):
     tokens = {}
     for selection in selections:
         if not isinstance(selection, dict) or not all(
-            isinstance(selection.get(key), str) and len(selection[key]) <= 200
+            isinstance(selection.get(key), str) and len(selection[key]) <= (1000 if key == "id" else 200)
             for key in ("id", "revision", "token")
         ):
             raise ResourceError("invalid_resource_selections")
@@ -704,10 +712,13 @@ def prepare_prompt(prompt, items):
             args = groups["args"]
             if args.startswith(" "):
                 args = args[1:]
-            try:
-                positional = shlex.split(args)
-            except ValueError:
-                raise ResourceError("invalid_command_arguments") from None
+            command_body = commands[groups["command"]]["_body"]
+            positional = []
+            if re.search(r"\$[1-9](?!\d)", command_body):
+                try:
+                    positional = shlex.split(args)
+                except ValueError:
+                    raise ResourceError("invalid_command_arguments") from None
 
             def substitute(placeholder):
                 if placeholder.group(1) is None:
@@ -718,7 +729,7 @@ def prepare_prompt(prompt, items):
             return re.sub(
                 r"\{\{args\}\}|\$ARGUMENTS|\$([1-9])(?!\d)",
                 substitute,
-                commands[groups["command"]]["_body"],
+                command_body,
             )
 
         # Match the original text once; arguments and inserted bodies remain data.

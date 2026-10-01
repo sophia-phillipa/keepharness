@@ -5,6 +5,7 @@ import json
 import math
 import os
 import re
+import uuid
 from pathlib import Path
 
 from .invocations import Invocation, InvocationError, normalize_legacy_step, validate_chain
@@ -636,18 +637,35 @@ def save_chain_as_workflow(project, plan, workflow_id, *, successful, catalogs=(
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / (workflow_id + ".json")
     folder_descriptor = os.open(folder, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    temporary = ".workflow-" + uuid.uuid4().hex
+    published = False
     try:
+        descriptor = os.open(
+            temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+            0o600, dir_fd=folder_descriptor,
+        )
+        with os.fdopen(descriptor, "w") as stream:
+            stream.write(json.dumps(value, indent=2, ensure_ascii=False) + "\n")
+            stream.flush()
+            os.fsync(stream.fileno())
         try:
-            descriptor = os.open(
-                path.name,
-                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-                0o600,
-                dir_fd=folder_descriptor,
+            os.link(
+                temporary, path.name, src_dir_fd=folder_descriptor,
+                dst_dir_fd=folder_descriptor, follow_symlinks=False,
             )
         except FileExistsError:
             raise WorkflowError("workflow_already_exists") from None
-        with os.fdopen(descriptor, "w") as stream:
-            stream.write(json.dumps(value, indent=2, ensure_ascii=False) + "\n")
+        published = True
+        os.unlink(temporary, dir_fd=folder_descriptor)
+        os.fsync(folder_descriptor)
+    except BaseException:
+        if published:
+            os.unlink(path.name, dir_fd=folder_descriptor)
+        raise
     finally:
+        try:
+            os.unlink(temporary, dir_fd=folder_descriptor)
+        except FileNotFoundError:
+            pass
         os.close(folder_descriptor)
     return path
