@@ -230,9 +230,10 @@
   }
   body.addEventListener('focusin', () => requestAnimationFrame(revealFocusedControl));
   function resize(height, persist = true) {
-    const max = consoleLimit(), publication = hasPublicationEvidence(), min = Math.min(340, max);
+    const max = consoleLimit(), publication = hasPublicationEvidence(), min = Math.min(publication ? 190 : 340, max);
     drawer.classList.toggle('has-publication-evidence', publication);
     if (persist) manuallyResized = true;
+    if (publication && !manuallyResized && !maximized) height = Math.min(height, max - 30);
     if (!manuallyResized && currentPlan() && !state.editPlan && body.querySelector('.run-plan-actions')) {
       const end = body.lastElementChild;
       const contentHeight = end.getBoundingClientRect().bottom + body.scrollTop - body.getBoundingClientRect().top + parseFloat(getComputedStyle(body).paddingBottom) + parseFloat(getComputedStyle(end).marginBottom) + drawer.getBoundingClientRect().height - body.clientHeight;
