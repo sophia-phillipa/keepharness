@@ -45,7 +45,7 @@ async def body(request):
     try:
         data = json.loads(chunks)
         json.dumps(data, allow_nan=False)
-    except (ValueError, UnicodeError):
+    except (ValueError, UnicodeError, RecursionError):
         raise APIError("invalid_json")
     if not isinstance(data, dict):
         raise APIError("object_required")
