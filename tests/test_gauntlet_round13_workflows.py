@@ -12,7 +12,7 @@ from agent_service.errors import APIError
 from agent_service.tools import ToolError
 
 
-def test_A4_W1_workspace_coordinator_does_not_fallback_from_first_model(tmp_path):
+def test_workspace_coordinator_does_not_fallback_from_first_model(tmp_path):
     """Round-four's no-fallback contract preserves the chosen first model."""
     cfg = config(tmp_path)
     cfg["services"]["local"].update(
@@ -70,7 +70,7 @@ def test_invalid_plan_policy_blocks_before_planner_inference(tmp_path, level):
     asyncio.run(scenario())
 
 
-def test_A4_W3_unsupported_nested_gate_fields_fail_closed():
+def test_unsupported_nested_gate_fields_fail_closed():
     """Unknown gate behavior must not be accepted then silently replaced at runtime."""
     declaration = {
         "steps": [

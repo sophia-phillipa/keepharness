@@ -57,7 +57,7 @@ const assert = require("node:assert/strict");
       if (path === "/v1/conversations") data = { conversations: [] };
       return r.fulfill({ json: data });
     });
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.12"));
+    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.13"));
     await page.goto(process.env.HARNESS_URL || "http://127.0.0.1:8095/");
     await page.selectOption("#model", "gpt-5.6-sol");
     await page.waitForFunction(() =>

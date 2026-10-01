@@ -58,7 +58,7 @@ const path = require("node:path");
       });
     const errors = [];
     page.on("pageerror", (error) => errors.push(error.message));
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.12"));
+    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.13"));
     await page.goto(origin);
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     assert.equal(

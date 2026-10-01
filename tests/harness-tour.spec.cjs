@@ -47,7 +47,7 @@ async function actualContext(browser) {
             : pathname === "/v1/conversations"
               ? { conversations: [] }
               : pathname === "/v1/version"
-                ? { version: "0.13.12", build: "fixture" }
+                ? { version: "0.13.13", build: "fixture" }
                 : pathname === "/v1/resources"
                   ? { items: [], warnings: [] }
                   : pathname === "/v1/usage"
@@ -118,7 +118,7 @@ async function actualContext(browser) {
 
     await first.page.keyboard.press("Escape");
     assert.equal(await first.page.locator("#tour-card").count(), 0);
-    assert.equal(await first.page.evaluate(() => localStorage.getItem("tail-harness-tour-seen")), "0.13.12");
+    assert.equal(await first.page.evaluate(() => localStorage.getItem("tail-harness-tour-seen")), "0.13.13");
     await first.page.reload();
     await first.page.evaluate(() => { document.body.dataset.connectionReady = "true"; });
     await first.page.waitForTimeout(150);
@@ -212,7 +212,7 @@ async function actualContext(browser) {
     await readiness.ctx.close();
 
     const missing = await context(browser);
-    await missing.page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.12"));
+    await missing.page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.13"));
     await missing.page.goto("http://tour.test/");
     await missing.page.evaluate(() => {
       document.querySelector('[data-tour="top-search"]').remove();

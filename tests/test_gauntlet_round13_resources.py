@@ -4,7 +4,7 @@ from agent_service.invocations import normalize_chips
 from agent_service.resources import MAX_METADATA_BYTES, markdown, unfenced
 
 
-def test_A4_I1_tab_separated_list_fence_inside_quote_is_not_an_invocation():
+def test_tab_separated_list_fence_inside_quote_is_not_an_invocation():
     prompt = "> -\t```text\n>    /review example\n>    ```\n/review actual"
     item = {
         "id": "review",
@@ -18,7 +18,7 @@ def test_A4_I1_tab_separated_list_fence_inside_quote_is_not_an_invocation():
     assert invocation.args == "actual"
 
 
-def test_A4_I2_crlf_frontmatter_obeys_raw_metadata_byte_limit():
+def test_crlf_frontmatter_obeys_raw_metadata_byte_limit():
     text = "---\r\ndescription: x\r\n" + " a\r\n" * 17_000 + "---\r\nbody"
     closing = text.index("---\r\n", 3) + len("---\r\n")
     assert closing > MAX_METADATA_BYTES
