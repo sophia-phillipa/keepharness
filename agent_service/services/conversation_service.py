@@ -815,7 +815,7 @@ class ConversationService:
                         raise invocations.InvocationError("resource_unavailable")
                     if value.mode != item.get("mode", "inline"):
                         raise invocations.InvocationError("invalid_invocation_mode")
-                    token = "/" + item["name"]
+                    token = ("@" if item["kind"] == "agent" else "/") + item["name"]
                     refs.append({"id": item["id"], "revision": item["revision"], "token": token})
                     parts.append(token + " " + value.args)
                 data["resource_selections"] = refs
@@ -925,6 +925,8 @@ class ConversationService:
 
         plan = maestro.saved_plan(self, row["id"])
         data = json.loads(row["payload"])
+        if not maestro.resources_unchanged(self, data, plan):
+            return 0
         try:
             data["_checkpoint_sources"] = maestro.input_sources(self, row, data)
         except (APIError, tools.ToolError, OSError, ValueError, TypeError):
@@ -967,6 +969,7 @@ class ConversationService:
         if type(from_step) is not int or not 1 <= from_step <= len(plan["steps"]):
             raise APIError("invalid_workflow_step")
         data.update({key: value for key, value in changes.items() if key != "from_step"})
+        maestro.input_sources(self, row, {**data, "parent_job_id": context_parent})
         recovery = {
             "_declared_workflow": maestro.declaration(plan),
             "_workflow_parent_job_id": job_id,

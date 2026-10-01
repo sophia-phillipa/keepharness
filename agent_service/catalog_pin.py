@@ -33,7 +33,7 @@ def _git(root, *arguments, strip=True):
 
 def _verify_pin(root, commit):
     if _git(root, "rev-parse", "HEAD") != commit or _git(
-        root, "status", "--porcelain", "--ignored"
+        root, "status", "--porcelain", "--ignored", "--untracked-files=all"
     ):
         raise CatalogPinError("catalog_pin_modified")
     # Read the immutable tree, not the mutable index (which can suppress status).
@@ -170,13 +170,25 @@ def effective_catalogs(config, project):
 def snapshot_catalogs(config, project):
     result = []
     for catalog in effective_catalogs(config, project):
-        commit, dirty = None, None
+        commit, dirty, error = None, None, None
         if catalog.get("kind") == "git":
-            commit = _git(catalog["root"], "rev-parse", "HEAD")
-            dirty = bool(_git(catalog["root"], "status", "--porcelain", "--ignored"))
+            try:
+                commit = _git(catalog["root"], "rev-parse", "HEAD")
+                dirty = bool(
+                    _git(
+                        catalog["root"],
+                        "status",
+                        "--porcelain",
+                        "--ignored",
+                        "--untracked-files=all",
+                    )
+                )
+            except CatalogPinError as failure:
+                error = str(failure)
         result.append(
             {
                 "catalog_id": catalog["id"],
+                **({"error": error} if error else {}),
                 "commit": commit,
                 "dirty": dirty,
                 "pinned": bool(catalog.get("pin")),

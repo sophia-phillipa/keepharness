@@ -99,6 +99,7 @@
   controls.append(field('Run', runSelect));
   drawer.append(resizer, header, controls, error, body);
   const strip = el('div', null, 'run-status-strip');
+  strip.id = 'run-status-strip';
   strip.dataset.tour = 'status-strip';
   strip.setAttribute('role', 'region');
   strip.setAttribute('aria-label', 'Run status');
@@ -172,23 +173,9 @@
     if (!values.length) return 'Not recorded';
     return values.every(value => typeof value === 'string') ? values.join('') : values;
   }
-  const coveredContent = new Map();
   function syncConsoleModal() {
-    const modal = !drawer.hidden && innerWidth <= 700;
-    drawer.setAttribute('role', modal ? 'dialog' : 'region');
-    if (modal) {
-      drawer.setAttribute('aria-modal', 'true');
-      for (const node of [...main.children, document.getElementById('sidebar'), document.getElementById('activity-panel')]) {
-        if (!node || node === drawer || node === strip) continue;
-        if (!coveredContent.has(node)) coveredContent.set(node, node.inert);
-        node.inert = true;
-      }
-      if (document.activeElement.closest('[inert]')) tabButtons.find(node => node.dataset.tab === state.tab)?.focus();
-    } else {
-      drawer.removeAttribute('aria-modal');
-      for (const [node, inert] of coveredContent) node.inert = inert;
-      coveredContent.clear();
-    }
+    drawer.setAttribute('role', !drawer.hidden && innerWidth <= 700 ? 'dialog' : 'region');
+    syncWorkspaceModal();
   }
   function toggle(open) {
     if (open && drawer.hidden) previousFocus = document.activeElement;
@@ -218,6 +205,9 @@
     render();
     if (name === 'Logs' && !state.logs.length) void loadLogs();
   }
+  function hasPublicationEvidence() {
+    return innerWidth > 700 && [...document.querySelectorAll('.publish-gate-card')].some(card => card.checkVisibility());
+  }
   function consoleLimit() {
     const verticalPadding = node => {
       const style = getComputedStyle(node);
@@ -228,16 +218,19 @@
         const style = getComputedStyle(node);
         return sum + node.getBoundingClientRect().height + parseFloat(style.marginTop) + parseFloat(style.marginBottom);
       }, 0);
-    return Math.max(190, main.clientHeight - reserved - verticalPadding(main) - verticalPadding(document.getElementById('messages')));
+    const evidenceSpace = hasPublicationEvidence() ? 128 : 0;
+    return Math.max(190, main.clientHeight - reserved - verticalPadding(main) - verticalPadding(document.getElementById('messages')) - evidenceSpace);
   }
   function resize(height, persist = true) {
-    const max = consoleLimit(), min = Math.min(340, max);
+    const max = consoleLimit(), publication = hasPublicationEvidence(), min = Math.min(publication ? 190 : 340, max);
     if (persist) manuallyResized = true;
     if (!manuallyResized && currentPlan() && !state.editPlan && body.querySelector('.run-plan-actions')) {
       const end = body.lastElementChild;
       const contentHeight = end.getBoundingClientRect().bottom + body.scrollTop - body.getBoundingClientRect().top + parseFloat(getComputedStyle(body).paddingBottom) + parseFloat(getComputedStyle(end).marginBottom) + drawer.getBoundingClientRect().height - body.clientHeight;
       height = Math.max(height, Math.ceil(contentHeight));
     }
+    // Leave room to enlarge the console while keeping publication evidence reachable.
+    if (publication && !manuallyResized && !maximized) height = Math.min(height, max - 60);
     const next = Math.round(Math.max(min, Math.min(max, height)));
     drawer.style.setProperty('--th-console-height', next + 'px');
     resizer.setAttribute('aria-valuenow', String(next));
@@ -250,6 +243,7 @@
   window.addEventListener('resize', fitConsole);
   const composerObserver = new ResizeObserver(fitConsole);
   composerObserver.observe(main.querySelector('.composer-area'));
+  new MutationObserver(fitConsole).observe(document.getElementById('messages'), { childList: true });
   resizer.addEventListener('pointerdown', event => {
     event.preventDefault();
     resizer.setPointerCapture(event.pointerId);
@@ -415,7 +409,25 @@
     else if (state.tab === 'Logs') renderLogs();
     else renderSpans();
   }
-  const planDrafts = new Map();
+  const planDraftKey = id => 'plan-draft:' + id;
+  function planDraft(id) {
+    const key = planDraftKey(id);
+    if (draftViews.has(key)) return draftViews.get(key);
+    try { return sessionStorage.getItem(key); } catch { return null; }
+  }
+  function savePlanDraft(id, text) {
+    const key = planDraftKey(id);
+    draftViews.set(key, text);
+    unsavedDrafts.set(key, text);
+    return flushDrafts();
+  }
+  function clearPlanDraft(id) { retireDraft(planDraftKey(id)); }
+  function planForApproval(id, fallback) {
+    const text = planDraft(id);
+    if (text == null) return fallback;
+    try { return JSON.parse(text); }
+    catch { throw new Error('The edited plan must be valid JSON. Open the plan editor to correct it.'); }
+  }
   function currentPlan() {
     return state.activity.needs_you.find(item => item.job_id === state.run &&
       (!conversation || item.conversation_id === conversation) &&
@@ -503,24 +515,24 @@
     if (state.editPlan) bar.append(el('p', 'Edit the plan JSON if needed. Nothing runs until you approve.'));
     const editor = el('textarea');
     editor.setAttribute('aria-label', 'Editable Maestro plan');
-    editor.value = planDrafts.get(request.gate_id) ?? JSON.stringify({ steps: request.plan.steps.map(step => Object.fromEntries(
+    editor.value = planDraft(request.gate_id) ?? JSON.stringify({ steps: request.plan.steps.map(step => Object.fromEntries(
       ['role', 'backend', 'model', 'effort', 'task', 'reason']
         .filter(key => step[key] != null)
         .map(key => [key, step[key]]),
     )) }, null, 2);
-    editor.addEventListener("input", () => planDrafts.set(request.gate_id, editor.value));
+    editor.addEventListener("input", () => {
+      feedback.textContent = savePlanDraft(request.gate_id, editor.value) ? '' : 'Plan edit is not saved. Keep this page open until browser storage is available.';
+    });
     editor.hidden = !state.editPlan;
     const feedback = el('p'); feedback.setAttribute('role', 'status');
     const approve = button('✓ Approve plan & run', async () => {
-      let plan = request.plan;
-      if (state.editPlan || planDrafts.has(request.gate_id)) {
-        try { plan = JSON.parse(editor.value); }
-        catch { feedback.textContent = 'The plan must be valid JSON.'; editor.focus(); return; }
-      }
+      let plan;
+      try { plan = planForApproval(request.gate_id, request.plan); }
+      catch (failure) { feedback.textContent = failure.message; editor.focus(); return; }
       approve.disabled = true; editor.disabled = true; feedback.textContent = 'Approving plan…';
       try {
         await post('/v1/approvals/' + encodeURIComponent(request.gate_id), { choice: 'approve', plan });
-        planDrafts.delete(request.gate_id);
+        clearPlanDraft(request.gate_id);
         feedback.textContent = 'Plan approved. Starting the run…';
         await refresh();
       } catch (failure) {
@@ -529,7 +541,7 @@
     });
     const discard = button('Discard', async () => {
       discard.disabled = true;
-      try { await post('/v1/approvals/' + encodeURIComponent(request.gate_id), { choice: 'deny' }); planDrafts.delete(request.gate_id); await refresh(); }
+      try { await post('/v1/approvals/' + encodeURIComponent(request.gate_id), { choice: 'deny' }); clearPlanDraft(request.gate_id); await refresh(); }
       catch (failure) { feedback.textContent = failure.message; discard.disabled = false; }
     });
     const edit = button(state.editPlan ? 'Hide editor' : 'Edit plan', () => { state.editPlan = !state.editPlan; renderSpans(); const toggle = document.getElementById('run-plan-edit'); toggle?.focus(); toggle?.scrollIntoView({ block: 'nearest', behavior: 'instant' }); });
@@ -818,13 +830,15 @@
       fields.forEach(node => { node.disabled = true; });
       feedback.textContent = 'Sending your decision…';
       try {
+        if (payload.choice === 'approve' && item.plan?.steps) payload.plan = planForApproval(id, item.plan);
         await post('/v1/approvals/' + encodeURIComponent(id), payload);
+        clearPlanDraft(id);
         state.activity.needs_you = state.activity.needs_you.filter(candidate => (candidate.gate_id || candidate.approval_id) !== id);
         renderInbox();
         await refresh();
       } catch (failure) {
         feedback.textContent = failure.message;
-        if (['approval_expired', 'gate_expired', 'gate_invalidated', 'gate_already_resolved'].includes(failure.code)) await refresh();
+        if (['approval_already_resolved', 'approval_expired', 'gate_expired', 'gate_invalidated', 'gate_already_resolved'].includes(failure.code)) await refresh();
         else { fields.forEach(node => { node.disabled = false; }); fields.find(node => node.tagName === 'BUTTON')?.focus(); }
       } finally { deciding = false; }
     };
@@ -845,6 +859,8 @@
     return card;
   }
   window.runConsole = {
+    planForApproval,
+    clearPlanDraft,
     closeForPanel() { if (innerWidth <= 700 && !drawer.hidden) toggle(false); },
     getActivity() { return state.activity; },
     async openRun(id) { syncContext(); toggle(true); setTab('Pipeline'); await chooseRun(id); },
@@ -855,6 +871,7 @@
       target.append(button('View run', async () => { syncContext(); toggle(true); setTab('Pipeline'); await chooseRun(id); }));
     },
     observe(event) {
+      if (['gate_resolved', 'gate_expired', 'gate_invalidated'].includes(event.type)) clearPlanDraft(event.data?.gate_id);
       if (event.job_id === state.run || job === state.run) {
         state.more = true;
         if (state.tab === 'Logs') renderLogs();

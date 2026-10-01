@@ -145,7 +145,7 @@ def _schema(value, depth=0):
         raise WorkflowError("workflow_invalid_schema")
 
 
-def _requirements(value, candidate):
+def validate_requirements(value, candidate):
     if not isinstance(value, dict) or set(value) - {
         "permissions",
         "integrations",
@@ -325,7 +325,7 @@ def validate_workflow(value, available=None, resources=None, *, retained=False):
             if candidate is None:
                 raise WorkflowError("workflow_model_or_effort_denied")
         requires = step.get("requires", {})
-        _requirements(requires, candidate)
+        validate_requirements(requires, candidate)
         gate = step.get("gate", False)
         if not isinstance(gate, (bool, dict)):
             raise WorkflowError("workflow_invalid_gate")
@@ -435,11 +435,31 @@ def load_workflow(path, available=None, resources=None):
 def parse_result(text):
     if not isinstance(text, str):
         return None
-    matches = list(re.finditer(r"(?m)^```harness-result\s*\n(.*?)\n```\s*$", text, re.S))
-    if len(matches) != 1 or len(matches[0][1].encode()) > MAX_RESULT_BYTES:
+    blocks, content = [], []
+    marker = None
+    result_block = False
+    for line in text.splitlines(keepends=True):
+        match = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
+        if match:
+            fence, suffix = match.groups()
+            if marker is None:
+                if fence[0] != "`" or "`" not in suffix:
+                    marker = fence
+                    result_block = suffix.strip() == "harness-result"
+                    content = []
+                    continue
+            elif fence[0] == marker[0] and len(fence) >= len(marker) and not suffix.strip():
+                if result_block:
+                    blocks.append("".join(content))
+                marker = None
+                result_block = False
+                continue
+        if marker and result_block:
+            content.append(line)
+    if marker and result_block or len(blocks) != 1 or len(blocks[0].encode()) > MAX_RESULT_BYTES:
         return None
     try:
-        value = json.loads(matches[0][1])
+        value = json.loads(blocks[0])
         _json(value)
         return value if isinstance(value, dict) else None
     except (ValueError, TypeError, RecursionError):
@@ -497,6 +517,11 @@ def discover_workflows(config, project_id, backend, *, private=False, execution_
                         origin,
                     )
                 snapshot = snapshot_catalogs({**config, "catalogs": [catalogs[origin]]}, project)[0]
+                if snapshot.get("error"):
+                    problems.append("Catalog unavailable: " + snapshot["error"])
+                    result["warnings"].append(
+                        "Catalog " + origin + " unavailable: " + snapshot["error"]
+                    )
                 mode = execution_mode or config.get("services", {}).get(backend, {}).get("mode")
                 problems.extend(
                     integration_preflight(
@@ -641,8 +666,10 @@ def save_chain_as_workflow(project, plan, workflow_id, *, successful, catalogs=(
     published = False
     try:
         descriptor = os.open(
-            temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-            0o600, dir_fd=folder_descriptor,
+            temporary,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+            0o600,
+            dir_fd=folder_descriptor,
         )
         with os.fdopen(descriptor, "w") as stream:
             stream.write(json.dumps(value, indent=2, ensure_ascii=False) + "\n")
@@ -650,8 +677,11 @@ def save_chain_as_workflow(project, plan, workflow_id, *, successful, catalogs=(
             os.fsync(stream.fileno())
         try:
             os.link(
-                temporary, path.name, src_dir_fd=folder_descriptor,
-                dst_dir_fd=folder_descriptor, follow_symlinks=False,
+                temporary,
+                path.name,
+                src_dir_fd=folder_descriptor,
+                dst_dir_fd=folder_descriptor,
+                follow_symlinks=False,
             )
         except FileExistsError:
             raise WorkflowError("workflow_already_exists") from None
