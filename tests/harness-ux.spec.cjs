@@ -122,7 +122,7 @@ const assert = require("node:assert/strict");
         };
       return route.fulfill({ json: data });
     });
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.10"));
+    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.11"));
     await page.goto(process.env.HARNESS_URL || "http://127.0.0.1:18196/");
     await page.waitForFunction(
       () =>

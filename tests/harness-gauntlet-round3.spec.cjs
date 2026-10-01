@@ -49,7 +49,7 @@ const settle = page => page.evaluate(() => Promise.all(document.getAnimations().
         assert(points.every(p=>p.left>=p.box.left && p.right<=p.box.right && p.hit), JSON.stringify(points));
         assert(points[0].right<=points[1].left || points[0].bottom<=points[1].top, JSON.stringify(points));await capture(page,'plan-actions-'+theme);
         await actions.locator('button').first().click(); assert.equal(state.posts[0].data.choice,'approve');
-        await actions.locator('button').last().click(); await page.getByRole('textbox',{name:'Editable Maestro plan'}).waitFor(); await page.close();
+        await actions.locator('button').last().click(); await page.getByRole('textbox',{name:'Task for step 1'}).waitFor(); await page.close();
       }
     });
     await check('A1-F2 pending approval and descriptive pipeline fit', async () => {
@@ -103,10 +103,10 @@ const settle = page => page.evaluate(() => Promise.all(document.getAnimations().
       const {page,state,open}=await fixture(browser);await open('a');await page.fill('#prompt','/reviewer');await page.locator('#resource-menu [data-resource-id="project/p/reviewer"]').click();await page.keyboard.type(' inspect synthetic draft');const draft=await page.inputValue('#prompt');await page.locator('#new').click();assert.equal(await page.inputValue('#prompt'),draft);assert.equal(await page.locator('.resource-chip').count(),1);await page.locator('#send').click();await page.waitForFunction(()=>!submitting);assert.deepEqual(state.posts.at(-1).data.resource_selections.map(r=>({id:r.id,revision:r.revision})),[{id:resource.id,revision:resource.revision}]);await page.close();
     });
     await check('A5-F2 plan edits survive tabs hide and telemetry', async () => {
-      const {page,state}=await pendingPlan();await page.locator('.maestro-plan-actions button').last().click();const editor=page.getByRole('textbox',{name:'Editable Maestro plan'});await editor.waitFor();const edited=JSON.parse(await editor.inputValue());edited.steps[0].task='Only summarize; do not rewrite the synthetic report';const exact=JSON.stringify(edited,null,2);await editor.fill(exact);
+      const {page,state}=await pendingPlan();await page.locator('.maestro-plan-actions button').last().click();const editor=page.getByRole('textbox',{name:'Task for step 1'});await editor.waitFor();const exact='Only summarize; do not rewrite the synthetic report';await editor.fill(exact);
       await page.getByRole('tab',{name:'Logs',exact:true}).click();await page.getByRole('tab',{name:'Pipeline',exact:true}).click();assert.equal(await editor.inputValue(),exact);
       await page.getByRole('button',{name:'Hide editor',exact:true}).focus();await page.keyboard.press('Enter');assert.equal(await page.locator(':focus').innerText(),'Edit plan');await settle(page);assert(await hit(page.locator(':focus')),JSON.stringify(await page.locator(':focus').evaluate(n=>({text:n.textContent,rect:n.getBoundingClientRect().toJSON(),scroll:n.closest('.run-console-body').scrollTop}))));await page.keyboard.press('Enter');assert.equal(await page.locator(':focus').innerText(),'Hide editor');await settle(page);assert(await hit(page.locator(':focus')),JSON.stringify(await page.locator(':focus').evaluate(n=>({text:n.textContent,rect:n.getBoundingClientRect().toJSON(),scroll:n.closest('.run-console-body').scrollTop}))));assert.equal(await editor.inputValue(),exact);
-      await page.waitForTimeout(2200);assert.equal(await editor.inputValue(),exact);await page.locator('.run-plan-actions button').filter({hasText:'Approve plan'}).click();assert.equal(state.posts.at(-1).data.plan.steps[0].task,edited.steps[0].task);await page.close();
+      await page.waitForTimeout(2200);assert.equal(await editor.inputValue(),exact);await page.locator('.run-plan-actions button').filter({hasText:'Run with edits'}).click();assert.equal(state.posts.at(-1).data.plan.steps[0].task,exact);await page.close();
     });
     await check('A5-F3 late approval cannot replace terminal outcome', async () => {
       for(const outcome of ['completed','failed']){const {page,state}=await pendingPlan();let release;state.approvalResponse=new Promise(r=>release=r);await page.locator('.maestro-plan-actions button').first().click();await page.waitForFunction(()=>document.querySelector('.maestro-plan-actions button').disabled);

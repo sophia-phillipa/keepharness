@@ -4761,7 +4761,7 @@ main > header { flex-wrap:nowrap; overflow-x:auto; }
 .run-span-list:has(.run-waterfall-track) { padding-block:6px; }
 .run-span-list:has(.run-waterfall-track) .run-span-row { display:grid; grid-template-columns:minmax(0,1fr) auto; align-content:start; }
 .run-span-list:has(.run-waterfall-track) .run-span-row > strong,
-.run-span-list:has(.run-waterfall-track) .run-span-row > span:not(.run-span-effort):not(.run-span-duration) { grid-column:1/-1; }
+.run-span-list:has(.run-waterfall-track) .run-span-row > span:not(.run-span-effort):not(.run-span-duration):not(.run-span-tokens) { grid-column:1/-1; }
 
 /* Short viewports use the same readable console sheet as narrow screens. */
 @media (min-width:701px) and (max-height:500px) {
@@ -4776,7 +4776,29 @@ main > header { flex-wrap:nowrap; overflow-x:auto; }
 .run-span-list:has(.run-waterfall-track) .run-span-row > .run-span-state { grid-column:1; grid-row:2; }
 .run-span-list:has(.run-waterfall-track) .run-span-row > .run-span-effort { grid-column:2; grid-row:2; }
 .run-span-list:has(.run-waterfall-track) .run-span-row > .backend-chip { grid-row:3; }
-.run-span-list:has(.run-waterfall-track) .run-span-row > .run-span-tokens { grid-column:1; grid-row:4; }
+.run-span-list:has(.run-waterfall-track) .run-span-row > .run-span-tokens { grid-column:1; grid-row:4; min-width:0; overflow-wrap:anywhere; }
 .run-span-list:has(.run-waterfall-track) .run-span-row > .run-span-duration { grid-column:2; grid-row:4; }
 .run-span-list:has(.run-waterfall-track) .run-span-row > .run-span-enforcement { grid-row:5; }
 .run-span-list:has(.run-waterfall-track) .run-span-row > .run-waterfall-track { grid-row:6; }
+
+.run-plan-steps { grid-column:1/-1; list-style:none; padding:0; margin:0; display:grid; gap:10px; }
+.run-plan-step { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px; border-top:1px solid var(--th-border); padding-top:8px; }
+.run-plan-step-fields { min-width:0; }
+.run-plan-step-heading { display:flex; align-items:center; flex-wrap:wrap; gap:6px; margin-bottom:6px; }
+.run-plan-step-heading select { max-width:100%; min-width:0; }
+.run-plan-step-controls { display:flex; flex-direction:column; gap:4px; }
+.run-plan-step-controls button { min-width:28px; min-height:28px; }
+.run-plan-step textarea { width:100%; min-height:64px; font:inherit; resize:vertical; }
+.has-publication-evidence .run-pipeline-summary { padding-bottom:4px; }
+.has-publication-evidence .run-span-list { padding-block:6px; }
+
+main:has(.run-console.has-publication-evidence:not([hidden])) .publish-evidence { max-height:72px; }
+/* Publication evidence shares the viewport with fully readable Pipeline metadata. */
+.has-publication-evidence .run-span-list:not(:has(.run-waterfall-track)) .run-span-row { flex-basis:220px; display:grid; grid-template-columns:minmax(0,1fr) auto; }
+.has-publication-evidence .run-span-list:not(:has(.run-waterfall-track)) .run-span-row > strong { grid-column:1/-1; grid-row:1; }
+.has-publication-evidence .run-span-list:not(:has(.run-waterfall-track)) .run-span-state { grid-column:1; grid-row:2; }
+.has-publication-evidence .run-span-list:not(:has(.run-waterfall-track)) .run-span-effort { grid-column:2; grid-row:2; }
+.has-publication-evidence .run-span-list:not(:has(.run-waterfall-track)) .backend-chip { grid-column:1/-1; grid-row:3; }
+.has-publication-evidence .run-span-list:not(:has(.run-waterfall-track)) .run-span-tokens { grid-column:1; grid-row:4; }
+.has-publication-evidence .run-span-list:not(:has(.run-waterfall-track)) .run-span-duration { grid-column:2; grid-row:4; }
+.has-publication-evidence .run-span-list:not(:has(.run-waterfall-track)) .run-span-enforcement { grid-column:1/-1; grid-row:5; }

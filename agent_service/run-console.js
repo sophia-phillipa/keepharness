@@ -218,7 +218,7 @@
         const style = getComputedStyle(node);
         return sum + node.getBoundingClientRect().height + parseFloat(style.marginTop) + parseFloat(style.marginBottom);
       }, 0);
-    const evidenceSpace = hasPublicationEvidence() ? 128 : 0;
+    const evidenceSpace = hasPublicationEvidence() ? 96 : 0;
     return Math.max(80, main.clientHeight - reserved - verticalPadding(main) - verticalPadding(document.getElementById('messages')) - evidenceSpace);
   }
   function revealFocusedControl() {
@@ -230,15 +230,18 @@
   }
   body.addEventListener('focusin', () => requestAnimationFrame(revealFocusedControl));
   function resize(height, persist = true) {
-    const max = consoleLimit(), publication = hasPublicationEvidence(), min = Math.min(publication ? 190 : 340, max);
+    const max = consoleLimit(), publication = hasPublicationEvidence(), min = Math.min(340, max);
+    drawer.classList.toggle('has-publication-evidence', publication);
     if (persist) manuallyResized = true;
     if (!manuallyResized && currentPlan() && !state.editPlan && body.querySelector('.run-plan-actions')) {
       const end = body.lastElementChild;
       const contentHeight = end.getBoundingClientRect().bottom + body.scrollTop - body.getBoundingClientRect().top + parseFloat(getComputedStyle(body).paddingBottom) + parseFloat(getComputedStyle(end).marginBottom) + drawer.getBoundingClientRect().height - body.clientHeight;
       height = Math.max(height, Math.ceil(contentHeight));
     }
-    // Leave room to enlarge the console while keeping publication evidence reachable.
-    if (publication && !manuallyResized && !maximized) height = Math.min(height, max - 60);
+    if (publication && !manuallyResized && !maximized) {
+      const card = body.querySelector('.run-span-row');
+      if (card) height = Math.max(height, card.getBoundingClientRect().bottom + body.scrollTop - body.getBoundingClientRect().top + 8 + drawer.getBoundingClientRect().height - body.clientHeight);
+    }
     const next = Math.round(Math.max(min, Math.min(max, height)));
     drawer.style.setProperty('--th-console-height', next + 'px');
     resizer.setAttribute('aria-valuenow', String(next));
@@ -440,8 +443,12 @@
   function planForApproval(id, fallback) {
     const text = planDraft(id);
     if (text == null) return fallback;
-    try { return JSON.parse(text); }
-    catch { throw new Error('The edited plan must be valid JSON. Open the plan editor to correct it.'); }
+    try {
+      const plan = JSON.parse(text);
+      if (!plan || !Array.isArray(plan.steps) || !plan.steps.length || plan.steps.length > 6 ||
+          plan.steps.some(step => !step || ['role', 'backend', 'model', 'task'].some(key => typeof step[key] !== 'string') || ['effort', 'reason'].some(key => step[key] != null && typeof step[key] !== 'string'))) throw new Error();
+      return plan;
+    } catch { throw new Error('The saved plan could not be loaded. Reset edits or edit a step to continue.'); }
   }
   function currentPlan() {
     return state.activity.needs_you.find(item => item.job_id === state.run &&
@@ -478,7 +485,7 @@
       explanation.append(action);
       actions.append(explanation);
     }
-    summary.append(actions);
+    if (!hasPublicationEvidence()) summary.append(actions);
     if (!pendingPlan || state.editPlan) body.append(summary);
     const split = el('div', null, 'run-span-split');
     const list = el('div', null, 'run-span-list');
@@ -509,7 +516,7 @@
       if (span.attrs?.enforcement) row.append(el('span', 'Publication: ' + span.attrs.enforcement, 'run-span-enforcement'));
       if (state.tab === 'Timeline') {
         const track = el('span', null, 'run-waterfall-track');
-        row.style.flexBasis = 160 * state.zoom + 'px';
+        row.style.flexBasis = 240 * state.zoom + 'px';
         track.style.width = '100%';
         const bar = el('span', null, 'run-waterfall-bar');
         bar.style.marginLeft = Math.max(0, ((span.start_ts ?? start) - start) / Math.max(1, end - start) * 100) + '%';
@@ -523,6 +530,7 @@
     const selected = state.spans.find(span => span.span_id === state.selectedSpan);
     if (selected) split.append(spanDetail(selected));
     body.append(split);
+    if (hasPublicationEvidence()) body.append(actions);
     if (pendingPlan && !state.editPlan) body.append(planApproval(pendingPlan));
     if (focusedId) {
       const restored = document.getElementById(focusedId);
@@ -537,27 +545,91 @@
     const bar = el('section', null, 'run-plan-approval');
     bar.dataset.tour = 'maestro-plan';
     bar.append(el('strong', 'Maestro plan · Awaiting approval'));
-    if (state.editPlan) bar.append(el('p', 'Edit the plan JSON if needed. Nothing runs until you approve.'));
-    const editor = el('textarea');
-    editor.id = 'run-plan-editor-' + request.gate_id;
-    editor.setAttribute('aria-label', 'Editable Maestro plan');
-    editor.value = planDraft(request.gate_id) ?? JSON.stringify({ steps: request.plan.steps.map(step => Object.fromEntries(
+    if (state.editPlan) bar.append(el('p', 'Edit each step below. Nothing runs until you approve.'));
+    const original = { steps: request.plan.steps.map(step => Object.fromEntries(
       ['role', 'backend', 'model', 'effort', 'task', 'reason']
-        .filter(key => step[key] != null)
-        .map(key => [key, step[key]]),
-    )) }, null, 2);
-    editor.addEventListener("input", () => {
-      feedback.textContent = savePlanDraft(request.gate_id, editor.value) ? '' : 'Plan edit is not saved. Keep this page open until browser storage is available.';
-    });
-    editor.hidden = !state.editPlan;
+        .filter(key => step[key] != null).map(key => [key, step[key]]),
+    )) };
+    let draft, invalidDraft = false;
     const feedback = el('p'); feedback.setAttribute('role', 'status');
+    try { draft = planForApproval(request.gate_id, structuredClone(original)); }
+    catch { draft = structuredClone(original); invalidDraft = true; feedback.textContent = 'The saved plan could not be loaded. Reset edits or edit a step to continue.'; }
+    const editor = el('ol', null, 'run-plan-steps');
+    editor.setAttribute('aria-label', 'Plan steps');
+    editor.hidden = !state.editPlan;
+    function editedCount() {
+      return Math.max(original.steps.length, draft.steps.length) - original.steps.filter((step, index) => JSON.stringify(step) === JSON.stringify(draft.steps[index])).length;
+    }
+    function updateDraft() {
+      invalidDraft = false;
+      approve.disabled = !!decision?.pending;
+      feedback.textContent = savePlanDraft(request.gate_id, JSON.stringify(draft)) ? '' : 'Plan edit is not saved. Keep this page open until browser storage is available.';
+      const count = editedCount();
+      approve.textContent = count ? `Run with edits (${count})` : '✓ Approve plan & run';
+      if (count && !reset.isConnected) actions.insertBefore(reset, approve);
+      else if (!count) reset.remove();
+    }
+    function redraw(focusId) {
+      updateDraft(); renderSpans();
+      const next = document.getElementById(focusId);
+      (next?.disabled ? document.getElementById('run-plan-task-' + request.gate_id + '-0') : next)?.focus();
+    }
+    draft.steps.forEach((step, index) => {
+      const row = el('li', null, 'run-plan-step');
+      const fields = el('div', null, 'run-plan-step-fields');
+      const prefix = 'run-plan-' + request.gate_id + '-' + index;
+      const heading = el('div', null, 'run-plan-step-heading');
+      heading.append(el('strong', `${index + 1}. ${step.role}`));
+      const available = models.filter(model => model.backend !== 'maestro');
+      const model = select(prefix + '-model', available.map(model => [model.backend + '/' + model.id, model.backend + ' · ' + (model.name || model.id)]));
+      const modelKey = step.backend + '/' + step.model;
+      if (![...model.options].some(option => option.value === modelKey)) {
+        const missing = new Option(step.backend + ' · ' + step.model + ' (unavailable)', modelKey);
+        missing.disabled = true; model.add(missing);
+      }
+      model.value = modelKey;
+      model.setAttribute('aria-label', `Model for step ${index + 1}`);
+      model.addEventListener('change', () => {
+        const selected = available.find(item => item.backend + '/' + item.id === model.value);
+        if (!selected) return;
+        step.backend = selected.backend; step.model = selected.id;
+        const efforts = selected.efforts || ['configured'];
+        if (!efforts.includes(step.effort)) step.effort = efforts[0];
+        redraw(model.id);
+      });
+      const efforts = available.find(item => item.backend === step.backend && item.id === step.model)?.efforts || [step.effort];
+      const effort = select(prefix + '-effort', [...new Set([...efforts, step.effort].filter(Boolean))].map(value => [value, value]));
+      effort.value = step.effort;
+      effort.setAttribute('aria-label', `Effort for step ${index + 1}`);
+      effort.addEventListener('change', () => { step.effort = effort.value; updateDraft(); });
+      heading.append(model, effort);
+      const task = el('textarea'); task.id = 'run-plan-task-' + request.gate_id + '-' + index;
+      task.setAttribute('aria-label', `Task for step ${index + 1}`); task.rows = 2; task.value = step.task;
+      task.addEventListener('input', () => { step.task = task.value; updateDraft(); });
+      fields.append(heading, task);
+      if (step.reason) fields.append(el('p', 'Why: ' + step.reason));
+      const controls = el('div', null, 'run-plan-step-controls');
+      for (const [action, text] of [['up', '↑'], ['down', '↓'], ['remove', '×']]) {
+        const control = button(text, () => {
+          const next = action === 'up' ? index - 1 : action === 'down' ? index + 1 : index;
+          if (action === 'remove') draft.steps.splice(index, 1);
+          else [draft.steps[index], draft.steps[next]] = [draft.steps[next], draft.steps[index]];
+          redraw('run-plan-task-' + request.gate_id + '-' + Math.min(next, draft.steps.length - 1));
+        });
+        control.setAttribute('aria-label', action === 'remove' ? `Remove step ${index + 1}` : `Move step ${index + 1} ${action}`);
+        control.disabled = !!planDecisions.get(request.gate_id)?.pending || (action === 'up' && index === 0) || (action === 'down' && index === draft.steps.length - 1) || (action === 'remove' && draft.steps.length === 1);
+        controls.append(control);
+      }
+      for (const input of [model, effort, task]) input.disabled = !!planDecisions.get(request.gate_id)?.pending;
+      row.append(fields, controls); editor.append(row);
+    });
     const decision = planDecisions.get(request.gate_id);
     async function decide(choice) {
       if (planDecisions.get(request.gate_id)?.pending) return;
       let plan;
       if (choice === 'approve') {
         try { plan = planForApproval(request.gate_id, request.plan); }
-        catch (failure) { feedback.textContent = failure.message; editor.focus(); return; }
+        catch (failure) { feedback.textContent = failure.message; editor.querySelector('textarea')?.focus(); return; }
       }
       const pending = { pending: true, message: choice === 'approve' ? 'Approving plan…' : 'Discarding plan…' };
       planDecisions.set(request.gate_id, pending);
@@ -576,14 +648,18 @@
     }
     const approve = button('✓ Approve plan & run', () => decide('approve'));
     approve.id = 'run-plan-approve-' + request.gate_id;
+    const reset = button('Reset edits', () => { clearPlanDraft(request.gate_id); renderSpans(); document.getElementById('run-plan-task-' + request.gate_id + '-0')?.focus(); });
+    reset.disabled = !!decision?.pending;
+    if (editedCount()) approve.textContent = `Run with edits (${editedCount()})`;
     const discard = button('Discard', () => decide('deny'));
     discard.id = 'run-plan-discard-' + request.gate_id;
-    approve.disabled = discard.disabled = editor.disabled = !!decision?.pending;
-    feedback.textContent = decision?.message || '';
+    discard.disabled = !!decision?.pending;
+    approve.disabled = !!decision?.pending || invalidDraft;
+    feedback.textContent = decision?.message || feedback.textContent;
     const edit = button(state.editPlan ? 'Hide editor' : 'Edit plan', () => { state.editPlan = !state.editPlan; renderSpans(); const toggle = document.getElementById('run-plan-edit'); toggle?.focus(); toggle?.scrollIntoView({ block: 'nearest', behavior: 'instant' }); });
     edit.id = 'run-plan-edit';
     edit.disabled = !!decision?.pending;
-    const actions = el('div', null, 'run-plan-actions'); actions.append(discard, edit, approve);
+    const actions = el('div', null, 'run-plan-actions'); actions.append(discard, edit, ...(editedCount() || invalidDraft ? [reset] : []), approve);
     bar.append(editor, actions, feedback);
     return bar;
   }

@@ -2,7 +2,7 @@
 
 **Responsible agent:** `integrate-local_tail-harness_engineer` (`.codex/agents/integrate-local_tail-harness_engineer.toml`).
 
-`adapter_spec_revision: 2`
+`adapter_spec_revision: 3`
 `harness_baseline: 0.4.4 working-tree`
 
 ## Observed baseline
@@ -75,3 +75,11 @@ The service passes `_conversation_title` separately from the prompt: the convers
 The shared Codex executor calls `thread/name/set` on session creation/resume before starting the model turn. This also covers local and DeepSeek inference through Codex; Codex scoped execution uses the same helper. Errors/timeouts emit `session_title_sync_failed` and do not claim successful synchronization. Renames made while no turn is starting are propagated at the next execution, not in real time. Calls without a nonblank title leave existing native titles unchanged.
 
 Contract checked against installed Codex CLI 0.155.0-alpha.9.2 generated `v2/ThreadSetNameParams.json` (`threadId`, `name`) and https://learn.chatgpt.com/docs/app-server . Offline tests validate transport and handoff; no live model inference. This display metadata does not change session identity, isolation or inference model.
+
+## Session private-target exclusions (revision 3, 2026-10-01)
+
+The session bind receives the same runtime-private inode check as project roots.
+A private configuration target relocated into a session, including nested symlink
+targets with a single link, prevents dispatch. Ordinary session files remain usable.
+Round-eleven synthetic sandbox regressions cover read-only/writable projects and
+project/session placements. This change does not certify a live model or provider.

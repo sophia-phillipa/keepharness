@@ -60,7 +60,7 @@ const assert = require("node:assert/strict");
                   : {};
       return route.fulfill({ json: data });
     });
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.10"));
+    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.11"));
     await page.goto(process.env.HARNESS_URL || "http://panel.test/");
     await page.locator("#startup-gate").waitFor({ state: "visible" });
     assert.equal(

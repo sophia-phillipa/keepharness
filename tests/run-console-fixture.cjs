@@ -1,7 +1,7 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 async function mount(page, handler) {
-  await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.10"));
+  await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.11"));
   await page.route('http://console.test/**', async route => {
     const url = new URL(route.request().url());
     if (url.pathname.startsWith('/v1/')) {

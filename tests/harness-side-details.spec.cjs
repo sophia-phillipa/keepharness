@@ -144,7 +144,7 @@ const fs = require("node:fs/promises"),
               : "text/html",
       });
     });
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.10"));
+    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.11"));
     await page.goto(origin);
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     await page.locator(".conversation-row>button").first().click();

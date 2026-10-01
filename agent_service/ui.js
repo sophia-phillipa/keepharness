@@ -2163,6 +2163,8 @@ function conversationRow(c) {
   });
   actions.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
       actions.open = false;
       trigger.focus();
     }
@@ -4368,12 +4370,52 @@ function renderProjectFileSelection() {
 function renderProjectFileTree() {
   const entries =
     fileTree.cache.get(fileTree.rootId + "\0" + fileTree.basePath) || [];
+  const focus = projectTreeFocus($("files-tree"));
   $("files-tree").replaceChildren();
   const group = document.createElement("ul");
   group.setAttribute("role", "group");
   renderProjectFileEntries(group, entries);
   $("files-tree").append(group);
+  restoreProjectTreeFocus($("files-tree"), fileTree, focus);
   renderProjectFileSelection();
+}
+function projectTreeFocus(container) {
+  const active = document.activeElement;
+  return container.contains(active) ? {
+    path: active.closest('[role="treeitem"]')?.dataset.path,
+    toggle: active.classList.contains("file-chevron"),
+  } : null;
+}
+function restoreProjectTreeFocus(container, tree, focus) {
+  const rows = [...container.querySelectorAll('[role="treeitem"]')];
+  const path = focus?.path || tree.focusedPath;
+  const row = rows.find(item => item.dataset.path === path) || rows.findLast(item => path?.startsWith(item.dataset.path + "/")) || rows[0];
+  if (!row) return;
+  row.tabIndex = 0;
+  tree.focusedPath = row.dataset.path;
+  if (focus) (focus.toggle ? row.querySelector(".file-chevron") || row : row).focus({preventScroll:true});
+}
+function navigateProjectTree(event, item, entry, tree) {
+  if (!["ArrowUp", "ArrowDown", "Home", "End", "ArrowRight", "ArrowLeft"].includes(event.key)) return false;
+  event.preventDefault();
+  event.stopPropagation();
+  const container = tree.foldersOnly ? $("project-directory-list") : $("files-tree");
+  const rows = [...container.querySelectorAll('[role="treeitem"]')];
+  const index = rows.indexOf(item);
+  let next;
+  if (event.key === "Home") next = rows[0];
+  else if (event.key === "End") next = rows.at(-1);
+  else if (event.key === "ArrowUp") next = rows[Math.max(0, index - 1)];
+  else if (event.key === "ArrowDown") next = rows[Math.min(rows.length - 1, index + 1)];
+  else if (event.key === "ArrowRight" && entry.type === "directory") {
+    if (tree.expanded.has(entry.path)) next = item.querySelector('[role="treeitem"]');
+    else void (tree.foldersOnly ? toggleProjectFolder(entry) : toggleProjectDirectory(entry));
+  } else if (event.key === "ArrowLeft") {
+    if (tree.expanded.has(entry.path)) void (tree.foldersOnly ? toggleProjectFolder(entry) : toggleProjectDirectory(entry));
+    else next = item.parentElement.closest('[role="treeitem"]');
+  }
+  next?.focus();
+  return true;
 }
 function renderProjectFileEntries(list, entries, tree = fileTree) {
   for (const entry of entries.filter(
@@ -4382,14 +4424,22 @@ function renderProjectFileEntries(list, entries, tree = fileTree) {
     const item = document.createElement("li");
     item.setAttribute("role", "treeitem");
     item.setAttribute("aria-selected", String(tree.selected.has(entry.path)));
-    item.tabIndex = 0;
+    item.tabIndex = -1;
     item.dataset.path = entry.path;
+    item.addEventListener("focusin", event => {
+      if (event.target.closest('[role="treeitem"]') !== item) return;
+      const container = tree.foldersOnly ? $("project-directory-list") : $("files-tree");
+      for (const row of container.querySelectorAll('[role="treeitem"]')) row.tabIndex = row === item ? 0 : -1;
+      tree.focusedPath = entry.path;
+    });
     const row = document.createElement("div");
     row.className = "project-file-row";
     if (entry.type === "directory") {
       const open = tree.expanded.has(entry.path),
         toggle = document.createElement("button");
       toggle.type = "button";
+      toggle.tabIndex = -1;
+      item.setAttribute("aria-expanded", String(open));
       toggle.className = "file-chevron";
       toggle.setAttribute(
         "aria-label",
@@ -4440,15 +4490,10 @@ function renderProjectFileEntries(list, entries, tree = fileTree) {
       };
       item.onkeydown = (e) => {
         if (e.target !== item) return;
+        if (navigateProjectTree(e, item, entry, tree)) return;
         if ([" ", "Enter"].includes(e.key)) {
           e.preventDefault();
           selectProjectFolder(entry);
-        } else if (
-          (e.key === "ArrowRight" && !tree.expanded.has(entry.path)) ||
-          (e.key === "ArrowLeft" && tree.expanded.has(entry.path))
-        ) {
-          e.preventDefault();
-          void toggleProjectFolder(entry);
         }
       };
       list.append(item);
@@ -4464,6 +4509,7 @@ function renderProjectFileEntries(list, entries, tree = fileTree) {
     };
     item.onkeydown = (e) => {
       if (e.target !== item) return;
+      if (navigateProjectTree(e, item, entry, tree)) return;
       if (e.key === " ") {
         e.preventDefault();
         selectProjectFileEntry(item, entry, {
@@ -6720,7 +6766,7 @@ function updateLatest() {
   const box = $("messages");
   const latest = $("latest-message");
   latest.hidden = box.scrollHeight - box.scrollTop - box.clientHeight < 150;
-  latest.classList.toggle("latest-message-compact", box.clientHeight < 60);
+  latest.classList.toggle("latest-message-compact", box.clientHeight < 160);
   latest.classList.toggle("latest-message-inline", box.clientHeight < 24);
 }
 $("messages").addEventListener("scroll", updateLatest, { passive: true });
@@ -7704,8 +7750,10 @@ const projectFolderTree = {
 };
 function renderProjectFolders() {
   const list = $("project-directory-list");
+  const focus = projectTreeFocus(list);
   list.replaceChildren();
   renderProjectFileEntries(list, projectDirectory.roots, projectFolderTree);
+  restoreProjectTreeFocus(list, projectFolderTree, focus);
   $("project-directory-add-current").disabled =
     !projectDirectory.candidate ||
     projectDirectory.selected.has(projectDirectory.candidate.absolute_path);

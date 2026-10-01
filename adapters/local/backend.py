@@ -10,7 +10,7 @@ from control.product import PRODUCT
 
 from .sandbox import ISOLATION_VERSION, wrap
 
-SPEC_REVISION = 2
+SPEC_REVISION = 3
 
 
 async def run_native(config, prompt, event, project, model, effort, session_dir, approve):
