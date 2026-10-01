@@ -43,3 +43,44 @@ def test_vault_denies_missing_admin_header_and_unknown_scope(tmp_path):
     response = client.post('/api/vault', headers={'X-Harness-Admin': '1'}, json={'action': 'set', 'binding': 'x', 'values': {'token': 'fake-not-stored'}, 'project_id': 'other', 'integration': 'x'})
     assert response.status_code == 400
     assert not (manager.state / 'harness.secrets.json').exists()
+
+
+def test_manifest_contract_can_be_provisioned_before_runtime_preflight(tmp_path):
+    import json
+    client, manager = client_for(tmp_path)
+    root = tmp_path / 'catalog'
+    root.mkdir()
+    contract = {'integration': 'catalog-reader', 'consumers': ['codex'], 'environment': {'CATALOG_TOKEN': 'token'}, 'precedence': 'vault', 'mediated': False}
+    (root / 'harness.catalog.json').write_text(json.dumps({'version': 1, 'integrations': [contract], 'preflight': [{'file': 'not-installed-yet', 'hint': 'Provision runtime first'}]}))
+    manager.settings['catalogs'] = [{'id': 'demo', 'root': str(root), 'kind': 'folder', 'trusted': True, 'namespace': 'demo'}]
+    manager.settings['projects'][0]['catalogs'] = ['demo']
+    response = client.post('/api/vault', headers={'X-Harness-Admin': '1'}, json={'action': 'set', 'binding': 'reader', 'values': {'token': 'fake-manifest-reader-123456'}, 'project_id': 'demo', 'catalog_id': 'demo', 'integration': 'catalog-reader'})
+    assert response.status_code == 200, response.text
+
+
+def test_replaced_secret_rolls_back_if_settings_fail(tmp_path, monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from control.vault_admin import vault
+    client, manager = client_for(tmp_path)
+    store = vault(manager)
+    store.set('reader', {'token': 'fake-original-credential'})
+    monkeypatch.setattr(manager, 'apply_settings', AsyncMock(side_effect=ValueError('fixture apply failure')))
+    contract = {'integration': 'reader', 'consumers': ['codex'], 'environment': {'READER_TOKEN': 'token'}, 'precedence': 'vault', 'mediated': False}
+    response = client.post('/api/vault', headers={'X-Harness-Admin': '1'}, json={'action': 'set', 'binding': 'reader', 'values': {'token': 'fake-replaced-credential'}, 'project_id': 'demo', 'integration': 'reader', 'contract': contract})
+    assert response.status_code == 400
+    assert store.get('reader') == {'token': 'fake-original-credential'}
+
+
+def test_conflicting_manifest_contract_rejected_without_storing_secret(tmp_path):
+    import json
+    client, manager = client_for(tmp_path)
+    root = tmp_path / 'catalog'
+    root.mkdir()
+    declared = {'integration': 'reader', 'consumers': ['codex', 'claude'], 'environment': {'READER_TOKEN': 'token'}, 'precedence': 'vault', 'mediated': False}
+    (root / 'harness.catalog.json').write_text(json.dumps({'version': 1, 'integrations': [declared]}))
+    manager.settings['catalogs'] = [{'id': 'demo', 'root': str(root), 'kind': 'folder', 'trusted': True, 'namespace': 'demo'}]
+    manager.settings['projects'][0]['catalogs'] = ['demo']
+    response = client.post('/api/vault', headers={'X-Harness-Admin': '1'}, json={'action': 'set', 'binding': 'reader', 'values': {'token': 'fake-conflict-test-123456'}, 'project_id': 'demo', 'catalog_id': 'demo', 'integration': 'reader', 'contract': {**declared, 'consumers': ['codex']}})
+    assert response.status_code == 400
+    assert not (manager.state / 'harness.secrets.json').exists()

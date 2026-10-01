@@ -1,6 +1,7 @@
 """Owner-only vault provisioning through the existing local administration guard."""
 import copy
 import re
+import uuid
 
 from agent_service.errors import APIError
 from agent_service.integrations import integration_contract, validate_integration
@@ -9,6 +10,11 @@ from agent_service.secret_vault import SecretVault
 
 def validate_settings(data, projects, catalogs):
     result = {}
+    revision = data.get('secret_vault_revision')
+    if revision is not None:
+        if not isinstance(revision, str) or not re.fullmatch(r'[a-f0-9]{32}', revision):
+            raise ValueError('Invalid vault revision.')
+        result['secret_vault_revision'] = revision
     contracts = data.get('integrations', [])
     bindings = data.get('integration_bindings', [])
     effects = data.get('effect_integrations', [])
@@ -61,31 +67,39 @@ async def change_vault(request, manager, data):
     if not isinstance(binding, str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,128}', binding):
         raise ValueError('Choose a valid credential binding name.')
     draft = copy.deepcopy(manager.settings)
+    draft['secret_vault_revision'] = uuid.uuid4().hex
     if action == 'delete':
         draft['integration_bindings'] = [item for item in draft.get('integration_bindings', []) if item['credential_binding'] != binding]
         await manager.apply_settings(draft)
         vault(manager).delete(binding)
     elif action == 'set':
-        project_id, catalog_id = data.get('project_id'), data.get('catalog_id')
+        project_id, catalog_id = data.get('project_id'), data.get('catalog_id') or None
         projects = {item['id']: item for item in draft['projects']}
         if project_id not in projects and project_id != 'sem-projeto':
             raise ValueError('Choose a registered project.')
         if catalog_id and catalog_id not in projects.get(project_id, {}).get('catalogs', []):
             raise ValueError('Choose a catalog assigned to this project.')
         integration = data.get('integration')
+        from agent_service.catalog_manifest import load_manifest
+        from agent_service.catalog_pin import effective_catalogs
+
+        from .catalog_admin import catalog_config
+
+        declared = [item for catalog in effective_catalogs(catalog_config(manager), projects.get(project_id, {}))
+                    if not catalog_id or catalog['id'] == catalog_id
+                    for item in (load_manifest(catalog['root']) or {}).get('integrations', [])
+                    if item['integration'] == integration]
         contract = data.get('contract')
         if contract is not None:
             validate_integration(contract)
             if contract['integration'] != integration:
                 raise ValueError('Integration and contract must match.')
+            if any(item != contract for item in declared):
+                raise ValueError('Use the integration contract declared by this catalog.')
             draft['integrations'] = [item for item in draft.get('integrations', []) if item['integration'] != integration] + [contract]
-        available = [item for item in draft.get('integrations', []) if item['integration'] == integration]
-        if not available:
-            from agent_service.catalog_manifest import runtime_for_project
-            from .catalog_admin import catalog_config
-            available = [item for item in runtime_for_project(catalog_config(manager), project_id)['integrations'] if item['integration'] == integration]
-        if len(available) != 1:
-            raise ValueError('Configure one integration contract before saving credentials.')
+        available = [item for item in draft.get('integrations', []) if item['integration'] == integration] + declared
+        if not available or any(item != available[0] for item in available):
+            raise ValueError('Configure one unambiguous integration contract before saving credentials.')
         values = data.get('values')
         SecretVault._validate(binding, values)
         if not set(available[0]['environment'].values()) <= set(values):
