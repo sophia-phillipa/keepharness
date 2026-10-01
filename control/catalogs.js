@@ -12,7 +12,7 @@
   }
   function declaredContract() {
     const selection=selected(), name=byId('vault-integration').value.trim();
-    const check=catalogState?.preflight.find(item=>item.project_id===selection.project_id && item.catalog_id===selection.catalog_id);
+    const check=catalogState?.preflight?.find(item=>item.project_id===selection.project_id && item.catalog_id===selection.catalog_id);
     return check?.integrations?.find(item=>item.integration===name) || vaultState?.contracts?.find(item=>item.integration===name);
   }
   function credentialFields() {
@@ -47,12 +47,16 @@
     credentialFields();
   }
   function renderCatalogs(value) {
+    if(!value || !['projects','catalogs','preflight','drift'].every(key=>Array.isArray(value[key])))
+      throw new Error('Catalog administration is unavailable. Refresh to try again.');
     catalogState=value;
     options(byId('catalog-project'),value.projects.map(item=>[item.id,item.label||item.id]),byId('catalog-project').value);
     renderSelection();
     byId('catalog-drift').replaceChildren(...(value.drift.length ? value.drift.map(item=>{const row=document.createElement('div');row.append(text('strong',item.resource_id));for(const location of item.locations)row.append(text('p',location+' · revision '+(item.revisions[location].revision||'unknown')+(item.revisions[location].catalog_commit?' · commit '+item.revisions[location].catalog_commit:'')));return row;}) : [text('p','No resource revision drift detected.')]));
   }
   function renderVault(value) {
+    if(!value || !['credentials','bindings','contracts'].every(key=>Array.isArray(value[key])))
+      throw new Error('Credential status is unavailable. Refresh to try again.');
     vaultState=value;
     byId('vault-status').replaceChildren(...(value.credentials.length?value.credentials.map(item=>{
       const row=text('p',item.binding+' · configured fields: '+item.fields.join(', ')+' ');
@@ -71,11 +75,11 @@
     finally {
       busy=false;byId('catalog-panel').removeAttribute('aria-busy');
       buttons.forEach((button,index)=>{if(button.isConnected)button.disabled=states[index];});
-      const project=catalogState?.projects.find(item=>item.id===selected().project_id);
+      const project=catalogState?.projects?.find(item=>item.id===selected().project_id);
       byId('catalog-pin').disabled=!!project?.catalog_pins?.[selected().catalog_id] || !selected().catalog_id;
       byId('catalog-preview').disabled=!project?.catalog_pins?.[selected().catalog_id];
       byId('catalog-move').disabled=!preview;
-      const check=catalogState?.preflight.find(item=>item.project_id===selected().project_id && item.catalog_id===selected().catalog_id);
+      const check=catalogState?.preflight?.find(item=>item.project_id===selected().project_id && item.catalog_id===selected().catalog_id);
       byId('catalog-provision').disabled=!check?.manifest;
       if(focused?.isConnected && byId('catalog-panel').contains(focused)) {
         const target=focused.disabled?byId('catalog-message'):focused;
@@ -88,7 +92,7 @@
     if(location.hash!=='#catalogs')return;
     await operate(async()=>{
       const [catalogs,vault]=await Promise.all([request('catalogs'),request('vault')]);
-      renderCatalogs(catalogs);renderVault(vault);
+      renderCatalogs(catalogs);renderVault(vault);message("Catalog status refreshed.");
     });
   }
   byId('catalog-project').onchange=renderSelection;

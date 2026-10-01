@@ -13,13 +13,13 @@ const path = require('node:path');
     const catalog = {id: 'demo', root: '/fixture/catalog', kind: 'git', trusted: true};
     const status = {catalogs: [catalog], projects: [project], preflight: [{project_id:'demo',catalog_id:'demo',manifest:true,integrations:[{integration:'reader',consumers:['codex','claude'],environment:{ISSUE_TOKEN:'token'},precedence:'vault',mediated:false}],preflight:['Provision the catalog Python environment in Admin.']}], drift: [{resource_id:'catalog/demo/commands/check.md', locations:['demo','other'], revisions:{demo:{revision:'aaa'},other:{revision:'bbb'}}}]};
     const vault = { credentials: [], bindings: [], contracts: [] };
-    let writes = 0, moves = 0, fail = false;
+    let writes = 0, moves = 0, fail = false, malformed = false;
     await page.route('http://admin.test/**', async route => {
       const url = new URL(route.request().url());
       if (url.pathname.startsWith('/api/')) {
         let result = {};
         if (url.pathname === '/api/state') result = {settings:{services:{},projects:[project],catalogs:[catalog],logins:[],port:8095},inventory:{services:[],projects:[],network:{}},authentication:{},models:{},integrations:{},operations:[],credentials:{},status:{running:false}};
-        if (url.pathname === '/api/catalogs') result = status;
+        if (url.pathname === '/api/catalogs') result = malformed?{}:status;
         if (url.pathname === '/api/vault') {
           if (route.request().method() === 'POST') {
             writes++;
@@ -90,6 +90,14 @@ const path = require('node:path');
     await page.reload(); // P5 recovery/reload
     await page.waitForFunction(() => document.getElementById('vault-status').textContent.includes('demo-reader'));
     assert.equal(await page.locator('#vault-secret').inputValue(),'');
+    malformed=true;
+    await page.locator('#catalog-admin-refresh').click();
+    await page.waitForFunction(() => document.getElementById('catalog-message').textContent.includes('unavailable'));
+    assert.equal(await page.locator('#catalog-admin-refresh').isEnabled(),true);
+    malformed=false;
+    await page.locator('#catalog-admin-refresh').click();
+    await page.waitForFunction(() => document.getElementById('catalog-message').textContent.includes('refreshed'));
+    assert.equal(await page.locator('#catalog-project').inputValue(),'demo');
     assert.deepEqual(errors,[]);
     console.log('PASS seven-profile catalog/pin/vault/drift matrix, desktop and mobile');
   } finally { await browser.close(); }
