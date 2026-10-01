@@ -7,6 +7,7 @@ import json
 import logging
 import math
 import os
+import re
 import shutil
 import sys
 import time
@@ -299,6 +300,9 @@ class ConversationService:
 
     def identity(self, request, *, revalidate=False):
         def identified(name, client):
+            owner = getattr(request.state, "authenticated_owner", None)
+            if revalidate and owner is not None and name != owner:
+                raise APIError("authentication_required", 401)
             return (name, client) if revalidate else self.throttle(name, client, request)
 
         request.state.approval_session_owner = None
@@ -345,7 +349,12 @@ class ConversationService:
                     if capable and expires > time.time() and owner in self.config["clients"]
                     else "public"
                 )
-                self.limit((lane, "session"), 240, "session_rate_limit")
+                control = self.control_request(request)
+                self.limit(
+                    (lane, "session_control" if control else "session"),
+                    120 if control else 240,
+                    "session_rate_limit",
+                )
             session_owner = session_identity(request, self.config)
         if session_owner is not None:
             request.state.approval_session_owner = session_owner
@@ -388,13 +397,29 @@ class ConversationService:
             raise APIError(code, 429, max(1, math.ceil(60 - (now - entries[0]))))
         entries.append(now)
 
-    def throttle(self, name, client, request=None):
+    @staticmethod
+    def control_request(request):
         path = request.url.path if request else ""
-        control = path.endswith("/cancel") or path.startswith("/v1/approvals/")
+        return bool(
+            request
+            and request.method == "POST"
+            and (
+                path.endswith("/cancel")
+                or path.startswith("/v1/approvals/")
+                or path == "/v1/logout"
+            )
+        )
+
+    def throttle(self, name, client, request=None):
+        control = self.control_request(request)
         lane = (
             "control" if control else ("write" if request and request.method != "GET" else "read")
         )
-        self.limit((name, lane), 120 if control else 60 if lane == "write" else 240)
+        human = control and getattr(request.state, "approval_session_owner", None) == name
+        self.limit(
+            (name, "human_control" if human else lane),
+            120 if control else 60 if lane == "write" else 240,
+        )
         return name, client
 
     def job(self, identity, job):
@@ -797,6 +822,13 @@ class ConversationService:
 
     def resource_catalog(self, identity, project_id, backend, model, execution_mode=None):
         self.project(identity, project_id)
+        if backend == "maestro":
+            if execution_mode is not None:
+                self.validate_execution_mode(backend, execution_mode)
+            lead = maestro.coordinator(self.config, project_id)
+            backend, model = lead["backend"], lead["model"]
+            if backend == "local":
+                execution_mode = "scoped"
         policy = self.config.get("services", {}).get(backend, {})
         if not policy.get("enabled") or project_id not in policy.get("projects", []):
             raise APIError("service_project_denied", 403)
@@ -814,16 +846,31 @@ class ConversationService:
             self.config, project_id, backend, model, execution_mode=execution_mode
         )
 
-    def selected_resources(self, data):
+    def selected_resources(self, data, *, canonical=None):
+        if data.get("backend") == "maestro":
+            lead = maestro.coordinator(self.config, data["project_id"])
+            data = {**data, "backend": lead["backend"], "model": lead["model"]}
+            if lead["backend"] == "local":
+                data["execution_mode"] = "scoped"
         if data.get("resource_selections") and not maestro.model_permissions(
             self.config, data["backend"], data.get("model"), data["project_id"]
         ).get("read"):
             raise APIError("resource_read_denied", 403)
         try:
             selected = resources.resolve(self.config, data)
-            resources.prepare_prompt(
-                data.get("prompt", ""), selected, data.get("resource_selections")
-            )
+            if canonical is None:
+                resources.prepare_prompt(
+                    data.get("prompt", ""), selected, data.get("resource_selections")
+                )
+            else:
+                found = {item["resource_id"]: item for item in selected}
+                for value in canonical:
+                    if value.resource_id.startswith("builtin/"):
+                        continue
+                    item = found.get(value.resource_id)
+                    if item is None:
+                        raise resources.ResourceError("resource_unavailable")
+                    resources.prepare_prompt(item["_token"] + " " + value.args, [item])
             return selected
         except resources.ResourceError as error:
             raise APIError(
@@ -834,6 +881,15 @@ class ConversationService:
     def normalize_invocations(self, identity, data):
         """Resolve every resource before admitting a portable invocation."""
         try:
+            if data.get("backend") == "maestro" and (
+                data.get("invocations") or data.get("resource_selections")
+            ):
+                lead = maestro.coordinator(self.config, data["project_id"])
+                if lead["backend"] == "local":
+                    if data.get("parent_job_id") and data.get("execution_mode") != "scoped":
+                        raise APIError("conversation_execution_mode_locked", 409)
+                    data["execution_mode"] = "scoped"
+                data.update(backend=lead["backend"], model=lead["model"], effort=lead["effort"])
             explicit = data.get("invocations")
             supplied_selections = bool(data.get("resource_selections"))
             if (
@@ -892,9 +948,23 @@ class ConversationService:
                         data["prompt"] = (
                             data["resource_selections"][0]["token"] + " " + data.get("prompt", "")
                         )
-            selected = self.selected_resources(data)
-            normalized = invocations.normalize_chips(
-                data.get("prompt", ""), data.get("resource_selections", []), selected
+            canonical = values if values is not None and not supplied_selections else None
+            selected = self.selected_resources(data, canonical=canonical)
+            selected_by_id = {item["resource_id"]: item for item in selected}
+            normalized = (
+                [
+                    invocations.Invocation(
+                        **{
+                            **value.to_dict(),
+                            "requested_backend": selected_by_id[value.resource_id].get("backend"),
+                        }
+                    )
+                    for value in canonical
+                ]
+                if canonical is not None
+                else invocations.normalize_chips(
+                    data.get("prompt", ""), data.get("resource_selections", []), selected
+                )
             )
             if values is not None:
                 if [(value.kind, value.resource_id, value.mode) for value in values] != [
@@ -1013,6 +1083,36 @@ class ConversationService:
             raise APIError("workflow_source_busy", 409)
         if set(changes) - {"workflow_inputs", "from_step", "maestro_plan_policy"}:
             raise APIError("invalid_workflow_recovery")
+        if idem is not None and (not isinstance(idem, str) or not 1 <= len(idem) <= 128):
+            raise APIError("invalid_idempotency_key")
+        try:
+            recovery_digest = hashlib.sha256(
+                json.dumps(
+                    {"source": job_id, "rerun": rerun, "changes": changes},
+                    sort_keys=True,
+                    allow_nan=False,
+                ).encode()
+            ).hexdigest()
+        except (ValueError, TypeError):
+            raise APIError("invalid_workflow_recovery") from None
+        old = (
+            self.conversation_repository.by_idempotency_key(identity[0], row["project"], idem)
+            if idem
+            else None
+        )
+        if old:
+            accepted = json.loads(self.job(identity, old["id"])["payload"])
+            if "_workflow_recovery_digest" in accepted:
+                if accepted.get("_workflow_recovery_digest") != recovery_digest:
+                    raise APIError("idempotency_conflict", 409)
+                return {
+                    "job_id": old["id"],
+                    "reused": True,
+                    **{
+                        key: accepted.get(key)
+                        for key in ("backend", "model", "effort", "execution_mode")
+                    },
+                }
         maestro.ensure_recovery_safe(self, job_id)
         plan = maestro.saved_plan(self, job_id)
         from_step = changes.get("from_step", 1)
@@ -1049,6 +1149,9 @@ class ConversationService:
             "_workflow_resume": not rerun,
             "_workflow_context_parent_id": context_parent,
         }
+        # Legacy accepted children retain their original normalized-payload comparison.
+        if old is None:
+            recovery["_workflow_recovery_digest"] = recovery_digest
         if rerun:
             recovery["_workflow_from_step"] = from_step
         return self.submit(identity, data, idem, workflow_recovery=recovery)
@@ -1077,12 +1180,18 @@ class ConversationService:
         if conflict:
             raise APIError("project_folder_busy", 409)
         try:
+            declaration = maestro.declaration(plan)
             target = workflows.save_chain_as_workflow(
                 project,
-                maestro.declaration(plan),
+                declaration,
                 workflow_id,
                 successful=True,
                 catalogs=self.config.get("catalogs", ()),
+                dependencies=workflows.dependency_catalog(
+                    self.config,
+                    row["project"],
+                    execution_mode=self.conversation_execution_mode(row),
+                ),
             )
         finally:
             self.write_ownership.release(lease)
@@ -1107,6 +1216,7 @@ class ConversationService:
                 "_workflow_from_step",
                 "_workflow_resume",
                 "_workflow_context_parent_id",
+                "_workflow_recovery_digest",
             )
         ):
             raise APIError("invalid_internal_field")
@@ -1167,6 +1277,7 @@ class ConversationService:
         if idem is not None and (not isinstance(idem, str) or not 1 <= len(idem) <= 128):
             raise APIError("invalid_idempotency_key")
         digest = hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
+        execution = {key: data.get(key) for key in ("backend", "model", "effort", "execution_mode")}
         old = (
             self.conversation_repository.by_idempotency_key(identity[0], project, idem)
             if idem
@@ -1175,12 +1286,17 @@ class ConversationService:
         if old:
             if old["digest"] != digest:
                 raise APIError("idempotency_conflict", 409)
-            return {"job_id": old["id"], "reused": True}
+            return {"job_id": old["id"], "reused": True, **execution}
         work_item = self.resolve_work_item(identity, data)
         if work_item is not None or "work_item" in data:
             data["work_item"] = work_item
         payload = encoded(data)
-        self.selected_resources(data)
+        self.selected_resources(
+            data,
+            canonical=[invocations.Invocation(**value) for value in data["invocations"]]
+            if data.get("invocations")
+            else None,
+        )
         legacy_root = None
         if data.get("parent_job_id"):
             previous = self.job(identity, data["parent_job_id"])
@@ -1230,7 +1346,7 @@ class ConversationService:
             "job_id": job,
             "status_url": f"/v1/jobs/{job}",
             "events_url": f"/v1/jobs/{job}/events",
-            "execution_mode": data["execution_mode"],
+            **execution,
         }
 
     def panel(
@@ -1380,6 +1496,7 @@ class ConversationService:
         condition = self.provider_slots.setdefault(backend, asyncio.Condition())
         previous_task = self.job_tasks.get(row["id"])
         self.job_tasks[row["id"]] = asyncio.current_task()
+        waited = False
         try:
             async with condition:
                 while True:
@@ -1391,9 +1508,12 @@ class ConversationService:
                     if self.provider_inflight.get(backend, 0) < maximum:
                         self.provider_inflight[backend] = self.provider_inflight.get(backend, 0) + 1
                         break
+                    waited = True
                     await condition.wait()
             self.active_executors[row["id"]] = (backend, data.get("model"))
             try:
+                if waited:
+                    plan = await self._prepare_inference(row, data)
                 invocation = data.get("invocations", [])
                 attribution = None
                 if len(invocation) == 1 and not data.get("_maestro_stage"):
@@ -1440,7 +1560,12 @@ class ConversationService:
 
     async def _prepare_inference(self, row, data):
         """Resolve sources, history and the prompt; every admission error is raised here."""
-        selected_resources = self.selected_resources(data)
+        selected_resources = self.selected_resources(
+            data,
+            canonical=[invocations.Invocation(**value) for value in data["invocations"]]
+            if data.get("invocations")
+            else None,
+        )
         sources = []
         turns = [] if data.get("_planning_only") else self.context_turns(row, data)
         file_ids = list(
@@ -1542,8 +1667,10 @@ class ConversationService:
             or attachment_notice
             or data.get("_invocation_context")
             or len(selected_resources) != 1
-            or not data.get("prompt", "").startswith(
-                native_commands[0].get("_token", "/" + native_commands[0]["name"])
+            or not re.match(
+                re.escape(native_commands[0].get("_token", "/" + native_commands[0]["name"]))
+                + r"(?=\s|$)",
+                data.get("prompt", ""),
             )
         ):
             selected_resources = [
@@ -1820,7 +1947,8 @@ class ConversationService:
             if kind in ("answer_delta", "reasoning_delta", "reasoning_summary") and isinstance(
                 value, dict
             ):
-                value = {**value, "text": secret_stream.feed(kind, value.get("text", ""))}
+                channel = (kind, value.get("parent_tool_use_id") or None)
+                value = {**value, "text": secret_stream.feed(channel, value.get("text", ""))}
             value = redact_secrets(value)
             if kind == "session_turn_started" and backend == "codex" and execution_mode == "native":
                 conversation_context.save_cursor(
@@ -2193,7 +2321,16 @@ class ConversationService:
                 )
                 result = await maestro.execute_workflow(self, row, data, declared)
             elif len(invocation) > 1:
-                declared = maestro.declared_plan(self.config, data, self.selected_resources(data))
+                declared = maestro.declared_plan(
+                    self.config,
+                    data,
+                    self.selected_resources(
+                        data,
+                        canonical=[invocations.Invocation(**value) for value in data["invocations"]]
+                        if data.get("invocations")
+                        else None,
+                    ),
+                )
                 result = await maestro.execute_plan(self, row, data, declared)
             elif data.get("backend", "auto") == "maestro":
                 result = await maestro.run(self, row, data)

@@ -7,7 +7,7 @@ allowlisted attributes so callers can omit it without recursively guessing keys.
 
 import json
 
-TERMINAL = frozenset({"completed", "failed", "cancelled", "interrupted"})
+TERMINAL = frozenset({"completed", "failed", "cancelled", "interrupted", "skipped"})
 ATTRIBUTE_NAMES = {
     "backend": "gen_ai.provider.name",
     "model": "gen_ai.request.model",
@@ -46,7 +46,11 @@ ATTRIBUTE_NAMES = {
 def queue_wait_reason(reason):
     if reason == "conversation":
         return "conversation_parent"
-    return reason if reason in {"provider_capacity", "writable_root", "work_item", "conversation_parent"} else "queue"
+    return (
+        reason
+        if reason in {"provider_capacity", "writable_root", "work_item", "conversation_parent"}
+        else "queue"
+    )
 
 
 def _object(value):
@@ -247,7 +251,13 @@ def events_to_spans(job, events):
             )
         elif kind == "queue_wait" and queue is not None:
             queue["attrs"]["wait_reason"] = queue_wait_reason(data.get("reason"))
-            queue["events"].append({"ts": timestamp, "name": kind, "attrs": {"wait_reason": queue["attrs"].get("wait_reason")}})
+            queue["events"].append(
+                {
+                    "ts": timestamp,
+                    "name": kind,
+                    "attrs": {"wait_reason": queue["attrs"].get("wait_reason")},
+                }
+            )
             queue["content"].append(event_content)
         elif kind == "running":
             if queue is not None:

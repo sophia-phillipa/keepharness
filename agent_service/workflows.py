@@ -177,26 +177,42 @@ def validate_requirements(value, candidate):
             raise WorkflowError("workflow_requirement_denied")
 
 
+def json_equal(value, expected):
+    """Compare JSON values recursively without Python's bool/number coercion."""
+    if type(value) in (int, float) and type(expected) in (int, float):
+        return value == expected
+    if type(value) is not type(expected):
+        return False
+    if isinstance(value, dict):
+        return value.keys() == expected.keys() and all(
+            json_equal(item, expected[key]) for key, item in value.items()
+        )
+    if isinstance(value, list):
+        return len(value) == len(expected) and all(
+            json_equal(item, other) for item, other in zip(value, expected)
+        )
+    return value == expected
+
+
 def validate_result(value, schema):
     """Check the supported JSON-schema subset without coercing model output."""
-    if value is None:
-        return schema.get("type") == "null"
     types = {
+        "null": type(None),
         "object": dict,
         "array": list,
         "string": str,
         "number": (int, float),
-        "integer": int,
+        "integer": (int, float),
         "boolean": bool,
     }
     kind = schema.get("type")
-    if kind == "null" or (kind in types and not isinstance(value, types[kind])):
+    if kind in types and not isinstance(value, types[kind]):
         return False
     if kind in ("number", "integer") and isinstance(value, bool):
         return False
-    if "enum" in schema and not any(
-        type(value) is type(option) and value == option for option in schema["enum"]
-    ):
+    if kind == "integer" and isinstance(value, float) and not value.is_integer():
+        return False
+    if "enum" in schema and not any(json_equal(value, option) for option in schema["enum"]):
         return False
     if isinstance(value, dict):
         if any(key not in value for key in schema.get("required", [])):
@@ -437,6 +453,9 @@ def load_workflow(path, available=None, resources=None):
 def parse_result(text):
     if not isinstance(text, str):
         return None
+    from .resources import unfenced
+
+    text = unfenced(text, keep_language="harness-result")
     blocks, content = [], []
     marker = None
     result_block = False
@@ -471,14 +490,33 @@ def parse_result(text):
 def evaluate_condition(condition, outputs):
     parts = condition["from"].split(".")
     value = parse_result(outputs.get(parts[0]))
+    if value is None:
+        return None
     for key in parts[1:]:
         if not isinstance(value, dict) or key not in value:
             return None
         value = value[key]
-    if value is None:
-        return None
     expected = condition.get("is", condition.get("equals"))
-    return type(value) is type(expected) and value == expected
+    return json_equal(value, expected)
+
+
+def dependency_catalog(config, project_id, *, execution_mode=None):
+    from . import maestro, resources
+
+    available = maestro.candidates(config, project_id, execution_mode=execution_mode)
+    items = [
+        item
+        for backend in dict.fromkeys(choice["backend"] for choice in available)
+        for item in resources.discover(
+            config,
+            project_id,
+            backend,
+            private=True,
+            execution_mode=execution_mode,
+            include_workflows=False,
+        )["items"]
+    ]
+    return available, items
 
 
 def discover_workflows(config, project_id, backend, *, private=False, execution_mode=None):
@@ -506,6 +544,7 @@ def discover_workflows(config, project_id, backend, *, private=False, execution_
                 )
             )
     catalogs = {item["id"]: item for item in effective_catalogs(config, project)}
+    dependencies = None
     for root, scope, identity, namespace, origin in locations:
         manifest, problems, snapshot = None, [], {}
         if scope == "catalog":
@@ -564,6 +603,28 @@ def discover_workflows(config, project_id, backend, *, private=False, execution_
                     name = document.get("name") or document["id"]
                     if not isinstance(name, str) or not resources.NAME.fullmatch(name):
                         raise WorkflowError("workflow_invalid_name")
+                    if dependencies is None:
+                        dependencies = dependency_catalog(
+                            config, project_id, execution_mode=execution_mode
+                        )
+                    item_problems = list(problems)
+                    try:
+                        Invocation("workflow", resource_id)
+                    except InvocationError:
+                        item_problems.append(
+                            "Resource path is not a portable invocation identity. Rename the source path."
+                        )
+                    try:
+                        validate_workflow(parse_document(text, path.suffix), *dependencies)
+                    except WorkflowError as error:
+                        item_problems.append(
+                            {
+                                "workflow_resource_unavailable": "A workflow step resource is missing or unavailable. Restore its resource before running this workflow.",
+                                "workflow_model_or_effort_denied": "A workflow step model or effort is unavailable. Update the workflow or enable its model.",
+                            }.get(
+                                str(error), "Workflow prerequisites are unavailable: " + str(error)
+                            )
+                        )
                     item = dict(
                         id=resource_id,
                         resource_id=resource_id,
@@ -586,9 +647,9 @@ def discover_workflows(config, project_id, backend, *, private=False, execution_
                         native_command=False,
                         maintenance=False,
                         group="Workflows",
-                        selectable=not bool(problems),
-                        unavailable_reason="; ".join(problems),
-                        preflight_hint="; ".join(problems)
+                        selectable=not bool(item_problems),
+                        unavailable_reason="; ".join(item_problems),
+                        preflight_hint="; ".join(item_problems)
                         or "Review the sequential workflow before execution.",
                         compatibility={},
                     )
@@ -635,7 +696,9 @@ def resolve_workflow(config, project_id, resource_id, available=None, *, executi
     return result
 
 
-def save_chain_as_workflow(project, plan, workflow_id, *, successful, catalogs=()):
+def save_chain_as_workflow(
+    project, plan, workflow_id, *, successful, catalogs=(), dependencies=(None, None)
+):
     if successful is not True:
         raise WorkflowError("workflow_requires_successful_chain")
     if (
@@ -662,13 +725,32 @@ def save_chain_as_workflow(project, plan, workflow_id, *, successful, catalogs=(
             for step in plan.get("steps", [])
         ],
     }
-    validate_workflow(value)
+    validate_workflow(value, *dependencies)
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / (workflow_id + ".json")
     folder_descriptor = os.open(folder, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     temporary = ".workflow-" + uuid.uuid4().hex
     published = False
     try:
+        from .resources import ResourceError, files, read
+
+        try:
+            existing_paths = list(files(folder, root, [], "workflow"))
+        except ResourceError as error:
+            raise WorkflowError(str(error)) from None
+        for existing in existing_paths:
+            if existing.suffix not in (".json", ".yaml", ".yml"):
+                continue
+            try:
+                document = validate_workflow(parse_document(read(existing), existing.suffix))
+            except WorkflowError as error:
+                if str(error) == "workflow_yaml_unavailable_use_json":
+                    raise
+                continue
+            except (ValueError, OSError):
+                continue
+            if workflow_id in (document["id"], document.get("name")):
+                raise WorkflowError("workflow_already_exists")
         descriptor = os.open(
             temporary,
             os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,

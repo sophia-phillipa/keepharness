@@ -17,13 +17,14 @@ _known_secrets = weakref.WeakKeyDictionary()
 _environment = ContextVar("integration_environment", default=None)
 _blocked_environment = ContextVar("mediated_environment", default=())
 _authority_fields = re.compile(
-    r"(\b(?:harness_session|nonce)\s*[\"']?\s*[:=]\s*[\"']?)[^\s\"'&,;}]+",
+    r"(\b(?:harness_session|harness_token|nonce|token|admin)\s*[\"']?\s*[:=]\s*[\"']?)[^\s\"'&,;}]+",
     re.IGNORECASE,
 )
 
 
 def redact_secrets(value):
     if isinstance(value, str):
+        value = re.sub(r"(\bBearer\s+)[^\s\"',;}]+", r"\1[redacted]", value, flags=re.IGNORECASE)
         value = _authority_fields.sub(r"\1[redacted]", value)
         for secret in sorted(
             {item for values in list(_known_secrets.values()) for item in values},
@@ -35,7 +36,9 @@ def redact_secrets(value):
     if isinstance(value, dict):
         return {
             redact_secrets(key): "[redacted]"
-            if isinstance(key, str) and key.lower() in ("harness_session", "nonce")
+            if isinstance(key, str)
+            and key.lower()
+            in ("harness_session", "harness_token", "nonce", "token", "admin", "authorization")
             else redact_secrets(item)
             for key, item in value.items()
         }
@@ -50,11 +53,17 @@ class SecretStream:
     """Bounded authority syntax state and known-vault prefixes across provider deltas."""
 
     def __init__(self):
+        self.channels = set()
         self.pending = {}
         self.authority = {}
         self.vault_pending = {}
 
     def feed(self, channel, value):
+        # Never evict unfinished redaction state when a provider emits many sources.
+        if channel not in self.channels:
+            if len(self.channels) >= 256:
+                return "[redacted]" if value else ""
+            self.channels.add(channel)
         # Parse authority syntax before vault literals can replace its field name.
         # Buffer the resulting text separately so authority names inside a vault
         # credential cannot be emitted ahead of its remaining bytes.
@@ -87,10 +96,15 @@ class SecretStream:
                     return "".join(output)
                 value = value[end.start() :]
                 self.authority.pop(channel, None)
-            elif mode in ("separator", "leading"):
+            elif mode in ("separator", "leading", "bearer"):
+                if mode == "bearer" and not value[0].isspace():
+                    self.authority.pop(channel, None)
+                    continue
                 prefix = re.match(r"[\s\"']*", value).group()
                 output.append(prefix)
                 value = value[len(prefix) :]
+                if mode == "bearer":
+                    self.authority[channel] = "leading"
                 if not value:
                     break
                 if mode == "separator":
@@ -106,19 +120,26 @@ class SecretStream:
                     continue
                 else:
                     self.authority.pop(channel, None)
-            match = re.search(r"\b(?:harness_session|nonce)\b", value, re.IGNORECASE)
+            match = re.search(
+                r"\b(?:harness_session|harness_token|nonce|token|admin|bearer)\b",
+                value,
+                re.IGNORECASE,
+            )
             if match:
                 output.append(value[: match.end()])
                 value = value[match.end() :]
-                self.authority[channel] = "separator"
+                self.authority[channel] = (
+                    "bearer" if match.group().lower() == "bearer" else "separator"
+                )
                 continue
-            names = {"harness_session", "nonce"}
+            names = {"harness_session", "harness_token", "nonce", "token", "admin", "bearer"}
             suffix = max(
                 (
                     size
                     for secret in names
                     for size in range(1, len(secret))
-                    if (value.lower() if secret in names else value).endswith(secret[:size])
+                    if value.lower().endswith(secret[:size])
+                    and (len(value) == size or not re.match(r"\w", value[-size - 1]))
                 ),
                 default=0,
             )

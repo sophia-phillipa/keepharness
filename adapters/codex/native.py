@@ -217,10 +217,12 @@ async def resource_inputs(rpc, project, cwd):
             raise ToolError("resource_unavailable_in_engine")
         try:
             with path.open("rb") as stream:
-                content = stream.read(65537)
+                from agent_service.resources import MAX_BODY_BYTES
+
+                content = stream.read(MAX_BODY_BYTES + 1)
         except OSError:
             raise ToolError("resource_unavailable_in_engine") from None
-        if hashlib.sha256(content).hexdigest() != item["revision"]:
+        if len(content) > MAX_BODY_BYTES or hashlib.sha256(content).hexdigest() != item["revision"]:
             raise ToolError("resource_changed")
         result.append({"type": "skill", "name": item["name"], "path": str(path)})
     return result

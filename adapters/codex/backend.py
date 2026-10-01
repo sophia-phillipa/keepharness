@@ -33,7 +33,7 @@ async def run_native(config, prompt, event, project, model, effort, session_dir,
     with tempfile.TemporaryDirectory(prefix="codex-agents-", dir=workspace.home) as directory:
         if workspace.permissions.get("read"):
             for item in project.get("_resources", []):
-                if item["kind"] != "agent":
+                if item["kind"] != "agent" or item.get("mode") == "conversational":
                     continue
                 path = copy_resource(item, directory, ".toml")
                 key = "agents." + json.dumps(item["name"])

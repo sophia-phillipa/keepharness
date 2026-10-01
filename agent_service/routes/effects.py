@@ -30,6 +30,9 @@ async def reconcile(request, service, identity):
     result = await service.effects.reconcile(
         request.path_params["effect"], identity, data.get("decision")
     )
+    identity = service.identity(request, revalidate=True)
+    require_approval_session(request, service.config, identity, revalidate=True)
+    service.job(identity, result["job_id"])
     return JSONResponse(
         service.effects.public(result["effect_id"]), headers={"Cache-Control": "no-store"}
     )

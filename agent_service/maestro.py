@@ -23,7 +23,7 @@ def execution(service, row, kind, metadata):
         "attempt": 1,
     }
     service.event(row["id"], kind, metadata)
-    outcome = "completed"
+    outcome = "skipped" if metadata.get("skipped") else "completed"
     try:
         yield metadata
     except asyncio.CancelledError:
@@ -458,7 +458,11 @@ def binding_valid(service, row, data, plan, expected):
 
 
 def invalidate_downstream(service, job_id, index):
+    effects = service.effects.for_job(job_id)
+    consumed = {effect["gate_id"] for effect in effects if effect["status"] == "done"}
     for gate in service.gates.repository.for_job(job_id):
+        if gate["gate_id"] in consumed:
+            continue
         spec = json.loads(gate["spec"])
         step = spec.get("step")
         # Publication gates from older executions have no numeric step. Conservatively
@@ -481,7 +485,7 @@ def invalidate_downstream(service, job_id, index):
                 pending = service.approvals.get(gate["gate_id"])
                 if pending and not pending[1].done():
                     pending[1].set_result({"approved": False, "choice": "deny"})
-    for effect in service.effects.for_job(job_id):
+    for effect in effects:
         if effect["status"] == "prepared":
             service.effects._status(
                 effect["effect_id"], "invalidated", reason="workflow_binding_changed"
@@ -709,20 +713,22 @@ async def execute_plan(service, row, data, declared, *, planning_result=None, co
                 "index": index,
                 **step,
                 "work_item": work_item,
+                "skipped": skipped,
             },
         ) as metadata:
-            service.event(
-                row["id"],
-                "invocation_started",
-                {
-                    **metadata,
-                    "invocation": step["invocation"],
-                    "role": step["role"],
-                    "backend": step["backend"],
-                    "model": step["model"],
-                    "effort": step["effort"],
-                },
-            )
+            if not skipped:
+                service.event(
+                    row["id"],
+                    "invocation_started",
+                    {
+                        **metadata,
+                        "invocation": step["invocation"],
+                        "role": step["role"],
+                        "backend": step["backend"],
+                        "model": step["model"],
+                        "effort": step["effort"],
+                    },
+                )
             payload = {
                 **data,
                 **execution_payload(metadata),
@@ -803,20 +809,21 @@ async def execute_plan(service, row, data, declared, *, planning_result=None, co
                 await asyncio.gather(*pending_tasks, return_exceptions=True)
                 service.effects.execution_barriers.pop(metadata["execution_id"], None)
                 service.effects.execution_validators.pop(metadata["execution_id"], None)
-            service.event(
-                row["id"],
-                "invocation_completed",
-                {
-                    **metadata,
-                    "invocation": step["invocation"],
-                    "role": step["role"],
-                    "backend": result.get("backend", step["backend"]),
-                    "model": result.get("model", step["model"]),
-                    "outcome": "failed"
-                    if result.get("incomplete") or result.get("error")
-                    else "done",
-                },
-            )
+            if not skipped:
+                service.event(
+                    row["id"],
+                    "invocation_completed",
+                    {
+                        **metadata,
+                        "invocation": step["invocation"],
+                        "role": step["role"],
+                        "backend": result.get("backend", step["backend"]),
+                        "model": result.get("model", step["model"]),
+                        "outcome": "failed"
+                        if result.get("incomplete") or result.get("error")
+                        else "done",
+                    },
+                )
             record = {"index": index, **step, **metadata, "result": result}
             results.append(record)
             write_json(folder / f"step-{index}.json", record)
@@ -843,7 +850,7 @@ async def execute_plan(service, row, data, declared, *, planning_result=None, co
                     "execution_id": r["execution_id"],
                     "parent_execution_id": r["parent_execution_id"],
                     "attempt": r["attempt"],
-                    "outcome": "completed",
+                    "outcome": "skipped" if r["result"].get("skipped") else "completed",
                     "work_item": r.get("work_item"),
                     "role": r["role"],
                     "backend": r["backend"],

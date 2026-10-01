@@ -7,6 +7,9 @@ const { mount } = require('./run-console-fixture.cjs');
   try {
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
     let latest = false, currentPending = false;
+    let holdActivity = false, releaseActivity, releaseConversation;
+    const activityReady = new Promise(resolve => { releaseActivity = resolve; });
+    const conversationReady = new Promise(resolve => { releaseConversation = resolve; });
     const calls = [];
     const jobs = () => [
       { job_id: 'a1', conversation_id: 'a', project_id: 'p', state: 'running', created: 1 },
@@ -27,11 +30,13 @@ const { mount } = require('./run-console-fixture.cjs');
       ] } };
       if (/\/v1\/conversations\/[ab]$/.test(url.pathname)) {
         const id = url.pathname.at(-1);
+        if (id === 'a') await conversationReady;
         return { json: { title: 'Conversation ' + id.toUpperCase(), turns: [{ id: id + '1', project: id === 'a' ? 'p' : 'q', state: 'completed', request: { prompt: id, model: 'fixture' }, result: { answer: 'Previous response' } }] } };
       }
       if (/\/v1\/jobs\/[ab][12]$/.test(url.pathname)) return { json: { state: 'completed', result: { answer: 'Previous response' } } };
       if (url.pathname.endsWith('/spans')) return { json: { spans: [] } };
       if (url.pathname === '/v1/activity') {
+        if (holdActivity) await activityReady;
         const needs = [gate('b1', 'b', 'q'), ...(currentPending ? [gate('a2', 'a', 'p')] : [])];
         const scoped = url.searchParams.get('project_id');
         return { json: { jobs: jobs().filter(j => !scoped || j.project_id === scoped),
@@ -39,8 +44,17 @@ const { mount } = require('./run-console-fixture.cjs');
           counts: { running: jobs().length, queued: 0, needs_you: needs.filter(j => !scoped || j.project_id === scoped).length }, providers: [] } };
       }
     });
+    await page.waitForFunction(() => document.querySelector('#console-run').value === 'b1');
     await page.locator('#history .conversation-title').filter({ hasText: 'Conversation A' }).click();
+    holdActivity = true;
+    const pendingActivity = page.waitForRequest(request => new URL(request.url()).pathname === '/v1/activity');
     await page.keyboard.press('Control+j');
+    await pendingActivity;
+    await page.locator('.run-plan-approval').waitFor();
+    releaseConversation();
+    await page.waitForFunction(() => !loading && conversation === 'a');
+    holdActivity = false;
+    releaseActivity();
     await page.waitForFunction(() => document.querySelector('#console-run').value === 'a1');
     assert.equal(await page.locator('.run-plan-approval').count(), 0, 'another conversation plan must never appear on this run');
     assert.match(await page.locator('#run-status-toggle').innerText(), /1 needs you/);
@@ -51,8 +65,8 @@ const { mount } = require('./run-console-fixture.cjs');
     await page.waitForFunction(() => document.querySelector('#console-run').value === 'a2');
     await page.locator('.run-plan-approval').waitFor();
     await page.getByRole('button', { name: 'Edit plan', exact: true }).click();
-    assert.match(await page.getByLabel('Editable Maestro plan').inputValue(), /Task for a2/);
-    assert.doesNotMatch(await page.getByLabel('Editable Maestro plan').inputValue(), /Task for b1/);
+    assert.match(await page.getByLabel('Task for step 1').inputValue(), /Task for a2/);
+    assert.doesNotMatch(await page.getByLabel('Task for step 1').inputValue(), /Task for b1/);
     await page.getByRole('tab', { name: 'Runs', exact: true }).click();
     await page.locator('#console-project').selectOption('p');
     await page.getByRole('button', { name: 'Apply filters' }).click();

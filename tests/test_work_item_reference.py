@@ -178,6 +178,10 @@ def test_retry_keeps_idempotency_when_parent_reference_changes(tmp_path, monkeyp
     assert service.submit(identity, request, idem="retry") == {
         "job_id": first["job_id"],
         "reused": True,
+        "backend": "codex",
+        "model": "gpt-6-astra",
+        "effort": "low",
+        "execution_mode": "native",
     }
     assert service.job(identity, first["job_id"])["work_item"] == "TASK-1"
     service.db.close()

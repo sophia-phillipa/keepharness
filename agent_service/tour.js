@@ -2,7 +2,7 @@
   "use strict";
 
   const STORAGE_KEY = "tail-harness-tour-seen";
-  const RELEASE = "0.13.7";
+  const RELEASE = "0.13.12";
   const steps = [
     { target: "top-search", title: "Search the workspace", text: "Search runs and conversations, steps in the current plan, and loaded files from one place. Use Ctrl/⌘+K to open it without leaving the keyboard." },
     { target: "quota-meters", title: "Provider quota", text: "These meters show the latest known allowance for each configured provider. Providers without quota data stay out of the way." },
@@ -141,7 +141,20 @@
     if (!visible(target)) { show(index, 1); return; }
     const gap = 14;
     const edge = 12;
-    const rect = target.getBoundingClientRect();
+    const rect = { ...target.getBoundingClientRect().toJSON() };
+    for (let ancestor = target.parentElement; ancestor; ancestor = ancestor.parentElement) {
+      const style = getComputedStyle(ancestor), clip = ancestor.getBoundingClientRect();
+      if (/(auto|scroll|hidden|clip)/.test(style.overflowY)) {
+        rect.top = Math.max(rect.top, clip.top);
+        rect.bottom = Math.max(rect.top, Math.min(rect.bottom, clip.bottom));
+      }
+      if (/(auto|scroll|hidden|clip)/.test(style.overflowX)) {
+        rect.left = Math.max(rect.left, clip.left);
+        rect.right = Math.max(rect.left, Math.min(rect.right, clip.right));
+      }
+    }
+    rect.width = rect.right - rect.left;
+    rect.height = rect.bottom - rect.top;
     const spotlight = root.querySelector(".tour-spotlight");
     const card = root.querySelector("#tour-card");
     const pointer = root.querySelector(".tour-pointer");

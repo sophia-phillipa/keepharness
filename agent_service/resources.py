@@ -9,6 +9,8 @@ import tomllib
 from itertools import islice
 from pathlib import Path
 
+from .invocations import Invocation, InvocationError
+
 MAX_METADATA_BYTES = 65536
 MAX_BODY_BYTES = 262144
 MAX_FILES = 500
@@ -83,31 +85,84 @@ def markdown(text):
     raise ValueError("invalid_frontmatter")
 
 
-def unfenced(text, *, preserve_offsets=False):
-    """Return prose outside Markdown fences for static expansion checks."""
+def unfenced(text, *, preserve_offsets=False, keep_language=None):
+    """Exclude fenced/indented code while retaining Markdown container boundaries."""
     output = []
     marker = None
+    marker_depth = marker_indent = list_indent = 0
+    previous_blank = True
+    indented = False
+    quote_in_list = False
+    keep_block = False
     for line in text.splitlines(keepends=True):
-        content = re.sub(r"^(?: {0,3}>[ \t]?)+", "", line)
-        match = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", content)
-        if match:
-            fence, suffix = match.groups()
-            if marker is None:
-                if fence[0] != "`" or "`" not in suffix:
-                    marker = fence
-                    if preserve_offsets:
-                        output.append(" " * len(line))
-                    continue
-            elif fence[0] == marker[0] and len(fence) >= len(marker) and not suffix.strip():
+        source = line
+        if quote_in_list:
+            if line.startswith(" " * list_indent):
+                line = line[list_indent:]
+            elif line.strip():
+                quote_in_list = False
+                list_indent = 0
+        prefix = re.match(r"^(?: {0,3}>[ \t]?)+", line)
+        depth = prefix.group().count(">") if prefix else 0
+        content = line[prefix.end() :] if prefix else line
+        blank = not content.strip()
+        indentation = len(content) - len(content.lstrip(" "))
+        if marker is not None and depth < marker_depth:
+            marker = None
+        if not blank and indentation < list_indent and not quote_in_list:
+            list_indent = 0
+            if marker_indent:
                 marker = None
-                if preserve_offsets:
-                    output.append(" " * len(line))
-                continue
         if marker is None:
-            output.append(line if preserve_offsets else line.rstrip("\r\n"))
+            item = re.match(r"^ {0,3}(?:[-+*]|[0-9]+[.)]) +", content)
+            if item:
+                list_indent = item.end()
+                content = content[item.end() :]
+            elif list_indent and not quote_in_list:
+                content = content[list_indent:]
+        elif marker_indent and not quote_in_list:
+            content = content[marker_indent:]
+        nested_quote = re.match(r"^(?: {0,3}>[ \t]?)+", content)
+        if nested_quote:
+            quote_in_list = bool(list_indent)
+            depth += nested_quote.group().count(">")
+            content = content[nested_quote.end() :]
+        keep_line = keep_block and marker is not None
+        code_indent = bool(re.match(r"^(?: {4}|\t)", content))
+        indented = marker is None and (
+            code_indent and (previous_blank or indented) or blank and indented
+        )
+        hidden = bool(marker) or indented
+        match = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", content)
+        if match and not indented:
+            fence, suffix = match.groups()
+            if marker is None and (fence[0] != "`" or "`" not in suffix):
+                marker, marker_depth, marker_indent = fence, depth, list_indent
+                keep_block = (
+                    keep_language is not None
+                    and not depth
+                    and not list_indent
+                    and suffix.strip() == keep_language
+                )
+                keep_line = keep_block
+                hidden = True
+            elif (
+                marker is not None
+                and depth == marker_depth
+                and fence[0] == marker[0]
+                and len(fence) >= len(marker)
+                and not suffix.strip()
+            ):
+                marker = None
+                hidden = True
+        if not hidden or keep_line:
+            output.append(
+                source if preserve_offsets or keep_language is not None else source.rstrip("\r\n")
+            )
         elif preserve_offsets:
-            output.append(" " * len(line))
-    return ("" if preserve_offsets else "\n").join(output)
+            output.append(" " * len(source))
+        previous_blank = blank
+    return ("" if preserve_offsets or keep_language is not None else "\n").join(output)
 
 
 def first_sentence(body):
@@ -183,7 +238,16 @@ def files(base, boundary, global_roots, kind):
         raise ResourceError("resource_scan_limit")
 
 
-def discover(config, project_id, backend, model=None, *, private=False, execution_mode=None):
+def discover(
+    config,
+    project_id,
+    backend,
+    model=None,
+    *,
+    private=False,
+    execution_mode=None,
+    include_workflows=True,
+):
     from .catalog_manifest import load_manifest, preflight
     from .catalog_pin import effective_catalogs, snapshot_catalogs
     from .integrations import integration_preflight
@@ -192,8 +256,12 @@ def discover(config, project_id, backend, model=None, *, private=False, executio
     engine = ENGINES.get(backend)
     result = {
         "engine": engine,
-        **discover_workflows(
-            config, project_id, backend, private=private, execution_mode=execution_mode
+        **(
+            discover_workflows(
+                config, project_id, backend, private=private, execution_mode=execution_mode
+            )
+            if include_workflows
+            else {"items": [], "warnings": []}
         ),
     }
     if engine is None:
@@ -250,12 +318,15 @@ def discover(config, project_id, backend, model=None, *, private=False, executio
                 ancestors.extend(pending)
                 break
         for folder in ancestors:
+            identity = "project/" + project_id
+            if folder != root:
+                identity += "/ancestor/" + str(len(root.relative_to(folder).parts))
             add(
                 folder / ("." + engine),
                 "project",
                 engine,
                 folder,
-                "project/" + project_id,
+                identity,
                 folder,
             )
             if engine in ("codex", "gemini"):
@@ -265,7 +336,7 @@ def discover(config, project_id, backend, model=None, *, private=False, executio
                     "agents",
                     folder,
                     "skill",
-                    "project/" + project_id,
+                    identity,
                     folder,
                 )
             if engine == "codex":
@@ -275,7 +346,7 @@ def discover(config, project_id, backend, model=None, *, private=False, executio
                     "codex",
                     folder,
                     "command",
-                    "project/" + project_id,
+                    identity,
                     folder,
                 )
         if engine == "claude":
@@ -526,6 +597,11 @@ def discover(config, project_id, backend, model=None, *, private=False, executio
                     identity = source_spec["identity"] + "/" + relative
                     if len(identity) > 1000:
                         reason = "Resource path exceeds the invocation identity limit."
+                    elif kind in ("agent", "command", "skill"):
+                        try:
+                            Invocation(kind, identity)
+                        except InvocationError:
+                            reason = "Resource path is not a portable invocation identity. Rename the source path."
                     deps_revisions, dependency_texts = dependency_snapshot(
                         path, meta, source_spec["identity_root"]
                     )

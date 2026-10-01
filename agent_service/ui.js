@@ -163,19 +163,45 @@ function triggerAtCaret() {
   return { prefix: match[2], query: match[3], start, end: before.length };
 }
 function unfencedPrompt(text) {
-  // Preserve offsets while excluding fenced examples from invocation boundaries.
-  let marker = null;
-  return text.split(/(?<=\n)/).map(line => {
-    const content = line.replace(/^(?: {0,3}>[ \t]?)+/, "");
-    const fence = /^ {0,3}(`{3,}|~{3,})(.*)/.exec(content);
-    let hidden = !!marker;
-    if (fence) {
-      if (!marker && (fence[1][0] !== "`" || !fence[2].includes("`"))) { marker = fence[1]; hidden = true; }
-      else if (marker && fence[1][0] === marker[0] && fence[1].length >= marker.length && !fence[2].trim()) { marker = null; hidden = true; }
+  // Match resources.unfenced while preserving every original character offset.
+  let marker = null, markerDepth = 0, markerIndent = 0, listIndent = 0;
+  let previousBlank = true, indented = false, quoteInList = false;
+  return text.split(/(?<=\n)/).map(source => {
+    let line = source;
+    if (quoteInList) {
+      if (line.startsWith(" ".repeat(listIndent))) line = line.slice(listIndent);
+      else if (line.trim()) { quoteInList = false; listIndent = 0; }
     }
-    return hidden ? " ".repeat(line.length) : line;
+    const prefix = /^(?: {0,3}>[ \t]?)+/.exec(line);
+    let depth = prefix ? (prefix[0].match(/>/g) || []).length : 0;
+    let content = prefix ? line.slice(prefix[0].length) : line;
+    const blank = !content.trim(), indentation = /^ */.exec(content)[0].length;
+    if (marker && depth < markerDepth) marker = null;
+    if (!blank && indentation < listIndent && !quoteInList) { listIndent = 0; if (markerIndent) marker = null; }
+    if (!marker) {
+      const item = /^ {0,3}(?:[-+*]|[0-9]+[.)]) +/.exec(content);
+      if (item) { listIndent = item[0].length; content = content.slice(listIndent); }
+      else if (listIndent && !quoteInList) content = content.slice(listIndent);
+    } else if (markerIndent && !quoteInList) content = content.slice(markerIndent);
+    const nestedQuote = /^(?: {0,3}>[ \t]?)+/.exec(content);
+    if (nestedQuote) {
+      quoteInList = !!listIndent; depth += (nestedQuote[0].match(/>/g) || []).length;
+      content = content.slice(nestedQuote[0].length);
+    }
+    const codeIndent = /^(?: {4}|\t)/.test(content);
+    indented = !marker && ((codeIndent && (previousBlank || indented)) || (blank && indented));
+    let hidden = !!marker || indented;
+    const fence = /^ {0,3}(`{3,}|~{3,})(.*)/.exec(content);
+    if (fence && !indented) {
+      if (!marker && (fence[1][0] !== "`" || !fence[2].includes("`"))) {
+        marker = fence[1]; markerDepth = depth; markerIndent = listIndent; hidden = true;
+      } else if (marker && depth === markerDepth && fence[1][0] === marker[0] && fence[1].length >= marker.length && !fence[2].trim()) { marker = null; hidden = true; }
+    }
+    previousBlank = blank;
+    return hidden ? " ".repeat(source.length) : source;
   }).join("");
 }
+
 function selectedOccurrences() {
   const prose = unfencedPrompt($("prompt").value);
   const used = new Set();
@@ -324,12 +350,17 @@ function setActiveResourceOption(option = null) {
   const menu = $("resource-menu");
   for (const candidate of menu.querySelectorAll("[role=option]"))
     candidate.setAttribute("aria-selected", String(candidate === option));
+  $("prompt").setAttribute("aria-expanded", String(menu.matches(":popover-open")));
+  if (option) $("prompt").setAttribute("aria-activedescendant", option.id);
+  else $("prompt").removeAttribute("aria-activedescendant");
 }
 function closeResourceMenu() {
   resourceRequest++;
   const menu = $("resource-menu");
   if (menu.matches(":popover-open")) menu.hidePopover();
   menu.replaceChildren();
+  setActiveResourceOption();
+  $("resource-status").textContent = "";
 }
 function resourceKeydown(event) {
   const menu = $("resource-menu");
@@ -340,7 +371,8 @@ function resourceKeydown(event) {
   )
     return false;
   const options = [...menu.querySelectorAll("[role=option]")],
-    index = options.indexOf(document.activeElement);
+    index = options.indexOf(document.activeElement),
+    chosen = options[index] || options.find(option => option.getAttribute("aria-selected") === "true") || options[0];
   if (
     ["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key) &&
     options.length
@@ -365,7 +397,7 @@ function resourceKeydown(event) {
   if (event.key === "Enter" && !event.shiftKey && options.length) {
     event.preventDefault();
     event.stopPropagation();
-    options[index < 0 ? 0 : index].click();
+    chosen.click();
     return true;
   }
   if (event.key === "Escape") {
@@ -375,15 +407,23 @@ function resourceKeydown(event) {
     $("prompt").focus();
     return true;
   }
-  if (event.key === "Tab" && !event.shiftKey && options.length) {
+  if (event.key === "Tab" && options.length) {
+    if (event.shiftKey || chosen.getAttribute("aria-disabled") === "true") {
+      closeResourceMenu();
+      $("prompt").focus();
+      return false;
+    }
     event.preventDefault();
     event.stopPropagation();
-    options[index < 0 ? 0 : index].click();
+    chosen.click();
     return true;
   }
   return false;
 }
 $("resource-menu").addEventListener("keydown", resourceKeydown);
+$("resource-menu").addEventListener("toggle", event => {
+  if (event.newState === "closed") setActiveResourceOption();
+});
 function resourceIcon(item) {
   const origin = String(item.origin || "").toLowerCase(),
     symbol = origin.includes("claude")
@@ -597,8 +637,13 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
     menu.querySelector('[role=option]:not([aria-disabled="true"])') ||
       menu.querySelector("[role=option]"),
   );
+  $("resource-status").textContent = loading ? "Refreshing resources…" :
+    (menu.querySelector(".resource-empty")?.textContent || "");
   const rect = $("prompt").getBoundingClientRect();
-  menu.style.maxHeight = Math.max(24, rect.top - 20) + "px";
+  const availableHeight = Math.max(24, rect.top - 20);
+  menu.style.maxHeight = availableHeight + "px";
+  // Reserve the majority of the visible menu for selectable rows, even at native zoom.
+  menu.style.setProperty("--resource-preview-height", Math.max(0, Math.min(160, (availableHeight - 24) * 0.4)) + "px");
   menu.style.left =
     Math.max(12, Math.min(rect.left, innerWidth - menu.offsetWidth - 12)) +
     "px";
@@ -819,6 +864,7 @@ const labels = {
   reasoning_summary: "Reasoning summary",
   interrupted: "Interrupted",
   queued: "Queued",
+  queue_wait: "Waiting in the queue",
   running: "Running",
   thinking: "Thinking",
   planning: "Preparing the run",
@@ -993,6 +1039,7 @@ const userErrors = {
   workflow_requires_successful_chain: "Only a completed, successful chain can be saved as a workflow.",
   workflow_resource_unavailable: "A required workflow resource is missing or unavailable. Refresh the catalog.",
   workflow_sequential_only: "This release supports sequential workflows without parallel or repeat steps.",
+  cancellation_retry_required: "Cancellation was not saved because storage is busy. Try Cancel again.",
   workflow_source_busy: "Wait for the original run to finish or cancel it before recovery.",
   workflow_step_not_approved: "The workflow step was not approved. No further steps ran.",
   workflow_too_large: "The workflow exceeds the supported document size.",
@@ -1898,7 +1945,7 @@ function conversationUpdated(c = {}) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 function waitReasonLabel(reason) {
-  return ({ human_approval: "Waiting for your approval", conversation_parent: "Waiting for the previous response", queue: "Waiting in the queue" })[reason] || reason;
+  return ({ human_approval: "Waiting for your approval", conversation_parent: "Waiting for the previous response", provider_capacity: "Waiting for another task on this provider", conversation: "Waiting for this conversation", work_item: "Waiting for this work item", writable_root: "Waiting for access to project files", queue: "Waiting in the queue" })[reason] || reason;
 }
 function conversationSummary(c = {}) {
   if (c.live_wait_reason || c.wait_reason)
@@ -2127,6 +2174,8 @@ function conversationRow(c) {
   });
   actions.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
       actions.open = false;
       trigger.focus();
     }
@@ -3019,7 +3068,7 @@ function messageAttachments(message, attachments = []) {
   if (gallery.childElementCount) message.body.prepend(gallery);
 }
 function messageResourceChips(message, selections = []) {
-  const valid = selections.filter(
+  const valid = (selections || []).filter(
     (selection) => typeof selection?.token === "string" && selection.token,
   );
   if (!valid.length) return;
@@ -3403,6 +3452,7 @@ function showMaestroPlan(data = {}) {
     model.className = "backend-chip";
     model.dataset.backend = step.backend || "";
     model.textContent = [step.backend, step.model].filter(Boolean).join(" · ");
+    model.title = model.textContent;
     const effort = document.createElement("span");
     effort.textContent = step.effort || "";
     const task = document.createElement("p");
@@ -3534,13 +3584,9 @@ function event(e) {
       void quota();
     return;
   } else {
-    status(labels[e.type] || e.type);
+    status(e.type === "queue_wait" ? waitReasonLabel(e.data?.reason || "queue") : labels[e.type] || e.type);
   }
-  if (active?.el.querySelector('.maestro-plan-card[data-state="pending"]')) {
-    status("Waiting for plan approval");
-    active.chip.textContent = "Waiting for plan approval";
-    setActivitySummary(active, "Waiting for plan approval");
-  }
+  pendingGateStatus();
   // Deltas scroll after their batched render; reading layout here per delta
   // would force a reflow for each one (F-87).
   if (e.type !== "answer_delta") scroll();
@@ -3682,6 +3728,9 @@ async function result(
       !files.length
     ) {
       $("prompt").value = r.request.prompt;
+      resourceSelections = (r.request.resource_selections || []).map(ref => ({ ...ref }));
+      syncResourceSelections();
+      renderResourceChips();
       updateComposer();
       saveView();
     }
@@ -3715,6 +3764,7 @@ async function result(
     if (data.incomplete)
       status("Incomplete response. Narrow the scope and try again.");
     else status(condition?.title || terminal[r.state] || r.state);
+    if (!terminal[r.state]) pendingGateStatus();
     if (data.deployment)
       status(
         data.deployment.applied
@@ -3765,6 +3815,10 @@ async function watch(retries = 0) {
       headers: { "Last-Event-ID": String(last) },
       signal: controller.signal,
     });
+    if (controller !== current) return;
+    $("activity-state").textContent = "● Tracking execution";
+    status("Tracking execution…");
+    pendingGateStatus();
     const reader = r.body.getReader(),
       decoder = new TextDecoder();
     let buffer = "";
@@ -3824,8 +3878,8 @@ async function load(id, legacy = false, restoredView = null) {
     savedDraft = readDraft("conversation-draft:" + id);
   }
   const request = ++conversationLoad,
-    priorDraft = $("prompt").value;
-  currentMaestroPlan = null;
+    priorDraft = $("prompt").value,
+    priorTracking = (!!controller && busy) || streamDisconnected;
   loading = true;
   if (controller) {
     controller.abort();
@@ -3844,6 +3898,9 @@ async function load(id, legacy = false, restoredView = null) {
     }
     if (request !== conversationLoad) return;
     if (!data.turns?.length) throw Error("Empty conversation");
+    streamDisconnected = false;
+    $("resume-execution").hidden = true;
+    currentMaestroPlan = null;
     setActivePersona(null);
     queuedTurns = [];
     parent = null;
@@ -3988,6 +4045,10 @@ async function load(id, legacy = false, restoredView = null) {
   } catch (e) {
     if (request !== conversationLoad) return;
     loading = false;
+    if (priorTracking && job) {
+      streamDisconnected = true;
+      $("resume-execution").hidden = false;
+    }
     setBusy(false);
     $("prompt").value = priorDraft;
     updateComposer();
@@ -4171,7 +4232,7 @@ async function send() {
     );
     return;
   }
-  const m = selected();
+  let m = selected();
   if (!supportedExecutionModes().includes(executionMode)) {
     status(
       parent
@@ -4236,6 +4297,15 @@ async function send() {
       },
       body: JSON.stringify(data),
     });
+    if (r.execution_mode) executionMode = r.execution_mode;
+    const executor = models.find(model => model.id === r.model && model.backend === r.backend);
+    if (executor) {
+      m = executor;
+      $("model").value = executor.id;
+      updateEfforts();
+      if (r.effort) $("effort").value = r.effort;
+      rememberSelection();
+    }
     if (releasePersonaPending) setActivePersona(null);
     clearSubmission();
     $("welcome")?.remove();
@@ -4311,12 +4381,52 @@ function renderProjectFileSelection() {
 function renderProjectFileTree() {
   const entries =
     fileTree.cache.get(fileTree.rootId + "\0" + fileTree.basePath) || [];
+  const focus = projectTreeFocus($("files-tree"));
   $("files-tree").replaceChildren();
   const group = document.createElement("ul");
   group.setAttribute("role", "group");
   renderProjectFileEntries(group, entries);
   $("files-tree").append(group);
+  restoreProjectTreeFocus($("files-tree"), fileTree, focus);
   renderProjectFileSelection();
+}
+function projectTreeFocus(container) {
+  const active = document.activeElement;
+  return container.contains(active) ? {
+    path: active.closest('[role="treeitem"]')?.dataset.path,
+    toggle: active.classList.contains("file-chevron"),
+  } : null;
+}
+function restoreProjectTreeFocus(container, tree, focus) {
+  const rows = [...container.querySelectorAll('[role="treeitem"]')];
+  const path = focus?.path || tree.focusedPath;
+  const row = rows.find(item => item.dataset.path === path) || rows.findLast(item => path?.startsWith(item.dataset.path + "/")) || rows[0];
+  if (!row) return;
+  row.tabIndex = 0;
+  tree.focusedPath = row.dataset.path;
+  if (focus) (focus.toggle ? row.querySelector(".file-chevron") || row : row).focus({preventScroll:true});
+}
+function navigateProjectTree(event, item, entry, tree) {
+  if (!["ArrowUp", "ArrowDown", "Home", "End", "ArrowRight", "ArrowLeft"].includes(event.key)) return false;
+  event.preventDefault();
+  event.stopPropagation();
+  const container = tree.foldersOnly ? $("project-directory-list") : $("files-tree");
+  const rows = [...container.querySelectorAll('[role="treeitem"]')];
+  const index = rows.indexOf(item);
+  let next;
+  if (event.key === "Home") next = rows[0];
+  else if (event.key === "End") next = rows.at(-1);
+  else if (event.key === "ArrowUp") next = rows[Math.max(0, index - 1)];
+  else if (event.key === "ArrowDown") next = rows[Math.min(rows.length - 1, index + 1)];
+  else if (event.key === "ArrowRight" && entry.type === "directory") {
+    if (tree.expanded.has(entry.path)) next = item.querySelector('[role="treeitem"]');
+    else void (tree.foldersOnly ? toggleProjectFolder(entry) : toggleProjectDirectory(entry));
+  } else if (event.key === "ArrowLeft") {
+    if (tree.expanded.has(entry.path)) void (tree.foldersOnly ? toggleProjectFolder(entry) : toggleProjectDirectory(entry));
+    else next = item.parentElement.closest('[role="treeitem"]');
+  }
+  next?.focus();
+  return true;
 }
 function renderProjectFileEntries(list, entries, tree = fileTree) {
   for (const entry of entries.filter(
@@ -4325,14 +4435,22 @@ function renderProjectFileEntries(list, entries, tree = fileTree) {
     const item = document.createElement("li");
     item.setAttribute("role", "treeitem");
     item.setAttribute("aria-selected", String(tree.selected.has(entry.path)));
-    item.tabIndex = 0;
+    item.tabIndex = -1;
     item.dataset.path = entry.path;
+    item.addEventListener("focusin", event => {
+      if (event.target.closest('[role="treeitem"]') !== item) return;
+      const container = tree.foldersOnly ? $("project-directory-list") : $("files-tree");
+      for (const row of container.querySelectorAll('[role="treeitem"]')) row.tabIndex = row === item ? 0 : -1;
+      tree.focusedPath = entry.path;
+    });
     const row = document.createElement("div");
     row.className = "project-file-row";
     if (entry.type === "directory") {
       const open = tree.expanded.has(entry.path),
         toggle = document.createElement("button");
       toggle.type = "button";
+      toggle.tabIndex = -1;
+      item.setAttribute("aria-expanded", String(open));
       toggle.className = "file-chevron";
       toggle.setAttribute(
         "aria-label",
@@ -4383,15 +4501,10 @@ function renderProjectFileEntries(list, entries, tree = fileTree) {
       };
       item.onkeydown = (e) => {
         if (e.target !== item) return;
+        if (navigateProjectTree(e, item, entry, tree)) return;
         if ([" ", "Enter"].includes(e.key)) {
           e.preventDefault();
           selectProjectFolder(entry);
-        } else if (
-          (e.key === "ArrowRight" && !tree.expanded.has(entry.path)) ||
-          (e.key === "ArrowLeft" && tree.expanded.has(entry.path))
-        ) {
-          e.preventDefault();
-          void toggleProjectFolder(entry);
         }
       };
       list.append(item);
@@ -4406,6 +4519,8 @@ function renderProjectFileEntries(list, entries, tree = fileTree) {
       selectProjectFileEntry(item, entry, e);
     };
     item.onkeydown = (e) => {
+      if (e.target.closest('[role="treeitem"]') !== item) return;
+      if (navigateProjectTree(e, item, entry, tree)) return;
       if (e.target !== item) return;
       if (e.key === " ") {
         e.preventDefault();
@@ -5047,9 +5162,20 @@ $("theme-toggle").onclick = () => {
   window.TailTheme?.apply(dark ? "porcelain" : "amethyst");
   $("theme-toggle-label").textContent = dark ? "Light" : "Dark";
 };
+function positionAttentionPopover() {
+  const popover = $("attention-popover");
+  if (popover.hidden) return;
+  const anchor = $("attention-bell").getBoundingClientRect();
+  popover.style.right = "auto";
+  popover.style.left = Math.max(12, Math.min(anchor.right - popover.offsetWidth, innerWidth - popover.offsetWidth - 12)) + "px";
+  popover.style.top = anchor.bottom + 8 + "px";
+}
+window.addEventListener("resize", positionAttentionPopover);
+new ResizeObserver(positionAttentionPopover).observe($("provider-quotas"));
 $("attention-bell").onclick = () => {
   const popover = $("attention-popover");
   popover.hidden = !popover.hidden;
+  positionAttentionPopover();
   $("attention-bell").setAttribute("aria-expanded", String(!popover.hidden));
 };
 const updateAttentionLabel = () => {
@@ -5125,8 +5251,13 @@ let startupTimer,
   initializing = false,
   probing = false,
   interfaceReady = false,
-  readinessRetryAt = 0;
+  readinessRetryAt = 0,
+  readinessFocus = null;
 function setReadiness(ready, message = "") {
+  if (!ready && interfaceReady) {
+    const active = document.activeElement;
+    readinessFocus = active.closest("#settings-dialog") ? $("settings") : active;
+  }
   if (!ready) window.tailHarnessTour?.stop(false);
   interfaceReady = ready;
   for (const node of [
@@ -5143,7 +5274,13 @@ function setReadiness(ready, message = "") {
     : message ||
       "Waiting for the server… The connection will be checked automatically.";
   document.body.dataset.connectionReady = String(ready);
-  if (ready) { syncWorkspaceModal(); document.dispatchEvent(new Event("tail:ready")); }
+  if (ready) {
+    syncWorkspaceModal();
+    if (readinessFocus?.isConnected && readinessFocus.checkVisibility() && !readinessFocus.closest("[inert]"))
+      readinessFocus.focus({ preventScroll: true });
+    readinessFocus = null;
+    document.dispatchEvent(new Event("tail:ready"));
+  }
   if (!ready) {
     for (const menu of document.querySelectorAll(".composer-menu:popover-open"))
       menu.hidePopover();
@@ -6641,7 +6778,7 @@ function updateLatest() {
   const box = $("messages");
   const latest = $("latest-message");
   latest.hidden = box.scrollHeight - box.scrollTop - box.clientHeight < 150;
-  latest.classList.toggle("latest-message-compact", box.clientHeight < 60);
+  latest.classList.toggle("latest-message-compact", box.clientHeight < 160);
   latest.classList.toggle("latest-message-inline", box.clientHeight < 24);
 }
 $("messages").addEventListener("scroll", updateLatest, { passive: true });
@@ -6778,9 +6915,18 @@ $("vpn-login-form").onsubmit = async (e) => {
     $("vpn-login-error").textContent = error.message;
   }
 };
-const gateChoiceDrafts = new Map();
+const gateChoiceKey = id => "gate-choice-draft:" + id;
+function pendingGateStatus() {
+  const plan = active?.el.querySelector('.maestro-plan-card[data-state="pending"]');
+  const gate = document.querySelector('.gate-card[data-state="pending"]');
+  if (!plan && !gate) return;
+  const text = plan ? "Waiting for plan approval" : gate.dataset.publish === "true" ? "Waiting for publication approval" : "Waiting for your choice";
+  status(text);
+  $("activity-state").textContent = text;
+  if (active) { active.chip.textContent = text; setActivitySummary(active, text); }
+}
 function finishGate(id, state, data = {}) {
-  gateChoiceDrafts.delete(id);
+  retireDraft(gateChoiceKey(id));
   const box = document.getElementById("gate-" + id);
   if (!box) return;
   if (box.contains(document.activeElement) || box.dataset.restoreFocus === "true")
@@ -6847,7 +6993,7 @@ function showGate(data) {
     input.type = data.multi_select ? "checkbox" : "radio";
     input.name = "gate-choice-" + data.gate_id;
     input.value = option.id;
-    input.checked = (gateChoiceDrafts.get(data.gate_id) || []).includes(option.id);
+    input.checked = (readDraft(gateChoiceKey(data.gate_id)) || []).includes(option.id);
     text.textContent = option.label;
     description.textContent = option.description || "";
     label.append(input, text, description);
@@ -6859,7 +7005,10 @@ function showGate(data) {
   submit.disabled = !fields.querySelector("input:checked");
   fields.onchange = () => {
     const choices = [...fields.querySelectorAll("input:checked")].map(input => input.value);
-    gateChoiceDrafts.set(data.gate_id, choices);
+    const key = gateChoiceKey(data.gate_id), snapshot = JSON.stringify(choices);
+    draftViews.set(key, snapshot);
+    unsavedDrafts.set(key, snapshot);
+    flushDrafts();
     submit.disabled = !choices.length;
   };
   submit.onclick = async () => {
@@ -6887,7 +7036,7 @@ function showGate(data) {
   box.append(title, fields, submit, note);
   if (data.publish) appendPublishEvidence(box, data);
   $("messages").append(box);
-  status("Waiting for your choice");
+  pendingGateStatus();
   box.scrollIntoView({ block: "nearest" });
 }
 
@@ -6904,6 +7053,8 @@ function appendPublishEvidence(container, data) {
     evidence.append(node);
   };
   add("Publication", data.enforcement === "mediated" ? "mediated" : "unenforced");
+  add("Risk", data.risk);
+  add("Evidence", data.evidence, true);
   add("Operation", data.operation);
   add("Integration", data.integration);
   add("Jira site", data.endpoint);
@@ -7611,8 +7762,10 @@ const projectFolderTree = {
 };
 function renderProjectFolders() {
   const list = $("project-directory-list");
+  const focus = projectTreeFocus(list);
   list.replaceChildren();
   renderProjectFileEntries(list, projectDirectory.roots, projectFolderTree);
+  restoreProjectTreeFocus(list, projectFolderTree, focus);
   $("project-directory-add-current").disabled =
     !projectDirectory.candidate ||
     projectDirectory.selected.has(projectDirectory.candidate.absolute_path);

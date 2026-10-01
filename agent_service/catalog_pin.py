@@ -11,7 +11,7 @@ class CatalogPinError(ValueError):
     pass
 
 
-def _git(root, *arguments, strip=True):
+def _git(root, *arguments, strip=True, binary=False):
     result = subprocess.run(
         [
             "git",
@@ -25,7 +25,7 @@ def _git(root, *arguments, strip=True):
             *arguments,
         ],
         capture_output=True,
-        text=True,
+        text=not binary,
         timeout=60,
     )
     if result.returncode:
@@ -112,7 +112,42 @@ def pin_catalog(catalog, state_dir, ref, *, owner=False):
         raise CatalogPinError("catalog_pin_symlink")
     target.parent.mkdir(parents=True, exist_ok=True)
     if not target.exists():
-        _git(root, "worktree", "add", "--detach", str(target), commit)
+        entries = []
+        for entry in _git(root, "ls-tree", "-rz", commit, strip=False).split("\0"):
+            if not entry:
+                continue
+            metadata, relative = entry.split("\t", 1)
+            mode, kind, blob = metadata.split()
+            if (
+                kind != "blob"
+                or mode not in ("100644", "100755", "120000")
+                or "\\" in relative
+                or any(part in ("", ".", "..", ".git") for part in relative.split("/"))
+            ):
+                raise CatalogPinError("catalog_pin_modified")
+            entries.append((mode, blob, relative))
+        names = {relative for _, _, relative in entries}
+        if len(names) != len(entries) or any(
+            parent.as_posix() in names
+            for _, _, relative in entries
+            for parent in Path(relative).parents
+        ):
+            raise CatalogPinError("catalog_pin_modified")
+        # Checkout filters are mutable commands. Build from immutable blobs without
+        # invoking checkout/smudge/process callbacks, then populate the index only.
+        _git(root, "worktree", "add", "--detach", "--no-checkout", str(target), commit)
+        for mode, blob, relative in entries:
+            path = target / relative
+            if any(parent.is_symlink() for parent in path.parents if parent != target):
+                raise CatalogPinError("catalog_pin_modified")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            content = _git(root, "cat-file", "blob", blob, strip=False, binary=True)
+            if mode == "120000":
+                path.symlink_to(os.fsdecode(content))
+            else:
+                path.write_bytes(content)
+                path.chmod(0o755 if mode == "100755" else 0o644)
+        _git(target, "read-tree", commit)
         # Do not traverse links: tracked links must not change external permissions.
         for directory, directories, files in os.walk(target, followlinks=False):
             for name in files + directories:

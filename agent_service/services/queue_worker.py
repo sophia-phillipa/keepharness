@@ -8,6 +8,7 @@ import asyncio
 import json
 import logging
 import re
+import sqlite3
 import time
 import traceback
 from pathlib import Path
@@ -67,8 +68,9 @@ def partial_answer(service, job):
     text never gain the key.
     """
     text = "".join(
-        json.loads(row["data"]).get("text", "")
+        data.get("text", "")
         for row in service.message_repository.answer_deltas(job)
+        if not (data := json.loads(row["data"])).get("parent_tool_use_id")
     )
     if not text:
         return None
@@ -121,6 +123,34 @@ def settle(service, job, state, result):
         except Exception:
             # A transient persistence error (e.g. a full disk) is retried once; otherwise
             # startup recovery later marks the job, still ``running``, as interrupted.
+            logger.exception("Could not record job %s as %s (attempt %d)", job, state, attempt)
+
+
+async def finish_when_available(service, job, state, result):
+    """Retain the outcome and scheduler ownership while SQLite is temporarily locked."""
+    while True:
+        try:
+            return service.finish(job, state, result)
+        except sqlite3.OperationalError as exc:
+            if getattr(exc, "sqlite_errorcode", 0) & 0xFF not in (
+                sqlite3.SQLITE_BUSY,
+                sqlite3.SQLITE_LOCKED,
+            ):
+                raise
+            if asyncio.current_task().cancelling():
+                # Shutdown recovery owns any still-uncommitted terminal outcome.
+                return
+            await asyncio.sleep(0.05)
+
+
+async def settle_running(service, job, state, result):
+    if job in service.runtime_budgets:
+        result.update(service.runtime_budgets[job].metrics())
+    for attempt in (1, 2):
+        try:
+            return await finish_when_available(service, job, state, result)
+        except Exception:
+            # Preserve the bounded retry for other transient storage failures.
             logger.exception("Could not record job %s as %s (attempt %d)", job, state, attempt)
 
 
@@ -179,6 +209,7 @@ async def run(service):
     conversations = {}
     lanes = {}
     reasons = {}
+    service.stopping = False
 
     def released(task, job, backend, conversation):
         service.write_ownership.release(job)
@@ -194,61 +225,70 @@ async def run(service):
     try:
         while True:
             service.wake.clear()
-            rows = list(service.conversation_repository.ready())
-            while rows:
-                source = min(
-                    rows,
-                    key=lambda item: (
-                        service.last_served.get(item["owner"], 0),
-                        item["created"],
-                        item["id"],
-                    ),
-                )
-                rows.remove(source)
-                row = dict(source)
-                if row["id"] in tasks:
-                    continue
-                backend = json.loads(row["payload"]).get("backend", "codex")
-                maximum = (
-                    service.config.get("services", {}).get(backend, {}).get("max_concurrent", 1)
-                )
-                if type(maximum) is not int or maximum < 1:
-                    maximum = 1  # Dispatch validates the configured capacity.
-                conversation = conversation_key(service, row)
-                reason = (
-                    "conversation"
-                    if conversation in conversations
-                    else ("provider_capacity" if lanes.get(backend, 0) >= maximum else None)
-                )
-                if reason is None:
-                    reason = service.write_ownership.acquire(
-                        row["id"],
-                        row["project"],
-                        row.get("work_item"),
-                        ownership_roots(service, row),
+            row = None
+            try:
+                rows = list(service.conversation_repository.ready())
+                while rows:
+                    source = min(
+                        rows,
+                        key=lambda item: (
+                            service.last_served.get(item["owner"], 0),
+                            item["created"],
+                            item["id"],
+                        ),
                     )
-                if reason:
-                    if reasons.get(row["id"]) != reason:
-                        service.event(row["id"], "queue_wait", {"reason": reason})
-                        reasons[row["id"]] = reason
-                    continue
-                reasons.pop(row["id"], None)
-                conversations[conversation] = row["id"]
-                lanes[backend] = lanes.get(backend, 0) + 1
-                service.dispatch_sequence += 1
-                service.last_served[row["owner"]] = service.dispatch_sequence
-                with service.db:
-                    service.conversation_repository.set_running(row["id"])
-                task = asyncio.create_task(run_job(service, row))
-                tasks[row["id"]] = task
-                service.job_tasks[row["id"]] = task
-                task.add_done_callback(
-                    lambda completed, job=row["id"], lane=backend, key=conversation: released(
-                        completed, job, lane, key
+                    rows.remove(source)
+                    row = dict(source)
+                    if row["id"] in tasks:
+                        continue
+                    backend = json.loads(row["payload"]).get("backend", "codex")
+                    maximum = (
+                        service.config.get("services", {}).get(backend, {}).get("max_concurrent", 1)
                     )
-                )
+                    if type(maximum) is not int or maximum < 1:
+                        maximum = 1  # Dispatch validates the configured capacity.
+                    conversation = conversation_key(service, row)
+                    reason = (
+                        "conversation"
+                        if conversation in conversations
+                        else ("provider_capacity" if lanes.get(backend, 0) >= maximum else None)
+                    )
+                    if reason is None:
+                        reason = service.write_ownership.acquire(
+                            row["id"],
+                            row["project"],
+                            row.get("work_item"),
+                            ownership_roots(service, row),
+                        )
+                    if reason:
+                        if reasons.get(row["id"]) != reason:
+                            service.event(row["id"], "queue_wait", {"reason": reason})
+                            reasons[row["id"]] = reason
+                        continue
+                    reasons.pop(row["id"], None)
+                    with service.db:
+                        service.conversation_repository.set_running(row["id"])
+                    conversations[conversation] = row["id"]
+                    lanes[backend] = lanes.get(backend, 0) + 1
+                    service.dispatch_sequence += 1
+                    service.last_served[row["owner"]] = service.dispatch_sequence
+                    task = asyncio.create_task(run_job(service, row))
+                    tasks[row["id"]] = task
+                    service.job_tasks[row["id"]] = task
+                    task.add_done_callback(
+                        lambda completed, job=row["id"], lane=backend, key=conversation: released(
+                            completed, job, lane, key
+                        )
+                    )
+            except sqlite3.OperationalError:
+                if row is not None and row["id"] not in tasks:
+                    service.write_ownership.release(row["id"])
+                logger.warning("Queue dispatch database unavailable; retrying", exc_info=True)
+                await asyncio.sleep(0.05)
+                continue
             await service.wake.wait()
     finally:
+        service.stopping = True
         remaining = list(tasks.values())
         for task in remaining:
             task.cancel()
@@ -258,6 +298,7 @@ async def run(service):
 async def run_job(service, row):
     row = dict(row)
     started = time.time()
+    execution_completed = False
     budget = RuntimeBudget()
     service.runtime_budgets[row["id"]] = budget
     try:
@@ -283,10 +324,11 @@ async def run_job(service, row):
             task = asyncio.create_task(service.execute(row))
             service.job_tasks[row["id"]] = task
             result = await task
+        execution_completed = True
         result.update(budget.metrics())
         result["queue_seconds"] = started - row["created"]
         result["total_seconds"] = time.time() - row["created"]
-        service.finish(row["id"], "completed", result)
+        await finish_when_available(service, row["id"], "completed", result)
         if result.get("deployment", {}).get("restart_required"):
             unit = service.config["projects"][row["project"]]["restart_service"]
             proc = await asyncio.create_subprocess_exec(
@@ -308,10 +350,14 @@ async def run_job(service, row):
             else:
                 service.event(row["id"], "deployment_failed", {"error": "restart_schedule_failed"})
     except asyncio.CancelledError:
+        if execution_completed:
+            # Shutdown remains responsive. Startup recovery owns an uncommitted result;
+            # completed inference must not be relabeled as a cancelled execution.
+            return
         if service.conversation_repository.state(row["id"])[0] == "completed":
             raise
         reason = service.cancellation_reasons.pop(row["id"], None)
-        settle(
+        await settle_running(
             service,
             row["id"],
             "cancelled",
@@ -347,7 +393,7 @@ async def run_job(service, row):
             )
         condition = provider_condition(code)
         if condition:
-            settle(
+            await settle_running(
                 service,
                 row["id"],
                 "interrupted",
@@ -370,7 +416,7 @@ async def run_job(service, row):
                 row["project"], answer=CONDITION_ANSWERS[condition].format(name), finished=True
             )
         else:
-            settle(
+            await settle_running(
                 service,
                 row["id"],
                 "failed",
@@ -415,7 +461,15 @@ def cancel_owned(service, row):
     if row["state"] == "queued" or (
         row["state"] == "running" and task is None and service.active != job
     ):
-        settle(service, job, "cancelled", with_partial_answer(service, job, {"metrics": None}))
+        try:
+            service.finish(job, "cancelled", with_partial_answer(service, job, {"metrics": None}))
+        except sqlite3.OperationalError as exc:
+            if getattr(exc, "sqlite_errorcode", 0) & 0xFF not in (
+                sqlite3.SQLITE_BUSY,
+                sqlite3.SQLITE_LOCKED,
+            ):
+                raise
+            raise APIError("cancellation_retry_required", 503, retry_after=1) from exc
     for pending_job, future in list(service.approvals.values()):
         if pending_job == job and not future.done():
             future.cancel()

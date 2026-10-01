@@ -107,6 +107,46 @@ def add_effect_public_content(db):
     bind_effect_endpoints(db)
 
 
+def add_gate_public_spec(db):
+    """Recover legacy public text only from events sanitized when they were emitted."""
+    if "public_spec" not in {row[1] for row in db.execute("PRAGMA table_info(gates)")}:
+        db.execute("ALTER TABLE gates ADD COLUMN public_spec TEXT")
+    for gate in db.execute("SELECT gate_id,job_id FROM gates WHERE public_spec IS NULL").fetchall():
+        public = None
+        for event in db.execute(
+            "SELECT type,data FROM events WHERE job=? AND type IN ('gate_required','gate_resolved') ORDER BY id",
+            (gate["job_id"],),
+        ):
+            try:
+                data = json.loads(event["data"])
+            except (ValueError, TypeError):
+                continue
+            if not isinstance(data, dict) or data.get("gate_id") != gate["gate_id"]:
+                continue
+            if event["type"] == "gate_required" and public is None:
+                public = {
+                    key: value
+                    for key, value in data.items()
+                    if key
+                    not in ("schema_version", "execution_id", "attempt", "parent_execution_id")
+                }
+                public["choice"] = None
+            elif event["type"] == "gate_resolved" and public is not None:
+                for key in ("choice", "plan"):
+                    if key in data:
+                        public[key] = data[key]
+        if public is None:
+            public = {
+                "gate_id": gate["gate_id"],
+                "question": "Historical question content unavailable.",
+                "options": [],
+                "choice": None,
+            }
+        db.execute(
+            "UPDATE gates SET public_spec=? WHERE gate_id=?", (encoded(public), gate["gate_id"])
+        )
+
+
 MIGRATIONS = (
     baseline,
     reset_legacy_approval_rules,
@@ -116,6 +156,7 @@ MIGRATIONS = (
     bind_effect_endpoints,
     add_effect_public_content,
     bind_effect_endpoints,
+    add_gate_public_spec,
 )
 
 

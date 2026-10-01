@@ -12,6 +12,7 @@ from ..catalog import catalog as project_catalog_items
 from ..errors import APIError
 from ..persistence.db import encoded, private_file
 from ..project_icons import discover_project_icon
+from ..secret_vault import redact_secrets
 from . import api_route, body
 
 
@@ -48,7 +49,7 @@ async def resources(request, service, identity):
         params.get("model"),
         params.get("execution_mode"),
     )
-    service.project(identity, params.get("project_id"))
+    service.project(service.identity(request, revalidate=True), params.get("project_id"))
     return JSONResponse(value, headers={"Cache-Control": "no-store"})
 
 
@@ -59,7 +60,7 @@ async def catalog(request, service, identity):
     value = await asyncio.to_thread(
         project_catalog_items, config, config["projects"][project_id], project_id
     )
-    service.project(identity, project_id)
+    service.project(service.identity(request, revalidate=True), project_id)
     return JSONResponse(value, headers={"Cache-Control": "no-store"})
 
 
@@ -87,6 +88,9 @@ async def project_directories(request, service, identity):
     result = await asyncio.to_thread(
         workspaces.browse_system, root, folder, start, limit, True, query
     )
+    service.identity(request, revalidate=True)
+    if not config.get("shared_projects"):
+        raise APIError("project_registration_disabled", 403)
     for entry in result["entries"]:
         entry["absolute_path"] = str(root / entry["path"])
     return JSONResponse(
@@ -109,8 +113,11 @@ async def project_directories(request, service, identity):
 
 
 async def project_revision(request, service, identity):
-    spec = service.project(identity, request.query_params.get("project_id"))
-    return JSONResponse({"revision": await asyncio.to_thread(project_git, spec.get("root"))})
+    project_id = request.query_params.get("project_id")
+    spec = service.project(identity, project_id)
+    revision = await asyncio.to_thread(project_git, spec.get("root"))
+    service.project(service.identity(request, revalidate=True), project_id)
+    return JSONResponse({"revision": revision}, headers={"Cache-Control": "no-store"})
 
 
 async def projects(request, service, identity):
@@ -197,19 +204,29 @@ async def services(request, service, identity):
     action = data.get("action", "list")
     if action in ("start", "stop", "restart") and data.get("user_requested") is not True:
         raise APIError("explicit_service_request_required", 403)
-    result = await service_control.operate(config, spec, action, data.get("unit", ""))
+    result = redact_secrets(
+        await service_control.operate(config, spec, action, data.get("unit", ""))
+    )
     with open(service.root / "service-actions.jsonl", "a", opener=private_file) as log:
         log.write(
             encoded(
-                {
-                    "time": time.time(),
-                    "owner": identity[0],
-                    "project": project,
-                    **result,
-                }
+                redact_secrets(
+                    {
+                        "time": time.time(),
+                        "owner": identity[0],
+                        "project": project,
+                        **result,
+                    }
+                )
             )
             + "\n"
         )
+    service.project(service.identity(request, revalidate=True), project)
+    if not any(
+        m.get("mode") == "native" and m["permissions"].get("shell")
+        for m in maestro.candidates(service.config, project)
+    ):
+        raise APIError("service_control_denied", 403)
     return JSONResponse(result)
 
 
