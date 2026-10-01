@@ -8,6 +8,7 @@ from contextlib import nullcontext
 
 from ..errors import APIError
 from ..persistence.gates import GateRepository
+from ..secret_vault import redact_secrets
 from .budgets import timeout_seconds
 
 
@@ -22,7 +23,12 @@ def validate_options(request):
         if not isinstance(option, dict):
             raise APIError("invalid_gate_options")
         identifier = option.get("id")
-        if not isinstance(identifier, str) or not identifier or identifier in ids:
+        if (
+            not isinstance(identifier, str)
+            or not identifier
+            or identifier in ids
+            or redact_secrets(identifier) != identifier
+        ):
             raise APIError("invalid_gate_options")
         if not isinstance(option.get("label"), str) or not option["label"]:
             raise APIError("invalid_gate_options")

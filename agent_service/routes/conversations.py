@@ -92,14 +92,13 @@ def gate_records(service, job_id):
     return redact_secrets(
         [
             {
-                **json.loads(gate["spec"]),
+                **json.loads(gate["public_spec"]),
                 **(
-                    service.effects.public(json.loads(gate["spec"])["effect_id"])
-                    if json.loads(gate["spec"]).get("effect_id")
+                    service.effects.public(json.loads(gate["public_spec"])["effect_id"])
+                    if json.loads(gate["public_spec"]).get("effect_id")
                     else {}
                 ),
                 "state": gate["state"],
-                "choice": json.loads(gate["choice"]) if gate["choice"] else None,
                 "resolved_by": gate["resolved_by"],
                 "at": gate["resolved_at"],
             }
