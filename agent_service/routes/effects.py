@@ -17,6 +17,7 @@ async def effects(request, service, identity):
 async def reconcile(request, service, identity):
     require_approval_session(request, service.config, identity)
     data = await body(request)
+    require_approval_session(request, service.config, identity, revalidate=True)
     result = await service.effects.reconcile(
         request.path_params["effect"], identity, data.get("decision")
     )

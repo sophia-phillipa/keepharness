@@ -84,7 +84,20 @@ def add_effects(db):
     db.execute("CREATE INDEX effects_job ON effects(job_id)")
 
 
-MIGRATIONS = (baseline, reset_legacy_approval_rules, add_gates, add_work_item, add_effects)
+def bind_effect_endpoints(db):
+    """Retain duplicate protection across upgrades using the approved endpoint."""
+    from ..integrations import endpoint_identity
+
+    for row in db.execute("SELECT effect_id,binding,contract FROM effects").fetchall():
+        binding = json.loads(row["binding"])
+        binding["endpoint"] = endpoint_identity(json.loads(row["contract"])["endpoint"])
+        db.execute(
+            "UPDATE effects SET binding=? WHERE effect_id=?",
+            (json.dumps(binding, sort_keys=True, separators=(",", ":"), ensure_ascii=False), row["effect_id"]),
+        )
+
+
+MIGRATIONS = (baseline, reset_legacy_approval_rules, add_gates, add_work_item, add_effects, bind_effect_endpoints)
 
 
 def migrate(db):

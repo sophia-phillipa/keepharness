@@ -16,10 +16,15 @@ from .errors import APIError
 _known_secrets = weakref.WeakKeyDictionary()
 _environment = ContextVar("integration_environment", default=None)
 _blocked_environment = ContextVar("mediated_environment", default=())
+_authority_fields = re.compile(
+    r"(\b(?:harness_session|nonce)\s*[\"']?\s*[:=]\s*[\"']?)[^\s\"'&,;}]+",
+    re.IGNORECASE,
+)
 
 
 def redact_secrets(value):
     if isinstance(value, str):
+        value = _authority_fields.sub(r"\1[redacted]", value)
         for secret in sorted(
             {item for values in list(_known_secrets.values()) for item in values},
             key=len,
@@ -28,7 +33,12 @@ def redact_secrets(value):
             value = value.replace(secret, "[redacted]")
         return value
     if isinstance(value, dict):
-        return {redact_secrets(key): redact_secrets(item) for key, item in value.items()}
+        return {
+            redact_secrets(key): "[redacted]"
+            if isinstance(key, str) and key.lower() in ("harness_session", "nonce")
+            else redact_secrets(item)
+            for key, item in value.items()
+        }
     if isinstance(value, tuple):
         return tuple(redact_secrets(item) for item in value)
     if isinstance(value, list):

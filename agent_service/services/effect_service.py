@@ -7,7 +7,7 @@ import time
 import uuid
 
 from ..errors import APIError
-from ..integrations import CredentialStore, integration_contract, validate_request
+from ..integrations import CredentialStore, endpoint_identity, integration_contract, validate_request
 from ..jira_effects import JiraEffectDriver
 from ..persistence.db import encoded
 from .budgets import timeout_seconds
@@ -23,8 +23,9 @@ def digest(value):
     return hashlib.sha256(canonical(value).encode()).hexdigest()
 
 
-def binding(request):
+def binding(request, contract):
     return dict(
+        endpoint=endpoint_identity(contract["endpoint"]),
         operation=request["operation"],
         destination=request["destination"],
         arguments_digest=digest(request["arguments"]),
@@ -115,7 +116,7 @@ class EffectService:
         self.credentials.get(contract["credential_binding"])
         request = json.loads(canonical(request))
         artifact = request.pop("artifact")
-        action_binding = binding({**request, "artifact": artifact})
+        action_binding = binding({**request, "artifact": artifact}, contract)
         execution_id = execution_id or job_id
         prepare_limit = self.service.config.get("effect_prepare_limit", 5)
         if type(prepare_limit) is not int or prepare_limit < 1:
@@ -246,14 +247,17 @@ class EffectService:
                 for key in ("integration", "operation", "destination", "arguments", "artifact")
             }
             validate_request(contract, request)
-            expected = binding(request)
+            expected = binding(request, contract)
             validator = self.execution_validators.get(effect["execution_id"])
             if validator is not None and not validator():
                 raise APIError("effect_binding_changed")
             if (
                 canonical(contract) != stored["contract"]
                 or canonical(expected) != stored["binding"]
-                or any(spec.get(key) != value for key, value in expected.items())
+                or any(
+                    (endpoint_identity(spec[key]) if key == "endpoint" else spec.get(key)) != value
+                    for key, value in expected.items()
+                )
                 or gate["resolved_by"] != job["owner"]
                 or time.time() >= spec["timeout_at"]
                 or job["state"] in ("cancelled", "interrupted", "failed")

@@ -133,6 +133,17 @@ def scoped_enforcement(service, command, *, copied_paths=()):
     for key in ("effect_credentials_path", "secret_vault_path"):
         if service.config.get(key):
             private.append(Path(service.config[key]).resolve())
+    # A linked private file can be reachable under an unrelated mount or auth-copy
+    # name. Fail closed without walking potentially huge, worker-controlled roots.
+    stores = [Path(service.root) / name for name in ("harness.effect_credentials.json", "harness.secrets.json")] + private[1:]
+    for path in stores:
+        try:
+            if path.stat().st_nlink != 1:
+                return "unenforced"
+        except FileNotFoundError:
+            pass
+        except OSError:
+            return "unenforced"
     exposed = [Path(path).resolve() for path in copied_paths]
     index = 1
     while index < len(command):
