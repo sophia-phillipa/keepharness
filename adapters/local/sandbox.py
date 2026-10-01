@@ -1,13 +1,12 @@
 """Filesystem boundary for local inference agents, independent of CLI approvals."""
 
-from control.product import PRODUCT
-
 import os
 import shutil
 import sys
 from pathlib import Path
 
 from agent_service.tools import ToolError
+from control.product import PRODUCT
 
 ISOLATION_VERSION = "local-bwrap-v2"
 

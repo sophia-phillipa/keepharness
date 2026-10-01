@@ -2,7 +2,7 @@
 
 [![🇺🇸 English](https://img.shields.io/badge/%F0%9F%87%BA%F0%9F%87%B8-English-blue.svg)](README.md) [![🇧🇷 Português (Brasil)](https://img.shields.io/badge/%F0%9F%87%A7%F0%9F%87%B7-Portugu%C3%AAs%20(Brasil)-green.svg)](README.pt-BR.md)
 
-A local Python control panel for discovering, configuring and running Codex CLI, Claude Code, Gemini CLI and local AI models, with a conversational harness accessible through Tailscale or another VPN. Python 3.11+, MIT license, version **0.11.0**.
+A local Python control panel for discovering, configuring and running Codex CLI, Claude Code, Gemini CLI and local AI models, with a conversational harness accessible through Tailscale or another VPN. Python 3.11+, MIT license, version **0.12.0**.
 
 ## 🚀 Installation — agent-guided (start here)
 
@@ -228,7 +228,7 @@ PYTHON="$PWD/.venv/bin/python" PLAYWRIGHT_MODULE=/path/to/playwright ./scripts/t
 
 UI fixtures avoid cloud inference and model downloads. A passing mocked suite does not prove third-party authentication, physical reboot or full-context performance. To check the installed package, use `"$TH_VENV/bin/python" -m control.install_check`, with `TH_VENV` set to the environment used by the installation (`~/.local/share/tail-harness/venv` for `install.sh`, `.venv` for `setup.sh`). This smoke check runs outside the checkout with temporary state and an available port; it does not install dependencies or validate the production instance and providers. For a clean installation simulation, follow the dedicated section of the [spec](dossier/installation-agent-spec.md), preparing separate environment, state and ports through individual commands.
 
-Every new version requires an English specification at `dossier/releases/v<VERSION>.md`, with behavior, acceptance criteria, relevant diagrams, migration notes and actual validation. Update `README.md`, `README.pt-BR.md` and the version identifiers together. See [version 0.11.0](dossier/releases/v0.11.0.md) and the [dossier](dossier/README.md). Product reference: [T3 Code](https://github.com/pingdotgg/t3code). This is an independent implementation; it does not incorporate T3's code or graphical assets and does not claim feature parity.
+Every new version requires an English specification at `dossier/releases/v<VERSION>.md`, with behavior, acceptance criteria, relevant diagrams, migration notes and actual validation. Update `README.md`, `README.pt-BR.md` and the version identifiers together. See [version 0.12.0](dossier/releases/v0.12.0.md) and the [dossier](dossier/README.md). Product reference: [T3 Code](https://github.com/pingdotgg/t3code). This is an independent implementation; it does not incorporate T3's code or graphical assets and does not claim feature parity.
 
 The suite covers access policies, authentication, protocols and approvals, local discovery, download integrity, installation, packaged files and recovery after a failure. The browser test uses fixtures so it does not consume accounts or download models. The GitHub Actions configuration runs Python tests, Chromium UI tests and the wheel/sdist build; artifacts are attached to the packaging job when the pipeline passes. Third-party authentication and a physical machine reboot are not simulated as proof of real operation.
 
@@ -361,3 +361,10 @@ Declare up to twelve sequential invocations in `workflows/<id>.json`, with gates
 Maestro can use any configured enabled backend as coordinator (Codex remains the default). Generated plans default to human review. Set `maestro_plan_policy: "auto"` per project or run for unattended planning; publication and step gates still require their existing approvals. Settings → Agents and models exposes the per-run choice. Declared workflows skip planning.
 
 The HTTP and MCP interfaces support resume, re-run from a step as a child execution, and saving a successful chain into the project's writable `workflows/` collection. Changed inputs or revisions invalidate affected checkpoints and approvals; uncertain publications require reconciliation before recovery. See the [release specification](dossier/releases/v0.11.0.md) for schemas, configuration, API examples, security review and actual validation.
+
+
+## 🆕 Version 0.12.0
+
+Catalogs can declare resources, context, runtime prerequisites and writable state in an optional `harness.catalog.json`. Project pins run from private read-only worktrees; the local admin panel previews resource changes before an explicit pin move. The same panel reports drift and provides write-only integration credentials bound to a project/catalog. Environment injection remains advisory; mediated publication retains human approval.
+
+Writable roots and work items are leased before independent provider lanes dispatch. Conversation turns remain serialized. `control/product.py` supplies the current identity and generated package/client assets; a synthetic second-identity build verifies separate commands and state without renaming Tail Harness. See the [release specification](dossier/releases/v0.12.0.md), [catalog contract](docs/catalog-manifests.md), [credential contract](docs/integration-credentials.md) and [identity guide](docs/product-identity.md) for configuration, enforced boundaries and explicit unsupported modes.

@@ -17,8 +17,8 @@ from .errors import APIError
 from .routes import LimitedStream  # noqa: F401  (re-exported)
 from .routes import activity as activity_routes
 from .routes import conversations as conversation_routes
-from .routes import files as file_routes
 from .routes import effects as effect_routes
+from .routes import files as file_routes
 from .routes import models as model_routes
 from .routes import projects as project_routes
 from .routes import spans as span_routes

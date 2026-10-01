@@ -25,8 +25,8 @@ from agent_service.work_items import validate_pattern
 from . import discovery, env, integration_catalog, integrations, runtime_config
 from .dashboard import DashboardReader
 from .operations import Operations
-from .product import PRODUCT, ensure_lineage
 from .persistence import ControlStateRepository, private_file
+from .product import PRODUCT, ensure_lineage
 
 ROOT = env.REPOSITORY_ROOT
 PERMISSIONS = ("read", "write", "upload", "tests", "internet", "shell", "hooks")

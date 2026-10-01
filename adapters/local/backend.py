@@ -1,13 +1,12 @@
 """Local inference endpoints and sandbox policy, using Codex as the tool agent."""
 
-from control.product import PRODUCT
-
 import json
 import os
 from pathlib import Path
 
 from adapters.codex.native import RuntimeOptions, build_command, run_turn
 from adapters.shared.workspace import prepare_workspace
+from control.product import PRODUCT
 
 from .sandbox import ISOLATION_VERSION, wrap
 

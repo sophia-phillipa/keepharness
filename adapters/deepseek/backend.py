@@ -1,7 +1,5 @@
 """DeepSeek BYOK policy over Codex's client-managed Responses history."""
 
-from control.product import PRODUCT
-
 import json
 import os
 from pathlib import Path
@@ -9,6 +7,7 @@ from pathlib import Path
 from adapters.codex.native import RuntimeOptions, build_command, run_turn
 from adapters.shared.workspace import prepare_workspace
 from agent_service.tools import ToolError
+from control.product import PRODUCT
 
 SPEC_REVISION = 1
 EFFORTS = ("configured", "none", "low", "high", "max")

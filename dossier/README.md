@@ -41,3 +41,4 @@ Each new version must add an English specification under `releases/v<VERSION>.md
 - [0.10.0 — Mediated Jira publication and evidence-based recovery](releases/v0.10.0.md)
 - [0.10.1 — Chat home fidelity and guided product tour](releases/v0.10.1.md)
 - [0.11.0 — Declarative workflows and general Maestro](releases/v0.11.0.md)
+- [0.12.0 — Catalog provisioning, private credentials and concurrent providers](releases/v0.12.0.md)

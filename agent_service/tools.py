@@ -1,7 +1,5 @@
 """Deterministic tools. Source content never grants permissions."""
 
-from control.product import PRODUCT
-
 import asyncio
 import hashlib
 import ipaddress
@@ -12,6 +10,8 @@ import socket
 import tempfile
 import urllib.parse
 from pathlib import Path
+
+from control.product import PRODUCT
 
 try:
     from .errors import ToolError
