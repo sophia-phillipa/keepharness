@@ -270,3 +270,29 @@ def test_reload_revokes_binding_scope_and_refreshes_credential_path(tmp_path):
         instance.db.close()
 
     asyncio.run(scenario())
+
+
+def test_palette_credentials_use_safe_status_and_explain_modes(tmp_path):
+    from agent_service.integrations import integration_preflight
+    from agent_service.secret_vault import SecretVault
+
+    config = {"state_dir": str(tmp_path), "integrations": [], "integration_bindings": []}
+    contract = {
+        "integration": "demo",
+        "consumers": ["codex"],
+        "environment": {"DEMO_TOKEN": "token"},
+        "precedence": "vault",
+        "mediated": False,
+    }
+    assert "binding" in integration_preflight(config, "p", "c", "codex", "native", [contract])[0]
+    config["integration_bindings"] = [
+        {"integration": "demo", "project_id": "p", "catalog_id": "c", "credential_binding": "demo"}
+    ]
+    store = SecretVault(tmp_path / "harness.secrets.json")
+    store.set("demo", {"other": "fake-private-value"})
+    assert "field" in integration_preflight(config, "p", "c", "codex", "native", [contract])[0]
+    store.set("demo", {"token": "fake-private-value"})
+    assert integration_preflight(config, "p", "c", "codex", "native", [contract]) == []
+    problems = integration_preflight(config, "p", "c", "codex", "scoped", [contract])
+    assert "native" in problems[0]
+    assert "fake-private-value" not in str(problems)

@@ -257,6 +257,56 @@ def validate_request(contract, request):
         raise APIError("effect_request_invalid") from None
 
 
+def integration_preflight(config, project_id, catalog_id, backend, execution_mode, contracts=()):
+    """Palette prerequisites derived only from contracts and write-only vault metadata."""
+    bindings = [
+        item
+        for item in config.get("integration_bindings", [])
+        if item.get("project_id") == project_id
+        and (not item.get("catalog_id") or item["catalog_id"] == catalog_id)
+    ]
+    selected = {item.get("integration") for item in bindings}
+    available = {
+        item.get("integration"): item
+        for item in config.get("integrations", [])
+        if item.get("integration") in selected
+    }
+    available.update({item.get("integration"): item for item in contracts})
+    if not available:
+        return []
+    try:
+        status = SecretVault(
+            config.get("secret_vault_path", Path(config["state_dir"]) / "harness.secrets.json")
+        ).status()
+    except APIError:
+        return ["The private integration vault is unavailable."]
+    fields = {item["binding"]: set(item["fields"]) for item in status}
+    problems = []
+    for name, contract in available.items():
+        try:
+            validate_integration(contract)
+        except APIError:
+            problems.append("Invalid integration contract: " + str(name))
+            continue
+        if backend not in contract["consumers"]:
+            problems.append("Integration is unavailable for this provider: " + name)
+            continue
+        matches = [item for item in bindings if item.get("integration") == name]
+        if len(matches) != 1:
+            problems.append("Configure one project/catalog credential binding in Admin: " + name)
+            continue
+        binding = matches[0].get("credential_binding")
+        if binding not in fields:
+            problems.append("Provision the credential binding in Admin: " + name)
+        elif set(contract["environment"].values()) - fields[binding]:
+            problems.append("Provision the required credential fields in Admin: " + name)
+        elif not contract["mediated"] and (execution_mode != "native" or backend == "local"):
+            problems.append(
+                "Integration credential injection requires a supported native provider: " + name
+            )
+    return problems
+
+
 def main():
     """Provision one binding from the owner terminal without secrets in argv/env."""
     import argparse
