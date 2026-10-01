@@ -9,7 +9,7 @@ const path = require('node:path');
   const browser = await chromium.launch();
   try {
     const lines = readline.createInterface({ input: server.stdout });
-    const [line] = await once(lines, 'line');
+    const [line] = await Promise.race([once(lines, 'line', { signal: AbortSignal.timeout(15000) }), once(server, 'exit').then(() => { throw new Error('Enrollment fixture exited before startup'); })]);
     const fixture = JSON.parse(line);
     const page = await browser.newPage();
     await page.goto(fixture.origin + '/approve-device?nonce=' + fixture.nonce);
@@ -23,7 +23,10 @@ const path = require('node:path');
     console.log('PASS: native browser enrollment and human gate resolution');
   } finally {
     await browser.close();
-    server.kill('SIGTERM');
-    await once(server, 'exit');
+    if (server.exitCode === null && server.signalCode === null) {
+      const exited = once(server, 'exit');
+      server.kill('SIGTERM');
+      await exited;
+    }
   }
 })().catch(error => { console.error(error); process.exit(1); });

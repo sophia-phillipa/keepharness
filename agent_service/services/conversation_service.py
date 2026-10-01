@@ -889,6 +889,14 @@ class ConversationService:
     def activity(self, identity, project_id=None, work_item=None):
         return summarize_activity(self, identity, project_id, work_item)
 
+    def has_workflow_checkpoint(self, row):
+        if row["state"] not in TERMINAL:
+            return False
+        try:
+            return bool(maestro.saved_plan(self, row["id"]).get("steps"))
+        except tools.ToolError:
+            return False
+
     def recover_workflow(self, identity, job_id, changes, *, rerun=False, idem=None):
         row = self.job(identity, job_id)
         if row["owner"] != identity[0]:

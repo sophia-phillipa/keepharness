@@ -123,6 +123,7 @@ async def conversation(request, service, identity):
                     "state": r["state"],
                     "attachments": service.message_attachments(r),
                     "gates": gate_records(service, r["id"]),
+                    "workflow_checkpoint": service.has_workflow_checkpoint(r),
                     "request": json.loads(r["payload"]),
                     "result": json.loads(r["result"] or "{}"),
                 }
@@ -186,6 +187,7 @@ async def save_workflow(request, service, identity):
 async def job(request, service, identity):
     row = service.job(identity, request.path_params["job"])
     row["gates"] = gate_records(service, row["id"])
+    row["workflow_checkpoint"] = service.has_workflow_checkpoint(row)
     row["attachments"] = service.message_attachments(row)
     public_request = json.loads(row["payload"])
     row["request"] = {

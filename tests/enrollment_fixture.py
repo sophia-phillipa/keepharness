@@ -52,11 +52,16 @@ async def main():
             await asyncio.sleep(0)
             gate_id = service.db.execute("SELECT gate_id FROM gates").fetchone()[0]
             nonce = issue_enrollment(config, "local")
-            print(json.dumps(dict(origin=origin, nonce=nonce, gate_id=gate_id)), flush=True)
+            server = uvicorn.Server(uvicorn.Config(app, lifespan="off", log_level="error"))
+            task = asyncio.create_task(server.serve(sockets=[listener]))
             try:
-                await uvicorn.Server(uvicorn.Config(app, lifespan="off", log_level="error")).serve(
-                    sockets=[listener]
-                )
+                while not server.started:
+                    if task.done():
+                        await task
+                        raise RuntimeError("Enrollment fixture failed to start")
+                    await asyncio.sleep(0.01)
+                print(json.dumps(dict(origin=origin, nonce=nonce, gate_id=gate_id)), flush=True)
+                await task
             finally:
                 gate.cancel()
                 await asyncio.gather(gate, return_exceptions=True)

@@ -121,3 +121,27 @@ def test_source_workflows_reject_unknown_and_internal_metadata(top_level):
         value["steps"][0]["resource_revision"] = "forged"
     with pytest.raises(workflows.WorkflowError):
         workflows.validate_workflow(value)
+
+
+def test_recovery_visibility_uses_durable_checkpoint_in_both_read_routes(tmp_path):
+    from types import SimpleNamespace
+    from agent_service.routes.conversations import conversation, job
+
+    service, identity, row, data, plan = setup_run(tmp_path)
+    try:
+        with service.db:
+            service.conversation_repository.set_result(row["id"], "cancelled", "{}")
+        for available in (False, True):
+            if available:
+                folder = service.root / "maestro" / row["id"]
+                folder.mkdir(parents=True)
+                (folder / "plan.json").write_text(json.dumps({"plan": plan}))
+            request = SimpleNamespace(
+                method="GET", path_params={"conversation": row["id"], "job": row["id"]}
+            )
+            response = asyncio.run(conversation(request, service, identity))
+            assert json.loads(response.body)["turns"][0]["workflow_checkpoint"] is available
+            response = asyncio.run(job(request, service, identity))
+            assert json.loads(response.body)["workflow_checkpoint"] is available
+    finally:
+        service.db.close()
