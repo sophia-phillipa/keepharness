@@ -319,6 +319,11 @@ def discover(config, project_id, backend, model=None, *, private=False, executio
         except (ValueError, OSError) as error:
             manifest, problems = None, ["Invalid catalog manifest: " + str(error)]
         snapshot = snapshot_catalogs({**config, "catalogs": [catalog]}, project)[0]
+        if snapshot.get("error"):
+            problems.append("Catalog unavailable: " + snapshot["error"])
+            result["warnings"].append(
+                "Catalog " + catalog_id + " unavailable: " + snapshot["error"]
+            )
         problems.extend(
             integration_preflight(
                 config,
@@ -401,6 +406,19 @@ def discover(config, project_id, backend, model=None, *, private=False, executio
             shared_root.parent.parent,
         )
     global_roots = [item["base"] for item in sources if item["scope"] == "user"]
+    native_skill_paths = set()
+    if engine == "codex":
+        for entry in sources:
+            if entry["kind"] != "skill" or entry["scope"] == "catalog":
+                continue
+            try:
+                native_skill_paths.update(
+                    (folder / "SKILL.md").resolve()
+                    for folder in islice(entry["base"].iterdir(), MAX_FILES)
+                    if (folder / "SKILL.md").is_file() and not (folder / "SKILL.md").is_symlink()
+                )
+            except (OSError, RuntimeError, ResourceError):
+                pass
     disabled = set()
     if engine == "codex":
         for path in [global_base / "config.toml", *([root / ".codex/config.toml"] if root else [])]:
@@ -529,6 +547,13 @@ def discover(config, project_id, backend, model=None, *, private=False, executio
                         and not problems
                     ):
                         continue
+                    if (
+                        engine == "codex"
+                        and kind == "skill"
+                        and scope == "catalog"
+                        and path.resolve() not in native_skill_paths
+                    ):
+                        reason = "Register this catalog skill in a native skill directory before invoking it."
                     if problems:
                         reason = "; ".join(problems)
                     elif (

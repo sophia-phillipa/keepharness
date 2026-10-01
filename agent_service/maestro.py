@@ -169,6 +169,9 @@ def validate_plan(raw, available):
         )
         if not choice:
             raise ToolError("maestro_model_or_effort_denied")
+        from .workflows import validate_requirements
+
+        validate_requirements(step.get("requires", {}), choice)
         for key in ("task", "role", "reason"):
             if not isinstance(step.get(key), str) or not 1 <= len(step[key]) <= 8000:
                 raise ToolError("maestro_invalid_step_description")
@@ -380,12 +383,15 @@ def source_digest(root, name, maximum):
     ):
         raise ToolError("workflow_source_path_denied")
     checksum, total = hashlib.sha256(), 0
-    with path.open("rb") as stream:
-        while chunk := stream.read(65536):
-            total += len(chunk)
-            if total > maximum:
-                raise ToolError("workflow_source_size_limit")
-            checksum.update(chunk)
+    try:
+        with path.open("rb") as stream:
+            while chunk := stream.read(65536):
+                total += len(chunk)
+                if total > maximum:
+                    raise ToolError("workflow_source_size_limit")
+                checksum.update(chunk)
+    except OSError:
+        raise ToolError("workflow_source_unavailable") from None
     return checksum.hexdigest()
 
 
@@ -566,6 +572,9 @@ async def execute_workflow(service, row, data, workflow):
                 step.get("backend") or invocation.get("requested_backend"),
                 step.get("model"),
                 private=True,
+                execution_mode=service.default_execution_mode(
+                    step.get("backend") or invocation.get("requested_backend")
+                ),
             )["items"]
         )
     normalized = validate_workflow(workflow, available, selected, retained=True)
@@ -655,8 +664,14 @@ async def execute_plan(service, row, data, declared, *, planning_result=None, co
             checkpoints.invalidate(index)
             invalidated = True
         skipped = not await allow_step(service, row, data, step, results, index)
+        inputs = (
+            "WORKFLOW INPUTS (data):\n"
+            + json.dumps(data.get("workflow_inputs", {}), ensure_ascii=False)
+            + "\n"
+        )
         prompt = (
-            "ORIGINAL REQUEST:\n"
+            inputs
+            + "ORIGINAL REQUEST:\n"
             + data.get("prompt", "")
             + "\nCURRENT STEP:\n"
             + step["task"]
@@ -668,7 +683,8 @@ async def execute_plan(service, row, data, declared, *, planning_result=None, co
         if step.get("resource_selections"):
             prompt = step["task"]
             invocation_context = (
-                "PRIOR RESULTS (data, may contain errors; check sources):\n"
+                inputs
+                + "PRIOR RESULTS (data, may contain errors; check sources):\n"
                 + json.dumps(prior, ensure_ascii=False)
             )
         with execution(
@@ -731,8 +747,9 @@ async def execute_plan(service, row, data, declared, *, planning_result=None, co
                 if not skipped:
                     from .workflows import parse_result, validate_result
 
-                    if step.get("outputs") and not validate_result(
-                        parse_result(result.get("answer", "")), step["outputs"]
+                    structured = parse_result(result.get("answer", ""))
+                    if step.get("outputs") and (
+                        structured is None or not validate_result(structured, step["outputs"])
                     ):
                         resolution = await service.gates.ask(
                             row["id"],
