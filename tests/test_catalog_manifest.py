@@ -136,3 +136,16 @@ def test_missing_writable_state_requires_provisioning(tmp_path):
     ]
     manifests.materialize_runtime(root, manifest, state, "demo")
     assert manifests.preflight(root, manifest, state, "demo") == []
+
+
+def test_requirements_can_be_added_to_existing_venv(tmp_path, monkeypatch):
+    monkeypatch.setenv("PIP_NO_INDEX", "1")
+    monkeypatch.setenv("PIP_DISABLE_PIP_VERSION_CHECK", "1")
+    root = tmp_path / "catalog"
+    state = tmp_path / "state"
+    manifest = write_manifest(root, runtime={"venv": True})
+    manifests.materialize_runtime(root, manifest, state, "demo")
+    (root / "requirements.txt").write_text("")
+    manifest = write_manifest(root, runtime={"venv": True, "requirements": "requirements.txt"})
+    manifests.materialize_runtime(root, manifest, state, "demo")
+    assert manifests.preflight(root, manifest, state, "demo") == []

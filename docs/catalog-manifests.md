@@ -32,7 +32,7 @@ Admin provisioning creates a separate `catalog_runtime/<catalog_id>/` directory
 under the control state directory. `writable_state` names directories below that
 root; they are never created in the catalog tree. Python environments live in its
 `venv/` subdirectory. A configured requirements file is installed only by explicit
-provisioning, using that environment's pip. Preflight compares its SHA-256 digest
+provisioning, using the harness installer’s pip with the catalog interpreter as its explicit target. Preflight compares its SHA-256 digest
 with the last successful installation. Runtime receives
 `TAIL_HARNESS_CATALOG_STATE_<UPPERCASE_ID>`; hyphens in the ID become underscores.
 Multiple catalogs requiring conflicting Python environments or working directories

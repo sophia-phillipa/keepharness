@@ -5,6 +5,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import venv
 from pathlib import Path
 
@@ -207,13 +208,22 @@ def materialize_runtime(root, manifest, state_dir, catalog_id):
         python_home = Path(options["environment"]["VIRTUAL_ENV"])
         requirements = manifest.get("runtime", {}).get("requirements")
         if not (python_home / "bin/python").is_file():
-            venv.EnvBuilder(with_pip=bool(requirements)).create(python_home)
+            venv.EnvBuilder(with_pip=False).create(python_home)
         if requirements:
             import hashlib
 
             path = _inside(root, requirements)
             subprocess.run(
-                [str(python_home / "bin/python"), "-m", "pip", "install", "-r", str(path)],
+                [
+                    sys.executable,
+                    "-m",
+                    "pip",
+                    "--python",
+                    str(python_home / "bin/python"),
+                    "install",
+                    "-r",
+                    str(path),
+                ],
                 cwd=root,
                 check=True,
                 capture_output=True,
