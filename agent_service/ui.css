@@ -4735,3 +4735,13 @@ main { padding-bottom:28px; }
 }
 main > header { flex-wrap:nowrap; overflow-x:auto; }
 #workspace-files #files-help { margin-top:0; }
+
+/* Narrow chat columns keep action labels and active-run controls in their own targets. */
+.maestro-plan-actions { flex-wrap:wrap; }
+.maestro-plan-actions > button { flex:0 1 auto; max-width:100%; white-space:normal; }
+@container composer (max-width:650px) {
+  .composer-toolbar { grid-template-columns:minmax(0,1fr); }
+  .composer-actions { grid-column:1; grid-row:1; flex-wrap:wrap; }
+  .composer-models { grid-column:1; grid-row:2; }
+  .composer-submit { grid-column:1; grid-row:3; justify-content:flex-end; }
+}

@@ -2350,10 +2350,11 @@ function newConversation(title = "New Conversation", projectId = $("project").va
     return;
   }
   saveView();
-  const changedProject = projectId !== $("project").value;
+  const draftProject = $("project").value;
+  const changedProject = projectId !== draftProject;
   $("project").value = projectId;
-  let newDraft = null;
-  try { newDraft = JSON.parse(sessionStorage.getItem("conversation-draft:new:" + $("project").value) || "null"); } catch {}
+  const carriedDraft = readDraft("conversation-draft:" + (conversation || "new:" + (changedProject ? draftProject : projectId)));
+  const newDraft = readDraft("conversation-draft:new:" + projectId);
   resourceSelections = [];
   invalidResourceTokens.clear();
   setActivePersona(null);
@@ -2390,6 +2391,7 @@ function newConversation(title = "New Conversation", projectId = $("project").va
   modelAvailability();
   $("prompt").value = draft;
   if (newDraft?.draft || newDraft?.files?.length) restoreView(newDraft);
+  else if (carriedDraft) restoreView(carriedDraft);
   updateComposer();
   saveView();
   $("context-meter").textContent = "New conversation · independent context";
@@ -3312,7 +3314,9 @@ function showWorkflowRecovery(run) {
   if (!run.workflow_checkpoint) return;
   const section = document.createElement("section"), note = document.createElement("p"), resume = document.createElement("button");
   section.className = "workflow-recovery";
-  note.textContent = "Resume from the last valid checkpoint. Completed steps are reused when their inputs and workflow are unchanged; remaining steps run again.";
+  note.textContent = run.workflow_completed_steps === 0
+    ? "No completed steps can be reused. Retry starts at the first step of the saved plan."
+    : (Number.isInteger(run.workflow_completed_steps) ? run.workflow_completed_steps + " completed step(s) can be reused. " : "Resume from the last valid checkpoint. ") + "Completed steps are reused when their inputs and workflow are unchanged; remaining steps run again.";
   note.setAttribute("role", "status");
   resume.type = "button";
   resume.className = "btn";
@@ -3390,10 +3394,9 @@ function showMaestroPlan(data = {}) {
       approve.disabled = true;
       try {
         await post("/v1/approvals/" + encodeURIComponent(data.gate_id), { choice: "approve", plan: { steps: data.steps } });
-        card.dataset.state = "running";
+        card.dataset.state = "resolved";
         card.dataset.choice = "approve";
-        state.textContent = "Approved · running";
-        note.textContent = "Maestro is running the approved steps.";
+        renderPlanOutcome(card);
       } catch (error) {
         approve.disabled = false;
         status("Couldn't approve the plan: " + error.message);
@@ -3438,7 +3441,10 @@ function event(e) {
     return;
   }
   if (e.type === "approval_resolved") {
-    document.getElementById("approval-" + e.data.approval_id)?.remove();
+    const box = document.getElementById("approval-" + e.data.approval_id);
+    if (box?.contains(document.activeElement)) $("prompt").focus({ preventScroll: true });
+    box?.remove();
+    status("Approval decision recorded");
     return;
   }
   if (e.type === "maestro_plan") showMaestroPlan(e.data);
@@ -3775,7 +3781,7 @@ async function load(id, legacy = false, restoredView = null) {
   if (!loading && !restoredView) saveView();
   let savedDraft = restoredView;
   if (!savedDraft) {
-    try { savedDraft = JSON.parse(sessionStorage.getItem("conversation-draft:" + id) || "null"); } catch {}
+    savedDraft = readDraft("conversation-draft:" + id);
   }
   const request = ++conversationLoad,
     priorDraft = $("prompt").value;
@@ -4217,6 +4223,7 @@ async function send() {
     $("cancel").disabled = false;
     parent = job;
     if (!conversation) {
+      draftViews.delete("conversation-draft:new:" + $("project").value);
       try { sessionStorage.removeItem("conversation-draft:new:" + $("project").value); } catch {}
       conversation = job;
       setConversationTitle(prompt);
@@ -4935,9 +4942,9 @@ function toggleSidebar() {
 function syncSidebarFocus() {
   const sidebar = $("sidebar"), overlay = innerWidth <= 620 && sidebar.classList.contains("open");
   if (overlay) {
-    sidebar.setAttribute("role", "dialog"); sidebar.setAttribute("aria-modal", "true");
+    sidebar.setAttribute("role", "dialog"); sidebar.setAttribute("aria-modal", "true"); sidebar.setAttribute("aria-label", "Conversations");
     if (!sidebar.contains(document.activeElement)) sidebar.querySelector("button:not(:disabled)")?.focus();
-  } else { sidebar.removeAttribute("role"); sidebar.removeAttribute("aria-modal"); }
+  } else { sidebar.removeAttribute("role"); sidebar.removeAttribute("aria-modal"); sidebar.removeAttribute("aria-label"); }
 }
 function closeSidebar() {
   $("sidebar").classList.remove("open");
@@ -5442,6 +5449,11 @@ function restoreView(saved) {
   saveView();
   updateComposer();
 }
+const draftViews = new Map();
+function readDraft(key) {
+  try { return JSON.parse(draftViews.get(key) || sessionStorage.getItem(key) || "null"); }
+  catch { return null; }
+}
 function saveView() {
   if (loading) return true;
   try {
@@ -5460,8 +5472,10 @@ function saveView() {
         invalid_resource_tokens: [...invalidResourceTokens],
         resource_context: { project: $("project").value, ...resourceEngine() },
       });
+    const key = "conversation-draft:" + (conversation || "new:" + $("project").value);
+    draftViews.set(key, snapshot);
     sessionStorage.setItem("remote-view", snapshot);
-    sessionStorage.setItem("conversation-draft:" + (conversation || "new:" + $("project").value), snapshot);
+    sessionStorage.setItem(key, snapshot);
     return true;
   } catch {
     return false;
@@ -5635,6 +5649,7 @@ function setPanelOpen(open, persist = true) {
 document.addEventListener("keydown", event => {
   if (event.defaultPrevented || event.key !== "Tab" || document.querySelector("dialog[open], #tour-root, [popover]:popover-open")) return;
   const panel = !$("attention-popover").hidden ? $("attention-popover")
+    : innerWidth <= 700 && document.querySelector("#run-console:not([hidden])") ? $("run-console")
     : innerWidth <= 620 && $("sidebar").classList.contains("open") ? $("sidebar")
     : innerWidth < 1000 && !$("activity-panel").hidden ? $("activity-panel") : null;
   if (!panel) return;
@@ -6546,7 +6561,10 @@ document.addEventListener("keydown", (e) => {
     (e.key === "/" || e.key.toLowerCase() === "k")
   ) {
     e.preventDefault();
-    if (e.key === "/") $("prompt").focus();
+    if (e.key === "/") {
+      if (innerWidth <= 620 && $("sidebar").classList.contains("open") || innerWidth < 1000 && !$("activity-panel").hidden || innerWidth <= 700 && document.querySelector("#run-console:not([hidden])")) return;
+      $("prompt").focus();
+    }
     else openConversationSearch();
   }
   if (e.key === "Escape") {
@@ -6566,6 +6584,10 @@ document.addEventListener("keydown", (e) => {
         $("settings-dialog").showModal();
         $("settings-quota").focus();
       } else $("quota-toggle").focus();
+    } else if (innerWidth <= 620 && $("sidebar").classList.contains("open")) {
+      e.preventDefault();
+      closeSidebar();
+      $("menu").focus();
     } else if (!$("activity-panel").hidden) {
       e.preventDefault();
       setPanelOpen(false);
@@ -6657,10 +6679,12 @@ function finishGate(id, state, data = {}) {
   const title = box.querySelector("h3");
   if (title) title.textContent = state === "resolved"
     ? (box.dataset.publish === "true" ? (data.choice === "deny" ? "Publication denied" : data.choice === "approve" ? "Publication approved" : "Publication decision recorded") : "Answered")
+    : box.dataset.publish === "true" ? (state === "invalidated" ? "Publication approval closed" : "Publication approval expired")
     : state === "invalidated" ? "Question closed" : "Question expired";
   const note = box.querySelector('[role="status"]');
   note.textContent = state === "resolved"
     ? (box.dataset.publish === "true" ? (data.choice === "deny" ? "Publication denied" : data.choice === "approve" ? "Publication approved" : "Publication decision recorded") : "Answered") + (data.resolved_by ? " by " + data.resolved_by : "") + "."
+    : box.dataset.publish === "true" ? "This publication approval is no longer active. Request a fresh approval before publishing."
     : state === "invalidated"
       ? "This question is no longer active. Send a message to ask again."
       : "This question expired. Send a message to ask again.";

@@ -242,6 +242,7 @@
     if (event.defaultPrevented || document.querySelector('dialog[open], [popover]:popover-open, #tour-root') || !document.getElementById('attention-popover').hidden || !document.getElementById('quota-panel').hidden) return;
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'j' && !inbox.open) {
       event.preventDefault();
+      if (drawer.hidden && (document.getElementById('sidebar').getAttribute('aria-modal') === 'true' || document.getElementById('activity-panel').getAttribute('aria-modal') === 'true')) return;
       toggle(drawer.hidden);
     } else if (event.key === 'Escape' && !drawer.hidden && !document.querySelector('dialog[open]')) {
       event.preventDefault();
@@ -389,6 +390,7 @@
     else if (state.tab === 'Logs') renderLogs();
     else renderSpans();
   }
+  const planDrafts = new Map();
   function currentPlan() {
     return state.activity.needs_you.find(item => item.job_id === state.run &&
       (!conversation || item.conversation_id === conversation) &&
@@ -399,7 +401,7 @@
     const scrollTop = body.scrollTop;
     body.replaceChildren();
     const pendingPlan = currentPlan();
-    if (pendingPlan) body.append(planApproval(pendingPlan));
+    if (pendingPlan && state.editPlan) body.append(planApproval(pendingPlan));
     if (!state.run) { body.append(el('p', 'Select a run to inspect its recorded steps.')); return; }
     const summary = el('div', null, 'run-pipeline-summary');
     const current = state.activity.jobs.find(item => item.job_id === state.run);
@@ -461,6 +463,7 @@
     const selected = state.spans.find(span => span.span_id === state.selectedSpan);
     if (selected) split.append(spanDetail(selected));
     body.append(split);
+    if (pendingPlan && !state.editPlan) body.append(planApproval(pendingPlan));
     if (focusedId) document.getElementById(focusedId)?.focus({ preventScroll: true });
     body.scrollTop = scrollTop;
   }
@@ -470,22 +473,24 @@
     bar.append(el('strong', 'Maestro plan · Awaiting approval'), el('p', 'Edit the plan JSON if needed. Nothing runs until you approve.'));
     const editor = el('textarea');
     editor.setAttribute('aria-label', 'Editable Maestro plan');
-    editor.value = JSON.stringify({ steps: request.plan.steps.map(step => Object.fromEntries(
+    editor.value = planDrafts.get(request.gate_id) ?? JSON.stringify({ steps: request.plan.steps.map(step => Object.fromEntries(
       ['role', 'backend', 'model', 'effort', 'task', 'reason']
         .filter(key => step[key] != null)
         .map(key => [key, step[key]]),
     )) }, null, 2);
+    editor.addEventListener("input", () => planDrafts.set(request.gate_id, editor.value));
     editor.hidden = !state.editPlan;
     const feedback = el('p'); feedback.setAttribute('role', 'status');
     const approve = button('✓ Approve plan & run', async () => {
       let plan = request.plan;
-      if (state.editPlan) {
+      if (state.editPlan || planDrafts.has(request.gate_id)) {
         try { plan = JSON.parse(editor.value); }
         catch { feedback.textContent = 'The plan must be valid JSON.'; editor.focus(); return; }
       }
       approve.disabled = true; editor.disabled = true; feedback.textContent = 'Approving plan…';
       try {
         await post('/v1/approvals/' + encodeURIComponent(request.gate_id), { choice: 'approve', plan });
+        planDrafts.delete(request.gate_id);
         feedback.textContent = 'Plan approved. Starting the run…';
         await refresh();
       } catch (failure) {
@@ -494,10 +499,11 @@
     });
     const discard = button('Discard', async () => {
       discard.disabled = true;
-      try { await post('/v1/approvals/' + encodeURIComponent(request.gate_id), { choice: 'deny' }); await refresh(); }
+      try { await post('/v1/approvals/' + encodeURIComponent(request.gate_id), { choice: 'deny' }); planDrafts.delete(request.gate_id); await refresh(); }
       catch (failure) { feedback.textContent = failure.message; discard.disabled = false; }
     });
-    const edit = button(state.editPlan ? 'Hide editor' : 'Edit plan', () => { state.editPlan = !state.editPlan; renderSpans(); });
+    const edit = button(state.editPlan ? 'Hide editor' : 'Edit plan', () => { state.editPlan = !state.editPlan; renderSpans(); const toggle = document.getElementById('run-plan-edit'); toggle?.focus(); toggle?.scrollIntoView({ block: 'nearest', behavior: 'instant' }); });
+    edit.id = 'run-plan-edit';
     const actions = el('div', null, 'run-plan-actions'); actions.append(discard, edit, approve);
     bar.append(editor, actions, feedback);
     return bar;
@@ -793,7 +799,7 @@
     getActivity() { return state.activity; },
     async openRun(id) { syncContext(); toggle(true); setTab('Pipeline'); await chooseRun(id); },
     openAttention(filter) { void openInbox(filter); },
-    openPlanEditor() { state.editPlan = true; toggle(true); setTab('Pipeline'); },
+    openPlanEditor() { syncContext(); state.editPlan = true; toggle(true); setTab('Pipeline'); },
     attachAnswer(target, id) {
       if (!id) return;
       target.append(button('View run', async () => { syncContext(); toggle(true); setTab('Pipeline'); await chooseRun(id); }));
