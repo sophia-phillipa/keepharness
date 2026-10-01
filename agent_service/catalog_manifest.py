@@ -174,6 +174,8 @@ def preflight(root, manifest, state_dir, catalog_id):
         for value in manifest.get(key, []):
             if not _inside(root, value).is_file():
                 problems.append("Missing catalog " + key + ": " + value)
+            elif key == "allowed_hooks" and not os.access(_inside(root, value), os.X_OK):
+                problems.append("Make the declared catalog hook executable: " + value)
     if options["cwd"] and not Path(options["cwd"]).is_dir():
         problems.append("Catalog working directory is missing.")
     if "VIRTUAL_ENV" in options["environment"]:

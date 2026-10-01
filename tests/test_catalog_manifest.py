@@ -112,7 +112,8 @@ def test_native_declared_hooks_are_available_in_palette(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     root = tmp_path / "catalog"
     write_manifest(root, allowed_hooks=["check.sh"])
-    (root / "check.sh").write_text("exit 0")
+    (root / "check.sh").write_text("#!/bin/sh\nexit 0")
+    (root / "check.sh").chmod(0o700)
     (root / "commands").mkdir()
     (root / "commands/task.md").write_text("Run task.")
     config = {
@@ -203,3 +204,13 @@ def test_palette_explains_missing_catalog_credential_binding(tmp_path, monkeypat
     item = discover(config, "p", "claude")["items"][0]
     assert item["selectable"]
     assert "fake-palette-secret" not in str(item)
+
+
+def test_preflight_explains_nonexecutable_hook(tmp_path):
+    root = tmp_path / "catalog"
+    manifest = write_manifest(root, allowed_hooks=["check.sh"])
+    (root / "check.sh").write_text("#!/bin/sh\nexit 0")
+    (root / "check.sh").chmod(0o600)
+    assert manifests.preflight(root, manifest, tmp_path / "state", "demo") == [
+        "Make the declared catalog hook executable: check.sh"
+    ]
