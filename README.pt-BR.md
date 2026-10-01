@@ -389,4 +389,4 @@ A rodada 9 revalida leituras privadas, preserva recibos de publicação e trabal
 
 ## 🆕 Version 0.13.11
 
-A rodada 11 isola a redação de streams delegados, protege prévias de catálogos e montagens de sessão e revalida diagnósticos de serviços. Gates resistem à contenção do banco, retries de workflows mantêm sua identidade e a edição de planos usa texto comum com controles por etapa. A navegação de arquivos e o console com publicação preservam a escala aprovada da interface. Veja a [especificação da release](dossier/releases/v0.13.11.md) para migração e validação.
+A rodada 11 isola a ocultação de credenciais em streams delegados, protege prévias de catálogos e montagens de sessão e revalida diagnósticos de serviços. Gates resistem à contenção do banco, retries de workflows mantêm sua identidade e a edição de planos usa texto comum com controles por etapa. A navegação de arquivos e o console com publicação preservam a escala aprovada da interface. Veja a [especificação da release](dossier/releases/v0.13.11.md) para migração e validação.
