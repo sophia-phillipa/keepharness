@@ -48,6 +48,10 @@ reference changes; previous trees remain available to existing references.
 The update operation fetches by default. Pin operations suppress repository Git
 hooks. A checkout with modified content fails validation.
 
+Selective catalog hooks currently have no provider event mapping. Unpinned catalogs
+declaring them are unavailable in the palette and fail before provider execution;
+remove that prerequisite or wait for a supported hook transport.
+
 Pins disable the catalog update command and omit catalog hooks from runtime.
 Runs record each active catalog's commit, dirty state and pin status. Permission
 bits prevent accidental edits, but do not provide an OS security boundary against

@@ -101,3 +101,24 @@ def test_runtime_context_rules_and_two_catalogs(tmp_path):
     result = manifests.runtime_for_project(config, "p")
     assert len(result["contexts"]) == len(result["rules"]) == len(result["writable_roots"]) == 2
     assert len(result["environment"]) == 2
+
+
+def test_selective_hooks_are_unavailable_in_palette(tmp_path, monkeypatch):
+    from agent_service.resources import discover
+
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    root = tmp_path / "catalog"
+    write_manifest(root, allowed_hooks=["check.sh"])
+    (root / "check.sh").write_text("exit 0")
+    (root / "commands").mkdir()
+    (root / "commands/task.md").write_text("Run task.")
+    config = {
+        "state_dir": str(tmp_path / "state"),
+        "catalogs": [{"id": "demo", "root": str(root), "trusted": True}],
+        "projects": {"p": {"catalogs": ["demo"]}},
+        "services": {"claude": {"mode": "native"}},
+    }
+    item = discover(config, "p", "claude")["items"][0]
+    assert item["selectable"] is False
+    assert "hooks are unsupported" in item["unavailable_reason"]
+    assert item["preflight_hint"] == item["unavailable_reason"]

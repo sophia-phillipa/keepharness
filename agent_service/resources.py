@@ -305,6 +305,8 @@ def discover(config, project_id, backend, model=None, *, private=False, executio
         except (ValueError, OSError) as error:
             manifest, problems = None, ["Invalid catalog manifest: " + str(error)]
         snapshot = snapshot_catalogs({**config, "catalogs": [catalog]}, project)[0]
+        if manifest and manifest.get("allowed_hooks") and not snapshot.get("pinned"):
+            problems.append("Selective catalog hooks are unsupported by this executor.")
         catalog_details[catalog_id] = (manifest, problems, snapshot)
         namespace = str(catalog.get("namespace", ""))
         add(

@@ -444,6 +444,8 @@ def discover_workflows(config, project_id, backend, *, private=False):
                         origin,
                     )
                 snapshot = snapshot_catalogs({**config, "catalogs": [catalogs[origin]]}, project)[0]
+                if manifest and manifest.get("allowed_hooks") and not snapshot.get("pinned"):
+                    problems.append("Selective catalog hooks are unsupported by this executor.")
             except (ValueError, OSError) as error:
                 problems = ["Invalid catalog manifest: " + str(error)]
         folders = ["workflows", *(manifest or {}).get("resources", {}).get("workflow", [])]
