@@ -21,14 +21,23 @@ def test_catalog_dispatch_cwd_environment_snapshot_and_lease(tmp_path, monkeypat
     (catalog / "commands").mkdir(parents=True)
     (catalog / "commands/task.md").write_text("Run synthetic task.")
     (catalog / "context.md").write_text("Synthetic context.")
+    (catalog / "prepare.sh").write_text("#!/bin/sh\ntouch hook-ran\n")
+    (catalog / "prepare.sh").chmod(0o700)
     (catalog / "harness.catalog.json").write_text(
         json.dumps(
-            {"version": 1, "cwd": ".", "context": ["context.md"], "writable_state": ["memory"]}
+            {
+                "version": 1,
+                "cwd": ".",
+                "context": ["context.md"],
+                "writable_state": ["memory"],
+                "allowed_hooks": ["prepare.sh"],
+            }
         )
     )
     service.config.update(catalogs=[{"id": "demo", "root": str(catalog), "trusted": True}])
     service.config["projects"]["p"]["catalogs"] = ["demo"]
     service.config["codex"] = {"binary": "synthetic"}
+    service.config["services"]["codex"]["permissions"]["hooks"] = True
     runtime = materialize_runtime(catalog, load_manifest(catalog), service.root, "demo")
     item = next(
         item
@@ -58,6 +67,8 @@ def test_catalog_dispatch_cwd_environment_snapshot_and_lease(tmp_path, monkeypat
     assert catalog in [Path(value).resolve() for value in ownership_roots(service, row) if value]
 
     async def provider(config, prompt, progress, project, model, effort, session, backend, approve):
+        assert (catalog / "hook-ran").is_file()
+        assert project["permissions"]["hooks"] is False
         workspace = prepare_workspace(project, prompt, session)
         assert workspace.cwd == catalog
         assert runtime["writable_roots"][0] in workspace.roots

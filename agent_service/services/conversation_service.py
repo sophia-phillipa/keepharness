@@ -1524,6 +1524,7 @@ class ConversationService:
         )
 
     async def _run_inference(self, plan):
+        from ..catalog_hooks import run_hooks
         from ..catalog_manifest import load_manifest, runtime_for_project
         from ..catalog_pin import effective_catalogs
         from ..effect_transport import effect_transport, transport_support
@@ -1586,8 +1587,10 @@ class ConversationService:
             if len(plan.prompt) + len(plan.context) + len(text) > 150000:
                 raise APIError("resource_prompt_limit")
             plan.prompt += "\nCATALOG CONTEXT:\n" + text
-        if runtime["allowed_hooks"]:
-            raise APIError("catalog_hook_filter_unsupported")
+        if runtime["allowed_hooks"] and (
+            plan.execution_mode != "native" or plan.backend == "local"
+        ):
+            raise APIError("catalog_runtime_mode_unsupported")
         if runtime["read_only_roots"]:
             plan.prompt += "\nPinned catalogs are immutable. Do not run catalog update or maintenance commands; write state only to the declared writable state directories."
         if environment:
@@ -1603,6 +1606,17 @@ class ConversationService:
             for name in contract.get("environment", {})
         ]
         with execution_environment({**runtime["environment"], **environment}, blocked):
+            grants = maestro.model_permissions(
+                self.config, plan.backend, plan.data.get("model"), project_id
+            )
+            grants = approval_policy.effective_permissions(
+                grants, plan.data.get("access_mode", "ask")
+            )
+            await run_hooks(
+                runtime,
+                grants.get("hooks") is True,
+                lambda kind, value: self.event(plan.row["id"], kind, value),
+            )
             async with effect_transport(
                 self,
                 plan.row["id"],

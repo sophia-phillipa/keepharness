@@ -62,11 +62,13 @@ session files are outside the harness redaction boundary.
 Catalog runtime prerequisites apply to selected resources. Scoped/local executions
 report `catalog_runtime_mode_unsupported` for manifest cwd, Python environment or
 writable-state requirements until their adapter has a corresponding mount and
-environment transport. Context/rule-only catalogs remain available. Explicit hook
-path filtering is currently unavailable: unpinned catalogs declaring `allowed_hooks`
-report `catalog_hook_filter_unsupported` before dispatch. Pinned catalogs disable
-hooks and maintenance updates. These missing prerequisites are also shown in the
-resource palette; granting hooks does not authorize undeclared host hooks.
+environment transport. Context/rule-only catalogs remain available. Native `allowed_hooks` are trusted executable pre-run scripts. Only an explicit
+hooks grant permits execution; each script receives the catalog cwd (or its own
+parent directory) and execution-local environment. Runs fail on a nonzero exit,
+30-second timeout, or output above 32 KiB per stream. Captured output is redacted.
+Provider/global hooks remain disabled for catalog runs. Pinned catalogs suppress
+pre-run hooks and maintenance updates. Isolated modes report the missing hook
+transport in the resource palette.
 
 Queue leases cover project/workspace/model roots, mutable catalog roots, catalog
 runtime directories and project-scoped work-item keys. They coordinate jobs in one
