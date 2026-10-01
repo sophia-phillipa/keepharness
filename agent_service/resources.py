@@ -85,14 +85,23 @@ def markdown(text):
     raise ValueError("invalid_frontmatter")
 
 
-def unfenced(text, *, preserve_offsets=False):
+def unfenced(text, *, preserve_offsets=False, keep_language=None):
     """Exclude fenced/indented code while retaining Markdown container boundaries."""
     output = []
     marker = None
     marker_depth = marker_indent = list_indent = 0
     previous_blank = True
     indented = False
+    quote_in_list = False
+    keep_block = False
     for line in text.splitlines(keepends=True):
+        source = line
+        if quote_in_list:
+            if line.startswith(" " * list_indent):
+                line = line[list_indent:]
+            elif line.strip():
+                quote_in_list = False
+                list_indent = 0
         prefix = re.match(r"^(?: {0,3}>[ \t]?)+", line)
         depth = prefix.group().count(">") if prefix else 0
         content = line[prefix.end() :] if prefix else line
@@ -100,7 +109,7 @@ def unfenced(text, *, preserve_offsets=False):
         indentation = len(content) - len(content.lstrip(" "))
         if marker is not None and depth < marker_depth:
             marker = None
-        if not blank and indentation < list_indent:
+        if not blank and indentation < list_indent and not quote_in_list:
             list_indent = 0
             if marker_indent:
                 marker = None
@@ -109,10 +118,16 @@ def unfenced(text, *, preserve_offsets=False):
             if item:
                 list_indent = item.end()
                 content = content[item.end() :]
-            elif list_indent:
+            elif list_indent and not quote_in_list:
                 content = content[list_indent:]
-        elif marker_indent:
+        elif marker_indent and not quote_in_list:
             content = content[marker_indent:]
+        nested_quote = re.match(r"^(?: {0,3}>[ \t]?)+", content)
+        if nested_quote:
+            quote_in_list = bool(list_indent)
+            depth += nested_quote.group().count(">")
+            content = content[nested_quote.end() :]
+        keep_line = keep_block and marker is not None
         code_indent = bool(re.match(r"^(?: {4}|\t)", content))
         indented = marker is None and (
             code_indent and (previous_blank or indented) or blank and indented
@@ -123,6 +138,13 @@ def unfenced(text, *, preserve_offsets=False):
             fence, suffix = match.groups()
             if marker is None and (fence[0] != "`" or "`" not in suffix):
                 marker, marker_depth, marker_indent = fence, depth, list_indent
+                keep_block = (
+                    keep_language is not None
+                    and not depth
+                    and not list_indent
+                    and suffix.strip() == keep_language
+                )
+                keep_line = keep_block
                 hidden = True
             elif (
                 marker is not None
@@ -133,12 +155,14 @@ def unfenced(text, *, preserve_offsets=False):
             ):
                 marker = None
                 hidden = True
-        if not hidden:
-            output.append(line if preserve_offsets else line.rstrip("\r\n"))
+        if not hidden or keep_line:
+            output.append(
+                source if preserve_offsets or keep_language is not None else source.rstrip("\r\n")
+            )
         elif preserve_offsets:
-            output.append(" " * len(line))
+            output.append(" " * len(source))
         previous_blank = blank
-    return ("" if preserve_offsets else "\n").join(output)
+    return ("" if preserve_offsets or keep_language is not None else "\n").join(output)
 
 
 def first_sentence(body):

@@ -165,19 +165,29 @@ function triggerAtCaret() {
 function unfencedPrompt(text) {
   // Match resources.unfenced while preserving every original character offset.
   let marker = null, markerDepth = 0, markerIndent = 0, listIndent = 0;
-  let previousBlank = true, indented = false;
-  return text.split(/(?<=\n)/).map(line => {
+  let previousBlank = true, indented = false, quoteInList = false;
+  return text.split(/(?<=\n)/).map(source => {
+    let line = source;
+    if (quoteInList) {
+      if (line.startsWith(" ".repeat(listIndent))) line = line.slice(listIndent);
+      else if (line.trim()) { quoteInList = false; listIndent = 0; }
+    }
     const prefix = /^(?: {0,3}>[ \t]?)+/.exec(line);
-    const depth = prefix ? (prefix[0].match(/>/g) || []).length : 0;
+    let depth = prefix ? (prefix[0].match(/>/g) || []).length : 0;
     let content = prefix ? line.slice(prefix[0].length) : line;
     const blank = !content.trim(), indentation = /^ */.exec(content)[0].length;
     if (marker && depth < markerDepth) marker = null;
-    if (!blank && indentation < listIndent) { listIndent = 0; if (markerIndent) marker = null; }
+    if (!blank && indentation < listIndent && !quoteInList) { listIndent = 0; if (markerIndent) marker = null; }
     if (!marker) {
       const item = /^ {0,3}(?:[-+*]|[0-9]+[.)]) +/.exec(content);
       if (item) { listIndent = item[0].length; content = content.slice(listIndent); }
-      else if (listIndent) content = content.slice(listIndent);
-    } else if (markerIndent) content = content.slice(markerIndent);
+      else if (listIndent && !quoteInList) content = content.slice(listIndent);
+    } else if (markerIndent && !quoteInList) content = content.slice(markerIndent);
+    const nestedQuote = /^(?: {0,3}>[ \t]?)+/.exec(content);
+    if (nestedQuote) {
+      quoteInList = !!listIndent; depth += (nestedQuote[0].match(/>/g) || []).length;
+      content = content.slice(nestedQuote[0].length);
+    }
     const codeIndent = /^(?: {4}|\t)/.test(content);
     indented = !marker && ((codeIndent && (previousBlank || indented)) || (blank && indented));
     let hidden = !!marker || indented;
@@ -188,7 +198,7 @@ function unfencedPrompt(text) {
       } else if (marker && depth === markerDepth && fence[1][0] === marker[0] && fence[1].length >= marker.length && !fence[2].trim()) { marker = null; hidden = true; }
     }
     previousBlank = blank;
-    return hidden ? " ".repeat(line.length) : line;
+    return hidden ? " ".repeat(source.length) : source;
   }).join("");
 }
 

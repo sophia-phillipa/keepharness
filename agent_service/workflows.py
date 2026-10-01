@@ -179,6 +179,8 @@ def validate_requirements(value, candidate):
 
 def json_equal(value, expected):
     """Compare JSON values recursively without Python's bool/number coercion."""
+    if type(value) in (int, float) and type(expected) in (int, float):
+        return value == expected
     if type(value) is not type(expected):
         return False
     if isinstance(value, dict):
@@ -200,13 +202,15 @@ def validate_result(value, schema):
         "array": list,
         "string": str,
         "number": (int, float),
-        "integer": int,
+        "integer": (int, float),
         "boolean": bool,
     }
     kind = schema.get("type")
     if kind in types and not isinstance(value, types[kind]):
         return False
     if kind in ("number", "integer") and isinstance(value, bool):
+        return False
+    if kind == "integer" and isinstance(value, float) and not value.is_integer():
         return False
     if "enum" in schema and not any(json_equal(value, option) for option in schema["enum"]):
         return False
@@ -449,6 +453,9 @@ def load_workflow(path, available=None, resources=None):
 def parse_result(text):
     if not isinstance(text, str):
         return None
+    from .resources import unfenced
+
+    text = unfenced(text, keep_language="harness-result")
     blocks, content = [], []
     marker = None
     result_block = False
@@ -483,12 +490,12 @@ def parse_result(text):
 def evaluate_condition(condition, outputs):
     parts = condition["from"].split(".")
     value = parse_result(outputs.get(parts[0]))
+    if value is None:
+        return None
     for key in parts[1:]:
         if not isinstance(value, dict) or key not in value:
             return None
         value = value[key]
-    if value is None:
-        return None
     expected = condition.get("is", condition.get("equals"))
     return json_equal(value, expected)
 
