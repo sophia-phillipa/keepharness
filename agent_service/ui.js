@@ -340,7 +340,8 @@ function resourceKeydown(event) {
   )
     return false;
   const options = [...menu.querySelectorAll("[role=option]")],
-    index = options.indexOf(document.activeElement);
+    index = options.indexOf(document.activeElement),
+    chosen = options[index] || options.find(option => option.getAttribute("aria-selected") === "true") || options[0];
   if (
     ["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key) &&
     options.length
@@ -365,7 +366,7 @@ function resourceKeydown(event) {
   if (event.key === "Enter" && !event.shiftKey && options.length) {
     event.preventDefault();
     event.stopPropagation();
-    options[index < 0 ? 0 : index].click();
+    chosen.click();
     return true;
   }
   if (event.key === "Escape") {
@@ -375,10 +376,15 @@ function resourceKeydown(event) {
     $("prompt").focus();
     return true;
   }
-  if (event.key === "Tab" && !event.shiftKey && options.length) {
+  if (event.key === "Tab" && options.length) {
+    if (event.shiftKey || chosen.getAttribute("aria-disabled") === "true") {
+      closeResourceMenu();
+      $("prompt").focus();
+      return false;
+    }
     event.preventDefault();
     event.stopPropagation();
-    options[index < 0 ? 0 : index].click();
+    chosen.click();
     return true;
   }
   return false;
@@ -3403,6 +3409,7 @@ function showMaestroPlan(data = {}) {
     model.className = "backend-chip";
     model.dataset.backend = step.backend || "";
     model.textContent = [step.backend, step.model].filter(Boolean).join(" · ");
+    model.title = model.textContent;
     const effort = document.createElement("span");
     effort.textContent = step.effort || "";
     const task = document.createElement("p");
@@ -3536,11 +3543,7 @@ function event(e) {
   } else {
     status(labels[e.type] || e.type);
   }
-  if (active?.el.querySelector('.maestro-plan-card[data-state="pending"]')) {
-    status("Waiting for plan approval");
-    active.chip.textContent = "Waiting for plan approval";
-    setActivitySummary(active, "Waiting for plan approval");
-  }
+  pendingGateStatus();
   // Deltas scroll after their batched render; reading layout here per delta
   // would force a reflow for each one (F-87).
   if (e.type !== "answer_delta") scroll();
@@ -3715,6 +3718,7 @@ async function result(
     if (data.incomplete)
       status("Incomplete response. Narrow the scope and try again.");
     else status(condition?.title || terminal[r.state] || r.state);
+    if (!terminal[r.state]) pendingGateStatus();
     if (data.deployment)
       status(
         data.deployment.applied
@@ -3824,8 +3828,8 @@ async function load(id, legacy = false, restoredView = null) {
     savedDraft = readDraft("conversation-draft:" + id);
   }
   const request = ++conversationLoad,
-    priorDraft = $("prompt").value;
-  currentMaestroPlan = null;
+    priorDraft = $("prompt").value,
+    priorTracking = (!!controller && busy) || streamDisconnected;
   loading = true;
   if (controller) {
     controller.abort();
@@ -3844,6 +3848,7 @@ async function load(id, legacy = false, restoredView = null) {
     }
     if (request !== conversationLoad) return;
     if (!data.turns?.length) throw Error("Empty conversation");
+    currentMaestroPlan = null;
     setActivePersona(null);
     queuedTurns = [];
     parent = null;
@@ -3988,6 +3993,10 @@ async function load(id, legacy = false, restoredView = null) {
   } catch (e) {
     if (request !== conversationLoad) return;
     loading = false;
+    if (priorTracking && job) {
+      streamDisconnected = true;
+      $("resume-execution").hidden = false;
+    }
     setBusy(false);
     $("prompt").value = priorDraft;
     updateComposer();
@@ -6778,9 +6787,17 @@ $("vpn-login-form").onsubmit = async (e) => {
     $("vpn-login-error").textContent = error.message;
   }
 };
-const gateChoiceDrafts = new Map();
+const gateChoiceKey = id => "gate-choice-draft:" + id;
+function pendingGateStatus() {
+  const plan = active?.el.querySelector('.maestro-plan-card[data-state="pending"]');
+  const gate = document.querySelector('.gate-card[data-state="pending"]');
+  if (!plan && !gate) return;
+  const text = plan ? "Waiting for plan approval" : gate.dataset.publish === "true" ? "Waiting for publication approval" : "Waiting for your choice";
+  status(text);
+  if (active) { active.chip.textContent = text; setActivitySummary(active, text); }
+}
 function finishGate(id, state, data = {}) {
-  gateChoiceDrafts.delete(id);
+  retireDraft(gateChoiceKey(id));
   const box = document.getElementById("gate-" + id);
   if (!box) return;
   if (box.contains(document.activeElement) || box.dataset.restoreFocus === "true")
@@ -6847,7 +6864,7 @@ function showGate(data) {
     input.type = data.multi_select ? "checkbox" : "radio";
     input.name = "gate-choice-" + data.gate_id;
     input.value = option.id;
-    input.checked = (gateChoiceDrafts.get(data.gate_id) || []).includes(option.id);
+    input.checked = (readDraft(gateChoiceKey(data.gate_id)) || []).includes(option.id);
     text.textContent = option.label;
     description.textContent = option.description || "";
     label.append(input, text, description);
@@ -6859,7 +6876,10 @@ function showGate(data) {
   submit.disabled = !fields.querySelector("input:checked");
   fields.onchange = () => {
     const choices = [...fields.querySelectorAll("input:checked")].map(input => input.value);
-    gateChoiceDrafts.set(data.gate_id, choices);
+    const key = gateChoiceKey(data.gate_id), snapshot = JSON.stringify(choices);
+    draftViews.set(key, snapshot);
+    unsavedDrafts.set(key, snapshot);
+    flushDrafts();
     submit.disabled = !choices.length;
   };
   submit.onclick = async () => {
@@ -6887,7 +6907,7 @@ function showGate(data) {
   box.append(title, fields, submit, note);
   if (data.publish) appendPublishEvidence(box, data);
   $("messages").append(box);
-  status("Waiting for your choice");
+  pendingGateStatus();
   box.scrollIntoView({ block: "nearest" });
 }
 
@@ -6904,6 +6924,8 @@ function appendPublishEvidence(container, data) {
     evidence.append(node);
   };
   add("Publication", data.enforcement === "mediated" ? "mediated" : "unenforced");
+  add("Risk", data.risk);
+  add("Evidence", data.evidence, true);
   add("Operation", data.operation);
   add("Integration", data.integration);
   add("Jira site", data.endpoint);

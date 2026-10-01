@@ -13,6 +13,9 @@ from agent_service.approval_sessions import consume_enrollment, issue_enrollment
 root = Path(sys.argv[1])
 project = root / "project"
 project.mkdir()
+agents = project / ".codex" / "agents"
+agents.mkdir(parents=True)
+(agents / "reviewer.toml").write_text('name = "reviewer"\ndescription = "Synthetic reviewer"\ndeveloper_instructions = "Review synthetic facts"\n')
 sock = socket.socket()
 sock.bind(("127.0.0.1", 0))
 port = sock.getsockname()[1]

@@ -443,7 +443,10 @@
       (!conversation || item.conversation_id === conversation) &&
       (item.kind === 'maestro_plan' || item.approval_kind === 'maestro_plan') && item.plan?.steps);
   }
+  const planDecisions = new Map();
   function renderSpans() {
+    const focused = body.contains(document.activeElement) ? document.activeElement : null;
+    const selection = focused?.tagName === "TEXTAREA" ? [focused.selectionStart, focused.selectionEnd, focused.selectionDirection, focused.scrollTop] : null;
     const focusedId = body.contains(document.activeElement) ? document.activeElement.id : '';
     const scrollTop = body.scrollTop;
     const scrollLeft = body.querySelector('.run-span-list')?.scrollLeft || 0;
@@ -516,7 +519,11 @@
     if (selected) split.append(spanDetail(selected));
     body.append(split);
     if (pendingPlan && !state.editPlan) body.append(planApproval(pendingPlan));
-    if (focusedId) document.getElementById(focusedId)?.focus({ preventScroll: true });
+    if (focusedId) {
+      const restored = document.getElementById(focusedId);
+      restored?.focus({ preventScroll: true });
+      if (restored && selection) { restored.setSelectionRange(...selection.slice(0, 3)); restored.scrollTop = selection[3]; }
+    }
     body.scrollTop = scrollTop;
     list.scrollLeft = scrollLeft;
     fitConsole();
@@ -527,6 +534,7 @@
     bar.append(el('strong', 'Maestro plan · Awaiting approval'));
     if (state.editPlan) bar.append(el('p', 'Edit the plan JSON if needed. Nothing runs until you approve.'));
     const editor = el('textarea');
+    editor.id = 'run-plan-editor-' + request.gate_id;
     editor.setAttribute('aria-label', 'Editable Maestro plan');
     editor.value = planDraft(request.gate_id) ?? JSON.stringify({ steps: request.plan.steps.map(step => Object.fromEntries(
       ['role', 'backend', 'model', 'effort', 'task', 'reason']
@@ -538,27 +546,38 @@
     });
     editor.hidden = !state.editPlan;
     const feedback = el('p'); feedback.setAttribute('role', 'status');
-    const approve = button('✓ Approve plan & run', async () => {
+    const decision = planDecisions.get(request.gate_id);
+    async function decide(choice) {
+      if (planDecisions.get(request.gate_id)?.pending) return;
       let plan;
-      try { plan = planForApproval(request.gate_id, request.plan); }
-      catch (failure) { feedback.textContent = failure.message; editor.focus(); return; }
-      approve.disabled = true; editor.disabled = true; feedback.textContent = 'Approving plan…';
+      if (choice === 'approve') {
+        try { plan = planForApproval(request.gate_id, request.plan); }
+        catch (failure) { feedback.textContent = failure.message; editor.focus(); return; }
+      }
+      const pending = { pending: true, message: choice === 'approve' ? 'Approving plan…' : 'Discarding plan…' };
+      planDecisions.set(request.gate_id, pending);
+      renderSpans();
       try {
-        await post('/v1/approvals/' + encodeURIComponent(request.gate_id), { choice: 'approve', plan });
+        await post('/v1/approvals/' + encodeURIComponent(request.gate_id), { choice, ...(plan ? { plan } : {}) });
         clearPlanDraft(request.gate_id);
-        feedback.textContent = 'Plan approved. Starting the run…';
+        pending.message = choice === 'approve' ? 'Plan approved. Starting the run…' : 'Plan discarded.';
         await refresh();
       } catch (failure) {
-        feedback.textContent = failure.message; approve.disabled = false; editor.disabled = false;
+        pending.pending = false;
+        pending.message = failure.message;
       }
-    });
-    const discard = button('Discard', async () => {
-      discard.disabled = true;
-      try { await post('/v1/approvals/' + encodeURIComponent(request.gate_id), { choice: 'deny' }); clearPlanDraft(request.gate_id); await refresh(); }
-      catch (failure) { feedback.textContent = failure.message; discard.disabled = false; }
-    });
+      if (currentPlan()?.gate_id === request.gate_id) renderSpans();
+      else planDecisions.delete(request.gate_id);
+    }
+    const approve = button('✓ Approve plan & run', () => decide('approve'));
+    approve.id = 'run-plan-approve-' + request.gate_id;
+    const discard = button('Discard', () => decide('deny'));
+    discard.id = 'run-plan-discard-' + request.gate_id;
+    approve.disabled = discard.disabled = editor.disabled = !!decision?.pending;
+    feedback.textContent = decision?.message || '';
     const edit = button(state.editPlan ? 'Hide editor' : 'Edit plan', () => { state.editPlan = !state.editPlan; renderSpans(); const toggle = document.getElementById('run-plan-edit'); toggle?.focus(); toggle?.scrollIntoView({ block: 'nearest', behavior: 'instant' }); });
     edit.id = 'run-plan-edit';
+    edit.disabled = !!decision?.pending;
     const actions = el('div', null, 'run-plan-actions'); actions.append(discard, edit, approve);
     bar.append(editor, actions, feedback);
     return bar;
