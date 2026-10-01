@@ -267,6 +267,7 @@ async def run(service):
 async def run_job(service, row):
     row = dict(row)
     started = time.time()
+    execution_completed = False
     budget = RuntimeBudget()
     service.runtime_budgets[row["id"]] = budget
     try:
@@ -292,10 +293,22 @@ async def run_job(service, row):
             task = asyncio.create_task(service.execute(row))
             service.job_tasks[row["id"]] = task
             result = await task
+        execution_completed = True
         result.update(budget.metrics())
         result["queue_seconds"] = started - row["created"]
         result["total_seconds"] = time.time() - row["created"]
-        service.finish(row["id"], "completed", result)
+        while True:
+            try:
+                service.finish(row["id"], "completed", result)
+                break
+            except sqlite3.OperationalError as exc:
+                if getattr(exc, "sqlite_errorcode", 0) & 0xFF not in (
+                    sqlite3.SQLITE_BUSY,
+                    sqlite3.SQLITE_LOCKED,
+                ):
+                    raise
+                # Keep the result and scheduler ownership; retry storage, never inference.
+                await asyncio.sleep(0.05)
         if result.get("deployment", {}).get("restart_required"):
             unit = service.config["projects"][row["project"]]["restart_service"]
             proc = await asyncio.create_subprocess_exec(
@@ -317,6 +330,10 @@ async def run_job(service, row):
             else:
                 service.event(row["id"], "deployment_failed", {"error": "restart_schedule_failed"})
     except asyncio.CancelledError:
+        if execution_completed:
+            # Shutdown remains responsive. Startup recovery owns an uncommitted result;
+            # completed inference must not be relabeled as a cancelled execution.
+            return
         if service.conversation_repository.state(row["id"])[0] == "completed":
             raise
         reason = service.cancellation_reasons.pop(row["id"], None)

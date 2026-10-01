@@ -163,19 +163,35 @@ function triggerAtCaret() {
   return { prefix: match[2], query: match[3], start, end: before.length };
 }
 function unfencedPrompt(text) {
-  // Preserve offsets while excluding fenced examples from invocation boundaries.
-  let marker = null;
+  // Match resources.unfenced while preserving every original character offset.
+  let marker = null, markerDepth = 0, markerIndent = 0, listIndent = 0;
+  let previousBlank = true, indented = false;
   return text.split(/(?<=\n)/).map(line => {
-    const content = line.replace(/^(?: {0,3}>[ \t]?)+/, "");
+    const prefix = /^(?: {0,3}>[ \t]?)+/.exec(line);
+    const depth = prefix ? (prefix[0].match(/>/g) || []).length : 0;
+    let content = prefix ? line.slice(prefix[0].length) : line;
+    const blank = !content.trim(), indentation = /^ */.exec(content)[0].length;
+    if (marker && depth < markerDepth) marker = null;
+    if (!blank && indentation < listIndent) { listIndent = 0; if (markerIndent) marker = null; }
+    if (!marker) {
+      const item = /^ {0,3}(?:[-+*]|[0-9]+[.)]) +/.exec(content);
+      if (item) { listIndent = item[0].length; content = content.slice(listIndent); }
+      else if (listIndent) content = content.slice(listIndent);
+    } else if (markerIndent) content = content.slice(markerIndent);
+    const codeIndent = /^(?: {4}|\t)/.test(content);
+    indented = !marker && ((codeIndent && (previousBlank || indented)) || (blank && indented));
+    let hidden = !!marker || indented;
     const fence = /^ {0,3}(`{3,}|~{3,})(.*)/.exec(content);
-    let hidden = !!marker;
-    if (fence) {
-      if (!marker && (fence[1][0] !== "`" || !fence[2].includes("`"))) { marker = fence[1]; hidden = true; }
-      else if (marker && fence[1][0] === marker[0] && fence[1].length >= marker.length && !fence[2].trim()) { marker = null; hidden = true; }
+    if (fence && !indented) {
+      if (!marker && (fence[1][0] !== "`" || !fence[2].includes("`"))) {
+        marker = fence[1]; markerDepth = depth; markerIndent = listIndent; hidden = true;
+      } else if (marker && fence[1][0] === marker[0] && fence[1].length >= marker.length && !fence[2].trim()) { marker = null; hidden = true; }
     }
+    previousBlank = blank;
     return hidden ? " ".repeat(line.length) : line;
   }).join("");
 }
+
 function selectedOccurrences() {
   const prose = unfencedPrompt($("prompt").value);
   const used = new Set();

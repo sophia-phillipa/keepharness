@@ -177,11 +177,25 @@ def validate_requirements(value, candidate):
             raise WorkflowError("workflow_requirement_denied")
 
 
+def json_equal(value, expected):
+    """Compare JSON values recursively without Python's bool/number coercion."""
+    if type(value) is not type(expected):
+        return False
+    if isinstance(value, dict):
+        return value.keys() == expected.keys() and all(
+            json_equal(item, expected[key]) for key, item in value.items()
+        )
+    if isinstance(value, list):
+        return len(value) == len(expected) and all(
+            json_equal(item, other) for item, other in zip(value, expected)
+        )
+    return value == expected
+
+
 def validate_result(value, schema):
     """Check the supported JSON-schema subset without coercing model output."""
-    if value is None:
-        return schema.get("type") == "null"
     types = {
+        "null": type(None),
         "object": dict,
         "array": list,
         "string": str,
@@ -190,13 +204,11 @@ def validate_result(value, schema):
         "boolean": bool,
     }
     kind = schema.get("type")
-    if kind == "null" or (kind in types and not isinstance(value, types[kind])):
+    if kind in types and not isinstance(value, types[kind]):
         return False
     if kind in ("number", "integer") and isinstance(value, bool):
         return False
-    if "enum" in schema and not any(
-        type(value) is type(option) and value == option for option in schema["enum"]
-    ):
+    if "enum" in schema and not any(json_equal(value, option) for option in schema["enum"]):
         return False
     if isinstance(value, dict):
         if any(key not in value for key in schema.get("required", [])):
@@ -478,7 +490,7 @@ def evaluate_condition(condition, outputs):
     if value is None:
         return None
     expected = condition.get("is", condition.get("equals"))
-    return type(value) is type(expected) and value == expected
+    return json_equal(value, expected)
 
 
 def dependency_catalog(config, project_id, *, execution_mode=None):

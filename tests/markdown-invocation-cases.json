@@ -1,0 +1,12 @@
+[
+  "/review actual",
+  "> ```text\n> /review example\n\n/review actual",
+  "- Example:\n\n    ```text\n    /review example\n    ```\n\n/review actual",
+  "Paragraph\n    /review actual",
+  "- item\n    /review actual",
+  "```text\n/review example\n```\n/review actual",
+  "> ```text\n> /review example\n> ```\n\n/review actual",
+  "- Example:\n  ```text\n  /review example\n\n/review actual",
+  "    - /review example\n\n/review actual",
+  "    1. /review example\n\n/review actual"
+]

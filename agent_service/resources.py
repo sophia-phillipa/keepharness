@@ -84,29 +84,57 @@ def markdown(text):
 
 
 def unfenced(text, *, preserve_offsets=False):
-    """Return prose outside Markdown fences for static expansion checks."""
+    """Exclude fenced/indented code while retaining Markdown container boundaries."""
     output = []
     marker = None
+    marker_depth = marker_indent = list_indent = 0
+    previous_blank = True
+    indented = False
     for line in text.splitlines(keepends=True):
-        content = re.sub(r"^(?: {0,3}>[ \t]?)+", "", line)
-        match = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", content)
-        if match:
-            fence, suffix = match.groups()
-            if marker is None:
-                if fence[0] != "`" or "`" not in suffix:
-                    marker = fence
-                    if preserve_offsets:
-                        output.append(" " * len(line))
-                    continue
-            elif fence[0] == marker[0] and len(fence) >= len(marker) and not suffix.strip():
+        prefix = re.match(r"^(?: {0,3}>[ \t]?)+", line)
+        depth = prefix.group().count(">") if prefix else 0
+        content = line[prefix.end() :] if prefix else line
+        blank = not content.strip()
+        indentation = len(content) - len(content.lstrip(" "))
+        if marker is not None and depth < marker_depth:
+            marker = None
+        if not blank and indentation < list_indent:
+            list_indent = 0
+            if marker_indent:
                 marker = None
-                if preserve_offsets:
-                    output.append(" " * len(line))
-                continue
         if marker is None:
+            item = re.match(r"^ {0,3}(?:[-+*]|[0-9]+[.)]) +", content)
+            if item:
+                list_indent = item.end()
+                content = content[item.end() :]
+            elif list_indent:
+                content = content[list_indent:]
+        elif marker_indent:
+            content = content[marker_indent:]
+        code_indent = bool(re.match(r"^(?: {4}|\t)", content))
+        indented = marker is None and (
+            code_indent and (previous_blank or indented) or blank and indented
+        )
+        hidden = bool(marker) or indented
+        match = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", content)
+        if match and not indented:
+            fence, suffix = match.groups()
+            if marker is None and (fence[0] != "`" or "`" not in suffix):
+                marker, marker_depth, marker_indent = fence, depth, list_indent
+                hidden = True
+            elif (
+                marker is not None
+                and fence[0] == marker[0]
+                and len(fence) >= len(marker)
+                and not suffix.strip()
+            ):
+                marker = None
+                hidden = True
+        if not hidden:
             output.append(line if preserve_offsets else line.rstrip("\r\n"))
         elif preserve_offsets:
             output.append(" " * len(line))
+        previous_blank = blank
     return ("" if preserve_offsets else "\n").join(output)
 
 
@@ -263,12 +291,15 @@ def discover(
                 ancestors.extend(pending)
                 break
         for folder in ancestors:
+            identity = "project/" + project_id
+            if folder != root:
+                identity += "/ancestor/" + str(len(root.relative_to(folder).parts))
             add(
                 folder / ("." + engine),
                 "project",
                 engine,
                 folder,
-                "project/" + project_id,
+                identity,
                 folder,
             )
             if engine in ("codex", "gemini"):
@@ -278,7 +309,7 @@ def discover(
                     "agents",
                     folder,
                     "skill",
-                    "project/" + project_id,
+                    identity,
                     folder,
                 )
             if engine == "codex":
@@ -288,7 +319,7 @@ def discover(
                     "codex",
                     folder,
                     "command",
-                    "project/" + project_id,
+                    identity,
                     folder,
                 )
         if engine == "claude":
