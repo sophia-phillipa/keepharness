@@ -409,6 +409,8 @@ def evaluate_condition(condition, outputs):
 
 def discover_workflows(config, project_id, backend, *, private=False):
     from . import resources
+    from .catalog_manifest import load_manifest, preflight
+    from .catalog_pin import effective_catalogs, snapshot_catalogs
 
     result = {"items": [], "warnings": []}
     project = config["projects"][project_id]
@@ -417,7 +419,7 @@ def discover_workflows(config, project_id, backend, *, private=False):
         locations.append(
             (Path(project["root"]).resolve(), "project", "project/" + project_id, "", "project")
         )
-    for catalog in config.get("catalogs", []):
+    for catalog in effective_catalogs(config, project):
         if catalog.get("trusted") is True and catalog.get("id") in project.get("catalogs", []):
             locations.append(
                 (
@@ -428,9 +430,33 @@ def discover_workflows(config, project_id, backend, *, private=False):
                     catalog["id"],
                 )
             )
+    catalogs = {item["id"]: item for item in effective_catalogs(config, project)}
     for root, scope, identity, namespace, origin in locations:
+        manifest, problems, snapshot = None, [], {}
+        if scope == "catalog":
+            try:
+                manifest = load_manifest(root)
+                if manifest:
+                    problems = preflight(
+                        root,
+                        manifest,
+                        config.get("control_state_dir", config.get("state_dir", "state")),
+                        origin,
+                    )
+                snapshot = snapshot_catalogs({**config, "catalogs": [catalogs[origin]]}, project)[0]
+            except (ValueError, OSError) as error:
+                problems = ["Invalid catalog manifest: " + str(error)]
+        folders = ["workflows", *(manifest or {}).get("resources", {}).get("workflow", [])]
+        seen_paths = set()
         try:
-            for path in resources.files(root / "workflows", root, [], "workflow"):
+            for path in (
+                path
+                for folder in folders
+                for path in resources.files(root / folder, root, [], "workflow")
+            ):
+                if path.resolve() in seen_paths:
+                    continue
+                seen_paths.add(path.resolve())
                 if path.suffix not in (".json", ".yaml", ".yml"):
                     continue
                 try:
@@ -445,6 +471,9 @@ def discover_workflows(config, project_id, backend, *, private=False):
                         resource_id=resource_id,
                         revision=hashlib.sha256(text.encode()).hexdigest(),
                         kind="workflow",
+                        catalog_commit=snapshot.get("commit"),
+                        catalog_dirty=snapshot.get("dirty"),
+                        catalog_pinned=snapshot.get("pinned", False),
                         name=name,
                         description=str(document.get("description", "Sequential workflow"))[:1000],
                         scope=scope,
@@ -459,9 +488,10 @@ def discover_workflows(config, project_id, backend, *, private=False):
                         native_command=False,
                         maintenance=False,
                         group="Workflows",
-                        selectable=True,
-                        unavailable_reason="",
-                        preflight_hint="Review the sequential workflow before execution.",
+                        selectable=not bool(problems),
+                        unavailable_reason="; ".join(problems),
+                        preflight_hint="; ".join(problems)
+                        or "Review the sequential workflow before execution.",
                         compatibility={},
                     )
                     if private:
@@ -488,7 +518,7 @@ def resolve_workflow(config, project_id, resource_id, available=None):
             found[(backend, item["resource_id"])] = item
             if item["resource_id"] == resource_id and item["kind"] == "workflow":
                 selected = item
-    if selected is None:
+    if selected is None or not selected["selectable"]:
         raise WorkflowError("workflow_resource_unavailable")
     document = parse_document(selected["_text"], Path(selected["source"]).suffix)
     # Resolve each invocation against the backend it will actually execute with.

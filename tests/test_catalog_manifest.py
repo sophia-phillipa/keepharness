@@ -1,0 +1,103 @@
+import json
+from pathlib import Path
+
+import pytest
+
+from agent_service import catalog_manifest as manifests
+
+
+def write_manifest(root, **values):
+    root.mkdir(exist_ok=True)
+    (root / "harness.catalog.json").write_text(json.dumps({"version": 1, **values}))
+    return manifests.load_manifest(root)
+
+
+def test_optional_manifest_and_strict_paths(tmp_path):
+    assert manifests.load_manifest(tmp_path) is None
+    for values in (
+        {"context": ["../secret"]},
+        {"cwd": "/tmp"},
+        {"writable_state": ["../escape"]},
+        {"runtime": {"requirements": "../outside"}},
+    ):
+        with pytest.raises(ValueError):
+            write_manifest(tmp_path, **values)
+
+
+def test_runtime_state_and_venv_outside_catalog(tmp_path):
+    root = tmp_path / "catalog"
+    manifest = write_manifest(root, writable_state=["memory"], runtime={"venv": True}, cwd=".")
+    assert manifests.preflight(root, manifest, tmp_path / "state", "demo")
+    result = manifests.materialize_runtime(root, manifest, tmp_path / "state", "demo")
+    assert Path(result["environment"]["VIRTUAL_ENV"]).is_dir()
+    assert not Path(result["writable_roots"][0]).is_relative_to(root)
+    assert manifests.preflight(root, manifest, tmp_path / "state", "demo") == []
+
+
+def test_preflight_never_executes_checks(tmp_path):
+    manifest = write_manifest(
+        tmp_path / "catalog", preflight=[{"file": "missing", "hint": "Create fixture input."}]
+    )
+    assert manifests.preflight(tmp_path / "catalog", manifest, tmp_path / "state", "demo") == [
+        "Create fixture input."
+    ]
+    with pytest.raises(ValueError):
+        write_manifest(tmp_path, preflight=[{"command": "touch marker"}])
+
+
+def test_discovery_preflight_and_maintenance(tmp_path, monkeypatch):
+    from agent_service.resources import discover
+
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    root = tmp_path / "catalog"
+    write_manifest(
+        root,
+        preflight=[{"file": "ready", "hint": "Create ready file."}],
+        provisions_maintenance=True,
+    )
+    (root / "commands").mkdir()
+    (root / "commands/task.md").write_text("Run task.")
+    (root / "commands/install.md").write_text("Install.")
+    config = {
+        "state_dir": str(tmp_path / "state"),
+        "catalogs": [{"id": "demo", "root": str(root), "trusted": True}],
+        "projects": {"p": {"root": str(tmp_path / "project"), "catalogs": ["demo"]}},
+        "services": {"claude": {"mode": "native"}},
+    }
+    items = discover(config, "p", "claude")["items"]
+    assert len(items) == 2
+    assert all(not item["selectable"] for item in items)
+    assert items[1]["unavailable_reason"] == "Create ready file."
+    (root / "ready").touch()
+    assert [item["name"] for item in discover(config, "p", "claude")["items"]] == ["task"]
+
+
+def test_manifest_rejects_symlink_escape_and_runtime_state_alias(tmp_path):
+    root = tmp_path / "catalog"
+    root.mkdir()
+    (root / "context").symlink_to(tmp_path / "outside")
+    with pytest.raises(ValueError, match="escape"):
+        write_manifest(root, context=["context"])
+    manifest = write_manifest(root, writable_state=["memory"])
+    state = tmp_path / "state"
+    (state / "catalog_runtime/demo").mkdir(parents=True)
+    (state / "catalog_runtime/demo/memory").symlink_to(tmp_path / "outside")
+    with pytest.raises(ValueError):
+        manifests.materialize_runtime(root, manifest, state, "demo")
+
+
+def test_runtime_context_rules_and_two_catalogs(tmp_path):
+    config = {
+        "state_dir": str(tmp_path / "state"),
+        "catalogs": [],
+        "projects": {"p": {"catalogs": ["one", "two"]}},
+    }
+    for catalog_id in ("one", "two"):
+        root = tmp_path / catalog_id
+        write_manifest(root, context=["context.md"], rules=["rules.md"], writable_state=["memory"])
+        (root / "context.md").write_text("Context")
+        (root / "rules.md").write_text("Rules")
+        config["catalogs"].append({"id": catalog_id, "root": str(root), "trusted": True})
+    result = manifests.runtime_for_project(config, "p")
+    assert len(result["contexts"]) == len(result["rules"]) == len(result["writable_roots"]) == 2
+    assert len(result["environment"]) == 2
