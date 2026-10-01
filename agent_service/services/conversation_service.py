@@ -300,6 +300,9 @@ class ConversationService:
 
     def identity(self, request, *, revalidate=False):
         def identified(name, client):
+            owner = getattr(request.state, "authenticated_owner", None)
+            if revalidate and owner is not None and name != owner:
+                raise APIError("authentication_required", 401)
             return (name, client) if revalidate else self.throttle(name, client, request)
 
         request.state.approval_session_owner = None

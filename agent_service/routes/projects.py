@@ -87,6 +87,9 @@ async def project_directories(request, service, identity):
     result = await asyncio.to_thread(
         workspaces.browse_system, root, folder, start, limit, True, query
     )
+    service.identity(request, revalidate=True)
+    if not config.get("shared_projects"):
+        raise APIError("project_registration_disabled", 403)
     for entry in result["entries"]:
         entry["absolute_path"] = str(root / entry["path"])
     return JSONResponse(

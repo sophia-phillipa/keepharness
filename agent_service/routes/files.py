@@ -31,6 +31,22 @@ def require_current_read(request, service, project):
     return identity
 
 
+def require_current_upload(request, service, project, *, selected_media=False):
+    identity = service.identity(request, revalidate=True)
+    service.project(identity, project)
+    if not service.uploads_enabled(project) or not maestro.candidates(
+        service.config, project, uploads=True
+    ):
+        raise APIError("uploads_denied", 403)
+    if selected_media and not any(
+        candidate["backend"] == request.query_params.get("backend")
+        and candidate["model"] == request.query_params.get("model")
+        for candidate in maestro.candidates(service.config, project, uploads=True)
+    ):
+        raise APIError("uploads_denied", 403)
+    return identity
+
+
 async def workspaces_collection(request, service, identity):
     if request.method == "POST":
         return await upload_workspace(request, service, identity)
@@ -45,19 +61,15 @@ async def list_workspaces(request, service, identity):
 
 
 async def upload_workspace(request, service, identity):
-    config = service.config
     project = request.query_params.get("project_id")
-    service.project(identity, project)
-    if not service.uploads_enabled(project) or not maestro.candidates(
-        config, project, uploads=True
-    ):
-        raise APIError("uploads_denied", 403)
+    identity = require_current_upload(request, service, project)
     from urllib.parse import unquote
 
     name = unquote(request.headers.get("x-filename", "project.zip"))
     if not re.fullmatch(r"[\w .-]{1,160}", name):
         raise APIError("invalid_filename")
     async with service.upload_lock:
+        identity = require_current_upload(request, service, project)
         base = service.root / "workspaces"
         base.mkdir(exist_ok=True, mode=0o700)
         used = sum(p.stat().st_size for p in base.rglob("*") if p.is_file() and not p.is_symlink())
@@ -76,11 +88,12 @@ async def upload_workspace(request, service, identity):
                         if size > workspaces.MAX_BYTES:
                             raise APIError("workspace_size_limit", 413)
                         output.write(chunk)
+            identity = require_current_upload(request, service, project)
             manifest = await asyncio.to_thread(workspaces.unpack, archive, folder / "work")
             if not manifest:
                 raise APIError("empty_workspace")
             warnings = await workspaces.prepare_documents(folder / "work", manifest)
-            service.project(identity, project)
+            identity = require_current_upload(request, service, project)
             with service.db:
                 service.project_repository.add_workspace(
                     wid, project, identity[0], name, time.time(), encoded(manifest)
@@ -337,11 +350,7 @@ async def upload_file(request, service, identity):
     config = service.config
     # Raw streaming upload avoids multipart temporary-file allocation before checking quota.
     project = request.query_params.get("project_id")
-    service.project(identity, project)
-    if not service.uploads_enabled(project) or not maestro.candidates(
-        config, project, uploads=True
-    ):
-        raise APIError("uploads_denied", 403)
+    identity = require_current_upload(request, service, project)
     from urllib.parse import unquote
 
     filename = unquote(request.headers.get("x-filename", ""))
@@ -356,6 +365,7 @@ async def upload_file(request, service, identity):
     ):
         raise APIError("invalid_filename")
     async with service.upload_lock:
+        identity = require_current_upload(request, service, project)
         used = service.message_repository.project_bytes(project)
         fid = uuid.uuid4().hex
         folder = service.root / "files" / project / fid
@@ -373,6 +383,7 @@ async def upload_file(request, service, identity):
                             raise APIError("upload_limit", 413)
                         out.write(chunk)
                         digest.update(chunk)
+            identity = require_current_upload(request, service, project)
             if Path(filename).suffix.lower() == ".mp4":
                 backend = request.query_params.get("backend")
                 model = request.query_params.get("model")
@@ -384,6 +395,9 @@ async def upload_file(request, service, identity):
                 ) or service.default_execution_mode(backend)
                 service.validate_execution_mode(backend, execution_mode)
                 await service.validate_video(backend, model, execution_mode)
+            require_current_upload(
+                request, service, project, selected_media=Path(filename).suffix.lower() == ".mp4"
+            )
             pages = await tools.extract(dest, filename)
             if any(page.get("media_type") for page in pages):
                 backend = request.query_params.get("backend")
@@ -396,7 +410,13 @@ async def upload_file(request, service, identity):
                 ) or service.default_execution_mode(backend)
                 service.validate_execution_mode(backend, execution_mode)
                 await service.validate_images(backend, model, execution_mode)
-            service.project(identity, project)
+            identity = require_current_upload(
+                request,
+                service,
+                project,
+                selected_media=Path(filename).suffix.lower() == ".mp4"
+                or any(page.get("media_type") for page in pages),
+            )
             with service.db:
                 service.message_repository.add_file(
                     fid,

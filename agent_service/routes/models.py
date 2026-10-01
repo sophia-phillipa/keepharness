@@ -10,12 +10,15 @@ from . import api_route
 async def usage(request, service, identity):
     backend = request.query_params.get("backend", "codex")
     if backend == "claude":
-        return JSONResponse(await service.claude_quota(identity[0]))
-    if backend != "codex":
+        result = await service.claude_quota(identity[0])
+    elif backend != "codex":
         return JSONResponse(
             {"provider": backend, "available": False, "reason": "quota_not_reported"}
         )
-    return JSONResponse(await service.quota())
+    else:
+        result = await service.quota()
+    service.identity(request, revalidate=True)
+    return JSONResponse(result)
 
 
 async def models(request, service, identity):
