@@ -185,7 +185,7 @@ function unfencedPrompt(text) {
     if (fence && !indented) {
       if (!marker && (fence[1][0] !== "`" || !fence[2].includes("`"))) {
         marker = fence[1]; markerDepth = depth; markerIndent = listIndent; hidden = true;
-      } else if (marker && fence[1][0] === marker[0] && fence[1].length >= marker.length && !fence[2].trim()) { marker = null; hidden = true; }
+      } else if (marker && depth === markerDepth && fence[1][0] === marker[0] && fence[1].length >= marker.length && !fence[2].trim()) { marker = null; hidden = true; }
     }
     previousBlank = blank;
     return hidden ? " ".repeat(line.length) : line;

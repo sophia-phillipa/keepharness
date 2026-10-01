@@ -124,6 +124,7 @@ def unfenced(text, *, preserve_offsets=False):
                 hidden = True
             elif (
                 marker is not None
+                and depth == marker_depth
                 and fence[0] == marker[0]
                 and len(fence) >= len(marker)
                 and not suffix.strip()
