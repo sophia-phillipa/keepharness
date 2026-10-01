@@ -1083,6 +1083,35 @@ class ConversationService:
             raise APIError("workflow_source_busy", 409)
         if set(changes) - {"workflow_inputs", "from_step", "maestro_plan_policy"}:
             raise APIError("invalid_workflow_recovery")
+        if idem is not None and (not isinstance(idem, str) or not 1 <= len(idem) <= 128):
+            raise APIError("invalid_idempotency_key")
+        try:
+            recovery_digest = hashlib.sha256(
+                json.dumps(
+                    {"source": job_id, "rerun": rerun, "changes": changes},
+                    sort_keys=True,
+                    allow_nan=False,
+                ).encode()
+            ).hexdigest()
+        except (ValueError, TypeError):
+            raise APIError("invalid_workflow_recovery") from None
+        old = (
+            self.conversation_repository.by_idempotency_key(identity[0], row["project"], idem)
+            if idem
+            else None
+        )
+        if old:
+            accepted = json.loads(self.job(identity, old["id"])["payload"])
+            if accepted.get("_workflow_recovery_digest") != recovery_digest:
+                raise APIError("idempotency_conflict", 409)
+            return {
+                "job_id": old["id"],
+                "reused": True,
+                **{
+                    key: accepted.get(key)
+                    for key in ("backend", "model", "effort", "execution_mode")
+                },
+            }
         maestro.ensure_recovery_safe(self, job_id)
         plan = maestro.saved_plan(self, job_id)
         from_step = changes.get("from_step", 1)
@@ -1118,6 +1147,7 @@ class ConversationService:
             "_workflow_parent_job_id": job_id,
             "_workflow_resume": not rerun,
             "_workflow_context_parent_id": context_parent,
+            "_workflow_recovery_digest": recovery_digest,
         }
         if rerun:
             recovery["_workflow_from_step"] = from_step
@@ -1183,6 +1213,7 @@ class ConversationService:
                 "_workflow_from_step",
                 "_workflow_resume",
                 "_workflow_context_parent_id",
+                "_workflow_recovery_digest",
             )
         ):
             raise APIError("invalid_internal_field")

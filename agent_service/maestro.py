@@ -458,7 +458,11 @@ def binding_valid(service, row, data, plan, expected):
 
 
 def invalidate_downstream(service, job_id, index):
+    effects = service.effects.for_job(job_id)
+    consumed = {effect["gate_id"] for effect in effects if effect["status"] == "done"}
     for gate in service.gates.repository.for_job(job_id):
+        if gate["gate_id"] in consumed:
+            continue
         spec = json.loads(gate["spec"])
         step = spec.get("step")
         # Publication gates from older executions have no numeric step. Conservatively
@@ -481,7 +485,7 @@ def invalidate_downstream(service, job_id, index):
                 pending = service.approvals.get(gate["gate_id"])
                 if pending and not pending[1].done():
                     pending[1].set_result({"approved": False, "choice": "deny"})
-    for effect in service.effects.for_job(job_id):
+    for effect in effects:
         if effect["status"] == "prepared":
             service.effects._status(
                 effect["effect_id"], "invalidated", reason="workflow_binding_changed"

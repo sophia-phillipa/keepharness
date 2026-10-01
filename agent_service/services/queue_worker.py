@@ -125,6 +125,32 @@ def settle(service, job, state, result):
             logger.exception("Could not record job %s as %s (attempt %d)", job, state, attempt)
 
 
+async def finish_when_available(service, job, state, result):
+    """Retain the outcome and scheduler ownership while SQLite is temporarily locked."""
+    while True:
+        try:
+            return service.finish(job, state, result)
+        except sqlite3.OperationalError as exc:
+            if getattr(exc, "sqlite_errorcode", 0) & 0xFF not in (
+                sqlite3.SQLITE_BUSY,
+                sqlite3.SQLITE_LOCKED,
+            ):
+                raise
+            if asyncio.current_task().cancelling():
+                # Shutdown recovery owns any still-uncommitted terminal outcome.
+                return
+            await asyncio.sleep(0.05)
+
+
+async def settle_running(service, job, state, result):
+    if job in service.runtime_budgets:
+        result.update(service.runtime_budgets[job].metrics())
+    try:
+        await finish_when_available(service, job, state, result)
+    except Exception:
+        logger.exception("Could not record job %s as %s", job, state)
+
+
 def conversation_key(service, row):
     current = dict(row)
     seen = set()
@@ -297,18 +323,7 @@ async def run_job(service, row):
         result.update(budget.metrics())
         result["queue_seconds"] = started - row["created"]
         result["total_seconds"] = time.time() - row["created"]
-        while True:
-            try:
-                service.finish(row["id"], "completed", result)
-                break
-            except sqlite3.OperationalError as exc:
-                if getattr(exc, "sqlite_errorcode", 0) & 0xFF not in (
-                    sqlite3.SQLITE_BUSY,
-                    sqlite3.SQLITE_LOCKED,
-                ):
-                    raise
-                # Keep the result and scheduler ownership; retry storage, never inference.
-                await asyncio.sleep(0.05)
+        await finish_when_available(service, row["id"], "completed", result)
         if result.get("deployment", {}).get("restart_required"):
             unit = service.config["projects"][row["project"]]["restart_service"]
             proc = await asyncio.create_subprocess_exec(
@@ -337,7 +352,7 @@ async def run_job(service, row):
         if service.conversation_repository.state(row["id"])[0] == "completed":
             raise
         reason = service.cancellation_reasons.pop(row["id"], None)
-        settle(
+        await settle_running(
             service,
             row["id"],
             "cancelled",
@@ -373,7 +388,7 @@ async def run_job(service, row):
             )
         condition = provider_condition(code)
         if condition:
-            settle(
+            await settle_running(
                 service,
                 row["id"],
                 "interrupted",
@@ -396,7 +411,7 @@ async def run_job(service, row):
                 row["project"], answer=CONDITION_ANSWERS[condition].format(name), finished=True
             )
         else:
-            settle(
+            await settle_running(
                 service,
                 row["id"],
                 "failed",
