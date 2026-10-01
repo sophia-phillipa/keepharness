@@ -57,7 +57,8 @@ async function unobscured(locator) {
       const page = await fixture(browser, 1024, true);
       await page.keyboard.press('Control+j');
       await page.locator('.run-plan-approval').waitFor();
-      const boxes = await page.locator('.run-plan-approval').evaluate(node => ['strong', 'p'].map(selector => { const range = document.createRange(); range.selectNodeContents(node.querySelector(selector)); return range.getBoundingClientRect().toJSON(); }));
+      await page.locator('.run-span-row').nth(3).waitFor();
+      const boxes = await page.evaluate(() => { const node = document.querySelector('.run-plan-approval'); return ['strong', 'p'].map(selector => { const range = document.createRange(); range.selectNodeContents(node.querySelector(selector)); return range.getBoundingClientRect().toJSON(); }); });
       assert(boxes[0].width > 0);
       assert(boxes[0].right <= boxes[1].left || boxes[0].bottom <= boxes[1].top || boxes[1].bottom <= boxes[0].top, JSON.stringify(boxes));
       await page.close();
@@ -70,7 +71,8 @@ async function unobscured(locator) {
         const title = await page.locator('#tour-title').innerText();
         if (['Compose and route work', 'Access, model, and effort', 'Live status'].includes(title)) {
           seen.add(title);
-          await page.waitForTimeout(250);
+          await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+          await page.waitForFunction(() => [...document.querySelectorAll('#tour-card, .tour-spotlight')].every(node => node.getAnimations().length === 0));
           const [card, spot] = await page.locator('#tour-card, .tour-spotlight').evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().toJSON()));
           const overlap = Math.max(0, Math.min(card.right, spot.right) - Math.max(card.left, spot.left)) * Math.max(0, Math.min(card.bottom, spot.bottom) - Math.max(card.top, spot.top));
           assert.equal(overlap, 0, title);
@@ -109,12 +111,12 @@ async function unobscured(locator) {
       const page = await fixture(browser, 1440);
       await page.locator('#prompt').focus();
       await page.setViewportSize({ width: 800, height: 812 });
-      await page.waitForTimeout(100);
+      await page.waitForFunction(() => { const panel = document.getElementById('activity-panel'); return panel.getAttribute('aria-modal') === 'true' && panel.contains(document.activeElement); });
       assert.equal(await page.locator('#activity-panel').getAttribute('aria-modal'), 'true');
       assert(await page.evaluate(() => document.querySelector('#activity-panel').contains(document.activeElement)));
       assert(await unobscured(page.locator(':focus')));
       await page.setViewportSize({ width: 1440, height: 812 });
-      await page.waitForTimeout(100);
+      await page.waitForFunction(() => { const panel = document.getElementById('activity-panel'); return panel.getAttribute('aria-modal') === null && panel.getAttribute('role') === 'complementary'; });
       assert.equal(await page.locator('#activity-panel').getAttribute('aria-modal'), null);
       await page.close();
     });
@@ -155,7 +157,7 @@ async function unobscured(locator) {
       const page = await fixture(browser, 1440);
       for (const width of [400, 1440, 400, 1440]) {
         await page.setViewportSize({ width, height: 844 });
-        await page.waitForTimeout(250);
+        await page.waitForFunction(() => document.getElementById('menu').getAttribute('aria-expanded') === String(document.getElementById('sidebar').checkVisibility()));
         assert.equal(await page.locator('#menu').getAttribute('aria-expanded'), String(await page.locator('#sidebar').isVisible()));
       }
       await page.close();
@@ -166,6 +168,7 @@ async function unobscured(locator) {
         await page.locator('#about').click();
         await page.locator('#about-dialog [data-tour-action=start]').click();
         await page.setViewportSize({ width: 400, height: 844 });
+        await page.waitForFunction(() => document.getElementById('activity-panel').hidden && !document.getElementById('about').checkVisibility());
         if (exit === 'Escape') await page.keyboard.press('Escape'); else await page.locator('#tour-skip').click();
         assert.equal(await page.locator(':focus').getAttribute('id'), 'prompt');
         assert(await unobscured(page.locator(':focus')));
