@@ -4724,7 +4724,7 @@ main { padding-bottom:28px; }
 .publish-gate-card > .publish-evidence { min-height:64px; overflow:auto; }
 .conversation-peek { min-width:24px; min-height:24px; }
 .run-console-body { container:run-console / inline-size; }
-@container run-console (max-width:480px) {
+@container run-console (max-width:650px) {
   .run-pipeline-summary { display:grid; grid-template-columns:auto minmax(0,1fr); gap:4px 8px; }
   .run-plan-approval { grid-template-columns:minmax(0,1fr); }
   .run-plan-approval > * { min-width:0; }
@@ -4762,3 +4762,11 @@ main > header { flex-wrap:nowrap; overflow-x:auto; }
 .run-span-list:has(.run-waterfall-track) .run-span-row { display:grid; grid-template-columns:minmax(0,1fr) auto; align-content:start; }
 .run-span-list:has(.run-waterfall-track) .run-span-row > strong,
 .run-span-list:has(.run-waterfall-track) .run-span-row > span:not(.run-span-effort):not(.run-span-duration) { grid-column:1/-1; }
+
+/* Short viewports use the same readable console sheet as narrow screens. */
+@media (min-width:701px) and (max-height:500px) {
+  .run-console { position:fixed; inset:var(--th-app-topbar-height) 0 28px; height:auto!important; max-height:none; z-index:75; }
+  .run-console-header { display:flex; }
+  .run-console-tabs { flex:1; }
+}
+.resource-option[aria-disabled="true"] { opacity:.65; cursor:default; }

@@ -88,7 +88,8 @@ def unfenced(text, *, preserve_offsets=False):
     output = []
     marker = None
     for line in text.splitlines(keepends=True):
-        match = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
+        content = re.sub(r"^(?: {0,3}>[ \t]?)+", "", line)
+        match = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", content)
         if match:
             fence, suffix = match.groups()
             if marker is None:
@@ -692,7 +693,17 @@ def resolve(config, data):
     return result
 
 
-def prepare_prompt(prompt, items):
+def prepare_prompt(prompt, items, selections=None):
+    if selections and len(selections) > 1:
+        from .invocations import normalize_chips
+
+        by_id = {item.get("resource_id", item["id"]): item for item in items}
+        for invocation in normalize_chips(prompt, selections, items):
+            item = by_id[invocation.resource_id]
+            prepare_prompt("/" + item["name"] + " " + invocation.args, [item])
+        # Chains execute each canonical invocation separately; this pass is preflight.
+        return prompt
+
     notes = []
     commands = {}
     skills = {}

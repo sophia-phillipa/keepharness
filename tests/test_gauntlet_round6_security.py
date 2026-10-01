@@ -172,7 +172,14 @@ def test_active_sse_stops_after_revocation(app, revocation):
             401 if revocation == "owner" else 200 if revocation in {"session", "expired"} else 403
         )
         assert len(service.requests[("alice", "read")]) == (1 if revocation == "owner" else 2)
-        assert len(service.requests[("public", "session")]) == 1
+        assert (
+            sum(
+                len(entries)
+                for key, entries in service.requests.items()
+                if key[1] == "session"
+            )
+            == 1
+        )
         assert service.streams["alice"] == 0
         assert b"PRIVATE_AFTER_REVOCATION" not in result
 

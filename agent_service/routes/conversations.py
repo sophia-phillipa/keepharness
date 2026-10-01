@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import json
+import time
 
 from starlette.responses import JSONResponse, Response
 
@@ -37,6 +38,8 @@ async def approval(request, service, identity):
         raise APIError("invalid_approval_scope")
     if pending[1].done():
         raise APIError("approval_already_resolved", 409)
+    if time.time() >= service.approval_deadlines.get(aid, float("inf")):
+        raise APIError("approval_expired", 404)
     pending[1].set_result(
         {
             "approved": data.get("approved") is True,

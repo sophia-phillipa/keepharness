@@ -149,6 +149,7 @@ class GateService:
                 self.service.config,
                 job["project"],
                 bool(payload.get("file_ids") or payload.get("workspace_id")),
+                execution_mode=payload.get("execution_mode"),
             )
             if payload.get("workspace_id"):
                 available = [model for model in available if model["permissions"].get("read")]

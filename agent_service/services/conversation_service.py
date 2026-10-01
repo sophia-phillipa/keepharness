@@ -32,7 +32,13 @@ from .. import (
     workflows,
     workspaces,
 )
-from ..approval_sessions import SESSION_COOKIE, initialize_session_database, session_identity
+from ..approval_sessions import (
+    SESSION_COOKIE,
+    initialize_session_database,
+    session_database,
+    session_identity,
+    token_digest,
+)
 from ..config import (
     EXECUTION_MODES,
     KINDS,
@@ -133,6 +139,9 @@ class ConversationService:
             config["projects"].update(self.project_repository.registered())
             self.share_projects()
         self.approvals = {}
+        self.session_lookup_stamp = None
+        self.session_lookup_owners = {}
+        self.approval_deadlines = {}
         self.approval_expirations = {}
         self.active = None
         self.task = None
@@ -309,7 +318,34 @@ class ConversationService:
         session_owner = None
         if request.cookies.get(SESSION_COOKIE):
             if not revalidate:
-                self.limit(("public", "session"), 240, "session_rate_limit")
+                path = Path(self.config["state_dir"]) / "approval_sessions.sqlite3"
+                fingerprint = []
+                for candidate in (path, Path(str(path) + "-wal"), Path(str(path) + "-journal")):
+                    try:
+                        stamp = candidate.stat()
+                        fingerprint.append((stamp.st_ino, stamp.st_mtime_ns, stamp.st_size))
+                    except FileNotFoundError:
+                        fingerprint.append(None)
+                if fingerprint != self.session_lookup_stamp:
+                    # This index allocates lookup budgets only; it never authenticates.
+                    with session_database(self.config, readonly=True) as database:
+                        owners = {
+                            row[0]: row[1:]
+                            for row in database.execute(
+                                "SELECT digest, owner, expires, approval_capable FROM sessions"
+                            )
+                        }
+                    self.session_lookup_owners = owners
+                    self.session_lookup_stamp = fingerprint
+                owner, expires, capable = self.session_lookup_owners.get(
+                    token_digest(request.cookies[SESSION_COOKIE]), (None, 0, False)
+                )
+                lane = (
+                    owner
+                    if capable and expires > time.time() and owner in self.config["clients"]
+                    else "public"
+                )
+                self.limit((lane, "session"), 240, "session_rate_limit")
             session_owner = session_identity(request, self.config)
         if session_owner is not None:
             request.state.approval_session_owner = session_owner
@@ -344,7 +380,7 @@ class ConversationService:
         raise APIError("authentication_required", 401)
 
     def limit(self, key, maximum, code="rate_limit"):
-        # Keys come from configured identities and fixed lanes, never client headers.
+        # Keys come from configured identities, fixed lanes.
         now = time.monotonic()
         entries = self.requests.setdefault(key, [])
         entries[:] = [stamp for stamp in entries if now - stamp < 60]
@@ -427,7 +463,16 @@ class ConversationService:
         return bool(self.config.get("uploads_enabled")) or override is True or explicit_model
 
     async def attach_project_files(
-        self, identity, project, selected, skipped, backend, model, execution_mode=None
+        self,
+        identity,
+        project,
+        selected,
+        skipped,
+        backend,
+        model,
+        execution_mode=None,
+        *,
+        revalidate=None,
     ):
         self.project(identity, project)
         attachments = []
@@ -475,6 +520,10 @@ class ConversationService:
                             backend, model, execution_mode or self.default_execution_mode(backend)
                         )
                     self.project(identity, project)
+                    if revalidate:
+                        revalidate()
+                    if not self.can_read_project(project):
+                        raise APIError("read_denied", 403)
                     with self.db:
                         self.message_repository.add_file(
                             fid,
@@ -491,6 +540,8 @@ class ConversationService:
                     )
                 except (APIError, tools.ToolError, OSError) as exc:
                     shutil.rmtree(folder)
+                    if isinstance(exc, APIError) and exc.status in (401, 403):
+                        raise
                     skipped.append(
                         {
                             "path": name,
@@ -770,7 +821,9 @@ class ConversationService:
             raise APIError("resource_read_denied", 403)
         try:
             selected = resources.resolve(self.config, data)
-            resources.prepare_prompt(data.get("prompt", ""), selected)
+            resources.prepare_prompt(
+                data.get("prompt", ""), selected, data.get("resource_selections")
+            )
             return selected
         except resources.ResourceError as error:
             raise APIError(
@@ -857,7 +910,12 @@ class ConversationService:
                     value.args != actual.args for value, actual in zip(values, normalized)
                 ):
                     raise invocations.InvocationError("invocation_selection_mismatch")
-                normalized = values
+                normalized = [
+                    invocations.Invocation(
+                        **{**value.to_dict(), "requested_backend": actual.requested_backend}
+                    )
+                    for value, actual in zip(values, normalized)
+                ]
             if normalized:
                 data["invocations"] = [value.to_dict() for value in normalized]
                 if (
@@ -909,6 +967,7 @@ class ConversationService:
             payload["work_item"] = reference
             self.conversation_repository.set_payload(job, encoded(payload))
             self.event(job, "work_item_tagged", {"work_item": reference})
+        self.wake.set()
         return {"job_id": job, "project_id": row["project"], "work_item": reference}
 
     def activity(self, identity, project_id=None, work_item=None):
@@ -968,10 +1027,18 @@ class ConversationService:
         data.pop("resource_selections", None)
         if len(source_invocations) == 1 and source_invocations[0]["kind"] == "workflow":
             plan = workflows.resolve_workflow(
-                self.config, row["project"], source_invocations[0]["resource_id"]
+                self.config,
+                row["project"],
+                source_invocations[0]["resource_id"],
+                execution_mode=data.get("execution_mode"),
             )
         elif plan.get("resource_id"):
-            plan = workflows.resolve_workflow(self.config, row["project"], plan["resource_id"])
+            plan = workflows.resolve_workflow(
+                self.config,
+                row["project"],
+                plan["resource_id"],
+                execution_mode=data.get("execution_mode"),
+            )
         if type(from_step) is not int or not 1 <= from_step <= len(plan["steps"]):
             raise APIError("invalid_workflow_step")
         data.update({key: value for key, value in changes.items() if key != "from_step"})
@@ -1075,7 +1142,10 @@ class ConversationService:
             if len(data["invocations"]) != 1:
                 raise APIError("workflow_must_be_standalone", 422)
             workflows.resolve_workflow(
-                self.config, data["project_id"], workflow_invocations[0]["resource_id"]
+                self.config,
+                data["project_id"],
+                workflow_invocations[0]["resource_id"],
+                execution_mode=data.get("execution_mode"),
             )
         if workflow_recovery is not None:
             data.update(workflow_recovery)
@@ -2055,6 +2125,7 @@ class ConversationService:
                 raise ValueError("invalid_approval_max_consecutive_expirations")
             expired = False
             self.approvals[aid] = (row["id"], future)
+            self.approval_deadlines[aid] = time.time() + wait_limit
             opened = False
             try:
                 progress(
@@ -2064,7 +2135,7 @@ class ConversationService:
                         "kind": kind,
                         "request": params,
                         "can_remember": bool(fingerprint) and mode != "read_only",
-                        "expires_at": time.time() + wait_limit,
+                        "expires_at": self.approval_deadlines[aid],
                     },
                 )
                 opened = True
@@ -2089,6 +2160,7 @@ class ConversationService:
                 return reply
             finally:
                 self.approvals.pop(aid, None)
+                self.approval_deadlines.pop(aid, None)
                 if not future.done():
                     future.cancel()
                 if opened and not expired:
@@ -2106,12 +2178,18 @@ class ConversationService:
                 declared = data["_declared_workflow"]
                 if declared.get("resource_id"):
                     declared = workflows.resolve_workflow(
-                        self.config, row["project"], declared["resource_id"]
+                        self.config,
+                        row["project"],
+                        declared["resource_id"],
+                        execution_mode=data.get("execution_mode"),
                     )
                 result = await maestro.execute_workflow(self, row, data, declared)
             elif len(invocation) == 1 and invocation[0]["kind"] == "workflow":
                 declared = workflows.resolve_workflow(
-                    self.config, row["project"], invocation[0]["resource_id"]
+                    self.config,
+                    row["project"],
+                    invocation[0]["resource_id"],
+                    execution_mode=data.get("execution_mode"),
                 )
                 result = await maestro.execute_workflow(self, row, data, declared)
             elif len(invocation) > 1:

@@ -605,14 +605,16 @@ def discover_workflows(config, project_id, backend, *, private=False, execution_
     return result
 
 
-def resolve_workflow(config, project_id, resource_id, available=None):
+def resolve_workflow(config, project_id, resource_id, available=None, *, execution_mode=None):
     from . import maestro, resources
 
     if available is None:
-        available = maestro.candidates(config, project_id)
+        available = maestro.candidates(config, project_id, execution_mode=execution_mode)
     found, selected = {}, None
     for backend in dict.fromkeys(choice["backend"] for choice in available):
-        for item in resources.discover(config, project_id, backend, private=True)["items"]:
+        for item in resources.discover(
+            config, project_id, backend, private=True, execution_mode=execution_mode
+        )["items"]:
             found[(backend, item["resource_id"])] = item
             if item["resource_id"] == resource_id and item["kind"] == "workflow":
                 selected = item

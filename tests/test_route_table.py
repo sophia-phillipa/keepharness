@@ -92,6 +92,7 @@ AGENT_VALID_TABLE = [
             r.json()
             == {
                 "models": [],
+                "maestro": False,
                 "project_id": "p",
                 "providers": {},
                 "uploads_enabled": False,
