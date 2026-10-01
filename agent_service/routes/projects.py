@@ -168,6 +168,9 @@ async def projects(request, service, identity):
             if canonical != pid
             else await asyncio.to_thread(discover_project_icon, detail.get("root"))
         )
+    current = service.identity(request, revalidate=True)
+    for pid in project_catalog["projects"]:
+        service.project(current, pid)
     return JSONResponse(project_catalog)
 
 

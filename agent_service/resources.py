@@ -475,6 +475,7 @@ def discover(config, project_id, backend, model=None, *, private=False, executio
                     name = meta.get("name") or (path.parent.name if kind == "skill" else path.stem)
                     if kind == "command":
                         name = str(path.relative_to(base).with_suffix("")).replace(os.sep, ":")
+                    source_name = name
                     namespace = source_spec["namespace"]
                     if kind == "agent" and namespace and not str(name).startswith(namespace + "--"):
                         name = namespace + "--" + str(name)
@@ -590,7 +591,7 @@ def discover(config, project_id, backend, model=None, *, private=False, executio
                         "origin": origin,
                         "source": str(path),
                         "namespace": namespace,
-                        "argument_hint": argument_hint(meta, body, name),
+                        "argument_hint": argument_hint(meta, body, source_name),
                         "backend": str(meta.get("backend", backend)),
                         "model": str(meta.get("model", model or "")),
                         "effort": str(meta.get("effort", meta.get("model_reasoning_effort", ""))),

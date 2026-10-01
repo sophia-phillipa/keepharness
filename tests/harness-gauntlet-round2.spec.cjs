@@ -108,7 +108,7 @@ const settle = page => page.evaluate(() => Promise.all(document.getAnimations().
         const { page } = await fixture(browser, 400, 844);
         await page.evaluate(reversed => { document.body.classList.toggle('panel-order-reversed', reversed); setPanelOpen(false); }, reversed);
         await page.locator('#menu').focus(); await page.keyboard.press('Enter'); await settle(page);
-        for (let i = 0; i < 22; i++) { await page.keyboard.press(i < 11 ? 'Tab' : 'Shift+Tab'); assert(await page.evaluate(() => document.querySelector('#sidebar').contains(document.activeElement))); assert(await hit(page.locator(':focus'))); }
+        for (let i = 0; i < 22; i++) { await page.keyboard.press(i < 11 ? 'Tab' : 'Shift+Tab'); assert(await page.evaluate(selector => { const panel=document.querySelector(selector), active=document.activeElement; const surfaces=[panel,...(panel.getAttribute('aria-owns')||'').split(/\s+/).filter(Boolean).map(id=>document.getElementById(id))]; return !active.closest('[inert]') && surfaces.some(surface=>surface?.contains(active)); }, '#sidebar')); assert(await hit(page.locator(':focus'))); }
         await page.keyboard.press('Escape'); assert(await page.locator('#menu').evaluate(n => n === document.activeElement)); assert.equal(await page.locator('#menu').getAttribute('aria-expanded'), 'false');
         await page.setViewportSize({ width: 621, height: 844 }); assert.equal(await page.locator('#sidebar').getAttribute('aria-modal'), null); await page.close();
       }

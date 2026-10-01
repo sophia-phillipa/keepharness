@@ -115,6 +115,7 @@ MIGRATIONS = (
     add_effects,
     bind_effect_endpoints,
     add_effect_public_content,
+    bind_effect_endpoints,
 )
 
 

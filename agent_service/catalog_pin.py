@@ -38,11 +38,13 @@ def _verify_pin(root, commit):
         raise CatalogPinError("catalog_pin_modified")
     # Read the immutable tree, not the mutable index (which can suppress status).
     algorithm = "sha256" if len(commit) == 64 else "sha1"
+    expected_paths = set()
     for entry in _git(root, "ls-tree", "-rz", commit, strip=False).split("\0"):
         if not entry:
             continue
         metadata, relative = entry.split("\t", 1)
         mode, kind, expected = metadata.split()
+        expected_paths.add(relative)
         path = Path(root) / relative
         try:
             if kind != "blob" or any(
@@ -66,6 +68,21 @@ def _verify_pin(root, commit):
         ).hexdigest()
         if actual != expected:
             raise CatalogPinError("catalog_pin_modified")
+
+    # Enumerate exact filesystem names; Git status can hide case aliases.
+    actual_paths = set()
+    for directory, directories, files in os.walk(root, followlinks=False):
+        for name in directories[:]:
+            path = Path(directory) / name
+            if path.is_symlink():
+                files.append(name)
+                directories.remove(name)
+        for name in files:
+            relative = (Path(directory) / name).relative_to(root).as_posix()
+            if relative != ".git":
+                actual_paths.add(relative)
+    if actual_paths != expected_paths:
+        raise CatalogPinError("catalog_pin_modified")
 
 
 def _catalog_id(catalog):

@@ -5,6 +5,7 @@ import math
 import time
 
 from ..errors import APIError
+from ..spans import queue_wait_reason
 from ..work_items import validate_reference
 
 
@@ -51,10 +52,15 @@ def summarize_activity(service, identity, project_id=None, work_item=None):
         )
         if row["state"] == "queued":
             previous = service.conversation_repository.get(data.get("parent_job_id"))
+            wait = service.db.execute(
+                "SELECT data FROM events WHERE job=? AND type='queue_wait' ORDER BY id DESC LIMIT 1",
+                (row["id"],),
+            ).fetchone()
+            reason = queue_wait_reason(json.loads(wait["data"]).get("reason") if wait else None)
             job["wait_reason"] = (
                 "conversation_parent"
                 if previous and previous["state"] in ("queued", "running")
-                else "queue"
+                else reason
             )
         # Prepared publications remain actionable after their provider turn ends.
         if row["state"] == "running" or row["id"] in prepared_jobs:

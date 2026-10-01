@@ -374,7 +374,7 @@ function resourceKeydown(event) {
     $("prompt").focus();
     return true;
   }
-  if (event.key === "Tab" && options.length) {
+  if (event.key === "Tab" && !event.shiftKey && options.length) {
     event.preventDefault();
     event.stopPropagation();
     options[index < 0 ? 0 : index].click();
@@ -3632,6 +3632,7 @@ async function result(
         (r.state === "cancelled"
           ? "Last run cancelled"
           : "Last run did not finish") + " · token usage not reported";
+    else if (r.state === "completed") $("context-meter").textContent = "Last run completed · token usage not reported";
     if (data.answer !== undefined) setAnswer(active, data.answer);
     // On reload, nothing has streamed into this fresh bubble yet: fall back
     // to the server's persisted partial_answer (WP-F contract) so a failed,
@@ -3937,6 +3938,8 @@ async function load(id, legacy = false, restoredView = null) {
     }
     beginActivity(job);
     resetProjectFiles();
+    void refreshWorkspaceResources();
+    void loadAuthorizedProjectRoots();
     await refreshProjectPermissions();
     if (request !== conversationLoad) return;
     expandedProjects.set($("project").value, true);
@@ -5730,13 +5733,15 @@ document.addEventListener("keydown", event => {
     : innerWidth <= 620 && $("sidebar").classList.contains("open") ? $("sidebar")
     : innerWidth < 1000 && !$("activity-panel").hidden ? $("activity-panel") : null;
   if (!panel) return;
-  const controls = [...panel.querySelectorAll("a[href],button,input,select,textarea,summary,[tabindex]")]
+  const surfaces = [panel, ...(panel.getAttribute("aria-owns") || "").split(/\s+/).map(id => $(id)).filter(Boolean)];
+  const controls = [...new Set(surfaces.flatMap(surface => [...surface.querySelectorAll("a[href],button,input,select,textarea,summary,[tabindex]")]))]
     .filter(node => node.tabIndex >= 0 && !node.disabled && node.checkVisibility());
   if (!controls.length) return;
   const index = controls.indexOf(document.activeElement);
   event.preventDefault();
   const next = index < 0 ? (event.shiftKey ? controls.length - 1 : 0) : (index + (event.shiftKey ? -1 : 1) + controls.length) % controls.length;
   controls[next].focus();
+  controls[next].scrollIntoView({ block: "nearest", inline: "nearest", behavior: "instant" });
 });
 let authorizedRootsRequest = 0;
 async function loadAuthorizedProjectRoots() {
@@ -6564,6 +6569,13 @@ $("search-clear").onclick = () => {
   renderConversationSearch();
   $("conversation-search").focus();
 };
+let composerWidth = 0;
+new ResizeObserver(entries => {
+  const width = entries[0].contentRect.width;
+  if (width === composerWidth) return;
+  composerWidth = width;
+  updateComposer();
+}).observe($("prompt"));
 function updateComposer() {
   syncComposerPickers();
   syncExecutionMode();
