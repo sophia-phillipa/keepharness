@@ -68,8 +68,9 @@ def partial_answer(service, job):
     text never gain the key.
     """
     text = "".join(
-        json.loads(row["data"]).get("text", "")
+        data.get("text", "")
         for row in service.message_repository.answer_deltas(job)
+        if not (data := json.loads(row["data"])).get("parent_tool_use_id")
     )
     if not text:
         return None
@@ -208,6 +209,7 @@ async def run(service):
     conversations = {}
     lanes = {}
     reasons = {}
+    service.stopping = False
 
     def released(task, job, backend, conversation):
         service.write_ownership.release(job)
@@ -286,6 +288,7 @@ async def run(service):
                 continue
             await service.wake.wait()
     finally:
+        service.stopping = True
         remaining = list(tasks.values())
         for task in remaining:
             task.cancel()

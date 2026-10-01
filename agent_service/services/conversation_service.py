@@ -1496,6 +1496,7 @@ class ConversationService:
         condition = self.provider_slots.setdefault(backend, asyncio.Condition())
         previous_task = self.job_tasks.get(row["id"])
         self.job_tasks[row["id"]] = asyncio.current_task()
+        waited = False
         try:
             async with condition:
                 while True:
@@ -1507,9 +1508,12 @@ class ConversationService:
                     if self.provider_inflight.get(backend, 0) < maximum:
                         self.provider_inflight[backend] = self.provider_inflight.get(backend, 0) + 1
                         break
+                    waited = True
                     await condition.wait()
             self.active_executors[row["id"]] = (backend, data.get("model"))
             try:
+                if waited:
+                    plan = await self._prepare_inference(row, data)
                 invocation = data.get("invocations", [])
                 attribution = None
                 if len(invocation) == 1 and not data.get("_maestro_stage"):

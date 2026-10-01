@@ -602,6 +602,12 @@ def discover_workflows(config, project_id, backend, *, private=False, execution_
                         )
                     item_problems = list(problems)
                     try:
+                        Invocation("workflow", resource_id)
+                    except InvocationError:
+                        item_problems.append(
+                            "Resource path is not a portable invocation identity. Rename the source path."
+                        )
+                    try:
                         validate_workflow(parse_document(text, path.suffix), *dependencies)
                     except WorkflowError as error:
                         item_problems.append(
@@ -719,6 +725,25 @@ def save_chain_as_workflow(
     temporary = ".workflow-" + uuid.uuid4().hex
     published = False
     try:
+        from .resources import ResourceError, files, read
+
+        try:
+            existing_paths = list(files(folder, root, [], "workflow"))
+        except ResourceError as error:
+            raise WorkflowError(str(error)) from None
+        for existing in existing_paths:
+            if existing.suffix not in (".json", ".yaml", ".yml"):
+                continue
+            try:
+                document = validate_workflow(parse_document(read(existing), existing.suffix))
+            except WorkflowError as error:
+                if str(error) == "workflow_yaml_unavailable_use_json":
+                    raise
+                continue
+            except (ValueError, OSError):
+                continue
+            if workflow_id in (document["id"], document.get("name")):
+                raise WorkflowError("workflow_already_exists")
         descriptor = os.open(
             temporary,
             os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,

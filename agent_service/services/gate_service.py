@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import sqlite3
 import time
 import uuid
 from contextlib import nullcontext
@@ -72,6 +73,25 @@ class GateService:
                         },
                     )
 
+    async def close_when_available(self, gate_id, state, progress, details):
+        """Keep the original outcome through a busy writer; shutdown may interrupt it."""
+        while True:
+            if getattr(self.service, "stopping", False):
+                # Startup invalidates any pending row once the writer is available.
+                return
+            try:
+                with self.service.db:
+                    if self.repository.close(gate_id, state):
+                        progress("gate_" + state, {"gate_id": gate_id, **details})
+                return
+            except sqlite3.OperationalError as error:
+                if getattr(error, "sqlite_errorcode", 0) & 0xFF not in (
+                    sqlite3.SQLITE_BUSY,
+                    sqlite3.SQLITE_LOCKED,
+                ):
+                    raise
+                await asyncio.sleep(0.05)
+
     async def ask(self, job_id, request, progress, *, plan=None):
         validate_options(request)
         wait_limit = timeout_seconds(self.service.config, "approval_timeout_seconds", 1800)
@@ -108,22 +128,17 @@ class GateService:
                     self.service.approval_expirations.pop(job_id, None)
                     return reply
                 except TimeoutError:
-                    with self.service.db:
-                        changed = self.repository.close(gate_id, "expired")
-                    if changed:
-                        progress("gate_expired", {"gate_id": gate_id})
+                    await self.close_when_available(gate_id, "expired", progress, {})
                     self.service.expire_approval(job_id, expiration_limit)
                     return {"approved": False, "reason": "gate_expired"}
         finally:
-            self.service.approvals.pop(gate_id, None)
-            self.progress.pop(gate_id, None)
-            with self.service.db:
-                changed = self.repository.close(gate_id, "invalidated")
-            if changed:
-                progress(
-                    "gate_invalidated",
-                    {"gate_id": gate_id, "reason": "execution_ended", "reask": True},
+            try:
+                await self.close_when_available(
+                    gate_id, "invalidated", progress, {"reason": "execution_ended", "reask": True}
                 )
+            finally:
+                self.service.approvals.pop(gate_id, None)
+                self.progress.pop(gate_id, None)
 
     def resolve(self, gate_id, identity, data):
         row = self.repository.get(gate_id)

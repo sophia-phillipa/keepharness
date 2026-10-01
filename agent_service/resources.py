@@ -9,6 +9,8 @@ import tomllib
 from itertools import islice
 from pathlib import Path
 
+from .invocations import Invocation, InvocationError
+
 MAX_METADATA_BYTES = 65536
 MAX_BODY_BYTES = 262144
 MAX_FILES = 500
@@ -571,6 +573,11 @@ def discover(
                     identity = source_spec["identity"] + "/" + relative
                     if len(identity) > 1000:
                         reason = "Resource path exceeds the invocation identity limit."
+                    elif kind in ("agent", "command", "skill"):
+                        try:
+                            Invocation(kind, identity)
+                        except InvocationError:
+                            reason = "Resource path is not a portable invocation identity. Rename the source path."
                     deps_revisions, dependency_texts = dependency_snapshot(
                         path, meta, source_spec["identity_root"]
                     )

@@ -113,7 +113,7 @@ def portable_history(db, turns):
         ):
             data = json.loads(event["data"])
             if event["type"] == "answer_delta":
-                if not record["assistant"]:
+                if not record["assistant"] and not data.get("parent_tool_use_id"):
                     partial.append(data.get("text", ""))
             else:
                 evidence.append({"type": event["type"], "data": data})
