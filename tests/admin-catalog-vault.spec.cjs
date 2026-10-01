@@ -1,7 +1,9 @@
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
+const os = require('node:os');
 const path = require('node:path');
+const { VIEWPORTS, THEMES } = require('./visual/harness-visual-helpers.cjs');
 (async () => {
   const browser = await chromium.launch();
   try {
@@ -14,6 +16,9 @@ const path = require('node:path');
     const status = {catalogs: [catalog], projects: [project], preflight: [{project_id:'demo',catalog_id:'demo',manifest:true,integrations:[{integration:'reader',consumers:['codex','claude'],environment:{ISSUE_TOKEN:'token'},precedence:'vault',mediated:false}],preflight:['Provision the catalog Python environment in Admin.']}], drift: [{resource_id:'catalog/demo/commands/check.md', locations:['demo','other'], revisions:{demo:{revision:'aaa'},other:{revision:'bbb'}}}]};
     const vault = { credentials: [], bindings: [], contracts: [] };
     let writes = 0, moves = 0, fail = false, malformed = false;
+    const output=process.env.EVAL_OUTPUT || await fs.mkdtemp(path.join(os.tmpdir(),'tail-harness-p5-admin-'));
+    await fs.mkdir(output,{recursive:true});
+    const visualEvidence=[];
     await page.route('http://admin.test/**', async route => {
       const url = new URL(route.request().url());
       if (url.pathname.startsWith('/api/')) {
@@ -43,6 +48,27 @@ const path = require('node:path');
     });
     await page.goto('http://admin.test/#catalogs');
     await page.locator('#catalog-project').selectOption('demo');
+    async function captureVisualMatrix(state,target,pattern) {
+      assert.match(await page.locator(target).innerText(),pattern,`${state} content is present before capture`);
+      for (const theme of THEMES) {
+        await page.evaluate(value => window.TailTheme.apply(value,false),theme);
+        for (const viewport of VIEWPORTS) {
+          await page.setViewportSize(viewport);
+          await page.locator(target).scrollIntoViewIfNeeded();
+          assert.equal(await page.locator('#catalog-panel').isVisible(),true);
+          assert.equal(await page.locator(target).isVisible(),true);
+          const label=`${viewport.width}x${viewport.height}`;
+          assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),true,`${state} ${theme} ${label} has horizontal page overflow`);
+          const rect=await page.locator(target).boundingBox();
+          assert.ok(rect && rect.x>=0 && rect.x+rect.width<=viewport.width+1,`${state} ${theme} ${label} ${target} overflows`);
+          const filename=`admin-catalog-vault-${state}-${theme}-${label}.png`;
+          await page.screenshot({path:path.join(output,filename)});
+          visualEvidence.push({state,theme,viewport:label,filename});
+        }
+      }
+      await page.setViewportSize({width:1440,height:900});
+      await page.evaluate(() => window.TailTheme.apply('violet-bordeaux',false));
+    }
     const duplicates=await page.locator('[id]').evaluateAll(nodes=>{const seen=new Set();return nodes.filter(node=>{if(seen.has(node.id))return true;seen.add(node.id);return false;}).map(node=>node.id);});
     assert.deepEqual(duplicates,[],'Panel IDs must remain unique across provider and catalog views');
     assert.match(await page.locator('#catalog-preflight').innerText(), /Provision/); // P1 prerequisite
@@ -51,6 +77,9 @@ const path = require('node:path');
     await page.waitForFunction(() => !document.getElementById('catalog-move').disabled);
     assert.equal(moves,0); // P2 preview is not a write
     assert.match(await page.locator('#catalog-diff').innerText(), /check.md/);
+    assert.match(await page.locator('#catalog-drift').innerText(), /other/);
+    await captureVisualMatrix('pin-preview','#catalog-diff',/Proposed revision:[\s\S]*check\.md/);
+    await captureVisualMatrix('drift-report','#catalog-drift',/check\.md[\s\S]*other · revision bbb/);
     await page.locator('#catalog-move').focus();
     await page.keyboard.press('Enter'); // P4 keyboard ownership action
     await page.waitForFunction(() => document.getElementById('catalog-message').textContent.includes('moved'));
@@ -69,24 +98,14 @@ const path = require('node:path');
     await page.waitForFunction(() => document.getElementById('vault-status').textContent.includes('demo-reader'));
     assert.equal(await page.locator('#vault-secret').inputValue(),'');
     assert.equal((await page.locator('body').innerText()).includes('synthetic-secret-never-echo'),false); // P6 no echo
+    await captureVisualMatrix('vault-status','#vault-status',/demo-reader · configured fields: token/);
     fail=true;
     await page.locator('#vault-secret').fill('synthetic-secret-never-echo');
     await page.locator('#vault-save').click();
     await page.waitForFunction(() => document.getElementById('catalog-message').textContent.includes('registered project'));
     assert.equal(await page.locator('#vault-secret').inputValue(),'');
     assert.equal(writes,2);
-    const output=process.env.EVAL_OUTPUT || '/tmp/p5-visual';
-    await fs.mkdir(output,{recursive:true});
-    for (const [label,width,height] of [['desktop',1440,900],['mobile',400,812]]) {
-      await page.setViewportSize({width,height});
-      await page.locator('#catalog-panel').scrollIntoViewIfNeeded();
-      for (const selector of ['#catalog-preview','#vault-save','#vault-secret']) {
-        await page.locator(selector).scrollIntoViewIfNeeded();
-        const rect=await page.locator(selector).boundingBox();
-        assert.ok(rect.x>=0 && rect.x+rect.width<=width+1,`${label} ${selector} overflows`);
-      }
-      await page.screenshot({path:path.join(output,`admin-catalog-vault-${label}.png`),fullPage:true}); // P7 visual evidence
-    }
+    assert.equal(visualEvidence.length,72,'P5 admin visual matrix covers 3 states × 6 themes × 4 viewports'); // P7 visual evidence
     await page.reload(); // P5 recovery/reload
     await page.waitForFunction(() => document.getElementById('vault-status').textContent.includes('demo-reader'));
     assert.equal(await page.locator('#vault-secret').inputValue(),'');
@@ -99,6 +118,6 @@ const path = require('node:path');
     await page.waitForFunction(() => document.getElementById('catalog-message').textContent.includes('refreshed'));
     assert.equal(await page.locator('#catalog-project').inputValue(),'demo');
     assert.deepEqual(errors,[]);
-    console.log('PASS seven-profile catalog/pin/vault/drift matrix, desktop and mobile');
+    console.log(`PASS seven-profile catalog/pin/vault/drift matrix, 72 visual states; evidence ${output}`);
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode=1; });

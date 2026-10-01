@@ -39,6 +39,8 @@
   drawer.hidden = true;
   drawer.setAttribute('aria-label', 'Run console');
   const resizer = el('div', null, 'run-console-resizer');
+  resizer.id = 'run-console-resize';
+  resizer.title = 'Drag or use Up and Down arrow keys to resize';
   resizer.tabIndex = 0;
   resizer.setAttribute('role', 'separator');
   resizer.setAttribute('aria-label', 'Resize run console');
@@ -74,7 +76,21 @@
   });
   const close = button('Collapse run console', () => toggle(false));
   close.classList.add('run-console-close');
-  header.append(el('h2', 'RUN CONSOLE'), tabs, close);
+  let consoleHeight = Math.max(340, innerHeight * .45), restoreHeight = consoleHeight, maximized = false;
+  try { const saved = Number(localStorage.getItem('run-console-height')); if (saved >= 190) consoleHeight = saved; } catch {}
+  const maximize = button('Maximize', () => {
+    if (!maximized) restoreHeight = consoleHeight;
+    maximized = !maximized;
+    maximize.textContent = maximized ? 'Restore' : 'Maximize';
+    maximize.setAttribute('aria-label', maximized ? 'Restore run console' : 'Maximize run console');
+    maximize.setAttribute('aria-pressed', String(maximized));
+    resize(maximized ? consoleLimit() : restoreHeight, false);
+  });
+  maximize.id = 'run-console-maximize';
+  maximize.setAttribute('aria-label', 'Maximize run console');
+  maximize.setAttribute('aria-controls', drawer.id);
+  maximize.setAttribute('aria-pressed', 'false');
+  header.append(el('h2', 'RUN CONSOLE'), tabs, maximize, close);
   const controls = el('div', null, 'run-console-controls');
   const runSelect = select('console-run', [['', 'Select a run']]);
   runSelect.addEventListener('change', () => chooseRun(runSelect.value));
@@ -165,6 +181,7 @@
     if (open) {
       setTab(state.tab);
       tabButtons.find(node => node.dataset.tab === state.tab)?.focus();
+      resize(maximized ? consoleLimit() : consoleHeight, false);
       void refresh();
     } else {
       (previousFocus?.isConnected ? previousFocus : toggleButton).focus();
@@ -182,13 +199,32 @@
     render();
     if (name === 'Logs' && !state.logs.length) void loadLogs();
   }
-  function resize(height) {
-    const next = Math.round(Math.max(190, Math.min(innerHeight * .75, height)));
+  function consoleLimit() {
+    const verticalPadding = node => {
+      const style = getComputedStyle(node);
+      return parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
+    };
+    const reserved = [...main.children].filter(node => node !== drawer && node !== strip && node.id !== 'messages' && node.getClientRects().length)
+      .reduce((sum, node) => {
+        const style = getComputedStyle(node);
+        return sum + node.getBoundingClientRect().height + parseFloat(style.marginTop) + parseFloat(style.marginBottom);
+      }, 0);
+    return Math.max(190, main.clientHeight - reserved - verticalPadding(main) - verticalPadding(document.getElementById('messages')));
+  }
+  function resize(height, persist = true) {
+    const max = consoleLimit(), min = Math.min(340, max);
+    const next = Math.round(Math.max(min, Math.min(max, height)));
     drawer.style.setProperty('--th-console-height', next + 'px');
     resizer.setAttribute('aria-valuenow', String(next));
-    resizer.setAttribute('aria-valuemin', '190');
-    resizer.setAttribute('aria-valuemax', String(Math.round(innerHeight * .75)));
+    resizer.setAttribute('aria-valuemin', String(min));
+    resizer.setAttribute('aria-valuemax', String(Math.round(max)));
+    if (!maximized) consoleHeight = next;
+    if (persist && !maximized) try { localStorage.setItem('run-console-height', String(next)); } catch {}
   }
+  const fitConsole = () => { if (!drawer.hidden) resize(maximized ? consoleLimit() : consoleHeight, false); };
+  window.addEventListener('resize', fitConsole);
+  const composerObserver = new ResizeObserver(fitConsole);
+  composerObserver.observe(main.querySelector('.composer-area'));
   resizer.addEventListener('pointerdown', event => {
     event.preventDefault();
     resizer.setPointerCapture(event.pointerId);
@@ -771,7 +807,7 @@
       }
     },
   };
-  resize(330);
+  resize(consoleHeight, false);
   void refresh();
   document.addEventListener('tail:ready', refresh);
   document.addEventListener('tail:history', refresh);

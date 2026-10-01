@@ -1,3 +1,4 @@
+let workspaceResourceRequest = 0;
 const MAX_ATTACHMENTS = 20;
 const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024;
 const AUDIO_ATTACHMENT_TIMEOUT_MS = 8200000;
@@ -397,6 +398,31 @@ function resourceIcon(item) {
   svg.append(use);
   return svg;
 }
+function catalogResourceMeta(item) {
+  if (item.scope !== "catalog") return null;
+  const commit = String(item.catalog_commit || "").trim(),
+    revision = commit ? commit.slice(0, 12) : "",
+    state = item.catalog_pinned ? "Pinned" : "Source",
+    short = [state, revision].filter(Boolean).join(" · "),
+    full = commit
+      ? (item.catalog_pinned ? "pinned commit " : "source commit ") + commit
+      : item.catalog_pinned
+        ? "pinned commit"
+        : "source catalog";
+  return {
+    short: short + (item.catalog_dirty ? " · Modified" : ""),
+    preview:
+      (item.catalog_pinned ? "Pinned commit " : "Source commit ") +
+      (revision || "unknown") +
+      (item.catalog_dirty ? " · modified working tree" : ""),
+    title:
+      "Catalog " +
+      (item.origin || "resource") +
+      " · " +
+      full +
+      (item.catalog_dirty ? " · modified working tree" : ""),
+  };
+}
 function builtinResources() {
   return [
     {
@@ -509,7 +535,8 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
       glyph.append(resourceIcon(item));
       const text = document.createElement("span"),
         name = document.createElement("strong"),
-        description = document.createElement("small");
+        description = document.createElement("small"),
+        catalog = catalogResourceMeta(item);
       name.textContent = item.name;
       description.textContent =
         (item.kind === "agent"
@@ -522,6 +549,7 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
               ? "Built-in"
             : "Command") +
         (item.description ? " · " + item.description : "") +
+        (catalog?.short ? " · " + catalog.short : "") +
         (item.unavailable_reason ? " · " + item.unavailable_reason : "");
       text.append(name, description);
       option.append(glyph, text);
@@ -560,6 +588,7 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
       menu.querySelector("[role=option]"),
   );
   const rect = $("prompt").getBoundingClientRect();
+  menu.style.maxHeight = Math.max(24, rect.top - 20) + "px";
   menu.style.left =
     Math.max(12, Math.min(rect.left, innerWidth - menu.offsetWidth - 12)) +
     "px";
@@ -573,13 +602,16 @@ function renderResourcePreview(item) {
     details = document.createElement("small");
   title.textContent = (item.kind || "Resource") + " · " + item.name;
   description.textContent = item.description || "No description provided.";
+  const catalog = catalogResourceMeta(item);
   details.textContent = [
     item.argument_hint ? "Arguments " + item.argument_hint : "",
+    catalog?.preview || "",
     item.source || "",
     item.preflight_hint || item.unavailable_reason || "",
   ]
     .filter(Boolean)
     .join(" · ");
+  preview.title = catalog?.title || "";
   preview.replaceChildren(title, description, details);
 }
 function selectResource(item, trigger) {
@@ -708,6 +740,7 @@ function invalidateResources() {
   for (const ref of resourceSelections) invalidResourceTokens.add(ref.token);
   resourceSelections = [];
   resourceItems = [];
+  void refreshWorkspaceResources();
   closeResourceMenu();
   renderPromptHighlights();
   saveView();
@@ -1886,6 +1919,7 @@ window.updateProviderQuotas = function updateProviderQuotas(items = []) {
 };
 window.applyActivitySnapshot = function applyActivitySnapshot(data = {}) {
   observedActivityJobs = Array.isArray(data.jobs) ? [...data.jobs] : [];
+  renderWorkspaceTasks(observedActivityJobs);
   const pending = new Set(
     (data.needs_you || []).map((item) => item.conversation_id).filter(Boolean),
   );
@@ -4420,12 +4454,7 @@ async function navigateProjectFolder(project) {
   }
 }
 async function loadProjectFileRoots(force = false) {
-  if (
-    !interfaceReady ||
-    $("activity-panel").hidden ||
-    rightPanelView !== "files"
-  )
-    return;
+  if (!interfaceReady || $("activity-panel").hidden) return;
   const project = $("project").value;
   if (fileTree.project !== project) resetProjectFiles();
   if (fileTree.ready && !force) return;
@@ -5076,7 +5105,7 @@ async function initialize() {
       }, 10000);
     }
     setReadiness(true);
-    if (!$("activity-panel").hidden && rightPanelView === "files") {
+    if (!$("activity-panel").hidden) {
       loadAuthorizedProjectRoots();
       loadProjectFileRoots();
     }
@@ -5447,17 +5476,17 @@ const activityIcons = {
 };
 function setPanelView(view, persist = true) {
   rightPanelView = view;
-  $("files-view").hidden = view !== "files";
-  $("activity-view").hidden = view !== "activity";
+  const section = document.querySelector('[data-workspace-section="' + view + '"]');
+  if (section && persist) section.open = true;
   $("files-title").textContent = "Files";
   $("activity-title").textContent = "Activity";
   $("files-toggle").setAttribute(
     "aria-expanded",
-    String(!$("activity-panel").hidden && view === "files"),
+    String(!$("activity-panel").hidden && document.querySelector('[data-workspace-section="files"]').open),
   );
   $("activity-toggle").setAttribute(
     "aria-expanded",
-    String(!$("activity-panel").hidden && view === "activity"),
+    String(!$("activity-panel").hidden && document.querySelector('[data-workspace-section="activity"]').open),
   );
   if (persist)
     try {
@@ -5490,13 +5519,14 @@ function setPanelOpen(open, persist = true) {
     $("panel-toggle").focus();
   $("files-toggle").setAttribute(
     "aria-expanded",
-    String(open && rightPanelView === "files"),
+    String(open && document.querySelector('[data-workspace-section="files"]').open),
   );
   $("activity-toggle").setAttribute(
     "aria-expanded",
-    String(open && rightPanelView === "activity"),
+    String(open && document.querySelector('[data-workspace-section="activity"]').open),
   );
-  if (open && rightPanelView === "files" && interfaceReady) {
+  if (open && interfaceReady) {
+    void refreshWorkspaceResources();
     loadAuthorizedProjectRoots();
     loadProjectFileRoots();
   }
@@ -5540,6 +5570,7 @@ async function loadAuthorizedProjectRoots() {
       card.className = "authorized-root-card";
       const heading = document.createElement("strong");
       heading.textContent = root.path || root.label;
+      heading.title = heading.textContent;
       const badge = document.createElement("span");
       badge.className = "root-access-badge";
       badge.textContent = "authorized";
@@ -5622,17 +5653,9 @@ $("authorize-project-root").onclick = () => {
     openProjectDialog(project);
 };
 function togglePanelView(view) {
-  if ($("activity-panel").hidden) {
-    setPanelView(view);
-    setPanelOpen(true);
-  } else if (rightPanelView === view) setPanelOpen(false);
-  else {
-    setPanelView(view);
-    if (view === "files") {
-      loadAuthorizedProjectRoots();
-      loadProjectFileRoots();
-    }
-  }
+  setPanelView(view);
+  if ($("activity-panel").hidden) setPanelOpen(true);
+  document.querySelector('[data-workspace-section="' + view + '"]')?.scrollIntoView({ block: "nearest" });
 }
 let rightPanelView = "files";
 function resetActivity(clearHistory = true) {
@@ -5822,7 +5845,7 @@ const panelIsLeft = (id) =>
     : panelOrder === "conversations-right";
 function panelLimits(id) {
   const mobile = innerWidth <= 620,
-    docked = innerWidth >= 1200;
+    docked = innerWidth >= 1000;
   const other = id === "sidebar" ? $("activity-panel") : $("sidebar");
   const otherWidth =
     (id === "sidebar" ? docked : !mobile) && other.getClientRects().length
@@ -5834,7 +5857,7 @@ function panelLimits(id) {
       720,
       (id === "activity-panel" && !docked) || mobile
         ? innerWidth - 24
-        : innerWidth - otherWidth - 480,
+        : innerWidth - otherWidth - (innerWidth < 1200 ? 320 : 480),
     ),
   );
   return { min: 220, max };
@@ -6585,6 +6608,9 @@ function showGate(data) {
 function appendPublishEvidence(container, data) {
   const evidence = document.createElement("div");
   evidence.className = "publish-evidence";
+  evidence.tabIndex = 0;
+  evidence.setAttribute("role", "region");
+  evidence.setAttribute("aria-label", "Publication evidence");
   const add = (label, value, pre = false) => {
     if (value == null) return;
     const node = document.createElement(pre ? "pre" : "p");
@@ -7601,3 +7627,102 @@ $("project-form").onsubmit = async (event) => {
     controls.forEach(([node, disabled]) => (node.disabled = disabled));
   }
 };
+
+// The workspace uses the same project/model resource contract as the composer.
+
+async function refreshWorkspaceResources() {
+  const target = $("workspace-resources");
+  if (!target) return;
+  const request = ++workspaceResourceRequest, engine = resourceEngine();
+  const project = $("project").value;
+  target.textContent = "Loading resources…";
+  $("workspace-resources-count").textContent = "0";
+  if (!engine.backend) { target.textContent = "Select a model to see resources."; return; }
+  try {
+    const query = new URLSearchParams({ project_id: project, backend: engine.backend,
+      model: engine.model, execution_mode: engine.execution_mode });
+    const data = await json("/v1/resources?" + query, { signal: AbortSignal.timeout(5000) });
+    if (request !== workspaceResourceRequest) return;
+    const items = Array.isArray(data.items) ? data.items : [];
+    target.replaceChildren();
+    $("workspace-resources-count").textContent = String(items.length);
+    for (const item of items) {
+      const row = document.createElement("div"), name = document.createElement("span"), badge = document.createElement("span");
+      row.className = "workspace-row";
+      row.dataset.resourceId = item.id;
+      row.dataset.resourceRevision = item.revision;
+      name.textContent = item.name; name.className = "workspace-item-name";
+      const catalog = catalogResourceMeta(item);
+      row.title = [item.name, item.description, item.kind, item.scope, item.origin, catalog?.title].filter(Boolean).join(" · ");
+      badge.className = "workspace-source";
+      badge.textContent = [item.scope, item.origin, catalog?.short].filter(Boolean).join(" · ");
+      row.append(name, badge); target.append(row);
+    }
+    if (!items.length) target.textContent = "No resources for this project and model.";
+    for (const warning of data.warnings || []) {
+      const note = document.createElement("p"); note.textContent = warning; target.append(note);
+    }
+  } catch {
+    if (request === workspaceResourceRequest) target.textContent = "Couldn't load resources. Change the model or reopen the panel to retry.";
+  }
+}
+function renderWorkspaceTasks(jobs) {
+  const target = $("workspace-background-tasks");
+  if (!target) return;
+  const active = jobs.filter(item => !["completed", "failed", "cancelled", "interrupted"].includes(item.state));
+  target.replaceChildren();
+  $("workspace-background-tasks-count").textContent = String(active.length);
+  for (const item of active) {
+    const row = document.createElement("button"), name = document.createElement("span"), state = document.createElement("span");
+    row.type = "button"; row.className = "workspace-row";
+    name.className = "workspace-item-name";
+    name.textContent = item.title || item.work_item || item.job_id;
+    state.className = "workspace-source"; state.textContent = item.state;
+    row.title = [name.textContent, item.wait_reason, item.state].filter(Boolean).join(" · ");
+    row.onclick = () => window.runConsole?.openRun(item.job_id);
+    row.append(name, state); target.append(row);
+  }
+  if (!active.length) target.textContent = "No background tasks.";
+}
+for (const section of document.querySelectorAll(".workspace-section")) {
+  const name = section.dataset.workspaceSection, content = $("workspace-" + name);
+  const key = "workspace-section-" + name;
+  try {
+    const saved = JSON.parse(localStorage.getItem(key) || "null");
+    if (saved) {
+      section.open = saved.open !== false;
+      if (Number.isFinite(saved.height)) content.style.height = Math.max(64, Math.min(600, saved.height)) + "px";
+    }
+  } catch {}
+  const save = () => { try { localStorage.setItem(key, JSON.stringify({ open: section.open, height: parseFloat(content.style.height) || null })); } catch {} };
+  section.addEventListener("toggle", () => { save();
+    const shortcut = $(name + "-toggle");
+    if (shortcut) shortcut.setAttribute("aria-expanded", String(section.open && !$("activity-panel").hidden));
+  });
+  const handle = document.createElement("div");
+  handle.id = "workspace-" + name + "-resize"; handle.className = "workspace-resize";
+  handle.tabIndex = 0; handle.setAttribute("role", "separator");
+  handle.setAttribute("aria-orientation", "horizontal");
+  handle.setAttribute("aria-label", "Resize " + name.replaceAll("-", " "));
+  handle.setAttribute("aria-controls", content.id);
+  handle.title = "Drag or use Up and Down arrow keys to resize";
+  const size = height => {
+    const next = Math.max(64, Math.min(600, height)); content.style.height = next + "px";
+    handle.setAttribute("aria-valuenow", String(Math.round(next))); save();
+  };
+  handle.setAttribute("aria-valuemin", "64"); handle.setAttribute("aria-valuemax", "600");
+  handle.setAttribute("aria-valuenow", String(parseFloat(content.style.height) || (name === "files" ? 128 : name === "background-tasks" ? 64 : 96)));
+  let drag;
+  handle.onpointerdown = event => { if (event.button !== 0) return; event.preventDefault(); drag = { y: event.clientY, height: content.getBoundingClientRect().height }; handle.setPointerCapture(event.pointerId); };
+  handle.onpointermove = event => { if (drag) size(drag.height + event.clientY - drag.y); };
+  handle.onpointerup = handle.onpointercancel = handle.onlostpointercapture = () => { drag = null; };
+  handle.onkeydown = event => { if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return; event.preventDefault(); size(event.key === "Home" ? 64 : event.key === "End" ? 600 : content.getBoundingClientRect().height + (event.key === "ArrowDown" ? 24 : -24)); };
+  section.append(handle);
+}
+function updateWorkspaceCounts() {
+  $("workspace-files-count").textContent = String($("files-view").querySelectorAll('[role="treeitem"], .authorized-root-card li:has(button, span)').length);
+  $("workspace-activity-count").textContent = String($("activity-events").querySelectorAll("li[data-state]").length);
+}
+for (const id of ["files-view", "activity-events"])
+  new MutationObserver(updateWorkspaceCounts).observe($(id), { childList: true, subtree: true });
+document.addEventListener("tail:ready", refreshWorkspaceResources);

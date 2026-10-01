@@ -10,7 +10,7 @@ trap cleanup EXIT INT TERM
 TH_PORTS=$("${PYTHON:-python3}" -c 'import os,socket
 sockets=[]
 for name in ("TAIL_HARNESS_TEST_ADMIN_PORT", "TAIL_HARNESS_TEST_CHAT_PORT"):
- s=socket.socket();s.bind(("127.0.0.1",int(os.environ.get(name,"0"))));sockets.append(s)
+ s=socket.socket();s.bind(("127.0.0.1",int(os.environ.get(name) or os.environ.get({"TAIL_HARNESS_TEST_ADMIN_PORT":"TH_ADMIN_PORT", "TAIL_HARNESS_TEST_CHAT_PORT":"TH_CHAT_PORT"}[name],"0"))));sockets.append(s)
 print(*(s.getsockname()[1] for s in sockets))')
 TH_ADMIN_PORT=${TH_PORTS% *}
 TH_CHAT_PORT=${TH_PORTS#* }
@@ -40,7 +40,9 @@ for _ in range(80):
   served=json.load(urllib.request.urlopen(sys.argv[1]+"/v1/version",timeout=1));break
  except OSError:time.sleep(.25)
 else:raise SystemExit("Harness test server unavailable")
-assert served["version"]==Path("agent_service/VERSION").read_text().strip(),"Wrong harness version served"
+expected=Path("agent_service/VERSION").read_text().strip()
+assert served["version"]==expected,"Wrong harness version served"
+assert "Release: "+expected in urllib.request.urlopen(sys.argv[1]+"/").read().decode(),"Wrong harness HTML version served"
 assert served["config_revision"]==json.loads(Path(sys.argv[2]).read_text())["config_revision"],"Wrong harness instance served"
 print("VERIFIED UI servers",sys.argv[1],"version",served["version"],"build",served["build"])' "$TH_CHAT_URL" "$TH_STATE/chat.json"
 kill -0 "$TH_CHAT_PID"

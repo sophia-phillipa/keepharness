@@ -34,6 +34,9 @@ const path = require("node:path");
                 scope: "catalog",
                 origin: "demo",
                 group: "Agents",
+                catalog_commit: "0123456789abcdef0123456789abcdef01234567",
+                catalog_pinned: true,
+                catalog_dirty: false,
                 source: "/catalog/agents/reviewer.toml",
                 argument_hint: "<change>",
                 selectable: true,
@@ -102,7 +105,7 @@ const path = require("node:path");
       });
     });
 
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.11.0"));
+    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.12.1"));
 
     await page.goto("http://slash-palette.test");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
@@ -137,10 +140,23 @@ const path = require("node:path");
       ],
     );
     await page.fill("#prompt", "/dmrv");
-    const reviewer = page.locator('[data-resource-id="catalog/demo/agents/reviewer.toml"]');
+    const reviewer = page.locator(
+      '#resource-menu [data-resource-id="catalog/demo/agents/reviewer.toml"]',
+    );
     await reviewer.waitFor();
     assert.equal(await reviewer.getAttribute("aria-selected"), "true");
     assert.match(await page.locator("#resource-menu").innerText(), /AGENTS · CATALOG · demo/i);
+    assert.match(await reviewer.innerText(), /Pinned · 0123456789ab/);
+    assert.match(await page.locator("#resource-preview").innerText(), /Pinned commit 0123456789ab/);
+    assert.equal(
+      await page.locator("#resource-preview").getAttribute("title"),
+      "Catalog demo · pinned commit 0123456789abcdef0123456789abcdef01234567",
+    );
+    const workspaceReviewer = page.locator(
+      '#workspace-resources [data-resource-id="catalog/demo/agents/reviewer.toml"]',
+    );
+    await workspaceReviewer.waitFor();
+    assert.match(await workspaceReviewer.innerText(), /catalog · demo[\s\S]*Pinned · 0123456789ab/i);
     await page.keyboard.press("ArrowDown");
     assert.equal(
       await page.evaluate(() => document.activeElement.dataset.resourceId),
@@ -174,9 +190,9 @@ const path = require("node:path");
     assert.equal(await page.inputValue("#prompt"), "");
 
     await page.fill("#prompt", "/check");
-    await page.locator('[data-resource-id="project/p/.agents/skills/check/SKILL.md"]').click();
+    await page.locator('#resource-menu [data-resource-id="project/p/.agents/skills/check/SKILL.md"]').click();
     await page.keyboard.type("/install");
-    await page.locator('[data-resource-id="catalog/demo/commands/install.md"]').click();
+    await page.locator('#resource-menu [data-resource-id="catalog/demo/commands/install.md"]').click();
     assert.equal(
       await page.locator(".resource-chain-preview").innerText(),
       "Runs in order: 1 /check → 2 /install",
@@ -214,7 +230,7 @@ const path = require("node:path");
     assert.equal(await page.inputValue("#prompt"), "before    after\t");
 
     await page.fill("#prompt", "/model");
-    await page.locator('[data-resource-id="builtin/model"]').waitFor();
+    await page.locator('#resource-menu [data-resource-id="builtin/model"]').waitFor();
     assert.match(await page.locator("#resource-menu").innerText(), /BUILT-INS/);
     await page.keyboard.press("Tab");
     assert.equal(await page.inputValue("#prompt"), "");
@@ -223,9 +239,9 @@ const path = require("node:path");
     assert.equal(await page.evaluate(() => document.activeElement.id), "model-trigger");
 
     await page.fill("#prompt", "/");
-    await page.locator('[data-resource-id="catalog/demo/commands/install.md"]').waitFor();
+    await page.locator('#resource-menu [data-resource-id="catalog/demo/commands/install.md"]').waitFor();
     assert.match(await page.locator("#resource-menu").innerText(), /MAINTENANCE/);
-    assert(await page.locator('[data-resource-id="catalog/demo/rules/paths.md"]').isDisabled());
+    assert(await page.locator('#resource-menu [data-resource-id="catalog/demo/rules/paths.md"]').isDisabled());
     await reviewer.focus();
     assert.match(await page.locator("#resource-preview").innerText(), /<change>/);
     assert.match(await page.locator("#resource-preview").innerText(), /reviewer\.toml/);

@@ -66,7 +66,7 @@ const path = require("node:path");
             : "text/html",
       });
     });
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.11.0"));
+    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.12.1"));
     await page.goto("http://reload.test");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     await page.fill("#prompt", "Text not sent yet");

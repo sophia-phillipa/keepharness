@@ -65,7 +65,7 @@ const path = require("node:path");
             : "text/html",
       });
     });
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.11.0"));
+    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.12.1"));
     await page.goto(origin);
     await page.waitForFunction(() => models.length === 1);
     // Real event handler, including a Markdown token split across chunks.
@@ -176,11 +176,7 @@ const path = require("node:path");
     assert.equal(await page.evaluate(() => window.injected), undefined);
     await finalAnswer(markdown + "\n\n```text\n" + "a".repeat(220) + "\n```");
     if (await page.locator("#activity-panel").isVisible())
-      await page
-        .locator(
-          "#files-toggle[aria-expanded=true],#activity-toggle[aria-expanded=true]",
-        )
-        .click();
+      await page.locator("#panel-toggle").click();
     for (const width of [1280, 390]) {
       await page.setViewportSize({ width, height: 960 });
       for (const theme of ["light", "dark"]) {

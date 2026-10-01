@@ -33,8 +33,11 @@ const path = require("node:path");
       });
     let failDirectoryOnce = true;
     await page.addInitScript(() => {
-      localStorage.removeItem("activity-open");
-      localStorage.removeItem("right-panel-view");
+      if (!sessionStorage.getItem("legacy-activity-view-seeded")) {
+        localStorage.setItem("activity-open", "1");
+        localStorage.setItem("right-panel-view", "activity");
+        sessionStorage.setItem("legacy-activity-view-seeded", "1");
+      }
       localStorage.removeItem("sidebar-collapsed");
     });
     await page.route("**/v1/**", async (route) => {
@@ -225,7 +228,7 @@ const path = require("node:path");
       }
       return route.fulfill({ json: data });
     });
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.11.0"));
+    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.12.1"));
     await page.goto(process.env.HARNESS_URL || "http://panel.test/");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     for (const [id, label] of [
@@ -332,6 +335,7 @@ const path = require("node:path");
       .locator("#files-tree [role=treeitem]")
       .first()
       .waitFor({ state: "visible" });
+    await page.evaluate(() => localStorage.removeItem("activity-open"));
     assert.equal(await page.locator("#files-view").isVisible(), true);
     assert.deepEqual(
       await page
@@ -345,7 +349,7 @@ const path = require("node:path");
         .count(),
       0,
     );
-    assert.equal(await page.locator("#activity-view").isVisible(), false);
+    assert.equal(await page.locator("#activity-view").isVisible(), true, "stacked workspace shows activity alongside files");
     assert.equal(
       await page.locator("#files-toggle").getAttribute("aria-expanded"),
       "true",
@@ -841,7 +845,7 @@ const path = require("node:path");
     assert.equal(
       await page.locator("#activity-view").isVisible(),
       true,
-      "alternate panel control switches to activity without closing drawer",
+      "activity shortcut expands its section without closing the workspace",
     );
     assert.equal(await page.locator("#activity-panel").isVisible(), true);
     await page.click("#files-toggle");
@@ -849,8 +853,8 @@ const path = require("node:path");
     await page.click("#files-toggle");
     assert.equal(
       await page.locator("#activity-panel").isVisible(),
-      false,
-      "clicking the active view collapses the drawer",
+      true,
+      "clicking the section shortcut keeps the workspace open",
     );
     await page.setViewportSize({ width: 390, height: 844 });
     assert.equal(
