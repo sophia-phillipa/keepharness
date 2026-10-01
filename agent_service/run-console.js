@@ -218,7 +218,7 @@
         const style = getComputedStyle(node);
         return sum + node.getBoundingClientRect().height + parseFloat(style.marginTop) + parseFloat(style.marginBottom);
       }, 0);
-    const evidenceSpace = hasPublicationEvidence() ? 96 : 0;
+    const evidenceSpace = hasPublicationEvidence() ? 48 : 0;
     return Math.max(80, main.clientHeight - reserved - verticalPadding(main) - verticalPadding(document.getElementById('messages')) - evidenceSpace);
   }
   function revealFocusedControl() {
@@ -239,7 +239,7 @@
       const contentHeight = end.getBoundingClientRect().bottom + body.scrollTop - body.getBoundingClientRect().top + parseFloat(getComputedStyle(body).paddingBottom) + parseFloat(getComputedStyle(end).marginBottom) + drawer.getBoundingClientRect().height - body.clientHeight;
       height = Math.max(height, Math.ceil(contentHeight));
     }
-    if (publication && !manuallyResized && !maximized) {
+    if (!manuallyResized && !maximized) {
       const card = body.querySelector('.run-span-row');
       if (card) height = Math.max(height, card.getBoundingClientRect().bottom + body.scrollTop - body.getBoundingClientRect().top + 8 + drawer.getBoundingClientRect().height - body.clientHeight);
     }
@@ -564,10 +564,29 @@
     function editedCount() {
       return Math.max(original.steps.length, draft.steps.length) - original.steps.filter((step, index) => JSON.stringify(step) === JSON.stringify(draft.steps[index])).length;
     }
+    function validateEdits() {
+      let first = null;
+      draft.steps.forEach((step, index) => {
+        const model = models.find(item => item.backend === step.backend && item.id === step.model);
+        const prefix = 'run-plan-' + request.gate_id + '-' + index;
+        const checks = [
+          [editor.querySelector('#run-plan-task-' + request.gate_id + '-' + index), !!step.task.trim(), `Enter a task for step ${index + 1}.`],
+          [editor.querySelector('#' + prefix + '-model'), !!model, `Choose an available model for step ${index + 1}.`],
+          [editor.querySelector('#' + prefix + '-effort'), !!model && (model.efforts || ['configured']).includes(step.effort), `Choose an available effort for step ${index + 1}.`],
+        ];
+        for (const [input, valid, message] of checks) {
+          input?.setAttribute('aria-invalid', String(!valid));
+          if (!valid && !first) first = { input, message };
+        }
+      });
+      return first;
+    }
     function updateDraft() {
       invalidDraft = false;
       approve.disabled = !!decision?.pending;
       feedback.textContent = savePlanDraft(request.gate_id, JSON.stringify(draft)) ? '' : 'Plan edit is not saved. Keep this page open until browser storage is available.';
+      const invalid = validateEdits();
+      if (invalid) feedback.textContent = invalid.message;
       const count = editedCount();
       approve.textContent = count ? `Run with edits (${count})` : '✓ Approve plan & run';
       if (count && !reset.isConnected) actions.insertBefore(reset, approve);
@@ -632,6 +651,12 @@
       if (planDecisions.get(request.gate_id)?.pending) return;
       let plan;
       if (choice === 'approve') {
+        const invalid = validateEdits();
+        if (invalid) {
+          state.editPlan = true; editor.hidden = false;
+          feedback.textContent = invalid.message;
+          invalid.input?.focus(); return;
+        }
         try { plan = planForApproval(request.gate_id, request.plan); }
         catch (failure) { feedback.textContent = failure.message; editor.querySelector('textarea')?.focus(); return; }
       }

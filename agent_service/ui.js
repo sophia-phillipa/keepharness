@@ -1039,6 +1039,7 @@ const userErrors = {
   workflow_requires_successful_chain: "Only a completed, successful chain can be saved as a workflow.",
   workflow_resource_unavailable: "A required workflow resource is missing or unavailable. Refresh the catalog.",
   workflow_sequential_only: "This release supports sequential workflows without parallel or repeat steps.",
+  cancellation_retry_required: "Cancellation was not saved because storage is busy. Try Cancel again.",
   workflow_source_busy: "Wait for the original run to finish or cancel it before recovery.",
   workflow_step_not_approved: "The workflow step was not approved. No further steps ran.",
   workflow_too_large: "The workflow exceeds the supported document size.",
@@ -4518,8 +4519,9 @@ function renderProjectFileEntries(list, entries, tree = fileTree) {
       selectProjectFileEntry(item, entry, e);
     };
     item.onkeydown = (e) => {
-      if (e.target !== item) return;
+      if (e.target.closest('[role="treeitem"]') !== item) return;
       if (navigateProjectTree(e, item, entry, tree)) return;
+      if (e.target !== item) return;
       if (e.key === " ") {
         e.preventDefault();
         selectProjectFileEntry(item, entry, {
