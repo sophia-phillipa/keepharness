@@ -1221,6 +1221,7 @@ const userErrors = {
     "This publication needs approval from an enrolled human session before it can be sent.",
   effect_arguments_invalid:
     "This publication has unsupported arguments. Ask the agent to prepare a valid request.",
+  effect_sensitive_content: "Publication was not prepared because it contains private credentials. Remove the sensitive content and request approval again.",
   effect_artifact_invalid:
     "The publication artifact is invalid. Ask the agent to check its required fields and prepare it again.",
   effect_binding_changed:
@@ -3394,7 +3395,7 @@ function showMaestroPlan(data = {}) {
       approve.disabled = true;
       try {
         await post("/v1/approvals/" + encodeURIComponent(data.gate_id), { choice: "approve", plan: { steps: data.steps } });
-        card.dataset.state = "resolved";
+        if (card.dataset.state === "pending") card.dataset.state = "running";
         card.dataset.choice = "approve";
         renderPlanOutcome(card);
       } catch (error) {
@@ -6684,7 +6685,7 @@ function finishGate(id, state, data = {}) {
   const note = box.querySelector('[role="status"]');
   note.textContent = state === "resolved"
     ? (box.dataset.publish === "true" ? (data.choice === "deny" ? "Publication denied" : data.choice === "approve" ? "Publication approved" : "Publication decision recorded") : "Answered") + (data.resolved_by ? " by " + data.resolved_by : "") + "."
-    : box.dataset.publish === "true" ? "This publication approval is no longer active. Request a fresh approval before publishing."
+    : box.dataset.publish === "true" ? "This publication approval is no longer active; ask again for a fresh approval before publishing."
     : state === "invalidated"
       ? "This question is no longer active. Send a message to ask again."
       : "This question expired. Send a message to ask again.";
