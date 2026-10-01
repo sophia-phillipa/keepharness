@@ -1102,16 +1102,17 @@ class ConversationService:
         )
         if old:
             accepted = json.loads(self.job(identity, old["id"])["payload"])
-            if accepted.get("_workflow_recovery_digest") != recovery_digest:
-                raise APIError("idempotency_conflict", 409)
-            return {
-                "job_id": old["id"],
-                "reused": True,
-                **{
-                    key: accepted.get(key)
-                    for key in ("backend", "model", "effort", "execution_mode")
-                },
-            }
+            if "_workflow_recovery_digest" in accepted:
+                if accepted.get("_workflow_recovery_digest") != recovery_digest:
+                    raise APIError("idempotency_conflict", 409)
+                return {
+                    "job_id": old["id"],
+                    "reused": True,
+                    **{
+                        key: accepted.get(key)
+                        for key in ("backend", "model", "effort", "execution_mode")
+                    },
+                }
         maestro.ensure_recovery_safe(self, job_id)
         plan = maestro.saved_plan(self, job_id)
         from_step = changes.get("from_step", 1)
@@ -1147,8 +1148,10 @@ class ConversationService:
             "_workflow_parent_job_id": job_id,
             "_workflow_resume": not rerun,
             "_workflow_context_parent_id": context_parent,
-            "_workflow_recovery_digest": recovery_digest,
         }
+        # Legacy accepted children retain their original normalized-payload comparison.
+        if old is None:
+            recovery["_workflow_recovery_digest"] = recovery_digest
         if rerun:
             recovery["_workflow_from_step"] = from_step
         return self.submit(identity, data, idem, workflow_recovery=recovery)

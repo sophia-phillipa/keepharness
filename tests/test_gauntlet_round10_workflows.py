@@ -105,3 +105,37 @@ def test_rerun_preserves_consumed_publication_approval(tmp_path):
             service.db.close()
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("rerun", [False, True])
+def test_legacy_recovery_retry_preserves_existing_idempotency_contract(tmp_path, rerun):
+    import hashlib
+
+    service, identity, row, data, plan = setup_run(tmp_path)
+    try:
+        with patch.object(service, "infer", AsyncMock(return_value={"answer": "done"})):
+            result = asyncio.run(maestro.execute_plan(service, row, data, plan))
+        service.finish(row["id"], "completed", result)
+        first = service.recover_workflow(identity, row["id"], {}, rerun=rerun, idem="legacy-retry")
+        accepted = json.loads(service.job(identity, first["job_id"])["payload"])
+        accepted.pop("_workflow_recovery_digest")
+        legacy_digest = hashlib.sha256(json.dumps(accepted, sort_keys=True).encode()).hexdigest()
+        with service.db:
+            service.db.execute(
+                "UPDATE jobs SET payload=?,digest=? WHERE id=?",
+                (json.dumps(accepted), legacy_digest, first["job_id"]),
+            )
+        second = service.recover_workflow(identity, row["id"], {}, rerun=rerun, idem="legacy-retry")
+        assert second["job_id"] == first["job_id"] and second["reused"]
+        with pytest.raises(APIError, match="idempotency_conflict"):
+            service.recover_workflow(
+                identity,
+                row["id"],
+                {"workflow_inputs": {"changed": True}},
+                rerun=rerun,
+                idem="legacy-retry",
+            )
+        with pytest.raises(APIError, match="idempotency_conflict"):
+            service.recover_workflow(identity, row["id"], {}, rerun=not rerun, idem="legacy-retry")
+    finally:
+        service.db.close()
