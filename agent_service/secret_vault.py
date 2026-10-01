@@ -132,7 +132,8 @@ class SecretStream:
                     size
                     for secret in names
                     for size in range(1, len(secret))
-                    if (value.lower() if secret in names else value).endswith(secret[:size])
+                    if value.lower().endswith(secret[:size])
+                    and (len(value) == size or not re.match(r"\w", value[-size - 1]))
                 ),
                 default=0,
             )
