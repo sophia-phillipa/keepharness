@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from .discovery import scan
-from .product import PRODUCT
+from .product import PRODUCT, ensure_lineage
 
 
 def main(argv=None):
@@ -42,7 +42,9 @@ def main(argv=None):
         if args.all and not args.revoke:
             parser.error("--all requires --revoke")
         try:
+            ensure_lineage(Path(args.state), PRODUCT)
             config = json.loads((Path(args.state) / "runtime.json").read_text())
+            ensure_lineage(Path(config["state_dir"]), PRODUCT)
             owner = config.get("tailscale_logins", {}).get(args.owner, args.owner)
             if args.revoke:
                 revoke_sessions(config, owner)

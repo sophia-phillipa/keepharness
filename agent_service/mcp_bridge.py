@@ -17,7 +17,7 @@ def read_env(name, legacy, default=None):
 
     Kept inline: setup-mcp.sh ships this file alone to the client computer.
     """
-    return os.environ.get(PRODUCT["env_prefix"] + "_" + name) or (os.environ.get(legacy) if PRODUCT["lineage"] == "tail-harness" else None) or default
+    return os.environ.get(PRODUCT["env_prefix"] + "_" + name) or (os.environ.get(legacy) if (PRODUCT["slug"], PRODUCT["lineage"]) == ("tail-harness", "tail-harness") else None) or default
 
 
 INSTRUCTIONS = """You connect the client computer (for example, a Mac running Claude) to the Tail Harness server.

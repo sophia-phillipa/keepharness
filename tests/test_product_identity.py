@@ -38,3 +38,19 @@ def test_lineage_does_not_follow_symlink(tmp_path):
     with pytest.raises(ValueError, match="identity"):
         ensure_lineage(tmp_path)
     assert other.read_text() == '{}'
+
+
+def test_changed_slug_cannot_adopt_unmarked_upstream(tmp_path):
+    (tmp_path / 'settings.json').write_text('{}')
+    with pytest.raises(ValueError, match='unmarked'):
+        ensure_lineage(tmp_path, replace(PRODUCT, slug='synthetic-harness'))
+
+
+def test_owner_enrollment_rejects_cross_identity(tmp_path, monkeypatch):
+    from control import cli
+    ensure_lineage(tmp_path)
+    (tmp_path / 'runtime.json').write_text(json.dumps({'clients': {'local': {}}, 'state_dir': str(tmp_path / 'runs'), 'port': 8095, 'origins': ['http://127.0.0.1:8095']}))
+    monkeypatch.setattr(cli, 'PRODUCT', replace(PRODUCT, slug='synthetic-harness', lineage='synthetic'))
+    with pytest.raises(SystemExit):
+        cli.main(['--state', str(tmp_path), 'approve-device', '--owner', 'local', '--yes'])
+    assert not (tmp_path / 'runs').exists()

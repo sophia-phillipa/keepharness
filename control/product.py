@@ -64,7 +64,7 @@ def ensure_lineage(state, product=PRODUCT):
         descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
     except FileNotFoundError:
         old_state = any((state / name).exists() for name in ("settings.json", "runtime.json", "jobs.sqlite3", "runs", "approval_sessions.sqlite3"))
-        if old_state and product.lineage != "tail-harness":
+        if old_state and (product.slug, product.lineage) != ("tail-harness", "tail-harness"):
             raise ValueError("Refusing unmarked state from another product identity")
         try:
             descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
@@ -97,12 +97,14 @@ def generate(root=None, product=PRODUCT):
     for relative in paths:
         path = root / relative
         text = path.read_text()
+        if relative.endswith(".html"):
+            text = text.replace("icons.svg#" + previous.icon, "icons.svg#__PRODUCT_ICON__")
         text = text.replace(previous.name, product.name).replace(previous.slug, product.slug)
         if relative == "tail_ui/assets/theme.js":
             text = re.sub(r"const defaultLight=.*?;", f"const defaultLight={json.dumps(product.theme_light)};", text)
             text = re.sub(r"const defaultDark=.*?;", f"const defaultDark={json.dumps(product.theme_dark)};", text)
         if relative.endswith(".html"):
-            text = text.replace("icons.svg#" + previous.icon, "icons.svg#" + product.icon)
+            text = text.replace("icons.svg#__PRODUCT_ICON__", "icons.svg#" + product.icon)
         path.write_text(text)
     block = "PRODUCT = " + repr(asdict(product))
     source = re.sub(r"^PRODUCT = \{.*\}$", lambda _: block, source, flags=re.M)
@@ -122,7 +124,7 @@ def main():
     args = parser.parse_args()
     product = PRODUCT
     if args.field:
-        print(os.environ.get(product.env_prefix + "_VENV") or (os.environ.get("TH_VENV") if product.lineage == "tail-harness" else None) or str(product.state_path() / "venv") if args.field == "venv" else product.slug)
+        print(os.environ.get(product.env_prefix + "_VENV") or (os.environ.get("TH_VENV") if (product.slug, product.lineage) == ("tail-harness", "tail-harness") else None) or str(product.state_path() / "venv") if args.field == "venv" else product.slug)
         return
     if args.identity:
         product = ProductIdentity(**json.loads(args.identity.read_text()))

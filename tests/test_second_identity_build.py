@@ -47,6 +47,7 @@ assert env.read('AGENT_URL') == 'https://identity.invalid'
 assert mcp.name == PRODUCT.mcp_name
 ensure_lineage(PRODUCT.state_path())
 assert PRODUCT.name in (Path(__import__('control').__file__).parent / 'index.html').read_text()
+assert "icons.svg#" + PRODUCT.icon in (Path(__import__('agent_service').__file__).parent / 'index.html').read_text()
 assert all(PRODUCT.slug in str(p) for p in files(Path.home(), '/fixture/python'))
 print(json.dumps({'slug': PRODUCT.slug, 'state': str(PRODUCT.state_path())}))
 """.replace("EXPECTED", repr(identity.slug))
