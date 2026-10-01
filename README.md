@@ -2,7 +2,7 @@
 
 [![🇺🇸 English](https://img.shields.io/badge/%F0%9F%87%BA%F0%9F%87%B8-English-blue.svg)](README.md) [![🇧🇷 Português (Brasil)](https://img.shields.io/badge/%F0%9F%87%A7%F0%9F%87%B7-Portugu%C3%AAs%20(Brasil)-green.svg)](README.pt-BR.md)
 
-A local Python control panel for discovering, configuring and running Codex CLI, Claude Code, Gemini CLI and local AI models, with a conversational harness accessible through Tailscale or another VPN. Python 3.11+, MIT license, version **0.10.1**.
+A local Python control panel for discovering, configuring and running Codex CLI, Claude Code, Gemini CLI and local AI models, with a conversational harness accessible through Tailscale or another VPN. Python 3.11+, MIT license, version **0.11.0**.
 
 ## 🚀 Installation — agent-guided (start here)
 
@@ -228,7 +228,7 @@ PYTHON="$PWD/.venv/bin/python" PLAYWRIGHT_MODULE=/path/to/playwright ./scripts/t
 
 UI fixtures avoid cloud inference and model downloads. A passing mocked suite does not prove third-party authentication, physical reboot or full-context performance. To check the installed package, use `"$TH_VENV/bin/python" -m control.install_check`, with `TH_VENV` set to the environment used by the installation (`~/.local/share/tail-harness/venv` for `install.sh`, `.venv` for `setup.sh`). This smoke check runs outside the checkout with temporary state and an available port; it does not install dependencies or validate the production instance and providers. For a clean installation simulation, follow the dedicated section of the [spec](dossier/installation-agent-spec.md), preparing separate environment, state and ports through individual commands.
 
-Every new version requires an English specification at `dossier/releases/v<VERSION>.md`, with behavior, acceptance criteria, relevant diagrams, migration notes and actual validation. Update `README.md`, `README.pt-BR.md` and the version identifiers together. See [version 0.10.1](dossier/releases/v0.10.1.md) and the [dossier](dossier/README.md). Product reference: [T3 Code](https://github.com/pingdotgg/t3code). This is an independent implementation; it does not incorporate T3's code or graphical assets and does not claim feature parity.
+Every new version requires an English specification at `dossier/releases/v<VERSION>.md`, with behavior, acceptance criteria, relevant diagrams, migration notes and actual validation. Update `README.md`, `README.pt-BR.md` and the version identifiers together. See [version 0.11.0](dossier/releases/v0.11.0.md) and the [dossier](dossier/README.md). Product reference: [T3 Code](https://github.com/pingdotgg/t3code). This is an independent implementation; it does not incorporate T3's code or graphical assets and does not claim feature parity.
 
 The suite covers access policies, authentication, protocols and approvals, local discovery, download integrity, installation, packaged files and recovery after a failure. The browser test uses fixtures so it does not consume accounts or download models. The GitHub Actions configuration runs Python tests, Chromium UI tests and the wheel/sdist build; artifacts are attached to the packaging job when the pipeline passes. Third-party authentication and a physical machine reboot are not simulated as proof of real operation.
 
@@ -354,8 +354,10 @@ New conversations offer isolation before the first message, defaulting to native
 
 MIT — see [LICENSE](LICENSE).
 
-## 🆕 Version 0.10.1
+## 🆕 Version 0.11.0
 
-The chat home now follows the approved Chat + Run console layout: state-grouped conversations, a compact search and attention bar, inline Maestro plans, labeled composer controls, Files/Activity and a permanent live status strip. The Pipeline follows the current conversation’s latest run.
+Declare up to twelve sequential invocations in `workflows/<id>.json`, with gates, bounded result conditions and digest-bound checkpoints. The `/` palette lists project workflows and trusted catalog workflows. JSON works without extra packages; YAML uses `yaml.safe_load` only when PyYAML is installed.
 
-A guided tour starts on the first browser visit and can be replayed from **About → Take the tour**. It supports keyboard navigation, reduced motion and narrow screens; unavailable areas are skipped. See the [release specification](dossier/releases/v0.10.1.md) for behavior and validation.
+Maestro can use any configured enabled backend as coordinator (Codex remains the default). Generated plans default to human review. Set `maestro_plan_policy: "auto"` per project or run for unattended planning; publication and step gates still require their existing approvals. Settings → Agents and models exposes the per-run choice. Declared workflows skip planning.
+
+The HTTP and MCP interfaces support resume, re-run from a step as a child execution, and saving a successful chain into the project's writable `workflows/` collection. Changed inputs or revisions invalidate affected checkpoints and approvals; uncertain publications require reconciliation before recovery. See the [release specification](dossier/releases/v0.11.0.md) for schemas, configuration, API examples, security review and actual validation.

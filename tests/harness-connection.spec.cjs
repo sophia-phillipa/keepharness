@@ -120,7 +120,7 @@ const path = require("node:path");
       await gate.waitFor({ state: "hidden", timeout: 20000 });
       assert(!(await page.locator("main").evaluate((el) => el.inert)));
     }
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.10.1"));
+    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.11.0"));
     await page.goto("http://panel.test");
     await blocked();
     const before = requests;
