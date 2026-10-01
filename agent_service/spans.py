@@ -43,6 +43,12 @@ ATTRIBUTE_NAMES = {
 }
 
 
+def queue_wait_reason(reason):
+    if reason == "conversation":
+        return "conversation_parent"
+    return reason if reason in {"provider_capacity", "writable_root", "work_item", "conversation_parent"} else "queue"
+
+
 def _object(value):
     if isinstance(value, str):
         try:
@@ -239,6 +245,10 @@ def events_to_spans(job, events):
             queue = create(
                 f"{trace_id}:queue:{identifier}", "queue_wait", "Queue", timestamp, trace_id, data
             )
+        elif kind == "queue_wait" and queue is not None:
+            queue["attrs"]["wait_reason"] = queue_wait_reason(data.get("reason"))
+            queue["events"].append({"ts": timestamp, "name": kind, "attrs": {"wait_reason": queue["attrs"].get("wait_reason")}})
+            queue["content"].append(event_content)
         elif kind == "running":
             if queue is not None:
                 close(queue, timestamp, "completed")

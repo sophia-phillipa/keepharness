@@ -68,7 +68,7 @@ def model_efforts(config, provider, model):
     return catalog.get(model, default) if isinstance(catalog, dict) else default
 
 
-def candidates(config, project, uploads=False):
+def candidates(config, project, uploads=False, execution_mode=None):
     from .effect_transport import transport_support
     from .integrations import integration_contract
 
@@ -76,6 +76,7 @@ def candidates(config, project, uploads=False):
     for provider, spec in config.get("services", {}).items():
         if not spec.get("enabled") or project not in spec.get("projects", []):
             continue
+        mode = execution_mode or spec.get("mode", "native")
         for model in spec.get("models", []):
             permissions = model_permissions(config, provider, model, project)
             if uploads and not permissions.get("upload"):
@@ -83,7 +84,7 @@ def candidates(config, project, uploads=False):
             efforts = model_efforts(config, provider, model)
             if efforts:
                 operations = []
-                if transport_support(provider, spec.get("mode", "native"))["supported"]:
+                if transport_support(provider, mode)["supported"]:
                     for contract in config.get("effect_integrations", []):
                         try:
                             valid = integration_contract(config, contract.get("integration"))
@@ -99,7 +100,7 @@ def candidates(config, project, uploads=False):
                         "integrations": []
                         if provider == "local" and "model_permissions" in spec
                         else spec.get("integrations", []),
-                        "mode": spec.get("mode", "native"),
+                        "mode": mode,
                         "operations": sorted(set(operations)),
                     }
                 )
@@ -189,7 +190,8 @@ def validate_plan(raw, available):
 
 async def plan(service, row, data):
     available = candidates(
-        service.config, row["project"], bool(data.get("file_ids") or data.get("workspace_id"))
+        service.config, row["project"], bool(data.get("file_ids") or data.get("workspace_id")),
+        execution_mode=data.get("execution_mode"),
     )
     if data.get("workspace_id"):
         available = [m for m in available if m["permissions"].get("read")]
@@ -558,7 +560,8 @@ async def execute_workflow(service, row, data, workflow):
 
     workflow = declaration(workflow)
     available = candidates(
-        service.config, row["project"], bool(data.get("file_ids") or data.get("workspace_id"))
+        service.config, row["project"], bool(data.get("file_ids") or data.get("workspace_id")),
+        execution_mode=data.get("execution_mode"),
     )
     selected = []
     for step in workflow.get("steps", []):
@@ -572,7 +575,7 @@ async def execute_workflow(service, row, data, workflow):
                 step.get("backend") or invocation.get("requested_backend"),
                 step.get("model"),
                 private=True,
-                execution_mode=service.default_execution_mode(
+                execution_mode=data.get("execution_mode") or service.default_execution_mode(
                     step.get("backend") or invocation.get("requested_backend")
                 ),
             )["items"]
@@ -585,7 +588,8 @@ async def execute_plan(service, row, data, declared, *, planning_result=None, co
     if "_workflow_context_parent_id" in data:
         data = {**data, "parent_job_id": data["_workflow_context_parent_id"]}
     available = candidates(
-        service.config, row["project"], bool(data.get("file_ids") or data.get("workspace_id"))
+        service.config, row["project"], bool(data.get("file_ids") or data.get("workspace_id")),
+        execution_mode=data.get("execution_mode"),
     )
     from .workflows import validate_workflow
 

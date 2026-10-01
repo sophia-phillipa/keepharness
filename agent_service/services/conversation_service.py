@@ -929,6 +929,8 @@ class ConversationService:
 
         plan = maestro.saved_plan(self, row["id"])
         data = json.loads(row["payload"])
+        if "_workflow_context_parent_id" in data:
+            data["parent_job_id"] = data["_workflow_context_parent_id"]
         if not maestro.resources_unchanged(self, data, plan):
             return 0
         try:

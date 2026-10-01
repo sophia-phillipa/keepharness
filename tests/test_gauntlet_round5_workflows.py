@@ -66,7 +66,7 @@ def test_generated_plan_requires_enforced(tmp_path, requires):
         service.db.close()
 
 
-def test_null_schema_malformed_output_requires_gate(tmp_path):
+def test_null_schema_rejected_before_inference(tmp_path):
     service, identity, row, data, plan = setup_run(tmp_path)
     plan["steps"] = [plan["steps"][0]]
     plan["steps"][0]["outputs"] = {"type": "null"}
@@ -81,9 +81,12 @@ def test_null_schema_malformed_output_requires_gate(tmp_path):
                 AsyncMock(return_value={"approved": True, "choice": "approve"}),
             ) as gate,
         ):
-            result = asyncio.run(maestro.execute_plan(service, row, data, plan))
-        print("OUTPUT:", result["answer"], "GATE CALLS:", gate.await_count)
-        assert gate.await_count == 1, "invalid output passes a null schema without human gate"
+            from agent_service.workflows import WorkflowError
+
+            with pytest.raises(WorkflowError, match="workflow_invalid_schema"):
+                asyncio.run(maestro.execute_plan(service, row, data, plan))
+            service.infer.assert_not_awaited()
+        gate.assert_not_awaited()
     finally:
         service.db.close()
 

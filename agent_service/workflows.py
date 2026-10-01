@@ -365,6 +365,8 @@ def validate_workflow(value, available=None, resources=None, *, retained=False):
         for key in ("inputs", "outputs"):
             if key in step:
                 _schema(step[key])
+                if key == "outputs" and step[key].get("type") not in (None, "object"):
+                    raise WorkflowError("workflow_invalid_schema")
         condition = step.get("condition")
         if condition is not None:
             if (
