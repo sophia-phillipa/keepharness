@@ -3393,7 +3393,7 @@ function renderPlanOutcome(card, runState = card.dataset.runState) {
   } else if (state === "resolved") { label = "Decision recorded"; note = "The plan decision was recorded."; }
   else { label = "Awaiting your approval"; note = "Nothing runs until you approve."; }
   const decision = window.runConsole?.planDecision(card.id.slice(5));
-  const approve = card.querySelector(".maestro-plan-actions button");
+  const approve = card.querySelector(".maestro-plan-actions .btn-primary");
   if (approve) approve.disabled = !!decision?.pending || state !== "pending";
   if (decision?.pending && state === "pending") note = decision.message;
   card.querySelector(".state-pill").textContent = label;

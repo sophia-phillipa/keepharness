@@ -82,6 +82,11 @@ async function fixture(browser,width=1280,kind='plan'){
   f.state.childFailure=false;await retry.click();await p.waitForFunction(()=>document.querySelector('#conversation-title').textContent==='Resumed synthetic run');assert.equal(f.state.posts.filter(x=>x.path.endsWith('/resume')).length,1);
   if(process.env.EVAL_OUTPUT){await fs.mkdir(process.env.EVAL_OUTPUT,{recursive:true});await p.screenshot({path:path.join(process.env.EVAL_OUTPUT,'resume-child.png')});}await p.close();
  });
+ await check('Automatic plan view remains available',async()=>{
+  const f=await fixture(browser,1280,'empty'),p=f.page;await f.open();
+  await p.evaluate(()=>showMaestroPlan({steps:[{role:'Reviewer',backend:'codex',model:'fixture',effort:'low',task:'Automatic synthetic plan'}]}));
+  const view=p.getByRole('button',{name:'View plan in Run console',exact:true});assert.equal(await view.isDisabled(),false);await view.click();assert(await p.locator('#run-console').isVisible());await p.close();
+ });
  await check('A5-F2 cross-surface pending and retry',async()=>{
   for(const from of ['console','chat']){
    const f=await fixture(browser),p=f.page;await f.open();await p.evaluate(()=>runConsole.openRun('source-job'));await p.locator('#run-plan-approve-plan').waitFor();
