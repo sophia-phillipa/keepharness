@@ -3041,7 +3041,7 @@ function messageAttachments(message, attachments = []) {
   if (gallery.childElementCount) message.body.prepend(gallery);
 }
 function messageResourceChips(message, selections = []) {
-  const valid = selections.filter(
+  const valid = (selections || []).filter(
     (selection) => typeof selection?.token === "string" && selection.token,
   );
   if (!valid.length) return;
@@ -3701,6 +3701,9 @@ async function result(
       !files.length
     ) {
       $("prompt").value = r.request.prompt;
+      resourceSelections = (r.request.resource_selections || []).map(ref => ({ ...ref }));
+      syncResourceSelections();
+      renderResourceChips();
       updateComposer();
       saveView();
     }
@@ -3785,6 +3788,10 @@ async function watch(retries = 0) {
       headers: { "Last-Event-ID": String(last) },
       signal: controller.signal,
     });
+    if (controller !== current) return;
+    $("activity-state").textContent = "● Tracking execution";
+    status("Tracking execution…");
+    pendingGateStatus();
     const reader = r.body.getReader(),
       decoder = new TextDecoder();
     let buffer = "";
@@ -3864,6 +3871,8 @@ async function load(id, legacy = false, restoredView = null) {
     }
     if (request !== conversationLoad) return;
     if (!data.turns?.length) throw Error("Empty conversation");
+    streamDisconnected = false;
+    $("resume-execution").hidden = true;
     currentMaestroPlan = null;
     setActivePersona(null);
     queuedTurns = [];
@@ -6819,6 +6828,7 @@ function pendingGateStatus() {
   if (!plan && !gate) return;
   const text = plan ? "Waiting for plan approval" : gate.dataset.publish === "true" ? "Waiting for publication approval" : "Waiting for your choice";
   status(text);
+  $("activity-state").textContent = text;
   if (active) { active.chip.textContent = text; setActivitySummary(active, text); }
 }
 function finishGate(id, state, data = {}) {

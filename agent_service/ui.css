@@ -4383,7 +4383,7 @@ body.panel-order-reversed #app-topbar #menu .th-icon {
 
 .gate-card fieldset { border: 0; padding: 0; min-width: 0; }
 .gate-card legend { font-weight: 600; margin-bottom: 8px; overflow-wrap: anywhere; }
-.gate-card label { display: grid; grid-template-columns: auto 1fr; gap: 4px 8px; margin: 8px 0; }
+.gate-card label { min-height:24px; display: grid; grid-template-columns: auto 1fr; gap: 4px 8px; margin: 8px 0; }
 .gate-card label small { grid-column: 2; overflow-wrap: anywhere; }
 .gate-card input { width: auto; }
 .publish-evidence { min-width: 0; overflow-wrap: anywhere; }
@@ -4770,3 +4770,13 @@ main > header { flex-wrap:nowrap; overflow-x:auto; }
   .run-console-tabs { flex:1; }
 }
 .resource-option[aria-disabled="true"] { opacity:.65; cursor:default; }
+
+/* Keep Timeline metadata readable while fitting pending decisions at the default height. */
+.run-span-list:has(.run-waterfall-track) .run-span-row > strong { grid-row:1; }
+.run-span-list:has(.run-waterfall-track) .run-span-row > .run-span-state { grid-column:1; grid-row:2; }
+.run-span-list:has(.run-waterfall-track) .run-span-row > .run-span-effort { grid-column:2; grid-row:2; }
+.run-span-list:has(.run-waterfall-track) .run-span-row > .backend-chip { grid-row:3; }
+.run-span-list:has(.run-waterfall-track) .run-span-row > .run-span-tokens { grid-column:1; grid-row:4; }
+.run-span-list:has(.run-waterfall-track) .run-span-row > .run-span-duration { grid-column:2; grid-row:4; }
+.run-span-list:has(.run-waterfall-track) .run-span-row > .run-span-enforcement { grid-row:5; }
+.run-span-list:has(.run-waterfall-track) .run-span-row > .run-waterfall-track { grid-row:6; }

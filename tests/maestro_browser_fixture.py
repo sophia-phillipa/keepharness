@@ -68,9 +68,26 @@ if len(sys.argv) > 2 and sys.argv[2] == "local":
 app = create_app(config)
 service = app.state.service
 inference_stages = []
+retry_attempts = {}
+round9 = len(sys.argv) > 2 and sys.argv[2] == "round9"
+if round9:
+    skill = project / ".agents/skills/check/SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("---\nname: check\ndescription: Synthetic check\n---\nCheck synthetic facts")
 
 
 async def infer(row, data):
+    if round9:
+        prompt = data.get("prompt", "")
+        if "RETRY-" in prompt:
+            marker = prompt.split("RETRY-", 1)[1].split()[0]
+            retry_attempts[marker] = retry_attempts.get(marker, 0) + 1
+            if retry_attempts[marker] == 1:
+                raise RuntimeError("synthetic_execution_failure")
+        if "ASK-" in prompt:
+            await service.gates.ask(row["id"], {"question": "Audience?", "options": [
+                {"id": "staff", "label": "Staff"}, {"id": "public", "label": "Public"}
+            ]}, lambda kind, value: service.event(row["id"], kind, value))
     inference_stages.append(data.get("_maestro_stage", "direct"))
     (root / "inference.json").write_text(json.dumps(inference_stages))
     if data.get("_maestro_stage") == "plan":

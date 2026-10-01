@@ -312,6 +312,11 @@
       if (sequence !== state.activitySequence) return;
       const changed = JSON.stringify(state.activity) !== JSON.stringify(data);
       const previousPlan = JSON.stringify(currentPlan());
+      const liveRequests = new Set((data.needs_you || []).map(item => item.gate_id || item.approval_id));
+      for (const item of state.activity.needs_you) {
+        const id = item.gate_id || item.approval_id;
+        if (!liveRequests.has(id)) retireDraft(gateChoiceKey(id));
+      }
       state.activity = { jobs: [], providers: [], needs_you: [], counts: {}, ...data };
       state.filteredJobs = filtered?.jobs || null;
       window.applyActivitySnapshot?.(state.activity);
@@ -501,7 +506,7 @@
       route.dataset.backend = backend;
       route.title = route.textContent;
       row.append(el('strong', span.name), spanState, route, el('span', span.attrs?.effort || '', 'run-span-effort'), el('span', duration(span), 'run-span-duration'), el('span', tokenCount(span), 'run-span-tokens'));
-      if (span.attrs?.enforcement) row.append(el('span', 'Publication: ' + span.attrs.enforcement));
+      if (span.attrs?.enforcement) row.append(el('span', 'Publication: ' + span.attrs.enforcement, 'run-span-enforcement'));
       if (state.tab === 'Timeline') {
         const track = el('span', null, 'run-waterfall-track');
         row.style.flexBasis = 160 * state.zoom + 'px';
@@ -726,10 +731,11 @@
     for (const item of (state.filteredJobs || state.activity.jobs).filter(item => !stateFilter.value || item.state === stateFilter.value)) {
       const row = el('tr');
       const name = el('td');
-      const open = button(item.job_id, async () => {
+      const open = button(item.title || item.job_id, async () => {
         try { await load(item.conversation_id || item.job_id, !item.conversation_id); syncContext(); await chooseRun(item.job_id); setTab('Pipeline'); }
         catch (failure) { showError(failure.message); }
       });
+      open.title = item.job_id;
       open.id = 'console-open-' + item.job_id;
       name.append(open);
       const work = el('td', item.work_item || '—');
@@ -848,6 +854,7 @@
       for (const option of item.options || []) {
         const choice = input('needs-' + id + '-' + option.id, item.multi_select ? 'checkbox' : 'radio');
         choice.name = 'needs-' + id; choice.value = option.id; choices.push(choice);
+        choice.checked = (readDraft(gateChoiceKey(id)) || []).includes(option.id);
         const label = field(option.label || option.id, choice);
         if (option.description) {
           const description = el('small', option.description);
@@ -880,6 +887,7 @@
         if (payload.choice === 'approve' && item.plan?.steps) payload.plan = planForApproval(id, item.plan);
         await post('/v1/approvals/' + encodeURIComponent(id), payload);
         clearPlanDraft(id);
+        retireDraft(gateChoiceKey(id));
         state.activity.needs_you = state.activity.needs_you.filter(candidate => (candidate.gate_id || candidate.approval_id) !== id);
         renderInbox();
         await refresh();
@@ -896,8 +904,13 @@
         const selected = choices.filter(choice => choice.checked).map(choice => choice.value);
         if (selected.length) void resolve({ choice: item.multi_select ? selected : selected[0] });
       });
-      submit.disabled = true;
-      choices.forEach(choice => choice.addEventListener('change', () => { submit.disabled = !choices.some(choice => choice.checked); }));
+      submit.disabled = !choices.some(choice => choice.checked);
+      choices.forEach(choice => choice.addEventListener('change', () => {
+        const selected = choices.filter(choice => choice.checked).map(choice => choice.value);
+        const key = gateChoiceKey(id), snapshot = JSON.stringify(selected);
+        draftViews.set(key, snapshot); unsavedDrafts.set(key, snapshot); flushDrafts();
+        submit.disabled = !selected.length;
+      }));
       card.append(submit);
     } else {
       card.append(button('Allow once', () => resolve({ approved: true, scope: 'once', answers: Object.fromEntries(questions.map(([id, answer]) => [id, { answers: [answer.value] }])) })), button('Deny', () => resolve({ approved: false, scope: 'once' })));
