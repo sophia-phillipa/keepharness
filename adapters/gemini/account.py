@@ -89,7 +89,7 @@ async def _check_authenticated_cli(binary):
                     "initialize",
                     {
                         "protocolVersion": 1,
-                        "clientInfo": {"name": PRODUCT.mcp_name, "version": "0.13.6"},
+                        "clientInfo": {"name": PRODUCT.mcp_name, "version": "0.13.7"},
                         "clientCapabilities": {
                             "auth": {"terminal": False},
                             "fs": {},
@@ -189,7 +189,7 @@ async def login(binary):
                 "initialize",
                 {
                     "protocolVersion": 1,
-                    "clientInfo": {"name": PRODUCT.mcp_name, "version": "0.13.6"},
+                    "clientInfo": {"name": PRODUCT.mcp_name, "version": "0.13.7"},
                     "clientCapabilities": {
                         "auth": {"terminal": False},
                         "fs": {},

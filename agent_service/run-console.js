@@ -174,7 +174,7 @@
     return values.every(value => typeof value === 'string') ? values.join('') : values;
   }
   function syncConsoleModal() {
-    drawer.setAttribute('role', !drawer.hidden && innerWidth <= 700 ? 'dialog' : 'region');
+    drawer.setAttribute('role', !drawer.hidden && (innerWidth <= 700 || innerHeight <= 500) ? 'dialog' : 'region');
     syncWorkspaceModal();
   }
   function toggle(open) {
@@ -766,11 +766,15 @@
   }
   function renderInbox() {
     if (state.attentionFilter !== 'request') {
-      inboxSignature = '';
+      const focusedJob = inboxList.contains(document.activeElement) ? document.activeElement.closest('[data-job-id]')?.dataset.jobId : null;
       const states = state.attentionFilter === 'complete' ? ['completed'] : ['failed', 'cancelled', 'interrupted'];
       const jobs = state.activity.jobs.filter(item => states.includes(item.state));
+      const signature = JSON.stringify([state.attentionFilter, jobs]);
+      if (signature === inboxSignature) return;
+      inboxSignature = signature;
       inboxList.replaceChildren(...jobs.map(item => {
         const card = el('section', null, 'needs-you-card');
+        card.dataset.jobId = item.job_id;
         card.append(el('h3', item.title || item.work_item || item.job_id), el('p', [item.state, item.backend, item.model].filter(Boolean).join(' · ')));
         card.append(button('View run', async () => {
           inbox.close();
@@ -779,6 +783,7 @@
         }));
         return card;
       }));
+      if (focusedJob) ([...inboxList.querySelectorAll('[data-job-id]')].find(card => card.dataset.jobId === focusedJob)?.querySelector('button') || inbox.querySelector('button')).focus();
       if (!jobs.length) inboxList.append(el('p', state.attentionFilter === 'complete' ? 'No completed runs in this activity window.' : 'No failed runs in this activity window.'));
       return;
     }
@@ -884,7 +889,7 @@
   window.runConsole = {
     planForApproval,
     clearPlanDraft,
-    closeForPanel() { if (innerWidth <= 700 && !drawer.hidden) toggle(false); },
+    closeForPanel() { if ((innerWidth <= 700 || innerHeight <= 500) && !drawer.hidden) toggle(false); },
     getActivity() { return state.activity; },
     async openRun(id) { syncContext(); toggle(true); setTab('Pipeline'); await chooseRun(id); },
     openAttention(filter) { void openInbox(filter); },

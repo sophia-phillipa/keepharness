@@ -166,7 +166,8 @@ function unfencedPrompt(text) {
   // Preserve offsets while excluding fenced examples from invocation boundaries.
   let marker = null;
   return text.split(/(?<=\n)/).map(line => {
-    const fence = /^ {0,3}(`{3,}|~{3,})(.*)/.exec(line);
+    const content = line.replace(/^(?: {0,3}>[ \t]?)+/, "");
+    const fence = /^ {0,3}(`{3,}|~{3,})(.*)/.exec(content);
     let hidden = !!marker;
     if (fence) {
       if (!marker && (fence[1][0] !== "`" || !fence[2].includes("`"))) { marker = fence[1]; hidden = true; }
@@ -338,7 +339,7 @@ function resourceKeydown(event) {
     event.keyCode === 229
   )
     return false;
-  const options = [...menu.querySelectorAll("[role=option]:not(:disabled)")],
+  const options = [...menu.querySelectorAll("[role=option]")],
     index = options.indexOf(document.activeElement);
   if (
     ["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key) &&
@@ -430,6 +431,7 @@ function catalogResourceMeta(item) {
 }
 function builtinResources() {
   return [
+    ...(models.some(model => model.backend === "maestro") ? [{ id:"builtin/maestro", revision:"ui", kind:"builtin", name:"maestro", description:"Generate a plan with the configured coordinator", scope:"builtin", origin:"Harness", group:"Built-ins", selectable:true, action:"maestro" }] : []),
     {
       id: "builtin/model",
       revision: "ui",
@@ -534,7 +536,7 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
       option.dataset.resourceId = item.id;
       option.dataset.resourceRevision = item.revision;
       option.dataset.resourceKind = item.kind;
-      option.disabled = item.selectable === false;
+      option.setAttribute("aria-disabled", String(item.selectable === false));
       option.title = item.source || item.origin || item.name;
       option.setAttribute("aria-describedby", "resource-preview");
       const glyph = document.createElement("span");
@@ -561,7 +563,7 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
         (item.unavailable_reason ? " · " + item.unavailable_reason : "");
       text.append(name, description);
       option.append(glyph, text);
-      option.onclick = () => selectResource(item, trigger);
+      option.onclick = () => { if (item.selectable !== false) selectResource(item, trigger); };
       option.onfocus = () => {
         setActiveResourceOption(option);
         renderResourcePreview(item);
@@ -592,7 +594,7 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
   menu.hidden = false;
   if (!menu.matches(":popover-open")) menu.showPopover();
   setActiveResourceOption(
-    menu.querySelector("[role=option]:not(:disabled)") ||
+    menu.querySelector('[role=option]:not([aria-disabled="true"])') ||
       menu.querySelector("[role=option]"),
   );
   const rect = $("prompt").getBoundingClientRect();
@@ -632,6 +634,12 @@ function selectResource(item, trigger) {
     closeResourceMenu();
     updateComposer();
     saveView();
+    if (item.action === "maestro") {
+      $("model").value = "auto";
+      $("model").dispatchEvent(new Event("change"));
+      input.focus();
+      return;
+    }
     const action = $(item.action);
     action?.focus();
     action?.click();
@@ -803,6 +811,7 @@ try {
 } catch {}
 const labels = {
   maestro_planning: "Maestro is planning",
+  maestro_planning_completed: "Plan ready",
   maestro_plan: "Agents selected",
   maestro_step: "Running Maestro step",
   answer_delta: "Responding",
@@ -1466,6 +1475,11 @@ const post = (path, value) =>
 function selected() {
   return models.find((m) => m.id === $("model").value) || models[0];
 }
+function composerModels(catalog) {
+  const choices = catalog.models.filter(m => TailUI.selectableModel(m.backend, m.id));
+  if (catalog.maestro) choices.push({ id: "auto", name: "Maestro (auto plan)", backend: "maestro", efforts: ["auto"] });
+  return choices;
+}
 function setBusy(value) {
   value = value || streamDisconnected;
   busy = value;
@@ -1504,7 +1518,7 @@ async function refreshProjectPermissions(timeout = 30000) {
     const previous = $("model").value,
       previousName = modelName(previous),
       effort = $("effort").value;
-    models = data.models.filter((m) => TailUI.selectableModel(m.backend, m.id));
+    models = composerModels(data);
     uploadsAllowed = data.uploads_enabled === true;
     $("model").replaceChildren(
       ...models.map((m) => new Option(names[m.id] || m.name || m.id, m.id)),
@@ -1614,7 +1628,7 @@ function updateEfforts() {
   );
   $("model-note").textContent =
     m.backend === "maestro"
-      ? "Codex coordinates and chooses enabled local or cloud models for each step"
+      ? "The configured coordinator plans steps using eligible local or cloud models"
       : m.backend === "local"
         ? "Local model runs on the server · no OpenAI quota · check the sources"
         : m.backend === "deepseek"
@@ -2149,6 +2163,7 @@ function conversationRow(c) {
   backend.className = "backend-chip";
   backend.dataset.backend = c.execution?.backend || c.backend || "";
   backend.textContent = c.execution?.backend || c.backend || "";
+  backend.title = backend.textContent;
   const project = document.createElement("span");
   project.className = "conversation-project";
   project.textContent = projectDetails[c.project]?.label || c.project || "No project";
@@ -3403,6 +3418,7 @@ function showMaestroPlan(data = {}) {
     approve.className = "btn btn-primary";
     approve.textContent = "✓ Approve plan & run";
     approve.onclick = async () => {
+      card.dataset.restoreFocus = String(card.contains(document.activeElement));
       approve.disabled = true;
       try {
         await post("/v1/approvals/" + encodeURIComponent(data.gate_id), { choice: "approve", plan: window.runConsole.planForApproval(data.gate_id, { steps: data.steps }) });
@@ -3411,8 +3427,12 @@ function showMaestroPlan(data = {}) {
         card.dataset.choice = "approve";
         renderPlanOutcome(card);
       } catch (error) {
-        approve.disabled = false;
+        if (error.code === "gate_already_resolved") finishGate(data.gate_id, "resolved");
+        else if (["gate_invalidated", "gate_expired"].includes(error.code)) finishGate(data.gate_id, error.code.slice(5));
+        else { approve.disabled = false; if (card.dataset.restoreFocus === "true") approve.focus(); }
         status("Couldn't approve the plan: " + error.message);
+      } finally {
+        delete card.dataset.restoreFocus;
       }
     };
     actions.append(approve);
@@ -3515,6 +3535,11 @@ function event(e) {
     return;
   } else {
     status(labels[e.type] || e.type);
+  }
+  if (active?.el.querySelector('.maestro-plan-card[data-state="pending"]')) {
+    status("Waiting for plan approval");
+    active.chip.textContent = "Waiting for plan approval";
+    setActivitySummary(active, "Waiting for plan approval");
   }
   // Deltas scroll after their batched render; reading layout here per delta
   // would force a reflow for each one (F-87).
@@ -4963,7 +4988,7 @@ function syncWorkspaceModal() {
   for (const [node, inert] of workspaceCoveredContent) node.inert = inert;
   workspaceCoveredContent.clear();
   const sidebar = $("sidebar"), panel = $("activity-panel"), console = $("run-console");
-  const active = console && !console.hidden && innerWidth <= 700 ? console
+  const active = console && !console.hidden && (innerWidth <= 700 || innerHeight <= 500) ? console
     : innerWidth <= 620 && sidebar.classList.contains("open") ? sidebar
     : innerWidth < 1000 && !panel.hidden ? panel : null;
   for (const node of [sidebar, panel, console].filter(Boolean)) {
@@ -5220,7 +5245,7 @@ async function initialize() {
     renderProjects();
     syncActiveProjectBadge();
     providers = m.providers || {};
-    models = m.models.filter((m) => TailUI.selectableModel(m.backend, m.id));
+    models = composerModels(m);
     uploadsAllowed = m.uploads_enabled === true;
     policyProject = null;
     policyPending = false;
@@ -5729,7 +5754,7 @@ function setPanelOpen(open, persist = true) {
 document.addEventListener("keydown", event => {
   if (event.defaultPrevented || event.key !== "Tab" || document.querySelector("dialog[open], #tour-root, [popover]:popover-open")) return;
   const panel = !$("attention-popover").hidden ? $("attention-popover")
-    : innerWidth <= 700 && document.querySelector("#run-console:not([hidden])") ? $("run-console")
+    : (innerWidth <= 700 || innerHeight <= 500) && document.querySelector("#run-console:not([hidden])") ? $("run-console")
     : innerWidth <= 620 && $("sidebar").classList.contains("open") ? $("sidebar")
     : innerWidth < 1000 && !$("activity-panel").hidden ? $("activity-panel") : null;
   if (!panel) return;
@@ -6656,7 +6681,7 @@ document.addEventListener("keydown", (e) => {
   ) {
     e.preventDefault();
     if (e.key === "/") {
-      if (innerWidth <= 620 && $("sidebar").classList.contains("open") || innerWidth < 1000 && !$("activity-panel").hidden || innerWidth <= 700 && document.querySelector("#run-console:not([hidden])")) return;
+      if (innerWidth <= 620 && $("sidebar").classList.contains("open") || innerWidth < 1000 && !$("activity-panel").hidden || (innerWidth <= 700 || innerHeight <= 500) && document.querySelector("#run-console:not([hidden])")) return;
       $("prompt").focus();
     }
     else openConversationSearch();
@@ -6753,7 +6778,9 @@ $("vpn-login-form").onsubmit = async (e) => {
     $("vpn-login-error").textContent = error.message;
   }
 };
+const gateChoiceDrafts = new Map();
 function finishGate(id, state, data = {}) {
+  gateChoiceDrafts.delete(id);
   const box = document.getElementById("gate-" + id);
   if (!box) return;
   if (box.contains(document.activeElement) || box.dataset.restoreFocus === "true")
@@ -6820,6 +6847,7 @@ function showGate(data) {
     input.type = data.multi_select ? "checkbox" : "radio";
     input.name = "gate-choice-" + data.gate_id;
     input.value = option.id;
+    input.checked = (gateChoiceDrafts.get(data.gate_id) || []).includes(option.id);
     text.textContent = option.label;
     description.textContent = option.description || "";
     label.append(input, text, description);
@@ -6828,8 +6856,12 @@ function showGate(data) {
   note.setAttribute("role", "status");
   submit.className = "btn";
   submit.textContent = "Confirm choice";
-  submit.disabled = true;
-  fields.onchange = () => { submit.disabled = !fields.querySelector("input:checked"); };
+  submit.disabled = !fields.querySelector("input:checked");
+  fields.onchange = () => {
+    const choices = [...fields.querySelectorAll("input:checked")].map(input => input.value);
+    gateChoiceDrafts.set(data.gate_id, choices);
+    submit.disabled = !choices.length;
+  };
   submit.onclick = async () => {
     if (box.dataset.state !== "pending") return;
     const choices = [...fields.querySelectorAll("input:checked")].map(input => input.value);
