@@ -57,7 +57,8 @@ const settle = page => page.evaluate(() => Promise.all(document.getAnimations().
         const {page}=await pendingPlan(width,height); await page.keyboard.press('Control+j'); await page.locator('.run-span-row').nth(2).waitFor(); await settle(page);
         for (const maximize of [false,true,false]) {
           if (width>700 && maximize !== (await page.locator('#run-console-maximize').innerText()==='Restore')) await page.locator('#run-console-maximize').click();
-          const boxes=await page.locator('.run-span-row').evaluateAll(nodes=>nodes.map(n=>({bottom:n.getBoundingClientRect().bottom,limit:n.closest('.run-console-body').getBoundingClientRect().bottom,scroll:n.closest('.run-console-body').scrollTop})));
+          const boxes=await page.evaluate(()=>[...document.querySelectorAll('.run-span-row')].map(n=>({bottom:n.getBoundingClientRect().bottom,limit:n.closest('.run-console-body').getBoundingClientRect().bottom,scroll:n.closest('.run-console-body').scrollTop})));
+          assert.equal(boxes.length,3);
           assert(boxes.every(b=>b.scroll===0 && b.bottom<=b.limit),width+': '+JSON.stringify(boxes));
           await page.locator('.run-span-list').evaluate(n=>n.scrollLeft=185); assert(await hit(page.locator('.run-span-row').nth(1).locator('.run-span-tokens')));await capture(page,'pipeline-'+width+'-'+maximize);
         }
