@@ -72,6 +72,7 @@ async def upload_workspace(request, service, identity):
             if not manifest:
                 raise APIError("empty_workspace")
             warnings = await workspaces.prepare_documents(folder / "work", manifest)
+            service.project(identity, project)
             with service.db:
                 service.project_repository.add_workspace(
                     wid, project, identity[0], name, time.time(), encoded(manifest)
@@ -140,10 +141,23 @@ def project_file_status(root, entries):
         return
     try:
         result = subprocess.run(
-            ["git", "--no-optional-locks", "--literal-pathspecs", "-c", "core.fsmonitor=false", "-C", str(root),
-             "status", "--porcelain=v1", "-z", "--untracked-files=normal", "--",
-             *paths],
-            capture_output=True, timeout=2,
+            [
+                "git",
+                "--no-optional-locks",
+                "--literal-pathspecs",
+                "-c",
+                "core.fsmonitor=false",
+                "-C",
+                str(root),
+                "status",
+                "--porcelain=v1",
+                "-z",
+                "--untracked-files=normal",
+                "--",
+                *paths,
+            ],
+            capture_output=True,
+            timeout=2,
         )
     except (OSError, subprocess.TimeoutExpired):
         return
@@ -167,10 +181,16 @@ async def authorized_project_files(request, service, identity):
     params = request.query_params
     project = params.get("project_id")
     spec = service.project(identity, project)
-    roots = [{"id": key, "path": path, "label": path}
-             for key, path in workspaces.project_roots(spec)]
-    result = {"roots": roots, "entries": [], "path": "", "limited": False,
-              "can_authorize": bool(service.config.get("shared_projects")) and project != "sem-projeto"}
+    roots = [
+        {"id": key, "path": path, "label": path} for key, path in workspaces.project_roots(spec)
+    ]
+    result = {
+        "roots": roots,
+        "entries": [],
+        "path": "",
+        "limited": False,
+        "can_authorize": bool(service.config.get("shared_projects")) and project != "sem-projeto",
+    }
     if not roots:
         return JSONResponse(result)
     if not service.can_read_project(project):
@@ -181,9 +201,13 @@ async def authorized_project_files(request, service, identity):
         start, limit = int(params.get("start", 1)), int(params.get("limit", 100))
     except ValueError:
         raise APIError("invalid_range")
-    listing = await asyncio.to_thread(workspaces.browse_project, root, params.get("path", ""), start, limit)
+    listing = await asyncio.to_thread(
+        workspaces.browse_project, root, params.get("path", ""), start, limit
+    )
     await asyncio.to_thread(project_file_status, root, listing["entries"])
-    return JSONResponse({**result, **listing, "root_id": root_id}, headers={"Cache-Control": "no-store"})
+    return JSONResponse(
+        {**result, **listing, "root_id": root_id}, headers={"Cache-Control": "no-store"}
+    )
 
 
 async def project_files(request, service, identity):
@@ -262,6 +286,7 @@ async def attach_project_files(request, service, identity):
     ):
         raise APIError("uploads_denied", 403)
     data = await body(request)
+    service.project(identity, project)
     try:
         maximum = int(request.query_params.get("max_files", workspaces.MAX_ATTACHMENTS))
     except ValueError:
@@ -352,6 +377,7 @@ async def upload_file(request, service, identity):
                 ) or service.default_execution_mode(backend)
                 service.validate_execution_mode(backend, execution_mode)
                 await service.validate_images(backend, model, execution_mode)
+            service.project(identity, project)
             with service.db:
                 service.message_repository.add_file(
                     fid,

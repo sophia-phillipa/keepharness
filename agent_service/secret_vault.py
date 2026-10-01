@@ -47,28 +47,65 @@ def redact_secrets(value):
 
 
 class SecretStream:
-    """Hold credential prefixes so split provider deltas cannot reconstruct a secret."""
+    """Bounded authority syntax state and known-vault prefixes across provider deltas."""
 
     def __init__(self):
         self.pending = {}
+        self.authority = {}
 
     def feed(self, channel, value):
         value = self.pending.pop(channel, "") + value
-        secrets = {item for values in list(_known_secrets.values()) for item in values}
-        value = redact_secrets(value)
-        suffix = max(
-            (
-                size
-                for secret in secrets
-                for size in range(1, len(secret))
-                if value.endswith(secret[:size])
-            ),
-            default=0,
-        )
-        if suffix:
-            self.pending[channel] = value[-suffix:]
-            return value[:-suffix]
-        return value
+        output = []
+        while value:
+            mode = self.authority.get(channel)
+            if mode == "value":
+                end = re.search(r"[\s\"'&,;}]", value)
+                if end is None:
+                    return "".join(output)
+                value = value[end.start() :]
+                self.authority.pop(channel, None)
+            elif mode in ("separator", "leading"):
+                prefix = re.match(r"[\s\"']*", value).group()
+                output.append(prefix)
+                value = value[len(prefix) :]
+                if not value:
+                    break
+                if mode == "separator":
+                    if value[0] in ":=":
+                        output.append(value[0])
+                        value = value[1:]
+                        self.authority[channel] = "leading"
+                        continue
+                    self.authority.pop(channel, None)
+                elif value[0] not in "&,;}":
+                    output.append("[redacted]")
+                    self.authority[channel] = "value"
+                    continue
+                else:
+                    self.authority.pop(channel, None)
+            match = re.search(r"\b(?:harness_session|nonce)\b", value, re.IGNORECASE)
+            if match:
+                output.append(redact_secrets(value[: match.end()]))
+                value = value[match.end() :]
+                self.authority[channel] = "separator"
+                continue
+            secrets = {item for values in list(_known_secrets.values()) for item in values}
+            names = {"harness_session", "nonce"}
+            suffix = max(
+                (
+                    size
+                    for secret in secrets | names
+                    for size in range(1, len(secret))
+                    if (value.lower() if secret in names else value).endswith(secret[:size])
+                ),
+                default=0,
+            )
+            if suffix:
+                self.pending[channel] = value[-suffix:]
+                value = value[:-suffix]
+            output.append(redact_secrets(value))
+            break
+        return "".join(output)
 
 
 @contextmanager

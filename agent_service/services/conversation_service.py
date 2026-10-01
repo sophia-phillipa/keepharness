@@ -425,6 +425,7 @@ class ConversationService:
     async def attach_project_files(
         self, identity, project, selected, skipped, backend, model, execution_mode=None
     ):
+        self.project(identity, project)
         attachments = []
         async with self.upload_lock:
             used = self.message_repository.project_bytes(project)
@@ -469,6 +470,7 @@ class ConversationService:
                         await self.validate_images(
                             backend, model, execution_mode or self.default_execution_mode(backend)
                         )
+                    self.project(identity, project)
                     with self.db:
                         self.message_repository.add_file(
                             fid,

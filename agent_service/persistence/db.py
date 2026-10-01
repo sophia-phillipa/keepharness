@@ -93,11 +93,29 @@ def bind_effect_endpoints(db):
         binding["endpoint"] = endpoint_identity(json.loads(row["contract"])["endpoint"])
         db.execute(
             "UPDATE effects SET binding=? WHERE effect_id=?",
-            (json.dumps(binding, sort_keys=True, separators=(",", ":"), ensure_ascii=False), row["effect_id"]),
+            (
+                json.dumps(binding, sort_keys=True, separators=(",", ":"), ensure_ascii=False),
+                row["effect_id"],
+            ),
         )
 
 
-MIGRATIONS = (baseline, reset_legacy_approval_rules, add_gates, add_work_item, add_effects, bind_effect_endpoints)
+def add_effect_public_content(db):
+    """Legacy artifacts have no durable sanitation provenance; keep their bytes private."""
+    if "public_content" not in {row[1] for row in db.execute("PRAGMA table_info(effects)")}:
+        db.execute("ALTER TABLE effects ADD COLUMN public_content TEXT")
+    bind_effect_endpoints(db)
+
+
+MIGRATIONS = (
+    baseline,
+    reset_legacy_approval_rules,
+    add_gates,
+    add_work_item,
+    add_effects,
+    bind_effect_endpoints,
+    add_effect_public_content,
+)
 
 
 def migrate(db):

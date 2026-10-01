@@ -3,6 +3,7 @@
 from starlette.responses import JSONResponse
 
 from ..approval_sessions import require_approval_session
+from ..secret_vault import redact_secrets
 from . import api_route, body
 
 
@@ -10,7 +11,15 @@ async def effects(request, service, identity):
     job_id = request.path_params["job"]
     service.job(identity, job_id)
     return JSONResponse(
-        {"effects": service.effects.for_job(job_id)}, headers={"Cache-Control": "no-store"}
+        redact_secrets(
+            {
+                "effects": [
+                    service.effects.public(effect["effect_id"])
+                    for effect in service.effects.for_job(job_id)
+                ]
+            }
+        ),
+        headers={"Cache-Control": "no-store"},
     )
 
 
@@ -21,7 +30,9 @@ async def reconcile(request, service, identity):
     result = await service.effects.reconcile(
         request.path_params["effect"], identity, data.get("decision")
     )
-    return JSONResponse(result, headers={"Cache-Control": "no-store"})
+    return JSONResponse(
+        service.effects.public(result["effect_id"]), headers={"Cache-Control": "no-store"}
+    )
 
 
 ROUTES = [

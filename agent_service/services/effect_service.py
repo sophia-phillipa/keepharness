@@ -7,7 +7,12 @@ import time
 import uuid
 
 from ..errors import APIError
-from ..integrations import CredentialStore, endpoint_identity, integration_contract, validate_request
+from ..integrations import (
+    CredentialStore,
+    endpoint_identity,
+    integration_contract,
+    validate_request,
+)
 from ..jira_effects import JiraEffectDriver
 from ..persistence.db import encoded
 from .budgets import timeout_seconds
@@ -83,6 +88,24 @@ class EffectService:
             next_reconcile_at=row["next_reconcile_at"],
         )
 
+    def public(self, effect_id):
+        from ..secret_vault import redact_secrets
+
+        effect = self.get(effect_id)
+        content = self.db.execute(
+            "SELECT public_content FROM effects WHERE effect_id=?", (effect_id,)
+        ).fetchone()[0]
+        if content is None:
+            effect.update(
+                artifact={},
+                arguments={},
+                artifact_preview="Legacy publication content is private.",
+                receipt=None,
+            )
+        else:
+            effect.update(json.loads(content))
+        return redact_secrets(effect)
+
     def for_job(self, job_id):
         return [
             self.get(row[0])
@@ -92,10 +115,13 @@ class EffectService:
         ]
 
     def _event(self, effect_id, kind, **extra):
-        effect = self.get(effect_id)
+        effect = self.public(effect_id)
         self.service.event(effect["job_id"], kind, {**effect, **extra})
 
     def _status(self, effect_id, status, receipt=None, **extra):
+        from ..secret_vault import redact_secrets
+
+        receipt = redact_secrets(receipt)
         with self.db:
             self.db.execute(
                 "UPDATE effects SET status=?,receipt=? WHERE effect_id=?",
@@ -114,6 +140,10 @@ class EffectService:
         )
         validate_request(contract, request)
         self.credentials.get(contract["credential_binding"])
+        from ..secret_vault import redact_secrets
+
+        if redact_secrets(request) != request:
+            raise APIError("effect_sensitive_content", 422)
         request = json.loads(canonical(request))
         artifact = request.pop("artifact")
         action_binding = binding({**request, "artifact": artifact}, contract)
@@ -148,6 +178,16 @@ class EffectService:
                     canonical(contract),
                     execution_id,
                     enforcement,
+                ),
+            )
+        with self.db:
+            self.db.execute(
+                "UPDATE effects SET public_content=? WHERE effect_id=?",
+                (
+                    canonical(
+                        {**request, "artifact": artifact, "artifact_preview": canonical(artifact)}
+                    ),
+                    effect_id,
                 ),
             )
         effect = self.get(effect_id)
@@ -234,6 +274,7 @@ class EffectService:
         spec = json.loads(gate["spec"])
         job = self.service.conversation_repository.get(effect["job_id"])
         try:
+            self.service.project((job["owner"], {}), job["project"])
             contract = integration_contract(
                 self.service.config,
                 effect["integration"],
