@@ -42,7 +42,7 @@ def api(tmp_path):
 def seed_job(service):
     with service.db:
         service.db.execute(
-            "INSERT INTO jobs VALUES(?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO jobs(id,project,owner,state,created,payload,result,idem,digest) VALUES(?,?,?,?,?,?,?,?,?)",
             (
                 "alice-job",
                 "shared",

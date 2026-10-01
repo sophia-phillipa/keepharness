@@ -472,8 +472,10 @@ for line in sys.stdin:
             )
         start, end = [data for kind, data in events if kind in ("tool_start", "tool_end")]
         self.assertEqual(start["tool_id"], "cmd-1")
+        self.assertEqual(start["tool_call_id"], "cmd-1")
         self.assertEqual(start["command_name"], "ls")
         self.assertEqual(end["tool_id"], "cmd-1")
+        self.assertEqual(end["tool_call_id"], "cmd-1")
         self.assertNotIn("command_name", end)
         self.assertEqual(end["result"], "private output")
 

@@ -6,6 +6,8 @@ import sqlite3
 import time
 from pathlib import Path
 
+from agent_service.spans import events_to_spans
+
 
 def number(value):
     return value if type(value) in (int, float) and math.isfinite(value) and value >= 0 else None
@@ -184,19 +186,23 @@ def _execution(state, job):
         return None
     with sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=0.25) as db:
         db.row_factory = sqlite3.Row
-        row = db.execute("SELECT payload,result FROM jobs WHERE id=?", (job,)).fetchone()
+        row = db.execute("SELECT * FROM jobs WHERE id=?", (job,)).fetchone()
         if not row:
             return None
         payload = json.loads(row["payload"] or "{}")
         result = json.loads(row["result"] or "{}")
         if not isinstance(payload, dict) or not isinstance(result, dict):
             raise ValueError("invalid_execution_record")
+        history = db.execute(
+            "SELECT id,time,type,data FROM events WHERE job=? ORDER BY id", (job,)
+        ).fetchall()
+        spans = events_to_spans(row, history)
+        for span in spans:
+            span.pop("content", None)
         events = [
             {"time": r["time"], "type": r["type"], "data": json.loads(r["data"])}
-            for r in db.execute(
-                "SELECT time,type,data FROM events WHERE job=? ORDER BY id DESC LIMIT 500", (job,)
-            )
-        ][::-1]
+            for r in history[-500:]
+        ]
         return {
             "prompt": payload.get("prompt", ""),
             "answer": result.get("answer", ""),
@@ -204,6 +210,7 @@ def _execution(state, job):
             "orchestration": result.get("orchestration"),
             "events": events,
             "event_limit": 500,
+            "spans": spans,
         }
 
 

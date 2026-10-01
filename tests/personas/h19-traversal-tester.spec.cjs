@@ -172,6 +172,8 @@ runPersona("H19", [
       // The Add project dialog surfaces a readable error, never a host listing.
       await page.goto(HARNESS + "/");
       await page.locator("#startup-gate").waitFor({ state: "hidden" });
+      if (!(await page.locator("#project-tree").evaluate((el) => el.open)))
+        await page.locator("#project-tree > summary").click();
       await page.locator("#add-project").click();
       await page.locator("#project-dialog").waitFor();
       await page

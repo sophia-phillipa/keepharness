@@ -112,13 +112,13 @@ const fs = require("node:fs"),
       await page
         .locator(".conversation-title")
         .evaluate((el) => getComputedStyle(el).fontSize),
-      "12px",
+      "13px",
     );
     assert.equal(
       await page
         .locator(".conversation-title")
         .evaluate((el) => getComputedStyle(el).webkitLineClamp),
-      "2",
+      "1",
     );
     console.log(
       "PASS: thumbnails, document cards, modal, keyboard, focus restoration and mobile fit",

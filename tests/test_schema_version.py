@@ -1,5 +1,7 @@
 import sqlite3
 
+import pytest
+
 from agent_service.persistence.db import MIGRATIONS, baseline, connect, migrate
 
 
@@ -30,6 +32,8 @@ def test_fresh_database_gets_the_baseline_schema_and_version(tmp_path):
         "files",
         "workspaces",
         "approval_rules",
+        "gates",
+        "effects",
         "registered_projects",
         "deleted_project_folders",
         "schema_version",
@@ -52,7 +56,7 @@ def test_pre_versioning_database_migrates_to_the_same_schema_and_keeps_rows(tmp_
         old.execute("INSERT INTO jobs(id,project,owner,state) VALUES('j','p','a','completed')")
     migrate(old)
     assert schema(old) == schema(fresh)
-    assert version(old) == [(1,)]
+    assert version(old) == [(len(MIGRATIONS),)]
     assert [tuple(row) for row in old.execute("SELECT id,state FROM jobs")] == [("j", "completed")]
 
 
@@ -62,8 +66,42 @@ def test_double_migrate_is_a_no_op(tmp_path):
     before = schema(db)
     migrate(db)
     assert schema(db) == before
-    assert version(db) == [(1,)]
+    assert version(db) == [(len(MIGRATIONS),)]
     db.close()
     reopened = sqlite3.connect(tmp_path / "jobs.sqlite3")
     migrate(reopened)
-    assert version(reopened) == [(1,)]
+    assert version(reopened) == [(len(MIGRATIONS),)]
+
+
+@pytest.mark.parametrize("versioned", [False, True])
+def test_upgrade_resets_untrusted_remembered_rules_only_once(tmp_path, versioned):
+    db = connect(tmp_path)
+    baseline(db)
+    with db:
+        if versioned:
+            db.execute("CREATE TABLE schema_version(version INTEGER NOT NULL)")
+            db.execute("INSERT INTO schema_version VALUES(1)")
+        db.execute("INSERT INTO jobs(id,owner,state) VALUES('history','local','completed')")
+        for owner in ("local", "tailnet-fixture"):
+            db.execute(
+                "INSERT INTO approval_rules VALUES(?,?,?,?,?)",
+                (owner, "conversation", "codex", "model", "legacy-rule"),
+            )
+    migrate(db)
+    assert db.execute("SELECT * FROM approval_rules").fetchall() == []
+    assert tuple(db.execute("SELECT id,owner,state FROM jobs").fetchone()) == (
+        "history",
+        "local",
+        "completed",
+    )
+    with db:
+        db.execute(
+            "INSERT INTO approval_rules VALUES('local','conversation','codex','model','new-rule')"
+        )
+    db.close()
+    reopened = connect(tmp_path)
+    migrate(reopened)
+    assert [row[0] for row in reopened.execute("SELECT fingerprint FROM approval_rules")] == [
+        "new-rule"
+    ]
+    reopened.close()

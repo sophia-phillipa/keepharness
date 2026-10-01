@@ -5,6 +5,7 @@ import json
 import math
 import time
 
+from adapters.shared.process import IdleWatchdog, child_environment, process_diagnostics
 from agent_service.tool_metadata import command_name
 from agent_service.tools import ToolError
 
@@ -47,8 +48,17 @@ def rate_limit_update(item):
 
 
 class Stream:
-    def __init__(self, event):
-        self.event = event
+    def __init__(self, event, config=None):
+        self.watchdog = IdleWatchdog(config)
+        self.parent_tool_use_id = None
+
+        def emit(kind, data):
+            if self.parent_tool_use_id:
+                data = {**data, "parent_tool_use_id": self.parent_tool_use_id}
+            self.watchdog.observe(kind, data)
+            event(kind, data)
+
+        self.event = emit
         self.answer = ""
         self.thinking = ""
         self.result = None
@@ -60,6 +70,8 @@ class Stream:
         self.first = None
 
     def consume(self, item):
+        parent = item.get("parent_tool_use_id")
+        self.parent_tool_use_id = parent if isinstance(parent, str) and parent else None
         kind = item.get("type")
         if kind == "assistant":
             # Keep only known codes, never credential-bearing provider text.
@@ -107,6 +119,7 @@ class Stream:
                 metadata = {"tool": tool}
                 if isinstance(tool_id, str) and tool_id:
                     metadata["tool_id"] = tool_id
+                    metadata["tool_call_id"] = tool_id
                 if tool == "Bash" and isinstance(block.get("input"), dict):
                     name = command_name(block["input"].get("command"))
                     if name:
@@ -116,13 +129,15 @@ class Stream:
             delta = value.get("delta", {})
             if delta.get("type") == "text_delta":
                 text = delta.get("text", "")
-                self.answer += text
+                if not self.parent_tool_use_id:
+                    self.answer += text
                 if text and self.first is None:
                     self.first = time.monotonic() - self.started
                 self.event("answer_delta", {"text": text})
             elif delta.get("type") == "thinking_delta":
                 text = delta.get("thinking", "")
-                self.thinking += text
+                if not self.parent_tool_use_id:
+                    self.thinking += text
                 self.event("reasoning_delta", {"text": text})
         elif kind == "user":
             for block in item.get("message", {}).get("content", []):
@@ -130,7 +145,7 @@ class Stream:
                     tid = block.get("tool_use_id")
                     metadata = self.tools.pop(tid, {"tool": "tool"})
                     if isinstance(tid, str) and tid:
-                        metadata = {**metadata, "tool_id": tid}
+                        metadata = {**metadata, "tool_id": tid, "tool_call_id": tid}
                     self.event(
                         "tool_end",
                         {
@@ -173,47 +188,43 @@ class Stream:
         }
 
 
-async def stream(command, prompt, event, model, effort="configured"):
-    state = Stream(event)
+async def stream(command, prompt, event, model, effort="configured", *, config=None):
+    state = Stream(event, config)
     proc = await asyncio.create_subprocess_exec(
         *command,
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.PIPE,
+        env=child_environment(),
+        start_new_session=True,
         limit=1024 * 1024,
     )
 
     async def write_prompt():
         proc.stdin.write(prompt.encode())
-        await proc.stdin.drain()
+        await state.watchdog.wait(proc.stdin.drain())
         proc.stdin.close()
 
     writer = asyncio.create_task(write_prompt())
     event("planning", {"backend": "claude", "model": model, "effort": effort})
     size = 0
-    try:
-        async for line in proc.stdout:
-            size += len(line)
-            if size > 8 * 1024 * 1024:
-                raise ToolError("claude_output_limit")
-            try:
-                item = json.loads(line)
-                if not isinstance(item, dict):
-                    raise ValueError()
-            except ValueError:
-                raise ToolError("claude_invalid_stream") from None
-            state.consume(item)
-        await writer
-        if await proc.wait() != 0:
-            raise ToolError(state.provider_error or "claude_execution_failed")
-        return state.finish(model, effort)
-    finally:
-        writer.cancel()
-        await asyncio.gather(writer, return_exceptions=True)
-        if proc.returncode is None:
-            proc.terminate()
-            try:
-                await asyncio.wait_for(proc.wait(), 3)
-            except asyncio.TimeoutError:
-                proc.kill()
-                await proc.wait()
+    async with process_diagnostics(proc, "claude", event):
+        try:
+            while line := await state.watchdog.wait(proc.stdout.readline()):
+                size += len(line)
+                if size > 8 * 1024 * 1024:
+                    raise ToolError("claude_output_limit")
+                try:
+                    item = json.loads(line)
+                    if not isinstance(item, dict):
+                        raise ValueError()
+                except ValueError:
+                    raise ToolError("claude_invalid_stream") from None
+                state.consume(item)
+            await state.watchdog.wait(writer)
+            if await state.watchdog.wait(proc.wait()) != 0:
+                raise ToolError(state.provider_error or "claude_execution_failed")
+            return state.finish(model, effort)
+        finally:
+            writer.cancel()
+            await asyncio.gather(writer, return_exceptions=True)

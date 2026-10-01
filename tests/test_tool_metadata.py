@@ -15,6 +15,7 @@ def test_command_name_keeps_only_safe_executable_basename():
 def test_event_metadata_includes_only_present_id_and_sanitized_command():
     assert event_metadata({"id": "cmd-7"}, command="env=prod /usr/bin/git status --porcelain") == {
         "tool_id": "cmd-7",
+        "tool_call_id": "cmd-7",
         "command_name": "git",
     }
     assert event_metadata({"id": 123}, command="echo x") == {"command_name": "echo"}
@@ -45,8 +46,11 @@ def test_claude_tool_events_keep_id_and_do_not_parse_fragmented_input():
         {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "call-1"}]}}
     )
     assert events == [
-        ("tool_start", {"tool": "Bash", "tool_id": "call-1"}),
-        ("tool_end", {"tool": "Bash", "tool_id": "call-1", "status": "completed"}),
+        ("tool_start", {"tool": "Bash", "tool_id": "call-1", "tool_call_id": "call-1"}),
+        (
+            "tool_end",
+            {"tool": "Bash", "tool_id": "call-1", "tool_call_id": "call-1", "status": "completed"},
+        ),
     ]
 
 
@@ -66,7 +70,12 @@ def test_claude_full_start_input_supplies_sanitized_command_name():
             },
         }
     )
-    assert events == [("tool_start", {"tool": "Bash", "tool_id": "call-2", "command_name": "ls"})]
+    assert events == [
+        (
+            "tool_start",
+            {"tool": "Bash", "tool_id": "call-2", "tool_call_id": "call-2", "command_name": "ls"},
+        )
+    ]
 
 
 def test_non_command_tool_does_not_invent_a_command_title():

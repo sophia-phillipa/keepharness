@@ -75,7 +75,7 @@ def test_history_and_attachments_keep_owner_and_survive_restart(tmp_path):
             for owner in cfg["clients"]:
                 fid = owner + "-image"
                 db.execute(
-                    "INSERT INTO jobs VALUES(?,?,?,?,?,?,?,?,?)",
+                    "INSERT INTO jobs(id,project,owner,state,created,payload,result,idem,digest) VALUES(?,?,?,?,?,?,?,?,?)",
                     (
                         owner,
                         "p",

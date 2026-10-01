@@ -1,0 +1,5 @@
+name = "demo--reviewer"
+description = "Synthetic global reviewer used only by live conformance probes"
+developer_instructions = "Return exactly SYNTHETIC_CODEX_GLOBAL_AGENT_REVIEWER."
+model = "gpt-6-astra"
+model_reasoning_effort = "high"

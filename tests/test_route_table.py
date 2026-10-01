@@ -317,7 +317,7 @@ AGENT_VALID_TABLE = [
         404,
         "job_not_found",
     ),
-    ("approval", "POST", "/v1/approvals/x", None, {}, 404, "approval_expired"),
+    ("approval", "POST", "/v1/approvals/x", None, {}, 403, "approval_session_required"),
     ("job-get", "GET", "/v1/jobs/x", None, None, 404, "job_not_found"),
     ("job-events", "GET", "/v1/jobs/x/events", None, None, 404, "job_not_found"),
     ("job-cancel", "POST", "/v1/jobs/x/cancel", None, {}, 404, "job_not_found"),
@@ -403,7 +403,10 @@ STATIC_ROUTES = [
     "/",
     "/guide",
     "/ui.js",
+    "/run-console.js",
+    "/tour.js",
     "/ui.css",
+    "/tour.css",
     "/vendor/markdown-it.min.js",
     "/mcp_bridge.py",
     "/setup-mcp.sh",
@@ -543,7 +546,7 @@ def test_seeded_completed_job_routes(client):
     app = client.app
     with app.state.service.db:
         app.state.service.db.execute(
-            "INSERT INTO jobs VALUES(?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO jobs(id,project,owner,state,created,payload,result,idem,digest) VALUES(?,?,?,?,?,?,?,?,?)",
             (
                 "job-1",
                 "p",

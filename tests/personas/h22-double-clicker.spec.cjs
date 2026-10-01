@@ -150,6 +150,8 @@ runPersona("H22", [
         },
       });
       void s;
+      if (!(await page.locator("#project-tree").evaluate((el) => el.open)))
+        await page.locator("#project-tree > summary").click();
       await page.click("#add-project");
       await page.locator("#project-dialog").waitFor();
       await page.fill("#project-name", "Quarterly reports");

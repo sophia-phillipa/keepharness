@@ -149,7 +149,7 @@ runPersona("h26", [
       assert.equal(await input.inputValue(), query);
       assert.equal(
         await page.locator("#search-results").innerText(),
-        needleCount + " conversation(s) found",
+        needleCount + " result(s) found",
       );
       assert.equal(
         await page.locator(".conversation-search-result").count(),

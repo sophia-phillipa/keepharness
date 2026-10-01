@@ -1,0 +1,65 @@
+const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const assert = require('node:assert/strict');
+const { mount } = require('./run-console-fixture.cjs');
+
+(async () => {
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    let latest = false, currentPending = false;
+    const calls = [];
+    const jobs = () => [
+      { job_id: 'a1', conversation_id: 'a', project_id: 'p', state: 'running', created: 1 },
+      { job_id: 'b1', conversation_id: 'b', project_id: 'q', state: 'running', created: 2 },
+      ...(latest ? [{ job_id: 'a2', conversation_id: 'a', project_id: 'p', state: 'running', created: 3 }] : []),
+    ];
+    const gate = (id, conversation, project) => ({ gate_id: 'gate-' + id, job_id: id,
+      conversation_id: conversation, project_id: project, kind: 'gate', approval_kind: 'maestro_plan',
+      question: 'Approve ' + id, timeout_at: Date.now() / 1000 + 300,
+      plan: { steps: [{ role: 'reviewer', backend: 'local', model: 'fixture', effort: 'configured', task: 'Task for ' + id, reason: 'Review' }] },
+      options: [{ id: 'approve', label: 'Approve' }, { id: 'deny', label: 'Discard' }] });
+    await mount(page, async url => {
+      calls.push(url.pathname + url.search);
+      if (url.pathname === '/v1/projects') return { json: { projects: ['p', 'q'], details: { p: { label: 'Project P' }, q: { label: 'Project Q' } } } };
+      if (url.pathname === '/v1/conversations') return { json: { conversations: [
+        { id: 'a', project: 'p', title: 'Conversation A', state: 'running', updated: Date.now() / 1000 },
+        { id: 'b', project: 'q', title: 'Conversation B', state: 'running', updated: Date.now() / 1000 },
+      ] } };
+      if (/\/v1\/conversations\/[ab]$/.test(url.pathname)) {
+        const id = url.pathname.at(-1);
+        return { json: { title: 'Conversation ' + id.toUpperCase(), turns: [{ id: id + '1', project: id === 'a' ? 'p' : 'q', state: 'completed', request: { prompt: id, model: 'fixture' }, result: { answer: 'Previous response' } }] } };
+      }
+      if (/\/v1\/jobs\/[ab][12]$/.test(url.pathname)) return { json: { state: 'completed', result: { answer: 'Previous response' } } };
+      if (url.pathname.endsWith('/spans')) return { json: { spans: [] } };
+      if (url.pathname === '/v1/activity') {
+        const needs = [gate('b1', 'b', 'q'), ...(currentPending ? [gate('a2', 'a', 'p')] : [])];
+        const scoped = url.searchParams.get('project_id');
+        return { json: { jobs: jobs().filter(j => !scoped || j.project_id === scoped),
+          needs_you: needs.filter(j => !scoped || j.project_id === scoped),
+          counts: { running: jobs().length, queued: 0, needs_you: needs.filter(j => !scoped || j.project_id === scoped).length }, providers: [] } };
+      }
+    });
+    await page.locator('#history .conversation-title').filter({ hasText: 'Conversation A' }).click();
+    await page.keyboard.press('Control+j');
+    await page.waitForFunction(() => document.querySelector('#console-run').value === 'a1');
+    assert.equal(await page.locator('.run-plan-approval').count(), 0, 'another conversation plan must never appear on this run');
+    assert.match(await page.locator('#run-status-toggle').innerText(), /1 needs you/);
+    assert(calls.includes('/v1/activity'), 'the global attention summary is not filtered by selected project');
+    latest = true;
+    currentPending = true;
+    await page.evaluate(() => runConsole.observe({ type: 'gate_required' }));
+    await page.waitForFunction(() => document.querySelector('#console-run').value === 'a2');
+    await page.locator('.run-plan-approval').waitFor();
+    await page.getByRole('button', { name: 'Edit plan', exact: true }).click();
+    assert.match(await page.getByLabel('Editable Maestro plan').inputValue(), /Task for a2/);
+    assert.doesNotMatch(await page.getByLabel('Editable Maestro plan').inputValue(), /Task for b1/);
+    await page.getByRole('tab', { name: 'Runs', exact: true }).click();
+    await page.locator('#console-project').selectOption('p');
+    await page.getByRole('button', { name: 'Apply filters' }).click();
+    await page.getByRole('button', { name: 'b1', exact: true }).waitFor({ state: 'hidden' });
+    await page.waitForFunction(() => /2 needs you/.test(document.querySelector('#run-status-toggle').textContent));
+    assert.equal(await page.getByRole('button', { name: 'b1', exact: true }).count(), 0, 'Runs filters only its own table');
+    assert.match(await page.locator('#history').innerText(), /Conversation B/, 'other project remains in global sidebar');
+    console.log('PASS global activity, project filters, latest-run following and conversation-bound plan approval');
+  } finally { await browser.close(); }
+})().catch(error => { console.error(error); process.exitCode = 1; });

@@ -2,31 +2,14 @@
 
 import asyncio
 import json
-import os
 import signal
 import tempfile
 from pathlib import Path
 
+from adapters.shared.process import process_diagnostics
 from agent_service.tools import ToolError
 
 from .policy import prepare
-
-
-async def _stop(proc):
-    if proc.returncode is not None:
-        return
-    try:
-        os.killpg(proc.pid, signal.SIGTERM)
-    except ProcessLookupError:
-        return
-    try:
-        await asyncio.wait_for(proc.wait(), 3)
-    except asyncio.TimeoutError:
-        try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        await proc.wait()
 
 
 async def _request(proc, request_id, method, params):
@@ -93,11 +76,11 @@ async def _check_authenticated_cli(binary):
             cwd=directory,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
             start_new_session=True,
             env=environment,
         )
-        try:
+        async with process_diagnostics(proc, "gemini", environment=environment):
             result = await asyncio.wait_for(
                 _request(
                     proc,
@@ -105,7 +88,7 @@ async def _check_authenticated_cli(binary):
                     "initialize",
                     {
                         "protocolVersion": 1,
-                        "clientInfo": {"name": "tail-harness", "version": "0.6.0"},
+                        "clientInfo": {"name": "tail-harness", "version": "0.10.1"},
                         "clientCapabilities": {
                             "auth": {"terminal": False},
                             "fs": {},
@@ -132,9 +115,6 @@ async def _check_authenticated_cli(binary):
                 "models": {"auto-gemini-3": ["configured"]},
                 "model_source": "Gemini CLI 0.60.0 local ACP capability probe; alias availability remains account-dependent",
             }
-        finally:
-            if proc.returncode is None:
-                await _stop(proc)
 
 
 def _main():
@@ -197,18 +177,18 @@ async def login(binary):
             cwd=directory,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
             start_new_session=True,
             env=environment,
         )
-        try:
+        async with process_diagnostics(proc, "gemini", environment=environment):
             initial = await _request(
                 proc,
                 1,
                 "initialize",
                 {
                     "protocolVersion": 1,
-                    "clientInfo": {"name": "tail-harness", "version": "0.6.0"},
+                    "clientInfo": {"name": "tail-harness", "version": "0.10.1"},
                     "clientCapabilities": {
                         "auth": {"terminal": False},
                         "fs": {},
@@ -225,9 +205,6 @@ async def login(binary):
             print("Waiting for Google authorization in the browser…", flush=True)
             await _request(proc, 2, "authenticate", {"methodId": "oauth-personal"})
             return {"authenticated": True}
-        finally:
-            if proc.returncode is None:
-                await _stop(proc)
 
 
 if __name__ == "__main__":

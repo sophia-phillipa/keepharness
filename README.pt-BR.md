@@ -2,9 +2,9 @@
 
 [![🇺🇸 English](https://img.shields.io/badge/%F0%9F%87%BA%F0%9F%87%B8-English-blue.svg)](README.md) [![🇧🇷 Português (Brasil)](https://img.shields.io/badge/%F0%9F%87%A7%F0%9F%87%B7-Portugu%C3%AAs%20(Brasil)-green.svg)](README.pt-BR.md)
 
-Painel local em Python para descobrir, configurar e executar o Codex CLI, o Claude Code, o Gemini CLI e modelos de IA locais, com uma interface de conversa acessível pela Tailscale ou outra VPN. Python 3.11+, licença MIT, versão **0.6.0**.
+Painel local em Python para descobrir, configurar e executar o Codex CLI, o Claude Code, o Gemini CLI e modelos de IA locais, com uma interface de conversa acessível pela Tailscale ou outra VPN. Python 3.11+, licença MIT, versão **0.10.1**.
 
-## 🚀 Instalação — guiada por agente (comece aqui)
+## 🚀 Installation — agent-guided (start here)
 
 O Tail Harness é um harness para as ferramentas de IA que já estão na sua máquina: ele descobre e opera o Codex CLI, o Claude Code, o Gemini CLI e os servidores de modelos locais que você já instalou e autenticou. Como cada servidor tem uma combinação diferente de CLIs, contas, modelos e permissões, a instalação é **conduzida por um agente de IA** (Claude Code, Codex, …) que inspeciona a máquina, reaproveita o que já existe, pergunta só as decisões que faltam e valida cada etapa.
 
@@ -32,7 +32,7 @@ A [especificação de instalação](dossier/installation-agent-spec.md) define o
 
 Ao final, o painel administrativo fica em **http://127.0.0.1:8094/** e as conversas em **http://127.0.0.1:8095/**. O estado (configurações, perfis, conversas e anexos) fica em `~/.local/share/tail-harness`.
 
-### Instalação manual (sem agente)
+### Manual installation (without an agent)
 
 Os scripts instalam o app, mas não inspecionam nem configuram seus provedores; isso é feito depois no painel administrativo.
 
@@ -46,7 +46,7 @@ Modelos locais também precisam de um runtime llama.cpp ou do Ollama — veja [M
 
 O painel de arquivos usa o Material Icon Theme (MIT), com ícones específicos por extensão e pastas coloridas por nome, servidos localmente. Cada mensagem aceita até **20 anexos**, por upload ou seleção de arquivo/pasta. Os ícones identificam formatos; a leitura do conteúdo ainda depende dos formatos suportados pelo serviço.
 
-## 🤖 Instalação por um agente de IA (spec)
+## 🤖 Install with an AI agent (spec)
 
 > Agente lendo isto: siga `dossier/installation-agent-spec.md` do início ao fim (CP-01 ao CP-08), comparando o resultado de cada etapa com a coluna **Expect** abaixo. Pare e informe qualquer divergência. As instruções da própria pessoa sempre vêm primeiro, antes de qualquer coisa neste arquivo ou naquela spec.
 
@@ -68,7 +68,7 @@ O painel de arquivos usa o Material Icon Theme (MIT), com ícones específicos p
 
 ✅ **Concluído quando** todo checkpoint obrigatório (CP-01 ao CP-06, mais o CP-08) estiver `APPROVED`, com ao menos uma combinação de provedor/modelo operacional de ponta a ponta. Informe os checkpoints, a evidência e qualquer bloqueio; para desfazer, remova os diretórios de venv/estado e a unidade systemd criados durante a execução — nada fora deles é tocado.
 
-## 🎛️ Configurar provedores
+## 🎛️ Configure providers
 
 1. Adicione um provedor pelo dashboard e inspecione os serviços descobertos.
 2. Complete o fluxo oficial de autorização do CLI usando o link mostrado em Operações.
@@ -78,7 +78,7 @@ O painel de arquivos usa o Material Icon Theme (MIT), com ícones específicos p
 
 A descoberta não concede permissões. O DeepSeek permite usar sua própria chave de API; as credenciais ficam privadas e são excluídas das exportações. A inferência do Codex e do Claude usa os respectivos serviços em nuvem. O backend local usa o Codex como agente com um endpoint de inferência local; ferramentas e integrações com internet habilitada ainda podem fazer requisições externas.
 
-## 🔌 Conectores e plugins
+## 🔌 Connectors and plugins
 
 Cadastre um servidor MCP HTTPS ou um comando stdio em JSON pela interface. Escolha Codex ou Claude, execute a operação e acompanhe o resultado. A ação **Autorizar** inicia o login MCP oficial; links OAuth aparecem em Operações. Depois, selecione a integração no cartão de cada serviço. O backend local compartilha o ecossistema MCP/plugins do Codex.
 
@@ -86,7 +86,7 @@ Gmail, Drive e GitHub podem ser conectados por servidores MCP/plugins compatíve
 
 Instalar/remover integrações modifica o perfil de CLI deste usuário. Operações de autenticação podem abrir o navegador automaticamente. O painel também mostra o link; fluxos que exigem um terminal interativo não são emulados. Nenhuma senha de conta é pedida pelo painel.
 
-## 💬 Conversas e navegação
+## 💬 Conversations and navigation
 
 O harness oferece streaming SSE persistido, histórico de conversas, seleção de modelo/esforço, cancelamento, anexos, pedidos de aprovação e atividade das ferramentas. Resumos de raciocínio, compactação e métricas de tokens só aparecem quando o executor os fornece. A cota da conta Codex é atualizada antes/depois da execução e periodicamente no cabeçalho; a cota do Claude aparece quando os eventos do CLI fornecem utilização, com a hora da última observação.
 
@@ -99,7 +99,7 @@ O projeto não é uma solução multiusuário para pessoas mutuamente não confi
 
 O **Menu**, no canto inferior esquerdo, reúne **Configurações** e **Administração**. A Administração só aparece quando seu endereço está disponível. Configurações mantém a preferência de tema do harness independente por navegador. A barra lateral não tem mais botões separados de recarregar tela ou recolher; o controle de navegação do cabeçalho continua útil no celular. A atualização automática espera até poder preservar o trabalho em andamento.
 
-## 🧠 Modelos locais e anexos
+## 🧠 Local models and attachments
 
 O inventário descobre processos `llama-server` do usuário atual no Linux e consulta os modelos do servidor, incluindo qualquer autenticação indicada pelo processo. Também consulta o Ollama em `127.0.0.1:11434`; modelos identificados como cloud são excluídos.
 
@@ -113,7 +113,7 @@ Os caminhos de anexo suportados incluem arquivos de texto/código, CSV/TSV, PDF 
 
 Cada anexo pode ter até **100 MiB (104.857.600 bytes)**, incluindo documentos, imagens, áudio e MP4. A admissão de MP4 segue as capacidades de visão detectadas do modelo e o modo de execução. O harness fornece quatro quadros amostrados e transcreve a fala localmente com whisper.cpp quando há uma trilha de áudio; a amostragem não cobre todos os momentos do vídeo. A transcrição de fala exige o runtime local instalado. A duração de mídia permanece limitada a quatro horas; expansão de arquivo, armazenamento e limites de contexto do modelo continuam valendo. O processamento de mídia longa não foi testado sob carga. PDFs digitalizados, documentos criptografados/DRM, formatos binários antigos do Office e raciocínio nativo sobre áudio não são suportados automaticamente. Veja a [especificação de anexos](dossier/UC-004-multimodal-attachments.md).
 
-## 🔒 Permissões e integrações
+## 🔒 Permissions and integrations
 
 Fora de um projeto, valem as permissões e pastas do modelo local. Dentro de um projeto, concessões e pastas explícitas do projeto são somadas às concessões do modelo. A permissão de upload não implica compatibilidade de visão ou ferramentas.
 
@@ -121,7 +121,7 @@ Cadastre servidores MCP HTTPS/stdio compatíveis e selecione integrações para 
 
 Clientes autorizados têm históricos e aprovações separados, mas isso não é uma fronteira de isolamento forte para usuários mutuamente não confiáveis que compartilham credenciais do sistema operacional. Use usuários de sistema operacional separados ou instâncias isoladas para esse cenário.
 
-## 🌐 MCP em outro computador
+## 🌐 MCP on another computer
 
 Abra **Conexão / MCP** no harness e baixe o instalador. No Linux/macOS com Python 3.10+, curl e Claude Code instalados, salve o arquivo em Downloads. No Mac, abra o Terminal pelo Spotlight (⌘ + Espaço → Terminal). Execute:
 
@@ -151,11 +151,11 @@ Na Tailscale com uma identidade autorizada, a rota encaminha a identidade. Para 
 
 O bridge oferece descoberta de modelos/projetos, transferência de arquivos e workspaces, tarefas, progresso compacto, artefatos, cancelamento e aprovações. Continue uma sessão usando o último `job_id` como `parent_job_id`. O Maestro opcional planeja tarefas sequenciais limitadas entre os executores elegíveis; sem ele, a execução automática escolhe o padrão configurado ou o primeiro serviço elegível. Unidades systemd de projetos cadastrados só podem ser controladas pelas permissões correspondentes e por pedidos explícitos.
 
-## 📤 Delegação pelo MCP: documentos, pastas e projetos
+## 📤 Delegating through MCP: documents, folders and projects
 
 O conector apresenta um guia ao cliente durante a conexão; `workflow_guide` também pode ser usado para consultá-lo. Ele diferencia o computador cliente (Mac/Linux) do servidor e informa os recursos realmente configurados. Não presume acesso aos conectores nem aos arquivos do outro computador.
 
-### Relatórios construídos com documentos da empresa
+### Reports built from company documents
 
 Peça, por exemplo: "Use os documentos desta pasta para cruzar as decisões das reuniões com os e-mails e preparar um relatório com fontes, delegando o processamento ao harness."
 
@@ -167,7 +167,7 @@ Peça, por exemplo: "Use os documentos desta pasta para cruzar as decisões das 
 
 A redução de contexto ocorre no trabalho delegado e no retorno compacto. Ela não recupera tokens que o Claude já gastou lendo as respostas dos conectores. A economia líquida ainda precisa ser medida. Gmail, Drive e Slack precisam estar autenticados no computador que fará a consulta. Integrações do lado do cliente não são transferidas; não copie credenciais. Para busca direta pelo servidor, habilite o conector no executor e delegue a consulta. O inventário informa configuração, não prova de autenticação ativa.
 
-### Execução automática e Maestro opcional
+### Automatic execution and optional Maestro
 
 O padrão do MCP é `backend="auto"`. Quando o Codex está habilitado para o projeto e **Usar Maestro por padrão** está ativo, o Codex planeja de uma a seis etapas e escolhe os executores, modelos e esforços entre os habilitados naquela instalação. O modelo local participa quando configurado e autorizado para o projeto. A fila executa uma etapa por vez.
 
@@ -175,7 +175,7 @@ Sem um Maestro elegível, o servidor usa o **Executor padrão sem Maestro** ou o
 
 O painel do Codex permite adicionar **Instruções do Maestro para esta instalação**, sem embutir regras pessoais na distribuição. O plano e as saídas de cada etapa são registrados em `runs/maestro/<job_id>/`; o resultado final informa os modelos/esforços e métricas disponíveis. Para pastas enviadas, a resposta final também é salva em `_harness_results/<job_id>/answer.md`. Planos inválidos e etapas incompletas são reportados como falhas. A disponibilidade declarada de um modelo não garante cota ou o provedor funcionando no momento da execução.
 
-### Pastas, código e serviços
+### Folders, code and services
 
 `upload_path` aceita qualquer linguagem como arquivo, preserva a hierarquia e não executa código no envio. A análise textual independe da linguagem; executar/testar exige runtime e permissões no servidor. A cópia original do envio é preservada como `original.zip`. A pasta de trabalho pode ser modificada conforme as permissões existentes. Limites: 10.000 entradas, 200 MiB por pasta descompactada e armazenamento total limitado. Metadados Git, dependências, links simbólicos, `.env`, chaves e pesos de modelo são excluídos ou recusados; confira a lista de exclusões retornada.
 
@@ -183,7 +183,7 @@ Na configuração de cada projeto, **Serviços deste projeto** cadastra unidades
 
 `job_events` retorna progresso compacto por padrão, omitindo saída intermediária e raciocínio. Use `compact=false` para diagnóstico detalhado. O resultado final é obtido com `job_status`/`get_artifact`. `job_status` também é compacto por padrão: não repete o pedido original e limita a prévia da resposta a 12.000 caracteres, sinalizando corte; o arquivo completo continua disponível.
 
-## ⚙️ Arquitetura
+## ⚙️ Architecture
 
 ```mermaid
 flowchart LR
@@ -207,7 +207,7 @@ flowchart TD
   Admin --> Providers[Provedores, projetos e permissões]
 ```
 
-## 💾 Persistência e configuração portátil
+## 💾 Persistence and portable configuration
 
 Instalar a partir do checkout usa um vínculo editável: o serviço executa o código desta pasta diretamente, sem uma segunda cópia em site-packages. Mantenha o checkout neste caminho e reinicie o serviço após alterações de código Python. Wheels continuam sendo distribuições independentes e precisam de atualização explícita.
 
@@ -217,7 +217,7 @@ As exportações de configuração omitem credenciais, mas podem conter caminhos
 
 Quando o compartilhamento Tailscale está configurado com identidades autorizadas, abrir a conversa por `127.0.0.1` ou `localhost` redireciona para o endereço Tailscale configurado. Isso preserva a identidade do histórico e as preferências de painel do navegador entre reinícios. Chamadores locais de API/MCP mantêm sua própria identidade; os históricos não são mesclados. Sem compartilhamento, a interface permanece local. Se a Tailscale estiver indisponível, reconecte-a: o navegador não troca silenciosamente para outro histórico.
 
-## 🔧 Desenvolvimento e releases
+## 🔧 Development and releases
 
 ```sh
 .venv/bin/python -m pip install '.[test]'
@@ -228,7 +228,7 @@ PYTHON="$PWD/.venv/bin/python" PLAYWRIGHT_MODULE=/caminho/playwright ./scripts/t
 
 As fixtures de UI evitam inferência em nuvem e download de modelos. Uma suíte mocada passando não prova autenticação de terceiros, reinício físico ou desempenho em contexto completo. Para verificar o pacote instalado, use `"$TH_VENV/bin/python" -m control.install_check`, com `TH_VENV` apontando para o ambiente usado na instalação (`~/.local/share/tail-harness/venv` para `install.sh`, `.venv` para `setup.sh`). Esse smoke check roda fora do checkout, com estado temporário e uma porta disponível; ele não instala dependências nem valida a instância de produção e os provedores. Para simular uma instalação limpa, siga a seção dedicada da [spec](dossier/installation-agent-spec.md), preparando ambiente, estado e portas separados por comandos individuais.
 
-Toda nova versão exige uma especificação em inglês em `dossier/releases/v<VERSÃO>.md`, com comportamento, critérios de aceitação, diagramas relevantes, notas de migração e validação realmente executada. Atualize `README.md`, `README.pt-BR.md` e os identificadores de versão juntos. Veja a [versão 0.6.0](dossier/releases/v0.6.0.md) e o [dossiê](dossier/README.md). Referência de produto: [T3 Code](https://github.com/pingdotgg/t3code). Esta é uma implementação independente; não incorpora código ou recursos gráficos do T3 e não alega equivalência de recursos.
+Toda nova versão exige uma especificação em inglês em `dossier/releases/v<VERSÃO>.md`, com comportamento, critérios de aceitação, diagramas relevantes, notas de migração e validação realmente executada. Atualize `README.md`, `README.pt-BR.md` e os identificadores de versão juntos. Veja a [versão 0.10.1](dossier/releases/v0.10.1.md) e o [dossiê](dossier/README.md). Referência de produto: [T3 Code](https://github.com/pingdotgg/t3code). Esta é uma implementação independente; não incorpora código ou recursos gráficos do T3 e não alega equivalência de recursos.
 
 A suíte cobre políticas de acesso, autenticação, protocolos e aprovações, descoberta local, integridade de download, instalação, arquivos empacotados e recuperação após falha. O teste de navegador usa fixtures, então não consome contas nem baixa modelos. A configuração do GitHub Actions executa os testes Python, os testes de UI no Chromium e a construção de wheel/sdist; os artefatos ficam anexados ao job de empacotamento quando o pipeline passa. Autenticação de terceiros e reinício físico da máquina não são simulados como prova de operação real.
 
@@ -238,7 +238,7 @@ A versão 0.4.4 obtém a capacidade de contexto local a partir do servidor de mo
 
 O acesso tem quatro modos: Somente leitura, Pedir aprovação, Automático e Acesso total. Toda nova conversa começa em **Pedir aprovação**, mostrado como um aviso de início de sessão ao lado do aviso de isolamento; a escolha de acesso de uma conversa anterior não é mais herdada (F-58). O isolamento é escolhido uma única vez, antes da primeira mensagem, e depois aparece como um aviso fixo "Conversa nativa"/"Conversa isolada" — nenhuma das duas escolhas tem alternância dentro da conversa depois desse ponto. Em Pedir aprovação, o Codex e o Claude têm garantido um cartão de confirmação antes de qualquer edição/escrita de arquivo ou comando que não seja somente leitura; um comando somente leitura ainda pode ser executado sem cartão. O acesso à rede e os conectores/plugins MCP permanecem habilitados em Pedir aprovação — o modo restringe alterações, não conectividade (F-110). Veja os [modos de execução de conversa](dossier/conversation-execution-mode.md) para a tabela completa de modos.
 
-## 🧙 Assistente de configuração e configuração portátil
+## 🧙 Setup wizard and portable configuration
 
 O dashboard mostra somente os provedores cadastrados, com ações de edição e exclusão. **Adicionar provedor** abre um assistente de três etapas: **Serviço e modelos → Permissões e projetos → Revisão**. Permissões detalhadas, conectores, instalação de modelos, portas e outras VPNs ficam em opções expansíveis. O botão **Usar configuração atual** captura os parâmetros de desempenho do llama.cpp em execução sem reiniciá-lo e grava `local-profile.json` no diretório privado de estado (modo 0600). Esse perfil preserva GPU, MoE na CPU, threads e afinidade para futuras inicializações do mesmo modelo pelo painel; não copia chaves nem argumentos arbitrários.
 
@@ -252,21 +252,21 @@ Para verificar o pacote já instalado, use o Python do ambiente da instalação 
 
 `TH_VENV` deve apontar para esse ambiente. O check executa uma verificação curta fora do checkout, com estado temporário e uma porta livre; não instala dependências, reinicia modelos nem configura a Tailscale. Não substitui o teste da instância final nem dos provedores. Para simular uma instalação vazia, siga a seção **Simulação de instalação limpa** da [spec](dossier/installation-agent-spec.md), preparando ambiente, estado e portas separados por comandos individuais.
 
-## 🔑 DeepSeek com sua própria chave (BYOK)
+## 🔑 DeepSeek with your own key (BYOK)
 
 Em **Adicionar provedor → DeepSeek**, informe o token da plataforma DeepSeek e clique em **Salvar chave e verificar**. O painel consulta os modelos e o saldo disponíveis; depois selecione os modelos e permissões e conclua o assistente. O token fica no arquivo privado `deepseek.key` do estado local (0600), nunca é retornado pela API administrativa e é excluído das exportações. Remover esse provedor do dashboard também apaga a chave gerenciada pelo painel; a conta externa não é afetada.
 
 O agente é o Codex instalado, com um provedor DeepSeek temporário por processo; isso não altera o seu perfil global do Codex. A inferência usa a conta/créditos do DeepSeek. Ferramentas, sessões, aprovações e esforço seguem o executor nativo. A pesquisa web interna do Codex fica desabilitada para esse provedor; o acesso à rede do terminal e do MCP segue as permissões selecionadas. A implementação segue a [integração oficial DeepSeek/Codex](https://api-docs.deepseek.com/quick_start/agent_integrations/codex/). Os modelos são descobertos pela API, não por uma lista fixa. A execução autenticada depende de cadastrar uma chave válida com saldo disponível.
 
-### Usabilidade e regressões
+### Usability and regressions
 
 `scripts/test-ui.sh` executa as regressões das duas interfaces em servidores temporários, cobrindo cenários de usabilidade, testes reais com um modelo local e checagens de layout/tema.
 
-## 📚 Especificações e casos de uso
+## 📚 Specifications and use cases
 
 O [dossiê do projeto](dossier/README.md) reúne especificações, casos de uso e notas de pesquisa. Os documentos do dossiê são mantidos em inglês.
 
-## 🗂️ Runtime e modelos locais ao projeto
+## 🗂️ Project-local runtime and models
 
 O llama.cpp, os pesos de modelo e a chave de API local ficam no diretório `local_ai/`, ignorado pelo Git (renomeado de `local-ai/` automaticamente na primeira execução). Siga o [guia de instalação local](docs/LOCAL-INSTALL.md) em um servidor novo: instale as dependências Python, compile o runtime CPU/Vulkan/CUDA, baixe os pesos GGUF fixados por revisão e SHA-256 e então use `control.start_local` ou o painel administrativo.
 
@@ -274,7 +274,7 @@ Os [perfis](profiles/) resolvem caminhos em relação à raiz passada por `--roo
 
 O lançador genérico e o painel compartilham o mesmo construtor de comando, incluindo o projetor multimodal opcional e as flags permitidas, sem código específico do Qwen. Binários de runtime, pesos e segredos não são distribuídos no Git/pacotes; provisione-os explicitamente em cada servidor. O estado da aplicação em nível de usuário e o ambiente Python continuam gerenciados pelo instalador.
 
-### Projetos e atualização de provedores
+### Projects and provider refresh
 
 Adicione projetos pela barra lateral de conversas do **Tail Harness**, com um nome único de pelo menos três letras e uma ou mais pastas existentes no servidor. Pesquise nomes de pasta no diretório atual, navegue e selecione até 20 pastas; a primeira é o diretório de trabalho principal. O nome e o ícone do projeto aparecem ao lado do título da conversa. Os projetos cadastrados ficam disponíveis para todo modelo habilitado e persistem no banco de conversas entre reinícios. O painel administrativo concentra provedores e perfis locais; modelos, provedores e permissões podem ser alterados enquanto o harness está em execução.
 
@@ -282,7 +282,7 @@ Cada inicialização reverifica os provedores habilitados e os modelos seleciona
 
 Projetos criados na conversa ficam em `runs/jobs.sqlite3`; inclua esse banco nos backups. As exportações de configuração administrativa não incluem esses cadastros.
 
-### Pastas de trabalho e busca de conversas
+### Working folders and conversation search
 
 As pastas são fornecidas em cada execução e retomada: o Codex usa o diretório de trabalho principal e as permissões de execução para raízes adicionais; o Claude recebe `--add-dir`; os modelos locais e o DeepSeek via API usam o runtime de ferramentas existente para inspecionar arquivos e devolver resultados ao modelo. Pastas inteiras não são enviadas automaticamente como texto. As permissões de leitura e escrita continuam valendo.
 
@@ -294,7 +294,7 @@ Em **Configurações**, escolha a ordem ilustrada dos painéis (Conversas–Chat
 
 A cota restante fica visível no cabeçalho quando o provedor informa uma porcentagem. O indicador distingue a cota da conta do contexto da conversa; valores indisponíveis não são estimados.
 
-## 🧩 Adaptadores de provedor, especialistas e especificações versionadas
+## 🧩 Provider adapters, specialists and versioned specifications
 
 [`adapters/`](adapters/README.md) separa `codex`, `claude`, `deepseek` e `local`. Cada integração tem sua própria implementação e registros em `specs/models/`. O especialista local também é responsável pelo Qwen e seus perfis. O Codex continua sendo o transporte de ferramentas compartilhado; o serviço é responsável por fila, autorização e histórico de conversas.
 
@@ -302,7 +302,7 @@ Cada `specs/compatibility.json` correlaciona a revisão do adaptador, a versão 
 
 No [DeepSeek](adapters/deepseek/specs/README.md), a chave autentica a API enquanto o Codex mantém o histórico do lado do cliente. Um ID de sessão local não é uma conversa armazenada pelo DeepSeek: mensagens, raciocínio e resultados de ferramentas precisam acompanhar as requisições seguintes. O teste de regressão executa o CLI instalado contra uma fixture localhost sem estado e verifica um ciclo de ferramenta mais retomada após reiniciar o processo. Não gasta créditos do provedor nem certifica acesso à conta remota. O adaptador força HTTP, recusa a ausência de configuração BYOK em vez de usar um fallback e mapeia o esforço `configured` para `high`; selecione um esforço explícito para outra preferência. Estas primeiras revisões de especificação descrevem a árvore de trabalho da versão 0.4.4 e não criam uma nova release.
 
-### Atualização sem parar o harness
+### Updating without stopping the harness
 
 Salvar a configuração atualiza o processo em execução. Remover um modelo cancela seus trabalhos na fila e em execução; alterações de permissão ou de integração cancelam as execuções afetadas. Adicionar modelos preserva os demais trabalhos. O histórico de conversas e os projetos cadastrados permanecem no SQLite.
 
@@ -322,23 +322,27 @@ O Google descontinuou o acesso ao Gemini CLI para contas individuais, Google AI 
 
 O adaptador usa ACP para respostas incrementais, sessões, imagens e aprovações. A execução é nativa; o sandbox isolado dos outros provedores não é reutilizado implicitamente. O esforço `configured` deixa o raciocínio a cargo do Gemini. O acesso a modelos e as cotas dependem da conta; o painel não estima o saldo da assinatura nem recorre automaticamente à autenticação paga por API. Veja as [specs do Gemini](adapters/gemini/specs/README.md) e a [especificação da release 0.5.0](dossier/releases/v0.5.0.md).
 
-### Troca de modelo dentro de uma mesma tarefa
+### Switching models within one task
 
 Entre mensagens, selecione outro modelo ou esforço: a próxima execução continua na mesma conversa. Por exemplo, DeepSeek → modelo local → Astra → DeepSeek. Ao voltar a um provedor, o Harness sincroniza as mensagens e os anexos recebidos durante sua ausência. Mudanças de modelo/esforço no Codex preservam a sessão; sessões sem checkpoint válido são reconstruídas a partir do histórico portátil. Respostas parciais e evidências de ferramenta disponíveis acompanham a transferência, sujeitas às permissões do destino. Histórico acima do limite falha explicitamente, sem resumo ou corte silencioso. Veja [comportamento, limites e validação](docs/MODEL-HANDOFF-20260920.md).
 
-### Modelo e motor de execução
+### Model and execution engine
 
 Os cartões **Modelo local via Codex** e **DeepSeek via Codex** identificam as combinações disponíveis atualmente. O modelo local responde pelo servidor de inferência local; o DeepSeek responde pela sua API e consome créditos DeepSeek. O Codex CLI envia as requisições, executa as ferramentas autorizadas e mantém as sessões; essas integrações não usam um modelo OpenAI como intermediário.
 
 O Tail Harness distingue o modelo do motor de execução. Outras combinações, como DeepSeek ou um modelo local via Claude Code, exigem integração e validação próprias e ainda não são opções nesses cartões. Desenvolver este projeto com o Codex não torna o Harness exclusivo dos modelos OpenAI.
 
-## 🆕 Versão 0.6.0
+## 🆕 Version 0.10.0
 
-Esta release menor consolida a rodada 01 de correções: as aprovações garantem um cartão de confirmação no modo Pedir aprovação (F-110); a escolha de isolamento e acesso saiu das alternâncias dentro da conversa, com toda nova conversa começando em Pedir aprovação (F-58); uma base de código só em inglês e um modelo de nomenclatura (`adapters/`, `local_ai/`, variáveis de ambiente `TAIL_HARNESS_*` com aliases obsoletos); Codex/Claude somente nativos, com o modo de acesso como a única restrição por conversa; e respostas parciais persistidas para execuções que falharam, foram interrompidas ou canceladas. Veja a [especificação da release](dossier/releases/v0.6.0.md) e a [versão 0.5.0](dossier/releases/v0.5.0.md) para a release anterior.
+A publicação preparada agora usa uma ferramenta MCP por execução nos modos nativo e scoped do Codex e Claude. A ferramenta retorna imediatamente com um gate que mostra o endpoint do Jira, projeto, pedido e digest do artefato. Somente uma sessão humana cadastrada pode aprovar ou negar; cada aprovação vale uma vez para o pedido exato. O harness então cria a issue no Jira e registra o comprovante. O modo de acesso nunca aprova a publicação automaticamente.
 
-### Agentes, skills e comandos no compositor
+A primeira operação mediada é **criar issue no Jira Cloud**. Configure destinos permitidos e um vínculo privado de credenciais conforme a [especificação da release](dossier/releases/v0.10.0.md). As credenciais ficam em um armazenamento separado do harness. Os workers scoped recebem somente uma capacidade de preparação; os modos sem uma fronteira de sistema de arquivos verificada são identificados como **unenforced**. Atualizações, transições e outros caminhos de publicação continuam consultivos.
 
-Digite `@` para agentes ou `/` para skills e comandos do motor selecionado. O seletor lê metadados atualizados, mostra recursos do projeto antes dos globais e identifica sua origem. As seleções são revalidadas antes da execução; itens indisponíveis explicam sua limitação. `@@` e `//` são reservados aos recursos próprios do Tail. Veja os [formatos e limites de execução](dossier/native-resource-discovery.md).
+Pipeline e detalhes dos spans mostram intenção, aprovação, execução e comprovante. Um resultado incerto permanece **unknown**; **Reconcile** registra a consulta de evidências ou a decisão de uma pessoa cadastrada de manter o resultado desconhecido. Uma busca vazia no Jira não prova falha, e o harness nunca reenvia um efeito desconhecido. Chat e invocações avulsas aceitam efeitos preparados; workflows ficam para uma fase posterior. A [release anterior](dossier/releases/v0.9.0.md) descreve o console de execução e as referências de itens de trabalho.
+
+### Composer agents, skills and commands
+
+Digite `/` para Agents, Skills, Commands, controles Built-in e Maintenance. A paleta oferece filtro aproximado, setas, Enter, Tab e Escape. Cada recurso mostra sua origem e explicação de disponibilidade. Recursos do projeto têm precedência sobre os do catálogo, seguidos pelos do usuário. `/nome` invoca um agente; `@nome` permanece como alias legado. As seleções são revalidadas antes da execução. Veja os [formatos e limites de execução](dossier/native-resource-discovery.md).
 
 Convenção de nomes e catálogo de especialistas: [modelo canônico de agentes e skills](dossier/canonical-agents-skills-model.md).
 
@@ -346,6 +350,12 @@ Os títulos de conversa são passados aos motores de execução na criação e n
 
 Novas conversas oferecem a escolha de isolamento antes da primeira mensagem, com execução nativa como padrão quando suportada. O modo então fica fixo e aparece como um ícone discreto no prompt. Modelos locais mantêm isolamento obrigatório. Veja os [modos de execução de conversa](dossier/conversation-execution-mode.md).
 
-## 📄 Licença
+## 📄 License
 
 MIT — veja [LICENSE](LICENSE).
+
+## 🆕 Version 0.10.1
+
+A página de conversa segue o layout aprovado Chat + Run console: conversas agrupadas por estado, barra compacta de busca e atenção, planos Maestro na conversa, controles identificados no compositor, Files/Activity e uma faixa permanente de status ao vivo. O Pipeline acompanha a execução mais recente da conversa atual.
+
+Um tour guiado começa na primeira visita do navegador e pode ser reaberto em **About → Take the tour**. Ele suporta navegação por teclado, movimento reduzido e telas estreitas; áreas indisponíveis são puladas. Veja a [especificação da release](dossier/releases/v0.10.1.md) para comportamento e validação.

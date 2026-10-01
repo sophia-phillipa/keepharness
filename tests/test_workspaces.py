@@ -163,7 +163,22 @@ def test_maestro_uses_available_local_and_validates_plan(tmp_path):
             ]
         ),
     ) as infer:
-        result = asyncio.run(service.execute(row))
+        async def approve_and_execute():
+            task = asyncio.create_task(service.execute(row))
+            try:
+                for _ in range(100):
+                    if service.approvals or task.done():
+                        break
+                    await asyncio.sleep(0)
+                assert not task.done(), "generated plans require human approval"
+                gate_id = next(iter(service.approvals))
+                service.gates.resolve(gate_id, identity, {"choice": "approve"})
+                return await asyncio.wait_for(task, 1)
+            finally:
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+
+        result = asyncio.run(approve_and_execute())
         assert result["backend"] == "maestro"
         assert result["answer"] == "final report"
         assert infer.call_args_list[1].args[1]["backend"] == "local"

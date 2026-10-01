@@ -6,6 +6,8 @@ const $ = (id) => document.getElementById(id);
 let providers = {},
   models = [],
   files = [],
+  currentMaestroPlan = null,
+  observedActivityJobs = [],
   job = "",
   last = 0,
   controller = null,
@@ -139,6 +141,8 @@ let composerProjectId = null,
   resourceRequest = 0,
   resourceItems = [],
   resourceSelections = [],
+  activePersona = null,
+  releasePersonaPending = false,
   invalidResourceTokens = new Set();
 const resourceToken = /(^|\s)(@@|\/\/|@|\/)([^\s@/]*)$/;
 function resourceEngine() {
@@ -166,6 +170,101 @@ function syncResourceSelections() {
     [...invalidResourceTokens].filter((token) => tokens.has(token)),
   );
 }
+function renderResourceChips() {
+  let chips = $("resource-chips");
+  if (!chips) {
+    chips = document.createElement("div");
+    chips.id = "resource-chips";
+    chips.className = "resource-chips";
+    chips.setAttribute("aria-label", "Selected resources");
+    $("prompt").closest(".prompt-editor").before(chips);
+  }
+  chips.replaceChildren();
+  const prompt = $("prompt").value,
+    position = (selection) => {
+      const escaped = selection.token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+        match = new RegExp("(^|\\s)" + escaped + "(?=\\s|$)").exec(prompt);
+      return match ? match.index + match[1].length : Number.POSITIVE_INFINITY;
+    },
+    ordered = [...resourceSelections].sort(
+      (left, right) => position(left) - position(right),
+    );
+  for (const selection of ordered) {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "resource-chip";
+    chip.setAttribute("aria-label", "Remove " + selection.token);
+    chip.textContent = selection.token + " ×";
+    chip.onclick = () => {
+      const input = $("prompt"),
+        escaped = selection.token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+        match = new RegExp("(^|\\s)" + escaped + "(?=\\s|$)").exec(input.value);
+      if (match) {
+        const start = match.index + match[1].length,
+          tokenEnd = start + selection.token.length,
+          end = tokenEnd + (input.value[tokenEnd] === " " ? 1 : 0);
+        input.value = input.value.slice(0, start) + input.value.slice(end);
+      }
+      resourceSelections = resourceSelections.filter(
+        (value) => value.token !== selection.token,
+      );
+      invalidResourceTokens.delete(selection.token);
+      updateComposer();
+      input.focus();
+      saveView();
+    };
+    chips.append(chip);
+  }
+  if (ordered.length > 1) {
+    const chain = document.createElement("span");
+    chain.className = "resource-chain-preview";
+    chain.textContent =
+      "Runs in order: " +
+      ordered.map((selection, index) => index + 1 + " " + selection.token).join(" → ");
+    chips.append(chain);
+  }
+  chips.hidden = resourceSelections.length === 0;
+}
+function renderPersonaControl() {
+  let control = $("persona-control");
+  if (!control) {
+    control = document.createElement("div");
+    control.id = "persona-control";
+    control.className = "persona-control";
+    const label = document.createElement("span"),
+      end = document.createElement("button");
+    label.className = "persona-label";
+    end.type = "button";
+    end.className = "persona-end";
+    end.textContent = "End agent conversation";
+    end.onclick = () => {
+      if (!activePersona) return;
+      releasePersonaPending = true;
+      renderPersonaControl();
+      $("prompt").focus();
+      saveView();
+    };
+    control.append(label, end);
+    $("prompt").closest(".prompt-editor").before(control);
+  }
+  control.hidden = !activePersona;
+  if (!activePersona) return;
+  control.querySelector(".persona-label").textContent =
+    (releasePersonaPending ? "Ending after your next message: " : "Agent conversation: ") +
+    activePersona.name;
+  const end = control.querySelector(".persona-end");
+  end.disabled = releasePersonaPending;
+  end.textContent = releasePersonaPending ? "Ending…" : "End agent conversation";
+}
+function setActivePersona(value, preservePending = false) {
+  const keepPending =
+    preservePending &&
+    releasePersonaPending &&
+    activePersona?.resource_id === value?.resource_id;
+  activePersona = value;
+  releasePersonaPending = keepPending;
+  renderPersonaControl();
+}
 function renderPromptHighlights() {
   const input = $("prompt"),
     mirror = $("prompt-highlights"),
@@ -183,6 +282,7 @@ function renderPromptHighlights() {
   mirror.append(document.createTextNode("\u200b"));
   input.classList.toggle("has-resource-highlights", tokens.size > 0);
   mirror.hidden = tokens.size === 0;
+  renderResourceChips();
   syncPromptHighlightLayout();
 }
 function syncPromptHighlightLayout() {
@@ -213,6 +313,11 @@ $("prompt").addEventListener("scroll", syncPromptHighlightLayout, {
   passive: true,
 });
 new ResizeObserver(syncPromptHighlightLayout).observe($("prompt"));
+function setActiveResourceOption(option = null) {
+  const menu = $("resource-menu");
+  for (const candidate of menu.querySelectorAll("[role=option]"))
+    candidate.setAttribute("aria-selected", String(candidate === option));
+}
 function closeResourceMenu() {
   resourceRequest++;
   const menu = $("resource-menu");
@@ -263,7 +368,12 @@ function resourceKeydown(event) {
     $("prompt").focus();
     return true;
   }
-  if (event.key === "Tab") closeResourceMenu();
+  if (event.key === "Tab" && options.length) {
+    event.preventDefault();
+    event.stopPropagation();
+    options[index < 0 ? 0 : index].click();
+    return true;
+  }
   return false;
 }
 $("resource-menu").addEventListener("keydown", resourceKeydown);
@@ -287,6 +397,46 @@ function resourceIcon(item) {
   svg.append(use);
   return svg;
 }
+function builtinResources() {
+  return [
+    {
+      id: "builtin/model",
+      revision: "ui",
+      kind: "builtin",
+      name: "model",
+      description: "Choose the model for this conversation",
+      scope: "builtin",
+      origin: "Harness",
+      group: "Built-ins",
+      selectable: true,
+      action: "model-trigger",
+    },
+    {
+      id: "builtin/effort",
+      revision: "ui",
+      kind: "builtin",
+      name: "effort",
+      description: "Choose the reasoning effort",
+      scope: "builtin",
+      origin: "Harness",
+      group: "Built-ins",
+      selectable: true,
+      action: "effort-trigger",
+    },
+    {
+      id: "builtin/access",
+      revision: "ui",
+      kind: "builtin",
+      name: "access",
+      description: "Choose the access mode",
+      scope: "builtin",
+      origin: "Harness",
+      group: "Built-ins",
+      selectable: true,
+      action: "access-trigger",
+    },
+  ];
+}
 function renderResourceMenu(trigger, items, loading = false, warnings = []) {
   const menu = $("resource-menu"),
     groups = new Map();
@@ -300,7 +450,7 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
         ? "Tail Harness skills and commands"
         : trigger.prefix === "@"
           ? "Available agents"
-          : "Available skills and commands";
+          : "Agents, skills and commands";
   menu.append(heading);
   for (const warning of warnings) {
     const note = document.createElement("p");
@@ -320,14 +470,23 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
     row.textContent = "Refreshing resources…";
     menu.append(row);
   } else {
+    let optionIndex = 0;
     for (const item of items) {
-      const key = item.scope === "project" ? "Project" : "Global",
-        groupKey = key + "\0" + item.origin;
+      const scope =
+          item.scope === "project"
+            ? "Project"
+            : item.scope === "catalog"
+              ? "Catalog"
+              : item.scope === "builtin"
+                ? "Built-in"
+              : "User",
+        category = item.group || (item.kind === "agent" ? "Agents" : item.kind === "skill" ? "Skills" : item.kind === "builtin" ? "Built-ins" : "Commands"),
+        groupKey = category + "\0" + scope + "\0" + item.origin;
       if (!groups.has(groupKey)) {
         const section = document.createElement("section"),
           title = document.createElement("h3");
         section.className = "resource-group";
-        title.textContent = key + " · " + item.origin;
+        title.textContent = category + " · " + scope + " · " + item.origin;
         section.append(title);
         groups.set(groupKey, section);
         menu.append(section);
@@ -335,12 +494,15 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
       const option = document.createElement("button");
       option.type = "button";
       option.setAttribute("role", "option");
+      option.id = "resource-option-" + optionIndex++;
+      option.setAttribute("aria-selected", "false");
       option.className = "resource-option";
       option.dataset.resourceId = item.id;
       option.dataset.resourceRevision = item.revision;
       option.dataset.resourceKind = item.kind;
       option.disabled = item.selectable === false;
       option.title = item.source || item.origin || item.name;
+      option.setAttribute("aria-describedby", "resource-preview");
       const glyph = document.createElement("span");
       glyph.className = "resource-origin-icon";
       glyph.setAttribute("aria-hidden", "true");
@@ -354,20 +516,26 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
           ? "Agent"
           : item.kind === "skill"
             ? "Skill"
+            : item.kind === "builtin"
+              ? "Built-in"
             : "Command") +
         (item.description ? " · " + item.description : "") +
         (item.unavailable_reason ? " · " + item.unavailable_reason : "");
       text.append(name, description);
       option.append(glyph, text);
       option.onclick = () => selectResource(item, trigger);
+      option.onfocus = () => {
+        setActiveResourceOption(option);
+        renderResourcePreview(item);
+      };
+      option.onpointerenter = () => renderResourcePreview(item);
       groups.get(groupKey).append(option);
     }
   }
   if (
     (trigger.prefix[0] === "@" &&
       !items.some((item) => item.kind === "agent")) ||
-    (trigger.prefix[0] === "/" &&
-      !items.some((item) => item.kind === "skill" || item.kind === "command"))
+    (trigger.prefix[0] === "/" && !items.length)
   ) {
     const empty = document.createElement("p");
     empty.className = "resource-empty";
@@ -376,16 +544,57 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
       : "No resource compatible with this engine.";
     menu.append(empty);
   }
+  const preview = document.createElement("aside");
+  preview.id = "resource-preview";
+  preview.className = "resource-preview";
+  preview.setAttribute("aria-live", "polite");
+  menu.append(preview);
+  const first = items.find((item) => item.selectable !== false) || items[0];
+  if (first) renderResourcePreview(first);
   menu.hidden = false;
   if (!menu.matches(":popover-open")) menu.showPopover();
+  setActiveResourceOption(
+    menu.querySelector("[role=option]:not(:disabled)") ||
+      menu.querySelector("[role=option]"),
+  );
   const rect = $("prompt").getBoundingClientRect();
   menu.style.left =
     Math.max(12, Math.min(rect.left, innerWidth - menu.offsetWidth - 12)) +
     "px";
   menu.style.top = Math.max(12, rect.top - menu.offsetHeight - 8) + "px";
 }
+function renderResourcePreview(item) {
+  const preview = $("resource-preview");
+  if (!preview || !item) return;
+  const title = document.createElement("strong"),
+    description = document.createElement("p"),
+    details = document.createElement("small");
+  title.textContent = (item.kind || "Resource") + " · " + item.name;
+  description.textContent = item.description || "No description provided.";
+  details.textContent = [
+    item.argument_hint ? "Arguments " + item.argument_hint : "",
+    item.source || "",
+    item.preflight_hint || item.unavailable_reason || "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  preview.replaceChildren(title, description, details);
+}
 function selectResource(item, trigger) {
   if (item.selectable === false) return;
+  if (item.kind === "builtin") {
+    const input = $("prompt"),
+      before = input.value.slice(0, trigger.start),
+      after = input.value.slice(trigger.end);
+    input.value = before + after;
+    closeResourceMenu();
+    updateComposer();
+    saveView();
+    const action = $(item.action);
+    action?.focus();
+    action?.click();
+    return;
+  }
   const marker = trigger.prefix[0] === "@" ? "@" : "/",
     token = marker + item.name,
     conflict = resourceSelections.find(
@@ -442,15 +651,16 @@ async function refreshResources(trigger) {
     )
       return;
     resourceItems = Array.isArray(data.items) ? data.items : [];
-    const filtered = resourceItems
-      .filter((item) =>
-        trigger.prefix === "@"
-          ? item.kind === "agent"
-          : item.kind === "skill" || item.kind === "command",
-      )
-      .filter((item) =>
-        item.name.toLowerCase().includes(trigger.query.toLowerCase()),
-      );
+    let filtered = [...resourceItems, ...builtinResources()]
+      .filter((item) => trigger.prefix === "@" ? item.kind === "agent" : ["agent", "skill", "command", "rule", "context", "builtin"].includes(item.kind))
+      .map((item) => ({ item, score: resourceMatchScore(item, trigger.query) }))
+      .filter((entry) => entry.score >= 0)
+      .sort((left, right) => right.score - left.score)
+      .map((entry) => entry.item);
+    const exact = filtered.filter(
+      (item) => item.name.toLowerCase() === trigger.query.toLowerCase(),
+    );
+    if (exact.length) filtered = exact;
     renderResourceMenu(
       trigger,
       filtered,
@@ -464,6 +674,21 @@ async function refreshResources(trigger) {
     const note = $("resource-menu").querySelector(".resource-empty");
     if (note) note.textContent = "Couldn't refresh resources.";
   }
+}
+function resourceMatchScore(item, query) {
+  const needle = query.toLowerCase();
+  if (!needle) return 0;
+  const text = (item.name + " " + (item.description || "")).toLowerCase();
+  if (text.includes(needle)) return Math.max(1, 100 - text.indexOf(needle));
+  let offset = 0,
+    score = 0;
+  for (const character of needle) {
+    const found = text.indexOf(character, offset);
+    if (found < 0) return -1;
+    score += found === offset ? 3 : 1;
+    offset = found + 1;
+  }
+  return score;
 }
 function openResourceMenu() {
   const trigger = triggerAtCaret();
@@ -777,6 +1002,10 @@ const userErrors = {
     "The provider stopped before the answer was complete. Send your message again.",
   claude_invalid_stream:
     "Claude returned an unexpected response. Try again; if it persists, update Claude Code.",
+  claude_invalid_question:
+    "Claude asked a question the harness could not safely display. Update Claude Code or revise the request.",
+  claude_invalid_question_answer:
+    "Claude could not use the selected answer. Ask the question again.",
   claude_output_limit:
     "Claude produced more output than allowed. Narrow the request and try again.",
   gemini_execution_failed:
@@ -842,6 +1071,81 @@ const userErrors = {
     "Maestro could not finish planning. Try again or choose a model yourself.",
   maestro_step_incomplete:
     "A Maestro step did not finish. Try again or choose a model yourself.",
+  // Invocations and human option gates.
+  invalid_invocation: "This resource invocation is invalid. Select it again.",
+  invalid_invocation_args:
+    "The resource arguments are too large or invalid. Shorten them and try again.",
+  invalid_invocation_backend:
+    "That resource cannot use the requested provider. Choose another resource or model.",
+  invalid_invocation_id:
+    "The invocation identifier is invalid. Select the resource again.",
+  invalid_invocation_kind:
+    "That resource type cannot be invoked. Select another resource.",
+  invalid_invocation_mode:
+    "That resource cannot run in the requested mode. Select it again.",
+  invalid_invocation_order:
+    "The resource chain order is invalid. Rebuild the chain and try again.",
+  invalid_invocation_resource_id:
+    "The selected resource identifier is invalid. Refresh the palette and select it again.",
+  invocation_chain_limit:
+    "A resource chain can contain at most 12 steps. Remove some steps and try again.",
+  invocation_selection_mismatch:
+    "The selected resources no longer match this invocation. Select them again.",
+  conversational_chain_unsupported:
+    "A conversational agent must run by itself. Remove the other resource steps.",
+  active_persona_resource_conflict:
+    "End the current agent conversation before selecting another resource.",
+  invalid_gate_question:
+    "The provider asked an invalid question. Revise the request and try again.",
+  invalid_gate_options:
+    "The provider supplied invalid answer choices. Revise the request and try again.",
+  invalid_gate_choice: "That answer is no longer available. Choose again.",
+  gate_already_resolved: "This question was already answered.",
+  gate_expired: "This question expired. Ask the agent to present it again.",
+  gate_invalidated:
+    "This question was invalidated by an execution change. Ask the agent to present it again.",
+  // Publication requests and evidence-based recovery.
+  effect_already_used:
+    "This publication request was already handled. Review its recorded outcome before preparing another request.",
+  effect_approval_required:
+    "This publication needs approval from an enrolled human session before it can be sent.",
+  effect_arguments_invalid:
+    "This publication has unsupported arguments. Ask the agent to prepare a valid request.",
+  effect_artifact_invalid:
+    "The publication artifact is invalid. Ask the agent to check its required fields and prepare it again.",
+  effect_binding_changed:
+    "The publication changed after it was prepared. Review a newly prepared request and approve it again.",
+  effect_contract_invalid:
+    "This publication integration is not configured correctly. Ask the server owner to check its settings.",
+  effect_credentials_not_private:
+    "The publication credentials are not stored privately. Ask the server owner to correct the credential store permissions.",
+  effect_credentials_unavailable:
+    "The harness cannot access this integration's credentials. Ask the server owner to check its credential binding.",
+  effect_destination_denied:
+    "This destination is not allowed for the publication integration. Choose an allowed destination.",
+  effect_duplicate_outcome_pending:
+    "An identical publication is already executing, complete, or has an unknown outcome. Review its recorded outcome before preparing another publication.",
+  effect_execution_inactive:
+    "This run can no longer prepare a publication. Start a new message if you still need it.",
+  effect_integration_unavailable:
+    "This publication integration is unavailable. Ask the server owner to check its configuration.",
+  effect_not_found: "This publication request could not be found. Refresh the run console.",
+  effect_not_unknown:
+    "This publication no longer needs reconciliation. Refresh the run console to see its recorded outcome.",
+  effect_operation_unsupported:
+    "This integration does not support that publication operation. Only creating a Jira issue is available.",
+  effect_prepare_limit:
+    "This execution has reached its publication preparation limit. Review its existing publication requests.",
+  effect_reconcile_backoff:
+    "Wait before checking again so Jira search has time to catch up. The outcome remains unknown; this will not retry publication.",
+  effect_reconcile_invalid:
+    "Choose whether to check external evidence or keep the publication outcome unknown.",
+  effect_request_invalid:
+    "This publication request is invalid. Ask the agent to prepare it again with the required fields.",
+  effect_request_too_large:
+    "This publication request is too large. Reduce the artifact content and prepare it again.",
+  unsafe_scoped_home:
+    "This execution cannot start because its isolated workspace is unsafe. Ask the server owner to check its workspace configuration.",
   // Projects, folders and workspaces.
   invalid_project: "This project is invalid. Choose another one.",
   project_busy: "This project is busy with another change. Try again shortly.",
@@ -918,8 +1222,34 @@ const userErrors = {
   service_manager_unavailable_requires_systemd_user:
     "Service control needs the user systemd manager on the server.",
   // Approvals.
+  ambiguous_work_item: "The invocation matches more than one work item. Tag the run with one key or make the arguments unambiguous.",
+  invalid_work_item: "Use a work-item key with at most 128 characters and no control characters.",
+  invalid_work_item_pattern: "The configured work-item pattern is invalid. Ask the project administrator to correct it.",
+  work_item_project_required: "Choose a project before filtering by work item.",
+  invalid_event_limit: "The event page size is invalid. Reload the run console and try again.",
+  invalid_include_content: "The content visibility option is invalid. Reload the run console and try again.",
   approval_expired:
     "This approval request expired. Send your message again if you still need it.",
+  approval_expiration_limit:
+    "The run was cancelled after repeated approval requests expired. Send your message again when you are ready to respond.",
+  approval_session_required:
+    "Enroll this browser using an owner-issued link. On the server, run tail-harness approve-device with your existing owner id and state directory.",
+  approval_storage_unsafe:
+    "Approval sessions could not be stored securely. Ask the server owner to check the state directory permissions before trying again.",
+  approval_enrollment_invalid:
+    "This device enrollment link expired or was already used. Ask the owner for a new link.",
+  approval_owner_unknown:
+    "Choose an existing owner id when enrolling this browser.",
+  enrollment_rate_limit:
+    "Too many enrollment attempts. Wait a moment before trying again.",
+  session_rate_limit:
+    "Too many session authentication attempts. Wait a moment before trying again.",
+  invalid_provider_capacity:
+    "The provider capacity is invalid. Ask the administrator to set a positive whole number.",
+  provider_idle_timeout:
+    "The provider stopped responding. Review the run details and try again.",
+  active_runtime_timeout:
+    "The run reached its active time limit. Human approval waiting time was excluded.",
   approval_owner_denied: "This approval request belongs to another user.",
   invalid_approval_scope: "That approval option is not available.",
   // Resources.
@@ -1408,6 +1738,129 @@ function quotaSnapshot(kind, q) {
   }
   p.textContent = (kind === "before" ? "Before: " : "After: ") + quotaText(q);
 }
+function conversationState(c = {}) {
+  const value = String(c.state || "").toLowerCase();
+  if (c.needs_you || ["needs_you", "awaiting_approval", "approval_required"].includes(value))
+    return "needs-you";
+  if (["running", "loading", "planning"].includes(value)) return "running";
+  if (value === "queued") return "queued";
+  return "done";
+}
+function conversationAge(c = {}) {
+  const raw = c.updated ?? c.updated_at ?? c.created_at ?? c.created ?? 0;
+  let stamp = Number(raw);
+  if (!Number.isFinite(stamp) && typeof raw === "string")
+    stamp = Date.parse(raw) / 1000;
+  if (!stamp) return "";
+  const seconds = Math.max(0, Date.now() / 1000 - stamp);
+  if (seconds < 60) return "now";
+  if (seconds < 3600) return Math.floor(seconds / 60) + "m";
+  if (seconds < 86400) return Math.floor(seconds / 3600) + "h";
+  return Math.floor(seconds / 86400) + "d";
+}
+function conversationUpdated(c = {}) {
+  const raw = c.updated ?? c.updated_at ?? c.created_at ?? c.created ?? 0;
+  const numeric = Number(raw);
+  if (Number.isFinite(numeric) && numeric > 0) return numeric;
+  const parsed = typeof raw === "string" ? Date.parse(raw) / 1000 : 0;
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+function conversationSummary(c = {}) {
+  if (c.live_wait_reason || c.wait_reason)
+    return c.live_wait_reason || c.wait_reason;
+  const state = conversationState(c);
+  if (state === "needs-you") return "Waiting for your approval";
+  if (state === "running")
+    return c.live_activity || c.activity || "Run in progress";
+  if (state === "queued") return "Waiting in the queue";
+  return c.summary || "Completed";
+}
+function renderConversationHeader(c = null) {
+  const state = c ? conversationState(c) : "draft";
+  const states = { "needs-you": "Awaiting approval", running: "Running", queued: "Queued", done: "Completed", draft: "Draft" };
+  $("conversation-state-pill").textContent = states[state];
+  $("conversation-state-pill").dataset.state = state;
+  $("header-execution-mode").textContent = executionMode === "scoped" ? "Isolated conversation" : "Native conversation";
+  $("header-access").textContent = $("access-mode").value || "ask";
+}
+window.updateProviderQuotas = function updateProviderQuotas(items = []) {
+  const container = $("provider-quotas");
+  const meters = [];
+  const perProvider = new Map();
+  for (const item of items) {
+    const windows = item.quota ? quotaWindows(item.quota, item.backend) : [];
+    if (!windows.length) continue;
+    const remaining = Math.min(...windows.map((window) => window.remaining));
+    const previous = perProvider.get(item.backend);
+    if (!previous || remaining < previous.remaining)
+      perProvider.set(item.backend, { item, remaining });
+  }
+  for (const { item, remaining } of perProvider.values()) {
+    const meter = document.createElement("span");
+    meter.className = "provider-quota-meter";
+    meter.dataset.backend = item.backend;
+    const label = document.createElement("span");
+    label.textContent = ({ codex: "Codex", claude: "Claude", gemini: "Gemini", deepseek: "DeepSeek" })[item.backend] || item.backend;
+    const bar = document.createElement("i");
+    bar.style.setProperty("--quota", remaining + "%");
+    const value = document.createElement("b");
+    value.textContent = Math.round(remaining) + "%";
+    meter.append(label, bar, value);
+    meters.push(meter);
+  }
+  container.replaceChildren(...meters);
+  container.hidden = !meters.length;
+  container.tabIndex = meters.length ? 0 : -1;
+  container.setAttribute("role", meters.length ? "button" : "group");
+  container.title = meters.length
+    ? "Open quota details for the selected provider"
+    : "";
+};
+window.applyActivitySnapshot = function applyActivitySnapshot(data = {}) {
+  observedActivityJobs = Array.isArray(data.jobs) ? [...data.jobs] : [];
+  const pending = new Set(
+    (data.needs_you || []).map((item) => item.conversation_id).filter(Boolean),
+  );
+  const live = new Map();
+  for (const item of data.jobs || [])
+    if (item.conversation_id && !live.has(item.conversation_id))
+      live.set(item.conversation_id, item);
+  let changed = false;
+  for (const item of conversations) {
+    const job = live.get(item.id);
+    const nextNeeds = pending.has(item.id);
+    const nextWait = job?.wait_reason || "";
+    const nextActivity = job
+      ? [job.state === "running" ? "Run in progress" : "Waiting", job.work_item]
+          .filter(Boolean)
+          .join(": ")
+      : "";
+    if (
+      !!item.needs_you !== nextNeeds ||
+      (item.live_wait_reason || "") !== nextWait ||
+      (item.live_activity || "") !== nextActivity
+    ) {
+      item.needs_you = nextNeeds;
+      item.live_wait_reason = nextWait;
+      item.live_activity = nextActivity;
+      if (job?.state) item.state = job.state;
+      changed = true;
+    }
+  }
+  if (!changed) return;
+  renderProjects();
+  const current = conversations.find((item) => item.id === conversation);
+  if (current) renderConversationHeader(current);
+};
+$('provider-quotas').onclick = () => {
+  if (!$('provider-quotas').hidden) setQuotaOpen(true);
+};
+$('provider-quotas').onkeydown = (event) => {
+  if (["Enter", " "].includes(event.key) && !$('provider-quotas').hidden) {
+    event.preventDefault();
+    setQuotaOpen(true);
+  }
+};
 async function history(timeout = 30000) {
   const request = ++historyRequest;
   try {
@@ -1434,10 +1887,14 @@ async function history(timeout = 30000) {
     conversations.forEach(observeConversation);
     saveConversationActivity();
     renderProjects();
+    document.dispatchEvent(new Event("tail:history"));
     if ($("conversation-search-dialog").open) renderConversationSearch();
     if (conversation) {
       const current = conversations.find((item) => item.id === conversation);
-      if (current) setConversationTitle(current.title);
+      if (current) {
+        setConversationTitle(current.title);
+        renderConversationHeader(current);
+      }
     }
     $("history-note").textContent = legacyHistory
       ? "Compatible history: previous runs. Update the service to group turns."
@@ -1558,6 +2015,34 @@ function conversationRow(c) {
   ]
     .filter(Boolean)
     .join("\n");
+  const meta = document.createElement("span");
+  meta.className = "conversation-row-meta";
+  const summary = document.createElement("span");
+  summary.className = "conversation-summary";
+  summary.textContent = conversationSummary(c);
+  const age = document.createElement("time");
+  age.textContent = conversationAge(c);
+  const backend = document.createElement("span");
+  backend.className = "backend-chip";
+  backend.dataset.backend = c.execution?.backend || c.backend || "";
+  backend.textContent = c.execution?.backend || c.backend || "";
+  const project = document.createElement("span");
+  project.className = "conversation-project";
+  project.textContent = projectDetails[c.project]?.label || c.project || "No project";
+  meta.append(summary, age, backend, project);
+  open.append(meta);
+  if (conversationState(c) === "needs-you") {
+    const peek = document.createElement("button");
+    peek.type = "button";
+    peek.className = "conversation-peek";
+    peek.textContent = "Peek";
+    peek.onclick = (event) => {
+      event.stopPropagation();
+      load(c.id, c.legacy);
+    };
+    row.append(open, peek, actions);
+    return row;
+  }
   row.append(open, actions);
   return row;
 }
@@ -1724,6 +2209,9 @@ function syncExecutionMode() {
   indicator.title = label;
   indicator.setAttribute("aria-label", label);
   $("dropzone").classList.toggle("has-execution-mode", started && modeContract);
+  $("header-execution-mode").textContent = isolated
+    ? "Isolated conversation"
+    : "Native conversation";
 }
 $("isolation-toggle").onclick = () => {
   if (conversation || parent || busy || loading || submitting || uploads)
@@ -1734,6 +2222,14 @@ $("isolation-toggle").onclick = () => {
   updateComposer();
   saveView();
 };
+$("header-execution-mode").onclick = () => {
+  if (!conversation && !parent && !$("isolation-toggle").disabled)
+    $("isolation-toggle").click();
+  else
+    status(
+      "Conversation mode is fixed after the first message. Start a new conversation to change it.",
+    );
+};
 function newConversation(title = "New Conversation") {
   resourceSelections = [];
   invalidResourceTokens.clear();
@@ -1743,6 +2239,8 @@ function newConversation(title = "New Conversation") {
     );
     return;
   }
+  setActivePersona(null);
+  currentMaestroPlan = null;
   // F-95: an unsent draft survives every way of starting a new conversation;
   // attachments too, unless they were uploaded to another project.
   const draft = $("prompt").value,
@@ -1765,6 +2263,7 @@ function newConversation(title = "New Conversation") {
   conversation = "";
   executionMode = "native";
   executionModeChosen = false;
+  renderConversationHeader();
   $("access-mode").value = "ask";
   syncAccessMode();
   files = kept;
@@ -2207,15 +2706,29 @@ function renderProjects() {
     }
     $("projects").append(section);
   }
-  $("history").replaceChildren(
-    ...matches
-      .filter(
-        (c) =>
-          c.project == null || c.project === "" || c.project === "sem-projeto",
-      )
-      .map(conversationRow),
-  );
-  if (!$("history").children.length) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todaySeconds = today.getTime() / 1000;
+  const stateGroups = [
+    ["needs-you", "Needs you", (item) => conversationState(item) === "needs-you"],
+    ["running", "Running", (item) => conversationState(item) === "running"],
+    ["queued", "Queued", (item) => conversationState(item) === "queued"],
+    ["done", "Done today", (item) => conversationState(item) === "done" && conversationUpdated(item) >= todaySeconds],
+    ["older", "Older", (item) => conversationState(item) === "done" && conversationUpdated(item) < todaySeconds],
+  ];
+  $("history").replaceChildren(...stateGroups.map(([state, label, matchesGroup]) => {
+    const section = document.createElement("section");
+    section.className = "conversation-state-group";
+    section.dataset.state = state;
+    const items = matches.filter(matchesGroup);
+    const heading = document.createElement("h2");
+    const count = document.createElement("span");
+    count.textContent = String(items.length);
+    heading.append(document.createTextNode(label), count);
+    section.append(heading, ...items.map(conversationRow));
+    return section;
+  }));
+  if (!matches.length) {
     const empty = document.createElement("p");
     empty.className = "empty-history";
     empty.textContent = "Your conversations will appear here.";
@@ -2363,6 +2876,22 @@ function messageAttachments(message, attachments = []) {
   }
   if (gallery.childElementCount) message.body.prepend(gallery);
 }
+function messageResourceChips(message, selections = []) {
+  const valid = selections.filter(
+    (selection) => typeof selection?.token === "string" && selection.token,
+  );
+  if (!valid.length) return;
+  const chips = document.createElement("div");
+  chips.className = "message-resource-chips";
+  chips.setAttribute("aria-label", "Selected resources");
+  for (const selection of valid) {
+    const chip = document.createElement("span");
+    chip.className = "message-resource-chip";
+    chip.textContent = selection.token;
+    chips.append(chip);
+  }
+  message.body.prepend(chips);
+}
 function bubble(role, text = "") {
   const el = document.createElement("article");
   el.className = "message chat-item " + role;
@@ -2399,6 +2928,33 @@ function activityTitle(e) {
     data.backend,
   );
   if (condition) return condition.title;
+  if (type === "hook_scope") {
+    return {
+      disabled: "Hooks disabled for this run",
+      project: "Using project hooks only",
+      global_and_project: "Using global and project hooks",
+    }[data.scope] || "Hook scope reported";
+  }
+  if (type === "resource_fallback")
+    return data.scope === "execution"
+      ? "Resource fallback applied for this run"
+      : "Resource fallback is advisory";
+  if (["invocation_started", "invocation_completed"].includes(type)) {
+    const invocation = data.invocation || data,
+      identity = data.role || invocation.role || invocation.resource_id || invocation.kind || "resource",
+      route = [
+        data.backend || invocation.backend,
+        data.model || invocation.model,
+        data.effort || invocation.effort,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+    return (
+      (type === "invocation_started" ? "Started " : "Completed ") +
+      identity +
+      (route ? " · " + route : "")
+    );
+  }
   if (type === "tool_start")
     return data.command_name && tool
       ? "Running command " + tool
@@ -2410,6 +2966,8 @@ function activityTitle(e) {
         }[data.tool] || "Running " + (tool || "tool");
   if (type === "tool_end")
     return data.status === "failed" ? "Tool failed" : "Tool finished";
+  if (type === "answer_delta" && data.parent_tool_use_id)
+    return "Specialist is responding";
   if (["thinking", "reasoning_delta", "reasoning_summary"].includes(type))
     return "Thinking";
   if (
@@ -2521,6 +3079,7 @@ function assistant(id = "", model = $("model").value, replayTools = false) {
   const meta = document.createElement("div");
   meta.className = "run-meta";
   a.el.append(meta);
+  window.runConsole?.attachAnswer(a.el, id);
   return { ...a, activity, activitySummary, milestones, meta, chip };
 }
 async function loadResponseTools(id, target) {
@@ -2615,18 +3174,104 @@ function scroll() {
     box.scrollTop = box.scrollHeight;
   updateLatest();
 }
+function showMaestroPlan(data = {}) {
+  if (!active || !Array.isArray(data.steps)) return;
+  currentMaestroPlan = data;
+  active.el.querySelector(".maestro-plan-card")?.remove();
+  const card = document.createElement("section");
+  card.className = "maestro-plan-card";
+  if (data.gate_id) card.id = "gate-" + data.gate_id;
+  card.dataset.tour = "maestro-plan";
+  card.dataset.state = data.state || (data.gate_id ? "pending" : "running");
+  const heading = document.createElement("div");
+  heading.className = "maestro-plan-heading";
+  const title = document.createElement("strong");
+  title.textContent = "Plan";
+  const state = document.createElement("span");
+  state.className = "state-pill";
+  state.textContent = data.gate_id ? "Awaiting your approval" : "Approved · running";
+  const note = document.createElement("span");
+  note.setAttribute("role", "status");
+  note.textContent = data.gate_id ? "Nothing runs until you approve." : "Maestro is running the approved steps.";
+  heading.append(title, state, note);
+  const steps = document.createElement("ol");
+  for (const step of data.steps) {
+    const item = document.createElement("li");
+    const role = document.createElement("span");
+    role.className = "plan-role";
+    role.textContent = step.role || "Agent";
+    const model = document.createElement("span");
+    model.className = "backend-chip";
+    model.dataset.backend = step.backend || "";
+    model.textContent = [step.backend, step.model].filter(Boolean).join(" · ");
+    const effort = document.createElement("span");
+    effort.textContent = step.effort || "";
+    const task = document.createElement("p");
+    task.textContent = [step.task, step.reason].filter(Boolean).join(" · ");
+    item.append(role, model, effort, task);
+    steps.append(item);
+  }
+  const actions = document.createElement("div");
+  actions.className = "maestro-plan-actions";
+  if (data.gate_id) {
+    const approve = document.createElement("button");
+    approve.type = "button";
+    approve.className = "btn btn-primary";
+    approve.textContent = "✓ Approve plan & run";
+    approve.onclick = async () => {
+      approve.disabled = true;
+      try {
+        await post("/v1/approvals/" + encodeURIComponent(data.gate_id), { choice: "approve", plan: { steps: data.steps } });
+        card.dataset.state = "running";
+        state.textContent = "Approved · running";
+        note.textContent = "Maestro is running the approved steps.";
+      } catch (error) {
+        approve.disabled = false;
+        status("Couldn't approve the plan: " + error.message);
+      }
+    };
+    actions.append(approve);
+  }
+  const edit = document.createElement("button");
+  edit.type = "button";
+  edit.className = "btn";
+  edit.textContent = data.gate_id ? "Edit plan in Run console" : "View plan in Run console";
+  edit.onclick = () => window.runConsole?.openPlanEditor();
+  actions.append(edit);
+  card.append(heading, steps, actions);
+  active.el.insertBefore(card, active.body);
+}
 function event(e) {
   if (e.id <= last) return;
   last = e.id;
+  window.runConsole?.observe(e);
   if (e.type === "session_turn_started") return;
+  if (e.type === "invocation_started" && e.data?.invocation?.mode === "conversational")
+    setActivePersona({
+      name: e.data.role || e.data.invocation.resource_id,
+      resource_id: e.data.invocation.resource_id,
+    }, true);
+  if (e.type === "gate_required") {
+    showGate(e.data);
+    return;
+  }
+  if (["gate_resolved", "gate_expired", "gate_invalidated"].includes(e.type)) {
+    finishGate(e.data.gate_id, e.type.slice(5), e.data);
+    return;
+  }
   if (e.type === "approval_required") {
     showApproval(e.data);
+    return;
+  }
+  if (e.type === "approval_expired") {
+    expireApproval(e.data.approval_id);
     return;
   }
   if (e.type === "approval_resolved") {
     document.getElementById("approval-" + e.data.approval_id)?.remove();
     return;
   }
+  if (e.type === "maestro_plan") showMaestroPlan(e.data);
   if (active && !["context_usage", "usage_metrics"].includes(e.type)) {
     appendActivityTitle(active.milestones, e);
     if (active.milestones.children.length) {
@@ -2652,6 +3297,10 @@ function event(e) {
   }
   if (e.type === "plan_updated") {
     status("Plan updated");
+  } else if (e.type === "answer_delta" && e.data.parent_tool_use_id) {
+    if (active) setActivitySummary(active, "Specialist is responding…");
+    status("Specialist is responding…");
+    return;
   } else if (e.type === "answer_delta") {
     // F-87: re-render the markdown at most once per frame, not per delta.
     const body = active.body;
@@ -2763,6 +3412,7 @@ async function result(
 ) {
   const r = snapshot || (await json("/v1/jobs/" + expectedJob));
   if (job !== expectedJob || controller !== expectedController) return r;
+  restoreGates(r.gates);
   const terminal = {
     completed: "Completed",
     failed: "Failed run",
@@ -2803,7 +3453,7 @@ async function result(
         ? executionError(data.error, data.error_detail)
         : "";
     if (notice) setAnswer(active, active.body.rawAnswer, notice, data.error);
-    if (r.state === "cancelled" && !active.body.rawAnswer)
+    if (r.state === "cancelled" && !active.body.rawAnswer && !notice)
       setAnswer(active, "Run cancelled.");
     // The notice asks to send again: put the prompt back in an empty composer.
     if (
@@ -2951,6 +3601,7 @@ async function load(id, legacy = false, restoredView = null) {
   if (submitting || cancelling || uploads) return;
   const request = ++conversationLoad,
     priorDraft = $("prompt").value;
+  currentMaestroPlan = null;
   loading = true;
   if (controller) {
     controller.abort();
@@ -2969,6 +3620,7 @@ async function load(id, legacy = false, restoredView = null) {
     }
     if (request !== conversationLoad) return;
     if (!data.turns?.length) throw Error("Empty conversation");
+    setActivePersona(null);
     queuedTurns = [];
     parent = null;
     job = "";
@@ -2986,12 +3638,30 @@ async function load(id, legacy = false, restoredView = null) {
       conversations.find((c) => c.id === id)?.execution?.execution_mode ||
       "native";
     conversation = id;
+    renderConversationHeader(conversations.find((item) => item.id === id));
     if (!restoredView) saveView();
     files = [];
     renderFiles();
     $("messages").replaceChildren();
     $("prompt").value = "";
     for (const r of data.turns) {
+      if (r.request?.release_persona) setActivePersona(null);
+      else {
+        const persona = r.request?.invocations;
+        if (
+          Array.isArray(persona) &&
+          persona.length === 1 &&
+          persona[0]?.mode === "conversational"
+        ) {
+          const token = r.request?.resource_selections?.[0]?.token;
+          setActivePersona({
+            name:
+              (typeof token === "string" && token.slice(1)) ||
+              persona[0].resource_id,
+            resource_id: persona[0].resource_id,
+          });
+        }
+      }
       $("project").value = r.project;
       syncActiveProjectBadge();
       const model =
@@ -3001,11 +3671,11 @@ async function load(id, legacy = false, restoredView = null) {
         updateEfforts();
         $("effort").value = r.request?.effort || $("effort").value;
       }
-      messageAttachments(
-        bubble("user", r.request?.prompt || "Previous run"),
-        r.attachments,
-      );
+      const userMessage = bubble("user", r.request?.prompt || "Previous run");
+      messageAttachments(userMessage, r.attachments);
+      messageResourceChips(userMessage, r.request?.resource_selections);
       active = assistant(r.id, model, !["queued", "running"].includes(r.state));
+      restoreGates(r.gates);
       job = r.id;
       if (["queued", "running"].includes(r.state))
         queuedTurns.push({ id: r.id, response: active });
@@ -3246,8 +3916,8 @@ async function send() {
     return;
   const following = busy && !!job;
   const draft = $("prompt").value,
-    prompt = draft.trim();
-  if (!prompt) return;
+    prompt = draft;
+  if (!prompt.trim()) return;
   const reserved = prompt.match(/(?:^|\s)(@@|\/\/)[^\s@/]+/);
   if (reserved) {
     status(
@@ -3316,6 +3986,7 @@ async function send() {
         ({ id, revision, token }) => ({ id, revision, token }),
       ),
     };
+    if (releasePersonaPending) data.release_persona = true;
     if (parent) data.parent_job_id = parent;
     else if (Array.isArray(m.execution_modes))
       data.execution_mode = executionMode;
@@ -3331,9 +4002,12 @@ async function send() {
       },
       body: JSON.stringify(data),
     });
+    if (releasePersonaPending) setActivePersona(null);
     clearSubmission();
     $("welcome")?.remove();
-    messageAttachments(bubble("user", prompt), files);
+    const userMessage = bubble("user", prompt);
+    messageAttachments(userMessage, files);
+    messageResourceChips(userMessage, data.resource_selections);
     if (following) {
       queuedTurns.push({ id: r.job_id, response: assistant(r.job_id, m.id) });
       parent = r.job_id;
@@ -3830,7 +4504,7 @@ async function attachSelectedProjectFiles(
   }
   const maxFiles = Math.max(0, MAX_ATTACHMENTS - files.length),
     paths = [...new Set(selection.paths || [])];
-  if (!selection.root_id || !paths.length || !maxFiles) {
+  if (!(selection.root_id || selection.project_root_id) || !paths.length || !maxFiles) {
     status(
       maxFiles
         ? "Select files to attach."
@@ -3854,7 +4528,9 @@ async function attachSelectedProjectFiles(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        root_id: selection.root_id,
+        ...(selection.project_root_id
+          ? { project_root_id: selection.project_root_id }
+          : { root_id: selection.root_id }),
         paths,
         backend: selected().backend,
         model: selected().id,
@@ -4085,6 +4761,61 @@ $("menu").onclick = () => {
   toggleSidebar();
   fitPanels();
 };
+$("project-switcher").onclick = () => {
+  const tree = $("project-tree");
+  tree.open = !tree.open;
+  $("project-switcher").setAttribute("aria-expanded", String(tree.open));
+};
+$("about").onclick = () => $("about-dialog").showModal();
+$("about-close").onclick = () => $("about-dialog").close();
+$("about-dialog").addEventListener("close", () => $("about").focus());
+$("theme-toggle").onclick = () => {
+  const dark = document.documentElement.dataset.theme === "dark";
+  window.TailTheme?.apply(dark ? "porcelain" : "amethyst");
+  $("theme-toggle-label").textContent = dark ? "Light" : "Dark";
+};
+$("attention-bell").onclick = () => {
+  const popover = $("attention-popover");
+  popover.hidden = !popover.hidden;
+  $("attention-bell").setAttribute("aria-expanded", String(!popover.hidden));
+};
+const updateAttentionLabel = () => {
+  const count = Number($("attention-count").textContent) || 0;
+  $("attention-bell").setAttribute(
+    "aria-label",
+    `Attention, ${count} ${count === 1 ? "item" : "items"}`,
+  );
+};
+new MutationObserver(updateAttentionLabel).observe($("attention-count"), {
+  childList: true,
+  characterData: true,
+  subtree: true,
+});
+updateAttentionLabel();
+$("attention-open-inbox").onclick = () => {
+  $("attention-popover").hidden = true;
+  window.runConsole?.openAttention("request");
+};
+for (const button of document.querySelectorAll("[data-attention-filter]"))
+  button.onclick = () => {
+    document
+      .querySelectorAll("[data-attention-filter]")
+      .forEach((item) =>
+        item.setAttribute(
+          "aria-pressed",
+          String(item === button),
+        ),
+      );
+    $("attention-popover").hidden = true;
+    $("attention-bell").setAttribute("aria-expanded", "false");
+    window.runConsole?.openAttention(button.dataset.attentionFilter);
+  };
+document.addEventListener("pointerdown", (event) => {
+  if (!event.target.closest("#attention-bell, #attention-popover")) {
+    $("attention-popover").hidden = true;
+    $("attention-bell").setAttribute("aria-expanded", "false");
+  }
+});
 try {
   document.body.classList.toggle(
     "sidebar-collapsed",
@@ -4122,6 +4853,7 @@ let startupTimer,
   interfaceReady = false,
   readinessRetryAt = 0;
 function setReadiness(ready, message = "") {
+  if (!ready) window.tailHarnessTour?.stop(false);
   interfaceReady = ready;
   for (const node of [
     $("app-topbar"),
@@ -4137,6 +4869,7 @@ function setReadiness(ready, message = "") {
     : message ||
       "Waiting for the server… The connection will be checked automatically.";
   document.body.dataset.connectionReady = String(ready);
+  if (ready) document.dispatchEvent(new Event("tail:ready"));
   if (!ready) {
     for (const menu of document.querySelectorAll(".composer-menu:popover-open"))
       menu.hidePopover();
@@ -4185,7 +4918,7 @@ function modelAvailability(
     !models.length || submitting || loading || uploads > 0 || policyPending;
   $("effort").disabled = $("model").disabled;
   $("prompt").placeholder = models.length
-    ? "Send a message… · Enter to send · Shift+Enter for a new line"
+    ? "Send a message… · / agents, skills and commands · Enter to send · Shift+Enter for a new line"
     : "Set up a model to send; your draft will be preserved.";
   $("model-note").hidden = !models.length;
   updateModelPermissions();
@@ -4273,8 +5006,10 @@ async function initialize() {
       }, 10000);
     }
     setReadiness(true);
-    if (!$("activity-panel").hidden && rightPanelView === "files")
+    if (!$("activity-panel").hidden && rightPanelView === "files") {
+      loadAuthorizedProjectRoots();
       loadProjectFileRoots();
+    }
     void Promise.all([quota(), checkVersion()]);
     updateComposer();
     // F-82: a stream cut by the outage re-attaches as soon as the server is back.
@@ -4691,13 +5426,131 @@ function setPanelOpen(open, persist = true) {
     "aria-expanded",
     String(open && rightPanelView === "activity"),
   );
-  if (open && rightPanelView === "files" && interfaceReady)
+  if (open && rightPanelView === "files" && interfaceReady) {
+    loadAuthorizedProjectRoots();
     loadProjectFileRoots();
+  }
   if (persist)
     try {
       localStorage.setItem("activity-open", open ? "1" : "0");
     } catch {}
 }
+let authorizedRootsRequest = 0;
+async function loadAuthorizedProjectRoots() {
+  const holder = $("authorized-project-roots"),
+    authorize = $("authorize-project-root"),
+    project = $("project").value,
+    request = ++authorizedRootsRequest;
+  holder.textContent = "Loading project roots…";
+  authorize.disabled = true;
+  authorize.title = "Checking project permissions";
+  try {
+    const base = new URLSearchParams({
+      view: "authorized",
+      project_id: project,
+      start: "1",
+      limit: "100",
+    });
+    const data = await json("/v1/project-files?" + base);
+    if (request !== authorizedRootsRequest) return;
+    authorize.disabled = !data.can_authorize || project === "sem-projeto";
+    authorize.title = authorize.disabled
+      ? "Additional roots are not available for this project."
+      : "Add a folder to this project";
+    const roots = Array.isArray(data.roots) ? [...data.roots] : [];
+    if (data.root_id) {
+      roots.sort((left, right) =>
+        left.id === data.root_id ? -1 : right.id === data.root_id ? 1 : 0,
+      );
+    }
+    holder.replaceChildren();
+    const rootListings = [];
+    for (const root of roots) {
+      const card = document.createElement("section");
+      card.className = "authorized-root-card";
+      const heading = document.createElement("strong");
+      heading.textContent = root.path || root.label;
+      const badge = document.createElement("span");
+      badge.className = "root-access-badge";
+      badge.textContent = "authorized";
+      const list = document.createElement("ul");
+      card.append(heading, badge, list);
+      holder.append(card);
+      rootListings.push({ root, list });
+    }
+    let nextRoot = 0;
+    async function loadNextRoot() {
+      while (nextRoot < rootListings.length) {
+        if (request !== authorizedRootsRequest) return;
+        const { root, list } = rootListings[nextRoot++];
+        const params = new URLSearchParams({
+          view: "authorized",
+          project_id: project,
+          root_id: root.id,
+          path: "",
+          start: "1",
+          limit: "100",
+        });
+      try {
+        const listing = await json("/v1/project-files?" + params);
+        if (request !== authorizedRootsRequest) return;
+        for (const entry of (listing.entries || []).slice(0, 12)) {
+          const row = document.createElement("li");
+          const name = document.createElement(
+            entry.type === "directory" ? "span" : "button",
+          );
+          name.textContent = entry.name;
+          if (name.tagName === "BUTTON") {
+            name.type = "button";
+            name.title = "Attach " + entry.name;
+            name.onclick = () =>
+              attachSelectedProjectFiles({
+                project_root_id: root.id,
+                paths: [entry.path],
+              });
+          }
+          row.append(name);
+          if (entry.status) {
+            const state = document.createElement("b");
+            state.className = "file-status-badge";
+            state.textContent = entry.status;
+            state.title = "Git status " + entry.status;
+            row.append(state);
+          }
+          list.append(row);
+        }
+        if (!list.children.length) {
+          const empty = document.createElement("li");
+          empty.textContent = "No files at this level.";
+          list.append(empty);
+        }
+      } catch {
+        if (request !== authorizedRootsRequest) return;
+        const unavailable = document.createElement("li");
+        unavailable.textContent = "Couldn't load this root.";
+        list.append(unavailable);
+      }
+      }
+    }
+    await Promise.all(
+      Array.from(
+        { length: Math.min(4, rootListings.length) },
+        () => loadNextRoot(),
+      ),
+    );
+    if (!roots.length) holder.textContent = "No project root is authorized.";
+  } catch {
+    if (request !== authorizedRootsRequest) return;
+    holder.textContent = "Project roots are unavailable in this service.";
+    authorize.disabled = true;
+    authorize.title = "Project root authorization is unavailable.";
+  }
+}
+$("authorize-project-root").onclick = () => {
+  const project = $("project").value;
+  if (project !== "sem-projeto" && !$("authorize-project-root").disabled)
+    openProjectDialog(project);
+};
 function togglePanelView(view) {
   if ($("activity-panel").hidden) {
     setPanelView(view);
@@ -4705,7 +5558,10 @@ function togglePanelView(view) {
   } else if (rightPanelView === view) setPanelOpen(false);
   else {
     setPanelView(view);
-    if (view === "files") loadProjectFileRoots();
+    if (view === "files") {
+      loadAuthorizedProjectRoots();
+      loadProjectFileRoots();
+    }
   }
 }
 let rightPanelView = "files";
@@ -4801,16 +5657,33 @@ try {
   rightPanelView = savedView || (preference === "1" ? "activity" : "files");
   setPanelView(rightPanelView, false);
   setPanelOpen(
-    preference === null
-      ? matchMedia("(min-width:1200px)").matches
-      : preference === "1",
+    matchMedia("(max-width:700px)").matches
+      ? false
+      : preference === null
+        ? matchMedia("(min-width:1200px)").matches
+        : preference === "1",
     false,
   );
 } catch {
   rightPanelView = "files";
   setPanelView("files", false);
-  setPanelOpen(matchMedia("(min-width:1200px)").matches, false);
+  setPanelOpen(
+    !matchMedia("(max-width:700px)").matches &&
+      matchMedia("(min-width:1200px)").matches,
+    false,
+  );
 }
+matchMedia("(max-width:700px)").addEventListener("change", (event) => {
+  if (event.matches) setPanelOpen(false, false);
+  else {
+    let preference = null;
+    try {
+      preference = localStorage.getItem("activity-open");
+    } catch {}
+    if (preference === null && matchMedia("(min-width:1200px)").matches)
+      setPanelOpen(true, false);
+  }
+});
 
 function boundedText(text, limit) {
   return text.length > limit
@@ -4872,7 +5745,7 @@ try {
   if (localStorage.getItem("panel-order") === "conversations-right")
     panelOrder = "conversations-right";
 } catch {}
-const panelWidths = { sidebar: 280, "activity-panel": 400 };
+const panelWidths = { sidebar: 300, "activity-panel": 390 };
 const panelIsLeft = (id) =>
   id === "sidebar"
     ? panelOrder === "conversations-left"
@@ -4994,8 +5867,8 @@ applyPanelOrder(panelOrder, false);
 for (const button of document.querySelectorAll("[data-panel-order]"))
   button.onclick = () => applyPanelOrder(button.dataset.panelOrder);
 $("panel-order-reset").onclick = () => {
-  panelWidths.sidebar = 280;
-  panelWidths["activity-panel"] = 400;
+  panelWidths.sidebar = 300;
+  panelWidths["activity-panel"] = 390;
   try {
     localStorage.removeItem("sidebar-width");
     localStorage.removeItem("activity-panel-width");
@@ -5140,6 +6013,13 @@ $("settings").onclick = () => {
   refreshCatalog();
 };
 $("settings-close").onclick = () => $("settings-dialog").close();
+$("settings-tour").onclick = () => $("settings-dialog").close();
+let quotaReturnsToSettings = false;
+$("settings-quota").onclick = () => {
+  quotaReturnsToSettings = true;
+  $("settings-dialog").close();
+  setQuotaOpen(true);
+};
 for (const id of ["settings-dialog", "conversation-search-dialog"]) {
   const dialog = $(id);
   dialog.addEventListener("click", (event) => {
@@ -5164,19 +6044,117 @@ function normalizeSearch(value) {
     .replace(/[\u0300-\u036f]/g, "")
     .toLocaleLowerCase();
 }
+let projectFileSearch = [],
+  projectFileSearchQuery = "",
+  projectFileSearchRequest = 0,
+  projectFileSearchTimer = 0;
+async function refreshProjectFileSearch(value) {
+  const query = value.trim(),
+    normalized = normalizeSearch(query),
+    request = ++projectFileSearchRequest;
+  if (normalized.length < 2) {
+    projectFileSearch = [];
+    projectFileSearchQuery = "";
+    renderConversationSearch();
+    return;
+  }
+  try {
+    const params = new URLSearchParams({
+      project_id: $("project").value,
+      query,
+      start: "1",
+      limit: "100",
+    });
+    const data = await json("/v1/project-files?" + params);
+    if (request !== projectFileSearchRequest) return;
+    projectFileSearch = Array.isArray(data.entries) ? data.entries : [];
+    projectFileSearchQuery = normalized;
+    renderConversationSearch();
+  } catch {
+    if (request !== projectFileSearchRequest) return;
+    projectFileSearch = [];
+    projectFileSearchQuery = normalized;
+    renderConversationSearch();
+  }
+}
 function renderConversationSearch() {
   const query = normalizeSearch($("conversation-search").value.trim());
-  const matches = conversations.filter((c) =>
-    normalizeSearch(c.title || "Conversation").includes(query),
+  const includes = (...values) =>
+    !query || normalizeSearch(values.filter(Boolean).join(" ")).includes(query);
+  const observedConversationIds = new Set();
+  const observedRuns = observedActivityJobs.map((item) => {
+    const source = conversations.find((conversation) => conversation.id === item.conversation_id);
+    if (item.conversation_id) observedConversationIds.add(item.conversation_id);
+    return {
+      ...source,
+      id: item.conversation_id || source?.id,
+      runId: item.job_id,
+      title: source?.title || item.title || "Run " + (item.job_id || ""),
+      project: item.project_id || source?.project,
+      state: item.state || source?.state,
+      wait_reason: item.wait_reason || source?.wait_reason,
+      activity: item.work_item || source?.activity,
+      execution: {
+        ...source?.execution,
+        backend: item.backend || source?.execution?.backend,
+        model: item.model || source?.execution?.model,
+      },
+    };
+  });
+  const searchableRuns = [
+    ...observedRuns,
+    ...conversations.filter((item) => !observedConversationIds.has(item.id)),
+  ];
+  const runMatches = searchableRuns.filter((c) =>
+    includes(
+      c.title || "Conversation",
+      c.runId,
+      c.state,
+      c.wait_reason,
+      c.activity,
+      c.execution?.backend,
+      c.execution?.model,
+      projectDetails[c.project]?.label,
+    ),
   );
+  const planMatches = (currentMaestroPlan?.steps || [])
+    .map((step, index) => ({ ...step, index }))
+    .filter((step) =>
+      includes(step.role, step.task, step.reason, step.backend, step.model),
+    );
+  const loadedFiles = new Map();
+  for (const file of files)
+    if (file?.name) loadedFiles.set(file.name, file);
+  for (const entries of fileTree.cache.values())
+    for (const file of entries || [])
+      if (file?.name && file.type !== "directory") loadedFiles.set(file.path || file.name, file);
+  if (projectFileSearchQuery === query)
+    for (const file of projectFileSearch)
+      if (file?.name && file.type !== "directory")
+        loadedFiles.set(file.path || file.name, file);
+  const fileMatches = [...loadedFiles.entries()].filter(([path, file]) =>
+    includes(path, file.name),
+  );
+  const total = runMatches.length + planMatches.length + fileMatches.length;
   $("search-clear").hidden = !query;
-  $("search-results").textContent = matches.length
-    ? matches.length + " conversation(s) found"
+  $("search-results").textContent = total
+    ? total + " result(s) found"
     : query
-      ? "No conversation found. Try a different title."
-      : "No conversation available.";
-  $("conversation-search-list").replaceChildren(
-    ...matches.map((c) => {
+      ? "No run, plan step, or loaded file matched."
+      : "No runs, plans, or loaded files are available.";
+  const sections = [];
+  const group = (name, items) => {
+    if (!items.length) return;
+    const section = document.createElement("section");
+    section.className = "search-result-group";
+    const heading = document.createElement("h3");
+    heading.textContent = name + " · " + items.length;
+    section.append(heading, ...items);
+    sections.push(section);
+  };
+  group(
+    "Runs",
+    runMatches.map((c) => {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "conversation-search-result";
@@ -5187,6 +6165,7 @@ function renderConversationSearch() {
         [...$("project").options].find((o) => o.value === c.project)
           ?.textContent || "No project";
       detail.append(document.createTextNode(project));
+      if (c.runId) detail.append(document.createTextNode(" · " + c.runId));
       if (c.execution?.model) {
         const icon = document.createElement("span");
         icon.className = "model-logo-icon";
@@ -5202,14 +6181,55 @@ function renderConversationSearch() {
       if (indicator) title.prepend(indicator);
       button.append(title, detail);
       button.disabled = submitting || cancelling || uploads > 0;
-      button.onclick = () => {
+      button.onclick = async () => {
         if (submitting || cancelling || uploads) return;
         $("conversation-search-dialog").close();
-        void load(c.id, c.legacy);
+        await load(c.id, c.legacy);
+        if (c.runId) window.runConsole?.openRun(c.runId);
       };
       return button;
     }),
   );
+  group(
+    "Current plan",
+    planMatches.map((step) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "conversation-search-result";
+      const title = document.createElement("strong");
+      title.textContent = `${step.index + 1}. ${step.role || "Agent"} · ${step.task || "Plan step"}`;
+      const detail = document.createElement("small");
+      detail.textContent = [step.backend, step.model, step.effort, step.reason]
+        .filter(Boolean)
+        .join(" · ");
+      button.append(title, detail);
+      button.onclick = () => {
+        $("conversation-search-dialog").close();
+        window.runConsole?.openPlanEditor();
+      };
+      return button;
+    }),
+  );
+  group(
+    "Project files",
+    fileMatches.map(([path]) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "conversation-search-result";
+      const title = document.createElement("strong");
+      title.textContent = path;
+      const detail = document.createElement("small");
+      detail.textContent = "Authorized project file";
+      button.append(title, detail);
+      button.onclick = () => {
+        $("conversation-search-dialog").close();
+        setPanelView("files");
+        setPanelOpen(true);
+      };
+      return button;
+    }),
+  );
+  $("conversation-search-list").replaceChildren(...sections);
 }
 function openConversationSearch() {
   renderConversationSearch();
@@ -5225,7 +6245,14 @@ $("conversation-search-dialog").addEventListener("keydown", (event) => {
     $("conversation-search-dialog").close();
   }
 });
-$("conversation-search").addEventListener("input", renderConversationSearch);
+$("conversation-search").addEventListener("input", () => {
+  renderConversationSearch();
+  clearTimeout(projectFileSearchTimer);
+  projectFileSearchTimer = setTimeout(
+    () => refreshProjectFileSearch($("conversation-search").value),
+    180,
+  );
+});
 $("search-clear").onclick = () => {
   $("conversation-search").value = "";
   renderConversationSearch();
@@ -5314,7 +6341,11 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     if (!$("quota-panel").hidden) {
       setQuotaOpen(false);
-      $("quota-toggle").focus();
+      if (quotaReturnsToSettings) {
+        quotaReturnsToSettings = false;
+        $("settings-dialog").showModal();
+        $("settings-quota").focus();
+      } else $("quota-toggle").focus();
     } else if (!$("activity-panel").hidden) {
       setPanelOpen(false);
       $("panel-toggle").focus();
@@ -5384,6 +6415,186 @@ $("vpn-login-form").onsubmit = async (e) => {
     $("vpn-login-error").textContent = error.message;
   }
 };
+function finishGate(id, state, data = {}) {
+  const box = document.getElementById("gate-" + id);
+  if (!box) return;
+  if (box.contains(document.activeElement) || box.dataset.restoreFocus === "true")
+    $("prompt").focus({ preventScroll: true });
+  box.dataset.state = state;
+  if (box.classList.contains("maestro-plan-card")) {
+    box.querySelectorAll("button,input,textarea").forEach(node => { node.disabled = true; });
+    const note = box.querySelector('[role="status"]');
+    note.textContent = state === "resolved"
+      ? data.choice === "deny" ? "Plan discarded." : "Plan approved. The run can start."
+      : state === "invalidated" ? "This plan is no longer active."
+        : "This plan approval expired. Send the request again.";
+    return;
+  }
+  if (state === "resolved" && data.choice !== undefined) {
+    const choices = Array.isArray(data.choice) ? data.choice : [data.choice];
+    box.querySelectorAll("input").forEach(input => { input.checked = choices.includes(input.value); });
+  }
+  box.querySelectorAll("button,input").forEach(node => { node.disabled = true; });
+  const note = box.querySelector('[role="status"]');
+  note.textContent = state === "resolved"
+    ? (box.dataset.publish === "true" ? (data.choice === "deny" ? "Publication denied" : data.choice === "approve" ? "Publication approved" : "Publication decision recorded") : "Answered") + (data.resolved_by ? " by " + data.resolved_by : "") + "."
+    : state === "invalidated"
+      ? "This question is no longer active. Send a message to ask again."
+      : "This question expired. Send a message to ask again.";
+}
+function restoreGates(gates = []) {
+  for (const gate of Array.isArray(gates) ? gates : []) {
+    if (!gate?.gate_id) continue;
+    showGate(gate);
+    if (gate.state && gate.state !== "pending")
+      finishGate(gate.gate_id, gate.state, gate);
+  }
+}
+function showGate(data) {
+  if (document.getElementById("gate-" + data.gate_id)) return;
+  if (data.kind === "maestro_plan" && data.plan?.steps) {
+    showMaestroPlan({ ...data.plan, gate_id: data.gate_id, state: "pending" });
+    status("Waiting for plan approval");
+    return;
+  }
+  if (data.publish && data.effect_id) { showPublishGate(data); return; }
+  const box = document.createElement("section"), title = document.createElement("h3"),
+    note = document.createElement("p"), fields = document.createElement("fieldset"),
+    legend = document.createElement("legend"), submit = document.createElement("button");
+  box.id = "gate-" + data.gate_id;
+  box.className = "approval-card gate-card";
+  box.dataset.state = "pending";
+  title.textContent = "Your choice is needed";
+  legend.textContent = data.question;
+  fields.append(legend);
+  for (const option of data.options || []) {
+    const label = document.createElement("label"), input = document.createElement("input"),
+      text = document.createElement("span"), description = document.createElement("small");
+    input.type = data.multi_select ? "checkbox" : "radio";
+    input.name = "gate-choice-" + data.gate_id;
+    input.value = option.id;
+    text.textContent = option.label;
+    description.textContent = option.description || "";
+    label.append(input, text, description);
+    fields.append(label);
+  }
+  note.setAttribute("role", "status");
+  submit.className = "btn";
+  submit.textContent = "Confirm choice";
+  submit.disabled = true;
+  fields.onchange = () => { submit.disabled = !fields.querySelector("input:checked"); };
+  submit.onclick = async () => {
+    if (box.dataset.state !== "pending") return;
+    const choices = [...fields.querySelectorAll("input:checked")].map(input => input.value);
+    if (!choices.length) return;
+    box.dataset.state = "submitting";
+    box.dataset.restoreFocus = String(box.contains(document.activeElement));
+    box.querySelectorAll("button,input").forEach(node => { node.disabled = true; });
+    note.textContent = "Sending your choice…";
+    try {
+      const result = await post("/v1/approvals/" + data.gate_id, { choice: data.multi_select ? choices : choices[0] });
+      finishGate(data.gate_id, "resolved", result);
+    } catch (error) {
+      if (error.code === "gate_already_resolved") finishGate(data.gate_id, "resolved");
+      else if (["gate_invalidated", "gate_expired"].includes(error.code)) finishGate(data.gate_id, error.code.slice(5));
+      else if (box.dataset.state === "submitting") {
+        box.dataset.state = "pending";
+        note.textContent = "Couldn't send your choice. " + error.message;
+        box.querySelectorAll("button,input").forEach(node => { node.disabled = false; });
+        if (box.dataset.restoreFocus === "true") submit.focus();
+      }
+    } finally { delete box.dataset.restoreFocus; }
+  };
+  box.append(title, fields, submit, note);
+  if (data.publish) appendPublishEvidence(box, data);
+  $("messages").append(box);
+  status("Waiting for your choice");
+  box.scrollIntoView({ block: "nearest" });
+}
+
+function appendPublishEvidence(container, data) {
+  const evidence = document.createElement("div");
+  evidence.className = "publish-evidence";
+  const add = (label, value, pre = false) => {
+    if (value == null) return;
+    const node = document.createElement(pre ? "pre" : "p");
+    node.textContent = label + ": " + (typeof value === "string" ? value : JSON.stringify(value, null, 2));
+    evidence.append(node);
+  };
+  add("Publication", data.enforcement === "mediated" ? "mediated" : "unenforced");
+  add("Operation", data.operation);
+  add("Integration", data.integration);
+  add("Jira site", data.endpoint);
+  add("Destination", data.destination);
+  add("Arguments", data.arguments, true);
+  add("Arguments digest", data.arguments_digest);
+  add("Artifact preview", data.artifact_preview, true);
+  add("Artifact digest", data.artifact_digest);
+  add("Approval", "An enrolled human session is required. This decision applies once to this exact request and artifact.");
+  container.append(evidence);
+}
+
+function showPublishGate(data) {
+  const box = document.createElement("section"), title = document.createElement("h3"), note = document.createElement("p");
+  box.id = "gate-" + data.gate_id;
+  box.className = "approval-card gate-card publish-gate-card";
+  box.dataset.tour = "publish-gate";
+  box.dataset.state = "pending";
+  box.dataset.publish = "true";
+  title.textContent = "Publish approval";
+  box.append(title);
+  appendPublishEvidence(box, data);
+  note.setAttribute("role", "status");
+  for (const [choice, label] of [["approve", "Approve"], ["deny", "Deny"]]) {
+    const action = document.createElement("button");
+    action.className = "btn";
+    action.type = "button";
+    action.textContent = label;
+    action.onclick = async () => {
+      if (box.dataset.state !== "pending") return;
+      box.dataset.state = "submitting";
+      box.dataset.restoreFocus = String(box.contains(document.activeElement));
+      box.querySelectorAll("button").forEach(node => { node.disabled = true; });
+      note.textContent = "Sending your decision…";
+      try {
+        const result = await post("/v1/approvals/" + encodeURIComponent(data.gate_id), { choice });
+        if (box.dataset.state === "submitting") finishGate(data.gate_id, "resolved", result);
+      } catch (error) {
+        if (box.dataset.state !== "submitting") return;
+        if (error.code === "gate_already_resolved") finishGate(data.gate_id, "resolved");
+        else if (["gate_invalidated", "gate_expired"].includes(error.code)) finishGate(data.gate_id, error.code.slice(5));
+        else if (box.dataset.state === "submitting") {
+          box.dataset.state = "pending";
+          note.textContent = "Couldn't send your decision. " + error.message;
+          box.querySelectorAll("button").forEach(node => { node.disabled = false; });
+          if (box.dataset.restoreFocus === "true") action.focus();
+        }
+      } finally { delete box.dataset.restoreFocus; }
+    };
+    box.append(action);
+  }
+  box.append(note);
+  $("messages").append(box);
+  status("Waiting for publication approval");
+  box.scrollIntoView({ block: "nearest" });
+}
+
+function expireApproval(id) {
+  const box = document.getElementById("approval-" + id);
+  if (!box) return;
+  if (box.contains(document.activeElement) ||
+      (box.dataset.restoreFocus === "true" && document.activeElement === document.body)) {
+    $("prompt").focus({ preventScroll: true });
+  }
+  box.dataset.state = "expired";
+  box.querySelector("h3").textContent = "Approval expired";
+  box.querySelectorAll("button,input").forEach((node) => (node.disabled = true));
+  const progress = box.querySelector('[role="status"]');
+  progress.hidden = false;
+  progress.textContent = userErrors.approval_expired;
+  status("Approval expired");
+}
+
 function showApproval(data) {
   if (document.getElementById("approval-" + data.approval_id)) return;
   const box = document.createElement("section");
@@ -5460,6 +6671,7 @@ function showApproval(data) {
       deciding = true;
       // F-60: disabling the buttons drops focus to <body>; restore it afterwards.
       const hadFocus = box.contains(document.activeElement);
+      box.dataset.restoreFocus = String(hadFocus);
       box
         .querySelectorAll("button,input")
         .forEach((node) => (node.disabled = true));
@@ -5475,15 +6687,17 @@ function showApproval(data) {
           scope,
         });
         if (hadFocus) $("prompt").focus({ preventScroll: true });
-        box.remove();
+        if (box.dataset.state !== "expired") box.remove();
       } catch (e) {
-        progress.textContent = "Couldn't confirm your decision. " + e.message;
+        if (e.code === "approval_expired") expireApproval(data.approval_id);
+        else if (box.dataset.state !== "expired") progress.textContent = "Couldn't confirm your decision. " + e.message;
       } finally {
         deciding = false;
-        box
-          .querySelectorAll("button,input")
-          .forEach((node) => (node.disabled = false));
-        if (hadFocus && box.isConnected) button.focus();
+        if (box.dataset.state !== "expired") {
+          box.querySelectorAll("button,input").forEach((node) => (node.disabled = false));
+          if (hadFocus && box.isConnected) button.focus();
+        }
+        delete box.dataset.restoreFocus;
       }
     };
     box.append(button);
@@ -5510,10 +6724,18 @@ for (const [id, name] of [
   const label = {
     "add-project": "Add project",
     new: "New Conversation",
+    send: "Send",
+    cancel: "Stop",
     reload: "Reload screen",
   }[id];
   b.replaceChildren(TailUI.icon(name));
-  if (label) b.append(document.createTextNode(label));
+  if (label) {
+    if (["send", "cancel"].includes(id)) {
+      const text = document.createElement("span");
+      text.textContent = label;
+      b.append(text);
+    } else b.append(document.createTextNode(label));
+  }
 }
 
 for (const [id, name, label] of [
@@ -5689,6 +6911,7 @@ function syncAccessMode() {
   $("access-mode-notice").textContent =
     "Access: " + $("access-label").textContent;
   $("access-trigger").dataset.mode = mode;
+  $("header-access").textContent = mode;
   const option = $("access-menu").querySelector('[data-access="' + mode + '"]'),
     optionIcon = option?.querySelector(".access-option-icon"),
     description = option?.querySelector("small")?.textContent || "";

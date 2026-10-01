@@ -156,6 +156,7 @@ def test_build_runtime_config_matches_golden_shape(tmp_path):
     expected = {
         "browser_url": "http://example-host:8096/",
         "state_dir": "<TMP>/control/runs",
+        "catalogs": [],
         "projects": {
             "sem-projeto": {"label": "No project"},
             "proj1": {
@@ -164,6 +165,7 @@ def test_build_runtime_config_matches_golden_shape(tmp_path):
                 "root": "<TMP>/proj1",
                 "service_units": [],
                 "permissions": {},
+                "catalogs": [],
                 "test_commands": {},
                 "additional_roots": [],
                 "node_binary": "/usr/bin/node",

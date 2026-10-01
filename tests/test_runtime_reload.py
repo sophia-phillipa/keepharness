@@ -15,7 +15,7 @@ def payload(backend="codex", model="codex-test"):
 
 def queued(service, ident, data):
     service.db.execute(
-        "INSERT INTO jobs VALUES(?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO jobs(id,project,owner,state,created,payload,result,idem,digest) VALUES(?,?,?,?,?,?,?,?,?)",
         (ident, "p", "a", "queued", 1, json.dumps(data), None, None, ident),
     )
     service.db.commit()
@@ -38,7 +38,7 @@ def test_reload_cancels_only_removed_model_and_keeps_registered_projects(tmp_pat
         queued(service, "removed", payload())
         queued(service, "kept", payload("stable", "stable-model"))
         service.db.execute(
-            "INSERT INTO jobs VALUES(?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO jobs(id,project,owner,state,created,payload,result,idem,digest) VALUES(?,?,?,?,?,?,?,?,?)",
             (
                 "registered",
                 project,

@@ -251,9 +251,11 @@ async function scanHarness(page, theme) {
     await scan(menu + " menu");
     await page.keyboard.press("Escape");
   }
-  await page.click("#quota-toggle");
+  await page.click("#settings");
+      await page.click("#settings-quota");
   await scan("quota panel");
-  await page.click("#quota-toggle");
+  await page.keyboard.press("Escape");
+      await page.keyboard.press("Escape");
   // The side panel remembers its view: "Activity" toggles the panel closed when
   // it already shows Activity, so open and switch only as needed.
   if ((await page.getAttribute("#panel-toggle", "aria-expanded")) !== "true")

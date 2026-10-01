@@ -33,7 +33,7 @@ def api(tmp_path):
     client = TestClient(app, headers={"Authorization": "Bearer alice"})
     with app.state.service.db:
         app.state.service.db.execute(
-            "INSERT INTO jobs VALUES(?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO jobs(id,project,owner,state,created,payload,result,idem,digest) VALUES(?,?,?,?,?,?,?,?,?)",
             (
                 "conversation-1",
                 "shared",
@@ -143,3 +143,27 @@ def test_native_title_uses_root_prompt_and_explicit_rename(api):
     assert service.conversation_title(child) == "Original prompt"
     api.patch("/v1/conversations/conversation-1", json={"title": "Shared title"})
     assert service.conversation_title(child) == "Shared title"
+
+
+def test_terminal_conversation_exposes_gate_audit_for_reload(api):
+    service = api.app.state.service
+    with service.db:
+        service.gates.repository.create(
+            "question",
+            "conversation-1",
+            {
+                "gate_id": "question",
+                "question": "Choose?",
+                "options": [{"id": "one", "label": "One"}],
+            },
+        )
+        service.gates.repository.close("question", "invalidated")
+    result = api.get("/v1/conversations/conversation-1")
+    assert result.status_code == 200
+    assert result.json()["turns"][0]["gates"][0]["state"] == "invalidated"
+    assert (
+        api.get(
+            "/v1/conversations/conversation-1", headers={"Authorization": "Bearer bob"}
+        ).status_code
+        == 403
+    )

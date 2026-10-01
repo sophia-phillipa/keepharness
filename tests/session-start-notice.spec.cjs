@@ -105,6 +105,8 @@ const assert = require("node:assert/strict"),
     };
     const idle = () => page.waitForFunction(() => !busy && !submitting);
 
+    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.10.1"));
+
     await page.goto("http://panel.test/");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     // Empty conversation: one isolation choice plus the access notice.
@@ -117,13 +119,16 @@ const assert = require("node:assert/strict"),
     await chooseAccess("full");
     assert.equal(await access.innerText(), "Access: Full access");
 
-    // After the first message the isolation choice is a fixed notice.
+    // After the first message Mock 4 keeps fixed mode and access chips in the header.
     await page.locator("#prompt").fill("First message");
     await page.locator("#send").click();
     await idle();
     assert.equal(sent.at(-1).execution_mode, "scoped");
     assert.equal(sent.at(-1).access_mode, "full");
-    assert.equal(await notice.isVisible(), true);
+    assert.equal(await notice.isVisible(), false);
+    assert.equal(await page.locator("#header-execution-mode").isVisible(), true);
+    assert.equal(await page.locator("#header-execution-mode").innerText(), "Isolated conversation");
+    assert.equal(await page.locator("#header-access").innerText(), "full");
     assert.equal(
       await toggle.isVisible(),
       false,
@@ -136,6 +141,7 @@ const assert = require("node:assert/strict"),
     // The access mode can still change for this conversation; the notice follows.
     await chooseAccess("read_only");
     assert.equal(await access.innerText(), "Access: Read only");
+    assert.equal(await page.locator("#header-access").innerText(), "read_only");
     await page.locator("#prompt").fill("Follow up");
     await page.locator("#send").click();
     await idle();
@@ -147,6 +153,7 @@ const assert = require("node:assert/strict"),
       .locator("#model")
       .selectOption("gemini-fixture", { force: true });
     await page.locator("#prompt").fill("Blocked draft");
+    assert.equal(await page.locator("#execution-mode-unavailable").isVisible(), true);
     assert.match(
       await page.locator("#execution-mode-unavailable").innerText(),
       /Choose a different model or start a new conversation\./,
@@ -158,7 +165,7 @@ const assert = require("node:assert/strict"),
     assert.equal(await page.locator("#send").isEnabled(), true);
     await page.locator("#prompt").fill("");
 
-    // Reloading the conversation keeps its notice, without a toggle.
+    // Reloading the conversation keeps its header chips, without a toggle.
     await page.reload();
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     await page.waitForFunction(
@@ -167,6 +174,9 @@ const assert = require("node:assert/strict"),
         "Isolated conversation",
     );
     assert.equal(await toggle.isVisible(), false);
+    assert.equal(await page.locator("#header-execution-mode").isVisible(), true);
+    assert.equal(await page.locator("#header-execution-mode").innerText(), "Isolated conversation");
+    assert.equal(await page.locator("#header-access").innerText(), "read_only");
     assert.equal(await access.innerText(), "Access: Read only");
 
     // A new conversation never inherits the previous access mode.

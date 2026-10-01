@@ -178,6 +178,7 @@ const assert = require("node:assert/strict"),
       });
     });
     await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.10.1"));
     await page.goto(origin);
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     assert.equal(await page.locator("#sidebar input[type=search]").count(), 0);
@@ -187,10 +188,8 @@ const assert = require("node:assert/strict"),
       0,
     );
     assert.equal(
-      await page
-        .locator("#app-topbar #menu + #search-conversations")
-        .innerText(),
-      "Search",
+      await page.locator("#app-topbar #search-conversations span").innerText(),
+      "Search runs, plans, files",
     );
     assert.equal(
       await page.locator("#admin-shortcut-top").getAttribute("href"),
@@ -207,8 +206,8 @@ const assert = require("node:assert/strict"),
       "✦",
     );
     assert.equal(
-      await page.locator("#projects .conversation-row > button").textContent(),
-      "✦Naïve Philosophy",
+      await page.locator("#projects .conversation-title").textContent(),
+      "Naïve Philosophy",
     );
     assert.match(
       await page
@@ -216,11 +215,10 @@ const assert = require("node:assert/strict"),
         .getAttribute("title"),
       /Qwen3.6/,
     );
-    const creationIcons = await page
-      .locator("#add-project use,#new use,.project-new use")
-      .evaluateAll((nodes) => nodes.map((e) => e.getAttribute("href")));
-    assert.equal(new Set(creationIcons).size, 3);
-    assert.equal(creationIcons.length, 3);
+    // Mock 4 uses a labeled primary action; project creation remains in its disclosure.
+    assert.match(await page.locator("#new").innerText(), /New conversation/i);
+    assert.match(await page.locator("#add-project").textContent(), /Add project/i);
+    assert.equal(await page.locator(".project-new").count(), 1);
     for (const palette of [
       "violet-bordeaux",
       "porcelain",
@@ -239,7 +237,7 @@ const assert = require("node:assert/strict"),
             .getPropertyValue("--th-border")
             .trim(),
         }));
-      assert.notEqual(separator.shadow, "none");
+      assert.equal(separator.shadow, "none", "Mock 4 groups use flat rows");
       assert(separator.border);
     }
     await page.evaluate(() => TailTheme.apply("violet-bordeaux", false));
@@ -247,8 +245,10 @@ const assert = require("node:assert/strict"),
       await page
         .locator("#projects .conversation-title")
         .evaluate((e) => getComputedStyle(e).webkitLineClamp),
-      "2",
+      "1",
     );
+    if (!(await page.locator("#project-tree").evaluate((el) => el.open)))
+      await page.locator("#project-tree > summary").click();
     await page.locator(".project-group>summary>button").hover();
     const hover = await page
       .locator(".project-group>summary>button")
@@ -265,7 +265,8 @@ const assert = require("node:assert/strict"),
           nodes.every((e) => getComputedStyle(e).borderBottomWidth === "0px"),
         ),
     );
-    assert.equal(await page.locator(".sidebar-section-divider").count(), 1);
+    assert.equal(await page.locator("#project-tree > summary").count(), 1);
+    assert.equal(await page.locator(".conversation-state-group").count(), 5);
     for (const [trigger, id] of [
       ["settings", "settings-dialog"],
       ["search-conversations", "conversation-search-dialog"],
@@ -305,22 +306,22 @@ const assert = require("node:assert/strict"),
     assert.equal(await page.locator(".conversation-search-result").count(), 1);
     assert.equal(
       await page.locator("#history .conversation-row").count(),
-      34,
+      35,
       "modal search must not filter sidebar",
     );
     await page.fill("#conversation-search", "nonexistent");
     assert.equal(await page.locator(".conversation-search-result").count(), 0);
     assert.match(
       await page.locator("#search-results").innerText(),
-      /No conversation found/,
+      /No run, plan step, or loaded file matched/,
     );
     await page.click("#search-clear");
     assert.equal(await page.locator(".conversation-search-result").count(), 35);
     await page.fill("#conversation-search", "qwen-local");
     assert.equal(
       await page.locator(".conversation-search-result").count(),
-      0,
-      "search matches titles only",
+      1,
+      "unified search also matches the run model",
     );
     await page.fill("#conversation-search", "Naïve");
     await page.locator(".conversation-search-result").click();
@@ -382,6 +383,8 @@ const assert = require("node:assert/strict"),
       .locator("#conversation-search-dialog")
       .waitFor({ state: "hidden" });
     await page.setViewportSize({ width: 1280, height: 900 });
+    if (!(await page.locator("#project-tree").evaluate((el) => el.open)))
+      await page.locator("#project-tree > summary").click();
     await page.click("#add-project");
     await page.locator("#project-dialog").waitFor({ state: "visible" });
     await page.fill("#project-name", "New project");
@@ -457,7 +460,7 @@ const assert = require("node:assert/strict"),
     );
     await page
       .locator("#history .conversation-row")
-      .first()
+      .filter({ has: page.locator(".conversation-title").filter({ hasText: /^Conversation 0$/ }) })
       .locator(":scope > button")
       .click();
     let opened = false;

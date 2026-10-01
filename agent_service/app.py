@@ -15,10 +15,13 @@ from tail_ui import StaticGZipMiddleware
 from .conversation_context import context_overflow  # noqa: F401  (re-exported)
 from .errors import APIError
 from .routes import LimitedStream  # noqa: F401  (re-exported)
+from .routes import activity as activity_routes
 from .routes import conversations as conversation_routes
 from .routes import files as file_routes
+from .routes import effects as effect_routes
 from .routes import models as model_routes
 from .routes import projects as project_routes
+from .routes import spans as span_routes
 from .routes import system as system_routes
 from .routes.projects import project_git  # noqa: F401  (re-exported)
 from .services.conversation_service import ConversationService
@@ -70,6 +73,7 @@ def create_app(config, runtime_path=None):
                 await worker
             except asyncio.CancelledError:
                 pass
+            await service.effects.close()
             service.db.close()
 
     app = Starlette(
@@ -79,11 +83,15 @@ def create_app(config, runtime_path=None):
             *file_routes.ROUTES,
             *model_routes.ROUTES,
             *conversation_routes.ROUTES,
+            *activity_routes.ROUTES,
+            *span_routes.ROUTES,
+            *effect_routes.ROUTES,
         ],
         lifespan=lifespan,
     )
     app.add_middleware(
-        StaticGZipMiddleware, paths=("/", "/ui.js", "/ui.css", "/vendor/markdown-it.min.js")
+        StaticGZipMiddleware,
+        paths=("/", "/ui.js", "/run-console.js", "/tour.js", "/ui.css", "/tour.css", "/vendor/markdown-it.min.js"),
     )
     app.state.service = service
     return app

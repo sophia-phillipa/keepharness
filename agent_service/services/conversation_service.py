@@ -11,6 +11,7 @@ import shutil
 import sys
 import time
 import uuid
+from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -24,11 +25,13 @@ from .. import (
     approval_policy,
     conversation_context,
     deployment,
+    invocations,
     maestro,
     resources,
     tools,
     workspaces,
 )
+from ..approval_sessions import SESSION_COOKIE, initialize_session_database, session_identity
 from ..config import (
     EXECUTION_MODES,
     KINDS,
@@ -47,7 +50,12 @@ from ..persistence.repositories import (
     MessageRepository,
     ProjectRepository,
 )
+from ..work_items import invocation_reference, validate_reference
 from . import queue_worker
+from .activity_service import summarize_activity
+from .budgets import timeout_seconds
+from .effect_service import EffectService
+from .gate_service import GateService
 from .project_service import ProjectService
 
 logger = logging.getLogger(__name__)
@@ -100,6 +108,7 @@ class ConversationService:
         self.config = config
         self.root = Path(config["state_dir"])
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        initialize_session_database(config)
         self.db = connect(self.root)
         migrate(self.db)
         self.conversation_repository = ConversationRepository(self.db)
@@ -114,6 +123,7 @@ class ConversationService:
             config["projects"].update(self.project_repository.registered())
             self.share_projects()
         self.approvals = {}
+        self.approval_expirations = {}
         self.active = None
         self.task = None
         self.wake = asyncio.Event()
@@ -134,6 +144,13 @@ class ConversationService:
         self.config_reload_error = None
         self.cancellation_reasons = {}
         self.active_executors = {}
+        self.job_tasks = {}
+        self.runtime_budgets = {}
+        self.provider_slots = {}
+        self.provider_inflight = {}
+        self.gates = GateService(self)
+        self.gates.invalidate_pending()
+        self.effects = EffectService(self)
         for row in self.conversation_repository.running():
             self.finish(row["id"], "interrupted", {"error": "service_restarted", "metrics": None})
 
@@ -175,6 +192,9 @@ class ConversationService:
                 affected.append(dict(row))
         self.config.clear()
         self.config.update(candidate)
+        for condition in self.provider_slots.values():
+            async with condition:
+                condition.notify_all()
         # Grants are evaluated at execution time; remembered approvals cannot survive
         # a changed provider/model permission policy.
         affected_scopes = changed_scopes | {
@@ -202,12 +222,20 @@ class ConversationService:
             )
             if row["state"] == "queued":
                 self.finish(row["id"], "cancelled", {"error": reason, "metrics": None})
-            elif row["id"] == self.active and self.task:
+            elif row["state"] == "running":
                 self.cancellation_reasons[row["id"]] = reason
-                self.task.cancel()
+                queue_worker.cancel_owned(self, row)
         self.wake.set()
 
     def event(self, job, kind, data):
+        if isinstance(data, dict):
+            data = {
+                "schema_version": 1,
+                "execution_id": job,
+                "attempt": 1,
+                "parent_execution_id": None,
+                **data,
+            }
         if kind == "quota_update" and data.get("provider") == "claude":
             row = self.conversation_repository.owner(job)
             if row:
@@ -220,9 +248,10 @@ class ConversationService:
     def finish(self, job, state, result):
         with self.db:
             self.conversation_repository.set_result(job, state, encoded(result))
-            self.event(job, state, result)
+            self.event(job, state, {**result, "outcome": state})
 
     def identity(self, request):
+        request.state.approval_session_owner = None
         origin = request.headers.get("origin")
         if origin and origin not in self.config.get("origins", []):
             raise APIError("origin_denied", 403)
@@ -236,6 +265,13 @@ class ConversationService:
         )
         if cross_site and not navigation:
             raise APIError("origin_denied", 403)
+        session_owner = None
+        if request.cookies.get(SESSION_COOKIE):
+            self.limit(("public", "session"), 240, "session_rate_limit")
+            session_owner = session_identity(request, self.config)
+        if session_owner is not None:
+            request.state.approval_session_owner = session_owner
+            return self.throttle(session_owner, self.config["clients"][session_owner], request)
         auth = request.headers.get("authorization", "")
         if not auth and request.cookies.get("harness_token"):
             auth = "Bearer " + request.cookies["harness_token"]
@@ -696,11 +732,139 @@ class ConversationService:
                 409 if str(error) in ("resource_changed", "resource_unavailable") else 422,
             ) from None
 
+    def normalize_invocations(self, identity, data):
+        """Resolve every resource before admitting a portable invocation."""
+        try:
+            explicit = data.get("invocations")
+            supplied_selections = bool(data.get("resource_selections"))
+            if (
+                data.get("parent_job_id")
+                and not data.get("release_persona")
+                and (explicit or supplied_selections)
+            ):
+                previous = json.loads(self.job(identity, data["parent_job_id"])["payload"])
+                persona = previous.get("invocations", [])
+                if len(persona) == 1 and persona[0]["mode"] == "conversational":
+                    raise invocations.InvocationError("active_persona_resource_conflict")
+            if explicit is not None:
+                if not isinstance(explicit, list) or not all(
+                    isinstance(value, dict) for value in explicit
+                ):
+                    raise invocations.InvocationError("invalid_invocation")
+                values = invocations.validate_chain(
+                    [invocations.Invocation(**value) for value in explicit]
+                )
+            else:
+                values = None
+            if values and not data.get("resource_selections"):
+                catalog = self.resource_catalog(
+                    identity,
+                    data["project_id"],
+                    data["backend"],
+                    data.get("model"),
+                    data.get("execution_mode"),
+                )
+                found = {item["resource_id"]: item for item in catalog["items"]}
+                refs = []
+                parts = []
+                for value in values:
+                    item = found.get(value.resource_id)
+                    if not item or not item["selectable"] or item["kind"] != value.kind:
+                        raise invocations.InvocationError("resource_unavailable")
+                    if value.mode != item.get("mode", "inline"):
+                        raise invocations.InvocationError("invalid_invocation_mode")
+                    token = "/" + item["name"]
+                    refs.append({"id": item["id"], "revision": item["revision"], "token": token})
+                    parts.append(token + " " + value.args)
+                data["resource_selections"] = refs
+                data["prompt"] = "\n".join(parts) + (
+                    "\n" + data["prompt"] if data.get("prompt") else ""
+                )
+            elif (
+                not data.get("resource_selections")
+                and data.get("parent_job_id")
+                and not data.get("release_persona")
+            ):
+                previous = json.loads(self.job(identity, data["parent_job_id"])["payload"])
+                persona = previous.get("invocations", [])
+                if len(persona) == 1 and persona[0]["mode"] == "conversational":
+                    data["resource_selections"] = previous.get("resource_selections", [])
+                    if data["resource_selections"]:
+                        data["prompt"] = (
+                            data["resource_selections"][0]["token"] + " " + data.get("prompt", "")
+                        )
+            selected = self.selected_resources(data)
+            normalized = invocations.normalize_chips(
+                data.get("prompt", ""), data.get("resource_selections", []), selected
+            )
+            if values is not None:
+                if [(value.kind, value.resource_id, value.mode) for value in values] != [
+                    (value.kind, value.resource_id, value.mode) for value in normalized
+                ]:
+                    raise invocations.InvocationError("invocation_selection_mismatch")
+                if any(
+                    value.requested_backend and value.requested_backend != actual.requested_backend
+                    for value, actual in zip(values, normalized)
+                ):
+                    raise invocations.InvocationError("invocation_selection_mismatch")
+                if supplied_selections and any(
+                    value.args != actual.args for value, actual in zip(values, normalized)
+                ):
+                    raise invocations.InvocationError("invocation_selection_mismatch")
+                normalized = values
+            if normalized:
+                data["invocations"] = [value.to_dict() for value in normalized]
+                if len(normalized) > 1:
+                    maestro.declared_plan(self.config, data, selected)
+            return selected
+        except (invocations.InvocationError, TypeError, tools.ToolError) as error:
+            raise APIError(
+                str(error) if not isinstance(error, TypeError) else "invalid_invocation", 422
+            ) from None
+
+    def resolve_work_item(self, identity, data, parent=None):
+        project = self.project(identity, data.get("project_id"))
+        if parent is None and data.get("parent_job_id"):
+            parent = self.job(identity, data["parent_job_id"])
+        if parent is not None and (
+            parent["project"] != data["project_id"] or parent["owner"] != identity[0]
+        ):
+            raise APIError("invalid_parent_job")
+        if "work_item" in data:
+            return validate_reference(data["work_item"])
+        reference = invocation_reference(self.config, project, data)
+        return reference if reference is not None else parent["work_item"] if parent else None
+
+    def tag_work_item(self, identity, job, value):
+        row = self.job(identity, job)
+        reference = validate_reference(value)
+        with self.db:
+            self.conversation_repository.set_work_item(job, reference)
+            payload = json.loads(row["payload"])
+            payload["work_item"] = reference
+            self.conversation_repository.set_payload(job, encoded(payload))
+            self.event(job, "work_item_tagged", {"work_item": reference})
+        return {"job_id": job, "project_id": row["project"], "work_item": reference}
+
+    def activity(self, identity, project_id=None, work_item=None):
+        return summarize_activity(self, identity, project_id, work_item)
+
     def submit(self, identity, data, idem=None):
         data = dict(data)
         if data.get("project_id") in self.deleting_project_folders:
             raise APIError("project_folder_busy", 409)
-        if any(key in data for key in ("_maestro_stage", "_planning_only")):
+        if any(
+            key in data
+            for key in (
+                "_maestro_stage",
+                "_planning_only",
+                "_invocation_context",
+                "execution_parent_id",
+                "_execution_id",
+                "_parent_execution_id",
+                "_attempt",
+            )
+        ):
             raise APIError("invalid_internal_field")
         if "access_mode" not in data and data.get("parent_job_id"):
             data["access_mode"] = json.loads(
@@ -717,6 +881,7 @@ class ConversationService:
         decision = self.assess(identity, data)
         if decision["decision"] != "accept":
             raise APIError(decision.get("reason", "unsupported"), 422)
+        self.normalize_invocations(identity, data)
         project = data["project_id"]
         if len(encoded(data).encode()) > 150000:
             raise APIError("payload_limit", 413)
@@ -734,7 +899,6 @@ class ConversationService:
             raise APIError("invalid_max_tokens")
         if idem is not None and (not isinstance(idem, str) or not 1 <= len(idem) <= 128):
             raise APIError("invalid_idempotency_key")
-        payload = encoded(data)
         digest = hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
         old = (
             self.conversation_repository.by_idempotency_key(identity[0], project, idem)
@@ -745,6 +909,10 @@ class ConversationService:
             if old["digest"] != digest:
                 raise APIError("idempotency_conflict", 409)
             return {"job_id": old["id"], "reused": True}
+        work_item = self.resolve_work_item(identity, data)
+        if work_item is not None or "work_item" in data:
+            data["work_item"] = work_item
+        payload = encoded(data)
         self.selected_resources(data)
         legacy_root = None
         if data.get("parent_job_id"):
@@ -778,7 +946,16 @@ class ConversationService:
                 root_data["execution_mode"] = data["execution_mode"]
                 self.conversation_repository.set_payload(root_id, encoded(root_data))
             self.conversation_repository.insert(
-                job, project, identity[0], "queued", time.time(), payload, None, idem, digest
+                job,
+                project,
+                identity[0],
+                "queued",
+                time.time(),
+                payload,
+                None,
+                idem,
+                digest,
+                work_item=work_item,
             )
             self.event(job, "queued", {})
         self.wake.set()
@@ -927,11 +1104,70 @@ class ConversationService:
     async def infer(self, row, data):
         plan = await self._prepare_inference(row, data)
         backend = plan.backend
-        self.active_executors[row["id"]] = (backend, data.get("model"))
         if backend not in ("codex", "claude", "gemini", "local", "deepseek"):
             raise APIError("backend_unavailable")
-        result = await self._run_inference(plan)
-        return self._finalize_inference(plan, result)
+        # The singleton queue remains sequential. This guard also covers direct
+        # inference calls and every Maestro planner/step dispatch.
+        condition = self.provider_slots.setdefault(backend, asyncio.Condition())
+        previous_task = self.job_tasks.get(row["id"])
+        self.job_tasks[row["id"]] = asyncio.current_task()
+        try:
+            async with condition:
+                while True:
+                    maximum = (
+                        self.config.get("services", {}).get(backend, {}).get("max_concurrent", 1)
+                    )
+                    if type(maximum) is not int or maximum < 1:
+                        raise APIError("invalid_provider_capacity")
+                    if self.provider_inflight.get(backend, 0) < maximum:
+                        self.provider_inflight[backend] = self.provider_inflight.get(backend, 0) + 1
+                        break
+                    await condition.wait()
+            self.active_executors[row["id"]] = (backend, data.get("model"))
+            try:
+                invocation = data.get("invocations", [])
+                attribution = None
+                if len(invocation) == 1 and not data.get("_maestro_stage"):
+                    resource = next(
+                        (
+                            item
+                            for item in plan.selected_resources
+                            if item.get("resource_id") == invocation[0]["resource_id"]
+                        ),
+                        None,
+                    )
+                    if resource:
+                        attribution = {
+                            "invocation": invocation[0],
+                            "role": resource["name"],
+                            "backend": backend,
+                            "model": data.get("model"),
+                            "effort": data.get("effort"),
+                        }
+                        self.event(row["id"], "invocation_started", attribution)
+                result = await self._run_inference(plan)
+                if attribution:
+                    self.event(
+                        row["id"],
+                        "invocation_completed",
+                        {
+                            **attribution,
+                            "outcome": "failed"
+                            if result.get("error") or result.get("incomplete")
+                            else "done",
+                        },
+                    )
+                return self._finalize_inference(plan, result)
+            finally:
+                self.active_executors.pop(row["id"], None)
+                async with condition:
+                    self.provider_inflight[backend] -= 1
+                    condition.notify_all()
+        finally:
+            if previous_task is None:
+                self.job_tasks.pop(row["id"], None)
+            else:
+                self.job_tasks[row["id"]] = previous_task
 
     async def _prepare_inference(self, row, data):
         """Resolve sources, history and the prompt; every admission error is raised here."""
@@ -1030,6 +1266,23 @@ class ConversationService:
         context = encoded(sources)
         if len(context) > 100000:
             raise APIError("source_context_limit")
+        native_commands = [item for item in selected_resources if item.get("native_command")]
+        if native_commands and (
+            turns
+            or sources
+            or attachment_notice
+            or data.get("_invocation_context")
+            or len(selected_resources) != 1
+            or not data.get("prompt", "").startswith(
+                native_commands[0].get("_token", "/" + native_commands[0]["name"])
+            )
+        ):
+            selected_resources = [
+                {**item, "native_command": False, "_inline_fallback": True}
+                if item.get("native_command")
+                else item
+                for item in selected_resources
+            ]
         prompt = resources.prepare_prompt(data.get("prompt", ""), selected_resources)
         if attachment_notice:
             prompt += (
@@ -1125,6 +1378,8 @@ class ConversationService:
                 "The previous execution was interrupted. Check the state of tools and files before repeating actions; resume the task from the preserved session.\n"
                 + prompt
             )
+        if data.get("_invocation_context"):
+            prompt = data["_invocation_context"] + "\nCURRENT REQUEST:\n" + prompt
         if len(prompt) + len(context) > 150000:
             raise APIError("conversation_context_limit")
         if not prompt.strip():
@@ -1148,6 +1403,24 @@ class ConversationService:
         )
 
     async def _run_inference(self, plan):
+        from ..effect_transport import effect_transport, transport_support
+
+        async with effect_transport(
+            self,
+            plan.row["id"],
+            plan.backend,
+            plan.execution_mode,
+            execution_id=plan.data.get("_execution_id", plan.row["id"]),
+        ) as capability:
+            if capability is None:
+                self.event(
+                    plan.row["id"],
+                    "publication_policy",
+                    transport_support(plan.backend, plan.execution_mode),
+                )
+            return await self._run_transport_inference(plan, capability)
+
+    async def _run_transport_inference(self, plan, capability):
         """Run the prepared turn on the native or scoped transport of its provider."""
         row, data, backend = plan.row, plan.data, plan.backend
         execution_mode, native_session = plan.execution_mode, plan.native_session
@@ -1160,6 +1433,17 @@ class ConversationService:
             + ". Do not publish to a remote Git. Run tests only through registered commands. Cite the sources; do not invent execution.\n"
             + with_sources(prompt, context)
         )
+        for item in plan.selected_resources:
+            if item.get("_inline_fallback"):
+                self.event(
+                    row["id"],
+                    "resource_fallback",
+                    {
+                        "resource_id": item["resource_id"],
+                        "mode": "inline",
+                        "reason": "command_with_context",
+                    },
+                )
         before = await self.quota(True) if backend == "codex" else None
         if before is not None:
             self.event(row["id"], "quota_before", before)
@@ -1170,10 +1454,17 @@ class ConversationService:
                 conversation_context.save_cursor(
                     native_session, row["id"], value, context_transport_mode, started=True
                 )
-            if data.get("_maestro_stage"):
+            if isinstance(value, dict) and data.get("_maestro_stage"):
                 value = {**value, "maestro_stage": data["_maestro_stage"]}
+            if isinstance(value, dict) and data.get("_execution_id"):
+                value = {
+                    **value,
+                    "execution_id": data["_execution_id"],
+                    "attempt": data.get("_attempt", 1),
+                    "parent_execution_id": data.get("_parent_execution_id", row["id"]),
+                }
             self.event(row["id"], kind, value)
-            if kind == "answer_delta":
+            if kind == "answer_delta" and not value.get("parent_tool_use_id"):
                 live["answer"] += value.get("text", "")
             if kind in ("reasoning_delta", "reasoning_summary"):
                 live["thinking"] += value.get("text", "")
@@ -1189,6 +1480,23 @@ class ConversationService:
         if attachment_notice:
             progress("answer_delta", {"text": attachment_notice})
         project_config, backend_config, permissions = self._project_config(plan)
+        if capability:
+            backend_config = {**backend_config, "_effect_capability": capability}
+
+            def publication_policy():
+                progress(
+                    "publication_policy",
+                    {
+                        "supported": True,
+                        "enforcement": capability["enforcement"],
+                        "reason": "execution_scoped_mcp",
+                    },
+                )
+
+            if execution_mode == "scoped":
+                capability["_publication_policy"] = publication_policy
+            else:
+                publication_policy()
         # Local's adapter has a scoped bubblewrap contract despite using the
         # native Codex RPC helper underneath.
         if execution_mode == "native" or backend == "local":
@@ -1313,6 +1621,21 @@ class ConversationService:
         )
         mode = data.get("access_mode", "ask")
         permissions = approval_policy.effective_permissions(permissions, mode)
+        if backend == "claude":
+            permissions["delegate"] = project_config.get("permissions", {}).get("delegate") is True
+        if backend == "claude" and permissions.get("read") and plan.execution_mode == "native":
+            project_config["_rules"] = [
+                item
+                for item in resources.discover(
+                    self.config,
+                    row["project"],
+                    backend,
+                    data.get("model"),
+                    private=True,
+                    execution_mode=plan.execution_mode,
+                )["items"]
+                if item["kind"] == "rule" and item["scope"] in ("project", "catalog")
+            ]
         project_config["access_mode"] = mode
         project_config["_images"] = [
             {
@@ -1359,6 +1682,8 @@ class ConversationService:
         mode = data.get("access_mode", "ask")
 
         async def approve(kind, params):
+            if kind == "gate":
+                return await self.gates.ask(row["id"], params, progress)
             fingerprint = approval_policy.rule_key(kind, params, permissions)
             scope = (
                 row["owner"],
@@ -1372,6 +1697,7 @@ class ConversationService:
                 and mode != "read_only"
                 and self.conversation_repository.has_approval_rule(scope)
             ):
+                self.approval_expirations.pop(row["id"], None)
                 progress("approval_reused", {"scope": "conversation", "kind": kind})
                 return {"approved": True}
             if (
@@ -1381,6 +1707,7 @@ class ConversationService:
                 and permissions.get("shell")
                 and permissions.get("internet")
             ):
+                self.approval_expirations.pop(row["id"], None)
                 progress(
                     "approval_automatic",
                     {"scope": "configured_local_sandbox", "kind": kind},
@@ -1392,6 +1719,7 @@ class ConversationService:
                     backend == "local"
                     and approval_policy.full_approval_allowed(kind, params, permissions)
                 )
+                self.approval_expirations.pop(row["id"], None)
                 progress(
                     "approval_automatic" if approved else "approval_denied",
                     {"scope": "configured_permissions", "kind": kind},
@@ -1399,6 +1727,11 @@ class ConversationService:
                 return {"approved": approved}
             aid = uuid.uuid4().hex
             future = asyncio.get_running_loop().create_future()
+            wait_limit = timeout_seconds(self.config, "approval_timeout_seconds", 1800)
+            expiration_limit = self.config.get("approval_max_consecutive_expirations", 2)
+            if type(expiration_limit) is not int or expiration_limit < 1:
+                raise ValueError("invalid_approval_max_consecutive_expirations")
+            expired = False
             self.approvals[aid] = (row["id"], future)
             progress(
                 "approval_required",
@@ -1407,10 +1740,27 @@ class ConversationService:
                     "kind": kind,
                     "request": params,
                     "can_remember": bool(fingerprint) and mode != "read_only",
+                    "expires_at": time.time() + wait_limit,
                 },
             )
             try:
-                reply = await future
+                budget = self.runtime_budgets.get(row["id"])
+                with budget.human_wait() if budget is not None else nullcontext():
+                    try:
+                        reply = await asyncio.wait_for(future, wait_limit)
+                    except TimeoutError:
+                        expired = True
+                        progress("approval_expired", {"approval_id": aid})
+                        count = self.approval_expirations.get(row["id"], 0) + 1
+                        self.approval_expirations[row["id"]] = count
+                        if count >= expiration_limit:
+                            self.cancellation_reasons[row["id"]] = "approval_expiration_limit"
+                            task = self.job_tasks.get(row["id"])
+                            if task is not None and task is not asyncio.current_task():
+                                task.cancel()
+                            raise asyncio.CancelledError
+                        return {"approved": False, "reason": "approval_expired"}
+                self.approval_expirations.pop(row["id"], None)
                 if (
                     reply.get("approved")
                     and reply.get("scope") == "conversation"
@@ -1422,7 +1772,8 @@ class ConversationService:
                 return reply
             finally:
                 self.approvals.pop(aid, None)
-                progress("approval_resolved", {"approval_id": aid})
+                if not expired:
+                    progress("approval_resolved", {"approval_id": aid})
 
         return approve
 
@@ -1431,11 +1782,13 @@ class ConversationService:
         kind = data.get("kind", "infer")
         project = self.config["projects"][row["project"]]
         if kind == "infer":
-            result = (
-                await maestro.run(self, row, data)
-                if data.get("backend", "auto") == "maestro"
-                else await self.infer(row, data)
-            )
+            if len(data.get("invocations", [])) > 1:
+                declared = maestro.declared_plan(self.config, data, self.selected_resources(data))
+                result = await maestro.execute_plan(self, row, data, declared)
+            elif data.get("backend", "auto") == "maestro":
+                result = await maestro.run(self, row, data)
+            else:
+                result = await self.infer(row, data)
             if data.get("workspace_id"):
                 root = self.workspace_root(data["workspace_id"])
                 output = root / "_harness_results" / row["id"]

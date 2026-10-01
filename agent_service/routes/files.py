@@ -5,6 +5,7 @@ import hashlib
 import json
 import re
 import shutil
+import subprocess
 import time
 import uuid
 from pathlib import Path
@@ -132,7 +133,62 @@ async def workspace(request, service, identity):
     return JSONResponse({"workspace_id": wid, **result})
 
 
+def project_file_status(root, entries):
+    """Read Git state for this page only; do not refresh the index or run fsmonitor."""
+    paths = [entry["path"] for entry in entries if entry["type"] == "file"]
+    if not paths:
+        return
+    try:
+        result = subprocess.run(
+            ["git", "--no-optional-locks", "--literal-pathspecs", "-c", "core.fsmonitor=false", "-C", str(root),
+             "status", "--porcelain=v1", "-z", "--untracked-files=normal", "--",
+             *paths],
+            capture_output=True, timeout=2,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return
+    if result.returncode:
+        return
+    states = {}
+    records = iter(result.stdout.decode("utf-8", errors="replace").split("\0"))
+    for record in records:
+        if len(record) < 4:
+            continue
+        code, path = record[:2], record[3:]
+        states[path] = next((value for value in "UADRM?" if value in code), None)
+        if "R" in code or "C" in code:
+            next(records, None)
+    for entry in entries:
+        if states.get(entry["path"]):
+            entry["status"] = states[entry["path"]]
+
+
+async def authorized_project_files(request, service, identity):
+    params = request.query_params
+    project = params.get("project_id")
+    spec = service.project(identity, project)
+    roots = [{"id": key, "path": path, "label": path}
+             for key, path in workspaces.project_roots(spec)]
+    result = {"roots": roots, "entries": [], "path": "", "limited": False,
+              "can_authorize": bool(service.config.get("shared_projects")) and project != "sem-projeto"}
+    if not roots:
+        return JSONResponse(result)
+    if not service.can_read_project(project):
+        raise APIError("read_denied", 403)
+    root_id = params.get("root_id", "root")
+    root = workspaces.project_root(spec, root_id)
+    try:
+        start, limit = int(params.get("start", 1)), int(params.get("limit", 100))
+    except ValueError:
+        raise APIError("invalid_range")
+    listing = await asyncio.to_thread(workspaces.browse_project, root, params.get("path", ""), start, limit)
+    await asyncio.to_thread(project_file_status, root, listing["entries"])
+    return JSONResponse({**result, **listing, "root_id": root_id}, headers={"Cache-Control": "no-store"})
+
+
 async def project_files(request, service, identity):
+    if request.query_params.get("view") == "authorized":
+        return await authorized_project_files(request, service, identity)
     if request.query_params.get("view") == "tree":
         roots = workspaces.visible_system_roots()
         root_id = request.query_params.get("root_id", "home")
@@ -210,10 +266,16 @@ async def attach_project_files(request, service, identity):
         maximum = int(request.query_params.get("max_files", workspaces.MAX_ATTACHMENTS))
     except ValueError:
         raise APIError("invalid_selection")
-    root = workspaces.system_root(data.get("root_id", "system"))
-    selected, skipped = await asyncio.to_thread(
-        workspaces.selected_system_files, root, data.get("paths"), maximum
-    )
+    if data.get("project_root_id") is not None:
+        root = workspaces.project_root(service.project(identity, project), data["project_root_id"])
+        selected, skipped = await asyncio.to_thread(
+            workspaces.selected_project_files, root, data.get("paths"), maximum
+        )
+    else:
+        root = workspaces.system_root(data.get("root_id", "system"))
+        selected, skipped = await asyncio.to_thread(
+            workspaces.selected_system_files, root, data.get("paths"), maximum
+        )
     backend = request.query_params.get("backend", data.get("backend"))
     model = request.query_params.get("model", data.get("model"))
     execution_mode = data.get("execution_mode") or request.query_params.get("execution_mode")

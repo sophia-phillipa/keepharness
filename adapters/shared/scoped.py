@@ -2,7 +2,10 @@
 
 import difflib
 import json
+import os
+import secrets
 import shutil
+import stat
 import tempfile
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -22,6 +25,69 @@ class ScopedWorkspace:
 
 
 @contextmanager
+def scoped_home_directory(home):
+    """Pin every directory component; never follow worker-planted symlinks."""
+    fd = os.open("/", os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        for part in Path(home).absolute().parts[1:]:
+            if part == "..":
+                raise ToolError("unsafe_scoped_home")
+            try:
+                os.mkdir(part, mode=0o700, dir_fd=fd)
+            except FileExistsError:
+                pass
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            os.close(fd)
+            fd = child
+        yield fd
+    except OSError as exc:
+        raise ToolError("unsafe_scoped_home") from exc
+    finally:
+        os.close(fd)
+
+
+def scoped_home_read(home, name):
+    with scoped_home_directory(home) as directory:
+        try:
+            fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
+        except FileNotFoundError:
+            return None
+        with os.fdopen(fd, "r") as stream:
+            metadata = os.fstat(stream.fileno())
+            if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+                raise ToolError("unsafe_scoped_home")
+            return stream.read()
+
+
+def scoped_home_write(home, name, content):
+    """Replace a regular entry without truncating links or reopening a raced path."""
+    with scoped_home_directory(home) as directory:
+        try:
+            existing = os.stat(name, dir_fd=directory, follow_symlinks=False)
+        except FileNotFoundError:
+            pass
+        else:
+            if not stat.S_ISREG(existing.st_mode) or existing.st_nlink != 1:
+                raise ToolError("unsafe_scoped_home")
+        temporary = ".harness-" + secrets.token_hex(16)
+        fd = os.open(
+            temporary,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+            0o600,
+            dir_fd=directory,
+        )
+        try:
+            with os.fdopen(fd, "wb") as stream:
+                stream.write(content if isinstance(content, bytes) else content.encode())
+            os.replace(temporary, name, src_dir_fd=directory, dst_dir_fd=directory)
+        finally:
+            try:
+                os.unlink(temporary, dir_fd=directory)
+            except FileNotFoundError:
+                pass
+
+
+@contextmanager
 def prepare_scoped(config, project, staged, session_dir, provider, auth_name):
     binary = Path(config["binary"]).resolve()
     auth = Path(config["auth_file"])
@@ -34,7 +100,7 @@ def prepare_scoped(config, project, staged, session_dir, provider, auth_name):
         bridge = base / "bridge"
         if session_dir:
             home = Path(session_dir)
-        for p in (work, home, bridge):
+        for p in (work, bridge):
             p.mkdir(parents=True, exist_ok=True, mode=0o700)
         roots = {}
         if project and project.get("root"):
@@ -65,9 +131,7 @@ def prepare_scoped(config, project, staged, session_dir, provider, auth_name):
             dest = work / name
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_text(content)
-        auth_target = home / auth_name
-        shutil.copyfile(auth, auth_target)
-        auth_target.chmod(0o600)
+        scoped_home_write(home, auth_name, auth.read_bytes())
         for name in ("project_mcp.py", "tools.py", "errors.py"):
             shutil.copyfile(Path(agent_service.__file__).with_name(name), bridge / name)
         (bridge / "project.json").write_text(
@@ -82,9 +146,7 @@ def prepare_scoped(config, project, staged, session_dir, provider, auth_name):
             )
         )
         runtime = Path(config["python"]).parent.parent
-        (home / "config.toml").write_text(
-            '[mcp_servers.selected_project]\ndefault_tools_approval_mode = "approve"\ncommand = "/venv/bin/python"\nargs = ["/bridge/project_mcp.py"]\n'
-        )
+        home_config = '[mcp_servers.selected_project]\ndefault_tools_approval_mode = "approve"\ncommand = "/venv/bin/python"\nargs = ["/bridge/project_mcp.py"]\n'
         command = [
             "bwrap",
             "--unshare-all",
@@ -137,6 +199,27 @@ def prepare_scoped(config, project, staged, session_dir, provider, auth_name):
             "--chdir",
             "/work",
         ]
+        if config.get("_effect_capability"):
+            from agent_service.effect_transport import server_spec
+
+            capability = config["_effect_capability"]
+            shutil.copyfile(
+                Path(agent_service.__file__).with_name("effect_mcp.py"), bridge / "effect_mcp.py"
+            )
+            with open(
+                bridge / "effect.json", "x", opener=lambda path, flags: os.open(path, flags, 0o600)
+            ) as stream:
+                json.dump({"socket": "/bridge/effect.sock", "token": capability["token"]}, stream)
+            (bridge / "effect.sock").touch(mode=0o600)
+            command += ["--ro-bind", capability["socket"], "/bridge/effect.sock"]
+            spec = server_spec(capability, scoped=True)
+            home_config += (
+                "\n[mcp_servers.harness_effects]\ncommand = "
+                + json.dumps(spec["command"])
+                + "\nargs = "
+                + json.dumps(spec["args"])
+                + "\n"
+            )
         code_host = binary.with_name("codex-code-mode-host")
         if code_host.exists():
             command += ["--ro-bind", str(code_host), "/codex-code-mode-host"]
@@ -151,6 +234,12 @@ def prepare_scoped(config, project, staged, session_dir, provider, auth_name):
         ):
             if Path(source).exists():
                 command += ["--ro-bind", source, source]
+        scoped_home_write(home, "config.toml", home_config)
+        capability = config.get("_effect_capability")
+        if capability and capability.get("_validate_scoped"):
+            capability["enforcement"] = capability["_validate_scoped"](command, auth)
+            if capability.get("_publication_policy"):
+                capability["_publication_policy"]()
         yield ScopedWorkspace(command, home, work, bridge, roots)
 
 

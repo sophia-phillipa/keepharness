@@ -6,6 +6,7 @@ import json
 
 from starlette.responses import JSONResponse, Response
 
+from ..approval_sessions import require_approval_session
 from ..config import TERMINAL
 from ..errors import APIError
 from ..persistence.db import encoded
@@ -13,7 +14,11 @@ from . import LimitedStream, api_route, body
 
 
 async def approval(request, service, identity):
+    require_approval_session(request, service.config, identity)
     aid = request.path_params["approval"]
+    if service.gates.repository.get(aid):
+        data = await body(request)
+        return JSONResponse(service.gates.resolve(aid, identity, data))
     pending = service.approvals.get(aid)
     if not pending:
         raise APIError("approval_expired", 404)
@@ -21,6 +26,8 @@ async def approval(request, service, identity):
     if row["owner"] != identity[0]:
         raise APIError("approval_owner_denied", 403)
     data = await body(request)
+    if service.approvals.get(aid) is not pending or pending[1].cancelled():
+        raise APIError("approval_expired", 404)
     scope = data.get("scope", "once")
     if scope not in ("once", "conversation"):
         raise APIError("invalid_approval_scope")
@@ -73,6 +80,19 @@ async def conversations(request, service, identity):
     )
 
 
+def gate_records(service, job_id):
+    return [
+        {
+            **json.loads(gate["spec"]),
+            "state": gate["state"],
+            "choice": json.loads(gate["choice"]) if gate["choice"] else None,
+            "resolved_by": gate["resolved_by"],
+            "at": gate["resolved_at"],
+        }
+        for gate in service.gates.repository.for_job(job_id)
+    ]
+
+
 async def conversation(request, service, identity):
     cid = request.path_params["conversation"]
     rows = service.conversation(identity, cid)
@@ -100,6 +120,7 @@ async def conversation(request, service, identity):
                     "project": r["project"],
                     "state": r["state"],
                     "attachments": service.message_attachments(r),
+                    "gates": gate_records(service, r["id"]),
                     "request": json.loads(r["payload"]),
                     "result": json.loads(r["result"] or "{}"),
                 }
@@ -142,6 +163,7 @@ async def submit_job(request, service, identity):
 
 async def job(request, service, identity):
     row = service.job(identity, request.path_params["job"])
+    row["gates"] = gate_records(service, row["id"])
     row["attachments"] = service.message_attachments(row)
     public_request = json.loads(row["payload"])
     row["request"] = {
@@ -153,6 +175,9 @@ async def job(request, service, identity):
             "effort",
             "parent_job_id",
             "task_label",
+            "invocations",
+            "resource_selections",
+            "release_persona",
             "kind",
             "access_mode",
             "execution_mode",
@@ -176,6 +201,33 @@ async def job_events(request, service, identity):
         raise APIError("invalid_event_id")
     if after < 0:
         raise APIError("invalid_event_id")
+    if request.query_params.get("format") == "json":
+        try:
+            limit = int(request.query_params.get("limit", "200"))
+        except ValueError:
+            raise APIError("invalid_event_limit")
+        if not 1 <= limit <= 200:
+            raise APIError("invalid_event_limit")
+        rows = service.message_repository.events_after(job, after)[:limit]
+        next_after = rows[-1]["id"] if rows else after
+        has_more = bool(service.message_repository.events_after(job, next_after)) if rows else False
+        return JSONResponse(
+            {
+                "events": [
+                    {
+                        "id": event["id"],
+                        "job_id": job,
+                        "timestamp": event["time"],
+                        "type": event["type"],
+                        "data": json.loads(event["data"]),
+                    }
+                    for event in rows
+                ],
+                "next_after": next_after,
+                "has_more": has_more,
+            },
+            headers={"Cache-Control": "no-store"},
+        )
     if service.streams.get(identity[0], 0) >= 4:
         raise APIError("stream_limit", 429, 5)
     service.streams[identity[0]] = service.streams.get(identity[0], 0) + 1

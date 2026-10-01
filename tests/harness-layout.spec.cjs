@@ -27,6 +27,11 @@ const path = require("node:path");
         let data = {};
         if (p === "/v1/projects")
           data = { projects: ["sem-projeto"], details: {} };
+        if (p === "/v1/activity")
+          data = { jobs: [], needs_you: [], counts: {}, providers: [{
+            backend: "codex", quota: { available: true,
+              rateLimits: { primary: { usedPercent: 21.4 } } },
+          }] };
         if (p === "/v1/usage")
           data =
             new URL(route.request().url()).searchParams.get("backend") ===
@@ -158,16 +163,17 @@ const path = require("node:path");
       });
     };
     await page.route(origin + "/**", serve);
+    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.10.1"));
     await page.goto(origin);
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     assert.equal(await page.locator("#task-section,#task-label").count(), 0);
     assert.equal(
       await page.locator("#conversation-search").getAttribute("placeholder"),
-      "Type a title…",
+      "Type a run, plan step, or loaded file…",
     );
     assert.equal(
       Math.round((await page.locator("#sidebar").boundingBox()).width),
-      280,
+      300,
       "default conversation sidebar width",
     );
     await page.waitForFunction(
@@ -189,10 +195,10 @@ const path = require("node:path");
     await page.setViewportSize({ width: 1280, height: 950 });
     await page.evaluate(() => setPanelOpen(true, false));
     await page.waitForTimeout(100);
-    const narrowQuota = await page.locator("#quota-toggle").boundingBox();
+    const narrowQuota = await page.locator("#provider-quotas").boundingBox();
     assert(
-      narrowQuota.x >= 0 && narrowQuota.x + narrowQuota.width <= 1280,
-      "quota header stays inside viewport with both panels open",
+      narrowQuota.width > 0 && narrowQuota.x >= 0 && narrowQuota.x + narrowQuota.width <= 1280,
+      "visible provider quotas stay inside viewport with both panels open",
     );
     await page.screenshot({ path: "/tmp/tail-quota-both-panels.png" });
     await page.evaluate(() => setPanelOpen(false, false));
@@ -200,7 +206,7 @@ const path = require("node:path");
     await page.evaluate(() => setPanelOpen(true, false));
     assert.equal(
       Math.round((await page.locator("#activity-panel").boundingBox()).width),
-      400,
+      390,
       "default activity sidebar width",
     );
     await page.evaluate(() => setPanelOpen(false, false));
@@ -294,8 +300,8 @@ const path = require("node:path");
         }
       const send = layout.controls.at(-1);
       assert(
-        Math.abs(send.width - send.height) < 1,
-        "circular send proportions",
+        send.width >= send.height && send.height >= 28,
+        "Mock 4 send button retains a usable rectangular hit area",
       );
       assert.equal(await page.locator("#prompt").inputValue(), draft);
       return layout;
@@ -365,12 +371,12 @@ const path = require("node:path");
     await page.screenshot({ path: "/tmp/tail-panel-order-reversed-1280.png" });
     await page.setViewportSize({ width: 900, height: 950 });
     await page.waitForFunction(() =>
-      document.querySelector("#app-topbar #quota-toggle"),
+      document.querySelector("#app-topbar #provider-quotas"),
     );
     assert.equal(
-      await page.locator("#app-topbar #quota-toggle").count(),
+      await page.locator("#app-topbar #provider-quotas").count(),
       1,
-      "quota remains pinned to the visible app bar while drawer overlays chat",
+      "provider quota region remains in the app bar while drawer overlays chat",
     );
     const reversed900 = await page.evaluate(() => ({
       sidebar: document.querySelector("#sidebar").getBoundingClientRect().x,
@@ -387,9 +393,9 @@ const path = require("node:path");
     await page.screenshot({ path: "/tmp/tail-panel-order-reversed-900.png" });
     await page.evaluate(() => setPanelOpen(false, false));
     assert.equal(
-      await page.locator("main #quota-toggle").count(),
+      await page.locator("#app-topbar #provider-quotas").count(),
       1,
-      "quota returns to the conversation header when drawer closes",
+      "provider quota region remains in the app bar after the drawer closes",
     );
     await page.locator("#panel-order-reset").click();
     assert.equal(
@@ -651,6 +657,7 @@ const path = require("node:path");
       localStorage.setItem("activity-open", "0"),
     );
     await scaled.route(origin + "/**", serve);
+    await scaled.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.10.1"));
     await scaled.goto(origin);
     await scaled.locator("#startup-gate").waitFor({ state: "hidden" });
     if (await scaled.locator("#th-toast").isVisible())

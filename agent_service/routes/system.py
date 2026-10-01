@@ -2,18 +2,68 @@
 
 import hashlib
 import hmac
+from html import escape
 from pathlib import Path
+from urllib.parse import urlsplit
 
-from starlette.responses import FileResponse, JSONResponse, RedirectResponse, Response
+from starlette.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from starlette.routing import Route
 
 import adapters
 from tail_ui import asset_response, static_response
 
+from ..approval_sessions import SESSION_COOKIE, SESSION_SECONDS, consume_enrollment, revoke_session
 from ..config import PACKAGE_DIR, REPOSITORY_ROOT, VERSION_FILE
 from ..errors import APIError
 from ..persistence.db import encoded
 from . import api_route, body
+
+
+def secure_cookie(request, config):
+    """The browser may use TLS even when the trusted proxy forwards HTTP locally."""
+    browser_scheme = urlsplit(config.get("browser_url") or "").scheme
+    return request.url.scheme == "https" or browser_scheme == "https"
+
+
+async def approve_device(request, service, identity):
+    """A CLI-issued link requires a same-origin confirmation before redemption."""
+    headers = {
+        "Cache-Control": "no-store",
+        "Referrer-Policy": "no-referrer",
+        "Content-Security-Policy": "default-src 'none'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+        "X-Content-Type-Options": "nosniff",
+    }
+    nonce = request.query_params.get("nonce", "")
+    if not nonce or len(nonce) > 128:
+        raise APIError("approval_enrollment_invalid", 403)
+    if request.method == "GET":
+        return HTMLResponse(
+            '<!doctype html><html lang="en"><meta charset="utf-8">'
+            '<meta name="viewport" content="width=device-width, initial-scale=1">'
+            "<title>Enable human approvals</title><h1>Enable human approvals</h1>"
+            "<p>Continue only if you generated this link with the owner CLI. "
+            "This browser will be able to approve actions for that owner.</p>"
+            '<form method="post" action="/approve-device?nonce=' + escape(nonce, quote=True) + '">'
+            '<button type="submit">Enable approvals on this browser</button></form></html>',
+            headers=headers,
+        )
+    if (
+        request.headers.get("origin") not in service.config.get("origins", [])
+        or request.headers.get("sec-fetch-site") == "cross-site"
+    ):
+        raise APIError("origin_denied", 403)
+    service.limit(("public", "enrollment"), 20, "enrollment_rate_limit")
+    token = consume_enrollment(service.config, nonce)
+    response = RedirectResponse("/", status_code=303, headers=headers)
+    response.set_cookie(
+        SESSION_COOKIE,
+        token,
+        max_age=SESSION_SECONDS,
+        httponly=True,
+        samesite="strict",
+        secure=secure_cookie(request, service.config),
+    )
+    return response
 
 
 async def login(request, service, identity):
@@ -36,8 +86,19 @@ async def login(request, service, identity):
         token,
         httponly=True,
         samesite="strict",
-        secure=request.url.scheme == "https",
+        secure=secure_cookie(request, config),
     )
+    return response
+
+
+async def logout(request, service, identity):
+    if getattr(request.state, "approval_session_owner", None) == identity[0]:
+        revoke_session(service.config, request.cookies[SESSION_COOKIE])
+    response = JSONResponse({"authenticated": False})
+    for name in (SESSION_COOKIE, "harness_token"):
+        response.delete_cookie(
+            name, httponly=True, samesite="strict", secure=secure_cookie(request, service.config)
+        )
     return response
 
 
@@ -57,12 +118,17 @@ async def version(request, service, identity):
         PACKAGE_DIR / name
         for name in (
             "ui.js",
+            "run-console.js",
+            "tour.js",
             "ui.css",
+            "tour.css",
             "vendor/markdown-it.min.js",
             "index.html",
             "app.py",
             "config.py",
             "maestro.py",
+            "spans.py",
+            "work_items.py",
             "workspaces.py",
             "mcp_bridge.py",
             "VERSION",
@@ -113,7 +179,10 @@ async def ui(request):
     name = {
         "/vendor/markdown-it.min.js": "vendor/markdown-it.min.js",
         "/ui.js": "ui.js",
+        "/run-console.js": "run-console.js",
+        "/tour.js": "tour.js",
         "/ui.css": "ui.css",
+        "/tour.css": "tour.css",
         "/mcp_bridge.py": "mcp_bridge.py",
     }.get(request.url.path, "index.html")
     return static_response(
@@ -128,14 +197,19 @@ async def ui(request):
 
 
 ROUTES = [
+    api_route("/approve-device", approve_device, methods=["GET", "POST"], authenticated=False),
     api_route("/v1/login", login, methods=["POST"], authenticated=False),
+    api_route("/v1/logout", logout, methods=["POST"]),
     api_route("/.well-known/agent-capabilities.json", capabilities),
     api_route("/v1/version", version),
     Route("/guide", ui),
     Route("/", ui),
     Route("/vendor/markdown-it.min.js", ui),
     Route("/ui.js", ui),
+    Route("/run-console.js", ui),
+    Route("/tour.js", ui),
     Route("/ui.css", ui),
+    Route("/tour.css", ui),
     Route("/assets/{path:path}", ui),
     Route("/mcp_bridge.py", ui),
     Route("/setup-mcp.sh", ui),

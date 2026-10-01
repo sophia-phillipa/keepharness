@@ -78,8 +78,10 @@ const path = require("node:path");
       }
       return route.fulfill({ json: data });
     });
+    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.10.1"));
     await page.goto("http://panel.test");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
+    await page.locator("#project-tree > summary").click();
     await page.locator("#prompt").fill("My draft");
     const currentProject = await page.locator("#project").inputValue();
     const trigger = page.getByRole("button", {

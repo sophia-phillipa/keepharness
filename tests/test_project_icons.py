@@ -40,8 +40,14 @@ def test_discovery_precedence_limits_and_local_boundaries(tmp_path):
     assert discover_project_icon(None) is None
 
 
-def test_harness_main_logo_is_extracted_from_sprite():
-    result = discover_project_icon(Path(__file__).resolve().parents[1])
+def test_harness_main_logo_is_extracted_from_sprite(tmp_path):
+    # Sprite lookup uses the project folder name; a worktree may have any name.
+    root = tmp_path / "tail-harness"
+    assets = root / "tail_ui" / "assets"
+    assets.mkdir(parents=True)
+    source = Path(__file__).resolve().parents[1] / "tail_ui" / "assets" / "icons.svg"
+    (assets / "icons.svg").write_bytes(source.read_bytes())
+    result = discover_project_icon(root)
     assert result["path"] == "tail_ui/assets/icons.svg#tail-harness"
     svg = base64.b64decode(result["src"].split(",")[1])
     assert b'viewBox="0 0 40 40"' in svg

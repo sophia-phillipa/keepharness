@@ -20,6 +20,7 @@ from adapters.codex.rpc import metadata
 from adapters.deepseek import account as deepseek
 from adapters.gemini import account as gemini
 from agent_service.config import VERSION_FILE
+from agent_service.work_items import validate_pattern
 
 from . import discovery, env, integration_catalog, integrations, runtime_config
 from .dashboard import DashboardReader
@@ -84,6 +85,7 @@ class Manager:
                     for p in ("codex", "claude", "gemini", "local", "deepseek")
                 },
                 "projects": [],
+                "catalogs": [],
                 "uploads_enabled": False,
                 "port": 8095,
                 "tailnet_port": 8095,
@@ -199,6 +201,76 @@ class Manager:
         if default not in ("", "codex", "claude", "gemini", "local", "deepseek"):
             raise ValueError("Invalid default executor.")
         out["default_backend"] = default
+        catalogs = []
+        catalog_ids = set()
+        saved_catalog_roots = {
+            catalog.get("id"): catalog.get("root")
+            for catalog in self.settings.get("catalogs", [])
+        }
+        raw_catalogs = data.get("catalogs", [])
+        if not isinstance(raw_catalogs, list) or len(raw_catalogs) > 50:
+            raise ValueError("Invalid catalog configuration.")
+        for catalog in raw_catalogs:
+            if not isinstance(catalog, dict):
+                raise ValueError("Invalid catalog configuration.")
+            catalog_id = catalog.get("id", "")
+            namespace = catalog.get("namespace", "")
+            kind = catalog.get("kind", "folder")
+            catalog_root_value = catalog.get("root", "")
+            if (
+                not isinstance(catalog_id, str)
+                or not isinstance(namespace, str)
+                or not isinstance(catalog_root_value, str)
+                or not re.fullmatch(r"[a-z0-9_-]{1,64}", catalog_id)
+                or catalog_id in catalog_ids
+                or not re.fullmatch(r"[a-z0-9_-]{1,64}", namespace)
+                or kind not in ("folder", "git")
+                or type(catalog.get("trusted", False)) is not bool
+            ):
+                raise ValueError("Invalid catalog configuration.")
+            raw = Path(catalog_root_value).expanduser()
+            saved_missing = (
+                not raw.exists() and saved_catalog_roots.get(catalog_id) == str(raw)
+            )
+            if not raw.is_absolute() or (not raw.is_dir() and not saved_missing):
+                raise ValueError("Choose an existing, absolute catalog folder.")
+            catalog_root = raw.resolve()
+            home = Path.home().resolve()
+            forbidden = (
+                Path("/"),
+                home,
+                home / ".ssh",
+                home / ".codex",
+                home / ".claude",
+                home / ".gemini",
+                home / ".config",
+                self.state.resolve(),
+            )
+            if catalog_root in forbidden or any(
+                catalog_root.is_relative_to(path) or path.is_relative_to(catalog_root)
+                for path in forbidden[2:]
+            ):
+                raise ValueError("A broad or credentials folder cannot be a catalog.")
+            pin = catalog.get("pin", "")
+            if not isinstance(pin, str) or len(pin) > 160:
+                raise ValueError("Invalid catalog pin.")
+            catalogs.append(
+                {
+                    "id": catalog_id,
+                    "root": str(catalog_root),
+                    "kind": kind,
+                    "trusted": catalog.get("trusted", False),
+                    "namespace": namespace,
+                    **({"pin": pin} if pin else {}),
+                    **(
+                        {"work_item_pattern": validate_pattern(catalog["work_item_pattern"])}
+                        if "work_item_pattern" in catalog
+                        else {}
+                    ),
+                }
+            )
+            catalog_ids.add(catalog_id)
+        out["catalogs"] = catalogs
         projects = []
         ids = set()
         saved_roots = {p.get("id"): p.get("root") for p in self.settings.get("projects", [])}
@@ -244,12 +316,22 @@ class Manager:
             overrides = project.get("permissions", {})
             if (
                 not isinstance(overrides, dict)
-                or set(overrides) - set(PERMISSIONS)
+                or set(overrides) - {*PERMISSIONS, "delegate"}
                 or any(type(value) is not bool for value in overrides.values())
             ):
                 raise ValueError(
                     "Project permissions must be known boolean values; omit to inherit."
                 )
+            project_catalogs = project.get("catalogs", [])
+            if (
+                not isinstance(project_catalogs, list)
+                or len(project_catalogs) > 50
+                or any(
+                    not isinstance(value, str) or value not in catalog_ids
+                    for value in project_catalogs
+                )
+            ):
+                raise ValueError("Catalog not registered.")
             projects.append(
                 {
                     "id": pid,
@@ -257,6 +339,12 @@ class Manager:
                     "root": str(root),
                     "service_units": list(dict.fromkeys(units)),
                     "permissions": dict(overrides),
+                    "catalogs": list(dict.fromkeys(project_catalogs)),
+                    **(
+                        {"work_item_pattern": validate_pattern(project["work_item_pattern"])}
+                        if "work_item_pattern" in project
+                        else {}
+                    ),
                 }
             )
             ids.add(pid)
@@ -327,6 +415,10 @@ class Manager:
                 "projects": allowed_projects,
                 "permissions": perms,
             }
+            if provider == "claude" and "global_hooks" in spec:
+                if type(spec["global_hooks"]) is not bool:
+                    raise ValueError("Global hooks must be an explicit boolean.")
+                out["services"][provider]["global_hooks"] = spec["global_hooks"]
         logins = data.get("logins", [])
         if (
             not isinstance(logins, list)

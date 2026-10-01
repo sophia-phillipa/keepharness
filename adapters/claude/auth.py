@@ -1,9 +1,9 @@
 """Use the browser login only after an explicit account renewal."""
 
-import os
+from adapters.shared.process import child_environment
 
 
 def cli_login_environment():
-    environment = dict(os.environ)
+    environment = child_environment()
     environment.pop("CLAUDE_CODE_OAUTH_TOKEN", None)
     return environment

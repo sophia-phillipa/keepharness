@@ -90,7 +90,8 @@ runPersona("H30", [
       // F-92 fixed: renderQuotaIdentity() has a "gemini" entry, so the header
       // shows Gemini-specific wording and the panel names Gemini.
       assert.equal(await text(page, "#quota-short"), "Checking Gemini quota…");
-      await page.click("#quota-toggle");
+      await page.click("#settings");
+      await page.click("#settings-quota");
       await visible(page, "#quota-panel");
       assert.match(
         await text(page, "#quota-current"),
@@ -132,7 +133,8 @@ runPersona("H30", [
         await text(page, "#attachment-help"),
         /Attachments disabled for this model/,
       );
-      await page.click("#quota-toggle");
+      await page.click("#settings");
+      await page.click("#settings-quota");
       assert.match(
         await text(page, "#quota-current"),
         /your own DeepSeek account credits/,
@@ -144,7 +146,8 @@ runPersona("H30", [
         await text(page, "#quota-panel .quota-heading strong"),
         "ChatGPT account quota",
       );
-      await page.click("#quota-toggle");
+      await page.keyboard.press("Escape");
+      await page.keyboard.press("Escape");
 
       const before = usage;
       await page.fill("#prompt", "Summarize this in one line.");

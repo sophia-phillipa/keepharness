@@ -33,6 +33,14 @@ async def run(
                 }
             )
         )
+        if config.get("_effect_capability"):
+            from agent_service.effect_transport import server_spec
+
+            mcp_config = json.loads((bridge / "mcp.json").read_text())
+            mcp_config["mcpServers"]["harness_effects"] = server_spec(
+                config["_effect_capability"], scoped=True
+            )
+            (bridge / "mcp.json").write_text(json.dumps(mcp_config))
         command += ["--setenv", "CLAUDE_CONFIG_DIR", "/codex"]
         command += [
             "--",
@@ -47,7 +55,9 @@ async def run(
             "--tools",
             "",
             "--allowedTools",
-            "mcp__selected_project__*",
+            "mcp__selected_project__*,mcp__harness_effects__prepare"
+            if config.get("_effect_capability")
+            else "mcp__selected_project__*",
             "--permission-mode",
             "dontAsk",
             "--strict-mcp-config",
@@ -63,7 +73,16 @@ async def run(
             "Do not access credentials, network, other folders or Git remotes. Save edits through propose_file. "
             "Run only registered tests. Cite sources and never invent execution.",
         ]
+        if config.get("_effect_capability"):
+            index = command.index("--append-system-prompt") + 1
+            command[index] = command[index].replace(
+                "Use only selected_project MCP tools",
+                "Use only selected_project MCP tools and harness_effects.prepare",
+            )
+            command[index] += (
+                " Prepare only stages a Jira create-issue request for a human gate; the harness alone publishes after approval."
+            )
         if effort != "configured":
             command += ["--effort", effort]
-        result = await stream(command, prompt, event, model, effort)
+        result = await stream(command, prompt, event, model, effort, config=config)
         return {**result, **collect_changes(workspace)}

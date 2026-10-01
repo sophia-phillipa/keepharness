@@ -2,7 +2,8 @@
 
 ## Scope and behavior
 
-The composer uses `@` for native agents and `/` for native skills and commands.
+The composer uses `/` for agents, skills, commands, built-in controls and maintenance.
+`@name` remains a legacy alias for agents.
 `@@` and `//` are reserved for Tail-owned resources; authoring them in the
 administrative panel is not part of this change.
 
@@ -10,7 +11,8 @@ Opening a selector requests fresh metadata for the selected project, backend and
 model and conversation execution mode. The catalog and submission validation use
 the effective conversation mode, independent of the service legacy default.
 Scoped conversations do not offer native resources; changing the mode invalidates
-selected references. Project resources precede global resources and are grouped by origin.
+selected references. Project resources precede trusted catalog resources, then user resources. The palette
+groups by kind, shows source badges and supports fuzzy filtering and Tab selection.
 The inference model does not determine the resource format: the native local and
 DeepSeek adapters run through Codex. There is no OpenCode execution adapter in
 this checkout, so OpenCode resources are not advertised as executable.
@@ -20,7 +22,7 @@ permissions. It returns names, descriptions, origin, scope, source path, content
 revision and a stable identity. It never executes command templates or returns
 source bodies. No-store responses and bounded filesystem scans avoid a persistent
 stale catalog. Known global skill aliases are deduplicated by canonical path;
-project symlinks cannot escape the authorized project root.
+symlinks cannot escape the project or explicitly trusted catalog roots.
 
 Locations:
 
@@ -50,9 +52,9 @@ sequenceDiagram
     participant S as Service
     participant F as Resource files
     participant E as Selected engine
-    U->>S: Open @ or / with project and model
+    U->>S: Open / with project and model
     S->>F: Read bounded current metadata
-    S-->>U: Project then global groups
+    S-->>U: Kind groups with project/catalog/user precedence
     U->>S: Submit prompt and selected identities/revisions
     S->>F: Validate at admission and execution
     S->>E: Native references or supported command expansion
@@ -68,23 +70,25 @@ Each native run creates a fresh process, including when resuming a conversation.
 
 Claude enables its native `Skill` tool only for explicit skill selections with
 read permission. The existing permissions and hook settings remain in force.
-Claude agent delegation and Gemini agents/skills remain disabled by their current
-adapter contracts and are shown as unavailable. Isolated local/DeepSeek runs do
+Claude agent delegation requires an explicit project `delegate` grant. Selected
+catalog agents receive an execution-local definition; `Task` is the CLI allowlist
+name and `Agent` the observed event name. Gemini agents/skills remain unavailable. Isolated local/DeepSeek runs do
 not expose host-global resources or agent profiles as callable.
 
 Plain command templates support positional arguments, `$ARGUMENTS` and Gemini
-`{{args}}`. Shell/file interpolation, named environment substitutions and special
-Claude execution frontmatter are rejected rather than executed during discovery
-or silently translated. Workspace-copy execution does not consume host resource
+`{{args}}`. Only `!` followed by a backtick, `!{` and `@{` outside fenced examples block
+command selection. Discovery never executes template content. Native Claude
+commands retain their frontmatter when installed; catalog-only commands and
+commands with attached context use an explicit inline fallback. Workspace-copy execution does not consume host resource
 references. No configuration, permissions, model routing or host mounts are
 expanded to make a resource available.
 
 ## Acceptance criteria
 
-- Bare `@` and `/` open a fresh selector; typing filters names.
-- Compatible project entries precede globals, with origin groups and icons.
+- Bare `/` opens a fresh selector; fuzzy typing filters names; `@` stays a legacy alias.
+- Compatible project entries precede trusted catalogs and user entries, with source badges.
 - Switching project/model invalidates references and prevents stale responses.
-- Keyboard selection does not submit the message; Escape closes the menu.
+- Enter and Tab select without sending; Escape closes and restores focus.
 - Reserved Tail prefixes explain that Tail resources are not implemented.
 - Disabled items explain why they cannot be selected.
 - Create, edit and delete operations are reflected without a catalog restart.
@@ -94,12 +98,27 @@ expanded to make a resource available.
 
 ## Validation
 
-Offline tests: `tests/test_resources.py`, `tests/test_native.py`,
-`tests/test_adapters.py`, `tests/test_adapter_specs.py`, and
-`tests/harness-resources.spec.cjs`. Codex CLI `0.155.0-alpha.9.2` and Claude Code
-`2.1.258` were observed locally. The installed Codex generated schema confirms
-`skill` input and `SkillsListParams.forceReload`. No live model inference,
-GPU benchmark, Git milestone or complete regression suite was run.
+The original resource selector was checked against Codex CLI `0.155.0-alpha.9.2`
+and Claude Code `2.1.258` without a release-wide campaign. Those historical checks
+are superseded for P1 by [0.8.0 validation and migration notes](releases/v0.8.0.md)
+and the recorded September compatibility probes. Existing user resource files
+remain unchanged; execution fallbacks use private temporary copies.
 
-No data migration or application version change is required. Existing user
-resource files are not modified.
+## Trusted catalogs and P1 invocations
+
+Admin settings accept `catalogs: [{id, root, kind: "folder"|"git", trusted: true,
+namespace}]`; each project selects its catalog IDs in `catalogs`. Roots must be
+absolute. Merely having a symlink does not register trust. Portable resource IDs
+use `catalog/<id>/<relative path>`, `project/<id>/<relative path>` or
+`user/<engine>/<relative path>`; revisions detect content changes.
+
+Canonical invocations carry `kind`, `resource_id`, verbatim `args`, zero-based
+`order`, `mode` and optional `requested_backend`. Composer references are
+normalized at admission. Legacy Maestro steps remain accepted and normalize to
+the same contract. A declared chain executes sequentially without planning;
+conversational agents are standalone and remain active until released.
+
+Rules and context are listed but cannot be selected. Metadata and body limits are
+separate, so a 99 KB command remains discoverable. Maintenance commands stay
+visible in a dedicated group. Claude account connector discovery under strict MCP is `unknown`.
+See [0.8.0 validation and limitations](releases/v0.8.0.md).

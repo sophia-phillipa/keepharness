@@ -55,8 +55,36 @@ def baseline(db):
     db.execute("CREATE TABLE IF NOT EXISTS deleted_project_folders(id TEXT PRIMARY KEY)")
 
 
+def reset_legacy_approval_rules(db):
+    """Pre-0.7.0 rules may have been approved by workers rather than humans."""
+    db.execute("DELETE FROM approval_rules")
+
+
 # Append-only: migration N upgrades a database from version N-1 to N.
-MIGRATIONS = (baseline,)
+def add_gates(db):
+    db.execute(
+        "CREATE TABLE gates(gate_id TEXT PRIMARY KEY, job_id TEXT NOT NULL, "
+        "state TEXT NOT NULL, spec TEXT NOT NULL, choice TEXT, resolved_by TEXT, resolved_at REAL)"
+    )
+
+
+def add_work_item(db):
+    db.execute("ALTER TABLE jobs ADD COLUMN work_item TEXT")
+    db.execute("CREATE INDEX jobs_project_work_item ON jobs(project,work_item)")
+
+
+def add_effects(db):
+    db.execute("""CREATE TABLE effects(
+        effect_id TEXT PRIMARY KEY, job_id TEXT NOT NULL, gate_id TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL, request TEXT NOT NULL, artifact TEXT NOT NULL,
+        binding TEXT NOT NULL, contract TEXT NOT NULL, execution_id TEXT NOT NULL,
+        enforcement TEXT NOT NULL, approved_by TEXT, receipt TEXT,
+        reconcile_attempts INTEGER NOT NULL DEFAULT 0, next_reconcile_at REAL NOT NULL DEFAULT 0
+    )""")
+    db.execute("CREATE INDEX effects_job ON effects(job_id)")
+
+
+MIGRATIONS = (baseline, reset_legacy_approval_rules, add_gates, add_work_item, add_effects)
 
 
 def migrate(db):

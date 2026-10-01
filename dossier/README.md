@@ -33,4 +33,10 @@ Each new version must add an English specification under `releases/v<VERSION>.md
 
 - [0.6.0 — fix round 01: approvals, security hardening and English-only naming](releases/v0.6.0.md)
 
+- [0.7.0 — provider deadlines and human approval authority](releases/v0.7.0.md)
+
 - [Canonical agent and skill model](canonical-agents-skills-model.md): naming, catalog and migration.
+
+- [0.9.0 — Run console, live attention inbox and work-item references](releases/v0.9.0.md)
+- [0.10.0 — Mediated Jira publication and evidence-based recovery](releases/v0.10.0.md)
+- [0.10.1 — Chat home fidelity and guided product tour](releases/v0.10.1.md)

@@ -108,6 +108,7 @@ async function open(page, { slow = {} } = {}) {
   });
   await page.goto("http://harness.test");
   await page.locator("#startup-gate").waitFor({ state: "hidden" });
+  await page.locator("#project-tree > summary").click();
   return { s, state };
 }
 
@@ -156,6 +157,8 @@ runPersona("H28", [
         .scrollIntoViewIfNeeded();
       await visible(page, '#projects [data-project-id="p25"] summary');
 
+      if (!(await page.locator("#project-tree").evaluate((el) => el.open)))
+        await page.locator("#project-tree > summary").click();
       await page.click("#add-project");
       await visible(page, "#project-dialog");
       await page

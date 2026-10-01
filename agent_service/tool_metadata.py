@@ -37,6 +37,7 @@ def event_metadata(item, *, command=None):
         tool_id = item.get("id") or item.get("toolCallId") or item.get("callId")
         if isinstance(tool_id, str) and tool_id:
             metadata["tool_id"] = tool_id
+            metadata["tool_call_id"] = tool_id
     name = command_name(command)
     if name:
         metadata["command_name"] = name

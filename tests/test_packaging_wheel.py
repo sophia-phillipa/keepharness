@@ -58,6 +58,8 @@ def test_wheel_contains_the_runtime_assets_every_backend_needs(wheel_contents):
         "agent_service/index.html",
         "agent_service/ui.css",
         "agent_service/ui.js",
+        "agent_service/tour.js",
+        "agent_service/tour.css",
         "agent_service/setup-mcp.sh",
         "agent_service/VERSION",
         "control/index.html",

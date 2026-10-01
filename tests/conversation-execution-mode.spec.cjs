@@ -106,6 +106,7 @@ const assert = require("node:assert/strict"),
                     : {};
       return route.fulfill({ json: data });
     });
+    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.10.1"));
     await page.goto("http://panel.test/");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     const toggle = page.getByRole("switch", { name: "Isolated conversation" });
@@ -152,12 +153,19 @@ const assert = require("node:assert/strict"),
     assert.equal(await page.locator("#prompt").inputValue(), "Preserve draft");
     fail = false;
     await page.locator("#send").click();
-    // F-58: the choice becomes a fixed notice; no toggle stays in the chat.
+    // F-58: the editable choice leaves the chat; the compact header records
+    // the immutable mode without duplicating the conversation header.
     await toggle.waitFor({ state: "hidden" });
     assert.equal(
       await page.locator("#execution-mode-choice").isVisible(),
-      true,
+      false,
     );
+    assert.equal(
+      await page.locator("#header-execution-mode").innerText(),
+      "Isolated conversation",
+    );
+    await page.locator("#header-execution-mode").click();
+    assert.equal(await toggle.isVisible(), false, "started mode stays immutable");
     assert.equal(
       await page.locator("#execution-mode-label").innerText(),
       "Isolated conversation",
@@ -210,7 +218,7 @@ const assert = require("node:assert/strict"),
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     assert.equal(await toggle.isVisible(), false);
     assert.equal(
-      await page.locator("#execution-mode-label").innerText(),
+      await page.locator("#header-execution-mode").innerText(),
       "Isolated conversation",
     );
     assert.equal(
