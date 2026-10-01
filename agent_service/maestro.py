@@ -833,7 +833,7 @@ async def run(service, row, data):
         service,
         row,
         data,
-        resolution["plan"],
+        {**resolution["plan"], "planner_revision": planned["plan"]["planner_revision"]},
         planning_result=planned["planning_result"],
         coordinator=planned["coordinator"],
     )
