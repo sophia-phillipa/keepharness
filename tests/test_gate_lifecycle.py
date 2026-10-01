@@ -20,7 +20,7 @@ def gate_request(**overrides):
 
 
 @pytest.mark.parametrize("enrolled", [False, True])
-def test_gate_authorizes_human_once_before_resolution(make_harness_config, monkeypatch, enrolled):
+def test_gate_authorizes_then_revalidates_human_before_resolution(make_harness_config, monkeypatch, enrolled):
     from unittest.mock import Mock
 
     from agent_service.routes import conversations
@@ -44,7 +44,9 @@ def test_gate_authorizes_human_once_before_resolution(make_harness_config, monke
                     await client.post("/approve-device?nonce=" + nonce, headers={"Origin": ORIGIN})
                 response = await client.post("/v1/approvals/" + gate, json={"choice": "blue"})
                 assert response.status_code == (200 if enrolled else 403)
-                checked.assert_called_once()
+                assert checked.call_count == (2 if enrolled else 1)
+                if enrolled:
+                    assert checked.call_args.kwargs == {"revalidate": True}
                 if enrolled:
                     assert (await task)["choice"] == "blue"
                 else:

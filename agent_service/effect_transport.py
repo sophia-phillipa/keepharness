@@ -130,16 +130,9 @@ def server_spec(capability, *, scoped=False):
 def scoped_enforcement(service, command, *, copied_paths=()):
     """Classify the actual sandbox mounts and copied inputs, never a parallel plan."""
     private = [Path(service.root).resolve()]
-    credentials = Path(
-        service.config.get(
-            "effect_credentials_path",
-            service.config.get(
-                "secret_vault_path", service.root / "harness.effect_credentials.json"
-            ),
-        )
-    ).resolve()
-    if not credentials.is_relative_to(private[0]):
-        private.append(credentials)
+    for key in ("effect_credentials_path", "secret_vault_path"):
+        if service.config.get(key):
+            private.append(Path(service.config[key]).resolve())
     exposed = [Path(path).resolve() for path in copied_paths]
     index = 1
     while index < len(command):
