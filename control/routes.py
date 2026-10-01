@@ -16,12 +16,10 @@ from starlette.routing import Route
 
 from adapters.claude.auth import cli_login_environment
 from adapters.deepseek import account as deepseek
+from agent_service.errors import APIError
 from tail_ui import asset_response, static_response
 
-from agent_service.errors import APIError
-
 from . import env
-from .product import PRODUCT
 from .catalog_admin import change_pin, read_catalogs
 from .dashboard import execution as dashboard_execution
 from .integration_catalog import catalog as integration_catalog
@@ -36,6 +34,7 @@ from .local_models import (
 )
 from .manager import PERMISSIONS
 from .operations import operation
+from .product import PRODUCT
 from .vault_admin import change_vault, read_vault
 
 ADMIN_BODY_LIMIT = 64000
@@ -82,7 +81,7 @@ def admin_guard(request, manager, port):
         return r
     if path.startswith("/assets/"):
         return asset_response(path, request.headers)
-    if path in ("/admin.js", "/admin.css"):
+    if path in ("/admin.js", "/catalogs.js", "/admin.css"):
         return static_response(PANEL_DIR / path[1:], request.headers)
     if not secrets.compare_digest(
         request.cookies.get("admin", "").encode("utf-8"), manager.cookie.encode("utf-8")
@@ -653,6 +652,7 @@ async def endpoint(request: Request):
 ROUTES = [
     Route("/", endpoint),
     Route("/admin.js", endpoint),
+    Route("/catalogs.js", endpoint),
     Route("/admin.css", endpoint),
     Route("/assets/{path:path}", endpoint),
     Route("/api/{path:path}", endpoint, methods=["GET", "POST"]),
