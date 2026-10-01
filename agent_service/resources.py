@@ -177,10 +177,16 @@ def files(base, boundary, global_roots, kind):
 def discover(config, project_id, backend, model=None, *, private=False, execution_mode=None):
     from .catalog_manifest import load_manifest, preflight
     from .catalog_pin import effective_catalogs, snapshot_catalogs
+    from .integrations import integration_preflight
     from .workflows import discover_workflows
 
     engine = ENGINES.get(backend)
-    result = {"engine": engine, **discover_workflows(config, project_id, backend, private=private)}
+    result = {
+        "engine": engine,
+        **discover_workflows(
+            config, project_id, backend, private=private, execution_mode=execution_mode
+        ),
+    }
     if engine is None:
         result["warnings"].append("Choose a concrete engine to query its resources.")
         return result
@@ -305,8 +311,16 @@ def discover(config, project_id, backend, model=None, *, private=False, executio
         except (ValueError, OSError) as error:
             manifest, problems = None, ["Invalid catalog manifest: " + str(error)]
         snapshot = snapshot_catalogs({**config, "catalogs": [catalog]}, project)[0]
-        if manifest and manifest.get("allowed_hooks") and not snapshot.get("pinned"):
-            problems.append("Selective catalog hooks are unsupported by this executor.")
+        problems.extend(
+            integration_preflight(
+                config,
+                project_id,
+                catalog_id,
+                backend,
+                execution_mode or config.get("services", {}).get(backend, {}).get("mode"),
+                (manifest or {}).get("integrations", []),
+            )
+        )
         catalog_details[catalog_id] = (manifest, problems, snapshot)
         namespace = str(catalog.get("namespace", ""))
         add(

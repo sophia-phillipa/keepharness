@@ -106,7 +106,7 @@ def test_runtime_context_rules_and_two_catalogs(tmp_path):
     assert len(result["environment"]) == 2
 
 
-def test_selective_hooks_are_unavailable_in_palette(tmp_path, monkeypatch):
+def test_native_declared_hooks_are_available_in_palette(tmp_path, monkeypatch):
     from agent_service.resources import discover
 
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
@@ -122,9 +122,8 @@ def test_selective_hooks_are_unavailable_in_palette(tmp_path, monkeypatch):
         "services": {"claude": {"mode": "native"}},
     }
     item = discover(config, "p", "claude")["items"][0]
-    assert item["selectable"] is False
-    assert "hooks are unsupported" in item["unavailable_reason"]
-    assert item["preflight_hint"] == item["unavailable_reason"]
+    assert item["selectable"] is True
+    assert item["unavailable_reason"] == ""
 
 
 def test_missing_writable_state_requires_provisioning(tmp_path):
@@ -165,3 +164,42 @@ def test_provisioning_rejects_dependency_stamp_symlink(tmp_path, monkeypatch):
     with pytest.raises(ValueError, match="stamp"):
         manifests.materialize_runtime(root, manifest, state, "demo")
     assert external.read_text() == "preserve"
+
+
+def test_palette_explains_missing_catalog_credential_binding(tmp_path, monkeypatch):
+    from agent_service.resources import discover
+    from agent_service.secret_vault import SecretVault
+
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    root, state = tmp_path / "catalog", tmp_path / "state"
+    contract = {
+        "integration": "demo",
+        "consumers": ["claude"],
+        "environment": {"DEMO_TOKEN": "token"},
+        "precedence": "vault",
+        "mediated": False,
+    }
+    write_manifest(root, integrations=[contract])
+    (root / "commands").mkdir()
+    (root / "commands/task.md").write_text("Run task.")
+    config = {
+        "state_dir": str(state),
+        "catalogs": [{"id": "demo", "root": str(root), "trusted": True}],
+        "projects": {"p": {"catalogs": ["demo"]}},
+        "services": {"claude": {"mode": "native"}},
+    }
+    item = discover(config, "p", "claude")["items"][0]
+    assert not item["selectable"]
+    assert "credential binding" in item["unavailable_reason"]
+    config["integration_bindings"] = [
+        {
+            "integration": "demo",
+            "catalog_id": "demo",
+            "project_id": "p",
+            "credential_binding": "demo",
+        }
+    ]
+    SecretVault(state / "harness.secrets.json").set("demo", {"token": "fake-palette-secret"})
+    item = discover(config, "p", "claude")["items"][0]
+    assert item["selectable"]
+    assert "fake-palette-secret" not in str(item)

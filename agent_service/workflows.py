@@ -407,10 +407,11 @@ def evaluate_condition(condition, outputs):
     return type(value) is type(expected) and value == expected
 
 
-def discover_workflows(config, project_id, backend, *, private=False):
+def discover_workflows(config, project_id, backend, *, private=False, execution_mode=None):
     from . import resources
     from .catalog_manifest import load_manifest, preflight
     from .catalog_pin import effective_catalogs, snapshot_catalogs
+    from .integrations import integration_preflight
 
     result = {"items": [], "warnings": []}
     project = config["projects"][project_id]
@@ -444,8 +445,24 @@ def discover_workflows(config, project_id, backend, *, private=False):
                         origin,
                     )
                 snapshot = snapshot_catalogs({**config, "catalogs": [catalogs[origin]]}, project)[0]
-                if manifest and manifest.get("allowed_hooks") and not snapshot.get("pinned"):
-                    problems.append("Selective catalog hooks are unsupported by this executor.")
+                mode = execution_mode or config.get("services", {}).get(backend, {}).get("mode")
+                problems.extend(
+                    integration_preflight(
+                        config,
+                        project_id,
+                        origin,
+                        backend,
+                        mode,
+                        (manifest or {}).get("integrations", []),
+                    )
+                )
+                if (mode != "native" or backend == "local") and any(
+                    key in (manifest or {})
+                    for key in ("cwd", "runtime", "writable_state", "allowed_hooks")
+                ):
+                    problems.append(
+                        "Catalog runtime prerequisites require a supported native provider."
+                    )
             except (ValueError, OSError) as error:
                 problems = ["Invalid catalog manifest: " + str(error)]
         folders = ["workflows", *(manifest or {}).get("resources", {}).get("workflow", [])]
