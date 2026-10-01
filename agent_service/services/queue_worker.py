@@ -8,6 +8,7 @@ import asyncio
 import json
 import logging
 import re
+import sqlite3
 import time
 import traceback
 from pathlib import Path
@@ -194,59 +195,67 @@ async def run(service):
     try:
         while True:
             service.wake.clear()
-            rows = list(service.conversation_repository.ready())
-            while rows:
-                source = min(
-                    rows,
-                    key=lambda item: (
-                        service.last_served.get(item["owner"], 0),
-                        item["created"],
-                        item["id"],
-                    ),
-                )
-                rows.remove(source)
-                row = dict(source)
-                if row["id"] in tasks:
-                    continue
-                backend = json.loads(row["payload"]).get("backend", "codex")
-                maximum = (
-                    service.config.get("services", {}).get(backend, {}).get("max_concurrent", 1)
-                )
-                if type(maximum) is not int or maximum < 1:
-                    maximum = 1  # Dispatch validates the configured capacity.
-                conversation = conversation_key(service, row)
-                reason = (
-                    "conversation"
-                    if conversation in conversations
-                    else ("provider_capacity" if lanes.get(backend, 0) >= maximum else None)
-                )
-                if reason is None:
-                    reason = service.write_ownership.acquire(
-                        row["id"],
-                        row["project"],
-                        row.get("work_item"),
-                        ownership_roots(service, row),
+            row = None
+            try:
+                rows = list(service.conversation_repository.ready())
+                while rows:
+                    source = min(
+                        rows,
+                        key=lambda item: (
+                            service.last_served.get(item["owner"], 0),
+                            item["created"],
+                            item["id"],
+                        ),
                     )
-                if reason:
-                    if reasons.get(row["id"]) != reason:
-                        service.event(row["id"], "queue_wait", {"reason": reason})
-                        reasons[row["id"]] = reason
-                    continue
-                reasons.pop(row["id"], None)
-                conversations[conversation] = row["id"]
-                lanes[backend] = lanes.get(backend, 0) + 1
-                service.dispatch_sequence += 1
-                service.last_served[row["owner"]] = service.dispatch_sequence
-                with service.db:
-                    service.conversation_repository.set_running(row["id"])
-                task = asyncio.create_task(run_job(service, row))
-                tasks[row["id"]] = task
-                service.job_tasks[row["id"]] = task
-                task.add_done_callback(
-                    lambda completed, job=row["id"], lane=backend, key=conversation: released(
-                        completed, job, lane, key
+                    rows.remove(source)
+                    row = dict(source)
+                    if row["id"] in tasks:
+                        continue
+                    backend = json.loads(row["payload"]).get("backend", "codex")
+                    maximum = (
+                        service.config.get("services", {}).get(backend, {}).get("max_concurrent", 1)
                     )
-                )
+                    if type(maximum) is not int or maximum < 1:
+                        maximum = 1  # Dispatch validates the configured capacity.
+                    conversation = conversation_key(service, row)
+                    reason = (
+                        "conversation"
+                        if conversation in conversations
+                        else ("provider_capacity" if lanes.get(backend, 0) >= maximum else None)
+                    )
+                    if reason is None:
+                        reason = service.write_ownership.acquire(
+                            row["id"],
+                            row["project"],
+                            row.get("work_item"),
+                            ownership_roots(service, row),
+                        )
+                    if reason:
+                        if reasons.get(row["id"]) != reason:
+                            service.event(row["id"], "queue_wait", {"reason": reason})
+                            reasons[row["id"]] = reason
+                        continue
+                    reasons.pop(row["id"], None)
+                    with service.db:
+                        service.conversation_repository.set_running(row["id"])
+                    conversations[conversation] = row["id"]
+                    lanes[backend] = lanes.get(backend, 0) + 1
+                    service.dispatch_sequence += 1
+                    service.last_served[row["owner"]] = service.dispatch_sequence
+                    task = asyncio.create_task(run_job(service, row))
+                    tasks[row["id"]] = task
+                    service.job_tasks[row["id"]] = task
+                    task.add_done_callback(
+                        lambda completed, job=row["id"], lane=backend, key=conversation: released(
+                            completed, job, lane, key
+                        )
+                    )
+            except sqlite3.OperationalError:
+                if row is not None and row["id"] not in tasks:
+                    service.write_ownership.release(row["id"])
+                logger.warning("Queue dispatch database unavailable; retrying", exc_info=True)
+                await asyncio.sleep(0.05)
+                continue
             await service.wake.wait()
     finally:
         remaining = list(tasks.values())
