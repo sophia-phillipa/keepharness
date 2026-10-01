@@ -346,6 +346,9 @@ class Manager:
                 raise ValueError("Catalog not registered.")
             if project.get("maestro_plan_policy", "review") not in ("review", "auto"):
                 raise ValueError("Invalid Maestro plan policy.")
+            from .catalog_admin import validate_pins
+
+            catalog_pins = validate_pins(project, catalogs, self.state)
             projects.append(
                 {
                     "id": pid,
@@ -354,6 +357,7 @@ class Manager:
                     "service_units": list(dict.fromkeys(units)),
                     "permissions": dict(overrides),
                     "catalogs": list(dict.fromkeys(project_catalogs)),
+                    **({"catalog_pins": catalog_pins} if catalog_pins else {}),
                     **(
                         {"maestro_plan_policy": project["maestro_plan_policy"]}
                         if "maestro_plan_policy" in project

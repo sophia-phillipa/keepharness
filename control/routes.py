@@ -22,6 +22,7 @@ from agent_service.errors import APIError
 
 from . import env
 from .product import PRODUCT
+from .catalog_admin import change_pin, read_catalogs
 from .dashboard import execution as dashboard_execution
 from .integration_catalog import catalog as integration_catalog
 from .integrations import inventory
@@ -550,12 +551,14 @@ async def set_tailnet(request, manager, data):
 
 
 GET_ROUTES = {
+    "/api/catalogs": read_catalogs,
     "/api/vault": read_vault,
     "/api/folders": list_folders,
     "/api/dashboard": read_dashboard,
     "/api/state": read_state,
 }
 POST_ROUTES = {
+    "/api/catalog-pin": change_pin,
     "/api/vault": change_vault,
     "/api/folders/create": create_folder,
     "/api/scan": scan_inventory,
