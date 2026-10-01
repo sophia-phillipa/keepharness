@@ -424,6 +424,7 @@
   function renderSpans() {
     const focusedId = body.contains(document.activeElement) ? document.activeElement.id : '';
     const scrollTop = body.scrollTop;
+    const scrollLeft = body.querySelector('.run-span-list')?.scrollLeft || 0;
     body.replaceChildren();
     const pendingPlan = currentPlan();
     if (pendingPlan && state.editPlan) body.append(planApproval(pendingPlan));
@@ -492,6 +493,7 @@
     if (pendingPlan && !state.editPlan) body.append(planApproval(pendingPlan));
     if (focusedId) document.getElementById(focusedId)?.focus({ preventScroll: true });
     body.scrollTop = scrollTop;
+    list.scrollLeft = scrollLeft;
     fitConsole();
   }
   function planApproval(request) {

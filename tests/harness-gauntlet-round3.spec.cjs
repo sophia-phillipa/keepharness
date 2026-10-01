@@ -60,7 +60,7 @@ const settle = page => page.evaluate(() => Promise.all(document.getAnimations().
           const boxes=await page.evaluate(()=>[...document.querySelectorAll('.run-span-row')].map(n=>({bottom:n.getBoundingClientRect().bottom,limit:n.closest('.run-console-body').getBoundingClientRect().bottom,scroll:n.closest('.run-console-body').scrollTop})));
           assert.equal(boxes.length,3);
           assert(boxes.every(b=>b.scroll===0 && b.bottom<=b.limit),width+': '+JSON.stringify(boxes));
-          await page.locator('.run-span-list').evaluate(n=>n.scrollLeft=185); assert(await hit(page.locator('.run-span-row').nth(1).locator('.run-span-tokens')));await capture(page,'pipeline-'+width+'-'+maximize);
+          await page.locator('.run-span-list').evaluate(n=>n.scrollLeft=185); assert(await page.evaluate(()=>{const node=document.querySelectorAll('.run-span-row')[1].querySelector('.run-span-tokens'),r=node.getBoundingClientRect();return node.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));}));await capture(page,'pipeline-'+width+'-'+maximize);
         }
         await page.close();
       }
