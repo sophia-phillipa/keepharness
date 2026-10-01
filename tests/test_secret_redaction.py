@@ -75,6 +75,6 @@ def test_synthetic_identity_inference_key_is_explicit_only(monkeypatch):
 
 def test_mediated_names_are_removed_from_inherited_environment(monkeypatch):
     monkeypatch.setenv("DEMO_TOKEN", "host-private-value")
-    with execution_environment({}, blocked=["DEMO_TOKEN"]):
+    with execution_environment({"DEMO_TOKEN": "conflicting-value"}, blocked=["DEMO_TOKEN"]):
         assert "DEMO_TOKEN" not in child_environment()
     assert os.environ["DEMO_TOKEN"] == "host-private-value"

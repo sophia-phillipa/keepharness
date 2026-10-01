@@ -45,10 +45,9 @@ def child_environment(environment=None, *, provider=None):
         clean[provider_key] = environment[provider_key]
     from agent_service.secret_vault import blocked_environment, injected_environment
 
+    clean.update(injected_environment())
     for name in blocked_environment():
         clean.pop(name, None)
-
-    clean.update(injected_environment())
     return clean
 
 

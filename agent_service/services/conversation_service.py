@@ -1565,7 +1565,21 @@ class ConversationService:
         if environment and (plan.execution_mode != "native" or plan.backend == "local"):
             raise APIError("integration_environment_unsupported")
         if runtime["catalogs"]:
-            self.event(plan.row["id"], "catalog_snapshot", {"catalogs": runtime["catalogs"]})
+            self.event(
+                plan.row["id"],
+                "catalog_snapshot",
+                {
+                    "catalogs": [
+                        {
+                            "catalog_id": item["catalog_id"],
+                            "catalog_commit": item["commit"],
+                            "catalog_dirty": item["dirty"],
+                            "pinned": item["pinned"],
+                        }
+                        for item in runtime["catalogs"]
+                    ]
+                },
+            )
         for path in [*runtime["contexts"], *runtime["rules"]]:
             with Path(path).open() as stream:
                 text = stream.read(150001)
