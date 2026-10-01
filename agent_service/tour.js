@@ -2,7 +2,7 @@
   "use strict";
 
   const STORAGE_KEY = "tail-harness-tour-seen";
-  const RELEASE = "0.12.1";
+  const RELEASE = "0.13.1";
   const steps = [
     { target: "top-search", title: "Search everything", text: "Search runs, plans, conversations, and files from one place. Use Ctrl/⌘+K to open it without leaving the keyboard." },
     { target: "quota-meters", title: "Provider quota", text: "These meters show the latest known allowance for each configured provider. Providers without quota data stay out of the way." },

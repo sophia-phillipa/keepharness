@@ -2,7 +2,7 @@
 
 [![🇺🇸 English](https://img.shields.io/badge/%F0%9F%87%BA%F0%9F%87%B8-English-blue.svg)](README.md) [![🇧🇷 Português (Brasil)](https://img.shields.io/badge/%F0%9F%87%A7%F0%9F%87%B7-Portugu%C3%AAs%20(Brasil)-green.svg)](README.pt-BR.md)
 
-Painel local em Python para descobrir, configurar e executar o Codex CLI, o Claude Code, o Gemini CLI e modelos de IA locais, com uma interface de conversa acessível pela Tailscale ou outra VPN. Python 3.11+, licença MIT, versão **0.12.1**.
+Painel local em Python para descobrir, configurar e executar o Codex CLI, o Claude Code, o Gemini CLI e modelos de IA locais, com uma interface de conversa acessível pela Tailscale ou outra VPN. Python 3.11+, licença MIT, versão **0.13.1**.
 
 ## 🚀 Installation — agent-guided (start here)
 
@@ -228,7 +228,7 @@ PYTHON="$PWD/.venv/bin/python" PLAYWRIGHT_MODULE=/caminho/playwright ./scripts/t
 
 As fixtures de UI evitam inferência em nuvem e download de modelos. Uma suíte mocada passando não prova autenticação de terceiros, reinício físico ou desempenho em contexto completo. Para verificar o pacote instalado, use `"$TH_VENV/bin/python" -m control.install_check`, com `TH_VENV` apontando para o ambiente usado na instalação (`~/.local/share/tail-harness/venv` para `install.sh`, `.venv` para `setup.sh`). Esse smoke check roda fora do checkout, com estado temporário e uma porta disponível; ele não instala dependências nem valida a instância de produção e os provedores. Para simular uma instalação limpa, siga a seção dedicada da [spec](dossier/installation-agent-spec.md), preparando ambiente, estado e portas separados por comandos individuais.
 
-Toda nova versão exige uma especificação em inglês em `dossier/releases/v<VERSÃO>.md`, com comportamento, critérios de aceitação, diagramas relevantes, notas de migração e validação realmente executada. Atualize `README.md`, `README.pt-BR.md` e os identificadores de versão juntos. Veja a [versão 0.12.1](dossier/releases/v0.12.1.md) e o [dossiê](dossier/README.md). Referência de produto: [T3 Code](https://github.com/pingdotgg/t3code). Esta é uma implementação independente; não incorpora código ou recursos gráficos do T3 e não alega equivalência de recursos.
+Toda nova versão exige uma especificação em inglês em `dossier/releases/v<VERSÃO>.md`, com comportamento, critérios de aceitação, diagramas relevantes, notas de migração e validação realmente executada. Atualize `README.md`, `README.pt-BR.md` e os identificadores de versão juntos. Veja a [versão 0.13.1](dossier/releases/v0.13.1.md) e o [dossiê](dossier/README.md). Referência de produto: [T3 Code](https://github.com/pingdotgg/t3code). Esta é uma implementação independente; não incorpora código ou recursos gráficos do T3 e não alega equivalência de recursos.
 
 A suíte cobre políticas de acesso, autenticação, protocolos e aprovações, descoberta local, integridade de download, instalação, arquivos empacotados e recuperação após falha. O teste de navegador usa fixtures, então não consome contas nem baixa modelos. A configuração do GitHub Actions executa os testes Python, os testes de UI no Chromium e a construção de wheel/sdist; os artefatos ficam anexados ao job de empacotamento quando o pipeline passa. Autenticação de terceiros e reinício físico da máquina não são simulados como prova de operação real.
 
@@ -374,3 +374,7 @@ Raízes graváveis e itens de trabalho recebem exclusividade antes do despacho p
 ## 🆕 Version 0.12.1
 
 Esta versão integra manifestos de catálogo, pins, cofre, relatórios de divergência e exclusividade de escrita por provedor do P5 com o espaço de trabalho e o Run console da 0.11.1. A seção Resources e a paleta `/` mostram os pré-requisitos dos recursos declarados e as revisões fixadas dos catálogos. A cobertura visual inclui o estado do cofre, prévias de atualização de pins e relatórios de divergência, preservando o layout aprovado do mock-4 e a escala da interface. Veja a [especificação da release](dossier/releases/v0.12.1.md) para critérios de aceitação, migração e validação executada.
+
+## 🆕 Version 0.13.1
+
+A rodada 1 corrige a matrícula para aprovações humanas, as proteções de publicação, a admissão de workflows e a exclusividade de escrita, os controles responsivos, a preservação de rascunhos e a retomada de workflows. O chat continua sendo a tela inicial, na escala de interface aprovada. Veja a [especificação da release](dossier/releases/v0.13.1.md) para comportamento, migração e validação executada.
