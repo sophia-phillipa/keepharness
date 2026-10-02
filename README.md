@@ -2,7 +2,7 @@
 
 [![🇺🇸 English](https://img.shields.io/badge/%F0%9F%87%BA%F0%9F%87%B8-English-blue.svg)](README.md) [![🇧🇷 Português (Brasil)](https://img.shields.io/badge/%F0%9F%87%A7%F0%9F%87%B7-Portugu%C3%AAs%20(Brasil)-green.svg)](README.pt-BR.md)
 
-A local Python control panel for discovering, configuring and running Codex CLI, Claude Code, Gemini CLI and local AI models, with a conversational harness accessible through Tailscale or another VPN. Python 3.11+, MIT license, version **0.13.14**.
+A local Python control panel for discovering, configuring and running Codex CLI, Claude Code, Gemini CLI and local AI models, with a conversational harness accessible through Tailscale or another VPN. Python 3.11+, MIT license, version **0.13.15**.
 
 ## 🚀 Installation — agent-guided (start here)
 
@@ -394,3 +394,7 @@ Round 12 revalidates delayed publication receipts, makes queued cancellation fai
 ## 🆕 Version 0.13.14
 
 Round 14 moves model/provider blocking notices to a compact composer strip, replaces shell glyphs with SVG icons, adds newest-first timestamped logs and provider identities, and restores keyboard focus through retries and tours. Private storage remains protected across imports, relocated paths and delayed reads; workflow recovery, queue settlement and same-name resource chains retain their contracts. Chat stays home at the approved scale. See the [release specification](dossier/releases/v0.13.14.md) for migration and validation.
+
+## 🆕 Version 0.13.15
+
+Round 15 preserves accepted queue cancellations and current work-item ownership through persistence waits, keeps nested Markdown examples literal, and retains skipped checkpoint outcomes. Publication cards show operation and destination first; keyboard navigation, mobile provider usage and semantic console icons follow the existing layout at the approved scale. See the [release specification](dossier/releases/v0.13.15.md) for migration and validation.

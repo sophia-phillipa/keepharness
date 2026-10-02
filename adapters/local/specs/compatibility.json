@@ -1,6 +1,6 @@
 {
   "adapter_spec_revision": 3,
-  "harness_baseline": "0.13.14",
+  "harness_baseline": "0.13.15",
   "reviewed_at": "2026-10-01",
   "live_provider_validation": false,
   "provider": "local",
