@@ -420,6 +420,7 @@ dialog p {
   font-size: 14px;
 }
 dialog pre {
+  color: var(--th-text);
   white-space: pre-wrap;
   background: var(--tone-21);
   border-radius: 10px;
@@ -3092,6 +3093,10 @@ body :is(button, .btn, [role="button"], summary):focus-visible {
   line-height: 1;
   color: var(--th-accent);
 }
+.conversation-model-icon .th-icon {
+  width: 16px;
+  height: 16px;
+}
 .conversation-row .conversation-title {
   min-width: 0;
 }
@@ -4559,9 +4564,8 @@ main { padding-bottom:28px; }
 .run-console-header h2 { color:var(--th-muted); font-size:10px; letter-spacing:.08em; }
 .run-console-tabs { height:38px; gap:0; }
 .run-console-tabs [role="tab"] { height:38px; padding:6px 12px; font-size:12px; }
-.run-console-tabs [role="tab"]::before { margin-right:5px; color:var(--th-muted); }
+.run-console-tabs .th-icon { width:14px; height:14px; margin-right:5px; }
 .run-tab-count { display:inline-grid; place-items:center; min-width:17px; height:17px; margin-left:4px; padding:0 4px; border:1px solid var(--th-border); border-radius:9px; font-size:9px; }
-#run-tab-pipeline::before { content:"☷"; } #run-tab-timeline::before { content:"⚑"; } #run-tab-logs::before { content:"☰"; } #run-tab-runs::before { content:"⌁"; } #run-tab-agents::before { content:"▤"; }
 .run-console-close { margin-left:auto; font-size:0!important; }
 .run-console-close::after { content:"⌄"; font-size:15px; }
 .run-console-body { padding:8px 12px; }
@@ -4669,8 +4673,6 @@ main { padding-bottom:28px; }
 #activity-panel { overflow-y:auto; overflow-x:hidden; }
 .workspace-section { flex:none; min-width:0; border-bottom:1px solid var(--th-border); }
 .workspace-section > summary { display:flex; align-items:center; gap:6px; min-height:32px; padding:4px 8px; cursor:pointer; color:var(--th-text); font-size:13px; font-weight:600; }
-.workspace-section > summary::before { content:'›'; width:12px; }
-.workspace-section[open] > summary::before { content:'⌄'; }
 .workspace-section > summary::-webkit-details-marker { display:none; }
 .workspace-count { margin-left:auto; color:var(--th-muted); font-size:11px; font-weight:400; }
 .workspace-section-body { height:80px; min-height:64px; overflow:auto; }
@@ -4802,3 +4804,27 @@ main:has(.run-console.has-publication-evidence:not([hidden])) .publish-evidence 
 .has-publication-evidence .run-span-list:not(:has(.run-waterfall-track)) .run-span-tokens { grid-column:1; grid-row:4; }
 .has-publication-evidence .run-span-list:not(:has(.run-waterfall-track)) .run-span-duration { grid-column:2; grid-row:4; }
 .has-publication-evidence .run-span-list:not(:has(.run-waterfall-track)) .run-span-enforcement { grid-column:1/-1; grid-row:5; }
+
+/* Blocking conditions belong to the composer; history keeps its full space. */
+#model-availability { display:flex; align-items:center; flex-wrap:wrap; gap:4px 10px; margin:0 0 6px; padding:4px 8px; border:1px solid var(--th-border); border-radius:6px; box-shadow:none; font-size:12px; }
+#model-availability[hidden] { display:none; }
+#model-availability button,#model-availability a { padding:2px 4px; color:var(--th-accent); font:inherit; }
+#model-availability-title { margin-right:auto; }
+.run-table .th-icon,.run-agent-row .th-icon,.workspace-row > .th-icon { width:16px; height:16px; margin-right:5px; flex:none; vertical-align:middle; }
+.run-console-body { overflow-anchor:none; }
+.run-log-list td { overflow-wrap:anywhere; }
+.run-log-list time { white-space:nowrap; }
+.workspace-model { max-width:30%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11px; }
+.authorized-root-card .project-file-icon { width:16px; height:16px; margin-right:5px; vertical-align:middle; }
+
+.run-log-scroll { max-width:100%; overflow-x:auto; }
+.run-log-list { min-width:700px; table-layout:fixed; }
+.run-log-list th { white-space:nowrap; overflow-wrap:normal; }
+.run-log-list th:nth-child(1) { width:190px; }
+.run-log-list th:nth-child(2) { width:74px; }
+.run-log-list th:nth-child(3) { width:150px; }
+
+.run-console-body:has(.run-log-scroll) { display:flex; flex-direction:column; gap:6px; }
+.run-console-body:has(.run-log-scroll) > :not(.run-log-scroll) { flex:none; margin-block:0; }
+.run-log-scroll { flex:1 1 0; min-height:80px; overflow:auto; }
+.run-log-list thead { position:sticky; top:0; background:var(--th-panel); z-index:1; }

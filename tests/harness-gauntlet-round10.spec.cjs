@@ -48,11 +48,11 @@ async function geometry(page) {
   const browser=await chromium.launch(), failures=[];
   async function check(name,fn){if(process.env.ONLY&&!name.startsWith(process.env.ONLY))return;try{await fn();console.log('PASS '+name);}catch(e){failures.push(name+': '+e.stack);console.error('FAIL '+name+': '+e.message);}}
   try {
-    await check('A1-F1 painted Attention glyph across themes and widths',async()=>{
+    await check('A1-F1 painted Attention icon across themes and widths',async()=>{
       for(const width of [400,1440])for(const theme of ['porcelain','amethyst','petroleum']){
         const p=await browser.newPage({viewport:{width,height:812}});await fixture(p);await p.evaluate(t=>TailTheme.apply(t),theme);
-        const glyph=await p.locator('#attention-bell > span').evaluate(n=>{const r=n.getBoundingClientRect(),hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return{width:r.width,height:r.height,clip:getComputedStyle(n).clip,hit:hit===n||n.contains(hit)}});
-        await capture(p,`bell-${width}-${theme}`);assert(glyph.width>=12&&glyph.height>=12&&glyph.clip==='auto'&&glyph.hit,JSON.stringify(glyph));
+        const icon=await p.locator('#attention-bell > svg').evaluate(n=>{const r=n.getBoundingClientRect(),hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2),use=n.querySelector('use'),paint=use.getBBox();return{width:r.width,height:r.height,clip:getComputedStyle(n).clip,hit:n.closest('button').contains(hit),href:use.getAttribute('href'),paintWidth:paint.width,paintHeight:paint.height}});
+        await capture(p,`bell-${width}-${theme}`);assert(icon.width>=12&&icon.height>=12&&icon.clip==='auto'&&icon.hit,JSON.stringify(icon));assert.equal(icon.href,'/assets/icons.svg#bell');assert(icon.paintWidth>0&&icon.paintHeight>0,JSON.stringify(icon));
         await p.locator('#attention-bell').click();assert(await p.locator('#attention-popover').isVisible());await p.close();
       }
     });

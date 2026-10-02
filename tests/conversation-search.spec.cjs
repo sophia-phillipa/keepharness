@@ -178,7 +178,7 @@ const assert = require("node:assert/strict"),
       });
     });
     await page.emulateMedia({ reducedMotion: "reduce" });
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.13"));
+    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.14"));
     await page.goto(origin);
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     assert.equal(await page.locator("#sidebar input[type=search]").count(), 0);
@@ -202,8 +202,8 @@ const assert = require("node:assert/strict"),
       "configured admin shortcut must be available in the top menu",
     );
     assert.equal(
-      await page.locator("#projects .conversation-model-icon").textContent(),
-      "✦",
+      await page.locator("#projects .conversation-model-icon use").getAttribute("href"),
+      "/assets/icons.svg#stack-2",
     );
     assert.equal(
       await page.locator("#projects .conversation-title").textContent(),
@@ -219,6 +219,14 @@ const assert = require("node:assert/strict"),
     assert.match(await page.locator("#new").innerText(), /New conversation/i);
     assert.match(await page.locator("#add-project").textContent(), /Add project/i);
     assert.equal(await page.locator(".project-new").count(), 1);
+    const projectGroup = page.locator('#projects .project-group');
+    const wasOpen = await projectGroup.evaluate(n => n.open);
+    const treeWasOpen = await page.locator('#project-tree').evaluate(n => n.open);
+    await page.locator('#project-tree').evaluate(n => n.open = true);
+    await projectGroup.evaluate(n => n.open = true);
+    assert(await page.locator("#projects .conversation-model-icon svg").evaluate(n => { const r = n.getBoundingClientRect(); return r.width > 0 && r.height > 0; }));
+    await projectGroup.evaluate((n, value) => n.open = value, wasOpen);
+    await page.locator('#project-tree').evaluate((n, value) => n.open = value, treeWasOpen);
     for (const palette of [
       "violet-bordeaux",
       "porcelain",

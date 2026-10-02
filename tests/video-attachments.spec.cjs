@@ -85,7 +85,7 @@ const assert = require("node:assert/strict"),
       }
       return route.fulfill({ json: data });
     });
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.13"));
+    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.14"));
     await page.goto("http://video.test");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     const add = () =>

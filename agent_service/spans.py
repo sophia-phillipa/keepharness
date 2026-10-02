@@ -40,6 +40,9 @@ ATTRIBUTE_NAMES = {
     "idempotency_key": "idempotency_key",
     "enforcement": "enforcement",
     "decision": "decision",
+    "checkpoint_reused": "checkpoint_reused",
+    "source_job_id": "source_job_id",
+    "source_execution_id": "source_execution_id",
 }
 
 
@@ -274,6 +277,16 @@ def events_to_spans(job, events):
                 close(plan_span, timestamp, _outcome(data, "completed"), cascade=True)
                 plan_span["content"].append(event_content)
             active_stage = root
+        elif kind == "workflow_checkpoint_reused":
+            span = create(
+                f"{trace_id}:reuse:{identifier}", "invoke_agent",
+                str(data.get("role") or f"Step {data.get('index', '?')} (reused)"),
+                timestamp, trace_id,
+                {**data, "checkpoint_reused": True, "source_execution_id": data.get("execution_id")},
+            )
+            close(span, timestamp, "completed")
+            span["content"].append(event_content)
+            stages[str(data.get("index"))] = span
         elif kind == "maestro_step":
             if active_stage is not root and active_stage["end_ts"] is None:
                 close(active_stage, timestamp, cascade=True, inferred=True)
@@ -395,6 +408,6 @@ def events_to_spans(job, events):
     for step in orchestration.get("steps", []):
         step = _object(step)
         span = executions.get(step.get("execution_id")) or stages.get(str(step.get("index")))
-        if span is not None:
+        if span is not None and not span["attrs"].get("checkpoint_reused"):
             span["attrs"].update(_attrs(_object(step.get("metrics"))))
     return spans

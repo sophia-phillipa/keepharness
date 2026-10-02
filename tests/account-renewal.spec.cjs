@@ -189,7 +189,7 @@ const assert = require("node:assert/strict"),
     const close = () =>
       page.getByRole("button", { name: "Close", exact: true }).click();
     // P1: novice finds renewal directly; missing CLI has a disabled action.
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.13"));
+    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.14"));
     await page.goto("http://admin.test/#providers");
     await idle();
     assert(await login().isVisible());
@@ -275,6 +275,11 @@ const assert = require("node:assert/strict"),
     assert.equal(posts[0].backend, "claude");
     console.log("P6 PASS: catalog and selected executor");
     // P3: history and continuing after account condition, without losing the original request.
+    assert(await page.locator("#prompt").isDisabled());
+    assert.equal(await page.locator("#prompt").inputValue(), "Preserved message");
+    assert(await page.locator("#model-availability").evaluate(n => !!n.closest(".composer-area")));
+    await page.locator("#models-retry").click();
+    await page.waitForFunction(() => !document.querySelector("#prompt").disabled);
     condition = "claude_quota_exhausted";
     await page.fill("#prompt", "Continue later");
     await page.click("#send");

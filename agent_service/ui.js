@@ -24,6 +24,7 @@ let executionMode = "native",
   executionModeChosen = false;
 let policyProject = null,
   policyPending = false,
+  policyError = "",
   policySequence = 0;
 let uploadsAllowed = false,
   streamDisconnected = false,
@@ -699,19 +700,7 @@ function selectResource(item, trigger) {
     return;
   }
   const marker = trigger.prefix[0] === "@" ? "@" : "/",
-    token = marker + item.name,
-    conflict = resourceSelections.find(
-      (ref) => ref.token === token && ref.id !== item.id,
-    );
-  if (conflict) {
-    status(
-      "There is already another resource called " +
-        token +
-        " in this message. Remove it before choosing a different source.",
-    );
-    closeResourceMenu();
-    return;
-  }
+    token = marker + item.name;
   const input = $("prompt"),
     before = input.value.slice(0, trigger.start),
     after = input.value.slice(trigger.end);
@@ -891,6 +880,8 @@ const labels = {
   loading: "Preparing model",
 };
 const status = (text) => {
+  if (policyPending && policyError &&
+      (Object.values(labels).includes(text) || ["Failed run", "Run cancelled", "Run interrupted"].includes(text))) text = policyError;
   const target = $("status");
   // Repeated progress (one per streamed delta) is announced once.
   if (target.textContent === text && target.className === "visually-hidden")
@@ -955,6 +946,20 @@ const providerNames = {
   deepseek: "DeepSeek",
   maestro: "Maestro",
 };
+function providerModelIcon(backend, model) {
+  backend ||= models.find(item => item.id === model)?.backend;
+  return TailUI.icon({codex: "brand-openai", claude: "brand-claude", gemini: "brand-gemini", maestro: "tail-harness"}[backend] || "stack-2");
+}
+let composerCondition = null, modelAvailabilityError = "";
+function syncComposerAvailability() {
+  const condition = composerCondition?.backend === selected()?.backend ? composerCondition : null;
+  const blocked = !models.length || !!modelAvailabilityError || !!condition;
+  $("model-availability").hidden = !blocked;
+  $("model-availability-title").textContent = condition?.title || (modelAvailabilityError ? "Couldn't check the models" : "No model available");
+  $("model-availability-detail").textContent = condition?.message || modelAvailabilityError || "Add and enable a provider in the admin panel.";
+  $("prompt").disabled = blocked;
+  return blocked;
+}
 const modelName = (id) =>
   names[id] || models.find((m) => m.id === id)?.name || id || "No model";
 const selectedIdentity = () => {
@@ -1148,6 +1153,7 @@ const userErrors = {
   model_denied: "This model is not enabled for you. Choose another model.",
   model_or_effort_unavailable:
     "This model or reasoning level is no longer available. Choose another one.",
+  project_file_forbidden: "This file belongs to private server storage and cannot be attached. Choose a document outside the server state folder.",
   backend_unavailable:
     "This provider is not available right now. Choose another model.",
   capability_unavailable:
@@ -1587,15 +1593,18 @@ async function refreshProjectPermissions(timeout = 30000) {
     else if (previous && models.length) selectionNotice(previousName);
     policyProject = project;
     policyPending = false;
+    if (policyError) {
+      const showingPolicyError = $("status").textContent === policyError;
+      policyError = "";
+      if (showingPolicyError) status("Ready to chat");
+    }
     updateEfforts();
     if ([...$("effort").options].some((o) => o.value === effort))
       $("effort").value = effort;
   } catch (e) {
     if (sequence !== policySequence) return;
-    status(
-      "Couldn't load this project's permissions. Select it again to retry: " +
-        e.message,
-    );
+    policyError = "Couldn't load this project's permissions. Select it again to retry: " + e.message;
+    status(policyError);
     return false;
   } finally {
     if (sequence === policySequence) {
@@ -2197,7 +2206,7 @@ function conversationRow(c) {
   const model = c.execution?.model;
   const icon = document.createElement("span");
   icon.className = "conversation-model-icon";
-  icon.textContent = modelIcon(model);
+  icon.append(providerModelIcon(c.execution?.backend || c.backend, model || c.model));
   icon.setAttribute("aria-hidden", "true");
   const title = document.createElement("span");
   title.className = "conversation-title";
@@ -3620,6 +3629,8 @@ function event(e) {
 // F-85: provider conditions from the worker ({condition, backend}), plus the
 // legacy Claude codes still stored in older history.
 const conditionCopy = {
+  backend_unavailable: "unavailable",
+  provider_unavailable: "unavailable",
   provider_authentication_required: "authentication",
   provider_authentication_failed: "authentication",
   provider_quota_exhausted: "quota",
@@ -3641,6 +3652,7 @@ function executionCondition(code, backend, detail) {
     panel = providerNames[backend] || name,
     reason = providerMessage(detail);
   const copy = {
+    unavailable: {title: name + " unavailable", message: "Open the admin panel to check " + name + ", or select another provider."},
     authentication: {
       title: "Renew " + name + " access",
       message:
@@ -3713,6 +3725,8 @@ async function result(
     r.result?.backend || r.request?.backend,
     r.result?.error_detail,
   );
+  if (condition) composerCondition = { ...condition, backend: r.result?.backend || r.request?.backend || selected()?.backend };
+  updateComposer();
   updateMotion(r.state);
   $("activity-state").textContent = condition
     ? "ℹ " + condition.title
@@ -3738,7 +3752,7 @@ async function result(
       setAnswer(active, data.partial_answer);
     // F-83/F-112: keep what was already received and append the notice.
     const notice = condition
-      ? condition.message
+      ? ""
       : data.error
         ? executionError(data.error, data.error_detail)
         : "";
@@ -3747,7 +3761,7 @@ async function result(
       setAnswer(active, "Run cancelled.");
     // The notice asks to send again: put the prompt back in an empty composer.
     if (
-      notice &&
+      (notice || condition) &&
       !snapshot &&
       r.request?.prompt &&
       !$("prompt").value &&
@@ -4230,7 +4244,8 @@ async function send() {
     uploads ||
     policyPending ||
     !selected() ||
-    sendCooldownSeconds()
+    sendCooldownSeconds() ||
+    $("prompt").disabled
   )
     return;
   const following = busy && !!job;
@@ -4281,6 +4296,7 @@ async function send() {
   }
   syncResourceSelections();
   rememberSelection();
+  const submissionFocus = document.activeElement;
   submitting = true;
   setBusy(true);
   status("Sending request to the server…");
@@ -4386,6 +4402,7 @@ async function send() {
     if (!sentJob) {
       submitting = false;
       setBusy(following ? busy : false);
+      if ([document.body, $("send"), $("prompt")].includes(document.activeElement) && [$("send"), $("prompt")].includes(submissionFocus)) $("prompt").focus({ preventScroll: true });
     } else if (job === sentJob && !submitting && !following) setBusy(false);
   }
 }
@@ -5320,6 +5337,7 @@ function modelAvailability(
   data = { admin_url: $("admin-link").getAttribute("href") },
   error = "",
 ) {
+  modelAvailabilityError = error;
   const panel = $("model-availability");
   panel.hidden = models.length > 0 && !error;
   $("model-availability-title").textContent = error
@@ -5614,8 +5632,8 @@ async function probeReadiness() {
   }
 }
 $("resume-execution").onclick = () => watch();
-$("models-retry").onclick = () => {
-  if (!busy) initialize();
+$("models-retry").onclick = async () => {
+  if (!busy) { await initialize(); composerCondition = null; updateComposer(); }
 };
 initialize();
 
@@ -5967,6 +5985,7 @@ async function loadAuthorizedProjectRoots() {
       const heading = document.createElement("strong");
       heading.textContent = root.path || root.label;
       heading.title = heading.textContent;
+      heading.prepend(projectFileIcon(root.path || root.label, true));
       const badge = document.createElement("span");
       badge.className = "root-access-badge";
       badge.textContent = "authorized";
@@ -5997,6 +6016,8 @@ async function loadAuthorizedProjectRoots() {
             entry.type === "directory" ? "span" : "button",
           );
           name.textContent = entry.name;
+          name.title = entry.name;
+          name.prepend(projectFileIcon(entry.name, entry.type === "directory"));
           if (name.tagName === "BUTTON") {
             name.type = "button";
             name.title = "Attach " + entry.name;
@@ -6768,6 +6789,7 @@ function updateComposer() {
   syncComposerPickers();
   syncExecutionMode();
   updateModelPermissions();
+  const blocked = syncComposerAvailability();
   const prompt = $("prompt");
   prompt.style.height = "auto";
   prompt.style.height = Math.min(prompt.scrollHeight, 170) + "px";
@@ -6790,6 +6812,7 @@ function updateComposer() {
       : "Send message",
   );
   $("send").disabled =
+    blocked ||
     submitting ||
     cancelling ||
     loading ||
@@ -8150,7 +8173,10 @@ function renderWorkspaceTasks(jobs) {
     state.className = "workspace-source"; state.textContent = item.state;
     row.title = [name.textContent, item.wait_reason, item.state].filter(Boolean).join(" · ");
     row.onclick = () => window.runConsole?.openRun(item.job_id);
-    row.append(name, state); target.append(row);
+    const identity = document.createElement("span");
+    identity.className = "workspace-model"; identity.textContent = item.model || item.backend || "";
+    identity.title = [item.backend, item.model].filter(Boolean).join(" / ");
+    row.append(providerModelIcon(item.backend, item.model), name, identity, state); target.append(row);
   }
   if (!active.length) target.textContent = "No background tasks.";
 }

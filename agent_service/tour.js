@@ -2,7 +2,7 @@
   "use strict";
 
   const STORAGE_KEY = "tail-harness-tour-seen";
-  const RELEASE = "0.13.13";
+  const RELEASE = "0.13.14";
   const steps = [
     { target: "top-search", title: "Search the workspace", text: "Search runs and conversations, steps in the current plan, and loaded files from one place. Use Ctrl/⌘+K to open it without leaving the keyboard." },
     { target: "quota-meters", title: "Provider quota", text: "These meters show the latest known allowance for each configured provider. Providers without quota data stay out of the way." },
@@ -179,6 +179,12 @@
     card.style.left = `${left}px`;
     card.style.top = `${top}px`;
     root.dataset.side = side;
+    const focused = document.activeElement;
+    if (card.contains(focused)) {
+      const action = focused.getBoundingClientRect(), viewport = card.getBoundingClientRect();
+      if (action.bottom > viewport.bottom) card.scrollTop += action.bottom - viewport.bottom + 8;
+      else if (action.top < viewport.top) card.scrollTop -= viewport.top - action.top + 8;
+    }
     const px = side === "right" ? rect.right + 4 : side === "left" ? rect.left - 12 : Math.max(12, Math.min(innerWidth - 20, rect.left + rect.width / 2 - 4));
     const py = side === "below" ? rect.bottom + 4 : side === "above" ? rect.top - 12 : Math.max(12, Math.min(innerHeight - 20, rect.top + rect.height / 2 - 4));
     pointer.style.cssText = `left:${px}px;top:${py}px`;
@@ -239,8 +245,8 @@
     root.remove();
     root = null;
     target = null;
-    const restore = visible(previousFocus) && !previousFocus.closest("dialog:not([open])")
-      ? previousFocus : document.querySelector("#prompt");
+    const restore = previousFocus !== document.body && visible(previousFocus) && !previousFocus.disabled && !previousFocus.closest("dialog:not([open]), [inert]")
+      ? previousFocus : document.querySelector("#prompt:not(:disabled)") || document.querySelector("#models-retry");
     restore?.focus({ preventScroll: true });
     window.syncWorkspaceModal?.();
   }

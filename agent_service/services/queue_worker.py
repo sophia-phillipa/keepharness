@@ -264,7 +264,7 @@ async def run(service):
                         except (OSError, RuntimeError):
                             reasons.pop(row["id"], None)
                             service.write_ownership.release(row["id"])
-                            settle(
+                            await settle_running(
                                 service, row["id"], "failed", {"error": "project_root_unavailable"}
                             )
                             continue

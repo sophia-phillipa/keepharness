@@ -224,7 +224,7 @@ def test_claude_video_only_for_current_cli_aliases(tmp_path):
 
 
 def test_cancelled_folder_video_import_cleans_source(tmp_path):
-    cfg = config(tmp_path)
+    cfg = config(tmp_path / "state")
     service = Service(cfg)
     source = tmp_path / "clip.mp4"
     source.write_bytes(b"fake mp4")
@@ -249,5 +249,5 @@ def test_cancelled_folder_video_import_cleans_source(tmp_path):
         else:
             raise AssertionError("import cancellation was swallowed")
     assert source.read_bytes() == b"fake mp4"
-    assert not list((tmp_path / "files").rglob("source"))
+    assert not list((service.root / "files").rglob("source"))
     service.db.close()

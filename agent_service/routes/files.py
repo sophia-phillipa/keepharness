@@ -258,6 +258,11 @@ async def project_files(request, service, identity):
             folder = target.relative_to(root.resolve()).as_posix()
         root = workspaces.system_root(root_id)
         result = await asyncio.to_thread(workspaces.browse_system, root, folder, start, limit)
+        current = service.identity(request, revalidate=True)
+        if current[0] != identity[0]:
+            raise APIError("project_denied", 403)
+        if request.query_params.get("navigate_project") == "1":
+            service.project(current, request.query_params.get("project_id"))
         return JSONResponse(
             {
                 "state": "ready",

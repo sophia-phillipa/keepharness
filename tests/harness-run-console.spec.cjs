@@ -14,9 +14,11 @@ const { mount, run, span } = require('./run-console-fixture.cjs');
       if (url.pathname === '/v1/activity') return { json: { counts: { running: 1, queued: 1, needs_you: 0 }, jobs: [run], needs_you: [], providers: [{ backend: 'local', model: 'fixture', state: 'busy', running: 1, queued: 1 }] } };
       if (url.pathname.endsWith('/spans')) return { json: { spans: [{ ...span, ...(url.searchParams.get('include_content') === 'true' ? { content: [{ request: { prompt: 'private prompt' } }, { name: 'tool_start', data: { input: 'private input' } }, { name: 'tool_end', data: { result: 'private output' } }] } : {}) }] } };
       if (url.pathname.endsWith('/events')) {
-        const after = Number(url.searchParams.get('after') || 0);
-        const events = Array.from({ length: Math.min(200, eventCount - after) }, (_, i) => ({ id: after + i + 1, timestamp: 1 + i, type: 'tool_start', data: { tool: 'Read', tool_call_id: String(after + i) } }));
-        return { json: { events, next_after: events.at(-1)?.id || after, has_more: after + events.length < eventCount } };
+        const after = Number(url.searchParams.get('after') || 0), before = Number(url.searchParams.get('before') || eventCount + 1);
+        let events = Array.from({ length: eventCount }, (_, i) => ({ id: i + 1, timestamp: 1 + i, type: 'tool_start', data: { tool: 'Read', tool_call_id: String(i) } })).filter(event => event.id > after && event.id < before);
+        if (url.searchParams.get('order') === 'newest') events.reverse();
+        const has_more = events.length > 200; events = events.slice(0, 200);
+        return { json: { events, next_after: Math.max(after, ...events.map(event => event.id)), next_before: Math.min(before, ...events.map(event => event.id)), has_more } };
       }
       if (url.pathname.endsWith('/work-item')) return { json: { ...run, work_item: request.postDataJSON().work_item } };
       if (url.pathname === '/v1/conversations/conversation-a') return { json: { turns: [{ id: run.job_id, project: 'sem-projeto', state: 'completed', request: { prompt: 'Fixture', model: 'fixture' }, result: { answer: 'Done' } }] } };
@@ -56,8 +58,8 @@ const { mount, run, span } = require('./run-console-fixture.cjs');
     }
     eventCount = 602;
     await page.evaluate(() => runConsole.observe({ type: 'tool_start', job_id: 'run-a' }));
-    await page.getByRole('button', { name: 'Load more events' }).click();
     await page.waitForFunction(() => document.querySelectorAll('.run-log-row').length === 602);
+    assert.equal(await page.locator('.run-log-row td').nth(1).innerText(), '602');
     await page.getByLabel('Search logs').fill('"tool_call_id"');
     assert.equal(await page.getByLabel('Search logs').evaluate(node => node === document.activeElement), true, 'Log rendering preserves input focus for continued typing');
     await page.getByLabel('Search logs').fill('"tool_call_id":"600"');

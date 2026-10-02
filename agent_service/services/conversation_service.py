@@ -58,6 +58,7 @@ from ..persistence.repositories import (
     MessageRepository,
     ProjectRepository,
 )
+from ..private_storage import validate_attachment_source
 from ..work_items import invocation_reference, validate_reference
 from . import queue_worker
 from .activity_service import summarize_activity
@@ -513,6 +514,9 @@ class ConversationService:
                 copied = 0
                 try:
                     with workspaces.open_attachment_source(source) as input:
+                        await asyncio.to_thread(
+                            validate_attachment_source, self.config, self.root, source, input
+                        )
                         size = os.fstat(input.fileno()).st_size
                         if size > limit or used + size > 2 * 1024**3:
                             raise APIError("upload_limit", 413)
@@ -1173,6 +1177,12 @@ class ConversationService:
         ):
             raise APIError("workflow_requires_successful_chain", 409)
         project = self.project(identity, row["project"])
+        if row["project"] in self.deleted_project_folders:
+            raise APIError("project_folder_deleted", 410)
+        if row["project"] in self.project_service.deleting_project_folders:
+            raise APIError("project_folder_busy", 409)
+        if not project.get("root") or not Path(project["root"]).is_dir():
+            raise APIError("project_root_unavailable", 422)
         lease = "save-workflow-" + uuid.uuid4().hex
         conflict = self.write_ownership.acquire(
             lease, row["project"], row["work_item"], [project.get("root")]

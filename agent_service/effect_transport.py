@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from .errors import APIError
+from .private_storage import private_paths, private_roots
 
 MAX_REQUEST_BYTES = 256 * 1024
 
@@ -130,24 +131,14 @@ def server_spec(capability, *, scoped=False):
 def validate_scoped_private_files(service):
     """Reject pre-existing aliases before exposing any worker-controlled mounts."""
 
-    def unavailable(error):
-        if not isinstance(error, FileNotFoundError):
-            raise error
-
-    paths = [
-        Path(service.config[key])
-        for key in ("effect_credentials_path", "secret_vault_path")
-        if service.config.get(key)
-    ]
     try:
-        for directory, _, files in os.walk(service.root, followlinks=False, onerror=unavailable):
-            paths.extend(Path(directory) / name for name in files)
-        for path in paths:
+        for path in private_paths(service.config, service.root, skip_catalogs=True):
+            if path.is_symlink():
+                raise APIError("scoped_private_file_linked")
             try:
-                if path.stat().st_nlink != 1:
+                if path.is_file() and path.stat().st_nlink != 1:
                     raise APIError("scoped_private_file_linked")
             except FileNotFoundError:
-                # SQLite sidecars may disappear between enumeration and stat.
                 continue
     except (OSError, RuntimeError):
         raise APIError("scoped_private_files_unavailable") from None
@@ -159,10 +150,7 @@ def scoped_enforcement(service, command, *, copied_paths=()):
         validate_scoped_private_files(service)
     except APIError:
         return "unenforced"
-    private = [Path(service.root).resolve()]
-    for key in ("effect_credentials_path", "secret_vault_path"):
-        if service.config.get(key):
-            private.append(Path(service.config[key]).resolve())
+    private = [path.resolve() for path in private_roots(service.config, service.root)]
     # A linked private file can be reachable under an unrelated mount or auth-copy
     # name. Fail closed without walking potentially huge, worker-controlled roots.
     stores = [
