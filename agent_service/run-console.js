@@ -58,7 +58,7 @@
   body.tabIndex = -1;
   for (const name of ['Pipeline', 'Timeline', 'Logs', 'Runs', 'Agents']) {
     const tab = button(name, () => setTab(name));
-    tab.prepend(TailUI.icon({Pipeline: 'list', Timeline: 'list', Logs: 'list', Runs: 'stack-2', Agents: 'tail-harness'}[name]));
+    tab.prepend(TailUI.icon({Pipeline: 'plan', Timeline: 'trace', Logs: 'list', Runs: 'pulse', Agents: 'server'}[name]));
     tab.dataset.tab = name;
     tab.id = 'run-tab-' + name.toLowerCase();
     tab.setAttribute('aria-label', name);
@@ -77,6 +77,7 @@
   });
   const close = button('Collapse run console', () => toggle(false));
   close.classList.add('run-console-close');
+  close.prepend(TailUI.icon('chevron-down'));
   let consoleHeight = Math.max(340, innerHeight * .45), restoreHeight = consoleHeight, maximized = false, manuallyResized = false;
   try { const saved = Number(localStorage.getItem('run-console-height')); if (saved >= 190) consoleHeight = saved; } catch {}
   const maximize = button('Maximize', () => {
@@ -116,6 +117,7 @@
   shortcut.setAttribute('aria-hidden', 'true');
   const stripAction = button('Expand', () => toggle(drawer.hidden));
   stripAction.id = 'run-status-action';
+  stripAction.prepend(TailUI.icon('chevron-up'));
   stripAction.setAttribute('aria-label', 'Toggle console from status strip');
   stripAction.setAttribute('aria-controls', drawer.id);
   stripAction.setAttribute('aria-expanded', 'false');
@@ -185,7 +187,7 @@
     drawer.hidden = !open;
     syncConsoleModal();
     toggleButton.setAttribute('aria-expanded', String(open));
-    stripAction.textContent = open ? 'Collapse' : 'Expand';
+    stripAction.replaceChildren(TailUI.icon(open ? 'chevron-down' : 'chevron-up'), document.createTextNode(open ? 'Collapse' : 'Expand'));
     stripAction.setAttribute('aria-expanded', String(open));
     if (open) {
       setTab(state.tab);
@@ -347,7 +349,7 @@
       const pendingPlan = currentPlan();
       const current = state.activity.jobs.find(item => item.job_id === state.run);
       const highlight = pendingPlan ? 'Maestro plan awaiting approval' : current ? [current.work_item || current.title, current.state].filter(Boolean).join(' · ') : 'No active run';
-      toggleButton.textContent = `● ${counts.running || 0} running · ${counts.queued || 0} queued · ${counts.needs_you || 0} needs you · ${highlight}`;
+      toggleButton.replaceChildren(TailUI.icon('pulse'), document.createTextNode(`${counts.running || 0} running · ${counts.queued || 0} queued · ${counts.needs_you || 0} needs you · ${highlight}`));
       toggleButton.title = toggleButton.textContent + ' · Toggle run console (Ctrl/⌘+J)';
       inboxButton.textContent = `Needs you (${counts.needs_you || 0})`;
       const attentionCount = document.getElementById('attention-count');
@@ -540,7 +542,9 @@
       const route = el('span', [backend, span.attrs?.['gen_ai.request.model'] || span.attrs?.model || span.kind].filter(Boolean).join(' · '), 'backend-chip');
       route.dataset.backend = backend;
       route.title = route.textContent;
-      row.append(el('strong', span.name), spanState, route, el('span', span.attrs?.effort || '', 'run-span-effort'), el('span', duration(span), 'run-span-duration'), el('span', tokenCount(span), 'run-span-tokens'));
+      const heading = el('strong', span.name);
+      heading.prepend(TailUI.icon(span.kind === 'harness.gate' && span.end_ts == null ? 'shield' : {completed:'check', pending:'clock', running:'pulse', waiting_approval:'shield', blocked:'shield', failed:'x', cancelled:'x', interrupted:'x', skipped:'chevron-right'}[outcome(span)] || 'clock'));
+      row.append(heading, spanState, route, el('span', span.attrs?.effort || '', 'run-span-effort'), el('span', duration(span), 'run-span-duration'), el('span', tokenCount(span), 'run-span-tokens'));
       if (span.attrs?.enforcement) row.append(el('span', 'Publication: ' + span.attrs.enforcement, 'run-span-enforcement'));
       if (state.tab === 'Timeline') {
         const track = el('span', null, 'run-waterfall-track');
@@ -552,6 +556,9 @@
         bar.title = duration(span);
         track.append(bar); row.append(track);
       }
+      const connector = TailUI.icon('chevron-right');
+      connector.classList.add('run-span-connector');
+      row.append(connector);
       list.append(row);
     }
     split.append(list);
@@ -1084,7 +1091,9 @@
     openPlanEditor() { syncContext(); state.editPlan = true; toggle(true); setTab('Pipeline'); },
     attachAnswer(target, id) {
       if (!id) return;
-      target.append(button('View run', async () => { syncContext(); toggle(true); setTab('Pipeline'); await chooseRun(id); }));
+      const view = button('View run', async () => { syncContext(); toggle(true); setTab('Pipeline'); await chooseRun(id); });
+      view.prepend(TailUI.icon('trace'));
+      target.append(view);
     },
     observe(event) {
       if (['gate_resolved', 'gate_expired', 'gate_invalidated'].includes(event.type)) clearPlanDraft(event.data?.gate_id);
