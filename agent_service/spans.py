@@ -279,10 +279,16 @@ def events_to_spans(job, events):
             active_stage = root
         elif kind == "workflow_checkpoint_reused":
             span = create(
-                f"{trace_id}:reuse:{identifier}", "invoke_agent",
+                f"{trace_id}:reuse:{identifier}",
+                "invoke_agent",
                 str(data.get("role") or f"Step {data.get('index', '?')} (reused)"),
-                timestamp, trace_id,
-                {**data, "checkpoint_reused": True, "source_execution_id": data.get("execution_id")},
+                timestamp,
+                trace_id,
+                {
+                    **data,
+                    "checkpoint_reused": True,
+                    "source_execution_id": data.get("execution_id"),
+                },
             )
             close(span, timestamp, _outcome(data, "completed"))
             span["content"].append(event_content)

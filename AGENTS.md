@@ -23,7 +23,33 @@ PYTHON="$PWD/.venv/bin/python" ./scripts/test-ui.sh   # needs Node.js and Playwr
 .venv/bin/python -m build
 ```
 
-`scripts/test-ui.sh` starts temporary servers on ports 18094/18095 with isolated state and runs every `tests/*.spec.cjs`. Fixtures never call cloud inference or download models.
+`scripts/test-ui.sh` starts temporary servers on free test ports with isolated state and runs every `tests/*.spec.cjs` and `tests/personas/*.spec.cjs`. Fixtures never call cloud inference or download models.
+
+## Continuous integration
+
+CI must stay green. `.github/workflows/ci.yml` runs conventions, formatting/lint, unit tests on Python 3.11 and 3.14, browser tests, and package build/install checks (six jobs including the Python matrix). After every push or pull request, check the current commit with `gh run list` and inspect failures with `gh run view <run-id> --log-failed`; wait for completion with `gh run watch <run-id>` or `gh pr checks --watch`. Fix a red run at its root cause before starting other work. Never disable, skip, narrow, or make jobs/tests non-blocking to obtain green. Feature-branch pushes run CI once a pull request is open.
+
+Run these commands from an activated disposable virtual environment to mirror the jobs:
+
+```sh
+python scripts/check_conventions.py
+python -m pip install ruff
+ruff format --check .
+ruff check .
+npx --yes prettier@3 --check "control/*.{js,css}" "agent_service/*.{js,css}" "tests/*.cjs" "scripts/*.cjs"
+python -m pip install '.[test]'
+# Repeat in Python 3.11 and 3.14 environments; media sandbox tools must work.
+TAIL_HARNESS_REQUIRE_MEDIA_SANDBOX=1 python -m pytest -rs --junitxml=reports/unit-local.xml
+npm install --no-save playwright
+npx playwright install --with-deps chromium
+PYTHON="$(command -v python)" ./scripts/test-ui.sh
+python -m pip install build
+python -m build
+python -m pip install dist/*.whl
+(cd /tmp && tail-harness --help)
+```
+
+The unit and browser jobs require `ffmpeg`, `bubblewrap`, and `poppler-utils`; bubblewrap needs working unprivileged user namespaces. Browser tests also require Node.js and Chromium. Use temporary state and test resources; do not reconfigure a shared host to match the disposable CI runner.
 
 ## Conventions
 

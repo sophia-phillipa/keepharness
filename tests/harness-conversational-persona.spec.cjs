@@ -13,7 +13,8 @@ const path = require("node:path");
       const url = new URL(route.request().url());
       if (url.pathname.startsWith("/v1/")) {
         let data = {};
-        if (url.pathname === "/v1/projects") data = { projects: ["p"], details: {} };
+        if (url.pathname === "/v1/projects")
+          data = { projects: ["p"], details: {} };
         if (url.pathname === "/v1/models")
           data = {
             models: [
@@ -63,8 +64,16 @@ const path = require("node:path");
                     gate_id: "history-gate",
                     question: "Which tone?",
                     options: [
-                      { id: "brief", label: "Brief", description: "Use fewer words" },
-                      { id: "full", label: "Full", description: "Include detail" },
+                      {
+                        id: "brief",
+                        label: "Brief",
+                        description: "Use fewer words",
+                      },
+                      {
+                        id: "full",
+                        label: "Full",
+                        description: "Include detail",
+                      },
                     ],
                     multi_select: false,
                     state: "resolved",
@@ -97,7 +106,10 @@ const path = require("node:path");
             ],
           };
         if (url.pathname === "/v1/conversations") data = { conversations: [] };
-        if (url.pathname === "/v1/jobs" && route.request().method() === "POST") {
+        if (
+          url.pathname === "/v1/jobs" &&
+          route.request().method() === "POST"
+        ) {
           posts.push(route.request().postDataJSON());
           data = { job_id: "release-job" };
         }
@@ -132,7 +144,9 @@ const path = require("node:path");
       });
     });
 
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.15"));
+    await page.addInitScript(() =>
+      localStorage.setItem("tail-harness-tour-seen", "0.13.15"),
+    );
 
     await page.goto("http://persona.test");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
@@ -153,7 +167,10 @@ const path = require("node:path");
     });
     const control = page.locator("#persona-control");
     await control.waitFor();
-    assert.match(await control.innerText(), /Agent conversation: demo--advisor/);
+    assert.match(
+      await control.innerText(),
+      /Agent conversation: demo--advisor/,
+    );
     await page.click(".persona-end");
     assert.match(await control.innerText(), /Ending after your next message/);
     await page.evaluate(() =>
@@ -199,8 +216,13 @@ const path = require("node:path");
     assert(await control.isHidden());
 
     await page.evaluate(() => load("persona-history"));
-    await page.waitForFunction(() => conversation === "persona-history" && !loading);
-    assert.match(await control.innerText(), /Agent conversation: demo--advisor/);
+    await page.waitForFunction(
+      () => conversation === "persona-history" && !loading,
+    );
+    assert.match(
+      await control.innerText(),
+      /Agent conversation: demo--advisor/,
+    );
     assert.equal(
       await page.locator(".message-resource-chip").innerText(),
       "/demo--advisor",
@@ -211,9 +233,13 @@ const path = require("node:path");
     assert(await restoredGate.locator('input[value="brief"]').isDisabled());
 
     await page.evaluate(() => load("ordinary-history"));
-    await page.waitForFunction(() => conversation === "ordinary-history" && !loading);
+    await page.waitForFunction(
+      () => conversation === "ordinary-history" && !loading,
+    );
     assert(await control.isHidden());
-    console.log("PASS: conversational persona release, history restore, gates and resource chips");
+    console.log(
+      "PASS: conversational persona release, history restore, gates and resource chips",
+    );
   } finally {
     await browser.close();
   }

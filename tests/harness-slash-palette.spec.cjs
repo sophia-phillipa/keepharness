@@ -16,7 +16,9 @@ const path = require("node:path");
           data = { projects: ["p"], details: { p: { label: "Project" } } };
         if (url.pathname === "/v1/models")
           data = {
-            models: [{ id: "gpt-6-astra", backend: "codex", efforts: ["medium"] }],
+            models: [
+              { id: "gpt-6-astra", backend: "codex", efforts: ["medium"] },
+            ],
             providers: { codex: true },
           };
         if (url.pathname === "/v1/usage") data = { available: false };
@@ -105,20 +107,31 @@ const path = require("node:path");
       });
     });
 
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.15"));
+    await page.addInitScript(() =>
+      localStorage.setItem("tail-harness-tour-seen", "0.13.15"),
+    );
 
     await page.goto("http://slash-palette.test");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     const promptBox = page.locator("#prompt");
     assert.equal(await promptBox.getAttribute("role"), "combobox");
-    assert.equal(await page.getByRole("combobox", { name: "Message" }).count(), 1);
+    assert.equal(
+      await page.getByRole("combobox", { name: "Message" }).count(),
+      1,
+    );
     assert.equal(await promptBox.getAttribute("aria-haspopup"), "listbox");
-    assert.equal(await promptBox.getAttribute("aria-controls"), "resource-menu");
+    assert.equal(
+      await promptBox.getAttribute("aria-controls"),
+      "resource-menu",
+    );
     assert.equal(await promptBox.getAttribute("aria-expanded"), "false");
     assert.deepEqual(
       await page.evaluate(() => [
         activityTitle({ type: "hook_scope", data: { scope: "project" } }),
-        activityTitle({ type: "resource_fallback", data: { scope: "advisory" } }),
+        activityTitle({
+          type: "resource_fallback",
+          data: { scope: "advisory" },
+        }),
         activityTitle({
           type: "invocation_started",
           data: {
@@ -145,9 +158,15 @@ const path = require("node:path");
     );
     await reviewer.waitFor();
     assert.equal(await reviewer.getAttribute("aria-selected"), "true");
-    assert.match(await page.locator("#resource-menu").innerText(), /AGENTS · CATALOG · demo/i);
+    assert.match(
+      await page.locator("#resource-menu").innerText(),
+      /AGENTS · CATALOG · demo/i,
+    );
     assert.match(await reviewer.innerText(), /Pinned · 0123456789ab/);
-    assert.match(await page.locator("#resource-preview").innerText(), /Pinned commit 0123456789ab/);
+    assert.match(
+      await page.locator("#resource-preview").innerText(),
+      /Pinned commit 0123456789ab/,
+    );
     assert.equal(
       await page.locator("#resource-preview").getAttribute("title"),
       "Catalog demo · pinned commit 0123456789abcdef0123456789abcdef01234567",
@@ -156,7 +175,10 @@ const path = require("node:path");
       '#workspace-resources [data-resource-id="catalog/demo/agents/reviewer.toml"]',
     );
     await workspaceReviewer.waitFor();
-    assert.match(await workspaceReviewer.innerText(), /catalog · demo[\s\S]*Pinned · 0123456789ab/i);
+    assert.match(
+      await workspaceReviewer.innerText(),
+      /catalog · demo[\s\S]*Pinned · 0123456789ab/i,
+    );
     await page.keyboard.press("ArrowDown");
     assert.equal(
       await page.evaluate(() => document.activeElement.dataset.resourceId),
@@ -164,20 +186,23 @@ const path = require("node:path");
     );
     assert.equal(await reviewer.getAttribute("aria-selected"), "true");
     await page.keyboard.press("Escape");
-    assert.equal(await page.evaluate(() => document.activeElement.id), "prompt");
     assert.equal(
-      await page.locator("#resource-menu").evaluate((menu) =>
-        menu.matches(":popover-open"),
-      ),
+      await page.evaluate(() => document.activeElement.id),
+      "prompt",
+    );
+    assert.equal(
+      await page
+        .locator("#resource-menu")
+        .evaluate((menu) => menu.matches(":popover-open")),
       false,
     );
     await page.fill("#prompt", "/dmrv");
     await reviewer.waitFor();
     await page.mouse.click(1270, 10);
     assert.equal(
-      await page.locator("#resource-menu").evaluate((menu) =>
-        menu.matches(":popover-open"),
-      ),
+      await page
+        .locator("#resource-menu")
+        .evaluate((menu) => menu.matches(":popover-open")),
       false,
     );
     await page.fill("#prompt", "");
@@ -185,14 +210,25 @@ const path = require("node:path");
     await reviewer.waitFor();
     await page.keyboard.press("Tab");
     assert.equal(await page.inputValue("#prompt"), "/demo--reviewer ");
-    assert.equal(await page.locator(".resource-chip").innerText(), "/demo--reviewer ×");
+    assert.equal(
+      await page.locator(".resource-chip").innerText(),
+      "/demo--reviewer ×",
+    );
     await page.locator(".resource-chip").click();
     assert.equal(await page.inputValue("#prompt"), "");
 
     await page.fill("#prompt", "/check");
-    await page.locator('#resource-menu [data-resource-id="project/p/.agents/skills/check/SKILL.md"]').click();
+    await page
+      .locator(
+        '#resource-menu [data-resource-id="project/p/.agents/skills/check/SKILL.md"]',
+      )
+      .click();
     await page.keyboard.type("/install");
-    await page.locator('#resource-menu [data-resource-id="catalog/demo/commands/install.md"]').click();
+    await page
+      .locator(
+        '#resource-menu [data-resource-id="catalog/demo/commands/install.md"]',
+      )
+      .click();
     assert.equal(
       await page.locator(".resource-chain-preview").innerText(),
       "Runs in order: 1 /check → 2 /install",
@@ -220,8 +256,16 @@ const path = require("node:path");
     );
     await page.evaluate(() => {
       resourceSelections = [
-        { id: "project/p/.agents/skills/check/SKILL.md", revision: "s1", token: "/check" },
-        { id: "catalog/demo/commands/install.md", revision: "c1", token: "/install" },
+        {
+          id: "project/p/.agents/skills/check/SKILL.md",
+          revision: "s1",
+          token: "/check",
+        },
+        {
+          id: "catalog/demo/commands/install.md",
+          revision: "c1",
+          token: "/install",
+        },
       ];
       $("prompt").value = "before  /check   after\t";
       renderResourceChips();
@@ -230,21 +274,49 @@ const path = require("node:path");
     assert.equal(await page.inputValue("#prompt"), "before    after\t");
 
     await page.fill("#prompt", "/model");
-    await page.locator('#resource-menu [data-resource-id="builtin/model"]').waitFor();
+    await page
+      .locator('#resource-menu [data-resource-id="builtin/model"]')
+      .waitFor();
     assert.match(await page.locator("#resource-menu").innerText(), /BUILT-INS/);
     await page.keyboard.press("Tab");
     assert.equal(await page.inputValue("#prompt"), "");
-    assert(await page.locator("#model-menu").evaluate((node) => node.matches(":popover-open")));
+    assert(
+      await page
+        .locator("#model-menu")
+        .evaluate((node) => node.matches(":popover-open")),
+    );
     await page.keyboard.press("Escape");
-    assert.equal(await page.evaluate(() => document.activeElement.id), "model-trigger");
+    assert.equal(
+      await page.evaluate(() => document.activeElement.id),
+      "model-trigger",
+    );
 
     await page.fill("#prompt", "/");
-    await page.locator('#resource-menu [data-resource-id="catalog/demo/commands/install.md"]').waitFor();
-    assert.match(await page.locator("#resource-menu").innerText(), /MAINTENANCE/);
-    assert(await page.locator('#resource-menu [data-resource-id="catalog/demo/rules/paths.md"]').isDisabled());
+    await page
+      .locator(
+        '#resource-menu [data-resource-id="catalog/demo/commands/install.md"]',
+      )
+      .waitFor();
+    assert.match(
+      await page.locator("#resource-menu").innerText(),
+      /MAINTENANCE/,
+    );
+    assert(
+      await page
+        .locator(
+          '#resource-menu [data-resource-id="catalog/demo/rules/paths.md"]',
+        )
+        .isDisabled(),
+    );
     await reviewer.focus();
-    assert.match(await page.locator("#resource-preview").innerText(), /<change>/);
-    assert.match(await page.locator("#resource-preview").innerText(), /reviewer\.toml/);
+    assert.match(
+      await page.locator("#resource-preview").innerText(),
+      /<change>/,
+    );
+    assert.match(
+      await page.locator("#resource-preview").innerText(),
+      /reviewer\.toml/,
+    );
 
     await page.setViewportSize({ width: 390, height: 844 });
     await page.fill("#prompt", "");
@@ -255,7 +327,9 @@ const path = require("node:path");
     assert(bounds.y >= 0 && bounds.y + bounds.height <= 844);
     await reviewer.click();
     assert.equal(await page.inputValue("#prompt"), "/demo--reviewer ");
-    console.log("PASS: unified slash palette, fuzzy match, chips, preview and mobile bounds");
+    console.log(
+      "PASS: unified slash palette, fuzzy match, chips, preview and mobile bounds",
+    );
   } finally {
     await browser.close();
   }

@@ -1581,12 +1581,37 @@ body:has(#provider-dialog[open]) {
 }
 
 /* Catalog administration uses the panel's existing controls and colors. */
-#catalog-panel { max-width: 100%; min-width: 0; }
-#catalog-panel label { display: block; margin-top: 1rem; }
-#catalog-panel input, #catalog-panel select { width: 100%; max-width: 40rem; box-sizing: border-box; }
-#catalog-panel p { overflow-wrap: anywhere; }
-#catalog-panel .catalog-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin: 1rem 0; }
-#catalog-panel h2, #catalog-panel h3 { margin-top: 1.5rem; }
-#vault-save { margin: 1rem 0; }
+#catalog-panel {
+  max-width: 100%;
+  min-width: 0;
+}
+#catalog-panel label {
+  display: block;
+  margin-top: 1rem;
+}
+#catalog-panel input,
+#catalog-panel select {
+  width: 100%;
+  max-width: 40rem;
+  box-sizing: border-box;
+}
+#catalog-panel p {
+  overflow-wrap: anywhere;
+}
+#catalog-panel .catalog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 1rem 0;
+}
+#catalog-panel h2,
+#catalog-panel h3 {
+  margin-top: 1.5rem;
+}
+#vault-save {
+  margin: 1rem 0;
+}
 
-#catalog-drift strong { overflow-wrap: anywhere; }
+#catalog-drift strong {
+  overflow-wrap: anywhere;
+}

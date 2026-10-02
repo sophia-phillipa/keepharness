@@ -116,7 +116,12 @@ def test_scoped_turn_finishes_the_panel_before_quota_after(tmp_path):
         ):
             result = asyncio.run(instance.infer(row, data))
         assert order == ["quota", "adapter", "panel_finished", "quota", "cursor"]
-        assert events(instance, row["id"]) == ["queued", "publication_policy", "quota_before", "quota_after"]
+        assert events(instance, row["id"]) == [
+            "queued",
+            "publication_policy",
+            "quota_before",
+            "quota_after",
+        ]
         assert result["quota_before"] == result["quota_after"] == {"available": True}
     finally:
         instance.db.close()

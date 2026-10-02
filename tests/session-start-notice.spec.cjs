@@ -105,7 +105,9 @@ const assert = require("node:assert/strict"),
     };
     const idle = () => page.waitForFunction(() => !busy && !submitting);
 
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.15"));
+    await page.addInitScript(() =>
+      localStorage.setItem("tail-harness-tour-seen", "0.13.15"),
+    );
 
     await page.goto("http://panel.test/");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
@@ -126,8 +128,14 @@ const assert = require("node:assert/strict"),
     assert.equal(sent.at(-1).execution_mode, "scoped");
     assert.equal(sent.at(-1).access_mode, "full");
     assert.equal(await notice.isVisible(), false);
-    assert.equal(await page.locator("#header-execution-mode").isVisible(), true);
-    assert.equal(await page.locator("#header-execution-mode").innerText(), "Isolated conversation");
+    assert.equal(
+      await page.locator("#header-execution-mode").isVisible(),
+      true,
+    );
+    assert.equal(
+      await page.locator("#header-execution-mode").innerText(),
+      "Isolated conversation",
+    );
     assert.equal(await page.locator("#header-access").innerText(), "full");
     assert.equal(
       await toggle.isVisible(),
@@ -153,7 +161,10 @@ const assert = require("node:assert/strict"),
       .locator("#model")
       .selectOption("gemini-fixture", { force: true });
     await page.locator("#prompt").fill("Blocked draft");
-    assert.equal(await page.locator("#execution-mode-unavailable").isVisible(), true);
+    assert.equal(
+      await page.locator("#execution-mode-unavailable").isVisible(),
+      true,
+    );
     assert.match(
       await page.locator("#execution-mode-unavailable").innerText(),
       /Choose a different model or start a new conversation\./,
@@ -174,8 +185,14 @@ const assert = require("node:assert/strict"),
         "Isolated conversation",
     );
     assert.equal(await toggle.isVisible(), false);
-    assert.equal(await page.locator("#header-execution-mode").isVisible(), true);
-    assert.equal(await page.locator("#header-execution-mode").innerText(), "Isolated conversation");
+    assert.equal(
+      await page.locator("#header-execution-mode").isVisible(),
+      true,
+    );
+    assert.equal(
+      await page.locator("#header-execution-mode").innerText(),
+      "Isolated conversation",
+    );
     assert.equal(await page.locator("#header-access").innerText(), "read_only");
     assert.equal(await access.innerText(), "Access: Read only");
 

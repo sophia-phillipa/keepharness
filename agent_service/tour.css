@@ -19,7 +19,11 @@
   border: 2px solid color-mix(in srgb, var(--tour-accent) 78%, white);
   border-radius: 10px;
   box-shadow: 0 0 0 9999px rgb(14 17 24 / 68%);
-  transition: left var(--tour-duration), top var(--tour-duration), width var(--tour-duration), height var(--tour-duration);
+  transition:
+    left var(--tour-duration),
+    top var(--tour-duration),
+    width var(--tour-duration),
+    height var(--tour-duration);
 }
 
 .tour-pointer {
@@ -32,9 +36,15 @@
   filter: drop-shadow(0 1px 1px rgb(0 0 0 / 30%));
 }
 
-#tour-root[data-side="above"] .tour-pointer { transform: rotate(-45deg); }
-#tour-root[data-side="right"] .tour-pointer { transform: rotate(45deg); }
-#tour-root[data-side="left"] .tour-pointer { transform: rotate(-135deg); }
+#tour-root[data-side="above"] .tour-pointer {
+  transform: rotate(-45deg);
+}
+#tour-root[data-side="right"] .tour-pointer {
+  transform: rotate(45deg);
+}
+#tour-root[data-side="left"] .tour-pointer {
+  transform: rotate(-135deg);
+}
 
 #tour-card {
   box-sizing: border-box;
@@ -46,7 +56,9 @@
   background: var(--th-panel, var(--panel, #fff));
   box-shadow: 0 16px 48px rgb(0 0 0 / 28%);
   pointer-events: auto;
-  transition: left var(--tour-duration), top var(--tour-duration);
+  transition:
+    left var(--tour-duration),
+    top var(--tour-duration);
 }
 
 #tour-counter {
@@ -54,14 +66,30 @@
   color: var(--th-muted, var(--muted, #687080));
   font-size: 12px;
   font-weight: 650;
-  letter-spacing: .04em;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
-#tour-title { margin: 0 0 8px; font-size: 18px; line-height: 1.25; }
-#tour-description { margin: 0; color: var(--th-muted, var(--muted, #596171)); font-size: 14px; line-height: 1.5; }
-.tour-actions { display: flex; align-items: center; gap: 8px; margin-top: 18px; }
-.tour-spacer { flex: 1; }
+#tour-title {
+  margin: 0 0 8px;
+  font-size: 18px;
+  line-height: 1.25;
+}
+#tour-description {
+  margin: 0;
+  color: var(--th-muted, var(--muted, #596171));
+  font-size: 14px;
+  line-height: 1.5;
+}
+.tour-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 18px;
+}
+.tour-spacer {
+  flex: 1;
+}
 .tour-actions button {
   min-height: 36px;
   padding: 7px 12px;
@@ -72,23 +100,54 @@
   font: inherit;
   cursor: pointer;
 }
-.tour-actions button:focus-visible { outline: 3px solid color-mix(in srgb, var(--tour-accent) 45%, transparent); outline-offset: 2px; }
-.tour-actions button:disabled { opacity: .45; cursor: default; }
-#tour-next { border-color: var(--th-action, var(--tour-accent)); background: var(--th-action, var(--tour-accent)); color: var(--th-on-action, #fff); }
-body #tour-next:hover { background-color: var(--th-action, var(--tour-accent)) !important; }
-#tour-skip { border-color: transparent; background: transparent; color: var(--th-muted, var(--muted, #596171)); }
+.tour-actions button:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--tour-accent) 45%, transparent);
+  outline-offset: 2px;
+}
+.tour-actions button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+#tour-next {
+  border-color: var(--th-action, var(--tour-accent));
+  background: var(--th-action, var(--tour-accent));
+  color: var(--th-on-action, #fff);
+}
+body #tour-next:hover {
+  background-color: var(--th-action, var(--tour-accent)) !important;
+}
+#tour-skip {
+  border-color: transparent;
+  background: transparent;
+  color: var(--th-muted, var(--muted, #596171));
+}
 
 @media (max-width: 600px) {
-  #tour-card { width: calc(100vw - 24px); max-height: min(46vh, 360px); overflow: auto; }
-  #tour-root[data-side="mobile"] .tour-pointer { transform: rotate(135deg); }
+  #tour-card {
+    width: calc(100vw - 24px);
+    max-height: min(46vh, 360px);
+    overflow: auto;
+  }
+  #tour-root[data-side="mobile"] .tour-pointer {
+    transform: rotate(135deg);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  #tour-root { --tour-duration: 0ms; }
+  #tour-root {
+    --tour-duration: 0ms;
+  }
 }
 
 @media (forced-colors: active) {
-  .tour-spotlight { border-color: Highlight; box-shadow: 0 0 0 9999px Canvas; }
-  .tour-pointer { border-color: Highlight; }
-  #tour-card { border: 2px solid CanvasText; }
+  .tour-spotlight {
+    border-color: Highlight;
+    box-shadow: 0 0 0 9999px Canvas;
+  }
+  .tour-pointer {
+    border-color: Highlight;
+  }
+  #tour-card {
+    border: 2px solid CanvasText;
+  }
 }

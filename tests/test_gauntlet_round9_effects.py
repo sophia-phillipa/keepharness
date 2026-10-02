@@ -90,9 +90,6 @@ def test_terminal_event_failure_does_not_orphan_effect(make_harness_config, even
     asyncio.run(scenario())
 
 
-
-
-
 def test_successful_jira_receipt_remains_recoverable_after_event_failure(make_harness_config):
     async def scenario():
         app, effect = await prepared(make_harness_config)

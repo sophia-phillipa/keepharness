@@ -7,8 +7,9 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from test_approval_sessions_lifecycle import browser, enroll, session_app
 from test_approval_authority import pending_approval
+from test_approval_sessions_lifecycle import browser, enroll
+from test_approval_sessions_lifecycle import session_app as session_app
 from test_effect_executor import prepared, request
 
 from agent_service.approval_sessions import revoke_sessions

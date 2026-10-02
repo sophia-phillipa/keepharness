@@ -165,72 +165,111 @@ function triggerAtCaret() {
 }
 function unfencedPrompt(text) {
   // Match resources.unfenced while preserving every original character offset.
-  let marker = null, markerDepth = 0, markerIndent = 0, listIndent = 0;
-  let previousBlank = true, indented = false, quoteInList = false;
-  return text.split(/(?<=\n)/).map(source => {
-    let column = 0;
-    let line = Array.from(source, character => {
-      const expanded = character === "\t" ? " ".repeat(4 - column % 4) : character;
-      column += expanded.length;
-      return expanded;
-    }).join("");
-    if (quoteInList) {
-      if (line.startsWith(" ".repeat(listIndent))) line = line.slice(listIndent);
-      else if (line.trim()) { quoteInList = false; listIndent = 0; }
-    }
-    const prefix = /^(?: {0,3}>[ \t]?)+/.exec(line);
-    let depth = prefix ? (prefix[0].match(/>/g) || []).length : 0;
-    let content = prefix ? line.slice(prefix[0].length) : line;
-    const blank = !content.trim(), indentation = /^ */.exec(content)[0].length;
-    if (marker && depth < markerDepth) marker = null;
-    if (!blank && indentation < listIndent && !quoteInList) { listIndent = 0; if (markerIndent) marker = null; }
-    if (!marker) {
-      let item = /^ {0,3}(?:[-+*]|[0-9]+[.)]) +/.exec(content);
-      if (item) {
-        listIndent = 0;
-        while (item) {
-          listIndent += item[0].length;
-          content = content.slice(item[0].length);
-          item = /^ {0,3}(?:[-+*]|[0-9]+[.)]) +/.exec(content);
+  let marker = null,
+    markerDepth = 0,
+    markerIndent = 0,
+    listIndent = 0;
+  let previousBlank = true,
+    indented = false,
+    quoteInList = false;
+  return text
+    .split(/(?<=\n)/)
+    .map((source) => {
+      let column = 0;
+      let line = Array.from(source, (character) => {
+        const expanded =
+          character === "\t" ? " ".repeat(4 - (column % 4)) : character;
+        column += expanded.length;
+        return expanded;
+      }).join("");
+      if (quoteInList) {
+        if (line.startsWith(" ".repeat(listIndent)))
+          line = line.slice(listIndent);
+        else if (line.trim()) {
+          quoteInList = false;
+          listIndent = 0;
         }
       }
-      else if (listIndent && !quoteInList) content = content.slice(listIndent);
-    } else if (markerIndent && !quoteInList) content = content.slice(markerIndent);
-    const nestedQuote = /^(?: {0,3}>[ \t]?)+/.exec(content);
-    if (nestedQuote) {
-      quoteInList = !!listIndent; depth += (nestedQuote[0].match(/>/g) || []).length;
-      content = content.slice(nestedQuote[0].length);
-    }
-    const codeIndent = /^(?: {4}|\t)/.test(content);
-    indented = !marker && ((codeIndent && (previousBlank || indented)) || (blank && indented));
-    let hidden = !!marker || indented;
-    const fence = /^ {0,3}(`{3,}|~{3,})(.*)/.exec(content);
-    if (fence && !indented) {
-      if (!marker && (fence[1][0] !== "`" || !fence[2].includes("`"))) {
-        marker = fence[1]; markerDepth = depth; markerIndent = listIndent; hidden = true;
-      } else if (marker && depth === markerDepth && fence[1][0] === marker[0] && fence[1].length >= marker.length && !fence[2].trim()) { marker = null; hidden = true; }
-    }
-    previousBlank = blank;
-    return hidden ? " ".repeat(source.length) : source;
-  }).join("");
+      const prefix = /^(?: {0,3}>[ \t]?)+/.exec(line);
+      let depth = prefix ? (prefix[0].match(/>/g) || []).length : 0;
+      let content = prefix ? line.slice(prefix[0].length) : line;
+      const blank = !content.trim(),
+        indentation = /^ */.exec(content)[0].length;
+      if (marker && depth < markerDepth) marker = null;
+      if (!blank && indentation < listIndent && !quoteInList) {
+        listIndent = 0;
+        if (markerIndent) marker = null;
+      }
+      if (!marker) {
+        let item = /^ {0,3}(?:[-+*]|[0-9]+[.)]) +/.exec(content);
+        if (item) {
+          listIndent = 0;
+          while (item) {
+            listIndent += item[0].length;
+            content = content.slice(item[0].length);
+            item = /^ {0,3}(?:[-+*]|[0-9]+[.)]) +/.exec(content);
+          }
+        } else if (listIndent && !quoteInList)
+          content = content.slice(listIndent);
+      } else if (markerIndent && !quoteInList)
+        content = content.slice(markerIndent);
+      const nestedQuote = /^(?: {0,3}>[ \t]?)+/.exec(content);
+      if (nestedQuote) {
+        quoteInList = !!listIndent;
+        depth += (nestedQuote[0].match(/>/g) || []).length;
+        content = content.slice(nestedQuote[0].length);
+      }
+      const codeIndent = /^(?: {4}|\t)/.test(content);
+      indented =
+        !marker &&
+        ((codeIndent && (previousBlank || indented)) || (blank && indented));
+      let hidden = !!marker || indented;
+      const fence = /^ {0,3}(`{3,}|~{3,})(.*)/.exec(content);
+      if (fence && !indented) {
+        if (!marker && (fence[1][0] !== "`" || !fence[2].includes("`"))) {
+          marker = fence[1];
+          markerDepth = depth;
+          markerIndent = listIndent;
+          hidden = true;
+        } else if (
+          marker &&
+          depth === markerDepth &&
+          fence[1][0] === marker[0] &&
+          fence[1].length >= marker.length &&
+          !fence[2].trim()
+        ) {
+          marker = null;
+          hidden = true;
+        }
+      }
+      previousBlank = blank;
+      return hidden ? " ".repeat(source.length) : source;
+    })
+    .join("");
 }
 
 function selectedOccurrences() {
   const prose = unfencedPrompt($("prompt").value);
   const used = new Set();
-  return resourceSelections.flatMap(ref => {
-    const escaped = ref.token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const match = [...prose.matchAll(new RegExp("(^|\\s)" + escaped + "(?=\\s|$)", "g"))].find(m => !used.has(m.index + m[1].length));
-    if (!match) return [];
-    const start = match.index + match[1].length;
-    used.add(start);
-    return [{ ref, start }];
-  }).sort((a, b) => a.start - b.start);
+  return resourceSelections
+    .flatMap((ref) => {
+      const escaped = ref.token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const match = [
+        ...prose.matchAll(new RegExp("(^|\\s)" + escaped + "(?=\\s|$)", "g")),
+      ].find((m) => !used.has(m.index + m[1].length));
+      if (!match) return [];
+      const start = match.index + match[1].length;
+      used.add(start);
+      return [{ ref, start }];
+    })
+    .sort((a, b) => a.start - b.start);
 }
 function syncResourceSelections() {
-  resourceSelections = selectedOccurrences().map(item => item.ref);
+  resourceSelections = selectedOccurrences().map((item) => item.ref);
   const tokens = new Set($("prompt").value.split(/\s+/));
-  invalidResourceTokens = new Set([...invalidResourceTokens].filter(token => tokens.has(token)));
+  invalidResourceTokens = new Set(
+    [...invalidResourceTokens].filter((token) => tokens.has(token)),
+  );
 }
 function renderResourceChips() {
   let chips = $("resource-chips");
@@ -250,10 +289,13 @@ function renderResourceChips() {
     chip.setAttribute("aria-label", "Remove " + selection.token);
     chip.textContent = selection.token + " ×";
     chip.onclick = () => {
-      const input = $("prompt"), tokenEnd = start + selection.token.length,
+      const input = $("prompt"),
+        tokenEnd = start + selection.token.length,
         end = tokenEnd + (input.value[tokenEnd] === " " ? 1 : 0);
       input.value = input.value.slice(0, start) + input.value.slice(end);
-      resourceSelections = resourceSelections.filter(value => value !== selection);
+      resourceSelections = resourceSelections.filter(
+        (value) => value !== selection,
+      );
       invalidResourceTokens.delete(selection.token);
       updateComposer();
       input.focus();
@@ -296,11 +338,14 @@ function renderPersonaControl() {
   control.hidden = !activePersona;
   if (!activePersona) return;
   control.querySelector(".persona-label").textContent =
-    (releasePersonaPending ? "Ending after your next message: " : "Agent conversation: ") +
-    activePersona.name;
+    (releasePersonaPending
+      ? "Ending after your next message: "
+      : "Agent conversation: ") + activePersona.name;
   const end = control.querySelector(".persona-end");
   end.disabled = releasePersonaPending;
-  end.textContent = releasePersonaPending ? "Ending…" : "End agent conversation";
+  end.textContent = releasePersonaPending
+    ? "Ending…"
+    : "End agent conversation";
 }
 function setActivePersona(value, preservePending = false) {
   const keepPending =
@@ -363,7 +408,10 @@ function setActiveResourceOption(option = null) {
   const menu = $("resource-menu");
   for (const candidate of menu.querySelectorAll("[role=option]"))
     candidate.setAttribute("aria-selected", String(candidate === option));
-  $("prompt").setAttribute("aria-expanded", String(menu.matches(":popover-open")));
+  $("prompt").setAttribute(
+    "aria-expanded",
+    String(menu.matches(":popover-open")),
+  );
   if (option) $("prompt").setAttribute("aria-activedescendant", option.id);
   else $("prompt").removeAttribute("aria-activedescendant");
 }
@@ -385,7 +433,12 @@ function resourceKeydown(event) {
     return false;
   const options = [...menu.querySelectorAll("[role=option]")],
     index = options.indexOf(document.activeElement),
-    chosen = options[index] || options.find(option => option.getAttribute("aria-selected") === "true") || options[0];
+    chosen =
+      options[index] ||
+      options.find(
+        (option) => option.getAttribute("aria-selected") === "true",
+      ) ||
+      options[0];
   if (
     ["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key) &&
     options.length
@@ -431,13 +484,17 @@ function resourceKeydown(event) {
     chosen.click();
     return true;
   }
-  if (index >= 0 && (event.key.length === 1 || ["Backspace", "Delete", "ArrowLeft", "ArrowRight"].includes(event.key))) {
+  if (
+    index >= 0 &&
+    (event.key.length === 1 ||
+      ["Backspace", "Delete", "ArrowLeft", "ArrowRight"].includes(event.key))
+  ) {
     $("prompt").focus();
   }
   return false;
 }
 $("resource-menu").addEventListener("keydown", resourceKeydown);
-$("resource-menu").addEventListener("toggle", event => {
+$("resource-menu").addEventListener("toggle", (event) => {
   if (event.newState === "closed") setActiveResourceOption();
 });
 function resourceIcon(item) {
@@ -487,7 +544,22 @@ function catalogResourceMeta(item) {
 }
 function builtinResources() {
   return [
-    ...(models.some(model => model.backend === "maestro") ? [{ id:"builtin/maestro", revision:"ui", kind:"builtin", name:"maestro", description:"Generate a plan with the configured coordinator", scope:"builtin", origin:"Harness", group:"Built-ins", selectable:true, action:"maestro" }] : []),
+    ...(models.some((model) => model.backend === "maestro")
+      ? [
+          {
+            id: "builtin/maestro",
+            revision: "ui",
+            kind: "builtin",
+            name: "maestro",
+            description: "Generate a plan with the configured coordinator",
+            scope: "builtin",
+            origin: "Harness",
+            group: "Built-ins",
+            selectable: true,
+            action: "maestro",
+          },
+        ]
+      : []),
     {
       id: "builtin/model",
       revision: "ui",
@@ -571,8 +643,18 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
               ? "Catalog"
               : item.scope === "builtin"
                 ? "Built-in"
-              : "User",
-        category = item.group || (item.kind === "agent" ? "Agents" : item.kind === "skill" ? "Skills" : item.kind === "workflow" ? "Workflows" : item.kind === "builtin" ? "Built-ins" : "Commands"),
+                : "User",
+        category =
+          item.group ||
+          (item.kind === "agent"
+            ? "Agents"
+            : item.kind === "skill"
+              ? "Skills"
+              : item.kind === "workflow"
+                ? "Workflows"
+                : item.kind === "builtin"
+                  ? "Built-ins"
+                  : "Commands"),
         groupKey = category + "\0" + scope + "\0" + item.origin;
       if (!groups.has(groupKey)) {
         const section = document.createElement("section"),
@@ -611,15 +693,17 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
             ? "Skill"
             : item.kind === "workflow"
               ? "Workflow"
-            : item.kind === "builtin"
-              ? "Built-in"
-            : "Command") +
+              : item.kind === "builtin"
+                ? "Built-in"
+                : "Command") +
         (item.description ? " · " + item.description : "") +
         (catalog?.short ? " · " + catalog.short : "") +
         (item.unavailable_reason ? " · " + item.unavailable_reason : "");
       text.append(name, description);
       option.append(glyph, text);
-      option.onclick = () => { if (item.selectable !== false) selectResource(item, trigger); };
+      option.onclick = () => {
+        if (item.selectable !== false) selectResource(item, trigger);
+      };
       option.onfocus = () => {
         setActiveResourceOption(option);
         renderResourcePreview(item);
@@ -653,13 +737,17 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
     menu.querySelector('[role=option]:not([aria-disabled="true"])') ||
       menu.querySelector("[role=option]"),
   );
-  $("resource-status").textContent = loading ? "Refreshing resources…" :
-    (menu.querySelector(".resource-empty")?.textContent || "");
+  $("resource-status").textContent = loading
+    ? "Refreshing resources…"
+    : menu.querySelector(".resource-empty")?.textContent || "";
   const rect = $("prompt").getBoundingClientRect();
   const availableHeight = Math.max(24, rect.top - 20);
   menu.style.maxHeight = availableHeight + "px";
   // Reserve the majority of the visible menu for selectable rows, even at native zoom.
-  menu.style.setProperty("--resource-preview-height", Math.max(0, Math.min(160, (availableHeight - 24) * 0.4)) + "px");
+  menu.style.setProperty(
+    "--resource-preview-height",
+    Math.max(0, Math.min(160, (availableHeight - 24) * 0.4)) + "px",
+  );
   menu.style.left =
     Math.max(12, Math.min(rect.left, innerWidth - menu.offsetWidth - 12)) +
     "px";
@@ -750,7 +838,19 @@ async function refreshResources(trigger) {
       return;
     resourceItems = Array.isArray(data.items) ? data.items : [];
     let filtered = [...resourceItems, ...builtinResources()]
-      .filter((item) => trigger.prefix === "@" ? item.kind === "agent" : ["agent", "skill", "command", "workflow", "rule", "context", "builtin"].includes(item.kind))
+      .filter((item) =>
+        trigger.prefix === "@"
+          ? item.kind === "agent"
+          : [
+              "agent",
+              "skill",
+              "command",
+              "workflow",
+              "rule",
+              "context",
+              "builtin",
+            ].includes(item.kind),
+      )
       .map((item) => ({ item, score: resourceMatchScore(item, trigger.query) }))
       .filter((entry) => entry.score >= 0)
       .sort((left, right) => right.score - left.score)
@@ -887,8 +987,13 @@ const labels = {
   loading: "Preparing model",
 };
 const status = (text) => {
-  if (policyPending && policyError &&
-      (Object.values(labels).includes(text) || ["Failed run", "Run cancelled", "Run interrupted"].includes(text))) text = policyError;
+  if (
+    policyPending &&
+    policyError &&
+    (Object.values(labels).includes(text) ||
+      ["Failed run", "Run cancelled", "Run interrupted"].includes(text))
+  )
+    text = policyError;
   const target = $("status");
   // Repeated progress (one per streamed delta) is announced once.
   if (target.textContent === text && target.className === "visually-hidden")
@@ -954,16 +1059,34 @@ const providerNames = {
   maestro: "Maestro",
 };
 function providerModelIcon(backend, model) {
-  backend ||= models.find(item => item.id === model)?.backend;
-  return TailUI.icon({codex: "brand-openai", claude: "brand-claude", gemini: "brand-gemini", maestro: "tail-harness"}[backend] || "stack-2");
+  backend ||= models.find((item) => item.id === model)?.backend;
+  return TailUI.icon(
+    {
+      codex: "brand-openai",
+      claude: "brand-claude",
+      gemini: "brand-gemini",
+      maestro: "tail-harness",
+    }[backend] || "stack-2",
+  );
 }
-let composerCondition = null, modelAvailabilityError = "";
+let composerCondition = null,
+  modelAvailabilityError = "";
 function syncComposerAvailability() {
-  const condition = composerCondition?.backend === selected()?.backend ? composerCondition : null;
+  const condition =
+    composerCondition?.backend === selected()?.backend
+      ? composerCondition
+      : null;
   const blocked = !models.length || !!modelAvailabilityError || !!condition;
   $("model-availability").hidden = !blocked;
-  $("model-availability-title").textContent = condition?.title || (modelAvailabilityError ? "Couldn't check the models" : "No model available");
-  $("model-availability-detail").textContent = condition?.message || modelAvailabilityError || "Add and enable a provider in the admin panel.";
+  $("model-availability-title").textContent =
+    condition?.title ||
+    (modelAvailabilityError
+      ? "Couldn't check the models"
+      : "No model available");
+  $("model-availability-detail").textContent =
+    condition?.message ||
+    modelAvailabilityError ||
+    "Add and enable a provider in the admin panel.";
   $("prompt").disabled = blocked;
   return blocked;
 }
@@ -992,78 +1115,135 @@ const efforts = {
   ultra: "Ultra",
 };
 const userErrors = {
-  catalog_cwd_conflict: "Selected catalogs require different working folders. Run them separately.",
-  catalog_environment_conflict: "Selected catalogs require incompatible environments. Run them separately.",
-  catalog_hook_filter_unsupported: "This execution mode cannot enforce the catalog hook list. Choose a supported native provider.",
-  catalog_runtime_mode_unsupported: "This isolated execution mode cannot provide the catalog runtime. Choose a supported native provider.",
-  catalog_runtime_unavailable: "The catalog runtime is unavailable. Check its prerequisites in Admin.",
-  catalog_preflight_failed: "Catalog prerequisites are missing. Check the catalog in Admin before trying again.",
-  catalog_hook_failed: "A catalog hook failed. Check its run event before trying again.",
-  catalog_hook_timeout: "A catalog hook exceeded its time limit and was stopped.",
-  catalog_hook_unavailable: "A catalog hook could not start. Check its executable path in the manifest.",
-  catalog_hook_output_limit: "A catalog hook exceeded the output limit and was stopped.",
-  effect_integration_scope_denied: "This integration is not bound to the selected project and catalog. Update its binding in Admin.",
-  integration_contract_ambiguous: "Integration contracts conflict. Keep one consistent contract in Admin and the catalog.",
-  integration_contract_invalid: "The integration contract is invalid. Check its declared providers and credential fields in Admin.",
-  integration_contract_unavailable: "The integration contract is missing. Configure it in Admin or the catalog manifest.",
-  integration_credential_field_missing: "A required credential field is missing. Update the write-only binding in Admin.",
-  integration_environment_ambiguous: "Two integrations assign conflicting values to the same environment variable.",
-  integration_environment_unsupported: "This execution mode cannot inject integration credentials. Choose a supported native provider.",
-  secret_binding_invalid: "The credential binding name is invalid. Update it in Admin.",
-  secret_value_invalid: "A credential field is invalid. Enter a nonempty single-line value in Admin.",
-  work_item_locked: "This work item is owned by a running job. Wait until its write access is released.",
-  hooks_not_granted: "Catalog hooks were skipped because hook permission was not granted.",
+  catalog_cwd_conflict:
+    "Selected catalogs require different working folders. Run them separately.",
+  catalog_environment_conflict:
+    "Selected catalogs require incompatible environments. Run them separately.",
+  catalog_hook_filter_unsupported:
+    "This execution mode cannot enforce the catalog hook list. Choose a supported native provider.",
+  catalog_runtime_mode_unsupported:
+    "This isolated execution mode cannot provide the catalog runtime. Choose a supported native provider.",
+  catalog_runtime_unavailable:
+    "The catalog runtime is unavailable. Check its prerequisites in Admin.",
+  catalog_preflight_failed:
+    "Catalog prerequisites are missing. Check the catalog in Admin before trying again.",
+  catalog_hook_failed:
+    "A catalog hook failed. Check its run event before trying again.",
+  catalog_hook_timeout:
+    "A catalog hook exceeded its time limit and was stopped.",
+  catalog_hook_unavailable:
+    "A catalog hook could not start. Check its executable path in the manifest.",
+  catalog_hook_output_limit:
+    "A catalog hook exceeded the output limit and was stopped.",
+  effect_integration_scope_denied:
+    "This integration is not bound to the selected project and catalog. Update its binding in Admin.",
+  integration_contract_ambiguous:
+    "Integration contracts conflict. Keep one consistent contract in Admin and the catalog.",
+  integration_contract_invalid:
+    "The integration contract is invalid. Check its declared providers and credential fields in Admin.",
+  integration_contract_unavailable:
+    "The integration contract is missing. Configure it in Admin or the catalog manifest.",
+  integration_credential_field_missing:
+    "A required credential field is missing. Update the write-only binding in Admin.",
+  integration_environment_ambiguous:
+    "Two integrations assign conflicting values to the same environment variable.",
+  integration_environment_unsupported:
+    "This execution mode cannot inject integration credentials. Choose a supported native provider.",
+  secret_binding_invalid:
+    "The credential binding name is invalid. Update it in Admin.",
+  secret_value_invalid:
+    "A credential field is invalid. Enter a nonempty single-line value in Admin.",
+  work_item_locked:
+    "This work item is owned by a running job. Wait until its write access is released.",
+  hooks_not_granted:
+    "Catalog hooks were skipped because hook permission was not granted.",
 
-  workflow_source_path_denied: "A workflow input moved outside its authorized folder. Restore it or choose a new input.",
-  workflow_source_size_limit: "A workflow input exceeds the supported size. Reduce it before resuming.",
-  workflow_requirement_denied: "The selected executor does not support this workflow requirement. Check permissions, integrations, operations and mode.",
+  workflow_source_path_denied:
+    "A workflow input moved outside its authorized folder. Restore it or choose a new input.",
+  workflow_source_size_limit:
+    "A workflow input exceeds the supported size. Reduce it before resuming.",
+  workflow_requirement_denied:
+    "The selected executor does not support this workflow requirement. Check permissions, integrations, operations and mode.",
   invalid_maestro_plan_policy: "Choose review or auto for Maestro planning.",
   invalid_workflow_inputs: "Workflow inputs must be a JSON object.",
-  invalid_workflow_recovery: "Use resume or re-run from a valid step with optional workflow inputs.",
+  invalid_workflow_recovery:
+    "Use resume or re-run from a valid step with optional workflow inputs.",
   invalid_workflow_step: "Choose a step number from this workflow.",
-  maestro_coordinator_workspace_denied: "The configured coordinator needs Read and Upload access to this workspace. Check its permissions.",
-  invocation_model_or_effort_mismatch: "This resource requires a different model or effort. Select its execution settings before submitting.",
-  invocation_backend_mismatch: "This resource requires a different provider. Select its provider before submitting.",
-  local_project_hardlink_denied: "A folder contains hardlinks that cannot be safely isolated. Remove the aliases or choose another folder.",
-  maestro_coordinator_unavailable: "The configured coordinator is unavailable for this project. Check its model and effort.",
-  workflow_already_exists: "A workflow with this name already exists. Choose another name.",
+  maestro_coordinator_workspace_denied:
+    "The configured coordinator needs Read and Upload access to this workspace. Check its permissions.",
+  invocation_model_or_effort_mismatch:
+    "This resource requires a different model or effort. Select its execution settings before submitting.",
+  invocation_backend_mismatch:
+    "This resource requires a different provider. Select its provider before submitting.",
+  local_project_hardlink_denied:
+    "A folder contains hardlinks that cannot be safely isolated. Remove the aliases or choose another folder.",
+  maestro_coordinator_unavailable:
+    "The configured coordinator is unavailable for this project. Check its model and effort.",
+  workflow_already_exists:
+    "A workflow with this name already exists. Choose another name.",
   workflow_backend_mismatch: "The workflow backend must match its invocation.",
-  workflow_binding_changed: "Workflow inputs or revisions changed. Resume to validate again and request fresh approval.",
-  workflow_catalog_read_only: "Save workflows in the project collection. Catalogs are read only.",
+  workflow_binding_changed:
+    "Workflow inputs or revisions changed. Resume to validate again and request fresh approval.",
+  workflow_catalog_read_only:
+    "Save workflows in the project collection. Catalogs are read only.",
   workflow_checkpoint_missing: "This run has no recoverable workflow plan.",
-  workflow_effect_not_completed: "Publication is not confirmed. Inspect its gate and effect record before retrying.",
-  workflow_effect_outcome_unknown: "Publication may have happened. Reconcile its outcome before resuming or rerunning.",
+  workflow_effect_not_completed:
+    "Publication is not confirmed. Inspect its gate and effect record before retrying.",
+  workflow_effect_outcome_unknown:
+    "Publication may have happened. Reconcile its outcome before resuming or rerunning.",
   workflow_inputs_invalid: "The workflow inputs do not match the step schema.",
-  workflow_invalid_condition: "Use a condition that references a prior step with from and is or equals.",
-  workflow_invalid_document: "The workflow document is invalid. Check its JSON or YAML.",
-  workflow_unknown_field: "The workflow contains an unsupported field. Check its field names and remove unrecognized entries.",
-  workflow_unknown_step_field: "A workflow step contains an unsupported field. Check that step's field names and remove unrecognized entries.",
-  workflow_invalid_effect: "Publication requires a valid effect request and publish enabled.",
+  workflow_invalid_condition:
+    "Use a condition that references a prior step with from and is or equals.",
+  workflow_invalid_document:
+    "The workflow document is invalid. Check its JSON or YAML.",
+  workflow_unknown_field:
+    "The workflow contains an unsupported field. Check its field names and remove unrecognized entries.",
+  workflow_unknown_step_field:
+    "A workflow step contains an unsupported field. Check that step's field names and remove unrecognized entries.",
+  workflow_invalid_effect:
+    "Publication requires a valid effect request and publish enabled.",
   workflow_invalid_from_step: "Choose a valid starting step for this workflow.",
-  workflow_invalid_gate: "The workflow gate needs a question and distinct choices.",
-  workflow_invalid_id: "Use a short workflow identifier containing letters, numbers, underscores or hyphens.",
+  workflow_invalid_gate:
+    "The workflow gate needs a question and distinct choices.",
+  workflow_invalid_id:
+    "Use a short workflow identifier containing letters, numbers, underscores or hyphens.",
   workflow_invalid_name: "Choose a valid name for the saved workflow.",
   workflow_invalid_publish: "The workflow publish field must be true or false.",
-  workflow_invalid_requirements: "This workflow requires capabilities the selected executor does not provide.",
-  workflow_invalid_save_target: "Choose a project with a writable workflows collection.",
-  workflow_invalid_schema: "Use the supported JSON schema fields for workflow inputs and outputs.",
+  workflow_invalid_requirements:
+    "This workflow requires capabilities the selected executor does not provide.",
+  workflow_invalid_save_target:
+    "Choose a project with a writable workflows collection.",
+  workflow_invalid_schema:
+    "Use the supported JSON schema fields for workflow inputs and outputs.",
   workflow_invalid_step: "The workflow contains an invalid sequential step.",
-  workflow_invalid_step_id: "Each workflow step needs a unique valid identifier.",
-  workflow_invalid_steps: "A workflow must contain one to twelve sequential steps.",
+  workflow_invalid_step_id:
+    "Each workflow step needs a unique valid identifier.",
+  workflow_invalid_steps:
+    "A workflow must contain one to twelve sequential steps.",
   workflow_invalid_version: "This server supports workflow version 1.",
-  workflow_model_or_effort_denied: "Choose a model and effort enabled for this project.",
+  workflow_model_or_effort_denied:
+    "Choose a model and effort enabled for this project.",
   workflow_must_be_standalone: "Select one workflow at a time.",
-  workflow_output_not_approved: "The step output was not approved. Review the evidence before continuing.",
+  workflow_output_not_approved:
+    "The step output was not approved. Review the evidence before continuing.",
   workflow_owner_denied: "Only the owner of this run can recover or save it.",
-  workflow_published_step_requires_explicit_rerun: "This changed step already published. Use an explicit re-run with fresh approval.",
-  workflow_requires_successful_chain: "Only a completed, successful chain can be saved as a workflow.",
-  workflow_resource_unavailable: "A required workflow resource is missing or unavailable. Refresh the catalog.",
-  workflow_sequential_only: "This release supports sequential workflows without parallel or repeat steps.",
-  cancellation_retry_required: "Cancellation was not saved because storage is busy. Try Cancel again.",
-  workflow_source_busy: "Wait for the original run to finish or cancel it before recovery.",
-  workflow_step_not_approved: "The workflow step was not approved. No further steps ran.",
+  workflow_published_step_requires_explicit_rerun:
+    "This changed step already published. Use an explicit re-run with fresh approval.",
+  workflow_requires_successful_chain:
+    "Only a completed, successful chain can be saved as a workflow.",
+  workflow_resource_unavailable:
+    "A required workflow resource is missing or unavailable. Refresh the catalog.",
+  workflow_sequential_only:
+    "This release supports sequential workflows without parallel or repeat steps.",
+  cancellation_retry_required:
+    "Cancellation was not saved because storage is busy. Try Cancel again.",
+  workflow_source_busy:
+    "Wait for the original run to finish or cancel it before recovery.",
+  workflow_step_not_approved:
+    "The workflow step was not approved. No further steps ran.",
   workflow_too_large: "The workflow exceeds the supported document size.",
-  workflow_yaml_unavailable_use_json: "Use JSON, or install PyYAML to read YAML workflows.",
+  workflow_yaml_unavailable_use_json:
+    "Use JSON, or install PyYAML to read YAML workflows.",
 
   rate_limit:
     "Too many requests in a short time. The server has temporarily limited this access.",
@@ -1160,7 +1340,8 @@ const userErrors = {
   model_denied: "This model is not enabled for you. Choose another model.",
   model_or_effort_unavailable:
     "This model or reasoning level is no longer available. Choose another one.",
-  project_file_forbidden: "This file belongs to private server storage and cannot be attached. Choose a document outside the server state folder.",
+  project_file_forbidden:
+    "This file belongs to private server storage and cannot be attached. Choose a document outside the server state folder.",
   backend_unavailable:
     "This provider is not available right now. Choose another model.",
   capability_unavailable:
@@ -1291,8 +1472,10 @@ const userErrors = {
   invalid_gate_options:
     "The provider supplied invalid answer choices. Revise the request and try again.",
   invalid_gate_choice: "That answer is no longer available. Choose again.",
-  approval_already_resolved: "This approval was already decided in another view. Refresh to see the accepted decision.",
-  workflow_source_unavailable: "A workflow input file is missing or unreadable. Restore the workspace input files or attachment sources before resuming.",
+  approval_already_resolved:
+    "This approval was already decided in another view. Refresh to see the accepted decision.",
+  workflow_source_unavailable:
+    "A workflow input file is missing or unreadable. Restore the workspace input files or attachment sources before resuming.",
   gate_already_resolved: "This question was already answered.",
   gate_expired: "This question expired. Ask the agent to present it again.",
   gate_invalidated:
@@ -1304,7 +1487,8 @@ const userErrors = {
     "This publication needs approval from an enrolled human session before it can be sent.",
   effect_arguments_invalid:
     "This publication has unsupported arguments. Ask the agent to prepare a valid request.",
-  effect_sensitive_content: "Publication was not prepared because it contains private credentials. Remove the sensitive content and request approval again.",
+  effect_sensitive_content:
+    "Publication was not prepared because it contains private credentials. Remove the sensitive content and request approval again.",
   effect_artifact_invalid:
     "The publication artifact is invalid. Ask the agent to check its required fields and prepare it again.",
   effect_binding_changed:
@@ -1323,7 +1507,8 @@ const userErrors = {
     "This run can no longer prepare a publication. Start a new message if you still need it.",
   effect_integration_unavailable:
     "This publication integration is unavailable. Ask the server owner to check its configuration.",
-  effect_not_found: "This publication request could not be found. Refresh the run console.",
+  effect_not_found:
+    "This publication request could not be found. Refresh the run console.",
   effect_not_unknown:
     "This publication no longer needs reconciliation. Refresh the run console to see its recorded outcome.",
   effect_operation_unsupported:
@@ -1420,12 +1605,17 @@ const userErrors = {
   service_manager_unavailable_requires_systemd_user:
     "Service control needs the user systemd manager on the server.",
   // Approvals.
-  ambiguous_work_item: "The invocation matches more than one work item. Tag the run with one key or make the arguments unambiguous.",
-  invalid_work_item: "Use a work-item key with at most 128 characters and no control characters.",
-  invalid_work_item_pattern: "The configured work-item pattern is invalid. Ask the project administrator to correct it.",
+  ambiguous_work_item:
+    "The invocation matches more than one work item. Tag the run with one key or make the arguments unambiguous.",
+  invalid_work_item:
+    "Use a work-item key with at most 128 characters and no control characters.",
+  invalid_work_item_pattern:
+    "The configured work-item pattern is invalid. Ask the project administrator to correct it.",
   work_item_project_required: "Choose a project before filtering by work item.",
-  invalid_event_limit: "The event page size is invalid. Reload the run console and try again.",
-  invalid_include_content: "The content visibility option is invalid. Reload the run console and try again.",
+  invalid_event_limit:
+    "The event page size is invalid. Reload the run console and try again.",
+  invalid_include_content:
+    "The content visibility option is invalid. Reload the run console and try again.",
   approval_expired:
     "This approval request expired. Send your message again if you still need it.",
   approval_expiration_limit:
@@ -1548,8 +1738,16 @@ function selected() {
   return models.find((m) => m.id === $("model").value) || models[0];
 }
 function composerModels(catalog) {
-  const choices = catalog.models.filter(m => TailUI.selectableModel(m.backend, m.id));
-  if (catalog.maestro) choices.push({ id: "auto", name: "Maestro (auto plan)", backend: "maestro", efforts: ["auto"] });
+  const choices = catalog.models.filter((m) =>
+    TailUI.selectableModel(m.backend, m.id),
+  );
+  if (catalog.maestro)
+    choices.push({
+      id: "auto",
+      name: "Maestro (auto plan)",
+      backend: "maestro",
+      efforts: ["auto"],
+    });
   return choices;
 }
 function setBusy(value) {
@@ -1610,7 +1808,9 @@ async function refreshProjectPermissions(timeout = 30000) {
       $("effort").value = effort;
   } catch (e) {
     if (sequence !== policySequence) return;
-    policyError = "Couldn't load this project's permissions. Select it again to retry: " + e.message;
+    policyError =
+      "Couldn't load this project's permissions. Select it again to retry: " +
+      e.message;
     status(policyError);
     return false;
   } finally {
@@ -1947,7 +2147,10 @@ function quotaSnapshot(kind, q) {
 }
 function conversationState(c = {}) {
   const value = String(c.state || "").toLowerCase();
-  if (c.needs_you || ["needs_you", "awaiting_approval", "approval_required"].includes(value))
+  if (
+    c.needs_you ||
+    ["needs_you", "awaiting_approval", "approval_required"].includes(value)
+  )
     return "needs-you";
   if (["running", "loading", "planning"].includes(value)) return "running";
   if (value === "queued") return "queued";
@@ -1973,7 +2176,17 @@ function conversationUpdated(c = {}) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 function waitReasonLabel(reason) {
-  return ({ human_approval: "Waiting for your approval", conversation_parent: "Waiting for the previous response", provider_capacity: "Waiting for another task on this provider", conversation: "Waiting for this conversation", work_item: "Waiting for this work item", writable_root: "Waiting for access to project files", queue: "Waiting in the queue" })[reason] || reason;
+  return (
+    {
+      human_approval: "Waiting for your approval",
+      conversation_parent: "Waiting for the previous response",
+      provider_capacity: "Waiting for another task on this provider",
+      conversation: "Waiting for this conversation",
+      work_item: "Waiting for this work item",
+      writable_root: "Waiting for access to project files",
+      queue: "Waiting in the queue",
+    }[reason] || reason
+  );
 }
 function conversationSummary(c = {}) {
   if (c.live_wait_reason || c.wait_reason)
@@ -1983,14 +2196,32 @@ function conversationSummary(c = {}) {
   if (state === "running")
     return c.live_activity || c.activity || "Run in progress";
   if (state === "queued") return "Waiting in the queue";
-  return ({ failed: "Failed", cancelled: "Cancelled", interrupted: "Interrupted" })[c.state] || c.summary || "Completed";
+  return (
+    { failed: "Failed", cancelled: "Cancelled", interrupted: "Interrupted" }[
+      c.state
+    ] ||
+    c.summary ||
+    "Completed"
+  );
 }
 function renderConversationHeader(c = null) {
   const state = c ? conversationState(c) : "draft";
-  const states = { "needs-you": "Awaiting approval", running: "Running", queued: "Queued", done: "Completed", draft: "Draft" };
-  $("conversation-state-pill").textContent = ({ failed: "Failed", cancelled: "Cancelled", interrupted: "Interrupted" })[c?.state] || states[state];
+  const states = {
+    "needs-you": "Awaiting approval",
+    running: "Running",
+    queued: "Queued",
+    done: "Completed",
+    draft: "Draft",
+  };
+  $("conversation-state-pill").textContent =
+    { failed: "Failed", cancelled: "Cancelled", interrupted: "Interrupted" }[
+      c?.state
+    ] || states[state];
   $("conversation-state-pill").dataset.state = state;
-  $("header-execution-mode").textContent = executionMode === "scoped" ? "Isolated conversation" : "Native conversation";
+  $("header-execution-mode").textContent =
+    executionMode === "scoped"
+      ? "Isolated conversation"
+      : "Native conversation";
   $("header-access").textContent = $("access-mode").value || "ask";
 }
 window.updateProviderQuotas = function updateProviderQuotas(items = []) {
@@ -2010,7 +2241,13 @@ window.updateProviderQuotas = function updateProviderQuotas(items = []) {
     meter.className = "provider-quota-meter";
     meter.dataset.backend = item.backend;
     const label = document.createElement("span");
-    label.textContent = ({ codex: "Codex", claude: "Claude", gemini: "Gemini", deepseek: "DeepSeek" })[item.backend] || item.backend;
+    label.textContent =
+      {
+        codex: "Codex",
+        claude: "Claude",
+        gemini: "Gemini",
+        deepseek: "DeepSeek",
+      }[item.backend] || item.backend;
     const bar = document.createElement("i");
     bar.style.setProperty("--quota", remaining + "%");
     const value = document.createElement("b");
@@ -2063,11 +2300,11 @@ window.applyActivitySnapshot = function applyActivitySnapshot(data = {}) {
   const current = conversations.find((item) => item.id === conversation);
   if (current) renderConversationHeader(current);
 };
-$('provider-quotas').onclick = () => {
-  if (!$('provider-quotas').hidden) setQuotaOpen(true);
+$("provider-quotas").onclick = () => {
+  if (!$("provider-quotas").hidden) setQuotaOpen(true);
 };
-$('provider-quotas').onkeydown = (event) => {
-  if (["Enter", " "].includes(event.key) && !$('provider-quotas').hidden) {
+$("provider-quotas").onkeydown = (event) => {
+  if (["Enter", " "].includes(event.key) && !$("provider-quotas").hidden) {
     event.preventDefault();
     setQuotaOpen(true);
   }
@@ -2214,7 +2451,9 @@ function conversationRow(c) {
   const model = c.execution?.model;
   const icon = document.createElement("span");
   icon.className = "conversation-model-icon";
-  icon.append(providerModelIcon(c.execution?.backend || c.backend, model || c.model));
+  icon.append(
+    providerModelIcon(c.execution?.backend || c.backend, model || c.model),
+  );
   icon.setAttribute("aria-hidden", "true");
   const title = document.createElement("span");
   title.className = "conversation-title";
@@ -2244,7 +2483,8 @@ function conversationRow(c) {
   backend.title = backend.textContent;
   const project = document.createElement("span");
   project.className = "conversation-project";
-  project.textContent = projectDetails[c.project]?.label || c.project || "No project";
+  project.textContent =
+    projectDetails[c.project]?.label || c.project || "No project";
   meta.append(summary, age, backend, project);
   open.append(meta);
   if (conversationState(c) === "needs-you") {
@@ -2446,7 +2686,10 @@ $("header-execution-mode").onclick = () => {
       "Conversation mode is fixed after the first message. Start a new conversation to change it.",
     );
 };
-function newConversation(title = "New Conversation", projectId = $("project").value) {
+function newConversation(
+  title = "New Conversation",
+  projectId = $("project").value,
+) {
   if (submitting || cancelling || loading || uploads) {
     status(
       "Wait for the current send to finish before starting another conversation.",
@@ -2457,7 +2700,10 @@ function newConversation(title = "New Conversation", projectId = $("project").va
   const draftProject = $("project").value;
   const changedProject = projectId !== draftProject;
   $("project").value = projectId;
-  const carriedDraft = readDraft("conversation-draft:" + (conversation || "new:" + (changedProject ? draftProject : projectId)));
+  const carriedDraft = readDraft(
+    "conversation-draft:" +
+      (conversation || "new:" + (changedProject ? draftProject : projectId)),
+  );
   const newDraft = readDraft("conversation-draft:new:" + projectId);
   resourceSelections = [];
   invalidResourceTokens.clear();
@@ -2469,7 +2715,8 @@ function newConversation(title = "New Conversation", projectId = $("project").va
     kept = files.filter((f) => f.project === $("project").value);
   conversationLoad++;
   streamDisconnected = false;
-  if (document.activeElement === $("resume-execution")) $("prompt").focus({ preventScroll: true });
+  if (document.activeElement === $("resume-execution"))
+    $("prompt").focus({ preventScroll: true });
   $("resume-execution").hidden = true;
   restoreSelection();
   clearSubmission();
@@ -2504,7 +2751,10 @@ function newConversation(title = "New Conversation", projectId = $("project").va
   status("");
   $("prompt").focus({ preventScroll: true });
   refreshProjectPermissions();
-  if (changedProject) { resourceItems = []; void refreshWorkspaceResources(); }
+  if (changedProject) {
+    resourceItems = [];
+    void refreshWorkspaceResources();
+  }
 }
 function chooseProject(id) {
   if (busy || loading || uploads) return;
@@ -2887,7 +3137,10 @@ function renderProjects() {
             );
             return;
           }
-          newConversation("New Conversation in project " + o.textContent, o.value);
+          newConversation(
+            "New Conversation in project " + o.textContent,
+            o.value,
+          );
           expandedProjects.set(o.value, true);
           renderProjects();
           closeSidebar();
@@ -2931,24 +3184,42 @@ function renderProjects() {
   today.setHours(0, 0, 0, 0);
   const todaySeconds = today.getTime() / 1000;
   const stateGroups = [
-    ["needs-you", "Needs you", (item) => conversationState(item) === "needs-you"],
+    [
+      "needs-you",
+      "Needs you",
+      (item) => conversationState(item) === "needs-you",
+    ],
     ["running", "Running", (item) => conversationState(item) === "running"],
     ["queued", "Queued", (item) => conversationState(item) === "queued"],
-    ["done", "Done today", (item) => conversationState(item) === "done" && conversationUpdated(item) >= todaySeconds],
-    ["older", "Older", (item) => conversationState(item) === "done" && conversationUpdated(item) < todaySeconds],
+    [
+      "done",
+      "Done today",
+      (item) =>
+        conversationState(item) === "done" &&
+        conversationUpdated(item) >= todaySeconds,
+    ],
+    [
+      "older",
+      "Older",
+      (item) =>
+        conversationState(item) === "done" &&
+        conversationUpdated(item) < todaySeconds,
+    ],
   ];
-  $("history").replaceChildren(...stateGroups.map(([state, label, matchesGroup]) => {
-    const section = document.createElement("section");
-    section.className = "conversation-state-group";
-    section.dataset.state = state;
-    const items = matches.filter(matchesGroup);
-    const heading = document.createElement("h2");
-    const count = document.createElement("span");
-    count.textContent = String(items.length);
-    heading.append(document.createTextNode(label), count);
-    section.append(heading, ...items.map(conversationRow));
-    return section;
-  }));
+  $("history").replaceChildren(
+    ...stateGroups.map(([state, label, matchesGroup]) => {
+      const section = document.createElement("section");
+      section.className = "conversation-state-group";
+      section.dataset.state = state;
+      const items = matches.filter(matchesGroup);
+      const heading = document.createElement("h2");
+      const count = document.createElement("span");
+      count.textContent = String(items.length);
+      heading.append(document.createTextNode(label), count);
+      section.append(heading, ...items.map(conversationRow));
+      return section;
+    }),
+  );
   if (!matches.length) {
     const empty = document.createElement("p");
     empty.className = "empty-history";
@@ -2957,7 +3228,11 @@ function renderProjects() {
   }
   if (focusedConversation) {
     [...$("sidebar").querySelectorAll("button[data-conversation-id]")]
-      .find(node => node.dataset.conversationId === focusedConversation && node.checkVisibility())
+      .find(
+        (node) =>
+          node.dataset.conversationId === focusedConversation &&
+          node.checkVisibility(),
+      )
       ?.focus({ preventScroll: true });
   }
 }
@@ -3155,11 +3430,13 @@ function activityTitle(e) {
   );
   if (condition) return condition.title;
   if (type === "hook_scope") {
-    return {
-      disabled: "Hooks disabled for this run",
-      project: "Using project hooks only",
-      global_and_project: "Using global and project hooks",
-    }[data.scope] || "Hook scope reported";
+    return (
+      {
+        disabled: "Hooks disabled for this run",
+        project: "Using project hooks only",
+        global_and_project: "Using global and project hooks",
+      }[data.scope] || "Hook scope reported"
+    );
   }
   if (type === "resource_fallback")
     return data.scope === "execution"
@@ -3167,7 +3444,12 @@ function activityTitle(e) {
       : "Resource fallback is advisory";
   if (["invocation_started", "invocation_completed"].includes(type)) {
     const invocation = data.invocation || data,
-      identity = data.role || invocation.role || invocation.resource_id || invocation.kind || "resource",
+      identity =
+        data.role ||
+        invocation.role ||
+        invocation.resource_id ||
+        invocation.kind ||
+        "resource",
       route = [
         data.backend || invocation.backend,
         data.model || invocation.model,
@@ -3403,35 +3685,66 @@ function scroll() {
 function renderPlanOutcome(card, runState = card.dataset.runState) {
   if (!card) return;
   if (runState) card.dataset.runState = runState;
-  const state = card.dataset.state, choice = card.dataset.choice;
-  const terminal = { completed: "Completed", failed: "Failed", cancelled: "Cancelled", interrupted: "Interrupted" }[runState];
+  const state = card.dataset.state,
+    choice = card.dataset.choice;
+  const terminal = {
+    completed: "Completed",
+    failed: "Failed",
+    cancelled: "Cancelled",
+    interrupted: "Interrupted",
+  }[runState];
   let label, note;
-  if (choice === "deny") { label = "Discarded"; note = "Plan discarded."; }
-  else if (state === "expired" || state === "invalidated") {
+  if (choice === "deny") {
+    label = "Discarded";
+    note = "Plan discarded.";
+  } else if (state === "expired" || state === "invalidated") {
     label = state === "expired" ? "Expired" : "Inactive";
     note = "This plan approval is no longer active.";
   } else if (choice === "approve") {
     label = "Approved · " + (terminal || "running");
-    note = terminal ? "The approved run is " + terminal.toLowerCase() + "." : "Maestro is running the approved steps.";
-  } else if (state === "resolved") { label = "Decision recorded"; note = "The plan decision was recorded."; }
-  else { label = "Awaiting your approval"; note = "Nothing runs until you approve."; }
+    note = terminal
+      ? "The approved run is " + terminal.toLowerCase() + "."
+      : "Maestro is running the approved steps.";
+  } else if (state === "resolved") {
+    label = "Decision recorded";
+    note = "The plan decision was recorded.";
+  } else {
+    label = "Awaiting your approval";
+    note = "Nothing runs until you approve.";
+  }
   const decision = window.runConsole?.planDecision(card.id.slice(5));
   const approve = card.querySelector(".maestro-plan-actions .btn-primary");
   if (approve) approve.disabled = !!decision?.pending || state !== "pending";
   if (decision?.pending && state === "pending") note = decision.message;
-  card.querySelector(".state-pill").replaceChildren(TailUI.icon(choice === "approve" ? "check" : "shield"), document.createTextNode(label));
+  card
+    .querySelector(".state-pill")
+    .replaceChildren(
+      TailUI.icon(choice === "approve" ? "check" : "shield"),
+      document.createTextNode(label),
+    );
   card.querySelector('[role="status"]').textContent = note;
 }
 const workflowResumeKeys = new Map();
 function showWorkflowRecovery(run) {
   const target = active?.el;
-  if (!target || !["failed", "cancelled", "interrupted"].includes(run.state) || target.querySelector(".workflow-recovery")) return;
+  if (
+    !target ||
+    !["failed", "cancelled", "interrupted"].includes(run.state) ||
+    target.querySelector(".workflow-recovery")
+  )
+    return;
   if (!run.workflow_checkpoint) return;
-  const section = document.createElement("section"), note = document.createElement("p"), resume = document.createElement("button");
+  const section = document.createElement("section"),
+    note = document.createElement("p"),
+    resume = document.createElement("button");
   section.className = "workflow-recovery";
-  note.textContent = run.workflow_completed_steps === 0
-    ? "No completed steps can be reused. Retry starts at the first step of the saved plan."
-    : (Number.isInteger(run.workflow_completed_steps) ? run.workflow_completed_steps + " completed step(s) can be reused. " : "Resume from the last valid checkpoint. ") + "Completed steps are reused when their inputs and workflow are unchanged; remaining steps run again.";
+  note.textContent =
+    run.workflow_completed_steps === 0
+      ? "No completed steps can be reused. Retry starts at the first step of the saved plan."
+      : (Number.isInteger(run.workflow_completed_steps)
+          ? run.workflow_completed_steps + " completed step(s) can be reused. "
+          : "Resume from the last valid checkpoint. ") +
+        "Completed steps are reused when their inputs and workflow are unchanged; remaining steps run again.";
   note.setAttribute("role", "status");
   resume.type = "button";
   resume.className = "btn";
@@ -3442,27 +3755,47 @@ function showWorkflowRecovery(run) {
     try {
       const storageKey = "workflow-resume:" + run.id;
       let key = workflowResumeKeys.get(run.id);
-      try { key ||= sessionStorage.getItem(storageKey); } catch {}
-      key ||= crypto.randomUUID?.() || Array.from(crypto.getRandomValues(new Uint8Array(16)), n => n.toString(16).padStart(2, "0")).join("");
+      try {
+        key ||= sessionStorage.getItem(storageKey);
+      } catch {}
+      key ||=
+        crypto.randomUUID?.() ||
+        Array.from(crypto.getRandomValues(new Uint8Array(16)), (n) =>
+          n.toString(16).padStart(2, "0"),
+        ).join("");
       workflowResumeKeys.set(run.id, key);
-      try { sessionStorage.setItem(storageKey, key); } catch {}
+      try {
+        sessionStorage.setItem(storageKey, key);
+      } catch {}
       if (!resumedConversation) {
-        const child = await json("/v1/jobs/" + encodeURIComponent(run.id) + "/resume", {
-          method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": key }, body: "{}",
-        });
+        const child = await json(
+          "/v1/jobs/" + encodeURIComponent(run.id) + "/resume",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Idempotency-Key": key,
+            },
+            body: "{}",
+          },
+        );
         resumedConversation = child.conversation_id || child.job_id;
         resume.textContent = "Open resumed run";
       }
       await load(resumedConversation);
       if (conversation !== resumedConversation) {
-        note.textContent = "The workflow was resumed. Couldn't open its conversation; use Open resumed run to try again.";
+        note.textContent =
+          "The workflow was resumed. Couldn't open its conversation; use Open resumed run to try again.";
         resume.disabled = false;
       }
       void history();
     } catch (error) {
-      note.textContent = error.code === "workflow_effect_outcome_unknown"
-        ? "Resolve the uncertain publication outcome before resuming this workflow."
-        : (resumedConversation ? "The workflow was resumed. Couldn't open its conversation: " : "Couldn't resume the workflow: ") + error.message;
+      note.textContent =
+        error.code === "workflow_effect_outcome_unknown"
+          ? "Resolve the uncertain publication outcome before resuming this workflow."
+          : (resumedConversation
+              ? "The workflow was resumed. Couldn't open its conversation: "
+              : "Couldn't resume the workflow: ") + error.message;
       resume.disabled = false;
     }
   };
@@ -3485,10 +3818,14 @@ function showMaestroPlan(data = {}) {
   title.textContent = "Plan";
   const state = document.createElement("span");
   state.className = "state-pill";
-  state.textContent = data.gate_id ? "Awaiting your approval" : "Approved · running";
+  state.textContent = data.gate_id
+    ? "Awaiting your approval"
+    : "Approved · running";
   const note = document.createElement("span");
   note.setAttribute("role", "status");
-  note.textContent = data.gate_id ? "Nothing runs until you approve." : "Maestro is running the approved steps.";
+  note.textContent = data.gate_id
+    ? "Nothing runs until you approve."
+    : "Maestro is running the approved steps.";
   heading.append(title, state, note);
   const steps = document.createElement("ol");
   for (const step of data.steps) {
@@ -3514,21 +3851,35 @@ function showMaestroPlan(data = {}) {
     const approve = document.createElement("button");
     approve.type = "button";
     approve.className = "btn btn-primary";
-    approve.append(TailUI.icon("check"), document.createTextNode("Approve plan & run"));
+    approve.append(
+      TailUI.icon("check"),
+      document.createTextNode("Approve plan & run"),
+    );
     approve.onclick = async () => {
       if (window.runConsole.planDecision(data.gate_id)?.pending) return;
       card.dataset.restoreFocus = String(card.contains(document.activeElement));
       approve.disabled = true;
       try {
-        await window.runConsole.submitPlanDecision(data.gate_id, "approve", window.runConsole.planForApproval(data.gate_id, { steps: data.steps }));
+        await window.runConsole.submitPlanDecision(
+          data.gate_id,
+          "approve",
+          window.runConsole.planForApproval(data.gate_id, {
+            steps: data.steps,
+          }),
+        );
         window.runConsole.clearPlanDraft(data.gate_id);
         if (card.dataset.state === "pending") card.dataset.state = "running";
         card.dataset.choice = "approve";
         renderPlanOutcome(card);
       } catch (error) {
-        if (error.code === "gate_already_resolved") finishGate(data.gate_id, "resolved");
-        else if (["gate_invalidated", "gate_expired"].includes(error.code)) finishGate(data.gate_id, error.code.slice(5));
-        else { approve.disabled = false; if (card.dataset.restoreFocus === "true") approve.focus(); }
+        if (error.code === "gate_already_resolved")
+          finishGate(data.gate_id, "resolved");
+        else if (["gate_invalidated", "gate_expired"].includes(error.code))
+          finishGate(data.gate_id, error.code.slice(5));
+        else {
+          approve.disabled = false;
+          if (card.dataset.restoreFocus === "true") approve.focus();
+        }
         status("Couldn't approve the plan: " + error.message);
       } finally {
         delete card.dataset.restoreFocus;
@@ -3539,7 +3890,9 @@ function showMaestroPlan(data = {}) {
   const edit = document.createElement("button");
   edit.type = "button";
   edit.className = "btn";
-  edit.textContent = data.gate_id ? "Edit plan in Run console" : "View plan in Run console";
+  edit.textContent = data.gate_id
+    ? "Edit plan in Run console"
+    : "View plan in Run console";
   edit.prepend(TailUI.icon(data.gate_id ? "pencil" : "trace"));
   edit.onclick = () => window.runConsole?.openPlanEditor();
   actions.append(edit);
@@ -3552,11 +3905,17 @@ function event(e) {
   last = e.id;
   window.runConsole?.observe(e);
   if (e.type === "session_turn_started") return;
-  if (e.type === "invocation_started" && e.data?.invocation?.mode === "conversational")
-    setActivePersona({
-      name: e.data.role || e.data.invocation.resource_id,
-      resource_id: e.data.invocation.resource_id,
-    }, true);
+  if (
+    e.type === "invocation_started" &&
+    e.data?.invocation?.mode === "conversational"
+  )
+    setActivePersona(
+      {
+        name: e.data.role || e.data.invocation.resource_id,
+        resource_id: e.data.invocation.resource_id,
+      },
+      true,
+    );
   if (e.type === "gate_required") {
     showGate(e.data);
     return;
@@ -3575,7 +3934,8 @@ function event(e) {
   }
   if (e.type === "approval_resolved") {
     const box = document.getElementById("approval-" + e.data.approval_id);
-    if (box?.contains(document.activeElement)) $("prompt").focus({ preventScroll: true });
+    if (box?.contains(document.activeElement))
+      $("prompt").focus({ preventScroll: true });
     box?.remove();
     status("Approval decision recorded");
     return;
@@ -3634,7 +3994,11 @@ function event(e) {
       void quota();
     return;
   } else {
-    status(e.type === "queue_wait" ? waitReasonLabel(e.data?.reason || "queue") : labels[e.type] || e.type);
+    status(
+      e.type === "queue_wait"
+        ? waitReasonLabel(e.data?.reason || "queue")
+        : labels[e.type] || e.type,
+    );
   }
   pendingGateStatus();
   // Deltas scroll after their batched render; reading layout here per delta
@@ -3667,7 +4031,13 @@ function executionCondition(code, backend, detail) {
     panel = providerNames[backend] || name,
     reason = providerMessage(detail);
   const copy = {
-    unavailable: {title: name + " unavailable", message: "Open the admin panel to check " + name + ", or select another provider."},
+    unavailable: {
+      title: name + " unavailable",
+      message:
+        "Open the admin panel to check " +
+        name +
+        ", or select another provider.",
+    },
     authentication: {
       title: "Renew " + name + " access",
       message:
@@ -3740,7 +4110,11 @@ async function result(
     r.result?.backend || r.request?.backend,
     r.result?.error_detail,
   );
-  if (condition) composerCondition = { ...condition, backend: r.result?.backend || r.request?.backend || selected()?.backend };
+  if (condition)
+    composerCondition = {
+      ...condition,
+      backend: r.result?.backend || r.request?.backend || selected()?.backend,
+    };
   updateComposer();
   updateMotion(r.state);
   $("activity-state").textContent = condition
@@ -3758,7 +4132,9 @@ async function result(
         (r.state === "cancelled"
           ? "Last run cancelled"
           : "Last run did not finish") + " · token usage not reported";
-    else if (r.state === "completed") $("context-meter").textContent = "Last run completed · token usage not reported";
+    else if (r.state === "completed")
+      $("context-meter").textContent =
+        "Last run completed · token usage not reported";
     if (data.answer !== undefined) setAnswer(active, data.answer);
     // On reload, nothing has streamed into this fresh bubble yet: fall back
     // to the server's persisted partial_answer (WP-F contract) so a failed,
@@ -3783,7 +4159,9 @@ async function result(
       !files.length
     ) {
       $("prompt").value = r.request.prompt;
-      resourceSelections = (r.request.resource_selections || []).map(ref => ({ ...ref }));
+      resourceSelections = (r.request.resource_selections || []).map((ref) => ({
+        ...ref,
+      }));
       syncResourceSelections();
       renderResourceChips();
       updateComposer();
@@ -3858,7 +4236,8 @@ async function watchQueuedTurn() {
 }
 async function watch(retries = 0) {
   streamDisconnected = false;
-  if (document.activeElement === $("resume-execution")) $("prompt").focus({ preventScroll: true });
+  if (document.activeElement === $("resume-execution"))
+    $("prompt").focus({ preventScroll: true });
   $("resume-execution").hidden = true;
   if (controller) controller.abort();
   controller = new AbortController();
@@ -4080,8 +4459,10 @@ async function load(id, legacy = false, restoredView = null) {
     void loadAuthorizedProjectRoots();
     await refreshProjectPermissions();
     if (request !== conversationLoad) return;
-    const restoreNavigationFocus = !!navigationFocus.dataset.conversationId &&
-      document.activeElement.dataset.conversationId === navigationFocus.dataset.conversationId;
+    const restoreNavigationFocus =
+      !!navigationFocus.dataset.conversationId &&
+      document.activeElement.dataset.conversationId ===
+        navigationFocus.dataset.conversationId;
     expandedProjects.set($("project").value, true);
     renderProjects();
     $("sidebar")
@@ -4093,8 +4474,12 @@ async function load(id, legacy = false, restoredView = null) {
     if (savedDraft) restoreView(savedDraft);
     else updateComposer();
     if (restoreNavigationFocus) {
-      const target = innerWidth <= 620 ? $("messages") :
-        $("sidebar").querySelector('.conversation-row > button[aria-current="true"]');
+      const target =
+        innerWidth <= 620
+          ? $("messages")
+          : $("sidebar").querySelector(
+              '.conversation-row > button[aria-current="true"]',
+            );
       target?.focus({ preventScroll: true });
     }
     saveView();
@@ -4275,7 +4660,9 @@ async function send() {
   const draft = $("prompt").value,
     prompt = draft;
   if (!prompt.trim()) return;
-  const reserved = unfencedPrompt(prompt).match(/(?:^|\s)(@@)[\w:-]+(?=\s|$)|^\s*(\/\/)[A-Za-z_][\w:-]*(?=\s|$)/);
+  const reserved = unfencedPrompt(prompt).match(
+    /(?:^|\s)(@@)[\w:-]+(?=\s|$)|^\s*(\/\/)[A-Za-z_][\w:-]*(?=\s|$)/,
+  );
   if (reserved) {
     status(
       reserved[1] === "@@"
@@ -4363,7 +4750,9 @@ async function send() {
       body: JSON.stringify(data),
     });
     if (r.execution_mode) executionMode = r.execution_mode;
-    const executor = models.find(model => model.id === r.model && model.backend === r.backend);
+    const executor = models.find(
+      (model) => model.id === r.model && model.backend === r.backend,
+    );
     if (executor) {
       m = executor;
       $("model").value = executor.id;
@@ -4425,7 +4814,13 @@ async function send() {
     if (!sentJob) {
       submitting = false;
       setBusy(following ? busy : false);
-      if ([document.body, $("send"), $("prompt")].includes(document.activeElement) && [$("send"), $("prompt")].includes(submissionFocus)) $("prompt").focus({ preventScroll: true });
+      if (
+        [document.body, $("send"), $("prompt")].includes(
+          document.activeElement,
+        ) &&
+        [$("send"), $("prompt")].includes(submissionFocus)
+      )
+        $("prompt").focus({ preventScroll: true });
     } else if (job === sentJob && !submitting && !following) setBusy(false);
   }
 }
@@ -4458,37 +4853,65 @@ function renderProjectFileTree() {
 }
 function projectTreeFocus(container) {
   const active = document.activeElement;
-  return container.contains(active) ? {
-    path: active.closest('[role="treeitem"]')?.dataset.path,
-    toggle: active.classList.contains("file-chevron"),
-  } : null;
+  return container.contains(active)
+    ? {
+        path: active.closest('[role="treeitem"]')?.dataset.path,
+        toggle: active.classList.contains("file-chevron"),
+      }
+    : null;
 }
 function restoreProjectTreeFocus(container, tree, focus) {
   const rows = [...container.querySelectorAll('[role="treeitem"]')];
   const path = focus?.path || tree.focusedPath;
-  const row = rows.find(item => item.dataset.path === path) || rows.findLast(item => path?.startsWith(item.dataset.path + "/")) || rows[0];
+  const row =
+    rows.find((item) => item.dataset.path === path) ||
+    rows.findLast((item) => path?.startsWith(item.dataset.path + "/")) ||
+    rows[0];
   if (!row) return;
   row.tabIndex = 0;
   tree.focusedPath = row.dataset.path;
-  if (focus) (focus.toggle ? row.querySelector(".file-chevron") || row : row).focus({preventScroll:true});
+  if (focus)
+    (focus.toggle ? row.querySelector(".file-chevron") || row : row).focus({
+      preventScroll: true,
+    });
 }
 function navigateProjectTree(event, item, entry, tree) {
-  if (!["ArrowUp", "ArrowDown", "Home", "End", "ArrowRight", "ArrowLeft"].includes(event.key)) return false;
+  if (
+    ![
+      "ArrowUp",
+      "ArrowDown",
+      "Home",
+      "End",
+      "ArrowRight",
+      "ArrowLeft",
+    ].includes(event.key)
+  )
+    return false;
   event.preventDefault();
   event.stopPropagation();
-  const container = tree.foldersOnly ? $("project-directory-list") : $("files-tree");
+  const container = tree.foldersOnly
+    ? $("project-directory-list")
+    : $("files-tree");
   const rows = [...container.querySelectorAll('[role="treeitem"]')];
   const index = rows.indexOf(item);
   let next;
   if (event.key === "Home") next = rows[0];
   else if (event.key === "End") next = rows.at(-1);
   else if (event.key === "ArrowUp") next = rows[Math.max(0, index - 1)];
-  else if (event.key === "ArrowDown") next = rows[Math.min(rows.length - 1, index + 1)];
+  else if (event.key === "ArrowDown")
+    next = rows[Math.min(rows.length - 1, index + 1)];
   else if (event.key === "ArrowRight" && entry.type === "directory") {
-    if (tree.expanded.has(entry.path)) next = item.querySelector('[role="treeitem"]');
-    else void (tree.foldersOnly ? toggleProjectFolder(entry) : toggleProjectDirectory(entry));
+    if (tree.expanded.has(entry.path))
+      next = item.querySelector('[role="treeitem"]');
+    else
+      void (tree.foldersOnly
+        ? toggleProjectFolder(entry)
+        : toggleProjectDirectory(entry));
   } else if (event.key === "ArrowLeft") {
-    if (tree.expanded.has(entry.path)) void (tree.foldersOnly ? toggleProjectFolder(entry) : toggleProjectDirectory(entry));
+    if (tree.expanded.has(entry.path))
+      void (tree.foldersOnly
+        ? toggleProjectFolder(entry)
+        : toggleProjectDirectory(entry));
     else next = item.parentElement.closest('[role="treeitem"]');
   }
   next?.focus();
@@ -4503,10 +4926,13 @@ function renderProjectFileEntries(list, entries, tree = fileTree) {
     item.setAttribute("aria-selected", String(tree.selected.has(entry.path)));
     item.tabIndex = -1;
     item.dataset.path = entry.path;
-    item.addEventListener("focusin", event => {
+    item.addEventListener("focusin", (event) => {
       if (event.target.closest('[role="treeitem"]') !== item) return;
-      const container = tree.foldersOnly ? $("project-directory-list") : $("files-tree");
-      for (const row of container.querySelectorAll('[role="treeitem"]')) row.tabIndex = row === item ? 0 : -1;
+      const container = tree.foldersOnly
+        ? $("project-directory-list")
+        : $("files-tree");
+      for (const row of container.querySelectorAll('[role="treeitem"]'))
+        row.tabIndex = row === item ? 0 : -1;
       tree.focusedPath = entry.path;
     });
     const row = document.createElement("div");
@@ -4915,7 +5341,11 @@ async function attachSelectedProjectFiles(
   }
   const maxFiles = Math.max(0, MAX_ATTACHMENTS - files.length),
     paths = [...new Set(selection.paths || [])];
-  if (!(selection.root_id || selection.project_root_id) || !paths.length || !maxFiles) {
+  if (
+    !(selection.root_id || selection.project_root_id) ||
+    !paths.length ||
+    !maxFiles
+  ) {
     status(
       maxFiles
         ? "Select files to attach."
@@ -5070,9 +5500,17 @@ $("new").onclick = () => {
   closeSidebar();
 };
 $("project").onchange = () => {
-  const destination = $("project").value, draft = $("prompt").value,
-    stale = [...invalidResourceTokens, ...resourceSelections.map(ref => ref.token)];
-  if ([...$("project").options].some(option => option.value === composerProjectId))
+  const destination = $("project").value,
+    draft = $("prompt").value,
+    stale = [
+      ...invalidResourceTokens,
+      ...resourceSelections.map((ref) => ref.token),
+    ];
+  if (
+    [...$("project").options].some(
+      (option) => option.value === composerProjectId,
+    )
+  )
     $("project").value = composerProjectId;
   chooseProject(destination);
   $("prompt").value = draft;
@@ -5168,37 +5606,70 @@ function syncWorkspaceModal() {
   if (!interfaceReady || document.querySelector("#tour-root")) return;
   for (const [node, inert] of workspaceCoveredContent) node.inert = inert;
   workspaceCoveredContent.clear();
-  const sidebar = $("sidebar"), panel = $("activity-panel"), console = $("run-console");
-  const active = console && !console.hidden && (innerWidth <= 700 || innerHeight <= 500) ? console
-    : innerWidth <= 620 && sidebar.classList.contains("open") ? sidebar
-    : innerWidth < 1000 && !panel.hidden ? panel : null;
+  const sidebar = $("sidebar"),
+    panel = $("activity-panel"),
+    console = $("run-console");
+  const active =
+    console && !console.hidden && (innerWidth <= 700 || innerHeight <= 500)
+      ? console
+      : innerWidth <= 620 && sidebar.classList.contains("open")
+        ? sidebar
+        : innerWidth < 1000 && !panel.hidden
+          ? panel
+          : null;
   for (const node of [sidebar, panel, console].filter(Boolean)) {
-    node.removeAttribute("aria-modal"); node.removeAttribute("aria-owns");
+    node.removeAttribute("aria-modal");
+    node.removeAttribute("aria-owns");
   }
   if (!active) return;
   active.setAttribute("aria-modal", "true");
   const main = document.querySelector("main");
-  const covered = active === console
-    ? [...main.children].filter(node => node !== console && node.id !== "run-status-strip").concat(sidebar, panel)
-    : [main, active === sidebar ? panel : sidebar];
-  active.setAttribute("aria-owns", active === console ? "run-status-strip app-topbar" : "app-topbar");
+  const covered =
+    active === console
+      ? [...main.children]
+          .filter((node) => node !== console && node.id !== "run-status-strip")
+          .concat(sidebar, panel)
+      : [main, active === sidebar ? panel : sidebar];
+  active.setAttribute(
+    "aria-owns",
+    active === console ? "run-status-strip app-topbar" : "app-topbar",
+  );
   const skip = document.querySelector(".skip-link");
   if (skip) covered.push(skip);
   for (const node of covered) {
     workspaceCoveredContent.set(node, node.inert);
     node.inert = true;
   }
-  if (document.activeElement.closest("[inert]") || document.activeElement === document.body) {
-    [...active.querySelectorAll("button,summary,input,select,textarea,a[href],[tabindex]")]
-      .find(node => !node.disabled && node.tabIndex >= 0 && node.checkVisibility())?.focus({ preventScroll: true });
+  if (
+    document.activeElement.closest("[inert]") ||
+    document.activeElement === document.body
+  ) {
+    [
+      ...active.querySelectorAll(
+        "button,summary,input,select,textarea,a[href],[tabindex]",
+      ),
+    ]
+      .find(
+        (node) =>
+          !node.disabled && node.tabIndex >= 0 && node.checkVisibility(),
+      )
+      ?.focus({ preventScroll: true });
   }
 }
 function syncSidebarFocus() {
-  const sidebar = $("sidebar"), overlay = innerWidth <= 620 && sidebar.classList.contains("open");
+  const sidebar = $("sidebar"),
+    overlay = innerWidth <= 620 && sidebar.classList.contains("open");
   if (overlay) {
-    sidebar.setAttribute("role", "dialog"); sidebar.setAttribute("aria-modal", "true"); sidebar.setAttribute("aria-label", "Conversations");
-    if (!sidebar.contains(document.activeElement)) sidebar.querySelector("button:not(:disabled)")?.focus();
-  } else { sidebar.removeAttribute("role"); sidebar.removeAttribute("aria-modal"); sidebar.removeAttribute("aria-label"); }
+    sidebar.setAttribute("role", "dialog");
+    sidebar.setAttribute("aria-modal", "true");
+    sidebar.setAttribute("aria-label", "Conversations");
+    if (!sidebar.contains(document.activeElement))
+      sidebar.querySelector("button:not(:disabled)")?.focus();
+  } else {
+    sidebar.removeAttribute("role");
+    sidebar.removeAttribute("aria-modal");
+    sidebar.removeAttribute("aria-label");
+  }
   syncWorkspaceModal();
 }
 function closeSidebar() {
@@ -5233,7 +5704,14 @@ function positionAttentionPopover() {
   if (popover.hidden) return;
   const anchor = $("attention-bell").getBoundingClientRect();
   popover.style.right = "auto";
-  popover.style.left = Math.max(12, Math.min(anchor.right - popover.offsetWidth, innerWidth - popover.offsetWidth - 12)) + "px";
+  popover.style.left =
+    Math.max(
+      12,
+      Math.min(
+        anchor.right - popover.offsetWidth,
+        innerWidth - popover.offsetWidth - 12,
+      ),
+    ) + "px";
   popover.style.top = anchor.bottom + 8 + "px";
 }
 window.addEventListener("resize", positionAttentionPopover);
@@ -5267,10 +5745,7 @@ for (const button of document.querySelectorAll("[data-attention-filter]"))
     document
       .querySelectorAll("[data-attention-filter]")
       .forEach((item) =>
-        item.setAttribute(
-          "aria-pressed",
-          String(item === button),
-        ),
+        item.setAttribute("aria-pressed", String(item === button)),
       );
     $("attention-popover").hidden = true;
     $("attention-bell").setAttribute("aria-expanded", "false");
@@ -5322,7 +5797,9 @@ let startupTimer,
 function setReadiness(ready, message = "") {
   if (!ready && interfaceReady) {
     const active = document.activeElement;
-    readinessFocus = active.closest("#settings-dialog") ? $("settings") : active;
+    readinessFocus = active.closest("#settings-dialog")
+      ? $("settings")
+      : active;
   }
   if (!ready) window.tailHarnessTour?.stop(false);
   interfaceReady = ready;
@@ -5342,7 +5819,11 @@ function setReadiness(ready, message = "") {
   document.body.dataset.connectionReady = String(ready);
   if (ready) {
     syncWorkspaceModal();
-    if (readinessFocus?.isConnected && readinessFocus.checkVisibility() && !readinessFocus.closest("[inert]"))
+    if (
+      readinessFocus?.isConnected &&
+      readinessFocus.checkVisibility() &&
+      !readinessFocus.closest("[inert]")
+    )
       readinessFocus.focus({ preventScroll: true });
     readinessFocus = null;
     document.dispatchEvent(new Event("tail:ready"));
@@ -5656,7 +6137,11 @@ async function probeReadiness() {
 }
 $("resume-execution").onclick = () => watch();
 $("models-retry").onclick = async () => {
-  if (!busy) { await initialize(); composerCondition = null; updateComposer(); }
+  if (!busy) {
+    await initialize();
+    composerCondition = null;
+    updateComposer();
+  }
 };
 initialize();
 
@@ -5732,12 +6217,15 @@ function restoreView(saved) {
 }
 const draftViews = new Map();
 const unsavedDrafts = new Map();
-let latestDraftSnapshot = null, draftRetry = 0;
+let latestDraftSnapshot = null,
+  draftRetry = 0;
 function flushDrafts() {
   clearTimeout(draftRetry);
   try {
-    for (const [key, snapshot] of unsavedDrafts) sessionStorage.setItem(key, snapshot);
-    if (latestDraftSnapshot !== null) sessionStorage.setItem("remote-view", latestDraftSnapshot);
+    for (const [key, snapshot] of unsavedDrafts)
+      sessionStorage.setItem(key, snapshot);
+    if (latestDraftSnapshot !== null)
+      sessionStorage.setItem("remote-view", latestDraftSnapshot);
     unsavedDrafts.clear();
     latestDraftSnapshot = null;
   } catch {
@@ -5747,39 +6235,52 @@ function flushDrafts() {
   $("draft-storage-warning").hidden = !dirty;
   return !dirty;
 }
-window.addEventListener("beforeunload", event => {
-  if (!flushDrafts()) { event.preventDefault(); event.returnValue = ""; }
+window.addEventListener("beforeunload", (event) => {
+  if (!flushDrafts()) {
+    event.preventDefault();
+    event.returnValue = "";
+  }
 });
 window.addEventListener("pagehide", flushDrafts);
-document.addEventListener("visibilitychange", () => { if (document.hidden) flushDrafts(); });
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) flushDrafts();
+});
 function retireDraft(key) {
   draftViews.delete(key);
   unsavedDrafts.delete(key);
-  try { sessionStorage.removeItem(key); } catch {}
+  try {
+    sessionStorage.removeItem(key);
+  } catch {}
 }
 function readDraft(key) {
-  try { return JSON.parse(draftViews.get(key) || sessionStorage.getItem(key) || "null"); }
-  catch { return null; }
+  try {
+    return JSON.parse(
+      draftViews.get(key) || sessionStorage.getItem(key) || "null",
+    );
+  } catch {
+    return null;
+  }
 }
 function saveView() {
   if (loading) return true;
   try {
     const snapshot = JSON.stringify({
-        conversation,
-        composer_selection: {
-          model: $("model").value,
-          effort: $("effort").value,
-        },
-        execution_mode: executionMode,
-        execution_mode_chosen: executionModeChosen,
-        project: $("project").value,
-        draft: $("prompt").value,
-        files,
-        resource_selections: resourceSelections,
-        invalid_resource_tokens: [...invalidResourceTokens],
-        resource_context: { project: $("project").value, ...resourceEngine() },
-      });
-    const key = "conversation-draft:" + (conversation || "new:" + $("project").value);
+      conversation,
+      composer_selection: {
+        model: $("model").value,
+        effort: $("effort").value,
+      },
+      execution_mode: executionMode,
+      execution_mode_chosen: executionModeChosen,
+      project: $("project").value,
+      draft: $("prompt").value,
+      files,
+      resource_selections: resourceSelections,
+      invalid_resource_tokens: [...invalidResourceTokens],
+      resource_context: { project: $("project").value, ...resourceEngine() },
+    });
+    const key =
+      "conversation-draft:" + (conversation || "new:" + $("project").value);
     draftViews.set(key, snapshot);
     unsavedDrafts.set(key, snapshot);
     latestDraftSnapshot = snapshot;
@@ -5888,17 +6389,25 @@ const activityIcons = {
 };
 function setPanelView(view, persist = true) {
   rightPanelView = view;
-  const section = document.querySelector('[data-workspace-section="' + view + '"]');
+  const section = document.querySelector(
+    '[data-workspace-section="' + view + '"]',
+  );
   if (section && persist) section.open = true;
   $("files-title").textContent = "Files";
   $("activity-title").textContent = "Activity";
   $("files-toggle").setAttribute(
     "aria-expanded",
-    String(!$("activity-panel").hidden && document.querySelector('[data-workspace-section="files"]').open),
+    String(
+      !$("activity-panel").hidden &&
+        document.querySelector('[data-workspace-section="files"]').open,
+    ),
   );
   $("activity-toggle").setAttribute(
     "aria-expanded",
-    String(!$("activity-panel").hidden && document.querySelector('[data-workspace-section="activity"]').open),
+    String(
+      !$("activity-panel").hidden &&
+        document.querySelector('[data-workspace-section="activity"]').open,
+    ),
   );
   if (persist)
     try {
@@ -5931,18 +6440,24 @@ function setPanelOpen(open, persist = true) {
   panel.setAttribute("role", overlay ? "dialog" : "complementary");
   if (overlay) panel.setAttribute("aria-modal", "true");
   else panel.removeAttribute("aria-modal");
-  if (overlay && !panel.contains(document.activeElement)) $("files-toggle").focus();
+  if (overlay && !panel.contains(document.activeElement))
+    $("files-toggle").focus();
   syncQuotaDock();
   $("panel-toggle").setAttribute("aria-expanded", String(open));
   if (!open && $("activity-panel").contains(document.activeElement))
     $("panel-toggle").focus();
   $("files-toggle").setAttribute(
     "aria-expanded",
-    String(open && document.querySelector('[data-workspace-section="files"]').open),
+    String(
+      open && document.querySelector('[data-workspace-section="files"]').open,
+    ),
   );
   $("activity-toggle").setAttribute(
     "aria-expanded",
-    String(open && document.querySelector('[data-workspace-section="activity"]').open),
+    String(
+      open &&
+        document.querySelector('[data-workspace-section="activity"]').open,
+    ),
   );
   syncWorkspaceModal();
   if (open && interfaceReady) {
@@ -5955,22 +6470,57 @@ function setPanelOpen(open, persist = true) {
       localStorage.setItem("activity-open", open ? "1" : "0");
     } catch {}
 }
-document.addEventListener("keydown", event => {
-  if (event.defaultPrevented || event.key !== "Tab" || document.querySelector("dialog[open], #tour-root, [popover]:popover-open")) return;
-  const panel = !$("attention-popover").hidden ? $("attention-popover")
-    : (innerWidth <= 700 || innerHeight <= 500) && document.querySelector("#run-console:not([hidden])") ? $("run-console")
-    : innerWidth <= 620 && $("sidebar").classList.contains("open") ? $("sidebar")
-    : innerWidth < 1000 && !$("activity-panel").hidden ? $("activity-panel") : null;
+document.addEventListener("keydown", (event) => {
+  if (
+    event.defaultPrevented ||
+    event.key !== "Tab" ||
+    document.querySelector("dialog[open], #tour-root, [popover]:popover-open")
+  )
+    return;
+  const panel = !$("attention-popover").hidden
+    ? $("attention-popover")
+    : (innerWidth <= 700 || innerHeight <= 500) &&
+        document.querySelector("#run-console:not([hidden])")
+      ? $("run-console")
+      : innerWidth <= 620 && $("sidebar").classList.contains("open")
+        ? $("sidebar")
+        : innerWidth < 1000 && !$("activity-panel").hidden
+          ? $("activity-panel")
+          : null;
   if (!panel) return;
-  const surfaces = [panel, ...(panel.getAttribute("aria-owns") || "").split(/\s+/).map(id => $(id)).filter(Boolean)];
-  const controls = [...new Set(surfaces.flatMap(surface => [...surface.querySelectorAll("a[href],button,input,select,textarea,summary,[tabindex]")]))]
-    .filter(node => node.tabIndex >= 0 && !node.disabled && node.checkVisibility());
+  const surfaces = [
+    panel,
+    ...(panel.getAttribute("aria-owns") || "")
+      .split(/\s+/)
+      .map((id) => $(id))
+      .filter(Boolean),
+  ];
+  const controls = [
+    ...new Set(
+      surfaces.flatMap((surface) => [
+        ...surface.querySelectorAll(
+          "a[href],button,input,select,textarea,summary,[tabindex]",
+        ),
+      ]),
+    ),
+  ].filter(
+    (node) => node.tabIndex >= 0 && !node.disabled && node.checkVisibility(),
+  );
   if (!controls.length) return;
   const index = controls.indexOf(document.activeElement);
   event.preventDefault();
-  const next = index < 0 ? (event.shiftKey ? controls.length - 1 : 0) : (index + (event.shiftKey ? -1 : 1) + controls.length) % controls.length;
+  const next =
+    index < 0
+      ? event.shiftKey
+        ? controls.length - 1
+        : 0
+      : (index + (event.shiftKey ? -1 : 1) + controls.length) % controls.length;
   controls[next].focus();
-  controls[next].scrollIntoView({ block: "nearest", inline: "nearest", behavior: "instant" });
+  controls[next].scrollIntoView({
+    block: "nearest",
+    inline: "nearest",
+    behavior: "instant",
+  });
 });
 let authorizedRootsRequest = 0;
 async function loadAuthorizedProjectRoots() {
@@ -6030,53 +6580,54 @@ async function loadAuthorizedProjectRoots() {
           start: "1",
           limit: "100",
         });
-      try {
-        const listing = await json("/v1/project-files?" + params);
-        if (request !== authorizedRootsRequest) return;
-        for (const entry of (listing.entries || []).slice(0, 12)) {
-          const row = document.createElement("li");
-          const name = document.createElement(
-            entry.type === "directory" ? "span" : "button",
-          );
-          name.textContent = entry.name;
-          name.title = entry.name;
-          name.prepend(projectFileIcon(entry.name, entry.type === "directory"));
-          if (name.tagName === "BUTTON") {
-            name.type = "button";
-            name.title = "Attach " + entry.name;
-            name.onclick = () =>
-              attachSelectedProjectFiles({
-                project_root_id: root.id,
-                paths: [entry.path],
-              });
+        try {
+          const listing = await json("/v1/project-files?" + params);
+          if (request !== authorizedRootsRequest) return;
+          for (const entry of (listing.entries || []).slice(0, 12)) {
+            const row = document.createElement("li");
+            const name = document.createElement(
+              entry.type === "directory" ? "span" : "button",
+            );
+            name.textContent = entry.name;
+            name.title = entry.name;
+            name.prepend(
+              projectFileIcon(entry.name, entry.type === "directory"),
+            );
+            if (name.tagName === "BUTTON") {
+              name.type = "button";
+              name.title = "Attach " + entry.name;
+              name.onclick = () =>
+                attachSelectedProjectFiles({
+                  project_root_id: root.id,
+                  paths: [entry.path],
+                });
+            }
+            row.append(name);
+            if (entry.status) {
+              const state = document.createElement("b");
+              state.className = "file-status-badge";
+              state.textContent = entry.status;
+              state.title = "Git status " + entry.status;
+              row.append(state);
+            }
+            list.append(row);
           }
-          row.append(name);
-          if (entry.status) {
-            const state = document.createElement("b");
-            state.className = "file-status-badge";
-            state.textContent = entry.status;
-            state.title = "Git status " + entry.status;
-            row.append(state);
+          if (!list.children.length) {
+            const empty = document.createElement("li");
+            empty.textContent = "No files at this level.";
+            list.append(empty);
           }
-          list.append(row);
+        } catch {
+          if (request !== authorizedRootsRequest) return;
+          const unavailable = document.createElement("li");
+          unavailable.textContent = "Couldn't load this root.";
+          list.append(unavailable);
         }
-        if (!list.children.length) {
-          const empty = document.createElement("li");
-          empty.textContent = "No files at this level.";
-          list.append(empty);
-        }
-      } catch {
-        if (request !== authorizedRootsRequest) return;
-        const unavailable = document.createElement("li");
-        unavailable.textContent = "Couldn't load this root.";
-        list.append(unavailable);
-      }
       }
     }
     await Promise.all(
-      Array.from(
-        { length: Math.min(4, rootListings.length) },
-        () => loadNextRoot(),
+      Array.from({ length: Math.min(4, rootListings.length) }, () =>
+        loadNextRoot(),
       ),
     );
     if (!roots.length) holder.textContent = "No project root is authorized.";
@@ -6095,7 +6646,9 @@ $("authorize-project-root").onclick = () => {
 function togglePanelView(view) {
   setPanelView(view);
   if ($("activity-panel").hidden) setPanelOpen(true);
-  document.querySelector('[data-workspace-section="' + view + '"]')?.scrollIntoView({ block: "nearest" });
+  document
+    .querySelector('[data-workspace-section="' + view + '"]')
+    ?.scrollIntoView({ block: "nearest" });
 }
 let rightPanelView = "files";
 function resetActivity(clearHistory = true) {
@@ -6331,7 +6884,10 @@ function sizePanel(id, width, persist = true) {
 for (const id of Object.keys(panelWidths)) {
   try {
     const saved = Number(localStorage.getItem(id + "-width"));
-    if (saved >= 220 && saved <= 720) { panelWidths[id] = saved; customizedPanels.add(id); }
+    if (saved >= 220 && saved <= 720) {
+      panelWidths[id] = saved;
+      customizedPanels.add(id);
+    }
   } catch {}
   const handle = $(id + "-resize");
   let drag = null;
@@ -6375,12 +6931,27 @@ for (const id of Object.keys(panelWidths)) {
 }
 function fitPanels() {
   syncSidebarFocus();
-  $("menu").setAttribute("aria-expanded", String(
-    matchMedia("(max-width:620px)").matches ? $("sidebar").classList.contains("open") : !document.body.classList.contains("sidebar-collapsed")
-  ));
+  $("menu").setAttribute(
+    "aria-expanded",
+    String(
+      matchMedia("(max-width:620px)").matches
+        ? $("sidebar").classList.contains("open")
+        : !document.body.classList.contains("sidebar-collapsed"),
+    ),
+  );
   const narrow = innerWidth >= 1000 && innerWidth < 1200;
-  sizePanel("sidebar", narrow && !customizedPanels.has("sidebar") ? 260 : panelWidths.sidebar, false);
-  sizePanel("activity-panel", narrow && !customizedPanels.has("activity-panel") ? 340 : panelWidths["activity-panel"], false);
+  sizePanel(
+    "sidebar",
+    narrow && !customizedPanels.has("sidebar") ? 260 : panelWidths.sidebar,
+    false,
+  );
+  sizePanel(
+    "activity-panel",
+    narrow && !customizedPanels.has("activity-panel")
+      ? 340
+      : panelWidths["activity-panel"],
+    false,
+  );
 }
 window.addEventListener("resize", fitPanels);
 function applyPanelOrder(value, persist = true) {
@@ -6626,7 +7197,9 @@ function renderConversationSearch() {
     !query || normalizeSearch(values.filter(Boolean).join(" ")).includes(query);
   const observedConversationIds = new Set();
   const observedRuns = observedActivityJobs.map((item) => {
-    const source = conversations.find((conversation) => conversation.id === item.conversation_id);
+    const source = conversations.find(
+      (conversation) => conversation.id === item.conversation_id,
+    );
     if (item.conversation_id) observedConversationIds.add(item.conversation_id);
     return {
       ...source,
@@ -6666,11 +7239,11 @@ function renderConversationSearch() {
       includes(step.role, step.task, step.reason, step.backend, step.model),
     );
   const loadedFiles = new Map();
-  for (const file of files)
-    if (file?.name) loadedFiles.set(file.name, file);
+  for (const file of files) if (file?.name) loadedFiles.set(file.name, file);
   for (const entries of fileTree.cache.values())
     for (const file of entries || [])
-      if (file?.name && file.type !== "directory") loadedFiles.set(file.path || file.name, file);
+      if (file?.name && file.type !== "directory")
+        loadedFiles.set(file.path || file.name, file);
   if (projectFileSearchQuery === query)
     for (const file of projectFileSearch)
       if (file?.name && file.type !== "directory")
@@ -6802,7 +7375,7 @@ $("search-clear").onclick = () => {
   $("conversation-search").focus();
 };
 let composerWidth = 0;
-new ResizeObserver(entries => {
+new ResizeObserver((entries) => {
   const width = entries[0].contentRect.width;
   if (width === composerWidth) return;
   composerWidth = width;
@@ -6897,13 +7470,23 @@ document.addEventListener("keydown", (e) => {
   ) {
     e.preventDefault();
     if (e.key === "/") {
-      if (innerWidth <= 620 && $("sidebar").classList.contains("open") || innerWidth < 1000 && !$("activity-panel").hidden || (innerWidth <= 700 || innerHeight <= 500) && document.querySelector("#run-console:not([hidden])")) return;
+      if (
+        (innerWidth <= 620 && $("sidebar").classList.contains("open")) ||
+        (innerWidth < 1000 && !$("activity-panel").hidden) ||
+        ((innerWidth <= 700 || innerHeight <= 500) &&
+          document.querySelector("#run-console:not([hidden])"))
+      )
+        return;
       $("prompt").focus();
-    }
-    else openConversationSearch();
+    } else openConversationSearch();
   }
   if (e.key === "Escape") {
-    if ($("attention-popover").hidden && $("quota-panel").hidden && document.querySelector("#run-console:not([hidden])")) return;
+    if (
+      $("attention-popover").hidden &&
+      $("quota-panel").hidden &&
+      document.querySelector("#run-console:not([hidden])")
+    )
+      return;
     if (!$("attention-popover").hidden) {
       $("attention-popover").hidden = true;
       $("attention-bell").setAttribute("aria-expanded", "false");
@@ -6994,51 +7577,102 @@ $("vpn-login-form").onsubmit = async (e) => {
     $("vpn-login-error").textContent = error.message;
   }
 };
-const gateChoiceKey = id => "gate-choice-draft:" + id;
+const gateChoiceKey = (id) => "gate-choice-draft:" + id;
 function pendingGateStatus() {
-  const plan = active?.el.querySelector('.maestro-plan-card[data-state="pending"]');
+  const plan = active?.el.querySelector(
+    '.maestro-plan-card[data-state="pending"]',
+  );
   const gate = document.querySelector('.gate-card[data-state="pending"]');
   if (!plan && !gate) return;
-  const text = plan ? "Waiting for plan approval" : gate.dataset.publish === "true" ? "Waiting for publication approval" : "Waiting for your choice";
+  const text = plan
+    ? "Waiting for plan approval"
+    : gate.dataset.publish === "true"
+      ? "Waiting for publication approval"
+      : "Waiting for your choice";
   status(text);
   $("activity-state").textContent = text;
-  if (active) { active.chip.textContent = text; setActivitySummary(active, text); }
+  if (active) {
+    active.chip.textContent = text;
+    setActivitySummary(active, text);
+  }
 }
 function finishGate(id, state, data = {}) {
   retireDraft(gateChoiceKey(id));
   const box = document.getElementById("gate-" + id);
   if (!box) return;
-  if (box.contains(document.activeElement) || box.dataset.restoreFocus === "true")
+  if (
+    box.contains(document.activeElement) ||
+    box.dataset.restoreFocus === "true"
+  )
     $("prompt").focus({ preventScroll: true });
   box.dataset.state = state;
   if (box.classList.contains("maestro-plan-card")) {
-    box.querySelectorAll("button,input,textarea").forEach(node => { node.disabled = true; });
+    box.querySelectorAll("button,input,textarea").forEach((node) => {
+      node.disabled = true;
+    });
     if (data.choice) box.dataset.choice = data.choice;
     renderPlanOutcome(box);
     return;
   }
   if (state === "resolved") {
-    const choices = data.choice === undefined ? [] : Array.isArray(data.choice) ? data.choice : [data.choice];
-    box.querySelectorAll("input").forEach(input => { input.checked = choices.includes(input.value); });
+    const choices =
+      data.choice === undefined
+        ? []
+        : Array.isArray(data.choice)
+          ? data.choice
+          : [data.choice];
+    box.querySelectorAll("input").forEach((input) => {
+      input.checked = choices.includes(input.value);
+    });
   }
-  box.querySelectorAll("button,input").forEach(node => { node.disabled = true; });
+  box.querySelectorAll("button,input").forEach((node) => {
+    node.disabled = true;
+  });
   const title = box.querySelector("h3");
-  if (title) title.textContent = state === "resolved"
-    ? (box.dataset.publish === "true" ? (data.choice === "deny" ? "Publication denied" : data.choice === "approve" ? "Publication approved" : "Publication decision recorded") : "Answered")
-    : box.dataset.publish === "true" ? (state === "invalidated" ? "Publication approval closed" : "Publication approval expired")
-    : state === "invalidated" ? "Question closed" : "Question expired";
+  if (title)
+    title.textContent =
+      state === "resolved"
+        ? box.dataset.publish === "true"
+          ? data.choice === "deny"
+            ? "Publication denied"
+            : data.choice === "approve"
+              ? "Publication approved"
+              : "Publication decision recorded"
+          : "Answered"
+        : box.dataset.publish === "true"
+          ? state === "invalidated"
+            ? "Publication approval closed"
+            : "Publication approval expired"
+          : state === "invalidated"
+            ? "Question closed"
+            : "Question expired";
   const note = box.querySelector('[role="status"]');
-  if (state === "resolved" && data.choice === undefined && box.dataset.publish !== "true") {
+  if (
+    state === "resolved" &&
+    data.choice === undefined &&
+    box.dataset.publish !== "true"
+  ) {
     title.textContent = "Answered in another session";
-    note.textContent = "The recorded answer is not available yet. Reload to see it.";
+    note.textContent =
+      "The recorded answer is not available yet. Reload to see it.";
     return;
   }
-  note.textContent = state === "resolved"
-    ? (box.dataset.publish === "true" ? (data.choice === "deny" ? "Publication denied" : data.choice === "approve" ? "Publication approved" : "Publication decision recorded") : "Answered") + (data.resolved_by ? " by " + data.resolved_by : "") + "."
-    : box.dataset.publish === "true" ? "This publication approval is no longer active; ask again for a fresh approval before publishing."
-    : state === "invalidated"
-      ? "This question is no longer active. Send a message to ask again."
-      : "This question expired. Send a message to ask again.";
+  note.textContent =
+    state === "resolved"
+      ? (box.dataset.publish === "true"
+          ? data.choice === "deny"
+            ? "Publication denied"
+            : data.choice === "approve"
+              ? "Publication approved"
+              : "Publication decision recorded"
+          : "Answered") +
+        (data.resolved_by ? " by " + data.resolved_by : "") +
+        "."
+      : box.dataset.publish === "true"
+        ? "This publication approval is no longer active; ask again for a fresh approval before publishing."
+        : state === "invalidated"
+          ? "This question is no longer active. Send a message to ask again."
+          : "This question expired. Send a message to ask again.";
 }
 function restoreGates(gates = []) {
   for (const gate of Array.isArray(gates) ? gates : []) {
@@ -7055,10 +7689,16 @@ function showGate(data) {
     status("Waiting for plan approval");
     return;
   }
-  if (data.publish && data.effect_id) { showPublishGate(data); return; }
-  const box = document.createElement("section"), title = document.createElement("h3"),
-    note = document.createElement("p"), fields = document.createElement("fieldset"),
-    legend = document.createElement("legend"), submit = document.createElement("button");
+  if (data.publish && data.effect_id) {
+    showPublishGate(data);
+    return;
+  }
+  const box = document.createElement("section"),
+    title = document.createElement("h3"),
+    note = document.createElement("p"),
+    fields = document.createElement("fieldset"),
+    legend = document.createElement("legend"),
+    submit = document.createElement("button");
   box.id = "gate-" + data.gate_id;
   box.className = "approval-card gate-card";
   box.dataset.publish = String(!!data.publish);
@@ -7067,12 +7707,16 @@ function showGate(data) {
   legend.textContent = data.question;
   fields.append(legend);
   for (const option of data.options || []) {
-    const label = document.createElement("label"), input = document.createElement("input"),
-      text = document.createElement("span"), description = document.createElement("small");
+    const label = document.createElement("label"),
+      input = document.createElement("input"),
+      text = document.createElement("span"),
+      description = document.createElement("small");
     input.type = data.multi_select ? "checkbox" : "radio";
     input.name = "gate-choice-" + data.gate_id;
     input.value = option.id;
-    input.checked = (readDraft(gateChoiceKey(data.gate_id)) || []).includes(option.id);
+    input.checked = (readDraft(gateChoiceKey(data.gate_id)) || []).includes(
+      option.id,
+    );
     text.textContent = option.label;
     description.textContent = option.description || "";
     label.append(input, text, description);
@@ -7083,8 +7727,11 @@ function showGate(data) {
   submit.textContent = "Confirm choice";
   submit.disabled = !fields.querySelector("input:checked");
   fields.onchange = () => {
-    const choices = [...fields.querySelectorAll("input:checked")].map(input => input.value);
-    const key = gateChoiceKey(data.gate_id), snapshot = JSON.stringify(choices);
+    const choices = [...fields.querySelectorAll("input:checked")].map(
+      (input) => input.value,
+    );
+    const key = gateChoiceKey(data.gate_id),
+      snapshot = JSON.stringify(choices);
     draftViews.set(key, snapshot);
     unsavedDrafts.set(key, snapshot);
     flushDrafts();
@@ -7092,25 +7739,40 @@ function showGate(data) {
   };
   submit.onclick = async () => {
     if (box.dataset.state !== "pending") return;
-    const choices = [...fields.querySelectorAll("input:checked")].map(input => input.value);
+    const choices = [...fields.querySelectorAll("input:checked")].map(
+      (input) => input.value,
+    );
     if (!choices.length) return;
     box.dataset.state = "submitting";
     box.dataset.restoreFocus = String(box.contains(document.activeElement));
-    box.querySelectorAll("button,input").forEach(node => { node.disabled = true; });
+    box.querySelectorAll("button,input").forEach((node) => {
+      node.disabled = true;
+    });
     note.textContent = "Sending your choice…";
     try {
-      const result = await post("/v1/approvals/" + data.gate_id, { choice: data.multi_select ? choices : choices[0] });
-      finishGate(data.gate_id, "resolved", { choice: data.multi_select ? choices : choices[0], ...result });
+      const result = await post("/v1/approvals/" + data.gate_id, {
+        choice: data.multi_select ? choices : choices[0],
+      });
+      finishGate(data.gate_id, "resolved", {
+        choice: data.multi_select ? choices : choices[0],
+        ...result,
+      });
     } catch (error) {
-      if (error.code === "gate_already_resolved") finishGate(data.gate_id, "resolved");
-      else if (["gate_invalidated", "gate_expired"].includes(error.code)) finishGate(data.gate_id, error.code.slice(5));
+      if (error.code === "gate_already_resolved")
+        finishGate(data.gate_id, "resolved");
+      else if (["gate_invalidated", "gate_expired"].includes(error.code))
+        finishGate(data.gate_id, error.code.slice(5));
       else if (box.dataset.state === "submitting") {
         box.dataset.state = "pending";
         note.textContent = "Couldn't send your choice. " + error.message;
-        box.querySelectorAll("button,input").forEach(node => { node.disabled = false; });
+        box.querySelectorAll("button,input").forEach((node) => {
+          node.disabled = false;
+        });
         if (box.dataset.restoreFocus === "true") submit.focus();
       }
-    } finally { delete box.dataset.restoreFocus; }
+    } finally {
+      delete box.dataset.restoreFocus;
+    }
   };
   box.append(title, fields, submit, note);
   if (data.publish) appendPublishEvidence(box, data);
@@ -7128,12 +7790,18 @@ function appendPublishEvidence(container, data) {
   const add = (label, value, pre = false) => {
     if (value == null) return;
     const node = document.createElement(pre ? "pre" : "p");
-    node.textContent = label + ": " + (typeof value === "string" ? value : JSON.stringify(value, null, 2));
+    node.textContent =
+      label +
+      ": " +
+      (typeof value === "string" ? value : JSON.stringify(value, null, 2));
     evidence.append(node);
   };
   add("Operation", data.operation);
   add("Destination", data.destination);
-  add("Publication", data.enforcement === "mediated" ? "mediated" : "unenforced");
+  add(
+    "Publication",
+    data.enforcement === "mediated" ? "mediated" : "unenforced",
+  );
   add("Risk", data.risk);
   add("Integration", data.integration);
   add("Jira site", data.endpoint);
@@ -7142,12 +7810,17 @@ function appendPublishEvidence(container, data) {
   add("Arguments digest", data.arguments_digest);
   add("Artifact preview", data.artifact_preview, true);
   add("Artifact digest", data.artifact_digest);
-  add("Approval", "An enrolled human session is required. This decision applies once to this exact request and artifact.");
+  add(
+    "Approval",
+    "An enrolled human session is required. This decision applies once to this exact request and artifact.",
+  );
   container.append(evidence);
 }
 
 function showPublishGate(data) {
-  const box = document.createElement("section"), title = document.createElement("h3"), note = document.createElement("p");
+  const box = document.createElement("section"),
+    title = document.createElement("h3"),
+    note = document.createElement("p");
   box.id = "gate-" + data.gate_id;
   box.className = "approval-card gate-card publish-gate-card";
   box.dataset.tour = "publish-gate";
@@ -7157,7 +7830,10 @@ function showPublishGate(data) {
   box.append(title);
   appendPublishEvidence(box, data);
   note.setAttribute("role", "status");
-  for (const [choice, label] of [["approve", "Approve"], ["deny", "Deny"]]) {
+  for (const [choice, label] of [
+    ["approve", "Approve"],
+    ["deny", "Deny"],
+  ]) {
     const action = document.createElement("button");
     action.className = "btn";
     action.type = "button";
@@ -7166,22 +7842,34 @@ function showPublishGate(data) {
       if (box.dataset.state !== "pending") return;
       box.dataset.state = "submitting";
       box.dataset.restoreFocus = String(box.contains(document.activeElement));
-      box.querySelectorAll("button").forEach(node => { node.disabled = true; });
+      box.querySelectorAll("button").forEach((node) => {
+        node.disabled = true;
+      });
       note.textContent = "Sending your decision…";
       try {
-        const result = await post("/v1/approvals/" + encodeURIComponent(data.gate_id), { choice });
-        if (box.dataset.state === "submitting") finishGate(data.gate_id, "resolved", result);
+        const result = await post(
+          "/v1/approvals/" + encodeURIComponent(data.gate_id),
+          { choice },
+        );
+        if (box.dataset.state === "submitting")
+          finishGate(data.gate_id, "resolved", result);
       } catch (error) {
         if (box.dataset.state !== "submitting") return;
-        if (error.code === "gate_already_resolved") finishGate(data.gate_id, "resolved");
-        else if (["gate_invalidated", "gate_expired"].includes(error.code)) finishGate(data.gate_id, error.code.slice(5));
+        if (error.code === "gate_already_resolved")
+          finishGate(data.gate_id, "resolved");
+        else if (["gate_invalidated", "gate_expired"].includes(error.code))
+          finishGate(data.gate_id, error.code.slice(5));
         else if (box.dataset.state === "submitting") {
           box.dataset.state = "pending";
           note.textContent = "Couldn't send your decision. " + error.message;
-          box.querySelectorAll("button").forEach(node => { node.disabled = false; });
+          box.querySelectorAll("button").forEach((node) => {
+            node.disabled = false;
+          });
           if (box.dataset.restoreFocus === "true") action.focus();
         }
-      } finally { delete box.dataset.restoreFocus; }
+      } finally {
+        delete box.dataset.restoreFocus;
+      }
     };
     box.append(action);
   }
@@ -7194,13 +7882,18 @@ function showPublishGate(data) {
 function expireApproval(id) {
   const box = document.getElementById("approval-" + id);
   if (!box) return;
-  if (box.contains(document.activeElement) ||
-      (box.dataset.restoreFocus === "true" && document.activeElement === document.body)) {
+  if (
+    box.contains(document.activeElement) ||
+    (box.dataset.restoreFocus === "true" &&
+      document.activeElement === document.body)
+  ) {
     $("prompt").focus({ preventScroll: true });
   }
   box.dataset.state = "expired";
   box.querySelector("h3").textContent = "Approval expired";
-  box.querySelectorAll("button,input").forEach((node) => (node.disabled = true));
+  box
+    .querySelectorAll("button,input")
+    .forEach((node) => (node.disabled = true));
   const progress = box.querySelector('[role="status"]');
   progress.hidden = false;
   progress.textContent = userErrors.approval_expired;
@@ -7303,14 +7996,18 @@ function showApproval(data) {
       } catch (e) {
         if (e.code === "approval_already_resolved") {
           progress.textContent = e.message;
-          box.querySelectorAll("button,input").forEach(node => node.remove());
+          box.querySelectorAll("button,input").forEach((node) => node.remove());
           if (hadFocus) $("prompt").focus({ preventScroll: true });
-        } else if (e.code === "approval_expired") expireApproval(data.approval_id);
-        else if (box.dataset.state !== "expired") progress.textContent = "Couldn't confirm your decision. " + e.message;
+        } else if (e.code === "approval_expired")
+          expireApproval(data.approval_id);
+        else if (box.dataset.state !== "expired")
+          progress.textContent = "Couldn't confirm your decision. " + e.message;
       } finally {
         deciding = false;
         if (box.dataset.state !== "expired") {
-          box.querySelectorAll("button,input").forEach((node) => (node.disabled = false));
+          box
+            .querySelectorAll("button,input")
+            .forEach((node) => (node.disabled = false));
           if (hadFocus && box.isConnected) button.focus();
         }
         delete box.dataset.restoreFocus;
@@ -8156,99 +8853,205 @@ $("project-form").onsubmit = async (event) => {
 async function refreshWorkspaceResources() {
   const target = $("workspace-resources");
   if (!target) return;
-  const request = ++workspaceResourceRequest, engine = resourceEngine();
+  const request = ++workspaceResourceRequest,
+    engine = resourceEngine();
   const project = $("project").value;
   target.textContent = "Loading resources…";
   $("workspace-resources-count").textContent = "0";
-  if (!engine.backend) { target.textContent = "Select a model to see resources."; return; }
+  if (!engine.backend) {
+    target.textContent = "Select a model to see resources.";
+    return;
+  }
   try {
-    const query = new URLSearchParams({ project_id: project, backend: engine.backend,
-      model: engine.model, execution_mode: engine.execution_mode });
-    const data = await json("/v1/resources?" + query, { signal: AbortSignal.timeout(5000) });
+    const query = new URLSearchParams({
+      project_id: project,
+      backend: engine.backend,
+      model: engine.model,
+      execution_mode: engine.execution_mode,
+    });
+    const data = await json("/v1/resources?" + query, {
+      signal: AbortSignal.timeout(5000),
+    });
     if (request !== workspaceResourceRequest) return;
     const items = Array.isArray(data.items) ? data.items : [];
     target.replaceChildren();
     $("workspace-resources-count").textContent = String(items.length);
     for (const item of items) {
-      const row = document.createElement("div"), name = document.createElement("span"), badge = document.createElement("span");
+      const row = document.createElement("div"),
+        name = document.createElement("span"),
+        badge = document.createElement("span");
       row.className = "workspace-row";
       row.dataset.resourceId = item.id;
       row.dataset.resourceRevision = item.revision;
-      name.textContent = item.name; name.className = "workspace-item-name";
+      name.textContent = item.name;
+      name.className = "workspace-item-name";
       const catalog = catalogResourceMeta(item);
-      row.title = [item.name, item.description, item.kind, item.scope, item.origin, catalog?.title].filter(Boolean).join(" · ");
+      row.title = [
+        item.name,
+        item.description,
+        item.kind,
+        item.scope,
+        item.origin,
+        catalog?.title,
+      ]
+        .filter(Boolean)
+        .join(" · ");
       badge.className = "workspace-source";
-      badge.textContent = [item.scope, item.origin, catalog?.short].filter(Boolean).join(" · ");
-      row.append(name, badge); target.append(row);
+      badge.textContent = [item.scope, item.origin, catalog?.short]
+        .filter(Boolean)
+        .join(" · ");
+      row.append(name, badge);
+      target.append(row);
     }
-    if (!items.length) target.textContent = "No resources for this project and model.";
+    if (!items.length)
+      target.textContent = "No resources for this project and model.";
     for (const warning of data.warnings || []) {
-      const note = document.createElement("p"); note.textContent = warning; target.append(note);
+      const note = document.createElement("p");
+      note.textContent = warning;
+      target.append(note);
     }
   } catch {
-    if (request === workspaceResourceRequest) target.textContent = "Couldn't load resources. Change the model or reopen the panel to retry.";
+    if (request === workspaceResourceRequest)
+      target.textContent =
+        "Couldn't load resources. Change the model or reopen the panel to retry.";
   }
 }
 function renderWorkspaceTasks(jobs) {
   const target = $("workspace-background-tasks");
   if (!target) return;
-  const active = jobs.filter(item => !["completed", "failed", "cancelled", "interrupted"].includes(item.state));
+  const active = jobs.filter(
+    (item) =>
+      !["completed", "failed", "cancelled", "interrupted"].includes(item.state),
+  );
   target.replaceChildren();
   $("workspace-background-tasks-count").textContent = String(active.length);
   for (const item of active) {
-    const row = document.createElement("button"), name = document.createElement("span"), state = document.createElement("span");
-    row.type = "button"; row.className = "workspace-row";
+    const row = document.createElement("button"),
+      name = document.createElement("span"),
+      state = document.createElement("span");
+    row.type = "button";
+    row.className = "workspace-row";
     name.className = "workspace-item-name";
     name.textContent = item.title || item.work_item || item.job_id;
-    state.className = "workspace-source"; state.textContent = item.state;
-    row.title = [name.textContent, item.wait_reason, item.state].filter(Boolean).join(" · ");
+    state.className = "workspace-source";
+    state.textContent = item.state;
+    row.title = [name.textContent, item.wait_reason, item.state]
+      .filter(Boolean)
+      .join(" · ");
     row.onclick = () => window.runConsole?.openRun(item.job_id);
     const identity = document.createElement("span");
-    identity.className = "workspace-model"; identity.textContent = item.model || item.backend || "";
+    identity.className = "workspace-model";
+    identity.textContent = item.model || item.backend || "";
     identity.title = [item.backend, item.model].filter(Boolean).join(" / ");
-    row.append(providerModelIcon(item.backend, item.model), name, identity, state); target.append(row);
+    row.append(
+      providerModelIcon(item.backend, item.model),
+      name,
+      identity,
+      state,
+    );
+    target.append(row);
   }
   if (!active.length) target.textContent = "No background tasks.";
 }
 for (const section of document.querySelectorAll(".workspace-section")) {
-  const name = section.dataset.workspaceSection, content = $("workspace-" + name);
+  const name = section.dataset.workspaceSection,
+    content = $("workspace-" + name);
   const key = "workspace-section-" + name;
   try {
     const saved = JSON.parse(localStorage.getItem(key) || "null");
     if (saved) {
       section.open = saved.open !== false;
-      if (Number.isFinite(saved.height)) content.style.height = Math.max(64, Math.min(600, saved.height)) + "px";
+      if (Number.isFinite(saved.height))
+        content.style.height = Math.max(64, Math.min(600, saved.height)) + "px";
     }
   } catch {}
-  const save = () => { try { localStorage.setItem(key, JSON.stringify({ open: section.open, height: parseFloat(content.style.height) || null })); } catch {} };
-  section.addEventListener("toggle", () => { save();
+  const save = () => {
+    try {
+      localStorage.setItem(
+        key,
+        JSON.stringify({
+          open: section.open,
+          height: parseFloat(content.style.height) || null,
+        }),
+      );
+    } catch {}
+  };
+  section.addEventListener("toggle", () => {
+    save();
     const shortcut = $(name + "-toggle");
-    if (shortcut) shortcut.setAttribute("aria-expanded", String(section.open && !$("activity-panel").hidden));
+    if (shortcut)
+      shortcut.setAttribute(
+        "aria-expanded",
+        String(section.open && !$("activity-panel").hidden),
+      );
   });
   const handle = document.createElement("div");
-  handle.id = "workspace-" + name + "-resize"; handle.className = "workspace-resize";
-  handle.tabIndex = 0; handle.setAttribute("role", "separator");
+  handle.id = "workspace-" + name + "-resize";
+  handle.className = "workspace-resize";
+  handle.tabIndex = 0;
+  handle.setAttribute("role", "separator");
   handle.setAttribute("aria-orientation", "horizontal");
   handle.setAttribute("aria-label", "Resize " + name.replaceAll("-", " "));
   handle.setAttribute("aria-controls", content.id);
   handle.title = "Drag or use Up and Down arrow keys to resize";
-  const size = height => {
-    const next = Math.max(64, Math.min(600, height)); content.style.height = next + "px";
-    handle.setAttribute("aria-valuenow", String(Math.round(next))); save();
+  const size = (height) => {
+    const next = Math.max(64, Math.min(600, height));
+    content.style.height = next + "px";
+    handle.setAttribute("aria-valuenow", String(Math.round(next)));
+    save();
   };
-  handle.setAttribute("aria-valuemin", "64"); handle.setAttribute("aria-valuemax", "600");
-  handle.setAttribute("aria-valuenow", String(parseFloat(content.style.height) || (name === "files" ? 112 : name === "background-tasks" ? 64 : 80)));
+  handle.setAttribute("aria-valuemin", "64");
+  handle.setAttribute("aria-valuemax", "600");
+  handle.setAttribute(
+    "aria-valuenow",
+    String(
+      parseFloat(content.style.height) ||
+        (name === "files" ? 112 : name === "background-tasks" ? 64 : 80),
+    ),
+  );
   let drag;
-  handle.onpointerdown = event => { if (event.button !== 0) return; event.preventDefault(); drag = { y: event.clientY, height: content.getBoundingClientRect().height }; handle.setPointerCapture(event.pointerId); };
-  handle.onpointermove = event => { if (drag) size(drag.height + event.clientY - drag.y); };
-  handle.onpointerup = handle.onpointercancel = handle.onlostpointercapture = () => { drag = null; };
-  handle.onkeydown = event => { if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return; event.preventDefault(); size(event.key === "Home" ? 64 : event.key === "End" ? 600 : content.getBoundingClientRect().height + (event.key === "ArrowDown" ? 24 : -24)); };
+  handle.onpointerdown = (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    drag = { y: event.clientY, height: content.getBoundingClientRect().height };
+    handle.setPointerCapture(event.pointerId);
+  };
+  handle.onpointermove = (event) => {
+    if (drag) size(drag.height + event.clientY - drag.y);
+  };
+  handle.onpointerup =
+    handle.onpointercancel =
+    handle.onlostpointercapture =
+      () => {
+        drag = null;
+      };
+  handle.onkeydown = (event) => {
+    if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    size(
+      event.key === "Home"
+        ? 64
+        : event.key === "End"
+          ? 600
+          : content.getBoundingClientRect().height +
+            (event.key === "ArrowDown" ? 24 : -24),
+    );
+  };
   section.append(handle);
 }
 function updateWorkspaceCounts() {
-  $("workspace-files-count").textContent = String($("files-view").querySelectorAll('[role="treeitem"], .authorized-root-card li:has(button, span)').length);
-  $("workspace-activity-count").textContent = String($("activity-events").querySelectorAll("li[data-state]").length);
+  $("workspace-files-count").textContent = String(
+    $("files-view").querySelectorAll(
+      '[role="treeitem"], .authorized-root-card li:has(button, span)',
+    ).length,
+  );
+  $("workspace-activity-count").textContent = String(
+    $("activity-events").querySelectorAll("li[data-state]").length,
+  );
 }
 for (const id of ["files-view", "activity-events"])
-  new MutationObserver(updateWorkspaceCounts).observe($(id), { childList: true, subtree: true });
+  new MutationObserver(updateWorkspaceCounts).observe($(id), {
+    childList: true,
+    subtree: true,
+  });
 document.addEventListener("tail:ready", refreshWorkspaceResources);

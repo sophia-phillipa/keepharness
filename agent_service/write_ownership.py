@@ -3,12 +3,21 @@
 from pathlib import Path
 
 
+def _resolve(root):
+    """Resolve aliases while preserving locks for paths that do not exist yet."""
+    path = Path(root)
+    try:
+        return path.resolve(strict=True)
+    except FileNotFoundError:
+        return path.resolve()
+
+
 class WriteOwnership:
     def __init__(self):
         self.leases = {}
 
     def acquire(self, owner, project, work_item, roots):
-        roots = tuple(Path(root).resolve() for root in roots if root)
+        roots = tuple(_resolve(root) for root in roots if root)
         for other, (other_project, other_item, other_roots) in self.leases.items():
             if other == owner:
                 continue

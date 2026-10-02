@@ -1,6 +1,9 @@
 #!/bin/sh
 set -eu
 cd "$(dirname "$0")/.."
+# Browser fixtures must use the same interpreter as the test servers.
+PYTHON=${PYTHON:-python3}
+export PYTHON
 TH_STATE=$(mktemp -d)
 TH_PID=''
 TH_CHAT_PID=''

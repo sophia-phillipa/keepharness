@@ -28,10 +28,20 @@ const path = require("node:path");
         if (p === "/v1/projects")
           data = { projects: ["sem-projeto"], details: {} };
         if (p === "/v1/activity")
-          data = { jobs: [], needs_you: [], counts: {}, providers: [{
-            backend: "codex", quota: { available: true,
-              rateLimits: { primary: { usedPercent: 21.4 } } },
-          }] };
+          data = {
+            jobs: [],
+            needs_you: [],
+            counts: {},
+            providers: [
+              {
+                backend: "codex",
+                quota: {
+                  available: true,
+                  rateLimits: { primary: { usedPercent: 21.4 } },
+                },
+              },
+            ],
+          };
         if (p === "/v1/usage")
           data =
             new URL(route.request().url()).searchParams.get("backend") ===
@@ -163,7 +173,9 @@ const path = require("node:path");
       });
     };
     await page.route(origin + "/**", serve);
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.15"));
+    await page.addInitScript(() =>
+      localStorage.setItem("tail-harness-tour-seen", "0.13.15"),
+    );
     await page.goto(origin);
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     assert.equal(await page.locator("#task-section,#task-label").count(), 0);
@@ -197,7 +209,9 @@ const path = require("node:path");
     await page.waitForTimeout(100);
     const narrowQuota = await page.locator("#provider-quotas").boundingBox();
     assert(
-      narrowQuota.width > 0 && narrowQuota.x >= 0 && narrowQuota.x + narrowQuota.width <= 1280,
+      narrowQuota.width > 0 &&
+        narrowQuota.x >= 0 &&
+        narrowQuota.x + narrowQuota.width <= 1280,
       "visible provider quotas stay inside viewport with both panels open",
     );
     await page.screenshot({ path: "/tmp/tail-quota-both-panels.png" });
@@ -657,7 +671,9 @@ const path = require("node:path");
       localStorage.setItem("activity-open", "0"),
     );
     await scaled.route(origin + "/**", serve);
-    await scaled.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.15"));
+    await scaled.addInitScript(() =>
+      localStorage.setItem("tail-harness-tour-seen", "0.13.15"),
+    );
     await scaled.goto(origin);
     await scaled.locator("#startup-gate").waitFor({ state: "hidden" });
     if (await scaled.locator("#th-toast").isVisible())

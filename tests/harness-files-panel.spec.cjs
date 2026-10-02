@@ -228,7 +228,9 @@ const path = require("node:path");
       }
       return route.fulfill({ json: data });
     });
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.15"));
+    await page.addInitScript(() =>
+      localStorage.setItem("tail-harness-tour-seen", "0.13.15"),
+    );
     await page.goto(process.env.HARNESS_URL || "http://panel.test/");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     for (const [id, label] of [
@@ -349,7 +351,11 @@ const path = require("node:path");
         .count(),
       0,
     );
-    assert.equal(await page.locator("#activity-view").isVisible(), true, "stacked workspace shows activity alongside files");
+    assert.equal(
+      await page.locator("#activity-view").isVisible(),
+      true,
+      "stacked workspace shows activity alongside files",
+    );
     assert.equal(
       await page.locator("#files-toggle").getAttribute("aria-expanded"),
       "true",

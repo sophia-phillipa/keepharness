@@ -116,9 +116,7 @@ def test_human_reply_resets_consecutive_expirations(tmp_path, approved):
             await asyncio.sleep(0)
             next(iter(instance.approvals.values()))[1].set_result({"approved": approved})
             assert await decision == {"approved": approved}
-            assert await approve("command", {}) == {
-                "approved": False, "reason": "approval_expired"
-            }
+            assert await approve("command", {}) == {"approved": False, "reason": "approval_expired"}
             with pytest.raises(asyncio.CancelledError):
                 await approve("command", {})
             assert instance.cancellation_reasons[job] == "approval_expiration_limit"

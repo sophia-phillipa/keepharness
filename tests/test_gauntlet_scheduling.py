@@ -1,9 +1,13 @@
 """Synthetic queue regressions: ownership, human waits and coordinator reloads."""
 
-import asyncio, copy, json
+import asyncio
+import copy
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+
 from test_execution_modes import service
+
 from agent_service import maestro
 
 
@@ -107,7 +111,7 @@ def test_maestro_local_step_acquires_effective_write_roots(tmp_path):
                 "prompt": "Review",
             },
         )["job_id"]
-        c = s.submit(
+        s.submit(
             ident,
             {
                 "project_id": "q",

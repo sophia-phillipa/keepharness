@@ -13,8 +13,18 @@ from agent_service.errors import ToolError
 
 
 def proposed_plan(task="Inspect the change"):
-    return {"steps": [{"role": "reviewer", "backend": "codex", "model": "gpt-6-astra",
-                       "effort": "low", "task": task, "reason": "Review before delivery"}]}
+    return {
+        "steps": [
+            {
+                "role": "reviewer",
+                "backend": "codex",
+                "model": "gpt-6-astra",
+                "effort": "low",
+                "task": task,
+                "reason": "Review before delivery",
+            }
+        ]
+    }
 
 
 @pytest.mark.parametrize("spoofed_revision", [None, "client-supplied-revision"])
@@ -62,13 +72,25 @@ def test_generated_plan_waits_and_only_approval_runs_steps(tmp_path, decision):
         service = Service(config(tmp_path))
         service.config["approval_timeout_seconds"] = 0.03 if decision == "expire" else 30
         identity = ("a", service.config["clients"]["a"])
-        submitted = service.submit(identity, {"project_id": "p", "backend": "codex",
-                                             "model": "gpt-6-astra", "effort": "low", "prompt": "Review"})
+        submitted = service.submit(
+            identity,
+            {
+                "project_id": "p",
+                "backend": "codex",
+                "model": "gpt-6-astra",
+                "effort": "low",
+                "prompt": "Review",
+            },
+        )
         row = service.job(identity, submitted["job_id"])
         data = json.loads(row["payload"])
-        with patch.object(service, "infer", AsyncMock(side_effect=[
-            {"answer": json.dumps(proposed_plan())}, {"answer": "Reviewed"}
-        ])) as infer:
+        with patch.object(
+            service,
+            "infer",
+            AsyncMock(
+                side_effect=[{"answer": json.dumps(proposed_plan())}, {"answer": "Reviewed"}]
+            ),
+        ) as infer:
             task = asyncio.create_task(maestro.run(service, row, data))
             try:
                 for _ in range(20):
@@ -90,8 +112,11 @@ def test_generated_plan_waits_and_only_approval_runs_steps(tmp_path, decision):
                         service.gates.resolve(gate_id, identity, {"choice": decision})
                     result = await asyncio.wait_for(task, 1)
                     assert infer.await_count == (2 if decision == "approve" else 1)
-                    assert result["answer"] == ("Reviewed" if decision == "approve" else
-                                                "The Maestro plan was not approved. No steps were run.")
+                    assert result["answer"] == (
+                        "Reviewed"
+                        if decision == "approve"
+                        else "The Maestro plan was not approved. No steps were run."
+                    )
                 assert not service.approvals
             finally:
                 task.cancel()
@@ -101,20 +126,39 @@ def test_generated_plan_waits_and_only_approval_runs_steps(tmp_path, decision):
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize("invalid", [{"model": "not-allowed"}, {"publsih": True}, {"gate": {"question": "Mode?", "options": ["quick", "slow"]}}])
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        {"model": "not-allowed"},
+        {"publsih": True},
+        {"gate": {"question": "Mode?", "options": ["quick", "slow"]}},
+    ],
+)
 def test_plan_edits_are_validated_before_consuming_the_approval(tmp_path, invalid):
     async def scenario():
         service = Service(config(tmp_path))
         identity = ("a", service.config["clients"]["a"])
-        submitted = service.submit(identity, {"project_id": "p", "backend": "codex",
-                                             "model": "gpt-6-astra", "effort": "low", "prompt": "Review"})
+        submitted = service.submit(
+            identity,
+            {
+                "project_id": "p",
+                "backend": "codex",
+                "model": "gpt-6-astra",
+                "effort": "low",
+                "prompt": "Review",
+            },
+        )
         row = service.job(identity, submitted["job_id"])
         data = json.loads(row["payload"])
         initial_plan = proposed_plan()
         initial_plan["steps"].append({**initial_plan["steps"][0], "task": "Review another area"})
-        with patch.object(service, "infer", AsyncMock(side_effect=[
-            {"answer": json.dumps(initial_plan)}, {"answer": "Revised review"}
-        ])) as infer:
+        with patch.object(
+            service,
+            "infer",
+            AsyncMock(
+                side_effect=[{"answer": json.dumps(initial_plan)}, {"answer": "Revised review"}]
+            ),
+        ) as infer:
             task = asyncio.create_task(maestro.run(service, row, data))
             try:
                 for _ in range(20):
@@ -125,8 +169,13 @@ def test_plan_edits_are_validated_before_consuming_the_approval(tmp_path, invali
                 gate_id = next(iter(service.approvals))
                 forbidden = proposed_plan()
                 forbidden["steps"][0].update(invalid)
-                with pytest.raises(ToolError, match="maestro_model_or_effort_denied" if "model" in invalid else "workflow_"):
-                    service.gates.resolve(gate_id, identity, {"choice": "approve", "plan": forbidden})
+                with pytest.raises(
+                    ToolError,
+                    match="maestro_model_or_effort_denied" if "model" in invalid else "workflow_",
+                ):
+                    service.gates.resolve(
+                        gate_id, identity, {"choice": "approve", "plan": forbidden}
+                    )
                 assert service.gates.repository.get(gate_id)["state"] == "pending"
                 assert not task.done()
                 changed = json.loads(service.gates.repository.get(gate_id)["spec"])["plan"]
@@ -140,7 +189,9 @@ def test_plan_edits_are_validated_before_consuming_the_approval(tmp_path, invali
                 assert stored["plan"]["steps"][0]["invocation"]["args"] == "Review only the tests"
                 assert stored["plan"]["steps"][0]["invocation"]["order"] == 0
                 events = service.message_repository.events_after(row["id"], 0)
-                approved = next(json.loads(e["data"]) for e in events if e["type"] == "gate_resolved")
+                approved = next(
+                    json.loads(e["data"]) for e in events if e["type"] == "gate_resolved"
+                )
                 assert approved["plan"] == stored["plan"]
             finally:
                 task.cancel()

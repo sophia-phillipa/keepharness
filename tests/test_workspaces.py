@@ -163,6 +163,7 @@ def test_maestro_uses_available_local_and_validates_plan(tmp_path):
             ]
         ),
     ) as infer:
+
         async def approve_and_execute():
             task = asyncio.create_task(service.execute(row))
             try:
