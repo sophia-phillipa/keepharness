@@ -107,13 +107,25 @@ def ensure_lineage(state, product=PRODUCT):
         raise ValueError("State belongs to another product identity")
 
 
+def _bridge_product(source):
+    assignments = [
+        node
+        for node in ast.parse(source).body
+        if isinstance(node, ast.Assign)
+        and any(isinstance(target, ast.Name) and target.id == "PRODUCT" for target in node.targets)
+    ]
+    if len(assignments) != 1 or not isinstance(assignments[0].value, ast.Dict):
+        raise ValueError("Standalone bridge must define one literal PRODUCT dictionary")
+    node = assignments[0]
+    return ProductIdentity(**ast.literal_eval(node.value)), node.lineno - 1, node.end_lineno
+
+
 def generate(root=None, product=PRODUCT):
     """Refresh the small set of static consumers; the standalone bridge stays standalone."""
     root = Path(root or Path(__file__).resolve().parents[1])
     bridge = root / "agent_service/mcp_bridge.py"
     source = bridge.read_text()
-    match = re.search(r"^PRODUCT = (\{.*\})$", source, re.M)
-    previous = ProductIdentity(**ast.literal_eval(match.group(1))) if match else ProductIdentity()
+    previous, product_start, product_end = _bridge_product(source)
     # Only presentation/bootstrap files are generated. Persisted protocol identifiers
     # in Python business logic are never replaced.
     paths = [
@@ -145,8 +157,12 @@ def generate(root=None, product=PRODUCT):
         if relative.endswith(".html"):
             text = text.replace("icons.svg#__PRODUCT_ICON__", "icons.svg#" + product.icon)
         path.write_text(text)
-    block = "PRODUCT = " + repr(asdict(product))
-    source = re.sub(r"^PRODUCT = \{.*\}$", lambda _: block, source, flags=re.M)
+    lines = source.splitlines(keepends=True)
+    block = "PRODUCT = {\n" + "".join(
+        f"    {json.dumps(key)}: {json.dumps(value)},\n" for key, value in asdict(product).items()
+    )
+    block += "}\n"
+    source = "".join(lines[:product_start]) + block + "".join(lines[product_end:])
     bridge.write_text(source)
     script = root / "agent_service/setup-mcp.sh"
     text = script.read_text()

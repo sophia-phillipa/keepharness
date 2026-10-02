@@ -16,6 +16,20 @@ from .. import tools
 from ..errors import APIError
 
 logger = logging.getLogger(__name__)
+MAX_JSON_DEPTH = 1000
+
+
+def _validate_json_depth(value):
+    """Reject structures deep enough to make behavior depend on the Python JSON stack."""
+    pending = [(value, 0)]
+    while pending:
+        item, depth = pending.pop()
+        if not isinstance(item, (dict, list)):
+            continue
+        if depth >= MAX_JSON_DEPTH:
+            raise ValueError("JSON nesting exceeds the supported depth")
+        values = item.values() if isinstance(item, dict) else item
+        pending.extend((child, depth + 1) for child in values)
 
 
 class LimitedStream(StreamingResponse):
@@ -44,6 +58,7 @@ async def body(request):
         raise APIError("request_timeout", 408)
     try:
         data = json.loads(chunks)
+        _validate_json_depth(data)
         json.dumps(data, allow_nan=False, ensure_ascii=False).encode("utf-8")
     except (ValueError, UnicodeError, RecursionError):
         raise APIError("invalid_json")

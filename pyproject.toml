@@ -14,7 +14,7 @@ authors = [{name = "Sophia Phillipa"}]
 dependencies = ["starlette>=0.47,<1", "uvicorn>=0.35,<1", "httpx>=0.28,<1", "mcp>=1.12,<2", "python-multipart>=0.0.20,<1"]
 
 [project.optional-dependencies]
-test = ["pytest>=8,<10", "build>=1,<2"]
+test = ["pytest>=8,<10", "build>=1,<2", "setuptools>=77"]
 
 [project.scripts]
 tail-harness = "control.cli:main"
