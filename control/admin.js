@@ -1532,7 +1532,10 @@ executionPage.append(
 emptyInspector.after(executionPage);
 
 const panelCopy = {
-  catalogs: ["Catalogs and vault", "Manage pinned resources, prerequisites and private integration bindings."],
+  catalogs: [
+    "Catalogs and vault",
+    "Manage pinned resources, prerequisites and private integration bindings.",
+  ],
   home: ["Home", "Track operations and server usage in real time."],
   providers: [
     "AI Providers",
@@ -2775,14 +2778,18 @@ async function refreshExecution(row) {
       for (const span of data.spans) {
         const item = element("li");
         const outcome = span.attrs?.outcome || "unknown";
-        const status = outcome === "unknown"
-          ? span.end_ts == null
-            ? span.start_ts == null ? "Pending" : "In progress"
-            : "Outcome unknown"
-          : outcome;
-        const duration = Number.isFinite(span.start_ts) && Number.isFinite(span.end_ts)
-          ? ` · ${Math.max(0, span.end_ts - span.start_ts).toFixed(1)} s`
-          : "";
+        const status =
+          outcome === "unknown"
+            ? span.end_ts == null
+              ? span.start_ts == null
+                ? "Pending"
+                : "In progress"
+              : "Outcome unknown"
+            : outcome;
+        const duration =
+          Number.isFinite(span.start_ts) && Number.isFinite(span.end_ts)
+            ? ` · ${Math.max(0, span.end_ts - span.start_ts).toFixed(1)} s`
+            : "";
         item.append(
           element("strong", span.name || span.kind),
           document.createTextNode(` · ${span.kind} · ${status}${duration}`),
@@ -3244,11 +3251,31 @@ renderIntegrationForm();
 
 // One action vocabulary keeps dynamic and static panel buttons consistent.
 const buttonActions = [
-  [/^Pin catalog/, "lock", "Runs this catalog from the chosen immutable revision."],
-  [/^Provision runtime/, "download", "Creates the catalog environment and writable state declared by its manifest."],
-  [/^Preview update/, "search", "Fetches the catalog and compares resource revisions without moving its pin."],
-  [/^Move pin/, "check", "Applies the exact revision shown in the current update preview."],
-  [/^Remove binding/, "trash", "Removes stored credentials and their project bindings."],
+  [
+    /^Pin catalog/,
+    "lock",
+    "Runs this catalog from the chosen immutable revision.",
+  ],
+  [
+    /^Provision runtime/,
+    "download",
+    "Creates the catalog environment and writable state declared by its manifest.",
+  ],
+  [
+    /^Preview update/,
+    "search",
+    "Fetches the catalog and compares resource revisions without moving its pin.",
+  ],
+  [
+    /^Move pin/,
+    "check",
+    "Applies the exact revision shown in the current update preview.",
+  ],
+  [
+    /^Remove binding/,
+    "trash",
+    "Removes stored credentials and their project bindings.",
+  ],
   [
     /^(Save|Complete and save|Apply)/,
     "device-floppy",

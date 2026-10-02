@@ -19,23 +19,33 @@ from agent_service.persistence.db import migrate
 from agent_service.secret_vault import SecretVault
 
 
-@pytest.mark.parametrize("store", ["default", "generic-default", "effect_credentials_path", "secret_vault_path"])
+@pytest.mark.parametrize(
+    "store", ["default", "generic-default", "effect_credentials_path", "secret_vault_path"]
+)
 @pytest.mark.parametrize("copied", [False, True])
 def test_linked_private_store_cannot_claim_mediation(tmp_path, store, copied):
     root = tmp_path / "state"
     root.mkdir()
     project = tmp_path / "project"
     project.mkdir()
-    path = root / ("harness.effect_credentials.json" if store == "default" else "harness.secrets.json") if store in ("default", "generic-default") else tmp_path / (store + ".json")
+    path = (
+        root / ("harness.effect_credentials.json" if store == "default" else "harness.secrets.json")
+        if store in ("default", "generic-default")
+        else tmp_path / (store + ".json")
+    )
     vault = SecretVault(path)
     vault.set("fixture", {"token": "round-two-synthetic-secret"})
     alias = project / "alias.json"
     os.link(path, alias)
-    service = SimpleNamespace(root=root, config={} if store in ("default", "generic-default") else {store: str(path)})
+    service = SimpleNamespace(
+        root=root, config={} if store in ("default", "generic-default") else {store: str(path)}
+    )
     command = ["bwrap"] if copied else ["bwrap", "--ro-bind", str(project), "/source"]
     # A same-owner alias really has the bytes; the classification must not promise isolation.
     assert "round-two-synthetic-secret" in alias.read_text()
-    assert scoped_enforcement(service, command, copied_paths=[alias] if copied else []) == "unenforced"
+    assert (
+        scoped_enforcement(service, command, copied_paths=[alias] if copied else []) == "unenforced"
+    )
 
 
 @pytest.mark.parametrize("revocation", ["owner", "logout"])
@@ -55,12 +65,20 @@ def test_reconcile_revalidates_after_delayed_body(make_harness_config, revocatio
 
         try:
             async with browser(app, token) as client:
-                task = asyncio.create_task(client.post("/v1/effects/" + effect["effect_id"] + "/reconcile", content=delayed()))
+                task = asyncio.create_task(
+                    client.post(
+                        "/v1/effects/" + effect["effect_id"] + "/reconcile", content=delayed()
+                    )
+                )
                 await asyncio.wait_for(reading.wait(), 2)
                 if revocation == "owner":
                     revoke_sessions(service.config, "local")
                 else:
-                    assert (await client.post("/v1/logout", headers={"Origin": str(client.base_url).rstrip("/")})).status_code == 200
+                    assert (
+                        await client.post(
+                            "/v1/logout", headers={"Origin": str(client.base_url).rstrip("/")}
+                        )
+                    ).status_code == 200
                 release.set()
                 response = await task
                 assert response.status_code == 403
@@ -87,7 +105,9 @@ def test_publication_identity_uses_effective_endpoint(make_harness_config, alias
             service.db.execute("UPDATE effects SET status='invalidated'")
             first = await service.effects.prepare("job", request())
             endpoint = "https://example.invalid"
-        service.config["effect_integrations"].append({**original, "integration": "second", "endpoint": endpoint})
+        service.config["effect_integrations"].append(
+            {**original, "integration": "second", "endpoint": endpoint}
+        )
         second = await service.effects.prepare("job", {**request(), "integration": "second"})
         service.effects.driver.create = AsyncMock(return_value=("done", {"id": "fixture"}))
         try:
@@ -112,7 +132,9 @@ def test_legacy_binding_migration_uses_retained_contract(make_harness_config):
             legacy = json.loads(row["binding"])
             legacy.pop("endpoint", None)
             with service.db:
-                service.db.execute("UPDATE effects SET binding=?,status='done'", (json.dumps(legacy),))
+                service.db.execute(
+                    "UPDATE effects SET binding=?,status='done'", (json.dumps(legacy),)
+                )
                 service.db.execute("UPDATE schema_version SET version=5")
             migrate(service.db)
             binding = json.loads(service.db.execute("SELECT binding FROM effects").fetchone()[0])
@@ -125,7 +147,14 @@ def test_legacy_binding_migration_uses_retained_contract(make_harness_config):
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize("text", ["Cookie: harness_session=synthetic-session; ordinary=keep", "/approve-device?nonce=synthetic-nonce&keep=yes", '{"harness_session":"synthetic-session", "nonce":"synthetic-nonce"}'])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Cookie: harness_session=synthetic-session; ordinary=keep",
+        "/approve-device?nonce=synthetic-nonce&keep=yes",
+        '{"harness_session":"synthetic-session", "nonce":"synthetic-nonce"}',
+    ],
+)
 def test_authority_fields_redacted_in_logs_and_events(make_harness_config, text):
     async def scenario():
         app, _ = await prepared(make_harness_config)

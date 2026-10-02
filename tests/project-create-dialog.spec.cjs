@@ -86,7 +86,9 @@ const assert = require("node:assert/strict"),
               : "text/html",
       });
     });
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.15"));
+    await page.addInitScript(() =>
+      localStorage.setItem("tail-harness-tour-seen", "0.13.15"),
+    );
     await page.goto(origin);
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     if (!(await page.locator("#project-tree").evaluate((el) => el.open)))

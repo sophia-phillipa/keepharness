@@ -1,85 +1,776 @@
 // Round-five synthetic browser regressions: actual rendering, keyboard and network boundaries.
-const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
-const assert = require('node:assert/strict');
-const fs = require('node:fs/promises');
-const path = require('node:path');
-async function capture(page, name) { if (!process.env.EVAL_OUTPUT) return; const folder = path.join(process.env.EVAL_OUTPUT, 'round5'); await fs.mkdir(folder, { recursive: true }); await page.screenshot({ path: path.join(folder, name + '.png') }); }
-const { mount, run, span } = require('./run-console-fixture.cjs');
-const resource = { id: 'project/p/reviewer', resource_id: 'project/p/reviewer', revision: '1', name: 'reviewer', kind: 'agent', mode: 'delegated', scope: 'project', origin: 'codex', selectable: true };
-const plan = { steps: [{ role: 'Reviewer', backend: 'codex', model: 'fixture-model-with-a-long-identity', effort: 'configured', task: 'Review synthetic report' }] };
+const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
+const assert = require("node:assert/strict");
+const fs = require("node:fs/promises");
+const path = require("node:path");
+async function capture(page, name) {
+  if (!process.env.EVAL_OUTPUT) return;
+  const folder = path.join(process.env.EVAL_OUTPUT, "round5");
+  await fs.mkdir(folder, { recursive: true });
+  await page.screenshot({ path: path.join(folder, name + ".png") });
+}
+const { mount, run, span } = require("./run-console-fixture.cjs");
+const resource = {
+  id: "project/p/reviewer",
+  resource_id: "project/p/reviewer",
+  revision: "1",
+  name: "reviewer",
+  kind: "agent",
+  mode: "delegated",
+  scope: "project",
+  origin: "codex",
+  selectable: true,
+};
+const plan = {
+  steps: [
+    {
+      role: "Reviewer",
+      backend: "codex",
+      model: "fixture-model-with-a-long-identity",
+      effort: "configured",
+      task: "Review synthetic report",
+    },
+  ],
+};
 async function fixture(browser, width = 1024, height = 768) {
   const page = await browser.newPage({ viewport: { width, height } });
   page.setDefaultTimeout(4000);
-  await page.addInitScript(() => localStorage.setItem('activity-open', '1'));
-  const state = { delay: null, running: false, plan: false, checkpointCount: 0, inbox: [], jobs: [], conflict: false, posts: [], approvalResponse: null, successfulSend: false, missingSource: false, pendingEvents: false };
-  const turn = id => ({ id: id + '-job', project: 'p', state: state.running ? 'running' : 'failed', workflow_checkpoint: true, workflow_completed_steps: state.checkpointCount, gates: state.plan ? [{ gate_id: 'plan', kind: 'maestro_plan', state: 'pending', plan }] : [], request: { prompt: 'Review ' + id, backend: 'codex', model: 'fixture-model', effort: 'configured', execution_mode: 'native' }, result: state.running ? null : { answer: 'Synthetic answer', error: 'fixture' } });
+  await page.addInitScript(() => localStorage.setItem("activity-open", "1"));
+  const state = {
+    delay: null,
+    running: false,
+    plan: false,
+    checkpointCount: 0,
+    inbox: [],
+    jobs: [],
+    conflict: false,
+    posts: [],
+    approvalResponse: null,
+    successfulSend: false,
+    missingSource: false,
+    pendingEvents: false,
+  };
+  const turn = (id) => ({
+    id: id + "-job",
+    project: "p",
+    state: state.running ? "running" : "failed",
+    workflow_checkpoint: true,
+    workflow_completed_steps: state.checkpointCount,
+    gates: state.plan
+      ? [{ gate_id: "plan", kind: "maestro_plan", state: "pending", plan }]
+      : [],
+    request: {
+      prompt: "Review " + id,
+      backend: "codex",
+      model: "fixture-model",
+      effort: "configured",
+      execution_mode: "native",
+    },
+    result: state.running
+      ? null
+      : { answer: "Synthetic answer", error: "fixture" },
+  });
   await mount(page, async (url, request) => {
-    if (request.method() === 'POST' && state.missingSource && url.pathname.endsWith('/resume')) return {status:422,json:{code:'workflow_source_unavailable'}};
-    if (request.method() === 'POST' && state.successfulSend && url.pathname === '/v1/jobs') { state.posts.push({path:url.pathname,data:request.postDataJSON()}); return {json:{job_id:'child'}}; }
-    if (request.method() === 'POST') { if (state.conflict) return {status:409,json:{code:'gate_already_resolved'}}; state.posts.push({ path: url.pathname, data: request.postDataJSON() }); if (state.approvalResponse) await state.approvalResponse; return { status: state.approvalResponse ? 200 : 422, json: state.approvalResponse ? {resolved:true} : {error:'synthetic_stop'} }; }
-    if (url.pathname === '/v1/projects') return { json: { projects: ['p', 'q'], details: { p: { label: 'Project P' }, q: { label: 'Project Q' } } } };
-    if (url.pathname === '/v1/models') return { json: { models: [{ id: 'fixture-model', backend: 'codex', efforts: ['configured'] }, { id: plan.steps[0].model, backend: 'codex', efforts: ['configured'] }], providers: { codex: true } } };
-    if (url.pathname === '/v1/resources') return { json: { items: [resource], warnings: [] } };
-    if (url.pathname === '/v1/activity') return { json: { counts: { running: 1 }, jobs: [...state.jobs, { ...run, job_id: 'a-job', conversation_id: 'a', project_id: 'p', backend: 'codex', wait_reason: 'human_approval' }], needs_you: state.inbox.length ? state.inbox : state.plan ? [{ job_id:'a-job', conversation_id:'a', gate_id:'plan', kind:'maestro_plan', options:[{id:'approve',label:'Approve'},{id:'deny',label:'Discard'}], plan }] : [], providers: [] } };
-    if (url.pathname === '/v1/conversations') return { json: { conversations: ['a','b'].map(id => ({ id, title: id.toUpperCase() + ' report', state: 'failed', project: 'p', last_job_id: id + '-job' })) } };
+    if (
+      request.method() === "POST" &&
+      state.missingSource &&
+      url.pathname.endsWith("/resume")
+    )
+      return { status: 422, json: { code: "workflow_source_unavailable" } };
+    if (
+      request.method() === "POST" &&
+      state.successfulSend &&
+      url.pathname === "/v1/jobs"
+    ) {
+      state.posts.push({ path: url.pathname, data: request.postDataJSON() });
+      return { json: { job_id: "child" } };
+    }
+    if (request.method() === "POST") {
+      if (state.conflict)
+        return { status: 409, json: { code: "gate_already_resolved" } };
+      state.posts.push({ path: url.pathname, data: request.postDataJSON() });
+      if (state.approvalResponse) await state.approvalResponse;
+      return {
+        status: state.approvalResponse ? 200 : 422,
+        json: state.approvalResponse
+          ? { resolved: true }
+          : { error: "synthetic_stop" },
+      };
+    }
+    if (url.pathname === "/v1/projects")
+      return {
+        json: {
+          projects: ["p", "q"],
+          details: { p: { label: "Project P" }, q: { label: "Project Q" } },
+        },
+      };
+    if (url.pathname === "/v1/models")
+      return {
+        json: {
+          models: [
+            { id: "fixture-model", backend: "codex", efforts: ["configured"] },
+            {
+              id: plan.steps[0].model,
+              backend: "codex",
+              efforts: ["configured"],
+            },
+          ],
+          providers: { codex: true },
+        },
+      };
+    if (url.pathname === "/v1/resources")
+      return { json: { items: [resource], warnings: [] } };
+    if (url.pathname === "/v1/activity")
+      return {
+        json: {
+          counts: { running: 1 },
+          jobs: [
+            ...state.jobs,
+            {
+              ...run,
+              job_id: "a-job",
+              conversation_id: "a",
+              project_id: "p",
+              backend: "codex",
+              wait_reason: "human_approval",
+            },
+          ],
+          needs_you: state.inbox.length
+            ? state.inbox
+            : state.plan
+              ? [
+                  {
+                    job_id: "a-job",
+                    conversation_id: "a",
+                    gate_id: "plan",
+                    kind: "maestro_plan",
+                    options: [
+                      { id: "approve", label: "Approve" },
+                      { id: "deny", label: "Discard" },
+                    ],
+                    plan,
+                  },
+                ]
+              : [],
+          providers: [],
+        },
+      };
+    if (url.pathname === "/v1/conversations")
+      return {
+        json: {
+          conversations: ["a", "b"].map((id) => ({
+            id,
+            title: id.toUpperCase() + " report",
+            state: "failed",
+            project: "p",
+            last_job_id: id + "-job",
+          })),
+        },
+      };
     if (/^\/v1\/conversations\/(a|b|child)$/.test(url.pathname)) {
       if (state.delay) await state.delay;
-      const id = url.pathname.split('/').at(-1);
-      return { json: { title: id.toUpperCase() + ' report', turns: [turn(id)] } };
+      const id = url.pathname.split("/").at(-1);
+      return {
+        json: { title: id.toUpperCase() + " report", turns: [turn(id)] },
+      };
     }
-    if (url.pathname.endsWith('/cancel')) { state.running = false; return { json: { cancelled: true } }; }
-    if (/^\/v1\/jobs\/.*-job$/.test(url.pathname)) return { json: turn(url.pathname.split('/').at(-1).replace('-job','')) };
-    if (url.pathname.endsWith('/spans')) return { json: { spans: ['Planner', 'Accessibility and interaction reviewer', 'Implementation and integration engineer'].map((name, i) => ({ ...span, start_ts: Date.now()/1000-12, name, span_id: 'span-' + i, attrs: { ...span.attrs, 'gen_ai.provider.name': 'codex', 'gen_ai.request.model': 'fixture-model', effort: 'medium' } })) } };
-    if (url.pathname === '/v1/project-files') return {json:{state:'ready',root_id:'home', path:url.searchParams.get('path')||'', roots:[{id:'home',label:'Local Folders'}], entries:url.searchParams.get('path')?[]:[{name:'examples',path:'examples',type:'directory'}]}};
-    if (url.pathname.endsWith('/events') && state.pendingEvents) await new Promise(()=>{});
-    if (url.pathname.endsWith('/events')) return { body: '', contentType: 'text/event-stream' };
+    if (url.pathname.endsWith("/cancel")) {
+      state.running = false;
+      return { json: { cancelled: true } };
+    }
+    if (/^\/v1\/jobs\/.*-job$/.test(url.pathname))
+      return { json: turn(url.pathname.split("/").at(-1).replace("-job", "")) };
+    if (url.pathname.endsWith("/spans"))
+      return {
+        json: {
+          spans: [
+            "Planner",
+            "Accessibility and interaction reviewer",
+            "Implementation and integration engineer",
+          ].map((name, i) => ({
+            ...span,
+            start_ts: Date.now() / 1000 - 12,
+            name,
+            span_id: "span-" + i,
+            attrs: {
+              ...span.attrs,
+              "gen_ai.provider.name": "codex",
+              "gen_ai.request.model": "fixture-model",
+              effort: "medium",
+            },
+          })),
+        },
+      };
+    if (url.pathname === "/v1/project-files")
+      return {
+        json: {
+          state: "ready",
+          root_id: "home",
+          path: url.searchParams.get("path") || "",
+          roots: [{ id: "home", label: "Local Folders" }],
+          entries: url.searchParams.get("path")
+            ? []
+            : [{ name: "examples", path: "examples", type: "directory" }],
+        },
+      };
+    if (url.pathname.endsWith("/events") && state.pendingEvents)
+      await new Promise(() => {});
+    if (url.pathname.endsWith("/events"))
+      return { body: "", contentType: "text/event-stream" };
   });
-  async function open(id) { if (width <= 620) await page.locator('#menu').click(); await page.locator('#history .conversation-row > button').filter({ hasText: id.toUpperCase() + ' report' }).click(); await page.waitForFunction(title => !loading && document.querySelector('#conversation-title').textContent === title, id.toUpperCase() + ' report'); }
+  async function open(id) {
+    if (width <= 620) await page.locator("#menu").click();
+    await page
+      .locator("#history .conversation-row > button")
+      .filter({ hasText: id.toUpperCase() + " report" })
+      .click();
+    await page.waitForFunction(
+      (title) =>
+        !loading &&
+        document.querySelector("#conversation-title").textContent === title,
+      id.toUpperCase() + " report",
+    );
+  }
   return { page, open, state };
 }
-const hit = locator => locator.evaluate(node => { const r = node.getBoundingClientRect(); const h = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2); return h === node || node.contains(h); });
-const settle = page => page.evaluate(() => Promise.all(document.getAnimations().filter(a => a.effect?.getTiming().iterations !== Infinity).map(a => a.finished.catch(() => {}))));
+const hit = (locator) =>
+  locator.evaluate((node) => {
+    const r = node.getBoundingClientRect();
+    const h = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+    return h === node || node.contains(h);
+  });
+const settle = (page) =>
+  page.evaluate(() =>
+    Promise.all(
+      document
+        .getAnimations()
+        .filter((a) => a.effect?.getTiming().iterations !== Infinity)
+        .map((a) => a.finished.catch(() => {})),
+    ),
+  );
 
 (async () => {
- const browser = await chromium.launch(), failures = [];
- async function check(name, fn) { if(process.env.ONLY && !process.env.ONLY.split(',').some(id=>name.startsWith(id)))return; try {await fn(); console.log('PASS '+name);} catch(error) {failures.push(name+': '+error.stack);console.error('FAIL '+name+': '+error.message);} }
- async function pending(width=1280,height=720) {const f=await fixture(browser,width,height); f.state.plan=true;f.state.running=true;await f.open('a');return f;}
- async function edit(f) {await f.page.locator('.maestro-plan-actions button').last().click();const editor=f.page.getByRole('textbox',{name:'Task for step 1'});const text='ONLY summarize; do not write or publish';await editor.fill(text);return text;}
- async function axNames(page) {const c=await page.context().newCDPSession(page);const tree=await c.send('Accessibility.getFullAXTree');await c.detach();return tree.nodes.filter(n=>!n.ignored).map(n=>n.name?.value);}
- async function ownsSearch(page, surface) {
-  const client=await page.context().newCDPSession(page);
-  const {root}=await client.send('DOM.getDocument');
-  const backend=async selector=>{const {nodeId}=await client.send('DOM.querySelector',{nodeId:root.nodeId,selector});return (await client.send('DOM.describeNode',{nodeId})).node.backendNodeId;};
-  const owner=await backend(surface), search=await backend('#search-conversations');
-  const {nodes}=await client.send('Accessibility.getFullAXTree');await client.detach();
-  const byId=new Map(nodes.map(node=>[node.nodeId,node]));let node=nodes.find(n=>n.backendDOMNodeId===search);
-  assert(node&&!node.ignored,'Search remains operable in the modal toolbar');
-  while(node){if(node.backendDOMNodeId===owner)return true;node=byId.get(node.parentId);}return false;
- }
- try {
- await check('A1-F1 publication evidence remains usable with console',async()=>{
-  for(const [width,height] of [[1280,720],[1024,768]])for(const theme of ['porcelain','amethyst','petroleum']){
-   const {page}=await pending(width,height);await page.evaluate(theme=>TailTheme.apply(theme),theme);
-   await page.evaluate(()=>showGate({gate_id:'publish',kind:'publish',publish:true,effect_id:'effect',operation:'jira.create_issue',destination:'SYNTHETIC',artifact_preview:Array(40).fill('Synthetic evidence').join('\n'),options:[{id:'approve',label:'Approve'},{id:'deny',label:'Deny'}]}));
-   await page.evaluate(()=>runConsole.openRun('a-job'));await settle(page);
-   for(const expanded of [false,true]){if(expanded){await page.locator('#run-console-maximize').click();await settle(page);}
-   const gate=page.locator('#gate-publish'), evidence=gate.locator('.publish-evidence');await evidence.scrollIntoViewIfNeeded();assert(await evidence.evaluate(n=>n.clientHeight>=48));assert(await hit(evidence));const er=await evidence.boundingBox(),gr=await gate.boundingBox();for(const action of await gate.locator('button').all()){const ar=await action.boundingBox();assert(ar.y>=er.y+er.height,'Evidence and decisions must not overlap');assert(ar.y+ar.height<=gr.y+gr.height,'Decision remains inside its card');}assert(await evidence.evaluate(n=>{const r=n.getBoundingClientRect();return n.contains(document.elementFromPoint(r.left+2,r.bottom-2));}),'Evidence lower edge receives its own pointer hits');await evidence.evaluate(n=>n.scrollTop=n.scrollHeight);assert(await evidence.evaluate(n=>n.scrollTop>0));
-   for(const action of await gate.locator('button').all()){await action.scrollIntoViewIfNeeded();assert(await hit(action));}await capture(page,`publish-${width}-${theme}-${expanded?'maximized':'compact'}`); } await page.close();
+  const browser = await chromium.launch(),
+    failures = [];
+  async function check(name, fn) {
+    if (
+      process.env.ONLY &&
+      !process.env.ONLY.split(",").some((id) => name.startsWith(id))
+    )
+      return;
+    try {
+      await fn();
+      console.log("PASS " + name);
+    } catch (error) {
+      failures.push(name + ": " + error.stack);
+      console.error("FAIL " + name + ": " + error.message);
+    }
   }
- });
- await check('A1-F2 latest control does not cover header',async()=>{const {page}=await pending();await page.evaluate(()=>{for(let i=0;i<20;i++)bubble('assistant','Synthetic prior message '+i);runConsole.openRun('a-job');});await settle(page);await page.locator('#messages').evaluate(n=>n.scrollTop=0);const button=page.locator('#latest-message');await button.waitFor();const b=await button.boundingBox(),h=await page.locator('main > header').boundingBox();assert(b.y>=h.y+h.height,JSON.stringify({b,h}));assert(await hit(button));await page.close();});
- await check('A1-F3 truncated summaries disclose full text',async()=>{const {page,state,open}=await fixture(browser,1440,900);state.running=true;await open('a');await page.waitForFunction(()=>document.querySelector('.conversation-summary'));const summaries=page.locator('.conversation-summary');assert(await summaries.count());for(const n of await summaries.all()){assert.equal(await n.getAttribute('title'),await n.textContent());}await page.close();});
- await check('A1-F4 responsive default widths preserve custom choice',async()=>{for(const [width,left,right] of [[1440,300,390],[1280,300,390],[1024,260,340]]){const {page}=await fixture(browser,width,900);assert.equal(Math.round((await page.locator('#sidebar').boundingBox()).width),left);assert.equal(Math.round((await page.locator('#activity-panel').boundingBox()).width),right);const font=await page.locator('#prompt').evaluate(n=>getComputedStyle(n).fontSize);await page.setViewportSize({width:1440,height:900});assert.equal(await page.locator('#prompt').evaluate(n=>getComputedStyle(n).fontSize),font);await page.locator('#sidebar-resize').focus();await page.keyboard.press('ArrowRight');const customized=(await page.locator('#sidebar').boundingBox()).width;await page.reload();assert.equal((await page.locator('#sidebar').boundingBox()).width,customized);await page.close();}});
- await check('A2-F1 accepted draft cannot return after storage recovery',async()=>{const {page,state}=await fixture(browser,1440,900);state.successfulSend=true;await page.fill('#prompt','Synthetic initial draft');await page.evaluate(()=>{for(const size of [1024*1024,1024,1]){let i=0;try{while(i<10000)sessionStorage.setItem('quota-'+size+'-'+i++,'x'.repeat(size));}catch{}}});await page.fill('#prompt','Synthetic already sent under quota pressure');await page.locator('#send').click();await page.waitForFunction(()=>!submitting);assert.equal(await page.inputValue('#prompt'),'');await page.evaluate(()=>{for(const key of Object.keys(sessionStorage))if(key.startsWith('quota-'))sessionStorage.removeItem(key);dispatchEvent(new Event('pagehide'));});await page.locator('#new').click();assert.equal(await page.inputValue('#prompt'),'');assert.equal(state.posts.filter(p=>p.path==='/v1/jobs').length,1);await page.close();});
- await check('A2-F2 mobile modal excludes covered accessibility controls',async()=>{for(const [width,surface,opener] of [[400,'#sidebar','#menu'],[400,'#activity-panel','#panel-toggle'],[640,'#activity-panel','#panel-toggle'],[800,'#activity-panel','#panel-toggle'],[400,'#run-console',null]]){const {page}=await fixture(browser,width,900);if(opener){if(surface==='#activity-panel')await page.evaluate(()=>setPanelOpen(false,false));await page.locator(opener).click();}else await page.keyboard.press('Control+j');await settle(page);assert.equal(await page.locator(surface).getAttribute('aria-modal'),'true',width+' '+surface);const names=await axNames(page);assert(!names.includes('Message'));assert(!names.includes('Send message'));assert.match(await page.locator(surface).getAttribute('aria-owns'),/app-topbar/);assert(await ownsSearch(page,surface),'Topbar search belongs to active modal AX subtree');await page.keyboard.press('Escape');await page.setViewportSize({width:1440,height:900});assert(!(await page.locator('#prompt').evaluate(n=>!!n.closest('[inert]'))));assert((await axNames(page)).includes('Message'));assert.equal(await page.locator(surface).getAttribute('aria-owns'),null);await page.close();}});
- await check('A2-F3 About return focus survives breakpoint',async()=>{for(const close of ['Escape','button']){const {page}=await fixture(browser,1440,900);await page.locator('#about').click();await page.setViewportSize({width:400,height:812});if(close==='Escape')await page.keyboard.press('Escape');else await page.locator('#about-close').click();await settle(page);assert.notEqual(await page.locator(':focus').evaluate(n=>n.tagName),'BODY');assert(await hit(page.locator(':focus')));await page.close();}});
- await check('A2-F4 complete tour returns focus to active modal',async()=>{const {page}=await fixture(browser,1440,900);await page.locator('#about').click();await page.locator('#take-tour').click();await page.setViewportSize({width:400,height:812});for(let i=0;i<30&&await page.locator('#tour-root').count();i++){await page.locator('#tour-next').focus();await page.keyboard.press('Enter');await settle(page);}assert.equal(await page.locator('#tour-root').count(),0);await page.waitForTimeout(700);assert(await hit(page.locator(':focus')));assert(await page.locator('#activity-panel').evaluate(n=>n.contains(document.activeElement)));await page.keyboard.type('Obscured draft');assert.equal(await page.inputValue('#prompt'),'');await page.close();});
- await check('A2-F5 minimum targets and A2-F6 bounded attention',async()=>{for(const width of [1440,400,320]){const {page}=await fixture(browser,width,900);await page.locator('#attention-bell').click();const pop=await page.locator('#attention-popover').boundingBox();assert(pop.x>=0&&pop.x+pop.width<=width,JSON.stringify(pop));for(const n of await page.locator('#attention-popover button').all()){const r=await n.boundingBox();assert(r.width>=24&&r.height>=24,JSON.stringify(r));assert(await hit(n));}await page.locator('#attention-bell').click();if(width===1440){await page.locator('#about').click();const r=await page.locator('#about-close').boundingBox();assert(r.width>=24&&r.height>=24);await page.keyboard.press('Escape');}await page.locator('#settings').click();await settle(page);await page.locator('#panel-order-reset').scrollIntoViewIfNeeded();const r=await page.locator('#panel-order-reset').boundingBox();assert(r.width>=24&&r.height>=24);assert(await hit(page.locator('#panel-order-reset')));await page.close();}});
- for(const surface of ['chat','inbox'])await check('A5-F1 edited plan approved from '+surface,async()=>{const f=await pending(1440,900);await edit(f);f.state.approvalResponse=Promise.resolve();await f.page.locator('.run-console-close').click();if(surface==='chat')await f.page.locator('.maestro-plan-actions button').first().click();else{await f.page.locator('#attention-bell').click();await f.page.locator('[data-attention-filter="request"]').click();const inbox=f.page.locator('#needs-you-inbox');await inbox.getByLabel('Approve',{exact:false}).first().check();await inbox.getByRole('button',{name:'Submit answer'}).click();}await f.page.waitForTimeout(100);assert.equal(f.state.posts.at(-1).data.plan.steps[0].task,'ONLY summarize; do not write or publish');await f.page.close();});
- await check('A5-F2 plan editor survives browser reload',async()=>{const f=await pending(1440,900);await f.page.fill('#prompt','Keep composer draft');const text=await edit(f);await f.page.reload();await f.page.locator('.maestro-plan-actions button').last().click();assert.equal(await f.page.getByRole('textbox',{name:'Task for step 1'}).inputValue(),text);assert.equal(await f.page.inputValue('#prompt'),'Keep composer draft');await f.page.close();});
- await check('A5-F2 blocked storage warns and retries plan draft',async()=>{const f=await pending(1440,900);await f.page.fill('#prompt','Keep independent draft');await edit(f);await f.page.evaluate(()=>{for(const size of [1024*1024,1024,1]){let i=0;try{while(i<10000)sessionStorage.setItem('quota-'+size+'-'+i++,'x'.repeat(size));}catch{}}});const editor=f.page.getByRole('textbox',{name:'Task for step 1'});const exact='Retain this longer revised plan '+ 'synthetic '.repeat(300);await editor.fill(exact);assert.match(await f.page.locator('.run-plan-approval [role="status"]').innerText(),/not saved/);assert(await f.page.evaluate(()=>{const e=new Event('beforeunload',{cancelable:true});dispatchEvent(e);return e.defaultPrevented;}));await f.page.evaluate(()=>{for(const key of Object.keys(sessionStorage))if(key.startsWith('quota-'))sessionStorage.removeItem(key);dispatchEvent(new Event('pagehide'));});await f.page.reload();await f.page.locator('.maestro-plan-actions button').last().click();assert.equal(await f.page.getByRole('textbox',{name:'Task for step 1'}).inputValue(),exact);await f.page.close();});
- await check('A5-F3 missing source gives actionable recovery error',async()=>{const f=await fixture(browser,1440,900);f.state.missingSource=true;await f.open('a');await f.page.getByRole('button',{name:'Resume workflow',exact:true}).click();await f.page.waitForFunction(()=>document.querySelector('.workflow-recovery [role="status"]').textContent.includes('Restore the workspace input'));assert.match(await f.page.locator('.workflow-recovery [role="status"]').innerText(),/missing or unreadable/);await f.page.close();});
- await check('A5-F4 opening pending conversation persists selection',async()=>{const f=await fixture(browser,1440,900);await f.open('a');await f.page.waitForFunction(()=>JSON.parse(sessionStorage.getItem('remote-view')||'{}').conversation==='a');f.state.running=true;f.state.plan=true;f.state.pendingEvents=true;await f.open('b');await f.page.reload();await f.page.waitForFunction(()=>document.querySelector('#conversation-title').textContent!=='New Conversation');assert.equal(await f.page.locator('#conversation-title').innerText(),'B report');await f.page.close();});
- assert.deepEqual(failures,[]);
- }finally{await browser.close();}
-})().catch(error=>{console.error(error);process.exit(1);});
+  async function pending(width = 1280, height = 720) {
+    const f = await fixture(browser, width, height);
+    f.state.plan = true;
+    f.state.running = true;
+    await f.open("a");
+    return f;
+  }
+  async function edit(f) {
+    await f.page.locator(".maestro-plan-actions button").last().click();
+    const editor = f.page.getByRole("textbox", { name: "Task for step 1" });
+    const text = "ONLY summarize; do not write or publish";
+    await editor.fill(text);
+    return text;
+  }
+  async function axNames(page) {
+    const c = await page.context().newCDPSession(page);
+    const tree = await c.send("Accessibility.getFullAXTree");
+    await c.detach();
+    return tree.nodes.filter((n) => !n.ignored).map((n) => n.name?.value);
+  }
+  async function ownsSearch(page, surface) {
+    const client = await page.context().newCDPSession(page);
+    const { root } = await client.send("DOM.getDocument");
+    const backend = async (selector) => {
+      const { nodeId } = await client.send("DOM.querySelector", {
+        nodeId: root.nodeId,
+        selector,
+      });
+      return (await client.send("DOM.describeNode", { nodeId })).node
+        .backendNodeId;
+    };
+    const owner = await backend(surface),
+      search = await backend("#search-conversations");
+    const { nodes } = await client.send("Accessibility.getFullAXTree");
+    await client.detach();
+    const byId = new Map(nodes.map((node) => [node.nodeId, node]));
+    let node = nodes.find((n) => n.backendDOMNodeId === search);
+    assert(
+      node && !node.ignored,
+      "Search remains operable in the modal toolbar",
+    );
+    while (node) {
+      if (node.backendDOMNodeId === owner) return true;
+      node = byId.get(node.parentId);
+    }
+    return false;
+  }
+  try {
+    await check(
+      "A1-F1 publication evidence remains usable with console",
+      async () => {
+        for (const [width, height] of [
+          [1280, 720],
+          [1024, 768],
+        ])
+          for (const theme of ["porcelain", "amethyst", "petroleum"]) {
+            const { page } = await pending(width, height);
+            await page.evaluate((theme) => TailTheme.apply(theme), theme);
+            await page.evaluate(() =>
+              showGate({
+                gate_id: "publish",
+                kind: "publish",
+                publish: true,
+                effect_id: "effect",
+                operation: "jira.create_issue",
+                destination: "SYNTHETIC",
+                artifact_preview: Array(40)
+                  .fill("Synthetic evidence")
+                  .join("\n"),
+                options: [
+                  { id: "approve", label: "Approve" },
+                  { id: "deny", label: "Deny" },
+                ],
+              }),
+            );
+            await page.evaluate(() => runConsole.openRun("a-job"));
+            await settle(page);
+            for (const expanded of [false, true]) {
+              if (expanded) {
+                await page.locator("#run-console-maximize").click();
+                await settle(page);
+              }
+              const gate = page.locator("#gate-publish"),
+                evidence = gate.locator(".publish-evidence");
+              await evidence.scrollIntoViewIfNeeded();
+              assert(await evidence.evaluate((n) => n.clientHeight >= 48));
+              assert(await hit(evidence));
+              const er = await evidence.boundingBox(),
+                gr = await gate.boundingBox();
+              for (const action of await gate.locator("button").all()) {
+                const ar = await action.boundingBox();
+                assert(
+                  ar.y >= er.y + er.height,
+                  "Evidence and decisions must not overlap",
+                );
+                assert(
+                  ar.y + ar.height <= gr.y + gr.height,
+                  "Decision remains inside its card",
+                );
+              }
+              assert(
+                await evidence.evaluate((n) => {
+                  const r = n.getBoundingClientRect();
+                  return n.contains(
+                    document.elementFromPoint(r.left + 2, r.bottom - 2),
+                  );
+                }),
+                "Evidence lower edge receives its own pointer hits",
+              );
+              await evidence.evaluate((n) => (n.scrollTop = n.scrollHeight));
+              assert(await evidence.evaluate((n) => n.scrollTop > 0));
+              for (const action of await gate.locator("button").all()) {
+                await action.scrollIntoViewIfNeeded();
+                assert(await hit(action));
+              }
+              await capture(
+                page,
+                `publish-${width}-${theme}-${expanded ? "maximized" : "compact"}`,
+              );
+            }
+            await page.close();
+          }
+      },
+    );
+    await check("A1-F2 latest control does not cover header", async () => {
+      const { page } = await pending();
+      await page.evaluate(() => {
+        for (let i = 0; i < 20; i++)
+          bubble("assistant", "Synthetic prior message " + i);
+        runConsole.openRun("a-job");
+      });
+      await settle(page);
+      await page.locator("#messages").evaluate((n) => (n.scrollTop = 0));
+      const button = page.locator("#latest-message");
+      await button.waitFor();
+      const b = await button.boundingBox(),
+        h = await page.locator("main > header").boundingBox();
+      assert(b.y >= h.y + h.height, JSON.stringify({ b, h }));
+      assert(await hit(button));
+      await page.close();
+    });
+    await check("A1-F3 truncated summaries disclose full text", async () => {
+      const { page, state, open } = await fixture(browser, 1440, 900);
+      state.running = true;
+      await open("a");
+      await page.waitForFunction(() =>
+        document.querySelector(".conversation-summary"),
+      );
+      const summaries = page.locator(".conversation-summary");
+      assert(await summaries.count());
+      for (const n of await summaries.all()) {
+        assert.equal(await n.getAttribute("title"), await n.textContent());
+      }
+      await page.close();
+    });
+    await check(
+      "A1-F4 responsive default widths preserve custom choice",
+      async () => {
+        for (const [width, left, right] of [
+          [1440, 300, 390],
+          [1280, 300, 390],
+          [1024, 260, 340],
+        ]) {
+          const { page } = await fixture(browser, width, 900);
+          assert.equal(
+            Math.round((await page.locator("#sidebar").boundingBox()).width),
+            left,
+          );
+          assert.equal(
+            Math.round(
+              (await page.locator("#activity-panel").boundingBox()).width,
+            ),
+            right,
+          );
+          const font = await page
+            .locator("#prompt")
+            .evaluate((n) => getComputedStyle(n).fontSize);
+          await page.setViewportSize({ width: 1440, height: 900 });
+          assert.equal(
+            await page
+              .locator("#prompt")
+              .evaluate((n) => getComputedStyle(n).fontSize),
+            font,
+          );
+          await page.locator("#sidebar-resize").focus();
+          await page.keyboard.press("ArrowRight");
+          const customized = (await page.locator("#sidebar").boundingBox())
+            .width;
+          await page.reload();
+          assert.equal(
+            (await page.locator("#sidebar").boundingBox()).width,
+            customized,
+          );
+          await page.close();
+        }
+      },
+    );
+    await check(
+      "A2-F1 accepted draft cannot return after storage recovery",
+      async () => {
+        const { page, state } = await fixture(browser, 1440, 900);
+        state.successfulSend = true;
+        await page.fill("#prompt", "Synthetic initial draft");
+        await page.evaluate(() => {
+          for (const size of [1024 * 1024, 1024, 1]) {
+            let i = 0;
+            try {
+              while (i < 10000)
+                sessionStorage.setItem(
+                  "quota-" + size + "-" + i++,
+                  "x".repeat(size),
+                );
+            } catch {}
+          }
+        });
+        await page.fill(
+          "#prompt",
+          "Synthetic already sent under quota pressure",
+        );
+        await page.locator("#send").click();
+        await page.waitForFunction(() => !submitting);
+        assert.equal(await page.inputValue("#prompt"), "");
+        await page.evaluate(() => {
+          for (const key of Object.keys(sessionStorage))
+            if (key.startsWith("quota-")) sessionStorage.removeItem(key);
+          dispatchEvent(new Event("pagehide"));
+        });
+        await page.locator("#new").click();
+        assert.equal(await page.inputValue("#prompt"), "");
+        assert.equal(
+          state.posts.filter((p) => p.path === "/v1/jobs").length,
+          1,
+        );
+        await page.close();
+      },
+    );
+    await check(
+      "A2-F2 mobile modal excludes covered accessibility controls",
+      async () => {
+        for (const [width, surface, opener] of [
+          [400, "#sidebar", "#menu"],
+          [400, "#activity-panel", "#panel-toggle"],
+          [640, "#activity-panel", "#panel-toggle"],
+          [800, "#activity-panel", "#panel-toggle"],
+          [400, "#run-console", null],
+        ]) {
+          const { page } = await fixture(browser, width, 900);
+          if (opener) {
+            if (surface === "#activity-panel")
+              await page.evaluate(() => setPanelOpen(false, false));
+            await page.locator(opener).click();
+          } else await page.keyboard.press("Control+j");
+          await settle(page);
+          assert.equal(
+            await page.locator(surface).getAttribute("aria-modal"),
+            "true",
+            width + " " + surface,
+          );
+          const names = await axNames(page);
+          assert(!names.includes("Message"));
+          assert(!names.includes("Send message"));
+          assert.match(
+            await page.locator(surface).getAttribute("aria-owns"),
+            /app-topbar/,
+          );
+          assert(
+            await ownsSearch(page, surface),
+            "Topbar search belongs to active modal AX subtree",
+          );
+          await page.keyboard.press("Escape");
+          await page.setViewportSize({ width: 1440, height: 900 });
+          assert(
+            !(await page
+              .locator("#prompt")
+              .evaluate((n) => !!n.closest("[inert]"))),
+          );
+          assert((await axNames(page)).includes("Message"));
+          assert.equal(
+            await page.locator(surface).getAttribute("aria-owns"),
+            null,
+          );
+          await page.close();
+        }
+      },
+    );
+    await check("A2-F3 About return focus survives breakpoint", async () => {
+      for (const close of ["Escape", "button"]) {
+        const { page } = await fixture(browser, 1440, 900);
+        await page.locator("#about").click();
+        await page.setViewportSize({ width: 400, height: 812 });
+        if (close === "Escape") await page.keyboard.press("Escape");
+        else await page.locator("#about-close").click();
+        await settle(page);
+        assert.notEqual(
+          await page.locator(":focus").evaluate((n) => n.tagName),
+          "BODY",
+        );
+        assert(await hit(page.locator(":focus")));
+        await page.close();
+      }
+    });
+    await check(
+      "A2-F4 complete tour returns focus to active modal",
+      async () => {
+        const { page } = await fixture(browser, 1440, 900);
+        await page.locator("#about").click();
+        await page.locator("#take-tour").click();
+        await page.setViewportSize({ width: 400, height: 812 });
+        for (
+          let i = 0;
+          i < 30 && (await page.locator("#tour-root").count());
+          i++
+        ) {
+          await page.locator("#tour-next").focus();
+          await page.keyboard.press("Enter");
+          await settle(page);
+        }
+        assert.equal(await page.locator("#tour-root").count(), 0);
+        await page.waitForTimeout(700);
+        assert(await hit(page.locator(":focus")));
+        assert(
+          await page
+            .locator("#activity-panel")
+            .evaluate((n) => n.contains(document.activeElement)),
+        );
+        await page.keyboard.type("Obscured draft");
+        assert.equal(await page.inputValue("#prompt"), "");
+        await page.close();
+      },
+    );
+    await check(
+      "A2-F5 minimum targets and A2-F6 bounded attention",
+      async () => {
+        for (const width of [1440, 400, 320]) {
+          const { page } = await fixture(browser, width, 900);
+          await page.locator("#attention-bell").click();
+          const pop = await page.locator("#attention-popover").boundingBox();
+          assert(pop.x >= 0 && pop.x + pop.width <= width, JSON.stringify(pop));
+          for (const n of await page
+            .locator("#attention-popover button")
+            .all()) {
+            const r = await n.boundingBox();
+            assert(r.width >= 24 && r.height >= 24, JSON.stringify(r));
+            assert(await hit(n));
+          }
+          await page.locator("#attention-bell").click();
+          if (width === 1440) {
+            await page.locator("#about").click();
+            const r = await page.locator("#about-close").boundingBox();
+            assert(r.width >= 24 && r.height >= 24);
+            await page.keyboard.press("Escape");
+          }
+          await page.locator("#settings").click();
+          await settle(page);
+          await page.locator("#panel-order-reset").scrollIntoViewIfNeeded();
+          const r = await page.locator("#panel-order-reset").boundingBox();
+          assert(r.width >= 24 && r.height >= 24);
+          assert(await hit(page.locator("#panel-order-reset")));
+          await page.close();
+        }
+      },
+    );
+    for (const surface of ["chat", "inbox"])
+      await check("A5-F1 edited plan approved from " + surface, async () => {
+        const f = await pending(1440, 900);
+        await edit(f);
+        f.state.approvalResponse = Promise.resolve();
+        await f.page.locator(".run-console-close").click();
+        if (surface === "chat")
+          await f.page.locator(".maestro-plan-actions button").first().click();
+        else {
+          await f.page.locator("#attention-bell").click();
+          await f.page.locator('[data-attention-filter="request"]').click();
+          const inbox = f.page.locator("#needs-you-inbox");
+          await inbox.getByLabel("Approve", { exact: false }).first().check();
+          await inbox.getByRole("button", { name: "Submit answer" }).click();
+        }
+        await f.page.waitForTimeout(100);
+        assert.equal(
+          f.state.posts.at(-1).data.plan.steps[0].task,
+          "ONLY summarize; do not write or publish",
+        );
+        await f.page.close();
+      });
+    await check("A5-F2 plan editor survives browser reload", async () => {
+      const f = await pending(1440, 900);
+      await f.page.fill("#prompt", "Keep composer draft");
+      const text = await edit(f);
+      await f.page.reload();
+      await f.page.locator(".maestro-plan-actions button").last().click();
+      assert.equal(
+        await f.page
+          .getByRole("textbox", { name: "Task for step 1" })
+          .inputValue(),
+        text,
+      );
+      assert.equal(await f.page.inputValue("#prompt"), "Keep composer draft");
+      await f.page.close();
+    });
+    await check(
+      "A5-F2 blocked storage warns and retries plan draft",
+      async () => {
+        const f = await pending(1440, 900);
+        await f.page.fill("#prompt", "Keep independent draft");
+        await edit(f);
+        await f.page.evaluate(() => {
+          for (const size of [1024 * 1024, 1024, 1]) {
+            let i = 0;
+            try {
+              while (i < 10000)
+                sessionStorage.setItem(
+                  "quota-" + size + "-" + i++,
+                  "x".repeat(size),
+                );
+            } catch {}
+          }
+        });
+        const editor = f.page.getByRole("textbox", { name: "Task for step 1" });
+        const exact =
+          "Retain this longer revised plan " + "synthetic ".repeat(300);
+        await editor.fill(exact);
+        assert.match(
+          await f.page
+            .locator('.run-plan-approval [role="status"]')
+            .innerText(),
+          /not saved/,
+        );
+        assert(
+          await f.page.evaluate(() => {
+            const e = new Event("beforeunload", { cancelable: true });
+            dispatchEvent(e);
+            return e.defaultPrevented;
+          }),
+        );
+        await f.page.evaluate(() => {
+          for (const key of Object.keys(sessionStorage))
+            if (key.startsWith("quota-")) sessionStorage.removeItem(key);
+          dispatchEvent(new Event("pagehide"));
+        });
+        await f.page.reload();
+        await f.page.locator(".maestro-plan-actions button").last().click();
+        assert.equal(
+          await f.page
+            .getByRole("textbox", { name: "Task for step 1" })
+            .inputValue(),
+          exact,
+        );
+        await f.page.close();
+      },
+    );
+    await check(
+      "A5-F3 missing source gives actionable recovery error",
+      async () => {
+        const f = await fixture(browser, 1440, 900);
+        f.state.missingSource = true;
+        await f.open("a");
+        await f.page
+          .getByRole("button", { name: "Resume workflow", exact: true })
+          .click();
+        await f.page.waitForFunction(() =>
+          document
+            .querySelector('.workflow-recovery [role="status"]')
+            .textContent.includes("Restore the workspace input"),
+        );
+        assert.match(
+          await f.page
+            .locator('.workflow-recovery [role="status"]')
+            .innerText(),
+          /missing or unreadable/,
+        );
+        await f.page.close();
+      },
+    );
+    await check(
+      "A5-F4 opening pending conversation persists selection",
+      async () => {
+        const f = await fixture(browser, 1440, 900);
+        await f.open("a");
+        await f.page.waitForFunction(
+          () =>
+            JSON.parse(sessionStorage.getItem("remote-view") || "{}")
+              .conversation === "a",
+        );
+        f.state.running = true;
+        f.state.plan = true;
+        f.state.pendingEvents = true;
+        await f.open("b");
+        await f.page.reload();
+        await f.page.waitForFunction(
+          () =>
+            document.querySelector("#conversation-title").textContent !==
+            "New Conversation",
+        );
+        assert.equal(
+          await f.page.locator("#conversation-title").innerText(),
+          "B report",
+        );
+        await f.page.close();
+      },
+    );
+    assert.deepEqual(failures, []);
+  } finally {
+    await browser.close();
+  }
+})().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

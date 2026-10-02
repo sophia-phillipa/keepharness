@@ -63,9 +63,17 @@ def test_trusted_catalog_precedence_relative_ids_and_symlink_boundary(tmp_path, 
     project = tmp_path / "project"
     catalog = tmp_path / "catalog"
     outside = tmp_path / "outside"
-    put(tmp_path / "home", ".codex/agents/reviewer.toml", 'name="demo--reviewer"\ndeveloper_instructions="User"')
+    put(
+        tmp_path / "home",
+        ".codex/agents/reviewer.toml",
+        'name="demo--reviewer"\ndeveloper_instructions="User"',
+    )
     put(catalog, "agents/reviewer.toml", 'name="demo--reviewer"\ndeveloper_instructions="Catalog"')
-    put(project, ".codex/agents/reviewer.toml", 'name="demo--reviewer"\ndeveloper_instructions="Project"')
+    put(
+        project,
+        ".codex/agents/reviewer.toml",
+        'name="demo--reviewer"\ndeveloper_instructions="Project"',
+    )
     put(catalog, "skills/shared/SKILL.md", "---\nname: shared\n---\nInside")
     alias = catalog / "skills/alias"
     alias.symlink_to(catalog / "skills/shared")
@@ -232,10 +240,7 @@ def test_command_expansion_no_execution(tmp_path, monkeypatch):
 
 def test_single_leading_command_expands_all_verbatim_arguments():
     item = {"kind": "command", "name": "inspect", "_body": "ARGS=[$ARGUMENTS]"}
-    assert (
-        resources.prepare_prompt("/inspect first\nsecond  ", [item])
-        == "ARGS=[first\nsecond  ]"
-    )
+    assert resources.prepare_prompt("/inspect first\nsecond  ", [item]) == "ARGS=[first\nsecond  ]"
 
 
 def test_api_permissions_and_revalidation_before_queue(tmp_path, monkeypatch):

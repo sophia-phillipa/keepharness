@@ -184,9 +184,9 @@ def test_mcp_cannot_resolve_any_lineage(monkeypatch):
 
     monkeypatch.setattr(mcp_bridge, "call", forbidden)
     for job in ("self", "ancestor", "unrelated"):
-        result = asyncio.run(mcp_bridge.mcp.call_tool(
-            "resolve_approval", {"approval_id": job, "approved": True}
-        ))
+        result = asyncio.run(
+            mcp_bridge.mcp.call_tool("resolve_approval", {"approval_id": job, "approved": True})
+        )
         assert result.isError is True
         body = json.loads(result.content[0].text)
         assert body["http_status"] == 403

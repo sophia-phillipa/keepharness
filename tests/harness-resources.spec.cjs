@@ -153,12 +153,18 @@ const path = require("node:path");
               : "text/html",
       });
     });
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.15"));
+    await page.addInitScript(() =>
+      localStorage.setItem("tail-harness-tour-seen", "0.13.15"),
+    );
     await page.goto("http://resources.test");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     await page.fill("#prompt", "@");
     await page.waitForSelector('#resource-menu [data-resource-id="p-agent"]');
-    assert.equal(resourceQueries.length, 2, "workspace and composer each load the current resource catalog");
+    assert.equal(
+      resourceQueries.length,
+      2,
+      "workspace and composer each load the current resource catalog",
+    );
     const description = page.locator(
       '#resource-menu [data-resource-id="p-agent"] small',
     );
@@ -289,9 +295,15 @@ const path = require("node:path");
     await page
       .locator('#resource-menu [data-resource-id="g-duplicate"]')
       .click();
-    assert.equal(await page.locator("#prompt").inputValue(), "@reviewer @reviewer ");
+    assert.equal(
+      await page.locator("#prompt").inputValue(),
+      "@reviewer @reviewer ",
+    );
     assert.deepEqual(
-      await page.evaluate(() => JSON.parse(sessionStorage.getItem("remote-view")).resource_selections),
+      await page.evaluate(
+        () =>
+          JSON.parse(sessionStorage.getItem("remote-view")).resource_selections,
+      ),
       [
         { id: "p-agent", revision: "r1", token: "@reviewer" },
         { id: "g-duplicate", revision: "g2", token: "@reviewer" },
@@ -319,7 +331,11 @@ const path = require("node:path");
     await page.waitForTimeout(100);
     assert.equal(resourceQueries.at(-1).backend, "claude");
     assert.equal(resourceQueries.at(-1).project_id, "project-b");
-    assert.equal(resourceQueries.length, before + 4, "model and project changes refresh both workspace and composer catalogs");
+    assert.equal(
+      resourceQueries.length,
+      before + 4,
+      "model and project changes refresh both workspace and composer catalogs",
+    );
     delayResources = true;
     await page.fill("#prompt", "@late");
     await page.waitForTimeout(50);

@@ -3,6 +3,7 @@
 Forks change PRODUCT (and their assets), then run ``python -m control.product``.
 The build backend also refreshes generated assets. No services are started.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -30,7 +31,15 @@ class ProductIdentity:
     lineage: str = "tail-harness"
 
     def __post_init__(self):
-        for value in (self.slug, self.mcp_name, self.icon, self.desktop_icon, self.theme_light, self.theme_dark, self.lineage):
+        for value in (
+            self.slug,
+            self.mcp_name,
+            self.icon,
+            self.desktop_icon,
+            self.theme_light,
+            self.theme_dark,
+            self.lineage,
+        ):
             if not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", value):
                 raise ValueError("Invalid product identifier")
         if not re.fullmatch(r"[A-Z][A-Z0-9_]{0,63}", self.env_prefix):
@@ -39,7 +48,12 @@ class ProductIdentity:
             raise ValueError("Invalid product name")
         for value in (self.state_dir, self.config_dir):
             path = Path(value)
-            if path.is_absolute() or ".." in path.parts or not path.parts or not re.fullmatch(r"[a-zA-Z0-9._/-]+", value):
+            if (
+                path.is_absolute()
+                or ".." in path.parts
+                or not path.parts
+                or not re.fullmatch(r"[a-zA-Z0-9._/-]+", value)
+            ):
                 raise ValueError("Product directories must be relative to home")
 
     def state_path(self, home=None):
@@ -63,7 +77,16 @@ def ensure_lineage(state, product=PRODUCT):
     try:
         descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
     except FileNotFoundError:
-        old_state = any((state / name).exists() for name in ("settings.json", "runtime.json", "jobs.sqlite3", "runs", "approval_sessions.sqlite3"))
+        old_state = any(
+            (state / name).exists()
+            for name in (
+                "settings.json",
+                "runtime.json",
+                "jobs.sqlite3",
+                "runs",
+                "approval_sessions.sqlite3",
+            )
+        )
         if old_state and (product.slug, product.lineage) != ("tail-harness", "tail-harness"):
             raise ValueError("Refusing unmarked state from another product identity")
         try:
@@ -93,7 +116,15 @@ def generate(root=None, product=PRODUCT):
     previous = ProductIdentity(**ast.literal_eval(match.group(1))) if match else ProductIdentity()
     # Only presentation/bootstrap files are generated. Persisted protocol identifiers
     # in Python business logic are never replaced.
-    paths = ["pyproject.toml", "agent_service/index.html", "agent_service/ui.js", "agent_service/tour.js", "control/index.html", "control/admin.js", "tail_ui/assets/theme.js"]
+    paths = [
+        "pyproject.toml",
+        "agent_service/index.html",
+        "agent_service/ui.js",
+        "agent_service/tour.js",
+        "control/index.html",
+        "control/admin.js",
+        "tail_ui/assets/theme.js",
+    ]
     for relative in paths:
         path = root / relative
         text = path.read_text()
@@ -101,8 +132,16 @@ def generate(root=None, product=PRODUCT):
             text = text.replace("icons.svg#" + previous.icon, "icons.svg#__PRODUCT_ICON__")
         text = text.replace(previous.name, product.name).replace(previous.slug, product.slug)
         if relative == "tail_ui/assets/theme.js":
-            text = re.sub(r"const defaultLight=.*?;", f"const defaultLight={json.dumps(product.theme_light)};", text)
-            text = re.sub(r"const defaultDark=.*?;", f"const defaultDark={json.dumps(product.theme_dark)};", text)
+            text = re.sub(
+                r"const defaultLight=.*?;",
+                f"const defaultLight={json.dumps(product.theme_light)};",
+                text,
+            )
+            text = re.sub(
+                r"const defaultDark=.*?;",
+                f"const defaultDark={json.dumps(product.theme_dark)};",
+                text,
+            )
         if relative.endswith(".html"):
             text = text.replace("icons.svg#__PRODUCT_ICON__", "icons.svg#" + product.icon)
         path.write_text(text)
@@ -111,9 +150,19 @@ def generate(root=None, product=PRODUCT):
     bridge.write_text(source)
     script = root / "agent_service/setup-mcp.sh"
     text = script.read_text()
-    values = {"TH_PRODUCT_SLUG": product.slug, "TH_PRODUCT_ENV": product.env_prefix, "TH_PRODUCT_STATE": product.state_dir, "TH_PRODUCT_MCP": product.mcp_name}
+    values = {
+        "TH_PRODUCT_SLUG": product.slug,
+        "TH_PRODUCT_ENV": product.env_prefix,
+        "TH_PRODUCT_STATE": product.state_dir,
+        "TH_PRODUCT_MCP": product.mcp_name,
+    }
     for key, value in values.items():
-        text = re.sub(r"^" + key + r"=.*$", lambda _, k=key, v=value: k + "=" + shlex.quote(v), text, flags=re.M)
+        text = re.sub(
+            r"^" + key + r"=.*$",
+            lambda _, k=key, v=value: k + "=" + shlex.quote(v),
+            text,
+            flags=re.M,
+        )
     script.write_text(text)
 
 
@@ -124,13 +173,28 @@ def main():
     args = parser.parse_args()
     product = PRODUCT
     if args.field:
-        print(os.environ.get(product.env_prefix + "_VENV") or (os.environ.get("TH_VENV") if (product.slug, product.lineage) == ("tail-harness", "tail-harness") else None) or str(product.state_path() / "venv") if args.field == "venv" else product.slug)
+        print(
+            os.environ.get(product.env_prefix + "_VENV")
+            or (
+                os.environ.get("TH_VENV")
+                if (product.slug, product.lineage) == ("tail-harness", "tail-harness")
+                else None
+            )
+            or str(product.state_path() / "venv")
+            if args.field == "venv"
+            else product.slug
+        )
         return
     if args.identity:
         product = ProductIdentity(**json.loads(args.identity.read_text()))
         path = Path(__file__)
         text = path.read_text()
-        text = re.sub(r"(# identity-source:begin\n).*?(\n# identity-source:end)", lambda m: m[1] + "PRODUCT = ProductIdentity(**" + repr(asdict(product)) + ")" + m[2], text, flags=re.S)
+        text = re.sub(
+            r"(# identity-source:begin\n).*?(\n# identity-source:end)",
+            lambda m: m[1] + "PRODUCT = ProductIdentity(**" + repr(asdict(product)) + ")" + m[2],
+            text,
+            flags=re.S,
+        )
         path.write_text(text)
     generate(product=product)
 

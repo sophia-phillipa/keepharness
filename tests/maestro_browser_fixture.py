@@ -85,9 +85,17 @@ async def infer(row, data):
             if retry_attempts[marker] == 1:
                 raise RuntimeError("synthetic_execution_failure")
         if "ASK-" in prompt:
-            await service.gates.ask(row["id"], {"question": "Audience?", "options": [
-                {"id": "staff", "label": "Staff"}, {"id": "public", "label": "Public"}
-            ]}, lambda kind, value: service.event(row["id"], kind, value))
+            await service.gates.ask(
+                row["id"],
+                {
+                    "question": "Audience?",
+                    "options": [
+                        {"id": "staff", "label": "Staff"},
+                        {"id": "public", "label": "Public"},
+                    ],
+                },
+                lambda kind, value: service.event(row["id"], kind, value),
+            )
     inference_stages.append(data.get("_maestro_stage", "direct"))
     (root / "inference.json").write_text(json.dumps(inference_stages))
     if data.get("_maestro_stage") == "plan":
