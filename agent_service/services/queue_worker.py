@@ -267,6 +267,13 @@ async def run(service):
                             await settle_running(
                                 service, row["id"], "failed", {"error": "project_root_unavailable"}
                             )
+                            # Settlement can yield to cancellation and work-item edits.
+                            remaining = {candidate["id"] for candidate in rows}
+                            rows = [
+                                candidate
+                                for candidate in service.conversation_repository.ready()
+                                if candidate["id"] in remaining
+                            ]
                             continue
                     if reason:
                         if reasons.get(row["id"]) != reason:

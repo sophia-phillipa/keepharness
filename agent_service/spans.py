@@ -284,7 +284,7 @@ def events_to_spans(job, events):
                 timestamp, trace_id,
                 {**data, "checkpoint_reused": True, "source_execution_id": data.get("execution_id")},
             )
-            close(span, timestamp, "completed")
+            close(span, timestamp, _outcome(data, "completed"))
             span["content"].append(event_content)
             stages[str(data.get("index"))] = span
         elif kind == "maestro_step":
