@@ -3756,7 +3756,7 @@ async function result(
       setAnswer(active, "Run cancelled.");
     // The notice asks to send again: put the prompt back in an empty composer.
     if (
-      notice &&
+      (notice || condition) &&
       !snapshot &&
       r.request?.prompt &&
       !$("prompt").value &&
