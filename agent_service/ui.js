@@ -185,8 +185,15 @@ function unfencedPrompt(text) {
     if (marker && depth < markerDepth) marker = null;
     if (!blank && indentation < listIndent && !quoteInList) { listIndent = 0; if (markerIndent) marker = null; }
     if (!marker) {
-      const item = /^ {0,3}(?:[-+*]|[0-9]+[.)]) +/.exec(content);
-      if (item) { listIndent = item[0].length; content = content.slice(listIndent); }
+      let item = /^ {0,3}(?:[-+*]|[0-9]+[.)]) +/.exec(content);
+      if (item) {
+        listIndent = 0;
+        while (item) {
+          listIndent += item[0].length;
+          content = content.slice(item[0].length);
+          item = /^ {0,3}(?:[-+*]|[0-9]+[.)]) +/.exec(content);
+        }
+      }
       else if (listIndent && !quoteInList) content = content.slice(listIndent);
     } else if (markerIndent && !quoteInList) content = content.slice(markerIndent);
     const nestedQuote = /^(?: {0,3}>[ \t]?)+/.exec(content);
