@@ -92,7 +92,7 @@ runPersona("H32", [
         "Renew Claude access",
       );
       assert.match(
-        await answer.locator(".chat-bubble").innerText(),
+        await page.locator(".composer-area #model-availability").innerText(),
         /admin panel, find Claude Code and click “Renew access”/,
       );
       // The prompt is kept in the user bubble…
@@ -109,14 +109,14 @@ runPersona("H32", [
           PARTIAL,
         ),
       );
-      // F-83: …and stays there, with the renewal notice appended after it, and
-      // the prompt is back in the composer, ready to send again.
+      // F-83: the partial answer stays in history; the renewal notice attaches
+      // to the blocked composer, which preserves the prompt for recovery.
       const bubble = await answer.locator(".chat-bubble").innerText();
       assert(bubble.indexOf(PARTIAL) >= 0, "partial answer kept");
-      assert(
-        bubble.indexOf(PARTIAL) < bubble.indexOf("Your Claude access"),
-        "notice appended after the partial answer",
-      );
+      assert.doesNotMatch(bubble, /Your Claude access/);
+      assert(await page.locator(".composer-area #model-availability").isVisible());
+      assert(await page.locator("#prompt").isDisabled());
+      assert(await page.locator("#send").isDisabled());
       assert.equal(await page.inputValue("#prompt"), PROMPT);
     },
   },
@@ -127,7 +127,10 @@ runPersona("H32", [
       await expireMidStream(page, s);
       const title = await page.locator("#conversation-title").textContent();
       s.renew();
-      await page.fill("#prompt", PROMPT);
+      assert.equal(await page.inputValue("#prompt"), PROMPT);
+      await page.locator("#models-retry").click();
+      await page.waitForFunction(() => !document.querySelector("#prompt").disabled);
+      assert.equal(await page.inputValue("#prompt"), PROMPT);
       await page.click("#send");
       await page.getByText("Plan ready: venue, budget, agenda.").waitFor();
       assert.equal(s.posts.length, 2);

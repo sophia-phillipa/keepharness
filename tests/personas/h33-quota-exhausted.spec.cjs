@@ -121,15 +121,19 @@ runPersona("H33", [
       await page.click("#send");
       await page.getByText("You've hit your usage limit").waitFor();
       const answer = page.locator("#messages article.assistant").last();
-      const bubble = await answer.locator(".chat-bubble").innerText(),
+      const notice = await page.locator(".composer-area #model-availability").innerText(),
         chip = await answer.locator(".run-highlight").textContent(),
         status = await statusText(page);
-      console.log("H33-S2:", JSON.stringify({ chip, status, bubble }));
+      console.log("H33-S2:", JSON.stringify({ chip, status, notice }));
       // F-85: the guided quota condition names Codex, keeps the provider's
       // reset time and never shows the adapter code.
-      assert.match(bubble, /Your Codex quota is temporarily exhausted/);
-      assert.match(bubble, /try again in 2 hours 13 minutes/);
-      assert.doesNotMatch(bubble, /codex_execution_failed|provider_quota/);
+      assert.match(notice, /Your Codex quota is temporarily exhausted/);
+      assert.match(notice, /try again in 2 hours 13 minutes/);
+      assert.doesNotMatch(notice, /codex_execution_failed|provider_quota/);
+      assert(await page.locator(".composer-area #model-availability").isVisible());
+      assert(await page.locator("#prompt").isDisabled());
+      assert(await page.locator("#send").isDisabled());
+      assert.equal(await page.inputValue("#prompt"), "Write the release notes");
       assert.match(chip, /Wait for quota renewal/);
       assert.equal(status, "Wait for quota renewal");
       noConsoleErrors();

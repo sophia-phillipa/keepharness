@@ -880,7 +880,8 @@ const labels = {
   loading: "Preparing model",
 };
 const status = (text) => {
-  if (policyPending && policyError) text = policyError;
+  if (policyPending && policyError &&
+      (Object.values(labels).includes(text) || ["Failed run", "Run cancelled", "Run interrupted"].includes(text))) text = policyError;
   const target = $("status");
   // Repeated progress (one per streamed delta) is announced once.
   if (target.textContent === text && target.className === "visually-hidden")
@@ -1592,7 +1593,11 @@ async function refreshProjectPermissions(timeout = 30000) {
     else if (previous && models.length) selectionNotice(previousName);
     policyProject = project;
     policyPending = false;
-    if (policyError) { policyError = ""; status("Ready to chat"); }
+    if (policyError) {
+      const showingPolicyError = $("status").textContent === policyError;
+      policyError = "";
+      if (showingPolicyError) status("Ready to chat");
+    }
     updateEfforts();
     if ([...$("effort").options].some((o) => o.value === effort))
       $("effort").value = effort;

@@ -3093,6 +3093,10 @@ body :is(button, .btn, [role="button"], summary):focus-visible {
   line-height: 1;
   color: var(--th-accent);
 }
+.conversation-model-icon .th-icon {
+  width: 16px;
+  height: 16px;
+}
 .conversation-row .conversation-title {
   min-width: 0;
 }

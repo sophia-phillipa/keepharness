@@ -90,15 +90,17 @@ async function fixture(browser,width=1440,height=900,empty=false){
   }
  });
  await check('A5-F1 permission failure survives history result',async()=>{
+  for(const terminalState of ['completed','failed','cancelled','interrupted']){
   const p=await browser.newPage();let fail=true;await mount(p,async url=>{
    if(url.pathname==='/v1/projects')return{json:{projects:['sem-projeto','other']}};
    if(url.pathname==='/v1/models'){if(fail&&url.searchParams.get('project_id')==='other')return{status:503,json:{code:'synthetic_unavailable'}};return{json:{models:[{id:'fixture',backend:'local',efforts:['configured']}]}};}
-   if(url.pathname==='/v1/conversations')return{json:{conversations:[{id:'done',title:'Synthetic completed report',project:'other',state:'completed',last_job_id:'done',execution:{backend:'local',model:'fixture'}}]}};
-   const turn={id:'done',project:'other',state:'completed',request:{backend:'local',model:'fixture',prompt:'Synthetic prior request'},result:{answer:'Synthetic result'}};
+   if(url.pathname==='/v1/conversations')return{json:{conversations:[{id:'done',title:'Synthetic completed report',project:'other',state:terminalState,last_job_id:'done',execution:{backend:'local',model:'fixture'}}]}};
+   const turn={id:'done',project:'other',state:terminalState,request:{backend:'local',model:'fixture',prompt:'Synthetic prior request'},result:{answer:'Synthetic result'}};
    if(url.pathname==='/v1/conversations/done')return{json:{title:'Synthetic completed report',turns:[turn]}};
    if(url.pathname==='/v1/jobs/done')return{json:turn};
   });p.setDefaultTimeout(4000);await p.locator('#history .conversation-row > button').filter({hasText:'Synthetic completed report'}).click();await p.waitForFunction(()=>!loading&&document.querySelector('#conversation-title').textContent==='Synthetic completed report');await p.locator('#prompt').fill('Continue this report');assert(await p.locator('#send').isDisabled());assert.match(await p.locator('#status').innerText(),/permissions.*retry/i);
   fail=false;await p.evaluate(()=>refreshProjectPermissions());assert.equal(await p.locator('#prompt').inputValue(),'Continue this report');assert.equal(await p.locator('#send').isDisabled(),false);await p.close();
+  }
  });
  await check('A4-F3 same-name slash chip identities',async()=>{
   const {page:p,state}=await fixture(browser);state.resources=['agent','skill'].map(kind=>({id:'project/review-'+kind,resource_id:'project/review-'+kind,revision:'s1',kind,name:'review',description:'Synthetic '+kind,scope:'project',origin:'agents',selectable:true}));state.failSend=true;

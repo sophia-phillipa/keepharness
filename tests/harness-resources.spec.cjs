@@ -289,9 +289,13 @@ const path = require("node:path");
     await page
       .locator('#resource-menu [data-resource-id="g-duplicate"]')
       .click();
-    assert.match(
-      await page.locator("#status").innerText(),
-      /already another resource called/,
+    assert.equal(await page.locator("#prompt").inputValue(), "@reviewer @reviewer ");
+    assert.deepEqual(
+      await page.evaluate(() => JSON.parse(sessionStorage.getItem("remote-view")).resource_selections),
+      [
+        { id: "p-agent", revision: "r1", token: "@reviewer" },
+        { id: "g-duplicate", revision: "g2", token: "@reviewer" },
+      ],
     );
     const before = resourceQueries.length;
     await page.selectOption("#model", "claude-sonnet-4-6");
