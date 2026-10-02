@@ -2,7 +2,7 @@
 
 [![🇺🇸 English](https://img.shields.io/badge/%F0%9F%87%BA%F0%9F%87%B8-English-blue.svg)](README.md) [![🇧🇷 Português (Brasil)](https://img.shields.io/badge/%F0%9F%87%A7%F0%9F%87%B7-Portugu%C3%AAs%20(Brasil)-green.svg)](README.pt-BR.md)
 
-Painel local em Python para descobrir, configurar e executar o Codex CLI, o Claude Code, o Gemini CLI e modelos de IA locais, com uma interface de conversa acessível pela Tailscale ou outra VPN. Python 3.11+, licença MIT, versão **0.13.14**.
+Painel local em Python para descobrir, configurar e executar o Codex CLI, o Claude Code, o Gemini CLI e modelos de IA locais, com uma interface de conversa acessível pela Tailscale ou outra VPN. Python 3.11+, licença MIT, versão **0.13.15**.
 
 ## 🚀 Installation — agent-guided (start here)
 
@@ -394,3 +394,7 @@ A rodada 12 revalida recibos de publicação após consultas, informa falhas de 
 ## 🆕 Version 0.13.14
 
 A rodada 14 move os avisos de bloqueio de modelo/provedor para uma faixa compacta junto ao composer, substitui glifos por ícones SVG, adiciona logs com data e hora em ordem decrescente e identifica os provedores. O foco por teclado é preservado em novas tentativas e no tour. O estado privado continua protegido em importações, caminhos realocados e leituras demoradas; a recuperação de workflows, a fila e as cadeias de recursos homônimos preservam seus contratos. O chat permanece na tela inicial, na escala aprovada. Veja a [especificação da release](dossier/releases/v0.13.14.md) para migração e validação.
+
+## 🆕 Version 0.13.15
+
+A rodada 15 preserva cancelamentos aceitos e a posse atual dos itens de trabalho durante esperas de persistência, mantém exemplos Markdown aninhados literais e conserva resultados de checkpoints ignorados. Cards de publicação mostram operação e destino primeiro; navegação por teclado, uso de provedores no celular e ícones semânticos do console seguem o layout existente na escala aprovada. Veja a [especificação da release](dossier/releases/v0.13.15.md) para migração e validação.

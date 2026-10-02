@@ -650,6 +650,7 @@ async def execute_plan(service, row, data, declared, *, planning_result=None, co
                     "index": index,
                     "source_job_id": source_id or row["id"],
                     "execution_id": cached["execution_id"],
+                    "outcome": "skipped" if cached["result"].get("skipped") else "completed",
                     "role": step.get("role"),
                     "backend": step.get("backend"),
                     "model": step.get("model"),

@@ -118,8 +118,11 @@ def unfenced(text, *, preserve_offsets=False, keep_language=None):
         if marker is None:
             item = re.match(r"^ {0,3}(?:[-+*]|[0-9]+[.)]) +", content)
             if item:
-                list_indent = item.end()
-                content = content[item.end() :]
+                list_indent = 0
+                while item:
+                    list_indent += item.end()
+                    content = content[item.end() :]
+                    item = re.match(r"^ {0,3}(?:[-+*]|[0-9]+[.)]) +", content)
             elif list_indent and not quote_in_list:
                 content = content[list_indent:]
         elif marker_indent and not quote_in_list:

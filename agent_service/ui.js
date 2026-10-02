@@ -185,8 +185,15 @@ function unfencedPrompt(text) {
     if (marker && depth < markerDepth) marker = null;
     if (!blank && indentation < listIndent && !quoteInList) { listIndent = 0; if (markerIndent) marker = null; }
     if (!marker) {
-      const item = /^ {0,3}(?:[-+*]|[0-9]+[.)]) +/.exec(content);
-      if (item) { listIndent = item[0].length; content = content.slice(listIndent); }
+      let item = /^ {0,3}(?:[-+*]|[0-9]+[.)]) +/.exec(content);
+      if (item) {
+        listIndent = 0;
+        while (item) {
+          listIndent += item[0].length;
+          content = content.slice(item[0].length);
+          item = /^ {0,3}(?:[-+*]|[0-9]+[.)]) +/.exec(content);
+        }
+      }
       else if (listIndent && !quoteInList) content = content.slice(listIndent);
     } else if (markerIndent && !quoteInList) content = content.slice(markerIndent);
     const nestedQuote = /^(?: {0,3}>[ \t]?)+/.exec(content);
@@ -2118,6 +2125,7 @@ function conversationRow(c) {
   open.textContent = c.title || "Conversation";
   open.title = open.textContent;
   open.className = c.id === conversation ? "active" : "";
+  open.dataset.conversationId = c.id;
   open.onclick = () => load(c.id, c.legacy);
   const actions = document.createElement("details");
   actions.className = "conversation-actions";
@@ -2677,6 +2685,7 @@ function openDeleteProjectFolder(project, label, trigger) {
     });
 }
 function renderProjects() {
+  const focusedConversation = document.activeElement.dataset.conversationId;
   syncActiveProjectBadge();
   const matches = conversations;
   const removedOpen = $("removed-projects")?.open || false;
@@ -2945,6 +2954,11 @@ function renderProjects() {
     empty.className = "empty-history";
     empty.textContent = "Your conversations will appear here.";
     $("history").append(empty);
+  }
+  if (focusedConversation) {
+    [...$("sidebar").querySelectorAll("button[data-conversation-id]")]
+      .find(node => node.dataset.conversationId === focusedConversation && node.checkVisibility())
+      ?.focus({ preventScroll: true });
   }
 }
 const answerMarkdown = window.markdownit({
@@ -3405,7 +3419,7 @@ function renderPlanOutcome(card, runState = card.dataset.runState) {
   const approve = card.querySelector(".maestro-plan-actions .btn-primary");
   if (approve) approve.disabled = !!decision?.pending || state !== "pending";
   if (decision?.pending && state === "pending") note = decision.message;
-  card.querySelector(".state-pill").textContent = label;
+  card.querySelector(".state-pill").replaceChildren(TailUI.icon(choice === "approve" ? "check" : "shield"), document.createTextNode(label));
   card.querySelector('[role="status"]').textContent = note;
 }
 const workflowResumeKeys = new Map();
@@ -3500,7 +3514,7 @@ function showMaestroPlan(data = {}) {
     const approve = document.createElement("button");
     approve.type = "button";
     approve.className = "btn btn-primary";
-    approve.textContent = "✓ Approve plan & run";
+    approve.append(TailUI.icon("check"), document.createTextNode("Approve plan & run"));
     approve.onclick = async () => {
       if (window.runConsole.planDecision(data.gate_id)?.pending) return;
       card.dataset.restoreFocus = String(card.contains(document.activeElement));
@@ -3526,6 +3540,7 @@ function showMaestroPlan(data = {}) {
   edit.type = "button";
   edit.className = "btn";
   edit.textContent = data.gate_id ? "Edit plan in Run console" : "View plan in Run console";
+  edit.prepend(TailUI.icon(data.gate_id ? "pencil" : "trace"));
   edit.onclick = () => window.runConsole?.openPlanEditor();
   actions.append(edit);
   card.append(heading, steps, actions);
@@ -3917,6 +3932,7 @@ async function load(id, legacy = false, restoredView = null) {
   if (!savedDraft) {
     savedDraft = readDraft("conversation-draft:" + id);
   }
+  const navigationFocus = document.activeElement;
   const request = ++conversationLoad,
     priorDraft = $("prompt").value,
     priorTracking = (!!controller && busy) || streamDisconnected;
@@ -4064,6 +4080,8 @@ async function load(id, legacy = false, restoredView = null) {
     void loadAuthorizedProjectRoots();
     await refreshProjectPermissions();
     if (request !== conversationLoad) return;
+    const restoreNavigationFocus = !!navigationFocus.dataset.conversationId &&
+      document.activeElement.dataset.conversationId === navigationFocus.dataset.conversationId;
     expandedProjects.set($("project").value, true);
     renderProjects();
     $("sidebar")
@@ -4074,6 +4092,11 @@ async function load(id, legacy = false, restoredView = null) {
     loading = false;
     if (savedDraft) restoreView(savedDraft);
     else updateComposer();
+    if (restoreNavigationFocus) {
+      const target = innerWidth <= 620 ? $("messages") :
+        $("sidebar").querySelector('.conversation-row > button[aria-current="true"]');
+      target?.focus({ preventScroll: true });
+    }
     saveView();
     const latest = data.turns.find((turn) => turn.id === job);
     if (
@@ -6846,8 +6869,15 @@ function jumpToLatest() {
 $("latest-message").onclick = jumpToLatest;
 new ResizeObserver(updateLatest).observe($("messages"));
 function setQuotaOpen(open) {
+  if (open) {
+    closeSidebar();
+    if (innerWidth < 1000) setPanelOpen(false, false);
+    window.runConsole?.closeForPanel();
+    syncWorkspaceModal();
+  }
   $("quota-panel").hidden = !open;
   $("quota-toggle").setAttribute("aria-expanded", String(open));
+  if (open) $("quota-refresh").focus({ preventScroll: true });
 }
 document.addEventListener("pointerdown", (e) => {
   if (!e.target.closest("#quota-panel, #quota-toggle")) setQuotaOpen(false);
@@ -7101,13 +7131,13 @@ function appendPublishEvidence(container, data) {
     node.textContent = label + ": " + (typeof value === "string" ? value : JSON.stringify(value, null, 2));
     evidence.append(node);
   };
+  add("Operation", data.operation);
+  add("Destination", data.destination);
   add("Publication", data.enforcement === "mediated" ? "mediated" : "unenforced");
   add("Risk", data.risk);
-  add("Evidence", data.evidence, true);
-  add("Operation", data.operation);
   add("Integration", data.integration);
   add("Jira site", data.endpoint);
-  add("Destination", data.destination);
+  add("Evidence", data.evidence, true);
   add("Arguments", data.arguments, true);
   add("Arguments digest", data.arguments_digest);
   add("Artifact preview", data.artifact_preview, true);
