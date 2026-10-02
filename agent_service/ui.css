@@ -4569,6 +4569,7 @@ main { padding-bottom:28px; }
 .run-tab-count { display:inline-grid; place-items:center; min-width:17px; height:17px; margin-left:4px; padding:0 4px; border:1px solid var(--th-border); border-radius:9px; font-size:9px; }
 .run-console-close { margin-left:auto; font-size:0!important; }
 .run-console-close .th-icon { width:16px; height:16px; }
+#run-status-toggle > .th-icon { display:inline-block; vertical-align:middle; }
 .run-console-body { padding:8px 12px; }
 .run-pipeline-summary { display:flex; align-items:center; gap:10px; padding-bottom:8px; border-bottom:1px solid var(--th-border); }
 .run-pipeline-summary > span { color:var(--th-muted); font-size:11px; }
@@ -4585,8 +4586,7 @@ main { padding-bottom:28px; }
 .run-span-effort,.run-span-duration,.run-span-tokens { color:var(--th-muted); font-size:10px!important; }
 .run-span-connector { position:absolute; right:-21px; top:38px; color:var(--th-muted); }
 .run-span-row:last-child > .run-span-connector { display:none; }
-.run-span-row > strong { display:flex; align-items:center; gap:6px; }
-.run-span-row > strong > .th-icon { flex:none; }
+.run-span-row > strong > .th-icon { display:inline-block; vertical-align:middle; margin-right:6px; }
 .run-span-row[aria-pressed=true] { box-shadow:0 0 0 2px color-mix(in srgb,var(--th-accent) 25%,transparent); }
 .run-span-detail { border:1px solid var(--th-border); border-radius:8px; padding:10px; }
 .run-plan-approval { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:5px 10px; padding:8px; margin-bottom:8px; border:1px solid #b26a00; border-radius:8px; }

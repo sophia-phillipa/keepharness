@@ -556,8 +556,8 @@
         bar.title = duration(span);
         track.append(bar); row.append(track);
       }
-      const connector = TailUI.icon('chevron-right');
-      connector.classList.add('run-span-connector');
+      const connector = el('span', null, 'run-span-connector');
+      connector.append(TailUI.icon('chevron-right'));
       row.append(connector);
       list.append(row);
     }
