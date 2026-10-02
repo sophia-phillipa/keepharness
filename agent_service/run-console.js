@@ -58,6 +58,7 @@
   body.tabIndex = -1;
   for (const name of ['Pipeline', 'Timeline', 'Logs', 'Runs', 'Agents']) {
     const tab = button(name, () => setTab(name));
+    tab.prepend(TailUI.icon({Pipeline: 'list', Timeline: 'list', Logs: 'list', Runs: 'stack-2', Agents: 'tail-harness'}[name]));
     tab.dataset.tab = name;
     tab.id = 'run-tab-' + name.toLowerCase();
     tab.setAttribute('aria-label', name);
@@ -140,6 +141,8 @@
   const stateFilter = select('console-state', [['', 'All states'], ...['running', 'queued', 'completed', 'failed', 'cancelled', 'interrupted'].map(v => [v, v])]);
   const logSearch = input('console-log-search', 'search');
   const logType = select('console-log-type', [['', 'All event types']]);
+  const logOrder = select('console-log-order', [['newest', 'Newest first'], ['oldest', 'Oldest first']]);
+  logOrder.addEventListener('change', renderLogs);
   logSearch.addEventListener('input', renderLogs);
   logType.addEventListener('change', renderLogs);
   stateFilter.addEventListener('change', renderRuns);
@@ -190,7 +193,7 @@
       resize(maximized ? consoleLimit() : consoleHeight, false);
       void refresh();
     } else {
-      (previousFocus?.isConnected ? previousFocus : toggleButton).focus();
+      (previousFocus?.isConnected && previousFocus !== document.body && previousFocus.checkVisibility() && !previousFocus.disabled && !previousFocus.closest("[inert]") ? previousFocus : toggleButton).focus();
     }
   }
   function setTab(name) {
@@ -223,12 +226,13 @@
   }
   function revealFocusedControl() {
     const focused = document.activeElement;
-    if (!body.contains(focused)) return;
+    if (!body.contains(focused) || focused.classList.contains("run-log-scroll")) return;
     const box = focused.getBoundingClientRect(), viewport = body.getBoundingClientRect();
     if (box.bottom > viewport.bottom) body.scrollTop += box.bottom - viewport.bottom;
     else if (box.top < viewport.top) body.scrollTop -= viewport.top - box.top;
   }
-  body.addEventListener('focusin', () => requestAnimationFrame(revealFocusedControl));
+  let restoringLogFocus = false;
+  body.addEventListener('focusin', () => { if (!restoringLogFocus) requestAnimationFrame(revealFocusedControl); });
   function resize(height, persist = true) {
     const max = consoleLimit(), publication = hasPublicationEvidence(), min = Math.min(publication ? 190 : 340, max);
     drawer.classList.toggle('has-publication-evidence', publication);
@@ -359,10 +363,7 @@
         }
         badge.textContent = String(count);
       }
-      if (state.tab === 'Logs' && !state.more && data.jobs?.some(item => item.job_id === state.run && item.state === 'running')) {
-        state.more = true;
-        renderLogs();
-      }
+      if (state.tab === 'Logs' && !drawer.hidden && state.logs.length) void loadLogs(true);
       if (!drawer.hidden) {
         if (['Pipeline', 'Timeline'].includes(state.tab) && previousPlan !== JSON.stringify(currentPlan())) renderSpans();
         if (['Runs', 'Agents'].includes(state.tab)) {
@@ -534,7 +535,7 @@
       row.id = 'run-span-' + span.span_id;
       row.dataset.state = outcome(span);
       row.setAttribute('aria-pressed', String(state.selectedSpan === span.span_id));
-      const spanState = el('span', outcome(span), 'run-span-state');
+      const spanState = el('span', span.attrs?.checkpoint_reused ? 'Reused checkpoint' : outcome(span), 'run-span-state');
       const backend = span.attrs?.['gen_ai.provider.name'] || span.attrs?.backend || '';
       const route = el('span', [backend, span.attrs?.['gen_ai.request.model'] || span.attrs?.model || span.kind].filter(Boolean).join(' · '), 'backend-chip');
       route.dataset.backend = backend;
@@ -801,18 +802,20 @@
     detail.append(form);
     form.querySelector('button').focus();
   }
-  async function loadLogs() {
-    if (!state.run || state.logLoading || !state.more) return;
+  async function loadLogs(live = false) {
+    if (!state.run || state.logLoading || (!live && !state.more)) return;
     const sequence = state.sequence, id = state.run;
     state.logLoading = true;
-    renderLogs();
     try {
-      const data = await json('/v1/jobs/' + encodeURIComponent(id) + '/events?' + new URLSearchParams({ format: 'json', after: state.after, limit: '200' }));
+      const params = new URLSearchParams({ format: 'json', limit: '200', order: live ? 'oldest' : 'newest' });
+      if (live) params.set('after', String(Math.max(0, ...state.logs.map(item => item.id))));
+      else if (state.logs.length) params.set('before', String(Math.min(...state.logs.map(item => item.id))));
+      const data = await json('/v1/jobs/' + encodeURIComponent(id) + '/events?' + params);
       if (sequence !== state.sequence || id !== state.run) return;
       const known = new Set(state.logs.map(item => item.id));
       state.logs.push(...(data.events || []).filter(item => !known.has(item.id)));
       state.after = data.next_after ?? state.logs.at(-1)?.id ?? state.after;
-      state.more = Boolean(data.has_more);
+      if (!live) state.more = Boolean(data.has_more);
       const type = logType.value;
       logType.replaceChildren(new Option('All event types', ''), ...[...new Set(state.logs.map(item => item.type))].sort().map(type => new Option(type, type)));
       logType.value = type;
@@ -822,21 +825,45 @@
   }
   function renderLogs() {
     if (state.tab !== 'Logs') return;
-    const focusedControl = [logSearch, logType].find(control => control === document.activeElement);
+    const focusedControl = [logSearch, logType, logOrder].find(control => control === document.activeElement);
+    const oldViewport = body.querySelector(".run-log-scroll");
+    const viewportFocused = oldViewport === document.activeElement;
+    const scrollLeft = oldViewport?.scrollLeft || 0;
+    const tableScrollTop = oldViewport?.scrollTop || 0;
+    const scrollTop = body.scrollTop;
     const toolbar = el('div', null, 'run-console-controls');
-    toolbar.append(field('Search logs', logSearch), field('Event type', logType));
-    const list = el('ol', null, 'run-log-list');
+    toolbar.append(field('Search logs', logSearch), field('Event type', logType), field('Log order', logOrder));
+    const table = el('table', null, 'run-table run-log-list');
+    const head = el('thead'), titles = el('tr'), list = el('tbody');
+    for (const title of ['Date / time', 'Sequence', 'Type', 'Details']) titles.append(el('th', title));
+    head.append(titles); table.append(head, list);
+    const viewport = el('div', null, 'run-log-scroll');
+    viewport.tabIndex = 0; viewport.setAttribute('role', 'region'); viewport.setAttribute('aria-label', 'Log table');
+    viewport.append(table);
     const search = logSearch.value.toLowerCase();
-    for (const event of state.logs) {
+    for (const event of [...state.logs].sort((a, b) => logOrder.value === 'oldest' ? a.id - b.id : b.id - a.id)) {
       const text = `${event.id} · ${event.type} · ${JSON.stringify(event.data)}`;
       if ((logType.value && event.type !== logType.value) || !text.toLowerCase().includes(search)) continue;
-      list.append(el('li', text, 'run-log-row'));
+      const row = el('tr', null, 'run-log-row'), cell = el('td');
+      const date = new Date(typeof event.timestamp === 'number' ? event.timestamp * 1000 : event.timestamp);
+      const valid = !Number.isNaN(date.getTime());
+      const time = el('time', valid ? date.toLocaleString(undefined, {year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit'}) : 'Unknown time');
+      if (valid) { time.dateTime = date.toISOString(); time.title = date.toISOString(); }
+      cell.append(time);
+      row.append(cell, el('td', String(event.id)), el('td', event.type), el('td', JSON.stringify(event.data)));
+      list.append(row);
     }
-    const more = button(state.logLoading ? 'Loading events…' : 'Load more events', loadLogs);
+    const more = button(state.logLoading ? 'Loading events…' : 'Load more events', () => loadLogs());
     more.disabled = !state.run || state.logLoading || !state.more;
-    body.replaceChildren(toolbar, el('p', `${state.logs.length} events loaded · search applies to loaded events`), list, more);
-    focusedControl?.focus({ preventScroll: true });
+    body.replaceChildren(toolbar, el('p', `${state.logs.length} events loaded · search applies to loaded events`), viewport, more);
+    restoringLogFocus = true;
+    (focusedControl || (viewportFocused ? viewport : null))?.focus({ preventScroll: true });
+    viewport.scrollLeft = scrollLeft;
+    viewport.scrollTop = tableScrollTop;
+    restoringLogFocus = false;
+    body.scrollTop = scrollTop;
   }
+
   function renderRuns() {
     if (state.tab !== 'Runs') return;
     const focusedId = body.contains(document.activeElement) ? document.activeElement.id : null;
@@ -866,7 +893,9 @@
       const tag = button('Tag work item', () => tagWorkItem(item, work));
       tag.id = 'console-tag-action-' + item.job_id;
       work.append(tag);
-      row.append(name, el('td', item.state + (item.wait_reason ? ' · ' + waitReasonLabel(item.wait_reason) : '')), el('td', [item.backend, item.model].filter(Boolean).join(' / ')), work);
+      const identity = el('td', [item.backend, item.model].filter(Boolean).join(' / '));
+      identity.prepend(providerModelIcon(item.backend, item.model));
+      row.append(name, el('td', item.state + (item.wait_reason ? ' · ' + waitReasonLabel(item.wait_reason) : '')), identity, work);
       tbody.append(row);
     }
     table.append(tbody);
@@ -901,6 +930,7 @@
       const row = el('section', null, 'run-agent-row');
       row.append(el('h3', [provider.backend, provider.model].filter(Boolean).join(' / ')), el('p', `${provider.state} · ${provider.running} running · ${provider.queued} queued`));
       row.append(el('p', provider.quota ? 'Quota: ' + JSON.stringify(provider.quota) : 'Quota not reported'));
+      row.querySelector('h3').prepend(providerModelIcon(provider.backend, provider.model));
       body.append(row);
     }
     if (!body.children.length) body.append(el('p', 'No configured agents are available.'));
@@ -1059,8 +1089,7 @@
     observe(event) {
       if (['gate_resolved', 'gate_expired', 'gate_invalidated'].includes(event.type)) clearPlanDraft(event.data?.gate_id);
       if (event.job_id === state.run || job === state.run) {
-        state.more = true;
-        if (state.tab === 'Logs') renderLogs();
+        if (state.tab === 'Logs') void loadLogs(true);
       }
       if (!['answer_delta', 'reasoning_delta'].includes(event.type)) {
         clearTimeout(refreshTimer);

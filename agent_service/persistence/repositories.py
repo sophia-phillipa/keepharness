@@ -191,6 +191,12 @@ class MessageRepository:
             (job, cursor),
         ).fetchall()
 
+    def events_before(self, job, before=None, after=0, limit=200):
+        return self.db.execute(
+            "SELECT * FROM events WHERE job=? AND id>? AND (? IS NULL OR id<?) "
+            "ORDER BY id DESC LIMIT ?", (job, after, before, before, limit),
+        ).fetchall()
+
     def answer_deltas(self, job):
         """A job's streamed ``answer_delta`` payloads, in the order they were sent."""
         return self.db.execute(

@@ -249,9 +249,23 @@ async def job_events(request, service, identity):
             raise APIError("invalid_event_limit")
         if not 1 <= limit <= 200:
             raise APIError("invalid_event_limit")
-        rows = service.message_repository.events_after(job, after)[:limit]
-        next_after = rows[-1]["id"] if rows else after
-        has_more = bool(service.message_repository.events_after(job, next_after)) if rows else False
+        newest = request.query_params.get("order", "oldest") == "newest"
+        before = request.query_params.get("before")
+        try:
+            before = int(before) if before is not None else None
+        except ValueError:
+            raise APIError("invalid_event_id")
+        if before is not None and before < 0:
+            raise APIError("invalid_event_id")
+        if newest:
+            rows = service.message_repository.events_before(job, before, after, limit + 1)
+            has_more = len(rows) > limit
+            rows = rows[:limit]
+        else:
+            rows = service.message_repository.events_after(job, after)[:limit]
+            has_more = bool(service.message_repository.events_after(job, rows[-1]["id"])) if rows else False
+        next_after = max((row["id"] for row in rows), default=after)
+        next_before = min((row["id"] for row in rows), default=before)
         return JSONResponse(
             {
                 "events": [
@@ -265,6 +279,7 @@ async def job_events(request, service, identity):
                     for event in rows
                 ],
                 "next_after": next_after,
+                "next_before": next_before,
                 "has_more": has_more,
             },
             headers={"Cache-Control": "no-store"},
