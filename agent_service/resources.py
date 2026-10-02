@@ -740,7 +740,6 @@ def resolve(config, data):
         )["items"]
     }
     result = []
-    tokens = {}
     for selection in selections:
         if not isinstance(selection, dict) or not all(
             isinstance(selection.get(key), str)
@@ -763,9 +762,6 @@ def resolve(config, data):
             r"(?<!\S)" + re.escape(token) + r"(?=\s|$)", prompt
         ):
             raise ResourceError("resource_selection_missing")
-        if token in tokens and tokens[token] != item["id"]:
-            raise ResourceError("resource_name_ambiguous")
-        tokens[token] = item["id"]
         if not any(value["id"] == item["id"] for value in result):
             result.append({**item, "_token": token})
     return result

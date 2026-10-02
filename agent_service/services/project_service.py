@@ -12,6 +12,7 @@ from .. import workspaces
 from ..config import REPOSITORY_ROOT
 from ..errors import APIError
 from ..persistence.db import encoded
+from ..private_storage import private_roots
 
 
 class ProjectService:
@@ -60,7 +61,7 @@ class ProjectService:
             home / ".claude",
             home / ".gemini",
             home / ".config",
-            Path(self.config.get("control_state_dir", self.root)).resolve(),
+            *(path.resolve() for path in private_roots(self.config, self.root)),
         ]
         for raw in raw_paths:
             root = Path(raw.strip()).expanduser()
@@ -124,8 +125,7 @@ class ProjectService:
         root = root.resolve()
         home = Path.home().resolve()
         protected = [
-            self.root.resolve(),
-            Path(self.config.get("control_state_dir", self.root)).resolve(),
+            *(path.resolve() for path in private_roots(self.config, self.root)),
             REPOSITORY_ROOT,
             *(home / name for name in (".ssh", ".aws", ".codex", ".claude", ".gemini", ".config")),
             *(
