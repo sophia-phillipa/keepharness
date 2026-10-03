@@ -5278,3 +5278,18 @@ main:not(:has(#messages > #welcome)) #dropzone #execution-mode-indicator[data-is
 #app-topbar #search-conversations.top-search:hover { background: var(--th-hover); color: var(--th-text); }
 #app-topbar #search-conversations > :not(svg):not(.th-icon) { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 #app-topbar #search-conversations :is(svg, .th-icon) { width: 18px; height: 18px; }
+
+/* Needs-you inbox in the approval-card language. */
+.needs-you-dialog { border-radius: 20px; padding: 18px 20px; }
+.needs-you-dialog :is(h2, h3, h4, legend) { margin: 12px 0 6px; font-size: 14px; line-height: 20px; font-weight: 600; }
+.needs-you-dialog .run-console-header > :first-child { color: var(--th-quiet); font-size: 13px; font-weight: 500; }
+.needs-you-dialog p { margin: 2px 0; font-size: 13px; }
+.needs-you-dialog ol { padding-left: 20px; }
+.needs-you-dialog ol li { margin: 0 0 8px; color: var(--th-quiet); font-size: 13px; }
+.needs-you-dialog ol li strong { color: var(--th-text); }
+.needs-you-card { border-top-color: color-mix(in srgb, var(--th-text) 9%, transparent); }
+.needs-you-card .run-field { gap: 10px; min-height: 36px; padding: 6px 10px; border-radius: 12px; font-size: 14px; cursor: pointer; }
+.needs-you-card .run-field:hover { background: var(--th-hover); }
+.needs-you-card .run-field input { accent-color: var(--th-action); }
+.needs-you-dialog .btn { min-height: 32px; padding: 0 14px; border: 0; border-radius: 9999px; background: color-mix(in srgb, var(--th-text) 8%, transparent); color: var(--th-text); font-size: 13px; font-weight: 500; }
+.needs-you-dialog .btn:not(:disabled):is(.btn-primary, [type="submit"]) { background: var(--th-action); color: var(--th-on-action); }
