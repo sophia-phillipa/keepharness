@@ -1,0 +1,85 @@
+# Integrations view
+
+`GET /v1/integrations` tells the user, for one project and one route, which connectors
+(MCP servers) and plugins are installed, allowed, effective for the run and used
+recently. It is read-only: it changes no setting, starts no provider CLI and never
+returns a command, argument, URL, header or environment value from a provider profile.
+It backs a Plugins chip in the composer (the chip itself is not part of this change).
+
+## Request
+
+`GET /v1/integrations?project_id=&backend=&model=&execution_mode=&access_mode=`
+
+Access and validation match `GET /v1/resources`: the caller needs the project, the
+provider service must be enabled for it, and the model must be allowed. `maestro`
+resolves to its coordinator. `execution_mode` defaults to the provider's default and is
+validated the same way; `access_mode` is one of `ask` (default), `auto`, `full`,
+`read_only`, otherwise `invalid_access_mode`. The response is sent with
+`Cache-Control: no-store`.
+
+## Response
+
+```json
+{
+  "backend": "claude",
+  "execution_mode": "native",
+  "access_mode": "ask",
+  "effective_note": "Each connector call asks for your approval.",
+  "items": [
+    {
+      "id": "mcp:github",
+      "kind": "mcp",
+      "name": "github",
+      "transport": "http",
+      "status": "configured",
+      "allowed": true,
+      "effective": true,
+      "reason": "",
+      "used": {"count": 3, "last_used": 1791000000.0, "tools": ["create_issue"]}
+    }
+  ],
+  "other_tools": [{"name": "exec_command", "count": 12, "last_used": 1791000000.0}],
+  "window_days": 30,
+  "warnings": []
+}
+```
+
+- `items` is the provider's inventory, connectors first, then plugins, each sorted by
+  name. `transport` is `http` or `stdio` for connectors and `null` for plugins. Servers
+  named `harness_effects*` are the harness's own and are never listed.
+- `allowed` is the provider-level list in Settings (`services.<provider>.integrations`).
+  There is no per-project list.
+- `effective` is `allowed` and usable on this route; when it is false, `reason` says why.
+  It mirrors what the adapters do:
+
+  | Route | Result |
+  | --- | --- |
+  | Isolated (`scoped`) conversation or the local provider | Nothing is effective: no host connectors or plugins. |
+  | Gemini with `read_only` | Nothing is effective: connectors are turned off. |
+  | Gemini without the `internet` permission (provider or project grant) | Allowed connectors are not effective. |
+  | Any item not in the allowed list | Not effective: change it in Settings. |
+
+- `effective_note` is one sentence about approvals: Claude in `ask` asks for every
+  connector call; Codex, DeepSeek or Claude run them without asking when the adapter is
+  unrestricted, the access mode is `auto` or `full` and the shell is granted; the
+  isolated sentence for isolated routes; otherwise empty.
+- `used` and `other_tools` count `tool_start` events of this provider's runs by the
+  caller in this project over the last `window_days`. Claude names tools
+  `mcp__<server>__<tool>`, so those are attributed to `mcp:<server>` (count, latest
+  time, up to five tool names). Codex and Gemini tool names carry no server, so their
+  usage appears only under `other_tools` (top 20 by count).
+- `warnings` lists problems reading the inventory. An unreadable provider profile gives
+  `items: []` and a warning, never an error.
+
+For Codex and DeepSeek the plugin list comes from the runtime's `plugin_inventory` when
+present (the installed plugin list the adapter toggles), otherwise from the profile.
+
+## Where it lives
+
+- `agent_service/integrations_view.py`: the pure view (`route_limits`, `build`).
+- `ConversationService.integration_view`: access checks, shared with `resource_catalog`
+  through `_resolve_route`, and the usage read.
+- `MessageRepository.tool_usage`: one grouped query that walks the caller's own jobs
+  and probes events through the `(job, type, time)` index.
+- `agent_service/routes/projects.py`: the `/v1/integrations` route.
+- `tests/test_integrations_view.py`: contract, secrets, route matrix, usage and failures.

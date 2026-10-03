@@ -1,4 +1,4 @@
-"""Projects, project folders, services, catalog and resources."""
+"""Projects, project folders, services, catalog, resources and integrations."""
 
 import asyncio
 import subprocess
@@ -48,6 +48,21 @@ async def resources(request, service, identity):
         params.get("backend"),
         params.get("model"),
         params.get("execution_mode"),
+    )
+    service.project(service.identity(request, revalidate=True), params.get("project_id"))
+    return JSONResponse(value, headers={"Cache-Control": "no-store"})
+
+
+async def integrations(request, service, identity):
+    params = request.query_params
+    value = await asyncio.to_thread(
+        service.integration_view,
+        identity,
+        params.get("project_id"),
+        params.get("backend"),
+        params.get("model"),
+        params.get("execution_mode"),
+        params.get("access_mode"),
     )
     service.project(service.identity(request, revalidate=True), params.get("project_id"))
     return JSONResponse(value, headers={"Cache-Control": "no-store"})
@@ -232,6 +247,7 @@ async def services(request, service, identity):
 
 ROUTES = [
     api_route("/v1/resources", resources),
+    api_route("/v1/integrations", integrations),
     api_route("/v1/catalog", catalog),
     api_route("/v1/project-directories", project_directories),
     api_route("/v1/project-git", project_revision),

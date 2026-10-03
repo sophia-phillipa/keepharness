@@ -26,6 +26,7 @@ from .. import (
     approval_policy,
     conversation_context,
     deployment,
+    integrations_view,
     invocations,
     maestro,
     resources,
@@ -825,7 +826,8 @@ class ConversationService:
                 return {"decision": "unsupported", "reason": "model_or_effort_unavailable"}
         return {"decision": "accept", "kind": kind, "quality": "experimental; verify evidence"}
 
-    def resource_catalog(self, identity, project_id, backend, model, execution_mode=None):
+    def _resolve_route(self, identity, project_id, backend, model, execution_mode):
+        """Maestro becomes its coordinator; the project, service and model must all be allowed."""
         self.project(identity, project_id)
         if backend == "maestro":
             if execution_mode is not None:
@@ -839,6 +841,34 @@ class ConversationService:
             raise APIError("service_project_denied", 403)
         if model not in policy.get("models", []):
             raise APIError("model_denied", 403)
+        return backend, model, execution_mode
+
+    def integration_view(
+        self, identity, project_id, backend, model, execution_mode=None, access_mode=None
+    ):
+        """Installed, allowed, effective and recently used connectors and plugins for a route."""
+        backend, model, execution_mode = self._resolve_route(
+            identity, project_id, backend, model, execution_mode
+        )
+        execution_mode = execution_mode or self.default_execution_mode(backend)
+        self.validate_execution_mode(backend, execution_mode)
+        access_mode = access_mode or "ask"
+        if access_mode not in approval_policy.MODES:
+            raise APIError("invalid_access_mode")
+        usage = self.message_repository.tool_usage(
+            identity[0],
+            project_id,
+            backend,
+            time.time() - integrations_view.WINDOW_DAYS * 86400,
+            integrations_view.USAGE_TOOL_LIMIT,
+        )
+        route = integrations_view.Route(project_id, backend, model, execution_mode, access_mode)
+        return integrations_view.build(self.config, route, usage)
+
+    def resource_catalog(self, identity, project_id, backend, model, execution_mode=None):
+        backend, model, execution_mode = self._resolve_route(
+            identity, project_id, backend, model, execution_mode
+        )
         if not maestro.model_permissions(self.config, backend, model, project_id).get("read"):
             # File resources need "read"; the user's own agents are harness-kept text.
             result = {
