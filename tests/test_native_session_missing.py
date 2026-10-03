@@ -187,6 +187,92 @@ def test_a_lost_native_session_continues_from_the_harness_history(tmp_path):
             assert asyncio.run(service.infer(row, current))["answer"] == "new-answer"
         assert len(prompts) == 2
         assert "earlier-answer" not in prompts[0]
-        assert all(text in prompts[1] for text in ("earlier-prompt", "earlier-answer", "new-prompt"))
+        assert all(
+            text in prompts[1] for text in ("earlier-prompt", "earlier-answer", "new-prompt")
+        )
+    finally:
+        service.db.close()
+
+
+def test_the_session_retry_repeats_only_the_adapter_call(tmp_path):
+    """Hooks are user scripts and the attachment notice is streamed text: both happen once."""
+    from unittest.mock import AsyncMock
+
+    from agent_service.errors import APIError
+
+    cfg = {
+        "state_dir": str(tmp_path),
+        "projects": {"p": {}},
+        "clients": {"a": {"projects": ["p"]}},
+        "services": {
+            "gemini": {
+                "enabled": True,
+                "mode": "native",
+                "models": ["auto-gemini-3"],
+                "projects": ["p"],
+                "permissions": {"upload": True},
+            }
+        },
+        "gemini": {"binary": "fixture"},
+        "gemini_models": ["auto-gemini-3"],
+    }
+    service = Service(cfg)
+    try:
+        service.db.execute(
+            "INSERT INTO files(id,project,name,size,hash,pages,owner) VALUES(?,?,?,?,?,?,?)",
+            (
+                "picture",
+                "p",
+                "picture",
+                1,
+                "hash",
+                '[{"media_type": "image/png", "text": ""}]',
+                "a",
+            ),
+        )
+        payload = {
+            "backend": "gemini",
+            "model": "auto-gemini-3",
+            "effort": "configured",
+            "project_id": "p",
+            "prompt": "Look at this",
+            "file_ids": ["picture"],
+        }
+        service.db.execute(
+            "INSERT INTO jobs(id,project,owner,state,created,payload) VALUES(?,?,?,?,?,?)",
+            ("job", "p", "a", "running", 1, json.dumps(payload)),
+        )
+        service.db.commit()
+        row = dict(service.db.execute("SELECT * FROM jobs WHERE id='job'").fetchone())
+        calls = []
+
+        async def run(config, prompt, event, project, model, effort, folder, provider, approve):
+            calls.append(prompt)
+            if len(calls) == 1:
+                raise ToolError("native_session_missing")
+            event("answer_delta", {"text": "Seen."})
+            return {"answer": "Seen.", "backend": "gemini"}
+
+        hooks = AsyncMock()
+        with (
+            patch.object(
+                service,
+                "validate_images",
+                AsyncMock(side_effect=APIError("model_images_unavailable")),
+            ),
+            patch("agent_service.catalog_hooks.run_hooks", hooks),
+            patch("adapters.run_native", side_effect=run),
+        ):
+            result = asyncio.run(service.infer(row, payload))
+        assert len(calls) == 2
+        assert hooks.await_count == 1
+        assert "ignored" in result["answer"] and result["answer"].endswith("Seen.")
+        streamed = "".join(
+            json.loads(event[0])["text"]
+            for event in service.db.execute(
+                "SELECT data FROM events WHERE job='job' AND type='answer_delta' ORDER BY id"
+            )
+        )
+        assert streamed == result["answer"]
     finally:
         service.db.close()
