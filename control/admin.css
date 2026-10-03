@@ -1427,7 +1427,9 @@ body {
   font-weight: 400;
 }
 .brand-icon {
-  color: var(--th-accent);
+  width: 32px;
+  height: 32px;
+  flex: none;
 }
 .sidebar nav {
   display: grid;
