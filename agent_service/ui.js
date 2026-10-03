@@ -1485,7 +1485,7 @@ const userErrors = {
   approval_expiration_limit:
     "The run was cancelled after repeated approval requests expired. Send your message again when you are ready to respond.",
   approval_session_required:
-    "This browser is not enrolled to approve actions yet. On this computer run: keepharness approve-device --owner local, then open the link it prints in this browser and try again.",
+    "This browser is not enrolled to approve actions yet. Ask the admin of this KeepHarness to enroll this browser for your own account (keepharness approve-device), then open the link they send you and try again.",
   approval_storage_unsafe:
     "Approval sessions could not be stored securely. Ask the server owner to check the state directory permissions before trying again.",
   approval_enrollment_invalid:
@@ -1545,6 +1545,16 @@ const userErrors = {
   schedule_limit: "You have reached the limit of 50 schedules. Delete one to add another.",
   schedule_storage_unsafe: "The schedules folder cannot be used safely. Check the harness state folder.",
 };
+// The 403 body names the caller's owner id. Name it in the command only when it is safe to
+// paste into a shell; otherwise keep the generic text, which names no owner.
+const SAFE_OWNER_ID = /^[\w@][\w.@+-]{0,127}$/;
+function enrollmentMessage(owner) {
+  return typeof owner === "string" && SAFE_OWNER_ID.test(owner)
+    ? "This browser is not enrolled to approve actions yet. On this computer run: keepharness approve-device --owner " +
+        owner +
+        ", then open the link it prints in this browser and try again."
+    : userErrors.approval_session_required;
+}
 async function api(path, options = {}) {
   let r;
   try {
@@ -1568,6 +1578,7 @@ async function api(path, options = {}) {
       e = { code: "HTTP " + r.status };
     }
     let message =
+      (e.code === "approval_session_required" && enrollmentMessage(e.owner)) ||
       userErrors[e.code] ||
       attachmentError(e.code) ||
       (r.status === 429
