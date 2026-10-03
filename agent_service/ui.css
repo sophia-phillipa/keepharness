@@ -4841,7 +4841,7 @@ main:has(.run-console.has-publication-evidence:not([hidden])) .publish-evidence 
   --th-rail-width: 50px;
   --th-row-radius: 12px;
   --th-hover: color-mix(in srgb, var(--th-text) 7%, transparent);
-  --th-quiet: color-mix(in srgb, var(--th-text) 55%, transparent);
+  --th-quiet: var(--th-muted);
 }
 body {
   grid-template-columns: var(--th-rail-width) var(--th-sidebar-width, 300px) minmax(0, 1fr) auto;
@@ -4957,7 +4957,6 @@ body.panel-order-reversed #activity-panel { grid-column: 2; grid-row: 1; border-
 body.panel-order-reversed main { grid-column: 3; grid-row: 1; }
 body.panel-order-reversed #sidebar { grid-column: 4; grid-row: 1; }
 /* Empty conversation: the conversation-mode choice sits under the composer as its contained sub-bar. */
-main:has(#messages > #welcome) .composer-context { display: none; }
 main:has(#messages > #welcome) .composer-area { margin-bottom: 0; padding-bottom: 0; position: relative; z-index: 1; }
 main:has(#messages > #welcome) #execution-mode-choice:not([hidden]) {
   order: 10; width: calc(100% - 32px); max-width: 614px; margin: -14px auto auto; padding: 18px 12px 6px;
@@ -5113,7 +5112,7 @@ main:not(:has(#messages > #welcome)) .composer-area { max-width: 800px; }
 /* Access mode: icon-only inside the conversation pill; full access is flagged in orange like the reference. */
 main:not(:has(#messages > #welcome)) #dropzone #access-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 main:not(:has(#messages > #welcome)) #dropzone #access-trigger-icon { display: inline-grid; place-items: center; width: 16px; height: 16px; }
-#access-trigger[data-mode="full"] { color: light-dark(#c2410c, #ff8549); }
+#access-trigger[data-mode="full"] { color: light-dark(#9a3412, #ff8549); }
 
 /* ===== Our own cards (Maestro plan, approvals, questions, publish gates) in the reference card language. ===== */
 #messages :is(.maestro-plan-card, .approval-card) {
@@ -5124,7 +5123,7 @@ main:not(:has(#messages > #welcome)) #dropzone #access-trigger-icon { display: i
 #messages .approval-card:not([data-state]) { border-color: color-mix(in srgb, light-dark(#c2410c, #ff8549) 35%, transparent)!important; }
 #messages .maestro-plan-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 10px; }
 #messages .maestro-plan-heading strong, #messages .approval-card h3 { margin: 0; font-size: 14px; font-weight: 600; color: var(--th-text); }
-#messages :is(.maestro-plan-card, .approval-card) .state-pill { min-height: 22px; padding: 0 8px; border: 0; border-radius: 9999px; background: color-mix(in srgb, light-dark(#c2410c, #ff8549) 14%, transparent); color: light-dark(#c2410c, #ff8549); font-size: 12px; }
+#messages :is(.maestro-plan-card, .approval-card) .state-pill { min-height: 22px; padding: 0 8px; border: 0; border-radius: 9999px; background: color-mix(in srgb, light-dark(#c2410c, #ff8549) 12%, transparent); color: light-dark(#9a3412, #ff8549); font-size: 12px; }
 #messages .maestro-plan-heading [role="status"] { color: var(--th-quiet); font-size: 13px; }
 #messages .maestro-plan-card ol { margin: 0 0 12px; padding: 0; list-style: none; counter-reset: plan; display: grid; gap: 6px; }
 #messages .maestro-plan-card li { counter-increment: plan; display: grid; grid-template-columns: 22px auto auto 1fr; align-items: center; column-gap: 8px; padding: 8px 10px; border-radius: 12px; background: color-mix(in srgb, var(--th-text) 4%, transparent); }
@@ -5261,8 +5260,8 @@ body dialog:not(#settings-dialog) .btn.btn-danger { background: color-mix(in srg
 /* Nested project chats: text only, aligned like the reference. */
 #projects .project-conversations .conversation-row > button:first-child { padding-left: 8px; }
 #projects .project-conversations .conversation-title { font-size: 14px; }
-#workspace-files { height: 200px; }
-#workspace-resources, #workspace-activity { height: 96px; }
+#workspace-files { height: 160px; }
+#workspace-resources, #workspace-activity { height: 80px; }
 #activity-panel .authorized-root-card > strong { flex-direction: row-reverse; justify-content: flex-end; }
 #sidebar .conversation-row .conversation-row-meta .conversation-summary { flex: none; }
 #sidebar .conversation-row .conversation-row-meta .conversation-project { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
@@ -5328,3 +5327,51 @@ main:not(:has(#messages > #welcome)) #dropzone .composer-right { min-width: 0; }
   main:not(:has(#messages > #welcome)) #dropzone .access-control,
   main:not(:has(#messages > #welcome)) #dropzone .composer-right { grid-row: 3; }
 }
+
+/* Context meter stays (product information), quiet above the composer in every state. */
+main:has(#messages > #welcome) .composer-context { display: flex; justify-content: center; }
+main:has(#messages > #welcome) .composer-context #context-meter { color: var(--th-quiet); font-size: 12px; padding: 0 0 6px; }
+/* Panel content clears the resize handle that straddles its edge. */
+#activity-panel { padding-left: 22px; }
+body.panel-order-reversed #activity-panel { padding-left: 12px; padding-right: 22px; }
+/* Focus never lands under the sticky sidebar head. */
+#sidebar .sidebar-tree :is(button, a, summary, [tabindex]) { scroll-margin-top: 56px; scroll-margin-bottom: 8px; }
+/* Context line sits fully above the composer border (no tab overlap). */
+.composer-area .composer-context { margin: 0 0 4px; padding: 0 12px; min-height: 0; }
+.composer-area .composer-context #context-meter { margin: 0; padding: 0; line-height: 16px; }
+
+/* Long guidance placeholder stays on one line inside the pill (clipped, never wrapped). */
+#prompt:placeholder-shown { white-space: nowrap; overflow: hidden; }
+#prompt::placeholder { text-overflow: ellipsis; }
+/* The files panel resize handle straddles the panel edge like the sidebar's. */
+#activity-panel-resize { left: -12px; }
+#activity-panel-resize:after { left: 10px; }
+#activity-panel { padding-left: 16px; }
+@media (max-width: 620px) {
+  body .composer-submit .send, body #dropzone #cancel:not([hidden]) { flex-basis: 44px; width: 44px; min-width: 44px; height: 44px; }
+}
+/* Visually hidden labels keep an ellipsis (their full names live in title/aria-label). */
+#app-topbar :is(#menu, #panel-toggle, .top-action) > span:not(.th-icon), #app-topbar #search-conversations > :not(svg):not(.th-icon),
+body .composer-submit .send > span, body #dropzone #cancel > span, #dropzone .composer-field-label, #dropzone #access-label { text-overflow: ellipsis; }
+/* Phone: 44 px touch targets in the top bar. */
+@media (max-width: 620px) {
+  :root { --th-app-topbar-height: 52px; }
+  #app-topbar :is(#menu, #panel-toggle, .top-action, #search-conversations.top-search, #app-brand) { width: 44px; height: 44px; }
+}
+#activity-panel-resize { z-index: 6; }
+#app-topbar #app-brand.brand { flex: none; width: 34px; min-width: 0; max-width: 34px; height: 34px; padding: 0; justify-content: center; }
+@media (max-width: 620px) { #app-topbar #app-brand.brand { width: 44px; max-width: 44px; height: 44px; } }
+/* Chat header 48 px (reference strip ~46 px) keeps the approved 340 px console at 720 px. */
+main > header { height: 48px; min-height: 48px; padding: 6px 16px; }
+main > header .view-switch { top: 6px; }
+/* Console header stays compact so the body keeps its baseline height. */
+.run-console-header { min-height: 38px; }
+.run-console-tabs [role="tab"] { height: 28px; }
+@media (max-width: 620px) {
+  body.panel-order-reversed #sidebar.open { left: auto; right: 0; }
+}
+/* Console resizer keeps its 24 px hit area but overlaps the header's empty top edge. */
+.run-console > .run-console-resizer { margin-bottom: -12px; z-index: 3; }
+.run-console > .run-console-resizer::after { top: 6px; }
+/* Evidence/code blocks inside approval cards: readable text on the soft surface in every theme. */
+#messages .approval-card :is(pre, .approval-diff), #messages .approval-card pre * { color: var(--th-text); }

@@ -311,10 +311,11 @@ runPersona("H36", [
       await openHarness(page);
       // F-97 fixed: with no saved theme, theme.js follows
       // matchMedia('(prefers-color-scheme: dark)') and picks the default dark
-      // palette ("amethyst") instead of always starting on the light default.
+      // palette instead of always starting on the light default. Since the
+      // Codex-style shell (2026-10-03) the default dark palette is "graphite".
       assert.equal(
         await page.evaluate(() => document.documentElement.dataset.palette),
-        "amethyst",
+        "graphite",
       );
       assert.equal(
         await page.evaluate(() => document.documentElement.dataset.theme),
@@ -497,9 +498,10 @@ runPersona("H36", [
         },
       });
       await harness.goto("http://harness.test");
+      // Default light palette of the Codex-style shell.
       assert.equal(
         await harness.evaluate(() => document.documentElement.dataset.palette),
-        "violet-bordeaux",
+        "paper",
       );
       assert.equal(
         await harness.evaluate(() => TailTheme.key),

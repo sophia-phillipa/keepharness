@@ -1602,7 +1602,7 @@ body:has(#provider-dialog[open]) {
 }
 body {
   --th-hover: color-mix(in srgb, var(--th-text) 7%, transparent);
-  --th-quiet: color-mix(in srgb, var(--th-text) 55%, transparent);
+  --th-quiet: var(--th-muted);
   --th-line: color-mix(in srgb, var(--th-text) 10%, transparent);
   background: var(--th-bg);
 }

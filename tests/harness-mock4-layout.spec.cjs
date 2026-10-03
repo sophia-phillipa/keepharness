@@ -64,18 +64,25 @@ const path = require("node:path");
 
     const regions = await page.locator("body > #app-topbar, body > #sidebar, body > main, body > #activity-panel").evaluateAll((nodes) => nodes.map((node) => node.id || node.tagName.toLowerCase()));
     assert.deepEqual(regions, ["app-topbar", "sidebar", "main", "activity-panel"]);
+    // Chat-first shell: the files/activity panel starts closed; open it to measure all regions.
+    if (await page.locator("#activity-panel").isHidden()) await page.click("#panel-toggle");
     const boxes = await page.locator("#sidebar, main, #activity-panel").evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect()));
     assert(boxes[0].right <= boxes[1].left + 1 && boxes[1].right <= boxes[2].left + 1);
     assert(boxes[0].width >= 299, "desktop sidebar keeps the approved 300px region");
     assert(await page.locator('[data-tour="top-search"]').isVisible());
     assert(await page.locator('[data-tour="attention-bell"]').isVisible());
-    for (const label of ["Needs you", "Running", "Queued", "Done today"])
-      assert(await page.getByRole("heading", { name: new RegExp(label, "i") }).count());
+    // Codex-style sidebar: empty status groups are hidden (their counts stay in the status strip and the rail bell).
+    for (const label of ["Needs you", "Running", "Queued", "Done today"]) {
+      const rows = await page.locator(".conversation-state-group", { has: page.locator("h2", { hasText: new RegExp(label, "i") }) }).locator(".conversation-row").count();
+      if (rows) assert(await page.getByRole("heading", { name: new RegExp(label, "i") }).count(), label);
+    }
     await page.waitForFunction(() => /2 running.*1 queued.*1 needs you/i.test(document.getElementById("run-status-toggle")?.textContent || ""));
     assert.match(await page.locator("#run-status-toggle").innerText(), /2 running.*1 queued.*1 needs you/i);
     assert.equal(await page.locator("#conversation-state-pill").innerText(), "Awaiting approval");
     const strip = await page.locator(".run-status-strip").boundingBox();
-    assert(strip.x <= 1 && strip.width >= 1439, "status strip spans the viewport");
+    // The status strip spans the chat column to the right edge (the sidebar keeps its own footer area).
+    const chatLeft = (await page.locator("main").boundingBox()).x;
+    assert(strip.x <= chatLeft + 1 && strip.x + strip.width >= 1439, "status strip spans the chat column");
     assert.equal(await page.locator("#console-run").inputValue(), "j1");
     assert.equal(await page.locator("#console-run").isVisible(), false);
     await page.keyboard.press("Control+j");
@@ -87,7 +94,8 @@ const path = require("node:path");
       layout: getComputedStyle(node.parentElement).display,
       chip: !!node.querySelector(".backend-chip"),
     }));
-    assert.deepEqual(cardStyle, { border: "3px", layout: "flex", chip: true });
+    // Codex-style stage cards: one quiet 1px border instead of the 3px accent stripe.
+    assert.deepEqual(cardStyle, { border: "1px", layout: "flex", chip: true });
     await page.keyboard.press("Control+j");
     const plan = page.locator(".maestro-plan-card");
     assert(await plan.isVisible());

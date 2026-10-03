@@ -5421,7 +5421,7 @@ function modelAvailability(
     !models.length || submitting || loading || uploads > 0 || policyPending;
   $("effort").disabled = $("model").disabled;
   $("prompt").placeholder = models.length
-    ? "Message Tail Harness — type / for agents"
+    ? "Send a message… · / agents, skills and commands · Enter to send · Shift+Enter for a new line"
     : "Set up a model to send; your draft will be preserved.";
   $("model-note").hidden = !models.length;
   updateModelPermissions();
@@ -8255,7 +8255,7 @@ for (const section of document.querySelectorAll(".workspace-section")) {
     handle.setAttribute("aria-valuenow", String(Math.round(next))); save();
   };
   handle.setAttribute("aria-valuemin", "64"); handle.setAttribute("aria-valuemax", "600");
-  handle.setAttribute("aria-valuenow", String(parseFloat(content.style.height) || (name === "files" ? 200 : name === "background-tasks" ? 64 : 96)));
+  handle.setAttribute("aria-valuenow", String(parseFloat(content.style.height) || (name === "files" ? 160 : name === "background-tasks" ? 64 : 80)));
   let drag;
   handle.onpointerdown = event => { if (event.button !== 0) return; event.preventDefault(); drag = { y: event.clientY, height: content.getBoundingClientRect().height }; handle.setPointerCapture(event.pointerId); };
   handle.onpointermove = event => { if (drag) size(drag.height + event.clientY - drag.y); };
