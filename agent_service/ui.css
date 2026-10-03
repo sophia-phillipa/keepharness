@@ -5293,3 +5293,6 @@ main:not(:has(#messages > #welcome)) #dropzone #execution-mode-indicator[data-is
 .needs-you-card .run-field input { accent-color: var(--th-action); }
 .needs-you-dialog .btn { min-height: 32px; padding: 0 14px; border: 0; border-radius: 9999px; background: color-mix(in srgb, var(--th-text) 8%, transparent); color: var(--th-text); font-size: 13px; font-weight: 500; }
 .needs-you-dialog .btn:not(:disabled):is(.btn-primary, [type="submit"]) { background: var(--th-action); color: var(--th-on-action); }
+/* User bubble reads in every theme (Paper's panel equals its background). */
+#messages article.message.user > .chat-bubble { background: color-mix(in srgb, var(--th-text) 8%, var(--th-bg)); }
+#settings-dialog [data-theme-picker] > *, #settings-dialog #panel-order-options > button { border: 1px solid color-mix(in srgb, var(--th-text) 10%, transparent); }
