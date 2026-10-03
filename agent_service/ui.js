@@ -5283,6 +5283,8 @@ function syncViewSwitch() {
   $("view-chat").tabIndex = code ? -1 : 0;
   $("view-code").tabIndex = code ? 0 : -1;
   document.body.dataset.view = code ? "code" : "chat";
+  const heading = document.querySelector("#welcome h1");
+  if (heading) heading.textContent = code ? "What should we build?" : "How can I help?";
 }
 function showView(view) {
   const code = $("panel-toggle").getAttribute("aria-expanded") === "true";
@@ -6874,6 +6876,7 @@ new ResizeObserver(entries => {
 }).observe($("prompt"));
 function updateComposer() {
   syncComposerProjectButton();
+  syncViewSwitch();
   syncComposerPickers();
   syncExecutionMode();
   updateModelPermissions();
