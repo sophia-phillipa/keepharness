@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 'use strict';
-// Rebuilds the KeepHarness brand assets from the two approved Gemini images:
-//   node scripts/brand-assets.cjs <logo.jpeg> <splash.jpeg>
+// Rebuilds the KeepHarness brand assets: the icon is drawn from the geometry below (no input image),
+// the splash is Gemini's original splash image with the new icon placed over its own.
+//   node scripts/brand-assets.cjs <splash.jpeg>
 // Needs Node 22.2+ and ffmpeg/ffprobe on PATH, nothing else. See desktop/build/README.md.
 const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
@@ -12,10 +13,6 @@ const ROOT = path.resolve(__dirname, '..');
 const BUILD = path.join(ROOT, 'desktop', 'build');
 const WEB = path.join(ROOT, 'harness_ui', 'assets');
 
-// The squircle of the 2048 px logo (centre, half-size, corner radius in source px), fitted to its
-// sub-pixel edge. The checkerboard and drop shadow around it are painted into the JPEG.
-const LOGO_SHAPE = { cx: 1024.1, cy: 1024.3, a: 819.4, r: 352 };
-const INSET = 4; // source px next to the edge that are re-sampled from further inside
 // The icon drawn in the 2624x1632 splash (centre, half-size) and how far the new one overlaps it.
 const SPLASH_ICON = { cx: 1312, cy: 694.8, a: 284.2, cover: 2.5 };
 const SPLASH_SIZE = { w: 1600, h: 1000, maxBytes: 400 * 1000 };
@@ -24,9 +21,7 @@ const ICO_SIZES = [16, 24, 32, 48, 64, 128, 256];
 const FAVICON_SIZES = [16, 32, 48];
 const APPLE_TOUCH_SIZE = 180;
 const ICNS_TYPES = { 128: 'ic07', 256: 'ic08', 512: 'ic09', 1024: 'ic10' };
-const SMALL_MAX = 32; // up to this size the symbol is enlarged and sharpened to stay legible
-const SMALL_ZOOM = 1.2;
-const SMALL_SHARPEN = 0.7;
+const SMALL_MAX = 32; // up to this size the mark is thickened and snapped to the pixel grid
 
 // ---- image I/O (ffmpeg decodes and encodes JPEG; PNG is written here with zlib) ----
 
@@ -189,101 +184,110 @@ function resize(img, outW, outH, box) {
   return { w: outW, h: outH, px };
 }
 
-// ---- the squircle ----
+// ---- the mark: one geometry description, written as SVG and rasterized with analytic anti-aliasing ----
 
-// Signed distance (positive outside) to a rounded rectangle, plus the outward normal.
+// Sophia's "Design 2" (Gemini reference, 2048 px), measured in squircle widths from its top-left corner:
+// a thick coral ring cut open around three solid teal nodes, joined in a triangle by thick teal bars.
+const COLORS = { navy: '#071f43', teal: '#3ecdbe', coral: '#fc785d' };
+const DESIGN = {
+  corner: 0.43, // squircle corner radius, in half-widths
+  ring: { cx: 0.5, cy: 0.5134, r: 0.3693, w: 0.0704 }, // coral ring: centre, centre-line radius, stroke width
+  nodes: [[0.5, 0.1791], [0.2, 0.688], [0.8, 0.688]], // teal disc centres
+  nodeR: 0.1023,
+  gap: 0.0345, // navy gap between a node and the ring or bars around it
+  barW: 0.055,
+  box: { x: 0.075, y: 0.0723, size: 0.85 }, // crop of the mark-only variant
+};
+// Up to SMALL_MAX px the strokes are thickened and every edge snaps to the pixel grid, so the
+// ring and the nodes stay crisp. The in-app symbol is thickened too but not snapped.
+const THICK = { ring: 1.45, bar: 1.7, node: 1.12, minGap: 1 };
+
+const hexToRgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+
+// `size` px is the width of the squircle (the whole canvas, edge to edge); `crop` frames the mark only.
+function geometry(size, { crop = false, thick = size <= SMALL_MAX, snap = size <= SMALL_MAX } = {}) {
+  const d = DESIGN, unit = crop ? size / d.box.size : size;
+  const at = (u, v) => (crop ? [(u - d.box.x) * unit, (v - d.box.y) * unit] : [u * unit, v * unit]);
+  const round = (v) => (snap ? Math.round(v) : v);
+  const mult = thick ? THICK : { ring: 1, bar: 1, node: 1, minGap: 0 };
+  const [rcx, rcy] = at(d.ring.cx, d.ring.cy).map(round);
+  const outer = round((d.ring.r + (d.ring.w * mult.ring) / 2) * unit), inner = round((d.ring.r - (d.ring.w * mult.ring) / 2) * unit);
+  const nodeR = round(d.nodeR * mult.node * unit);
+  const haloR = nodeR + Math.max(d.gap * unit, mult.minGap);
+  const centres = d.nodes.map(([u, v]) => at(u, v).map(round));
+  const [a, b, c] = centres;
+  const barW = Math.max(round(d.barW * mult.bar * unit), snap ? 1 : 0);
+  return {
+    size,
+    corner: d.corner * (size / 2),
+    ring: { cx: rcx, cy: rcy, r: (outer + inner) / 2, w: outer - inner },
+    bars: [[a, b], [a, c], [b, c]].map(([p, q]) => ({ x1: p[0], y1: p[1], x2: q[0], y2: q[1], w: barW })),
+    nodes: centres.map(([x, y]) => ({ cx: x, cy: y, r: nodeR })),
+    halos: centres.map(([x, y]) => ({ cx: x, cy: y, r: haloR })),
+  };
+}
+
+const num = (v) => String(+v.toFixed(2));
+// The SVG markup of a geometry. shape: 'rounded' (with the squircle) or 'none' (mark only).
+function svgBody(g, shape, maskId) {
+  const s = num(g.size), fill = (c) => `fill="${COLORS[c]}"`, stroke = (c, w) => `fill="none" stroke="${COLORS[c]}" stroke-width="${num(w)}"`;
+  const circle = (o, extra) => `<circle cx="${num(o.cx)}" cy="${num(o.cy)}" r="${num(o.r)}" ${extra}/>`;
+  const back = shape === 'rounded' ? `<rect width="${s}" height="${s}" rx="${num(g.corner)}" ${fill('navy')}/>` : '';
+  const gaps = g.halos.map((h) => circle(h, 'fill="#000"')).join('');
+  const bars = g.bars.map((b) => `<line x1="${num(b.x1)}" y1="${num(b.y1)}" x2="${num(b.x2)}" y2="${num(b.y2)}" ${stroke('teal', b.w)}/>`).join('');
+  return `<defs><mask id="${maskId}" maskUnits="userSpaceOnUse" x="0" y="0" width="${s}" height="${s}"><rect width="${s}" height="${s}" fill="#fff"/>${gaps}</mask></defs>`
+    + `${back}<g mask="url(#${maskId})">${circle(g.ring, stroke('coral', g.ring.w))}${bars}</g>${g.nodes.map((n) => circle(n, fill('teal'))).join('')}`;
+}
+const svgFile = (g, shape) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${num(g.size)} ${num(g.size)}" width="${num(g.size)}" height="${num(g.size)}"><title>KeepHarness</title>${svgBody(g, shape, 'gaps')}</svg>\n`;
+
+// Signed distance (positive outside) to a rounded rectangle, a ring's centre line, a disc and a flat-ended bar.
 function roundRect(x, y, cx, cy, a, r) {
-  const dx = x - cx, dy = y - cy;
-  const qx = Math.abs(dx) - (a - r), qy = Math.abs(dy) - (a - r);
-  const sx = dx < 0 ? -1 : 1, sy = dy < 0 ? -1 : 1;
-  if (qx > 0 && qy > 0) {
-    const len = Math.hypot(qx, qy);
-    return { sd: len - r, nx: (sx * qx) / len, ny: (sy * qy) / len };
-  }
-  return qx > qy ? { sd: qx - r, nx: sx, ny: 0 } : { sd: qy - r, nx: 0, ny: sy };
+  const qx = Math.abs(x - cx) - (a - r), qy = Math.abs(y - cy) - (a - r);
+  return Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - r;
 }
-
-function bilinear(img, x, y) {
-  const fx = x - 0.5, fy = y - 0.5, x0 = Math.floor(fx), y0 = Math.floor(fy);
-  const tx = fx - x0, ty = fy - y0, out = [0, 0, 0, 255];
-  for (let c = 0; c < 3; c++) {
-    const at = (xx, yy) => img.px[(Math.min(Math.max(yy, 0), img.h - 1) * img.w + Math.min(Math.max(xx, 0), img.w - 1)) * 4 + c];
-    out[c] = (1 - ty) * ((1 - tx) * at(x0, y0) + tx * at(x0 + 1, y0)) + ty * ((1 - tx) * at(x0, y0 + 1) + tx * at(x0 + 1, y0 + 1));
-  }
-  return out;
+function barDistance(x, y, b) {
+  const dx = b.x2 - b.x1, dy = b.y2 - b.y1, len = Math.hypot(dx, dy);
+  const t = ((x - b.x1) * dx + (y - b.y1) * dy) / len, s = ((x - b.x1) * dy - (y - b.y1) * dx) / len;
+  const qx = Math.abs(t - len / 2) - len / 2, qy = Math.abs(s) - b.w / 2;
+  return Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0);
 }
+const cover = (distance) => Math.min(1, Math.max(0, 0.5 - distance)); // one-pixel anti-aliased edge
 
-// Everything outside the squircle (checkerboard, shadow) and the band next to its edge is replaced
-// with the colour found INSET px inside, so no resampling kernel can pull in background.
-function cleanSource(img) {
-  const { cx, cy, a, r } = LOGO_SHAPE;
-  const px = Float32Array.from(img.px);
-  for (let y = 0; y < img.h; y++) {
-    for (let x = 0; x < img.w; x++) {
-      const { sd, nx, ny } = roundRect(x + 0.5, y + 0.5, cx, cy, a, r);
-      if (sd <= -INSET) continue;
-      const from = bilinear(img, x + 0.5 - nx * (sd + INSET), y + 0.5 - ny * (sd + INSET));
-      px.set(from, (y * img.w + x) * 4);
+// Rasterizes a geometry onto a square `canvas` with its top-left corner at (ox, oy) (fractions allowed).
+function render(g, { canvas = g.size, ox = 0, oy = 0, shape = 'rounded' } = {}) {
+  const px = new Float32Array(canvas * canvas * 4);
+  const [navy, teal, coral] = [COLORS.navy, COLORS.teal, COLORS.coral].map(hexToRgb);
+  for (let j = 0; j < canvas; j++) {
+    for (let i = 0; i < canvas; i++) {
+      const x = i + 0.5 - ox, y = j + 0.5 - oy;
+      const out = [0, 0, 0, 0];
+      const over = (colour, k) => {
+        if (k <= 0) return;
+        const alpha = k + out[3] * (1 - k);
+        for (let n = 0; n < 3; n++) out[n] = (colour[n] * k + out[n] * out[3] * (1 - k)) / alpha;
+        out[3] = alpha;
+      };
+      const inside = x >= 0 && y >= 0 && x <= g.size && y <= g.size;
+      if (shape === 'rounded') over(navy, cover(roundRect(x, y, g.size / 2, g.size / 2, g.size / 2, g.corner)));
+      else if (shape === 'square' && inside) over(navy, 1);
+      const open = g.halos.reduce((acc, h) => acc * (1 - cover(Math.hypot(x - h.cx, y - h.cy) - h.r)), 1);
+      over(coral, cover(Math.abs(Math.hypot(x - g.ring.cx, y - g.ring.cy) - g.ring.r) - g.ring.w / 2) * open);
+      over(teal, (1 - g.bars.reduce((acc, b) => acc * (1 - cover(barDistance(x, y, b))), 1)) * open);
+      for (const n of g.nodes) over(teal, cover(Math.hypot(x - n.cx, y - n.cy) - n.r));
+      px.set([out[0], out[1], out[2], out[3] * 255], (j * canvas + i) * 4);
     }
   }
-  return { w: img.w, h: img.h, px };
-}
-
-// Renders the cleaned logo as a `size` px squircle at (ox, oy) of a square `canvas`, with an
-// analytic one-pixel anti-aliased edge. `zoom` enlarges the symbol inside the same outline.
-function renderIcon(clean, { size, canvas = size, ox = 0, oy = 0, zoom = 1 }) {
-  const k = size / (2 * LOGO_SHAPE.a), kz = k * zoom;
-  const dcx = ox + size / 2, dcy = oy + size / 2;
-  const out = resize(clean, canvas, canvas, {
-    x0: LOGO_SHAPE.cx - dcx / kz, y0: LOGO_SHAPE.cy - dcy / kz, w: canvas / kz, h: canvas / kz,
-  });
-  for (let y = 0; y < canvas; y++) {
-    for (let x = 0; x < canvas; x++) {
-      const { sd } = roundRect(x + 0.5, y + 0.5, dcx, dcy, size / 2, LOGO_SHAPE.r * k);
-      out.px[(y * canvas + x) * 4 + 3] = 255 * Math.min(1, Math.max(0, 0.5 - sd));
-    }
-  }
-  return out;
-}
-
-// Unsharp mask on the colour channels (3x3 binomial blur); alpha is left alone.
-function sharpen(img, amount) {
-  const { w, h, px } = img, blur = new Float32Array(px.length);
-  const k = [1, 2, 1];
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      for (let c = 0; c < 3; c++) {
-        let acc = 0;
-        for (let j = 0; j < 3; j++) {
-          for (let i = 0; i < 3; i++) {
-            const xx = Math.min(Math.max(x + i - 1, 0), w - 1), yy = Math.min(Math.max(y + j - 1, 0), h - 1);
-            acc += k[i] * k[j] * px[(yy * w + xx) * 4 + c];
-          }
-        }
-        blur[(y * w + x) * 4 + c] = acc / 16;
-      }
-    }
-  }
-  for (let i = 0; i < px.length; i += 4) {
-    for (let c = 0; c < 3; c++) px[i + c] += amount * (px[i + c] - blur[i + c]);
-  }
-  return img;
+  return { w: canvas, h: canvas, px };
 }
 
 // ---- assets ----
 
-function iconAt(clean, size) {
-  const small = size <= SMALL_MAX;
-  const img = renderIcon(clean, { size, zoom: small ? SMALL_ZOOM : 1 });
-  return small ? sharpen(img, SMALL_SHARPEN) : img;
-}
-
-// The icon drawn in the splash is replaced by the final one, slightly larger so none of it shows.
-function buildSplash(splash, clean) {
+// The icon Gemini drew in the splash is replaced by the final one, slightly larger so none of it shows.
+function buildSplash(splash) {
   const side = 2 * (SPLASH_ICON.a + SPLASH_ICON.cover), pad = 8;
   const x0 = Math.floor(SPLASH_ICON.cx - side / 2) - pad, y0 = Math.floor(SPLASH_ICON.cy - side / 2) - pad;
   const canvas = Math.ceil(side) + 2 * pad + 2;
-  const patch = renderIcon(clean, { size: side, canvas, ox: SPLASH_ICON.cx - side / 2 - x0, oy: SPLASH_ICON.cy - side / 2 - y0 });
+  const patch = render(geometry(side, { thick: false, snap: false }), { canvas, ox: SPLASH_ICON.cx - side / 2 - x0, oy: SPLASH_ICON.cy - side / 2 - y0 });
   for (let y = 0; y < canvas; y++) {
     for (let x = 0; x < canvas; x++) {
       const p = (y * canvas + x) * 4, s = ((y0 + y) * splash.w + x0 + x) * 4, alpha = patch.px[p + 3] / 255;
@@ -295,28 +299,33 @@ function buildSplash(splash, clean) {
   return resize(splash, SPLASH_SIZE.w, SPLASH_SIZE.h, { x0: (splash.w - boxW) / 2, y0: 0, w: boxW, h: splash.h });
 }
 
-function main([logoFile, splashFile]) {
-  if (!logoFile || !splashFile) throw new Error('usage: node scripts/brand-assets.cjs <logo.jpeg> <splash.jpeg>');
+function main([splashFile]) {
+  if (!splashFile) throw new Error('usage: node scripts/brand-assets.cjs <splash.jpeg>');
   const write = (dir, name, data) => {
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, name), data);
     console.log(`${path.relative(ROOT, path.join(dir, name))}  ${data.length} bytes`);
   };
-  const clean = cleanSource(decode(logoFile));
   const pngs = new Map();
   const pngOf = (size) => {
-    if (!pngs.has(size)) pngs.set(size, encodePng(iconAt(clean, size)));
+    if (!pngs.has(size)) pngs.set(size, encodePng(render(geometry(size))));
     return pngs.get(size);
   };
 
+  write(BUILD, 'keepharness-mark.svg', svgFile(geometry(1024), 'rounded'));
+  write(BUILD, 'keepharness-mark-only.svg', svgFile(geometry(1024, { crop: true }), 'none'));
+  // The in-app mark: the `keepharness` symbol of the shared sprite.
+  const sprite = path.join(WEB, 'icons.svg');
+  const symbol = `<symbol id="keepharness" viewBox="0 0 40 40">${svgBody(geometry(40, { crop: true, thick: true, snap: false }), 'none', 'keepharness-gaps')}</symbol>`;
+  write(WEB, 'icons.svg', fs.readFileSync(sprite, 'utf8').replace(/<symbol id="keepharness"[\s\S]*?<\/symbol>/, () => symbol));
   write(BUILD, 'icon.png', pngOf(1024));
   for (const size of LINUX_SIZES) write(path.join(BUILD, 'icons'), `${size}x${size}.png`, pngOf(size));
   write(BUILD, 'icon.ico', ico(ICO_SIZES.map((size) => ({ size, png: pngOf(size) }))));
   write(BUILD, 'icon.icns', icns(Object.entries(ICNS_TYPES).map(([size, type]) => ({ type, png: pngOf(Number(size)) }))));
   write(WEB, 'favicon.ico', ico(FAVICON_SIZES.map((size) => ({ size, png: pngOf(size) }))));
   // iOS rounds the corners itself and paints transparency black, so this one is opaque and full-bleed.
-  write(WEB, 'apple-touch-icon.png', encodePng(renderIcon(clean, { size: APPLE_TOUCH_SIZE }), { alpha: false }));
-  write(BUILD, 'splash.jpg', encodeJpeg(buildSplash(decode(splashFile), clean), SPLASH_SIZE.maxBytes));
+  write(WEB, 'apple-touch-icon.png', encodePng(render(geometry(APPLE_TOUCH_SIZE), { shape: 'square' }), { alpha: false }));
+  write(BUILD, 'splash.jpg', encodeJpeg(buildSplash(decode(splashFile)), SPLASH_SIZE.maxBytes));
 }
 
 main(process.argv.slice(2));
