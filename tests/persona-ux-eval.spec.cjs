@@ -80,10 +80,8 @@ test(0, "Find where to type", async (p) => {
 test(0, "Discover how to add a line break without sending", async (p) => {
   const prompt = p.locator("#prompt");
   assert(await prompt.evaluate((e) => e.matches(":placeholder-shown")));
-  assert.match(
-    await prompt.getAttribute("placeholder"),
-    /Enter to send.*Shift\+Enter for a new line/,
-  );
+  // WP-05: the placeholder is short enough to fit; the line-break hint stays in the field's description.
+  assert.match(await prompt.getAttribute("placeholder"), /Send a message.*\/ for agents and skills/);
   assert.match(await prompt.getAttribute("aria-describedby"), /composer-help/);
   assert.match(
     await p.locator("#composer-help").textContent(),

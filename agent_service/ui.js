@@ -1037,7 +1037,7 @@ const selectedIdentity = () => {
 const efforts = {
   auto: "Maestro chooses per step",
   none: "No reasoning",
-  configured: "Provider's default",
+  configured: "Default",
   low: "Low",
   medium: "Medium",
   high: "High",
@@ -5895,7 +5895,7 @@ function modelAvailability(
     !models.length || submitting || loading || uploads > 0 || policyPending;
   $("effort").disabled = $("model").disabled;
   $("prompt").placeholder = models.length
-    ? "Send a message… · / agents, skills and commands · Enter to send · Shift+Enter for a new line"
+    ? "Send a message, or / for agents and skills"
     : "Set up a model to send; your draft will be preserved.";
   $("model-note").hidden = !models.length;
   updateModelPermissions();

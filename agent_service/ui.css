@@ -4399,7 +4399,8 @@ body.panel-order-reversed #app-topbar #menu .th-icon {
 /* Run console: an optional drawer below the chat composer. */
 .run-status-strip { display:flex; flex-shrink:0; gap:8px; border-top:1px solid var(--th-border); background:var(--th-panel); padding:4px 12px; font-size:12px; }
 .run-status-strip button:first-child { flex:1; text-align:left; }
-.run-status-strip button { min-height:28px; white-space:normal; }
+.run-status-strip button { min-height:28px; white-space:nowrap; }
+#run-status-toggle { display:block; min-width:0; overflow:hidden; text-overflow:ellipsis; }
 .run-console { height:var(--th-console-height,330px); max-height:75dvh; flex:0 0 auto; min-height:0; display:flex; flex-direction:column; background:var(--th-panel); border-top:1px solid var(--th-border); font-size:13px; overflow:hidden; }
 .run-console[hidden] { display:none; }
 .run-console-resizer { height:7px; flex-shrink:0; cursor:row-resize; touch-action:none; border-bottom:1px solid var(--th-border); }
@@ -4519,7 +4520,7 @@ main > header h1 { min-width:0; max-width:46%; margin:0; overflow:hidden; text-o
 main > header #quota-toggle { display:none!important; }
 #execution-mode-choice { display:block; margin:4px 16px 0; padding:3px 9px; border-radius:8px; }
 #execution-mode-choice[hidden] { display:none; }
-#execution-mode-choice .execution-mode-heading { min-height:30px; flex-wrap:nowrap; }
+#execution-mode-choice .execution-mode-heading { min-height:30px; }
 #execution-mode-choice #execution-mode-help { position:absolute; width:1px; height:1px; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
 #execution-mode-choice #execution-mode-unavailable:not([hidden]) { margin:2px 0; }
 #model-availability { margin:14px 16px; padding:14px; }
@@ -4558,7 +4559,7 @@ body .composer-submit .send { width:auto; min-width:78px; height:32px; padding:5
 main { padding-bottom:28px; }
 .run-status-strip button { min-height:24px; padding:2px 4px; font-size:10px; }
 .run-status-strip #needs-you-toggle { margin-left:auto; }
-.run-status-shortcut { padding:1px 5px; border:1px solid var(--th-border); border-radius:4px; background:var(--th-panel); font:10px ui-monospace,monospace; }
+.run-status-shortcut { flex:none; padding:1px 5px; border:1px solid var(--th-border); border-radius:4px; background:var(--th-panel); font:10px ui-monospace,monospace; white-space:nowrap; }
 .run-console { --th-console-height:340px; }
 .run-console-resizer { height:3px; }
 .run-console-header { min-height:38px; padding:0 12px; border-bottom:1px solid var(--th-border); }
@@ -4569,7 +4570,7 @@ main { padding-bottom:28px; }
 .run-tab-count { display:inline-grid; place-items:center; min-width:17px; height:17px; margin-left:4px; padding:0 4px; border:1px solid var(--th-border); border-radius:9px; font-size:9px; }
 .run-console-close { margin-left:auto; font-size:0!important; }
 .run-console-close .th-icon { width:16px; height:16px; }
-#run-status-toggle > .th-icon { display:inline-block; vertical-align:middle; }
+#run-status-toggle > .th-icon { display:inline-block; margin-right:4px; vertical-align:middle; }
 .run-console-body { padding:8px 12px; }
 .run-pipeline-summary { display:flex; align-items:center; gap:10px; padding-bottom:8px; border-bottom:1px solid var(--th-border); }
 .run-pipeline-summary > span { color:var(--th-muted); font-size:11px; }
@@ -4653,8 +4654,6 @@ main { padding-bottom:28px; }
   .send span { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); }
   .run-status-strip #needs-you-toggle { display:none; }
   .run-status-strip { box-sizing:border-box; flex-wrap:nowrap; overflow:hidden; padding:0 8px; }
-  #run-status-toggle { display:block; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:left; }
-  .run-status-shortcut { flex:none; }
   #admin-shortcut-top,#theme-toggle,#about { display:none!important; }
   #activity-panel { top:0!important; bottom:28px!important; width:min(390px,calc(100vw - 24px))!important; max-height:calc(100dvh - var(--th-app-topbar-height) - 28px)!important; padding-bottom:12px; }
 }
@@ -5085,14 +5084,15 @@ main:not(:has(#messages > #welcome:only-child)) #dropzone.composer.card {
   display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto auto; align-items: center; column-gap: 2px;
   min-height: 44px; padding: 4px 6px 4px 8px; border-radius: 22px;
 }
-main:not(:has(#messages > #welcome:only-child)) #dropzone #attachments { grid-column: 1 / -1; grid-row: 1; }
+main:not(:has(#messages > #welcome:only-child)) #dropzone #persona-control { grid-column: 1 / -1; grid-row: 1; min-width: 0; margin: 0 0 4px; }
+main:not(:has(#messages > #welcome:only-child)) #dropzone #attachments { grid-column: 1 / -1; grid-row: 2; }
 main:not(:has(#messages > #welcome:only-child)) #dropzone #attachments:empty { display: none; }
-main:not(:has(#messages > #welcome:only-child)) #dropzone .prompt-editor { grid-column: 2; grid-row: 2; min-width: 0; }
+main:not(:has(#messages > #welcome:only-child)) #dropzone .prompt-editor { grid-column: 2; grid-row: 3; min-width: 0; }
 main:not(:has(#messages > #welcome:only-child)) #dropzone :is(.composer-toolbar, .composer-actions) { display: contents; }
-main:not(:has(#messages > #welcome:only-child)) #dropzone #attach { grid-column: 1; grid-row: 2; }
-main:not(:has(#messages > #welcome:only-child)) #dropzone #execution-mode-indicator:not([hidden]) { position: static; grid-column: 3; grid-row: 2; display: grid; place-items: center; width: 28px; height: 28px; color: var(--th-quiet); }
-main:not(:has(#messages > #welcome:only-child)) #dropzone .access-control { grid-column: 4; grid-row: 2; }
-main:not(:has(#messages > #welcome:only-child)) #dropzone .composer-right { grid-column: 5; grid-row: 2; display: flex; align-items: center; gap: 2px; }
+main:not(:has(#messages > #welcome:only-child)) #dropzone #attach { grid-column: 1; grid-row: 3; }
+main:not(:has(#messages > #welcome:only-child)) #dropzone #execution-mode-indicator:not([hidden]) { position: static; grid-column: 3; grid-row: 3; display: grid; place-items: center; width: 28px; height: 28px; color: var(--th-quiet); }
+main:not(:has(#messages > #welcome:only-child)) #dropzone .access-control { grid-column: 4; grid-row: 3; }
+main:not(:has(#messages > #welcome:only-child)) #dropzone .composer-right { grid-column: 5; grid-row: 3; display: flex; align-items: center; gap: 2px; }
 main:not(:has(#messages > #welcome:only-child)) #dropzone #prompt { min-height: 20px; padding: 6px 4px; }
 main:not(:has(#messages > #welcome:only-child)) .composer-area { padding-bottom: 14px; }
 main:not(:has(#messages > #welcome:only-child)) .composer-area .composer-context { display: flex; justify-content: center; }
@@ -5319,13 +5319,21 @@ main:not(:has(#messages > #welcome:only-child)) #dropzone.composer.card { grid-t
 main:not(:has(#messages > #welcome:only-child)) #dropzone .composer-right { min-width: 0; }
 #dropzone #model-label { display: inline-block; max-width: 132px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
 #dropzone #effort-label { display: inline-block; max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
+/* Controls never shrink under each other: the writing area and the model name give way first. */
+#dropzone .composer-submit { flex: none; }
+#dropzone :is(#access-trigger, #effort-trigger) { min-width: max-content; }
+#dropzone :is(.composer-models, #model-trigger) { min-width: 0; }
 @container chatpane (max-width: 820px) {
   main:not(:has(#messages > #welcome:only-child)) #dropzone.composer.card { grid-template-columns: auto minmax(0, 1fr) auto auto auto; border-radius: 22px; }
-  main:not(:has(#messages > #welcome:only-child)) #dropzone .prompt-editor { grid-column: 1 / -1; grid-row: 2; }
-  main:not(:has(#messages > #welcome:only-child)) #dropzone #attach { grid-row: 3; }
+  main:not(:has(#messages > #welcome:only-child)) #dropzone .prompt-editor { grid-column: 1 / -1; grid-row: 3; }
+  main:not(:has(#messages > #welcome:only-child)) #dropzone #attach { grid-row: 4; }
   main:not(:has(#messages > #welcome:only-child)) #dropzone #execution-mode-indicator:not([hidden]),
   main:not(:has(#messages > #welcome:only-child)) #dropzone .access-control,
-  main:not(:has(#messages > #welcome:only-child)) #dropzone .composer-right { grid-row: 3; }
+  main:not(:has(#messages > #welcome:only-child)) #dropzone .composer-right { grid-row: 4; }
+}
+/* Phones and very narrow panes: model and effort wrap onto a second line instead of sliding under Send. */
+@container chatpane (max-width: 380px) {
+  #dropzone .composer-models { flex-wrap: wrap; justify-content: flex-end; overflow: visible; }
 }
 
 /* Context meter stays (product information), quiet above the composer in every state. */
