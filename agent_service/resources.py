@@ -805,12 +805,19 @@ def prepare_prompt(prompt, items, selections=None):
         token = item.get("_token", "/" + name)
         if item["kind"] == "agent":
             if item.get("mode") == "conversational":
+                # A Tail agent has no file in the project: naming one would invite the model to look.
+                tail = item.get("scope") == "tail"
                 notes.append(
                     "Adopt the conversational agent "
                     + json.dumps(name)
-                    + " defined at "
-                    + json.dumps(item["source"])
-                    + " for this main-thread conversation until it is released.\n"
+                    + (
+                        " defined by the user in Tail Harness"
+                        if tail
+                        else " defined at " + json.dumps(item["source"])
+                    )
+                    + " for this main-thread conversation until it is released."
+                    + (" Its definition follows inline." if tail else "")
+                    + "\n"
                     + item.get("_body", "")
                 )
             else:

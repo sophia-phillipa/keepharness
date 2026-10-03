@@ -315,6 +315,85 @@ def test_routes_require_the_admin_cookie_and_header(tmp_path, network):
         assert network.requests == [] and "remote_models" not in manager.settings
 
 
+PLAIN_LAN = [
+    "http://192.168.1.20:8080",
+    "http://10.0.0.5:8080",
+    "http://gpu-box.local:8080",
+    "http://box:8080",
+    "http://example.com",
+    "http://100.63.255.255:8080",  # just below the Tailscale range
+    "http://100.128.0.1:8080",  # just above it
+    "http://[fd7a:115c:a1e1::1]:8080",
+    "http://machine.ts.net.example.com:8080",
+    "http://evil-ts.net:8080",
+]
+PRIVATE_OR_ENCRYPTED = [
+    "http://127.0.0.1:8080",
+    "http://127.9.9.9:8080",
+    "http://localhost:8080",
+    "http://[::1]:8080",
+    "http://[::ffff:127.0.0.1]:8080",
+    "http://100.64.0.1:8080",
+    "http://100.127.255.254:8080",
+    "http://[fd7a:115c:a1e0::7]:8080",
+    "http://machine.tailnet.ts.net:8080",
+    "https://192.168.1.20:8443",
+    "https://box",
+]
+
+
+def netloc_of(address):
+    return remote_models.urlsplit(remote_models.normalize_url(address)).netloc
+
+
+@pytest.mark.parametrize("address", PLAIN_LAN)
+def test_a_key_is_refused_for_plain_http_outside_this_computer_and_the_tailnet(
+    admin, network, address
+):
+    client, state = admin
+    network.routes[netloc_of(address)] = models_answer
+    before = sorted(p.name for p in state.iterdir())
+    response = add(client, address, KEY)
+    assert response.status_code == 400, response.text
+    assert "unencrypted" in response.json()["error"]
+    assert KEY not in response.text
+    assert network.requests == []
+    assert sorted(p.name for p in state.iterdir()) == before
+    assert "remote_models" not in client.app.state.manager.settings
+
+
+@pytest.mark.parametrize("address", PRIVATE_OR_ENCRYPTED)
+def test_a_key_is_accepted_where_the_connection_is_private_or_encrypted(admin, network, address):
+    client, state = admin
+    network.routes[netloc_of(address)] = models_answer
+    response = add(client, address, KEY)
+    assert response.status_code == 200, response.text
+    assert response.json()["has_key"] is True and "warning" not in response.json()
+    assert remote_models.key_file(state, remote_models.normalize_url(address)).read_text() == KEY
+
+
+@pytest.mark.parametrize("address", PLAIN_LAN)
+def test_keyless_plain_http_is_saved_with_a_warning_that_prompts_travel_unencrypted(
+    admin, network, address
+):
+    client, _ = admin
+    network.routes[netloc_of(address)] = models_answer
+    response = add(client, address)
+    assert response.status_code == 200, response.text
+    assert "unencrypted" in response.json()["warning"]
+    assert "prompts" in response.json()["warning"]
+    assert client.app.state.manager.settings["remote_models"] == [
+        {"url": remote_models.normalize_url(address)}
+    ]
+
+
+@pytest.mark.parametrize("address", PRIVATE_OR_ENCRYPTED)
+def test_no_warning_where_the_connection_is_private_or_encrypted(admin, network, address):
+    client, _ = admin
+    network.routes[netloc_of(address)] = models_answer
+    assert "warning" not in add(client, address).json()
+
+
 def test_adding_a_saved_address_again_keeps_one_entry_and_replaces_the_key(admin, network):
     client, state = admin
     network.routes[NETLOC] = models_answer
@@ -477,13 +556,13 @@ def test_an_unreadable_key_file_marks_the_server_unreachable(tmp_path, network):
     assert network.requests == []
 
 
-def scan_with(tmp_path, servers, local_servers=()):
+def scan_with(tmp_path, servers, local_servers=(), **options):
     with (
         patch.object(local_models, "processes", return_value=list(local_servers)),
         patch("control.discovery.command", AsyncMock(return_value=(1, ""))),
         patch("control.discovery.Path.home", return_value=tmp_path),
     ):
-        result = asyncio.run(discovery.scan(servers))
+        result = asyncio.run(discovery.scan(servers, **options))
     return next(service for service in result["services"] if service["id"] == "local")
 
 
@@ -524,6 +603,71 @@ def test_a_second_server_cannot_take_over_an_earlier_servers_model(tmp_path, net
     assert [r["url"] for r in local["runtimes"]] == ["http://first:1"]
 
 
+def test_a_network_server_cannot_take_an_id_a_saved_local_profile_may_serve(tmp_path, network):
+    network.routes["good:8080"] = lambda request: httpx.Response(
+        200, json={"data": [{"id": "managed-local"}, {"id": "other"}]}
+    )
+    local = scan_with(
+        tmp_path, [{"url": "http://good:8080", "key_file": ""}], reserved={"managed-local"}
+    )
+    assert [runtime["id"] for runtime in local["runtimes"]] == ["other"]
+    assert local["models"] == ["other"]
+
+
+def test_a_network_server_cannot_take_the_name_of_an_installed_ollama_model(tmp_path, network):
+    network.routes["127.0.0.1:11434"] = lambda request: httpx.Response(
+        200, json={"models": [{"name": "qwen3:8b"}]}
+    )
+    network.routes["good:8080"] = models_answer
+    local = scan_with(tmp_path, [{"url": "http://good:8080", "key_file": ""}])
+    assert [runtime["id"] for runtime in local["runtimes"]] == ["gemma-4"]
+    assert local["models"] == ["qwen3:8b", "gemma-4"]
+
+
+def test_reserved_ids_follow_the_saved_local_profiles(tmp_path):
+    assert local_models.reserved_ids(tmp_path) == set()
+    weights = (tmp_path / "models" / "qwen.gguf").resolve()
+    local_models.save_profile(tmp_path, {"model_file": str(weights)})
+    assert local_models.reserved_ids(tmp_path) == {
+        local_models.MANAGED_ALIAS,
+        str(weights),
+        "qwen.gguf",
+    }
+
+
+def test_an_unreadable_profile_catalog_does_not_stop_discovery(tmp_path):
+    (tmp_path / "local-profiles.json").write_text("{not json")
+    assert local_models.reserved_ids(tmp_path) == set()
+
+
+def test_refresh_reserves_the_ids_of_saved_local_profiles(tmp_path):
+    manager = Manager(tmp_path / "state")
+    local_models.save_profile(manager.state, {"model_file": str(tmp_path / "qwen.gguf")})
+    with patch("control.discovery.scan", AsyncMock(return_value={"binaries": {}})) as scan:
+        asyncio.run(manager.refresh())
+    assert local_models.MANAGED_ALIAS in scan.await_args.kwargs["reserved"]
+
+
+@pytest.mark.parametrize(
+    "context, expected",
+    [
+        (0, None),
+        (-5, None),
+        (1, 1),
+        (32768, 32768),
+        (10_000_000, 10_000_000),
+        (10_000_001, None),
+        (2**63, None),
+        (True, None),
+        (1.5, None),
+        ("4096", None),
+    ],
+)
+def test_the_reported_context_window_is_clamped(context, expected):
+    model = remote_models.parse_model({"id": "m", "meta": {"n_ctx": context}})
+    assert model == {"id": "m", "context": expected}
+
+
 def test_refresh_hands_the_saved_servers_and_their_key_files_to_the_scan(tmp_path):
     manager = Manager(tmp_path / "state")
     manager.settings["remote_models"] = [{"url": URL}, {"url": "http://other:1"}]
@@ -534,7 +678,8 @@ def test_refresh_hands_the_saved_servers_and_their_key_files_to_the_scan(tmp_pat
         [
             {"url": URL, "key_file": str(remote_models.key_file(manager.state, URL))},
             {"url": "http://other:1", "key_file": ""},
-        ]
+        ],
+        reserved=set(),
     )
 
 

@@ -22,6 +22,7 @@ class RuntimeOptions:
     environment: dict | None = None
     model_provider: str | None = None
     isolated: bool = False
+    pass_fds: tuple[int, ...] = ()  # descriptors the child inherits (see ``WrappedCommand``)
     session_metadata: dict = field(default_factory=dict)
     thread_instructions: dict = field(default_factory=dict)
     developer_instructions: str = ""
@@ -265,7 +266,12 @@ async def run_turn(
     answer_item = None
     file_changes = {}
     async with connection(
-        command, env=environment, event=event, config=config, provider=provider
+        command,
+        env=environment,
+        event=event,
+        config=config,
+        provider=provider,
+        pass_fds=runtime.pass_fds,
     ) as rpc:
         selected_inputs = await resource_inputs(rpc, project, cwd)
         marker = home / "native-thread.json"

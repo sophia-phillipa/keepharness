@@ -80,6 +80,7 @@ present (the installed plugin list the adapter toggles), otherwise from the prof
 - `ConversationService.integration_view`: access checks, shared with `resource_catalog`
   through `_resolve_route`, and the usage read.
 - `MessageRepository.tool_usage`: one grouped query that walks the caller's own jobs
-  and probes events through the `(job, type, time)` index.
+  (only those created since one day before the window starts, because a run takes hours
+  at most) and probes events through the `(job, type, time)` index.
 - `agent_service/routes/projects.py`: the `/v1/integrations` route.
 - `tests/test_integrations_view.py`: contract, secrets, route matrix, usage and failures.

@@ -46,7 +46,10 @@ def config(tmp_path, monkeypatch):
         "control_state_dir": str(control),
         "origins": [],
         "projects": {"p": {}},
-        "clients": {"a": {"sha256": hashlib.sha256(b"a").hexdigest(), "projects": ["p"]}},
+        "clients": {
+            "a": {"sha256": hashlib.sha256(b"a").hexdigest(), "projects": ["p"]},
+            "local": {"sha256": hashlib.sha256(b"local").hexdigest(), "projects": ["p"]},
+        },
         "services": {
             name: {
                 "enabled": True,
@@ -69,6 +72,14 @@ def folder(config):
 
 @pytest.fixture
 def api(config):
+    """The local browser client: the only one allowed to write agents."""
+    with TestClient(create_app(config), headers={"Authorization": "Bearer local"}) as client:
+        yield client
+
+
+@pytest.fixture
+def remote(config):
+    """An authenticated client that is not the local browser (a VPN or tailnet device)."""
     with TestClient(create_app(config), headers={"Authorization": "Bearer a"}) as client:
         yield client
 
@@ -162,6 +173,59 @@ def test_requests_without_credentials_are_rejected(api):
         response = api.request(method, path, json={})
         assert response.status_code == 401, (method, response.text)
         assert response.json()["code"] == "authentication_required"
+
+
+def test_only_the_local_client_writes_agents(api, remote, folder):
+    created = api.post("/v1/tail-agents", json=agent()).json()
+    before = (folder / "code-reviewer.json").read_text()
+    attempts = (
+        ("POST", "/v1/tail-agents", agent(name="other-agent")),
+        (
+            "PUT",
+            "/v1/tail-agents/code-reviewer",
+            {**agent(purpose="Hijacked"), "revision": created["revision"]},
+        ),
+        ("DELETE", "/v1/tail-agents/code-reviewer", {"revision": created["revision"]}),
+    )
+    for method, path, body in attempts:
+        response = remote.request(method, path, json=body)
+        assert response.status_code == 403, (method, response.text)
+        assert response.json()["code"] == "tail_agent_local_only"
+    assert (folder / "code-reviewer.json").read_text() == before
+    assert [entry.name for entry in folder.iterdir()] == ["code-reviewer.json"]
+
+
+def test_the_local_check_runs_before_the_body_is_read(remote):
+    response = remote.post("/v1/tail-agents", content=b"not json")
+    assert response.status_code == 403 and response.json()["code"] == "tail_agent_local_only"
+
+
+def test_every_authenticated_client_lists_and_uses_tail_agents(api, remote):
+    api.post("/v1/tail-agents", json=agent())
+    listed = remote.get("/v1/tail-agents")
+    assert listed.status_code == 200
+    assert [item["name"] for item in listed.json()["agents"]] == ["code-reviewer"]
+
+
+def test_a_header_never_makes_a_client_local(remote):
+    spoofed = {"X-Forwarded-For": "127.0.0.1", "X-Harness-Client": "local", "Host": "localhost"}
+    response = remote.post("/v1/tail-agents", json=agent(), headers=spoofed)
+    assert response.status_code == 403 and response.json()["code"] == "tail_agent_local_only"
+    assert remote.get("/v1/tail-agents").json() == {"agents": []}
+
+
+def test_the_local_browser_is_recognized_without_a_token(config, folder):
+    config["local_access"] = True
+    local = TestClient(create_app(config), base_url="http://localhost", client=("127.0.0.1", 50000))
+    with local:
+        assert local.post("/v1/tail-agents", json=agent()).status_code == 201
+        proxied = local.post(
+            "/v1/tail-agents",
+            json=agent(name="other-agent"),
+            headers={"X-Forwarded-For": "100.64.0.9"},
+        )
+        assert proxied.status_code == 401
+    assert [entry.name for entry in folder.iterdir()] == ["code-reviewer.json"]
 
 
 # --------------------------------------------------------------------------- HTTP: validation
@@ -618,6 +682,17 @@ def test_at_at_id_resolves_and_the_persona_is_prepared(config):
     assert str(config["control_state_dir"]) not in prompt
 
 
+def test_the_persona_note_points_at_no_path_a_model_could_open(config):
+    tail_agents.create_agent(config, agent())
+    item = tail_item(config)
+    selected = resolve(config, "@@code-reviewer check this", [selection(item)])
+    prompt = resources.prepare_prompt("@@code-reviewer check this", selected)
+    assert "tail/agents" not in prompt and ".json" not in prompt
+    assert item["source"] not in prompt
+    assert "defined by the user in Tail Harness" in prompt
+    assert prompt.index("defined by the user in Tail Harness") < prompt.index(item["_body"])
+
+
 @pytest.mark.parametrize("token", ["/code-reviewer", "@code-reviewer"])
 def test_tail_agents_only_answer_to_the_reserved_token(config, token):
     tail_agents.create_agent(config, agent())
@@ -787,3 +862,45 @@ def test_tail_agents_skip_the_read_gate_but_file_resources_do_not(service, confi
     native = {"id": "project/p/.codex/agents/x.toml", "revision": "r", "token": "/x"}
     with pytest.raises(APIError, match="resource_read_denied"):
         submit(service, prompt="/x review", resource_selections=[native])
+
+
+MALFORMED_SELECTIONS = [
+    "abc",
+    {"id": "x"},
+    5,
+    True,
+    [5],
+    [None],
+    ["abc"],
+    [[]],
+    [{"id": "tail/agents/x"}, 5],
+]
+
+
+@pytest.mark.parametrize("selections", MALFORMED_SELECTIONS)
+def test_malformed_selections_are_a_422_not_a_server_error(service, selections):
+    with pytest.raises(APIError) as refused:
+        submit(service, prompt="hello", resource_selections=selections)
+    assert (refused.value.code, refused.value.status) == ("invalid_resource_selections", 422)
+
+
+@pytest.mark.parametrize("selections", MALFORMED_SELECTIONS[:4])
+def test_the_http_layer_answers_malformed_selections_with_a_422(remote, selections):
+    body = {
+        "project_id": "p",
+        "backend": "codex",
+        "model": "gpt-6-astra",
+        "effort": "low",
+        "prompt": "hello",
+        "resource_selections": selections,
+    }
+    response = remote.post("/v1/jobs", json=body)
+    assert response.status_code == 422, response.text
+    assert response.json()["code"] == "invalid_resource_selections"
+
+
+def test_a_malformed_selection_still_needs_the_read_permission(service, config):
+    config["services"]["codex"]["permissions"] = {"read": False}
+    for selections in ("abc", [5]):
+        with pytest.raises(APIError, match="resource_read_denied"):
+            submit(service, prompt="hello", resource_selections=selections)

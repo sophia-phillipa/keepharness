@@ -45,6 +45,8 @@ PROVIDER_NAMES = MappingProxyType(
     }
 )
 GROUP = "Your agents"
+# The identity the service gives the browser on this computer (``ConversationService.identity``).
+LOCAL_CLIENT = "local"
 RESOURCE_PREFIX = "tail/agents/"
 CONTROL_CHARACTERS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
@@ -54,6 +56,23 @@ write_lock = threading.Lock()
 
 def invalid(field: str) -> APIError:
     return APIError("tail_agent_invalid", 400, field=field)
+
+
+def require_local_client(identity: tuple) -> None:
+    """Agents are machine-wide; only the browser on this computer may change them."""
+    if identity[0] != LOCAL_CLIENT:
+        raise APIError("tail_agent_local_only", 403)
+
+
+def only_tail_agents(selections: object) -> bool:
+    """True when ``selections`` is empty or a list of Tail agent references and nothing else."""
+    return not selections or (
+        isinstance(selections, list)
+        and all(
+            isinstance(ref, dict) and str(ref.get("id", "")).startswith(RESOURCE_PREFIX)
+            for ref in selections
+        )
+    )
 
 
 def revision_of(text: str) -> str:

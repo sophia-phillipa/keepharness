@@ -16,11 +16,10 @@ from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 
-import httpx
-
 import adapters
 from adapters.claude import account as claude_account
 from adapters.codex import rpc as codex_rpc
+from control import remote_models
 
 from .. import (
     approval_policy,
@@ -70,6 +69,11 @@ from .gate_service import GateService
 from .project_service import ProjectService
 
 logger = logging.getLogger(__name__)
+
+
+def as_dict(value):
+    """``value`` when it is an object, else ``{}``: a server's JSON has the shape it chooses."""
+    return value if isinstance(value, dict) else {}
 
 
 def with_sources(prompt, context):
@@ -891,12 +895,9 @@ class ConversationService:
             if lead["backend"] == "local":
                 data["execution_mode"] = "scoped"
         # "read" guards project and catalog files; a Tail agent's persona is harness-kept text.
-        file_selections = [
-            ref
-            for ref in data.get("resource_selections") or []
-            if not str(ref.get("id", "")).startswith(tail_agents.RESOURCE_PREFIX)
-        ]
-        if file_selections and not maestro.model_permissions(
+        # Anything that is not a list of Tail agent selections is judged by ``resources.resolve``.
+        needs_read = not tail_agents.only_tail_agents(data.get("resource_selections"))
+        if needs_read and not maestro.model_permissions(
             self.config, data["backend"], data.get("model"), data["project_id"]
         ).get("read"):
             raise APIError("resource_read_denied", 403)
@@ -1440,25 +1441,31 @@ class ConversationService:
             return
         if backend != "local":
             raise APIError("model_images_unavailable")
-        endpoint = self.config.get("local", {}).get("local_models", {}).get(model, {})
-        headers = {}
-        if endpoint.get("key_file"):
-            headers["Authorization"] = "Bearer " + Path(endpoint["key_file"]).read_text().strip()
         try:
-            async with httpx.AsyncClient(timeout=5) as client:
-                response = await client.get(
-                    endpoint.get(
-                        "url", self.config.get("model_url", "http://127.0.0.1:8091")
-                    ).rstrip("/")
-                    + "/props",
-                    headers=headers,
-                )
-                response.raise_for_status()
-                if response.json().get("modalities", {}).get("vision") is True:
-                    return
-        except (httpx.HTTPError, ValueError, OSError):
-            raise APIError("image_capability_unavailable")
+            properties = await self.local_properties(model)
+        except (ValueError, OSError):
+            raise APIError("image_capability_unavailable") from None
+        if as_dict(properties.get("modalities")).get("vision") is True:
+            return
         raise APIError("local_vision_not_enabled")
+
+    async def local_properties(self, model):
+        """The ``/props`` object of the server behind a local model.
+
+        The server may be another machine: the read is bounded in time and size, ignores proxy
+        variables and redirects, and a body that is not a JSON object is a ``ValueError``.
+        """
+        endpoint = self.config.get("local", {}).get("local_models", {}).get(model, {})
+        key = Path(endpoint["key_file"]).read_text().strip() if endpoint.get("key_file") else ""
+        url = endpoint.get("url", self.config.get("model_url", "http://127.0.0.1:8091"))
+        body = await remote_models.fetch_body(url.rstrip("/"), key, "/props")
+        try:
+            properties = json.loads(body)
+        except (ValueError, RecursionError):  # RecursionError: deeply nested JSON
+            properties = None
+        if not isinstance(properties, dict):
+            raise ValueError("props_not_an_object")
+        return properties
 
     async def validate_video(self, backend, model, execution_mode=None):
         if not tools.video_tools_available():
@@ -2560,37 +2567,20 @@ class ConversationService:
         async def enrich(model):
             if model["backend"] != "local":
                 return
-            endpoint = self.config.get("local", {}).get("local_models", {}).get(model["id"], {})
-            headers = {}
             try:
-                if endpoint.get("key_file"):
-                    headers["Authorization"] = (
-                        "Bearer " + Path(endpoint["key_file"]).read_text().strip()
-                    )
-                async with httpx.AsyncClient(timeout=2) as client:
-                    response = await client.get(
-                        endpoint.get(
-                            "url", self.config.get("model_url", "http://127.0.0.1:8091")
-                        ).rstrip("/")
-                        + "/props",
-                        headers=headers,
-                    )
-                    response.raise_for_status()
-                    properties = response.json()
-                    window = properties.get("default_generation_settings", {}).get("n_ctx")
-                    if type(window) is int and window > 0:
-                        model["context_window"] = window
-                    if (
-                        properties.get("modalities", {}).get("vision") is True
-                        and tools.video_tools_available()
-                    ):
-                        model["capabilities"]["video"] = True
-                        model["capabilities"]["video_transcription"] = (
-                            tools.transcription_available()
-                        )
-                        model["capabilities"]["video_execution_modes"] = ["scoped"]
-            except (httpx.HTTPError, ValueError, OSError):
-                pass
+                properties = await self.local_properties(model["id"])
+            except (ValueError, OSError):
+                return
+            window = as_dict(properties.get("default_generation_settings")).get("n_ctx")
+            if type(window) is int and window > 0:
+                model["context_window"] = window
+            if (
+                as_dict(properties.get("modalities")).get("vision") is True
+                and tools.video_tools_available()
+            ):
+                model["capabilities"]["video"] = True
+                model["capabilities"]["video_transcription"] = tools.transcription_available()
+                model["capabilities"]["video_execution_modes"] = ["scoped"]
 
         await asyncio.gather(*(enrich(model) for model in models))
         return models

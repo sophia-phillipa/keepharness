@@ -201,6 +201,35 @@ def test_interactive_login_receives_one_pasted_code_line(tmp_path):
     asyncio.run(exercise())
 
 
+ECHO_SCRIPT = """
+import sys, time
+line = sys.stdin.readline().strip()
+print("received", line, flush=True)
+half = len(line) // 2
+sys.stdout.write("again " + line[:half])
+sys.stdout.flush()
+time.sleep(0.3)
+sys.stdout.write(line[half:] + "\\n")
+sys.stdout.flush()
+"""
+
+
+def test_a_login_code_the_cli_echoes_is_removed_from_the_job_output():
+    async def exercise():
+        operations = Operations()
+        job = operations.launch([sys.executable, "-c", ECHO_SCRIPT], interactive=True)
+        await asyncio.sleep(0.05)
+        await operations.send_input(job["id"], CODE)
+        await asyncio.gather(*operations.tasks)
+        assert job["state"] == "completed"
+        assert "received [redacted]" in job["output"] and "again" in job["output"]
+        assert CODE not in job["output"]
+        # The code lives in memory only for the redaction, and only while the job runs.
+        assert CODE not in repr(vars(operations)) and not operations.codes
+
+    asyncio.run(exercise())
+
+
 def test_non_interactive_operation_rejects_input(tmp_path):
     async def exercise():
         operations = Operations()

@@ -12,6 +12,7 @@ NO_STORE = {"Cache-Control": "no-store"}
 
 async def collection(request, service, identity):
     if request.method == "POST":
+        tail_agents.require_local_client(identity)
         data = await body(request)
         created = await asyncio.to_thread(tail_agents.create_agent, service.config, data)
         return JSONResponse(created, status_code=201, headers=NO_STORE)
@@ -21,6 +22,7 @@ async def collection(request, service, identity):
 
 
 async def member(request, service, identity):
+    tail_agents.require_local_client(identity)
     data = await body(request)
     operation = (
         tail_agents.delete_agent if request.method == "DELETE" else tail_agents.replace_agent

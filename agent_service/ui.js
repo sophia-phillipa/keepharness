@@ -1533,6 +1533,7 @@ const userErrors = {
   tail_agent_changed: "This agent was changed elsewhere. Reload it and try again.",
   tail_agent_not_found: "That agent no longer exists.",
   tail_agent_storage_unsafe: "The agents folder cannot be used safely. Check the harness state folder.",
+  tail_agent_local_only: "Agents can only be created, edited or deleted from the computer that runs Tail Harness.",
 };
 async function api(path, options = {}) {
   let r;

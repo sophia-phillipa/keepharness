@@ -14,6 +14,7 @@ class Operations:
         self.tasks = set()
         self.by_id = {}
         self.stdin = {}
+        self.codes = {}  # the code last pasted into a job, kept in memory to redact an echo of it
 
     def launch(self, args, timeout=300, *, env=None, on_success=None, interactive=False):
         """Run one CLI; ``interactive`` keeps stdin open for one pasted line (login codes)."""
@@ -39,8 +40,10 @@ class Operations:
                         chunk = await proc.stdout.read(2048)
                         if not chunk:
                             break
-                        text = chunk.decode(errors="replace")
-                        self.jobs[jid]["output"] = (self.jobs[jid]["output"] + text)[-12000:]
+                        text = self.jobs[jid]["output"] + chunk.decode(errors="replace")
+                        if self.codes.get(jid):
+                            text = text.replace(self.codes[jid], "[redacted]")
+                        self.jobs[jid]["output"] = text[-12000:]
                     succeeded = await proc.wait() == 0
                     if succeeded and on_success:
                         await on_success()
@@ -55,6 +58,7 @@ class Operations:
             finally:
                 self.jobs[jid]["accepts_input"] = False
                 self.stdin.pop(jid, None)
+                self.codes.pop(jid, None)
                 if proc and proc.returncode is None:
                     try:
                         if os.name == "posix":
@@ -79,12 +83,17 @@ class Operations:
         return self.jobs[jid]
 
     async def send_input(self, jid, text):
-        """Write one line to a running interactive operation; the text is never stored."""
+        """Write one line to a running interactive operation.
+
+        The text is never persisted; it stays in memory until the job ends so that an echo of it
+        can be redacted from the output.
+        """
         stream = self.stdin.get(jid)
         if stream is None or not self.jobs.get(jid, {}).get("accepts_input"):
             raise ValueError("No login is waiting for a code.")
         self.jobs[jid]["accepts_input"] = False
         self.stdin.pop(jid, None)
+        self.codes[jid] = text.strip()
         stream.write(text.encode() + b"\n")
         await stream.drain()
         stream.close()

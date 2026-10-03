@@ -9,6 +9,7 @@ from starlette.testclient import TestClient
 from test_local_profiles import profiles
 from test_workspaces import config
 
+from adapters.local.sandbox import WrappedCommand
 from agent_service import maestro
 from agent_service.app import APIError, Service, create_app
 from control.local_models import launch_options, runtime_permissions, save_profile, validate_profile
@@ -17,7 +18,9 @@ from control.local_models import launch_options, runtime_permissions, save_profi
 @pytest.fixture(autouse=True)
 def mocked_local_process_boundary():
     # Protocol tests use fake RPCs; real bubblewrap is tested in test_local_sandbox.py.
-    with patch("adapters.local.backend.wrap", side_effect=lambda command, *args: command):
+    with patch(
+        "adapters.local.backend.wrap", side_effect=lambda command, *args: WrappedCommand(command)
+    ):
         yield
 
 

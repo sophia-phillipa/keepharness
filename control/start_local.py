@@ -7,7 +7,7 @@ import secrets
 import shlex
 from pathlib import Path
 
-from .local_models import launch_command, validate_profile
+from .local_models import MANAGED_ALIAS, launch_command, validate_profile
 
 
 def resolve_profile(profile, root):
@@ -40,7 +40,7 @@ def main(argv=None):
     parser.add_argument("--profile", required=True)
     parser.add_argument("--root", required=True)
     parser.add_argument("--port", type=int, default=8096)
-    parser.add_argument("--alias", default="managed-local")
+    parser.add_argument("--alias", default=MANAGED_ALIAS)
     parser.add_argument("--key-file", required=True)
     parser.add_argument(
         "--check", action="store_true", help="Show the command without starting the runtime."
