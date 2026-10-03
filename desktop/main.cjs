@@ -2,7 +2,7 @@
 // opens the harness (or the admin when no provider is set up yet) in its own
 // window, keeps navigation inside the two local origins and stops the admin it
 // started when the app quits.
-const { app, BrowserWindow, dialog, shell } = require('electron');
+const { app, BrowserWindow, dialog, session, shell } = require('electron');
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const http = require('node:http');
@@ -45,6 +45,11 @@ function foreignPort(ports) {
   });
   return ports.find((port) => !portOwnedByUser(tables, port, process.getuid())) ?? null;
 }
+// The app needs no camera, microphone, location, notifications or clipboard access.
+function denyPermissions() {
+  session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
+  session.defaultSession.setPermissionCheckHandler(() => false);
+}
 async function waitFor(url, seconds) {
   for (let i = 0; i < seconds * 4; i++) {
     if (await reachable(url)) return true;
@@ -69,6 +74,7 @@ function startAdmin() {
 }
 
 async function start() {
+  denyPermissions();
   if (!(await reachable(adminUrl))) {
     startAdmin();
     if (!(await waitFor(adminUrl, 40))) {
