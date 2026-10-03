@@ -4832,3 +4832,221 @@ main:has(.run-console.has-publication-evidence:not([hidden])) .publish-evidence 
 .run-console-body:has(.run-log-scroll) > :not(.run-log-scroll) { flex:none; margin-block:0; }
 .run-log-scroll { flex:1 1 0; min-height:80px; overflow:auto; }
 .run-log-list thead { position:sticky; top:0; background:var(--th-panel); z-index:1; }
+
+/* ===== Codex-style shell (2026-10-03): icon rail · contained sidebar · chat. =====
+   Geometry follows the ChatGPT/Codex desktop app as measured on 2026-10-03 (rail 50 px, 34 px rail buttons,
+   30 px sidebar rows, 226×36 view switch, 640 px composer card); colors come only from the --th-* theme tokens.
+   Electron-ready: the rail and the sidebar head are drag regions; their controls opt out. */
+:root {
+  --th-rail-width: 50px;
+  --th-row-radius: 12px;
+  --th-hover: color-mix(in srgb, var(--th-text) 7%, transparent);
+  --th-quiet: color-mix(in srgb, var(--th-text) 55%, transparent);
+}
+body {
+  grid-template-columns: var(--th-rail-width) var(--th-sidebar-width, 300px) minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr);
+  background: var(--th-soft);
+}
+body.sidebar-collapsed { grid-template-columns: var(--th-rail-width) 0 minmax(0, 1fr) auto; }
+#app-topbar {
+  grid-column: 1; grid-row: 1;
+  flex-direction: column; align-items: center; gap: 4px;
+  width: var(--th-rail-width); padding: 10px 0 8px;
+  background: var(--th-soft); border: 0;
+  -webkit-app-region: drag;
+}
+#app-topbar > * { -webkit-app-region: no-drag; }
+#app-topbar .rail-spacer { flex: 1; }
+#app-topbar :is(#menu, #panel-toggle, .top-action) {
+  position: relative; display: grid; place-items: center; flex: none;
+  width: 34px; height: 34px; min-height: 0; margin: 0; padding: 0;
+  border: 0; border-radius: var(--th-row-radius); background: transparent; color: var(--th-quiet);
+}
+#app-topbar :is(#menu, #panel-toggle, .top-action):hover,
+#app-topbar #panel-toggle[aria-expanded="true"],
+#app-topbar #attention-bell[aria-expanded="true"] { background: var(--th-hover); color: var(--th-text); }
+#app-topbar :is(#menu, #panel-toggle, .top-action) > span:not(.th-icon),
+#app-brand > span { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+#app-topbar .th-icon { width: 18px; height: 18px; }
+#app-brand { display: grid; place-items: center; width: 34px; height: 34px; margin: 0 0 6px; padding: 0; border-radius: var(--th-row-radius); background: var(--th-hover); }
+#app-brand .th-icon, #app-brand svg { width: 20px; height: 20px; }
+#attention-bell b { top: 5px; right: 5px; min-width: 8px; width: 8px; height: 8px; padding: 0; overflow: hidden; color: transparent; background: #3b82f6; box-shadow: 0 0 0 2px var(--th-soft); }
+#attention-bell[aria-label="Attention, 0 items"] b { display: none; }
+.attention-popover { top: 48px; left: calc(var(--th-rail-width) + 6px); right: auto; }
+
+/* Contained sidebar: projects and conversations. */
+#sidebar { grid-column: 2; grid-row: 1; display: flex; flex-direction: column; padding: 0; background: var(--th-soft); border: 0; }
+#sidebar .sidebar-tree { flex: 1; min-height: 0; gap: 2px; padding: 0 8px 8px; overflow: auto; }
+#sidebar .sidebar-head { display: flex; align-items: center; gap: 4px; padding: 10px 0 6px; -webkit-app-region: drag; }
+#sidebar .sidebar-head > * { -webkit-app-region: no-drag; }
+#sidebar #project-switcher { flex: 1; width: auto; min-height: 32px; padding: 4px 8px; border: 0; border-radius: var(--th-row-radius); background: transparent; color: var(--th-text); }
+#sidebar #project-switcher:hover { background: var(--th-hover); }
+#sidebar #project-switcher strong { flex: 0 1 auto; font-size: 17px; line-height: 24px; font-weight: 600; }
+#sidebar #project-switcher > span { color: var(--th-quiet); }
+#sidebar #project-switcher > .th-icon { display: none; }
+#sidebar #search-conversations { display: grid; place-items: center; flex: none; width: 30px; height: 30px; min-width: 0; padding: 0; border: 0; border-radius: var(--th-row-radius); background: transparent; color: var(--th-quiet); }
+#sidebar #search-conversations:hover { background: var(--th-hover); color: var(--th-text); }
+#sidebar #search-conversations > :not(svg):not(.th-icon) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+#sidebar #search-conversations .th-icon, #sidebar #search-conversations svg { width: 16px; height: 16px; }
+#sidebar #new, #sidebar #add-project { justify-content: flex-start; gap: 10px; min-height: 30px; padding: 5px 8px; border: 0; border-radius: var(--th-row-radius); background: transparent!important; color: var(--th-text); font-size: 14px; font-weight: 430; }
+#sidebar #new:hover, #sidebar #add-project:hover { background: var(--th-hover)!important; color: var(--th-text); }
+#history { margin: 6px 0 0!important; overflow: visible; }
+.conversation-state-group { margin: 0 0 10px; }
+.conversation-state-group h2 { padding: 10px 8px 4px; font-size: 14px; line-height: 21px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--th-quiet); }
+#sidebar .conversation-row { border-radius: var(--th-row-radius); }
+#sidebar .conversation-row:hover { background: var(--th-hover); }
+#sidebar .conversation-row:has(button.active) { background: var(--th-hover); box-shadow: none; }
+#sidebar .conversation-row > button:first-child { padding: 5px 8px; }
+.conversation-row .conversation-title { font-size: 14px; line-height: 20px; font-weight: 430; }
+#history-note { padding: 4px 8px; color: var(--th-quiet); font-size: 13px; }
+#project-tree { max-height: none; overflow: visible; border: 0; padding: 0; }
+#project-tree > summary { padding: 10px 8px 4px; font-size: 14px; line-height: 21px; font-weight: 500; color: var(--th-quiet); list-style: none; cursor: pointer; }
+#project-tree > summary::-webkit-details-marker { display: none; }
+#sidebar .sidebar-foot { display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 8px 12px; border-top: 1px solid color-mix(in srgb, var(--th-border) 70%, transparent); }
+#sidebar .sidebar-foot .provider-quotas { flex: 1; min-width: 0; }
+#sidebar-resize { opacity: 0; }
+#sidebar-resize:hover, #sidebar-resize:focus-visible { opacity: 1; }
+
+/* Chat pane. */
+main { grid-column: 3; grid-row: 1; background: var(--th-bg); }
+#activity-panel { grid-column: 4; grid-row: 1; background: var(--th-bg); border-left: 1px solid color-mix(in srgb, var(--th-border) 80%, transparent); }
+main > header { position: relative; height: 56px; min-height: 56px; padding: 10px 16px; border: 0; gap: 8px; }
+main > header h1 { font-size: 14px; font-weight: 500; max-width: 30%; }
+main > header .state-pill, main > header .header-chip, main > header #active-project-badge { border-color: color-mix(in srgb, var(--th-border) 80%, transparent); background: transparent; color: var(--th-quiet); }
+.view-switch { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); display: inline-flex; height: 36px; padding: 0; border-radius: 9999px; background: color-mix(in srgb, var(--th-text) 5%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--th-text) 7%, transparent); }
+.view-switch button { width: 113px; height: 36px; min-height: 0; padding: 0; border: 0; border-radius: 9999px; background: transparent; color: var(--th-quiet); font-size: 13px; font-weight: 500; }
+.view-switch button[aria-selected="true"] { background: color-mix(in srgb, var(--th-text) 10%, var(--th-bg)); color: var(--th-text); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--th-text) 12%, transparent); }
+.view-switch button:focus-visible { outline: 2px solid var(--th-accent); outline-offset: 2px; }
+#welcome h1 { font-size: 28px; line-height: 34px; font-weight: 400; color: var(--th-text); }
+
+/* Composer card. */
+.composer-area { width: 100%; max-width: 672px; margin: 0 auto; padding: 0 16px 16px; }
+#dropzone.composer.card { border: 0; border-radius: 25px; background: color-mix(in srgb, var(--th-panel) 92%, transparent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--th-border) 70%, transparent), 0 4px 16px rgba(0, 0, 0, .08); }
+#dropzone #prompt { font-size: 14px; line-height: 20px; }
+#dropzone .composer-field-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+#dropzone :is(#access-trigger, #model-trigger, #effort-trigger) { min-height: 28px; border: 0; border-radius: 9999px; background: transparent; color: var(--th-text); font-size: 13px; }
+#dropzone :is(#access-trigger, #model-trigger, #effort-trigger):hover { background: var(--th-hover); }
+#dropzone #attach { width: 28px; height: 28px; border-radius: 9999px; }
+.run-status-strip { background: var(--th-bg); border-top: 1px solid color-mix(in srgb, var(--th-border) 70%, transparent); color: var(--th-quiet); }
+/* Single-row composer like the reference card; icon-only round send. */
+@container composer (min-width: 440px) {
+  .composer-toolbar { display: flex; align-items: center; gap: 4px; }
+  .composer-actions { gap: 2px; }
+  .composer-right { display: flex; flex: 1; align-items: center; justify-content: flex-end; gap: 2px; }
+  .composer-models { gap: 2px; overflow: visible; }
+  .composer-submit { margin-left: 4px; }
+}
+body .composer-submit .send { display: grid; place-items: center; width: 32px; min-width: 32px; height: 32px; padding: 0; border-radius: 9999px; font-size: 16px; }
+body .composer-submit .send > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+body .composer-submit .send:disabled { opacity: .35; }
+/* Header: title left, view switch centered, conversation chips right. */
+main > header #header-execution-mode { margin-left: auto; }
+@media (max-width: 1279px) { body main > header :is(.header-chip, #conversation-state-pill) { display: none!important; } }
+/* Sidebar shows only the conversation groups that have conversations. */
+#history { flex: none; }
+.conversation-state-group:not(:has(.conversation-row)) { display: none; }
+/* Empty conversation: heading and composer centered together, as in the reference home. */
+main:has(#messages > #welcome) #messages { flex: 0 0 auto; margin-top: auto; overflow: visible; }
+main:has(#messages > #welcome) .composer-area { margin-bottom: auto; padding-bottom: 12vh; }
+main:has(#messages > #welcome) #welcome { margin: 0 auto 8px; }
+/* Optional reversed order keeps the rail first. */
+body.panel-order-reversed { grid-template-columns: var(--th-rail-width) auto minmax(0, 1fr) var(--th-sidebar-width, 300px); }
+body.panel-order-reversed.sidebar-collapsed { grid-template-columns: var(--th-rail-width) auto minmax(0, 1fr) 0; }
+body.panel-order-reversed #activity-panel { grid-column: 2; grid-row: 1; border-left: 0; border-right: 1px solid color-mix(in srgb, var(--th-border) 80%, transparent); }
+body.panel-order-reversed main { grid-column: 3; grid-row: 1; }
+body.panel-order-reversed #sidebar { grid-column: 4; grid-row: 1; }
+/* Empty conversation: the conversation-mode choice sits under the composer as its contained sub-bar. */
+main:has(#messages > #welcome) .composer-context { display: none; }
+main:has(#messages > #welcome) .composer-area { margin-bottom: 0; padding-bottom: 0; position: relative; z-index: 1; }
+main:has(#messages > #welcome) #execution-mode-choice:not([hidden]) {
+  order: 10; width: calc(100% - 32px); max-width: 614px; margin: -14px auto auto; padding: 18px 12px 6px;
+  border: 1px solid color-mix(in srgb, var(--th-text) 7%, transparent); border-top: 0; border-radius: 0 0 16px 16px;
+  background: color-mix(in srgb, var(--th-text) 3%, transparent); font-size: 13px;
+}
+main:has(#messages > #welcome) #execution-mode-choice[hidden] + * { margin-bottom: auto; }
+main:has(#messages > #welcome):not(:has(#execution-mode-choice:not([hidden]))) .composer-area { margin-bottom: auto; padding-bottom: 12vh; }
+main:has(#messages > #welcome) { padding-bottom: 12vh; }
+#execution-mode-choice { background: transparent; }
+#execution-mode-choice .execution-mode-heading { gap: 8px; }
+#execution-mode-choice #execution-mode-label { font-weight: 500; font-size: 13px; }
+#execution-mode-choice #access-mode-notice { color: var(--th-quiet); font-size: 13px; }
+/* Status strip belongs to the chat column, not to the sidebar. */
+.run-status-strip { left: calc(var(--th-rail-width) + var(--th-sidebar-width, 300px)); width: auto; }
+body.sidebar-collapsed .run-status-strip { left: var(--th-rail-width); }
+body.panel-order-reversed .run-status-strip { left: var(--th-rail-width); right: var(--th-sidebar-width, 300px); }
+body.panel-order-reversed.sidebar-collapsed .run-status-strip { right: 0; }
+#sidebar .sidebar-foot:not(:has(.provider-quotas > *)) { display: none; }
+/* Project rows like the reference: folder icon, regular weight, actions on hover, nested chats. */
+#projects .project-group > summary {
+  list-style: none; display: flex; align-items: center; gap: 10px; min-height: 30px; margin: 0; padding: 0 4px 0 8px;
+  border-radius: var(--th-row-radius); color: var(--th-text); font-weight: 430;
+}
+#projects .project-group > summary::-webkit-details-marker { display: none; }
+#projects .project-group > summary::marker { content: ""; }
+#projects .project-group > summary::before {
+  content: ""; flex: none; width: 16px; height: 16px; margin: 0; border: 0; transform: none; background: var(--th-quiet);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 4h4l3 3h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2'/%3E%3C/svg%3E") center / contain no-repeat;
+          mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 4h4l3 3h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+#projects .project-group[open] > summary::before {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 19l2.757-7.351A1 1 0 0 1 8.693 11H21a1 1 0 0 1 .986 1.164l-.996 5.211A2 2 0 0 1 19.026 19H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4l3 3h7a2 2 0 0 1 2 2v2'/%3E%3C/svg%3E");
+          mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 19l2.757-7.351A1 1 0 0 1 8.693 11H21a1 1 0 0 1 .986 1.164l-.996 5.211A2 2 0 0 1 19.026 19H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4l3 3h7a2 2 0 0 1 2 2v2'/%3E%3C/svg%3E");
+}
+#projects .project-group > summary:hover { background: var(--th-hover); }
+#projects .project-group > summary > button:first-of-type { flex: 1; min-width: 0; padding: 5px 0; border: 0; background: transparent; color: inherit; font: inherit; font-size: 14px; line-height: 20px; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#projects .project-actions > button { width: 26px; height: 26px; min-height: 0; padding: 0; border: 0; border-radius: 10px; background: transparent; color: var(--th-quiet); opacity: 0; }
+#projects .project-group > summary:is(:hover, :focus-within) .project-actions > button,
+#projects .project-actions > button[aria-expanded="true"] { opacity: 1; }
+#projects .project-actions > button:hover { background: var(--th-hover); color: var(--th-text); }
+#projects .project-actions .th-icon, #projects .project-actions svg { width: 16px; height: 16px; }
+#projects .project-conversations { padding: 0 0 4px 26px; }
+#projects .project-conversations .project-new { min-height: 28px; padding: 4px 8px; border: 0; border-radius: var(--th-row-radius); background: transparent; color: var(--th-quiet); font-size: 14px; }
+#projects .project-conversations .project-new:hover { background: var(--th-hover); color: var(--th-text); }
+#projects .project-conversations .empty-history { margin: 0; padding: 4px 8px; color: var(--th-quiet); font-size: 14px; }
+#projects .project-group > summary { border: 0!important; box-shadow: none!important; background-image: none; }
+#projects .project-conversations { margin: 0; border: 0!important; }
+#projects .project-conversations .project-new { color: var(--th-quiet)!important; font-weight: 430!important; gap: 8px; }
+#projects .project-conversations .project-new .th-icon, #projects .project-conversations .project-new svg { width: 16px; height: 16px; }
+#project-tree #projects { margin-top: 2px; }
+/* Conversation column: 768 px like the reference; header adapts to the chat pane width. */
+main { container-type: inline-size; container-name: chatpane; }
+#messages { padding-inline: max(16px, calc((100% - 768px) / 2)); }
+main > header h1 { max-width: calc(50% - 150px); }
+@container chatpane (max-width: 980px) { main > header :is(.header-chip, #conversation-state-pill, #active-project-badge) { display: none!important; } }
+@container chatpane (max-width: 640px) { main > header h1 { display: none; } }
+/* Sidebar conversation rows: one line, status lives in the group heading. */
+#sidebar .conversation-row, #sidebar .conversation-row :is(button, button.active) { border: 0!important; box-shadow: none!important; }
+#sidebar .conversation-row .conversation-row-meta { display: none; }
+#sidebar .conversation-row > button:first-child { align-items: center; min-height: 30px; }
+#sidebar .conversation-row .conversation-actions { opacity: 0; }
+#sidebar .conversation-row:is(:hover, :focus-within) .conversation-actions { opacity: 1; }
+/* Code view side panel: quiet tabs and sections. */
+#activity-panel { padding: 10px 12px; }
+#activity-panel .panel-view-controls { height: 34px; margin: 0 0 10px; padding: 0; border-radius: 9999px; background: color-mix(in srgb, var(--th-text) 5%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--th-text) 7%, transparent); }
+#activity-panel .panel-view-controls button { height: 34px; border: 0!important; border-radius: 9999px; background: transparent; color: var(--th-quiet); font-size: 13px; font-weight: 500; box-shadow: none!important; }
+#activity-panel .panel-view-controls button[aria-expanded="true"] { background: color-mix(in srgb, var(--th-text) 10%, var(--th-bg)); color: var(--th-text); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--th-text) 12%, transparent)!important; }
+#activity-panel .workspace-section { border: 0; }
+#activity-panel .workspace-section > summary { font-size: 13px; font-weight: 500; color: var(--th-text); }
+#activity-panel .workspace-section + .workspace-section { border-top: 1px solid color-mix(in srgb, var(--th-border) 70%, transparent); }
+main > header h1 { max-width: calc(50% - 240px); }
+.composer-area .composer-context { background: transparent; border: 0; box-shadow: none; padding: 0 12px 4px; }
+.composer-area .composer-context #context-meter { background: transparent; border: 0; color: var(--th-quiet); }
+/* Narrow screens: the rail becomes a top bar; sidebar and panel stay overlays (existing behavior). */
+@media (max-width: 620px) {
+  :root { --th-app-topbar-height: 48px; }
+  body, body.sidebar-collapsed, body.panel-order-reversed, body.panel-order-reversed.sidebar-collapsed {
+    grid-template-columns: minmax(0, 1fr); grid-template-rows: var(--th-app-topbar-height) minmax(0, 1fr);
+  }
+  #app-topbar { grid-column: 1; grid-row: 1; flex-direction: row; width: auto; height: var(--th-app-topbar-height); padding: 0 8px; gap: 2px; }
+  #app-brand { margin: 0 6px 0 0; }
+  body #sidebar, body main, body #activity-panel,
+  body.panel-order-reversed #sidebar, body.panel-order-reversed main, body.panel-order-reversed #activity-panel { grid-column: 1; grid-row: 2; }
+  body .run-status-strip, body.panel-order-reversed .run-status-strip { left: 0; right: 0; }
+  .view-switch button { width: 84px; }
+  .attention-popover { top: calc(var(--th-app-topbar-height) + 6px); left: 8px; }
+}
+@media (max-width: 620px) {
+  body #sidebar:not(.open) { display: none; }
+  body #sidebar.open { position: fixed; top: var(--th-app-topbar-height); bottom: 0; left: 0; width: min(320px, 86vw)!important; z-index: 35; box-shadow: 0 0 0 100vmax rgba(0, 0, 0, .45); }
+}

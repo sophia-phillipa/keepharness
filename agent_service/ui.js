@@ -5225,9 +5225,33 @@ $("about-dialog").addEventListener("close", () => {
 });
 $("theme-toggle").onclick = () => {
   const dark = document.documentElement.dataset.theme === "dark";
-  window.TailTheme?.apply(dark ? "porcelain" : "amethyst");
+  window.TailTheme?.apply(dark ? "paper" : "graphite");
   $("theme-toggle-label").textContent = dark ? "Light" : "Dark";
 };
+// Chat | Code view switch: Code shows the run console and files beside the conversation.
+function syncViewSwitch() {
+  const code = $("panel-toggle").getAttribute("aria-expanded") === "true";
+  $("view-chat").setAttribute("aria-selected", String(!code));
+  $("view-code").setAttribute("aria-selected", String(code));
+  $("view-chat").tabIndex = code ? -1 : 0;
+  $("view-code").tabIndex = code ? 0 : -1;
+  document.body.dataset.view = code ? "code" : "chat";
+}
+function showView(view) {
+  const code = $("panel-toggle").getAttribute("aria-expanded") === "true";
+  if ((view === "code") !== code) $("panel-toggle").click();
+  syncViewSwitch();
+  $(view === "code" ? "view-code" : "view-chat").focus();
+}
+$("view-chat").onclick = () => showView("chat");
+$("view-code").onclick = () => showView("code");
+$("view-switch").addEventListener("keydown", (event) => {
+  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+  event.preventDefault();
+  showView(event.key === "ArrowRight" || event.key === "End" ? "code" : "chat");
+});
+new MutationObserver(syncViewSwitch).observe($("panel-toggle"), { attributes: true, attributeFilter: ["aria-expanded"] });
+syncViewSwitch();
 function positionAttentionPopover() {
   const popover = $("attention-popover");
   if (popover.hidden) return;
@@ -6192,19 +6216,13 @@ try {
   setPanelOpen(
     matchMedia("(max-width:700px)").matches
       ? false
-      : preference === null
-        ? matchMedia("(min-width:1200px)").matches
-        : preference === "1",
+      : preference === "1",
     false,
   );
 } catch {
   rightPanelView = "files";
   setPanelView("files", false);
-  setPanelOpen(
-    !matchMedia("(max-width:700px)").matches &&
-      matchMedia("(min-width:1200px)").matches,
-    false,
-  );
+  setPanelOpen(false, false);
 }
 matchMedia("(max-width:999px)").addEventListener("change", () => {
   if (!$("activity-panel").hidden) setPanelOpen(true, false);
@@ -6216,8 +6234,7 @@ matchMedia("(max-width:700px)").addEventListener("change", (event) => {
     try {
       preference = localStorage.getItem("activity-open");
     } catch {}
-    if (preference === null && matchMedia("(min-width:1200px)").matches)
-      setPanelOpen(true, false);
+    if (preference === "1") setPanelOpen(true, false);
   }
 });
 
@@ -6394,7 +6411,7 @@ function applyPanelOrder(value, persist = true) {
   );
   const reversed = panelOrder === "conversations-right";
   $("app-brand").after($(reversed ? "panel-toggle" : "menu"));
-  $("app-topbar").append($(reversed ? "menu" : "panel-toggle"));
+  $("attention-popover").after($(reversed ? "menu" : "panel-toggle"));
   for (const button of document.querySelectorAll("[data-panel-order]"))
     button.setAttribute(
       "aria-pressed",

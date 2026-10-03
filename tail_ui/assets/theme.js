@@ -2,6 +2,8 @@
 (()=>{
  const root=document.documentElement,surface=root.dataset.surface==='admin'?'admin':'harness';
  const themes=[
+  {id:'paper',name:'Paper',mode:'light',colors:['#ffffff','#1a1a1a','#2f6fde']},
+  {id:'graphite',name:'Graphite',mode:'dark',colors:['#141414','#e3e3e3','#9cc1ff']},
   {id:'violet-bordeaux',name:'Violet & Bordeaux',mode:'light',colors:['#ffffff','#643b92','#792f49']},
   {id:'porcelain',name:'Porcelain',mode:'light',colors:['#ffffff','#176b78','#244f69']},
   {id:'mineral-rose',name:'Mineral Rose',mode:'light',colors:['#ffffff','#873c62','#684253']},
@@ -10,8 +12,8 @@
   {id:'arizona',name:'Arizona',mode:'dark',colors:['#232323','#fc4c02','#eeeeee']}
  ];
  const key='tail-harness:theme:'+surface;
- const defaultLight="violet-bordeaux";
- const defaultDark="amethyst";
+ const defaultLight="paper";
+ const defaultDark="graphite";
  let initial=defaultLight;
  try{
   const saved=localStorage.getItem(key);
