@@ -5225,6 +5225,47 @@ $("theme-toggle").onclick = () => {
   window.TailTheme?.apply(dark ? "paper" : "graphite");
   $("theme-toggle-label").textContent = dark ? "Light" : "Dark";
 };
+// Codex-style "Choose project" under the composer: reuses the project select and its onchange.
+function syncComposerProjectButton() {
+  const option = $("project").selectedOptions[0];
+  $("project-button-label").textContent =
+    !option || option.value === "sem-projeto" ? "Choose project" : option.textContent;
+  $("project-button").disabled = $("project").disabled;
+}
+$("project-button").onclick = () => {
+  const menu = $("project-menu");
+  if (menu.matches(":popover-open")) return menu.hidePopover();
+  menu.replaceChildren(
+    ...[...$("project").options].map((option) => {
+      const item = document.createElement("button");
+      item.type = "button";
+      item.setAttribute("role", "option");
+      item.setAttribute("aria-selected", String(option.value === $("project").value));
+      item.append(
+        TailUI.icon("folder"),
+        document.createTextNode(option.value === "sem-projeto" ? "No project" : option.textContent),
+      );
+      item.onclick = () => {
+        menu.hidePopover();
+        if (option.value !== $("project").value) {
+          $("project").value = option.value;
+          $("project").onchange();
+        }
+        syncComposerProjectButton();
+        $("prompt").focus();
+      };
+      return item;
+    }),
+  );
+  menu.showPopover();
+  const r = $("project-button").getBoundingClientRect();
+  menu.style.left = Math.max(12, Math.min(r.left, innerWidth - menu.offsetWidth - 12)) + "px";
+  menu.style.top = Math.max(12, Math.min(innerHeight - menu.offsetHeight - 12, r.bottom + 6)) + "px";
+  menu.querySelector('[aria-selected="true"]')?.focus();
+};
+$("project-menu").addEventListener("toggle", (event) =>
+  $("project-button").setAttribute("aria-expanded", String(event.newState === "open")),
+);
 // Chat | Code view switch: Code shows the run console and files beside the conversation.
 function syncViewSwitch() {
   const code = $("panel-toggle").getAttribute("aria-expanded") === "true";
@@ -6823,6 +6864,7 @@ new ResizeObserver(entries => {
   updateComposer();
 }).observe($("prompt"));
 function updateComposer() {
+  syncComposerProjectButton();
   syncComposerPickers();
   syncExecutionMode();
   updateModelPermissions();

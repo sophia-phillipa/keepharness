@@ -5396,3 +5396,11 @@ main > header .view-switch { top: 6px; }
   /* Row actions stay clear of the drawer's 24 px resize handle. */
   #sidebar .sidebar-tree { padding-right: 28px; }
 }
+/* "Choose project" in the composer sub-bar (reference: Choose project · Plugins). */
+#execution-mode-choice #project-button { display: inline-flex; align-items: center; gap: 6px; height: 28px; min-height: 0; margin-right: 6px; padding: 0 10px; border: 0; border-radius: 10px; background: transparent; color: var(--th-text); font-size: 13px; }
+#execution-mode-choice #project-button:hover { background: var(--th-hover); }
+#execution-mode-choice #project-button :is(.th-icon, svg) { width: 16px; height: 16px; color: var(--th-quiet); }
+#project-menu { position: fixed; inset: auto; margin: 0; min-width: 220px; max-width: 320px; max-height: 320px; overflow: auto; }
+#project-menu [role="option"] { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; }
+#project-menu [role="option"] :is(.th-icon, svg) { width: 16px; height: 16px; color: var(--th-quiet); }
+#project-menu [role="option"][aria-selected="true"] { background: var(--th-hover); }
