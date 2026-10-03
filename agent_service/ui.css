@@ -5407,3 +5407,6 @@ main > header .view-switch { top: 6px; }
 /* The project name also shows above the composer; drop the header badge before it meets the switch. */
 @container chatpane (max-width: 1240px) { main > header #active-project-badge { display: none!important; } }
 main > header #conversation-title { max-width: calc(50% - 250px); }
+/* Narrow chat pane: title first, then the conversation-mode chip and the Chat/Code switch at the right. */
+@container chatpane (max-width: 760px) { main > header .view-switch { order: 99; margin-left: 8px; } }
+@container chatpane (max-width: 760px) { main > header #conversation-title { flex: 1 1 auto; max-width: none; } }
