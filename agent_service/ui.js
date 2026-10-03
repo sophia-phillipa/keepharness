@@ -5430,7 +5430,7 @@ function usageAge(seconds) {
       ? Math.round(age / 3600) + " h ago"
       : Math.round(age / 86400) + " d ago";
 }
-function integrationRow(item) {
+function integrationRow(item, sharedReason = "") {
   const row = document.createElement("li"),
     text = document.createElement("div"),
     name = document.createElement("strong"),
@@ -5444,7 +5444,7 @@ function integrationRow(item) {
       : item.effective
         ? "not used here recently"
         : "",
-    item.effective ? "" : item.reason,
+    item.effective || item.reason === sharedReason ? "" : item.reason,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -5488,13 +5488,19 @@ async function renderPluginsMenu() {
       note.textContent = data.effective_note;
       parts.push(note);
     }
+    // A reason shared by every row is said once, under the heading.
     const section = (title, list, empty) => {
       const wrap = document.createElement("section"),
         h = document.createElement("h3"),
-        ul = document.createElement("ul");
+        ul = document.createElement("ul"),
+        reasons = new Set(list.filter((item) => !item.effective).map((item) => item.reason)),
+        shared = list.length > 1 && reasons.size === 1 ? [...reasons][0] : "";
       h.textContent = title;
-      ul.replaceChildren(...list.map(integrationRow));
-      wrap.append(h, list.length ? ul : Object.assign(document.createElement("p"), { className: "plugins-empty", textContent: empty }));
+      ul.replaceChildren(...list.map((item) => integrationRow(item, shared)));
+      wrap.append(h);
+      if (shared)
+        wrap.append(Object.assign(document.createElement("p"), { className: "plugins-note", textContent: shared }));
+      wrap.append(list.length ? ul : Object.assign(document.createElement("p"), { className: "plugins-empty", textContent: empty }));
       return wrap;
     };
     parts.push(
