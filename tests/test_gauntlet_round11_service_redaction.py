@@ -7,6 +7,7 @@ import pytest
 from test_workspaces import config
 
 from agent_service.app import create_app
+from agent_service.approval_sessions import SESSION_COOKIE, consume_enrollment, issue_enrollment
 from agent_service.log_config import redact
 
 
@@ -38,7 +39,11 @@ def test_service_action_diagnostics_are_redacted(tmp_path, syntax):
                 async with httpx.AsyncClient(
                     transport=httpx.ASGITransport(app=app),
                     base_url="http://localhost",
-                    headers={"Authorization": "Bearer a"},
+                    headers={
+                        "Cookie": SESSION_COOKIE
+                        + "="
+                        + consume_enrollment(cfg, issue_enrollment(cfg, "a"))
+                    },
                 ) as client:
                     response = await client.post(
                         "/v1/services",

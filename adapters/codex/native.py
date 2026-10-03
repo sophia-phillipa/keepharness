@@ -155,12 +155,14 @@ async def respond_to_interaction(rpc, item, approve, project, permissions, unres
         else await approve(kind, params)
     )
     decision = reply.get("approved", False)
+    # A denial carries no typed answers to the provider.
+    answers = reply.get("answers") if decision else None
     if "requestUserInput" in kind:
-        result = {"answers": reply.get("answers", {})}
+        result = {"answers": answers or {}}
     elif "elicitation" in kind:
         result = {
             "action": "accept" if decision else "decline",
-            "content": reply.get("answers") or None,
+            "content": answers or None,
         }
     elif "permissions/requestApproval" in kind:
         result = {

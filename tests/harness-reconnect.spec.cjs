@@ -8,6 +8,7 @@ const path = require("node:path");
   try {
     const page = await browser.newPage();
     let offline = false,
+      modelsFail = false,
       loads = 0;
     const errors = [];
     page.on("pageerror", (e) => errors.push(e.message));
@@ -16,6 +17,8 @@ const path = require("node:path");
       const p = new URL(route.request().url()).pathname;
       if (p.startsWith("/v1/")) {
         if (offline) return route.abort("failed");
+        if (modelsFail && p === "/v1/models")
+          return route.fulfill({ status: 500, json: { code: "internal_error" } });
         let data = {};
         if (p === "/v1/projects") data = { projects: ["sem-projeto"] };
         if (p === "/v1/models")
@@ -108,6 +111,24 @@ const path = require("node:path");
       await page.locator("#prompt").inputValue(),
       "Preserve my draft",
     );
+    // A failed readiness probe keeps an open editor and its unsaved text (UX-R1-1).
+    await page.click("#rail-space");
+    const space = page.getByRole("dialog", { name: "Space" });
+    await space.getByRole("button", { name: "New page" }).click();
+    await space.getByLabel("Page title").fill("Unsaved title");
+    await space.getByLabel("Page content (Markdown)").fill("Unsaved body");
+    modelsFail = true;
+    await page.evaluate(() => {
+      readinessRetryAt = 0;
+      return probeReadiness();
+    });
+    await page.locator("#startup-gate").waitFor({ state: "visible" });
+    assert.equal(await space.isVisible(), true, "Space stays open when the probe fails");
+    assert.equal(await space.getByLabel("Page title").inputValue(), "Unsaved title");
+    modelsFail = false;
+    await page.evaluate(() => window.dispatchEvent(new Event("online")));
+    await page.locator("#startup-gate").waitFor({ state: "hidden", timeout: 3000 });
+    assert.equal(await space.getByLabel("Page content (Markdown)").inputValue(), "Unsaved body");
     assert.equal(loads, 1);
     assert.deepEqual(errors, []);
     console.log(

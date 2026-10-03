@@ -143,4 +143,10 @@ DELETE /v1/pages/5d1c…   {"project_id": "p", "revision": "9f2c…"}
   list.
 - The summary has no body. Open a page with `GET /v1/pages/{id}` and keep its `revision` for
   the next save.
+- Unsaved text is never dropped. Closing Space (× or Esc), switching its project, opening
+  another page, New page and Attach/Start chat save the page first, to the project it was
+  opened in; when that save fails, Space stays open with the text, the project and the error.
+  A lost server connection leaves Space, Scheduled and the agent editor open.
+- Saves run one at a time, each sending the revision the previous one returned. Text typed
+  while a save is in flight stays "Unsaved changes" and goes out with the next save.
 - Error copy for every code above lives in `userErrors` in `agent_service/ui.js`.

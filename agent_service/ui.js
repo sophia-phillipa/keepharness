@@ -1109,6 +1109,7 @@ const userErrors = {
   workflow_must_be_standalone: "Select one workflow at a time.",
   workflow_output_not_approved: "The step output was not approved. Review the evidence before continuing.",
   workflow_owner_denied: "Only the owner of this run can recover or save it.",
+  workflow_save_local_only: "Workflows can only be saved from the computer that runs KeepHarness.",
   workflow_published_step_requires_explicit_rerun: "This changed step already published. Use an explicit re-run with fresh approval.",
   workflow_requires_successful_chain: "Only a completed, successful chain can be saved as a workflow.",
   workflow_resource_unavailable: "A required workflow resource is missing or unavailable. Refresh the catalog.",
@@ -1466,8 +1467,6 @@ const userErrors = {
   restart_schedule_failed:
     "The changes were applied, but the panel could not schedule its restart.",
   service_control_denied: "You can't control this service.",
-  explicit_service_request_required:
-    "Controlling a service needs an explicit request. Use the service controls.",
   invalid_service_action: "That service action is not available.",
   invalid_service_unit: "That service is not available.",
   service_not_registered: "That service is not registered for this project.",
@@ -5822,8 +5821,9 @@ function setReadiness(ready, message = "") {
   if (!ready) {
     for (const menu of document.querySelectorAll(".composer-menu:popover-open"))
       menu.hidePopover();
+    // Editors stay open with what was typed; their own saves report a failed request.
     for (const dialog of document.querySelectorAll(
-      "dialog[open]:not(#vpn-login)",
+      "dialog[open]:not(#vpn-login, #space-dialog, #scheduled-dialog, #agent-dialog)",
     ))
       dialog.close();
   } else if ($("vpn-login").open) $("vpn-login").close();
@@ -7149,10 +7149,16 @@ async function confirmTwice(button, label, action) {
 
 // Space › Pages (Codex Space): Markdown pages kept per project, usable in any chat.
 let currentPage = null,
-  pageDirty = false;
+  pageProject = "",
+  pageDirty = false,
+  pageEdits = 0,
+  pageSession = 0,
+  pageSaving = Promise.resolve(true);
 async function openSpace() {
-  projectChoices($("space-project"), $("project").value);
   if (!$("space-dialog").open) $("space-dialog").showModal();
+  // A page that could not be saved on its way out is still here; keep showing it.
+  if (pageDirty) return;
+  projectChoices($("space-project"), $("project").value);
   showPageEditor(undefined);
   await loadPages();
 }
@@ -7188,7 +7194,9 @@ async function loadPages(selectedId = currentPage?.id) {
 }
 function showPageEditor(page) {
   currentPage = page || null;
+  pageProject = $("space-project").value;
   pageDirty = false;
+  pageSession++;
   const editing = page !== undefined;
   $("page-empty-state").hidden = editing;
   $("page-editor").hidden = !editing;
@@ -7210,7 +7218,7 @@ function setPagePreview(on) {
   if (on) renderAnswer($("page-preview"), $("page-body").value || "*Empty page*");
 }
 async function openPage(id) {
-  if (pageDirty && !(await savePage())) return;
+  if (!(await leavePage())) return;
   try {
     const page = await json(
       "/v1/pages/" + encodeURIComponent(id) + "?" + new URLSearchParams({ project_id: $("space-project").value }),
@@ -7221,10 +7229,17 @@ async function openPage(id) {
     status(error.message);
   }
 }
-async function savePage() {
+function savePage() {
+  // One save at a time, so the next one sends the revision the previous one returned.
+  pageSaving = pageSaving.then(writePage);
+  return pageSaving;
+}
+async function writePage() {
   const page = currentPage,
+    session = pageSession,
+    edits = pageEdits,
     body = {
-      project_id: $("space-project").value,
+      project_id: pageProject,
       title: $("page-title").value.trim() || "Untitled",
       body: $("page-body").value,
     };
@@ -7237,19 +7252,32 @@ async function savePage() {
           body: JSON.stringify({ ...body, revision: page.revision }),
         })
       : await post("/v1/pages", body);
-    currentPage = { ...saved, body: saved.body ?? body.body };
-    pageDirty = false;
-    $("page-title").value = currentPage.title;
-    $("page-delete").hidden = false;
-    $("page-status").textContent = "Saved";
-    await loadPages(saved.id);
+    if (session === pageSession) {
+      currentPage = { ...saved, body: saved.body ?? body.body };
+      $("page-delete").hidden = false;
+      // Text typed while this save was in flight stays unsaved for the next save.
+      if (edits === pageEdits) {
+        pageDirty = false;
+        $("page-title").value = currentPage.title;
+        $("page-status").textContent = "Saved";
+      }
+    }
+    await loadPages();
     return true;
   } catch (error) {
-    $("page-status").textContent = error.message;
+    if (session === pageSession) $("page-status").textContent = error.message;
     return false;
   } finally {
     $("page-save").disabled = false;
   }
+}
+async function leavePage() {
+  // False keeps the page, its project and the save error in view.
+  while (pageDirty) if (!(await savePage())) return false;
+  return true;
+}
+async function closeSpace() {
+  if (await leavePage()) $("space-dialog").close();
 }
 function pageFile() {
   const title = $("page-title").value.trim() || "Untitled",
@@ -7257,7 +7285,7 @@ function pageFile() {
   return new File([$("page-body").value], name + ".md", { type: "text/markdown" });
 }
 async function usePage(startChat) {
-  if (pageDirty && !(await savePage())) return;
+  if (!(await leavePage())) return;
   const project = $("space-project").value,
     file = pageFile(),
     title = $("page-title").value.trim() || "Untitled";
@@ -7276,6 +7304,7 @@ $("page-editor").onsubmit = (event) => {
 };
 $("page-editor").addEventListener("input", () => {
   pageDirty = true;
+  pageEdits++;
   $("page-status").textContent = "Unsaved changes";
 });
 $("page-editor").addEventListener("keydown", (event) => {
@@ -7287,7 +7316,7 @@ $("page-editor").addEventListener("keydown", (event) => {
 $("page-preview-toggle").onclick = () =>
   setPagePreview($("page-preview-toggle").getAttribute("aria-pressed") !== "true");
 $("page-new").onclick = async () => {
-  if (pageDirty && !(await savePage())) return;
+  if (!(await leavePage())) return;
   showPageEditor(null);
   await loadPages(null);
   $("page-title").focus();
@@ -7308,11 +7337,20 @@ $("page-delete").onclick = () =>
       $("page-status").textContent = error.message;
     }
   });
-$("space-project").onchange = () => {
+$("space-project").onchange = async () => {
+  if (!(await leavePage())) {
+    $("space-project").value = pageProject;
+    return;
+  }
   showPageEditor(undefined);
   void loadPages(null);
 };
-$("space-close").onclick = () => $("space-dialog").close();
+$("space-close").onclick = () => void closeSpace();
+$("space-dialog").addEventListener("cancel", (event) => {
+  if (!pageDirty) return;
+  event.preventDefault();
+  void closeSpace();
+});
 
 // Scheduled tasks (Codex Scheduled): a prompt that runs unattended on its own
 // route as a new conversation each time; only Ask and Read only access.
@@ -8440,9 +8478,9 @@ function showApproval(data) {
       progress.hidden = false;
       progress.textContent = "Sending your decision…";
       try {
-        const answers = Object.fromEntries(
-          fields.map(([id, input]) => [id, { answers: [input.value] }]),
-        );
+        const answers = approved
+          ? Object.fromEntries(fields.map(([id, input]) => [id, { answers: [input.value] }]))
+          : {};
         await post("/v1/approvals/" + data.approval_id, {
           approved,
           answers,

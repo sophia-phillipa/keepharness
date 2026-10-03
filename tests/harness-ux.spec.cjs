@@ -227,6 +227,7 @@ const assert = require("node:assert/strict");
       await box.waitFor({ state: "detached" });
       assert.equal(decisionRequests, 2);
       assert.equal(decisions[1].approved, false);
+      assert.deepEqual(decisions[1].answers, {}, "Deny sends no typed answers");
     } else if (
       scenario === "pending-submit" ||
       scenario === "duplicate-cancel"

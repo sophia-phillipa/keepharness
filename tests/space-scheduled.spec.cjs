@@ -12,7 +12,9 @@ const path = require("node:path");
       schedules = [],
       calls = [],
       uploads = [];
-    let revision = 0;
+    let revision = 0,
+      failPut = false,
+      holdPut = null;
     page.on("pageerror", (e) => console.error("PAGEERROR", e.message));
     page.on("dialog", () => {
       throw Error("Unexpected browser dialog");
@@ -33,6 +35,10 @@ const path = require("node:path");
         calls.push([method, pathname, body]);
       let data = {},
         status = 200;
+      if (method === "PUT" && pathname.startsWith("/v1/pages/")) {
+        if (holdPut) await holdPut;
+        if (failPut) return route.fulfill({ status: 500, json: { code: "internal_error" } });
+      }
       const now = Date.now() / 1000;
       if (pathname === "/v1/projects") data = { projects: ["sem-projeto", "alpha"], details: { alpha: { label: "Alpha" } } };
       else if (pathname === "/v1/models")
@@ -135,6 +141,64 @@ const path = require("node:path");
     await space.getByRole("button", { name: "Delete" }).click();
     await space.getByRole("button", { name: "Confirm delete" }).click();
     await space.getByText("No pages in this project yet.").waitFor();
+
+    // Unsaved text survives ×, Esc and a project switch: Space saves first, to the page's project.
+    await space.getByRole("button", { name: "New page" }).click();
+    await space.getByLabel("Page title").fill("Draft one");
+    await space.getByLabel("Page content (Markdown)").fill("typed before closing");
+    await space.getByRole("button", { name: "Close Space" }).click();
+    await space.waitFor({ state: "hidden" });
+    assert.deepEqual(
+      pages.map((p) => [p.title, p.project_id, p.body]),
+      [["Draft one", "sem-projeto", "typed before closing"]],
+    );
+    await page.click("#rail-space");
+    await space.getByRole("button", { name: /^Draft one/ }).click();
+    await space.getByLabel("Page content (Markdown)").fill("typed before Esc");
+    await page.keyboard.press("Escape");
+    await space.waitFor({ state: "hidden" });
+    assert.equal(pages[0].body, "typed before Esc");
+    await page.click("#rail-space");
+    await space.getByRole("button", { name: /^Draft one/ }).click();
+    await space.getByLabel("Page content (Markdown)").fill("typed before switching");
+    await space.getByLabel("Project").selectOption("alpha");
+    await space.getByText("No pages in this project yet.").waitFor();
+    assert.deepEqual([pages[0].project_id, pages[0].body], ["sem-projeto", "typed before switching"]);
+    await space.getByLabel("Project").selectOption("sem-projeto");
+
+    // A failed save keeps Space open, with the text and the page's own project.
+    failPut = true;
+    await space.getByRole("button", { name: /^Draft one/ }).click();
+    await space.getByLabel("Page content (Markdown)").fill("kept after a failed save");
+    await space.getByLabel("Project").selectOption("alpha");
+    await page.waitForFunction(() => document.getElementById("space-project").value === "sem-projeto");
+    await space.getByRole("button", { name: "Close Space" }).click();
+    await page.waitForFunction(() => !document.getElementById("page-save").disabled);
+    assert.equal(await space.isVisible(), true);
+    assert.equal(await space.getByLabel("Page content (Markdown)").inputValue(), "kept after a failed save");
+    failPut = false;
+
+    // Text typed while a save is in flight stays unsaved, and the next save sends it.
+    let release;
+    holdPut = new Promise((resolve) => (release = resolve));
+    await space.getByRole("button", { name: "Save" }).click();
+    await page.waitForFunction(() => document.getElementById("page-save").disabled);
+    await space.getByLabel("Page title").fill("Draft renamed");
+    await space.getByLabel("Page content (Markdown)").fill("typed during the save");
+    holdPut = null;
+    release();
+    await page.waitForFunction(() => !document.getElementById("page-save").disabled);
+    assert.equal(await page.locator("#page-status").innerText(), "Unsaved changes");
+    assert.equal(await space.getByLabel("Page title").inputValue(), "Draft renamed");
+    assert.equal(pages[0].body, "kept after a failed save");
+    const heldRevision = pages[0].revision;
+    await space.getByRole("button", { name: "Save" }).click();
+    await page.waitForFunction(() => document.getElementById("page-status").textContent === "Saved");
+    const lastPut = calls.filter((c) => c[0] === "PUT" && c[1].startsWith("/v1/pages/")).at(-1)[2];
+    assert.deepEqual(
+      [lastPut.title, lastPut.body, lastPut.revision],
+      ["Draft renamed", "typed during the save", heldRevision],
+    );
     await space.getByRole("button", { name: "Close Space" }).click();
 
     // Scheduled: create a weekly task on its own route, run it now, pause it.
