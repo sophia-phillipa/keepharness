@@ -2,7 +2,7 @@
 
 [![🇺🇸 English](https://img.shields.io/badge/%F0%9F%87%BA%F0%9F%87%B8-English-blue.svg)](README.md) [![🇧🇷 Português (Brasil)](https://img.shields.io/badge/%F0%9F%87%A7%F0%9F%87%B7-Portugu%C3%AAs%20(Brasil)-green.svg)](README.pt-BR.md)
 
-A local Python control panel for discovering, configuring and running Codex CLI, Claude Code, Gemini CLI and local AI models, with a conversational harness accessible through Tailscale or another VPN. Python 3.11+, MIT license, version **0.13.15**.
+A local Python control panel for discovering, configuring and running Codex CLI, Claude Code, Gemini CLI and local AI models, with a conversational harness accessible through Tailscale or another VPN. Python 3.11+, MIT license, version **0.14.0**.
 
 ## 🚀 Installation — agent-guided (start here)
 
@@ -88,7 +88,7 @@ Installing/removing integrations modifies this user's CLI profile. Authenticatio
 
 ## 💬 Conversations and navigation
 
-The harness supports persisted SSE streaming, conversation history, model/effort selection, cancellation, attachments, approval prompts and tool activity. Reasoning summaries, compaction and token metrics are shown only when provided by the executor. Codex account quota is refreshed before/after execution and periodically in the header; Claude quota appears when its CLI events supply utilization, labeled with the last observation time.
+The harness supports persisted SSE streaming, conversation history, model/effort selection, cancellation, attachments, approval prompts and tool activity. Reasoning summaries, compaction and token metrics are shown only when provided by the executor. Codex account quota is refreshed before/after execution and periodically in the icon rail's quota meters; Claude quota appears when its CLI events supply utilization, labeled with the last observation time.
 
 There are two modes:
 
@@ -97,7 +97,7 @@ There are two modes:
 
 The project is not a multi-user solution for mutually untrusted people. Every authorized client receives the same administrative project policy; each has its own history and approvals. For strong isolation of identities and credentials, run instances under separate operating-system users.
 
-The bottom-left **Menu** groups **Settings** and **Administration**. Administration is shown only when its URL is available. Settings retains the independent harness theme preference. The sidebar no longer has separate Reload screen or Collapse buttons; the header navigation toggle remains useful on mobile. Automatic refresh waits until it can preserve the current work.
+The icon rail on the left holds, from the top, the sidebar toggle, **Search** (Ctrl/⌘ K), the attention bell, files and activity, **Runs and pipeline** and **Agents and skills**; at the bottom, in order, the provider quota meters, **Admin**, **Theme**, **About** and **Settings**. **Admin** is shown only when its URL is available and, on this computer, opens **Settings › System**, which embeds the administration (Providers, Operations, Runs, Catalogs and vault). Settings retains the independent harness theme preference. The sidebar no longer has separate Reload screen or Collapse buttons; the sidebar toggle at the top of the rail (a top bar on phones) remains useful on mobile. Automatic refresh waits until it can preserve the current work.
 
 ## 🧠 Local models and attachments
 
@@ -201,10 +201,10 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-  Menu[Bottom-left Menu] --> Settings[Harness settings]
-  Menu --> Admin[Administration when available]
+  Rail[Icon rail, bottom] --> Settings[Harness settings]
+  Rail --> Admin[Admin when available]
   Settings --> Appearance[Browser-specific appearance]
-  Admin --> Providers[Providers, projects and permissions]
+  Admin --> System[Settings › System with the embedded administration]
 ```
 
 ## 💾 Persistence and portable configuration
@@ -286,13 +286,13 @@ Conversation-created projects live in `runs/jobs.sqlite3`; include that database
 
 Folders are supplied on each run and resume: Codex uses the primary working directory and execution permissions for additional roots; Claude receives `--add-dir`; local and DeepSeek API models use the existing tool runtime to inspect files and return results to the model. Entire folders are not automatically uploaded as text. Read and write permissions still apply.
 
-**Search** in the sidebar menu opens a title-only, case- and accent-insensitive search dialog. Side panels default to 300 and 390 pixels and remain resizable; the footer is compact.
+**Search**, the icon rail button (Ctrl/⌘ K), opens a title-only, case- and accent-insensitive search dialog. Side panels default to 300 and 390 pixels and remain resizable; the footer is compact.
 
 See [project folder contracts and official sources](docs/PROJECT-FOLDERS-20260919.md).
 
 In **Settings**, choose the illustrated panel order (Conversations–Chat–Files/Activity or its reverse). The choice is saved in this browser and can be restored to the default.
 
-Remaining quota stays visible in the header when the provider supplies a percentage. The indicator distinguishes account quota from conversation context; unavailable values are not estimated.
+Remaining quota stays visible in the icon rail's meters when the provider supplies a percentage. The indicator distinguishes account quota from conversation context; unavailable values are not estimated.
 
 ## 🧩 Provider adapters, specialists and versioned specifications
 
@@ -395,6 +395,6 @@ Round 12 revalidates delayed publication receipts, makes queued cancellation fai
 
 Round 14 moves model/provider blocking notices to a compact composer strip, replaces shell glyphs with SVG icons, adds newest-first timestamped logs and provider identities, and restores keyboard focus through retries and tours. Private storage remains protected across imports, relocated paths and delayed reads; workflow recovery, queue settlement and same-name resource chains retain their contracts. Chat stays home at the approved scale. See the [release specification](dossier/releases/v0.13.14.md) for migration and validation.
 
-## 🆕 Version 0.13.15
+## 🆕 Version 0.14.0
 
-Round 15 preserves accepted queue cancellations and current work-item ownership through persistence waits, keeps nested Markdown examples literal, and retains skipped checkpoint outcomes. Publication cards show operation and destination first; keyboard navigation, mobile provider usage and semantic console icons follow the existing layout at the approved scale. See the [release specification](dossier/releases/v0.13.15.md) for migration and validation.
+The chat adopts a Codex-style shell with an icon rail and a composer sub-bar. A project's conversations appear only in its folder and every other conversation under **Chats**, each with one status dot (needs your answer, running, queued, failed, unread) instead of status groups. The sub-bar adds **Files**, **Agents** and **Plugins**; the last lists the connectors and plugins available for the chosen project and route. Create your own agents and call them with `@@name` on any provider: an agent keeps its route, the history carries over when you switch model or agent, and the chat marks each change with a divider. **Settings › System** shows the local admin on the same screen, the local provider accepts OpenAI-compatible model servers on your network (for example over Tailscale), and the admin's Claude login accepts the code the browser shows. Live provider checks covered Codex; the Claude and DeepSeek routes and a real tailnet model server were not validated live. See the [release specification](dossier/releases/v0.14.0.md) for migration and validation.

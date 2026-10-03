@@ -96,7 +96,7 @@ const HARNESS_STATIC = {
 
 // Fake origin http://harness.test, mirroring agent_service's /v1 API.
 async function mockHarness(page, over = {}) {
-  await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.15"));
+  await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.14.0"));
   const s = {
     turns: [],
     posts: [],

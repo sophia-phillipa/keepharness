@@ -47,7 +47,7 @@ const path = require("node:path");
         ),
       });
     });
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.15"));
+    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.14.0"));
     await page.goto(harness + "/");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
 
