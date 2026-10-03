@@ -5468,3 +5468,8 @@ main > #run-console { order: 11; }
 /* Phone top bar: runs stay on the status strip and agents in Settings. */
 @media (max-width: 620px) { #app-topbar :is(#rail-runs, #rail-agents) { display: none; } }
 @container chatpane (max-width: 640px) { #execution-mode-choice .execution-mode-heading { flex-wrap: wrap; row-gap: 2px; } }
+
+/* Aggregator divider: the model or provider changed between turns. */
+#messages > .route-divider { display: flex; align-items: center; gap: 8px; width: min(100%, 736px); margin: 14px auto 6px; color: var(--th-quiet); font-size: 12px; line-height: 16px; }
+#messages > .route-divider::before, #messages > .route-divider::after { content: ""; flex: 1 1 24px; height: 1px; background: color-mix(in srgb, var(--th-text) 12%, transparent); }
+#messages > .route-divider :is(.th-icon, svg) { flex: none; width: 14px; height: 14px; }

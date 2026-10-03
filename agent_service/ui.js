@@ -2524,6 +2524,7 @@ function newConversation(title = "New Conversation", projectId = $("project").va
   files = kept;
   renderFiles();
   $("messages").replaceChildren(welcomeTemplate.cloneNode(true));
+  lastRoute = null;
   bindSuggestions();
   modelAvailability();
   $("prompt").value = draft;
@@ -3157,6 +3158,30 @@ function messageResourceChips(message, selections = []) {
     chips.append(chip);
   }
   message.body.prepend(chips);
+}
+// Aggregator: a conversation may change model or provider between turns; a
+// quiet divider says so, and that the conversation so far goes along.
+let lastRoute = null;
+function routeDivider(route) {
+  const previous = lastRoute;
+  lastRoute = route.model ? route : previous;
+  if (!previous || !route.model) return;
+  if (previous.backend === route.backend && previous.model === route.model) return;
+  const crossed = previous.backend !== route.backend,
+    divider = document.createElement("p");
+  divider.className = "route-divider";
+  divider.setAttribute("role", "note");
+  divider.append(
+    providerModelIcon(route.backend, route.model),
+    document.createTextNode(
+      crossed
+        ? "Switched to " + modelName(route.model) + " · " +
+            (providerNames[route.backend] || route.backend) +
+            " — the conversation so far goes with it"
+        : "Model changed to " + modelName(route.model),
+    ),
+  );
+  $("messages").append(divider);
 }
 function bubble(role, text = "") {
   const el = document.createElement("article");
@@ -4021,6 +4046,7 @@ async function load(id, legacy = false, restoredView = null) {
     invalidResourceTokens = new Set();
     renderFiles();
     $("messages").replaceChildren();
+    lastRoute = null;
     $("prompt").value = "";
     for (const r of data.turns) {
       if (r.request?.release_persona) setActivePersona(null);
@@ -4049,6 +4075,7 @@ async function load(id, legacy = false, restoredView = null) {
         updateEfforts();
         $("effort").value = r.request?.effort || $("effort").value;
       }
+      routeDivider({ backend: r.request?.backend, model });
       const userMessage = bubble("user", r.request?.prompt || "Previous run");
       messageAttachments(userMessage, r.attachments);
       messageResourceChips(userMessage, r.request?.resource_selections);
@@ -4415,6 +4442,7 @@ async function send() {
     if (releasePersonaPending) setActivePersona(null);
     clearSubmission();
     $("welcome")?.remove();
+    routeDivider({ backend: r.backend || m.backend, model: r.model || m.id });
     const userMessage = bubble("user", prompt);
     messageAttachments(userMessage, files);
     messageResourceChips(userMessage, data.resource_selections);
