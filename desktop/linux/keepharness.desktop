@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=KeepHarness
+Comment=Keeps your agents, sessions and memory together
+Exec=keepharness
+Icon=keepharness
+Terminal=false
+Categories=Development;Utility;
+StartupWMClass=keepharness
