@@ -607,6 +607,22 @@ class ConversationService:
                 raise APIError("invalid_parent_job")
             row = dict(previous)
 
+    def session_folder(self, row, data):
+        """The provider's run folder for this conversation (or Maestro stage).
+
+        ``sessions_dir`` keeps run folders out of the state folder that holds the keys; without
+        it (older runtime files, tests) they stay under ``state_dir``.
+        """
+        sessions = (
+            Path(self.config["sessions_dir"])
+            if self.config.get("sessions_dir")
+            else self.root / "sessions"
+        )
+        sessions.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if data.get("_maestro_stage"):
+            return sessions / row["id"] / ("maestro-" + data["_maestro_stage"])
+        return sessions / self.conversation_id(row) / data.get("backend", "codex")
+
     def conversation_title(self, row):
         cid = self.conversation_id(row)
         title = self.conversation_repository.title(cid)
@@ -867,7 +883,14 @@ class ConversationService:
             time.time() - integrations_view.WINDOW_DAYS * 86400,
             integrations_view.USAGE_TOOL_LIMIT,
         )
-        route = integrations_view.Route(project_id, backend, model, execution_mode, access_mode)
+        route = integrations_view.Route(
+            project_id,
+            backend,
+            model,
+            execution_mode,
+            access_mode,
+            owner=identity[0] == harness_agents.LOCAL_CLIENT,
+        )
         return integrations_view.build(self.config, route, usage)
 
     def resource_catalog(self, identity, project_id, backend, model, execution_mode=None):
@@ -1297,6 +1320,11 @@ class ConversationService:
             ).get("access_mode", "ask")
         if data.get("access_mode", "ask") not in approval_policy.MODES:
             raise APIError("invalid_access_mode")
+        if (
+            data.get("access_mode", "ask") in approval_policy.OWNER_ONLY_MODES
+            and identity[0] != harness_agents.LOCAL_CLIENT
+        ):
+            raise APIError("access_mode_owner_only", 403)
         if data.get("parent_job_id") and data.get("workspace_id") is None:
             data["workspace_id"] = json.loads(
                 self.job(identity, data["parent_job_id"])["payload"]
@@ -1656,13 +1684,7 @@ class ConversationService:
             self.config, data.get("backend", "codex"), data.get("model"), row["project"]
         ).get("upload"):
             raise APIError("uploads_denied", 403)
-        native_session = (
-            self.root / "sessions" / self.conversation_id(row) / data.get("backend", "codex")
-        )
-        if data.get("_maestro_stage"):
-            native_session = (
-                self.root / "sessions" / row["id"] / ("maestro-" + data["_maestro_stage"])
-            )
+        native_session = self.session_folder(row, data)
         for fid in file_ids:
             file = self.file(row["project"], fid, row["owner"])
             pages = json.loads(file["pages"])
@@ -1763,13 +1785,7 @@ class ConversationService:
                 "\nSYSTEM NOTICE: the frames and images mentioned below were not provided to the model; do not claim to have seen their content.\n"
                 + attachment_notice
             )
-        native_session = (
-            self.root / "sessions" / self.conversation_id(row) / data.get("backend", "codex")
-        )
-        if data.get("_maestro_stage"):
-            native_session = (
-                self.root / "sessions" / row["id"] / ("maestro-" + data["_maestro_stage"])
-            )
+        native_session = self.session_folder(row, data)
         overflow_job = next(
             (
                 payload["_overflow_job_id"]
@@ -2214,6 +2230,12 @@ class ConversationService:
         )
         mode = data.get("access_mode", "ask")
         permissions = approval_policy.effective_permissions(permissions, mode)
+        guest = row["owner"] != harness_agents.LOCAL_CLIENT
+        if guest:
+            # Fails closed for runs queued before the submit-time ceiling (decisions D06, D11).
+            if mode in approval_policy.OWNER_ONLY_MODES:
+                raise APIError("access_mode_owner_only", 403)
+            permissions = approval_policy.guest_permissions(permissions)
         if backend == "claude":
             permissions["delegate"] = project_config.get("permissions", {}).get("delegate") is True
         if backend == "claude" and permissions.get("read") and plan.execution_mode == "native":
@@ -2264,7 +2286,8 @@ class ConversationService:
         if not permissions.get("tests"):
             project_config["test_commands"] = {}
         backend_config = self.config[backend]
-        if backend == "local" and "model_permissions" in self.config["services"][backend]:
+        # Host connectors run with the owner's account on this computer: never for guests (D04).
+        if guest or (backend == "local" and "model_permissions" in self.config["services"][backend]):
             backend_config = {**backend_config, "integrations": [], "unrestricted": False}
         if data.get("_planning_only"):
             project_config = {"permissions": {}}

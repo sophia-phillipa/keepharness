@@ -17,8 +17,11 @@ from agent_service.effect_mcp import prepare_request
 
 @pytest.mark.parametrize("invocation", [False, True], ids=["plain-chat", "standalone-agent"])
 def test_inference_prepares_then_human_publishes(tmp_path, monkeypatch, jira_fixture, invocation):
-    instance, identity = invocation_service(tmp_path, monkeypatch)
+    instance, _ = invocation_service(tmp_path, monkeypatch)
     config = configure_effects(instance.config, jira_fixture.endpoint)
+    # Full access belongs to the owner on this computer; the bearer "a" now names that owner.
+    config["clients"]["local"] = config["clients"].pop("a")
+    identity = ("local", config["clients"]["local"])
     config["origins"] = [ORIGIN]
     config["codex"] = {"binary": "synthetic"}
     instance.db.close()
@@ -78,7 +81,7 @@ def test_inference_prepares_then_human_publishes(tmp_path, monkeypatch, jira_fix
             assert (
                 await client.post("/v1/approvals/" + effect["gate_id"], json={"choice": "approve"})
             ).status_code == 403
-            nonce = issue_enrollment(config, "a")
+            nonce = issue_enrollment(config, "local")
             assert (
                 await client.post("/approve-device?nonce=" + nonce, headers={"Origin": ORIGIN})
             ).status_code == 303

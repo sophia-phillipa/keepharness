@@ -15,7 +15,12 @@ def private_roots(config, root):
                 Path(root),
                 *(
                     Path(config[key])
-                    for key in ("control_state_dir", "effect_credentials_path", "secret_vault_path")
+                    for key in (
+                        "control_state_dir",
+                        "sessions_dir",
+                        "effect_credentials_path",
+                        "secret_vault_path",
+                    )
                     if config.get(key)
                 ),
             ]

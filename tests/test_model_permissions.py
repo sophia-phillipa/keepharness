@@ -212,8 +212,10 @@ def test_full_mode_auto_approves_native_requests_without_expanding_grants(tmp_pa
         "shell": True,
         "internet": False,
     }
+    # Full access belongs to the owner on this computer.
+    cfg["clients"]["local"] = cfg["clients"].pop("a")
     service = Service(cfg)
-    identity = ("a", cfg["clients"]["a"])
+    identity = ("local", cfg["clients"]["local"])
     data = {
         "project_id": "p",
         "backend": "local",

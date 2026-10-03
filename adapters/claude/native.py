@@ -16,6 +16,8 @@ MISSING_SESSION = "No conversation found with session ID:"
 
 def build_command(config, model, home, permissions, selected, access_mode, additional_roots):
     """Configure only selected tools and connectors for this Claude process."""
+    if access_mode == "read_only":
+        selected = []  # Read only never starts a connector or plugin (decisions D04, D12).
     servers = configurations()["claude"]
     selected_servers = {
         k: v for k, v in servers.items() if "mcp:" + k in selected and k != "harness_effects"

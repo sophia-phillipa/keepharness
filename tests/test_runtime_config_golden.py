@@ -156,6 +156,7 @@ def test_build_runtime_config_matches_golden_shape(tmp_path):
     expected = {
         "browser_url": "http://example-host:8096/",
         "state_dir": "<TMP>/control/runs",
+        "sessions_dir": "<TMP>/control-sessions",
         "catalogs": [],
         "projects": {
             "sem-projeto": {"label": "No project"},
