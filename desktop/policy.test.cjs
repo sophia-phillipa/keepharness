@@ -12,9 +12,10 @@ test('only the local admin and harness origins are app URLs', () => {
   assert.equal(isAppUrl('not a url', origins), false);
 });
 
-test('external URLs are limited to web and mail links without credentials', () => {
+test('external URLs are limited to web links without credentials', () => {
   assert.equal(externalUrl('https://example.com/a'), 'https://example.com/a');
-  assert.equal(externalUrl('mailto:a@example.com'), 'mailto:a@example.com');
+  assert.equal(externalUrl('http://example.com/a'), 'http://example.com/a');
+  assert.equal(externalUrl('mailto:a@example.com'), null);
   assert.equal(externalUrl('file:///etc/passwd'), null);
   assert.equal(externalUrl('javascript:alert(1)'), null);
   assert.equal(externalUrl('https://u:p@example.com'), null);

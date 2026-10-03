@@ -16,7 +16,7 @@ function isAppUrl(url, origins) {
 function externalUrl(url) {
   try {
     const parsed = new URL(url);
-    if (!['https:', 'http:', 'mailto:'].includes(parsed.protocol)) return null;
+    if (!['https:', 'http:'].includes(parsed.protocol)) return null;
     if (parsed.username || parsed.password) return null;
     return parsed.href;
   } catch {
