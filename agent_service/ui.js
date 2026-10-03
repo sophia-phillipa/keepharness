@@ -2415,7 +2415,10 @@ function syncExecutionMode() {
   const isolated = executionMode === "scoped";
   const modeContract = Array.isArray(selected()?.execution_modes);
   // F-58: isolation is chosen before the first message, then only stated.
-  $("execution-mode-choice").hidden = !modeContract;
+  // The sub-bar (project, files, agents) serves every new conversation; only the
+  // isolation choice needs a model that states its execution modes.
+  $("execution-mode-choice").hidden = !modeContract && started;
+  $("execution-mode-choice").classList.toggle("no-modes", !modeContract);
   $("execution-mode-choice").classList.toggle("started", started);
   $("isolation-toggle").hidden = started;
   $("execution-mode-help").hidden = started;
@@ -2910,17 +2913,18 @@ function renderProjects() {
             actions,
           );
         children.replaceChildren(...items.map(conversationRow));
+        // Codex model: a compose icon on the folder row starts a chat in that project.
         const create = document.createElement("button");
+        create.type = "button";
         create.className = "project-new";
-        create.append(
-          TailUI.icon("folder-message"),
-          document.createTextNode("New Conversation"),
-        );
+        create.append(TailUI.icon("message-plus"));
         create.setAttribute(
           "aria-label",
           "New Conversation in " + o.textContent,
         );
-        create.onclick = () => {
+        create.title = "New Conversation in " + o.textContent;
+        create.onclick = (event) => {
+          event.preventDefault();
           if (submitting || cancelling || loading || uploads) {
             status(
               "Wait for the current send to finish before starting another chat.",
@@ -2932,7 +2936,7 @@ function renderProjects() {
           renderProjects();
           closeSidebar();
         };
-        children.prepend(create);
+        actions.prepend(create);
         if (!items.length) {
           const empty = document.createElement("p");
           empty.className = "empty-history";
@@ -4480,6 +4484,9 @@ function renderProjectFileSelection() {
     node = $("files-selection-count");
   node.textContent = count ? `${count} selected` : "";
   node.hidden = !count;
+  $("files-selection-actions").hidden = !count;
+  $("files-new-chat").textContent =
+    count === 1 ? "New chat with this file" : "New chat with these files";
 }
 function renderProjectFileTree() {
   const entries =
@@ -5262,11 +5269,44 @@ $("theme-toggle").onclick = () => {
   $("theme-toggle-label").textContent = dark ? "Light" : "Dark";
 };
 // Codex-style "Choose project" under the composer: reuses the project select and its onchange.
+// Composer sub-bar shortcuts (Codex model): project files and agents.
+$("files-chip").onclick = () => {
+  togglePanelView("files");
+  const target =
+    $("files-tree").querySelector('[role="treeitem"][tabindex="0"]') ||
+    $("files-tree").querySelector('[role="treeitem"]') ||
+    document.querySelector('[data-workspace-section="files"] > summary');
+  target?.focus({ preventScroll: true });
+};
+$("agents-chip").onclick = () => {
+  const input = $("prompt"),
+    at = input.selectionStart ?? input.value.length,
+    before = input.value.slice(0, at),
+    marker = before && !/\s$/.test(before) ? " @" : "@";
+  input.focus();
+  input.setRangeText(marker, at, input.selectionEnd ?? at, "end");
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+};
+$("files-attach-selected").onclick = () => void attachSelectedProjectFiles();
+// Start a chat from a set of files: a new conversation in this project with them attached.
+$("files-new-chat").onclick = async () => {
+  const selection = { root_id: fileTree.rootId, paths: [...fileTree.selected] },
+    previous = conversation;
+  if (!selection.paths.length) return;
+  newConversation();
+  if (previous && conversation === previous) return;
+  await attachSelectedProjectFiles(selection);
+  $("prompt").focus({ preventScroll: true });
+};
 function syncComposerProjectButton() {
   const option = $("project").selectedOptions[0];
-  $("project-button-label").textContent =
-    !option || option.value === "sem-projeto" ? "Choose project" : option.textContent;
+  const chosen = option && option.value !== "sem-projeto";
+  $("project-button-label").textContent = chosen ? option.textContent : "Choose project";
+  $("project-button").title = chosen
+    ? "Project: " + option.textContent
+    : "Choose the project for this conversation";
   $("project-button").disabled = $("project").disabled;
+  $("agents-chip").disabled = $("prompt").disabled;
 }
 $("project-button").onclick = () => {
   const menu = $("project-menu");

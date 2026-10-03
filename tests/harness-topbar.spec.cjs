@@ -103,7 +103,9 @@ const assert = require("node:assert/strict");
         return original(...args);
       };
     });
-    for (const open of [true, false, true]) {
+    // Project folders start expanded (Codex model, Sophia 2026-10-03); each click toggles.
+    const startsOpen = await page.locator("#projects details").first().evaluate((el) => el.open);
+    for (const open of [!startsOpen, startsOpen, !startsOpen]) {
       await projectName.click();
       assert.equal(
         await page
