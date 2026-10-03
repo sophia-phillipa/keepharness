@@ -196,7 +196,9 @@ unmarked conversation.
   back and the next run is the next occurrence after now.
 - **Never twice for one due time.** The job is submitted with the idempotency key
   `schedule-<id>-<next_run>`. If the service stops after submitting and before the file is updated,
-  the next tick submits the same key and gets the same job back instead of a second one. The
+  the next tick submits the same key and gets the same job back instead of a second one. If the
+  prompt was edited in between, the same key with a new body is an `idempotency_conflict`; the run
+  then records the job it already submitted instead of a failure. The
   outcome is only written while the file still waits for that due time: a schedule that was edited,
   paused or deleted meanwhile keeps what the user made of it.
 - `last_run` is `{"job_id", "at", "state": "submitted"}` (`at` is a UNIX timestamp in seconds). The
@@ -215,6 +217,8 @@ unmarked conversation.
   model_denied). Check the route and the project, then turn the schedule back on."
 - A busy queue is not a failure. If the service answers 429 (`queue_full`, `owner_queue_full`,
   `submission_rate_limit`), the run is deferred: nothing changes and the next tick tries again.
+  Any other 429, such as `job_storage_limit` (the project already holds 1000 jobs), does not clear
+  by waiting and is a failure.
 - If the client that owns a schedule no longer exists in the service configuration, the schedule is
   paused at once with "Paused because the client that owns this schedule no longer exists." and
   `failures` is left alone.
