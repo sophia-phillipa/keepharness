@@ -1019,6 +1019,31 @@ label {
   font-size: 13px;
   overflow-wrap: anywhere;
 }
+.remote-servers {
+  padding: 14px 16px;
+  margin: 16px 0;
+  background: var(--th-soft);
+  border-radius: 8px;
+}
+.remote-servers .btn {
+  margin: 8px 8px 0 0;
+}
+.remote-server-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 0;
+  font-size: 13px;
+}
+.remote-server-row > span:first-child {
+  flex: 1 1 14rem;
+  overflow-wrap: anywhere;
+}
+.remote-server-row small {
+  display: block;
+  color: var(--th-muted);
+}
 
 .model-list .toggle-row strong,
 .model-list .toggle-row small {

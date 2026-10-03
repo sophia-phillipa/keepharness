@@ -308,6 +308,83 @@ function modelDescription(provider, model) {
       : "")
   );
 }
+async function refreshInventory() {
+  state.inventory = await request("scan", {});
+  renderProviders();
+  renderProfile();
+}
+function remoteServersPanel(info) {
+  const panel = element("section", undefined, "remote-servers");
+  panel.setAttribute("aria-label", "Model server on your network");
+  const urlLabel = element("label", "Server address"),
+    keyLabel = element("label", "API key (optional)"),
+    url = element("input"),
+    key = element("input");
+  url.type = "url";
+  url.autocomplete = "off";
+  url.placeholder = "http://machine.tailnet.ts.net:8080";
+  key.type = "password";
+  key.autocomplete = "off";
+  urlLabel.append(url);
+  keyLabel.append(key);
+  const add = element("button", "Add server", "button secondary");
+  add.onclick = () =>
+    action(async () => {
+      if (!url.value.trim()) throw Error("Enter the server address first.");
+      const result = await request("remote-model-add", {
+        url: url.value.trim(),
+        key: key.value.trim(),
+      });
+      key.value = "";
+      await refreshInventory();
+      say(
+        "Server added · " +
+          result.models.length +
+          (result.models.length === 1 ? " model" : " models") +
+          " found. Choose the ones to make available.",
+      );
+    });
+  const saved = element("div", undefined, "remote-server-list");
+  for (const server of info.remote_servers || []) {
+    const row = element("p", undefined, "remote-server-row"),
+      name = element("span", server.url + (server.has_key ? " · key saved" : "")),
+      status = element(
+        "span",
+        server.reachable
+          ? server.models.length + (server.models.length === 1 ? " model" : " models")
+          : "Unreachable",
+        "connector-status connector-status-" +
+          (server.reachable ? "connected" : "failed"),
+      ),
+      remove = element("button", "Remove", "button secondary");
+    if (server.error) name.append(element("small", server.error));
+    status.setAttribute("role", "status");
+    remove.setAttribute("aria-label", "Remove " + server.url);
+    remove.onclick = () =>
+      action(async () => {
+        if (!confirm("Remove " + server.url + "? Its saved API key is deleted too."))
+          return;
+        await request("remote-model-remove", { url: server.url });
+        await refreshInventory();
+        say("Network server removed.");
+      });
+    row.append(name, status, remove);
+    saved.append(row);
+  }
+  panel.append(
+    element("h4", "Model server on your network"),
+    element(
+      "p",
+      "Use a model served by another machine (llama.cpp, Ollama, LM Studio...). The machine must be reachable over Tailscale or your local network, and its OpenAI-compatible server must listen on a network address. The API key is kept in a private file on this computer.",
+      "hint",
+    ),
+    urlLabel,
+    keyLabel,
+    add,
+    saved,
+  );
+  return panel;
+}
 function providerCard(info) {
   const id = info.id,
     spec = settings.services[id],
@@ -422,6 +499,7 @@ function providerCard(info) {
     }
     body.append(servers);
   }
+  if (id === "local") body.append(remoteServersPanel(info));
   if (id === "deepseek") {
     const tokenLabel = element("label", "Your DeepSeek API key (BYOK)"),
       token = element("input");
@@ -2213,8 +2291,11 @@ profilePicker.onchange = () => {
   renderProfile();
 };
 function renderProfile() {
+  // Servers on the network are not local processes: they never block starting a local model.
   const saved = profiles(),
-    runtimes = visibleProviders().find((x) => x.id === "local")?.runtimes || [];
+    runtimes = (
+      visibleProviders().find((x) => x.id === "local")?.runtimes || []
+    ).filter((r) => !r.remote);
   const paths = [
     ...new Set(
       [
