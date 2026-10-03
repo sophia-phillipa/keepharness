@@ -1632,3 +1632,8 @@ body :is(.btn.btn-primary, .button.primary) { background: var(--th-action); colo
 body :is(.btn.btn-primary, .button.primary):hover { background: color-mix(in srgb, var(--th-action) 86%, var(--th-bg)); }
 body :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) { border: 1px solid color-mix(in srgb, var(--th-text) 12%, transparent); border-radius: 10px; background: var(--th-soft); color: var(--th-text); }
 body dialog { border: 0; border-radius: 20px; background: var(--th-panel); box-shadow: 0 0 0 1px var(--th-line), 0 18px 48px rgba(0, 0, 0, .35); }
+
+/* Embedded in the harness Settings: the harness owns navigation and appearance. */
+html[data-embedded] body { padding-left: 0; }
+html[data-embedded] :is(.sidebar, .skip, #main .breadcrumb, #open-harness, #theme) { display: none; }
+html[data-embedded] #main { max-width: none; margin: 0; padding-inline: 24px; }

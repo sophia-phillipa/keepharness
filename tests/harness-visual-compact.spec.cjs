@@ -81,7 +81,7 @@ async function captureMatrix(browser, directory, summary) {
               topbar: box("#app-topbar").width,
               sidebar: box("#sidebar").width,
               activity: box("#activity-panel").width,
-              runningRow: box("#history .conversation-row").height,
+              runningRow: box("#sidebar .conversation-row").height,
             };
           });
           assert.equal(baseline.rootFont, 15, "global font scale must match the approved baseline");

@@ -93,7 +93,13 @@ const assert = require("node:assert/strict");
       await page.locator("#prompt").inputValue(),
       "Important audit draft",
     );
-    await page.locator(".project-new").click();
+    // Project folders start expanded (Codex model): the click above may have collapsed it.
+    const work = page.locator(".project-group", {
+      has: page.getByRole("button", { name: "Work project", exact: true }),
+    });
+    if (!(await work.evaluate((group) => group.open)))
+      await work.getByRole("button", { name: "Work project", exact: true }).click();
+    await work.locator(".project-new").click();
     assert.equal(
       await page.locator("#prompt").inputValue(),
       "Important audit draft",

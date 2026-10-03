@@ -45,7 +45,7 @@ const { mount } = require('./run-console-fixture.cjs');
       }
     });
     await page.waitForFunction(() => document.querySelector('#console-run').value === 'b1');
-    await page.locator('#history .conversation-title').filter({ hasText: 'Conversation A' }).click();
+    await page.locator('#sidebar .conversation-title').filter({ hasText: 'Conversation A' }).click();
     holdActivity = true;
     const pendingActivity = page.waitForRequest(request => new URL(request.url()).pathname === '/v1/activity');
     await page.keyboard.press('Control+j');
@@ -73,7 +73,7 @@ const { mount } = require('./run-console-fixture.cjs');
     await page.getByRole('button', { name: 'b1', exact: true }).waitFor({ state: 'hidden' });
     await page.waitForFunction(() => /2 needs you/.test(document.querySelector('#run-status-toggle').textContent));
     assert.equal(await page.getByRole('button', { name: 'b1', exact: true }).count(), 0, 'Runs filters only its own table');
-    assert.match(await page.locator('#history').innerText(), /Conversation B/, 'other project remains in global sidebar');
+    assert.match(await page.locator('#sidebar').innerText(), /Conversation B/, 'other project remains in global sidebar');
     console.log('PASS global activity, project filters, latest-run following and conversation-bound plan approval');
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

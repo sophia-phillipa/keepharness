@@ -125,7 +125,7 @@ async function mountVisual(page, options = {}) {
   await page.goto("http://visual.test");
   await page.locator("#startup-gate").waitFor({ state: "hidden" });
   await page.evaluate(() => setPanelOpen(true, false));
-  await page.evaluate(() => document.querySelector("#history .conversation-row button")?.click());
+  await page.evaluate(() => document.querySelector("#sidebar .conversation-row button")?.click());
   await page.waitForFunction(() => document.getElementById("conversation-title")?.textContent.includes("Compact workspace review"));
   await page.addStyleTag({ content: "html,*,*::before,*::after{animation-duration:0s!important;transition-duration:0s!important;scroll-behavior:auto!important;caret-color:transparent!important}" });
   await page.waitForFunction(() => document.querySelectorAll(".maestro-plan-card,.publish-gate-card").length === 2);

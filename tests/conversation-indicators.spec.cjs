@@ -212,7 +212,9 @@ const assert = require("node:assert/strict"),
     );
     if (!(await page.locator("#project-tree").evaluate((el) => el.open)))
       await page.locator("#project-tree > summary").click();
-    await page.locator(".project-group > summary").click();
+    // Project folders start expanded (Codex model); open it only if it is collapsed.
+    if (!(await page.locator(".project-group").evaluate((el) => el.open)))
+      await page.locator(".project-group > summary").click();
     await page.screenshot({ path: "/tmp/tail-conversation-indicators.png" });
     await page.locator("#projects .conversation-row > button").click();
     await page.waitForFunction(() =>

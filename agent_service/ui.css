@@ -5410,3 +5410,29 @@ main > header #conversation-title { max-width: calc(50% - 250px); }
 /* Narrow chat pane: title first, then the conversation-mode chip and the Chat/Code switch at the right. */
 @container chatpane (max-width: 760px) { main > header .view-switch { order: 99; margin-left: 8px; } }
 @container chatpane (max-width: 760px) { main > header #conversation-title { flex: 1 1 auto; max-width: none; } }
+
+/* Status dots (Codex model): one indicator per conversation, at the row's right edge. */
+#sidebar .conversation-row { position: relative; }
+#sidebar .conversation-row > button .conversation-indicator { position: absolute; right: 40px; top: 12px; margin: 0; }
+#sidebar .conversation-row:is(:hover, :focus-within) > button .conversation-indicator { right: 40px; }
+:is(.conversation-indicator, .project-indicator).status-needs-you { background: light-dark(#b77900, #f5c400); box-shadow: 0 0 0 3px color-mix(in srgb, light-dark(#b77900, #f5c400) 22%, transparent); }
+:is(.conversation-indicator, .project-indicator).status-queued { box-sizing: border-box; border: 2px solid var(--th-muted); background: transparent; animation: none; }
+.conversation-indicator.status-running { color: var(--th-accent); }
+:is(.conversation-indicator, .project-indicator).status-failed { background: light-dark(#c0262d, #ff6b6b); }
+:is(.conversation-indicator, .project-indicator).status-unread { background: var(--th-accent); }
+/* A folder's dot summarizes its chats while it is collapsed; open folders show each chat's dot. */
+.project-indicator { display: inline-block; flex: none; box-sizing: border-box; width: 9px; height: 9px; margin: 0 4px 0 0; border-radius: 50%; }
+.project-indicator.status-running { border: 2px solid var(--th-accent); border-right-color: transparent; animation: conversation-working 1s linear infinite; }
+.project-group[open] > summary > .project-indicator { display: none; }
+@media (prefers-reduced-motion: reduce) { .project-indicator.status-running { animation: none; } }
+
+/* Settings › System: the local admin panel fills the settings content area. */
+#settings-dialog #settings-system-nav { display: flex; flex-direction: column; gap: 2px; margin-top: 14px; }
+#settings-dialog #settings-system-nav[hidden] { display: none; }
+#settings-dialog .settings-nav-label { margin: 0; padding: 4px 8px; color: var(--th-quiet); font-size: 12px; font-weight: 500; }
+#settings-dialog #settings-system-nav > button { display: flex; align-items: center; gap: 10px; min-height: 30px; padding: 5px 8px; border: 0; border-radius: var(--th-row-radius); background: transparent; color: var(--th-text); font-size: 14px; text-align: left; }
+#settings-dialog #settings-system-nav > button:hover, #settings-dialog #settings-system-nav > button[aria-pressed="true"] { background: var(--th-hover); }
+#settings-dialog #settings-system-nav > button[aria-pressed="true"] { font-weight: 500; }
+#settings-dialog.system-open .settings-content { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
+#settings-system:not([hidden]) { flex: 1; display: flex; min-height: 0; }
+#admin-frame { flex: 1; width: 100%; min-height: 0; border: 0; background: var(--th-bg); color-scheme: normal; }

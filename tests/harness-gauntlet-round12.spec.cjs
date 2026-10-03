@@ -32,7 +32,7 @@ async function fixture(browser,width=1280,height=720,plan=false){
    return{json:{state:'ready',root_id:'home',path:folder,roots:[{id:'home',label:'Local Folders'}],entries}};
   }
  });
- async function open(){if(width<=620)await page.locator('#menu').click();await page.locator('#history .conversation-row > button').filter({hasText:'Synthetic report'}).click();await page.waitForFunction(()=>!loading && document.querySelector('#conversation-title').textContent==='Synthetic report');}
+ async function open(){if(width<=620)await page.locator('#menu').click();await page.locator('#sidebar .conversation-row > button').filter({hasText:'Synthetic report'}).click();await page.waitForFunction(()=>!loading && document.querySelector('#conversation-title').textContent==='Synthetic report');}
  async function consoleOpen(){await open();await page.evaluate(()=>runConsole.openRun('a-job'));await page.locator('#run-console').waitFor();await page.locator('.run-span-row').first().waitFor();await settle(page);}
  return{page,state,open,consoleOpen};
 }

@@ -25,7 +25,7 @@ async function fixture(page, initial = {}) {
   });
   async function open() {
     if(await page.locator('#menu').isVisible() && await page.evaluate(()=>innerWidth<=620)) await page.locator('#menu').click();
-    await page.locator('#history .conversation-row > button').filter({hasText:'Synthetic review'}).click();
+    await page.locator('#sidebar .conversation-row > button').filter({hasText:'Synthetic review'}).click();
     await page.waitForFunction(()=>!loading && document.querySelector('#conversation-title').textContent==='Synthetic review');
   }
   return {state,open};

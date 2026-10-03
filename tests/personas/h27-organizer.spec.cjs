@@ -95,7 +95,7 @@ runPersona("h27", [
         { "GET /v1/conversations/c1": { json: oneTurnConversation(title) } },
       );
       await page
-        .locator("#history .conversation-row > button")
+        .locator("#sidebar .conversation-row > button")
         .filter({ hasText: title })
         .click();
       await page.locator(".message.assistant").waitFor();
@@ -221,7 +221,7 @@ runPersona("h27", [
       // The main header truncates at 80 UTF-16 units with a plain slice(0,79):
       // for a title made of 2-unit emoji, that cut lands mid-surrogate-pair.
       await page
-        .locator("#history .conversation-row > button")
+        .locator("#sidebar .conversation-row > button")
         .filter({ hasText: "status update" })
         .click();
       await page.locator(".message.assistant").waitFor();

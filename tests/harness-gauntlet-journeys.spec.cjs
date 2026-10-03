@@ -22,7 +22,7 @@ async function setup(browser, outcome = 'completed', checkpoint = true) {
     if (url.pathname === '/v1/resources') return { json: { items: [{ id: 'project/p/skill', resource_id: 'project/p/skill', revision: '1', token: '/check', kind: 'skill', name: 'check', origin: 'codex', scope: 'project', selectable: true }], warnings: [] } };
   });
   async function open(id) {
-    await page.locator('#history .conversation-row > button').filter({ hasText: id.toUpperCase() + ' report' }).click();
+    await page.locator('#sidebar .conversation-row > button').filter({ hasText: id.toUpperCase() + ' report' }).click();
     await page.waitForFunction(title => document.querySelector('#conversation-title').textContent === title && !loading, id.toUpperCase() + ' report');
   }
   return { page, open, requests, states, turn };
@@ -58,7 +58,7 @@ async function setup(browser, outcome = 'completed', checkpoint = true) {
         await open('b');
         const label = state[0].toUpperCase() + state.slice(1);
         assert.equal(await page.locator('#conversation-state-pill').innerText(), label);
-        assert.match(await page.locator('#history .conversation-row').filter({ hasText: 'B report' }).innerText(), new RegExp(label));
+        assert.match(await page.locator('#sidebar .conversation-row').filter({ hasText: 'B report' }).innerText(), new RegExp(label));
         await page.reload();
         await page.waitForFunction(() => !loading && document.querySelector('#conversation-title').textContent === 'B report');
         assert.equal(await page.locator('#conversation-state-pill').innerText(), label);

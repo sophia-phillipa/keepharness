@@ -7,7 +7,7 @@
     { target: "top-search", title: "Search the workspace", text: "Search runs and conversations, steps in the current plan, and loaded files from one place. Use Ctrl/⌘+K to open it without leaving the keyboard." },
     { target: "quota-meters", title: "Provider quota", text: "These meters show the latest known allowance for each configured provider. Providers without quota data stay out of the way." },
     { target: "attention-bell", title: "Attention inbox", text: "The bell gathers completed work, requests, and errors that need a look. Its count and filters help you focus on the right events." },
-    { target: "sidebar-state-groups", title: "Conversations by state", text: "Conversations are grouped into Needs you, Running, Queued, and Done. Each row shows its live activity, age, backend, and project." },
+    { target: "sidebar-state-groups", title: "Conversations by state", text: "Project chats stay inside their project; other conversations are listed under Chats, with what needs you first. A yellow dot means a conversation needs your answer; a spinner, running; a ring, queued; red, failed; blue, an unread answer. Each row shows its live activity, age, backend, and project." },
     { target: "conversation-header", title: "Conversation context", text: "The header shows the conversation state, project, execution mode, and access level. Check it before sending work that depends on a specific project or permission." },
     { target: "maestro-plan", title: "Maestro plan and approval", text: "Maestro turns a task into ordered steps with a role, model, and effort for each one. Review the plan here, then approve it or edit it in the Run console." },
     { target: "composer", title: "Compose and route work", text: "Write a request or type / to choose agents, skills, and commands. You can chain resources before sending and preview what will be applied." },
@@ -17,7 +17,7 @@
     { target: "span-detail", title: "Span details", text: "Select a pipeline span to inspect its timing, tokens, and recorded events. Prompt and tool content remains hidden until you choose Show content.", reveal: "console" },
     { target: "publish-gate", title: "Publication gate", text: "A mediated publish waits for your explicit approval and records the outcome. An unenforced destination is clearly marked so you can judge the risk before continuing." },
     { target: "right-pane", title: "Files and activity", text: "Files, background tasks, resources and activity stay together here. Collapse section headings or drag their handles to make room for what you need.", reveal: "panel" },
-    { target: "settings-admin", title: "Settings, Admin, and help", text: "Settings controls this browser's appearance and working preferences; Admin opens server configuration. Open About or Help later and choose Take the tour to replay this guide." },
+    { target: "settings-admin", title: "Settings, Admin, and help", text: "Settings controls this browser's appearance and working preferences; its System section (or the Admin button) shows providers, operations, runs and catalogs on the same screen. Open About or Help later and choose Take the tour to replay this guide." },
   ];
 
   let root = null;

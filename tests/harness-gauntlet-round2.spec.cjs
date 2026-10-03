@@ -26,7 +26,7 @@ async function fixture(browser, width = 1024, height = 768) {
     if (url.pathname.endsWith('/spans')) return { json: { spans: ['Planner', 'Accessibility and interaction reviewer', 'Implementation and integration engineer'].map((name, i) => ({ ...span, name, span_id: 'span-' + i, attrs: { ...span.attrs, 'gen_ai.provider.name': 'codex', 'gen_ai.request.model': 'fixture-model', effort: 'medium' } })) } };
     if (url.pathname.endsWith('/events')) return { body: '', contentType: 'text/event-stream' };
   });
-  async function open(id) { await page.locator('#history .conversation-row > button').filter({ hasText: id.toUpperCase() + ' report' }).click(); await page.waitForFunction(title => !loading && document.querySelector('#conversation-title').textContent === title, id.toUpperCase() + ' report'); }
+  async function open(id) { await page.locator('#sidebar .conversation-row > button').filter({ hasText: id.toUpperCase() + ' report' }).click(); await page.waitForFunction(title => !loading && document.querySelector('#conversation-title').textContent === title, id.toUpperCase() + ' report'); }
   return { page, open, state };
 }
 const hit = locator => locator.evaluate(node => { const r = node.getBoundingClientRect(); const h = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2); return h === node || node.contains(h); });
@@ -96,7 +96,7 @@ const settle = page => page.evaluate(() => Promise.all(document.getAnimations().
     await check('A5-F1 unavailable conversation composer prevents lost input', async () => {
       const { page, open, state } = await fixture(browser); await open('a'); await page.fill('#prompt', 'Saved A');
       let release; state.delay = new Promise(resolve => release = resolve);
-      await page.locator('#history .conversation-row > button').filter({ hasText: 'B report' }).click();
+      await page.locator('#sidebar .conversation-row > button').filter({ hasText: 'B report' }).click();
       await page.waitForFunction(() => loading);
       const protectedInput = await page.locator('#prompt').evaluate(n => n.readOnly || n.disabled);
       release(); state.delay = null;

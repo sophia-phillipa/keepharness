@@ -93,20 +93,33 @@ function observeConversation(c) {
       (previous.token !== token || previous.state !== c.state));
   conversationActivity[c.id] = { token, state: c.state, unread };
 }
-function conversationIndicator(c) {
-  const working = ["queued", "running"].includes(c.state),
-    unread = conversationActivity[c.id]?.unread;
-  if (!working && !unread) return null;
+const STATUS_DOTS = {
+  "needs-you": "Needs your answer",
+  running: "In progress",
+  queued: "Queued",
+  failed: "Failed",
+  unread: "Unread response",
+};
+function conversationStatusKind(c = {}) {
+  const state = conversationState(c);
+  if (state !== "done") return state;
+  if (c.state === "failed") return "failed";
+  return conversationActivity[c.id]?.unread ? "unread" : "";
+}
+function statusDot(kind, label = STATUS_DOTS[kind], base = "conversation-indicator") {
   const indicator = document.createElement("span");
+  // "working" keeps the historical class for running and queued rows.
   indicator.className =
-    "conversation-indicator " + (working ? "working" : "unread");
+    base + " status-" + kind +
+    (base !== "conversation-indicator" ? "" : kind === "running" || kind === "queued" ? " working" : kind === "unread" ? " unread" : "");
   indicator.setAttribute("role", "img");
-  indicator.setAttribute(
-    "aria-label",
-    working ? "In progress" : "Unread response",
-  );
-  indicator.title = indicator.getAttribute("aria-label");
+  indicator.setAttribute("aria-label", label);
+  indicator.title = label;
   return indicator;
+}
+function conversationIndicator(c) {
+  const kind = conversationStatusKind(c);
+  return kind ? statusDot(kind) : null;
 }
 let fileTree = {
   project: "",
@@ -852,7 +865,23 @@ function syncActiveProjectBadge() {
   badge.title = name || "";
 }
 const welcomeTemplate = $("welcome").cloneNode(true);
+// Project folders start expanded, like the Codex sidebar; a folder the user
+// collapses stays collapsed across reloads.
 const expandedProjects = new Map();
+try {
+  for (const [id, open] of Object.entries(
+    JSON.parse(localStorage.getItem("project-expanded") || "{}") || {},
+  ))
+    expandedProjects.set(id, open === true);
+} catch {}
+const rememberExpandedProjects = () => {
+  try {
+    localStorage.setItem(
+      "project-expanded",
+      JSON.stringify(Object.fromEntries(expandedProjects)),
+    );
+  } catch {}
+};
 let preferredSelection = {};
 try {
   preferredSelection =
@@ -2710,8 +2739,11 @@ function renderProjects() {
         const selected =
           (projectAliases[$("project").value] || $("project").value) ===
           o.value;
-        group.open = expandedProjects.get(o.value) ?? selected;
-        group.ontoggle = () => expandedProjects.set(o.value, group.open);
+        group.open = expandedProjects.get(o.value) ?? true;
+        group.ontoggle = () => {
+          expandedProjects.set(o.value, group.open);
+          rememberExpandedProjects();
+        };
         const heading = document.createElement("summary");
         heading.className = selected ? "active" : "";
         const button = document.createElement("button");
@@ -2869,6 +2901,14 @@ function renderProjects() {
         const items = matches.filter(
           (c) => (projectAliases[c.project] || c.project) === o.value,
         );
+        const urgent = ["needs-you", "running", "queued", "failed"].find((kind) =>
+          items.some((c) => conversationStatusKind(c) === kind),
+        );
+        if (urgent)
+          heading.insertBefore(
+            statusDot(urgent, STATUS_DOTS[urgent] + " in this project", "project-indicator"),
+            actions,
+          );
         children.replaceChildren(...items.map(conversationRow));
         const create = document.createElement("button");
         create.className = "project-new";
@@ -2927,28 +2967,24 @@ function renderProjects() {
     }
     $("projects").append(section);
   }
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const todaySeconds = today.getTime() / 1000;
-  const stateGroups = [
-    ["needs-you", "Needs you", (item) => conversationState(item) === "needs-you"],
-    ["running", "Running", (item) => conversationState(item) === "running"],
-    ["queued", "Queued", (item) => conversationState(item) === "queued"],
-    ["done", "Done today", (item) => conversationState(item) === "done" && conversationUpdated(item) >= todaySeconds],
-    ["older", "Older", (item) => conversationState(item) === "done" && conversationUpdated(item) < todaySeconds],
-  ];
-  $("history").replaceChildren(...stateGroups.map(([state, label, matchesGroup]) => {
-    const section = document.createElement("section");
-    section.className = "conversation-state-group";
-    section.dataset.state = state;
-    const items = matches.filter(matchesGroup);
-    const heading = document.createElement("h2");
-    const count = document.createElement("span");
-    count.textContent = String(items.length);
-    heading.append(document.createTextNode(label), count);
-    section.append(heading, ...items.map(conversationRow));
-    return section;
-  }));
+  // Codex model: project conversations live under their project; "Chats" lists the rest.
+  // Status is a dot on each row; attention first keeps the old group order.
+  const listed = new Set(options.filter((o) => !projectPreferences[o.value]?.hidden).map((o) => o.value));
+  const rank = { "needs-you": 0, running: 1, queued: 2, done: 3 };
+  const chats = matches
+    .filter((c) => !listed.has(projectAliases[c.project] || c.project))
+    .map((c, index) => ({ c, index }))
+    .sort((a, b) => rank[conversationState(a.c)] - rank[conversationState(b.c)] || a.index - b.index)
+    .map(({ c }) => c);
+  const section = document.createElement("section");
+  section.className = "conversation-state-group";
+  section.dataset.state = "chats";
+  const heading = document.createElement("h2");
+  const count = document.createElement("span");
+  count.textContent = String(chats.length);
+  heading.append(document.createTextNode("Chats"), count);
+  section.append(heading, ...chats.map(conversationRow));
+  $("history").replaceChildren(section);
   if (!matches.length) {
     const empty = document.createElement("p");
     empty.className = "empty-history";
@@ -5461,6 +5497,9 @@ function modelAvailability(
     topShortcut = $("admin-shortcut-top");
   shortcut.hidden = link.hidden;
   topShortcut.hidden = link.hidden;
+  // The embedded admin is this computer's; a page opened over the network cannot use it.
+  $("settings-system-nav").hidden =
+    link.hidden || !["127.0.0.1", "localhost"].includes(location.hostname);
   if (!link.hidden) {
     shortcut.href = link.href;
     topShortcut.href = link.href;
@@ -6529,13 +6568,42 @@ function restoreSelection() {
 document.querySelectorAll("[data-settings]").forEach(
   (button) =>
     (button.onclick = () => {
-      for (const name of ["appearance", "agents", "skills"])
+      for (const name of ["appearance", "agents", "skills", "system"])
         $("settings-" + name).hidden = name !== button.dataset.settings;
+      const system = button.dataset.settings === "system";
+      $("catalog-status").hidden = $("catalog-refresh").hidden = system;
+      $("settings-dialog").classList.toggle("system-open", system);
+      if (system) showAdminSection(button.dataset.adminSection);
       document
         .querySelectorAll("[data-settings]")
         .forEach((b) => b.setAttribute("aria-pressed", String(b === button)));
     }),
 );
+// Settings › System shows the local admin panel on the same screen.
+function adminFrameUrl(section) {
+  const url = new URL($("admin-link").href);
+  url.search =
+    "?embedded=1&theme=" +
+    encodeURIComponent(document.documentElement.dataset.palette || "");
+  url.hash = section;
+  return url.href;
+}
+function showAdminSection(section = "providers") {
+  const frame = $("admin-frame");
+  const label = document.querySelector('[data-admin-section="' + section + '"]');
+  frame.title = "Administration: " + (label?.textContent || section);
+  const next = adminFrameUrl(section);
+  if (frame.src !== next) frame.src = next;
+}
+function openAdminSettings(section = "providers") {
+  if ($("settings-system-nav").hidden) return false;
+  if (!$("settings-dialog").open) {
+    $("settings-dialog").showModal();
+    refreshCatalog();
+  }
+  document.querySelector('[data-admin-section="' + section + '"]').click();
+  return true;
+}
 let catalogRequest = 0;
 function catalogCard(item) {
   const card = document.createElement("article");
@@ -6622,6 +6690,11 @@ $("settings").onclick = () => {
   refreshCatalog();
 };
 $("settings-close").onclick = () => $("settings-dialog").close();
+// The rail's admin shortcut opens Settings › System; modified clicks keep the new tab.
+$("admin-shortcut-top").addEventListener("click", (event) => {
+  if (event.button || event.ctrlKey || event.metaKey || event.shiftKey) return;
+  if (openAdminSettings()) event.preventDefault();
+});
 $("settings-tour").onclick = () => $("settings-dialog").close();
 let quotaReturnsToSettings = false;
 $("settings-quota").onclick = () => {
@@ -7444,7 +7517,11 @@ for (const button of document.querySelectorAll("[data-settings]")) {
         ? "adjustments"
         : button.dataset.settings === "agents"
           ? "stack-2"
-          : "message",
+          : button.dataset.settings === "system"
+            ? { providers: "plug", home: "pulse", runs: "list", catalogs: "archive" }[
+                button.dataset.adminSection
+              ]
+            : "message",
     ),
   );
 }

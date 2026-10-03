@@ -59,7 +59,7 @@ const path = require("node:path");
     });
     await page.goto(origin);
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
-    await page.locator("#history .conversation-row button").first().click();
+    await page.locator("#sidebar .conversation-row button").first().click();
     await page.waitForFunction(() => document.getElementById("conversation-title")?.textContent === "Approval needed");
 
     const regions = await page.locator("body > #app-topbar, body > #sidebar, body > main, body > #activity-panel").evaluateAll((nodes) => nodes.map((node) => node.id || node.tagName.toLowerCase()));
@@ -71,11 +71,13 @@ const path = require("node:path");
     assert(boxes[0].width >= 299, "desktop sidebar keeps the approved 300px region");
     assert(await page.locator('[data-tour="top-search"]').isVisible());
     assert(await page.locator('[data-tour="attention-bell"]').isVisible());
-    // Codex-style sidebar: empty status groups are hidden (their counts stay in the status strip and the rail bell).
-    for (const label of ["Needs you", "Running", "Queued", "Done today"]) {
-      const rows = await page.locator(".conversation-state-group", { has: page.locator("h2", { hasText: new RegExp(label, "i") }) }).locator(".conversation-row").count();
-      if (rows) assert(await page.getByRole("heading", { name: new RegExp(label, "i") }).count(), label);
-    }
+    // Codex-style sidebar (Sophia, 2026-10-03): one Chats list ordered by urgency, the state is a dot on each row.
+    // Every fixture conversation belongs to a project, so they sit in their folders and the empty Chats list is hidden.
+    assert.equal(await page.locator(".conversation-state-group").count(), 1);
+    for (const label of ["Needs your answer", "In progress", "Queued"])
+      assert(await page.locator("#sidebar").getByRole("img", { name: label }).count(), label);
+    const approvalRow = page.locator("#sidebar .conversation-row", { hasText: "Approval needed" });
+    assert.equal(await approvalRow.getByRole("img", { name: "Needs your answer" }).count(), 1);
     await page.waitForFunction(() => /2 running.*1 queued.*1 needs you/i.test(document.getElementById("run-status-toggle")?.textContent || ""));
     assert.match(await page.locator("#run-status-toggle").innerText(), /2 running.*1 queued.*1 needs you/i);
     assert.equal(await page.locator("#conversation-state-pill").innerText(), "Awaiting approval");

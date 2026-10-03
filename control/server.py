@@ -11,6 +11,13 @@ from .manager import Manager, migrate_local_ai_directory  # noqa: F401  (re-expo
 from .routes import ADMIN_BODY_LIMIT, ADMIN_OPERATION_LIMIT, ROUTES  # noqa: F401  (re-exported)
 
 
+def frame_ancestors(harness_port):
+    """Only the harness's own local page may show the admin (Settings › System)."""
+    if not isinstance(harness_port, int) or isinstance(harness_port, bool):
+        return "frame-ancestors 'none'"
+    return f"frame-ancestors http://127.0.0.1:{harness_port} http://localhost:{harness_port}"
+
+
 def create_app(state, port=8094):
     manager = Manager(state)
     manager.admin_port = port
@@ -38,7 +45,9 @@ def create_app(state, port=8094):
             {
                 "X-Content-Type-Options": "nosniff",
                 "Referrer-Policy": "no-referrer",
-                "Content-Security-Policy": "default-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'",
+                "Content-Security-Policy": "default-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self'; connect-src 'self'; "
+                + frame_ancestors(manager.settings.get("port"))
+                + "; base-uri 'none'",
             }
         )
         return response
