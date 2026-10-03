@@ -5404,3 +5404,6 @@ main > header .view-switch { top: 6px; }
 #project-menu [role="option"] { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; }
 #project-menu [role="option"] :is(.th-icon, svg) { width: 16px; height: 16px; color: var(--th-quiet); }
 #project-menu [role="option"][aria-selected="true"] { background: var(--th-hover); }
+/* The project name also shows above the composer; drop the header badge before it meets the switch. */
+@container chatpane (max-width: 1240px) { main > header #active-project-badge { display: none!important; } }
+main > header #conversation-title { max-width: calc(50% - 250px); }
