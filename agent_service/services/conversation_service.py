@@ -1604,7 +1604,15 @@ class ConversationService:
                             "effort": data.get("effort"),
                         }
                         self.event(row["id"], "invocation_started", attribution)
-                result = await self._run_inference(plan)
+                try:
+                    result = await self._run_inference(plan)
+                except tools.ToolError as exc:
+                    if str(exc) != "native_session_missing":
+                        raise
+                    # The provider lost its session (its folder moved): the adapter set it
+                    # aside, so the new plan replays the history as after a provider switch.
+                    plan = await self._prepare_inference(row, data)
+                    result = await self._run_inference(plan)
                 if attribution:
                     self.event(
                         row["id"],

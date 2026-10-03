@@ -440,3 +440,45 @@ def test_a_broken_schedules_folder_is_reported_and_the_loop_survives(
 
 def test_the_tick_interval_is_thirty_seconds():
     assert scheduler.TICK_SECONDS == 30
+
+
+def test_a_full_project_is_a_failure_not_a_deferral(config, service, clock, monkeypatch):
+    created = add(config)
+
+    def full(*_args, **_kwargs):
+        raise APIError("job_storage_limit", 429)
+
+    monkeypatch.setattr(service, "submit", full)
+    for day in (3, 4, 5):
+        tick(service, local(2026, 10, day, 9) + 1)
+    after = current(config, created)
+    assert (after["enabled"], after["failures"]) == (False, 3)
+    assert after["last_run"]["error"] == "job_storage_limit"
+
+
+def test_a_replay_after_an_edited_prompt_records_the_job_already_submitted(
+    config, service, clock, monkeypatch, caplog
+):
+    created = add(config)
+    now = local(2026, 10, 3, 9) + 1
+
+    def crash(*_args, **_kwargs):
+        raise OSError("killed before the file was updated")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(schedules, "finish_due", crash)
+        with caplog.at_level(logging.ERROR):
+            tick(service, now)
+    (first,) = jobs(service)
+    edited = schedules.replace_schedule(
+        config,
+        "a",
+        created["id"],
+        {"prompt": "A different prompt.", "revision": current(config, created)["revision"]},
+    )
+    assert edited["next_run"] == created["next_run"]  # same due time, same idempotency key
+    tick(service, now + 30)
+    after = current(config, created)
+    assert [job["id"] for job in jobs(service)] == [first["id"]]
+    assert (after["last_run"]["job_id"], after["last_run"]["state"]) == (first["id"], "submitted")
+    assert after["failures"] == 0 and after["next_run"] == local(2026, 10, 4, 9)

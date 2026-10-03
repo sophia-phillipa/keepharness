@@ -7,13 +7,18 @@ from __future__ import annotations
 
 import argparse
 import ast
+import fcntl
 import json
 import logging
 import os
 import re
 import shlex
+import socket
+import subprocess
+import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
 
 @dataclass(frozen=True)
@@ -55,9 +60,12 @@ PRODUCT = ProductIdentity()
 # identity-source:end
 
 # KeepHarness was named Tail Harness before 0.15.0. Its state belongs to this lineage: the
-# original identity moves those folders once and adopts their markers (see migrate_legacy_state).
+# original identity moves those folders once and keeps their markers, so 0.14.0 can still
+# open them after a rollback (see migrate_legacy_state).
 LEGACY_MARKER = {"slug": "tail-harness", "lineage": "tail-harness"}
 LEGACY_FOLDERS = (".local/share/tail-harness", ".config/tail-harness")
+LEGACY_UNIT = ".config/systemd/user/tail-harness.service"
+STOP_AND_INSTALL = "Stop Tail Harness (systemctl --user stop tail-harness.service), then run ./install.sh"
 
 logger = logging.getLogger(__name__)
 
@@ -66,12 +74,24 @@ def is_original(product):
     return (product.slug, product.lineage) == ("keepharness", "keepharness")
 
 
-def write_marker(path, value):
+def write_private(path, text):
+    """Replace ``path`` with owner-only ``text`` atomically and durably; no temporary survives."""
     temporary = path.with_name(path.name + ".tmp")
     descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
-    with os.fdopen(descriptor, "w") as stream:
-        json.dump(value, stream)
-    os.replace(temporary, path)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            stream.write(text)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+    directory = os.open(path.parent, os.O_DIRECTORY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
 
 
 def read_marker(state):
@@ -110,36 +130,130 @@ def ensure_lineage(state, product=PRODUCT):
             actual = json.load(stream)
         except ValueError as exc:
             raise ValueError("Invalid product identity marker") from exc
-    if actual == LEGACY_MARKER and is_original(product):
-        write_marker(path, expected)
-    elif actual != expected:
+    # The original identity opens Tail Harness state as is: rewriting its marker would stop
+    # 0.14.0 from opening it after a rollback.
+    if actual != expected and not (actual == LEGACY_MARKER and is_original(product)):
         raise ValueError("State belongs to another product identity")
 
 
-def migrate_legacy_state(home=None, product=PRODUCT):
-    """Move the Tail Harness state and config folders to this identity's, never merging."""
+def legacy_folders(home=None, product=PRODUCT):
+    """The Tail Harness folders this identity adopts that exist, as ``(old, new)`` pairs."""
     if not is_original(product):
-        return
+        return []
     home = Path(home if home is not None else Path.home())
+    found = []
     for legacy, current in zip(LEGACY_FOLDERS, (product.state_dir, product.config_dir)):
-        old, new = home / legacy, home / current
-        if not old.is_dir() or os.path.lexists(new):
-            continue
+        old = home / legacy
         try:
-            marker = read_marker(old)
+            marker = read_marker(old) if old.is_dir() else False
         except (OSError, ValueError):
             continue
-        if marker not in (None, LEGACY_MARKER, {"slug": product.slug, "lineage": product.lineage}):
+        if marker in (None, LEGACY_MARKER, {"slug": product.slug, "lineage": product.lineage}):
+            found.append((old, home / current))
+    return found
+
+
+def legacy_waiting(home=None, product=PRODUCT):
+    """Why the default folders cannot be used yet (Tail Harness folders still to move), or None."""
+    waiting = [str(old) for old, new in legacy_folders(home, product) if not os.path.lexists(new)]
+    if not waiting:
+        return None
+    return f"{' and '.join(waiting)} have not moved to {product.name} yet. {STOP_AND_INSTALL}."
+
+
+def runtime_ports(state):
+    """The local ports the runtime.json in ``state`` says its harness and admin listen on."""
+    try:
+        runtime = json.loads((state / "runtime.json").read_text())
+        ports = [runtime.get("port"), urlsplit(str(runtime.get("admin_url", ""))).port]
+    except (OSError, ValueError, AttributeError):
+        return []
+    return [port for port in ports if type(port) is int and 0 < port < 65536]
+
+
+def legacy_in_use(home):
+    """Why the Tail Harness state may still be in use, or None."""
+    state = home / LEGACY_FOLDERS[0]
+    unit = home / LEGACY_UNIT
+    if unit.exists():
+        try:
+            status = subprocess.run(
+                ["systemctl", "--user", "is-active", "--quiet", unit.name], check=False, timeout=10
+            )
+        except (OSError, subprocess.SubprocessError):
+            status = None  # no systemctl: the port check below still applies
+        if status is not None and status.returncode == 0:
+            return f"{unit.name} is active"
+    if Path(sys.prefix).resolve().is_relative_to(state.resolve()):
+        return f"this program runs from it ({sys.prefix})"
+    for port in runtime_ports(state):
+        try:
+            socket.create_connection(("127.0.0.1", port), timeout=0.5).close()
+        except OSError:
             continue
-        old.rename(new)
+        return f"127.0.0.1:{port} still answers"
+    return None
+
+
+def move_legacy_folders(home, product):
+    """Move each waiting folder; the reason when one stays behind (in use or stuck), else None."""
+    waiting = []
+    for old, new in legacy_folders(home, product):
+        if not os.path.lexists(new):
+            waiting.append((old, new))
+            continue
+        logger.warning(
+            "Both %s and %s exist: %s uses %s and leaves %s untouched. To use the older data "
+            "instead, stop %s, move %s aside and run ./install.sh again; remove %s once you no "
+            "longer need it.",
+            old, new, product.name, new, old, product.name, new, old,
+        )
+    if not waiting:
+        return None
+    reason = legacy_in_use(home)
+    if reason:
+        return f"Not moving {waiting[0][0]} yet: {reason}. {STOP_AND_INSTALL}."
+    for old, new in waiting:
+        try:
+            old.rename(new)
+        except OSError as exc:
+            return f"Could not move {old} to {new} ({exc}). {STOP_AND_INSTALL}."
         logger.warning("Moved %s to %s: the product is now %s", old, new, product.name)
-        runtime = new / "runtime.json"
-        if runtime.is_file() and not runtime.is_symlink():
-            # Rewritten on the next start too; until then the CLI reads these paths.
-            text = re.sub(re.escape(json.dumps(str(old))[1:-1]) + r'(?=[/"])', lambda _: json.dumps(str(new))[1:-1], runtime.read_text())
-            runtime.write_text(text)
-        if current == product.state_dir:
-            ensure_lineage(new, product)
+        if new == product.state_path(home):
+            adopt_moved_state(old, new)
+    return None
+
+
+def adopt_moved_state(old, new):
+    """Point runtime.json at the moved state and mark it as Tail Harness state if unmarked."""
+    runtime = new / "runtime.json"
+    if runtime.is_file() and not runtime.is_symlink():
+        # Rewritten on the next start too; until then the CLI reads these paths.
+        text = re.sub(re.escape(json.dumps(str(old))[1:-1]) + r'(?=[/"])', lambda _: json.dumps(str(new))[1:-1], runtime.read_text())
+        write_private(runtime, text)
+    if read_marker(new) is None:
+        write_private(new / "harness.identity.json", json.dumps(LEGACY_MARKER))
+
+
+def migrate_legacy_state(home=None, product=PRODUCT):
+    """Move the Tail Harness state and config folders to this identity's, never merging.
+
+    Only install.sh and the server start call this. Returns why a folder that should move
+    stays behind (it may be in use, or the system refused the move), else None: the caller
+    must then stop before anything creates the new folder, or the move never happens.
+    """
+    home = Path(home if home is not None else Path.home())
+    if not legacy_folders(home, product):
+        return None
+    path = (home / LEGACY_FOLDERS[0]).with_name("tail-harness.migration.lock")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a", opener=lambda name, flags: os.open(name, flags | os.O_NOFOLLOW, 0o600)) as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)  # install.sh and a server start may race
+        refused = move_legacy_folders(home, product)
+        if not legacy_folders(home, product):
+            # Safe while held: a process still waiting re-checks and finds nothing to move.
+            path.unlink(missing_ok=True)
+    return refused
 
 
 def generate(root=None, product=PRODUCT):
@@ -180,11 +294,13 @@ def main():
     parser.add_argument("--identity", type=Path, help="JSON identity for a synthetic build or fork")
     parser.add_argument("--field", choices=("venv", "slug"))
     parser.add_argument("--migrate-state", action="store_true", help="Move the folders of the product's former name (install.sh)")
+    parser.add_argument("--check-migrated", action="store_true", help="Fail while those folders still wait to move (install.sh --check-only)")
     args = parser.parse_args()
     product = PRODUCT
     if args.migrate_state:
-        migrate_legacy_state()
-        return
+        raise SystemExit(migrate_legacy_state())  # None exits 0; a reason exits 1
+    if args.check_migrated:
+        raise SystemExit(legacy_waiting())  # None exits 0; a message exits 1
     if args.field:
         print(os.environ.get(product.env_prefix + "_VENV") or (os.environ.get("TH_VENV") if is_original(product) else None) or str(product.state_path() / "venv") if args.field == "venv" else product.slug)
         return

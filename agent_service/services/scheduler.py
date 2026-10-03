@@ -16,7 +16,9 @@ from ..errors import HarnessError
 logger = logging.getLogger(__name__)
 
 TICK_SECONDS = 30
-BUSY_STATUS = 429
+# A busy harness: the run stays due and is tried again on the next tick. Any other refusal
+# (job_storage_limit included) is a failed run that counts towards pausing the schedule.
+TRANSIENT_CODES = frozenset({"queue_full", "owner_queue_full", "submission_rate_limit"})
 SAFE_CODE = re.compile(r"^[a-z0-9_]{1,64}$")
 MISSING_CLIENT = "Paused because the client that owns this schedule no longer exists."
 
@@ -31,6 +33,14 @@ def submit(service, identity: tuple, record: dict, idempotency_key: str | None =
     return service.submit(
         identity, schedules.job_request(record), idempotency_key, schedule=schedules.origin(record)
     )
+
+
+def submitted_before(service, record: dict, key: str) -> str | None:
+    """The job this due time already started before a crash, though the prompt was edited since."""
+    row = service.conversation_repository.by_idempotency_key(
+        record["owner"], record["project_id"], key
+    )
+    return row["id"] if row else None
 
 
 async def run(service) -> None:
@@ -59,14 +69,17 @@ async def run_due(service, record: dict, now: float) -> None:
         await asyncio.to_thread(schedules.pause, service.config, record, MISSING_CLIENT)
         return
     job_id = error = None
+    key = run_key(record)
     try:
-        job_id = submit(service, (record["owner"], client), record, run_key(record))["job_id"]
+        job_id = submit(service, (record["owner"], client), record, key)["job_id"]
     except HarnessError as exc:
-        if exc.status == BUSY_STATUS:
+        if exc.code in TRANSIENT_CODES:
             logger.info("Scheduled run of %s deferred: %s", record["id"], exc.code)
             return
-        error = exc.code if SAFE_CODE.fullmatch(str(exc.code)) else "submit_failed"
-        logger.warning("Scheduled run of %s was refused: %s", record["id"], error)
+        job_id = submitted_before(service, record, key) if exc.code == "idempotency_conflict" else None
+        if job_id is None:
+            error = exc.code if SAFE_CODE.fullmatch(str(exc.code)) else "submit_failed"
+            logger.warning("Scheduled run of %s was refused: %s", record["id"], error)
     except Exception:
         logger.exception("Scheduled run of %s failed", record["id"])
         error = "submit_failed"

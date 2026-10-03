@@ -1,6 +1,7 @@
 """Claude stream-json sessions, tool approvals and process lifetime."""
 
 import asyncio
+import contextlib
 import json
 
 from adapters.shared.process import child_environment, process_diagnostics
@@ -9,6 +10,8 @@ from control.integrations import configurations, inventory
 
 from .auth import cli_login_environment
 from .stream import Stream
+
+MISSING_SESSION = "No conversation found with session ID:"
 
 
 def build_command(config, model, home, permissions, selected, access_mode, additional_roots):
@@ -93,6 +96,22 @@ def build_command(config, model, home, permissions, selected, access_mode, addit
         if config.get("agents_file"):
             command += ["--agents", config["agents_file"]]
     return command
+
+
+@contextlib.asynccontextmanager
+async def resumable(marker):
+    """Claude Code keys sessions by cwd: once the state folder moves, --resume finds nothing.
+
+    The stored session is set aside and ``native_session_missing`` lets the caller start a
+    fresh one seeded with the harness history. Wraps ``process_diagnostics`` for its stderr.
+    """
+    try:
+        yield
+    except (ToolError, OSError) as exc:
+        if not marker.exists() or MISSING_SESSION not in getattr(exc, "error_detail", ""):
+            raise
+        marker.replace(marker.with_name(marker.name + ".before-session-missing"))
+        raise ToolError("native_session_missing") from exc
 
 
 async def answer_questions(inputs, approve):
@@ -202,7 +221,7 @@ async def run(
         proc.stdin.write((json.dumps(value) + "\n").encode())
         await state.watchdog.wait(proc.stdin.drain())
 
-    async with process_diagnostics(proc, "claude", event):
+    async with resumable(marker), process_diagnostics(proc, "claude", event):
         await send(
             {
                 "type": "user",
