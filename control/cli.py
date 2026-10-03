@@ -4,11 +4,35 @@ import argparse
 import asyncio
 import json
 import os
+import socket
 import sys
 from pathlib import Path
 
 from .discovery import scan
-from .product import PRODUCT, ensure_lineage, legacy_waiting, migrate_legacy_state
+from .product import (
+    PRODUCT,
+    describe,
+    ensure_lineage,
+    legacy_waiting,
+    migration_refusal,
+    port_holders,
+)
+
+
+def port_taken(port):
+    """Why 127.0.0.1:``port`` cannot be bound, or None.
+
+    uvicorn runs the lifespan (discovery, provider checks) before it binds, so a busy port is
+    checked first instead of after that work, at every restart of the unit.
+    """
+    with socket.socket() as probe:
+        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)  # as uvicorn binds
+        try:
+            probe.bind(("127.0.0.1", port))
+        except OSError as exc:
+            holders = describe(port_holders(port)) or "another program"
+            return f"127.0.0.1:{port} is already in use by {holders} ({exc.strerror})."
+    return None
 
 
 def main(argv=None):
@@ -76,6 +100,11 @@ def main(argv=None):
     if args.scan:
         print(json.dumps(asyncio.run(scan()), indent=2, ensure_ascii=False))
         return
+    serve(args, default_state)
+
+
+def serve(args, default_state):
+    """Start the admin server once its port is free and its state folder may be used."""
     import uvicorn
 
     from agent_service.log_config import configure_logging
@@ -83,12 +112,14 @@ def main(argv=None):
     from .env import warn_legacy_names
     from .server import create_app
 
+    if busy := port_taken(args.port):
+        raise SystemExit(busy)
     configure_logging()
     warn_legacy_names()
-    # Nothing above touches the state folder: starting now would create an empty new one
-    # beside the old, and the move would then never happen.
-    if default_state and (refused := migrate_legacy_state()):
-        raise SystemExit(refused)
+    # Only install.sh moves Tail Harness state (decision D24). Starting now would create an
+    # empty new folder beside the old one, and the move would then never happen.
+    if default_state and (waiting := legacy_waiting()):
+        raise SystemExit(migration_refusal(Path.home()) or waiting)
 
     print(f"Local management: http://127.0.0.1:{args.port}/", flush=True)
     uvicorn.run(
