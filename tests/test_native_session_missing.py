@@ -11,9 +11,11 @@ from unittest.mock import patch
 
 import pytest
 
+import adapters
 from adapters.claude import native
 from adapters.gemini import backend as gemini
 from agent_service.app import Service
+from agent_service.services.queue_worker import provider_condition
 from agent_service.tools import ToolError
 
 
@@ -190,3 +192,149 @@ def test_a_lost_native_session_continues_from_the_harness_history(tmp_path):
         assert all(text in prompts[1] for text in ("earlier-prompt", "earlier-answer", "new-prompt"))
     finally:
         service.db.close()
+
+
+def fake_codex(tmp_path, resume_error):
+    """An app-server whose thread lost its rollout: codex-cli 0.157.1 answers -32600."""
+    log = tmp_path / "codex-requests.jsonl"
+    executable = tmp_path / "fake-codex"
+    executable.write_text(
+        "#!" + sys.executable + "\n"
+        "import json, sys\n"
+        f"log = {str(log)!r}\n"
+        "def emit(value): print(json.dumps(value), flush=True)\n"
+        "for line in sys.stdin:\n"
+        "    request = json.loads(line)\n"
+        "    with open(log, 'a') as stream: stream.write(line)\n"
+        "    method, ident = request.get('method'), request.get('id')\n"
+        "    if method == 'thread/resume':\n"
+        "        emit({'id': ident, 'error': {'code': -32600,\n"
+        f"            'message': {resume_error!r} + request['params']['threadId']}}}})\n"
+        "    elif method == 'thread/start':\n"
+        "        emit({'id': ident, 'result': {'thread': {'id': 'new-thread'}}})\n"
+        "    elif method == 'turn/start':\n"
+        "        emit({'method': 'turn/started', 'params': {'turn': {'id': 'turn-1'}}})\n"
+        "        emit({'method': 'item/agentMessage/delta', 'params': {'delta': 'fresh'}})\n"
+        "        emit({'method': 'turn/completed', 'params': {'turn': {'status': 'completed'}}})\n"
+        "    elif ident is not None:\n"
+        "        emit({'id': ident, 'result': {}})\n"
+    )
+    executable.chmod(0o700)
+    return executable, log
+
+
+THREAD_OPENING = ("thread/resume", "thread/start")
+
+
+def requests(log):
+    return [json.loads(line) for line in log.read_text().splitlines()]
+
+
+@pytest.fixture
+def codex_session(tmp_path, monkeypatch):
+    """A conversation folder that still points at a Codex thread the CLI no longer has."""
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex-home"))
+    monkeypatch.setattr("adapters.codex.native.configurations", lambda: {"codex": {}})
+    monkeypatch.setattr("adapters.codex.native.inventory", lambda: {"codex": []})
+    session = tmp_path / "session"
+    session.mkdir()
+    (session / "native-thread.json").write_text('{"id": "old-thread"}')
+    return session
+
+
+def run_codex(executable, session, provider, tmp_path):
+    config = {"binary": str(executable)}
+    if provider == "deepseek":  # DeepSeek runs on the same Codex app-server transport.
+        key = tmp_path / "deepseek.key"
+        key.write_text("fixture-key")
+        config["api_provider"] = {"url": "http://127.0.0.1:9/v1", "key_file": str(key)}
+    return asyncio.run(
+        adapters.run_native(
+            config, "hello", lambda *_: None, {"permissions": {}}, "fixture", "low", session,
+            provider, approve,
+        )
+    )
+
+
+@pytest.mark.parametrize("provider", ["codex", "deepseek"])
+def test_codex_thread_without_rollout_is_dropped_for_a_fresh_one(tmp_path, codex_session, provider):
+    executable, log = fake_codex(tmp_path, "no rollout found for thread id ")
+    with pytest.raises(ToolError, match="^native_session_missing$"):
+        run_codex(executable, codex_session, provider, tmp_path)
+    assert not (codex_session / "native-thread.json").exists()
+    kept = codex_session / "native-thread.json.before-session-missing"
+    assert json.loads(kept.read_text()) == {"id": "old-thread"}
+    assert run_codex(executable, codex_session, provider, tmp_path)["thread_id"] == "new-thread"
+    assert json.loads((codex_session / "native-thread.json").read_text())["id"] == "new-thread"
+    methods = [item.get("method") for item in requests(log)]
+    assert methods.count("thread/resume") == 1 and methods.count("thread/start") == 1
+
+
+def test_another_codex_resume_failure_keeps_the_thread_and_carries_its_message(
+    tmp_path, codex_session
+):
+    executable, _ = fake_codex(tmp_path, "unexpected status 401 Unauthorized for ")
+    with pytest.raises(ToolError) as caught:
+        run_codex(executable, codex_session, "codex", tmp_path)
+    assert str(caught.value) == (
+        "codex_execution_failed: unexpected status 401 Unauthorized for old-thread"
+    )
+    assert provider_condition(str(caught.value)) == "provider_authentication_required"
+    assert json.loads((codex_session / "native-thread.json").read_text()) == {"id": "old-thread"}
+
+
+def test_a_lost_codex_thread_replays_the_harness_history_once(tmp_path, codex_session):
+    executable, log = fake_codex(tmp_path, "no rollout found for thread id ")
+    cfg = {
+        "state_dir": str(tmp_path / "state"),
+        "projects": {"p": {}},
+        "clients": {"a": {"projects": ["p"]}},
+        "services": {
+            "codex": {
+                "enabled": True,
+                "mode": "native",
+                "models": ["gpt-6-astra"],
+                "projects": ["p"],
+                "permissions": {},
+            }
+        },
+        "codex": {"binary": str(executable)},
+        "codex_models": {"gpt-6-astra": ["low"]},
+    }
+    service = Service(cfg)
+    try:
+        old = {
+            "backend": "codex",
+            "model": "gpt-6-astra",
+            "effort": "low",
+            "project_id": "p",
+            "prompt": "earlier-prompt",
+        }
+        current = {**old, "prompt": "new-prompt", "parent_job_id": "first"}
+        for ident, payload, result in [
+            ("first", old, {"answer": "earlier-answer", "thread_id": "old-thread"}),
+            ("second", current, {}),
+        ]:
+            service.db.execute(
+                "INSERT INTO jobs(id,project,owner,state,created,payload,result) VALUES(?,?,?,?,?,?,?)",
+                (ident, "p", "a", "completed", 1, json.dumps(payload), json.dumps(result)),
+            )
+        service.db.commit()
+        session = tmp_path / "state" / "sessions" / "first" / "codex"
+        session.mkdir(parents=True)
+        (session / "native-thread.json").write_text('{"id": "old-thread"}')
+        from agent_service.conversation_context import save_cursor
+
+        save_cursor(session, "first", {"thread_id": "old-thread"}, "native")
+        row = dict(service.db.execute("SELECT * FROM jobs WHERE id='second'").fetchone())
+        assert asyncio.run(service.infer(row, current))["answer"] == "fresh"
+    finally:
+        service.db.close()
+    sent = requests(log)
+    assert [item["method"] for item in sent if item.get("method") in THREAD_OPENING] == [
+        "thread/resume",
+        "thread/start",
+    ]
+    turns = [item["params"]["input"][0]["text"] for item in sent if item.get("method") == "turn/start"]
+    assert len(turns) == 1
+    assert all(text in turns[0] for text in ("earlier-prompt", "earlier-answer", "new-prompt"))

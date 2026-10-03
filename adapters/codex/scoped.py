@@ -12,7 +12,7 @@ from adapters.shared.scoped import (
 from agent_service.tool_metadata import event_metadata
 from agent_service.tools import ToolError
 
-from .rpc import connection, sync_title, usage_delta
+from .rpc import connection, execution_failed, provider_message, sync_title, usage_delta
 
 
 async def run(
@@ -73,7 +73,8 @@ async def run(
                     " Prepare only stages a Jira create-issue request for a human gate; the harness alone publishes after approval."
                 )
             if saved:
-                params["threadId"] = json.loads(saved)["id"]
+                # Thread metadata only: a long stored history can outgrow any line limit.
+                params.update(threadId=json.loads(saved)["id"], excludeTurns=True)
                 thread = await rpc.call("thread/resume", params)
                 event("session_resumed", {"thread_id": params["threadId"]})
             else:
@@ -106,7 +107,7 @@ async def run(
                 kind = item.get("method", "")
                 params = item.get("params", {})
                 if "error" in item:
-                    raise ToolError("codex_rpc_error")
+                    raise execution_failed("codex", item["error"])
                 if "id" in item and "method" in item:
                     # No user approval or dynamic permission can be silently granted by the remote service.
                     rpc.process.stdin.write(
@@ -209,11 +210,15 @@ async def run(
                 elif kind == "thread/compacted":
                     event("context_compacted", {})
                 elif kind == "turn/completed":
-                    if params.get("turn", {}).get("status") != "completed":
-                        raise ToolError("codex_execution_failed")
+                    turn = params.get("turn", {})
+                    if turn.get("status") != "completed":
+                        raise execution_failed("codex", turn.get("error"))
                     break
+                elif kind == "error" and params.get("willRetry") is True:
+                    # Codex retries on its own; its next message arrives within the watchdog.
+                    event("provider_retrying", {"message": provider_message(params.get("error"))})
                 elif kind == "error":
-                    raise ToolError("codex_execution_failed")
+                    raise execution_failed("codex", params.get("error"))
                 if len(answer) + len(thinking) > 500000:
                     raise ToolError("codex_output_limit")
         return {

@@ -13,7 +13,18 @@ from agent_service.tool_metadata import event_metadata
 from agent_service.tools import ToolError
 from control.integrations import configurations, inventory
 
-from .rpc import connection, sync_title, usage_delta
+from .rpc import (
+    RPCError,
+    connection,
+    execution_failed,
+    provider_message,
+    sync_title,
+    usage_delta,
+)
+
+# codex-cli 0.157.1 answers thread/resume for a thread whose rollout is gone (a restored or
+# moved state, a cleaned sessions folder) with -32600 "no rollout found for thread id <id>".
+MISSING_THREAD = re.compile(r"no rollout found|thread not found", re.I)
 
 
 @dataclass
@@ -229,6 +240,18 @@ async def resource_inputs(rpc, project, cwd):
     return result
 
 
+async def open_thread(rpc, method, params, marker, provider):
+    """Start or resume the thread; a resume whose rollout is gone is ``native_session_missing``."""
+    try:
+        return await rpc.call(method, params)
+    except RPCError as exc:
+        if method == "thread/resume" and MISSING_THREAD.search(str(exc.error.get("message", ""))):
+            # The caller replays the harness history on a fresh thread, as for Claude and Gemini.
+            marker.replace(marker.with_name(marker.name + ".before-session-missing"))
+            raise ToolError("native_session_missing") from exc
+        raise execution_failed(provider, exc.error) from exc
+
+
 async def run_turn(
     config,
     event,
@@ -285,12 +308,14 @@ async def run_turn(
         isolation = runtime.session_metadata
         params = thread_parameters(config, project, model, workspace, runtime, unrestricted)
         if resumable:
-            params["threadId"] = saved["id"]
-            thread = await rpc.call("thread/resume", params)
+            # Thread metadata only: the stored turns (attached images included) can outgrow
+            # any line limit, and the harness never reads them back.
+            params.update(threadId=saved["id"], excludeTurns=True)
+            thread = await open_thread(rpc, "thread/resume", params, marker, provider)
             event("session_resumed", {"thread_id": params["threadId"]})
         else:
             params["ephemeral"] = not bool(session_dir)
-            thread = await rpc.call("thread/start", params)
+            thread = await open_thread(rpc, "thread/start", params, marker, provider)
         thread_id = thread["thread"]["id"]
         marker.write_text(
             json.dumps(
@@ -355,7 +380,7 @@ async def run_turn(
             kind = item.get("method", "")
             params = item.get("params", {})
             if "error" in item:
-                raise ToolError("codex_rpc_error")
+                raise execution_failed(provider, item["error"])
             if "id" in item and "method" in item:
                 if params.get("itemId") in file_changes:
                     # The approval request has no diff; the card shows the started patch.
@@ -459,17 +484,19 @@ async def run_turn(
             elif kind == "thread/compacted":
                 event("context_compacted", {})
             elif kind == "turn/completed":
-                if params.get("turn", {}).get("status") != "completed":
-                    raise ToolError("codex_execution_failed")
+                turn = params.get("turn", {})
+                if turn.get("status") != "completed":
+                    raise execution_failed(provider, turn.get("error"))
                 break
+            elif kind == "error" and params.get("willRetry") is True:
+                # Codex retries on its own (a dropped stream, a busy server); its next message
+                # arrives within the idle watchdog, so the run keeps waiting for it.
+                event("provider_retrying", {"message": provider_message(params.get("error"))})
             elif kind == "error":
                 event("error", params)
-                raise ToolError(
-                    "codex_execution_failed: "
-                    + str(params.get("error", {}).get("message", "provider error"))[:500]
-                )
+                raise execution_failed(provider, params.get("error"))
             if len(answer) + len(thinking) > 500000:
-                raise ToolError("codex_output_limit")
+                raise ToolError(provider + "_output_limit")
 
     return {
         "answer": answer,

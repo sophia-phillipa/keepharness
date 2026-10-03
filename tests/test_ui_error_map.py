@@ -26,6 +26,13 @@ DYNAMIC = {
     "claude_execution_failed",  # adapters/claude/stream.py fallback
     "codex_login_or_binary_unavailable",  # adapters/shared/scoped.py (provider + suffix)
     "claude_login_or_binary_unavailable",
+    # The Codex app-server transport names the run's provider (adapters/codex/native.py, rpc.py).
+    "codex_execution_failed",
+    "deepseek_execution_failed",
+    "local_execution_failed",
+    "codex_output_limit",
+    "deepseek_output_limit",
+    "local_output_limit",
     "context_limit_exceeded",  # queue_worker settle
     "service_restarted",  # conversation_service recovery
     "model_removed",  # conversation_service cancels a run on a config reload

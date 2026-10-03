@@ -1241,6 +1241,14 @@ const userErrors = {
     "Codex returned an unexpected response. Try again; if it persists, update Codex.",
   codex_output_limit:
     "Codex produced more output than allowed. Narrow the request and try again.",
+  deepseek_execution_failed:
+    "DeepSeek stopped before finishing the run. Check the activity and try again.",
+  deepseek_output_limit:
+    "DeepSeek produced more output than allowed. Narrow the request and try again.",
+  local_execution_failed:
+    "The local model stopped before finishing the run. Check the activity and try again.",
+  local_output_limit:
+    "The local model produced more output than allowed. Narrow the request and try again.",
   claude_execution_failed:
     "Claude stopped before finishing the run. Check the activity and try again.",
   claude_stream_incomplete:
@@ -3797,7 +3805,20 @@ function executionCondition(code, backend, detail) {
       "provider",
     panel = providerNames[backend] || name,
     reason = providerMessage(detail);
-  const copy = {
+  // DeepSeek runs on a pasted API key and a prepaid balance: no sign-in, nothing renews.
+  const deepseek = backend === "deepseek" && {
+    authentication: {
+      title: "Replace the DeepSeek API key",
+      message:
+        "DeepSeek rejected the API key. In the admin panel, paste a valid DeepSeek API key and send your message again.",
+    },
+    quota: {
+      title: "Top up your DeepSeek balance",
+      message:
+        "Your DeepSeek balance is used up. Top it up in your DeepSeek account, or select a different provider to continue this conversation.",
+    },
+  }[kind];
+  const copy = deepseek || {
     unavailable: {title: name + " unavailable", message: "Open the admin panel to check " + name + ", or select another provider."},
     authentication: {
       title: "Renew " + name + " access",
