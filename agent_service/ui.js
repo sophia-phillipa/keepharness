@@ -5420,6 +5420,144 @@ $("project-button").onclick = () => {
   menu.style.top = Math.max(12, Math.min(innerHeight - menu.offsetHeight - 12, r.bottom + 6)) + "px";
   menu.querySelector('[aria-selected="true"]')?.focus();
 };
+// Connectors and plugins (Codex "Plugins" chip): what is installed, allowed and
+// effective for this project and route, and what was used here recently.
+function usageAge(seconds) {
+  const age = Math.max(0, Date.now() / 1000 - Number(seconds || 0));
+  return age < 3600
+    ? Math.max(1, Math.round(age / 60)) + " min ago"
+    : age < 86400
+      ? Math.round(age / 3600) + " h ago"
+      : Math.round(age / 86400) + " d ago";
+}
+function integrationRow(item) {
+  const row = document.createElement("li"),
+    text = document.createElement("div"),
+    name = document.createElement("strong"),
+    meta = document.createElement("small");
+  row.className = "integration-row" + (item.effective ? "" : " unavailable");
+  name.textContent = item.name;
+  meta.textContent = [
+    item.kind === "mcp" ? "Connector" + (item.transport ? " · " + item.transport : "") : "Plugin",
+    item.used?.count
+      ? "used " + item.used.count + "× · " + usageAge(item.used.last_used)
+      : item.effective
+        ? "not used here recently"
+        : "",
+    item.effective ? "" : item.reason,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  text.append(name, meta);
+  row.append(TailUI.icon(item.kind === "mcp" ? "plug" : "stack-2"), text);
+  return row;
+}
+async function renderPluginsMenu() {
+  const menu = $("plugins-menu"),
+    m = resourceEngine(),
+    heading = document.createElement("p");
+  heading.className = "access-menu-heading";
+  heading.textContent =
+    "Connectors and plugins · " + (providerNames[m.backend] || m.backend || "no model");
+  const body = document.createElement("div");
+  body.className = "plugins-body";
+  body.textContent = "Checking…";
+  menu.replaceChildren(heading, body);
+  if (!m.backend) {
+    body.textContent = "Choose a model to see its connectors and plugins.";
+    return;
+  }
+  try {
+    const data = await json(
+      "/v1/integrations?" +
+        new URLSearchParams({
+          project_id: $("project").value,
+          backend: m.backend,
+          model: m.model,
+          execution_mode: m.execution_mode,
+          access_mode: $("access-mode").value,
+        }),
+    );
+    const items = Array.isArray(data.items) ? data.items : [],
+      effective = items.filter((item) => item.effective),
+      others = items.filter((item) => !item.effective),
+      parts = [];
+    if (data.effective_note) {
+      const note = document.createElement("p");
+      note.className = "plugins-note";
+      note.textContent = data.effective_note;
+      parts.push(note);
+    }
+    const section = (title, list, empty) => {
+      const wrap = document.createElement("section"),
+        h = document.createElement("h3"),
+        ul = document.createElement("ul");
+      h.textContent = title;
+      ul.replaceChildren(...list.map(integrationRow));
+      wrap.append(h, list.length ? ul : Object.assign(document.createElement("p"), { className: "plugins-empty", textContent: empty }));
+      return wrap;
+    };
+    parts.push(
+      section("Available in this conversation", effective, "None for this project and model."),
+    );
+    if (others.length) parts.push(section("Installed, not available here", others, ""));
+    const tools = Array.isArray(data.other_tools) ? data.other_tools : [];
+    if (tools.length) {
+      const details = document.createElement("details"),
+        summary = document.createElement("summary"),
+        list = document.createElement("ul");
+      details.className = "plugins-tools";
+      summary.textContent =
+        "Other tools used in this project (" + (data.window_days || 30) + " days)";
+      list.replaceChildren(
+        ...tools.map((tool) =>
+          Object.assign(document.createElement("li"), {
+            textContent: tool.name + " · " + tool.count + "× · " + usageAge(tool.last_used),
+          }),
+        ),
+      );
+      details.append(summary, list);
+      parts.push(details);
+    }
+    for (const warning of Array.isArray(data.warnings) ? data.warnings : [])
+      parts.push(Object.assign(document.createElement("p"), { className: "plugins-note", textContent: warning }));
+    if (!$("settings-system-nav").hidden) {
+      const manage = document.createElement("button");
+      manage.type = "button";
+      manage.className = "plugins-manage";
+      manage.append(TailUI.icon("settings"), document.createTextNode("Manage connectors and plugins"));
+      manage.onclick = () => {
+        menu.hidePopover();
+        openAdminSettings("providers");
+      };
+      parts.push(manage);
+    }
+    body.replaceChildren(...parts);
+  } catch (error) {
+    body.textContent = "Couldn't check connectors and plugins. " + error.message;
+  }
+}
+$("plugins-chip").onclick = () => {
+  const menu = $("plugins-menu");
+  if (menu.matches(":popover-open")) return menu.hidePopover();
+  menu.showPopover();
+  // Anchored on the side with more room, so it grows away from the chip.
+  const place = () => {
+    const r = $("plugins-chip").getBoundingClientRect(),
+      above = r.top > innerHeight - r.bottom;
+    menu.style.left = Math.max(12, Math.min(r.left, innerWidth - menu.offsetWidth - 12)) + "px";
+    menu.style.top = above ? "auto" : r.bottom + 6 + "px";
+    menu.style.bottom = above ? innerHeight - r.top + 6 + "px" : "auto";
+    menu.style.maxHeight = Math.max(160, (above ? r.top : innerHeight - r.bottom) - 18) + "px";
+  };
+  place();
+  menu.tabIndex = -1;
+  menu.focus({ preventScroll: true });
+  void renderPluginsMenu().then(place);
+};
+$("plugins-menu").addEventListener("toggle", (event) =>
+  $("plugins-chip").setAttribute("aria-expanded", String(event.newState === "open")),
+);
 $("project-menu").addEventListener("toggle", (event) =>
   $("project-button").setAttribute("aria-expanded", String(event.newState === "open")),
 );

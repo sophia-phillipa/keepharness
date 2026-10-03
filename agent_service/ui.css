@@ -5513,3 +5513,22 @@ main > #run-console { order: 11; }
 #resource-menu .resource-create { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 32px; margin-top: 4px; padding: 6px 10px; border: 0; border-top: 1px solid color-mix(in srgb, var(--th-text) 10%, transparent); border-radius: 0 0 12px 12px; background: transparent; color: var(--th-text); font-size: 13px; text-align: left; }
 #resource-menu .resource-create:hover { background: var(--th-hover, color-mix(in srgb, var(--th-text) 7%, transparent)); }
 #resource-menu .resource-create .th-icon { width: 16px; height: 16px; color: var(--th-muted); }
+
+/* Connectors and plugins popover (composer Plugins chip). */
+#plugins-menu { position: fixed; inset: auto; width: min(380px, calc(100vw - 24px)); max-height: min(480px, calc(100vh - 24px)); overflow: auto; margin: 0; }
+#plugins-menu .plugins-body { display: grid; gap: 10px; padding: 0 4px 6px; font-size: 13px; }
+#plugins-menu h3 { margin: 4px 6px; color: var(--th-muted); font-size: 12px; font-weight: 500; }
+#plugins-menu ul { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
+#plugins-menu .integration-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 10px; }
+#plugins-menu .integration-row > .th-icon { flex: none; width: 16px; height: 16px; color: var(--th-muted); }
+#plugins-menu .integration-row div { display: grid; min-width: 0; }
+#plugins-menu .integration-row strong { overflow: hidden; font-size: 14px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+#plugins-menu .integration-row small { color: var(--th-muted); font-size: 12px; }
+#plugins-menu .integration-row.unavailable strong { color: var(--th-muted); }
+#plugins-menu .plugins-note, #plugins-menu .plugins-empty { margin: 0 6px; color: var(--th-muted); font-size: 12px; }
+#plugins-menu .plugins-tools { margin: 0 6px; color: var(--th-muted); font-size: 12px; }
+#plugins-menu .plugins-tools li { padding: 2px 0; }
+#plugins-menu .plugins-manage { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 6px 8px; border: 0; border-top: 1px solid color-mix(in srgb, var(--th-text) 10%, transparent); border-radius: 0 0 10px 10px; background: transparent; color: var(--th-text); font-size: 13px; text-align: left; }
+#plugins-menu .plugins-manage:hover { background: var(--th-hover, color-mix(in srgb, var(--th-text) 7%, transparent)); }
+#plugins-menu .plugins-manage .th-icon { width: 16px; height: 16px; color: var(--th-muted); }
+#plugins-menu { background: var(--th-panel); backdrop-filter: none; }
