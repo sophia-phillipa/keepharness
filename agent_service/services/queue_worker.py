@@ -39,9 +39,13 @@ CONDITION_ALIASES = {
     "claude_rate_limit": "provider_quota_exhausted",
     "claude_quota_exhausted": "provider_quota_exhausted",
 }
-# Provider messages carried by "<provider>_execution_failed: <message>" (Codex).
+# Provider messages carried by "<provider>_execution_failed: <message>" (the Codex
+# app-server transport: Codex, DeepSeek, local). DeepSeek is prepaid: 402 is an empty balance.
 CONDITION_PATTERNS = (
-    ("provider_quota_exhausted", re.compile(r"usage limit|quota", re.I)),
+    (
+        "provider_quota_exhausted",
+        re.compile(r"usage limit|quota|\b402\b|insufficient balance", re.I),
+    ),
     ("provider_rate_limit", re.compile(r"\b429\b|rate.?limit|too many requests", re.I)),
     (
         "provider_authentication_required",

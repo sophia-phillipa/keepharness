@@ -37,8 +37,6 @@ def runtime_options(config, permissions):
         "-c",
         "model_providers.tail_api.supports_websockets=false",
         "-c",
-        "model_supports_reasoning_summaries=true",
-        "-c",
         'model_reasoning_summary="none"',
     ]
     return RuntimeOptions(

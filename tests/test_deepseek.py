@@ -145,3 +145,117 @@ class ProviderLifecycleTest(unittest.TestCase):
                     200,
                 )
                 self.assertFalse(deepseek.key_file(d).exists())
+
+
+async def deepseek_turn(notifications, events=None):
+    """One DeepSeek turn over a scripted Codex app-server (HAR-R3-2 shapes, codex-cli 0.157.1)."""
+
+    class RPC:
+        def __init__(self):
+            self.notifications = iter(notifications)
+
+        async def call(self, method, params):
+            return {"thread": {"id": "thread-1"}}
+
+        async def send(self, *args):
+            pass
+
+        async def receive(self):
+            return next(self.notifications)
+
+    @asynccontextmanager
+    async def connection(command, **kw):
+        yield RPC()
+
+    with tempfile.TemporaryDirectory() as d:
+        key = Path(d, "key")
+        key.write_text("fixture-private-key")
+        with (
+            patch("adapters.codex.native.connection", connection),
+            patch("adapters.codex.native.configurations", return_value={"codex": {}}),
+            patch("adapters.codex.native.inventory", return_value={"codex": []}),
+        ):
+            return await run(
+                {"binary": "codex", "api_provider": {"url": deepseek.API, "key_file": str(key)}},
+                "test",
+                lambda kind, data: (events if events is not None else []).append(kind),
+                {"permissions": {}},
+                "deepseek-test",
+                "high",
+                Path(d) / "session",
+                "deepseek",
+                AsyncMock(),
+            )
+
+
+def stream_error(http_status, details=None, will_retry=False):
+    return {
+        "method": "error",
+        "params": {
+            "error": {
+                "message": "Reconnecting... 5/5",
+                "additionalDetails": details,
+                "codexErrorInfo": {"responseStreamDisconnected": {"httpStatusCode": http_status}},
+            },
+            "willRetry": will_retry,
+            "threadId": "thread-1",
+            "turnId": "turn-1",
+        },
+    }
+
+
+class DeepseekFailureTest(unittest.IsolatedAsyncioTestCase):
+    async def test_a_retry_codex_announces_does_not_end_the_run(self):
+        events = []
+        result = await deepseek_turn(
+            [
+                stream_error(None, "stream disconnected before completion", will_retry=True),
+                {"method": "item/agentMessage/delta", "params": {"delta": "answer"}},
+                {"method": "turn/completed", "params": {"turn": {"status": "completed"}}},
+            ],
+            events,
+        )
+        self.assertEqual(result["answer"], "answer")
+        self.assertIn("provider_retrying", events)
+        self.assertNotIn("error", events)
+
+    async def test_rejected_key_and_empty_balance_name_deepseek_and_their_condition(self):
+        from agent_service.services.queue_worker import provider_condition
+        from agent_service.tools import ToolError
+
+        cases = {
+            "provider_authentication_required": stream_error(401),
+            "provider_quota_exhausted": stream_error(
+                402, "unexpected status 402 Payment Required: Insufficient Balance"
+            ),
+        }
+        for condition, notification in cases.items():
+            with self.subTest(condition), self.assertRaises(ToolError) as caught:
+                await deepseek_turn([notification])
+            code = str(caught.exception)
+            self.assertTrue(code.startswith("deepseek_execution_failed: Reconnecting... 5/5"))
+            self.assertEqual(provider_condition(code), condition)
+
+    def test_key_and_balance_copy_name_the_deepseek_action(self):
+        from test_ui_error_map import block
+
+        copy = block("function executionCondition(")
+        self.assertIn("DeepSeek rejected the API key", copy)
+        self.assertIn("DeepSeek balance", copy)
+        errors = block("const userErrors = {")
+        start = errors.index("deepseek_execution_failed:")
+        self.assertIn("DeepSeek stopped", errors[start : errors.index("\n  ", start + 30)])
+
+    def test_runtime_sends_no_setting_the_cli_ignores(self):
+        """HAR-R2-9: codex-cli 0.157.1 logs an ERROR for model_supports_reasoning_summaries."""
+        from adapters.deepseek.backend import runtime_options
+
+        with tempfile.TemporaryDirectory() as d:
+            key = Path(d, "key")
+            key.write_text("fixture-private-key")
+            command = runtime_options(
+                {"binary": "codex", "api_provider": {"url": deepseek.API, "key_file": str(key)}},
+                {},
+            ).command
+        self.assertFalse(any("model_supports_reasoning_summaries" in arg for arg in command))
+        self.assertIn('model_reasoning_summary="none"', command)

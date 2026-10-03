@@ -3,6 +3,7 @@
 import asyncio
 import importlib
 import inspect
+import json
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -155,3 +156,167 @@ def test_no_phantom_codex_model_fallback():
     for function in (adapters.run_scoped, scoped.run):
         assert inspect.signature(function).parameters["model"].default is None
     assert "gpt-6-astra" not in inspect.getsource(ConversationService)
+
+
+# Codex app-server transport, shared by the codex, deepseek and local adapters (HAR-R3-1).
+ECHOING_APP_SERVER = """
+import json, sys
+def emit(value): print(json.dumps(value), flush=True)
+for line in sys.stdin:
+    request = json.loads(line)
+    method, ident, params = request.get('method'), request.get('id'), request.get('params', {})
+    with open(LOG, 'a') as stream:
+        stream.write(json.dumps([method, params.get('excludeTurns')]) + '\\n')
+    if method == 'thread/resume':
+        # Like codex-cli 0.157.1: full-history hydration unless excludeTurns is set.
+        image = {'type': 'image', 'url': 'data:image/png;base64,' + 'A' * (4 << 20)}
+        turns = [] if params.get('excludeTurns') else [{'items': [{'type': 'userMessage', 'content': [image]}]}]
+        emit({'id': ident, 'result': {'thread': {'id': params['threadId'], 'turns': turns}}})
+    elif method == 'thread/start':
+        emit({'id': ident, 'result': {'thread': {'id': 'thread-1'}}})
+    elif method == 'turn/start':
+        emit({'method': 'turn/started', 'params': {'turn': {'id': 'turn-1'}}})
+        # The user input comes back whole, attached images included, on one stdout line.
+        emit({'method': 'item/started', 'params': {'item': {'type': 'userMessage', 'id': 'u1', 'content': params['input']}}})
+        emit({'method': 'item/agentMessage/delta', 'params': {'delta': 'ok'}})
+        emit({'method': 'turn/completed', 'params': {'turn': {'status': 'completed'}}})
+    elif ident is not None:
+        emit({'id': ident, 'result': {}})
+"""
+
+
+def echoing_app_server(tmp_path):
+    import sys
+
+    log = tmp_path / "app-server.jsonl"
+    executable = tmp_path / "fake-codex"
+    executable.write_text(
+        "#!" + sys.executable + "\nLOG = " + repr(str(log)) + "\n" + ECHOING_APP_SERVER
+    )
+    executable.chmod(0o700)
+    return executable, log
+
+
+def run_app_server_turn(executable, session, provider, project, tmp_path):
+    import adapters
+
+    config = {"binary": str(executable)}
+    if provider == "deepseek":
+        key = tmp_path / "deepseek.key"
+        key.write_text("fixture-key")
+        config["api_provider"] = {"url": "http://127.0.0.1:9/v1", "key_file": str(key)}
+    return asyncio.run(
+        adapters.run_native(
+            config, "hello", lambda *_: None, project, "fixture", "low", session, provider,
+            AsyncMock(),
+        )
+    )
+
+
+@pytest.fixture
+def app_server_home(tmp_path, monkeypatch):
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex-home"))
+    monkeypatch.setattr("adapters.codex.native.configurations", lambda: {"codex": {}})
+    monkeypatch.setattr("adapters.codex.native.inventory", lambda: {"codex": []})
+
+
+def image_project(tmp_path, size):
+    photo = tmp_path / "photo.png"
+    photo.write_bytes(b"\x89PNG" + b"\x00" * (size - 4))
+    return {"permissions": {}, "_images": [{"media_type": "image/png", "path": str(photo)}]}
+
+
+@pytest.mark.parametrize("provider", ["codex", "deepseek"])
+def test_a_photo_over_2_mib_and_its_resume_keep_the_conversation_usable(
+    tmp_path, app_server_home, provider
+):
+    """QA-R4-1: a 3 MiB photo is a 4 MiB base64 echo; the old 2 MiB line limit raised ValueError."""
+    executable, log = echoing_app_server(tmp_path)
+    session = tmp_path / "session"
+    first = run_app_server_turn(
+        executable, session, provider, image_project(tmp_path, 3 << 20), tmp_path
+    )
+    follow_up = run_app_server_turn(executable, session, provider, {"permissions": {}}, tmp_path)
+    assert first["answer"] == follow_up["answer"] == "ok"
+    sent = [json.loads(line) for line in log.read_text().splitlines()]
+    assert ["thread/start", None] in sent
+    # Thread metadata only: the stored turns (the photo again) are never sent back whole.
+    assert ["thread/resume", True] in sent
+
+
+@pytest.mark.parametrize("provider", ["codex", "deepseek"])
+def test_a_message_above_the_read_limit_is_a_readable_failure(
+    tmp_path, app_server_home, monkeypatch, provider
+):
+    monkeypatch.setattr("adapters.codex.rpc.READ_LIMIT", 64 * 1024)
+    executable, _ = echoing_app_server(tmp_path)
+    with pytest.raises(ToolError, match=f"^{provider}_output_limit$"):
+        run_app_server_turn(
+            executable, tmp_path / "session", provider, image_project(tmp_path, 96 * 1024), tmp_path
+        )
+
+
+def test_the_read_limit_carries_the_largest_attachable_image():
+    from adapters.codex.rpc import READ_LIMIT
+    from agent_service.tools import MAX_ATTACHMENT_BYTES
+
+    assert READ_LIMIT > MAX_ATTACHMENT_BYTES * 4 // 3
+
+
+def scoped_codex_turn(tmp_path, notifications, runs=1):
+    """Run the scoped Codex adapter against scripted notifications; return the mock RPC."""
+    from contextlib import asynccontextmanager, nullcontext
+    from types import SimpleNamespace
+
+    from adapters.codex.scoped import run
+
+    rpc = AsyncMock()
+    rpc.call.return_value = {"thread": {"id": "scoped-id"}}
+    rpc.receive.side_effect = notifications
+
+    @asynccontextmanager
+    async def connection(*args, **kwargs):
+        yield rpc
+
+    workspace = SimpleNamespace(command=[], home=tmp_path)
+    with (
+        patch("adapters.codex.scoped.prepare_scoped", side_effect=lambda *a: nullcontext(workspace)),
+        patch("adapters.codex.scoped.connection", connection),
+        patch("adapters.codex.scoped.collect_changes", return_value={}),
+    ):
+        results = [
+            asyncio.run(run({}, "Prompt", lambda *a: None, project={}, session_dir=tmp_path))
+            for _ in range(runs)
+        ]
+    return rpc, results
+
+
+COMPLETED = {"method": "turn/completed", "params": {"turn": {"status": "completed"}}}
+
+
+def test_scoped_codex_resumes_thread_metadata_only(tmp_path):
+    rpc, _ = scoped_codex_turn(tmp_path, [COMPLETED, COMPLETED], runs=2)
+    resume = [c.args[1] for c in rpc.call.await_args_list if c.args[0] == "thread/resume"]
+    assert len(resume) == 1 and resume[0]["excludeTurns"] is True
+
+
+def test_scoped_codex_waits_out_a_retry_codex_announces(tmp_path):
+    retry = {
+        "method": "error",
+        "params": {"error": {"message": "Reconnecting... 1/5"}, "willRetry": True},
+    }
+    delta = {"method": "item/agentMessage/delta", "params": {"delta": "done"}}
+    _, results = scoped_codex_turn(tmp_path, [retry, delta, COMPLETED])
+    assert results[0]["answer"] == "done"
+
+
+def test_scoped_codex_failure_keeps_the_provider_message(tmp_path):
+    failure = {
+        "method": "error",
+        "params": {
+            "error": {"message": "You've hit your usage limit. Try again at 9:00 PM."},
+            "willRetry": False,
+        },
+    }
+    with pytest.raises(ToolError, match="^codex_execution_failed: You've hit your usage limit"):
+        scoped_codex_turn(tmp_path, [failure])
