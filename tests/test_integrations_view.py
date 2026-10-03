@@ -540,10 +540,25 @@ def test_malformed_tool_events_are_skipped(client):
     assert [tool["name"] for tool in body["other_tools"]] == ["Read"]
 
 
+def test_jobs_created_before_the_window_and_its_margin_are_not_read(client):
+    service = client.app.state.service
+    now = time.time()
+    since = now - integrations_view.WINDOW_DAYS * DAY
+    seed(client, "ancient", [], when=since - 5 * DAY)
+    seed(client, "overnight", [], when=since - 3600)
+    for job in ("ancient", "overnight"):
+        service.message_repository.add_event(
+            job, now - DAY, "tool_start", json.dumps({"tool": "Read"})
+        )
+    service.db.commit()
+    rows = service.message_repository.tool_usage("a", "p", "claude", since, 10)
+    assert [(row["tool"], row["uses"]) for row in rows] == [("Read", 1)]
+
+
 def test_usage_is_read_through_the_indexes(client):
     service = client.app.state.service
     plan = service.db.execute(
-        "EXPLAIN QUERY PLAN " + MessageRepository.TOOL_USAGE, (0.0, "a", "p", "claude", 10)
+        "EXPLAIN QUERY PLAN " + MessageRepository.TOOL_USAGE, (0.0, "a", "p", "claude", 0.0, 10)
     ).fetchall()
     details = " ".join(row[3] for row in plan)
     assert "SCAN" not in details

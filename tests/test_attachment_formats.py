@@ -51,16 +51,11 @@ def test_vision_requires_actual_local_runtime(tmp_path):
     cfg = config(tmp_path)
     cfg["services"]["local"]["mode"] = "native"
     service = Service(cfg)
-    response = type(
-        "Response",
-        (),
-        {"raise_for_status": lambda s: None, "json": lambda s: {"modalities": {"vision": False}}},
-    )()
-    with patch("httpx.AsyncClient.get", AsyncMock(return_value=response)):
+    props = "control.remote_models.fetch_body"
+    with patch(props, AsyncMock(return_value=b'{"modalities": {"vision": false}}')):
         with pytest.raises(APIError, match="local_vision_not_enabled"):
             asyncio.run(service.validate_images("local", "installed-model"))
-    response.json = lambda: {"modalities": {"vision": True}}
-    with patch("httpx.AsyncClient.get", AsyncMock(return_value=response)):
+    with patch(props, AsyncMock(return_value=b'{"modalities": {"vision": true}}')):
         asyncio.run(service.validate_images("local", "installed-model"))
     service.db.close()
 

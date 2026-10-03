@@ -33,7 +33,8 @@ async def command(*args, env=None):
     return 1, ""
 
 
-async def scan(remote_servers=()):
+async def scan(remote_servers=(), *, reserved=()):
+    """Inventory of this machine; ``reserved`` ids are never offered by a network server."""
     home = Path.home()
     binaries = {
         n: shutil.which(n)
@@ -115,7 +116,7 @@ async def scan(remote_servers=()):
             pass
     local["runtimes"] = await discover()
     remote, local["remote_servers"] = await discover_remote(
-        remote_servers, {m["id"] for m in local["runtimes"]}
+        remote_servers, {m["id"] for m in local["runtimes"]} | set(local["models"]) | set(reserved)
     )
     local["runtimes"] += remote
     local["models"] += list(

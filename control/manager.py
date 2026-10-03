@@ -22,7 +22,15 @@ from adapters.gemini import account as gemini
 from agent_service.config import VERSION_FILE
 from agent_service.work_items import validate_pattern
 
-from . import discovery, env, integration_catalog, integrations, remote_models, runtime_config
+from . import (
+    discovery,
+    env,
+    integration_catalog,
+    integrations,
+    local_models,
+    remote_models,
+    runtime_config,
+)
 from .dashboard import DashboardReader
 from .operations import Operations
 from .persistence import ControlStateRepository, private_file
@@ -129,7 +137,10 @@ class Manager:
         self.state_repository.audit(action)
 
     async def refresh(self):
-        self.inventory = await discovery.scan(remote_models.load_servers(self.state, self.settings))
+        self.inventory = await discovery.scan(
+            remote_models.load_servers(self.state, self.settings),
+            reserved=local_models.reserved_ids(self.state),
+        )
         binary = self.inventory.get("binaries", {}).get("codex")
         if binary:
             plugins = await integration_catalog.installed_plugins(binary)

@@ -207,16 +207,20 @@ class MessageRepository:
     # CROSS JOIN pins the order: walk the caller's own jobs (owner, project index), then probe
     # each one's events through (job, type, time). Without it SQLite scans every tenant's
     # tool_start events in the window.
+    # The job bound lets the walk stop at jobs old enough to have no event in the window.
     TOOL_USAGE = (
         "SELECT json_extract(e.data,'$.tool') AS tool, count(*) AS uses, max(e.time) AS last_used "
         "FROM jobs j CROSS JOIN events e ON e.job=j.id AND e.type='tool_start' AND e.time>=? "
         "WHERE j.owner=? AND j.project=? AND json_extract(j.payload,'$.backend')=? "
+        "AND j.created>=? "
         "GROUP BY tool ORDER BY uses DESC, tool LIMIT ?"
     )
+    RUN_MARGIN_SECONDS = 86400  # a run takes hours at most; a day is generous
 
     def tool_usage(self, owner, project, backend, since, limit):
         """Per tool name: how often a provider's runs started it in a project since ``since``."""
-        return self.db.execute(self.TOOL_USAGE, (since, owner, project, backend, limit)).fetchall()
+        params = (since, owner, project, backend, since - self.RUN_MARGIN_SECONDS, limit)
+        return self.db.execute(self.TOOL_USAGE, params).fetchall()
 
     def file(self, file_id, project, owner):
         return self.db.execute(

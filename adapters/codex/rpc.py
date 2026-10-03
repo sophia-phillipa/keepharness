@@ -84,7 +84,13 @@ async def sync_title(rpc, thread_id, title, event):
 
 @asynccontextmanager
 async def connection(
-    command, stderr=asyncio.subprocess.PIPE, env=None, event=None, config=None, provider="codex"
+    command,
+    stderr=asyncio.subprocess.PIPE,
+    env=None,
+    event=None,
+    config=None,
+    provider="codex",
+    pass_fds=(),
 ):
     environment = child_environment(env, provider=provider)
     proc = await asyncio.create_subprocess_exec(
@@ -95,6 +101,7 @@ async def connection(
         env=environment,
         start_new_session=True,
         limit=2 * 1024 * 1024,
+        pass_fds=pass_fds,
     )
     async with process_diagnostics(proc, provider, event, env):
         rpc = RPC(proc, config=config)

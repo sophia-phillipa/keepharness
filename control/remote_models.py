@@ -30,6 +30,7 @@ PROBE_SECONDS = 3
 MAX_SERVERS = 8
 MAX_MODELS = 100
 MAX_RESPONSE_BYTES = 256 * 1024
+MAX_CONTEXT = 10_000_000  # tokens; a server's claim, bounded before it reaches the UI
 MAX_URL_LENGTH = 300
 MAX_KEY_LENGTH = 512
 DEFAULT_PORTS = MappingProxyType({"http": 80, "https": 443})
@@ -37,6 +38,20 @@ HOST_LABEL = re.compile(r"[a-z0-9_]([a-z0-9_-]{0,61}[a-z0-9_])?")
 # The shape Manager.validate accepts for a model id, so a remote id can always be selected.
 MODEL_ID = re.compile(r"[a-zA-Z0-9_./:-]{1,160}")
 PORT_ERROR = "The port must be a number from 1 to 65535."
+TAILSCALE_NETWORKS = (
+    ipaddress.ip_network("100.64.0.0/10"),
+    ipaddress.ip_network("fd7a:115c:a1e0::/48"),
+)
+UNENCRYPTED_KEY = (
+    "An API key cannot be saved for an http:// address outside this computer and your tailnet: "
+    "the connection is unencrypted, so the key would travel in plain text. "
+    "Use an https:// address or a Tailscale address."
+)
+UNENCRYPTED_WARNING = (
+    "This address uses unencrypted http outside this computer and your tailnet: "
+    "your prompts and the model's answers travel in plain text. "
+    "Prefer an https:// address or a Tailscale address."
+)
 
 
 def is_host(host: str) -> bool:
@@ -96,6 +111,20 @@ def normalize_url(value: object) -> str:
         raise ValueError("Use the base address of the server: no path, or only /v1.")
     host = f"[{parts.hostname}]" if ":" in parts.hostname else parts.hostname
     return f"{parts.scheme}://{host}" + (f":{port}" if port else "")
+
+
+def travels_unencrypted(url: str) -> bool:
+    """Plain http to a host that is neither this computer nor on the tailnet (WireGuard encrypts it)."""
+    parts = urlsplit(url)
+    host = parts.hostname
+    if parts.scheme != "http" or host == "localhost" or host.endswith(".ts.net"):
+        return False
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return True
+    address = getattr(address, "ipv4_mapped", None) or address
+    return not (address.is_loopback or any(address in network for network in TAILSCALE_NETWORKS))
 
 
 def key_file(state: Path, url: str) -> Path:
@@ -159,7 +188,8 @@ def check_status(status_code: int, key: str) -> None:
         raise ValueError(f"The server answered HTTP {status_code} instead of a model list.")
 
 
-async def fetch_body(url: str, key: str) -> bytearray:
+async def fetch_body(url: str, key: str, path: str = "/v1/models") -> bytearray:
+    """GET ``url + path`` within one total deadline and size cap, or raise ``ValueError``."""
     headers = {"Authorization": "Bearer " + key} if key else {}
     body = bytearray()
     try:
@@ -168,7 +198,7 @@ async def fetch_body(url: str, key: str) -> bytearray:
             httpx.AsyncClient(
                 timeout=PROBE_SECONDS, trust_env=False, follow_redirects=False
             ) as client,
-            client.stream("GET", url + "/v1/models", headers=headers) as response,
+            client.stream("GET", url + path, headers=headers) as response,
         ):
             check_status(response.status_code, key)
             async for chunk in response.aiter_bytes():
@@ -192,7 +222,8 @@ def parse_model(entry: object) -> dict | None:
         return None
     meta = entry.get("meta")
     context = meta.get("n_ctx") if isinstance(meta, dict) else None
-    return {"id": entry["id"], "context": context if type(context) is int else None}
+    valid = type(context) is int and 1 <= context <= MAX_CONTEXT
+    return {"id": entry["id"], "context": context if valid else None}
 
 
 async def probe(url: str, key: str = "") -> list[dict]:
@@ -273,6 +304,9 @@ async def add_remote_model(request: Request, manager: "Manager", data: dict) -> 
     """Probe the server first; only a reachable one is saved (with its key, if given)."""
     url = normalize_url(data.get("url"))
     token = validate_key(data["key"]) if data.get("key") not in (None, "") else ""
+    unencrypted = travels_unencrypted(url)
+    if token and unencrypted:
+        raise ValueError(UNENCRYPTED_KEY)
     saved = list(manager.settings.get("remote_models", []))
     entry = {"url": url}
     if entry not in saved and len(saved) >= MAX_SERVERS:
@@ -285,7 +319,8 @@ async def add_remote_model(request: Request, manager: "Manager", data: dict) -> 
         else:
             key_file(manager.state, url).unlink(missing_ok=True)
     manager.audit("remote_model_added:" + url)
-    return {"url": url, "models": [model["id"] for model in models], "has_key": bool(token)}
+    result = {"url": url, "models": [model["id"] for model in models], "has_key": bool(token)}
+    return {**result, "warning": UNENCRYPTED_WARNING} if unencrypted else result
 
 
 async def remove_remote_model(request: Request, manager: "Manager", data: dict) -> dict:

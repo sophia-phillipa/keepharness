@@ -10,6 +10,16 @@ A Tail agent is a persona, not a native delegate: it runs in *conversational* mo
 which prepends text to the conversation, so every provider can run it. It stays active
 across follow-up turns until the persona is released, like any conversational agent.
 
+## Who can use and who can edit
+
+Tail agents are machine-wide: one set per computer, not per client. Every
+authenticated client lists them and uses them with `@@id`. Only the local client, the
+browser on the computer that runs the harness, creates, edits or deletes them; any
+other client (VPN key, tailnet login) gets `tail_agent_local_only` (403) before the
+request body is read. The service decides this from the identity it resolved for the
+request (`local`, see `ConversationService.identity`), never from a header, so a
+proxied or forwarded request is not local.
+
 ## Data
 
 One JSON file per agent: `<control_state_dir>/tail-agents/<id>.json`. When the
@@ -53,16 +63,16 @@ and `gemini` use `configured`). The error names the first field that fails.
 
 ## API
 
-All routes need the same authentication as the other `/v1` routes. Errors use the
-standard body `{code, message, retryable, request_id}`; `tail_agent_invalid` adds
-`field`.
+All routes need the same authentication as the other `/v1` routes; `POST`, `PUT` and
+`DELETE` also need the local client (see above). Errors use the standard body
+`{code, message, retryable, request_id}`; `tail_agent_invalid` adds `field`.
 
 | Route | Success | Errors |
 | --- | --- | --- |
 | `GET /v1/tail-agents` | 200 `{"agents": [...]}` sorted by name | `tail_agent_storage_unsafe` (500) |
-| `POST /v1/tail-agents` | 201 the agent | `tail_agent_invalid` (400), `tail_agent_exists` (409), `tail_agent_limit` (409), `tail_agent_storage_unsafe` (500) |
-| `PUT /v1/tail-agents/{id}` | 200 the agent | `tail_agent_invalid` (400), `tail_agent_not_found` (404), `tail_agent_changed` (409), `tail_agent_storage_unsafe` (500) |
-| `DELETE /v1/tail-agents/{id}` | 200 `{"deleted": true}` | `tail_agent_invalid` (400, `revision`), `tail_agent_not_found` (404), `tail_agent_changed` (409), `tail_agent_storage_unsafe` (500) |
+| `POST /v1/tail-agents` | 201 the agent | `tail_agent_local_only` (403), `tail_agent_invalid` (400), `tail_agent_exists` (409), `tail_agent_limit` (409), `tail_agent_storage_unsafe` (500) |
+| `PUT /v1/tail-agents/{id}` | 200 the agent | `tail_agent_local_only` (403), `tail_agent_invalid` (400), `tail_agent_not_found` (404), `tail_agent_changed` (409), `tail_agent_storage_unsafe` (500) |
+| `DELETE /v1/tail-agents/{id}` | 200 `{"deleted": true}` | `tail_agent_local_only` (403), `tail_agent_invalid` (400, `revision`), `tail_agent_not_found` (404), `tail_agent_changed` (409), `tail_agent_storage_unsafe` (500) |
 
 An agent in a response is the stored record plus `revision`, `available` and
 `unavailable_reason`:
@@ -165,6 +175,10 @@ included.
 - Stored files are checked against the same limits as requests. A hand-edited file that
   breaks them (or is not JSON) is skipped with a warning, not fatal. It still counts
   toward the 100-agent limit until removed by hand.
-- Tail agents are shared by every authenticated client of the harness. Their
-  instructions are prompt text that runs with the permissions of whoever uses them.
-- No host path reaches the model: the persona note names `tail/agents/<id>.json`.
+- Tail agents are machine-wide and edited only from this computer. Every authenticated
+  client can use them, so their instructions are prompt text that runs with the
+  permissions of whoever uses them; that is why a remote client cannot change them.
+- No host path reaches the model. The persona note says the user defined the agent in
+  Tail Harness and that the definition follows inline; it names no file, because the
+  agent has none inside the project. `source` (`tail/agents/<id>.json`) is a logical
+  label for the UI and is not placed in the prompt.

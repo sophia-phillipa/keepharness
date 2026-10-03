@@ -154,19 +154,12 @@ def test_video_capability_uses_live_model_metadata(tmp_path):
         ],
         "nextCursor": None,
     }
-    props = type(
-        "Response",
-        (),
-        {
-            "raise_for_status": lambda self: None,
-            "json": lambda self: {"modalities": {"vision": True}},
-        },
-    )()
+    props = b'{"modalities": {"vision": true}}'
     with (
         patch("agent_service.tools.video_tools_available", return_value=True),
         patch("agent_service.tools.transcription_available", return_value=True),
         patch("adapters.codex.rpc.metadata", AsyncMock(return_value=model_list)) as codex,
-        patch("httpx.AsyncClient.get", AsyncMock(return_value=props)),
+        patch("control.remote_models.fetch_body", AsyncMock(return_value=props)),
     ):
         models = asyncio.run(service.models_with_context("p"))
         codex.assert_awaited_once()
