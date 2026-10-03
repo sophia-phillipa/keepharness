@@ -2586,7 +2586,7 @@ function setProjectPreference(id, key, value) {
     (el) => el.dataset.projectId === id,
   );
   (
-    group?.querySelector(".project-actions > button") ||
+    group?.querySelector(".project-actions > button[aria-expanded]") ||
     $("removed-projects")?.querySelector("summary") ||
     $("add-project")
   ).focus();
@@ -3878,7 +3878,7 @@ async function result(
         : terminal[r.state]
           ? duration
             ? "Worked for " + duration
-            : terminal[r.state]
+            : "Run steps"
           : "Working…",
     );
     if (data.incomplete)
@@ -4128,7 +4128,7 @@ async function load(id, legacy = false, restoredView = null) {
             ? condition.title
             : duration
               ? "Worked for " + duration
-              : labels[r.state] || "Run steps",
+              : "Run steps",
         );
       }
     }
