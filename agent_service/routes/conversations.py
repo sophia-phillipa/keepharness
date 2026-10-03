@@ -72,12 +72,12 @@ async def conversations(request, service, identity):
         if cid in deleted:
             continue
         if cid not in groups:
+            root = json.loads(r["payload"])
             groups[cid] = {
                 "id": cid,
                 "project": r["project"],
-                "title": titles.get(
-                    cid, json.loads(r["payload"]).get("prompt", "Conversation")[:100]
-                ),
+                "title": titles.get(cid, root.get("prompt", "Conversation")[:100]),
+                **{key: root[key] for key in ("schedule_id", "schedule_title") if key in root},
             }
         groups[cid].update(
             last_job_id=r["id"],

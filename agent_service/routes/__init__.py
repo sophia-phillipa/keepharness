@@ -32,12 +32,12 @@ class LimitedStream(StreamingResponse):
             self.release()
 
 
-async def body(request):
+async def body(request, limit=200000):
     chunks = bytearray()
     try:
         async with asyncio.timeout(10):
             async for chunk in request.stream():
-                if len(chunks) + len(chunk) > 200000:
+                if len(chunks) + len(chunk) > limit:
                     raise APIError("payload_limit", 413)
                 chunks.extend(chunk)
     except TimeoutError:

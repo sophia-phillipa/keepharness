@@ -1534,6 +1534,16 @@ const userErrors = {
   tail_agent_not_found: "That agent no longer exists.",
   tail_agent_storage_unsafe: "The agents folder cannot be used safely. Check the harness state folder.",
   tail_agent_local_only: "Agents can only be created, edited or deleted from the computer that runs Tail Harness.",
+  page_invalid: "The page is not valid. Check the title and the text and try again.",
+  page_not_found: "That page no longer exists.",
+  page_changed: "This page was changed elsewhere. Reload it and try again.",
+  page_limit: "This project has reached the limit of 500 pages. Delete one to add another.",
+  page_storage_unsafe: "The pages folder cannot be used safely. Check the harness state folder.",
+  schedule_invalid: "The schedule is not valid. Check each field and try again.",
+  schedule_not_found: "That schedule no longer exists.",
+  schedule_changed: "This schedule was changed elsewhere. Reload it and try again.",
+  schedule_limit: "You have reached the limit of 50 schedules. Delete one to add another.",
+  schedule_storage_unsafe: "The schedules folder cannot be used safely. Check the harness state folder.",
 };
 async function api(path, options = {}) {
   let r;
