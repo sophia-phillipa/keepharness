@@ -5588,6 +5588,7 @@ main > #run-console { order: 11; }
 #page-body[hidden], #page-preview[hidden] { display: none; }
 .page-preview { padding: 4px 2px; font-size: 15px; line-height: 1.6; }
 #schedule-editor { max-width: 640px; }
+#schedule-editor .agent-route { align-items: start; }
 #schedule-editor .schedule-enabled { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-weight: 500; }
 #schedule-editor .schedule-enabled input { width: auto; }
 #schedule-editor label[hidden] { display: none; }

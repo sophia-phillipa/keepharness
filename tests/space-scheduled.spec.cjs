@@ -157,6 +157,13 @@ const path = require("node:path");
     await scheduled.getByLabel("Day").selectOption("0");
     await scheduled.getByLabel("Time").fill("08:30");
     assert.equal(await scheduled.getByLabel("Hours").isVisible(), false);
+    // The wall-clock time is the server's, which may differ from the browser's.
+    assert.equal(await page.locator("#schedule-time").getAttribute("aria-describedby"), "schedule-time-help");
+    assert.equal(await page.locator("#schedule-time-help").innerText(), "Server time");
+    assert.equal(await page.locator("#schedule-time-help").isVisible(), true);
+    await scheduled.getByLabel("Repeat").selectOption("interval");
+    assert.equal(await page.locator("#schedule-time-help").isVisible(), false, "an interval has no wall-clock time");
+    await scheduled.getByLabel("Repeat").selectOption("weekly");
     await scheduled.getByRole("button", { name: "Create task" }).click();
     const row = scheduled.getByRole("button", { name: /^Weekly AI radar/ });
     await row.waitFor();
