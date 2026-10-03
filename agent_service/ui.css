@@ -5532,3 +5532,17 @@ main > #run-console { order: 11; }
 #plugins-menu .plugins-manage:hover { background: var(--th-hover, color-mix(in srgb, var(--th-text) 7%, transparent)); }
 #plugins-menu .plugins-manage .th-icon { width: 16px; height: 16px; color: var(--th-muted); }
 #plugins-menu { background: var(--th-panel); backdrop-filter: none; }
+
+/* Connector or plugin detail inside the Plugins panel. */
+#plugins-menu button.integration-row { width: 100%; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+#plugins-menu button.integration-row:hover, #plugins-menu button.integration-row:focus-visible { background: var(--th-hover, color-mix(in srgb, var(--th-text) 7%, transparent)); }
+#plugins-menu .plugins-back { display: inline-flex; align-items: center; gap: 4px; width: fit-content; min-height: 28px; padding: 2px 8px 2px 4px; border: 0; border-radius: 8px; background: transparent; color: var(--th-muted); font-size: 12px; }
+#plugins-menu .plugins-back:hover { background: var(--th-hover, color-mix(in srgb, var(--th-text) 7%, transparent)); color: var(--th-text); }
+#plugins-menu .plugins-back .th-icon { width: 14px; height: 14px; }
+#plugins-menu .plugins-detail-head { display: grid; grid-template-columns: auto 1fr; align-items: center; column-gap: 10px; padding: 4px 8px; }
+#plugins-menu .plugins-detail-head .th-icon { grid-row: span 2; width: 22px; height: 22px; color: var(--th-muted); }
+#plugins-menu .plugins-detail-head h3 { margin: 0; color: var(--th-text); font-size: 16px; font-weight: 600; }
+#plugins-menu .plugins-detail-head small { color: var(--th-muted); font-size: 12px; }
+#plugins-menu .plugins-facts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 12px; margin: 0; padding: 4px 8px 8px; font-size: 13px; }
+#plugins-menu .plugins-facts dt { color: var(--th-muted); }
+#plugins-menu .plugins-facts dd { margin: 0; overflow-wrap: anywhere; }

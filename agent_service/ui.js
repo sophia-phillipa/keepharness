@@ -5431,12 +5431,18 @@ function usageAge(seconds) {
       ? Math.round(age / 3600) + " h ago"
       : Math.round(age / 86400) + " d ago";
 }
+let pluginsView = null;
 function integrationRow(item, sharedReason = "") {
   const row = document.createElement("li"),
+    open = document.createElement("button"),
     text = document.createElement("div"),
     name = document.createElement("strong"),
     meta = document.createElement("small");
-  row.className = "integration-row" + (item.effective ? "" : " unavailable");
+  open.type = "button";
+  open.className = "integration-row" + (item.effective ? "" : " unavailable");
+  open.dataset.integrationId = item.id;
+  open.title = "Show details";
+  open.onclick = () => showIntegrationDetail(item);
   name.textContent = item.name;
   meta.textContent = [
     item.kind === "mcp" ? "Connector" + (item.transport ? " · " + item.transport : "") : "Plugin",
@@ -5450,8 +5456,68 @@ function integrationRow(item, sharedReason = "") {
     .filter(Boolean)
     .join(" · ");
   text.append(name, meta);
-  row.append(TailUI.icon(item.kind === "mcp" ? "plug" : "stack-2"), text);
+  open.append(TailUI.icon(item.kind === "mcp" ? "plug" : "stack-2"), text);
+  row.append(open);
   return row;
+}
+// Detail of one connector or plugin (Codex plugin page): what it is, whether
+// this conversation may use it and why, and how it was used in this project.
+function showIntegrationDetail(item) {
+  const body = $("plugins-menu").querySelector(".plugins-body"),
+    data = pluginsView?.data || {},
+    back = document.createElement("button"),
+    head = document.createElement("div"),
+    title = document.createElement("h3"),
+    kind = document.createElement("small"),
+    facts = document.createElement("dl");
+  back.type = "button";
+  back.className = "plugins-back";
+  back.append(TailUI.icon("chevron-left"), document.createTextNode("Connectors and plugins"));
+  back.onclick = () => {
+    body.replaceChildren(...(pluginsView?.parts || []));
+    body.querySelector('[data-integration-id="' + CSS.escape(item.id) + '"]')?.focus();
+  };
+  head.className = "plugins-detail-head";
+  title.textContent = item.name;
+  kind.textContent =
+    item.kind === "mcp"
+      ? "Connector (MCP server)" + (item.transport ? " · " + item.transport : "")
+      : "Plugin";
+  head.append(TailUI.icon(item.kind === "mcp" ? "plug" : "stack-2"), title, kind);
+  const fact = (term, value) => {
+    if (!value) return;
+    const dt = document.createElement("dt"),
+      dd = document.createElement("dd");
+    dt.textContent = term;
+    dd.textContent = value;
+    facts.append(dt, dd);
+  };
+  fact("In this conversation", item.effective ? "Available" : item.reason || "Not available");
+  fact("Allowed for this provider", item.allowed ? "Yes" : "No");
+  fact("Installed", item.status === "installed" || item.status === "configured" ? "Yes · " + item.status : item.status);
+  fact(
+    "Used in this project",
+    item.used?.count
+      ? item.used.count + "× · last " + usageAge(item.used.last_used)
+      : "Not in the last " + (data.window_days || 30) + " days",
+  );
+  fact("Tools used", (item.used?.tools || []).join(", "));
+  fact("Approvals", item.effective ? data.effective_note || "Follows the conversation's access mode." : "");
+  facts.className = "plugins-facts";
+  const parts = [back, head, facts];
+  if (!$("settings-system-nav").hidden) {
+    const manage = document.createElement("button");
+    manage.type = "button";
+    manage.className = "plugins-manage";
+    manage.append(TailUI.icon("settings"), document.createTextNode("Manage connectors and plugins"));
+    manage.onclick = () => {
+      $("plugins-menu").hidePopover();
+      openAdminSettings("providers");
+    };
+    parts.push(manage);
+  }
+  body.replaceChildren(...parts);
+  back.focus();
 }
 async function renderPluginsMenu() {
   const menu = $("plugins-menu"),
@@ -5540,6 +5606,7 @@ async function renderPluginsMenu() {
       parts.push(manage);
     }
     body.replaceChildren(...parts);
+    pluginsView = { data, parts };
   } catch (error) {
     body.textContent = "Couldn't check connectors and plugins. " + error.message;
   }
