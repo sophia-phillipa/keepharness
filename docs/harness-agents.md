@@ -145,7 +145,11 @@ The token is `@@<id>`. A native agent with the same name keeps its own `/name` a
 are not accepted for a Harness agent. `//name` and an `@@name` that is not a selected
 Harness agent still fail with `harness_resources_unavailable`. `prepare_prompt` adds the
 persona to the execution prompt; follow-up turns carry the stored selection forward
-until `release_persona`.
+until `release_persona`. The carried selection takes the agent's current revision, so editing
+an agent between turns does not fail the conversation with `resource_changed` (a deleted agent
+still fails with `resource_unavailable`; a selection the client sends itself is still checked).
+A native provider session keeps the persona text after the harness stops attaching it, so the
+first turn after `release_persona` starts with a one-line notice that the agent was released.
 
 Two existing rules apply unchanged:
 

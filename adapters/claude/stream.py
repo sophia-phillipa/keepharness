@@ -5,9 +5,49 @@ import json
 import math
 import time
 
-from adapters.shared.process import IdleWatchdog, child_environment, process_diagnostics
+from adapters.shared.process import (
+    IdleWatchdog,
+    child_environment,
+    process_diagnostics,
+    provider_message,
+)
 from agent_service.tool_metadata import command_name
 from agent_service.tools import ToolError
+
+# The error kinds Claude Code puts on an assistant message, as the harness code the worker maps
+# to an account condition (queue_worker.PROVIDER_CONDITIONS) or to UI copy. Any other kind stays
+# a bare claude_execution_failed and its text is never shown.
+PROVIDER_ERRORS = {
+    "authentication_failed": "claude_authentication_failed",
+    "oauth_org_not_allowed": "claude_authentication_failed",
+    "account_on_hold": "claude_authentication_failed",
+    "verification_required": "claude_authentication_failed",
+    "cloud_credential_error": "claude_authentication_failed",
+    "rate_limit": "claude_rate_limit",
+    "billing_error": "provider_quota_exhausted",
+    "overloaded": "provider_rate_limit",
+    "server_error": "provider_unavailable",
+    "model_not_found": "model_or_effort_unavailable",
+}
+
+
+def token_count(value):
+    """A usable token count, or ``None``: a missing or malformed figure is never estimated."""
+    return value if type(value) in (int, float) and math.isfinite(value) and value >= 0 else None
+
+
+def prompt_usage(usage):
+    """The whole prompt of one model call, in the shape of Codex's per-call token usage.
+
+    Anthropic's ``input_tokens`` leaves out cache reads and writes, so on its own it reads "2"
+    for a 57k-token prompt.
+    """
+    fresh = token_count(usage.get("input_tokens"))
+    if fresh is None:
+        return None
+    cached = token_count(usage.get("cache_read_input_tokens")) or 0
+    total = fresh + cached + (token_count(usage.get("cache_creation_input_tokens")) or 0)
+    return {"inputTokens": total, "cachedInputTokens": cached, "totalTokens": total}
 
 
 def rate_limit_update(item):
@@ -66,6 +106,7 @@ class Stream:
         self.tools = {}
         self.message_id = None
         self.output_usage = {}
+        self.context = None
         self.started = time.monotonic()
         self.first = None
 
@@ -76,14 +117,7 @@ class Stream:
         if kind == "assistant":
             # Keep only known codes, never credential-bearing provider text.
             error = item.get("error")
-            self.provider_error = (
-                {
-                    "authentication_failed": "claude_authentication_failed",
-                    "rate_limit": "claude_rate_limit",
-                }.get(error)
-                if isinstance(error, str)
-                else None
-            )
+            self.provider_error = PROVIDER_ERRORS.get(error) if isinstance(error, str) else None
         elif kind == "rate_limit_event":
             update = rate_limit_update(item)
             if update:
@@ -93,25 +127,7 @@ class Stream:
             if value.get("type") == "message_start":
                 self.message_id = value.get("message", {}).get("id")
             if value.get("type") in ("message_start", "message_delta"):
-                usage = (
-                    value.get("message", {}) if value["type"] == "message_start" else value
-                ).get("usage", {})
-                count = usage.get("output_tokens")
-                if (
-                    isinstance(self.message_id, str)
-                    and type(count) in (int, float)
-                    and math.isfinite(count)
-                    and count >= 0
-                ):
-                    self.output_usage[self.message_id] = count
-                    self.event(
-                        "usage_metrics",
-                        {
-                            "usage_scope": "turn",
-                            "output_tokens": sum(self.output_usage.values()),
-                            "inference_seconds": time.monotonic() - self.started,
-                        },
-                    )
+                self.track_usage(value)
             block = value.get("content_block", {})
             if value.get("type") == "content_block_start" and block.get("type") == "tool_use":
                 tool_id = block.get("id")
@@ -155,10 +171,39 @@ class Stream:
                     )
         elif kind == "result":
             if item.get("is_error") or item.get("subtype") != "success":
-                raise ToolError(self.provider_error or "claude_execution_failed")
+                raise self.failure(item.get("result"))
             self.result = item
         if len(self.answer) + len(self.thinking) > 500000:
             raise ToolError("claude_output_limit")
+
+    def track_usage(self, value):
+        """Report usage from a ``message_start`` or ``message_delta`` stream event."""
+        usage = (value.get("message", {}) if value["type"] == "message_start" else value).get(
+            "usage", {}
+        )
+        # The context is the last main-thread call's prompt, never a sum over calls.
+        if value["type"] == "message_start" and not self.parent_tool_use_id:
+            self.context = prompt_usage(usage) or self.context
+        count = token_count(usage.get("output_tokens"))
+        if not isinstance(self.message_id, str) or count is None:
+            return
+        self.output_usage[self.message_id] = count
+        metrics = {
+            "usage_scope": "turn",
+            "output_tokens": sum(self.output_usage.values()),
+            "inference_seconds": time.monotonic() - self.started,
+        }
+        if self.context:
+            self.event("context_usage", {"last": self.context, "metrics": metrics})
+        else:
+            self.event("usage_metrics", metrics)
+
+    def failure(self, text=None):
+        """The error to raise; a recognised kind also carries the provider's own message."""
+        error = ToolError(self.provider_error or "claude_execution_failed")
+        if self.provider_error and isinstance(text, str) and text.strip():
+            error.error_detail = provider_message(text)
+        return error
 
     def finish(self, model, effort="configured"):
         if self.result is None:
@@ -167,6 +212,7 @@ class Stream:
         answer = self.result.get("result", self.answer)
         if not self.answer and answer:
             self.event("answer_delta", {"text": answer})
+        prompt = prompt_usage(usage)
         return {
             "answer": answer,
             "backend": "claude",
@@ -176,8 +222,11 @@ class Stream:
             "finish_reason": "completed",
             "incomplete": False,
             "context_strategy": "replayed_history",
+            **({"context_usage": {"last": self.context}} if self.context else {}),
             "metrics": {
-                "input_tokens": usage.get("input_tokens"),
+                "usage_scope": "turn",
+                # The whole prompt across the turn's calls, cache included, as Codex counts it.
+                "input_tokens": prompt["inputTokens"] if prompt else None,
                 "output_tokens": usage.get("output_tokens"),
                 "cached_tokens": usage.get("cache_read_input_tokens"),
                 "cache_creation_tokens": usage.get("cache_creation_input_tokens"),
@@ -223,7 +272,7 @@ async def stream(command, prompt, event, model, effort="configured", *, config=N
                 state.consume(item)
             await state.watchdog.wait(writer)
             if await state.watchdog.wait(proc.wait()) != 0:
-                raise ToolError(state.provider_error or "claude_execution_failed")
+                raise state.failure()
             return state.finish(model, effort)
         finally:
             writer.cancel()

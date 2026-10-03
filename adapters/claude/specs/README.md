@@ -81,6 +81,15 @@ quota conditions end the attempt as `interrupted`, with `condition` metadata,
 rather than `failed`; the UI explains the next action in both live and saved turns.
 Unknown failures still retain the generic failure contract.
 
+Error kinds, 0.15.0: every kind Claude Code reports maps to a harness code. The account
+variants (`oauth_org_not_allowed`, `account_on_hold`, `verification_required`,
+`cloud_credential_error`) end as `claude_authentication_failed`; `billing_error` as
+`provider_quota_exhausted`; `overloaded` as `provider_rate_limit`; `server_error` as
+`provider_unavailable` (all `interrupted` with a `condition`); `model_not_found` (a retired
+or unentitled model id) as the failed run `model_or_effort_unavailable`. For these known kinds
+only, the failed result's text travels as `error_detail`: one line, redacted, at most 300
+characters. Any other kind stays `claude_execution_failed` and its text is never shown.
+
 The administration dashboard and provider editor expose account login/renewal.
 An explicit successful Claude browser login persists a non-secret
 `claude-cli-login` preference in the control state directory and updates the
@@ -102,6 +111,15 @@ Claude Code 2.1.236 was checked on this host with non-inference control requests
 ## Live throughput (2026-09-21)
 
 The shared native/scoped stream parser now emits live usage metrics from message_start and message_delta counts, retaining the latest cumulative output count per message. Source: [official streaming contract](https://platform.claude.com/docs/en/build-with-claude/streaming). Claude Code 2.1.258 was checked locally. Offline fixtures cover multiple messages, duplicate counts and invalid metrics; no live model inference was run.
+
+Context meter (0.15.0): `usage.input_tokens` leaves out cache reads and writes, so a one-line turn
+reported "2 input tokens" for a prompt of about 57k. Each main-thread `message_start` now emits
+`context_usage` with `last.totalTokens = input + cache_read + cache_creation` of that call (never
+a sum over calls; subagent calls are ignored), and the final result keeps the last one. The
+model's context window is not known to the adapter, so the meter shows tokens without a
+percentage. The turn's `metrics.input_tokens` is now the whole prompt across the turn's calls,
+cache included (as Codex counts it), with `cached_tokens` and `cache_creation_tokens` kept
+separately and `usage_scope: "turn"`.
 
 The displayed rate is output tokens divided by elapsed execution time, including tool waits; it is not decoder-only speed. Missing provider counts remain unavailable and are never estimated from text length. Final results remain authoritative when reopening a conversation.
 

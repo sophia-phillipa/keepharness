@@ -105,10 +105,27 @@ def migrate_legacy_folder(config: dict) -> None:
         logger.warning("Moved %s to %s after the KeepHarness rename", legacy, current)
 
 
-def upgrade_selection(ref: object) -> object:
-    """A stored selection with the resource id this version uses."""
-    if isinstance(ref, dict) and str(ref.get("id", "")).startswith(LEGACY_RESOURCE_PREFIX):
-        return {**ref, "id": RESOURCE_PREFIX + ref["id"].removeprefix(LEGACY_RESOURCE_PREFIX)}
+def upgrade_selection(ref: object, config: dict) -> object:
+    """A stored selection with the resource id and revision this version uses.
+
+    The revision is a hash of the agent's file, so any edit changes it. A persona that carries
+    over to the next turn follows the edit instead of failing with ``resource_changed``; a
+    deleted or unreadable agent keeps the old revision and ends as ``resource_unavailable``.
+    """
+    if not isinstance(ref, dict):
+        return ref
+    resource_id = str(ref.get("id", ""))
+    if resource_id.startswith(LEGACY_RESOURCE_PREFIX):
+        resource_id = RESOURCE_PREFIX + resource_id.removeprefix(LEGACY_RESOURCE_PREFIX)
+        ref = {**ref, "id": resource_id}
+    agent_id = resource_id.removeprefix(RESOURCE_PREFIX)
+    if resource_id.startswith(RESOURCE_PREFIX) and AGENT_ID.fullmatch(agent_id):
+        try:
+            text = repository(config).read(agent_id)
+        except (APIError, OSError):
+            return ref
+        if text is not None:
+            ref = {**ref, "revision": revision_of(text)}
     return ref
 
 

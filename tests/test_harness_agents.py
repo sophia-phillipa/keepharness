@@ -874,22 +874,44 @@ def test_the_old_agents_folder_is_never_merged_into_the_new_one(config, folder):
     assert [entry.name for entry in folder.iterdir()] == ["code-reviewer.json"]
 
 
-def test_editing_the_agent_between_turns_is_reported_not_silently_applied(service, config):
+def completed_persona_turn(service, config):
+    """A finished first turn with the agent, and the agent's chip as the client saw it."""
     created = harness_agents.create_agent(config, agent())
-    identity = ("a", config["clients"]["a"])
-    item = next(
-        item
-        for item in service.resource_catalog(identity, "p", "codex", "gpt-6-astra")["items"]
-        if item["scope"] == "harness"
-    )
+    item = harness_item(config)
     first, _ = submit(service, prompt="@@code-reviewer hi", resource_selections=[selection(item)])
     service.db.execute("UPDATE jobs SET state='completed' WHERE id=?", (first["job_id"],))
     service.db.commit()
+    return created, item, first["job_id"]
+
+
+def test_editing_the_agent_between_turns_keeps_its_conversation_going(service, config):
+    created, _, first = completed_persona_turn(service, config)
+    edited = harness_agents.replace_agent(
+        config, "code-reviewer", {**agent(purpose="Edited"), "revision": created["revision"]}
+    )
+    identity = ("a", config["clients"]["a"])
+    second, _ = submit(service, parent_job_id=first, prompt="continue")
+    payload = json.loads(service.job(identity, second["job_id"])["payload"])
+    # The carried-over persona follows the edit; it does not fail with resource_changed.
+    assert payload["resource_selections"][0]["revision"] == edited["revision"]
+    prompt = resources.prepare_prompt(payload["prompt"], service.selected_resources(payload))
+    assert "Purpose: Edited" in prompt
+
+
+def test_a_stale_revision_the_client_sends_itself_is_still_refused(service, config):
+    created, stale_item, _ = completed_persona_turn(service, config)
     harness_agents.replace_agent(
         config, "code-reviewer", {**agent(purpose="Edited"), "revision": created["revision"]}
     )
     with pytest.raises(APIError, match="resource_changed"):
-        submit(service, parent_job_id=first["job_id"], prompt="continue")
+        submit(service, prompt="@@code-reviewer again", resource_selections=[selection(stale_item)])
+
+
+def test_a_deleted_agent_still_ends_its_conversation_with_a_clear_error(service, config):
+    created, _, first = completed_persona_turn(service, config)
+    harness_agents.delete_agent(config, "code-reviewer", {"revision": created["revision"]})
+    with pytest.raises(APIError, match="resource_unavailable"):
+        submit(service, parent_job_id=first, prompt="continue")
 
 
 def test_harness_agents_skip_the_read_gate_but_file_resources_do_not(service, config):
@@ -949,3 +971,39 @@ def test_a_malformed_selection_still_needs_the_read_permission(service, config):
     for selections in ("abc", [5]):
         with pytest.raises(APIError, match="resource_read_denied"):
             submit(service, prompt="hello", resource_selections=selections)
+
+
+# --------------------------------------------------------------------------- release notice
+
+
+def prepared_prompt(service, identity, job_id):
+    import asyncio
+
+    row = dict(service.job(identity, job_id))
+    return asyncio.run(service._prepare_inference(row, json.loads(row["payload"]))).prompt
+
+
+def test_the_first_turn_after_releasing_an_agent_tells_the_model_it_is_over(service, config):
+    # A native provider session keeps the persona text for good; the harness must say so.
+    _, _, first = completed_persona_turn(service, config)
+    identity = ("a", config["clients"]["a"])
+    released, _ = submit(service, parent_job_id=first, prompt="plain chat", release_persona=True)
+    prompt = prepared_prompt(service, identity, released["job_id"])
+    assert (
+        'The conversational agent "code-reviewer" was released; answer normally from now on.\n'
+        "plain chat"
+    ) in prompt
+    assert harness_item(config)["_body"] not in prompt
+    service.db.execute("UPDATE jobs SET state='completed' WHERE id=?", (released["job_id"],))
+    service.db.commit()
+    later, _ = submit(service, parent_job_id=released["job_id"], prompt="and then?")
+    assert "was released" not in prepared_prompt(service, identity, later["job_id"])
+
+
+def test_releasing_when_no_agent_was_active_adds_no_notice(service, config):
+    identity = ("a", config["clients"]["a"])
+    plain, _ = submit(service, prompt="hello")
+    service.db.execute("UPDATE jobs SET state='completed' WHERE id=?", (plain["job_id"],))
+    service.db.commit()
+    again, _ = submit(service, parent_job_id=plain["job_id"], prompt="more", release_persona=True)
+    assert "was released" not in prepared_prompt(service, identity, again["job_id"])

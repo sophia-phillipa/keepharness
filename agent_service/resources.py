@@ -7,7 +7,7 @@ import re
 import shlex
 import tomllib
 from itertools import islice
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from .invocations import Invocation, InvocationError
 
@@ -784,6 +784,23 @@ def resolve(config, data):
     if reserved - {value["_token"] for value in result}:
         raise ResourceError("harness_resources_unavailable")
     return result
+
+
+def release_notice(previous):
+    """The line telling the model that the previous turn's agent was released, or ``""``.
+
+    A native provider session keeps the persona text for good, so releasing the agent in the
+    harness alone would leave the model playing it.
+    """
+    persona = previous.get("invocations", [])
+    if len(persona) != 1 or persona[0].get("mode") != "conversational":
+        return ""
+    name = PurePosixPath(persona[0]["resource_id"]).stem
+    return (
+        "The conversational agent "
+        + json.dumps(name)
+        + " was released; answer normally from now on.\n"
+    )
 
 
 def prepare_prompt(prompt, items, selections=None):

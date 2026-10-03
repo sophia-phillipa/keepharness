@@ -58,6 +58,11 @@ def child_environment(environment=None, *, provider=None):
     return clean
 
 
+def provider_message(text, limit=300):
+    """A provider's own words for a failure: one line, redacted and bounded, safe to show."""
+    return redact(" ".join(str(text).split()))[:limit]
+
+
 def _timeout(value, default):
     if type(value) not in (int, float) or not math.isfinite(value) or value <= 0:
         return default

@@ -101,6 +101,8 @@ class InferencePlan:
     attachment_notice: str
     selected_resources: object
     catalog_runtime: dict | None = None
+    # A retry after the provider lost its session: the turn's hooks and notices already ran.
+    replay: bool = False
 
 
 def preview_metadata(file_id, pages):
@@ -990,7 +992,7 @@ class ConversationService:
                 persona = previous.get("invocations", [])
                 if len(persona) == 1 and persona[0]["mode"] == "conversational":
                     data["resource_selections"] = [
-                        harness_agents.upgrade_selection(ref)
+                        harness_agents.upgrade_selection(ref, self.config)
                         for ref in previous.get("resource_selections", [])
                     ]
                     if data["resource_selections"]:
@@ -1612,6 +1614,7 @@ class ConversationService:
                     # The provider lost its session (its folder moved): the adapter set it
                     # aside, so the new plan replays the history as after a provider switch.
                     plan = await self._prepare_inference(row, data)
+                    plan.replay = True
                     result = await self._run_inference(plan)
                 if attribution:
                     self.event(
@@ -1758,6 +1761,8 @@ class ConversationService:
                 for item in selected_resources
             ]
         prompt = resources.prepare_prompt(data.get("prompt", ""), selected_resources)
+        if data.get("release_persona") and turns:
+            prompt = resources.release_notice(turns[-1][0]) + prompt
         if attachment_notice:
             prompt += (
                 "\nSYSTEM NOTICE: the frames and images mentioned below were not provided to the model; do not claim to have seen their content.\n"
@@ -1920,7 +1925,8 @@ class ConversationService:
         self.vault.remember(environment.values())
         if environment and (plan.execution_mode != "native" or plan.backend == "local"):
             raise APIError("integration_environment_unsupported")
-        if runtime["catalogs"]:
+        replay = getattr(plan, "replay", False)
+        if runtime["catalogs"] and not replay:
             self.event(
                 plan.row["id"],
                 "catalog_snapshot",
@@ -1967,11 +1973,12 @@ class ConversationService:
             grants = approval_policy.effective_permissions(
                 grants, plan.data.get("access_mode", "ask")
             )
-            await run_hooks(
-                runtime,
-                grants.get("hooks") is True,
-                lambda kind, value: self.event(plan.row["id"], kind, value),
-            )
+            if not replay:  # hooks are user scripts: a turn runs them once
+                await run_hooks(
+                    runtime,
+                    grants.get("hooks") is True,
+                    lambda kind, value: self.event(plan.row["id"], kind, value),
+                )
             async with effect_transport(
                 self,
                 plan.row["id"],
@@ -2055,7 +2062,7 @@ class ConversationService:
                 )
                 live["at"] = time.monotonic()
 
-        if attachment_notice:
+        if attachment_notice and not plan.replay:  # already streamed by the first attempt
             progress("answer_delta", {"text": attachment_notice})
         project_config, backend_config, permissions = self._project_config(plan)
         if execution_mode == "scoped":
