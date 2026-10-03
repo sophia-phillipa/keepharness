@@ -214,9 +214,14 @@ const assert = require("node:assert/strict");
         .locator("#prompt")
         .evaluate((el) => el.matches(":placeholder-shown")),
     );
+    // The placeholder is short enough to fit (WP-05); the key hints stay in the field's description.
     assert.match(
       await page.locator("#prompt").getAttribute("placeholder"),
-      /Send a message.*Enter to send.*Shift\+Enter for a new line/,
+      /Send a message.*\/ for agents and skills/,
+    );
+    assert.match(
+      await page.locator("#composer-help").textContent(),
+      /Enter to send.*Shift\+Enter for a new line/,
     );
     await page.locator("#prompt").fill("Text");
     assert.equal(
