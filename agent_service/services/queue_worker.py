@@ -29,6 +29,7 @@ PROVIDER_CONDITIONS = frozenset(
         "provider_authentication_failed",
         "provider_quota_exhausted",
         "provider_rate_limit",
+        "provider_unavailable",
     }
 )
 # Older Claude adapter codes, still accepted as aliases.
@@ -44,7 +45,11 @@ CONDITION_PATTERNS = (
     ("provider_rate_limit", re.compile(r"\b429\b|rate.?limit|too many requests", re.I)),
     (
         "provider_authentication_required",
-        re.compile(r"\b401\b|unauthori[sz]ed|not logged in|log ?in again|access token", re.I),
+        re.compile(
+            r"\b401\b|unauthori[sz]ed|not logged in|log ?in again|access token"
+            r"|authentication required",
+            re.I,
+        ),
     ),
 )
 CONDITION_ANSWERS = {
@@ -52,6 +57,7 @@ CONDITION_ANSWERS = {
     "provider_authentication_failed": "Renew access to {} in the admin panel.",
     "provider_quota_exhausted": "Wait for the {} quota to renew, or select another provider.",
     "provider_rate_limit": "{} is limiting requests. Wait a moment, or select another provider.",
+    "provider_unavailable": "{} is unavailable. Wait a moment, or select another provider.",
 }
 PROVIDER_NAMES = {"codex": "Codex", "claude": "Claude", "gemini": "Gemini", "deepseek": "DeepSeek"}
 # F-114: a failed/interrupted/cancelled run keeps the answer text already streamed to
