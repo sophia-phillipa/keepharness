@@ -9,6 +9,8 @@ graphify-out/
 state/
 dist/
 build/
+# desktop/build holds the committed brand assets (icons, splash), not build output.
+!/desktop/build/
 *.egg-info/
 .pytest_cache/
 reports/
