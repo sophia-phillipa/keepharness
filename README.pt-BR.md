@@ -37,10 +37,17 @@ Ao final, o painel administrativo fica em **http://127.0.0.1:8094/** e as conver
 Os scripts instalam o app, mas não inspecionam nem configuram seus provedores; isso é feito depois no painel administrativo.
 
 ```sh
-./install.sh               # Linux/systemd: venv em ~/.local/share/keepharness/venv, serviço do usuário e atalho
-./install.sh --check-only  # verifica o pacote instalado sem registrar o serviço
-./setup.sh && ./start.sh   # ou: .venv no checkout e painel administrativo em primeiro plano
+./install.sh                # Linux/systemd: gera um wheel, instala em ~/.local/share/keepharness/venv, serviço do usuário e atalho
+./install.sh --check-only   # as mesmas verificações e uma instalação de teste em pasta temporária; não altera mais nada
+./install.sh --dev          # instalação editável: o serviço executa o código deste checkout
+./setup.sh && ./start.sh    # ou: .venv no checkout e painel administrativo em primeiro plano
 ```
+
+O `install.sh` primeiro verifica se está no host, se nenhum outro programa ocupa a porta do painel (padrão 8094) e se o estado do Tail Harness pode ser movido; depois instala o pacote num ambiente temporário e faz um teste rápido. Só então para o Tail Harness, move o estado uma única vez e registra o serviço; ele só informa sucesso quando o próprio processo do serviço responde na porta. Se um passo posterior falhar, ele diz como tentar de novo ou voltar.
+
+- **Hosts Fedora Atomic (Bazzite, Silverblue) com distrobox ou toolbox:** rode `./install.sh` num terminal do host. Dentro de um contêiner ele recusa, porque o systemd do host não consegue executar um ambiente criado com o Python do contêiner; de dentro do contêiner, `distrobox-host-exec ./install.sh` o executa no host. O serviço recebe o PATH do shell que rodou o instalador, então encontra as mesmas CLIs (por exemplo em `~/.local/bin` ou no Homebrew).
+- **Atualizando do Tail Harness 0.14:** só o `install.sh` move `~/.local/share/tail-harness` para `~/.local/share/keepharness`; iniciar o KeepHarness nunca o move. Se uma pré-versão anterior deixou dados nas duas pastas, `./install.sh --merge-legacy` mostra um plano de fusão e `./install.sh --merge-legacy --apply` faz backup das duas pastas e as funde em `~/.local/share/tail-harness`, recusando quando uma conversa tem arquivos nas duas.
+- **Voltando ao Tail Harness 0.14:** `./install.sh --rollback-to-0.14` remove o serviço, o atalho e a entrada de menu do KeepHarness, devolve o estado e registra a reversão em `~/.local/share/tail-harness.rolled-back`; nada volta a ser movido para o KeepHarness até você apagar esse arquivo e rodar `./install.sh`.
 
 Modelos locais também precisam de um runtime llama.cpp ou do Ollama — veja [Modelos locais](docs/LOCAL-INSTALL.md).
 
@@ -209,7 +216,7 @@ flowchart TD
 
 ## 💾 Persistence and portable configuration
 
-Instalar a partir do checkout usa um vínculo editável: o serviço executa o código desta pasta diretamente, sem uma segunda cópia em site-packages. Mantenha o checkout neste caminho e reinicie o serviço após alterações de código Python. Wheels continuam sendo distribuições independentes e precisam de atualização explícita.
+O `install.sh` instala um wheel gerado a partir dos arquivos versionados do checkout, então o serviço continua funcionando quando o checkout é movido ou troca de branch; rode `./install.sh` de novo para atualizá-lo. Com `--dev` ele instala um vínculo editável (registrado no arquivo da unit): o serviço passa a executar o código desta pasta diretamente, então mantenha o checkout neste caminho e reinicie o serviço após alterações de código Python.
 
 O estado de produção usa por padrão `~/.local/share/keepharness`: configurações, perfis de modelo, conversas e anexos. Prévias temporárias usando `/tmp` não substituem o estado de produção. Exporte e importe configurações pelo dashboard ao mudar de instalação; migrar apenas o código ou o banco não migra todas as permissões.
 

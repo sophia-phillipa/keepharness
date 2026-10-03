@@ -3,6 +3,7 @@ import errno
 import fcntl
 import json
 import logging
+import os
 import socket
 import subprocess
 import sys
@@ -164,7 +165,7 @@ def test_keepharness_opens_a_tail_harness_marker_without_rewriting_it(tmp_path):
     assert sorted(entry.name for entry in tmp_path.iterdir()) == ["harness.identity.json"]
 
 
-def test_only_the_server_start_moves_the_default_state(tmp_path, monkeypatch):
+def test_only_install_sh_moves_the_default_state(tmp_path, monkeypatch):
     import uvicorn
 
     from agent_service import log_config
@@ -188,6 +189,15 @@ def test_only_the_server_start_moves_the_default_state(tmp_path, monkeypatch):
     monkeypatch.setattr(log_config, "configure_logging", lambda: None)
     monkeypatch.setattr(server, "create_app", lambda state, port: (state, port))
     monkeypatch.setattr(uvicorn, "run", lambda app, **_: started.append(app))
+    # A server start (boot, login, the desktop client) never moves it: it names install.sh.
+    with pytest.raises(SystemExit) as refused:
+        cli.main(["--port", "18999"])
+    assert "./install.sh" in str(refused.value.code) and str(old) in str(refused.value.code)
+    assert started == [] and old.is_dir() and not PRODUCT.state_path(tmp_path).exists()
+    monkeypatch.setattr(sys, "argv", ["product.py", "--migrate-state"])
+    with pytest.raises(SystemExit) as moved:
+        product.main()  # what install.sh runs, after its preflight
+    assert moved.value.code is None
     cli.main(["--port", "18999"])
     assert not old.exists() and (PRODUCT.state_path(tmp_path) / "runs").is_dir()
     assert started == [(str(PRODUCT.state_path(tmp_path)), 18999)]
@@ -265,6 +275,31 @@ def test_migration_waits_while_an_old_port_answers(tmp_path, key):
     assert f"127.0.0.1:{port} still answers" in refused and "./install.sh" in refused
 
 
+def test_the_in_use_check_also_runs_when_both_folders_exist(tmp_path):
+    old = legacy_state(tmp_path)
+    new = PRODUCT.state_path(tmp_path)
+    (new / "runs").mkdir(parents=True)
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        port = listener.getsockname()[1]
+        runtime = json.loads((old / "runtime.json").read_text())
+        (old / "runtime.json").write_text(json.dumps({**runtime, "port": port}))
+        refused = migrate_legacy_state(tmp_path)
+    # Installing now would report success while the old instance keeps the user.
+    assert f"127.0.0.1:{port} still answers" in refused and "./install.sh" in refused
+    assert f"pid {os.getpid()}" in refused  # who holds it, not only that something does
+    assert (old / "settings.json").exists() and list(new.iterdir()) == [new / "runs"]
+
+
+def test_the_both_folders_warning_points_to_the_merge(tmp_path, caplog):
+    legacy_state(tmp_path)
+    PRODUCT.state_path(tmp_path).mkdir(parents=True)
+    with caplog.at_level(logging.WARNING, logger="control.product"):
+        migrate_legacy_state(tmp_path)
+    assert "./install.sh --merge-legacy" in caplog.text
+
+
 def test_migration_waits_while_this_program_runs_from_the_old_folder(tmp_path, monkeypatch):
     old = legacy_state(tmp_path)
     monkeypatch.setattr(sys, "prefix", str(old / "venv"))
@@ -297,19 +332,6 @@ def test_a_second_migration_waits_for_the_first(tmp_path):
     assert not waiting.is_alive() and not old.exists()
     assert (PRODUCT.state_path(tmp_path) / "settings.json").exists()
     assert not lock.exists()  # nothing is left to move: the lock file goes too
-
-
-def test_install_check_refuses_while_tail_harness_state_waits_to_move(tmp_path, monkeypatch):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setattr(sys, "argv", ["product.py", "--check-migrated"])
-    with pytest.raises(SystemExit) as passed:
-        product.main()  # nothing to move
-    assert passed.value.code is None
-    old = legacy_state(tmp_path)
-    with pytest.raises(SystemExit) as refused:
-        product.main()
-    assert str(old) in str(refused.value.code) and "./install.sh" in str(refused.value.code)
-    assert old.is_dir() and not PRODUCT.state_path(tmp_path).exists()
 
 
 def client_bridge(home, extra=None):
@@ -387,3 +409,37 @@ def test_the_generated_installer_keeps_the_bridge_out_of_the_state_folder(tmp_pa
     product.generate(tmp_path, fork)
     assert "TH_PRODUCT_BRIDGE=.local/share/synthetic-harness-mcp\n" in script.read_text()
     assert "TH_PRODUCT_STATE" not in script.read_text()
+
+
+def test_generating_unchanged_assets_writes_nothing(tmp_path):
+    """A read-only checkout still builds: the build backend regenerates only what differs."""
+    root = Path(product.__file__).resolve().parents[1]
+    names = ("pyproject.toml", "agent_service/mcp_bridge.py", "agent_service/index.html", "agent_service/ui.js", "agent_service/tour.js", "agent_service/setup-mcp.sh", "control/index.html", "control/admin.js", "harness_ui/assets/theme.js")
+    for relative in names:
+        (tmp_path / relative).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / relative).write_text((root / relative).read_text())
+        (tmp_path / relative).chmod(0o444)
+    product.generate(tmp_path, PRODUCT)
+    for relative in names:
+        assert (tmp_path / relative).read_text() == (root / relative).read_text()
+
+
+def test_the_admin_refuses_a_held_port_before_any_startup_work(tmp_path, monkeypatch):
+    import uvicorn
+
+    from agent_service import log_config
+    from control import cli, server
+
+    created, started = [], []
+    monkeypatch.setattr(log_config, "configure_logging", lambda: None)
+    monkeypatch.setattr(server, "create_app", lambda state, port: created.append(state))
+    monkeypatch.setattr(uvicorn, "run", lambda app, **_: started.append(app))
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        port = listener.getsockname()[1]
+        with pytest.raises(SystemExit) as refused:
+            cli.main(["--port", str(port), "--state", str(tmp_path / "state")])
+    assert f"127.0.0.1:{port}" in str(refused.value.code)
+    assert f"pid {os.getpid()}" in str(refused.value.code)
+    assert created == [] and started == [] and not (tmp_path / "state").exists()
