@@ -140,7 +140,7 @@ const assert = require("node:assert/strict");
     await p.locator("#inspector-tabs").getByText("Model and hardware").click();
     assert.match(
       await p.locator("#project-list").innerText(),
-      /Tail Harness sidebar/,
+      /KeepHarness sidebar/,
     );
     await p.click("#model-roots-add");
     await p
@@ -164,7 +164,7 @@ const assert = require("node:assert/strict");
         .querySelector("#folder-picker-breadcrumb")
         .textContent.includes("My project"),
     );
-    await p.screenshot({ path: "/tmp/tail-folder-picker-mobile.png" });
+    await p.screenshot({ path: "/tmp/keepharness-folder-picker-mobile.png" });
     await p.click("#folder-picker-use");
     assert.match(
       await p.locator("#model-roots-list").innerText(),

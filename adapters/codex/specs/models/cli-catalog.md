@@ -1,6 +1,6 @@
 # Codex CLI dynamic catalog
 
-**Responsible agent:** `integrate-codex_tail-harness_engineer`.
+**Responsible agent:** `integrate-codex_keepharness_engineer`.
 
 The only effective Codex model catalog is the authenticated result of `model/list`, read by `control/server.py`. Each returned model ID is paired with `supportedReasoningEfforts`; when that list is empty, the harness currently exposes `low` as its fallback. The project must still explicitly enable the model and its efforts for each project.
 

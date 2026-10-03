@@ -15,7 +15,7 @@ const path = require("node:path");
         pathname = url.pathname;
       if (!pathname.startsWith("/v1/"))
         return route.fulfill({
-          path: path.join(__dirname, "..", pathname.startsWith("/assets/") ? "tail_ui" : "agent_service", pathname === "/" ? "index.html" : pathname),
+          path: path.join(__dirname, "..", pathname.startsWith("/assets/") ? "harness_ui" : "agent_service", pathname === "/" ? "index.html" : pathname),
         });
       let data = {};
       if (pathname === "/v1/projects") data = { projects: ["sem-projeto", "alpha"], details: { alpha: { label: "Alpha" } } };
@@ -45,7 +45,7 @@ const path = require("node:path");
       }
       return route.fulfill({ json: data });
     });
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.14.0"));
+    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
     await page.goto("http://plugins.test/");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
 

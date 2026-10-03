@@ -99,7 +99,7 @@ def test_control_state_keeps_secrets_out_and_files_private(tmp_path, open_umask)
 def test_harness_starts_with_the_prefixed_config_variable(tmp_path, open_umask):
     spawn = start_without_process(tmp_path / "state")
     env = spawn.call_args.kwargs["env"]
-    assert env["TAIL_HARNESS_AGENT_CONFIG"] == str(tmp_path / "state" / "runtime.json")
+    assert env["KEEPHARNESS_AGENT_CONFIG"] == str(tmp_path / "state" / "runtime.json")
     assert env.get("LOCAL_AGENT_CONFIG") == os.environ.get("LOCAL_AGENT_CONFIG")
 
 
@@ -135,7 +135,7 @@ def test_harness_request_logs_and_database_are_private(tmp_path, open_umask):
 
 def test_existing_world_readable_state_directory_is_made_private(tmp_path, open_umask):
     # A venv created inside the state folder leaves it 0755 before the admin first runs.
-    state = tmp_path / "tail-harness"
+    state = tmp_path / "keepharness"
     state.mkdir(mode=0o755)
     state.chmod(0o755)
     Manager(state)

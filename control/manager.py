@@ -402,7 +402,7 @@ class Manager:
                 or any(not isinstance(x, str) or not re.fullmatch(model_pattern, x) for x in models)
             ):
                 raise ValueError("Invalid model list.")
-            # Same rule as TailUI.selectableModel, which hides other ids from both UIs;
+            # Same rule as HarnessUI.selectableModel, which hides other ids from both UIs;
             # ids stored by an older version stay accepted so saving never locks up.
             stored = self.settings["services"].get(provider, {}).get("models", [])
             hidden = [

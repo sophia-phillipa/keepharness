@@ -1,5 +1,5 @@
 (()=>{
- const theme=window.TailTheme;
+ const theme=window.HarnessTheme;
  function icon(name){const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.classList.add('th-icon');svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('focusable','false');svg.setAttribute('aria-hidden','true');const use=document.createElementNS(svg.namespaceURI,'use');use.setAttribute('href','/assets/icons.svg#'+name);svg.append(use);return svg;}
  function decorate(container=document){
   container.querySelectorAll('button.button').forEach(b=>{b.classList.add('btn');b.classList.toggle('btn-primary',b.classList.contains('primary'));});
@@ -25,6 +25,6 @@
  }
  // Picker policy only: keep legacy execution IDs intact for existing sessions.
  function selectableModel(provider,id){return provider!=='claude'||/^claude-[a-z]+-\d{1,3}(?:-\d{1,3})?$/.test(id);}
- window.TailUI={icon,decorate,notice,toast,mountThemes,selectableModel};
+ window.HarnessUI={icon,decorate,notice,toast,mountThemes,selectableModel};
  document.addEventListener('DOMContentLoaded',()=>{decorate();document.querySelectorAll('[data-theme-picker]').forEach(mountThemes);});
 })();

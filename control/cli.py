@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from .discovery import scan
-from .product import PRODUCT, ensure_lineage
+from .product import PRODUCT, ensure_lineage, migrate_legacy_state
 
 
 def main(argv=None):
@@ -33,6 +33,8 @@ def main(argv=None):
     )
     args = parser.parse_args(argv)
     os.umask(0o077)
+    if args.state == parser.get_default("state"):
+        migrate_legacy_state()
     if not 1024 <= args.port <= 65535:
         parser.error("Port must be between 1024 and 65535")
     if args.command == "approve-device":

@@ -1,6 +1,6 @@
 # DeepSeek adapter specification
 
-Responsible agent: `integrate-deepseek_tail-harness_engineer`. Adapter spec revision: **1**.
+Responsible agent: `integrate-deepseek_keepharness_engineer`. Adapter spec revision: **1**.
 Harness baseline: **0.4.4 working-tree**. Reviewed: **2026-09-19**.
 Executor observed: **codex-cli 0.155.0-alpha.9.2**. Remote API: rolling, unversioned `/responses`.
 Machine-readable correlation: [compatibility.json](compatibility.json).

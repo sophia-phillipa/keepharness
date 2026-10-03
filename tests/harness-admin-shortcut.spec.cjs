@@ -13,7 +13,7 @@ const assert = require("node:assert/strict");
           path: require("node:path").join(
             __dirname,
             "..",
-            pathname.startsWith("/assets/") ? "tail_ui" : "agent_service",
+            pathname.startsWith("/assets/") ? "harness_ui" : "agent_service",
             pathname === "/" ? "index.html" : pathname,
           ),
         });
@@ -59,7 +59,7 @@ const assert = require("node:assert/strict");
                 : {};
       return route.fulfill({ json: data });
     });
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.14.0"));
+    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
     await page.goto(process.env.HARNESS_URL || "http://panel.test/");
     await page.locator("#startup-gate").waitFor({ state: "visible" });
     assert.equal(
@@ -76,7 +76,7 @@ const assert = require("node:assert/strict");
       await page.locator("#app-topbar > :first-child").getAttribute("id"),
       "app-brand",
     );
-    assert.equal(await page.locator("#app-brand").innerText(), "Tail Harness");
+    assert.equal(await page.locator("#app-brand").innerText(), "KeepHarness");
     assert.equal(await page.locator("#sidebar .brand").count(), 0);
     assert.equal(await page.locator("#admin-shortcut-top").isVisible(), true);
     assert.equal(

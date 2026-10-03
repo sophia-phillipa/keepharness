@@ -230,7 +230,7 @@ async function openHarness(page, over = {}) {
 
 // Opens each harness surface a low-vision user reads and scans it.
 async function scanHarness(page, theme) {
-  await page.evaluate((t) => TailTheme.apply(t, false), theme);
+  await page.evaluate((t) => HarnessTheme.apply(t, false), theme);
   const found = [];
   const scan = async (where) =>
     found.push(
@@ -269,7 +269,7 @@ async function scanHarness(page, theme) {
 }
 
 async function scanAdmin(page, theme) {
-  await page.evaluate((t) => TailTheme.apply(t, false), theme);
+  await page.evaluate((t) => HarnessTheme.apply(t, false), theme);
   const found = [];
   const scan = async (where) =>
     found.push(
@@ -471,8 +471,8 @@ runPersona("H36", [
         "dark",
       );
       assert.equal(
-        await page.evaluate(() => TailTheme.key),
-        "tail-harness:theme:admin",
+        await page.evaluate(() => HarnessTheme.key),
+        "keepharness:theme:admin",
       );
 
       // A second admin tab follows the change live (storage event).
@@ -504,11 +504,11 @@ runPersona("H36", [
         "paper",
       );
       assert.equal(
-        await harness.evaluate(() => TailTheme.key),
-        "tail-harness:theme:harness",
+        await harness.evaluate(() => HarnessTheme.key),
+        "keepharness:theme:harness",
       );
       await page.evaluate(() =>
-        localStorage.setItem("tail-harness:theme:harness", "porcelain"),
+        localStorage.setItem("keepharness:theme:harness", "porcelain"),
       );
       await page.reload();
       assert.equal(

@@ -34,7 +34,7 @@ async function context(browser, options = {}) {
 async function actualContext(browser) {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 860 } });
   const page = await ctx.newPage();
-  await page.addInitScript(() => localStorage.removeItem("tail-harness-tour-seen"));
+  await page.addInitScript(() => localStorage.removeItem("keepharness-tour-seen"));
   await page.route("http://actual-tour.test/**", async route => {
     const pathname = new URL(route.request().url()).pathname;
     if (pathname.startsWith("/v1/")) {
@@ -47,7 +47,7 @@ async function actualContext(browser) {
             : pathname === "/v1/conversations"
               ? { conversations: [] }
               : pathname === "/v1/version"
-                ? { version: "0.14.0", build: "fixture" }
+                ? { version: "0.15.0", build: "fixture" }
                 : pathname === "/v1/resources"
                   ? { items: [], warnings: [] }
                   : pathname === "/v1/usage"
@@ -60,7 +60,7 @@ async function actualContext(browser) {
       return route.fulfill({ json: data });
     }
     const name = pathname === "/" ? "index.html" : pathname.slice(1);
-    const base = name.startsWith("assets/") ? path.join(__dirname, "../tail_ui/assets") : root;
+    const base = name.startsWith("assets/") ? path.join(__dirname, "../harness_ui/assets") : root;
     const file = name.startsWith("assets/") ? name.slice("assets/".length) : name;
     return route.fulfill({
       body: await fs.readFile(path.join(base, file)),
@@ -118,7 +118,7 @@ async function actualContext(browser) {
 
     await first.page.keyboard.press("Escape");
     assert.equal(await first.page.locator("#tour-card").count(), 0);
-    assert.equal(await first.page.evaluate(() => localStorage.getItem("tail-harness-tour-seen")), "0.14.0");
+    assert.equal(await first.page.evaluate(() => localStorage.getItem("keepharness-tour-seen")), "0.15.0");
     await first.page.reload();
     await first.page.evaluate(() => { document.body.dataset.connectionReady = "true"; });
     await first.page.waitForTimeout(150);
@@ -145,7 +145,7 @@ async function actualContext(browser) {
     await actual.page.locator("#tour-card").waitFor();
     for (const palette of ["violet-bordeaux", "porcelain", "mineral-rose", "amethyst", "petroleum", "arizona"]) {
       const ratios = await actual.page.evaluate(theme => {
-        TailTheme.apply(theme, false);
+        HarnessTheme.apply(theme, false);
         const ratio = (foreground, background) => {
           const channel = value => {
             value /= 255;
@@ -208,16 +208,16 @@ async function actualContext(browser) {
     await readiness.page.evaluate(() => { document.body.dataset.connectionReady = "false"; });
     await readiness.page.waitForTimeout(0);
     assert.equal(await readiness.page.locator("#tour-card").count(), 0, "connection loss suspends an active tour");
-    assert.equal(await readiness.page.evaluate(() => localStorage.getItem("tail-harness-tour-seen")), null, "suspension does not mark the tour seen");
+    assert.equal(await readiness.page.evaluate(() => localStorage.getItem("keepharness-tour-seen")), null, "suspension does not mark the tour seen");
     await readiness.ctx.close();
 
     const missing = await context(browser);
-    await missing.page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.14.0"));
+    await missing.page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
     await missing.page.goto("http://tour.test/");
     await missing.page.evaluate(() => {
       document.querySelector('[data-tour="top-search"]').remove();
       document.body.dataset.connectionReady = "true";
-      window.tailHarnessTour.start();
+      window.keepHarnessTour.start();
     });
     await missing.page.locator("#tour-card").waitFor();
     assert.match(await missing.page.locator("#tour-title").innerText(), /quota/i, "missing targets are skipped");

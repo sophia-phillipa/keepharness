@@ -42,13 +42,13 @@ const path = require("node:path");
         path: path.join(
           __dirname,
           "..",
-          pathname.startsWith("/assets/") ? "tail_ui" : "agent_service",
+          pathname.startsWith("/assets/") ? "harness_ui" : "agent_service",
           pathname === "/" ? "index.html" : pathname,
         ),
       });
     };
     await page.route(harness + "/**", serveHarness);
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.14.0"));
+    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
     await page.goto(harness + "/");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
 
@@ -89,7 +89,7 @@ const path = require("node:path");
     const other = await browser.newPage();
     const localhost = harness.replace("127.0.0.1", "localhost");
     await other.route(localhost + "/**", serveHarness);
-    await other.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.14.0"));
+    await other.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
     await other.goto(localhost + "/");
     await other.locator("#startup-gate").waitFor({ state: "hidden" });
     assert.equal(await other.locator("#settings-system-nav").isHidden(), true);

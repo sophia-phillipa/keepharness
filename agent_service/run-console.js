@@ -58,7 +58,7 @@
   body.tabIndex = -1;
   for (const name of ['Pipeline', 'Timeline', 'Logs', 'Runs', 'Agents']) {
     const tab = button(name, () => setTab(name));
-    tab.prepend(TailUI.icon({Pipeline: 'plan', Timeline: 'trace', Logs: 'list', Runs: 'pulse', Agents: 'server'}[name]));
+    tab.prepend(HarnessUI.icon({Pipeline: 'plan', Timeline: 'trace', Logs: 'list', Runs: 'pulse', Agents: 'server'}[name]));
     tab.dataset.tab = name;
     tab.id = 'run-tab-' + name.toLowerCase();
     tab.setAttribute('aria-label', name);
@@ -77,7 +77,7 @@
   });
   const close = button('Collapse run console', () => toggle(false));
   close.classList.add('run-console-close');
-  close.prepend(TailUI.icon('chevron-down'));
+  close.prepend(HarnessUI.icon('chevron-down'));
   let consoleHeight = Math.max(340, innerHeight * .45), restoreHeight = consoleHeight, maximized = false, manuallyResized = false;
   try { const saved = Number(localStorage.getItem('run-console-height')); if (saved >= 190) consoleHeight = saved; } catch {}
   const maximize = button('Maximize', () => {
@@ -117,7 +117,7 @@
   shortcut.setAttribute('aria-hidden', 'true');
   const stripAction = button('Expand', () => toggle(drawer.hidden));
   stripAction.id = 'run-status-action';
-  stripAction.prepend(TailUI.icon('chevron-up'));
+  stripAction.prepend(HarnessUI.icon('chevron-up'));
   stripAction.setAttribute('aria-label', 'Toggle console from status strip');
   stripAction.setAttribute('aria-controls', drawer.id);
   stripAction.setAttribute('aria-expanded', 'false');
@@ -187,7 +187,7 @@
     drawer.hidden = !open;
     syncConsoleModal();
     toggleButton.setAttribute('aria-expanded', String(open));
-    stripAction.replaceChildren(TailUI.icon(open ? 'chevron-down' : 'chevron-up'), document.createTextNode(open ? 'Collapse' : 'Expand'));
+    stripAction.replaceChildren(HarnessUI.icon(open ? 'chevron-down' : 'chevron-up'), document.createTextNode(open ? 'Collapse' : 'Expand'));
     stripAction.setAttribute('aria-expanded', String(open));
     if (open) {
       setTab(state.tab);
@@ -349,7 +349,7 @@
       const pendingPlan = currentPlan();
       const current = state.activity.jobs.find(item => item.job_id === state.run);
       const highlight = pendingPlan ? 'Maestro plan awaiting approval' : current ? [current.work_item || current.title, current.state].filter(Boolean).join(' · ') : 'No active run';
-      toggleButton.replaceChildren(TailUI.icon('pulse'), document.createTextNode(`${counts.running || 0} running · ${counts.queued || 0} queued · ${counts.needs_you || 0} needs you · ${highlight}`));
+      toggleButton.replaceChildren(HarnessUI.icon('pulse'), document.createTextNode(`${counts.running || 0} running · ${counts.queued || 0} queued · ${counts.needs_you || 0} needs you · ${highlight}`));
       toggleButton.title = toggleButton.textContent + ' · Toggle run console (Ctrl/⌘+J)';
       inboxButton.textContent = `Needs you (${counts.needs_you || 0})`;
       const attentionCount = document.getElementById('attention-count');
@@ -543,7 +543,7 @@
       route.dataset.backend = backend;
       route.title = route.textContent;
       const heading = el('strong', span.name);
-      heading.prepend(TailUI.icon(span.kind === 'harness.gate' && span.end_ts == null ? 'shield' : {completed:'check', pending:'clock', running:'pulse', waiting_approval:'shield', blocked:'shield', failed:'x', cancelled:'x', interrupted:'x', skipped:'chevron-right'}[outcome(span)] || 'clock'));
+      heading.prepend(HarnessUI.icon(span.kind === 'harness.gate' && span.end_ts == null ? 'shield' : {completed:'check', pending:'clock', running:'pulse', waiting_approval:'shield', blocked:'shield', failed:'x', cancelled:'x', interrupted:'x', skipped:'chevron-right'}[outcome(span)] || 'clock'));
       row.append(heading, spanState, route, el('span', span.attrs?.effort || '', 'run-span-effort'), el('span', duration(span), 'run-span-duration'), el('span', tokenCount(span), 'run-span-tokens'));
       if (span.attrs?.enforcement) row.append(el('span', 'Publication: ' + span.attrs.enforcement, 'run-span-enforcement'));
       if (state.tab === 'Timeline') {
@@ -557,7 +557,7 @@
         track.append(bar); row.append(track);
       }
       const connector = el('span', null, 'run-span-connector');
-      connector.append(TailUI.icon('chevron-right'));
+      connector.append(HarnessUI.icon('chevron-right'));
       row.append(connector);
       list.append(row);
     }
@@ -1092,7 +1092,7 @@
     attachAnswer(target, id) {
       if (!id) return;
       const view = button('View run', async () => { syncContext(); toggle(true); setTab('Pipeline'); await chooseRun(id); });
-      view.prepend(TailUI.icon('trace'));
+      view.prepend(HarnessUI.icon('trace'));
       target.append(view);
     },
     observe(event) {
@@ -1108,8 +1108,8 @@
   };
   resize(consoleHeight, false);
   void refresh();
-  document.addEventListener('tail:ready', refresh);
-  document.addEventListener('tail:history', refresh);
+  document.addEventListener('harness:ready', refresh);
+  document.addEventListener('harness:history', refresh);
   setInterval(() => { if (!document.hidden) void refresh(); }, 4000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) void refresh(); });
 })();

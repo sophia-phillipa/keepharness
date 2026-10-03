@@ -26,7 +26,7 @@ const turn = (id, backend, model, prompt) => ({
           path: path.join(
             __dirname,
             "..",
-            pathname.startsWith("/assets/") ? "tail_ui" : "agent_service",
+            pathname.startsWith("/assets/") ? "harness_ui" : "agent_service",
             pathname === "/" ? "index.html" : pathname,
           ),
         });
@@ -65,7 +65,7 @@ const turn = (id, backend, model, prompt) => ({
       else if (/^\/v1\/jobs\/t[123]$/.test(pathname)) data = turns.find((t) => "/v1/jobs/" + t.id === pathname);
       return route.fulfill({ json: data });
     });
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.14.0"));
+    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
     await page.goto("http://route.test/");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     await page.locator("#history .conversation-row > button", { hasText: "Mixed models" }).click();

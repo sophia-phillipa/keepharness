@@ -48,7 +48,7 @@ async function fixture(browser,width=1280,kind='plan'){
  await check('A1-F1 status disclosure',async()=>{
   const f=await fixture(browser,400),p=f.page;await f.open();
   for(const theme of ['porcelain','amethyst','petroleum'])for(const pending of [true,false]){
-   f.state.plan=pending;await p.evaluate(theme=>{document.documentElement.dataset.theme=theme;document.dispatchEvent(new Event('tail:history'));},theme);
+   f.state.plan=pending;await p.evaluate(theme=>{document.documentElement.dataset.theme=theme;document.dispatchEvent(new Event('harness:history'));},theme);
    await p.waitForFunction(pending=>document.querySelector('#run-status-toggle').textContent.includes(pending?'awaiting approval':'Completed synthetic'),pending);
    const label=p.locator('#run-status-toggle');assert(await label.evaluate(n=>n.scrollWidth>n.clientWidth));assert(await hit(label));
    assert((await label.getAttribute('title')).includes(await label.innerText()));

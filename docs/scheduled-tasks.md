@@ -1,6 +1,6 @@
 # Scheduled tasks
 
-A scheduled task is a prompt that Tail Harness sends by itself, again and again, on a cadence:
+A scheduled task is a prompt that KeepHarness sends by itself, again and again, on a cadence:
 every day at 09:00, every Monday morning, every six hours. Each run is a new conversation
 that appears in the conversation list like any other, marked as started by the schedule.
 This is the backend of the Scheduled area; the UI is separate.
@@ -34,7 +34,7 @@ One JSON file per schedule:
   "owner": "local",
   "title": "Morning digest",
   "prompt": "Summarize yesterday's changes.",
-  "project_id": "tail-harness",
+  "project_id": "keepharness",
   "backend": "codex",
   "model": "gpt-6-astra",
   "effort": "low",
@@ -72,7 +72,7 @@ with a warning; it still counts toward the 50-schedule limit until removed by ha
 ### Route
 
 `backend` is one of `codex`, `claude`, `deepseek`, `gemini`, `local` (not `maestro` or `auto`). The
-route is checked with the logic Tail agents use (`tail_agents.offered`): the provider must be
+route is checked with the logic Harness agents use (`harness_agents.offered`): the provider must be
 enabled for the project, the model listed under it, and the effort one of that model's efforts. The
 error names the first field that fails (`backend`, `model` or `effort`). The route is checked when a
 schedule is created, when an enabled schedule is saved and when a route field changes. A paused
@@ -120,7 +120,7 @@ A schedule in a response is the stored record without `owner`, plus `revision`:
   "id": "0b8f3f4d1c6a4e7b9d2a5c1e7f3b6a90",
   "title": "Morning digest",
   "prompt": "Summarize yesterday's changes.",
-  "project_id": "tail-harness",
+  "project_id": "keepharness",
   "backend": "codex",
   "model": "gpt-6-astra",
   "effort": "low",
@@ -141,7 +141,7 @@ Requests:
 
 ```json
 POST /v1/schedules
-{"title": "Morning digest", "prompt": "Summarize yesterday's changes.", "project_id": "tail-harness",
+{"title": "Morning digest", "prompt": "Summarize yesterday's changes.", "project_id": "keepharness",
  "backend": "codex", "model": "gpt-6-astra", "effort": "low",
  "cadence": {"kind": "weekly", "weekday": 0, "time": "08:30"}}
 

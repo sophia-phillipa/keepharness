@@ -54,7 +54,7 @@ const path = require("node:path");
         body: await fs.readFile(
           path.join(
             __dirname,
-            file.startsWith("assets/") ? "../tail_ui" : "../agent_service",
+            file.startsWith("assets/") ? "../harness_ui" : "../agent_service",
             file,
           ),
         ),
@@ -65,7 +65,7 @@ const path = require("node:path");
             : "text/html",
       });
     });
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.14.0"));
+    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
     await page.goto(origin);
     await page.waitForFunction(() => models.length === 1);
     // Real event handler, including a Markdown token split across chunks.
@@ -181,7 +181,7 @@ const path = require("node:path");
       await page.setViewportSize({ width, height: 960 });
       for (const theme of ["light", "dark"]) {
         await page.evaluate((t) => {
-          TailTheme.apply(t === "dark" ? "amethyst" : "violet-bordeaux", false);
+          HarnessTheme.apply(t === "dark" ? "amethyst" : "violet-bordeaux", false);
         }, theme);
         assert(
           await page.evaluate(
@@ -192,14 +192,14 @@ const path = require("node:path");
     }
     await page.setViewportSize({ width: 1280, height: 960 });
     await page.evaluate(() => {
-      TailTheme.apply("violet-bordeaux", false);
+      HarnessTheme.apply("violet-bordeaux", false);
       $("messages").style.scrollBehavior = "auto";
       $("messages").scrollTop = 0;
     });
     await page.screenshot({
       path:
         process.env.FORMAT_SCREENSHOT ||
-        "/tmp/tail-harness-response-format.png",
+        "/tmp/keepharness-response-format.png",
       fullPage: true,
     });
     assert.deepEqual(errors, []);

@@ -26,7 +26,7 @@ const path = require("node:path");
           path: path.join(
             __dirname,
             "..",
-            pathname.startsWith("/assets/") ? "tail_ui" : "agent_service",
+            pathname.startsWith("/assets/") ? "harness_ui" : "agent_service",
             pathname === "/" ? "index.html" : pathname,
           ),
         });
@@ -228,7 +228,7 @@ const path = require("node:path");
       }
       return route.fulfill({ json: data });
     });
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.14.0"));
+    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
     await page.goto(process.env.HARNESS_URL || "http://panel.test/");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     for (const [id, label] of [
@@ -255,7 +255,7 @@ const path = require("node:path");
         "no duplicate identity above composer",
       );
       if (id === "deepseek-flash")
-        await page.screenshot({ path: "/tmp/tail-model-identity.png" });
+        await page.screenshot({ path: "/tmp/keepharness-model-identity.png" });
     }
     await page.locator("#model-trigger").click();
     await openModelGroup(page, "qwen-local");
@@ -417,8 +417,8 @@ const path = require("node:path");
     const photo = page.locator('#files-tree [data-path="photo.png"]'),
       src = page.locator('#files-tree [data-path="src"]');
     await page.evaluate(() => {
-      window.savedIconCatalog = window.TailFileIcons;
-      delete window.TailFileIcons;
+      window.savedIconCatalog = window.HarnessFileIcons;
+      delete window.HarnessFileIcons;
       renderProjectFileTree();
     });
     assert.equal(
@@ -434,7 +434,7 @@ const path = require("node:path");
       "missing catalog keeps a fallback icon",
     );
     await page.evaluate(() => {
-      window.TailFileIcons = window.savedIconCatalog;
+      window.HarnessFileIcons = window.savedIconCatalog;
       delete window.savedIconCatalog;
       renderProjectFileTree();
     });
@@ -647,7 +647,7 @@ const path = require("node:path");
     await page.waitForFunction(
       () => document.querySelector(".attachment-preview")?.naturalWidth > 0,
     );
-    await page.screenshot({ path: "/tmp/tail-files-panel-desktop.png" });
+    await page.screenshot({ path: "/tmp/keepharness-files-panel-desktop.png" });
     await page.locator(".attachment button").click();
     assert.equal(
       await page.locator(".attachment").count(),
@@ -872,7 +872,7 @@ const path = require("node:path");
       await page.locator("#model-trigger .model-picker-icon").count(),
       1,
     );
-    await page.screenshot({ path: "/tmp/tail-model-identity-mobile.png" });
+    await page.screenshot({ path: "/tmp/keepharness-model-identity-mobile.png" });
     await page.click("#panel-toggle");
     await page.locator("#activity-panel").waitFor({ state: "visible" });
     assert.equal(
@@ -894,7 +894,7 @@ const path = require("node:path");
       filesButton.x < activityButton.x,
       "files control sits immediately left of activity control",
     );
-    await page.screenshot({ path: "/tmp/tail-files-panel-mobile.png" });
+    await page.screenshot({ path: "/tmp/keepharness-files-panel-mobile.png" });
     await page.locator("#activity-toggle").focus();
     await page.keyboard.press("Escape");
     assert.equal(await page.locator("#activity-panel").isVisible(), false);
@@ -945,7 +945,7 @@ const path = require("node:path");
       );
       document.querySelector("#files-tree").replaceChildren(list);
     });
-    await page.screenshot({ path: "/tmp/tail-file-icons.png" });
+    await page.screenshot({ path: "/tmp/keepharness-file-icons.png" });
     console.log(
       "PASS: Files/Activity panel, visible roots/default, click/modifier/keyboard selection and drag attach, access icons/descriptions and conversation restore, plus mobile opening.",
     );

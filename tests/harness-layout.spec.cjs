@@ -149,7 +149,7 @@ const path = require("node:path");
         body: await fs.readFile(
           path.join(
             __dirname,
-            file.startsWith("assets/") ? "../tail_ui" : "../agent_service",
+            file.startsWith("assets/") ? "../harness_ui" : "../agent_service",
             file,
           ),
         ),
@@ -163,7 +163,7 @@ const path = require("node:path");
       });
     };
     await page.route(origin + "/**", serve);
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.14.0"));
+    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
     await page.goto(origin);
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     assert.equal(await page.locator("#task-section,#task-label").count(), 0);
@@ -191,7 +191,7 @@ const path = require("node:path");
       await page.locator("#quota-model-name").textContent(),
       /GPT-6 Astra/,
     );
-    await page.screenshot({ path: "/tmp/tail-quota-header-desktop.png" });
+    await page.screenshot({ path: "/tmp/keepharness-quota-header-desktop.png" });
     await page.setViewportSize({ width: 1280, height: 950 });
     await page.evaluate(() => setPanelOpen(true, false));
     await page.waitForTimeout(100);
@@ -200,7 +200,7 @@ const path = require("node:path");
       narrowQuota.width > 0 && narrowQuota.x >= 0 && narrowQuota.x + narrowQuota.width <= 1280,
       "visible provider quotas stay inside viewport with both panels open",
     );
-    await page.screenshot({ path: "/tmp/tail-quota-both-panels.png" });
+    await page.screenshot({ path: "/tmp/keepharness-quota-both-panels.png" });
     await page.evaluate(() => setPanelOpen(false, false));
     await page.setViewportSize({ width: 1515, height: 950 });
     await page.evaluate(() => setPanelOpen(true, false));
@@ -314,7 +314,7 @@ const path = require("node:path");
       "petroleum",
       "arizona",
     ]) {
-      await page.evaluate((t) => TailTheme.apply(t, false), theme);
+      await page.evaluate((t) => HarnessTheme.apply(t, false), theme);
       for (const width of [3840, 1920, 1366, 768, 390]) {
         for (const access of ["ask", "auto", "full", "read_only"]) {
           await page.selectOption("#access-mode", access);
@@ -343,7 +343,7 @@ const path = require("node:path");
         .getAttribute("aria-pressed"),
       "true",
     );
-    await page.screenshot({ path: "/tmp/tail-panel-order-desktop.png" });
+    await page.screenshot({ path: "/tmp/keepharness-panel-order-desktop.png" });
     await page.locator("[data-panel-order=conversations-right]").click();
     assert.equal(
       await page
@@ -368,7 +368,7 @@ const path = require("node:path");
         reversed1280.activity < reversed1280.main,
       "reversed 1280px positions panels on opposite sides of chat",
     );
-    await page.screenshot({ path: "/tmp/tail-panel-order-reversed-1280.png" });
+    await page.screenshot({ path: "/tmp/keepharness-panel-order-reversed-1280.png" });
     await page.setViewportSize({ width: 900, height: 950 });
     await page.waitForFunction(() =>
       document.querySelector("#app-topbar #provider-quotas"),
@@ -390,7 +390,7 @@ const path = require("node:path");
         reversed900.activity <= reversed900.main,
       "reversed 900px keeps the drawer on the left",
     );
-    await page.screenshot({ path: "/tmp/tail-panel-order-reversed-900.png" });
+    await page.screenshot({ path: "/tmp/keepharness-panel-order-reversed-900.png" });
     await page.evaluate(() => setPanelOpen(false, false));
     assert.equal(
       await page.locator("#app-topbar #provider-quotas").count(),
@@ -404,16 +404,16 @@ const path = require("node:path");
     );
     await page.setViewportSize({ width: 1515, height: 950 });
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.screenshot({ path: "/tmp/tail-panel-order-mobile.png" });
+    await page.screenshot({ path: "/tmp/keepharness-panel-order-mobile.png" });
     await page.setViewportSize({ width: 1515, height: 950 });
     await page.click("#settings-close");
     await page.evaluate(() => {
       applyPanelOrder("conversations-right");
       setPanelOpen(true, false);
     });
-    await page.screenshot({ path: "/tmp/tail-panels-reversed-live-1280.png" });
+    await page.screenshot({ path: "/tmp/keepharness-panels-reversed-live-1280.png" });
     await page.setViewportSize({ width: 900, height: 950 });
-    await page.screenshot({ path: "/tmp/tail-panels-reversed-live-900.png" });
+    await page.screenshot({ path: "/tmp/keepharness-panels-reversed-live-900.png" });
     await page.evaluate(() => {
       setPanelOpen(false, false);
       applyPanelOrder("conversations-left");
@@ -456,7 +456,7 @@ const path = require("node:path");
       "mobile settings dialog remains in viewport",
     );
     await page.screenshot({
-      path: "/tmp/tail-account-menu-mobile.png",
+      path: "/tmp/keepharness-account-menu-mobile.png",
       fullPage: true,
     });
     await page.keyboard.press("Escape");
@@ -474,11 +474,11 @@ const path = require("node:path");
     for (const width of [3840, 1366, 390]) {
       await page.setViewportSize({ width, height: 950 });
       for (const theme of ["amethyst", "violet-bordeaux", "arizona"]) {
-        await page.evaluate((t) => TailTheme.apply(t, false), theme);
+        await page.evaluate((t) => HarnessTheme.apply(t, false), theme);
         await page.mouse.move(0, 0);
         await page.waitForTimeout(250);
         await page.locator("#dropzone").screenshot({
-          path: "/tmp/tail-composer-" + width + "-" + theme + ".png",
+          path: "/tmp/keepharness-composer-" + width + "-" + theme + ".png",
         });
       }
     }
@@ -527,7 +527,7 @@ const path = require("node:path");
           "full access alone uses the accent color",
         );
       await page.screenshot({
-        path: "/tmp/tail-access-menu-" + width + ".png",
+        path: "/tmp/keepharness-access-menu-" + width + ".png",
         fullPage: true,
       });
       await page.keyboard.press("Escape");
@@ -567,7 +567,7 @@ const path = require("node:path");
       await page.click("#" + id + "-trigger");
       await page
         .locator("#" + id + "-menu")
-        .screenshot({ path: "/tmp/tail-" + id + "-picker.png" });
+        .screenshot({ path: "/tmp/keepharness-" + id + "-picker.png" });
       await page.keyboard.press("Escape");
     }
     // Long provider names, keyboard selection and uploads use the real controls.
@@ -657,7 +657,7 @@ const path = require("node:path");
       localStorage.setItem("activity-open", "0"),
     );
     await scaled.route(origin + "/**", serve);
-    await scaled.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.14.0"));
+    await scaled.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
     await scaled.goto(origin);
     await scaled.locator("#startup-gate").waitFor({ state: "hidden" });
     if (await scaled.locator("#th-toast").isVisible())
@@ -665,7 +665,7 @@ const path = require("node:path");
     const scaledBox = await scaled.locator("#dropzone").boundingBox();
     assert(scaledBox.width <= 1042 && scaledBox.height <= 165);
     await scaled.screenshot({
-      path: "/tmp/tail-4k-scaled.png",
+      path: "/tmp/keepharness-4k-scaled.png",
       fullPage: true,
     });
     await scaled.close();

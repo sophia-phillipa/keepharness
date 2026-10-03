@@ -6,12 +6,12 @@ Each provider has its own code, specification and development agent. The special
 
 | Folder | Responsibility | Specialist | Local contract |
 | --- | --- | --- | --- |
-| `codex/` | app-server protocol, sessions, effort, approvals and scoped execution | `integrate-codex_tail-harness_engineer` | [Spec](codex/specs/README.md) |
-| `claude/` | Claude CLI stream-json, resume, tools and parsing | `integrate-claude_tail-harness_engineer` | [Spec](claude/specs/README.md) |
-| `gemini/` | Gemini CLI ACP, Google OAuth, sessions and approvals | `integrate-gemini_tail-harness_engineer` | [Spec](gemini/specs/README.md) |
-| `deepseek/` | API key, catalog, Responses endpoint and client continuity | `integrate-deepseek_tail-harness_engineer` | [Spec](deepseek/specs/README.md) |
-| `local/` | Local endpoint, isolated credential, tool policy and sandbox | `integrate-local_tail-harness_engineer` | [Spec](local/specs/README.md) |
-| `shared/` | Folder/attachment preparation and proposed changes in scoped mode | `integrate-contracts_tail-harness_engineer` | Shared contracts below |
+| `codex/` | app-server protocol, sessions, effort, approvals and scoped execution | `integrate-codex_keepharness_engineer` | [Spec](codex/specs/README.md) |
+| `claude/` | Claude CLI stream-json, resume, tools and parsing | `integrate-claude_keepharness_engineer` | [Spec](claude/specs/README.md) |
+| `gemini/` | Gemini CLI ACP, Google OAuth, sessions and approvals | `integrate-gemini_keepharness_engineer` | [Spec](gemini/specs/README.md) |
+| `deepseek/` | API key, catalog, Responses endpoint and client continuity | `integrate-deepseek_keepharness_engineer` | [Spec](deepseek/specs/README.md) |
+| `local/` | Local endpoint, isolated credential, tool policy and sandbox | `integrate-local_keepharness_engineer` | [Spec](local/specs/README.md) |
+| `shared/` | Folder/attachment preparation and proposed changes in scoped mode | `integrate-contracts_keepharness_engineer` | Shared contracts below |
 
 ```mermaid
 flowchart LR

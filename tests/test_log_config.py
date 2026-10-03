@@ -20,7 +20,7 @@ def root_logger():
 
 
 def test_default_level_is_warning_with_one_redacting_stderr_handler(root_logger, monkeypatch):
-    monkeypatch.delenv("TAIL_HARNESS_LOG_LEVEL", raising=False)
+    monkeypatch.delenv("KEEPHARNESS_LOG_LEVEL", raising=False)
     configure_logging()
     configure_logging()
     ours = [handler for handler in root_logger.handlers if handler.name == HANDLER_NAME]
@@ -35,7 +35,7 @@ def test_default_level_is_warning_with_one_redacting_stderr_handler(root_logger,
     [("debug", logging.DEBUG), (" INFO ", logging.INFO), ("nonsense", logging.WARNING)],
 )
 def test_level_comes_from_the_environment(root_logger, monkeypatch, value, level):
-    monkeypatch.setenv("TAIL_HARNESS_LOG_LEVEL", value)
+    monkeypatch.setenv("KEEPHARNESS_LOG_LEVEL", value)
     configure_logging()
     assert root_logger.level == level
 

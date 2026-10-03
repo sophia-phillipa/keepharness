@@ -10,7 +10,7 @@ The two hooks append distinct markers to a temporary log. Despite its name,
 effect. It represents an unrelated user hook so the probes can distinguish
 project-only hook scope from merged user and project scope.
 
-Live inference is disabled unless `TAIL_HARNESS_LIVE=1` is set. Authentication
+Live inference is disabled unless `KEEPHARNESS_LIVE=1` is set. Authentication
 artifacts are copied only when a provider runner explicitly requests them; user
 settings, provider routing, session identifiers, and other parent environment
 state are not inherited.
@@ -27,7 +27,7 @@ state are not inherited.
   private auth copies, redaction, and the opt-in guard. The native `SKILL.md`
   basename has one exact exception in `.conventions-allow`.
 - The preexisting sprite test was made independent of the checkout directory
-  name by copying the real sprite into a temporary `tail-harness` fixture.
+  name by copying the real sprite into a temporary `keepharness` fixture.
 - `python3 -m venv .venv` lacked `ensurepip` on this host. The installed `uv`
   completed the local environment with `uv venv --seed --allow-existing .venv`,
   followed by `.venv/bin/python -m pip install -e '.[test]'`.

@@ -28,13 +28,13 @@ const path = require("node:path");
         return route.fulfill({ json: data });
       }
       const file = pathname === "/" ? "index.html" : pathname.slice(1);
-      return route.fulfill({ body: await fs.readFile(path.join(__dirname, file.startsWith("assets/") ? "../tail_ui" : "../agent_service", file)),
+      return route.fulfill({ body: await fs.readFile(path.join(__dirname, file.startsWith("assets/") ? "../harness_ui" : "../agent_service", file)),
         contentType: file.endsWith(".js") ? "text/javascript" : file.endsWith(".css") ? "text/css" : "text/html" });
     });
     const errors = [];
     page.on("pageerror", error => errors.push(error.message));
     async function open() {
-      await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.14.0"));
+      await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
       await page.goto("http://approval.test");
       await page.locator("#startup-gate").waitFor({ state: "hidden" });
     }

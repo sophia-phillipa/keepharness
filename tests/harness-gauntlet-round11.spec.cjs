@@ -43,21 +43,21 @@ async function publication(page){await page.evaluate(()=>showGate({gate_id:'publ
  try{
  await check('A1-F1 Timeline text never intersects',async()=>{
   for(const [w,h] of [[1440,900],[1280,720],[1024,768],[400,844]])for(const theme of ['porcelain','amethyst','petroleum']){
-   const f=await fixture(browser,w,h);await f.consoleOpen();await f.page.evaluate(t=>TailTheme.apply(t),theme);await f.page.getByRole('tab',{name:'Timeline',exact:true}).click();
+   const f=await fixture(browser,w,h);await f.consoleOpen();await f.page.evaluate(t=>HarnessTheme.apply(t),theme);await f.page.getByRole('tab',{name:'Timeline',exact:true}).click();
    const geometry=await f.page.locator('.run-span-row').first().evaluate(n=>{const rect=sel=>{const r=document.createRange();r.selectNodeContents(n.querySelector(sel));return r.getBoundingClientRect().toJSON();};const a=rect('.run-span-tokens'),b=rect('.run-span-duration');return{a,b,overlap:Math.max(0,Math.min(a.right,b.right)-Math.max(a.left,b.left))*Math.max(0,Math.min(a.bottom,b.bottom)-Math.max(a.top,b.top))};});
    assert.equal(geometry.overlap,0,JSON.stringify({w,h,theme,...geometry}));await f.page.close();
   }
  });
  await check('A1-F2 Complete Pipeline cards with publication evidence',async()=>{
   for(const [w,h] of [[1280,720],[1024,768]])for(const theme of ['porcelain','amethyst','petroleum']){
-   const f=await fixture(browser,w,h);await f.open();await publication(f.page);await f.page.evaluate(t=>{TailTheme.apply(t);runConsole.openRun('a-job');},theme);await f.page.locator('.run-span-row').first().waitFor();await settle(f.page);
+   const f=await fixture(browser,w,h);await f.open();await publication(f.page);await f.page.evaluate(t=>{HarnessTheme.apply(t);runConsole.openRun('a-job');},theme);await f.page.locator('.run-span-row').first().waitFor();await settle(f.page);
    const row=f.page.locator('.run-span-row').first();const r=await row.boundingBox(),b=await f.page.locator('.run-console-body').boundingBox();assert(r.y+r.height<=b.y+b.height,JSON.stringify({w,h,r,b}));assert(await hit(row));assert(await row.evaluate(n=>{const r=n.getBoundingClientRect();return n.contains(document.elementFromPoint(r.left+r.width/2,r.bottom-3));}));
    await capture(f.page,`publication-${w}-${theme}`);const evidence=f.page.locator('#gate-publish .publish-evidence');await evidence.scrollIntoViewIfNeeded();assert(await hit(evidence),JSON.stringify(await evidence.evaluate(n=>({e:n.getBoundingClientRect().toJSON(),m:document.getElementById('messages').getBoundingClientRect().toJSON(),hit:document.elementFromPoint(n.getBoundingClientRect().x+n.clientWidth/2,n.getBoundingClientRect().y+n.clientHeight/2)?.outerHTML.slice(0,180)}))));for(const button of await f.page.locator('#gate-publish button').all()){await button.scrollIntoViewIfNeeded();assert(await hit(button));}await f.page.close();
   }
  });
  await check('A1-F3 Tour spot stays within visible target',async()=>{
   const f=await fixture(browser);await f.consoleOpen();await publication(f.page);await f.page.locator('#gate-publish button').last().scrollIntoViewIfNeeded();await f.page.keyboard.press('Control+j');
-  await f.page.evaluate(()=>tailHarnessTour.start());
+  await f.page.evaluate(()=>keepHarnessTour.start());
   for(let i=0;i<16 && !(await f.page.locator('#tour-card').innerText()).includes('Publication gate');i++)await f.page.getByRole('button',{name:'Next',exact:true}).click();
   assert.match(await f.page.locator('#tour-card').innerText(),/Publication gate/);await f.page.waitForTimeout(1250);
   const m=await f.page.locator('#messages').boundingBox(),s=await f.page.locator('.tour-spotlight').boundingBox();assert(s.y>=m.y-6,JSON.stringify({m,s}));await f.page.close();

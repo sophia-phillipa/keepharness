@@ -37,9 +37,9 @@ printf '# bridge fixture\\n' > "$2"
         result = subprocess.run([str(SCRIPT), url], env=env, capture_output=True, text=True)
         assert result.returncode == 0, result.stderr
         args = (root / "claude-args").read_text().splitlines()
-        assert "TAIL_HARNESS_AGENT_URL=" + url in args
-        assert str(root / ".local/share/tail-harness/venv/bin/python") in args
-        bridge = root / ".local/share/tail-harness/mcp_bridge.py"
+        assert "KEEPHARNESS_AGENT_URL=" + url in args
+        assert str(root / ".local/share/keepharness/venv/bin/python") in args
+        bridge = root / ".local/share/keepharness/mcp_bridge.py"
         assert bridge.read_text() == "# bridge fixture\n"
         (root / "claude-args").unlink()
         result = subprocess.run(

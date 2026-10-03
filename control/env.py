@@ -1,6 +1,6 @@
 """Environment variable reader with a deprecated-legacy-alias fallback.
 
-Public variables are named ``TAIL_HARNESS_<NAME>``. A handful of older, unprefixed names are
+Public variables are named ``KEEPHARNESS_<NAME>``. A handful of older, unprefixed names are
 still accepted so existing deployments keep working; using one logs a one-time deprecation
 warning per name. See dossier/naming-model.md for the full rationale.
 """
@@ -25,11 +25,11 @@ _WARNED: set[str] = set()
 
 
 def read(name: str, default: str | None = None) -> str | None:
-    """Read ``TAIL_HARNESS_<name>``, falling back to its deprecated legacy alias, if any."""
+    """Read ``KEEPHARNESS_<name>``, falling back to its deprecated legacy alias, if any."""
     preferred = f"{PRODUCT.env_prefix}_{name}"
     if preferred in os.environ:
         return os.environ[preferred]
-    legacy = _LEGACY_ALIASES.get(name) if (PRODUCT.slug, PRODUCT.lineage) == ("tail-harness", "tail-harness") else None
+    legacy = _LEGACY_ALIASES.get(name) if (PRODUCT.slug, PRODUCT.lineage) == ("keepharness", "keepharness") else None
     if legacy and legacy in os.environ:
         if name not in _WARNED:
             _WARNED.add(name)

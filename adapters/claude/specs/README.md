@@ -1,6 +1,6 @@
 # Claude adapter specification
 
-**Responsible agent:** `integrate-claude_tail-harness_engineer` (`.codex/agents/integrate-claude_tail-harness_engineer.toml`).
+**Responsible agent:** `integrate-claude_keepharness_engineer` (`.codex/agents/integrate-claude_keepharness_engineer.toml`).
 
 `adapter_spec_revision: 5`
 `harness_baseline: 0.4.4 working-tree`

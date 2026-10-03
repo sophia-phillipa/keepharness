@@ -284,7 +284,7 @@ def _wait_for_http(base_url, timeout=20):
 
 
 def _spawn_harness(config_path, log_path):
-    env = {**os.environ, "TAIL_HARNESS_AGENT_CONFIG": str(config_path)}
+    env = {**os.environ, "KEEPHARNESS_AGENT_CONFIG": str(config_path)}
     log = open(log_path, "ab")
     proc = subprocess.Popen(
         [PYTHON, "-m", "agent_service.app"], cwd=REPOSITORY_ROOT, env=env, stdout=log, stderr=log

@@ -14,7 +14,7 @@ function contentType(file) {
 
 async function serveStatic(route, pathname, appDir) {
   const file = pathname === "/" ? "index.html" : pathname.slice(1);
-  const dir = file.startsWith("assets/") ? "tail_ui" : appDir;
+  const dir = file.startsWith("assets/") ? "harness_ui" : appDir;
   try {
     return await route.fulfill({
       body: await fs.readFile(path.join(__dirname, "..", "..", dir, file)),
@@ -56,7 +56,7 @@ function sse(events) {
 
 // Installs a route for `origin/**`: an `over` match wins first, then `apiPrefix`
 // (plus "/events") goes to `api()`, which returns JSON or `{__sse: events}`;
-// everything else is a static file from `appDir` (tail_ui for "assets/*").
+// everything else is a static file from `appDir` (harness_ui for "assets/*").
 function installRoute(page, origin, apiPrefix, appDir, api, over) {
   return page.route(origin + "/**", async (route) => {
     const req = route.request(),
@@ -96,7 +96,7 @@ const HARNESS_STATIC = {
 
 // Fake origin http://harness.test, mirroring agent_service's /v1 API.
 async function mockHarness(page, over = {}) {
-  await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.14.0"));
+  await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
   const s = {
     turns: [],
     posts: [],
@@ -179,7 +179,7 @@ async function mockAdmin(page, state, over = {}) {
 
 async function runPersona(id, scenarios) {
   const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
-  const out = process.env.EVAL_OUTPUT || "/tmp/tail-persona-eval";
+  const out = process.env.EVAL_OUTPUT || "/tmp/keepharness-persona-eval";
   await fs.mkdir(out, { recursive: true });
   const browser = await chromium.launch();
   const results = [];

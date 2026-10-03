@@ -255,8 +255,8 @@ def discover(
 ):
     from .catalog_manifest import load_manifest, preflight
     from .catalog_pin import effective_catalogs, snapshot_catalogs
+    from .harness_agents import add_resources
     from .integrations import integration_preflight
-    from .tail_agents import add_resources
     from .workflows import discover_workflows
 
     engine = ENGINES.get(backend)
@@ -271,7 +271,7 @@ def discover(
         ),
     }
     if include_workflows:
-        # Tail-owned resources need no engine, so they come with the workflows; plan
+        # Harness-owned resources need no engine, so they come with the workflows; plan
         # dependency lookups (include_workflows=False) read native resources only.
         add_resources(result, config, project_id, private=private)
     if engine is None:
@@ -725,7 +725,7 @@ def discover(
 def accepted_tokens(item):
     """Spellings a selection may use for ``item``; the last is the canonical one."""
     name = item["name"]
-    if item["scope"] == "tail":
+    if item["scope"] == "harness":
         return ("@@" + name,)
     return ("/" + name, "@" + name) if item["kind"] == "agent" else ("/" + name,)
 
@@ -735,7 +735,7 @@ def reserved_markers(prompt, selections):
     prose = unfenced(prompt, preserve_offsets=True)
     markers = set(re.findall(r"(?<!\S)@@[\w:-]+(?=\s|$)", prose))
     if re.search(r"^\s*//[A-Za-z_][\w:-]*(?=\s|$)", prose) or (markers and not selections):
-        raise ResourceError("tail_resources_unavailable")
+        raise ResourceError("harness_resources_unavailable")
     return markers
 
 
@@ -780,9 +780,9 @@ def resolve(config, data):
             raise ResourceError("resource_selection_missing")
         if not any(value["id"] == item["id"] for value in result):
             result.append({**item, "_token": token})
-    # An @@ marker is honored only for a Tail agent that was selected with that token.
+    # An @@ marker is honored only for a Harness agent that was selected with that token.
     if reserved - {value["_token"] for value in result}:
-        raise ResourceError("tail_resources_unavailable")
+        raise ResourceError("harness_resources_unavailable")
     return result
 
 
@@ -805,18 +805,18 @@ def prepare_prompt(prompt, items, selections=None):
         token = item.get("_token", "/" + name)
         if item["kind"] == "agent":
             if item.get("mode") == "conversational":
-                # A Tail agent has no file in the project: naming one would invite the model to look.
-                tail = item.get("scope") == "tail"
+                # A Harness agent has no file in the project: naming one would invite the model to look.
+                harness_agent = item.get("scope") == "harness"
                 notes.append(
                     "Adopt the conversational agent "
                     + json.dumps(name)
                     + (
-                        " defined by the user in Tail Harness"
-                        if tail
+                        " defined by the user in KeepHarness"
+                        if harness_agent
                         else " defined at " + json.dumps(item["source"])
                     )
                     + " for this main-thread conversation until it is released."
-                    + (" Its definition follows inline." if tail else "")
+                    + (" Its definition follows inline." if harness_agent else "")
                     + "\n"
                     + item.get("_body", "")
                 )

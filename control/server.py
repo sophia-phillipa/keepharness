@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 
 from starlette.applications import Starlette
 
-from tail_ui import StaticGZipMiddleware
+from harness_ui import StaticGZipMiddleware
 
 from .manager import Manager, migrate_local_ai_directory  # noqa: F401  (re-exported)
 from .routes import ADMIN_BODY_LIMIT, ADMIN_OPERATION_LIMIT, ROUTES  # noqa: F401  (re-exported)

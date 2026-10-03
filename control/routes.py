@@ -18,7 +18,7 @@ from starlette.routing import Route
 from adapters.claude.auth import cli_login_environment
 from adapters.deepseek import account as deepseek
 from agent_service.errors import APIError
-from tail_ui import asset_response, static_response
+from harness_ui import asset_response, static_response
 
 from . import env
 from .catalog_admin import change_pin, read_catalogs
@@ -35,7 +35,7 @@ from .local_models import (
 )
 from .manager import PERMISSIONS
 from .operations import operation
-from .product import PRODUCT
+from .product import LEGACY_MARKER, PRODUCT, is_original
 from .remote_models import add_remote_model, remove_remote_model
 from .vault_admin import change_vault, read_vault
 
@@ -237,9 +237,12 @@ async def export_settings(request, manager, data):
 
 async def import_settings(request, manager, data):
     bundle = data.get("bundle", {})
+    formats = {PRODUCT.slug + "-settings"}
+    if is_original(PRODUCT):
+        formats.add(LEGACY_MARKER["slug"] + "-settings")  # exported before the 0.15.0 rename
     if (
         not isinstance(bundle, dict)
-        or bundle.get("format") != PRODUCT.slug + "-settings"
+        or bundle.get("format") not in formats
         or bundle.get("version") != 1
     ):
         raise ValueError("Incompatible configuration format.")

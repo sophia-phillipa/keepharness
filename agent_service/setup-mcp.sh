@@ -3,10 +3,10 @@
 # Run: ./setup-mcp.sh 'https://your-tailscale-server'
 set -eu
 # Generated identity block; the installer is downloadable on its own.
-TH_PRODUCT_SLUG=tail-harness
-TH_PRODUCT_ENV=TAIL_HARNESS
-TH_PRODUCT_STATE=.local/share/tail-harness
-TH_PRODUCT_MCP=tail-harness
+TH_PRODUCT_SLUG=keepharness
+TH_PRODUCT_ENV=KEEPHARNESS
+TH_PRODUCT_STATE=.local/share/keepharness
+TH_PRODUCT_MCP=keepharness
 if [ "$#" -ne 1 ]; then
     printf '%s\n' 'Usage: ./setup-mcp.sh HARNESS_URL' >&2
     exit 1

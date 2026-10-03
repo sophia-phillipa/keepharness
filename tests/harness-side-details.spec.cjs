@@ -131,7 +131,7 @@ const fs = require("node:fs/promises"),
         body: await fs.readFile(
           path.join(
             __dirname,
-            file.startsWith("assets/") ? "../tail_ui" : "../agent_service",
+            file.startsWith("assets/") ? "../harness_ui" : "../agent_service",
             file,
           ),
         ),
@@ -144,7 +144,7 @@ const fs = require("node:fs/promises"),
               : "text/html",
       });
     });
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.14.0"));
+    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
     await page.goto(origin);
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     await page.locator(".conversation-row>button").first().click();
@@ -215,11 +215,11 @@ const fs = require("node:fs/promises"),
       "Sidebar is for main milestones",
     );
     await page.fill("#prompt", "Preserved draft");
-    await page.evaluate(() => TailTheme.apply("arizona", false));
+    await page.evaluate(() => HarnessTheme.apply("arizona", false));
     if (await page.locator("#th-toast").isVisible())
       await page.locator("#th-toast button").click();
     await page.screenshot({
-      path: "/tmp/tail-inline-milestones-desktop.png",
+      path: "/tmp/keepharness-inline-milestones-desktop.png",
       fullPage: true,
     });
     await page.setViewportSize({ width: 390, height: 844 });
@@ -232,7 +232,7 @@ const fs = require("node:fs/promises"),
     );
     assert.equal(await page.locator("#prompt").inputValue(), "Preserved draft");
     await page.screenshot({
-      path: "/tmp/tail-inline-milestones-mobile.png",
+      path: "/tmp/keepharness-inline-milestones-mobile.png",
       fullPage: true,
     });
     assert.deepEqual(errors, []);

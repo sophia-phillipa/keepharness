@@ -71,7 +71,8 @@ def validate_integration(contract):
             or not re.fullmatch(r"[A-Z_][A-Z0-9_]*", name)
             or name.startswith(
                 (
-                    "TAIL_HARNESS_",
+                    "KEEPHARNESS_",
+                    "TAIL_HARNESS_",  # the prefix from before the KeepHarness rename (0.15.0)
                     "LOCAL_AGENT_",
                     "HARNESS_",
                     PRODUCT.env_prefix + "_",

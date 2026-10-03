@@ -164,7 +164,7 @@ const assert = require("node:assert/strict"),
         body: await fs.readFile(
           path.join(
             __dirname,
-            file.startsWith("assets/") ? "../tail_ui" : "../agent_service",
+            file.startsWith("assets/") ? "../harness_ui" : "../agent_service",
             file,
           ),
         ),
@@ -178,7 +178,7 @@ const assert = require("node:assert/strict"),
       });
     });
     await page.emulateMedia({ reducedMotion: "reduce" });
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.14.0"));
+    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
     await page.goto(origin);
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     assert.equal(await page.locator("#sidebar input[type=search]").count(), 0);
@@ -235,7 +235,7 @@ const assert = require("node:assert/strict"),
       "petroleum",
       "arizona",
     ]) {
-      await page.evaluate((p) => TailTheme.apply(p, false), palette);
+      await page.evaluate((p) => HarnessTheme.apply(p, false), palette);
       const separator = await page
         .locator("#sidebar .conversation-row")
         .first()
@@ -248,7 +248,7 @@ const assert = require("node:assert/strict"),
       assert.equal(separator.shadow, "none", "Mock 4 groups use flat rows");
       assert(separator.border);
     }
-    await page.evaluate(() => TailTheme.apply("violet-bordeaux", false));
+    await page.evaluate(() => HarnessTheme.apply("violet-bordeaux", false));
     assert.equal(
       await page
         .locator("#projects .conversation-title")
@@ -372,11 +372,11 @@ const assert = require("node:assert/strict"),
         return r.top >= s.top && r.bottom <= s.bottom;
       });
     assert(visible);
-    await page.screenshot({ path: "/tmp/tail-sidebar-icons-light.png" });
-    await page.evaluate(() => TailTheme.apply("amethyst", false));
+    await page.screenshot({ path: "/tmp/keepharness-sidebar-icons-light.png" });
+    await page.evaluate(() => HarnessTheme.apply("amethyst", false));
     await page.waitForTimeout(300);
-    await page.screenshot({ path: "/tmp/tail-sidebar-icons-dark.png" });
-    await page.evaluate(() => TailTheme.apply("violet-bordeaux", false));
+    await page.screenshot({ path: "/tmp/keepharness-sidebar-icons-dark.png" });
+    await page.evaluate(() => HarnessTheme.apply("violet-bordeaux", false));
     await page.setViewportSize({ width: 390, height: 844 });
     await page.keyboard.press("Control+k");
     await page
@@ -388,7 +388,7 @@ const assert = require("node:assert/strict"),
         return r.left >= 0 && r.right <= innerWidth;
       }),
     );
-    await page.screenshot({ path: "/tmp/tail-conversation-search-mobile.png" });
+    await page.screenshot({ path: "/tmp/keepharness-conversation-search-mobile.png" });
     await page.keyboard.press("Escape");
     await page
       .locator("#conversation-search-dialog")

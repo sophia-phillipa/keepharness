@@ -32,7 +32,14 @@ def child_environment(environment=None, *, provider=None):
         for key, value in source.items()
         if not (
             key.upper().startswith(
-                ("TAIL_HARNESS_", "LOCAL_AGENT_", "HARNESS_", PRODUCT.env_prefix + "_")
+                # TAIL_HARNESS_ is the prefix from before the KeepHarness rename (0.15.0).
+                (
+                    "KEEPHARNESS_",
+                    "TAIL_HARNESS_",
+                    "LOCAL_AGENT_",
+                    "HARNESS_",
+                    PRODUCT.env_prefix + "_",
+                )
             )
             or "COOKIE" in key.upper()
             or key.upper() in {"ADMIN_TOKEN", "ADMIN_SECRET", "ADMIN_PASSWORD"}

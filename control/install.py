@@ -10,7 +10,7 @@ import time
 import urllib.request
 from pathlib import Path
 
-from .product import PRODUCT
+from .product import PRODUCT, is_original
 
 SERVICE = PRODUCT.slug + ".service"
 
@@ -77,6 +77,21 @@ StartupNotify=false
     }
 
 
+def remove_legacy_service(home, run=subprocess.run):
+    """Retire the Tail Harness service and shortcuts that this install replaces (0.15.0)."""
+    if not is_original(PRODUCT):
+        return
+    unit = Path(home) / ".config/systemd/user/tail-harness.service"
+    if unit.exists():
+        run(["systemctl", "--user", "disable", "--now", unit.name], check=False)
+    for path in (
+        unit,
+        Path(home) / ".local/bin/tail-harness-open",
+        Path(home) / ".local/share/applications/tail-harness.desktop",
+    ):
+        path.unlink(missing_ok=True)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Install service and shortcut for this Linux user")
     parser.add_argument("--port", type=int, default=8094)
@@ -89,6 +104,7 @@ def main(argv=None):
     if not 1024 <= args.port <= 65535:
         parser.error("Invalid port")
     os.umask(0o077)
+    remove_legacy_service(Path.home())
     for path, (content, mode) in files(Path.home(), sys.executable, args.port).items():
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content)

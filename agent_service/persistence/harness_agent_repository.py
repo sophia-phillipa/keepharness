@@ -1,7 +1,7 @@
-"""One JSON file per Tail-owned agent in a private folder.
+"""One JSON file per Harness-owned agent in a private folder.
 
 The file handling is ``JsonFileRepository``; what an agent may contain is decided by
-``agent_service.tail_agents``, not here.
+``agent_service.harness_agents``, not here.
 """
 
 import re
@@ -15,10 +15,10 @@ MAX_FILE_BYTES = 65536
 
 
 def unsafe_storage() -> APIError:
-    return APIError("tail_agent_storage_unsafe", 500)
+    return APIError("harness_agent_storage_unsafe", 500)
 
 
-class TailAgentRepository(JsonFileRepository):
+class HarnessAgentRepository(JsonFileRepository):
     def __init__(self, folder: str | Path) -> None:
         super().__init__(
             folder, id_pattern=AGENT_ID, max_bytes=MAX_FILE_BYTES, unsafe=unsafe_storage

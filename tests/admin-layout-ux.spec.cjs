@@ -17,7 +17,7 @@ const assert = require("node:assert/strict");
         body: await fs.readFile(
           path.join(
             __dirname,
-            file.startsWith("assets/") ? "../tail_ui" : "../control",
+            file.startsWith("assets/") ? "../harness_ui" : "../control",
             file,
           ),
         ),

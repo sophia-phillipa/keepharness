@@ -1,14 +1,15 @@
-"""Tail-owned agents: validation, availability, persona and resource items.
+"""Harness-owned agents: validation, availability, persona and resource items.
 
 An agent is a persona (purpose, instructions, tasks, target output) plus the route it runs
 on (backend, model, effort). It is offered to the composer as a conversational agent, which
 only prepends text, so every provider can run it. The files live in
-``TailAgentRepository``; see ``docs/tail-agents.md``.
+``HarnessAgentRepository``; see ``docs/harness-agents.md``.
 """
 
 import hashlib
 import json
 import logging
+import os
 import re
 import threading
 from datetime import datetime, timezone
@@ -17,7 +18,7 @@ from types import MappingProxyType
 
 from . import maestro
 from .errors import APIError
-from .persistence.tail_agent_repository import AGENT_ID, MAX_FILE_BYTES, TailAgentRepository
+from .persistence.harness_agent_repository import AGENT_ID, MAX_FILE_BYTES, HarnessAgentRepository
 from .resources import ENGINES
 
 logger = logging.getLogger(__name__)
@@ -47,7 +48,12 @@ PROVIDER_NAMES = MappingProxyType(
 GROUP = "Your agents"
 # The identity the service gives the browser on this computer (``ConversationService.identity``).
 LOCAL_CLIENT = "local"
-RESOURCE_PREFIX = "tail/agents/"
+RESOURCE_PREFIX = "harness/agents/"
+FOLDER = "harness-agents"
+# Before 0.15.0, when KeepHarness was Tail Harness, the folder was "tail-agents" and jobs
+# selected an agent as "tail/agents/<id>"; both are carried over once, never merged.
+LEGACY_FOLDER = "tail-agents"
+LEGACY_RESOURCE_PREFIX = "tail/agents/"
 CONTROL_CHARACTERS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 # Serializes read-compare-write sequences; the service runs as a single process.
@@ -55,17 +61,17 @@ write_lock = threading.Lock()
 
 
 def invalid(field: str) -> APIError:
-    return APIError("tail_agent_invalid", 400, field=field)
+    return APIError("harness_agent_invalid", 400, field=field)
 
 
 def require_local_client(identity: tuple) -> None:
     """Agents are machine-wide; only the browser on this computer may change them."""
     if identity[0] != LOCAL_CLIENT:
-        raise APIError("tail_agent_local_only", 403)
+        raise APIError("harness_agent_local_only", 403)
 
 
-def only_tail_agents(selections: object) -> bool:
-    """True when ``selections`` is empty or a list of Tail agent references and nothing else."""
+def only_harness_agents(selections: object) -> bool:
+    """True when ``selections`` is empty or a list of Harness agent references and nothing else."""
     return not selections or (
         isinstance(selections, list)
         and all(
@@ -83,9 +89,27 @@ def timestamp() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def repository(config: dict) -> TailAgentRepository:
+def repository(config: dict) -> HarnessAgentRepository:
     state = config.get("control_state_dir") or config["state_dir"]
-    return TailAgentRepository(Path(state) / "tail-agents")
+    return HarnessAgentRepository(Path(state) / FOLDER)
+
+
+def migrate_legacy_folder(config: dict) -> None:
+    """Move the agents folder from before the rename unless the current one exists."""
+    state = config.get("control_state_dir") or config.get("state_dir")
+    if not state:
+        return
+    legacy, current = Path(state) / LEGACY_FOLDER, Path(state) / FOLDER
+    if legacy.is_dir() and not os.path.lexists(current):
+        legacy.rename(current)
+        logger.warning("Moved %s to %s after the KeepHarness rename", legacy, current)
+
+
+def upgrade_selection(ref: object) -> object:
+    """A stored selection with the resource id this version uses."""
+    if isinstance(ref, dict) and str(ref.get("id", "")).startswith(LEGACY_RESOURCE_PREFIX):
+        return {**ref, "id": RESOURCE_PREFIX + ref["id"].removeprefix(LEGACY_RESOURCE_PREFIX)}
+    return ref
 
 
 # ----------------------------------------------------------------------------- validation
@@ -107,7 +131,7 @@ def reject_unknown_fields(body: dict) -> None:
 
 
 def normalize(body: dict, name: str) -> dict:
-    """The stored fields of ``name`` from a request or file body; ``tail_agent_invalid`` if not."""
+    """The stored fields of ``name`` from a request or file body; ``harness_agent_invalid`` if not."""
     if "id" in body and body["id"] != name:
         raise invalid("id")
     tasks = body.get("tasks", [])
@@ -146,10 +170,10 @@ def load(agent_id: str, text: str) -> dict:
     try:
         data = json.loads(text)
         if not isinstance(data, dict) or data.get("id") != agent_id or data.get("name") != agent_id:
-            raise ValueError("invalid_tail_agent")
+            raise ValueError("invalid_harness_agent")
         record = normalize(data, agent_id)
     except (ValueError, RecursionError, APIError):
-        raise ValueError("invalid_tail_agent") from None
+        raise ValueError("invalid_harness_agent") from None
     for key in ("created_at", "updated_at"):
         record[key] = data[key] if isinstance(data.get(key), str) else ""
     return record
@@ -225,7 +249,7 @@ def stored_agents(config: dict) -> tuple[list[tuple[dict, str]], list[str]]:
 def list_agents(config: dict) -> list[dict]:
     stored, skipped = stored_agents(config)
     if skipped:
-        logger.warning("Skipped unusable Tail agent files: %s", ", ".join(skipped))
+        logger.warning("Skipped unusable Harness agent files: %s", ", ".join(skipped))
     offers = offered(config)
     return [describe(record, text, offers) for record, text in stored]
 
@@ -238,7 +262,7 @@ def require_available(config: dict, record: dict) -> None:
 
 def require_known(agent_id: str) -> None:
     if not AGENT_ID.fullmatch(agent_id):
-        raise APIError("tail_agent_not_found", 404)
+        raise APIError("harness_agent_not_found", 404)
 
 
 def require_revision(body: dict) -> str:
@@ -248,13 +272,13 @@ def require_revision(body: dict) -> str:
     return revision
 
 
-def read_current(store: TailAgentRepository, agent_id: str, revision: str) -> str:
+def read_current(store: HarnessAgentRepository, agent_id: str, revision: str) -> str:
     """The stored text, after checking that it is still the revision the caller saw."""
     text = store.read(agent_id)
     if text is None:
-        raise APIError("tail_agent_not_found", 404)
+        raise APIError("harness_agent_not_found", 404)
     if revision_of(text) != revision:
-        raise APIError("tail_agent_changed", 409)
+        raise APIError("harness_agent_changed", 409)
     return text
 
 
@@ -272,13 +296,13 @@ def create_agent(config: dict, body: dict) -> dict:
     with write_lock:
         existing = store.ids()
         if name in existing:
-            raise APIError("tail_agent_exists", 409)
+            raise APIError("harness_agent_exists", 409)
         if len(existing) >= MAX_AGENTS:
-            raise APIError("tail_agent_limit", 409)
+            raise APIError("harness_agent_limit", 409)
         try:
             store.create(name, text)
         except FileExistsError:
-            raise APIError("tail_agent_exists", 409) from None
+            raise APIError("harness_agent_exists", 409) from None
     return describe(record, text, offered(config))
 
 
@@ -329,8 +353,8 @@ def resource_item(
         "kind": "agent",
         "name": record["name"],
         "description": record["purpose"],
-        "scope": "tail",
-        "origin": "tail",
+        "scope": "harness",
+        "origin": "harness",
         # A logical name: the persona travels in the prompt, so no host path is disclosed.
         "source": resource_id + ".json",
         "namespace": "",
@@ -356,17 +380,19 @@ def resource_item(
 
 
 def add_resources(result: dict, config: dict, project_id: str, *, private: bool) -> None:
-    """Append the Tail agents to a discovery ``result``; they exist for every backend."""
+    """Append the Harness agents to a discovery ``result``; they exist for every backend."""
     if not (config.get("control_state_dir") or config.get("state_dir")):
         return
     try:
         stored, skipped = stored_agents(config)
     except (APIError, OSError):
         result["warnings"].append(
-            "Tail agents are unavailable: the agents folder is not safe to read."
+            "Harness agents are unavailable: the agents folder is not safe to read."
         )
         return
-    result["warnings"].extend("Could not read the Tail agent " + agent_id for agent_id in skipped)
+    result["warnings"].extend(
+        "Could not read the Harness agent " + agent_id for agent_id in skipped
+    )
     offers = offered(config, project_id)
     result["items"].extend(
         resource_item(record, text, availability_problem(offers, record), private=private)

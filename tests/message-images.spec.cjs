@@ -11,7 +11,7 @@ const fs = require("node:fs"),
     });
     const source = fs.readFileSync("agent_service/ui.js", "utf8");
     await page.addScriptTag({
-      content: fs.readFileSync("tail_ui/assets/file-icons-data.js", "utf8"),
+      content: fs.readFileSync("harness_ui/assets/file-icons-data.js", "utf8"),
     });
     await page.addScriptTag({
       content: source.slice(
@@ -71,7 +71,7 @@ const fs = require("node:fs"),
     await page.locator(".message-image").click();
     const modal = await page.getByRole("dialog").boundingBox();
     assert(modal.x >= 0 && modal.x + modal.width <= 390);
-    await page.screenshot({ path: "/tmp/tail-message-image-modal.png" });
+    await page.screenshot({ path: "/tmp/keepharness-message-image-modal.png" });
     await page.getByRole("button", { name: "Close image" }).click();
     await page.setContent(
       '<main style="height:100vh"><div id="messages" tabindex="-1"><div style="height:3000px">Long response</div></div><div class="composer-area"><button id="latest-message" class="latest-message" hidden>↓ Jump to latest message</button><textarea></textarea></div></main>',

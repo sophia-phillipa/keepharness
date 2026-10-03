@@ -3806,7 +3806,7 @@ body.panel-order-reversed #app-topbar #menu .th-icon {
   letter-spacing: -0.3px;
   white-space: nowrap;
 }
-#app-brand .tail-logo {
+#app-brand .harness-logo {
   display: block;
   width: 32px;
   height: 32px;
@@ -3819,7 +3819,7 @@ body.panel-order-reversed #app-topbar #menu .th-icon {
     margin-right: 8px;
     font-size: 13px;
   }
-  #app-brand .tail-logo {
+  #app-brand .harness-logo {
     width: 26px;
     height: 26px;
   }
@@ -4466,7 +4466,7 @@ body { grid-template-columns:var(--th-sidebar-width,300px) minmax(0,1fr) auto; }
 #app-topbar { gap:8px; padding:0 14px; font-size:12px; }
 #app-topbar #menu { display:grid; }
 #app-topbar .brand { width:278px; margin:0; font-size:14px; }
-#app-brand .tail-logo { width:20px; height:20px; }
+#app-brand .harness-logo { width:20px; height:20px; }
 #app-topbar #search-conversations.top-search { width:192px; height:32px; min-height:32px; margin:0; border-radius:17px; background:var(--th-soft); color:var(--th-muted); }
 .top-search span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .top-search kbd { margin-left:auto; padding:1px 4px; border:1px solid var(--th-border); background:var(--th-panel); font-size:9px; }
@@ -5250,7 +5250,7 @@ body dialog:not(#settings-dialog) .btn.btn-danger { background: color-mix(in srg
 #activity-panel .authorized-root-card ul { margin: 0; padding: 0; list-style: none; }
 #activity-panel .authorized-root-card li > :is(span, button), #activity-panel #files-tree .project-file-row {
   display: flex; align-items: center; gap: 8px; width: 100%; min-height: 28px; padding: 3px 6px; border: 0; border-radius: 8px;
-  background: transparent; color: var(--th-text); font: 13px/20px TailInter, system-ui, sans-serif; text-align: left;
+  background: transparent; color: var(--th-text); font: 13px/20px HarnessInter, system-ui, sans-serif; text-align: left;
 }
 #activity-panel .authorized-root-card li > :is(span, button):hover, #activity-panel #files-tree .project-file-row:hover { background: var(--th-hover); }
 #activity-panel :is(.authorized-root-card, #files-tree) :is(.th-icon, svg) { flex: none; width: 16px; height: 16px; }
@@ -5497,18 +5497,18 @@ main > #run-console { order: 11; }
 #agent-delete { margin-right: auto; }
 @media (max-width: 620px) { .agent-route { grid-template-columns: 1fr; } }
 /* Your agents (Settings › Agents and models). */
-#tail-agents-section { margin: 0 0 28px; }
-.tail-agents-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
-.tail-agents-heading h4 { margin: 0; font-size: 14px; font-weight: 500; }
-#tail-agents-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
-#tail-agents-list .tail-agent { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--th-text) 12%, transparent); border-radius: 16px; }
-#tail-agents-list .tail-agent > .th-icon { width: 18px; height: 18px; color: var(--th-muted); }
-#tail-agents-list .tail-agent > div { min-width: 0; }
-#tail-agents-list .tail-agent strong { font-size: 14px; }
-#tail-agents-list .tail-agent p { margin: 2px 0; overflow: hidden; color: var(--th-text); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
-#tail-agents-list .tail-agent small { color: var(--th-muted); font-size: 12px; }
-#tail-agents-empty { margin: 0; color: var(--th-muted); font-size: 13px; }
-#tail-agents-empty[hidden] { display: none; }
+#harness-agents-section { margin: 0 0 28px; }
+.harness-agents-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.harness-agents-heading h4 { margin: 0; font-size: 14px; font-weight: 500; }
+#harness-agents-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+#harness-agents-list .harness-agent { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--th-text) 12%, transparent); border-radius: 16px; }
+#harness-agents-list .harness-agent > .th-icon { width: 18px; height: 18px; color: var(--th-muted); }
+#harness-agents-list .harness-agent > div { min-width: 0; }
+#harness-agents-list .harness-agent strong { font-size: 14px; }
+#harness-agents-list .harness-agent p { margin: 2px 0; overflow: hidden; color: var(--th-text); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+#harness-agents-list .harness-agent small { color: var(--th-muted); font-size: 12px; }
+#harness-agents-empty { margin: 0; color: var(--th-muted); font-size: 13px; }
+#harness-agents-empty[hidden] { display: none; }
 /* Palette footer: create an agent from the @ list. */
 #resource-menu .resource-create { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 32px; margin-top: 4px; padding: 6px 10px; border: 0; border-top: 1px solid color-mix(in srgb, var(--th-text) 10%, transparent); border-radius: 0 0 12px 12px; background: transparent; color: var(--th-text); font-size: 13px; text-align: left; }
 #resource-menu .resource-create:hover { background: var(--th-hover, color-mix(in srgb, var(--th-text) 7%, transparent)); }

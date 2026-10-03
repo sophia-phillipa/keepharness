@@ -204,7 +204,7 @@ def wrap(command, session, cwd, project, environment=None):
         args += [
             "--ro-bind",
             str(Path(__file__).with_name("web_search.py").resolve()),
-            "/tail-web-search.py",
+            "/keepharness-web-search.py",
         ]
     descriptors = []
     key_name = PRODUCT.env_prefix + "_LOCAL_KEY"

@@ -1,8 +1,8 @@
 # Response formatting
 
-Implemented in Tail Harness on 2026-09-19. Responses previously shown as literal text now render Markdown during streaming, in the final result and in history. Headings, tables, bold, italics, lists, quotes, links and code get their own presentation. Plain JSON objects/arrays and fenced json blocks in Markdown are indented; invalid content stays visible. Copying a response keeps the original source.
+Implemented in KeepHarness on 2026-09-19. Responses previously shown as literal text now render Markdown during streaming, in the final result and in history. Headings, tables, bold, italics, lists, quotes, links and code get their own presentation. Plain JSON objects/arrays and fenced json blocks in Markdown are indented; invalid content stays visible. Copying a response keeps the original source.
 
-The Tail Harness bubbles and side details, error paths, approvals and Maestro events are preserved. User messages and reasoning remain literal. The markdown-it 14.1.0 parser is served locally, with HTML disabled, dangerous links rejected and images suppressed. The bundle, provenance and MIT license live in `agent_service/vendor/` and are included in the package. Reference: https://github.com/markdown-it/markdown-it/blob/14.1.0/README.md
+The KeepHarness bubbles and side details, error paths, approvals and Maestro events are preserved. User messages and reasoning remain literal. The markdown-it 14.1.0 parser is served locally, with HTML disabled, dangerous links rejected and images suppressed. The bundle, provenance and MIT license live in `agent_service/vendor/` and are included in the package. Reference: https://github.com/markdown-it/markdown-it/blob/14.1.0/README.md
 
 ## Validation performed
 

@@ -50,7 +50,7 @@ class ControlTest(unittest.TestCase):
         self.assertEqual(self.manager.validate(settings)["vpn_bind"], "10.44.0.2")
 
     def test_claude_cli_aliases_are_rejected_like_the_ui_hides_them(self):
-        # Same rule as TailUI.selectableModel: only versioned claude-<family>-<n> ids.
+        # Same rule as HarnessUI.selectableModel: only versioned claude-<family>-<n> ids.
         for alias in ("haiku", "sonnet", "opus", "claude-haiku-4-5-20251001", "opus[1m]"):
             settings = copy.deepcopy(self.manager.settings)
             settings["services"]["claude"]["models"] = [alias]

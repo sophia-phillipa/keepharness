@@ -59,7 +59,7 @@ const settle = page => page.evaluate(() => Promise.all(document.getAnimations().
  try {
  await check('A1-F1 publication evidence remains usable with console',async()=>{
   for(const [width,height] of [[1280,720],[1024,768]])for(const theme of ['porcelain','amethyst','petroleum']){
-   const {page}=await pending(width,height);await page.evaluate(theme=>TailTheme.apply(theme),theme);
+   const {page}=await pending(width,height);await page.evaluate(theme=>HarnessTheme.apply(theme),theme);
    await page.evaluate(()=>showGate({gate_id:'publish',kind:'publish',publish:true,effect_id:'effect',operation:'jira.create_issue',destination:'SYNTHETIC',artifact_preview:Array(40).fill('Synthetic evidence').join('\n'),options:[{id:'approve',label:'Approve'},{id:'deny',label:'Deny'}]}));
    await page.evaluate(()=>runConsole.openRun('a-job'));await settle(page);
    for(const expanded of [false,true]){if(expanded){await page.locator('#run-console-maximize').click();await settle(page);}

@@ -38,14 +38,14 @@ def readable(path):
  except OSError:return False
 try:(root/'written.txt').write_text('fixture');write=True
 except OSError:write=False
-print(json.dumps({'inside':readable(root/'inside.txt'),'outside':readable(%r),'symlink':readable(root/'escape.txt'),'write':write,'home':os.environ['HOME'],'foreign_env':os.environ.get('UNRELATED_SECRET'),'local_key':os.environ.get('TAIL_HARNESS_LOCAL_KEY')}))
+print(json.dumps({'inside':readable(root/'inside.txt'),'outside':readable(%r),'symlink':readable(root/'escape.txt'),'write':write,'home':os.environ['HOME'],'foreign_env':os.environ.get('UNRELATED_SECRET'),'local_key':os.environ.get('KEEPHARNESS_LOCAL_KEY')}))
 """ % (str(root), str(outside))
     command = wrap(
         ["/usr/bin/python3", "-c", script],
         session,
         root,
         {"root": str(root), "permissions": {"read": True, "write": writable}},
-        {"TAIL_HARNESS_LOCAL_KEY": "fixture-local", "UNRELATED_SECRET": "must-not-pass"},
+        {"KEEPHARNESS_LOCAL_KEY": "fixture-local", "UNRELATED_SECRET": "must-not-pass"},
     )
     try:
         result = subprocess.run(
@@ -83,7 +83,7 @@ def test_project_internal_runtime_secrets_are_hidden(tmp_path):
         "import pathlib,json; p=pathlib.Path(%r); print(json.dumps({'source':(p/'source.py').read_text(),'private':[str(x) for x in (p/'local_ai').rglob('private.txt')]}))"
         % str(root)
     )
-    with patch.dict("os.environ", {"TAIL_HARNESS_ROOT": str(root)}):
+    with patch.dict("os.environ", {"KEEPHARNESS_ROOT": str(root)}):
         command = wrap(
             ["/usr/bin/python3", "-c", script],
             session,

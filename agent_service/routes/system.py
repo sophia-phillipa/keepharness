@@ -10,7 +10,7 @@ from starlette.responses import FileResponse, HTMLResponse, JSONResponse, Redire
 from starlette.routing import Route
 
 import adapters
-from tail_ui import asset_response, static_response
+from harness_ui import asset_response, static_response
 
 from ..approval_sessions import SESSION_COOKIE, SESSION_SECONDS, consume_enrollment, revoke_session
 from ..config import PACKAGE_DIR, REPOSITORY_ROOT, VERSION_FILE

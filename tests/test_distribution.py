@@ -33,9 +33,9 @@ class DistributionTest(unittest.TestCase):
         self.assertIn("Restart=on-failure", unit)
         self.assertIn("UMask=0077", unit)
         self.assertNotIn("sudo", unit)
-        self.assertIn('"/tmp/user with space/.local/share/tail-harness"', unit)
+        self.assertIn('"/tmp/user with space/.local/share/keepharness"', unit)
         self.assertEqual(
-            next(mode for path, (text, mode) in config.items() if path.name == "tail-harness-open"),
+            next(mode for path, (text, mode) in config.items() if path.name == "keepharness-open"),
             0o700,
         )
 
@@ -173,3 +173,22 @@ def test_static_version_labels_match_the_version_file():
     version = (root / "agent_service/VERSION").read_text().strip()
     assert f"v{version} · MIT" in (root / "control/index.html").read_text()
     assert f"Release: {version}" in (root / "agent_service/index.html").read_text()
+
+
+def test_install_replaces_the_tail_harness_service_and_shortcuts(tmp_path):
+    from control.install import remove_legacy_service
+
+    legacy = [
+        tmp_path / ".config/systemd/user/tail-harness.service",
+        tmp_path / ".local/bin/tail-harness-open",
+        tmp_path / ".local/share/applications/tail-harness.desktop",
+    ]
+    for path in legacy:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("legacy")
+    calls = []
+    remove_legacy_service(tmp_path, run=lambda command, **_: calls.append(command))
+    assert calls == [["systemctl", "--user", "disable", "--now", "tail-harness.service"]]
+    assert not any(path.exists() for path in legacy)
+    remove_legacy_service(tmp_path, run=lambda command, **_: calls.append(command))
+    assert len(calls) == 1

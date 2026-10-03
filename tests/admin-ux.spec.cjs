@@ -16,7 +16,7 @@ const assert = require("node:assert/strict");
         body: await fs.readFile(
           path.join(
             __dirname,
-            file.startsWith("assets/") ? "../tail_ui" : "../control",
+            file.startsWith("assets/") ? "../harness_ui" : "../control",
             file,
           ),
         ),
@@ -152,7 +152,7 @@ const assert = require("node:assert/strict");
         ),
       );
       await p.screenshot({
-        path: "/tmp/tail-admin-codex-" + width + ".png",
+        path: "/tmp/keepharness-admin-codex-" + width + ".png",
         fullPage: true,
       });
     }
@@ -264,7 +264,7 @@ const assert = require("node:assert/strict");
     assert(
       await p.getByRole("checkbox", { name: /DeepSeek V4 Pro/ }).isVisible(),
     );
-    await p.screenshot({ path: "/tmp/tail-admin-deepseek.png" });
+    await p.screenshot({ path: "/tmp/keepharness-admin-deepseek.png" });
     await p.click("#wizard-cancel");
     await p.click("#add-provider");
     await p.waitForFunction(() =>
@@ -318,7 +318,9 @@ const assert = require("node:assert/strict");
       .click();
     assert(!(await p.locator("#wizard-next").isDisabled()));
     assert.equal(await p.locator("#configuration-lock").count(), 0);
-    await p.screenshot({ path: "/tmp/tail-admin-configuration-notice.png" });
+    await p.screenshot({
+      path: "/tmp/keepharness-admin-configuration-notice.png",
+    });
     assert.deepEqual(errors, []);
     console.log(
       "PASS: admin discovery focus, missing CLI guidance, failed check recovery, pending action feedback, context notice reset, mobile and CSS 200% reflow",

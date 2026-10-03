@@ -44,7 +44,7 @@ const path = require("node:path");
           body: await fs.readFile(
             path.join(
               __dirname,
-              file.startsWith("assets/") ? "../tail_ui" : "../agent_service",
+              file.startsWith("assets/") ? "../harness_ui" : "../agent_service",
               file,
             ),
           ),
@@ -59,7 +59,7 @@ const path = require("node:path");
       });
     const errors = [];
     page.on("pageerror", (error) => errors.push(error.message));
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.14.0"));
+    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
     await page.goto(origin);
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     const [missing, other] = await page.evaluate(() =>

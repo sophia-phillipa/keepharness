@@ -59,7 +59,7 @@ class RPC:
             {
                 "clientInfo": {
                     "name": "local-agent",
-                    "title": "Tail Harness local agent",
+                    "title": "KeepHarness local agent",
                     "version": "1.0",
                 },
                 "capabilities": {"experimentalApi": True},

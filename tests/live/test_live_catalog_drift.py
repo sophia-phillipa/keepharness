@@ -4,8 +4,8 @@ Two kinds of checks live here:
 
 * Offline, always runs: the ``LEGACY_MODELS`` freshness note in ``adapters/claude/account.py``
   must be a "Reviewed YYYY-MM-DD" date no more than 90 days old — a stale review is a paper
-  cut, not a live-provider problem, so it is not gated behind ``TAIL_HARNESS_LIVE``.
-* Live, opt-in (``TAIL_HARNESS_LIVE=1``): spawn the real ``claude``/``codex`` CLI (no
+  cut, not a live-provider problem, so it is not gated behind ``KEEPHARNESS_LIVE``.
+* Live, opt-in (``KEEPHARNESS_LIVE=1``): spawn the real ``claude``/``codex`` CLI (no
   inference, metadata only) and fail if a model the harness relies on has quietly
   disappeared, been renamed, or been disabled. Cost: two CLI spawns, no tokens.
 """
@@ -67,7 +67,7 @@ def _codex_spec_model_ids():
 def test_claude_initialize_catalog_still_covers_the_legacy_models():
     """A LEGACY_MODELS entry must not have silently become disabled or vanished."""
     binary = shutil.which("claude")
-    assert binary, "claude CLI not found on PATH; this test only runs with TAIL_HARNESS_LIVE=1"
+    assert binary, "claude CLI not found on PATH; this test only runs with KEEPHARNESS_LIVE=1"
 
     async def scenario():
         data = await claude_account.metadata({"binary": binary})
@@ -95,7 +95,7 @@ def test_claude_initialize_catalog_still_covers_the_legacy_models():
 def test_codex_model_list_still_returns_every_spec_model():
     """Every model documented under adapters/codex/specs/models/*.md must still resolve."""
     binary = shutil.which("codex")
-    assert binary, "codex CLI not found on PATH; this test only runs with TAIL_HARNESS_LIVE=1"
+    assert binary, "codex CLI not found on PATH; this test only runs with KEEPHARNESS_LIVE=1"
 
     response = asyncio.run(codex_rpc.metadata(binary, "model/list"))
     returned_ids = {

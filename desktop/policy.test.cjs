@@ -21,7 +21,7 @@ test('external URLs are limited to web and mail links without credentials', () =
 });
 
 test('the window is sandboxed without Node in the page', () => {
-  const prefs = windowOptions('Tail Harness').webPreferences;
+  const prefs = windowOptions('KeepHarness').webPreferences;
   assert.equal(prefs.nodeIntegration, false);
   assert.equal(prefs.contextIsolation, true);
   assert.equal(prefs.sandbox, true);

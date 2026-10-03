@@ -2,7 +2,7 @@
 
 `control/product.py` is the identity source: display name, distribution/command
 slug, environment prefix, state/config paths relative to home, MCP name, branding
-icon and light/dark defaults. The shipped values remain Tail Harness and all
+icon and light/dark defaults. The shipped values remain KeepHarness and all
 existing identifiers are unchanged. Provider protocol identifiers and Tailscale
 owner identifiers are outside this naming contract.
 

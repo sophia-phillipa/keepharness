@@ -36,7 +36,7 @@ async function fixture(browser,width=1440,height=900){
  await check('A1-F2 resource text owns boundary',async()=>{
   const {page:p}=await fixture(browser);
   for(const theme of ['porcelain','amethyst','petroleum']){
-   await p.evaluate(t=>TailTheme.apply(t),theme);if(await p.locator('#activity-panel').isHidden())await p.locator('#panel-toggle').click();
+   await p.evaluate(t=>HarnessTheme.apply(t),theme);if(await p.locator('#activity-panel').isHidden())await p.locator('#panel-toggle').click();
    await p.locator('#header-execution-mode').click();
    const geometry=await p.locator('#workspace-resources').evaluate(n=>{const walker=document.createTreeWalker(n,NodeFilter.SHOW_TEXT);let t;while(t=walker.nextNode())if(t.textContent.trim()){const range=document.createRange();range.selectNodeContents(t);const r=range.getBoundingClientRect();if(r.width&&r.height){const h=document.elementFromPoint(r.x+1,r.y+r.height/2);return{owns:n.contains(h),left:r.left,hit:h?.id};}}});assert(geometry?.owns,JSON.stringify(geometry));assert((await p.locator('#activity-panel-resize').boundingBox()).width>=24);assert(await p.locator('#activity-panel-resize').evaluate(n=>{const r=n.getBoundingClientRect();return [r.left+1,r.right-1].every(x=>document.elementFromPoint(x,r.y+r.height*.45)===n);}), 'entire resize target owns hit area');
    await p.locator('#header-execution-mode').click();
@@ -44,7 +44,7 @@ async function fixture(browser,width=1440,height=900){
  });
  await check('A1-F3 distinct console tab semantics',async()=>{
   const {page:p}=await fixture(browser);await p.keyboard.press('Control+j');
-  for(const theme of ['porcelain','amethyst']){await p.evaluate(t=>TailTheme.apply(t),theme);for(const [name,id] of Object.entries({Pipeline:'plan',Timeline:'trace',Logs:'list',Runs:'pulse',Agents:'server'})){const tab=p.getByRole('tab',{name,exact:true});await tab.click();assert.equal(await tab.locator('use').getAttribute('href'),'/assets/icons.svg#'+id);assert(await painted(tab.locator('use')));assert(await hit(tab));}}
+  for(const theme of ['porcelain','amethyst']){await p.evaluate(t=>HarnessTheme.apply(t),theme);for(const [name,id] of Object.entries({Pipeline:'plan',Timeline:'trace',Logs:'list',Runs:'pulse',Agents:'server'})){const tab=p.getByRole('tab',{name,exact:true});await tab.click();assert.equal(await tab.locator('use').getAttribute('href'),'/assets/icons.svg#'+id);assert(await painted(tab.locator('use')));assert(await hit(tab));}}
   await p.close();
  });
  await check('A1-F4 span state markers',async()=>{

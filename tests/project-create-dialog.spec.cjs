@@ -73,7 +73,7 @@ const assert = require("node:assert/strict"),
         body: await fs.readFile(
           path.join(
             __dirname,
-            file.startsWith("assets/") ? "../tail_ui" : "../agent_service",
+            file.startsWith("assets/") ? "../harness_ui" : "../agent_service",
             file,
           ),
         ),
@@ -86,7 +86,7 @@ const assert = require("node:assert/strict"),
               : "text/html",
       });
     });
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.14.0"));
+    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
     await page.goto(origin);
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     if (!(await page.locator("#project-tree").evaluate((el) => el.open)))
@@ -109,7 +109,7 @@ const assert = require("node:assert/strict"),
         .locator("#project-name")
         .evaluate((e) => e === document.activeElement),
     );
-    await page.evaluate(() => TailTheme.apply("amethyst", false));
+    await page.evaluate(() => HarnessTheme.apply("amethyst", false));
     await page.screenshot({ path: "/tmp/project-create-desktop.png" });
     await page.fill("#project-name", "My project");
     await page.click("#project-create");
@@ -171,7 +171,7 @@ const assert = require("node:assert/strict"),
     assert.equal(await page.locator("#project-selected-paths li").count(), 0);
     await page.setViewportSize({ width: 390, height: 844 });
     for (const palette of ["amethyst", "porcelain"]) {
-      await page.evaluate((p) => TailTheme.apply(p, false), palette);
+      await page.evaluate((p) => HarnessTheme.apply(p, false), palette);
       assert(
         await page.locator("#project-dialog").evaluate((e) => {
           const r = e.getBoundingClientRect();

@@ -11,12 +11,14 @@
   {id:'petroleum',name:'Petroleum',mode:'dark',colors:['#111c22','#6bd4c9','#f0bc68']},
   {id:'arizona',name:'Arizona',mode:'dark',colors:['#232323','#fc4c02','#eeeeee']}
  ];
- const key='tail-harness:theme:'+surface;
+ const key='keepharness:theme:'+surface;
+ // Until 0.15.0 the product's former name keyed this choice as 'tail-harness:theme:*'.
+ const legacyKey='tail-harness:theme:'+surface;
  const defaultLight="paper";
  const defaultDark="graphite";
  let initial=defaultLight;
  try{
-  const saved=localStorage.getItem(key);
+  const saved=localStorage.getItem(key)||localStorage.getItem(legacyKey);
   if(saved)initial=saved;
   else if(matchMedia('(prefers-color-scheme: dark)').matches)initial=defaultDark;
  }catch{}
@@ -33,6 +35,6 @@
   document.querySelectorAll('[data-theme-choice]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.themeChoice===t.id)));
   const select=document.getElementById('theme-select');if(select)select.value=t.id;
  }
- window.TailTheme={themes,apply,key,surface};apply(initial,false);
+ window.HarnessTheme={themes,apply,key,surface};apply(initial,false);
  addEventListener('storage',e=>{if(e.key===key)apply(e.newValue,false);});
 })();

@@ -65,7 +65,7 @@ async function unobscured(locator) {
     });
     await check('A1-F4 mobile tour leaves composer, controls and status visible', async () => {
       const page = await fixture(browser, 400);
-      await page.evaluate(() => tailHarnessTour.start());
+      await page.evaluate(() => keepHarnessTour.start());
       const seen = new Set();
       while (await page.locator('#tour-root').count()) {
         const title = await page.locator('#tour-title').innerText();
@@ -86,7 +86,7 @@ async function unobscured(locator) {
     await check('A1-F5 origin icons inherit the theme foreground', async () => {
       const page = await fixture(browser, 1280);
       for (const theme of ['porcelain', 'amethyst', 'petroleum']) {
-        await page.evaluate(theme => TailTheme.apply(theme), theme);
+        await page.evaluate(theme => HarnessTheme.apply(theme), theme);
         await page.fill('#prompt', '/');
         await page.locator('.resource-origin-icon svg').first().waitFor();
         const colors = await page.locator('.resource-origin-icon svg').first().evaluate(node => ({ fill: getComputedStyle(node).fill, color: getComputedStyle(node).color }));

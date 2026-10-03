@@ -63,7 +63,7 @@ const assert = require("node:assert/strict");
     },
   };
   const bundle = () => ({
-    format: "tail-harness-settings",
+    format: "keepharness-settings",
     version: 1,
     settings: state.settings,
     local_profile: {},
@@ -124,7 +124,7 @@ const assert = require("node:assert/strict");
   assert.equal(await p.locator("#dashboard").isVisible(), true);
   assert(actions.some((x) => x[0] === "scan"));
   await p.waitForSelector("#provider-dialog:not([hidden])");
-  await p.screenshot({ path: "/tmp/tail-wizard-new.png" });
+  await p.screenshot({ path: "/tmp/keepharness-wizard-new.png" });
   for (const width of [390, 768]) {
     await p.setViewportSize({ width, height: 844 });
     assert.equal(
@@ -170,7 +170,7 @@ const assert = require("node:assert/strict");
     .click();
   assert.match(
     await p.locator("#project-list").innerText(),
-    /Tail Harness sidebar/,
+    /KeepHarness sidebar/,
   );
   const uploadsCopy = await p
     .locator("#uploads")
@@ -227,7 +227,7 @@ const assert = require("node:assert/strict");
     assert(gap >= 16, `Editor gap at ${width}px: ${gap}`);
   }
   await p.screenshot({
-    path: "/tmp/tail-provider-layout-fixed.png",
+    path: "/tmp/keepharness-provider-layout-fixed.png",
     fullPage: true,
   });
   await p.click("#wizard-cancel");
@@ -331,7 +331,7 @@ const assert = require("node:assert/strict");
   const downloading = p.waitForEvent("download");
   await p.click("#export-settings");
   const download = await downloading;
-  assert.equal(download.suggestedFilename(), "tail-harness-settings.json");
+  assert.equal(download.suggestedFilename(), "keepharness-settings.json");
   await p.locator("#network-feedback:not([hidden])").waitFor();
   assert.equal(await p.locator("#network-close svg").count(), 1);
   assert(await p.locator("#network-close").getAttribute("title"));
@@ -343,7 +343,7 @@ const assert = require("node:assert/strict");
   await p.locator("[data-theme-choice=violet-bordeaux]").click();
   await p.click("#appearance-close");
   await p.screenshot({
-    path: "/tmp/tail-admin-test-desktop.png",
+    path: "/tmp/keepharness-admin-test-desktop.png",
     fullPage: true,
   });
   state.settings.services.local = {
@@ -376,7 +376,10 @@ const assert = require("node:assert/strict");
   await p.locator("#inspector-tabs").getByText("Model and hardware").click();
   assert(await p.locator("#local-model-permissions").isVisible());
   await p.locator("#inspector-tabs").getByText("Model and hardware").click();
-  await p.screenshot({ path: "/tmp/tail-inspector.png", fullPage: true });
+  await p.screenshot({
+    path: "/tmp/keepharness-inspector.png",
+    fullPage: true,
+  });
   for (const width of [390, 768]) {
     await p.setViewportSize({ width, height: 844 });
     assert.equal(

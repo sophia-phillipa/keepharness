@@ -13,7 +13,7 @@ const fs = require("node:fs");
     await page.addStyleTag({
       content: fs.readFileSync("agent_service/ui.css", "utf8"),
     });
-    await page.addScriptTag({ path: "tail_ui/assets/components.js" });
+    await page.addScriptTag({ path: "harness_ui/assets/components.js" });
     const source = fs.readFileSync("agent_service/ui.js", "utf8");
     await page.evaluate((source) => {
       window.busy = false;

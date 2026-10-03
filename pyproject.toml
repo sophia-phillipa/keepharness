@@ -4,8 +4,8 @@ build-backend = "product_build"
 backend-path = ["."]
 
 [project]
-name = "tail-harness"
-version = "0.14.0"
+name = "keepharness"
+version = "0.15.0"
 description = "Local AI CLI control panel and private-network harness"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -17,17 +17,17 @@ dependencies = ["starlette>=0.47,<1", "uvicorn>=0.35,<1", "httpx>=0.28,<1", "mcp
 test = ["pytest>=8,<10", "build>=1,<2"]
 
 [project.scripts]
-tail-harness = "control.cli:main"
-tail-harness-install = "control.install:main"
-tail-harness-mcp = "agent_service.mcp_bridge:main"
-tail-harness-local = "control.start_local:main"
+keepharness = "control.cli:main"
+keepharness-install = "control.install:main"
+keepharness-mcp = "agent_service.mcp_bridge:main"
+keepharness-local = "control.start_local:main"
 
 [tool.setuptools]
 include-package-data = false
 
 [tool.setuptools.package-data]
 adapters = ["README.md", "*/specs/*.md", "*/specs/**/*.md", "*/specs/*.json"]
-tail_ui = ["assets/*"]
+harness_ui = ["assets/*"]
 control = ["*.html", "*.css", "*.js"]
 agent_service = ["*.html", "*.css", "*.js", "*.sh", "VERSION", "vendor/*", "prompts/*.md"]
 
@@ -36,20 +36,20 @@ testpaths = ["tests"]
 markers = [
     "requires_media_sandbox: skip when ffmpeg/bwrap/prlimit or the bwrap user-namespace probe are unavailable",
     "slow: takes tens of seconds (packaging builds, venvs, the 0.5.0 upgrade path); skipped unless --run-slow",
-    "live: spawns a real provider CLI and needs network/credentials; skipped unless TAIL_HARNESS_LIVE=1",
+    "live: spawns a real provider CLI and needs network/credentials; skipped unless KEEPHARNESS_LIVE=1",
     "host_tools(*names): skip when one of the named host tools is missing from PATH",
 ]
 
 [tool.setuptools.data-files]
-"share/tail-harness/profiles" = ["profiles/qwen-vulkan-profile.json", "profiles/local-cpu-profile.json"]
+"share/keepharness/profiles" = ["profiles/qwen-vulkan-profile.json", "profiles/local-cpu-profile.json"]
 
 [tool.setuptools.packages.find]
-include = ["control", "agent_service", "agent_service.*", "tail_ui", "adapters", "adapters.*"]
+include = ["control", "agent_service", "agent_service.*", "harness_ui", "adapters", "adapters.*"]
 
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-exclude = ["agent_service/vendor", "tail_ui/assets", "graphify-out", "local-ai", "local_ai"]
+exclude = ["agent_service/vendor", "harness_ui/assets", "graphify-out", "local-ai", "local_ai"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W"]

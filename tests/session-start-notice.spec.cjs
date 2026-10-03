@@ -23,7 +23,7 @@ const assert = require("node:assert/strict"),
           path: path.join(
             __dirname,
             "..",
-            p.startsWith("/assets/") ? "tail_ui" : "agent_service",
+            p.startsWith("/assets/") ? "harness_ui" : "agent_service",
             p === "/" ? "index.html" : p,
           ),
         });
@@ -105,7 +105,7 @@ const assert = require("node:assert/strict"),
     };
     const idle = () => page.waitForFunction(() => !busy && !submitting);
 
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.14.0"));
+    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
 
     await page.goto("http://panel.test/");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });

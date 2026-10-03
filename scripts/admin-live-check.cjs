@@ -12,7 +12,7 @@ const assert = require("node:assert/strict"),
   );
   assert(
     new URL(ADMIN_TEST_URL).hostname === "127.0.0.1" &&
-      path.resolve(ADMIN_TEST_STATE).startsWith("/tmp/tail-admin-live-"),
+      path.resolve(ADMIN_TEST_STATE).startsWith("/tmp/keepharness-admin-live-"),
     "Refuse non-fixture destination",
   );
   const browser = await chromium.launch(),
@@ -116,7 +116,7 @@ const assert = require("node:assert/strict"),
       console.log("PASS real admin HTTP round " + round);
       if (round === 10)
         await page.screenshot({
-          path: "/tmp/tail-admin-gauntlet/live-admin-mobile.png",
+          path: "/tmp/keepharness-admin-gauntlet/live-admin-mobile.png",
           fullPage: true,
         });
     }

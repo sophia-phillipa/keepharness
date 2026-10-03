@@ -307,8 +307,8 @@ async def _run(fixture, name):
 
 
 def run_codex_probe(name):
-    if os.environ.get("TAIL_HARNESS_LIVE") != "1":
-        raise RuntimeError("Set TAIL_HARNESS_LIVE=1 to run provider probes")
+    if os.environ.get("KEEPHARNESS_LIVE") != "1":
+        raise RuntimeError("Set KEEPHARNESS_LIVE=1 to run provider probes")
     if name not in PROBES:
         raise ValueError(name)
     from conformance import isolated_fixture

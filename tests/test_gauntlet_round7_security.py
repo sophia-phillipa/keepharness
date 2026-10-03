@@ -36,7 +36,7 @@ def test_nested_private_symlink_target_not_exposed(tmp_path, monkeypatch, kind, 
     assert secret.stat().st_nlink == 1
     session = tmp_path / "session"
     session.mkdir()
-    monkeypatch.setenv("TAIL_HARNESS_ROOT", str(install))
+    monkeypatch.setenv("KEEPHARNESS_ROOT", str(install))
     try:
         command = wrap(
             [

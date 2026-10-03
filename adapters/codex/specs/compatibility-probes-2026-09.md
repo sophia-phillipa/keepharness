@@ -39,7 +39,7 @@ Run from the repository root. The runner records its complete argv and protocol
 messages. `C(NAME)` in the table is this exact invocation with `NAME` substituted:
 
 ```sh
-TAIL_HARNESS_LIVE=1 .venv/bin/python tests/live/codex_probes.py NAME
+KEEPHARNESS_LIVE=1 .venv/bin/python tests/live/codex_probes.py NAME
 ```
 
 Its common child command is below. `CODEX`, `PYTHON`, `SERVER`, and temporary paths
@@ -133,14 +133,14 @@ no schema generation was treated as proof of a successful model turn.
 .venv/bin/python -m pytest -q tests/live/test_conformance_probes.py
 
 # One paid representative; select other case IDs deliberately.
-TAIL_HARNESS_LIVE=1 .venv/bin/python -m pytest -q tests/live/test_conformance_probes.py -k 'test_codex_conformance and skills'
+KEEPHARNESS_LIVE=1 .venv/bin/python -m pytest -q tests/live/test_conformance_probes.py -k 'test_codex_conformance and skills'
 ```
 
 The canonical Codex matrix has ten cases. Assertions check actual tool events,
 question options/replies, successful marker propagation, expected missing
 capabilities, exact model/effort, and measured timings. Exploratory variants are
 manually runnable but not extra pytest cases. Tests never opt into the existing
-`TAIL_HARNESS_LIVE` suite. Every process group is terminated during teardown;
+`KEEPHARNESS_LIVE` suite. Every process group is terminated during teardown;
 normal probes stop at ten minutes, including failed or silent reads. The latest
 fixture/runner integration was rerun through pytest: **1 passed, 23 deselected**.
 

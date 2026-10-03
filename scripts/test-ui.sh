@@ -9,8 +9,8 @@ trap cleanup EXIT INT TERM
 # Each campaign owns free ports; never attach a test to another checkout's server.
 TH_PORTS=$("${PYTHON:-python3}" -c 'import os,socket
 sockets=[]
-for name in ("TAIL_HARNESS_TEST_ADMIN_PORT", "TAIL_HARNESS_TEST_CHAT_PORT"):
- s=socket.socket();s.bind(("127.0.0.1",int(os.environ.get(name) or os.environ.get({"TAIL_HARNESS_TEST_ADMIN_PORT":"TH_ADMIN_PORT", "TAIL_HARNESS_TEST_CHAT_PORT":"TH_CHAT_PORT"}[name],"0"))));sockets.append(s)
+for name in ("KEEPHARNESS_TEST_ADMIN_PORT", "KEEPHARNESS_TEST_CHAT_PORT"):
+ s=socket.socket();s.bind(("127.0.0.1",int(os.environ.get(name) or os.environ.get({"KEEPHARNESS_TEST_ADMIN_PORT":"TH_ADMIN_PORT", "KEEPHARNESS_TEST_CHAT_PORT":"TH_CHAT_PORT"}[name],"0"))));sockets.append(s)
 print(*(s.getsockname()[1] for s in sockets))')
 TH_ADMIN_PORT=${TH_PORTS% *}
 TH_CHAT_PORT=${TH_PORTS#* }
@@ -31,7 +31,7 @@ assert urllib.request.urlopen(url+"/admin.js").read()==Path("control/admin.js").
 kill -0 "$TH_PID"
 "${PYTHON:-python3}" -c 'import json,sys,uuid;from pathlib import Path
 root=Path(sys.argv[1]);port=int(sys.argv[2]);(root/"chat.json").write_text(json.dumps({"state_dir":str(root/"chat"),"bind":"127.0.0.1","port":port,"local_access":True,"clients":{"local":{"sha256":"0"*64,"projects":["sem-projeto"]}},"projects":{"sem-projeto":{}},"services":{},"origins":[f"http://127.0.0.1:{port}"],"config_revision":uuid.uuid4().hex}))' "$TH_STATE" "$TH_CHAT_PORT"
-TAIL_HARNESS_AGENT_CONFIG="$TH_STATE/chat.json" "${PYTHON:-python3}" -m agent_service.app >"$TH_STATE/chat.log" 2>&1 &
+KEEPHARNESS_AGENT_CONFIG="$TH_STATE/chat.json" "${PYTHON:-python3}" -m agent_service.app >"$TH_STATE/chat.log" 2>&1 &
 TH_CHAT_PID=$!
 "${PYTHON:-python3}" -c 'import json,sys,time,urllib.request
 from pathlib import Path

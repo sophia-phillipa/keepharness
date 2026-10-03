@@ -551,9 +551,9 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
   heading.className = "access-menu-heading";
   heading.textContent =
     trigger.prefix === "@@"
-      ? "Tail Harness agents"
+      ? "KeepHarness agents"
       : trigger.prefix === "//"
-        ? "Tail Harness skills and commands"
+        ? "KeepHarness skills and commands"
         : trigger.prefix === "@"
           ? "Available agents"
           : "Agents, skills and commands";
@@ -568,7 +568,7 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
   if (trigger.prefix === "//") {
     const empty = document.createElement("p");
     empty.className = "resource-empty";
-    empty.textContent = "Tail Harness resources are not available yet.";
+    empty.textContent = "KeepHarness resources are not available yet.";
     options.append(empty);
   } else if (loading) {
     const row = document.createElement("p");
@@ -581,7 +581,7 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
       const scope =
           item.scope === "project"
             ? "Project"
-            : item.scope === "tail"
+            : item.scope === "harness"
               ? "Yours"
             : item.scope === "catalog"
               ? "Catalog"
@@ -595,7 +595,7 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
           title = document.createElement("h3");
         section.className = "resource-group";
         title.textContent =
-          item.scope === "tail" ? category : category + " · " + scope + " · " + item.origin;
+          item.scope === "harness" ? category : category + " · " + scope + " · " + item.origin;
         section.append(title);
         groups.set(groupKey, section);
         options.append(section);
@@ -616,7 +616,7 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
       glyph.className = "resource-origin-icon";
       glyph.setAttribute("aria-hidden", "true");
       glyph.append(
-        item.scope === "tail" ? providerModelIcon(item.backend, item.model) : resourceIcon(item),
+        item.scope === "harness" ? providerModelIcon(item.backend, item.model) : resourceIcon(item),
       );
       const text = document.createElement("span"),
         name = document.createElement("strong"),
@@ -651,7 +651,7 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
     const create = document.createElement("button");
     create.type = "button";
     create.className = "resource-create";
-    create.append(TailUI.icon("plus"), document.createTextNode("Create agent…"));
+    create.append(HarnessUI.icon("plus"), document.createTextNode("Create agent…"));
     create.onclick = () => {
       closeResourceMenu();
       openAgentDialog();
@@ -736,10 +736,10 @@ function selectResource(item, trigger) {
     action?.click();
     return;
   }
-  const tailAgent = item.scope === "tail" && item.kind === "agent",
-    marker = tailAgent ? "@@" : trigger.prefix[0] === "@" ? "@" : "/",
+  const harnessAgent = item.scope === "harness" && item.kind === "agent",
+    marker = harnessAgent ? "@@" : trigger.prefix[0] === "@" ? "@" : "/",
     token = marker + item.name;
-  if (tailAgent) applyAgentRoute(item);
+  if (harnessAgent) applyAgentRoute(item);
   const input = $("prompt"),
     before = input.value.slice(0, trigger.start),
     after = input.value.slice(trigger.end);
@@ -784,7 +784,7 @@ async function refreshResources(trigger) {
     let filtered = [...resourceItems, ...builtinResources()]
       .filter((item) =>
         trigger.prefix === "@@"
-          ? item.kind === "agent" && item.scope === "tail"
+          ? item.kind === "agent" && item.scope === "harness"
           : trigger.prefix === "@"
             ? item.kind === "agent"
             : ["agent", "skill", "command", "workflow", "rule", "context", "builtin"].includes(item.kind),
@@ -957,7 +957,7 @@ const status = (text) => {
       text,
     )
   ) {
-    TailUI.notice(target, text, { error: true });
+    HarnessUI.notice(target, text, { error: true });
   } else if (
     Object.values(labels).includes(text) ||
     /^(Completed|Failed run|Cancelled|Running|Thinking|Reasoning|Receiving response|Preparing|Using tool|Tool finished|Plan updated|Run steps|Working|Checking quota|Sending request|Loading|Connected|Cancelling|Reconnecting|Ready to chat)/i.test(
@@ -1009,7 +1009,7 @@ const providerNames = {
 };
 function providerModelIcon(backend, model) {
   backend ||= models.find(item => item.id === model)?.backend;
-  return TailUI.icon({codex: "brand-openai", claude: "brand-claude", gemini: "brand-gemini", maestro: "tail-harness"}[backend] || "stack-2");
+  return HarnessUI.icon({codex: "brand-openai", claude: "brand-claude", gemini: "brand-gemini", maestro: "keepharness"}[backend] || "stack-2");
 }
 let composerCondition = null, modelAvailabilityError = "";
 function syncComposerAvailability() {
@@ -1485,7 +1485,7 @@ const userErrors = {
   approval_expiration_limit:
     "The run was cancelled after repeated approval requests expired. Send your message again when you are ready to respond.",
   approval_session_required:
-    "Enroll this browser using an owner-issued link. On the server, run tail-harness approve-device with your existing owner id and state directory.",
+    "Enroll this browser using an owner-issued link. On the server, run keepharness approve-device with your existing owner id and state directory.",
   approval_storage_unsafe:
     "Approval sessions could not be stored securely. Ask the server owner to check the state directory permissions before trying again.",
   approval_enrollment_invalid:
@@ -1526,14 +1526,14 @@ const userErrors = {
   invalid_command_arguments: "The command arguments are invalid.",
   resources_unavailable_in_workspace:
     "Resources are not available in this workspace.",
-  tail_resources_unavailable: "Resources are not available right now.",
-  tail_agent_exists: "An agent with that name already exists.",
-  tail_agent_invalid: "The agent details are not valid. Check each field and try again.",
-  tail_agent_limit: "You have reached the limit of 100 agents. Delete one to add another.",
-  tail_agent_changed: "This agent was changed elsewhere. Reload it and try again.",
-  tail_agent_not_found: "That agent no longer exists.",
-  tail_agent_storage_unsafe: "The agents folder cannot be used safely. Check the harness state folder.",
-  tail_agent_local_only: "Agents can only be created, edited or deleted from the computer that runs Tail Harness.",
+  harness_resources_unavailable: "Resources are not available right now.",
+  harness_agent_exists: "An agent with that name already exists.",
+  harness_agent_invalid: "The agent details are not valid. Check each field and try again.",
+  harness_agent_limit: "You have reached the limit of 100 agents. Delete one to add another.",
+  harness_agent_changed: "This agent was changed elsewhere. Reload it and try again.",
+  harness_agent_not_found: "That agent no longer exists.",
+  harness_agent_storage_unsafe: "The agents folder cannot be used safely. Check the harness state folder.",
+  harness_agent_local_only: "Agents can only be created, edited or deleted from the computer that runs KeepHarness.",
   page_invalid: "The page is not valid. Check the title and the text and try again.",
   page_not_found: "That page no longer exists.",
   page_changed: "This page was changed elsewhere. Reload it and try again.",
@@ -1620,7 +1620,7 @@ function selected() {
   return models.find((m) => m.id === $("model").value) || models[0];
 }
 function composerModels(catalog) {
-  const choices = catalog.models.filter(m => TailUI.selectableModel(m.backend, m.id));
+  const choices = catalog.models.filter(m => HarnessUI.selectableModel(m.backend, m.id));
   if (catalog.maestro) choices.push({ id: "auto", name: "Maestro (auto plan)", backend: "maestro", efforts: ["auto"] });
   return choices;
 }
@@ -2170,7 +2170,7 @@ async function history(timeout = 30000) {
     conversations.forEach(observeConversation);
     saveConversationActivity();
     renderProjects();
-    document.dispatchEvent(new Event("tail:history"));
+    document.dispatchEvent(new Event("harness:history"));
     if ($("conversation-search-dialog").open) renderConversationSearch();
     if (conversation) {
       const current = conversations.find((item) => item.id === conversation);
@@ -2844,7 +2844,7 @@ function renderProjects() {
         const navigate = document.createElement("button");
         navigate.type = "button";
         navigate.append(
-          TailUI.icon("folder"),
+          HarnessUI.icon("folder"),
           document.createTextNode("Go to project folder"),
         );
         navigate.onclick = () => {
@@ -2854,7 +2854,7 @@ function renderProjects() {
         const pin = document.createElement("button");
         pin.type = "button";
         pin.append(
-          TailUI.icon("star"),
+          HarnessUI.icon("star"),
           document.createTextNode(
             favorite ? "Remove from favorites" : "Add to favorites",
           ),
@@ -2866,7 +2866,7 @@ function renderProjects() {
         const remove = document.createElement("button");
         remove.type = "button";
         remove.append(
-          TailUI.icon("x"),
+          HarnessUI.icon("x"),
           document.createTextNode("Remove from list"),
         );
         remove.title = "Preserves the project's folders and conversations";
@@ -2878,7 +2878,7 @@ function renderProjects() {
         deleteFolder.type = "button";
         deleteFolder.className = "project-delete-folder";
         deleteFolder.append(
-          TailUI.icon("trash"),
+          HarnessUI.icon("trash"),
           document.createTextNode("Delete folder"),
         );
         deleteFolder.onclick = () => {
@@ -2918,7 +2918,7 @@ function renderProjects() {
         iconToggle.setAttribute("aria-pressed", String(showIcon));
         iconToggle.disabled = !projectIcon;
         iconToggle.append(
-          TailUI.icon("scan"),
+          HarnessUI.icon("scan"),
           document.createTextNode(
             showIcon ? "Hide project icon" : "Show project icon",
           ),
@@ -2934,7 +2934,7 @@ function renderProjects() {
         edit.type = "button";
         edit.title = "Change the name, add folders, and choose the main folder";
         edit.append(
-          TailUI.icon("pencil"),
+          HarnessUI.icon("pencil"),
           document.createTextNode("Edit project"),
         );
         edit.onclick = () => {
@@ -2948,7 +2948,7 @@ function renderProjects() {
         deleteFolder.title =
           "Review deleting the project's main folder from the computer";
         trigger.title = "Open project actions";
-        trigger.replaceChildren(TailUI.icon("settings"));
+        trigger.replaceChildren(HarnessUI.icon("settings"));
         menu.append(edit, navigate, pin, iconToggle, remove, deleteFolder);
         actions.append(trigger, menu);
         heading.append(button, actions);
@@ -2970,7 +2970,7 @@ function renderProjects() {
         const create = document.createElement("button");
         create.type = "button";
         create.className = "project-new";
-        create.append(TailUI.icon("message-plus"));
+        create.append(HarnessUI.icon("message-plus"));
         create.setAttribute(
           "aria-label",
           "New Conversation in " + o.textContent,
@@ -3007,7 +3007,7 @@ function renderProjects() {
     section.open = removedOpen;
     const heading = document.createElement("summary");
     heading.append(
-      TailUI.icon("archive"),
+      HarnessUI.icon("archive"),
       document.createTextNode("Removed projects (" + removed.length + ")"),
     );
     section.append(heading);
@@ -3015,7 +3015,7 @@ function renderProjects() {
       const restore = document.createElement("button");
       restore.type = "button";
       restore.append(
-        TailUI.icon("refresh"),
+        HarnessUI.icon("refresh"),
         document.createTextNode("Restore " + option.textContent),
       );
       restore.onclick = () =>
@@ -3536,7 +3536,7 @@ function renderPlanOutcome(card, runState = card.dataset.runState) {
   const approve = card.querySelector(".maestro-plan-actions .btn-primary");
   if (approve) approve.disabled = !!decision?.pending || state !== "pending";
   if (decision?.pending && state === "pending") note = decision.message;
-  card.querySelector(".state-pill").replaceChildren(TailUI.icon(choice === "approve" ? "check" : "shield"), document.createTextNode(label));
+  card.querySelector(".state-pill").replaceChildren(HarnessUI.icon(choice === "approve" ? "check" : "shield"), document.createTextNode(label));
   card.querySelector('[role="status"]').textContent = note;
 }
 const workflowResumeKeys = new Map();
@@ -3631,7 +3631,7 @@ function showMaestroPlan(data = {}) {
     const approve = document.createElement("button");
     approve.type = "button";
     approve.className = "btn btn-primary";
-    approve.append(TailUI.icon("check"), document.createTextNode("Approve plan & run"));
+    approve.append(HarnessUI.icon("check"), document.createTextNode("Approve plan & run"));
     approve.onclick = async () => {
       if (window.runConsole.planDecision(data.gate_id)?.pending) return;
       card.dataset.restoreFocus = String(card.contains(document.activeElement));
@@ -3657,7 +3657,7 @@ function showMaestroPlan(data = {}) {
   edit.type = "button";
   edit.className = "btn";
   edit.textContent = data.gate_id ? "Edit plan in Run console" : "View plan in Run console";
-  edit.prepend(TailUI.icon(data.gate_id ? "pencil" : "trace"));
+  edit.prepend(HarnessUI.icon(data.gate_id ? "pencil" : "trace"));
   edit.onclick = () => window.runConsole?.openPlanEditor();
   actions.append(edit);
   card.append(heading, steps, actions);
@@ -4409,7 +4409,7 @@ async function send() {
     return;
   }
   if (/^\s*\/\/[A-Za-z_][\w:-]*(?=\s|$)/.test(unfenced)) {
-    status("Tail Harness skills and commands are not available yet.");
+    status("KeepHarness skills and commands are not available yet.");
     return;
   }
   syncResourceSelections();
@@ -4776,7 +4776,7 @@ function renderProjectFileEntries(list, entries, tree = fileTree) {
       const paths = Array.from(tree.selected);
       e.dataTransfer.effectAllowed = "copy";
       e.dataTransfer.setData(
-        "application/x-tail-authorized-project-files",
+        "application/x-keepharness-authorized-project-files",
         JSON.stringify({ root_id: tree.rootId, paths }),
       );
     };
@@ -4834,7 +4834,7 @@ function selectProjectFileEntry(item, entry, event = {}) {
   renderProjectFileSelection();
 }
 function projectFileIcon(filename = "", folder = false, open = false) {
-  const theme = window.TailFileIcons,
+  const theme = window.HarnessFileIcons,
     name = filename.replaceAll("\\", "/").split("/").pop().toLowerCase();
   if (!theme) {
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -5142,7 +5142,7 @@ function renderFiles() {
       el.append(name);
       const b = document.createElement("button");
       b.type = "button";
-      b.append(TailUI.icon("x"));
+      b.append(HarnessUI.icon("x"));
       b.title = "Remove from the next message";
       b.setAttribute("aria-label", "Remove attachment " + f.name);
       b.disabled = busy || uploads > 0;
@@ -5255,7 +5255,7 @@ $("file").onchange = () => {
 $("dropzone").ondragover = (e) => {
   if (
     e.dataTransfer.types.includes(
-      "application/x-tail-authorized-project-files",
+      "application/x-keepharness-authorized-project-files",
     ) ||
     e.dataTransfer.files.length
   ) {
@@ -5268,7 +5268,7 @@ $("dropzone").ondrop = (e) => {
   e.preventDefault();
   $("dropzone").classList.remove("drag");
   const payload = e.dataTransfer.getData(
-    "application/x-tail-authorized-project-files",
+    "application/x-keepharness-authorized-project-files",
   );
   if (payload) {
     try {
@@ -5366,7 +5366,7 @@ $("about-dialog").addEventListener("close", () => {
 });
 $("theme-toggle").onclick = () => {
   const dark = document.documentElement.dataset.theme === "dark";
-  window.TailTheme?.apply(dark ? "paper" : "graphite");
+  window.HarnessTheme?.apply(dark ? "paper" : "graphite");
   $("theme-toggle-label").textContent = dark ? "Light" : "Dark";
 };
 // Codex-style "Choose project" under the composer: reuses the project select and its onchange.
@@ -5419,7 +5419,7 @@ $("project-button").onclick = () => {
       item.setAttribute("role", "option");
       item.setAttribute("aria-selected", String(option.value === $("project").value));
       item.append(
-        TailUI.icon("folder"),
+        HarnessUI.icon("folder"),
         document.createTextNode(option.value === "sem-projeto" ? "No project" : option.textContent),
       );
       item.onclick = () => {
@@ -5475,7 +5475,7 @@ function integrationRow(item, sharedReason = "") {
     .filter(Boolean)
     .join(" · ");
   text.append(name, meta);
-  open.append(TailUI.icon(item.kind === "mcp" ? "plug" : "stack-2"), text);
+  open.append(HarnessUI.icon(item.kind === "mcp" ? "plug" : "stack-2"), text);
   row.append(open);
   return row;
 }
@@ -5491,7 +5491,7 @@ function showIntegrationDetail(item) {
     facts = document.createElement("dl");
   back.type = "button";
   back.className = "plugins-back";
-  back.append(TailUI.icon("chevron-left"), document.createTextNode("Connectors and plugins"));
+  back.append(HarnessUI.icon("chevron-left"), document.createTextNode("Connectors and plugins"));
   back.onclick = () => {
     body.replaceChildren(...(pluginsView?.parts || []));
     body.querySelector('[data-integration-id="' + CSS.escape(item.id) + '"]')?.focus();
@@ -5502,7 +5502,7 @@ function showIntegrationDetail(item) {
     item.kind === "mcp"
       ? "Connector (MCP server)" + (item.transport ? " · " + item.transport : "")
       : "Plugin";
-  head.append(TailUI.icon(item.kind === "mcp" ? "plug" : "stack-2"), title, kind);
+  head.append(HarnessUI.icon(item.kind === "mcp" ? "plug" : "stack-2"), title, kind);
   const fact = (term, value) => {
     if (!value) return;
     const dt = document.createElement("dt"),
@@ -5528,7 +5528,7 @@ function showIntegrationDetail(item) {
     const manage = document.createElement("button");
     manage.type = "button";
     manage.className = "plugins-manage";
-    manage.append(TailUI.icon("settings"), document.createTextNode("Manage connectors and plugins"));
+    manage.append(HarnessUI.icon("settings"), document.createTextNode("Manage connectors and plugins"));
     manage.onclick = () => {
       $("plugins-menu").hidePopover();
       openAdminSettings("providers");
@@ -5617,7 +5617,7 @@ async function renderPluginsMenu() {
       const manage = document.createElement("button");
       manage.type = "button";
       manage.className = "plugins-manage";
-      manage.append(TailUI.icon("settings"), document.createTextNode("Manage connectors and plugins"));
+      manage.append(HarnessUI.icon("settings"), document.createTextNode("Manage connectors and plugins"));
       manage.onclick = () => {
         menu.hidePopover();
         openAdminSettings("providers");
@@ -5785,7 +5785,7 @@ function setReadiness(ready, message = "") {
     const active = document.activeElement;
     readinessFocus = active.closest("#settings-dialog") ? $("settings") : active;
   }
-  if (!ready) window.tailHarnessTour?.stop(false);
+  if (!ready) window.keepHarnessTour?.stop(false);
   interfaceReady = ready;
   for (const node of [
     $("app-topbar"),
@@ -5806,7 +5806,7 @@ function setReadiness(ready, message = "") {
     if (readinessFocus?.isConnected && readinessFocus.checkVisibility() && !readinessFocus.closest("[inert]"))
       readinessFocus.focus({ preventScroll: true });
     readinessFocus = null;
-    document.dispatchEvent(new Event("tail:ready"));
+    document.dispatchEvent(new Event("harness:ready"));
   }
   if (!ready) {
     for (const menu of document.querySelectorAll(".composer-menu:popover-open"))
@@ -6977,7 +6977,7 @@ function catalogCard(item) {
   return card;
 }
 async function refreshCatalog() {
-  void loadTailAgents();
+  void loadHarnessAgents();
   const request = ++catalogRequest,
     project = $("project").value;
   $("catalog-status").textContent = "Checking catalog for " + project + "…";
@@ -7050,9 +7050,9 @@ $("settings").onclick = () => {
   refreshCatalog();
 };
 $("settings-close").onclick = () => $("settings-dialog").close();
-// Tail-owned agents: own instructions, purpose, tasks, target output and the
+// Harness-owned agents: own instructions, purpose, tasks, target output and the
 // provider, model and effort they run on; called with @@name in any chat.
-let tailAgents = [],
+let harnessAgents = [],
   editingAgent = null;
 const agentFieldInputs = {
   name: "agent-name",
@@ -7560,15 +7560,15 @@ $("agent-form").onsubmit = async (event) => {
   $("agent-save").disabled = true;
   try {
     const saved = agent
-      ? await json("/v1/tail-agents/" + encodeURIComponent(agent.id), {
+      ? await json("/v1/harness-agents/" + encodeURIComponent(agent.id), {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ ...body, revision: agent.revision }),
         })
-      : await post("/v1/tail-agents", body);
+      : await post("/v1/harness-agents", body);
     $("agent-dialog").close();
     resourceItems = [];
-    await loadTailAgents();
+    await loadHarnessAgents();
     status((agent ? "Saved" : "Created") + " @@" + (saved?.name || body.name) + ".");
   } catch (error) {
     showAgentError(error.field || "", error.message);
@@ -7586,14 +7586,14 @@ $("agent-delete").onclick = async () => {
     return;
   }
   try {
-    await json("/v1/tail-agents/" + encodeURIComponent(agent.id), {
+    await json("/v1/harness-agents/" + encodeURIComponent(agent.id), {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ revision: agent.revision }),
     });
     $("agent-dialog").close();
     resourceItems = [];
-    await loadTailAgents();
+    await loadHarnessAgents();
     status("Deleted @@" + agent.name + ".");
   } catch (error) {
     showAgentError("", error.message);
@@ -7606,21 +7606,21 @@ $("agent-form").addEventListener("input", (event) => {
 });
 $("agent-cancel").onclick = $("agent-dialog-close").onclick = () => $("agent-dialog").close();
 $("agent-create").onclick = () => openAgentDialog();
-async function loadTailAgents() {
+async function loadHarnessAgents() {
   try {
-    const data = await json("/v1/tail-agents");
-    tailAgents = Array.isArray(data.agents) ? data.agents : [];
-    $("tail-agents-empty").textContent =
+    const data = await json("/v1/harness-agents");
+    harnessAgents = Array.isArray(data.agents) ? data.agents : [];
+    $("harness-agents-empty").textContent =
       "No agents yet. Create one to give a task its own instructions, provider and model.";
   } catch {
-    tailAgents = [];
-    $("tail-agents-empty").textContent = "Couldn't load your agents.";
+    harnessAgents = [];
+    $("harness-agents-empty").textContent = "Couldn't load your agents.";
   }
-  renderTailAgents();
+  renderHarnessAgents();
 }
-function renderTailAgents() {
-  $("tail-agents-list").replaceChildren(
-    ...tailAgents.map((agent) => {
+function renderHarnessAgents() {
+  $("harness-agents-list").replaceChildren(
+    ...harnessAgents.map((agent) => {
       const row = document.createElement("li"),
         text = document.createElement("div"),
         title = document.createElement("strong"),
@@ -7628,7 +7628,7 @@ function renderTailAgents() {
         route = document.createElement("small"),
         use = document.createElement("button"),
         edit = document.createElement("button");
-      row.className = "tail-agent";
+      row.className = "harness-agent";
       title.textContent = "@@" + agent.name;
       purpose.textContent = agent.purpose;
       route.textContent =
@@ -7641,7 +7641,7 @@ function renderTailAgents() {
       use.textContent = "Use";
       use.setAttribute("aria-label", "Use @@" + agent.name + " in the message");
       use.disabled = agent.available === false;
-      use.onclick = () => void useTailAgent(agent);
+      use.onclick = () => void useHarnessAgent(agent);
       edit.textContent = "Edit";
       edit.setAttribute("aria-label", "Edit @@" + agent.name);
       edit.onclick = () => openAgentDialog(agent);
@@ -7649,10 +7649,10 @@ function renderTailAgents() {
       return row;
     }),
   );
-  $("tail-agents-empty").hidden = tailAgents.length > 0;
+  $("harness-agents-empty").hidden = harnessAgents.length > 0;
 }
 // "Use" selects the agent like the palette does, so the message carries its revision.
-async function useTailAgent(agent) {
+async function useHarnessAgent(agent) {
   $("settings-dialog").close();
   const input = $("prompt"),
     at = input.selectionStart ?? input.value.length,
@@ -7672,7 +7672,7 @@ async function useTailAgent(agent) {
           execution_mode: m.execution_mode,
         }),
     );
-    const item = (data.items || []).find((i) => i.resource_id === "tail/agents/" + agent.id);
+    const item = (data.items || []).find((i) => i.resource_id === "harness/agents/" + agent.id);
     if (!item) throw Error("@@" + agent.name + " is not available here.");
     selectResource(item, trigger);
   } catch (error) {
@@ -8483,7 +8483,7 @@ for (const [id, name] of [
     cancel: "Stop",
     reload: "Reload screen",
   }[id];
-  b.replaceChildren(TailUI.icon(name));
+  b.replaceChildren(HarnessUI.icon(name));
   if (label) {
     if (["send", "cancel"].includes(id)) {
       const text = document.createElement("span");
@@ -8502,15 +8502,15 @@ for (const [id, name, label] of [
   const button = $(id);
   button.classList.add("btn");
   if (!label) button.classList.add("btn-icon");
-  button.replaceChildren(TailUI.icon(name));
+  button.replaceChildren(HarnessUI.icon(name));
   if (label) button.append(document.createTextNode(label));
 }
 for (const node of document.querySelectorAll(".brandmark,.welcome-icon"))
-  node.replaceChildren(TailUI.icon("stack-2"));
+  node.replaceChildren(HarnessUI.icon("stack-2"));
 for (const button of document.querySelectorAll("[data-settings]")) {
   button.textContent = button.textContent.replace(/^[^A-Za-zÀ-ÿ]+/, "");
   button.prepend(
-    TailUI.icon(
+    HarnessUI.icon(
       button.dataset.settings === "appearance"
         ? "adjustments"
         : button.dataset.settings === "agents"
@@ -8814,14 +8814,14 @@ function renderPicker(id) {
           list.setAttribute("role", "listbox");
           heading.setAttribute("aria-controls", list.id);
           heading.append(
-            TailUI.icon(
+            HarnessUI.icon(
               {
                 codex: "brand-openai",
                 claude: "brand-claude",
                 gemini: "brand-gemini",
                 local: "stack-2",
                 deepseek: "stack-2",
-                maestro: "tail-harness",
+                maestro: "keepharness",
               }[backend] || "stack-2",
             ),
           );
@@ -8840,7 +8840,7 @@ function renderPicker(id) {
           group.setAttribute("aria-label", label);
           heading.className = "model-provider-heading";
           heading.append(document.createTextNode(label));
-          const chevron = TailUI.icon("chevron-left");
+          const chevron = HarnessUI.icon("chevron-left");
           chevron.classList.add("model-provider-chevron");
           heading.append(chevron);
           list.setAttribute("aria-label", label);
@@ -9050,7 +9050,7 @@ async function loadProjectDirectories(
           const button = document.createElement("button");
           button.type = "button";
           button.append(
-            TailUI.icon("folder"),
+            HarnessUI.icon("folder"),
             document.createTextNode(root.label),
           );
           button.title = "Browse " + root.label;
@@ -9116,7 +9116,7 @@ function renderSelectedProjectDirectories() {
     const isPrimary = path === projectDirectory.selected.keys().next().value;
     primary.type = "button";
     primary.append(
-      TailUI.icon("home"),
+      HarnessUI.icon("home"),
       document.createTextNode(isPrimary ? "Main" : "Make main"),
     );
     primary.title = isPrimary
@@ -9137,7 +9137,7 @@ function renderSelectedProjectDirectories() {
       renderSelectedProjectDirectories();
     };
     remove.type = "button";
-    remove.append(TailUI.icon("x"), document.createTextNode("Remove"));
+    remove.append(HarnessUI.icon("x"), document.createTextNode("Remove"));
     remove.title =
       "Remove the folder from the project without deleting its files";
     remove.setAttribute("aria-label", "Remove folder " + name);
@@ -9170,7 +9170,7 @@ function openProjectDialog(projectId = null) {
     ? "Edit project"
     : "Create project";
   $("project-create").replaceChildren(
-    TailUI.icon(projectId ? "pencil" : "folder-plus"),
+    HarnessUI.icon(projectId ? "pencil" : "folder-plus"),
     document.createTextNode(projectId ? "Save changes" : "Create project"),
   );
   $("project-create").title = projectId
@@ -9193,7 +9193,7 @@ for (const [id, icon, title] of [
 ]) {
   const button = $(id);
   button.title = title;
-  if (!button.querySelector("svg")) button.prepend(TailUI.icon(icon));
+  if (!button.querySelector("svg")) button.prepend(HarnessUI.icon(icon));
 }
 $("add-project").onclick = () => {
   if (!busy && !loading) openProjectDialog();
@@ -9394,4 +9394,4 @@ function updateWorkspaceCounts() {
 }
 for (const id of ["files-view", "activity-events"])
   new MutationObserver(updateWorkspaceCounts).observe($(id), { childList: true, subtree: true });
-document.addEventListener("tail:ready", refreshWorkspaceResources);
+document.addEventListener("harness:ready", refreshWorkspaceResources);

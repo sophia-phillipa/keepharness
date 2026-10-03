@@ -138,7 +138,7 @@ def test_generic_binding_scope_precedence_and_mediation(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "name", ["HARNESS_SESSION", "TAIL_HARNESS_API_KEY", "LD_PRELOAD", "PATH", "PYTHONPATH"]
+    "name", ["HARNESS_SESSION", "KEEPHARNESS_API_KEY", "LD_PRELOAD", "PATH", "PYTHONPATH"]
 )
 def test_contract_rejects_authority_and_loader_environment(name):
     from agent_service.integrations import validate_integration

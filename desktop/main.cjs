@@ -1,4 +1,4 @@
-// Tail Harness desktop client: starts the local admin when it is not running,
+// KeepHarness desktop client: starts the local admin when it is not running,
 // opens the harness (or the admin when no provider is set up yet) in its own
 // window, keeps navigation inside the two local origins and stops the admin it
 // started when the app quits.
@@ -8,10 +8,10 @@ const http = require('node:http');
 const path = require('node:path');
 const { appOrigins, isAppUrl, externalUrl, windowOptions, processRunning } = require('./policy.cjs');
 
-const TITLE = 'Tail Harness';
+const TITLE = 'KeepHarness';
 const project = path.resolve(__dirname, '..');
-const adminPort = Number(process.env.TAIL_HARNESS_ADMIN_PORT || 8094);
-const harnessPort = Number(process.env.TAIL_HARNESS_PORT || 8095);
+const adminPort = Number(process.env.KEEPHARNESS_ADMIN_PORT || 8094);
+const harnessPort = Number(process.env.KEEPHARNESS_PORT || 8095);
 const adminUrl = `http://127.0.0.1:${adminPort}/`;
 const harnessUrl = `http://127.0.0.1:${harnessPort}/`;
 const origins = appOrigins([adminPort, harnessPort]);
@@ -40,7 +40,7 @@ async function waitFor(url, seconds) {
   return false;
 }
 function startAdmin() {
-  const python = process.env.TAIL_HARNESS_PYTHON || path.join(project, '.venv', 'bin', 'python');
+  const python = process.env.KEEPHARNESS_PYTHON || path.join(project, '.venv', 'bin', 'python');
   backend = spawn(python, ['-m', 'control', '--port', String(adminPort)], {
     cwd: project,
     env: { ...process.env, PYTHONUNBUFFERED: '1' },
@@ -61,8 +61,8 @@ async function start() {
       await dialog.showMessageBox({
         type: 'error',
         title: TITLE,
-        message: 'The Tail Harness service did not start.',
-        detail: stderr.slice(-2000) || 'Set TAIL_HARNESS_PYTHON to a Python environment with Tail Harness installed.',
+        message: 'The KeepHarness service did not start.',
+        detail: stderr.slice(-2000) || 'Set KEEPHARNESS_PYTHON to a Python environment with KeepHarness installed.',
       });
       app.quit();
       return;

@@ -621,8 +621,8 @@ def assert_claude_conformance(report: dict[str, Any]) -> None:
 def run_claude_probe(name: str) -> dict[str, Any]:
     """Run one named paid probe after the caller explicitly opts in."""
 
-    if os.environ.get("TAIL_HARNESS_LIVE") != "1":
-        raise RuntimeError("Set TAIL_HARNESS_LIVE=1 to run provider probes")
+    if os.environ.get("KEEPHARNESS_LIVE") != "1":
+        raise RuntimeError("Set KEEPHARNESS_LIVE=1 to run provider probes")
     if name not in PROBES:
         raise ValueError(name)
     with isolated_fixture(copy_claude_auth=True) as fixture:

@@ -10,9 +10,9 @@ import pytest
 
 MEDIA_SANDBOX_MARKER = "requires_media_sandbox"
 MEDIA_SANDBOX_TOOLS = ("ffmpeg", "bwrap", "prlimit")
-LIVE_ENV_VAR = "TAIL_HARNESS_LIVE"
+LIVE_ENV_VAR = "KEEPHARNESS_LIVE"
 # CI sets this so a broken media sandbox fails the run instead of skipping tests.
-REQUIRE_MEDIA_ENV_VAR = "TAIL_HARNESS_REQUIRE_MEDIA_SANDBOX"
+REQUIRE_MEDIA_ENV_VAR = "KEEPHARNESS_REQUIRE_MEDIA_SANDBOX"
 
 
 def pytest_addoption(parser):

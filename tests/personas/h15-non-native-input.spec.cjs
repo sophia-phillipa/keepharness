@@ -4,7 +4,7 @@
 const assert = require("node:assert/strict");
 const { mockHarness, runPersona } = require("./_harness.cjs");
 
-// Mx fixture ("claude-fx-5" stands for fx-claude: TailUI.selectableModel hides other Claude ids).
+// Mx fixture ("claude-fx-5" stands for fx-claude: HarnessUI.selectableModel hides other Claude ids).
 const MX = {
   "GET /v1/models": {
     json: {

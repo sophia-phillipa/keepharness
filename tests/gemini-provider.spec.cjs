@@ -97,7 +97,7 @@ const fs = require("node:fs/promises"),
         body: await fs.readFile(
           path.join(
             __dirname,
-            f.startsWith("assets/") ? "../tail_ui" : "../control",
+            f.startsWith("assets/") ? "../harness_ui" : "../control",
             f,
           ),
         ),
@@ -110,7 +110,7 @@ const fs = require("node:fs/promises"),
               : "text/html",
       });
     });
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.14.0"));
+    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
     await page.goto("http://gemini-admin.test/#providers");
     assert.equal(
       await page.locator("[data-configured-provider=gemini]").count(),
@@ -165,7 +165,7 @@ const fs = require("node:fs/promises"),
         body: await fs.readFile(
           path.join(
             __dirname,
-            f.startsWith("assets/") ? "../tail_ui" : "../agent_service",
+            f.startsWith("assets/") ? "../harness_ui" : "../agent_service",
             f,
           ),
         ),
@@ -178,7 +178,7 @@ const fs = require("node:fs/promises"),
               : "text/html",
       });
     });
-    await chat.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.14.0"));
+    await chat.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
     await chat.goto("http://gemini-chat.test");
     await chat.locator("#startup-gate").waitFor({ state: "hidden" });
     assert.equal(await chat.locator("#model-trigger-icon").innerText(), "✦");

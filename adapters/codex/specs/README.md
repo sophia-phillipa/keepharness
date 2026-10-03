@@ -1,6 +1,6 @@
 # Codex adapter specification
 
-**Responsible agent:** `integrate-codex_tail-harness_engineer` (`.codex/agents/integrate-codex_tail-harness_engineer.toml`).
+**Responsible agent:** `integrate-codex_keepharness_engineer` (`.codex/agents/integrate-codex_keepharness_engineer.toml`).
 
 `adapter_spec_revision: 5`
 `harness_baseline: 0.4.4 working-tree`

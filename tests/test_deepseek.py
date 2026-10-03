@@ -101,7 +101,7 @@ class DeepseekTest(unittest.IsolatedAsyncioTestCase):
                     AsyncMock(),
                 )
             self.assertEqual(captured["thread/start"]["modelProvider"], "tail_api")
-            self.assertEqual(captured["env"]["TAIL_HARNESS_API_KEY"], "fixture-private-key")
+            self.assertEqual(captured["env"]["KEEPHARNESS_API_KEY"], "fixture-private-key")
             self.assertNotIn("fixture-private-key", " ".join(captured["command"]))
             self.assertIn(
                 "model_providers.tail_api.requires_openai_auth=false", captured["command"]

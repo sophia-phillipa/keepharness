@@ -43,4 +43,4 @@ def test_search_helper_is_mounted_only_with_effective_permissions(tmp_path, inte
             tmp_path,
             {"permissions": {"internet": internet, "shell": shell}},
         )
-    assert ("/tail-web-search.py" in command) is (internet and shell)
+    assert ("/keepharness-web-search.py" in command) is (internet and shell)

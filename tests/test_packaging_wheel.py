@@ -65,8 +65,8 @@ def test_wheel_contains_the_runtime_assets_every_backend_needs(wheel_contents):
         "control/index.html",
         "control/admin.css",
         "control/admin.js",
-        "tail_ui/assets/tabler.min.css",
-        "tail_ui/assets/themes.css",
+        "harness_ui/assets/tabler.min.css",
+        "harness_ui/assets/themes.css",
     ]
     missing = [path for path in must_exist if path not in wheel_contents]
     assert not missing, missing
@@ -74,7 +74,7 @@ def test_wheel_contains_the_runtime_assets_every_backend_needs(wheel_contents):
     data_file_profiles = [
         name
         for name in wheel_contents
-        if fnmatch.fnmatch(name, "*.data/data/share/tail-harness/profiles/*.json")
+        if fnmatch.fnmatch(name, "*.data/data/share/keepharness/profiles/*.json")
     ]
     assert len(data_file_profiles) >= 2, wheel_contents
 
@@ -128,7 +128,7 @@ def test_scan_and_install_check_pass_from_a_clean_install_outside_the_checkout(
     installed_wheel_venv, tmp_path
 ):
     python = installed_wheel_venv / "bin" / "python"
-    tail_harness = installed_wheel_venv / "bin" / "tail-harness"
+    keepharness = installed_wheel_venv / "bin" / "keepharness"
     fake_home = tmp_path / "home"
     fake_home.mkdir()
     clean_env = {key: value for key, value in os.environ.items() if key != "PYTHONPATH"}
@@ -136,7 +136,7 @@ def test_scan_and_install_check_pass_from_a_clean_install_outside_the_checkout(
     clean_env["UV_CACHE_DIR"] = str(installed_wheel_venv.parent / "uv_cache")
 
     scan = subprocess.run(
-        [str(tail_harness), "--scan"],
+        [str(keepharness), "--scan"],
         cwd="/tmp",
         env=clean_env,
         capture_output=True,
@@ -167,7 +167,7 @@ def test_scan_and_install_check_pass_from_a_clean_install_outside_the_checkout(
     )
     assert uv_check.returncode == 0, uv_check.stdout + uv_check.stderr
 
-    profiles = sorted((installed_wheel_venv / "share" / "tail-harness" / "profiles").glob("*.json"))
+    profiles = sorted((installed_wheel_venv / "share" / "keepharness" / "profiles").glob("*.json"))
     assert profiles
     for profile in profiles:
         json.loads(profile.read_text())

@@ -61,7 +61,7 @@ const settle = page => page.evaluate(() => Promise.all(document.getAnimations().
       await page.close();
     });
     await check('A1-F3 mobile tour exposes pane during step and after dismissal', async () => {
-      const { page } = await fixture(browser, 400, 812); await page.evaluate(() => tailHarnessTour.start());
+      const { page } = await fixture(browser, 400, 812); await page.evaluate(() => keepHarnessTour.start());
       for (let i = 0; i < 18 && await page.locator('#tour-title').innerText() !== 'Files and activity'; i++) await page.locator('#tour-next').click();
       assert.equal(await page.locator('#tour-title').innerText(), 'Files and activity'); await settle(page);
       assert(await page.locator('#run-console').isHidden());
@@ -72,7 +72,7 @@ const settle = page => page.evaluate(() => Promise.all(document.getAnimations().
     await check('A1-F4 stable hovered Next contrast in three themes', async () => {
       const { page } = await fixture(browser);
       for (const theme of ['porcelain','amethyst','petroleum']) {
-        await page.evaluate(theme => { TailTheme.apply(theme); tailHarnessTour.start(); }, theme);
+        await page.evaluate(theme => { HarnessTheme.apply(theme); keepHarnessTour.start(); }, theme);
         await page.locator('#tour-next').hover(); await settle(page);
         const ratio = await page.locator('#tour-next').evaluate(n => { const s = getComputedStyle(n), canvas = document.createElement('canvas'), c = canvas.getContext('2d'); function lum(color) { c.fillStyle = color; c.fillRect(0,0,1,1); const values = [...c.getImageData(0,0,1,1).data].slice(0,3).map(v => { v /= 255; return v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4; }); return values[0]*.2126 + values[1]*.7152 + values[2]*.0722; } const a = lum(s.color), b = lum(s.backgroundColor); return (Math.max(a,b)+.05)/(Math.min(a,b)+.05); });
         assert(ratio >= 4.5, theme + ': ' + ratio); await page.keyboard.press('Escape');

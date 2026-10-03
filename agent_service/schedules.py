@@ -21,7 +21,7 @@ from datetime import time as wall_time
 from pathlib import Path
 from types import MappingProxyType
 
-from . import tail_agents
+from . import harness_agents
 from .errors import APIError
 from .persistence.json_file_repository import (
     JsonFileRepository,
@@ -232,9 +232,9 @@ def normalize(body: dict) -> dict:
 
 
 def require_available(config: dict, fields: dict) -> None:
-    """The route must be offered for the project right now, as for Tail agents."""
-    problem = tail_agents.availability_problem(
-        tail_agents.offered(config, fields["project_id"]), fields
+    """The route must be offered for the project right now, as for Harness agents."""
+    problem = harness_agents.availability_problem(
+        harness_agents.offered(config, fields["project_id"]), fields
     )
     if problem:
         raise invalid(problem[0])

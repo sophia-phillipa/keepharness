@@ -1,7 +1,7 @@
 """One JSON file per entry in a private folder.
 
 Pure file storage: atomic publication, owner-only modes and refusal of links. What an entry
-may contain is decided by the module that owns the folder (Tail agents, pages, schedules),
+may contain is decided by the module that owns the folder (Harness agents, pages, schedules),
 which also supplies the error raised for storage that is not safe to use.
 """
 

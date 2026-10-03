@@ -50,7 +50,7 @@ async function geometry(page) {
   try {
     await check('A1-F1 painted Attention icon across themes and widths',async()=>{
       for(const width of [400,1440])for(const theme of ['porcelain','amethyst','petroleum']){
-        const p=await browser.newPage({viewport:{width,height:812}});await fixture(p);await p.evaluate(t=>TailTheme.apply(t),theme);
+        const p=await browser.newPage({viewport:{width,height:812}});await fixture(p);await p.evaluate(t=>HarnessTheme.apply(t),theme);
         const icon=await p.locator('#attention-bell > svg').evaluate(n=>{const r=n.getBoundingClientRect(),hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2),use=n.querySelector('use'),paint=use.getBBox();return{width:r.width,height:r.height,clip:getComputedStyle(n).clip,hit:n.closest('button').contains(hit),href:use.getAttribute('href'),paintWidth:paint.width,paintHeight:paint.height}});
         await capture(p,`bell-${width}-${theme}`);assert(icon.width>=12&&icon.height>=12&&icon.clip==='auto'&&icon.hit,JSON.stringify(icon));assert.equal(icon.href,'/assets/icons.svg#bell');assert(icon.paintWidth>0&&icon.paintHeight>0,JSON.stringify(icon));
         await p.locator('#attention-bell').click();assert(await p.locator('#attention-popover').isVisible());await p.close();
@@ -92,7 +92,7 @@ async function geometry(page) {
       }
     });
     await check('A2-F3 native zoom retains pointer and keyboard option targets',async()=>{
-      const root=await fs.mkdtemp(path.join(os.tmpdir(),'tail-round10-zoom-')),extension=path.join(root,'extension');await fs.mkdir(extension);
+      const root=await fs.mkdtemp(path.join(os.tmpdir(),'keepharness-round10-zoom-')),extension=path.join(root,'extension');await fs.mkdir(extension);
       await fs.writeFile(path.join(extension,'manifest.json'),JSON.stringify({manifest_version:3,name:'Synthetic native zoom',version:'1.0',permissions:['tabs'],host_permissions:['http://console.test/*'],background:{service_worker:'background.js'}}));
       await fs.writeFile(path.join(extension,'background.js'),'chrome.runtime.onInstalled.addListener(()=>{});');
       const context=await chromium.launchPersistentContext(path.join(root,'profile'),{viewport:null,channel:'chromium',args:['--window-size=1440,900','--disable-extensions-except='+extension,'--load-extension='+extension]});

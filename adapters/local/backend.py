@@ -92,7 +92,7 @@ LOCAL_TOOL_INSTRUCTIONS = (
 )
 
 WEB_SEARCH_INSTRUCTIONS = (
-    " Web keyword search is available through exec_command: run python3 /tail-web-search.py 'search terms'."
+    " Web keyword search is available through exec_command: run python3 /keepharness-web-search.py 'search terms'."
     " For web research requests, use this helper before answering; do not ask the user to supply URLs."
     " It returns JSON with real titles, URLs and snippets from Bing RSS. The hosted web_search tool is disabled, but this terminal search is available."
     " Use multiple focused queries when needed, assess relevance, deduplicate URLs and fetch selected pages with curl --max-time 15 -L to verify claims."

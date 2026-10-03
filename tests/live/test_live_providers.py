@@ -1,6 +1,6 @@
 """P5 §10: real, opt-in, end-to-end runs against the actual ``claude``/``codex`` CLIs.
 
-Skipped unless ``TAIL_HARNESS_LIVE=1`` (see ``tests/conftest.py``). This is the one file
+Skipped unless ``KEEPHARNESS_LIVE=1`` (see ``tests/conftest.py``). This is the one file
 in the suite that spends real tokens: it uses the cheapest model available on the
 account and the lowest effort, caps every job at 60s and at most 10 jobs per provider
 (4 are actually used here), and always stops the harness in teardown.

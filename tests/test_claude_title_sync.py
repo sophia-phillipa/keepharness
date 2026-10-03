@@ -33,12 +33,12 @@ def test_native_session_receives_the_harness_conversation_title(tmp_path, monkey
             {"read": True},
             [],
             lambda *_: asyncio.sleep(0),
-            title="Tail Harness conversation  ",
+            title="KeepHarness conversation  ",
         )
     )
 
     command = json.loads(arguments.read_text())
-    assert command[command.index("--name") + 1] == "Tail Harness conversation  "
+    assert command[command.index("--name") + 1] == "KeepHarness conversation  "
     assert result["thread_id"] == "claude-session"
 
 

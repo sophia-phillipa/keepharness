@@ -85,7 +85,7 @@ const assert = require("node:assert/strict"),
         body: await fs.readFile(
           path.join(
             __dirname,
-            file.startsWith("assets/") ? "../tail_ui" : "../control",
+            file.startsWith("assets/") ? "../harness_ui" : "../control",
             file,
           ),
         ),
@@ -166,7 +166,7 @@ const assert = require("node:assert/strict"),
         body: await fs.readFile(
           path.join(
             __dirname,
-            file.startsWith("assets/") ? "../tail_ui" : "../agent_service",
+            file.startsWith("assets/") ? "../harness_ui" : "../agent_service",
             file,
           ),
         ),
@@ -189,7 +189,7 @@ const assert = require("node:assert/strict"),
     const close = () =>
       page.getByRole("button", { name: "Close", exact: true }).click();
     // P1: novice finds renewal directly; missing CLI has a disabled action.
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.14.0"));
+    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
     await page.goto("http://admin.test/#providers");
     await idle();
     assert(await login().isVisible());
@@ -251,7 +251,7 @@ const assert = require("node:assert/strict"),
     await page.getByRole("link", { name: /Open authorization/ }).waitFor();
     await close();
     await page.screenshot({
-      path: "/tmp/tail-renewal-admin-mobile.png",
+      path: "/tmp/keepharness-renewal-admin-mobile.png",
       fullPage: true,
     });
     console.log("P5 PASS: mobile and operation recovery");
@@ -320,12 +320,12 @@ const assert = require("node:assert/strict"),
       ),
     );
     await page.screenshot({
-      path: "/tmp/tail-renewal-conditions-mobile.png",
+      path: "/tmp/keepharness-renewal-conditions-mobile.png",
       fullPage: true,
     });
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.screenshot({
-      path: "/tmp/tail-renewal-conditions-desktop.png",
+      path: "/tmp/keepharness-renewal-conditions-desktop.png",
       fullPage: true,
     });
     console.log("P7 PASS: neutral condition summaries");

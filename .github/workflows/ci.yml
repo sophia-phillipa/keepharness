@@ -60,7 +60,7 @@ jobs:
         run: pip install '.[test]'
       - name: Run pytest
         env:
-          TAIL_HARNESS_REQUIRE_MEDIA_SANDBOX: "1"
+          KEEPHARNESS_REQUIRE_MEDIA_SANDBOX: "1"
         run: python -m pytest -rs --junitxml=reports/unit-${{ matrix.python }}.xml
       - name: Upload unit test report
         if: always()
@@ -111,7 +111,7 @@ jobs:
       - name: Verify CLI entry point
         run: |
           cd /tmp
-          tail-harness --help
+          keepharness --help
       - name: Upload dist artifact
         uses: actions/upload-artifact@v4
         with:

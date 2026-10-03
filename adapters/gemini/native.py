@@ -144,7 +144,7 @@ class AcpConnection:
                 approved = bool(reply.get("approved"))
             else:
                 approved = False
-            # Never choose allow_always: Tail Harness authorization is turn-scoped.
+            # Never choose allow_always: KeepHarness authorization is turn-scoped.
             wanted = "allow_once" if approved else "reject_once"
             option = next(
                 (x.get("optionId") for x in params.get("options", []) if x.get("kind") == wanted),
@@ -226,7 +226,7 @@ async def run_acp(
                 "initialize",
                 {
                     "protocolVersion": 1,
-                    "clientInfo": {"name": PRODUCT.mcp_name, "version": "0.14.0"},
+                    "clientInfo": {"name": PRODUCT.mcp_name, "version": "0.15.0"},
                     # Files and terminals are intentionally not proxied in this revision;
                     # admin policy routes the enabled native tools through ACP approval.
                     "clientCapabilities": {

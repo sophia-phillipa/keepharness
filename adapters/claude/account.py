@@ -31,7 +31,7 @@ LEGACY_MODELS = {
 
 async def metadata(config, subtype="initialize"):
     # No user message, tools, hooks, project settings, or inference in this probe.
-    with tempfile.TemporaryDirectory(prefix="tail-claude-metadata-") as cwd:
+    with tempfile.TemporaryDirectory(prefix="keepharness-claude-metadata-") as cwd:
         proc = await asyncio.create_subprocess_exec(
             config["binary"],
             "--print",

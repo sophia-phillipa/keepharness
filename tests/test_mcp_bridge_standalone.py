@@ -12,7 +12,7 @@ def test_bridge_imports_without_harness_packages(tmp_path):
     copy.write_text(BRIDGE.read_text())
     code = (
         "import sys\n"
-        "for name in ('control', 'agent_service', 'adapters', 'tail_ui'):\n"
+        "for name in ('control', 'agent_service', 'adapters', 'harness_ui'):\n"
         "    sys.modules[name] = None\n"
         "sys.path.insert(0, sys.argv[1])\n"
         "import mcp_bridge\n"

@@ -1,4 +1,4 @@
-// Tail-owned agents (Sophia, 2026-10-03): create an agent with its own
+// Harness-owned agents (Sophia, 2026-10-03): create an agent with its own
 // instructions, purpose, tasks, target output, provider, model and effort,
 // then call it with @@name; selecting it moves the composer to its route.
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
@@ -17,14 +17,14 @@ const path = require("node:path");
       throw Error("Unexpected browser dialog");
     });
     const resourceItem = (agent) => ({
-      id: "tail/agents/" + agent.id,
-      resource_id: "tail/agents/" + agent.id,
+      id: "harness/agents/" + agent.id,
+      resource_id: "harness/agents/" + agent.id,
       revision: agent.revision,
       kind: "agent",
       name: agent.name,
       description: agent.purpose,
-      scope: "tail",
-      origin: "tail",
+      scope: "harness",
+      origin: "harness",
       group: "Your agents",
       backend: agent.backend,
       model: agent.model,
@@ -39,7 +39,7 @@ const path = require("node:path");
         method = route.request().method();
       if (!pathname.startsWith("/v1/"))
         return route.fulfill({
-          path: path.join(__dirname, "..", pathname.startsWith("/assets/") ? "tail_ui" : "agent_service", pathname === "/" ? "index.html" : pathname),
+          path: path.join(__dirname, "..", pathname.startsWith("/assets/") ? "harness_ui" : "agent_service", pathname === "/" ? "index.html" : pathname),
         });
       let data = {},
         status = 200;
@@ -54,23 +54,23 @@ const path = require("node:path");
           uploads_enabled: false,
         };
       else if (pathname === "/v1/conversations") data = { conversations: [] };
-      else if (pathname === "/v1/version") data = { version: "fixture", build: "tail-agents" };
+      else if (pathname === "/v1/version") data = { version: "fixture", build: "harness-agents" };
       else if (pathname === "/v1/catalog") data = { agents: [], skills: [], warnings: [] };
       else if (pathname === "/v1/resources") data = { engine: "codex", items: agents.map(resourceItem), warnings: [] };
-      else if (pathname === "/v1/tail-agents" && method === "GET") data = { agents: agents.map((a) => ({ ...a, available: true })) };
-      else if (pathname === "/v1/tail-agents" && method === "POST") {
+      else if (pathname === "/v1/harness-agents" && method === "GET") data = { agents: agents.map((a) => ({ ...a, available: true })) };
+      else if (pathname === "/v1/harness-agents" && method === "POST") {
         const body = route.request().postDataJSON();
         requests.push(["POST", body]);
         if (agents.some((a) => a.id === body.name)) {
           status = 409;
-          data = { code: "tail_agent_exists", field: "name" };
+          data = { code: "harness_agent_exists", field: "name" };
         } else {
           const agent = { ...body, id: body.name, revision: "r1" };
           agents.push(agent);
           status = 201;
           data = agent;
         }
-      } else if (pathname.startsWith("/v1/tail-agents/")) {
+      } else if (pathname.startsWith("/v1/harness-agents/")) {
         const id = decodeURIComponent(pathname.split("/").pop()),
           body = route.request().postDataJSON(),
           index = agents.findIndex((a) => a.id === id);
@@ -92,7 +92,7 @@ const path = require("node:path");
         data = { id: "j1", project: "sem-projeto", state: "completed", request: jobs.at(-1), result: { answer: "A cat on a red chair." } };
       return route.fulfill({ status, json: data });
     });
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.14.0"));
+    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
     await page.goto("http://agents.test/");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     await page.locator("#model").selectOption("gpt-6-astra");
@@ -134,7 +134,7 @@ const path = require("node:path");
         effort: "configured",
       },
     ]);
-    const row = page.locator("#tail-agents-list .tail-agent");
+    const row = page.locator("#harness-agents-list .harness-agent");
     await row.waitFor();
     assert.match(await row.innerText(), /@@photo-describer[\s\S]*Describe images[\s\S]*Runs on Claude Sonnet 5\.5 · Claude Code/);
 
@@ -160,14 +160,14 @@ const path = require("node:path");
     assert.equal(jobs[0].backend, "claude");
     assert.equal(jobs[0].model, "claude-sonnet-5-5");
     assert.deepEqual(jobs[0].resource_selections, [
-      { id: "tail/agents/photo-describer", revision: "r1", token: "@@photo-describer" },
+      { id: "harness/agents/photo-describer", revision: "r1", token: "@@photo-describer" },
     ]);
 
     // The agent keeps its route: switching the model ends its conversation on the next send.
     await page.click("#new");
     await page.evaluate(() => setActivePersona({
       name: "photo-describer",
-      resource_id: "tail/agents/photo-describer",
+      resource_id: "harness/agents/photo-describer",
       route: { backend: "claude", model: "claude-sonnet-5-5", effort: "configured" },
     }));
     await page.locator("#model").selectOption("gpt-6-astra");
@@ -208,7 +208,7 @@ const path = require("node:path");
     await edit.waitFor({ state: "hidden" });
     assert.deepEqual(requests.at(-1), ["DELETE", { revision: "r2" }, "photo-describer"]);
     await settings.getByText("No agents yet.", { exact: false }).waitFor();
-    console.log("PASS create, use, edit and delete Tail agents");
+    console.log("PASS create, use, edit and delete Harness agents");
   } finally {
     await browser.close();
   }

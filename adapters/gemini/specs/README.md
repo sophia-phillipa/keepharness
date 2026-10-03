@@ -2,7 +2,7 @@
 
 **Status: partially implemented, hidden from the administration panel.** OAuth access for individual accounts is unavailable; native settings enforcement remains unresolved. Antigravity migration is deferred pending verification of credit-overage controls.
 
-**Responsible agent:** `integrate-gemini_tail-harness_engineer` (`.codex/agents/integrate-gemini_tail-harness_engineer.toml`).
+**Responsible agent:** `integrate-gemini_keepharness_engineer` (`.codex/agents/integrate-gemini_keepharness_engineer.toml`).
 
 `adapter_spec_revision: 2`
 `harness_baseline: 0.5.0`

@@ -49,7 +49,7 @@
     "validation": "tests/test_native_plugin_inventory.py; no app-server turn or model inference"
   },
   "conversation_title": {
-    "source": "Tail Harness root prompt (100 chars) or explicit conversation title",
+    "source": "KeepHarness root prompt (100 chars) or explicit conversation title",
     "sync": "thread/name/set on create/resume, native and scoped",
     "validation": "Focused offline contract tests; no model inference"
   },

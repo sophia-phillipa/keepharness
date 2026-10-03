@@ -1,6 +1,6 @@
 # Naming model
 
-Version 1.0.1 — 2026-09-26
+Version 1.1.0 — 2026-10-03
 
 ## Purpose and scope
 
@@ -19,12 +19,12 @@ Canonical names for files and directories, Python identifiers, JS/CSS/HTML ident
 | Python classes | PascalCase noun; role suffix when the class is a layer role: `*Service`, `*Repository`, `*Adapter`, `*Error`, `*Config` | error classes end in `Error` and derive from `HarnessError` (to be added) | Framework subclasses keep the framework's naming |
 | Python functions, methods, variables | snake_case; functions are verbs (`load_profile`, `build_runtime_config`); booleans are predicates (`is_ready`, `has_credentials`); no abbreviations (`cfg`, `svc`, `st`, `proc` → `config`, `service`, `state`, `process`) | — | Loop indices; `e` in `except ... as e` |
 | Constants | UPPER_SNAKE and immutable (`tuple`, `frozenset`, `MappingProxyType`) | — | A mutable module-level dict/set is configuration, not a constant: name it snake_case |
-| Environment variables | Public ones prefixed `TAIL_HARNESS_`: `TAIL_HARNESS_ROOT`, `TAIL_HARNESS_VENV`, `TAIL_HARNESS_AGENT_URL`, `TAIL_HARNESS_AGENT_CLIENT`, `TAIL_HARNESS_AGENT_CONFIG`, `TAIL_HARNESS_LOG_LEVEL`, `TAIL_HARNESS_LIVE` | Already compliant: `TAIL_HARNESS_API_KEY`, `TAIL_HARNESS_LOCAL_KEY`, `TAIL_HARNESS_WHISPER_DIR` | Legacy `LOCAL_AGENT_URL`, `LOCAL_AGENT_CLIENT`, `LOCAL_AGENT_CONFIG`, `TH_VENV` accepted as deprecated aliases only through `control/env.py`, which logs a deprecation warning. Shell-script-local variables use `TH_` (`TH_STATE`, `TH_PID`) and are never a contract. Test-harness inputs `ADMIN_URL`, `HARNESS_URL`, `PLAYWRIGHT_MODULE`, `GAUNTLET_ROUND`, `EVAL_OUTPUT` are grandfathered and documented as such |
+| Environment variables | Public ones prefixed `KEEPHARNESS_`: `KEEPHARNESS_ROOT`, `KEEPHARNESS_VENV`, `KEEPHARNESS_AGENT_URL`, `KEEPHARNESS_AGENT_CLIENT`, `KEEPHARNESS_AGENT_CONFIG`, `KEEPHARNESS_LOG_LEVEL`, `KEEPHARNESS_LIVE` | Already compliant: `KEEPHARNESS_API_KEY`, `KEEPHARNESS_LOCAL_KEY`, `KEEPHARNESS_WHISPER_DIR` | Legacy `LOCAL_AGENT_URL`, `LOCAL_AGENT_CLIENT`, `LOCAL_AGENT_CONFIG`, `TH_VENV` accepted as deprecated aliases only through `control/env.py`, which logs a deprecation warning. Shell-script-local variables use `TH_` (`TH_STATE`, `TH_PID`) and are never a contract. Test-harness inputs `ADMIN_URL`, `HARNESS_URL`, `PLAYWRIGHT_MODULE`, `GAUNTLET_ROUND`, `EVAL_OUTPUT` are grandfathered and documented as such |
 | JSON/config/state keys, SQLite | snake_case keys; plural table names; foreign keys `<entity>_id` | `project_id`; tables `jobs`, `approval_rules`, `registered_projects` | External schemas: protocol sentinel `sem-projeto` (persisted "No project" scope id — never rename); llama.cpp flag keys in local profiles (`ctx-size`, `n-gpu-layers`, `cache-ram`… mirror the `llama-server` CLI); Gemini CLI settings keys (`selectedType`, `enforcedType`… in `adapters/gemini/policy.py`); provider API payloads |
 | Error codes returned to clients | snake_case strings | `image_validation_unavailable`, `backend_unavailable` | — |
 | JS | camelCase functions/variables; PascalCase constructors; UPPER_SNAKE constants; DOM ids, classes and `data-*` attributes kebab-case | `agent_service/ui.js`, `control/admin.js` | Vendor bundles (`markdown-it.min.js`, `tabler.min.js`) |
 | CSS custom properties | `--th-<role>` for project tokens | `--th-accent`, `--th-bg` | Vendor tokens (`--tblr-*` from Tabler) untouched; unprefixed `--accent`, `--bg`, `--panel` migrate to `--th-*` |
-| Agents and skills | `objective_context_role` | `test_tail-harness_engineer`, `test-gauntlet_tail-harness_procedure` | Defer to [canonical-agents-skills-model.md](canonical-agents-skills-model.md) |
+| Agents and skills | `objective_context_role` | `test_keepharness_engineer`, `test-gauntlet_keepharness_procedure` | Defer to [canonical-agents-skills-model.md](canonical-agents-skills-model.md) |
 | Git | Conventional Commits `type(scope): subject` in English, body Why / How / What / Validation; branches `type/short-kebab-topic` | `chore/english-github-readiness` | — |
 
 ## Layering vocabulary
@@ -49,14 +49,18 @@ Supporting suffixes: `*Config` for immutable settings objects, `*Error` for exce
 | `scripts/gauntlet-15.py` | `scripts/gauntlet_matrix.py` | done |
 | `scripts/vendor-file-icons.py` | `scripts/vendor_file_icons.py` | done |
 | `local-ai/` (runtime dir) | `local_ai/` (one-time migration on startup) | done |
-| `LOCAL_AGENT_URL` | `TAIL_HARNESS_AGENT_URL` (old name as deprecated alias) | done |
-| `LOCAL_AGENT_CLIENT` | `TAIL_HARNESS_AGENT_CLIENT` (old name as deprecated alias) | done |
-| `LOCAL_AGENT_CONFIG` | `TAIL_HARNESS_AGENT_CONFIG` (old name as deprecated alias) | done |
-| `TH_VENV` | `TAIL_HARNESS_VENV` (old name as deprecated alias) | done |
+| `LOCAL_AGENT_URL` | `KEEPHARNESS_AGENT_URL` (old name as deprecated alias) | done |
+| `LOCAL_AGENT_CLIENT` | `KEEPHARNESS_AGENT_CLIENT` (old name as deprecated alias) | done |
+| `LOCAL_AGENT_CONFIG` | `KEEPHARNESS_AGENT_CONFIG` (old name as deprecated alias) | done |
+| `TH_VENV` | `KEEPHARNESS_VENV` (old name as deprecated alias) | done |
 | — | `control/env.py` (alias resolver with deprecation warning) | done |
 | — | `HarnessError` base class for `*Error` classes (`agent_service/errors.py`) | done |
 | CSS `--accent`, `--bg`, `--panel` (and `--muted`, `--line`, `--tint`, `--control`, `--surface`, `--border`, `--text`, `--admin-sidebar-width`, `--app-topbar-height`, `--reading-size`, `--sidebar-width`, `--conversation-header-bottom`) | `--th-accent`, `--th-bg` (unused), `--th-panel`, `--th-muted`, `--th-border`, `--th-soft`, `--th-panel`, `--th-panel`, `--th-border`, `--th-text`, `--th-admin-sidebar-width`, `--th-app-topbar-height`, `--th-reading-size`, `--th-sidebar-width`, `--th-conversation-header-bottom` — the local, already-shadowed `--accent`/`--muted`/`--line` definitions in `agent_service/ui.css` became `--th-accent-tone`/`--th-muted-tone`/`--th-line-tone` (distinct suffix) since `--th-accent`/`--th-muted` already exist with the real palette value | done |
 | Abbreviated identifiers (`cfg`, `svc`, `st`, `proc`) | `config`, `service`, `state`, `process` | planned |
+| Product name `Tail Harness`, slug `tail-harness`, prefix `TAIL_HARNESS_` (no alias kept) | `KeepHarness`, `keepharness`, `KEEPHARNESS_` | done (0.15.0) |
+| State `~/.local/share/tail-harness`, config `~/.config/tail-harness` | `~/.local/share/keepharness`, `~/.config/keepharness` (moved once on startup by `control.product.migrate_legacy_state`) | done (0.15.0) |
+| Package `tail_ui`, JS globals `TailUI`, `TailTheme`, `TailFileIcons` | `harness_ui`, `HarnessUI`, `HarnessTheme`, `HarnessFileIcons` | done (0.15.0) |
+| Tail agents: `tail_agents`, `/v1/tail-agents`, `tail/agents/<id>`, scope `tail`, folder `tail-agents/`, `tail_agent_*` | `harness_agents`, `/v1/harness-agents`, `harness/agents/<id>`, scope `harness`, folder `harness-agents/` (moved on startup), `harness_agent_*` | done (0.15.0) |
 
 ## Enforcement
 
@@ -72,5 +76,6 @@ A failing check blocks the merge; new exceptions are added to the allowlist in t
 
 | Version | Date | Change |
 |---|---|---|
-| 1.0.1 | 2026-09-26 | P3 migration executed: `Adapters/`→`adapters/`, script renames, `local-ai/`→`local_ai/` with a startup migration, `TAIL_HARNESS_*` environment variables with deprecated legacy aliases via `control/env.py`, unprefixed CSS custom properties renamed to `--th-*`, compatibility-import shims removed, and `scripts/check_conventions.py`'s grandfather entries for the migrated names dropped. |
+| 1.1.0 | 2026-10-03 | Product renamed to KeepHarness: `KEEPHARNESS_*` environment variables (the old prefix is not read), `harness_ui`, harness agents and a one-time move of the state and config folders. |
+| 1.0.1 | 2026-09-26 | P3 migration executed: `Adapters/`→`adapters/`, script renames, `local-ai/`→`local_ai/` with a startup migration, `KEEPHARNESS_*` environment variables with deprecated legacy aliases via `control/env.py`, unprefixed CSS custom properties renamed to `--th-*`, compatibility-import shims removed, and `scripts/check_conventions.py`'s grandfather entries for the migrated names dropped. |
 | 1.0.0 | 2026-09-26 | Initial naming model: rules, layering vocabulary, migration table and enforcement plan. |

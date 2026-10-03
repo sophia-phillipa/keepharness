@@ -32,7 +32,7 @@ def test_private_single_link_target_hidden_on_every_mount(
     else:
         (private / "provider").symlink_to(secret)
     assert secret.stat().st_nlink == 1
-    monkeypatch.setenv("TAIL_HARNESS_ROOT", str(install))
+    monkeypatch.setenv("KEEPHARNESS_ROOT", str(install))
     try:
         command = wrap(
             [

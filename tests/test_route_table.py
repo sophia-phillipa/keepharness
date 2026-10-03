@@ -164,33 +164,41 @@ AGENT_VALID_TABLE = [
         ),
     ),
     (
-        "tail-agents-list",
+        "harness-agents-list",
         "GET",
-        "/v1/tail-agents",
+        "/v1/harness-agents",
         None,
         None,
         200,
         lambda r: r.json() == {"agents": []},
     ),
     # Client "a" is authenticated but not the local browser, so every write is refused first.
-    ("tail-agents-post", "POST", "/v1/tail-agents", None, {}, 403, "tail_agent_local_only"),
     (
-        "tail-agents-put",
-        "PUT",
-        "/v1/tail-agents/ghost-agent",
+        "harness-agents-post",
+        "POST",
+        "/v1/harness-agents",
         None,
         {},
         403,
-        "tail_agent_local_only",
+        "harness_agent_local_only",
     ),
     (
-        "tail-agents-delete",
+        "harness-agents-put",
+        "PUT",
+        "/v1/harness-agents/ghost-agent",
+        None,
+        {},
+        403,
+        "harness_agent_local_only",
+    ),
+    (
+        "harness-agents-delete",
         "DELETE",
-        "/v1/tail-agents/ghost-agent",
+        "/v1/harness-agents/ghost-agent",
         None,
         {"revision": "r"},
         403,
-        "tail_agent_local_only",
+        "harness_agent_local_only",
     ),
     (
         "pages-list",
@@ -1034,7 +1042,7 @@ ADMIN_ROUTE_TABLE = [
         None,
         {},
         200,
-        lambda r: r.json()["format"] == "tail-harness-settings" and r.json()["version"] == 1,
+        lambda r: r.json()["format"] == "keepharness-settings" and r.json()["version"] == 1,
     ),
     (
         "settings-import",
@@ -1237,3 +1245,30 @@ def test_admin_wrong_method_is_405(admin_pair, method, path):
 
     response = asyncio.run(scenario())
     assert response.status_code == 405
+
+
+def test_admin_imports_settings_exported_before_the_rename(admin_pair):
+    # A bundle exported by Tail Harness (before 0.15.0) names its format after the old slug.
+    app, _manager = admin_pair
+
+    async def scenario():
+        client = await _admin_client(app)
+        try:
+            headers = {"X-Harness-Admin": "1"}
+            bundle = (await client.post("/api/settings-export", json={}, headers=headers)).json()
+            bundle["format"] = "tail-harness-settings"
+            imported = await client.post(
+                "/api/settings-import", json={"bundle": bundle}, headers=headers
+            )
+            bundle["format"] = "another-harness-settings"
+            refused = await client.post(
+                "/api/settings-import", json={"bundle": bundle}, headers=headers
+            )
+            return imported, refused
+        finally:
+            await client.aclose()
+
+    imported, refused = asyncio.run(scenario())
+    assert imported.status_code == 200, imported.text
+    assert refused.status_code == 400
+    assert refused.json() == {"error": "Incompatible configuration format."}

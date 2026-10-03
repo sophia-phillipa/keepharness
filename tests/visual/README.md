@@ -11,7 +11,7 @@ PLAYWRIGHT_MODULE=/path/to/installed/playwright \
   node tests/harness-visual-compact.spec.cjs
 ```
 
-By default the suite creates a unique `tail-harness-visual-*` directory under the operating system's temporary directory and prints that path. The images are current-run evidence rather than committed pixel baselines: fonts and browser rasterization are environment-dependent, while the suite makes the layout contract reproducible through geometry, hit-testing, overflow, target-size, and WCAG AA assertions.
+By default the suite creates a unique `keepharness-visual-*` directory under the operating system's temporary directory and prints that path. The images are current-run evidence rather than committed pixel baselines: fonts and browser rasterization are environment-dependent, while the suite makes the layout contract reproducible through geometry, hit-testing, overflow, target-size, and WCAG AA assertions.
 
 For an explicitly requested evidence directory, set `VISUAL_OUTPUT_DIR`. The comparison capture also requires the mock path explicitly and never writes beside that source:
 

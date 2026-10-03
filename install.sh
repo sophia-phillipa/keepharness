@@ -2,6 +2,9 @@
 set -eu
 cd "$(dirname "$0")"
 python3 -c 'import sys; assert sys.version_info >= (3,11), "Python 3.11+ is required"'
+# Upgrading from Tail Harness (before 0.15.0): stop its service, then move its state once.
+systemctl --user stop tail-harness.service 2>/dev/null || true
+python3 control/product.py --migrate-state
 TH_VENV=$(python3 control/product.py --field venv)
 TH_PRODUCT_SLUG=$(python3 control/product.py --field slug)
 python3 -m venv "$TH_VENV"

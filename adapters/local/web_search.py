@@ -16,7 +16,7 @@ def search(query):
     if not query or len(query) > 500:
         raise ValueError("query must contain 1 to 500 characters")
     url = "https://www.bing.com/search?" + urlencode({"format": "rss", "q": query})
-    request = Request(url, headers={"User-Agent": "Tail-Harness-Web-Search/1.0"})
+    request = Request(url, headers={"User-Agent": "KeepHarness-Web-Search/1.0"})
     with urlopen(request, timeout=12) as response:
         body = response.read(MAX_BYTES + 1)
     if len(body) > MAX_BYTES:

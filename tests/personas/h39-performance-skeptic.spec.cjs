@@ -21,7 +21,7 @@ const ROOT = path.join(__dirname, "..", "..");
 
 function staticSize(pathname) {
   const file = pathname === "/" ? "index.html" : pathname.slice(1);
-  const dir = file.startsWith("assets/") ? "tail_ui" : "agent_service";
+  const dir = file.startsWith("assets/") ? "harness_ui" : "agent_service";
   try {
     return fs.statSync(path.join(ROOT, dir, file)).size;
   } catch {
@@ -101,7 +101,7 @@ runPersona("H39", [
       // (agent_service/app.py has no compression middleware), ui.js/ui.css/
       // index.html are served "Cache-Control: no-store"
       // (agent_service/routes/system.py) and /assets/* is "no-cache" with no
-      // conditional-request support (tail_ui/__init__.py:asset_response), so
+      // conditional-request support (harness_ui/__init__.py:asset_response), so
       // there is no 304 path. tabler.min.css alone is 694 KB. On a real Slow-3G
       // link that payload keeps loading in the background well past the point
       // the gate opens.

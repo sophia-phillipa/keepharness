@@ -13,7 +13,7 @@ const assert = require("node:assert/strict");
           path: require("node:path").join(
             __dirname,
             "..",
-            pathname.startsWith("/assets/") ? "tail_ui" : "agent_service",
+            pathname.startsWith("/assets/") ? "harness_ui" : "agent_service",
             pathname === "/" ? "index.html" : pathname,
           ),
         });
@@ -60,7 +60,7 @@ const assert = require("node:assert/strict");
                   : {};
       return route.fulfill({ json: data });
     });
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.14.0"));
+    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
     await page.goto(process.env.HARNESS_URL || "http://panel.test/");
     await page.locator("#startup-gate").waitFor({ state: "visible" });
     assert.equal(
@@ -77,7 +77,7 @@ const assert = require("node:assert/strict");
       await page.locator("#app-topbar > :first-child").getAttribute("id"),
       "app-brand",
     );
-    assert.equal(await page.locator("#app-brand").innerText(), "Tail Harness");
+    assert.equal(await page.locator("#app-brand").innerText(), "KeepHarness");
     assert.equal(await page.locator("#sidebar .brand").count(), 0);
     const top = await page.locator("#app-topbar").boundingBox();
     assert.equal(top.y, 0);
@@ -232,7 +232,7 @@ const assert = require("node:assert/strict");
     );
     await page.locator("#prompt").fill("");
     assert((await page.locator("#prompt").boundingBox()).height < 42);
-    await page.screenshot({ path: "/tmp/tail-composer-project.png" });
+    await page.screenshot({ path: "/tmp/keepharness-composer-project.png" });
     await page.locator("#new").click();
     assert.equal(
       await page.locator("#conversation-title").innerText(),
@@ -277,7 +277,7 @@ const assert = require("node:assert/strict");
       "false",
     );
     assert(await page.locator("#app-topbar").isVisible());
-    await page.screenshot({ path: "/tmp/tail-topbar-desktop.png" });
+    await page.screenshot({ path: "/tmp/keepharness-topbar-desktop.png" });
     await page.setViewportSize({ width: 390, height: 844 });
     await page.click("#menu");
     await page.locator("#sidebar.open").waitFor({ state: "visible" });
@@ -303,7 +303,7 @@ const assert = require("node:assert/strict");
       "activity drawer begins below topbar",
     );
     await page.click("#panel-toggle");
-    await page.screenshot({ path: "/tmp/tail-topbar-mobile.png" });
+    await page.screenshot({ path: "/tmp/keepharness-topbar-mobile.png" });
     for (const width of [1280, 900, 390]) {
       await page.setViewportSize({ width, height: 860 });
       for (const order of ["conversations-right", "conversations-left"]) {

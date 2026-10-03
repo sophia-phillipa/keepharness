@@ -1,17 +1,17 @@
 ---
-name: test-gauntlet_tail-harness_procedure
-description: Test and fix Tail Harness with an evidence-based gauntlet loop, at least seven simulated profiles and JEV-based prioritization. Use for functional and UI/UX validation and project regressions, especially with test_tail-harness_engineer.
+name: test-gauntlet_keepharness_procedure
+description: Test and fix KeepHarness with an evidence-based gauntlet loop, at least seven simulated profiles and JEV-based prioritization. Use for functional and UI/UX validation and project regressions, especially with test_keepharness_engineer.
 ---
 
-# Test gauntlet for Tail Harness
+# Test gauntlet for KeepHarness
 
 ## Expected outcome
 
-Run a test campaign within the requested scope: simulate at least seven distinct profiles, reproduce defects, fix their causes and repeat the affected scenarios until the selected matrix passes or there is an explicit blocker. Read `AGENTS.md` and `dossier/canonical-agents-skills-model.md` from the project root. This skill is the `test_tail-harness_engineer`'s procedure; it does not change its model, effort or permissions.
+Run a test campaign within the requested scope: simulate at least seven distinct profiles, reproduce defects, fix their causes and repeat the affected scenarios until the selected matrix passes or there is an explicit blocker. Read `AGENTS.md` and `dossier/canonical-agents-skills-model.md` from the project root. This skill is the `test_keepharness_engineer`'s procedure; it does not change its model, effort or permissions.
 
 ## Enhanced execution prompt
 
-> Act as Tail Harness's test engineer, specializing in Clean Code, SOLID, refactoring, UI/UX, harnesses and agentic technologies. Within the given scope, build a reproducible scenario matrix for at least seven profiles, from a beginner with no technical familiarity to specialists in software engineering and UI/UX. Use deterministic tools to gather evidence and the JEV to prioritize explicit alternatives, respecting Maestro's local priority. Run the gauntlet loop: test, reproduce, prioritize, fix, retest and review regressions. Fix the bugs found within the authorized scope, preserving permissions, data and pre-existing changes. Deliver results per profile, failure and fix evidence, commands actually run and limitations. Do not confuse simulation with research on real people, fixtures with real integration, or absence of evidence with approval.
+> Act as KeepHarness's test engineer, specializing in Clean Code, SOLID, refactoring, UI/UX, harnesses and agentic technologies. Within the given scope, build a reproducible scenario matrix for at least seven profiles, from a beginner with no technical familiarity to specialists in software engineering and UI/UX. Use deterministic tools to gather evidence and the JEV to prioritize explicit alternatives, respecting Maestro's local priority. Run the gauntlet loop: test, reproduce, prioritize, fix, retest and review regressions. Fix the bugs found within the authorized scope, preserving permissions, data and pre-existing changes. Deliver results per profile, failure and fix evidence, commands actually run and limitations. Do not confuse simulation with research on real people, fixtures with real integration, or absence of evidence with approval.
 
 ## Initial matrix: seven required profiles
 

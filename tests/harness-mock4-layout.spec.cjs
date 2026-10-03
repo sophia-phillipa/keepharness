@@ -10,7 +10,7 @@ const path = require("node:path");
     let planPending = true;
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
     await page.addInitScript(() => {
-      localStorage.setItem("tail-harness-tour-seen", "0.14.0");
+      localStorage.setItem("keepharness-tour-seen", "0.15.0");
       localStorage.setItem("activity-open", "1");
     });
     await page.route(origin + "/**", async (route) => {
@@ -18,12 +18,12 @@ const path = require("node:path");
       if (!url.pathname.startsWith("/v1/")) {
         const file = url.pathname === "/" ? "index.html" : url.pathname.slice(1);
         return route.fulfill({
-          path: path.join(__dirname, "..", file.startsWith("assets/") ? "tail_ui" : "agent_service", file),
+          path: path.join(__dirname, "..", file.startsWith("assets/") ? "harness_ui" : "agent_service", file),
         });
       }
       const method = route.request().method();
       const data = url.pathname === "/v1/projects"
-        ? { projects: ["p"], details: { p: { label: "Tail Harness" } } }
+        ? { projects: ["p"], details: { p: { label: "KeepHarness" } } }
         : url.pathname === "/v1/models"
           ? { models: [{ id: "fixture", name: "Fixture", backend: "codex", efforts: ["medium"], execution_modes: ["native", "scoped"] }], providers: { codex: true } }
           : url.pathname === "/v1/conversations"
@@ -44,7 +44,7 @@ const path = require("node:path");
                     : url.pathname === "/v1/project-files"
                       ? { roots: [], entries: [] }
                       : url.pathname === "/v1/version"
-                        ? { version: "0.14.0", build: "fixture" }
+                        ? { version: "0.15.0", build: "fixture" }
                         : url.pathname === "/v1/catalog"
                           ? { agents: [], skills: [], warnings: [] }
                           : url.pathname === "/v1/usage"
@@ -113,7 +113,7 @@ const path = require("node:path");
     assert.equal(await plan.getByRole("button", { name: "Approve plan & run" }).isDisabled(), true);
 
     for (const theme of ["violet-bordeaux", "porcelain", "mineral-rose", "amethyst", "petroleum", "arizona"]) {
-      await page.evaluate((value) => window.TailTheme.apply(value), theme);
+      await page.evaluate((value) => window.HarnessTheme.apply(value), theme);
       assert.equal(await page.locator("html").getAttribute("data-palette"), theme);
       assert.equal(await page.locator("main").isVisible(), true);
     }

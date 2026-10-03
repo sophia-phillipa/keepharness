@@ -25,11 +25,11 @@ from .. import (
     approval_policy,
     conversation_context,
     deployment,
+    harness_agents,
     integrations_view,
     invocations,
     maestro,
     resources,
-    tail_agents,
     tools,
     workflows,
     workspaces,
@@ -127,6 +127,7 @@ class ConversationService:
 
         self.root = Path(config["state_dir"])
         ensure_lineage(self.root)
+        harness_agents.migrate_legacy_folder(config)
         self.vault = SecretVault(
             config.get("secret_vault_path", self.root / "harness.secrets.json")
         )
@@ -880,7 +881,7 @@ class ConversationService:
                 "items": [],
                 "warnings": ["Resource reading disabled for this model."],
             }
-            tail_agents.add_resources(result, self.config, project_id, private=False)
+            harness_agents.add_resources(result, self.config, project_id, private=False)
             return result
         execution_mode = execution_mode or self.default_execution_mode(backend)
         self.validate_execution_mode(backend, execution_mode)
@@ -894,9 +895,9 @@ class ConversationService:
             data = {**data, "backend": lead["backend"], "model": lead["model"]}
             if lead["backend"] == "local":
                 data["execution_mode"] = "scoped"
-        # "read" guards project and catalog files; a Tail agent's persona is harness-kept text.
-        # Anything that is not a list of Tail agent selections is judged by ``resources.resolve``.
-        needs_read = not tail_agents.only_tail_agents(data.get("resource_selections"))
+        # "read" guards project and catalog files; a Harness agent's persona is harness-kept text.
+        # Anything that is not a list of Harness agent selections is judged by ``resources.resolve``.
+        needs_read = not harness_agents.only_harness_agents(data.get("resource_selections"))
         if needs_read and not maestro.model_permissions(
             self.config, data["backend"], data.get("model"), data["project_id"]
         ).get("read"):
@@ -988,7 +989,10 @@ class ConversationService:
                 previous = json.loads(self.job(identity, data["parent_job_id"])["payload"])
                 persona = previous.get("invocations", [])
                 if len(persona) == 1 and persona[0]["mode"] == "conversational":
-                    data["resource_selections"] = previous.get("resource_selections", [])
+                    data["resource_selections"] = [
+                        harness_agents.upgrade_selection(ref)
+                        for ref in previous.get("resource_selections", [])
+                    ]
                     if data["resource_selections"]:
                         data["prompt"] = (
                             data["resource_selections"][0]["token"] + " " + data.get("prompt", "")
@@ -2641,7 +2645,7 @@ class ConversationService:
                 continue
         return {
             "schema_version": "1.0",
-            "service": "tail-harness",
+            "service": "keepharness",
             "version": VERSION_FILE.read_text().strip(),
             "backends": {
                 p: {

@@ -1,21 +1,21 @@
-# 🔷 Tail Harness
+# 🔷 KeepHarness
 
 [![🇺🇸 English](https://img.shields.io/badge/%F0%9F%87%BA%F0%9F%87%B8-English-blue.svg)](README.md) [![🇧🇷 Português (Brasil)](https://img.shields.io/badge/%F0%9F%87%A7%F0%9F%87%B7-Portugu%C3%AAs%20(Brasil)-green.svg)](README.pt-BR.md)
 
-A local Python control panel for discovering, configuring and running Codex CLI, Claude Code, Gemini CLI and local AI models, with a conversational harness accessible through Tailscale or another VPN. Python 3.11+, MIT license, version **0.14.0**.
+A local Python control panel for discovering, configuring and running Codex CLI, Claude Code, Gemini CLI and local AI models, with a conversational harness accessible through Tailscale or another VPN. Python 3.11+, MIT license, version **0.15.0**.
 
 ## 🚀 Installation — agent-guided (start here)
 
-Tail Harness is a harness for the AI tools already on your machine: it discovers and drives the Codex CLI, Claude Code, Gemini CLI and local model servers you have installed and signed in to. Because every server has a different mix of CLIs, accounts, models and permissions, installation is **directed by an AI coding agent** (Claude Code, Codex, …) that inspects the machine, reuses what already exists, asks you only for missing decisions and validates each step.
+KeepHarness is a harness for the AI tools already on your machine: it discovers and drives the Codex CLI, Claude Code, Gemini CLI and local model servers you have installed and signed in to. Because every server has a different mix of CLIs, accounts, models and permissions, installation is **directed by an AI coding agent** (Claude Code, Codex, …) that inspects the machine, reuses what already exists, asks you only for missing decisions and validates each step.
 
 **Requirements:** Linux (systemd for the background service), Python 3.11+, and at least one AI CLI or local model server installed. Clone the repository and give your agent this request:
 
 ```sh
-git clone https://github.com/sophia-phillipa/tail-harness.git
-cd tail-harness
+git clone https://github.com/sophia-phillipa/keepharness.git
+cd keepharness
 ```
 
-> Install Tail Harness following `dossier/installation-agent-spec.md`, from CP-01 through CP-08. Before each phase, say what you will do; afterwards, report status, evidence and next step. Reuse existing CLIs, accounts and models, ask only for missing decisions, and report the tests you ran and any blockers.
+> Install KeepHarness following `dossier/installation-agent-spec.md`, from CP-01 through CP-08. Before each phase, say what you will do; afterwards, report status, evidence and next step. Reuse existing CLIs, accounts and models, ask only for missing decisions, and report the tests you ran and any blockers.
 
 The [installation specification](dossier/installation-agent-spec.md) defines eight checkpoints, each closed with evidence before moving on:
 
@@ -30,14 +30,14 @@ The [installation specification](dossier/installation-agent-spec.md) defines eig
 | 🛠️ CP-07 · Recovery | Failures handled and affected tests rerun. |
 | 📋 CP-08 · Handoff | URLs, operating instructions, diagnostics, tests and limitations. |
 
-When it finishes, the admin panel is at **http://127.0.0.1:8094/** and conversations at **http://127.0.0.1:8095/**. State (settings, profiles, conversations, attachments) lives in `~/.local/share/tail-harness`.
+When it finishes, the admin panel is at **http://127.0.0.1:8094/** and conversations at **http://127.0.0.1:8095/**. State (settings, profiles, conversations, attachments) lives in `~/.local/share/keepharness`.
 
 ### Manual installation (without an agent)
 
 The scripts install the app but do not inspect or configure your providers; you do that afterwards in the admin panel.
 
 ```sh
-./install.sh               # Linux/systemd: venv in ~/.local/share/tail-harness/venv, user service and launcher
+./install.sh               # Linux/systemd: venv in ~/.local/share/keepharness/venv, user service and launcher
 ./install.sh --check-only  # verify the installed package without registering the service
 ./setup.sh && ./start.sh   # or: .venv in the checkout, admin panel in the foreground
 ```
@@ -138,16 +138,16 @@ Install Python and the project's dependencies on the other computer, copy the cl
 ```json
 {
   "mcpServers": {
-    "tail-harness": {
-      "command": "/path/tail-harness/.venv/bin/python",
-      "args": ["/path/tail-harness/agent_service/mcp_bridge.py"],
-      "env": {"TAIL_HARNESS_AGENT_URL": "http://YOUR-SERVER:8095"}
+    "keepharness": {
+      "command": "/path/keepharness/.venv/bin/python",
+      "args": ["/path/keepharness/agent_service/mcp_bridge.py"],
+      "env": {"KEEPHARNESS_AGENT_URL": "http://YOUR-SERVER:8095"}
     }
   }
 }
 ```
 
-On Tailscale with an authorized identity, the route forwards the identity. For a VPN with a key, create `~/.config/tail-harness/client.json` containing `{"url":"http://VPN-IP:8095","key_file":"/private/path/to/key"}`. Keep the key in a private file on that computer. Never put a key in Git or in prompts.
+On Tailscale with an authorized identity, the route forwards the identity. For a VPN with a key, create `~/.config/keepharness/client.json` containing `{"url":"http://VPN-IP:8095","key_file":"/private/path/to/key"}`. Keep the key in a private file on that computer. Never put a key in Git or in prompts.
 
 The bridge supports model/project discovery, file and workspace transfer, tasks, compact progress, artifacts, cancellation and approvals. Continue a session with the latest `job_id` as `parent_job_id`. Optional Maestro plans bounded sequential tasks among eligible executors; otherwise automatic execution chooses the configured default or an eligible service. Registered project systemd units can be controlled only through the corresponding permissions and explicit requests.
 
@@ -211,7 +211,7 @@ flowchart TD
 
 Installing from the checkout uses an editable link: the service runs this folder's code directly, with no second copy under site-packages. Keep the checkout at this path and restart the service after Python code changes. Wheels remain independent distributions and need an explicit update.
 
-Production state defaults to `~/.local/share/tail-harness`: settings, model profiles, conversations and attachments. Temporary previews using `/tmp` do not replace production state. Export and import settings through the dashboard when moving installations; moving only the code or database does not migrate every permission.
+Production state defaults to `~/.local/share/keepharness`: settings, model profiles, conversations and attachments. Temporary previews using `/tmp` do not replace production state. Export and import settings through the dashboard when moving installations; moving only the code or database does not migrate every permission.
 
 Configuration exports omit credentials but may contain local paths and authorized identities. Treat them as private. Conversation deletion in the UI is logical, not guaranteed physical erasure. Administrators are responsible for backups and retention.
 
@@ -226,7 +226,7 @@ When Tailscale sharing is configured with authorized identities, opening the cha
 PYTHON="$PWD/.venv/bin/python" PLAYWRIGHT_MODULE=/path/to/playwright ./scripts/test-ui.sh
 ```
 
-UI fixtures avoid cloud inference and model downloads. A passing mocked suite does not prove third-party authentication, physical reboot or full-context performance. To check the installed package, use `"$TH_VENV/bin/python" -m control.install_check`, with `TH_VENV` set to the environment used by the installation (`~/.local/share/tail-harness/venv` for `install.sh`, `.venv` for `setup.sh`). This smoke check runs outside the checkout with temporary state and an available port; it does not install dependencies or validate the production instance and providers. For a clean installation simulation, follow the dedicated section of the [spec](dossier/installation-agent-spec.md), preparing separate environment, state and ports through individual commands.
+UI fixtures avoid cloud inference and model downloads. A passing mocked suite does not prove third-party authentication, physical reboot or full-context performance. To check the installed package, use `"$TH_VENV/bin/python" -m control.install_check`, with `TH_VENV` set to the environment used by the installation (`~/.local/share/keepharness/venv` for `install.sh`, `.venv` for `setup.sh`). This smoke check runs outside the checkout with temporary state and an available port; it does not install dependencies or validate the production instance and providers. For a clean installation simulation, follow the dedicated section of the [spec](dossier/installation-agent-spec.md), preparing separate environment, state and ports through individual commands.
 
 Every new version requires an English specification at `dossier/releases/v<VERSION>.md`, with behavior, acceptance criteria, relevant diagrams, migration notes and actual validation. Update `README.md`, `README.pt-BR.md` and the version identifiers together. See [version 0.13.14](dossier/releases/v0.13.14.md) and the [dossier](dossier/README.md). Product reference: [T3 Code](https://github.com/pingdotgg/t3code). This is an independent implementation; it does not incorporate T3's code or graphical assets and does not claim feature parity.
 
@@ -244,7 +244,7 @@ The dashboard shows only registered providers, with edit and delete actions. **A
 
 In the dashboard, under **Remote access and configuration → Export or import configuration**, export the saved choices or select a JSON file to preview and apply. Credentials, tokens and VPN keys are excluded. The file still contains local paths and authorized identities: treat it as private. Import validates existing paths and integrations, does not start services, and cannot replace choices during an active execution. Without a profile in the file, the current local profile is preserved.
 
-To check the already-installed package, use the Python from the installation's environment (`~/.local/share/tail-harness/venv` for `install.sh`, `.venv` for `setup.sh`):
+To check the already-installed package, use the Python from the installation's environment (`~/.local/share/keepharness/venv` for `install.sh`, `.venv` for `setup.sh`):
 
 ```sh
 "$TH_VENV/bin/python" -m control.install_check
@@ -276,7 +276,7 @@ The generic launcher and panel share the same command builder, including optiona
 
 ### Projects and provider refresh
 
-Add projects from the **Tail Harness** conversation sidebar with a unique name containing at least three letters and one or more existing server folders. Search folder names in the current directory, browse and select up to 20 folders; the first is the primary working directory. The project name and icon appear beside the conversation title. Registered projects are available to every enabled model and persist in the conversation database across restarts. The administration panel handles providers and local profiles; models, providers and permissions can be changed while the harness is running.
+Add projects from the **KeepHarness** conversation sidebar with a unique name containing at least three letters and one or more existing server folders. Search folder names in the current directory, browse and select up to 20 folders; the first is the primary working directory. The project name and icon appear beside the conversation title. Registered projects are available to every enabled model and persist in the conversation database across restarts. The administration panel handles providers and local profiles; models, providers and permissions can be changed while the harness is running.
 
 Every startup rechecks enabled providers and selected models. The conversation interface also refreshes changed model catalogs, preserving drafts and still-valid selections; updates wait for an active execution to finish. Codex, Claude and DeepSeek receive native filesystem, terminal, network and attachment access without sandboxing. Permission controls remain specific to local models. Provider authentication and model/tool compatibility are still required.
 
@@ -330,7 +330,7 @@ Between messages, select another model or effort: the next execution continues t
 
 The **Local model via Codex** and **DeepSeek via Codex** cards identify the combinations currently available. The local model answers through the local inference server; DeepSeek answers through its API and consumes DeepSeek credits. Codex CLI sends requests, executes authorized tools and maintains sessions; these integrations do not use an OpenAI model as an intermediary.
 
-Tail Harness distinguishes the model from the execution engine. Other combinations, such as DeepSeek or a local model through Claude Code, require their own integration and validation and are not yet options in these cards. Developing this project with Codex does not make the Harness exclusive to OpenAI models.
+KeepHarness distinguishes the model from the execution engine. Other combinations, such as DeepSeek or a local model through Claude Code, require their own integration and validation and are not yet options in these cards. Developing this project with Codex does not make the Harness exclusive to OpenAI models.
 
 ## 🆕 Version 0.10.0
 
@@ -369,7 +369,7 @@ The Run console opens tall enough to inspect pipeline cards and their actions, r
 
 Catalogs can declare resources, context, runtime prerequisites and writable state in an optional `harness.catalog.json`. Project pins run from private read-only worktrees; the local admin panel previews resource changes before an explicit pin move. The same panel reports drift and provides write-only integration credentials bound to a project/catalog. Environment injection remains advisory; mediated publication retains human approval.
 
-Writable roots and work items are leased before independent provider lanes dispatch. Conversation turns remain serialized. `control/product.py` supplies the current identity and generated package/client assets; a synthetic second-identity build verifies separate commands and state without renaming Tail Harness. See the [release specification](dossier/releases/v0.12.0.md), [catalog contract](docs/catalog-manifests.md), [credential contract](docs/integration-credentials.md) and [identity guide](docs/product-identity.md) for configuration, enforced boundaries and explicit unsupported modes.
+Writable roots and work items are leased before independent provider lanes dispatch. Conversation turns remain serialized. `control/product.py` supplies the current identity and generated package/client assets; a synthetic second-identity build verifies separate commands and state without renaming KeepHarness. See the [release specification](dossier/releases/v0.12.0.md), [catalog contract](docs/catalog-manifests.md), [credential contract](docs/integration-credentials.md) and [identity guide](docs/product-identity.md) for configuration, enforced boundaries and explicit unsupported modes.
 
 ## 🆕 Version 0.12.1
 
@@ -398,3 +398,7 @@ Round 14 moves model/provider blocking notices to a compact composer strip, repl
 ## 🆕 Version 0.14.0
 
 The chat adopts a Codex-style shell with an icon rail and a composer sub-bar. A project's conversations appear only in its folder and every other conversation under **Chats**, each with one status dot (needs your answer, running, queued, failed, unread) instead of status groups. The sub-bar adds **Files**, **Agents** and **Plugins**; the last lists the connectors and plugins available for the chosen project and route. Create your own agents and call them with `@@name` on any provider: an agent keeps its route, the history carries over when you switch model or agent, and the chat marks each change with a divider. **Settings › System** shows the local admin on the same screen, the local provider accepts OpenAI-compatible model servers on your network (for example over Tailscale), and the admin's Claude login accepts the code the browser shows. Live provider checks covered Codex; the Claude and DeepSeek routes and a real tailnet model server were not validated live. See the [release specification](dossier/releases/v0.14.0.md) for migration and validation.
+
+## 🆕 Version 0.15.0
+
+The product is now **KeepHarness**. The package, commands (`keepharness`, `keepharness-install`, `keepharness-mcp`, `keepharness-local`), MCP server, environment variables (`KEEPHARNESS_*`) and folders (`~/.local/share/keepharness`, `~/.config/keepharness`) use the new name; on its first start with the default state folder, and in `install.sh`, KeepHarness moves the Tail Harness state and config folders and adopts them, never merging into an existing folder. Rename any `TAIL_HARNESS_*` variable you set and run the new `setup-mcp.sh` on MCP client computers. The rail gains **Space** (Markdown pages per project, to attach or to start a chat with) and **Scheduled** (prompts that run daily, weekly or every few hours with Ask or Read only access), each plugin row opens a detail view, and `desktop/` holds an Electron client. See the [release specification](dossier/releases/v0.15.0.md) for migration and validation.
