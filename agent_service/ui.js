@@ -6730,6 +6730,15 @@ $("settings").onclick = () => {
   refreshCatalog();
 };
 $("settings-close").onclick = () => $("settings-dialog").close();
+// Rail shortcuts (Codex model): the run pipeline and the agent and skill catalog.
+$("rail-runs").onclick = () => $("run-status-toggle")?.click();
+$("rail-agents").onclick = () => {
+  if (!$("settings-dialog").open) {
+    $("settings-dialog").showModal();
+    refreshCatalog();
+  }
+  document.querySelector('[data-settings="agents"]').click();
+};
 // The rail's admin shortcut opens Settings › System; modified clicks keep the new tab.
 $("admin-shortcut-top").addEventListener("click", (event) => {
   if (event.button || event.ctrlKey || event.metaKey || event.shiftKey) return;

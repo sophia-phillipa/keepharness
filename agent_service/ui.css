@@ -5463,3 +5463,5 @@ main > header #conversation-title { max-width: calc(50% - 250px); }
 #projects .project-conversations > .empty-history { margin: 0; padding: 5px 8px; color: var(--th-quiet); font-size: 13px; line-height: 20px; }
 #projects .project-group > summary > .project-actions { display: flex; flex: none; align-items: center; gap: 2px; width: auto; }
 #execution-mode-choice.no-modes :is(#isolation-toggle, #execution-mode-label) { display: none; }
+/* The sub-bar is ordered after the composer; the run console stays below both. */
+main > #run-console { order: 11; }
