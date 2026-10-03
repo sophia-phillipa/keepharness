@@ -22,3 +22,6 @@ local_ai/
 CLAUDE.local.md
 .claude/settings.local.json
 /pytest-of-*/
+
+# Private redesign research (desktop-app study, specs, screenshots); kept local, never published.
+/dossier/harness-spec-decisions/
