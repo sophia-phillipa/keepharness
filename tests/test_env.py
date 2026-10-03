@@ -1,5 +1,8 @@
 """control.env: KEEPHARNESS_<NAME> wins; legacy aliases work with one deprecation warning."""
 
+import logging
+import os
+
 import pytest
 
 from control import env
@@ -37,3 +40,17 @@ def test_default_is_returned_when_neither_name_is_set(monkeypatch):
 def test_unmapped_name_has_no_legacy_fallback(monkeypatch):
     monkeypatch.delenv("KEEPHARNESS_LOG_LEVEL", raising=False)
     assert env.read("LOG_LEVEL", "info") == "info"
+
+
+def test_each_tail_harness_variable_left_set_is_named_once_at_startup(monkeypatch, caplog):
+    for name in [name for name in os.environ if name.startswith("TAIL_HARNESS_")]:
+        monkeypatch.delenv(name)
+    monkeypatch.setenv("TAIL_HARNESS_LOG_LEVEL", "debug")
+    monkeypatch.setenv("TAIL_HARNESS_AGENT_URL", "https://private.example")
+    with caplog.at_level(logging.WARNING, logger="control.env"):
+        env.warn_legacy_names()
+    assert [record.getMessage() for record in caplog.records] == [
+        "TAIL_HARNESS_AGENT_URL is no longer read; rename it to KEEPHARNESS_AGENT_URL.",
+        "TAIL_HARNESS_LOG_LEVEL is no longer read; rename it to KEEPHARNESS_LOG_LEVEL.",
+    ]
+    assert "private.example" not in caplog.text

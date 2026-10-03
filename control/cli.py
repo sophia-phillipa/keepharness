@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from .discovery import scan
-from .product import PRODUCT, ensure_lineage, migrate_legacy_state
+from .product import PRODUCT, ensure_lineage, legacy_waiting, migrate_legacy_state
 
 
 def main(argv=None):
@@ -33,8 +33,7 @@ def main(argv=None):
     )
     args = parser.parse_args(argv)
     os.umask(0o077)
-    if args.state == parser.get_default("state"):
-        migrate_legacy_state()
+    default_state = args.state == parser.get_default("state")
     if not 1024 <= args.port <= 65535:
         parser.error("Port must be between 1024 and 65535")
     if args.command == "approve-device":
@@ -43,6 +42,9 @@ def main(argv=None):
 
         if args.all and not args.revoke:
             parser.error("--all requires --revoke")
+        # Creating the new folder here would make the pending move refuse to merge.
+        if default_state and (waiting := legacy_waiting()):
+            parser.error(waiting)
         try:
             ensure_lineage(Path(args.state), PRODUCT)
             config = json.loads((Path(args.state) / "runtime.json").read_text())
@@ -78,9 +80,15 @@ def main(argv=None):
 
     from agent_service.log_config import configure_logging
 
+    from .env import warn_legacy_names
     from .server import create_app
 
     configure_logging()
+    warn_legacy_names()
+    # Nothing above touches the state folder: starting now would create an empty new one
+    # beside the old, and the move would then never happen.
+    if default_state and (refused := migrate_legacy_state()):
+        raise SystemExit(refused)
 
     print(f"Local management: http://127.0.0.1:{args.port}/", flush=True)
     uvicorn.run(
