@@ -5420,7 +5420,7 @@ function modelAvailability(
     !models.length || submitting || loading || uploads > 0 || policyPending;
   $("effort").disabled = $("model").disabled;
   $("prompt").placeholder = models.length
-    ? "Send a message… · / agents, skills and commands · Enter to send · Shift+Enter for a new line"
+    ? "Message Tail Harness — type / for agents"
     : "Set up a model to send; your draft will be preserved.";
   $("model-note").hidden = !models.length;
   updateModelPermissions();

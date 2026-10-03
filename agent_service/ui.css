@@ -5050,3 +5050,132 @@ main > header h1 { max-width: calc(50% - 240px); }
   body #sidebar:not(.open) { display: none; }
   body #sidebar.open { position: fixed; top: var(--th-app-topbar-height); bottom: 0; left: 0; width: min(320px, 86vw)!important; z-index: 35; box-shadow: 0 0 0 100vmax rgba(0, 0, 0, .45); }
 }
+
+/* ===== Conversation like the reference: plain answers, round user bubble, pill composer. ===== */
+#messages article.message { max-width: none; margin: 0 0 24px; padding: 0; border: 0; background: transparent; box-shadow: none; }
+#messages article.message.user { display: flex; justify-content: flex-end; }
+#messages article.message.user > .chat-bubble {
+  max-width: min(70%, 520px); margin: 0; padding: 10px 16px; border: 0; border-radius: 22px;
+  background: color-mix(in srgb, var(--th-panel) 92%, transparent); color: var(--th-text);
+  font-size: 14px; line-height: 22.75px; box-shadow: none;
+}
+#messages article.message.assistant { display: flex; flex-wrap: wrap; align-items: center; column-gap: 6px; }
+#messages article.message.assistant > * { flex: 1 0 100%; }
+#messages article.message.assistant > h3 { display: none; }
+#messages article.message.assistant > .run-highlight,
+#messages article.message.assistant > .message-activity { flex: 0 1 auto; margin: 0 0 6px; padding: 0; border: 0; background: transparent; color: var(--th-quiet); font-size: 13px; line-height: 20px; }
+#messages article.message.assistant > .run-highlight + .message-activity::before { content: "·"; margin-right: 6px; color: var(--th-quiet); }
+#messages article.message.assistant > .message-activity > summary { display: inline-flex; color: var(--th-quiet); font-size: 13px; cursor: pointer; }
+#messages article.message.assistant > .message-activity[open] { flex: 1 0 100%; }
+#messages article.message.assistant > .chat-bubble { margin: 0; padding: 0; border: 0; background: transparent; box-shadow: none; font-size: 14px; line-height: 22.75px; color: var(--th-text); }
+#messages article.message.assistant > .run-meta { order: 3; flex: 0 1 auto; margin: 6px 0 0; color: var(--th-quiet); font-size: 12px; }
+#messages article.message.assistant > .btn { order: 2; flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; height: 26px; min-height: 0; margin: 6px 0 0; padding: 0 8px; border: 0; border-radius: 10px; background: transparent; color: var(--th-quiet); font-size: 12px; }
+#messages article.message.assistant > .btn:hover { background: var(--th-hover); color: var(--th-text); }
+#messages article.message.assistant > .btn .th-icon, #messages article.message.assistant > .btn svg { width: 16px; height: 16px; }
+#messages article.message.assistant > :is(.maestro-plan-card, .approval-card, .gate-card, section, form) { order: 1; }
+
+/* Composer inside a conversation: one pill row (+ · prompt · mode · access · model · effort · send). */
+main:not(:has(#messages > #welcome)) #dropzone.composer.card {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto auto; align-items: center; column-gap: 2px;
+  min-height: 44px; padding: 4px 6px 4px 8px; border-radius: 22px;
+}
+main:not(:has(#messages > #welcome)) #dropzone #attachments { grid-column: 1 / -1; grid-row: 1; }
+main:not(:has(#messages > #welcome)) #dropzone #attachments:empty { display: none; }
+main:not(:has(#messages > #welcome)) #dropzone .prompt-editor { grid-column: 2; grid-row: 2; min-width: 0; }
+main:not(:has(#messages > #welcome)) #dropzone :is(.composer-toolbar, .composer-actions) { display: contents; }
+main:not(:has(#messages > #welcome)) #dropzone #attach { grid-column: 1; grid-row: 2; }
+main:not(:has(#messages > #welcome)) #dropzone #execution-mode-indicator:not([hidden]) { position: static; grid-column: 3; grid-row: 2; display: grid; place-items: center; width: 28px; height: 28px; color: var(--th-quiet); }
+main:not(:has(#messages > #welcome)) #dropzone .access-control { grid-column: 4; grid-row: 2; }
+main:not(:has(#messages > #welcome)) #dropzone .composer-right { grid-column: 5; grid-row: 2; display: flex; align-items: center; gap: 2px; }
+main:not(:has(#messages > #welcome)) #dropzone #prompt { min-height: 20px; padding: 6px 4px; }
+main:not(:has(#messages > #welcome)) .composer-area { padding-bottom: 14px; }
+main:not(:has(#messages > #welcome)) .composer-area .composer-context { display: flex; justify-content: center; }
+main:not(:has(#messages > #welcome)) .composer-area .composer-context #context-meter { font-size: 12px; line-height: 16px; padding: 0 0 8px; text-align: center; }
+
+/* Menus like the reference: 20 px cards, 32 px rows. */
+body .composer-menu, body .resource-menu, body .conversation-actions-menu, body .attention-popover {
+  border: 0; border-radius: 20px; background: color-mix(in srgb, var(--th-panel) 96%, transparent); padding: 6px;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--th-text) 8%, transparent), 0 12px 32px rgba(0, 0, 0, .28);
+}
+body .composer-menu [role="option"], body .conversation-actions-menu > button { min-height: 32px; padding: 4px 10px; border-radius: 8px; font-size: 14px; }
+body .composer-menu .access-menu-heading { padding: 6px 10px 4px; color: var(--th-quiet); font-size: 12px; }
+main > header #conversation-title { max-width: calc(50% - 240px); }
+#messages article.message.user { align-self: stretch; width: 100%; }
+main:not(:has(#messages > #welcome)) .composer-area { max-width: 800px; }
+#messages article.message.assistant > .run-meta { line-height: 26px; }
+/* Access mode: icon-only inside the conversation pill; full access is flagged in orange like the reference. */
+main:not(:has(#messages > #welcome)) #dropzone #access-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+main:not(:has(#messages > #welcome)) #dropzone #access-trigger-icon { display: inline-grid; place-items: center; width: 16px; height: 16px; }
+#access-trigger[data-mode="full"] { color: light-dark(#c2410c, #ff8549); }
+
+/* ===== Our own cards (Maestro plan, approvals, questions, publish gates) in the reference card language. ===== */
+#messages :is(.maestro-plan-card, .approval-card) {
+  margin: 4px 0 8px; padding: 14px 16px; border: 1px solid color-mix(in srgb, var(--th-text) 10%, transparent)!important;
+  border-radius: 20px; background: color-mix(in srgb, var(--th-panel) 55%, transparent); box-shadow: none; font-size: 14px; line-height: 20px;
+}
+#messages :is(.maestro-plan-card, .approval-card)[data-state="pending"],
+#messages .approval-card:not([data-state]) { border-color: color-mix(in srgb, light-dark(#c2410c, #ff8549) 35%, transparent)!important; }
+#messages .maestro-plan-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 10px; }
+#messages .maestro-plan-heading strong, #messages .approval-card h3 { margin: 0; font-size: 14px; font-weight: 600; color: var(--th-text); }
+#messages :is(.maestro-plan-card, .approval-card) .state-pill { min-height: 22px; padding: 0 8px; border: 0; border-radius: 9999px; background: color-mix(in srgb, light-dark(#c2410c, #ff8549) 14%, transparent); color: light-dark(#c2410c, #ff8549); font-size: 12px; }
+#messages .maestro-plan-heading [role="status"] { color: var(--th-quiet); font-size: 13px; }
+#messages .maestro-plan-card ol { margin: 0 0 12px; padding: 0; list-style: none; counter-reset: plan; display: grid; gap: 6px; }
+#messages .maestro-plan-card li { counter-increment: plan; display: grid; grid-template-columns: 22px auto auto 1fr; align-items: center; column-gap: 8px; padding: 8px 10px; border-radius: 12px; background: color-mix(in srgb, var(--th-text) 4%, transparent); }
+#messages .maestro-plan-card li::before { content: counter(plan); display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: color-mix(in srgb, var(--th-text) 9%, transparent); color: var(--th-quiet); font-size: 11px; }
+#messages .maestro-plan-card li .plan-role { font-weight: 500; }
+#messages .maestro-plan-card li > span:last-of-type { color: var(--th-quiet); font-size: 12px; }
+#messages .maestro-plan-card li p { grid-column: 2 / -1; margin: 2px 0 0; color: var(--th-quiet); font-size: 13px; }
+#messages .maestro-plan-card .backend-chip { border: 0; background: transparent; padding: 0; color: var(--th-quiet); font-size: 12px; }
+#messages :is(.maestro-plan-actions, .approval-card .approval-actions, .approval-card > div:last-child) { display: flex; flex-wrap: wrap; gap: 8px; }
+#messages :is(.maestro-plan-card, .approval-card) .btn {
+  display: inline-flex; align-items: center; gap: 6px; height: 32px; min-height: 0; padding: 0 14px; border: 0; border-radius: 9999px;
+  background: color-mix(in srgb, var(--th-text) 8%, transparent); color: var(--th-text); font-size: 13px; font-weight: 500; box-shadow: none;
+}
+#messages :is(.maestro-plan-card, .approval-card) .btn:hover { background: color-mix(in srgb, var(--th-text) 13%, transparent); }
+#messages :is(.maestro-plan-card, .approval-card) .btn.btn-primary { background: var(--th-action); color: var(--th-on-action); }
+#messages :is(.maestro-plan-card, .approval-card) .btn.btn-primary:hover { background: color-mix(in srgb, var(--th-action) 86%, var(--th-bg)); }
+#messages :is(.maestro-plan-card, .approval-card) .btn.btn-danger { background: color-mix(in srgb, #e5484d 16%, transparent); color: light-dark(#b42318, #ff8e8e); }
+#messages :is(.maestro-plan-card, .approval-card) .btn :is(.th-icon, svg) { width: 16px; height: 16px; }
+#messages .approval-card p { margin: 6px 0 10px; color: var(--th-quiet); font-size: 13px; }
+#messages .approval-card :is(pre, .approval-diff) { border-radius: 12px; background: var(--th-soft); border: 1px solid color-mix(in srgb, var(--th-text) 8%, transparent); font-size: 12px; }
+/* Stop: round like the reference. */
+body .composer-submit .send.stop { display: grid; place-items: center; width: 32px; min-width: 32px; height: 32px; padding: 0; border-radius: 9999px; background: var(--th-action); color: var(--th-on-action); font-size: 12px; }
+body .composer-submit .send.stop > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+/* Needs-you peek link in the sidebar. */
+#sidebar .conversation-peek { margin: -4px 0 4px 36px; color: var(--th-quiet); font-size: 12px; }
+#sidebar .conversation-peek:hover { color: var(--th-text); }
+#messages .maestro-plan-card li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+#messages .maestro-plan-card li > * { grid-column: auto; grid-row: auto; width: auto; min-width: 0; }
+#messages .maestro-plan-card li::before { flex: none; }
+#messages .maestro-plan-card li p { flex: 1 0 100%; margin: 0 0 0 28px; }
+body #dropzone #cancel:not([hidden]) { display: grid; place-items: center; width: 32px; min-width: 32px; height: 32px; min-height: 0; padding: 0; border: 0; border-radius: 9999px; background: var(--th-action); color: var(--th-on-action); }
+body #dropzone #cancel :is(.th-icon, svg) { width: 14px; height: 14px; fill: currentColor; }
+body #dropzone #cancel > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+body #dropzone #cancel:not([hidden]), body .composer-submit .send { flex: 0 0 32px; justify-content: center; align-content: center; }
+#messages .maestro-plan-card li::before { position: static; margin: 0; }
+
+/* ===== Run console (our pipeline/timeline/logs/runs/agents) as a quiet bottom panel, like the reference terminal panel. ===== */
+.run-console { background: var(--th-bg); border-top: 1px solid color-mix(in srgb, var(--th-text) 9%, transparent); }
+.run-console-resizer { border: 0; }
+.run-console-header { min-height: 44px; gap: 6px; border-bottom: 0; }
+.run-console-header h2 { color: var(--th-quiet); font-size: 12px; font-weight: 500; letter-spacing: 0; text-transform: none; }
+.run-console-tabs { height: auto; gap: 2px; }
+.run-console-tabs [role="tab"] { display: inline-flex; align-items: center; height: 30px; padding: 0 10px; border: 0; border-radius: 10px; background: transparent; color: var(--th-quiet); font-size: 13px; box-shadow: none!important; }
+.run-console-tabs [role="tab"]:hover { background: var(--th-hover); color: var(--th-text); }
+.run-console [role="tab"][aria-selected="true"] { background: color-mix(in srgb, var(--th-text) 8%, transparent); color: var(--th-text); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--th-text) 10%, transparent)!important; }
+.run-tab-count { border: 0; background: color-mix(in srgb, var(--th-text) 9%, transparent); color: var(--th-quiet); }
+.run-console .btn:not(.run-span-row):not([role="tab"]), .run-pipeline-actions button, .run-plan-actions button { height: 30px; padding: 0 12px!important; border: 0!important; border-radius: 9999px!important; background: color-mix(in srgb, var(--th-text) 8%, transparent); color: var(--th-text); font-size: 13px; }
+.run-console .btn:not(.run-span-row):not([role="tab"]):hover, .run-pipeline-actions button:hover, .run-plan-actions button:hover { background: color-mix(in srgb, var(--th-text) 13%, transparent); }
+.run-console .btn.btn-primary:not(.run-span-row), .run-plan-actions .btn-primary { background: var(--th-action); color: var(--th-on-action); }
+.run-pipeline-summary { border-bottom: 1px solid color-mix(in srgb, var(--th-text) 8%, transparent); }
+.run-span-row { border: 1px solid color-mix(in srgb, var(--th-text) 10%, transparent)!important; border-top: 1px solid color-mix(in srgb, var(--th-text) 10%, transparent)!important; border-radius: 14px!important; background: color-mix(in srgb, var(--th-panel) 45%, transparent); }
+.run-span-row:hover { background: color-mix(in srgb, var(--th-panel) 70%, transparent); }
+.run-span-row[aria-pressed=true] { border-color: color-mix(in srgb, var(--th-accent) 55%, transparent)!important; box-shadow: none; }
+.run-span-detail { border: 1px solid color-mix(in srgb, var(--th-text) 10%, transparent); border-radius: 14px; }
+.run-plan-approval { padding: 12px 14px; border: 1px solid color-mix(in srgb, light-dark(#c2410c, #ff8549) 35%, transparent); border-radius: 16px; background: color-mix(in srgb, var(--th-panel) 45%, transparent); }
+.run-plan-approval p { font-size: 13px; }
+.run-table th { color: var(--th-quiet); font-weight: 500; }
+.run-table th, .run-table td, .run-agent-row, .run-log-row { border-color: color-mix(in srgb, var(--th-text) 8%, transparent); }
+.run-field input, .run-field select { border-radius: 10px; border-color: color-mix(in srgb, var(--th-text) 12%, transparent); background: var(--th-soft); }
+.run-status-strip { border-top: 1px solid color-mix(in srgb, var(--th-text) 7%, transparent); }
+.run-status-shortcut { border-color: color-mix(in srgb, var(--th-text) 12%, transparent); background: transparent; }
