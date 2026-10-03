@@ -5473,3 +5473,43 @@ main > #run-console { order: 11; }
 #messages > .route-divider { display: flex; align-items: center; gap: 8px; width: min(100%, 736px); margin: 14px auto 6px; color: var(--th-quiet); font-size: 12px; line-height: 16px; }
 #messages > .route-divider::before, #messages > .route-divider::after { content: ""; flex: 1 1 24px; height: 1px; background: color-mix(in srgb, var(--th-text) 12%, transparent); }
 #messages > .route-divider :is(.th-icon, svg) { flex: none; width: 14px; height: 14px; }
+
+/* Create agent: a reusable assistant with its own instructions and route. */
+#agent-dialog { width: min(640px, calc(100vw - 32px)); max-height: 88dvh; overflow: auto; padding: 24px; border-radius: 20px; }
+#agent-form { display: grid; gap: 14px; }
+#agent-form .settings-heading { display: flex; align-items: center; gap: 8px; margin: 0; }
+#agent-dialog-title { flex: 1; margin: 0; font-size: 22px; font-weight: 600; }
+#agent-dialog-close { display: grid; place-items: center; width: 32px; height: 32px; padding: 4px; border: 0; border-radius: 10px; background: transparent; color: var(--th-muted); }
+#agent-dialog-close .th-icon { width: 18px; height: 18px; }
+.agent-dialog-intro { margin: 0; color: var(--th-muted); font-size: 13px; }
+.agent-fields { display: grid; gap: 6px; }
+.agent-fields > label { margin-top: 6px; font-size: 13px; font-weight: 500; }
+.agent-fields :is(input, textarea, select) { box-sizing: border-box; width: 100%; padding: 8px 10px; border: 1px solid color-mix(in srgb, var(--th-text) 14%, transparent); border-radius: 12px; background: var(--th-soft); color: var(--th-text); font: inherit; font-size: 14px; }
+.agent-fields textarea { min-height: 72px; resize: vertical; }
+.agent-fields small { color: var(--th-muted); font-size: 12px; }
+.agent-fields [aria-invalid="true"] { border-color: light-dark(#c0262d, #ff6b6b); }
+.agent-fields input[readonly] { color: var(--th-muted); }
+.agent-route { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 6px; }
+.agent-route label { display: grid; gap: 4px; font-size: 13px; font-weight: 500; }
+#agent-form-error { margin: 0; color: light-dark(#c0262d, #ff6b6b); font-size: 13px; }
+#agent-form-error:empty { display: none; }
+#agent-form .project-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+#agent-delete { margin-right: auto; }
+@media (max-width: 620px) { .agent-route { grid-template-columns: 1fr; } }
+/* Your agents (Settings › Agents and models). */
+#tail-agents-section { margin: 0 0 28px; }
+.tail-agents-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.tail-agents-heading h4 { margin: 0; font-size: 14px; font-weight: 500; }
+#tail-agents-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+#tail-agents-list .tail-agent { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--th-text) 12%, transparent); border-radius: 16px; }
+#tail-agents-list .tail-agent > .th-icon { width: 18px; height: 18px; color: var(--th-muted); }
+#tail-agents-list .tail-agent > div { min-width: 0; }
+#tail-agents-list .tail-agent strong { font-size: 14px; }
+#tail-agents-list .tail-agent p { margin: 2px 0; overflow: hidden; color: var(--th-text); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+#tail-agents-list .tail-agent small { color: var(--th-muted); font-size: 12px; }
+#tail-agents-empty { margin: 0; color: var(--th-muted); font-size: 13px; }
+#tail-agents-empty[hidden] { display: none; }
+/* Palette footer: create an agent from the @ list. */
+#resource-menu .resource-create { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 32px; margin-top: 4px; padding: 6px 10px; border: 0; border-top: 1px solid color-mix(in srgb, var(--th-text) 10%, transparent); border-radius: 0 0 12px 12px; background: transparent; color: var(--th-text); font-size: 13px; text-align: left; }
+#resource-menu .resource-create:hover { background: var(--th-hover, color-mix(in srgb, var(--th-text) 7%, transparent)); }
+#resource-menu .resource-create .th-icon { width: 16px; height: 16px; color: var(--th-muted); }

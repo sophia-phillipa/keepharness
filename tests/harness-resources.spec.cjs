@@ -342,9 +342,10 @@ const path = require("node:path");
     await page.fill("#prompt", "Run @@local");
     await page.click("#send");
     assert.equal(posts.length, 1);
+    // @@name now names the user's own agents (Sophia, 2026-10-03); an unknown one is not sent.
     assert.match(
       await page.locator("#status").innerText(),
-      /not available yet/,
+      /Choose @@local from the @ list/,
     );
     assert.deepEqual(
       resourceQueries

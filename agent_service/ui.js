@@ -564,7 +564,7 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
     note.textContent = warning;
     options.append(note);
   }
-  if (trigger.prefix === "@@" || trigger.prefix === "//") {
+  if (trigger.prefix === "//") {
     const empty = document.createElement("p");
     empty.className = "resource-empty";
     empty.textContent = "Tail Harness resources are not available yet.";
@@ -580,6 +580,8 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
       const scope =
           item.scope === "project"
             ? "Project"
+            : item.scope === "tail"
+              ? "Yours"
             : item.scope === "catalog"
               ? "Catalog"
               : item.scope === "builtin"
@@ -591,7 +593,8 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
         const section = document.createElement("section"),
           title = document.createElement("h3");
         section.className = "resource-group";
-        title.textContent = category + " · " + scope + " · " + item.origin;
+        title.textContent =
+          item.scope === "tail" ? category : category + " · " + scope + " · " + item.origin;
         section.append(title);
         groups.set(groupKey, section);
         options.append(section);
@@ -611,7 +614,9 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
       const glyph = document.createElement("span");
       glyph.className = "resource-origin-icon";
       glyph.setAttribute("aria-hidden", "true");
-      glyph.append(resourceIcon(item));
+      glyph.append(
+        item.scope === "tail" ? providerModelIcon(item.backend, item.model) : resourceIcon(item),
+      );
       const text = document.createElement("span"),
         name = document.createElement("strong"),
         description = document.createElement("small"),
@@ -640,6 +645,17 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
       option.onpointerenter = () => renderResourcePreview(item);
       groups.get(groupKey).append(option);
     }
+  }
+  if (trigger.prefix[0] === "@" && !loading) {
+    const create = document.createElement("button");
+    create.type = "button";
+    create.className = "resource-create";
+    create.append(TailUI.icon("plus"), document.createTextNode("Create agent…"));
+    create.onclick = () => {
+      closeResourceMenu();
+      openAgentDialog();
+    };
+    options.append(create);
   }
   if (
     (trigger.prefix[0] === "@" &&
@@ -719,8 +735,10 @@ function selectResource(item, trigger) {
     action?.click();
     return;
   }
-  const marker = trigger.prefix[0] === "@" ? "@" : "/",
+  const tailAgent = item.scope === "tail" && item.kind === "agent",
+    marker = tailAgent ? "@@" : trigger.prefix[0] === "@" ? "@" : "/",
     token = marker + item.name;
+  if (tailAgent) applyAgentRoute(item);
   const input = $("prompt"),
     before = input.value.slice(0, trigger.start),
     after = input.value.slice(trigger.end);
@@ -763,7 +781,13 @@ async function refreshResources(trigger) {
       return;
     resourceItems = Array.isArray(data.items) ? data.items : [];
     let filtered = [...resourceItems, ...builtinResources()]
-      .filter((item) => trigger.prefix === "@" ? item.kind === "agent" : ["agent", "skill", "command", "workflow", "rule", "context", "builtin"].includes(item.kind))
+      .filter((item) =>
+        trigger.prefix === "@@"
+          ? item.kind === "agent" && item.scope === "tail"
+          : trigger.prefix === "@"
+            ? item.kind === "agent"
+            : ["agent", "skill", "command", "workflow", "rule", "context", "builtin"].includes(item.kind),
+      )
       .map((item) => ({ item, score: resourceMatchScore(item, trigger.query) }))
       .filter((entry) => entry.score >= 0)
       .sort((left, right) => right.score - left.score)
@@ -807,7 +831,7 @@ function openResourceMenu() {
     closeResourceMenu();
     return;
   }
-  if (trigger.prefix === "@@" || trigger.prefix === "//") {
+  if (trigger.prefix === "//") {
     renderResourceMenu(trigger, [], false);
     return;
   }
@@ -1545,6 +1569,7 @@ async function api(path, options = {}) {
     }
     const error = Error(message);
     error.code = e.code;
+    error.field = e.field;
     error.status = r.status;
     if (r.status === 429) {
       const after = r.headers.get("Retry-After");
@@ -4343,13 +4368,17 @@ async function send() {
   const draft = $("prompt").value,
     prompt = draft;
   if (!prompt.trim()) return;
-  const reserved = unfencedPrompt(prompt).match(/(?:^|\s)(@@)[\w:-]+(?=\s|$)|^\s*(\/\/)[A-Za-z_][\w:-]*(?=\s|$)/);
-  if (reserved) {
-    status(
-      reserved[1] === "@@"
-        ? "Tail Harness agents are not available yet."
-        : "Tail Harness skills and commands are not available yet.",
+  // @@name must be one of the user's agents chosen from the list; //name is still reserved.
+  const unfenced = unfencedPrompt(prompt),
+    unknownAgent = [...unfenced.matchAll(/(?:^|\s)(@@[\w:-]+)(?=\s|$)/g)].find(
+      (match) => !resourceSelections.some((ref) => ref.token === match[1]),
     );
+  if (unknownAgent) {
+    status("Choose " + unknownAgent[1] + " from the @ list, or create it under Your agents.");
+    return;
+  }
+  if (/^\s*\/\/[A-Za-z_][\w:-]*(?=\s|$)/.test(unfenced)) {
+    status("Tail Harness skills and commands are not available yet.");
     return;
   }
   syncResourceSelections();
@@ -6692,6 +6721,7 @@ function catalogCard(item) {
   return card;
 }
 async function refreshCatalog() {
+  void loadTailAgents();
   const request = ++catalogRequest,
     project = $("project").value;
   $("catalog-status").textContent = "Checking catalog for " + project + "…";
@@ -6764,6 +6794,248 @@ $("settings").onclick = () => {
   refreshCatalog();
 };
 $("settings-close").onclick = () => $("settings-dialog").close();
+// Tail-owned agents: own instructions, purpose, tasks, target output and the
+// provider, model and effort they run on; called with @@name in any chat.
+let tailAgents = [],
+  editingAgent = null;
+const agentFieldInputs = {
+  name: "agent-name",
+  purpose: "agent-purpose",
+  instructions: "agent-instructions",
+  tasks: "agent-tasks",
+  target_output: "agent-target-output",
+  backend: "agent-backend",
+  model: "agent-model",
+  effort: "agent-effort",
+};
+function agentRouteLabel(agent) {
+  return (
+    modelName(agent.model) +
+    " · " +
+    (providerNames[agent.backend] || agent.backend) +
+    (agent.effort && agent.effort !== "configured" ? " · " + agent.effort : "")
+  );
+}
+function applyAgentRoute(item) {
+  const target = models.find(
+    (m) => m.id === item.model && (!item.backend || m.backend === item.backend),
+  );
+  if (!target) return;
+  if ($("model").value !== target.id) {
+    $("model").value = target.id;
+    updateEfforts();
+    void quota();
+  }
+  if ([...$("effort").options].some((o) => o.value === item.effort))
+    $("effort").value = item.effort;
+  rememberSelection();
+  updateComposer();
+}
+function fillAgentRoute(backend, model, effort) {
+  const backends = [
+    ...new Set(models.filter((m) => m.backend && m.backend !== "maestro").map((m) => m.backend)),
+  ];
+  $("agent-backend").replaceChildren(
+    ...backends.map((b) => new Option(providerNames[b] || b, b)),
+  );
+  $("agent-backend").value = backends.includes(backend) ? backend : backends[0] || "";
+  const choices = models.filter((m) => m.backend === $("agent-backend").value);
+  $("agent-model").replaceChildren(...choices.map((m) => new Option(modelName(m.id), m.id)));
+  $("agent-model").value = choices.some((m) => m.id === model) ? model : choices[0]?.id || "";
+  const efforts = choices.find((m) => m.id === $("agent-model").value)?.efforts || [];
+  $("agent-effort").replaceChildren(
+    ...efforts.map((e) => new Option(e === "configured" ? "Provider's default" : e[0].toUpperCase() + e.slice(1), e)),
+  );
+  $("agent-effort").value = efforts.includes(effort) ? effort : efforts[0] || "";
+}
+$("agent-backend").onchange = () => fillAgentRoute($("agent-backend").value, "", "");
+$("agent-model").onchange = () =>
+  fillAgentRoute($("agent-backend").value, $("agent-model").value, $("agent-effort").value);
+function openAgentDialog(agent = null) {
+  editingAgent = agent;
+  $("agent-dialog-title").textContent = agent ? "Edit @@" + agent.name : "Create agent";
+  $("agent-save").textContent = agent ? "Save agent" : "Create agent";
+  $("agent-delete").hidden = !agent;
+  $("agent-delete").textContent = "Delete agent";
+  delete $("agent-delete").dataset.confirm;
+  $("agent-name").value = agent?.name || "";
+  $("agent-name").readOnly = !!agent;
+  $("agent-purpose").value = agent?.purpose || "";
+  $("agent-instructions").value = agent?.instructions || "";
+  $("agent-tasks").value = (agent?.tasks || []).join("\n");
+  $("agent-target-output").value = agent?.target_output || "";
+  const current = selected();
+  fillAgentRoute(
+    agent?.backend || current?.backend,
+    agent?.model || current?.id,
+    agent?.effort || $("effort").value,
+  );
+  $("agent-form-error").textContent = "";
+  for (const el of $("agent-form").querySelectorAll("[aria-invalid]"))
+    el.removeAttribute("aria-invalid");
+  $("agent-dialog").showModal();
+  (agent ? $("agent-purpose") : $("agent-name")).focus();
+}
+function agentFormBody() {
+  return {
+    name: $("agent-name").value.trim(),
+    purpose: $("agent-purpose").value.trim(),
+    instructions: $("agent-instructions").value.trim(),
+    tasks: $("agent-tasks").value.split("\n").map((t) => t.trim()).filter(Boolean),
+    target_output: $("agent-target-output").value.trim(),
+    backend: $("agent-backend").value,
+    model: $("agent-model").value,
+    effort: $("agent-effort").value,
+  };
+}
+function agentFormProblem(body) {
+  if (!/^[a-z0-9][a-z0-9-]{1,47}$/.test(body.name))
+    return ["name", "Use 2 to 48 lowercase letters, digits or hyphens, starting with a letter or digit."];
+  if (!body.purpose) return ["purpose", "Describe what the agent is for."];
+  if (!body.instructions) return ["instructions", "Write the agent's instructions."];
+  if (body.tasks.length > 12 || body.tasks.some((t) => t.length > 200))
+    return ["tasks", "Use up to 12 tasks of at most 200 characters each."];
+  if (!body.backend || !body.model) return ["model", "Choose a provider and a model."];
+  return null;
+}
+function showAgentError(field, message) {
+  $("agent-form-error").textContent = message;
+  const input = $(agentFieldInputs[field]);
+  if (!input) return;
+  input.setAttribute("aria-invalid", "true");
+  input.focus();
+}
+$("agent-form").onsubmit = async (event) => {
+  event.preventDefault();
+  const body = agentFormBody(),
+    agent = editingAgent;
+  $("agent-form-error").textContent = "";
+  for (const el of $("agent-form").querySelectorAll("[aria-invalid]"))
+    el.removeAttribute("aria-invalid");
+  const problem = agentFormProblem(body);
+  if (problem) return showAgentError(...problem);
+  $("agent-save").disabled = true;
+  try {
+    const saved = agent
+      ? await json("/v1/tail-agents/" + encodeURIComponent(agent.id), {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...body, revision: agent.revision }),
+        })
+      : await post("/v1/tail-agents", body);
+    $("agent-dialog").close();
+    resourceItems = [];
+    await loadTailAgents();
+    status((agent ? "Saved" : "Created") + " @@" + (saved?.name || body.name) + ".");
+  } catch (error) {
+    showAgentError(error.field || "", error.message);
+  } finally {
+    $("agent-save").disabled = false;
+  }
+};
+$("agent-delete").onclick = async () => {
+  const button = $("agent-delete"),
+    agent = editingAgent;
+  if (!agent) return;
+  if (!button.dataset.confirm) {
+    button.dataset.confirm = "1";
+    button.textContent = "Confirm delete";
+    return;
+  }
+  try {
+    await json("/v1/tail-agents/" + encodeURIComponent(agent.id), {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ revision: agent.revision }),
+    });
+    $("agent-dialog").close();
+    resourceItems = [];
+    await loadTailAgents();
+    status("Deleted @@" + agent.name + ".");
+  } catch (error) {
+    showAgentError("", error.message);
+  }
+};
+$("agent-form").addEventListener("input", (event) => {
+  if (event.target.getAttribute("aria-invalid") !== "true") return;
+  event.target.removeAttribute("aria-invalid");
+  $("agent-form-error").textContent = "";
+});
+$("agent-cancel").onclick = $("agent-dialog-close").onclick = () => $("agent-dialog").close();
+$("agent-create").onclick = () => openAgentDialog();
+async function loadTailAgents() {
+  try {
+    const data = await json("/v1/tail-agents");
+    tailAgents = Array.isArray(data.agents) ? data.agents : [];
+    $("tail-agents-empty").textContent =
+      "No agents yet. Create one to give a task its own instructions, provider and model.";
+  } catch {
+    tailAgents = [];
+    $("tail-agents-empty").textContent = "Couldn't load your agents.";
+  }
+  renderTailAgents();
+}
+function renderTailAgents() {
+  $("tail-agents-list").replaceChildren(
+    ...tailAgents.map((agent) => {
+      const row = document.createElement("li"),
+        text = document.createElement("div"),
+        title = document.createElement("strong"),
+        purpose = document.createElement("p"),
+        route = document.createElement("small"),
+        use = document.createElement("button"),
+        edit = document.createElement("button");
+      row.className = "tail-agent";
+      title.textContent = "@@" + agent.name;
+      purpose.textContent = agent.purpose;
+      route.textContent =
+        agent.available === false
+          ? agent.unavailable_reason || "Its model is not available now."
+          : "Runs on " + agentRouteLabel(agent);
+      text.append(title, purpose, route);
+      use.type = edit.type = "button";
+      use.className = edit.className = "btn";
+      use.textContent = "Use";
+      use.setAttribute("aria-label", "Use @@" + agent.name + " in the message");
+      use.disabled = agent.available === false;
+      use.onclick = () => void useTailAgent(agent);
+      edit.textContent = "Edit";
+      edit.setAttribute("aria-label", "Edit @@" + agent.name);
+      edit.onclick = () => openAgentDialog(agent);
+      row.append(providerModelIcon(agent.backend, agent.model), text, use, edit);
+      return row;
+    }),
+  );
+  $("tail-agents-empty").hidden = tailAgents.length > 0;
+}
+// "Use" selects the agent like the palette does, so the message carries its revision.
+async function useTailAgent(agent) {
+  $("settings-dialog").close();
+  const input = $("prompt"),
+    at = input.selectionStart ?? input.value.length,
+    before = input.value.slice(0, at),
+    spacer = before && !/\s$/.test(before) ? " " : "";
+  input.focus();
+  input.setRangeText(spacer + "@@", at, input.selectionEnd ?? at, "end");
+  const trigger = { prefix: "@@", query: "", start: input.selectionStart - 2, end: input.selectionStart },
+    m = resourceEngine();
+  try {
+    const data = await json(
+      "/v1/resources?" +
+        new URLSearchParams({
+          project_id: $("project").value,
+          backend: m.backend,
+          model: m.model,
+          execution_mode: m.execution_mode,
+        }),
+    );
+    const item = (data.items || []).find((i) => i.resource_id === "tail/agents/" + agent.id);
+    if (!item) throw Error("@@" + agent.name + " is not available here.");
+    selectResource(item, trigger);
+  } catch (error) {
+    status(error.message);
+  }
+}
 // Rail shortcuts (Codex model): the run pipeline and the agent and skill catalog.
 $("rail-runs").onclick = () => $("run-status-toggle")?.click();
 $("rail-agents").onclick = () => {
