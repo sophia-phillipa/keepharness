@@ -56,6 +56,8 @@ INTERNAL_ONLY = {
     "upstream_status_",
     "use_propose_patch",
     "web_content_type_denied",
+    # Caught by ConversationService.infer, which retries once with the harness history.
+    "native_session_missing",
 }
 
 

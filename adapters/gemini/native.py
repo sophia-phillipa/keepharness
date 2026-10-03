@@ -244,12 +244,20 @@ async def run_acp(
         session_id = saved.get("id")
         if isinstance(session_id, str) and session_id:
             state.suppressed = True
-            await asyncio.wait_for(
-                rpc.call(
-                    "session/load", {"sessionId": session_id, "cwd": str(cwd), "mcpServers": []}
-                ),
-                timeout=15,
-            )
+            try:
+                await asyncio.wait_for(
+                    rpc.call(
+                        "session/load", {"sessionId": session_id, "cwd": str(cwd), "mcpServers": []}
+                    ),
+                    timeout=15,
+                )
+            except ToolError as exc:
+                if str(exc) != "gemini_execution_failed":
+                    raise
+                # Gemini keys sessions by cwd: once the state folder moves it cannot load this
+                # one. The caller starts a fresh session seeded with the harness history.
+                marker.replace(marker.with_name(marker.name + ".before-session-missing"))
+                raise ToolError("native_session_missing") from exc
             state.suppressed = False
             state.answer, state.thinking, state.first, state.started = (
                 "",
