@@ -163,6 +163,21 @@ const path = require("node:path");
       { id: "tail/agents/photo-describer", revision: "r1", token: "@@photo-describer" },
     ]);
 
+    // The agent keeps its route: switching the model ends its conversation on the next send.
+    await page.click("#new");
+    await page.evaluate(() => setActivePersona({
+      name: "photo-describer",
+      resource_id: "tail/agents/photo-describer",
+      route: { backend: "claude", model: "claude-sonnet-5-5", effort: "configured" },
+    }));
+    await page.locator("#model").selectOption("gpt-6-astra");
+    await page.locator("#prompt").fill("Now reflect on that description");
+    await page.locator("#send").click();
+    await page.waitForFunction(() => document.querySelectorAll("#messages article.user").length === 1);
+    assert.equal(jobs[1].release_persona, true);
+    assert.equal(jobs[1].model, "gpt-6-astra");
+    assert.equal(await page.locator("#persona-control").isVisible(), false);
+
     // The @ palette lists the agent under "Your agents" and offers Create agent….
     await page.click("#new");
     await page.locator("#prompt").fill("@");

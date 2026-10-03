@@ -158,6 +158,7 @@ let composerProjectId = null,
   resourceSelections = [],
   activePersona = null,
   releasePersonaPending = false,
+  lastSentRoute = null,
   invalidResourceTokens = new Set();
 const resourceToken = /(^|\s)(@@|\/\/|@|\/)([^\s@/]*)$/;
 function resourceEngine() {
@@ -3652,6 +3653,9 @@ function event(e) {
     setActivePersona({
       name: e.data.role || e.data.invocation.resource_id,
       resource_id: e.data.invocation.resource_id,
+      route: activePersona?.resource_id === e.data.invocation.resource_id
+        ? activePersona.route
+        : lastSentRoute,
     }, true);
   if (e.type === "gate_required") {
     showGate(e.data);
@@ -4091,9 +4095,10 @@ async function load(id, legacy = false, restoredView = null) {
           const token = r.request?.resource_selections?.[0]?.token;
           setActivePersona({
             name:
-              (typeof token === "string" && token.slice(1)) ||
+              (typeof token === "string" && token.replace(/^[@/]+/, "")) ||
               persona[0].resource_id,
             resource_id: persona[0].resource_id,
+            route: { backend: r.request?.backend, model: r.request?.model, effort: r.request?.effort },
           });
         }
       }
@@ -4449,7 +4454,20 @@ async function send() {
     };
     const planPolicy = $("maestro-plan-policy")?.value;
     if (planPolicy) data.maestro_plan_policy = planPolicy;
+    // An agent keeps its own route: choosing another agent or model ends its
+    // conversation on this send; the conversation history still carries over.
+    const personaRoute = activePersona?.route;
+    if (
+      activePersona &&
+      (resourceSelections.length ||
+        (personaRoute &&
+          (personaRoute.backend !== m.backend ||
+            personaRoute.model !== m.id ||
+            (personaRoute.effort && personaRoute.effort !== data.effort))))
+    )
+      releasePersonaPending = true;
     if (releasePersonaPending) data.release_persona = true;
+    lastSentRoute = { backend: m.backend, model: m.id, effort: data.effort };
     if (parent) data.parent_job_id = parent;
     else if (Array.isArray(m.execution_modes))
       data.execution_mode = executionMode;
