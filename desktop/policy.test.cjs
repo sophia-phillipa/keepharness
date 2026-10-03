@@ -1,6 +1,15 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { appOrigins, isAppUrl, externalUrl, windowOptions, processRunning, portOwnedByUser } = require('./policy.cjs');
+const {
+  appOrigins,
+  isAppUrl,
+  externalUrl,
+  windowOptions,
+  splashOptions,
+  backendEnv,
+  processRunning,
+  portOwnedByUser,
+} = require('./policy.cjs');
 
 test('only the local admin and harness origins are app URLs', () => {
   const origins = appOrigins([8094, 8095]);
@@ -27,6 +36,24 @@ test('the window is sandboxed without Node in the page', () => {
   assert.equal(prefs.contextIsolation, true);
   assert.equal(prefs.sandbox, true);
   assert.equal(prefs.webviewTag, false);
+});
+
+test('the splash is a fixed frameless picture, as locked down as the main window, and both carry the icon', () => {
+  const splash = splashOptions('KeepHarness', '/app/build/icon.png');
+  assert.deepEqual([splash.width, splash.height, splash.center, splash.resizable], [800, 500, true, false]);
+  assert.equal(splash.frame, false);
+  assert.deepEqual(splash.webPreferences, windowOptions('KeepHarness').webPreferences);
+  assert.equal(splash.icon, '/app/build/icon.png');
+  assert.equal(windowOptions('KeepHarness', '/app/build/icon.png').icon, '/app/build/icon.png');
+});
+
+test('the backend gets the cache folder of the user back from the launcher', () => {
+  const launched = { PATH: '/bin', XDG_CACHE_HOME: '/private', KEEPHARNESS_HOST_XDG_CACHE_HOME: '/home/me/.cache' };
+  assert.deepEqual(backendEnv(launched), { PATH: '/bin', XDG_CACHE_HOME: '/home/me/.cache', PYTHONUNBUFFERED: '1' });
+  // The user had none: the backend gets none either.
+  assert.deepEqual(backendEnv({ ...launched, KEEPHARNESS_HOST_XDG_CACHE_HOME: '' }), { PATH: '/bin', PYTHONUNBUFFERED: '1' });
+  // Not started by the launcher: nothing to restore.
+  assert.deepEqual(backendEnv({ XDG_CACHE_HOME: '/x' }), { XDG_CACHE_HOME: '/x', PYTHONUNBUFFERED: '1' });
 });
 
 test('processRunning reflects exit state', () => {

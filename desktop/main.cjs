@@ -7,16 +7,28 @@ const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
-const { appOrigins, isAppUrl, externalUrl, windowOptions, processRunning, portOwnedByUser } = require('./policy.cjs');
+const {
+  appOrigins,
+  isAppUrl,
+  externalUrl,
+  windowOptions,
+  splashOptions,
+  backendEnv,
+  processRunning,
+  portOwnedByUser,
+} = require('./policy.cjs');
 
 const TITLE = 'KeepHarness';
 const project = path.resolve(__dirname, '..');
+// build/ and splash.html sit next to this file, both in the repository and in the packaged app.
+const icon = path.join(__dirname, 'build', 'icon.png');
 const adminPort = Number(process.env.KEEPHARNESS_ADMIN_PORT || 8094);
 const harnessPort = Number(process.env.KEEPHARNESS_PORT || 8095);
 const adminUrl = `http://127.0.0.1:${adminPort}/`;
 const harnessUrl = `http://127.0.0.1:${harnessPort}/`;
 const origins = appOrigins([adminPort, harnessPort]);
 let win = null,
+  splash = null,
   backend = null,
   stderr = '';
 
@@ -62,7 +74,7 @@ function startAdmin() {
   const python = process.env.KEEPHARNESS_PYTHON || path.join(project, '.venv', 'bin', 'python');
   backend = spawn(python, ['-m', 'control', '--port', String(adminPort)], {
     cwd: project,
-    env: { ...process.env, PYTHONUNBUFFERED: '1' },
+    env: backendEnv(process.env),
     stdio: ['ignore', 'ignore', 'pipe'],
   });
   backend.stderr.on('data', (chunk) => {
@@ -72,12 +84,29 @@ function startAdmin() {
     stderr += '\n' + error.message;
   });
 }
+// A fixed picture while the backend starts or is attached; it never navigates or opens windows.
+function showSplash() {
+  splash = new BrowserWindow(splashOptions(TITLE, icon));
+  splash.once('ready-to-show', () => splash.show());
+  splash.webContents.on('will-navigate', (event) => event.preventDefault());
+  splash.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  splash.loadFile(path.join(__dirname, 'splash.html')).catch(() => splash.hide());
+}
+// Once the main window exists the splash closes. On a failure it is only hidden: closing the
+// last window would quit the app (window-all-closed) before the error dialog could be shown.
+function releaseSplash() {
+  if (!splash || splash.isDestroyed()) return;
+  if (win) splash.close();
+  else splash.hide();
+}
 
 async function start() {
   denyPermissions();
+  showSplash();
   if (!(await reachable(adminUrl))) {
     startAdmin();
     if (!(await waitFor(adminUrl, 40))) {
+      releaseSplash();
       await dialog.showMessageBox({
         type: 'error',
         title: TITLE,
@@ -92,6 +121,7 @@ async function start() {
   const target = (await waitFor(harnessUrl + 'v1/version', 15)) ? harnessUrl : adminUrl;
   const foreign = foreignPort(target === harnessUrl ? [adminPort, harnessPort] : [adminPort]);
   if (foreign !== null) {
+    releaseSplash();
     await dialog.showMessageBox({
       type: 'error',
       title: TITLE,
@@ -102,8 +132,11 @@ async function start() {
     app.quit();
     return;
   }
-  win = new BrowserWindow(windowOptions(TITLE));
-  win.once('ready-to-show', () => win.show());
+  win = new BrowserWindow(windowOptions(TITLE, icon));
+  win.once('ready-to-show', () => {
+    win.show();
+    releaseSplash();
+  });
   win.webContents.on('will-navigate', (event, url) => {
     if (isAppUrl(url, origins)) return;
     event.preventDefault();
@@ -135,6 +168,7 @@ else {
     if (processRunning(backend)) backend.kill('SIGTERM');
   });
   app.whenReady().then(start).catch(async (error) => {
+    releaseSplash();
     await dialog.showMessageBox({ type: 'error', title: TITLE, message: String(error.message || error) });
     app.quit();
   });

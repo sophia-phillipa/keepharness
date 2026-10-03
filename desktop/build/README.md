@@ -1,6 +1,6 @@
 # KeepHarness brand assets
 
-App icon set and desktop splash. They are not wired into Electron yet (`desktop/main.cjs` does not load them).
+App icon set and desktop splash. `desktop/main.cjs` uses them (window icon and splash window), and `scripts/package-desktop-linux.sh` copies them into the Linux package.
 
 | File | What it is |
 | --- | --- |

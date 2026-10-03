@@ -23,7 +23,17 @@ function externalUrl(url) {
     return null;
   }
 }
-function windowOptions(title) {
+// Every window of the app: sandboxed, no Node in the page.
+const PAGE_PREFERENCES = {
+  nodeIntegration: false,
+  contextIsolation: true,
+  sandbox: true,
+  webSecurity: true,
+  allowRunningInsecureContent: false,
+  webviewTag: false,
+};
+const BACKGROUND = '#141414';
+function windowOptions(title, icon) {
   return {
     width: 1440,
     height: 900,
@@ -31,16 +41,38 @@ function windowOptions(title) {
     minHeight: 500,
     show: false,
     title,
-    backgroundColor: '#141414',
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-      sandbox: true,
-      webSecurity: true,
-      allowRunningInsecureContent: false,
-      webviewTag: false,
-    },
+    icon,
+    backgroundColor: BACKGROUND,
+    webPreferences: { ...PAGE_PREFERENCES },
   };
+}
+// The splash shown while the backend starts or is attached: a fixed, frameless picture.
+function splashOptions(title, icon) {
+  return {
+    width: 800,
+    height: 500,
+    center: true,
+    frame: false,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    show: false,
+    title,
+    icon,
+    backgroundColor: BACKGROUND,
+    webPreferences: { ...PAGE_PREFERENCES },
+  };
+}
+// The packaged launcher gives Electron a private XDG cache and keeps the user's own in
+// KEEPHARNESS_HOST_XDG_CACHE_HOME (empty when unset); the backend and the CLIs it starts get it back.
+function backendEnv(env) {
+  const { KEEPHARNESS_HOST_XDG_CACHE_HOME: host, ...rest } = env;
+  const result = { ...rest, PYTHONUNBUFFERED: '1' };
+  if (host === undefined) return result;
+  if (host) result.XDG_CACHE_HOME = host;
+  else delete result.XDG_CACHE_HOME;
+  return result;
 }
 function processRunning(child) {
   return !!child && child.exitCode === null && child.signalCode === null;
@@ -67,4 +99,4 @@ function portOwnedByUser(tables, port, uid) {
   }
   return owners.length > 0 && owners.every((owner) => owner === uid);
 }
-module.exports = { appOrigins, isAppUrl, externalUrl, windowOptions, processRunning, portOwnedByUser };
+module.exports = { appOrigins, isAppUrl, externalUrl, windowOptions, splashOptions, backendEnv, processRunning, portOwnedByUser };
