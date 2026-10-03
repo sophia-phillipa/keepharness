@@ -156,6 +156,8 @@ async function selectState(page, state) {
   if (state === "console-open") {
     await page.keyboard.press("Control+j");
     await page.locator("#run-console").waitFor({ state: "visible" });
+    // The geometry check measures the first span row; wait until the pipeline has rendered it.
+    await page.locator("#run-console-panel .run-span-row").first().waitFor({ state: "attached" });
   } else if (state === "tour-step") {
     await page.evaluate(() => window.tailHarnessTour.start());
     await page.locator("#tour-card").waitFor({ state: "visible" });
