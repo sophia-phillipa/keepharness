@@ -14,7 +14,14 @@ class HarnessError(Exception):
 
 
 class APIError(HarnessError):
-    """An HTTP API failure returned to the client as ``{code, message}``."""
+    """An HTTP API failure returned to the client as ``{code, message}``.
+
+    ``field`` names the offending request field; it is added to the body only when set.
+    """
+
+    def __init__(self, code, status=422, retry_after=None, field=None):
+        super().__init__(code, status, retry_after)
+        self.field = field
 
 
 class ToolError(HarnessError):

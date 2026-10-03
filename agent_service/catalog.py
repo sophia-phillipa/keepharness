@@ -35,7 +35,8 @@ def catalog(config, project, project_id=None):
             if item["resource_id"] not in existing:
                 result["items"].append(item)
                 existing.add(item["resource_id"])
-            if item["kind"] not in ("agent", "skill"):
+            # Tail agents are provider-independent: they appear once, in ``items``.
+            if item["kind"] not in ("agent", "skill") or item["scope"] == "tail":
                 continue
             result[item["kind"] + "s"].append(
                 {

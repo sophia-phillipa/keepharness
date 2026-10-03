@@ -154,6 +154,26 @@ AGENT_VALID_TABLE = [
             >= {"label", "root", "additional_roots", "apply_changes", "canonical_id", "icon"}
         ),
     ),
+    (
+        "tail-agents-list",
+        "GET",
+        "/v1/tail-agents",
+        None,
+        None,
+        200,
+        lambda r: r.json() == {"agents": []},
+    ),
+    ("tail-agents-post", "POST", "/v1/tail-agents", None, {}, 400, "tail_agent_invalid"),
+    ("tail-agents-put", "PUT", "/v1/tail-agents/ghost-agent", None, {}, 400, "tail_agent_invalid"),
+    (
+        "tail-agents-delete",
+        "DELETE",
+        "/v1/tail-agents/ghost-agent",
+        None,
+        {"revision": "r"},
+        404,
+        "tail_agent_not_found",
+    ),
     ("projects-post", "POST", "/v1/projects", None, {}, 403, "project_registration_disabled"),
     ("projects-patch", "PATCH", "/v1/projects", None, {}, 422, "invalid_project"),
     (

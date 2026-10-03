@@ -1526,6 +1526,12 @@ const userErrors = {
   resources_unavailable_in_workspace:
     "Resources are not available in this workspace.",
   tail_resources_unavailable: "Resources are not available right now.",
+  tail_agent_exists: "An agent with that name already exists.",
+  tail_agent_invalid: "The agent details are not valid. Check each field and try again.",
+  tail_agent_limit: "You have reached the limit of 100 agents. Delete one to add another.",
+  tail_agent_changed: "This agent was changed elsewhere. Reload it and try again.",
+  tail_agent_not_found: "That agent no longer exists.",
+  tail_agent_storage_unsafe: "The agents folder cannot be used safely. Check the harness state folder.",
 };
 async function api(path, options = {}) {
   let r;
