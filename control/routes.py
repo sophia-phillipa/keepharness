@@ -36,6 +36,7 @@ from .local_models import (
 from .manager import PERMISSIONS
 from .operations import operation
 from .product import PRODUCT
+from .remote_models import add_remote_model, remove_remote_model
 from .vault_admin import change_vault, read_vault
 
 ADMIN_BODY_LIMIT = 64000
@@ -602,6 +603,8 @@ POST_ROUTES = {
     "/api/local-devices": read_local_devices,
     "/api/local-files": list_local_files,
     "/api/local-start": start_local_model,
+    "/api/remote-model-add": add_remote_model,
+    "/api/remote-model-remove": remove_remote_model,
     "/api/vpn-key": reveal_vpn_key,
     "/api/tailnet": set_tailnet,
 }

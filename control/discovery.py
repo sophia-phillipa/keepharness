@@ -10,6 +10,7 @@ from pathlib import Path
 import httpx
 
 from .local_models import discover
+from .remote_models import discover as discover_remote
 
 OLLAMA_TAGS_URL = "http://127.0.0.1:11434/api/tags"
 # Total seconds for the Ollama probe; httpx timeouts apply per read, not per response.
@@ -32,7 +33,7 @@ async def command(*args, env=None):
     return 1, ""
 
 
-async def scan():
+async def scan(remote_servers=()):
     home = Path.home()
     binaries = {
         n: shutil.which(n)
@@ -113,6 +114,10 @@ async def scan():
         except (httpx.HTTPError, ValueError, KeyError, TimeoutError):
             pass
     local["runtimes"] = await discover()
+    remote, local["remote_servers"] = await discover_remote(
+        remote_servers, {m["id"] for m in local["runtimes"]}
+    )
+    local["runtimes"] += remote
     local["models"] += list(
         dict.fromkeys(m["id"] for m in local["runtimes"] if m["id"] not in local["models"])
     )
