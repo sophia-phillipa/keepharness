@@ -203,10 +203,10 @@ const assert = require("node:assert/strict"),
       .locator("#access-menu [data-access] small")
       .allInnerTexts();
     assert.deepEqual(copy, [
-      "Asks before every file change or command. Codex may still run commands that cannot change files.",
-      "Edits and runs commands inside the project without asking; asks only to go beyond it.",
-      "Runs without asking, within the permissions set by the administrator.",
-      "Reads and searches only. Writing, commands and tests are off.",
+      "Asks before edits, commands that change files and every connector call. On Codex and DeepSeek, commands that change nothing run without asking and can read any file your account can.",
+      "Owner only. Codex, DeepSeek and Claude run any command or edit on this computer without asking, with no sandbox. Local models stay in their sandbox.",
+      "Owner only. Runs everything without asking: no sandbox for Codex, DeepSeek and Claude; local models keep the permissions set in the admin.",
+      "Reads and searches the project folders; web search follows the provider's internet setting. Edits, commands, tests, connectors and plugins are off.",
     ]);
     await page.keyboard.press("Escape");
     assert.deepEqual(errors, []);

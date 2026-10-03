@@ -1176,6 +1176,8 @@ const userErrors = {
     "The requested answer length is invalid. Refresh the page and try again.",
   invalid_access_mode:
     "That access mode is not available. Choose another one and try again.",
+  access_mode_owner_only:
+    "Automatic and Full access are only for the owner on the computer running KeepHarness. Choose Ask for approval or Read only.",
   invalid_parent_job:
     "The earlier message this reply continues is unavailable. Start a new conversation.",
   invalid_event_id: "Tracking could not resume. Refresh the page.",
