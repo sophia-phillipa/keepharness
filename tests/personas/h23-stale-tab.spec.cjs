@@ -162,7 +162,9 @@ runPersona("H23", [
 
       // The admin removes "demo" while this tab still lists it.
       removed = true;
-      await page.locator("#project-tree > summary").click();
+      // Projects are listed open by default in the Codex-style sidebar.
+      if (!(await page.locator("#project-tree").evaluate((el) => el.open)))
+        await page.locator("#project-tree > summary").click();
       await page.getByRole("button", { name: "Demo", exact: true }).click();
       await page
         .getByRole("button", { name: "New Conversation in Demo" })

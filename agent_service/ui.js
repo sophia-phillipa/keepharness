@@ -5198,7 +5198,8 @@ function syncSidebarFocus() {
   const sidebar = $("sidebar"), overlay = innerWidth <= 620 && sidebar.classList.contains("open");
   if (overlay) {
     sidebar.setAttribute("role", "dialog"); sidebar.setAttribute("aria-modal", "true"); sidebar.setAttribute("aria-label", "Conversations");
-    if (!sidebar.contains(document.activeElement)) sidebar.querySelector("button:not(:disabled)")?.focus();
+    // Focus the dialog itself: its first button is an action (New Conversation) that typing could trigger.
+    if (!sidebar.contains(document.activeElement)) { sidebar.tabIndex = -1; sidebar.focus({ preventScroll: true }); }
   } else { sidebar.removeAttribute("role"); sidebar.removeAttribute("aria-modal"); sidebar.removeAttribute("aria-label"); }
   syncWorkspaceModal();
 }
@@ -5212,11 +5213,6 @@ function closeSidebar() {
 $("menu").onclick = () => {
   toggleSidebar();
   fitPanels();
-};
-$("project-switcher").onclick = () => {
-  const tree = $("project-tree");
-  tree.open = !tree.open;
-  $("project-switcher").setAttribute("aria-expanded", String(tree.open));
 };
 $("about").onclick = () => $("about-dialog").showModal();
 $("about-close").onclick = () => $("about-dialog").close();
