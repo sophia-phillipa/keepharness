@@ -8255,7 +8255,7 @@ for (const section of document.querySelectorAll(".workspace-section")) {
     handle.setAttribute("aria-valuenow", String(Math.round(next))); save();
   };
   handle.setAttribute("aria-valuemin", "64"); handle.setAttribute("aria-valuemax", "600");
-  handle.setAttribute("aria-valuenow", String(parseFloat(content.style.height) || (name === "files" ? 280 : name === "background-tasks" ? 64 : 120)));
+  handle.setAttribute("aria-valuenow", String(parseFloat(content.style.height) || (name === "files" ? 200 : name === "background-tasks" ? 64 : 96)));
   let drag;
   handle.onpointerdown = event => { if (event.button !== 0) return; event.preventDefault(); drag = { y: event.clientY, height: content.getBoundingClientRect().height }; handle.setPointerCapture(event.pointerId); };
   handle.onpointermove = event => { if (drag) size(drag.height + event.clientY - drag.y); };

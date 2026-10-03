@@ -5261,8 +5261,8 @@ body dialog:not(#settings-dialog) .btn.btn-danger { background: color-mix(in srg
 /* Nested project chats: text only, aligned like the reference. */
 #projects .project-conversations .conversation-row > button:first-child { padding-left: 8px; }
 #projects .project-conversations .conversation-title { font-size: 14px; }
-#workspace-files { height: 280px; }
-#workspace-resources, #workspace-activity { height: 120px; }
+#workspace-files { height: 200px; }
+#workspace-resources, #workspace-activity { height: 96px; }
 #activity-panel .authorized-root-card > strong { flex-direction: row-reverse; justify-content: flex-end; }
 #sidebar .conversation-row .conversation-row-meta .conversation-summary { flex: none; }
 #sidebar .conversation-row .conversation-row-meta .conversation-project { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
