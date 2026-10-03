@@ -7068,26 +7068,413 @@ function applyAgentRoute(item) {
   rememberSelection();
   updateComposer();
 }
-function fillAgentRoute(backend, model, effort) {
-  const backends = [
-    ...new Set(models.filter((m) => m.backend && m.backend !== "maestro").map((m) => m.backend)),
-  ];
-  $("agent-backend").replaceChildren(
-    ...backends.map((b) => new Option(providerNames[b] || b, b)),
-  );
-  $("agent-backend").value = backends.includes(backend) ? backend : backends[0] || "";
-  const choices = models.filter((m) => m.backend === $("agent-backend").value);
-  $("agent-model").replaceChildren(...choices.map((m) => new Option(modelName(m.id), m.id)));
-  $("agent-model").value = choices.some((m) => m.id === model) ? model : choices[0]?.id || "";
-  const efforts = choices.find((m) => m.id === $("agent-model").value)?.efforts || [];
-  $("agent-effort").replaceChildren(
+// Provider, model and effort pickers shared by agents and scheduled tasks.
+function fillRoute(prefix, backend, model, effort) {
+  const backendSelect = $(prefix + "-backend"),
+    modelSelect = $(prefix + "-model"),
+    effortSelect = $(prefix + "-effort"),
+    backends = [
+      ...new Set(models.filter((m) => m.backend && m.backend !== "maestro").map((m) => m.backend)),
+    ];
+  backendSelect.replaceChildren(...backends.map((b) => new Option(providerNames[b] || b, b)));
+  backendSelect.value = backends.includes(backend) ? backend : backends[0] || "";
+  const choices = models.filter((m) => m.backend === backendSelect.value);
+  modelSelect.replaceChildren(...choices.map((m) => new Option(modelName(m.id), m.id)));
+  modelSelect.value = choices.some((m) => m.id === model) ? model : choices[0]?.id || "";
+  const efforts = choices.find((m) => m.id === modelSelect.value)?.efforts || [];
+  effortSelect.replaceChildren(
     ...efforts.map((e) => new Option(e === "configured" ? "Provider's default" : e[0].toUpperCase() + e.slice(1), e)),
   );
-  $("agent-effort").value = efforts.includes(effort) ? effort : efforts[0] || "";
+  effortSelect.value = efforts.includes(effort) ? effort : efforts[0] || "";
 }
-$("agent-backend").onchange = () => fillAgentRoute($("agent-backend").value, "", "");
-$("agent-model").onchange = () =>
-  fillAgentRoute($("agent-backend").value, $("agent-model").value, $("agent-effort").value);
+const fillAgentRoute = (backend, model, effort) => fillRoute("agent", backend, model, effort);
+for (const prefix of ["agent", "schedule"]) {
+  $(prefix + "-backend").onchange = () => fillRoute(prefix, $(prefix + "-backend").value, "", "");
+  $(prefix + "-model").onchange = () =>
+    fillRoute(prefix, $(prefix + "-backend").value, $(prefix + "-model").value, $(prefix + "-effort").value);
+}
+// Seconds since a timestamp given as UNIX seconds or an ISO string.
+function stampSeconds(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : Date.parse(value) / 1000 || 0;
+}
+function projectChoices(select, value) {
+  select.replaceChildren(
+    ...[...$("project").options].map(
+      (o) => new Option(o.value === "sem-projeto" ? "No project" : o.textContent, o.value),
+    ),
+  );
+  select.value = [...select.options].some((o) => o.value === value) ? value : "sem-projeto";
+}
+async function confirmTwice(button, label, action) {
+  if (!button.dataset.confirm) {
+    button.dataset.confirm = "1";
+    button.textContent = "Confirm delete";
+    return;
+  }
+  delete button.dataset.confirm;
+  button.textContent = label;
+  await action();
+}
+
+// Space › Pages (Codex Space): Markdown pages kept per project, usable in any chat.
+let currentPage = null,
+  pageDirty = false;
+async function openSpace() {
+  projectChoices($("space-project"), $("project").value);
+  if (!$("space-dialog").open) $("space-dialog").showModal();
+  showPageEditor(undefined);
+  await loadPages();
+}
+async function loadPages(selectedId = currentPage?.id) {
+  try {
+    const data = await json("/v1/pages?" + new URLSearchParams({ project_id: $("space-project").value }));
+    const pages = Array.isArray(data.pages) ? data.pages : [];
+    $("pages-list").replaceChildren(
+      ...pages.map((page) => {
+        const row = document.createElement("li"),
+          open = document.createElement("button"),
+          title = document.createElement("strong"),
+          meta = document.createElement("small");
+        open.type = "button";
+        open.className = "page-view-row";
+        open.dataset.pageId = page.id;
+        if (page.id === selectedId) open.setAttribute("aria-current", "true");
+        title.textContent = page.title;
+        meta.textContent = "Edited " + usageAge(stampSeconds(page.updated_at));
+        open.append(title, meta);
+        open.onclick = () => void openPage(page.id);
+        row.append(open);
+        return row;
+      }),
+    );
+    $("pages-empty").textContent = "No pages in this project yet.";
+    $("pages-empty").hidden = pages.length > 0;
+  } catch (error) {
+    $("pages-list").replaceChildren();
+    $("pages-empty").textContent = "Couldn't load pages. " + error.message;
+    $("pages-empty").hidden = false;
+  }
+}
+function showPageEditor(page) {
+  currentPage = page || null;
+  pageDirty = false;
+  const editing = page !== undefined;
+  $("page-empty-state").hidden = editing;
+  $("page-editor").hidden = !editing;
+  if (!editing) return;
+  $("page-title").value = page?.title || "";
+  $("page-body").value = page?.body || "";
+  $("page-delete").hidden = !page?.id;
+  $("page-delete").textContent = "Delete";
+  delete $("page-delete").dataset.confirm;
+  setPagePreview(false);
+  $("page-status").textContent = page?.id
+    ? "Saved " + usageAge(stampSeconds(page.updated_at))
+    : "New page";
+}
+function setPagePreview(on) {
+  $("page-preview-toggle").setAttribute("aria-pressed", String(on));
+  $("page-preview").hidden = !on;
+  $("page-body").hidden = on;
+  if (on) renderAnswer($("page-preview"), $("page-body").value || "*Empty page*");
+}
+async function openPage(id) {
+  if (pageDirty && !(await savePage())) return;
+  try {
+    const page = await json(
+      "/v1/pages/" + encodeURIComponent(id) + "?" + new URLSearchParams({ project_id: $("space-project").value }),
+    );
+    showPageEditor(page);
+    await loadPages(page.id);
+  } catch (error) {
+    status(error.message);
+  }
+}
+async function savePage() {
+  const page = currentPage,
+    body = {
+      project_id: $("space-project").value,
+      title: $("page-title").value.trim() || "Untitled",
+      body: $("page-body").value,
+    };
+  $("page-save").disabled = true;
+  try {
+    const saved = page?.id
+      ? await json("/v1/pages/" + encodeURIComponent(page.id), {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...body, revision: page.revision }),
+        })
+      : await post("/v1/pages", body);
+    currentPage = { ...saved, body: saved.body ?? body.body };
+    pageDirty = false;
+    $("page-title").value = currentPage.title;
+    $("page-delete").hidden = false;
+    $("page-status").textContent = "Saved";
+    await loadPages(saved.id);
+    return true;
+  } catch (error) {
+    $("page-status").textContent = error.message;
+    return false;
+  } finally {
+    $("page-save").disabled = false;
+  }
+}
+function pageFile() {
+  const title = $("page-title").value.trim() || "Untitled",
+    name = title.replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "page";
+  return new File([$("page-body").value], name + ".md", { type: "text/markdown" });
+}
+async function usePage(startChat) {
+  if (pageDirty && !(await savePage())) return;
+  const project = $("space-project").value,
+    file = pageFile(),
+    title = $("page-title").value.trim() || "Untitled";
+  $("space-dialog").close();
+  if (startChat) newConversation(title, project);
+  else if ($("project").value !== project && !conversation) {
+    $("project").value = project;
+    $("project").onchange?.();
+  }
+  await upload([file]);
+  $("prompt").focus({ preventScroll: true });
+}
+$("page-editor").onsubmit = (event) => {
+  event.preventDefault();
+  void savePage();
+};
+$("page-editor").addEventListener("input", () => {
+  pageDirty = true;
+  $("page-status").textContent = "Unsaved changes";
+});
+$("page-editor").addEventListener("keydown", (event) => {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+    event.preventDefault();
+    void savePage();
+  }
+});
+$("page-preview-toggle").onclick = () =>
+  setPagePreview($("page-preview-toggle").getAttribute("aria-pressed") !== "true");
+$("page-new").onclick = async () => {
+  if (pageDirty && !(await savePage())) return;
+  showPageEditor(null);
+  await loadPages(null);
+  $("page-title").focus();
+};
+$("page-attach").onclick = () => void usePage(false);
+$("page-chat").onclick = () => void usePage(true);
+$("page-delete").onclick = () =>
+  void confirmTwice($("page-delete"), "Delete", async () => {
+    try {
+      await json("/v1/pages/" + encodeURIComponent(currentPage.id), {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ project_id: $("space-project").value, revision: currentPage.revision }),
+      });
+      showPageEditor(undefined);
+      await loadPages(null);
+    } catch (error) {
+      $("page-status").textContent = error.message;
+    }
+  });
+$("space-project").onchange = () => {
+  showPageEditor(undefined);
+  void loadPages(null);
+};
+$("space-close").onclick = () => $("space-dialog").close();
+
+// Scheduled tasks (Codex Scheduled): a prompt that runs unattended on its own
+// route as a new conversation each time; only Ask and Read only access.
+let currentSchedule = null;
+const weekdays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+function cadenceLabel(cadence = {}) {
+  if (cadence.kind === "interval") return "Every " + cadence.hours + " h";
+  if (cadence.kind === "weekly") return weekdays[cadence.weekday] + "s at " + cadence.time;
+  return "Daily at " + cadence.time;
+}
+function untilLabel(seconds) {
+  const wait = Number(seconds) - Date.now() / 1000;
+  if (!Number.isFinite(wait)) return "";
+  if (wait <= 60) return "due now";
+  return "next in " + (wait < 3600 ? Math.round(wait / 60) + " min" : wait < 86400 ? Math.round(wait / 3600) + " h" : Math.round(wait / 86400) + " d");
+}
+async function openScheduled() {
+  if (!$("scheduled-dialog").open) $("scheduled-dialog").showModal();
+  showScheduleEditor(undefined);
+  await loadSchedules();
+}
+async function loadSchedules(selectedId = currentSchedule?.id) {
+  try {
+    const data = await json("/v1/schedules");
+    const schedules = Array.isArray(data.schedules) ? data.schedules : [];
+    $("schedules-list").replaceChildren(
+      ...schedules.map((task) => {
+        const row = document.createElement("li"),
+          open = document.createElement("button"),
+          title = document.createElement("strong"),
+          meta = document.createElement("small");
+        open.type = "button";
+        open.className = "page-view-row" + (task.enabled ? "" : " paused");
+        open.dataset.scheduleId = task.id;
+        if (task.id === selectedId) open.setAttribute("aria-current", "true");
+        title.textContent = task.title;
+        meta.textContent = [
+          task.enabled ? "Active" : "Paused",
+          cadenceLabel(task.cadence),
+          task.enabled ? untilLabel(task.next_run) : task.paused_reason || "",
+        ]
+          .filter(Boolean)
+          .join(" · ");
+        open.append(title, meta);
+        open.onclick = () => showScheduleEditor(task);
+        row.append(open);
+        return row;
+      }),
+    );
+    $("schedules-empty").textContent = "No scheduled tasks yet.";
+    $("schedules-empty").hidden = schedules.length > 0;
+    return schedules;
+  } catch (error) {
+    $("schedules-list").replaceChildren();
+    $("schedules-empty").textContent = "Couldn't load scheduled tasks. " + error.message;
+    $("schedules-empty").hidden = false;
+    return [];
+  }
+}
+function syncCadenceFields() {
+  const kind = $("schedule-kind").value;
+  $("schedule-weekday-field").hidden = kind !== "weekly";
+  $("schedule-time-field").hidden = kind === "interval";
+  $("schedule-hours-field").hidden = kind !== "interval";
+}
+function showScheduleEditor(task) {
+  currentSchedule = task || null;
+  const editing = task !== undefined;
+  $("schedule-empty-state").hidden = editing;
+  $("schedule-editor").hidden = !editing;
+  for (const row of $("schedules-list").querySelectorAll("[aria-current]")) row.removeAttribute("aria-current");
+  if (task?.id)
+    $("schedules-list").querySelector('[data-schedule-id="' + CSS.escape(task.id) + '"]')?.setAttribute("aria-current", "true");
+  if (!editing) return;
+  const current = selected(),
+    cadence = task?.cadence || { kind: "daily", time: "09:00" };
+  $("schedule-title").value = task?.title || "";
+  $("schedule-prompt").value = task?.prompt || "";
+  projectChoices($("schedule-project"), task?.project_id || $("project").value);
+  fillRoute("schedule", task?.backend || current?.backend, task?.model || current?.id, task?.effort || $("effort").value);
+  $("schedule-kind").value = cadence.kind;
+  $("schedule-time").value = cadence.time || "09:00";
+  $("schedule-weekday").value = String(cadence.weekday ?? 0);
+  $("schedule-hours").value = String(cadence.hours || 6);
+  $("schedule-access").value = task?.access_mode || "ask";
+  $("schedule-enabled").checked = task ? !!task.enabled : true;
+  syncCadenceFields();
+  $("schedule-error").textContent = "";
+  for (const el of $("schedule-editor").querySelectorAll("[aria-invalid]")) el.removeAttribute("aria-invalid");
+  $("schedule-delete").hidden = $("schedule-run").hidden = !task?.id;
+  $("schedule-delete").textContent = "Delete";
+  delete $("schedule-delete").dataset.confirm;
+  $("schedule-save").textContent = task?.id ? "Save task" : "Create task";
+  $("schedule-last").textContent = task?.last_run
+    ? "Last run " + usageAge(stampSeconds(task.last_run.at)) + (task.last_run.state ? " · " + task.last_run.state : "")
+    : task?.id
+      ? "Not run yet."
+      : "";
+}
+function scheduleBody() {
+  const kind = $("schedule-kind").value;
+  return {
+    title: $("schedule-title").value.trim(),
+    prompt: $("schedule-prompt").value.trim(),
+    project_id: $("schedule-project").value,
+    backend: $("schedule-backend").value,
+    model: $("schedule-model").value,
+    effort: $("schedule-effort").value,
+    access_mode: $("schedule-access").value,
+    cadence:
+      kind === "interval"
+        ? { kind, hours: Number($("schedule-hours").value) }
+        : kind === "weekly"
+          ? { kind, weekday: Number($("schedule-weekday").value), time: $("schedule-time").value }
+          : { kind, time: $("schedule-time").value },
+    enabled: $("schedule-enabled").checked,
+  };
+}
+function showScheduleError(field, message) {
+  $("schedule-error").textContent = message;
+  const input = $(
+    { title: "schedule-title", prompt: "schedule-prompt", project_id: "schedule-project", backend: "schedule-backend", model: "schedule-model", effort: "schedule-effort", access_mode: "schedule-access", cadence: $("schedule-kind").value === "interval" ? "schedule-hours" : "schedule-time" }[field] || "",
+  );
+  if (!input) return;
+  input.setAttribute("aria-invalid", "true");
+  input.focus();
+}
+$("schedule-kind").onchange = syncCadenceFields;
+$("schedule-editor").addEventListener("input", (event) => {
+  if (event.target.getAttribute?.("aria-invalid") !== "true") return;
+  event.target.removeAttribute("aria-invalid");
+  $("schedule-error").textContent = "";
+});
+$("schedule-editor").onsubmit = async (event) => {
+  event.preventDefault();
+  const body = scheduleBody(),
+    task = currentSchedule;
+  if (!body.title) return showScheduleError("title", "Give the task a title.");
+  if (!body.prompt) return showScheduleError("prompt", "Write what the task should do.");
+  if (body.cadence.kind !== "interval" && !/^\d{2}:\d{2}$/.test(body.cadence.time))
+    return showScheduleError("cadence", "Choose a time.");
+  $("schedule-save").disabled = true;
+  try {
+    const saved = task?.id
+      ? await json("/v1/schedules/" + encodeURIComponent(task.id), {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...body, revision: task.revision }),
+        })
+      : await post("/v1/schedules", body);
+    const schedules = await loadSchedules(saved.id);
+    showScheduleEditor(schedules.find((item) => item.id === saved.id) || saved);
+    $("schedule-last").textContent = (task?.id ? "Saved." : "Created.") + " " + (saved.enabled ? untilLabel(saved.next_run) : "Paused.");
+  } catch (error) {
+    showScheduleError(error.field || "", error.message);
+  } finally {
+    $("schedule-save").disabled = false;
+  }
+};
+$("schedule-run").onclick = async () => {
+  const task = currentSchedule;
+  if (!task?.id) return;
+  try {
+    await post("/v1/schedules/" + encodeURIComponent(task.id) + "/run", {});
+    $("schedule-last").textContent = "Started now. It appears in Chats.";
+    void history();
+    await loadSchedules(task.id);
+  } catch (error) {
+    showScheduleError("", error.message);
+  }
+};
+$("schedule-delete").onclick = () =>
+  void confirmTwice($("schedule-delete"), "Delete", async () => {
+    try {
+      await json("/v1/schedules/" + encodeURIComponent(currentSchedule.id), {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ revision: currentSchedule.revision }),
+      });
+      showScheduleEditor(undefined);
+      await loadSchedules(null);
+    } catch (error) {
+      showScheduleError("", error.message);
+    }
+  });
+$("schedule-new").onclick = () => {
+  showScheduleEditor(null);
+  $("schedule-title").focus();
+};
+$("scheduled-close").onclick = () => $("scheduled-dialog").close();
+$("rail-space").onclick = () => void openSpace();
+$("rail-scheduled").onclick = () => void openScheduled();
 function openAgentDialog(agent = null) {
   editingAgent = agent;
   $("agent-dialog-title").textContent = agent ? "Edit @@" + agent.name : "Create agent";
