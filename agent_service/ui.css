@@ -5234,3 +5234,29 @@ body dialog:not(#settings-dialog) .btn.btn-danger { background: color-mix(in srg
 #conversation-search-dialog { width: min(640px, calc(100vw - 32px)); }
 #conversation-search-dialog #conversation-search-list :is(button, a) { border-radius: 12px; }
 #conversation-search-dialog #conversation-search-list :is(button, a):hover { background: var(--th-hover); }
+
+/* Files panel like the reference sources panel: quiet heading, simple rows, readable path tail. */
+#activity-panel #files-view h2 { margin: 0 0 2px; font-size: 14px; font-weight: 500; }
+#activity-panel #files-help { margin: 0 0 10px; color: var(--th-quiet); font-size: 12px; }
+#activity-panel .authorized-root-card { padding: 8px; border: 1px solid color-mix(in srgb, var(--th-text) 9%, transparent); border-radius: 14px; background: color-mix(in srgb, var(--th-panel) 40%, transparent); }
+#activity-panel .authorized-root-card > strong { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 2px 4px 6px; font-size: 13px; font-weight: 500; }
+#activity-panel .authorized-root-card > strong { direction: rtl; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; unicode-bidi: plaintext; }
+#activity-panel .authorized-root-card ul { margin: 0; padding: 0; list-style: none; }
+#activity-panel .authorized-root-card li > :is(span, button), #activity-panel #files-tree .project-file-row {
+  display: flex; align-items: center; gap: 8px; width: 100%; min-height: 28px; padding: 3px 6px; border: 0; border-radius: 8px;
+  background: transparent; color: var(--th-text); font: 13px/20px TailInter, system-ui, sans-serif; text-align: left;
+}
+#activity-panel .authorized-root-card li > :is(span, button):hover, #activity-panel #files-tree .project-file-row:hover { background: var(--th-hover); }
+#activity-panel :is(.authorized-root-card, #files-tree) :is(.th-icon, svg) { flex: none; width: 16px; height: 16px; }
+#activity-panel .root-access-badge { border: 0; background: color-mix(in srgb, var(--th-text) 8%, transparent); color: var(--th-quiet); border-radius: 9999px; font-size: 11px; }
+#activity-panel #authorize-project-root { display: inline-flex; align-items: center; gap: 6px; margin: 8px 0; min-height: 30px; padding: 0 12px; border: 0; border-radius: 9999px; background: color-mix(in srgb, var(--th-text) 8%, transparent); color: var(--th-text); font-size: 13px; }
+#activity-panel #server-folder-browser > summary { color: var(--th-quiet); font-size: 13px; }
+/* Nested project chats: text only, aligned like the reference. */
+#projects .project-conversations .conversation-row .conversation-model-icon,
+#projects .project-conversations .project-new :is(.th-icon, svg) { display: none; }
+#projects .project-conversations .conversation-row > button:first-child { padding-left: 8px; }
+#projects .project-conversations .conversation-title { font-size: 14px; }
+#workspace-files { height: 280px; }
+#workspace-resources, #workspace-activity { height: 120px; }
+#activity-panel .authorized-root-card > strong { flex-direction: row-reverse; justify-content: flex-end; }
+#projects .project-conversations .conversation-row > button:first-child { grid-template-columns: minmax(0, 1fr); }

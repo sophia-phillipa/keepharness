@@ -222,7 +222,8 @@ def test_panel_gemini_login_launches_oauth_helper(tmp_path):
             )
             assert response.status_code == 200
             launch.assert_called_once_with(
-                [sys.executable, "-m", "adapters.gemini.account", "--binary", "/fixture/gemini"]
+                [sys.executable, "-m", "adapters.gemini.account", "--binary", "/fixture/gemini"],
+                timeout=900,
             )
 
 

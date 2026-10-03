@@ -336,7 +336,8 @@ async def login_provider(request, manager, data):
             if provider == "claude"
             else {}
         )
-        result = manager.operations.launch(command, **options)
+        # A person signs in in the browser and may paste a code back: allow 15 minutes.
+        result = manager.operations.launch(command, timeout=900, **options)
         result.update(provider=provider, kind="provider-login")
     return result
 

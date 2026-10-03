@@ -71,11 +71,13 @@ def test_login_endpoint_deduplicates_and_requires_admin(tmp_path, monkeypatch):
     monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "stale-fixture")
     inventory = {"services": [], "binaries": {"claude": "/fixture/claude"}, "network": {}}
 
-    def launch(operations, args, **kwargs):
+    def launch(operations, args, timeout=300, **kwargs):
+        kwargs["timeout"] = timeout
         assert args == ["/fixture/claude", "auth", "login"]
         assert "CLAUDE_CODE_OAUTH_TOKEN" not in kwargs["env"]
         assert callable(kwargs["on_success"])
         assert kwargs["interactive"] is True
+        assert kwargs["timeout"] == 900
         job = {"id": "login", "state": "running", "output": ""}
         operations.jobs["login"] = job
         return job
