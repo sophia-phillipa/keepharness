@@ -1,6 +1,7 @@
 """Claude questions are answered through validated typed option gates."""
 
 import asyncio
+import json
 from copy import deepcopy
 
 import pytest
@@ -117,3 +118,52 @@ print(json.dumps({"type":"result", "subtype":"success", "result":"done"}), flush
     assert response["request_id"] == "question-1"
     assert response["response"]["behavior"] == "allow"
     assert response["response"]["updatedInput"]["answers"] == {"Color?": "Red"}
+
+
+class CapturedStdin:
+    def __init__(self):
+        self.messages = []
+
+    def write(self, data):
+        self.messages.append(json.loads(data))
+
+    async def drain(self):
+        pass
+
+
+def codex_result(method, reply):
+    """What the Codex adapter writes back for one interactive request and decision."""
+    from types import SimpleNamespace
+
+    from adapters.codex.native import respond_to_interaction
+
+    rpc = SimpleNamespace(process=SimpleNamespace(stdin=CapturedStdin()))
+
+    async def decide(kind, params):
+        return reply
+
+    asyncio.run(
+        respond_to_interaction(
+            rpc, {"id": 7, "method": method, "params": {}}, decide, {}, {}, True, False
+        )
+    )
+    return rpc.process.stdin.messages[0]["result"]
+
+
+TYPED = {"q1": {"answers": ["typed text"]}}
+
+
+@pytest.mark.parametrize("approved", [True, False])
+def test_codex_user_input_sends_typed_answers_only_when_approved(approved):
+    result = codex_result("item/tool/requestUserInput", {"approved": approved, "answers": TYPED})
+    assert result == {"answers": TYPED if approved else {}}
+
+
+@pytest.mark.parametrize("approved", [True, False])
+def test_codex_elicitation_sends_content_only_when_accepted(approved):
+    result = codex_result("mcpServer/elicitation/request", {"approved": approved, "answers": TYPED})
+    assert result == (
+        {"action": "accept", "content": TYPED}
+        if approved
+        else {"action": "decline", "content": None}
+    )

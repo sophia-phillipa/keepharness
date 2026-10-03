@@ -11,6 +11,7 @@ from starlette.testclient import TestClient
 
 from agent_service import maestro, workspaces
 from agent_service.app import Service, create_app
+from agent_service.approval_sessions import SESSION_COOKIE, consume_enrollment, issue_enrollment
 from agent_service.tools import ToolError
 
 
@@ -221,6 +222,7 @@ def test_auto_without_codex_and_with_optional_maestro(tmp_path):
 
 def test_client_transfer_streams_bytes_and_does_not_overwrite(tmp_path):
     import httpx
+    from test_mcp_bridge_upload import Person
 
     from agent_service import mcp_bridge as bridge
 
@@ -243,11 +245,17 @@ def test_client_transfer_streams_bytes_and_does_not_overwrite(tmp_path):
     async def scenario():
         with (
             patch.object(
-                bridge, "config", return_value={"url": "http://test", "key_file": str(key)}
+                bridge,
+                "config",
+                return_value={
+                    "url": "http://test",
+                    "key_file": str(key),
+                    "upload_roots": [str(tmp_path)],
+                },
             ),
             patch("httpx.AsyncClient", side_effect=client),
         ):
-            result = await bridge.upload_path("p", str(source))
+            result = await bridge.upload_path("p", str(source), Person())
             assert result["files"] == 1, result
             assert result["excluded_count"] == 2
             assert "secret work transcript" not in json.dumps(result)
@@ -283,16 +291,19 @@ def test_service_control_requires_registration_permission_and_request(tmp_path):
             }
             assert client.post("/v1/services", json=data).status_code == 403
             cfg["services"]["codex"].update(mode="native", permissions={"shell": True})
+            # The request flag is not authority: a state change needs the enrolled session.
+            assert client.post("/v1/services", json=data).status_code == 403
+            session = {
+                "Cookie": SESSION_COOKIE + "=" + consume_enrollment(cfg, issue_enrollment(cfg, "a"))
+            }
             assert (
-                client.post("/v1/services", json={**data, "user_requested": False}).status_code
-                == 403
-            )
-            assert (
-                client.post("/v1/services", json={**data, "unit": "other.service"}).status_code
+                client.post(
+                    "/v1/services", json={**data, "unit": "other.service"}, headers=session
+                ).status_code
                 == 422
             )
             process.assert_not_awaited()
-            response = client.post("/v1/services", json=data)
+            response = client.post("/v1/services", json=data, headers=session)
             assert response.status_code == 200, response.text
             assert response.json()["services"][0]["status"]["ActiveState"] == "active"
             assert process.call_args_list[0].args[0] == [

@@ -10,6 +10,7 @@ from starlette.responses import JSONResponse, Response
 from ..approval_sessions import require_approval_session
 from ..config import TERMINAL
 from ..errors import APIError
+from ..harness_agents import LOCAL_CLIENT
 from ..persistence.db import encoded
 from ..secret_vault import redact_secrets
 from . import LimitedStream, api_route, body
@@ -194,6 +195,9 @@ async def recover_workflow(request, service, identity):
 
 
 async def save_workflow(request, service, identity):
+    # A saved workflow appears in every client's "/" for the project; only the owner here adds one.
+    if identity[0] != LOCAL_CLIENT:
+        raise APIError("workflow_save_local_only", 403)
     data = await body(request)
     return JSONResponse(
         service.save_workflow(identity, request.path_params["job"], data.get("id")), status_code=201

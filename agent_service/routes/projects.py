@@ -8,6 +8,7 @@ from pathlib import Path
 from starlette.responses import JSONResponse
 
 from .. import maestro, service_control, workspaces
+from ..approval_sessions import require_approval_session
 from ..catalog import catalog as project_catalog_items
 from ..errors import APIError
 from ..persistence.db import encoded, private_file
@@ -217,8 +218,10 @@ async def services(request, service, identity):
     if not permitted:
         raise APIError("service_control_denied", 403)
     action = data.get("action", "list")
-    if action in ("start", "stop", "restart") and data.get("user_requested") is not True:
-        raise APIError("explicit_service_request_required", 403)
+    if action in ("start", "stop", "restart"):
+        # Changing host services takes the same human authority as answering an approval;
+        # a flag in the request body is the caller's own claim.
+        require_approval_session(request, config, identity, revalidate=True)
     result = redact_secrets(
         await service_control.operate(config, spec, action, data.get("unit", ""))
     )

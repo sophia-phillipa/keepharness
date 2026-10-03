@@ -16,6 +16,7 @@ from starlette.testclient import TestClient
 from test_workspaces import config
 
 from agent_service.app import create_app as create_harness_app
+from agent_service.approval_sessions import SESSION_COOKIE, consume_enrollment, issue_enrollment
 from control import runtime_config
 from control.server import Manager, create_app
 
@@ -116,6 +117,7 @@ def test_harness_request_logs_and_database_are_private(tmp_path, open_umask):
             AsyncMock(return_value=(0, "ActiveState=active\nLoadState=loaded")),
         ),
     ):
+        session = consume_enrollment(cfg, issue_enrollment(cfg, "a"))
         response = client.post(
             "/v1/services",
             json={
@@ -124,6 +126,7 @@ def test_harness_request_logs_and_database_are_private(tmp_path, open_umask):
                 "unit": "demo.service",
                 "user_requested": True,
             },
+            headers={"Cookie": SESSION_COOKIE + "=" + session},
         )
         assert response.status_code == 200, response.text
     app.state.service.db.close()
