@@ -20,6 +20,8 @@ PUBLIC = frozenset(
         "file-icons-data.js",
         "file-icons-LICENSE.txt",
         "inter-latin.woff2",
+        "favicon.ico",
+        "apple-touch-icon.png",
     )
 )
 
