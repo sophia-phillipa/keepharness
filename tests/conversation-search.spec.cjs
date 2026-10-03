@@ -183,13 +183,12 @@ const assert = require("node:assert/strict"),
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     assert.equal(await page.locator("#sidebar input[type=search]").count(), 0);
     assert.equal(await page.locator("#search-conversations svg").count(), 1);
-    // Codex-style shell: search is the icon in the sidebar head; its label stays accessible.
     assert.equal(
-      await page.locator("#sidebar .sidebar-head #search-conversations").count(),
-      1,
+      await page.locator("#sidebar #search-conversations").count(),
+      0,
     );
     assert.equal(
-      await page.locator("#search-conversations span").textContent(),
+      await page.locator("#app-topbar #search-conversations span").innerText(),
       "Search runs, plans, files",
     );
     assert.equal(
