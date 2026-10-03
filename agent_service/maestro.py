@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import json
+import math
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
@@ -594,6 +595,44 @@ async def execute_workflow(service, row, data, workflow):
     return await execute_plan(service, row, data, normalized)
 
 
+def sum_usage(parts):
+    """Token and time totals over ``(backend, metrics)`` pairs, split by provider."""
+    totals, by_provider = {}, {}
+    for backend, metrics in parts:
+        for key in ("input_tokens", "output_tokens", "inference_seconds"):
+            value = (metrics or {}).get(key)
+            if type(value) not in (int, float) or not math.isfinite(value) or value < 0:
+                continue
+            totals[key] = totals.get(key, 0) + value
+            if key != "inference_seconds":
+                split = by_provider.setdefault(backend, {})
+                split[key] = split.get(key, 0) + value
+    return {"usage_scope": "turn", **totals, "by_provider": by_provider} if totals else None
+
+
+def run_usage(coordinator, planning_result, results, reused):
+    """The run's own usage: the planner plus every step it executed, split by provider.
+
+    Steps restored from a checkpoint (``reused`` indexes) were not spent by this run. ``None``
+    when no part reported a figure.
+    """
+    parts = [
+        (r["result"].get("backend", r["backend"]), r["result"].get("metrics"))
+        for r in results
+        if r["index"] not in reused
+    ]
+    if coordinator:
+        parts.insert(0, (coordinator["backend"], (planning_result or {}).get("metrics")))
+    return sum_usage(parts)
+
+
+def run_result(final, usage):
+    """The last step's result as the run's: the run's usage replaces its metrics, and its context
+    meter is dropped because each step ran in a session of its own."""
+    result = {key: value for key, value in final.items() if key != "context_usage"}
+    return {**result, "metrics": usage} if usage else result
+
+
 async def execute_plan(service, row, data, declared, *, planning_result=None, coordinator=None):
     if "_workflow_context_parent_id" in data:
         data = {**data, "parent_job_id": data["_workflow_context_parent_id"]}
@@ -628,6 +667,7 @@ async def execute_plan(service, row, data, declared, *, planning_result=None, co
         ensure_recovery_safe(service, source_id)
     invalidated = False
     results = []
+    reused = set()
     for index, step in enumerate(plan["steps"], 1):
         current_row = service.conversation_repository.get(row["id"])
         work_item = current_row["work_item"] if current_row is not None else data.get("work_item")
@@ -643,6 +683,7 @@ async def execute_plan(service, row, data, declared, *, planning_result=None, co
         if cached is not None:
             checkpoints.save(index, cached, checkpoint_prior)
             results.append(cached)
+            reused.add(index)
             service.event(
                 row["id"],
                 "workflow_checkpoint_reused",
@@ -836,7 +877,7 @@ async def execute_plan(service, row, data, declared, *, planning_result=None, co
             checkpoints.save(index, record, checkpoint_prior)
     final = results[-1]["result"]
     return {
-        **final,
+        **run_result(final, run_usage(coordinator, planning_result, results, reused)),
         "backend": "maestro",
         "orchestration": {
             "coordinator": {
