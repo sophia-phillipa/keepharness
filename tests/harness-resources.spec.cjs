@@ -153,7 +153,7 @@ const path = require("node:path");
               : "text/html",
       });
     });
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.15"));
+    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.14.0"));
     await page.goto("http://resources.test");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     await page.fill("#prompt", "@");
@@ -342,9 +342,10 @@ const path = require("node:path");
     await page.fill("#prompt", "Run @@local");
     await page.click("#send");
     assert.equal(posts.length, 1);
+    // @@name now names the user's own agents (Sophia, 2026-10-03); an unknown one is not sent.
     assert.match(
       await page.locator("#status").innerText(),
-      /not available yet/,
+      /Choose @@local from the @ list/,
     );
     assert.deepEqual(
       resourceQueries

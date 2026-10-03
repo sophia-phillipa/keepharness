@@ -148,7 +148,7 @@ runPersona("harness-runs-and-drafts", [
       await page.goto("http://harness.test");
       await page.locator("#startup-gate").waitFor({ state: "hidden" });
       await page
-        .locator("#history .conversation-row > button")
+        .locator("#sidebar .conversation-row > button")
         .filter({ hasText: conversationTitle })
         .click();
       const answer = page.locator("#messages article.assistant").last();
@@ -311,11 +311,11 @@ runPersona("harness-runs-and-drafts", [
       await page.getByText("Here is the budget.").waitFor();
       await page.fill("#prompt", "A question I have not sent yet");
       await page
-        .locator("#history .conversation-actions summary")
+        .locator("#sidebar .conversation-actions summary")
         .first()
         .click();
       await page
-        .locator("#history .conversation-actions[open] button")
+        .locator("#sidebar .conversation-actions[open] button")
         .filter({ hasText: "Delete conversation" })
         .click();
       await page.click("#delete-conversation-confirm");

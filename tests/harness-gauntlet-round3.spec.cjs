@@ -30,7 +30,7 @@ async function fixture(browser, width = 1024, height = 768) {
     if (url.pathname.endsWith('/spans')) return { json: { spans: ['Planner', 'Accessibility and interaction reviewer', 'Implementation and integration engineer'].map((name, i) => ({ ...span, start_ts: Date.now()/1000-12, name, span_id: 'span-' + i, attrs: { ...span.attrs, 'gen_ai.provider.name': 'codex', 'gen_ai.request.model': 'fixture-model', effort: 'medium' } })) } };
     if (url.pathname.endsWith('/events')) return { body: '', contentType: 'text/event-stream' };
   });
-  async function open(id) { if (width <= 620) await page.locator('#menu').click(); await page.locator('#history .conversation-row > button').filter({ hasText: id.toUpperCase() + ' report' }).click(); await page.waitForFunction(title => !loading && document.querySelector('#conversation-title').textContent === title, id.toUpperCase() + ' report'); }
+  async function open(id) { if (width <= 620) await page.locator('#menu').click(); await page.locator('#sidebar .conversation-row > button').filter({ hasText: id.toUpperCase() + ' report' }).click(); await page.waitForFunction(title => !loading && document.querySelector('#conversation-title').textContent === title, id.toUpperCase() + ' report'); }
   return { page, open, state };
 }
 const hit = locator => locator.evaluate(node => { const r = node.getBoundingClientRect(); const h = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2); return h === node || node.contains(h); });

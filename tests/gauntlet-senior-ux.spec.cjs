@@ -57,7 +57,7 @@ const assert = require("node:assert/strict");
       if (path === "/v1/conversations") data = { conversations: [] };
       return r.fulfill({ json: data });
     });
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.15"));
+    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.14.0"));
     await page.goto(process.env.HARNESS_URL || "http://127.0.0.1:8095/");
     await page.selectOption("#model", "gpt-5.6-sol");
     await page.waitForFunction(() =>
@@ -83,7 +83,9 @@ const assert = require("node:assert/strict");
       "Late OpenAI quota must not overwrite Claude status",
     );
     await page.fill("#prompt", "Important audit draft");
-    await page.locator("#project-tree > summary").click();
+    // Projects are listed open by default in the Codex-style sidebar.
+    if (!(await page.locator("#project-tree").evaluate((el) => el.open)))
+      await page.locator("#project-tree > summary").click();
     await page
       .getByRole("button", { name: "Work project", exact: true })
       .click();
@@ -91,7 +93,13 @@ const assert = require("node:assert/strict");
       await page.locator("#prompt").inputValue(),
       "Important audit draft",
     );
-    await page.locator(".project-new").click();
+    // Project folders start expanded (Codex model): the click above may have collapsed it.
+    const work = page.locator(".project-group", {
+      has: page.getByRole("button", { name: "Work project", exact: true }),
+    });
+    if (!(await work.evaluate((group) => group.open)))
+      await work.getByRole("button", { name: "Work project", exact: true }).click();
+    await work.locator(".project-new").click();
     assert.equal(
       await page.locator("#prompt").inputValue(),
       "Important audit draft",

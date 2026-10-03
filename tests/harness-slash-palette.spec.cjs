@@ -105,10 +105,12 @@ const path = require("node:path");
       });
     });
 
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.15"));
+    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.14.0"));
 
     await page.goto("http://slash-palette.test");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
+    // Chat-first shell: the workspace panel starts closed; this check reads its resources list.
+    if (await page.locator("#activity-panel").isHidden()) await page.click("#panel-toggle");
     const promptBox = page.locator("#prompt");
     assert.equal(await promptBox.getAttribute("role"), "combobox");
     assert.equal(await page.getByRole("combobox", { name: "Message" }).count(), 1);

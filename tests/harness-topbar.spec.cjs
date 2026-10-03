@@ -60,7 +60,7 @@ const assert = require("node:assert/strict");
                   : {};
       return route.fulfill({ json: data });
     });
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.15"));
+    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.14.0"));
     await page.goto(process.env.HARNESS_URL || "http://panel.test/");
     await page.locator("#startup-gate").waitFor({ state: "visible" });
     assert.equal(
@@ -88,7 +88,9 @@ const assert = require("node:assert/strict");
     );
     assert.equal(await page.locator("#new").innerText(), "New Conversation");
     await page.locator("#prompt").fill("Preserved draft");
-    await page.locator("#project-tree > summary").click();
+    // Projects are listed open by default in the Codex-style sidebar.
+    if (!(await page.locator("#project-tree").evaluate((el) => el.open)))
+      await page.locator("#project-tree > summary").click();
     const projectName = page
       .locator("#projects details summary button")
       .first();
@@ -101,7 +103,9 @@ const assert = require("node:assert/strict");
         return original(...args);
       };
     });
-    for (const open of [true, false, true]) {
+    // Project folders start expanded (Codex model, Sophia 2026-10-03); each click toggles.
+    const startsOpen = await page.locator("#projects details").first().evaluate((el) => el.open);
+    for (const open of [!startsOpen, startsOpen, !startsOpen]) {
       await projectName.click();
       assert.equal(
         await page

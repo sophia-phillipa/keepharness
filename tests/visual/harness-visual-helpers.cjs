@@ -111,21 +111,21 @@ async function routeVisual(route, options = {}) {
   }
   else if (url.pathname === "/v1/catalog") data = { agents: [], skills: [], warnings: [] };
   else if (url.pathname === "/v1/usage") data = { available: false };
-  else if (url.pathname === "/v1/version") data = { version: "0.13.15", build: "visual-fixture" };
+  else if (url.pathname === "/v1/version") data = { version: "0.14.0", build: "visual-fixture" };
   else if (url.pathname.startsWith("/v1/approvals/") && method === "POST") data = { state: "resolved", choice: route.request().postDataJSON()?.choice };
   return route.fulfill({ json: data });
 }
 
 async function mountVisual(page, options = {}) {
   await page.addInitScript(() => {
-    localStorage.setItem("tail-harness-tour-seen", "0.13.15");
+    localStorage.setItem("tail-harness-tour-seen", "0.14.0");
     localStorage.setItem("activity-open", "1");
   });
   await page.route("http://visual.test/**", route => routeVisual(route, options));
   await page.goto("http://visual.test");
   await page.locator("#startup-gate").waitFor({ state: "hidden" });
   await page.evaluate(() => setPanelOpen(true, false));
-  await page.evaluate(() => document.querySelector("#history .conversation-row button")?.click());
+  await page.evaluate(() => document.querySelector("#sidebar .conversation-row button")?.click());
   await page.waitForFunction(() => document.getElementById("conversation-title")?.textContent.includes("Compact workspace review"));
   await page.addStyleTag({ content: "html,*,*::before,*::after{animation-duration:0s!important;transition-duration:0s!important;scroll-behavior:auto!important;caret-color:transparent!important}" });
   await page.waitForFunction(() => document.querySelectorAll(".maestro-plan-card,.publish-gate-card").length === 2);
@@ -156,6 +156,8 @@ async function selectState(page, state) {
   if (state === "console-open") {
     await page.keyboard.press("Control+j");
     await page.locator("#run-console").waitFor({ state: "visible" });
+    // The geometry check measures the first span row; wait until the pipeline has rendered it.
+    await page.locator("#run-console-panel .run-span-row").first().waitFor({ state: "attached" });
   } else if (state === "tour-step") {
     await page.evaluate(() => window.tailHarnessTour.start());
     await page.locator("#tour-card").waitFor({ state: "visible" });

@@ -13,29 +13,37 @@ class Operations:
         self.jobs = {}
         self.tasks = set()
         self.by_id = {}
+        self.stdin = {}
+        self.codes = {}  # the code last pasted into a job, kept in memory to redact an echo of it
 
-    def launch(self, args, timeout=300, *, env=None, on_success=None):
+    def launch(self, args, timeout=300, *, env=None, on_success=None, interactive=False):
+        """Run one CLI; ``interactive`` keeps stdin open for one pasted line (login codes)."""
         jid = uuid.uuid4().hex
-        self.jobs[jid] = {"id": jid, "state": "running", "output": ""}
+        self.jobs[jid] = {"id": jid, "state": "running", "output": "", "accepts_input": False}
 
         async def run():
             proc = None
             try:
                 proc = await asyncio.create_subprocess_exec(
                     *args,
-                    stdin=asyncio.subprocess.DEVNULL,
+                    stdin=asyncio.subprocess.PIPE if interactive else asyncio.subprocess.DEVNULL,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.STDOUT,
                     start_new_session=True,
                     env=env,
                 )
+                if interactive:
+                    self.stdin[jid] = proc.stdin
+                    self.jobs[jid]["accepts_input"] = True
                 async with asyncio.timeout(timeout):
                     while True:
                         chunk = await proc.stdout.read(2048)
                         if not chunk:
                             break
-                        text = chunk.decode(errors="replace")
-                        self.jobs[jid]["output"] = (self.jobs[jid]["output"] + text)[-12000:]
+                        text = self.jobs[jid]["output"] + chunk.decode(errors="replace")
+                        if self.codes.get(jid):
+                            text = text.replace(self.codes[jid], "[redacted]")
+                        self.jobs[jid]["output"] = text[-12000:]
                     succeeded = await proc.wait() == 0
                     if succeeded and on_success:
                         await on_success()
@@ -48,6 +56,9 @@ class Operations:
             except OSError as exc:
                 self.jobs[jid].update(state="failed", output=str(exc))
             finally:
+                self.jobs[jid]["accepts_input"] = False
+                self.stdin.pop(jid, None)
+                self.codes.pop(jid, None)
                 if proc and proc.returncode is None:
                     try:
                         if os.name == "posix":
@@ -70,6 +81,22 @@ class Operations:
         self.tasks.add(task)
         task.add_done_callback(self.tasks.discard)
         return self.jobs[jid]
+
+    async def send_input(self, jid, text):
+        """Write one line to a running interactive operation.
+
+        The text is never persisted; it stays in memory until the job ends so that an echo of it
+        can be redacted from the output.
+        """
+        stream = self.stdin.get(jid)
+        if stream is None or not self.jobs.get(jid, {}).get("accepts_input"):
+            raise ValueError("No login is waiting for a code.")
+        self.jobs[jid]["accepts_input"] = False
+        self.stdin.pop(jid, None)
+        self.codes[jid] = text.strip()
+        stream.write(text.encode() + b"\n")
+        await stream.drain()
+        stream.close()
 
     def cancel(self, jid):
         task = self.by_id.get(jid)

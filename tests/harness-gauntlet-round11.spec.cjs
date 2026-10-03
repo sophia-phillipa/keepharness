@@ -32,7 +32,7 @@ async function fixture(browser,width=1280,height=720,plan=false){
    return{json:{state:'ready',root_id:'home',path:folder,roots:[{id:'home',label:'Local Folders'}],entries}};
   }
  });
- async function open(){if(width<=620)await page.locator('#menu').click();await page.locator('#history .conversation-row > button').filter({hasText:'Synthetic report'}).click();await page.waitForFunction(()=>!loading && document.querySelector('#conversation-title').textContent==='Synthetic report');}
+ async function open(){if(width<=620)await page.locator('#menu').click();await page.locator('#sidebar .conversation-row > button').filter({hasText:'Synthetic report'}).click();await page.waitForFunction(()=>!loading && document.querySelector('#conversation-title').textContent==='Synthetic report');}
  async function consoleOpen(){await open();await page.evaluate(()=>runConsole.openRun('a-job'));await page.locator('#run-console').waitFor();await page.locator('.run-span-row').first().waitFor();await settle(page);}
  return{page,state,open,consoleOpen};
 }
@@ -64,7 +64,7 @@ async function publication(page){await page.evaluate(()=>showGate({gate_id:'publ
  });
  await check('A2-F1 Escape closes only the nested conversation menu',async()=>{
   for(const w of [400,1440]){const f=await fixture(browser,w,844);if(w===400)await f.page.locator('#menu').click();else if(await f.page.locator('#activity-panel').isHidden())await f.page.locator('#panel-toggle').click();
-   const summary=f.page.locator('#history .conversation-row summary').first();await summary.focus();await f.page.keyboard.press('Enter');await f.page.keyboard.press('Tab');const panels=await f.page.evaluate(()=>['sidebar','activity-panel'].map(id=>({id,cls:document.getElementById(id).className,hidden:document.getElementById(id).hidden})));
+   const summary=f.page.locator('#sidebar .conversation-row summary').first();await summary.focus();await f.page.keyboard.press('Enter');await f.page.keyboard.press('Tab');const panels=await f.page.evaluate(()=>['sidebar','activity-panel'].map(id=>({id,cls:document.getElementById(id).className,hidden:document.getElementById(id).hidden})));
    await f.page.keyboard.press('Escape');assert(await summary.evaluate(n=>document.activeElement===n));assert.deepEqual(await f.page.evaluate(()=>['sidebar','activity-panel'].map(id=>({id,cls:document.getElementById(id).className,hidden:document.getElementById(id).hidden}))),panels);await f.page.close();}
  });
  await check('A2-F2 File tree navigation and expansion semantics',async()=>{

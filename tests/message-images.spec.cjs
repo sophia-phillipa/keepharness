@@ -112,7 +112,7 @@ const fs = require("node:fs"),
       await page
         .locator(".conversation-title")
         .evaluate((el) => getComputedStyle(el).fontSize),
-      "13px",
+      "14px", // Codex-style 30 px sidebar rows use 14 px titles.
     );
     assert.equal(
       await page

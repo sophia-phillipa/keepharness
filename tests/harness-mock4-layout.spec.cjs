@@ -10,7 +10,7 @@ const path = require("node:path");
     let planPending = true;
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
     await page.addInitScript(() => {
-      localStorage.setItem("tail-harness-tour-seen", "0.13.15");
+      localStorage.setItem("tail-harness-tour-seen", "0.14.0");
       localStorage.setItem("activity-open", "1");
     });
     await page.route(origin + "/**", async (route) => {
@@ -44,7 +44,7 @@ const path = require("node:path");
                     : url.pathname === "/v1/project-files"
                       ? { roots: [], entries: [] }
                       : url.pathname === "/v1/version"
-                        ? { version: "0.13.15", build: "fixture" }
+                        ? { version: "0.14.0", build: "fixture" }
                         : url.pathname === "/v1/catalog"
                           ? { agents: [], skills: [], warnings: [] }
                           : url.pathname === "/v1/usage"
@@ -59,23 +59,32 @@ const path = require("node:path");
     });
     await page.goto(origin);
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
-    await page.locator("#history .conversation-row button").first().click();
+    await page.locator("#sidebar .conversation-row button").first().click();
     await page.waitForFunction(() => document.getElementById("conversation-title")?.textContent === "Approval needed");
 
     const regions = await page.locator("body > #app-topbar, body > #sidebar, body > main, body > #activity-panel").evaluateAll((nodes) => nodes.map((node) => node.id || node.tagName.toLowerCase()));
     assert.deepEqual(regions, ["app-topbar", "sidebar", "main", "activity-panel"]);
+    // Chat-first shell: the files/activity panel starts closed; open it to measure all regions.
+    if (await page.locator("#activity-panel").isHidden()) await page.click("#panel-toggle");
     const boxes = await page.locator("#sidebar, main, #activity-panel").evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect()));
     assert(boxes[0].right <= boxes[1].left + 1 && boxes[1].right <= boxes[2].left + 1);
     assert(boxes[0].width >= 299, "desktop sidebar keeps the approved 300px region");
     assert(await page.locator('[data-tour="top-search"]').isVisible());
     assert(await page.locator('[data-tour="attention-bell"]').isVisible());
-    for (const label of ["Needs you", "Running", "Queued", "Done today"])
-      assert(await page.getByRole("heading", { name: new RegExp(label, "i") }).count());
+    // Codex-style sidebar (Sophia, 2026-10-03): one Chats list ordered by urgency, the state is a dot on each row.
+    // Every fixture conversation belongs to a project, so they sit in their folders and the empty Chats list is hidden.
+    assert.equal(await page.locator(".conversation-state-group").count(), 1);
+    for (const label of ["Needs your answer", "In progress", "Queued"])
+      assert(await page.locator("#sidebar").getByRole("img", { name: label }).count(), label);
+    const approvalRow = page.locator("#sidebar .conversation-row", { hasText: "Approval needed" });
+    assert.equal(await approvalRow.getByRole("img", { name: "Needs your answer" }).count(), 1);
     await page.waitForFunction(() => /2 running.*1 queued.*1 needs you/i.test(document.getElementById("run-status-toggle")?.textContent || ""));
     assert.match(await page.locator("#run-status-toggle").innerText(), /2 running.*1 queued.*1 needs you/i);
     assert.equal(await page.locator("#conversation-state-pill").innerText(), "Awaiting approval");
     const strip = await page.locator(".run-status-strip").boundingBox();
-    assert(strip.x <= 1 && strip.width >= 1439, "status strip spans the viewport");
+    // The status strip spans the chat column to the right edge (the sidebar keeps its own footer area).
+    const chatLeft = (await page.locator("main").boundingBox()).x;
+    assert(strip.x <= chatLeft + 1 && strip.x + strip.width >= 1439, "status strip spans the chat column");
     assert.equal(await page.locator("#console-run").inputValue(), "j1");
     assert.equal(await page.locator("#console-run").isVisible(), false);
     await page.keyboard.press("Control+j");
@@ -87,7 +96,8 @@ const path = require("node:path");
       layout: getComputedStyle(node.parentElement).display,
       chip: !!node.querySelector(".backend-chip"),
     }));
-    assert.deepEqual(cardStyle, { border: "3px", layout: "flex", chip: true });
+    // Codex-style stage cards: one quiet 1px border instead of the 3px accent stripe.
+    assert.deepEqual(cardStyle, { border: "1px", layout: "flex", chip: true });
     await page.keyboard.press("Control+j");
     const plan = page.locator(".maestro-plan-card");
     assert(await plan.isVisible());

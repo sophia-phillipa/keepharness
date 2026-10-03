@@ -228,7 +228,7 @@ const path = require("node:path");
       }
       return route.fulfill({ json: data });
     });
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.15"));
+    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.14.0"));
     await page.goto(process.env.HARNESS_URL || "http://panel.test/");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     for (const [id, label] of [
@@ -620,6 +620,8 @@ const path = require("node:path");
       .fill("Draft with attachment before reloading");
     await page.reload();
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
+    // Chat-first shell: without a saved preference the files panel starts closed; open it.
+    if (await page.locator("#activity-panel").isHidden()) await page.click("#panel-toggle");
     assert.equal(
       await page.locator("#prompt").inputValue(),
       "Draft with attachment before reloading",

@@ -11,6 +11,8 @@ import httpx
 # Total seconds per server probe; httpx timeouts apply per read, so a server that
 # trickles bytes could otherwise hold discovery forever.
 PROBE_SECONDS = 3
+# The model id of every server the panel starts (``start_local --alias`` can name another).
+MANAGED_ALIAS = "managed-local"
 
 
 def processes():
@@ -179,6 +181,22 @@ def load_profiles(state):
     return profiles
 
 
+def reserved_ids(state):
+    """Ids a server started from a saved profile may report, so a network server never shadows them.
+
+    The panel serves every profile as ``MANAGED_ALIAS``; a server started without an alias
+    reports its weights path.
+    """
+    try:
+        profiles = load_profiles(state)
+    except (OSError, ValueError):
+        return set()  # a broken catalog must not stop discovery
+    ids = {MANAGED_ALIAS} if profiles else set()
+    for model_file in profiles:
+        ids |= {model_file, Path(model_file).name}
+    return ids
+
+
 def load_profile(state, model_file=None):
     import json
 
@@ -204,7 +222,7 @@ def launch_options(profile):
     ]
 
 
-def launch_command(profile, *, key_file, port=8096, alias="managed-local"):
+def launch_command(profile, *, key_file, port=8096, alias=MANAGED_ALIAS):
     """Build the fixed local-only llama.cpp invocation from a validated profile."""
     profile = validate_profile(profile)
     if type(port) is not int or not 1024 <= port <= 65535:

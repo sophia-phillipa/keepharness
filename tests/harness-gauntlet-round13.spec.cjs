@@ -32,7 +32,7 @@ async function fixture(browser,width=1280,kind='plan'){
   if(url.pathname.endsWith('/spans'))return{json:{spans:[{...span,span_id:'review',name:'Review synthetic facts',attrs:{backend:'codex',model:'fixture'}}]}};
   if(url.pathname.endsWith('/events'))return{body:'',contentType:'text/event-stream'};
  });
- async function open(){if(width<=620)await page.locator('#menu').click();await page.locator('#history .conversation-row > button').filter({hasText:'Synthetic source'}).click();await page.waitForFunction(()=>!loading&&document.querySelector('#conversation-title').textContent==='Synthetic source');}
+ async function open(){if(width<=620)await page.locator('#menu').click();await page.locator('#sidebar .conversation-row > button').filter({hasText:'Synthetic source'}).click();await page.waitForFunction(()=>!loading&&document.querySelector('#conversation-title').textContent==='Synthetic source');}
  return{page,state,open};
 }
 (async()=>{

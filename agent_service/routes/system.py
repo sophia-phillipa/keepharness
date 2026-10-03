@@ -189,11 +189,25 @@ async def ui(request):
         PACKAGE_DIR / name,
         request.headers,
         {
-            "Content-Security-Policy": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'",
+            "Content-Security-Policy": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; "
+            + admin_frame_source(config.get("admin_url"))
+            + "frame-ancestors 'none'; base-uri 'none'",
             "X-Content-Type-Options": "nosniff",
             "Referrer-Policy": "no-referrer",
         },
     )
+
+
+def admin_frame_source(admin_url):
+    """Settings › System frames the local admin; nothing else may be framed."""
+    parts = urlsplit(admin_url or "")
+    try:
+        port = parts.port
+    except ValueError:
+        return ""
+    if parts.scheme != "http" or parts.hostname not in ("127.0.0.1", "localhost") or not port:
+        return ""
+    return f"frame-src http://{parts.hostname}:{port}; "
 
 
 ROUTES = [

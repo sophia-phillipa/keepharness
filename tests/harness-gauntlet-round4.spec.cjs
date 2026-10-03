@@ -31,7 +31,7 @@ async function fixture(browser, width = 1024, height = 768) {
     if (url.pathname === '/v1/project-files') return {json:{state:'ready',root_id:'home', path:url.searchParams.get('path')||'', roots:[{id:'home',label:'Local Folders'}], entries:url.searchParams.get('path')?[]:[{name:'examples',path:'examples',type:'directory'}]}};
     if (url.pathname.endsWith('/events')) return { body: '', contentType: 'text/event-stream' };
   });
-  async function open(id) { if (width <= 620) await page.locator('#menu').click(); await page.locator('#history .conversation-row > button').filter({ hasText: id.toUpperCase() + ' report' }).click(); await page.waitForFunction(title => !loading && document.querySelector('#conversation-title').textContent === title, id.toUpperCase() + ' report'); }
+  async function open(id) { if (width <= 620) await page.locator('#menu').click(); await page.locator('#sidebar .conversation-row > button').filter({ hasText: id.toUpperCase() + ' report' }).click(); await page.waitForFunction(title => !loading && document.querySelector('#conversation-title').textContent === title, id.toUpperCase() + ' report'); }
   return { page, open, state };
 }
 const hit = locator => locator.evaluate(node => { const r = node.getBoundingClientRect(); const h = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2); return h === node || node.contains(h); });

@@ -91,7 +91,7 @@ runPersona("h26", [
         },
       });
       const row = page
-        .locator("#history .conversation-row > button")
+        .locator("#sidebar .conversation-row > button")
         .filter({ hasText: title });
       await row.waitFor();
       const start = Date.now();

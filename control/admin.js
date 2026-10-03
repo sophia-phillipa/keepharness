@@ -253,7 +253,9 @@ function providerLoginButton(info) {
   button.onclick = () =>
     action(async () => {
       await request("provider-login", { provider: info.id });
-      say("Complete login in the browser. Then click Check account.");
+      say(
+        "Complete the login in the browser. If it shows a code, paste it in the operation window (Send code); then click Check account.",
+      );
     });
   return button;
 }
@@ -307,6 +309,83 @@ function modelDescription(provider, model) {
         "."
       : "")
   );
+}
+async function refreshInventory() {
+  state.inventory = await request("scan", {});
+  renderProviders();
+  renderProfile();
+}
+function remoteServersPanel(info) {
+  const panel = element("section", undefined, "remote-servers");
+  panel.setAttribute("aria-label", "Model server on your network");
+  const urlLabel = element("label", "Server address"),
+    keyLabel = element("label", "API key (optional)"),
+    url = element("input"),
+    key = element("input");
+  url.type = "url";
+  url.autocomplete = "off";
+  url.placeholder = "http://machine.tailnet.ts.net:8080";
+  key.type = "password";
+  key.autocomplete = "off";
+  urlLabel.append(url);
+  keyLabel.append(key);
+  const add = element("button", "Add server", "button secondary");
+  add.onclick = () =>
+    action(async () => {
+      if (!url.value.trim()) throw Error("Enter the server address first.");
+      const result = await request("remote-model-add", {
+        url: url.value.trim(),
+        key: key.value.trim(),
+      });
+      key.value = "";
+      await refreshInventory();
+      say(
+        "Server added · " +
+          result.models.length +
+          (result.models.length === 1 ? " model" : " models") +
+          " found. Choose the ones to make available.",
+      );
+    });
+  const saved = element("div", undefined, "remote-server-list");
+  for (const server of info.remote_servers || []) {
+    const row = element("p", undefined, "remote-server-row"),
+      name = element("span", server.url + (server.has_key ? " · key saved" : "")),
+      status = element(
+        "span",
+        server.reachable
+          ? server.models.length + (server.models.length === 1 ? " model" : " models")
+          : "Unreachable",
+        "connector-status connector-status-" +
+          (server.reachable ? "connected" : "failed"),
+      ),
+      remove = element("button", "Remove", "button secondary");
+    if (server.error) name.append(element("small", server.error));
+    status.setAttribute("role", "status");
+    remove.setAttribute("aria-label", "Remove " + server.url);
+    remove.onclick = () =>
+      action(async () => {
+        if (!confirm("Remove " + server.url + "? Its saved API key is deleted too."))
+          return;
+        await request("remote-model-remove", { url: server.url });
+        await refreshInventory();
+        say("Network server removed.");
+      });
+    row.append(name, status, remove);
+    saved.append(row);
+  }
+  panel.append(
+    element("h4", "Model server on your network"),
+    element(
+      "p",
+      "Use a model served by another machine (llama.cpp, Ollama, LM Studio...). The machine must be reachable over Tailscale or your local network, and its OpenAI-compatible server must listen on a network address. The API key is kept in a private file on this computer.",
+      "hint",
+    ),
+    urlLabel,
+    keyLabel,
+    add,
+    saved,
+  );
+  return panel;
 }
 function providerCard(info) {
   const id = info.id,
@@ -422,6 +501,7 @@ function providerCard(info) {
     }
     body.append(servers);
   }
+  if (id === "local") body.append(remoteServersPanel(info));
   if (id === "deepseek") {
     const tokenLabel = element("label", "Your DeepSeek API key (BYOK)"),
       token = element("input");
@@ -1355,6 +1435,13 @@ async function pollOperations() {
       failed: "Failed",
       cancelled: "Cancelled",
     };
+    // Keep a half-typed login code (and its focus) across the 2 s refresh.
+    const typing = document.querySelector("#operations .operation-code input");
+    const kept = typing && {
+      id: typing.id,
+      value: typing.value,
+      focused: document.activeElement === typing,
+    };
     $("operations").replaceChildren(
       ...jobs.map((j) => {
         const d = element("details");
@@ -1399,6 +1486,31 @@ async function pollOperations() {
             d.append(link);
           } catch {}
         }
+        if (j.state === "running" && j.accepts_input) {
+          // Container logins cannot receive the browser callback; Claude shows a code instead.
+          const form = element("form", undefined, "operation-code");
+          const label = element("label", "Paste the code Claude shows after you sign in");
+          const input = element("input");
+          input.id = "operation-code-" + j.id;
+          input.type = "password";
+          input.autocomplete = "off";
+          input.spellcheck = false;
+          input.required = true;
+          label.htmlFor = input.id;
+          const submit = element("button", "Send code", "button primary");
+          submit.type = "submit";
+          form.append(label, input, submit);
+          form.onsubmit = (event) => {
+            event.preventDefault();
+            action(async () => {
+              await request("provider-login-code", { id: j.id, code: input.value.trim() });
+              input.value = "";
+              say("Code sent. Finishing the login…");
+              pollOperations();
+            });
+          };
+          d.append(form);
+        }
         if (j.state === "running") {
           const cancel = element("button", "Cancel", "button secondary");
           cancel.onclick = () =>
@@ -1411,6 +1523,11 @@ async function pollOperations() {
         return d;
       }),
     );
+    const restored = kept && document.getElementById(kept.id);
+    if (restored) {
+      restored.value = kept.value;
+      if (kept.focused) restored.focus();
+    }
     const current = jobs.find((j) => j.id === activeOperation?.id);
     if (current) {
       $("operation-message").textContent = /gemini_client_retired/.test(
@@ -2176,8 +2293,11 @@ profilePicker.onchange = () => {
   renderProfile();
 };
 function renderProfile() {
+  // Servers on the network are not local processes: they never block starting a local model.
   const saved = profiles(),
-    runtimes = visibleProviders().find((x) => x.id === "local")?.runtimes || [];
+    runtimes = (
+      visibleProviders().find((x) => x.id === "local")?.runtimes || []
+    ).filter((r) => !r.remote);
   const paths = [
     ...new Set(
       [

@@ -167,7 +167,7 @@ runPersona("H15", [
           json: { title: ARABIC, turns: [turn("c1", ARABIC)] },
         },
       });
-      const titles = page.locator("#history .conversation-title");
+      const titles = page.locator("#sidebar .conversation-title");
       await titles.nth(3).waitFor();
       assert.deepEqual(await titles.allTextContents(), [
         ARABIC,
@@ -175,7 +175,7 @@ runPersona("H15", [
         "Plain neighbour 42",
         LONG,
       ]);
-      const buttons = page.locator("#history .conversation-row > button");
+      const buttons = page.locator("#sidebar .conversation-row > button");
       for (const [i, text] of [
         ARABIC,
         SPOOF,
@@ -191,7 +191,7 @@ runPersona("H15", [
       // No bleed: the override in row 2 must not reorder the next row, and each row's
       // "⋯" actions button stays to the right of its title.
       const geometry = await page.evaluate(() =>
-        [...document.querySelectorAll("#history .conversation-row")].map(
+        [...document.querySelectorAll("#sidebar .conversation-row")].map(
           (r) => {
             const t = r.querySelector(".conversation-title"),
               range = document.createRange();
@@ -253,7 +253,7 @@ runPersona("H15", [
         ARABIC,
       );
       const bangRightOfText = await page.evaluate(() =>
-        ["#conversation-title", "#history .conversation-title"].map((sel) => {
+        ["#conversation-title", "#sidebar .conversation-title"].map((sel) => {
           const node = document.querySelector(sel).firstChild,
             r = document.createRange();
           r.setStart(node, 0);

@@ -567,3 +567,54 @@ print(json.dumps({'type':'result','subtype':'success','result':decision,'session
                 result = await discover()
             self.assertEqual(result[0]["id"], "local-model")
             self.assertNotIn("private-test-token", json.dumps(result))
+
+
+class CodexMessageBoundaryTest(unittest.IsolatedAsyncioTestCase):
+    async def test_separate_agent_messages_do_not_run_together(self):
+        """Commentary and final answer arrive as distinct agentMessage items."""
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            exe = root / "fake"
+            exe.write_text(
+                "#!"
+                + sys.executable
+                + "\n"
+                + """import sys,json
+def emit(x): print(json.dumps(x),flush=True)
+for line in sys.stdin:
+ x=json.loads(line)
+ method=x.get('method')
+ if method=='initialize':emit({'id':x['id'],'result':{}})
+ elif method in ('thread/start','thread/resume'):emit({'id':x['id'],'result':{'thread':{'id':'session-1'}}})
+ elif method=='thread/name/set':emit({'id':x['id'],'result':{}})
+ elif method=='turn/start':
+  emit({'method':'turn/started','params':{'threadId':'session-1','turn':{'id':'turn-1','status':'inProgress'}}})
+  emit({'method':'item/agentMessage/delta','params':{'itemId':'m1','delta':'Reading '}})
+  emit({'method':'item/agentMessage/delta','params':{'itemId':'m1','delta':'files.'}})
+  emit({'method':'item/agentMessage/delta','params':{'itemId':'m2','delta':'Final answer.'}})
+  emit({'method':'turn/completed','params':{'turn':{'status':'completed'}}})
+"""
+            )
+            exe.chmod(0o700)
+            deltas = []
+
+            async def approve(k, p):
+                return {"approved": False}
+
+            with (
+                patch("adapters.codex.native.configurations", return_value={"codex": {}}),
+                patch("adapters.codex.native.inventory", return_value={"codex": []}),
+            ):
+                result = await run(
+                    {"binary": str(exe)},
+                    "hello",
+                    lambda k, v: deltas.append(v["text"]) if k == "answer_delta" else None,
+                    {"permissions": {}},
+                    "gpt-6-astra",
+                    "low",
+                    root / "session",
+                    "codex",
+                    approve,
+                )
+            self.assertEqual(result["answer"], "Reading files.\n\nFinal answer.")
+            self.assertEqual("".join(deltas), result["answer"])

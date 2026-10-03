@@ -12,6 +12,40 @@ from control.product import PRODUCT
 ISOLATION_VERSION = "local-bwrap-v3"
 
 
+class WrappedCommand(list):
+    """A bwrap command line and the descriptors its process must inherit (``pass_fds``).
+
+    Values that must stay out of the command line (visible in ``ps``) travel on a descriptor
+    bwrap reads with ``--args``. The caller closes them with ``close`` once the child has started.
+    """
+
+    def __init__(self, parts, descriptors=()):
+        super().__init__(parts)
+        self.descriptors = tuple(descriptors)
+
+    def close(self):
+        for descriptor in self.descriptors:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass  # already closed
+        self.descriptors = ()
+
+
+def argument_descriptor(*arguments):
+    """An in-memory file holding NUL-separated bwrap arguments, ready to be read from the start."""
+    if any("\0" in argument for argument in arguments):
+        raise ValueError("A sandbox argument cannot contain a NUL byte.")
+    descriptor = os.memfd_create("bwrap-arguments")
+    try:
+        os.write(descriptor, "".join(argument + "\0" for argument in arguments).encode())
+        os.lseek(descriptor, 0, os.SEEK_SET)
+    except BaseException:
+        os.close(descriptor)
+        raise
+    return descriptor
+
+
 def reject_writable_hardlinks(root, private_inodes=None, *, hidden=()):
     """A bind cannot isolate pre-existing aliases to excluded private inodes."""
 
@@ -172,10 +206,10 @@ def wrap(command, session, cwd, project, environment=None):
             str(Path(__file__).with_name("web_search.py").resolve()),
             "/tail-web-search.py",
         ]
-    if environment and environment.get(PRODUCT.env_prefix + "_LOCAL_KEY"):
-        args += [
-            "--setenv",
-            PRODUCT.env_prefix + "_LOCAL_KEY",
-            environment[PRODUCT.env_prefix + "_LOCAL_KEY"],
-        ]
-    return [*args, "--chdir", str(cwd), "--", "/codex-cli", *command[1:]]
+    descriptors = []
+    key_name = PRODUCT.env_prefix + "_LOCAL_KEY"
+    if environment and environment.get(key_name):
+        descriptors = [argument_descriptor("--setenv", key_name, environment[key_name])]
+        args += ["--args", str(descriptors[0])]
+    parts = [*args, "--chdir", str(cwd), "--", "/codex-cli", *command[1:]]
+    return WrappedCommand(parts, descriptors)

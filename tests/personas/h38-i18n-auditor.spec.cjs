@@ -326,11 +326,11 @@ runPersona("H38", [
 
       for (const action of ["Rename conversation", "Delete conversation"]) {
         await page
-          .locator("#history .conversation-actions summary")
+          .locator("#sidebar .conversation-actions summary")
           .first()
           .click();
         await page
-          .locator("#history .conversation-actions[open] button")
+          .locator("#sidebar .conversation-actions[open] button")
           .filter({ hasText: action })
           .click();
         await audit(page, action, sink);

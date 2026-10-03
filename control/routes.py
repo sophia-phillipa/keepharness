@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+import re
 import secrets
 import shutil
 import socket
@@ -35,6 +36,7 @@ from .local_models import (
 from .manager import PERMISSIONS
 from .operations import operation
 from .product import PRODUCT
+from .remote_models import add_remote_model, remove_remote_model
 from .vault_admin import change_vault, read_vault
 
 ADMIN_BODY_LIMIT = 64000
@@ -330,13 +332,34 @@ async def login_provider(request, manager, data):
             {
                 "env": cli_login_environment(),
                 "on_success": manager.claude_login_completed,
+                "interactive": True,
             }
             if provider == "claude"
             else {}
         )
-        result = manager.operations.launch(command, **options)
+        # A person signs in in the browser and may paste a code back: allow 15 minutes.
+        result = manager.operations.launch(command, timeout=900, **options)
         result.update(provider=provider, kind="provider-login")
     return result
+
+
+async def submit_login_code(request, manager, data):
+    """Hand the code Claude shows after browser login to the waiting CLI (container logins)."""
+    job = manager.operations.jobs.get(data.get("id"))
+    if (
+        not job
+        or job.get("kind") != "provider-login"
+        or job.get("provider") != "claude"
+        or job.get("state") != "running"
+        or not job.get("accepts_input")
+    ):
+        raise ValueError("No login is waiting for a code.")
+    code = data.get("code")
+    if not isinstance(code, str) or not re.fullmatch(r"[A-Za-z0-9#_.~+/=-]{8,512}", code):
+        raise ValueError("Paste the code exactly as shown.")
+    await manager.operations.send_input(job["id"], code)
+    manager.audit("claude_login_code_submitted")
+    return {"sent": True}
 
 
 async def read_integration_catalog(request, manager, data):
@@ -571,6 +594,7 @@ POST_ROUTES = {
     "/api/stop": stop_harness,
     "/api/cancel-operation": cancel_operation,
     "/api/provider-login": login_provider,
+    "/api/provider-login-code": submit_login_code,
     "/api/integration-catalog": read_integration_catalog,
     "/api/integration": change_integration,
     "/api/model-install": install_model,
@@ -579,6 +603,8 @@ POST_ROUTES = {
     "/api/local-devices": read_local_devices,
     "/api/local-files": list_local_files,
     "/api/local-start": start_local_model,
+    "/api/remote-model-add": add_remote_model,
+    "/api/remote-model-remove": remove_remote_model,
     "/api/vpn-key": reveal_vpn_key,
     "/api/tailnet": set_tailnet,
 }

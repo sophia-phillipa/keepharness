@@ -23,6 +23,7 @@ from .routes import models as model_routes
 from .routes import projects as project_routes
 from .routes import spans as span_routes
 from .routes import system as system_routes
+from .routes import tail_agents as tail_agent_routes
 from .routes.projects import project_git  # noqa: F401  (re-exported)
 from .services.conversation_service import ConversationService
 
@@ -85,6 +86,7 @@ def create_app(config, runtime_path=None):
             *conversation_routes.ROUTES,
             *activity_routes.ROUTES,
             *span_routes.ROUTES,
+            *tail_agent_routes.ROUTES,
             *effect_routes.ROUTES,
         ],
         lifespan=lifespan,

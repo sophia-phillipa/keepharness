@@ -142,6 +142,15 @@ AGENT_VALID_TABLE = [
         "service_project_denied",
     ),
     (
+        "integrations",
+        "GET",
+        "/v1/integrations",
+        {"project_id": "p", "backend": "codex", "model": "m"},
+        None,
+        403,
+        "service_project_denied",
+    ),
+    (
         "projects-get",
         "GET",
         "/v1/projects",
@@ -153,6 +162,35 @@ AGENT_VALID_TABLE = [
             and set(r.json()["details"]["p"])
             >= {"label", "root", "additional_roots", "apply_changes", "canonical_id", "icon"}
         ),
+    ),
+    (
+        "tail-agents-list",
+        "GET",
+        "/v1/tail-agents",
+        None,
+        None,
+        200,
+        lambda r: r.json() == {"agents": []},
+    ),
+    # Client "a" is authenticated but not the local browser, so every write is refused first.
+    ("tail-agents-post", "POST", "/v1/tail-agents", None, {}, 403, "tail_agent_local_only"),
+    (
+        "tail-agents-put",
+        "PUT",
+        "/v1/tail-agents/ghost-agent",
+        None,
+        {},
+        403,
+        "tail_agent_local_only",
+    ),
+    (
+        "tail-agents-delete",
+        "DELETE",
+        "/v1/tail-agents/ghost-agent",
+        None,
+        {"revision": "r"},
+        403,
+        "tail_agent_local_only",
     ),
     ("projects-post", "POST", "/v1/projects", None, {}, 403, "project_registration_disabled"),
     ("projects-patch", "PATCH", "/v1/projects", None, {}, 422, "invalid_project"),
@@ -855,6 +893,15 @@ ADMIN_ROUTE_TABLE = [
         {},
         400,
         lambda r: r.json() == {"error": "CLI not found."},
+    ),
+    (
+        "provider-login-code",
+        "POST",
+        "/api/provider-login-code",
+        None,
+        {},
+        400,
+        lambda r: r.json() == {"error": "No login is waiting for a code."},
     ),
     (
         "settings-export",

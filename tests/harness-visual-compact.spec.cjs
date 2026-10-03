@@ -71,21 +71,24 @@ async function captureMatrix(browser, directory, summary) {
         await page.evaluate(value => window.TailTheme.apply(value), theme);
         assert.equal(await page.locator("html").getAttribute("data-palette"), theme);
         if (viewport.width === 1440 && theme === THEMES[0]) {
+          // Codex-style shell (2026-10-03): the top bar is a 50 px icon rail and the
+          // files/activity panel starts closed, so open it before measuring its width.
+          if (await page.locator("#activity-panel").isHidden()) await page.click("#panel-toggle");
           const baseline = await page.evaluate(() => {
             const box = selector => document.querySelector(selector).getBoundingClientRect();
             return {
               rootFont: parseFloat(getComputedStyle(document.documentElement).fontSize),
-              topbar: box("#app-topbar").height,
+              topbar: box("#app-topbar").width,
               sidebar: box("#sidebar").width,
               activity: box("#activity-panel").width,
-              runningRow: box("#history .conversation-row").height,
+              runningRow: box("#sidebar .conversation-row").height,
             };
           });
           assert.equal(baseline.rootFont, 15, "global font scale must match the approved baseline");
-          assert(Math.abs(baseline.topbar - 48) <= .75, `topbar baseline drifted: ${baseline.topbar}`);
+          assert(Math.abs(baseline.topbar - 50) <= .75, `rail baseline drifted: ${baseline.topbar}`);
           assert(Math.abs(baseline.sidebar - 300) <= .75, `sidebar baseline drifted: ${baseline.sidebar}`);
           assert(Math.abs(baseline.activity - 390) <= .75, `activity pane baseline drifted: ${baseline.activity}`);
-          assert(Math.abs(baseline.runningRow - 65.453) <= 1, `conversation row baseline drifted: ${baseline.runningRow}`);
+          assert(Math.abs(baseline.runningRow - 47) <= 2, `conversation row baseline drifted: ${baseline.runningRow}`);
           summary.baselineScale = baseline;
         }
         for (const state of STATES) {

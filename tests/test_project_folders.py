@@ -10,6 +10,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from adapters import run_native as run
+from adapters.local.sandbox import WrappedCommand
 from agent_service.app import Service, create_app
 from tests.test_shared_projects import config
 
@@ -130,7 +131,10 @@ def test_rpc_providers_receive_roots_on_every_turn(tmp_path, provider, read, wri
         cfg["local_models"] = {"fixture": {"url": "http://127.0.0.1:9999"}}
     with (
         patch("adapters.codex.native.connection", connection),
-        patch("adapters.local.backend.wrap", side_effect=lambda command, *args: command),
+        patch(
+            "adapters.local.backend.wrap",
+            side_effect=lambda command, *args: WrappedCommand(command),
+        ),
         patch("adapters.codex.native.configurations", return_value={"codex": {}}),
         patch("adapters.codex.native.inventory", return_value={"codex": []}),
     ):

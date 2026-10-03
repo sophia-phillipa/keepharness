@@ -75,14 +75,18 @@ const path = require("node:path");
       return route.fulfill({ json: data });
     });
     const ready = async () => {
-      await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.15"));
+      await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.14.0"));
       await page.goto("http://panel.test");
       await page.locator("#startup-gate").waitFor({ state: "hidden" });
-    await page.locator("#project-tree > summary").click();
+    // Projects are listed open by default in the Codex-style sidebar.
+    if (!(await page.locator("#project-tree").evaluate((el) => el.open)))
+      await page.locator("#project-tree > summary").click();
     };
     await ready();
     assert.equal(await page.locator(".project-group").count(), 2);
-    await page.locator('[data-project-id="alpha"] > summary > button').click();
+    // Project folders start expanded (Codex model, Sophia 2026-10-03); open it only if collapsed.
+    if (!(await page.locator('[data-project-id="alpha"]').evaluate((el) => el.open)))
+      await page.locator('[data-project-id="alpha"] > summary > button').click();
     await page
       .locator(".conversation-title").filter({ hasText: /^Preserved conversation$/ }).first()
       .waitFor();

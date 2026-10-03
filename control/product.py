@@ -25,8 +25,8 @@ class ProductIdentity:
     mcp_name: str = "tail-harness"
     icon: str = "tail-harness"
     desktop_icon: str = "utilities-terminal"
-    theme_light: str = "violet-bordeaux"
-    theme_dark: str = "amethyst"
+    theme_light: str = "paper"
+    theme_dark: str = "graphite"
     lineage: str = "tail-harness"
 
     def __post_init__(self):

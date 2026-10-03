@@ -51,6 +51,7 @@ async def run(
         usage = {}
         token_usage = {}
         seen_answer = False
+        answer_item = None
         async with connection(command, event=event, config=config) as rpc:
             marker = "remote-thread.json"
             saved = scoped_home_read(home, marker)
@@ -126,6 +127,12 @@ async def run(
                     continue
                 if kind == "item/agentMessage/delta":
                     text = params.get("delta", "")
+                    item_id = params.get("itemId")
+                    # Distinct agent messages (progress commentary, final answer) must not run together.
+                    if item_id and answer_item and item_id != answer_item and answer and not answer.endswith("\n"):
+                        answer += "\n\n"
+                        event("answer_delta", {"text": "\n\n"})
+                    answer_item = item_id or answer_item
                     answer += text
                     seen_answer = True
                     first = first if first is not None else time.monotonic() - started

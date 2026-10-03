@@ -92,3 +92,8 @@ body #tour-next:hover { background-color: var(--th-action, var(--tour-accent)) !
   .tour-pointer { border-color: Highlight; }
   #tour-card { border: 2px solid CanvasText; }
 }
+
+/* Codex-style shell: 20 px card, sentence-case counter, pill actions. */
+#tour-card { border-radius: 20px; padding: 18px 18px 14px; }
+#tour-counter { font-weight: 500; letter-spacing: 0; text-transform: none; }
+#tour-card button { border-radius: 9999px; }

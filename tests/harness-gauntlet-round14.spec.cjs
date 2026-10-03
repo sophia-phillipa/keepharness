@@ -98,7 +98,7 @@ async function fixture(browser,width=1440,height=900,empty=false){
    const turn={id:'done',project:'other',state:terminalState,request:{backend:'local',model:'fixture',prompt:'Synthetic prior request'},result:{answer:'Synthetic result'}};
    if(url.pathname==='/v1/conversations/done')return{json:{title:'Synthetic completed report',turns:[turn]}};
    if(url.pathname==='/v1/jobs/done')return{json:turn};
-  });p.setDefaultTimeout(4000);await p.locator('#history .conversation-row > button').filter({hasText:'Synthetic completed report'}).click();await p.waitForFunction(()=>!loading&&document.querySelector('#conversation-title').textContent==='Synthetic completed report');await p.locator('#prompt').fill('Continue this report');assert(await p.locator('#send').isDisabled());assert.match(await p.locator('#status').innerText(),/permissions.*retry/i);
+  });p.setDefaultTimeout(4000);await p.locator('#sidebar .conversation-row > button').filter({hasText:'Synthetic completed report'}).click();await p.waitForFunction(()=>!loading&&document.querySelector('#conversation-title').textContent==='Synthetic completed report');await p.locator('#prompt').fill('Continue this report');assert(await p.locator('#send').isDisabled());assert.match(await p.locator('#status').innerText(),/permissions.*retry/i);
   fail=false;await p.evaluate(()=>refreshProjectPermissions());assert.equal(await p.locator('#prompt').inputValue(),'Continue this report');assert.equal(await p.locator('#send').isDisabled(),false);await p.close();
   }
  });
@@ -108,7 +108,7 @@ async function fixture(browser,width=1440,height=900,empty=false){
  });
  await check('OWNER-F4 sidebar identity',async()=>{
   const {page:p,state}=await fixture(browser);state.conversations=providers.map(backend=>({id:backend,title:backend+' conversation',project:'sem-projeto',state:'completed',execution:{backend,model:'fixture-'+backend}}));await p.evaluate(()=>history());
-  for(let i=0;i<providers.length;i++){const row=p.locator('#history .conversation-row').filter({hasText:providers[i]+' conversation'});assert.equal(await row.locator('.conversation-model-icon use').getAttribute('href'),'/assets/icons.svg#'+icons[i]);assert(await row.locator('.conversation-model-icon svg').evaluate(n=>n.getBoundingClientRect().width>0));}await p.close();
+  for(let i=0;i<providers.length;i++){const row=p.locator('#sidebar .conversation-row').filter({hasText:providers[i]+' conversation'});assert.equal(await row.locator('.conversation-model-icon use').getAttribute('href'),'/assets/icons.svg#'+icons[i]);assert(await row.locator('.conversation-model-icon svg').evaluate(n=>n.getBoundingClientRect().width>0));}await p.close();
  });
  await check('OWNER-F5 log columns remain readable',async()=>{
   for(const [width,height] of [[1440,900],[1280,720],[1024,768],[400,812]])for(const theme of ['porcelain','amethyst']){

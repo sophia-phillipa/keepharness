@@ -2,7 +2,7 @@
 
 [![🇺🇸 English](https://img.shields.io/badge/%F0%9F%87%BA%F0%9F%87%B8-English-blue.svg)](README.md) [![🇧🇷 Português (Brasil)](https://img.shields.io/badge/%F0%9F%87%A7%F0%9F%87%B7-Portugu%C3%AAs%20(Brasil)-green.svg)](README.pt-BR.md)
 
-Painel local em Python para descobrir, configurar e executar o Codex CLI, o Claude Code, o Gemini CLI e modelos de IA locais, com uma interface de conversa acessível pela Tailscale ou outra VPN. Python 3.11+, licença MIT, versão **0.13.15**.
+Painel local em Python para descobrir, configurar e executar o Codex CLI, o Claude Code, o Gemini CLI e modelos de IA locais, com uma interface de conversa acessível pela Tailscale ou outra VPN. Python 3.11+, licença MIT, versão **0.14.0**.
 
 ## 🚀 Installation — agent-guided (start here)
 
@@ -88,7 +88,7 @@ Instalar/remover integrações modifica o perfil de CLI deste usuário. Operaç�
 
 ## 💬 Conversations and navigation
 
-O harness oferece streaming SSE persistido, histórico de conversas, seleção de modelo/esforço, cancelamento, anexos, pedidos de aprovação e atividade das ferramentas. Resumos de raciocínio, compactação e métricas de tokens só aparecem quando o executor os fornece. A cota da conta Codex é atualizada antes/depois da execução e periodicamente no cabeçalho; a cota do Claude aparece quando os eventos do CLI fornecem utilização, com a hora da última observação.
+O harness oferece streaming SSE persistido, histórico de conversas, seleção de modelo/esforço, cancelamento, anexos, pedidos de aprovação e atividade das ferramentas. Resumos de raciocínio, compactação e métricas de tokens só aparecem quando o executor os fornece. A cota da conta Codex é atualizada antes/depois da execução e periodicamente nos medidores de cota da barra de ícones; a cota do Claude aparece quando os eventos do CLI fornecem utilização, com a hora da última observação.
 
 Há dois modos:
 
@@ -97,7 +97,7 @@ Há dois modos:
 
 O projeto não é uma solução multiusuário para pessoas mutuamente não confiáveis. Todo cliente autorizado recebe a mesma política administrativa de projeto; cada um tem seu próprio histórico e aprovações. Para isolamento forte de identidades e credenciais, execute instâncias sob usuários de sistema operacional distintos.
 
-O **Menu**, no canto inferior esquerdo, reúne **Configurações** e **Administração**. A Administração só aparece quando seu endereço está disponível. Configurações mantém a preferência de tema do harness independente por navegador. A barra lateral não tem mais botões separados de recarregar tela ou recolher; o controle de navegação do cabeçalho continua útil no celular. A atualização automática espera até poder preservar o trabalho em andamento.
+A barra de ícones à esquerda reúne, de cima para baixo, o botão da barra lateral, a **Busca** (Ctrl/⌘ K), o sino de atenção, arquivos e atividade, **Runs and pipeline** e **Agents and skills**; na base, nesta ordem, os medidores de cota dos provedores, **Admin**, **Theme**, **About** e **Settings**. O **Admin** só aparece quando seu endereço está disponível e, neste computador, abre **Settings › System**, que embute a administração (Providers, Operations, Runs, Catalogs and vault). Configurações mantém a preferência de tema do harness independente por navegador. A barra lateral não tem mais botões separados de recarregar tela ou recolher; o botão da barra lateral, no topo da barra de ícones (que vira barra superior nos celulares), continua útil em telas pequenas. A atualização automática espera até poder preservar o trabalho em andamento.
 
 ## 🧠 Local models and attachments
 
@@ -201,10 +201,10 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-  Menu[Menu no canto inferior esquerdo] --> Settings[Configurações do harness]
-  Menu --> Admin[Administração quando disponível]
+  Rail[Barra de ícones, base] --> Settings[Configurações do harness]
+  Rail --> Admin[Admin quando disponível]
   Settings --> Appearance[Aparência específica por navegador]
-  Admin --> Providers[Provedores, projetos e permissões]
+  Admin --> System[Settings › System com a administração embutida]
 ```
 
 ## 💾 Persistence and portable configuration
@@ -286,13 +286,13 @@ Projetos criados na conversa ficam em `runs/jobs.sqlite3`; inclua esse banco nos
 
 As pastas são fornecidas em cada execução e retomada: o Codex usa o diretório de trabalho principal e as permissões de execução para raízes adicionais; o Claude recebe `--add-dir`; os modelos locais e o DeepSeek via API usam o runtime de ferramentas existente para inspecionar arquivos e devolver resultados ao modelo. Pastas inteiras não são enviadas automaticamente como texto. As permissões de leitura e escrita continuam valendo.
 
-**Buscar** no menu lateral abre uma caixa de diálogo de busca só por título, sem diferenciar maiúsculas ou acentos. Os painéis laterais têm 300 e 390 pixels por padrão e continuam redimensionáveis; o rodapé é compacto.
+A **Busca**, botão da barra de ícones (Ctrl/⌘ K), abre uma caixa de diálogo de busca só por título, sem diferenciar maiúsculas ou acentos. Os painéis laterais têm 300 e 390 pixels por padrão e continuam redimensionáveis; o rodapé é compacto.
 
 Veja [contratos de pastas de projeto e fontes oficiais](docs/PROJECT-FOLDERS-20260919.md).
 
 Em **Configurações**, escolha a ordem ilustrada dos painéis (Conversas–Chat–Arquivos/Atividade ou o inverso). A escolha fica salva neste navegador e pode ser restaurada ao padrão.
 
-A cota restante fica visível no cabeçalho quando o provedor informa uma porcentagem. O indicador distingue a cota da conta do contexto da conversa; valores indisponíveis não são estimados.
+A cota restante fica visível nos medidores da barra de ícones quando o provedor informa uma porcentagem. O indicador distingue a cota da conta do contexto da conversa; valores indisponíveis não são estimados.
 
 ## 🧩 Provider adapters, specialists and versioned specifications
 
@@ -395,6 +395,6 @@ A rodada 12 revalida recibos de publicação após consultas, informa falhas de 
 
 A rodada 14 move os avisos de bloqueio de modelo/provedor para uma faixa compacta junto ao composer, substitui glifos por ícones SVG, adiciona logs com data e hora em ordem decrescente e identifica os provedores. O foco por teclado é preservado em novas tentativas e no tour. O estado privado continua protegido em importações, caminhos realocados e leituras demoradas; a recuperação de workflows, a fila e as cadeias de recursos homônimos preservam seus contratos. O chat permanece na tela inicial, na escala aprovada. Veja a [especificação da release](dossier/releases/v0.13.14.md) para migração e validação.
 
-## 🆕 Version 0.13.15
+## 🆕 Version 0.14.0
 
-A rodada 15 preserva cancelamentos aceitos e a posse atual dos itens de trabalho durante esperas de persistência, mantém exemplos Markdown aninhados literais e conserva resultados de checkpoints ignorados. Cards de publicação mostram operação e destino primeiro; navegação por teclado, uso de provedores no celular e ícones semânticos do console seguem o layout existente na escala aprovada. Veja a [especificação da release](dossier/releases/v0.13.15.md) para migração e validação.
+O chat adota um shell no estilo do Codex, com uma barra lateral de ícones e uma subbarra no composer. As conversas de um projeto aparecem só na pasta dele e todas as outras ficam em **Chats**, cada uma com um indicador de estado (precisa da sua resposta, em execução, na fila, com falha, não lida) no lugar dos grupos de estado. A subbarra acrescenta **Files**, **Agents** e **Plugins**; a última lista os conectores e plugins disponíveis para o projeto e a rota escolhidos. Crie seus próprios agentes e chame-os com `@@nome` em qualquer provedor: o agente mantém a rota, o histórico acompanha a troca de modelo ou de agente e o chat marca cada mudança com um divisor. **Settings › System** mostra a administração local na mesma tela, o provedor local aceita servidores de modelos compatíveis com a OpenAI na sua rede (por exemplo pela Tailscale), e o login do Claude na administração aceita o código que o navegador mostra. As verificações ao vivo com provedores cobriram o Codex; as rotas do Claude e do DeepSeek e um servidor de modelos real na tailnet não foram validados ao vivo. Veja a [especificação da release](dossier/releases/v0.14.0.md) para migração e validação.

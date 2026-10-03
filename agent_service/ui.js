@@ -93,20 +93,33 @@ function observeConversation(c) {
       (previous.token !== token || previous.state !== c.state));
   conversationActivity[c.id] = { token, state: c.state, unread };
 }
-function conversationIndicator(c) {
-  const working = ["queued", "running"].includes(c.state),
-    unread = conversationActivity[c.id]?.unread;
-  if (!working && !unread) return null;
+const STATUS_DOTS = {
+  "needs-you": "Needs your answer",
+  running: "In progress",
+  queued: "Queued",
+  failed: "Failed",
+  unread: "Unread response",
+};
+function conversationStatusKind(c = {}) {
+  const state = conversationState(c);
+  if (state !== "done") return state;
+  if (c.state === "failed") return "failed";
+  return conversationActivity[c.id]?.unread ? "unread" : "";
+}
+function statusDot(kind, label = STATUS_DOTS[kind], base = "conversation-indicator") {
   const indicator = document.createElement("span");
+  // "working" keeps the historical class for running and queued rows.
   indicator.className =
-    "conversation-indicator " + (working ? "working" : "unread");
+    base + " status-" + kind +
+    (base !== "conversation-indicator" ? "" : kind === "running" || kind === "queued" ? " working" : kind === "unread" ? " unread" : "");
   indicator.setAttribute("role", "img");
-  indicator.setAttribute(
-    "aria-label",
-    working ? "In progress" : "Unread response",
-  );
-  indicator.title = indicator.getAttribute("aria-label");
+  indicator.setAttribute("aria-label", label);
+  indicator.title = label;
   return indicator;
+}
+function conversationIndicator(c) {
+  const kind = conversationStatusKind(c);
+  return kind ? statusDot(kind) : null;
 }
 let fileTree = {
   project: "",
@@ -145,6 +158,7 @@ let composerProjectId = null,
   resourceSelections = [],
   activePersona = null,
   releasePersonaPending = false,
+  lastSentRoute = null,
   invalidResourceTokens = new Set();
 const resourceToken = /(^|\s)(@@|\/\/|@|\/)([^\s@/]*)$/;
 function resourceEngine() {
@@ -551,7 +565,7 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
     note.textContent = warning;
     options.append(note);
   }
-  if (trigger.prefix === "@@" || trigger.prefix === "//") {
+  if (trigger.prefix === "//") {
     const empty = document.createElement("p");
     empty.className = "resource-empty";
     empty.textContent = "Tail Harness resources are not available yet.";
@@ -567,6 +581,8 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
       const scope =
           item.scope === "project"
             ? "Project"
+            : item.scope === "tail"
+              ? "Yours"
             : item.scope === "catalog"
               ? "Catalog"
               : item.scope === "builtin"
@@ -578,7 +594,8 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
         const section = document.createElement("section"),
           title = document.createElement("h3");
         section.className = "resource-group";
-        title.textContent = category + " · " + scope + " · " + item.origin;
+        title.textContent =
+          item.scope === "tail" ? category : category + " · " + scope + " · " + item.origin;
         section.append(title);
         groups.set(groupKey, section);
         options.append(section);
@@ -598,7 +615,9 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
       const glyph = document.createElement("span");
       glyph.className = "resource-origin-icon";
       glyph.setAttribute("aria-hidden", "true");
-      glyph.append(resourceIcon(item));
+      glyph.append(
+        item.scope === "tail" ? providerModelIcon(item.backend, item.model) : resourceIcon(item),
+      );
       const text = document.createElement("span"),
         name = document.createElement("strong"),
         description = document.createElement("small"),
@@ -627,6 +646,17 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
       option.onpointerenter = () => renderResourcePreview(item);
       groups.get(groupKey).append(option);
     }
+  }
+  if (trigger.prefix[0] === "@" && !loading) {
+    const create = document.createElement("button");
+    create.type = "button";
+    create.className = "resource-create";
+    create.append(TailUI.icon("plus"), document.createTextNode("Create agent…"));
+    create.onclick = () => {
+      closeResourceMenu();
+      openAgentDialog();
+    };
+    options.append(create);
   }
   if (
     (trigger.prefix[0] === "@" &&
@@ -706,8 +736,10 @@ function selectResource(item, trigger) {
     action?.click();
     return;
   }
-  const marker = trigger.prefix[0] === "@" ? "@" : "/",
+  const tailAgent = item.scope === "tail" && item.kind === "agent",
+    marker = tailAgent ? "@@" : trigger.prefix[0] === "@" ? "@" : "/",
     token = marker + item.name;
+  if (tailAgent) applyAgentRoute(item);
   const input = $("prompt"),
     before = input.value.slice(0, trigger.start),
     after = input.value.slice(trigger.end);
@@ -750,7 +782,13 @@ async function refreshResources(trigger) {
       return;
     resourceItems = Array.isArray(data.items) ? data.items : [];
     let filtered = [...resourceItems, ...builtinResources()]
-      .filter((item) => trigger.prefix === "@" ? item.kind === "agent" : ["agent", "skill", "command", "workflow", "rule", "context", "builtin"].includes(item.kind))
+      .filter((item) =>
+        trigger.prefix === "@@"
+          ? item.kind === "agent" && item.scope === "tail"
+          : trigger.prefix === "@"
+            ? item.kind === "agent"
+            : ["agent", "skill", "command", "workflow", "rule", "context", "builtin"].includes(item.kind),
+      )
       .map((item) => ({ item, score: resourceMatchScore(item, trigger.query) }))
       .filter((entry) => entry.score >= 0)
       .sort((left, right) => right.score - left.score)
@@ -794,7 +832,7 @@ function openResourceMenu() {
     closeResourceMenu();
     return;
   }
-  if (trigger.prefix === "@@" || trigger.prefix === "//") {
+  if (trigger.prefix === "//") {
     renderResourceMenu(trigger, [], false);
     return;
   }
@@ -852,7 +890,23 @@ function syncActiveProjectBadge() {
   badge.title = name || "";
 }
 const welcomeTemplate = $("welcome").cloneNode(true);
+// Project folders start expanded, like the Codex sidebar; a folder the user
+// collapses stays collapsed across reloads.
 const expandedProjects = new Map();
+try {
+  for (const [id, open] of Object.entries(
+    JSON.parse(localStorage.getItem("project-expanded") || "{}") || {},
+  ))
+    expandedProjects.set(id, open === true);
+} catch {}
+const rememberExpandedProjects = () => {
+  try {
+    localStorage.setItem(
+      "project-expanded",
+      JSON.stringify(Object.fromEntries(expandedProjects)),
+    );
+  } catch {}
+};
 let preferredSelection = {};
 try {
   preferredSelection =
@@ -1473,6 +1527,13 @@ const userErrors = {
   resources_unavailable_in_workspace:
     "Resources are not available in this workspace.",
   tail_resources_unavailable: "Resources are not available right now.",
+  tail_agent_exists: "An agent with that name already exists.",
+  tail_agent_invalid: "The agent details are not valid. Check each field and try again.",
+  tail_agent_limit: "You have reached the limit of 100 agents. Delete one to add another.",
+  tail_agent_changed: "This agent was changed elsewhere. Reload it and try again.",
+  tail_agent_not_found: "That agent no longer exists.",
+  tail_agent_storage_unsafe: "The agents folder cannot be used safely. Check the harness state folder.",
+  tail_agent_local_only: "Agents can only be created, edited or deleted from the computer that runs Tail Harness.",
 };
 async function api(path, options = {}) {
   let r;
@@ -1516,6 +1577,7 @@ async function api(path, options = {}) {
     }
     const error = Error(message);
     error.code = e.code;
+    error.field = e.field;
     error.status = r.status;
     if (r.status === 429) {
       const after = r.headers.get("Retry-After");
@@ -2386,7 +2448,10 @@ function syncExecutionMode() {
   const isolated = executionMode === "scoped";
   const modeContract = Array.isArray(selected()?.execution_modes);
   // F-58: isolation is chosen before the first message, then only stated.
-  $("execution-mode-choice").hidden = !modeContract;
+  // The sub-bar (project, files, agents) serves every new conversation; only the
+  // isolation choice needs a model that states its execution modes.
+  $("execution-mode-choice").hidden = !modeContract && started;
+  $("execution-mode-choice").classList.toggle("no-modes", !modeContract);
   $("execution-mode-choice").classList.toggle("started", started);
   $("isolation-toggle").hidden = started;
   $("execution-mode-help").hidden = started;
@@ -2492,6 +2557,7 @@ function newConversation(title = "New Conversation", projectId = $("project").va
   files = kept;
   renderFiles();
   $("messages").replaceChildren(welcomeTemplate.cloneNode(true));
+  lastRoute = null;
   bindSuggestions();
   modelAvailability();
   $("prompt").value = draft;
@@ -2553,7 +2619,7 @@ function setProjectPreference(id, key, value) {
     (el) => el.dataset.projectId === id,
   );
   (
-    group?.querySelector(".project-actions > button") ||
+    group?.querySelector(".project-actions > button[aria-expanded]") ||
     $("removed-projects")?.querySelector("summary") ||
     $("add-project")
   ).focus();
@@ -2710,8 +2776,11 @@ function renderProjects() {
         const selected =
           (projectAliases[$("project").value] || $("project").value) ===
           o.value;
-        group.open = expandedProjects.get(o.value) ?? selected;
-        group.ontoggle = () => expandedProjects.set(o.value, group.open);
+        group.open = expandedProjects.get(o.value) ?? true;
+        group.ontoggle = () => {
+          expandedProjects.set(o.value, group.open);
+          rememberExpandedProjects();
+        };
         const heading = document.createElement("summary");
         heading.className = selected ? "active" : "";
         const button = document.createElement("button");
@@ -2869,18 +2938,27 @@ function renderProjects() {
         const items = matches.filter(
           (c) => (projectAliases[c.project] || c.project) === o.value,
         );
-        children.replaceChildren(...items.map(conversationRow));
-        const create = document.createElement("button");
-        create.className = "project-new";
-        create.append(
-          TailUI.icon("folder-message"),
-          document.createTextNode("New Conversation"),
+        const urgent = ["needs-you", "running", "queued", "failed"].find((kind) =>
+          items.some((c) => conversationStatusKind(c) === kind),
         );
+        if (urgent)
+          heading.insertBefore(
+            statusDot(urgent, STATUS_DOTS[urgent] + " in this project", "project-indicator"),
+            actions,
+          );
+        children.replaceChildren(...items.map(conversationRow));
+        // Codex model: a compose icon on the folder row starts a chat in that project.
+        const create = document.createElement("button");
+        create.type = "button";
+        create.className = "project-new";
+        create.append(TailUI.icon("message-plus"));
         create.setAttribute(
           "aria-label",
           "New Conversation in " + o.textContent,
         );
-        create.onclick = () => {
+        create.title = "New Conversation in " + o.textContent;
+        create.onclick = (event) => {
+          event.preventDefault();
           if (submitting || cancelling || loading || uploads) {
             status(
               "Wait for the current send to finish before starting another chat.",
@@ -2892,7 +2970,7 @@ function renderProjects() {
           renderProjects();
           closeSidebar();
         };
-        children.prepend(create);
+        actions.prepend(create);
         if (!items.length) {
           const empty = document.createElement("p");
           empty.className = "empty-history";
@@ -2927,28 +3005,24 @@ function renderProjects() {
     }
     $("projects").append(section);
   }
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const todaySeconds = today.getTime() / 1000;
-  const stateGroups = [
-    ["needs-you", "Needs you", (item) => conversationState(item) === "needs-you"],
-    ["running", "Running", (item) => conversationState(item) === "running"],
-    ["queued", "Queued", (item) => conversationState(item) === "queued"],
-    ["done", "Done today", (item) => conversationState(item) === "done" && conversationUpdated(item) >= todaySeconds],
-    ["older", "Older", (item) => conversationState(item) === "done" && conversationUpdated(item) < todaySeconds],
-  ];
-  $("history").replaceChildren(...stateGroups.map(([state, label, matchesGroup]) => {
-    const section = document.createElement("section");
-    section.className = "conversation-state-group";
-    section.dataset.state = state;
-    const items = matches.filter(matchesGroup);
-    const heading = document.createElement("h2");
-    const count = document.createElement("span");
-    count.textContent = String(items.length);
-    heading.append(document.createTextNode(label), count);
-    section.append(heading, ...items.map(conversationRow));
-    return section;
-  }));
+  // Codex model: project conversations live under their project; "Chats" lists the rest.
+  // Status is a dot on each row; attention first keeps the old group order.
+  const listed = new Set(options.filter((o) => !projectPreferences[o.value]?.hidden).map((o) => o.value));
+  const rank = { "needs-you": 0, running: 1, queued: 2, done: 3 };
+  const chats = matches
+    .filter((c) => !listed.has(projectAliases[c.project] || c.project))
+    .map((c, index) => ({ c, index }))
+    .sort((a, b) => rank[conversationState(a.c)] - rank[conversationState(b.c)] || a.index - b.index)
+    .map(({ c }) => c);
+  const section = document.createElement("section");
+  section.className = "conversation-state-group";
+  section.dataset.state = "chats";
+  const heading = document.createElement("h2");
+  const count = document.createElement("span");
+  count.textContent = String(chats.length);
+  heading.append(document.createTextNode("Chats"), count);
+  section.append(heading, ...chats.map(conversationRow));
+  $("history").replaceChildren(section);
   if (!matches.length) {
     const empty = document.createElement("p");
     empty.className = "empty-history";
@@ -3117,6 +3191,30 @@ function messageResourceChips(message, selections = []) {
     chips.append(chip);
   }
   message.body.prepend(chips);
+}
+// Aggregator: a conversation may change model or provider between turns; a
+// quiet divider says so, and that the conversation so far goes along.
+let lastRoute = null;
+function routeDivider(route) {
+  const previous = lastRoute;
+  lastRoute = route.model ? route : previous;
+  if (!previous || !route.model) return;
+  if (previous.backend === route.backend && previous.model === route.model) return;
+  const crossed = previous.backend !== route.backend,
+    divider = document.createElement("p");
+  divider.className = "route-divider";
+  divider.setAttribute("role", "note");
+  divider.append(
+    providerModelIcon(route.backend, route.model),
+    document.createTextNode(
+      crossed
+        ? "Switched to " + modelName(route.model) + " · " +
+            (providerNames[route.backend] || route.backend) +
+            " — the conversation so far goes with it"
+        : "Model changed to " + modelName(route.model),
+    ),
+  );
+  $("messages").append(divider);
 }
 function bubble(role, text = "") {
   const el = document.createElement("article");
@@ -3556,6 +3654,9 @@ function event(e) {
     setActivePersona({
       name: e.data.role || e.data.invocation.resource_id,
       resource_id: e.data.invocation.resource_id,
+      route: activePersona?.resource_id === e.data.invocation.resource_id
+        ? activePersona.route
+        : lastSentRoute,
     }, true);
   if (e.type === "gate_required") {
     showGate(e.data);
@@ -3813,7 +3914,7 @@ async function result(
         : terminal[r.state]
           ? duration
             ? "Worked for " + duration
-            : terminal[r.state]
+            : "Run steps"
           : "Working…",
     );
     if (data.incomplete)
@@ -3981,6 +4082,7 @@ async function load(id, legacy = false, restoredView = null) {
     invalidResourceTokens = new Set();
     renderFiles();
     $("messages").replaceChildren();
+    lastRoute = null;
     $("prompt").value = "";
     for (const r of data.turns) {
       if (r.request?.release_persona) setActivePersona(null);
@@ -3994,9 +4096,10 @@ async function load(id, legacy = false, restoredView = null) {
           const token = r.request?.resource_selections?.[0]?.token;
           setActivePersona({
             name:
-              (typeof token === "string" && token.slice(1)) ||
+              (typeof token === "string" && token.replace(/^[@/]+/, "")) ||
               persona[0].resource_id,
             resource_id: persona[0].resource_id,
+            route: { backend: r.request?.backend, model: r.request?.model, effort: r.request?.effort },
           });
         }
       }
@@ -4009,6 +4112,7 @@ async function load(id, legacy = false, restoredView = null) {
         updateEfforts();
         $("effort").value = r.request?.effort || $("effort").value;
       }
+      routeDivider({ backend: r.request?.backend, model });
       const userMessage = bubble("user", r.request?.prompt || "Previous run");
       messageAttachments(userMessage, r.attachments);
       messageResourceChips(userMessage, r.request?.resource_selections);
@@ -4061,7 +4165,7 @@ async function load(id, legacy = false, restoredView = null) {
             ? condition.title
             : duration
               ? "Worked for " + duration
-              : labels[r.state] || "Run steps",
+              : "Run steps",
         );
       }
     }
@@ -4084,8 +4188,9 @@ async function load(id, legacy = false, restoredView = null) {
       document.activeElement.dataset.conversationId === navigationFocus.dataset.conversationId;
     expandedProjects.set($("project").value, true);
     renderProjects();
-    $("sidebar")
-      .querySelector('.conversation-row > button[aria-current="true"]')
+    // One scrolling sidebar: reveal the most specific row (the project copy when expanded).
+    const currentRow = ".conversation-row > button[aria-current=\"true\"]";
+    ($("projects").querySelector(currentRow) || $("history").querySelector(currentRow))
       ?.scrollIntoView({ block: "nearest" });
     last = 0;
     closeSidebar();
@@ -4275,13 +4380,17 @@ async function send() {
   const draft = $("prompt").value,
     prompt = draft;
   if (!prompt.trim()) return;
-  const reserved = unfencedPrompt(prompt).match(/(?:^|\s)(@@)[\w:-]+(?=\s|$)|^\s*(\/\/)[A-Za-z_][\w:-]*(?=\s|$)/);
-  if (reserved) {
-    status(
-      reserved[1] === "@@"
-        ? "Tail Harness agents are not available yet."
-        : "Tail Harness skills and commands are not available yet.",
+  // @@name must be one of the user's agents chosen from the list; //name is still reserved.
+  const unfenced = unfencedPrompt(prompt),
+    unknownAgent = [...unfenced.matchAll(/(?:^|\s)(@@[\w:-]+)(?=\s|$)/g)].find(
+      (match) => !resourceSelections.some((ref) => ref.token === match[1]),
     );
+  if (unknownAgent) {
+    status("Choose " + unknownAgent[1] + " from the @ list, or create it under Your agents.");
+    return;
+  }
+  if (/^\s*\/\/[A-Za-z_][\w:-]*(?=\s|$)/.test(unfenced)) {
+    status("Tail Harness skills and commands are not available yet.");
     return;
   }
   syncResourceSelections();
@@ -4346,7 +4455,20 @@ async function send() {
     };
     const planPolicy = $("maestro-plan-policy")?.value;
     if (planPolicy) data.maestro_plan_policy = planPolicy;
+    // An agent keeps its own route: choosing another agent or model ends its
+    // conversation on this send; the conversation history still carries over.
+    const personaRoute = activePersona?.route;
+    if (
+      activePersona &&
+      (resourceSelections.length ||
+        (personaRoute &&
+          (personaRoute.backend !== m.backend ||
+            personaRoute.model !== m.id ||
+            (personaRoute.effort && personaRoute.effort !== data.effort))))
+    )
+      releasePersonaPending = true;
     if (releasePersonaPending) data.release_persona = true;
+    lastSentRoute = { backend: m.backend, model: m.id, effort: data.effort };
     if (parent) data.parent_job_id = parent;
     else if (Array.isArray(m.execution_modes))
       data.execution_mode = executionMode;
@@ -4374,6 +4496,7 @@ async function send() {
     if (releasePersonaPending) setActivePersona(null);
     clearSubmission();
     $("welcome")?.remove();
+    routeDivider({ backend: r.backend || m.backend, model: r.model || m.id });
     const userMessage = bubble("user", prompt);
     messageAttachments(userMessage, files);
     messageResourceChips(userMessage, data.resource_selections);
@@ -4443,6 +4566,9 @@ function renderProjectFileSelection() {
     node = $("files-selection-count");
   node.textContent = count ? `${count} selected` : "";
   node.hidden = !count;
+  $("files-selection-actions").hidden = !count;
+  $("files-new-chat").textContent =
+    count === 1 ? "New chat with this file" : "New chat with these files";
 }
 function renderProjectFileTree() {
   const entries =
@@ -5197,7 +5323,8 @@ function syncSidebarFocus() {
   const sidebar = $("sidebar"), overlay = innerWidth <= 620 && sidebar.classList.contains("open");
   if (overlay) {
     sidebar.setAttribute("role", "dialog"); sidebar.setAttribute("aria-modal", "true"); sidebar.setAttribute("aria-label", "Conversations");
-    if (!sidebar.contains(document.activeElement)) sidebar.querySelector("button:not(:disabled)")?.focus();
+    // Focus the dialog itself: its first button is an action (New Conversation) that typing could trigger.
+    if (!sidebar.contains(document.activeElement)) { sidebar.tabIndex = -1; sidebar.focus({ preventScroll: true }); }
   } else { sidebar.removeAttribute("role"); sidebar.removeAttribute("aria-modal"); sidebar.removeAttribute("aria-label"); }
   syncWorkspaceModal();
 }
@@ -5212,11 +5339,6 @@ $("menu").onclick = () => {
   toggleSidebar();
   fitPanels();
 };
-$("project-switcher").onclick = () => {
-  const tree = $("project-tree");
-  tree.open = !tree.open;
-  $("project-switcher").setAttribute("aria-expanded", String(tree.open));
-};
 $("about").onclick = () => $("about-dialog").showModal();
 $("about-close").onclick = () => $("about-dialog").close();
 $("about-dialog").addEventListener("close", () => {
@@ -5225,9 +5347,262 @@ $("about-dialog").addEventListener("close", () => {
 });
 $("theme-toggle").onclick = () => {
   const dark = document.documentElement.dataset.theme === "dark";
-  window.TailTheme?.apply(dark ? "porcelain" : "amethyst");
+  window.TailTheme?.apply(dark ? "paper" : "graphite");
   $("theme-toggle-label").textContent = dark ? "Light" : "Dark";
 };
+// Codex-style "Choose project" under the composer: reuses the project select and its onchange.
+// Composer sub-bar shortcuts (Codex model): project files and agents.
+$("files-chip").onclick = () => {
+  togglePanelView("files");
+  const target =
+    $("files-tree").querySelector('[role="treeitem"][tabindex="0"]') ||
+    $("files-tree").querySelector('[role="treeitem"]') ||
+    document.querySelector('[data-workspace-section="files"] > summary');
+  target?.focus({ preventScroll: true });
+};
+$("agents-chip").onclick = () => {
+  const input = $("prompt"),
+    at = input.selectionStart ?? input.value.length,
+    before = input.value.slice(0, at),
+    marker = before && !/\s$/.test(before) ? " @" : "@";
+  input.focus();
+  input.setRangeText(marker, at, input.selectionEnd ?? at, "end");
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+};
+$("files-attach-selected").onclick = () => void attachSelectedProjectFiles();
+// Start a chat from a set of files: a new conversation in this project with them attached.
+$("files-new-chat").onclick = async () => {
+  const selection = { root_id: fileTree.rootId, paths: [...fileTree.selected] },
+    previous = conversation;
+  if (!selection.paths.length) return;
+  newConversation();
+  if (previous && conversation === previous) return;
+  await attachSelectedProjectFiles(selection);
+  $("prompt").focus({ preventScroll: true });
+};
+function syncComposerProjectButton() {
+  const option = $("project").selectedOptions[0];
+  const chosen = option && option.value !== "sem-projeto";
+  $("project-button-label").textContent = chosen ? option.textContent : "Choose project";
+  $("project-button").title = chosen
+    ? "Project: " + option.textContent
+    : "Choose the project for this conversation";
+  $("project-button").disabled = $("project").disabled;
+  $("agents-chip").disabled = $("prompt").disabled;
+}
+$("project-button").onclick = () => {
+  const menu = $("project-menu");
+  if (menu.matches(":popover-open")) return menu.hidePopover();
+  menu.replaceChildren(
+    ...[...$("project").options].map((option) => {
+      const item = document.createElement("button");
+      item.type = "button";
+      item.setAttribute("role", "option");
+      item.setAttribute("aria-selected", String(option.value === $("project").value));
+      item.append(
+        TailUI.icon("folder"),
+        document.createTextNode(option.value === "sem-projeto" ? "No project" : option.textContent),
+      );
+      item.onclick = () => {
+        menu.hidePopover();
+        if (option.value !== $("project").value) {
+          $("project").value = option.value;
+          $("project").onchange();
+        }
+        syncComposerProjectButton();
+        $("prompt").focus();
+      };
+      return item;
+    }),
+  );
+  menu.showPopover();
+  const r = $("project-button").getBoundingClientRect();
+  menu.style.left = Math.max(12, Math.min(r.left, innerWidth - menu.offsetWidth - 12)) + "px";
+  menu.style.top = Math.max(12, Math.min(innerHeight - menu.offsetHeight - 12, r.bottom + 6)) + "px";
+  menu.querySelector('[aria-selected="true"]')?.focus();
+};
+// Connectors and plugins (Codex "Plugins" chip): what is installed, allowed and
+// effective for this project and route, and what was used here recently.
+function usageAge(seconds) {
+  const age = Math.max(0, Date.now() / 1000 - Number(seconds || 0));
+  return age < 3600
+    ? Math.max(1, Math.round(age / 60)) + " min ago"
+    : age < 86400
+      ? Math.round(age / 3600) + " h ago"
+      : Math.round(age / 86400) + " d ago";
+}
+function integrationRow(item, sharedReason = "") {
+  const row = document.createElement("li"),
+    text = document.createElement("div"),
+    name = document.createElement("strong"),
+    meta = document.createElement("small");
+  row.className = "integration-row" + (item.effective ? "" : " unavailable");
+  name.textContent = item.name;
+  meta.textContent = [
+    item.kind === "mcp" ? "Connector" + (item.transport ? " · " + item.transport : "") : "Plugin",
+    item.used?.count
+      ? "used " + item.used.count + "× · " + usageAge(item.used.last_used)
+      : item.effective
+        ? "not used here recently"
+        : "",
+    item.effective || item.reason === sharedReason ? "" : item.reason,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  text.append(name, meta);
+  row.append(TailUI.icon(item.kind === "mcp" ? "plug" : "stack-2"), text);
+  return row;
+}
+async function renderPluginsMenu() {
+  const menu = $("plugins-menu"),
+    m = resourceEngine(),
+    heading = document.createElement("p");
+  heading.className = "access-menu-heading";
+  heading.textContent =
+    "Connectors and plugins · " + (providerNames[m.backend] || m.backend || "no model");
+  const body = document.createElement("div");
+  body.className = "plugins-body";
+  body.textContent = "Checking…";
+  menu.replaceChildren(heading, body);
+  if (!m.backend) {
+    body.textContent = "Choose a model to see its connectors and plugins.";
+    return;
+  }
+  try {
+    const data = await json(
+      "/v1/integrations?" +
+        new URLSearchParams({
+          project_id: $("project").value,
+          backend: m.backend,
+          model: m.model,
+          execution_mode: m.execution_mode,
+          access_mode: $("access-mode").value,
+        }),
+    );
+    const items = Array.isArray(data.items) ? data.items : [],
+      effective = items.filter((item) => item.effective),
+      others = items.filter((item) => !item.effective),
+      parts = [];
+    if (data.effective_note) {
+      const note = document.createElement("p");
+      note.className = "plugins-note";
+      note.textContent = data.effective_note;
+      parts.push(note);
+    }
+    // A reason shared by every row is said once, under the heading.
+    const section = (title, list, empty) => {
+      const wrap = document.createElement("section"),
+        h = document.createElement("h3"),
+        ul = document.createElement("ul"),
+        reasons = new Set(list.filter((item) => !item.effective).map((item) => item.reason)),
+        shared = list.length > 1 && reasons.size === 1 ? [...reasons][0] : "";
+      h.textContent = title;
+      ul.replaceChildren(...list.map((item) => integrationRow(item, shared)));
+      wrap.append(h);
+      if (shared)
+        wrap.append(Object.assign(document.createElement("p"), { className: "plugins-note", textContent: shared }));
+      wrap.append(list.length ? ul : Object.assign(document.createElement("p"), { className: "plugins-empty", textContent: empty }));
+      return wrap;
+    };
+    parts.push(
+      section("Available in this conversation", effective, "None for this project and model."),
+    );
+    if (others.length) parts.push(section("Installed, not available here", others, ""));
+    const tools = Array.isArray(data.other_tools) ? data.other_tools : [];
+    if (tools.length) {
+      const details = document.createElement("details"),
+        summary = document.createElement("summary"),
+        list = document.createElement("ul");
+      details.className = "plugins-tools";
+      summary.textContent =
+        "Other tools used in this project (" + (data.window_days || 30) + " days)";
+      list.replaceChildren(
+        ...tools.map((tool) =>
+          Object.assign(document.createElement("li"), {
+            textContent: tool.name + " · " + tool.count + "× · " + usageAge(tool.last_used),
+          }),
+        ),
+      );
+      details.append(summary, list);
+      parts.push(details);
+    }
+    for (const warning of Array.isArray(data.warnings) ? data.warnings : [])
+      parts.push(Object.assign(document.createElement("p"), { className: "plugins-note", textContent: warning }));
+    if (!$("settings-system-nav").hidden) {
+      const manage = document.createElement("button");
+      manage.type = "button";
+      manage.className = "plugins-manage";
+      manage.append(TailUI.icon("settings"), document.createTextNode("Manage connectors and plugins"));
+      manage.onclick = () => {
+        menu.hidePopover();
+        openAdminSettings("providers");
+      };
+      parts.push(manage);
+    }
+    body.replaceChildren(...parts);
+  } catch (error) {
+    body.textContent = "Couldn't check connectors and plugins. " + error.message;
+  }
+}
+$("plugins-chip").onclick = () => {
+  const menu = $("plugins-menu");
+  if (menu.matches(":popover-open")) return menu.hidePopover();
+  menu.showPopover();
+  // Anchored on the side with more room, so it grows away from the chip.
+  const place = () => {
+    const r = $("plugins-chip").getBoundingClientRect(),
+      above = r.top > innerHeight - r.bottom;
+    menu.style.left = Math.max(12, Math.min(r.left, innerWidth - menu.offsetWidth - 12)) + "px";
+    menu.style.top = above ? "auto" : r.bottom + 6 + "px";
+    menu.style.bottom = above ? innerHeight - r.top + 6 + "px" : "auto";
+    menu.style.maxHeight = Math.max(160, (above ? r.top : innerHeight - r.bottom) - 18) + "px";
+  };
+  place();
+  menu.tabIndex = -1;
+  menu.focus({ preventScroll: true });
+  void renderPluginsMenu().then(place);
+};
+$("plugins-menu").addEventListener("toggle", (event) =>
+  $("plugins-chip").setAttribute("aria-expanded", String(event.newState === "open")),
+);
+$("project-menu").addEventListener("toggle", (event) =>
+  $("project-button").setAttribute("aria-expanded", String(event.newState === "open")),
+);
+$("project-menu").addEventListener("keydown", (event) => {
+  const options = [...$("project-menu").querySelectorAll("[role=option]")],
+    index = options.indexOf(document.activeElement);
+  if (!options.length || !["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+  event.preventDefault();
+  const next = event.key === "Home" ? 0 : event.key === "End" ? options.length - 1
+    : (index + (event.key === "ArrowDown" ? 1 : -1) + options.length) % options.length;
+  options[next].focus();
+});
+// Chat | Code view switch: Code shows the run console and files beside the conversation.
+function syncViewSwitch() {
+  const code = $("panel-toggle").getAttribute("aria-expanded") === "true";
+  $("view-chat").setAttribute("aria-selected", String(!code));
+  $("view-code").setAttribute("aria-selected", String(code));
+  $("view-chat").tabIndex = code ? -1 : 0;
+  $("view-code").tabIndex = code ? 0 : -1;
+  document.body.dataset.view = code ? "code" : "chat";
+  const heading = document.querySelector("#welcome h1");
+  if (heading) heading.textContent = code ? "What should we build?" : "How can I help?";
+}
+function showView(view) {
+  const code = $("panel-toggle").getAttribute("aria-expanded") === "true";
+  if ((view === "code") !== code) $("panel-toggle").click();
+  syncViewSwitch();
+  $(view === "code" ? "view-code" : "view-chat").focus();
+}
+$("view-chat").onclick = () => showView("chat");
+$("view-code").onclick = () => showView("code");
+$("view-switch").addEventListener("keydown", (event) => {
+  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+  event.preventDefault();
+  showView(event.key === "ArrowRight" || event.key === "End" ? "code" : "chat");
+});
+new MutationObserver(syncViewSwitch).observe($("panel-toggle"), { attributes: true, attributeFilter: ["aria-expanded"] });
+syncViewSwitch();
 function positionAttentionPopover() {
   const popover = $("attention-popover");
   if (popover.hidden) return;
@@ -5388,6 +5763,10 @@ function modelAvailability(
     topShortcut = $("admin-shortcut-top");
   shortcut.hidden = link.hidden;
   topShortcut.hidden = link.hidden;
+  // The embedded admin is this computer's and only accepts its own host: a page
+  // opened over the network, or as localhost for a 127.0.0.1 admin, cannot frame it.
+  $("settings-system-nav").hidden =
+    link.hidden || location.hostname !== new URL(link.href).hostname;
   if (!link.hidden) {
     shortcut.href = link.href;
     topShortcut.href = link.href;
@@ -5580,7 +5959,7 @@ async function probeReadiness() {
       !busy &&
       !loading &&
       project === $("project").value &&
-      (JSON.stringify(scoped.models) !== JSON.stringify(models) ||
+      (JSON.stringify(composerModels(scoped)) !== JSON.stringify(models) ||
         (scoped.uploads_enabled === true) !== uploadsAllowed)
     ) {
       policyProject = null;
@@ -6192,19 +6571,13 @@ try {
   setPanelOpen(
     matchMedia("(max-width:700px)").matches
       ? false
-      : preference === null
-        ? matchMedia("(min-width:1200px)").matches
-        : preference === "1",
+      : preference === "1",
     false,
   );
 } catch {
   rightPanelView = "files";
   setPanelView("files", false);
-  setPanelOpen(
-    !matchMedia("(max-width:700px)").matches &&
-      matchMedia("(min-width:1200px)").matches,
-    false,
-  );
+  setPanelOpen(false, false);
 }
 matchMedia("(max-width:999px)").addEventListener("change", () => {
   if (!$("activity-panel").hidden) setPanelOpen(true, false);
@@ -6216,8 +6589,7 @@ matchMedia("(max-width:700px)").addEventListener("change", (event) => {
     try {
       preference = localStorage.getItem("activity-open");
     } catch {}
-    if (preference === null && matchMedia("(min-width:1200px)").matches)
-      setPanelOpen(true, false);
+    if (preference === "1") setPanelOpen(true, false);
   }
 });
 
@@ -6394,7 +6766,7 @@ function applyPanelOrder(value, persist = true) {
   );
   const reversed = panelOrder === "conversations-right";
   $("app-brand").after($(reversed ? "panel-toggle" : "menu"));
-  $("app-topbar").append($(reversed ? "menu" : "panel-toggle"));
+  $("attention-popover").after($(reversed ? "menu" : "panel-toggle"));
   for (const button of document.querySelectorAll("[data-panel-order]"))
     button.setAttribute(
       "aria-pressed",
@@ -6463,13 +6835,48 @@ function restoreSelection() {
 document.querySelectorAll("[data-settings]").forEach(
   (button) =>
     (button.onclick = () => {
-      for (const name of ["appearance", "agents", "skills"])
+      for (const name of ["appearance", "agents", "skills", "system"])
         $("settings-" + name).hidden = name !== button.dataset.settings;
+      const system = button.dataset.settings === "system";
+      $("catalog-status").hidden = $("catalog-refresh").hidden = system;
+      $("settings-dialog").classList.toggle("system-open", system);
+      if (system) showAdminSection(button.dataset.adminSection);
       document
         .querySelectorAll("[data-settings]")
         .forEach((b) => b.setAttribute("aria-pressed", String(b === button)));
     }),
 );
+// Settings › System shows the local admin panel on the same screen.
+function adminFrameUrl(section) {
+  const url = new URL($("admin-link").href);
+  url.search =
+    "?embedded=1&theme=" +
+    encodeURIComponent(document.documentElement.dataset.palette || "");
+  url.hash = section;
+  return url.href;
+}
+function showAdminSection(section = "providers") {
+  // Created on first use so ordinary page loads carry no extra document.
+  let frame = $("admin-frame");
+  if (!frame) {
+    frame = document.createElement("iframe");
+    frame.id = "admin-frame";
+    $("settings-system").append(frame);
+  }
+  const label = document.querySelector('[data-admin-section="' + section + '"]');
+  frame.title = "Administration: " + (label?.textContent || section);
+  const next = adminFrameUrl(section);
+  if (frame.src !== next) frame.src = next;
+}
+function openAdminSettings(section = "providers") {
+  if ($("settings-system-nav").hidden) return false;
+  if (!$("settings-dialog").open) {
+    $("settings-dialog").showModal();
+    refreshCatalog();
+  }
+  document.querySelector('[data-admin-section="' + section + '"]').click();
+  return true;
+}
 let catalogRequest = 0;
 function catalogCard(item) {
   const card = document.createElement("article");
@@ -6484,6 +6891,7 @@ function catalogCard(item) {
   return card;
 }
 async function refreshCatalog() {
+  void loadTailAgents();
   const request = ++catalogRequest,
     project = $("project").value;
   $("catalog-status").textContent = "Checking catalog for " + project + "…";
@@ -6556,6 +6964,262 @@ $("settings").onclick = () => {
   refreshCatalog();
 };
 $("settings-close").onclick = () => $("settings-dialog").close();
+// Tail-owned agents: own instructions, purpose, tasks, target output and the
+// provider, model and effort they run on; called with @@name in any chat.
+let tailAgents = [],
+  editingAgent = null;
+const agentFieldInputs = {
+  name: "agent-name",
+  purpose: "agent-purpose",
+  instructions: "agent-instructions",
+  tasks: "agent-tasks",
+  target_output: "agent-target-output",
+  backend: "agent-backend",
+  model: "agent-model",
+  effort: "agent-effort",
+};
+function agentRouteLabel(agent) {
+  return (
+    modelName(agent.model) +
+    " · " +
+    (providerNames[agent.backend] || agent.backend) +
+    (agent.effort && agent.effort !== "configured" ? " · " + agent.effort : "")
+  );
+}
+function applyAgentRoute(item) {
+  const target = models.find(
+    (m) => m.id === item.model && (!item.backend || m.backend === item.backend),
+  );
+  if (!target) return;
+  if ($("model").value !== target.id) {
+    $("model").value = target.id;
+    updateEfforts();
+    void quota();
+  }
+  if ([...$("effort").options].some((o) => o.value === item.effort))
+    $("effort").value = item.effort;
+  rememberSelection();
+  updateComposer();
+}
+function fillAgentRoute(backend, model, effort) {
+  const backends = [
+    ...new Set(models.filter((m) => m.backend && m.backend !== "maestro").map((m) => m.backend)),
+  ];
+  $("agent-backend").replaceChildren(
+    ...backends.map((b) => new Option(providerNames[b] || b, b)),
+  );
+  $("agent-backend").value = backends.includes(backend) ? backend : backends[0] || "";
+  const choices = models.filter((m) => m.backend === $("agent-backend").value);
+  $("agent-model").replaceChildren(...choices.map((m) => new Option(modelName(m.id), m.id)));
+  $("agent-model").value = choices.some((m) => m.id === model) ? model : choices[0]?.id || "";
+  const efforts = choices.find((m) => m.id === $("agent-model").value)?.efforts || [];
+  $("agent-effort").replaceChildren(
+    ...efforts.map((e) => new Option(e === "configured" ? "Provider's default" : e[0].toUpperCase() + e.slice(1), e)),
+  );
+  $("agent-effort").value = efforts.includes(effort) ? effort : efforts[0] || "";
+}
+$("agent-backend").onchange = () => fillAgentRoute($("agent-backend").value, "", "");
+$("agent-model").onchange = () =>
+  fillAgentRoute($("agent-backend").value, $("agent-model").value, $("agent-effort").value);
+function openAgentDialog(agent = null) {
+  editingAgent = agent;
+  $("agent-dialog-title").textContent = agent ? "Edit @@" + agent.name : "Create agent";
+  $("agent-save").textContent = agent ? "Save agent" : "Create agent";
+  $("agent-delete").hidden = !agent;
+  $("agent-delete").textContent = "Delete agent";
+  delete $("agent-delete").dataset.confirm;
+  $("agent-name").value = agent?.name || "";
+  $("agent-name").readOnly = !!agent;
+  $("agent-purpose").value = agent?.purpose || "";
+  $("agent-instructions").value = agent?.instructions || "";
+  $("agent-tasks").value = (agent?.tasks || []).join("\n");
+  $("agent-target-output").value = agent?.target_output || "";
+  const current = selected();
+  fillAgentRoute(
+    agent?.backend || current?.backend,
+    agent?.model || current?.id,
+    agent?.effort || $("effort").value,
+  );
+  $("agent-form-error").textContent = "";
+  for (const el of $("agent-form").querySelectorAll("[aria-invalid]"))
+    el.removeAttribute("aria-invalid");
+  $("agent-dialog").showModal();
+  (agent ? $("agent-purpose") : $("agent-name")).focus();
+}
+function agentFormBody() {
+  return {
+    name: $("agent-name").value.trim(),
+    purpose: $("agent-purpose").value.trim(),
+    instructions: $("agent-instructions").value.trim(),
+    tasks: $("agent-tasks").value.split("\n").map((t) => t.trim()).filter(Boolean),
+    target_output: $("agent-target-output").value.trim(),
+    backend: $("agent-backend").value,
+    model: $("agent-model").value,
+    effort: $("agent-effort").value,
+  };
+}
+function agentFormProblem(body) {
+  if (!/^[a-z0-9][a-z0-9-]{1,47}$/.test(body.name))
+    return ["name", "Use 2 to 48 lowercase letters, digits or hyphens, starting with a letter or digit."];
+  if (!body.purpose) return ["purpose", "Describe what the agent is for."];
+  if (!body.instructions) return ["instructions", "Write the agent's instructions."];
+  if (body.tasks.length > 12 || body.tasks.some((t) => t.length > 200))
+    return ["tasks", "Use up to 12 tasks of at most 200 characters each."];
+  if (!body.backend || !body.model) return ["model", "Choose a provider and a model."];
+  return null;
+}
+function showAgentError(field, message) {
+  $("agent-form-error").textContent = message;
+  const input = $(agentFieldInputs[field]);
+  if (!input) return;
+  input.setAttribute("aria-invalid", "true");
+  input.focus();
+}
+$("agent-form").onsubmit = async (event) => {
+  event.preventDefault();
+  const body = agentFormBody(),
+    agent = editingAgent;
+  $("agent-form-error").textContent = "";
+  for (const el of $("agent-form").querySelectorAll("[aria-invalid]"))
+    el.removeAttribute("aria-invalid");
+  const problem = agentFormProblem(body);
+  if (problem) return showAgentError(...problem);
+  $("agent-save").disabled = true;
+  try {
+    const saved = agent
+      ? await json("/v1/tail-agents/" + encodeURIComponent(agent.id), {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...body, revision: agent.revision }),
+        })
+      : await post("/v1/tail-agents", body);
+    $("agent-dialog").close();
+    resourceItems = [];
+    await loadTailAgents();
+    status((agent ? "Saved" : "Created") + " @@" + (saved?.name || body.name) + ".");
+  } catch (error) {
+    showAgentError(error.field || "", error.message);
+  } finally {
+    $("agent-save").disabled = false;
+  }
+};
+$("agent-delete").onclick = async () => {
+  const button = $("agent-delete"),
+    agent = editingAgent;
+  if (!agent) return;
+  if (!button.dataset.confirm) {
+    button.dataset.confirm = "1";
+    button.textContent = "Confirm delete";
+    return;
+  }
+  try {
+    await json("/v1/tail-agents/" + encodeURIComponent(agent.id), {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ revision: agent.revision }),
+    });
+    $("agent-dialog").close();
+    resourceItems = [];
+    await loadTailAgents();
+    status("Deleted @@" + agent.name + ".");
+  } catch (error) {
+    showAgentError("", error.message);
+  }
+};
+$("agent-form").addEventListener("input", (event) => {
+  if (event.target.getAttribute("aria-invalid") !== "true") return;
+  event.target.removeAttribute("aria-invalid");
+  $("agent-form-error").textContent = "";
+});
+$("agent-cancel").onclick = $("agent-dialog-close").onclick = () => $("agent-dialog").close();
+$("agent-create").onclick = () => openAgentDialog();
+async function loadTailAgents() {
+  try {
+    const data = await json("/v1/tail-agents");
+    tailAgents = Array.isArray(data.agents) ? data.agents : [];
+    $("tail-agents-empty").textContent =
+      "No agents yet. Create one to give a task its own instructions, provider and model.";
+  } catch {
+    tailAgents = [];
+    $("tail-agents-empty").textContent = "Couldn't load your agents.";
+  }
+  renderTailAgents();
+}
+function renderTailAgents() {
+  $("tail-agents-list").replaceChildren(
+    ...tailAgents.map((agent) => {
+      const row = document.createElement("li"),
+        text = document.createElement("div"),
+        title = document.createElement("strong"),
+        purpose = document.createElement("p"),
+        route = document.createElement("small"),
+        use = document.createElement("button"),
+        edit = document.createElement("button");
+      row.className = "tail-agent";
+      title.textContent = "@@" + agent.name;
+      purpose.textContent = agent.purpose;
+      route.textContent =
+        agent.available === false
+          ? agent.unavailable_reason || "Its model is not available now."
+          : "Runs on " + agentRouteLabel(agent);
+      text.append(title, purpose, route);
+      use.type = edit.type = "button";
+      use.className = edit.className = "btn";
+      use.textContent = "Use";
+      use.setAttribute("aria-label", "Use @@" + agent.name + " in the message");
+      use.disabled = agent.available === false;
+      use.onclick = () => void useTailAgent(agent);
+      edit.textContent = "Edit";
+      edit.setAttribute("aria-label", "Edit @@" + agent.name);
+      edit.onclick = () => openAgentDialog(agent);
+      row.append(providerModelIcon(agent.backend, agent.model), text, use, edit);
+      return row;
+    }),
+  );
+  $("tail-agents-empty").hidden = tailAgents.length > 0;
+}
+// "Use" selects the agent like the palette does, so the message carries its revision.
+async function useTailAgent(agent) {
+  $("settings-dialog").close();
+  const input = $("prompt"),
+    at = input.selectionStart ?? input.value.length,
+    before = input.value.slice(0, at),
+    spacer = before && !/\s$/.test(before) ? " " : "";
+  input.focus();
+  input.setRangeText(spacer + "@@", at, input.selectionEnd ?? at, "end");
+  const trigger = { prefix: "@@", query: "", start: input.selectionStart - 2, end: input.selectionStart },
+    m = resourceEngine();
+  try {
+    const data = await json(
+      "/v1/resources?" +
+        new URLSearchParams({
+          project_id: $("project").value,
+          backend: m.backend,
+          model: m.model,
+          execution_mode: m.execution_mode,
+        }),
+    );
+    const item = (data.items || []).find((i) => i.resource_id === "tail/agents/" + agent.id);
+    if (!item) throw Error("@@" + agent.name + " is not available here.");
+    selectResource(item, trigger);
+  } catch (error) {
+    status(error.message);
+  }
+}
+// Rail shortcuts (Codex model): the run pipeline and the agent and skill catalog.
+$("rail-runs").onclick = () => $("run-status-toggle")?.click();
+$("rail-agents").onclick = () => {
+  if (!$("settings-dialog").open) {
+    $("settings-dialog").showModal();
+    refreshCatalog();
+  }
+  document.querySelector('[data-settings="agents"]').click();
+};
+// The rail's admin shortcut opens Settings › System; modified clicks keep the new tab.
+$("admin-shortcut-top").addEventListener("click", (event) => {
+  if (event.button || event.ctrlKey || event.metaKey || event.shiftKey) return;
+  if (openAdminSettings()) event.preventDefault();
+});
 $("settings-tour").onclick = () => $("settings-dialog").close();
 let quotaReturnsToSettings = false;
 $("settings-quota").onclick = () => {
@@ -6809,6 +7473,8 @@ new ResizeObserver(entries => {
   updateComposer();
 }).observe($("prompt"));
 function updateComposer() {
+  syncComposerProjectButton();
+  syncViewSwitch();
   syncComposerPickers();
   syncExecutionMode();
   updateModelPermissions();
@@ -7376,7 +8042,11 @@ for (const button of document.querySelectorAll("[data-settings]")) {
         ? "adjustments"
         : button.dataset.settings === "agents"
           ? "stack-2"
-          : "message",
+          : button.dataset.settings === "system"
+            ? { providers: "plug", home: "pulse", runs: "list", catalogs: "archive" }[
+                button.dataset.adminSection
+              ]
+            : "message",
     ),
   );
 }
@@ -8237,7 +8907,7 @@ for (const section of document.querySelectorAll(".workspace-section")) {
     handle.setAttribute("aria-valuenow", String(Math.round(next))); save();
   };
   handle.setAttribute("aria-valuemin", "64"); handle.setAttribute("aria-valuemax", "600");
-  handle.setAttribute("aria-valuenow", String(parseFloat(content.style.height) || (name === "files" ? 112 : name === "background-tasks" ? 64 : 80)));
+  handle.setAttribute("aria-valuenow", String(parseFloat(content.style.height) || (name === "files" ? 160 : name === "background-tasks" ? 64 : 80)));
   let drag;
   handle.onpointerdown = event => { if (event.button !== 0) return; event.preventDefault(); drag = { y: event.clientY, height: content.getBoundingClientRect().height }; handle.setPointerCapture(event.pointerId); };
   handle.onpointermove = event => { if (drag) size(drag.height + event.clientY - drag.y); };

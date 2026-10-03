@@ -178,7 +178,7 @@ const assert = require("node:assert/strict"),
       });
     });
     await page.emulateMedia({ reducedMotion: "reduce" });
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.15"));
+    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.14.0"));
     await page.goto(origin);
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     assert.equal(await page.locator("#sidebar input[type=search]").count(), 0);
@@ -237,7 +237,7 @@ const assert = require("node:assert/strict"),
     ]) {
       await page.evaluate((p) => TailTheme.apply(p, false), palette);
       const separator = await page
-        .locator("#history .conversation-row")
+        .locator("#sidebar .conversation-row")
         .first()
         .evaluate((e) => ({
           shadow: getComputedStyle(e).boxShadow,
@@ -257,15 +257,16 @@ const assert = require("node:assert/strict"),
     );
     if (!(await page.locator("#project-tree").evaluate((el) => el.open)))
       await page.locator("#project-tree > summary").click();
+    // Codex-style rows: hover paints the whole row background, never a ring on the inner button.
     await page.locator(".project-group>summary>button").hover();
     const hover = await page
       .locator(".project-group>summary>button")
       .evaluate((e) => ({
         inner: getComputedStyle(e).boxShadow,
-        outer: getComputedStyle(e.parentElement).boxShadow,
+        outer: getComputedStyle(e.parentElement).backgroundColor,
       }));
     assert.equal(hover.inner, "none");
-    assert.notEqual(hover.outer, "none");
+    assert.notEqual(hover.outer, "rgba(0, 0, 0, 0)");
     assert(
       await page
         .locator("#sidebar .section-label")
@@ -274,7 +275,8 @@ const assert = require("node:assert/strict"),
         ),
     );
     assert.equal(await page.locator("#project-tree > summary").count(), 1);
-    assert.equal(await page.locator(".conversation-state-group").count(), 5);
+    // Codex-style sidebar (Sophia, 2026-10-03): a single Chats list replaces the status groups.
+    assert.equal(await page.locator(".conversation-state-group").count(), 1);
     for (const [trigger, id] of [
       ["settings", "settings-dialog"],
       ["search-conversations", "conversation-search-dialog"],
@@ -312,8 +314,9 @@ const assert = require("node:assert/strict"),
     );
     await page.fill("#conversation-search", "NAIVE");
     assert.equal(await page.locator(".conversation-search-result").count(), 1);
+    // Project chats live in their folder and the rest under Chats (Codex model, Sophia 2026-10-03).
     assert.equal(
-      await page.locator("#history .conversation-row").count(),
+      await page.locator("#sidebar .conversation-row").count(),
       35,
       "modal search must not filter sidebar",
     );
@@ -467,7 +470,7 @@ const assert = require("node:assert/strict"),
       { timeout: 3000 },
     );
     await page
-      .locator("#history .conversation-row")
+      .locator("#sidebar .conversation-row")
       .filter({ has: page.locator(".conversation-title").filter({ hasText: /^Conversation 0$/ }) })
       .locator(":scope > button")
       .click();
