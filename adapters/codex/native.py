@@ -9,6 +9,9 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from adapters.shared.workspace import readable_roots
+from agent_service.reader_mcp import SERVER_NAME as READER
+from agent_service.reader_mcp import server_spec as reader_spec
 from agent_service.tool_metadata import event_metadata
 from agent_service.tools import ToolError
 from control.integrations import configurations, inventory
@@ -78,7 +81,8 @@ def thread_parameters(config, project, model, workspace, runtime, unrestricted):
     cwd, permissions = workspace.cwd, workspace.permissions
     # Ask: the read-only sandbox makes every write escalate to an approval card.
     ask = project.get("access_mode", "ask") == "ask" and not runtime.isolated
-    selected = config.get("integrations", [])
+    # Read only never starts a connector or plugin (decisions D04, D12).
+    selected = [] if project.get("access_mode") == "read_only" else config.get("integrations", [])
     local_provider = runtime.model_provider
     plugins = []
     if not runtime.isolated:
@@ -116,18 +120,14 @@ def thread_parameters(config, project, model, workspace, runtime, unrestricted):
         {"mcp_servers": {}, "plugins": {}}
         if runtime.isolated
         else {
-            "mcp_servers": {
-                name: {
-                    **spec,
-                    "enabled": not name.startswith("harness_effects") and "mcp:" + name in selected,
-                }
-                for name, spec in configurations()["codex"].items()
-            },
+            "mcp_servers": host_servers(selected, ask),
             "plugins": {
                 plugin.split(":", 1)[1]: {"enabled": plugin in selected} for plugin in plugins
             },
         }
     )
+    if not runtime.isolated:
+        add_reader(params, workspace)
     if config.get("_effect_capability"):
         from agent_service.effect_transport import server_spec
 
@@ -138,6 +138,36 @@ def thread_parameters(config, project, model, workspace, runtime, unrestricted):
     if local_provider:
         params["modelProvider"] = local_provider
     return params
+
+
+def host_servers(selected, ask):
+    """The host's connectors, enabled only when selected; Ask shows a card before every call."""
+    return {
+        name: {
+            **spec,
+            "enabled": not name.startswith("harness_effects") and "mcp:" + name in selected,
+            **({"default_tools_approval_mode": "prompt"} if ask else {}),
+        }
+        for name, spec in configurations()["codex"].items()
+    }
+
+
+def add_reader(params, workspace):
+    """Without the native shell, read through the harness reader over the authorized roots.
+
+    The reader enforces the roots itself: Codex 0.157.1 has no sandbox read allow-list.
+    """
+    permissions = workspace.permissions
+    if not permissions.get("read") or permissions.get("shell"):
+        return
+    roots = readable_roots(workspace)
+    if not roots:
+        return
+    params["config"]["mcp_servers"][READER] = reader_spec(roots)
+    params["developerInstructions"] += (
+        " Read files only with the " + READER + " tools (read_file, list_directory,"
+        " search_files); they accept paths inside the authorized folders: " + ", ".join(roots) + "."
+    )
 
 
 async def respond_to_interaction(rpc, item, approve, project, permissions, unrestricted, isolated):

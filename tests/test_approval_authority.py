@@ -363,3 +363,102 @@ def test_a_refused_approval_names_the_owner_to_enroll(approval_app, credential, 
         assert (body["code"], body["owner"]) == ("approval_session_required", owner)
 
     asyncio.run(scenario())
+
+
+def ceiling_config(tmp_path):
+    root = tmp_path / "project"
+    root.mkdir()
+    clients = {
+        owner: {"sha256": hashlib.sha256(token.encode()).hexdigest(), "projects": ["p"]}
+        for owner, token in (
+            ("local", "local-token"),
+            ("vpn", "vpn-token"),
+            (TAILNET_OWNER, "tailnet-token"),
+        )
+    }
+    grants = {"read": True, "write": True, "shell": True, "internet": True, "hooks": True}
+    return {
+        "state_dir": str(tmp_path / "state"),
+        "projects": {"p": {"root": str(root)}},
+        "clients": clients,
+        "tailscale_logins": {"owner@example.com": TAILNET_OWNER},
+        "services": {
+            "codex": {
+                "enabled": True,
+                "mode": "native",
+                "models": ["gpt-6-astra"],
+                "projects": ["p"],
+                "permissions": grants,
+                "integrations": ["mcp:node_repl"],
+            }
+        },
+        "codex": {"binary": "fixture", "unrestricted": True, "integrations": ["mcp:node_repl"]},
+        "codex_models": {"gpt-6-astra": ["low"]},
+        "origins": [ORIGIN],
+    }
+
+
+@pytest.mark.parametrize("guest", ["vpn-token", "tailnet-token"])
+def test_non_owner_capability_ceiling(tmp_path, guest):
+    """Only the local owner may start Automatic or Full runs, the shell or host connectors."""
+    from unittest.mock import AsyncMock, patch
+
+    from test_approval_policy import run_codex_route
+
+    from agent_service.errors import APIError
+
+    app = create_app(ceiling_config(tmp_path))
+    service = app.state.service
+    job = {"project_id": "p", "backend": "codex", "model": "gpt-6-astra", "prompt": "fixture"}
+
+    async def submit(token, mode):
+        async with client_for(app, headers={"Authorization": "Bearer " + token}) as client:
+            return await client.post("/v1/jobs", json={**job, "access_mode": mode})
+
+    async def scenario():
+        for mode in ("auto", "full"):
+            refused = await submit(guest, mode)
+            assert refused.status_code == 403, refused.text
+            assert refused.json()["code"] == "access_mode_owner_only"
+        for mode in ("auto", "full"):
+            assert (await submit("local-token", mode)).status_code == 202
+        accepted = await submit(guest, "ask")
+        assert accepted.status_code == 202, accepted.text
+        return accepted.json()["job_id"]
+
+    seen = {}
+
+    async def native(config, prompt, event, project, *rest):
+        seen.update(config=config, project=project)
+        return {"answer": "fixture"}
+
+    try:
+        job_id = asyncio.run(scenario())
+        row = service.conversation_repository.get(job_id)
+        assert row["owner"] != "local"
+        with (
+            patch("adapters.run_native", side_effect=native),
+            patch.object(service, "quota", AsyncMock(return_value={})),
+        ):
+            asyncio.run(service.infer(row, {**job, "effort": "low", "access_mode": "ask"}))
+            # A queued guest run that carries an owner-only mode fails closed at run time.
+            with pytest.raises(APIError) as refused:
+                asyncio.run(service.infer(row, {**job, "effort": "low", "access_mode": "full"}))
+        assert refused.value.code == "access_mode_owner_only"
+    finally:
+        service.db.close()
+    assert seen["config"]["integrations"] == [] and seen["config"]["unrestricted"] is False
+    assert seen["project"]["permissions"]["shell"] is False
+    assert seen["project"]["permissions"]["hooks"] is False
+    # The Codex configuration actually built for that guest run.
+    command, thread, turn = run_codex_route(
+        tmp_path, "codex", seen["project"], {**seen["config"], "plugin_inventory": []}
+    )
+    assert thread["sandbox"] != "danger-full-access" and turn["sandboxPolicy"]["type"] != "dangerFullAccess"
+    assert thread["approvalPolicy"] == turn["approvalPolicy"] == "on-request"
+    assert not any(
+        spec["enabled"]
+        for name, spec in thread["config"]["mcp_servers"].items()
+        if name != "harness_reader"
+    )
+    assert "features.shell_tool=false" in command and "features.hooks=false" in command

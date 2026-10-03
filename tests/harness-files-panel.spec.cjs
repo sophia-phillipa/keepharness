@@ -273,25 +273,25 @@ const path = require("node:path");
         "ask",
         "?",
         "Ask for approval",
-        "Asks before every file change or command. Codex may still run commands that cannot change files.",
+        "Asks before edits, commands that change files and every connector call. On Codex and DeepSeek, commands that change nothing run without asking and can read any file your account can.",
       ],
       [
         "auto",
         "↗",
         "Automatic",
-        "Edits and runs commands inside the project without asking; asks only to go beyond it.",
+        "Owner only. Codex, DeepSeek and Claude run any command or edit on this computer without asking, with no sandbox. Local models stay in their sandbox.",
       ],
       [
         "full",
         "!",
         "Full access",
-        "Runs without asking, within the permissions set by the administrator.",
+        "Owner only. Runs everything without asking: no sandbox for Codex, DeepSeek and Claude; local models keep the permissions set in the admin.",
       ],
       [
         "read_only",
         "◉",
         "Read only",
-        "Reads and searches only. Writing, commands and tests are off.",
+        "Reads and searches the project folders; web search follows the provider's internet setting. Edits, commands, tests, connectors and plugins are off.",
       ],
     ];
     for (const [mode, icon, label, title] of modes) {

@@ -22,6 +22,8 @@ ISOLATED = "Isolated conversations use no host connectors or plugins."
 NOT_ALLOWED = "Not allowed for this provider. Change it in Settings › System › Providers."
 REMOTE_PLUGIN = "Remote ChatGPT plugins bring their tools as Codex apps, which harness runs turn off."
 GEMINI_READ_ONLY = "Read-only access turns connectors off for Gemini."
+READ_ONLY = "Read-only access turns connectors and plugins off."
+OWNER_ONLY = "Connectors run only for the owner of this computer."
 GEMINI_INTERNET = "Gemini connectors need the internet permission."
 ASKS = "Each connector call asks for your approval."
 NO_ASK = "Connector calls run without asking (full access)."
@@ -108,7 +110,7 @@ def settings(tmp_path):
         "origins": [],
         "projects": {"p": {}, "q": {}},
         "clients": {
-            "a": {"sha256": hashlib.sha256(b"a").hexdigest(), "projects": ["p"]},
+            "local": {"sha256": hashlib.sha256(b"a").hexdigest(), "projects": ["p"]},
             "b": {"sha256": hashlib.sha256(b"b").hexdigest(), "projects": ["p", "q"]},
         },
         "services": {
@@ -139,7 +141,7 @@ def items_by_id(response):
     return {item["id"]: item for item in response.json()["items"]}
 
 
-def seed(client, job, tools, *, owner="a", project="p", backend="claude", when=None):
+def seed(client, job, tools, *, owner="local", project="p", backend="claude", when=None):
     """One finished job with a ``tool_start`` event per entry of ``tools``."""
     service = client.app.state.service
     when = time.time() - 60 if when is None else when
@@ -227,7 +229,7 @@ def test_contract_shape_for_a_native_codex_route(client):
         "backend": "codex",
         "execution_mode": "native",
         "access_mode": "ask",
-        "effective_note": "",
+        "effective_note": ASKS,
         "window_days": 30,
         "warnings": [],
         "other_tools": [],
@@ -368,7 +370,7 @@ def test_unrestricted_shell_runs_connectors_without_asking(client, settings, bac
 
 def test_ask_mode_never_claims_unattended_connector_calls(client, settings):
     settings["services"]["codex"]["permissions"]["shell"] = True
-    assert view(client, backend="codex", access_mode="ask").json()["effective_note"] == ""
+    assert view(client, backend="codex", access_mode="ask").json()["effective_note"] == ASKS
 
 
 @pytest.mark.parametrize("backend", ["claude", "codex"])
@@ -385,9 +387,34 @@ def test_read_only_never_claims_unattended_connector_calls(client, settings, bac
         "mcp:github"
     ] == (
         True,
-        True,
-        "",
+        False,
+        READ_ONLY,
     )
+
+
+@pytest.mark.parametrize("backend", ["codex", "deepseek", "claude"])
+def test_read_only_turns_connectors_and_plugins_off(client, settings, backend):
+    settings["services"]["deepseek"] = service_entry(["m"], ["mcp:github", "plugin:notes@market"])
+    body = view(client, backend=backend, access_mode="read_only").json()
+    assert {(item["effective"], item["reason"]) for item in body["items"] if item["allowed"]} == {
+        (False, READ_ONLY)
+    }
+
+
+@pytest.mark.parametrize("backend", ["codex", "deepseek", "claude"])
+def test_ask_gates_every_connector_call(client, settings, backend):
+    settings["services"]["deepseek"] = service_entry(["m"], ["mcp:github"])
+    body = view(client, backend=backend, access_mode="ask").json()
+    assert body["effective_note"] == ASKS
+    assert effective_state(view(client, backend=backend))["mcp:github"] == (True, True, "")
+
+
+@pytest.mark.parametrize("access_mode", ["ask", "read_only"])
+def test_a_guest_gets_no_host_connectors(client, access_mode):
+    client.headers["Authorization"] = "Bearer b"
+    body = view(client, access_mode=access_mode).json()
+    assert body["effective_note"] == ""
+    assert {(item["effective"], item["reason"]) for item in body["items"]} == {(False, OWNER_ONLY)}
 
 
 def test_a_restricted_adapter_never_runs_unattended(client, settings):
@@ -569,14 +596,14 @@ def test_jobs_created_before_the_window_and_its_margin_are_not_read(client):
             job, now - DAY, "tool_start", json.dumps({"tool": "Read"})
         )
     service.db.commit()
-    rows = service.message_repository.tool_usage("a", "p", "claude", since, 10)
+    rows = service.message_repository.tool_usage("local", "p", "claude", since, 10)
     assert [(row["tool"], row["uses"]) for row in rows] == [("Read", 1)]
 
 
 def test_usage_is_read_through_the_indexes(client):
     service = client.app.state.service
     plan = service.db.execute(
-        "EXPLAIN QUERY PLAN " + MessageRepository.TOOL_USAGE, (0.0, "a", "p", "claude", 0.0, 10)
+        "EXPLAIN QUERY PLAN " + MessageRepository.TOOL_USAGE, (0.0, "local", "p", "claude", 0.0, 10)
     ).fetchall()
     details = " ".join(row[3] for row in plan)
     assert "SCAN" not in details

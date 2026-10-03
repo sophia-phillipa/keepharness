@@ -28,6 +28,9 @@ def base_config(settings, state, admin_port, browser_url, provider_revisions):
     cfg = {
         "browser_url": browser_url,
         "state_dir": str(state / "runs"),
+        # Run folders (provider cwd, thread markers, attachment text) never sit under the state
+        # folder that holds the keys: a sibling keeps the key folder out of every run's parents.
+        "sessions_dir": str(state.parent / (state.name + "-sessions")),
         "projects": {"sem-projeto": {"label": "No project"}},
         "catalogs": json.loads(json.dumps(settings.get("catalogs", []))),
         "clients": {},
