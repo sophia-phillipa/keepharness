@@ -345,3 +345,21 @@ def test_approval_expiring_during_body_read_rejects_late_reply(approval_app, rem
             assert response.json()["code"] == "approval_expired"
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("credential, owner", [("bearer", "local"), ("tailnet", TAILNET_OWNER)])
+def test_a_refused_approval_names_the_owner_to_enroll(approval_app, credential, owner):
+    async def scenario():
+        pending_approval(approval_app, owner)
+        async with client_for(approval_app) as client:
+            if credential == "bearer":
+                client.headers["Authorization"] = "Bearer local-token"
+            else:
+                client.headers["Tailscale-User-Login"] = "owner@example.com"
+            response = await client.post("/v1/approvals/job", json={"approved": True})
+        assert response.status_code == 403
+        body = response.json()
+        # The id `keepharness approve-device --owner <id>` accepts, for the caller only.
+        assert (body["code"], body["owner"]) == ("approval_session_required", owner)
+
+    asyncio.run(scenario())

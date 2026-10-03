@@ -67,6 +67,7 @@ def error_response(exc):
             "retryable": status in (429, 503),
             "request_id": uuid.uuid4().hex,
             **({"field": exc.field} if getattr(exc, "field", None) else {}),
+            **({"owner": exc.owner} if getattr(exc, "owner", None) else {}),
         },
         status_code=status,
         headers={"Retry-After": str(exc.retry_after)}

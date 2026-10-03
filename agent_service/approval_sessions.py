@@ -151,4 +151,4 @@ def require_approval_session(request, config, identity, *, revalidate=False):
         else getattr(request.state, "approval_session_owner", None)
     )
     if owner != identity[0]:
-        raise APIError("approval_session_required", 403)
+        raise APIError("approval_session_required", 403, owner=identity[0])
