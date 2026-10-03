@@ -2318,6 +2318,15 @@ function conversationRow(c) {
   project.className = "conversation-project";
   project.textContent = projectDetails[c.project]?.label || c.project || "No project";
   meta.append(summary, age, backend, project);
+  // Runs started by a scheduled task say so, with the task's title.
+  if (c.schedule_title) {
+    const scheduled = document.createElement("span");
+    scheduled.className = "conversation-scheduled";
+    scheduled.textContent = "Scheduled";
+    scheduled.title = "Scheduled task: " + c.schedule_title;
+    meta.prepend(scheduled);
+    open.title += "\nScheduled task: " + c.schedule_title;
+  }
   open.append(meta);
   if (conversationState(c) === "needs-you") {
     const peek = document.createElement("button");

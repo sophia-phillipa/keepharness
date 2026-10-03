@@ -5599,3 +5599,4 @@ main > #run-console { order: 11; }
   .page-view-content { grid-column: 1; grid-row: 3; padding: 20px 16px; }
   #app-topbar :is(#rail-space, #rail-scheduled) { display: none; }
 }
+#sidebar .conversation-row-meta .conversation-scheduled { color: var(--th-accent); font-weight: 500; }

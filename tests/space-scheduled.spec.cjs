@@ -44,7 +44,12 @@ const path = require("node:path");
           providers: { codex: true, claude: true },
           uploads_enabled: true,
         };
-      else if (pathname === "/v1/conversations") data = { conversations: [] };
+      else if (pathname === "/v1/conversations")
+        data = {
+          conversations: [
+            { id: "c-run", title: "Weekly AI radar", project: "sem-projeto", state: "completed", last_job_id: "j9", schedule_id: "s1", schedule_title: "Weekly AI radar", updated_at: Date.now() / 1000 - 60 },
+          ],
+        };
       else if (pathname === "/v1/version") data = { version: "fixture", build: "space" };
       else if (pathname === "/v1/files" && method === "POST") {
         uploads.push(url.searchParams.get("project_id"));
@@ -88,6 +93,11 @@ const path = require("node:path");
     await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.14.0"));
     await page.goto("http://space.test/");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
+
+    // A conversation started by a scheduled task is marked in Chats.
+    const scheduledRow = page.locator("#history .conversation-row", { hasText: "Weekly AI radar" });
+    assert.equal(await scheduledRow.locator(".conversation-scheduled").innerText(), "Scheduled");
+    assert.match(await scheduledRow.locator("button").first().getAttribute("title"), /Scheduled task: Weekly AI radar/);
 
     // Space: write a page, preview it, then start a chat with it.
     await page.click("#rail-space");
