@@ -5266,6 +5266,15 @@ $("project-button").onclick = () => {
 $("project-menu").addEventListener("toggle", (event) =>
   $("project-button").setAttribute("aria-expanded", String(event.newState === "open")),
 );
+$("project-menu").addEventListener("keydown", (event) => {
+  const options = [...$("project-menu").querySelectorAll("[role=option]")],
+    index = options.indexOf(document.activeElement);
+  if (!options.length || !["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+  event.preventDefault();
+  const next = event.key === "Home" ? 0 : event.key === "End" ? options.length - 1
+    : (index + (event.key === "ArrowDown" ? 1 : -1) + options.length) % options.length;
+  options[next].focus();
+});
 // Chat | Code view switch: Code shows the run console and files beside the conversation.
 function syncViewSwitch() {
   const code = $("panel-toggle").getAttribute("aria-expanded") === "true";
