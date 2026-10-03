@@ -5179,3 +5179,58 @@ body #dropzone #cancel:not([hidden]), body .composer-submit .send { flex: 0 0 32
 .run-field input, .run-field select { border-radius: 10px; border-color: color-mix(in srgb, var(--th-text) 12%, transparent); background: var(--th-soft); }
 .run-status-strip { border-top: 1px solid color-mix(in srgb, var(--th-text) 7%, transparent); }
 .run-status-shortcut { border-color: color-mix(in srgb, var(--th-text) 12%, transparent); background: transparent; }
+
+/* ===== Settings as a full page over sidebar + chat (rail stays), like the reference settings. ===== */
+#settings-dialog[open] {
+  position: fixed; inset: 0 0 0 var(--th-rail-width); width: auto; height: auto; max-width: none; max-height: none;
+  margin: 0; padding: 0; border: 0; border-radius: 0; background: var(--th-bg); color: var(--th-text); box-shadow: none;
+  display: grid; grid-template-columns: var(--th-sidebar-width, 300px) minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); overflow: hidden;
+}
+#settings-dialog::backdrop { background: transparent; }
+#settings-dialog .settings-heading { grid-column: 1; grid-row: 1; display: flex; align-items: center; gap: 6px; margin: 0; padding: 12px 10px 8px 16px; background: var(--th-soft); border: 0; }
+#settings-dialog .settings-heading h2 { flex: 1; margin: 0; font-size: 17px; line-height: 24px; font-weight: 600; }
+#settings-dialog #settings-close { display: grid; place-items: center; width: 30px; height: 30px; min-height: 0; padding: 0; border: 0; border-radius: var(--th-row-radius); background: transparent; color: var(--th-quiet); }
+#settings-dialog #settings-close:hover { background: var(--th-hover); color: var(--th-text); }
+#settings-dialog .settings-layout { display: contents; }
+#settings-dialog .settings-nav { grid-column: 1; grid-row: 2; display: flex; flex-direction: column; gap: 2px; min-height: 0; overflow: auto; margin: 0; padding: 4px 8px 12px; border: 0; background: var(--th-soft); }
+#settings-dialog .settings-nav > :is(button, a) {
+  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 30px; margin: 0; padding: 5px 8px; border: 0; border-radius: var(--th-row-radius);
+  background: transparent; color: var(--th-text); font-size: 14px; font-weight: 430; text-align: left; text-decoration: none; box-shadow: none;
+}
+#settings-dialog .settings-nav > :is(button, a):hover { background: var(--th-hover); }
+#settings-dialog .settings-nav > button[aria-pressed="true"] { background: var(--th-hover); font-weight: 500; }
+#settings-dialog .settings-nav :is(.th-icon, svg) { flex: none; width: 16px; height: 16px; color: var(--th-quiet); }
+#settings-dialog .settings-nav #version { order: 99; margin-top: auto; padding: 8px; color: var(--th-quiet); font-size: 12px; }
+#settings-dialog .settings-nav #setup { margin-top: 14px; }
+#settings-dialog .settings-content { grid-column: 2; grid-row: 1 / -1; min-height: 0; overflow: auto; padding: 56px max(32px, calc((100% - 768px) / 2)) 48px; }
+#settings-dialog .settings-content section > h3:first-child { margin: 0 0 24px; font-size: 26px; line-height: 32px; font-weight: 500; }
+#settings-dialog .settings-content section > h3:not(:first-child) { margin: 28px 0 10px; font-size: 14px; font-weight: 500; }
+#settings-dialog .settings-content :is(p, .footnote) { color: var(--th-quiet); font-size: 13px; }
+#settings-dialog .settings-content select { height: 34px; padding: 0 10px; border: 1px solid color-mix(in srgb, var(--th-text) 12%, transparent); border-radius: 10px; background: var(--th-soft); color: var(--th-text); }
+#settings-dialog .settings-content label { display: block; margin: 18px 0 6px; font-size: 14px; font-weight: 500; }
+#settings-dialog [data-theme-picker] > *, #settings-dialog #panel-order-options > button { border-radius: 16px; border-color: color-mix(in srgb, var(--th-text) 10%, transparent); background: color-mix(in srgb, var(--th-panel) 45%, transparent); }
+#settings-dialog .text-button { color: var(--th-quiet); }
+@media (max-width: 620px) {
+  #settings-dialog[open] { inset: var(--th-app-topbar-height) 0 0 0; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto minmax(0, 1fr); }
+  #settings-dialog .settings-nav { grid-row: 2; flex-direction: row; overflow-x: auto; }
+  #settings-dialog .settings-content { grid-column: 1; grid-row: 3; padding: 20px 16px; }
+}
+#settings-dialog .settings-content { max-height: none; height: 100%; }
+#settings-dialog .settings-content > section { max-height: none; overflow: visible; }
+#settings-dialog .settings-nav #admin-shortcut:not([hidden]) { display: flex; justify-content: flex-start; }
+#settings-dialog .settings-nav #admin-shortcut .access-option-icon { display: inline-grid; place-items: center; width: 16px; height: 16px; border: 0; background: transparent; }
+
+/* Sidebar head stays put while the list scrolls (reference behavior). */
+#sidebar .sidebar-head { position: sticky; top: 0; z-index: 2; background: var(--th-soft); }
+/* Dialogs in the reference card language. */
+body dialog:not(#settings-dialog):not(#vpn-login) {
+  border: 0; border-radius: 20px; background: var(--th-panel); color: var(--th-text);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--th-text) 9%, transparent), 0 18px 48px rgba(0, 0, 0, .35);
+}
+body dialog:not(#settings-dialog) :is(.settings-heading h2, > h2, form > h2) { font-size: 17px; line-height: 24px; font-weight: 600; }
+body dialog:not(#settings-dialog) .btn { min-height: 32px; padding: 0 14px; border: 0; border-radius: 9999px; background: color-mix(in srgb, var(--th-text) 8%, transparent); color: var(--th-text); font-size: 13px; font-weight: 500; }
+body dialog:not(#settings-dialog) .btn.btn-primary { background: var(--th-action); color: var(--th-on-action); }
+body dialog:not(#settings-dialog) .btn.btn-danger { background: color-mix(in srgb, #e5484d 16%, transparent); color: light-dark(#b42318, #ff8e8e); }
+#conversation-search-dialog { width: min(640px, calc(100vw - 32px)); }
+#conversation-search-dialog #conversation-search-list :is(button, a) { border-radius: 12px; }
+#conversation-search-dialog #conversation-search-list :is(button, a):hover { background: var(--th-hover); }
