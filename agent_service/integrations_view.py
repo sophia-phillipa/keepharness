@@ -37,6 +37,15 @@ GEMINI_INTERNET = "Gemini connectors need the internet permission."
 ASKS = "Each connector call asks for your approval."
 UNATTENDED = "Connector calls run without asking (full access)."
 INVENTORY_UNREADABLE = "Could not read the connector and plugin inventory."
+# Harness Codex runs set features.apps=false (adapters/codex/native.py); remote ChatGPT
+# plugins bring their tools as apps, so those plugins never load in a run.
+REMOTE_PLUGIN = "Remote ChatGPT plugins bring their tools as Codex apps, which harness runs turn off."
+APPS_OFF_BACKENDS = frozenset({"codex", "deepseek"})
+
+
+def app_based(item: Item, backend: str) -> bool:
+    marketplace = item["id"].rsplit("@", 1)[-1] if "@" in item["id"] else ""
+    return backend in APPS_OFF_BACKENDS and item["kind"] == "plugin" and marketplace.endswith("-remote")
 
 
 class Route(NamedTuple):
@@ -173,7 +182,9 @@ def build(config: Settings, route: Route, usage_rows: Sequence[sqlite3.Row]) -> 
     used, other_tools = attribute_usage(items, usage_rows)
     for item in items:
         item["allowed"] = item["id"] in allowed
-        item["reason"] = item_reason(item["allowed"], limits)
+        item["reason"] = item_reason(item["allowed"], limits) or (
+            REMOTE_PLUGIN if app_based(item, route.backend) else ""
+        )
         item["effective"] = not item["reason"]
         item["used"] = used.get(item["id"], no_usage())
     return {

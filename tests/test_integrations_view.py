@@ -20,6 +20,7 @@ SECRET = "SECRET-TOKEN-123"
 DAY = 86400
 ISOLATED = "Isolated conversations use no host connectors or plugins."
 NOT_ALLOWED = "Not allowed for this provider. Change it in Settings › System › Providers."
+REMOTE_PLUGIN = "Remote ChatGPT plugins bring their tools as Codex apps, which harness runs turn off."
 GEMINI_READ_ONLY = "Read-only access turns connectors off for Gemini."
 GEMINI_INTERNET = "Gemini connectors need the internet permission."
 ASKS = "Each connector call asks for your approval."
@@ -307,6 +308,23 @@ def test_installed_plugin_catalog_replaces_the_profile_plugins(client, settings)
     assert items["plugin:extra@market"]["status"] == "installed"
     assert items["plugin:extra@market"]["allowed"] is False
     assert items["plugin:notes@market"]["allowed"] is True
+
+
+def test_remote_chatgpt_plugins_are_not_effective_in_codex_runs(client, settings):
+    # Harness Codex runs set features.apps=false; remote ChatGPT plugins bring their
+    # tools as apps, so a real run never sees them (checked live 2026-10-03).
+    settings["codex"]["plugin_inventory"] = ["plugin:github@openai-curated-remote", "plugin:notes@market"]
+    settings["services"]["codex"]["integrations"] = [
+        "plugin:github@openai-curated-remote",
+        "plugin:notes@market",
+    ]
+    items = items_by_id(view(client))
+    remote = items["plugin:github@openai-curated-remote"]
+    assert remote["allowed"] is True and remote["effective"] is False
+    assert remote["reason"] == REMOTE_PLUGIN
+    assert items["plugin:notes@market"]["effective"] is True
+    claude = items_by_id(view(client, backend="claude"))
+    assert all(item["reason"] != REMOTE_PLUGIN for item in claude.values())
 
 
 # -- allowed / effective / reason matrix --------------------------------------------------------
