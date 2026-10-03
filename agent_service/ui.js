@@ -4085,8 +4085,8 @@ async function load(id, legacy = false, restoredView = null) {
     expandedProjects.set($("project").value, true);
     renderProjects();
     // One scrolling sidebar: reveal the most specific row (the project copy when expanded).
-    [...$("sidebar").querySelectorAll('.conversation-row > button[aria-current="true"]')]
-      .at(-1)
+    const currentRow = ".conversation-row > button[aria-current=\"true\"]";
+    ($("projects").querySelector(currentRow) || $("history").querySelector(currentRow))
       ?.scrollIntoView({ block: "nearest" });
     last = 0;
     closeSidebar();
