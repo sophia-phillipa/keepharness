@@ -22,7 +22,7 @@ from adapters.gemini import account as gemini
 from agent_service.config import VERSION_FILE
 from agent_service.work_items import validate_pattern
 
-from . import discovery, env, integration_catalog, integrations, runtime_config
+from . import discovery, env, integration_catalog, integrations, remote_models, runtime_config
 from .dashboard import DashboardReader
 from .operations import Operations
 from .persistence import ControlStateRepository, private_file
@@ -129,7 +129,7 @@ class Manager:
         self.state_repository.audit(action)
 
     async def refresh(self):
-        self.inventory = await discovery.scan()
+        self.inventory = await discovery.scan(remote_models.load_servers(self.state, self.settings))
         binary = self.inventory.get("binaries", {}).get("codex")
         if binary:
             plugins = await integration_catalog.installed_plugins(binary)
@@ -486,6 +486,10 @@ class Manager:
             defaults = {"backend": backend, "model": model, "effort": effort}
         out["mcp_defaults"] = defaults
         out["logins"] = list(dict.fromkeys(logins))
+        # Network servers change only through their own routes (they probe and store the key);
+        # a posted or imported payload can neither add an address nor drop a saved one.
+        if self.settings.get("remote_models"):
+            out["remote_models"] = list(self.settings["remote_models"])
         return out
 
     def save(self, data):
