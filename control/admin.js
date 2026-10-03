@@ -253,7 +253,9 @@ function providerLoginButton(info) {
   button.onclick = () =>
     action(async () => {
       await request("provider-login", { provider: info.id });
-      say("Complete login in the browser. Then click Check account.");
+      say(
+        "Complete the login in the browser. If it shows a code, paste it in the operation window (Send code); then click Check account.",
+      );
     });
   return button;
 }
