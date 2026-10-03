@@ -18,7 +18,7 @@ const path = require("node:path");
   try {
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, colorScheme: "dark" });
     // Serve this checkout's harness at the origin the admin trusts.
-    await page.route(harness + "/**", async (route) => {
+    const serveHarness = async (route) => {
       const pathname = new URL(route.request().url()).pathname;
       if (pathname.startsWith("/v1/")) {
         const data =
@@ -46,7 +46,8 @@ const path = require("node:path");
           pathname === "/" ? "index.html" : pathname,
         ),
       });
-    });
+    };
+    await page.route(harness + "/**", serveHarness);
     await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.14.0"));
     await page.goto(harness + "/");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
@@ -84,6 +85,14 @@ const path = require("node:path");
     await dialog.getByRole("button", { name: "Appearance" }).click();
     assert(await page.locator("#settings-system").isHidden());
     assert(await page.locator("#catalog-refresh").isVisible());
+    // Opened as localhost, the page cannot frame a 127.0.0.1 admin (different site): no System group.
+    const other = await browser.newPage();
+    const localhost = harness.replace("127.0.0.1", "localhost");
+    await other.route(localhost + "/**", serveHarness);
+    await other.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.14.0"));
+    await other.goto(localhost + "/");
+    await other.locator("#startup-gate").waitFor({ state: "hidden" });
+    assert.equal(await other.locator("#settings-system-nav").isHidden(), true);
     console.log("PASS settings system shows the admin on the same screen");
   } finally {
     await browser.close();

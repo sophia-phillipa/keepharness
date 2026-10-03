@@ -5762,9 +5762,10 @@ function modelAvailability(
     topShortcut = $("admin-shortcut-top");
   shortcut.hidden = link.hidden;
   topShortcut.hidden = link.hidden;
-  // The embedded admin is this computer's; a page opened over the network cannot use it.
+  // The embedded admin is this computer's and only accepts its own host: a page
+  // opened over the network, or as localhost for a 127.0.0.1 admin, cannot frame it.
   $("settings-system-nav").hidden =
-    link.hidden || !["127.0.0.1", "localhost"].includes(location.hostname);
+    link.hidden || location.hostname !== new URL(link.href).hostname;
   if (!link.hidden) {
     shortcut.href = link.href;
     topShortcut.href = link.href;
