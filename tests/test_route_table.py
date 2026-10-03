@@ -192,6 +192,121 @@ AGENT_VALID_TABLE = [
         403,
         "tail_agent_local_only",
     ),
+    (
+        "pages-list",
+        "GET",
+        "/v1/pages",
+        {"project_id": "p"},
+        None,
+        200,
+        lambda r: r.json() == {"pages": []},
+    ),
+    ("pages-list-no-project", "GET", "/v1/pages", None, None, 422, "page_invalid"),
+    (
+        "pages-list-other-project",
+        "GET",
+        "/v1/pages",
+        {"project_id": "x"},
+        None,
+        403,
+        "project_denied",
+    ),
+    (
+        "pages-post",
+        "POST",
+        "/v1/pages",
+        None,
+        {"project_id": "p", "title": "Plan", "body": "# Plan"},
+        201,
+        lambda r: (
+            r.json()["title"] == "Plan"
+            and len(r.json()["id"]) == 32
+            and r.headers["Cache-Control"] == "no-store"
+        ),
+    ),
+    ("pages-post-invalid", "POST", "/v1/pages", None, {"project_id": "p"}, 422, "page_invalid"),
+    ("pages-get", "GET", "/v1/pages/" + "0" * 32, {"project_id": "p"}, None, 404, "page_not_found"),
+    (
+        "pages-put",
+        "PUT",
+        "/v1/pages/" + "0" * 32,
+        None,
+        {"project_id": "p", "title": "Plan", "body": "", "revision": "r"},
+        404,
+        "page_not_found",
+    ),
+    (
+        "pages-delete",
+        "DELETE",
+        "/v1/pages/" + "0" * 32,
+        None,
+        {"project_id": "p", "revision": "r"},
+        404,
+        "page_not_found",
+    ),
+    (
+        "schedules-list",
+        "GET",
+        "/v1/schedules",
+        None,
+        None,
+        200,
+        lambda r: r.json() == {"schedules": []} and r.headers["Cache-Control"] == "no-store",
+    ),
+    ("schedules-post-invalid", "POST", "/v1/schedules", None, {}, 422, "schedule_invalid"),
+    (
+        "schedules-post-other-project",
+        "POST",
+        "/v1/schedules",
+        None,
+        {"project_id": "x"},
+        403,
+        "project_denied",
+    ),
+    (
+        "schedules-post-no-provider",
+        "POST",
+        "/v1/schedules",
+        None,
+        {
+            "title": "Digest",
+            "prompt": "Summarize.",
+            "project_id": "p",
+            "backend": "codex",
+            "model": "m",
+            "effort": "low",
+            "cadence": {"kind": "daily", "time": "09:00"},
+        },
+        422,
+        "schedule_invalid",
+    ),
+    (
+        "schedules-put",
+        "PUT",
+        "/v1/schedules/" + "0" * 32,
+        None,
+        {"revision": "r", "title": "Digest"},
+        404,
+        "schedule_not_found",
+    ),
+    (
+        "schedules-delete",
+        "DELETE",
+        "/v1/schedules/" + "0" * 32,
+        None,
+        {"revision": "r"},
+        404,
+        "schedule_not_found",
+    ),
+    (
+        "schedules-run",
+        "POST",
+        "/v1/schedules/" + "0" * 32 + "/run",
+        None,
+        None,
+        404,
+        "schedule_not_found",
+    ),
     ("projects-post", "POST", "/v1/projects", None, {}, 403, "project_registration_disabled"),
     ("projects-patch", "PATCH", "/v1/projects", None, {}, 422, "invalid_project"),
     (
@@ -478,7 +593,16 @@ def test_agent_unknown_path_is_404_before_auth(client):
     assert response.status_code == 404
 
 
-@pytest.mark.parametrize("method,path", [("GET", "/v1/jobs"), ("PUT", "/v1/projects")])
+@pytest.mark.parametrize(
+    "method,path",
+    [
+        ("GET", "/v1/jobs"),
+        ("PUT", "/v1/projects"),
+        ("PATCH", "/v1/pages"),
+        ("PATCH", "/v1/schedules"),
+        ("GET", "/v1/schedules/x/run"),
+    ],
+)
 def test_agent_wrong_method_is_405_before_auth(client, method, path):
     client.headers.pop("Authorization", None)
     response = client.request(method, path)

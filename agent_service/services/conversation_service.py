@@ -1166,7 +1166,12 @@ class ConversationService:
         data = json.loads(row["payload"])
         context_parent = data.get("_workflow_context_parent_id", data.get("parent_job_id"))
         for key in tuple(data):
-            if key.startswith("_") or key in ("parent_job_id", "execution_parent_id"):
+            if key.startswith("_") or key in (
+                "parent_job_id",
+                "execution_parent_id",
+                "schedule_id",
+                "schedule_title",
+            ):
                 data.pop(key)
         source_invocations = data.pop("invocations", [])
         data.pop("resource_selections", None)
@@ -1248,7 +1253,7 @@ class ConversationService:
             self.write_ownership.release(lease)
         return {"id": workflow_id, "path": "workflows/" + target.name, "project_id": row["project"]}
 
-    def submit(self, identity, data, idem=None, *, workflow_recovery=None):
+    def submit(self, identity, data, idem=None, *, workflow_recovery=None, schedule=None):
         data = dict(data)
         if data.get("project_id") in self.deleting_project_folders:
             raise APIError("project_folder_busy", 409)
@@ -1268,6 +1273,8 @@ class ConversationService:
                 "_workflow_resume",
                 "_workflow_context_parent_id",
                 "_workflow_recovery_digest",
+                "schedule_id",
+                "schedule_title",
             )
         ):
             raise APIError("invalid_internal_field")
@@ -1310,6 +1317,8 @@ class ConversationService:
             )
         if workflow_recovery is not None:
             data.update(workflow_recovery)
+        if schedule is not None:
+            data.update(schedule)
         project = data["project_id"]
         if len(encoded(data).encode()) > 150000:
             raise APIError("payload_limit", 413)
