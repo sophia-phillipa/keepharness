@@ -54,3 +54,15 @@ enforcement. The provider remains hidden in administration.
 The service passes `_conversation_title` separately from the prompt: the conversation root prompt truncated to 100 characters, overridden by an explicit Harness rename. Provider/model handoffs retain that title; workspace metadata and history wrappers are never used as its source.
 
 Installed Gemini CLI 0.60.0 documents ACP new/load/prompt and mode/model control, but implements no session-title setter. The adapter emits `session_title_sync_unsupported` (`gemini_acp_title_unsupported`); it does not fabricate a rename method, mutate CLI-owned session files, or claim external title synchronization. Sources inspected: installed `bundle/docs/cli/acp-mode.md` and ACP agent implementation in `bundle/gemini-ZTU7EMI3.js`. Scoped execution remains unsupported.
+
+## Errors and handshake (0.15.0)
+
+A JSON-RPC error now travels as `gemini_execution_failed: <message>` (one line, redacted, at most
+300 characters; the error's `data.details` is appended when it is a string). The worker maps the
+message the way it maps Codex's: an expired login (`Authentication required`, 401) ends the turn
+`interrupted` with the renew-access guidance, a quota or rate-limit message with the quota or
+wait guidance. `session/load` discards the stored session only when the CLI says the session is
+gone (code -32002 or a "session ... not found" message); any other error keeps `gemini-session.json`.
+The four setup steps (`initialize`, `session/load`, `session/new`, `session/set_model`) wait
+`HANDSHAKE_SECONDS` (15 s) each and then fail as `provider_idle_timeout`, not as
+`active_runtime_timeout`, which is reserved for the run's own budget.
