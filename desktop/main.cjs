@@ -4,9 +4,10 @@
 // started when the app quits.
 const { app, BrowserWindow, dialog, shell } = require('electron');
 const { spawn } = require('node:child_process');
+const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
-const { appOrigins, isAppUrl, externalUrl, windowOptions, processRunning } = require('./policy.cjs');
+const { appOrigins, isAppUrl, externalUrl, windowOptions, processRunning, portOwnedByUser } = require('./policy.cjs');
 
 const TITLE = 'KeepHarness';
 const project = path.resolve(__dirname, '..');
@@ -30,6 +31,19 @@ function reachable(url, timeout = 1500) {
     request.on('timeout', () => request.destroy());
     request.on('error', () => resolve(false));
   });
+}
+// Linux only: the services behind the two ports must be this user's own processes, not
+// whatever else answers on loopback. Without /proc/net/tcp (macOS, Windows) the check is skipped.
+function foreignPort(ports) {
+  if (!fs.existsSync('/proc/net/tcp') || typeof process.getuid !== 'function') return null;
+  const tables = ['/proc/net/tcp', '/proc/net/tcp6'].map((file) => {
+    try {
+      return fs.readFileSync(file, 'utf8');
+    } catch {
+      return '';
+    }
+  });
+  return ports.find((port) => !portOwnedByUser(tables, port, process.getuid())) ?? null;
 }
 async function waitFor(url, seconds) {
   for (let i = 0; i < seconds * 4; i++) {
@@ -70,6 +84,18 @@ async function start() {
   }
   // A configured admin starts the harness on its own; give it a moment.
   const target = (await waitFor(harnessUrl + 'v1/version', 15)) ? harnessUrl : adminUrl;
+  const foreign = foreignPort(target === harnessUrl ? [adminPort, harnessPort] : [adminPort]);
+  if (foreign !== null) {
+    await dialog.showMessageBox({
+      type: 'error',
+      title: TITLE,
+      message: `The program on 127.0.0.1:${foreign} is not yours, so KeepHarness will not open it.`,
+      detail:
+        'Only a KeepHarness service started by your own account is loaded. Stop the other program, or set KEEPHARNESS_ADMIN_PORT and KEEPHARNESS_PORT to free ports.',
+    });
+    app.quit();
+    return;
+  }
   win = new BrowserWindow(windowOptions(TITLE));
   win.once('ready-to-show', () => win.show());
   win.webContents.on('will-navigate', (event, url) => {
