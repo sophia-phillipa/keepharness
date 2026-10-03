@@ -142,6 +142,15 @@ AGENT_VALID_TABLE = [
         "service_project_denied",
     ),
     (
+        "integrations",
+        "GET",
+        "/v1/integrations",
+        {"project_id": "p", "backend": "codex", "model": "m"},
+        None,
+        403,
+        "service_project_denied",
+    ),
+    (
         "projects-get",
         "GET",
         "/v1/projects",
