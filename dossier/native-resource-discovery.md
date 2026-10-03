@@ -5,7 +5,8 @@
 The composer uses `/` for agents, skills, commands, built-in controls and maintenance.
 `@name` remains a legacy alias for agents.
 `@@` and `//` are reserved for Tail-owned resources; authoring them in the
-administrative panel is not part of this change.
+administrative panel is not part of this change. `@@id` selects a Tail agent (see
+[Tail agents](../docs/tail-agents.md)); `//` and any other `@@` name stay unavailable.
 
 Opening a selector requests fresh metadata for the selected project, backend and
 model and conversation execution mode. The catalog and submission validation use
@@ -89,7 +90,7 @@ expanded to make a resource available.
 - Compatible project entries precede trusted catalogs and user entries, with source badges.
 - Switching project/model invalidates references and prevents stale responses.
 - Enter and Tab select without sending; Escape closes and restores focus.
-- Reserved Tail prefixes explain that Tail resources are not implemented.
+- Reserved Tail prefixes that are not implemented (`//`, an unknown `@@`) explain that Tail resources are not available.
 - Disabled items explain why they cannot be selected.
 - Create, edit and delete operations are reflected without a catalog restart.
 - Changed or removed selected resources are rejected before inference.

@@ -29,6 +29,7 @@ from .. import (
     invocations,
     maestro,
     resources,
+    tail_agents,
     tools,
     workflows,
     workspaces,
@@ -839,11 +840,14 @@ class ConversationService:
         if model not in policy.get("models", []):
             raise APIError("model_denied", 403)
         if not maestro.model_permissions(self.config, backend, model, project_id).get("read"):
-            return {
+            # File resources need "read"; the user's own agents are harness-kept text.
+            result = {
                 "engine": resources.ENGINES.get(backend),
                 "items": [],
                 "warnings": ["Resource reading disabled for this model."],
             }
+            tail_agents.add_resources(result, self.config, project_id, private=False)
+            return result
         execution_mode = execution_mode or self.default_execution_mode(backend)
         self.validate_execution_mode(backend, execution_mode)
         return resources.discover(
@@ -856,7 +860,13 @@ class ConversationService:
             data = {**data, "backend": lead["backend"], "model": lead["model"]}
             if lead["backend"] == "local":
                 data["execution_mode"] = "scoped"
-        if data.get("resource_selections") and not maestro.model_permissions(
+        # "read" guards project and catalog files; a Tail agent's persona is harness-kept text.
+        file_selections = [
+            ref
+            for ref in data.get("resource_selections") or []
+            if not str(ref.get("id", "")).startswith(tail_agents.RESOURCE_PREFIX)
+        ]
+        if file_selections and not maestro.model_permissions(
             self.config, data["backend"], data.get("model"), data["project_id"]
         ).get("read"):
             raise APIError("resource_read_denied", 403)
@@ -932,7 +942,7 @@ class ConversationService:
                         raise invocations.InvocationError("resource_unavailable")
                     if value.mode != item.get("mode", "inline"):
                         raise invocations.InvocationError("invalid_invocation_mode")
-                    token = ("@" if item["kind"] == "agent" else "/") + item["name"]
+                    token = resources.accepted_tokens(item)[-1]
                     refs.append({"id": item["id"], "revision": item["revision"], "token": token})
                     parts.append(token + " " + value.args)
                 data["resource_selections"] = refs

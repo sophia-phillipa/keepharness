@@ -256,6 +256,7 @@ def discover(
     from .catalog_manifest import load_manifest, preflight
     from .catalog_pin import effective_catalogs, snapshot_catalogs
     from .integrations import integration_preflight
+    from .tail_agents import add_resources
     from .workflows import discover_workflows
 
     engine = ENGINES.get(backend)
@@ -269,6 +270,10 @@ def discover(
             else {"items": [], "warnings": []}
         ),
     }
+    if include_workflows:
+        # Tail-owned resources need no engine, so they come with the workflows; plan
+        # dependency lookups (include_workflows=False) read native resources only.
+        add_resources(result, config, project_id, private=private)
     if engine is None:
         result["warnings"].append("Choose a concrete engine to query its resources.")
         return result
@@ -717,13 +722,26 @@ def discover(
     return result
 
 
+def accepted_tokens(item):
+    """Spellings a selection may use for ``item``; the last is the canonical one."""
+    name = item["name"]
+    if item["scope"] == "tail":
+        return ("@@" + name,)
+    return ("/" + name, "@" + name) if item["kind"] == "agent" else ("/" + name,)
+
+
+def reserved_markers(prompt, selections):
+    """The ``@@`` markers in the prompt; ``//`` or a marker nothing was selected for is refused."""
+    prose = unfenced(prompt, preserve_offsets=True)
+    markers = set(re.findall(r"(?<!\S)@@[\w:-]+(?=\s|$)", prose))
+    if re.search(r"^\s*//[A-Za-z_][\w:-]*(?=\s|$)", prose) or (markers and not selections):
+        raise ResourceError("tail_resources_unavailable")
+    return markers
+
+
 def resolve(config, data):
     prompt = data.get("prompt", "")
-    if re.search(
-        r"(?<!\S)@@[\w:-]+(?=\s|$)|^\s*//[A-Za-z_][\w:-]*(?=\s|$)",
-        unfenced(prompt, preserve_offsets=True),
-    ):
-        raise ResourceError("tail_resources_unavailable")
+    reserved = reserved_markers(prompt, data.get("resource_selections"))
     selections = data.get("resource_selections", [])
     if not isinstance(selections, list) or len(selections) > 20:
         raise ResourceError("invalid_resource_selections")
@@ -755,18 +773,16 @@ def resolve(config, data):
             raise ResourceError("resource_unavailable")
         if item["revision"] != selection.get("revision"):
             raise ResourceError("resource_changed")
-        accepted_tokens = (
-            ("/" + item["name"], "@" + item["name"])
-            if item["kind"] == "agent"
-            else ("/" + item["name"],)
-        )
         token = selection.get("token")
-        if token not in accepted_tokens or not re.search(
+        if token not in accepted_tokens(item) or not re.search(
             r"(?<!\S)" + re.escape(token) + r"(?=\s|$)", prompt
         ):
             raise ResourceError("resource_selection_missing")
         if not any(value["id"] == item["id"] for value in result):
             result.append({**item, "_token": token})
+    # An @@ marker is honored only for a Tail agent that was selected with that token.
+    if reserved - {value["_token"] for value in result}:
+        raise ResourceError("tail_resources_unavailable")
     return result
 
 
