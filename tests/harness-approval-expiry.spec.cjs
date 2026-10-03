@@ -15,6 +15,8 @@ const path = require("node:path");
       if (pathname.startsWith("/v1/")) {
         if (pathname.startsWith("/v1/approvals/")) {
           submissions++;
+          if (pathname.endsWith("/not-enrolled"))
+            return route.fulfill({ status: 403, json: { code: "approval_session_required" } });
           if (pathname.endsWith("/keyboard-pending")) {
             await new Promise(resolve => { finishDecision = resolve; });
             return route.fulfill({ status: 500, json: { code: "internal_error" } });
@@ -101,6 +103,16 @@ const path = require("node:path");
     assert.match(guidance, /enroll/i);
     assert.match(guidance, /approve-device/);
     console.log("PASS P6: denied worker credentials have human enrollment guidance");
+    // A browser that is not enrolled sees how to enroll, in the card and the status line,
+    // and the decision buttons stay usable for a retry after enrolling.
+    await page.setViewportSize({ width: 1280, height: 860 });
+    await required("not-enrolled", 3);
+    await page.locator("#approval-not-enrolled").getByRole("button", { name: "Allow once" }).click();
+    await page.locator("#approval-not-enrolled").getByText(/not enrolled/).waitFor();
+    assert.match(await page.locator("#approval-not-enrolled").innerText(), /keepharness approve-device --owner local/);
+    assert.match(await page.locator("#status").innerText(), /not enrolled/);
+    assert.equal(await page.locator("#approval-not-enrolled button:enabled").count() > 0, true);
+    console.log("PASS P6b: an approval from a browser that is not enrolled explains the enrollment");
     await page.evaluate(async () => {
       job = "expired-waits";
       active = assistant(job, "fixture");

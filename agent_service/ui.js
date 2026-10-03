@@ -1485,7 +1485,7 @@ const userErrors = {
   approval_expiration_limit:
     "The run was cancelled after repeated approval requests expired. Send your message again when you are ready to respond.",
   approval_session_required:
-    "Enroll this browser using an owner-issued link. On the server, run keepharness approve-device with your existing owner id and state directory.",
+    "This browser is not enrolled to approve actions yet. On this computer run: keepharness approve-device --owner local, then open the link it prints in this browser and try again.",
   approval_storage_unsafe:
     "Approval sessions could not be stored securely. Ask the server owner to check the state directory permissions before trying again.",
   approval_enrollment_invalid:
@@ -8445,7 +8445,12 @@ function showApproval(data) {
           box.querySelectorAll("button,input").forEach(node => node.remove());
           if (hadFocus) $("prompt").focus({ preventScroll: true });
         } else if (e.code === "approval_expired") expireApproval(data.approval_id);
-        else if (box.dataset.state !== "expired") progress.textContent = "Couldn't confirm your decision. " + e.message;
+        else if (e.code === "approval_session_required") {
+          // Approvals need an owner-enrolled browser; say how, here and in the status line.
+          progress.textContent = e.message;
+          box.dataset.enrollment = "required";
+          status(e.message);
+        } else if (box.dataset.state !== "expired") progress.textContent = "Couldn't confirm your decision. " + e.message;
       } finally {
         deciding = false;
         if (box.dataset.state !== "expired") {
