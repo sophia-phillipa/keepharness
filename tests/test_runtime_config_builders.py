@@ -95,3 +95,45 @@ def test_origins_include_the_tailnet_host_only_when_known():
     ]
     runtime_config.build_origins(cfg, settings, {"network": {"hostname": "host"}})
     assert cfg["origins"][-1] == "http://host:8096"
+
+
+def codex_route(retired, current):
+    """A config and spec for a codex service that still lists ``retired`` and ``current``."""
+    models = [retired, current]
+    cfg = {"services": {"codex": {"enabled": True, "models": list(models)}}}
+    return cfg, {"enabled": True, "models": models, "mode": "native"}
+
+
+def test_a_retired_codex_model_quarantines_only_its_route(tmp_path):
+    cfg, spec = codex_route("retired-model", "current-model")
+    checked = {"authenticated": True, "models": {"current-model": ["low"]}}
+    runtime_config.build_cli_provider(cfg, "codex", spec, checked, cli_info(tmp_path), tmp_path)
+    assert cfg["codex_models"] == {"current-model": ["low"]}
+    assert cfg["services"]["codex"]["models"] == ["current-model"]
+    assert cfg["unavailable_models"] == {
+        "codex": {"retired-model": runtime_config.CATALOG_MISSING}
+    }
+    # The saved selection stays for the admin to repair; only this run's routes change.
+    assert spec["models"] == ["retired-model", "current-model"]
+
+
+def test_a_codex_catalog_without_losses_adds_no_quarantine(tmp_path):
+    cfg, spec = codex_route("old-model", "current-model")
+    models = {"old-model": ["low"], "current-model": ["low"]}
+    runtime_config.build_cli_provider(
+        cfg, "codex", spec, {"authenticated": True, "models": models}, cli_info(tmp_path), tmp_path
+    )
+    assert "unavailable_models" not in cfg
+    assert cfg["services"]["codex"]["models"] == ["old-model", "current-model"]
+
+
+def test_the_mcp_default_on_a_retired_model_does_not_stop_the_other_routes():
+    cfg = {
+        "mcp_defaults": {"backend": "codex", "model": "retired-model", "effort": "low"},
+        "codex_models": {"current-model": ["low"]},
+        "unavailable_models": {"codex": {"retired-model": runtime_config.CATALOG_MISSING}},
+    }
+    runtime_config.check_mcp_defaults(cfg)
+    cfg["mcp_defaults"]["model"] = "other-model"
+    with pytest.raises(ValueError, match="MCP effort"):
+        runtime_config.check_mcp_defaults(cfg)
