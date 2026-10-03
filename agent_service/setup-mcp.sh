@@ -3,9 +3,10 @@
 # Run: ./setup-mcp.sh 'https://your-tailscale-server'
 set -eu
 # Generated identity block; the installer is downloadable on its own.
+# The bridge lives in its own folder: the product state folder and its venv belong to the server.
 TH_PRODUCT_SLUG=keepharness
 TH_PRODUCT_ENV=KEEPHARNESS
-TH_PRODUCT_STATE=.local/share/keepharness
+TH_PRODUCT_BRIDGE=.local/share/keepharness-mcp
 TH_PRODUCT_MCP=keepharness
 if [ "$#" -ne 1 ]; then
     printf '%s\n' 'Usage: ./setup-mcp.sh HARNESS_URL' >&2
@@ -23,7 +24,7 @@ for dependency in python3 curl claude; do
     fi
 done
 python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else "Install Python 3.10 or newer.")'
-folder="$HOME/$TH_PRODUCT_STATE"
+folder="$HOME/$TH_PRODUCT_BRIDGE"
 mkdir -p "$folder"
 python3 -m venv "$folder/venv"
 "$folder/venv/bin/python" -m pip install 'mcp>=1.12,<2' 'httpx>=0.27,<1'

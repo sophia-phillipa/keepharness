@@ -6,6 +6,7 @@ provider (``await manager.check``) and hands the result to the matching builder 
 
 import hashlib
 import json
+import logging
 import platform
 import secrets
 import shutil
@@ -17,6 +18,10 @@ from types import MappingProxyType
 from adapters.deepseek import account as deepseek
 
 from .local_models import runtime_permissions, runtime_roots
+
+logger = logging.getLogger(__name__)
+
+CATALOG_MISSING = "Model not returned by the current provider's catalog."
 
 
 def base_config(settings, state, admin_port, browser_url, provider_revisions):
@@ -98,6 +103,29 @@ def build_deepseek(cfg, provider, spec, checked, info, state):
     cfg["deepseek_models"] = {m: checked["models"][m] for m in spec["models"]}
 
 
+def catalog_models(cfg, provider, models, catalog):
+    """The ``models`` this run routes to once codex and gemini are checked against ``catalog``.
+
+    A codex model the catalog no longer returns loses only its own route in ``cfg``; the saved
+    settings keep the selection so the admin can repair it. Gemini still refuses to start.
+    """
+    if provider not in ("codex", "gemini"):
+        return models
+    kept = [model for model in models if model in catalog]
+    retired = [model for model in models if model not in catalog]
+    if not retired:
+        return models
+    if provider == "gemini":
+        raise ValueError(CATALOG_MISSING)
+    logger.warning(
+        "%s: %s Routes unavailable until repaired: %s",
+        provider, CATALOG_MISSING, ", ".join(retired),
+    )
+    cfg["services"][provider]["models"] = kept
+    cfg.setdefault("unavailable_models", {})[provider] = dict.fromkeys(retired, CATALOG_MISSING)
+    return kept
+
+
 def build_cli_provider(cfg, provider, spec, checked, info, state):
     """A provider CLI (codex, claude, gemini, and the CLI half of local)."""
     # A pending native Claude login is an account condition; it must
@@ -109,8 +137,7 @@ def build_cli_provider(cfg, provider, spec, checked, info, state):
             + " and use local file authentication. Keychain is not supported by the current sandbox."
         )
     binary = native_binary(info["binary"])
-    if provider in ("codex", "gemini") and any(m not in checked["models"] for m in spec["models"]):
-        raise ValueError("Model not returned by the current provider's catalog.")
+    models = catalog_models(cfg, provider, spec["models"], checked["models"])
     cfg[provider] = {
         "binary": str(binary),
         "auth_file": info["auth_file"],
@@ -122,9 +149,9 @@ def build_cli_provider(cfg, provider, spec, checked, info, state):
     if provider == "claude" and (state / "claude-cli-login").exists():
         cfg[provider]["use_cli_login"] = True
     cfg[provider + "_models"] = (
-        {m: checked["models"].get(m, ["configured"]) for m in spec["models"]}
+        {m: checked["models"].get(m, ["configured"]) for m in models}
         if provider in ("codex", "claude")
-        else spec["models"]
+        else models
     )
 
 
@@ -154,6 +181,8 @@ def check_mcp_defaults(cfg):
     if defaults:
         backend = defaults["backend"]
         model = defaults["model"]
+        if model in cfg.get("unavailable_models", {}).get(backend, {}):
+            return  # its route is quarantined: the default fails alone, not the start
         catalog = cfg.get(backend + "_models", {})
         supported = catalog.get(model, []) if isinstance(catalog, dict) else ["configured"]
         if defaults.get("effort") and defaults["effort"] not in supported:
