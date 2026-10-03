@@ -5465,3 +5465,6 @@ main > header #conversation-title { max-width: calc(50% - 250px); }
 #execution-mode-choice.no-modes :is(#isolation-toggle, #execution-mode-label) { display: none; }
 /* The sub-bar is ordered after the composer; the run console stays below both. */
 main > #run-console { order: 11; }
+/* Phone top bar: runs stay on the status strip and agents in Settings. */
+@media (max-width: 620px) { #app-topbar :is(#rail-runs, #rail-agents) { display: none; } }
+@container chatpane (max-width: 640px) { #execution-mode-choice .execution-mode-heading { flex-wrap: wrap; row-gap: 2px; } }

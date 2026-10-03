@@ -6629,7 +6629,13 @@ function adminFrameUrl(section) {
   return url.href;
 }
 function showAdminSection(section = "providers") {
-  const frame = $("admin-frame");
+  // Created on first use so ordinary page loads carry no extra document.
+  let frame = $("admin-frame");
+  if (!frame) {
+    frame = document.createElement("iframe");
+    frame.id = "admin-frame";
+    $("settings-system").append(frame);
+  }
   const label = document.querySelector('[data-admin-section="' + section + '"]');
   frame.title = "Administration: " + (label?.textContent || section);
   const next = adminFrameUrl(section);

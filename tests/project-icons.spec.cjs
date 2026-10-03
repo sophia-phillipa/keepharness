@@ -84,7 +84,9 @@ const path = require("node:path");
     };
     await ready();
     assert.equal(await page.locator(".project-group").count(), 2);
-    await page.locator('[data-project-id="alpha"] > summary > button').click();
+    // Project folders start expanded (Codex model, Sophia 2026-10-03); open it only if collapsed.
+    if (!(await page.locator('[data-project-id="alpha"]').evaluate((el) => el.open)))
+      await page.locator('[data-project-id="alpha"] > summary > button').click();
     await page
       .locator(".conversation-title").filter({ hasText: /^Preserved conversation$/ }).first()
       .waitFor();
