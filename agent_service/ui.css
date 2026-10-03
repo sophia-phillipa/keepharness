@@ -5013,11 +5013,18 @@ body.panel-order-reversed.sidebar-collapsed .run-status-strip { right: 0; }
 main { container-type: inline-size; container-name: chatpane; }
 #messages { padding-inline: max(16px, calc((100% - 768px) / 2)); }
 main > header h1 { max-width: calc(50% - 150px); }
-@container chatpane (max-width: 980px) { main > header :is(.header-chip, #conversation-state-pill, #active-project-badge) { display: none!important; } }
+/* Narrower chat: drop the passive chips first; the conversation-mode chip is a control and stays. */
+@container chatpane (max-width: 980px) { main > header :is(#header-access, #conversation-state-pill, #active-project-badge) { display: none!important; } }
+@container chatpane (max-width: 760px) { main > header .view-switch { position: static; transform: none; margin-left: auto; } main > header .view-switch button { width: 76px; } }
 @container chatpane (max-width: 640px) { main > header h1 { display: none; } }
 /* Sidebar conversation rows: one line, status lives in the group heading. */
 #sidebar .conversation-row, #sidebar .conversation-row :is(button, button.active) { border: 0!important; box-shadow: none!important; }
-#sidebar .conversation-row .conversation-row-meta { display: none; }
+/* Our orchestration status stays visible (adapted, not removed): one quiet line under the title. */
+#sidebar .conversation-row .conversation-row-meta { display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; white-space: nowrap; color: var(--th-quiet); font-size: 12px; line-height: 16px; }
+#sidebar .conversation-row .conversation-row-meta > * { flex: none; }
+#sidebar .conversation-row .conversation-row-meta .conversation-summary { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; }
+#sidebar .conversation-row .conversation-row-meta .backend-chip { padding: 0; border: 0; background: transparent; color: var(--th-quiet); font-size: 12px; }
+#sidebar .conversation-row .conversation-row-meta .backend-chip::before { display: none; }
 #sidebar .conversation-row > button:first-child { align-items: center; min-height: 30px; }
 #sidebar .conversation-row .conversation-actions { opacity: 0; }
 #sidebar .conversation-row:is(:hover, :focus-within) .conversation-actions { opacity: 1; }
@@ -5224,8 +5231,8 @@ body #dropzone #cancel:not([hidden]), body .composer-submit .send { flex: 0 0 32
 #sidebar .sidebar-head { position: sticky; top: 0; z-index: 2; background: var(--th-soft); }
 /* Dialogs in the reference card language. */
 body dialog:not(#settings-dialog):not(#vpn-login) {
-  border: 0; border-radius: 20px; background: var(--th-panel); color: var(--th-text);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--th-text) 9%, transparent), 0 18px 48px rgba(0, 0, 0, .35);
+  border: 1px solid var(--th-border); border-radius: 20px; background: var(--th-panel); color: var(--th-text);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, .35);
 }
 body dialog:not(#settings-dialog) :is(.settings-heading h2, > h2, form > h2) { font-size: 17px; line-height: 24px; font-weight: 600; }
 body dialog:not(#settings-dialog) .btn { min-height: 32px; padding: 0 14px; border: 0; border-radius: 9999px; background: color-mix(in srgb, var(--th-text) 8%, transparent); color: var(--th-text); font-size: 13px; font-weight: 500; }
@@ -5252,11 +5259,14 @@ body dialog:not(#settings-dialog) .btn.btn-danger { background: color-mix(in srg
 #activity-panel #authorize-project-root { display: inline-flex; align-items: center; gap: 6px; margin: 8px 0; min-height: 30px; padding: 0 12px; border: 0; border-radius: 9999px; background: color-mix(in srgb, var(--th-text) 8%, transparent); color: var(--th-text); font-size: 13px; }
 #activity-panel #server-folder-browser > summary { color: var(--th-quiet); font-size: 13px; }
 /* Nested project chats: text only, aligned like the reference. */
-#projects .project-conversations .conversation-row .conversation-model-icon,
-#projects .project-conversations .project-new :is(.th-icon, svg) { display: none; }
 #projects .project-conversations .conversation-row > button:first-child { padding-left: 8px; }
 #projects .project-conversations .conversation-title { font-size: 14px; }
 #workspace-files { height: 280px; }
 #workspace-resources, #workspace-activity { height: 120px; }
 #activity-panel .authorized-root-card > strong { flex-direction: row-reverse; justify-content: flex-end; }
-#projects .project-conversations .conversation-row > button:first-child { grid-template-columns: minmax(0, 1fr); }
+#sidebar .conversation-row .conversation-row-meta .conversation-summary { flex: none; }
+#sidebar .conversation-row .conversation-row-meta .conversation-project { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* Isolated conversations keep the theme accent on their indicator (conversation-execution-mode spec). */
+main #dropzone #execution-mode-indicator[data-isolated="true"] { color: var(--th-accent); }
+main:not(:has(#messages > #welcome)) #dropzone #execution-mode-indicator[data-isolated="true"] { color: var(--th-accent); }
+#sidebar .conversation-row > button { scroll-margin-top: 56px; scroll-margin-bottom: 8px; }

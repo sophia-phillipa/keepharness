@@ -4084,8 +4084,9 @@ async function load(id, legacy = false, restoredView = null) {
       document.activeElement.dataset.conversationId === navigationFocus.dataset.conversationId;
     expandedProjects.set($("project").value, true);
     renderProjects();
-    $("sidebar")
-      .querySelector('.conversation-row > button[aria-current="true"]')
+    // One scrolling sidebar: reveal the most specific row (the project copy when expanded).
+    [...$("sidebar").querySelectorAll('.conversation-row > button[aria-current="true"]')]
+      .at(-1)
       ?.scrollIntoView({ block: "nearest" });
     last = 0;
     closeSidebar();

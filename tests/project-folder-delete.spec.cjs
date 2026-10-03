@@ -79,7 +79,9 @@ const path = require("node:path");
     await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.13.15"));
     await page.goto("http://panel.test");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
-    await page.locator("#project-tree > summary").click();
+    // Projects are listed open by default in the Codex-style sidebar.
+    if (!(await page.locator("#project-tree").evaluate((el) => el.open)))
+      await page.locator("#project-tree > summary").click();
     const dialog = page.locator("#delete-project-folder-dialog"),
       check = page.locator("#delete-project-folder-check"),
       confirm = page.locator("#delete-project-folder-confirm");

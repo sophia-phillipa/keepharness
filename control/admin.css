@@ -1596,8 +1596,11 @@ body:has(#provider-dialog[open]) {
 #operations .operation-code input { min-width: 0; height: 34px; padding: 0 10px; border: 1px solid var(--th-border); border-radius: 10px; background: var(--th-soft); color: var(--th-text); font: 13px ui-monospace, monospace; }
 
 /* ===== Codex-style admin (2026-10-03): settings-like navigation, centered content, quiet cards. ===== */
+@media (min-width: 901px) {
+  body { --th-admin-sidebar-width: 300px; }
+  #main { max-width: 960px; margin: 0 auto; padding-inline: 32px; }
+}
 body {
-  --th-admin-sidebar-width: 300px;
   --th-hover: color-mix(in srgb, var(--th-text) 7%, transparent);
   --th-quiet: color-mix(in srgb, var(--th-text) 55%, transparent);
   --th-line: color-mix(in srgb, var(--th-text) 10%, transparent);
@@ -1613,7 +1616,6 @@ body {
 .sidebar nav a:hover, .sidebar nav a[aria-current="page"] { background: var(--th-hover); color: var(--th-text); }
 .sidebar nav a[aria-current="page"] { box-shadow: none; font-weight: 500; }
 .sidebar-bottom { padding: 12px 8px 4px; color: var(--th-quiet); }
-#main { max-width: 960px; margin: 0 auto; padding-inline: 32px; }
 #main > header { min-height: 56px; border-bottom: 0; }
 #main .breadcrumb { color: var(--th-quiet); font-size: 13px; }
 #main h1, #main .heading h2 { font-size: 26px; line-height: 32px; font-weight: 500; }
@@ -1630,4 +1632,3 @@ body :is(.btn.btn-primary, .button.primary) { background: var(--th-action); colo
 body :is(.btn.btn-primary, .button.primary):hover { background: color-mix(in srgb, var(--th-action) 86%, var(--th-bg)); }
 body :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) { border: 1px solid color-mix(in srgb, var(--th-text) 12%, transparent); border-radius: 10px; background: var(--th-soft); color: var(--th-text); }
 body dialog { border: 0; border-radius: 20px; background: var(--th-panel); box-shadow: 0 0 0 1px var(--th-line), 0 18px 48px rgba(0, 0, 0, .35); }
-@media (max-width: 900px) { body { --th-admin-sidebar-width: 216px; } #main { padding-inline: 16px; } }

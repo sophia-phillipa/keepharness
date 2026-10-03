@@ -83,7 +83,9 @@ const assert = require("node:assert/strict");
       "Late OpenAI quota must not overwrite Claude status",
     );
     await page.fill("#prompt", "Important audit draft");
-    await page.locator("#project-tree > summary").click();
+    // Projects are listed open by default in the Codex-style sidebar.
+    if (!(await page.locator("#project-tree").evaluate((el) => el.open)))
+      await page.locator("#project-tree > summary").click();
     await page
       .getByRole("button", { name: "Work project", exact: true })
       .click();

@@ -88,7 +88,9 @@ const assert = require("node:assert/strict");
     );
     assert.equal(await page.locator("#new").innerText(), "New Conversation");
     await page.locator("#prompt").fill("Preserved draft");
-    await page.locator("#project-tree > summary").click();
+    // Projects are listed open by default in the Codex-style sidebar.
+    if (!(await page.locator("#project-tree").evaluate((el) => el.open)))
+      await page.locator("#project-tree > summary").click();
     const projectName = page
       .locator("#projects details summary button")
       .first();

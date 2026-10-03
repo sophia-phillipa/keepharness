@@ -183,12 +183,13 @@ const assert = require("node:assert/strict"),
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     assert.equal(await page.locator("#sidebar input[type=search]").count(), 0);
     assert.equal(await page.locator("#search-conversations svg").count(), 1);
+    // Codex-style shell: search is the icon in the sidebar head; its label stays accessible.
     assert.equal(
-      await page.locator("#sidebar #search-conversations").count(),
-      0,
+      await page.locator("#sidebar .sidebar-head #search-conversations").count(),
+      1,
     );
     assert.equal(
-      await page.locator("#app-topbar #search-conversations span").innerText(),
+      await page.locator("#search-conversations span").textContent(),
       "Search runs, plans, files",
     );
     assert.equal(
@@ -257,15 +258,16 @@ const assert = require("node:assert/strict"),
     );
     if (!(await page.locator("#project-tree").evaluate((el) => el.open)))
       await page.locator("#project-tree > summary").click();
+    // Codex-style rows: hover paints the whole row background, never a ring on the inner button.
     await page.locator(".project-group>summary>button").hover();
     const hover = await page
       .locator(".project-group>summary>button")
       .evaluate((e) => ({
         inner: getComputedStyle(e).boxShadow,
-        outer: getComputedStyle(e.parentElement).boxShadow,
+        outer: getComputedStyle(e.parentElement).backgroundColor,
       }));
     assert.equal(hover.inner, "none");
-    assert.notEqual(hover.outer, "none");
+    assert.notEqual(hover.outer, "rgba(0, 0, 0, 0)");
     assert(
       await page
         .locator("#sidebar .section-label")

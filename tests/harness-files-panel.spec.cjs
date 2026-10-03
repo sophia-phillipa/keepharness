@@ -620,6 +620,8 @@ const path = require("node:path");
       .fill("Draft with attachment before reloading");
     await page.reload();
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
+    // Chat-first shell: without a saved preference the files panel starts closed; open it.
+    if (await page.locator("#activity-panel").isHidden()) await page.click("#panel-toggle");
     assert.equal(
       await page.locator("#prompt").inputValue(),
       "Draft with attachment before reloading",
