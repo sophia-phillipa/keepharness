@@ -857,6 +857,15 @@ ADMIN_ROUTE_TABLE = [
         lambda r: r.json() == {"error": "CLI not found."},
     ),
     (
+        "provider-login-code",
+        "POST",
+        "/api/provider-login-code",
+        None,
+        {},
+        400,
+        lambda r: r.json() == {"error": "No login is waiting for a code."},
+    ),
+    (
         "settings-export",
         "POST",
         "/api/settings-export",

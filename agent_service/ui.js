@@ -5604,7 +5604,7 @@ async function probeReadiness() {
       !busy &&
       !loading &&
       project === $("project").value &&
-      (JSON.stringify(scoped.models) !== JSON.stringify(models) ||
+      (JSON.stringify(composerModels(scoped)) !== JSON.stringify(models) ||
         (scoped.uploads_enabled === true) !== uploadsAllowed)
     ) {
       policyProject = null;

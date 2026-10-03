@@ -75,6 +75,7 @@ def test_login_endpoint_deduplicates_and_requires_admin(tmp_path, monkeypatch):
         assert args == ["/fixture/claude", "auth", "login"]
         assert "CLAUDE_CODE_OAUTH_TOKEN" not in kwargs["env"]
         assert callable(kwargs["on_success"])
+        assert kwargs["interactive"] is True
         job = {"id": "login", "state": "running", "output": ""}
         operations.jobs["login"] = job
         return job
@@ -171,3 +172,76 @@ def test_pending_claude_login_does_not_block_native_harness_startup(tmp_path):
     assert runtime["services"]["claude"]["enabled"]
     assert runtime["services"]["claude"]["mode"] == "native"
     assert runtime["claude_models"] == {"sonnet": ["configured"]}
+
+
+CODE = "4ukTm3Jk-fixture#XYiy_fixture-code"
+
+
+def test_interactive_login_receives_one_pasted_code_line(tmp_path):
+    async def exercise():
+        operations = Operations()
+        job = operations.launch(
+            [
+                sys.executable,
+                "-c",
+                f"import sys; sys.exit(0 if sys.stdin.readline().strip() == {CODE!r} else 3)",
+            ],
+            interactive=True,
+        )
+        await asyncio.sleep(0.05)
+        assert job["accepts_input"] is True
+        await operations.send_input(job["id"], CODE)
+        await asyncio.gather(*operations.tasks)
+        assert job["state"] == "completed"
+        assert job["accepts_input"] is False
+        assert CODE not in job["output"]
+
+    asyncio.run(exercise())
+
+
+def test_non_interactive_operation_rejects_input(tmp_path):
+    async def exercise():
+        operations = Operations()
+        job = operations.launch([sys.executable, "-c", "import time; time.sleep(30)"])
+        await asyncio.sleep(0.05)
+        assert not job.get("accepts_input")
+        with pytest.raises(ValueError):
+            await operations.send_input(job["id"], CODE)
+        operations.cancel(job["id"])
+        await asyncio.gather(*operations.tasks, return_exceptions=True)
+
+    asyncio.run(exercise())
+
+
+def test_login_code_endpoint_validates_and_never_records_the_code(tmp_path):
+    inventory = {"services": [], "binaries": {"claude": "/fixture/claude"}, "network": {}}
+    sent = []
+
+    async def send_input(operations, jid, text):
+        sent.append((jid, text))
+
+    with (
+        patch("control.discovery.scan", AsyncMock(return_value=inventory)),
+        patch.object(Operations, "send_input", send_input),
+    ):
+        with TestClient(create_app(tmp_path), base_url="http://127.0.0.1:8094") as client:
+            client.get("/")
+            headers = {"X-Harness-Admin": "1"}
+            path = "/api/provider-login-code"
+            assert client.post(path, json={"id": "login", "code": CODE}).status_code == 400
+            client.app.state.manager.operations.jobs["login"] = {
+                "id": "login",
+                "state": "running",
+                "output": "",
+                "kind": "provider-login",
+                "provider": "claude",
+                "accepts_input": True,
+            }
+            for bad in ("", "has space", "line\nbreak", "x" * 600, 42):
+                response = client.post(path, json={"id": "login", "code": bad}, headers=headers)
+                assert response.status_code == 400, bad
+            assert client.post(path, json={"id": "other", "code": CODE}, headers=headers).status_code == 400
+            ok = client.post(path, json={"id": "login", "code": CODE}, headers=headers)
+            assert ok.status_code == 200 and ok.json() == {"sent": True}
+            assert sent == [("login", CODE)]
+    assert CODE not in "".join(path.read_text() for path in tmp_path.rglob("*") if path.is_file())

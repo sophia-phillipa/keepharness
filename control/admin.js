@@ -1355,6 +1355,13 @@ async function pollOperations() {
       failed: "Failed",
       cancelled: "Cancelled",
     };
+    // Keep a half-typed login code (and its focus) across the 2 s refresh.
+    const typing = document.querySelector("#operations .operation-code input");
+    const kept = typing && {
+      id: typing.id,
+      value: typing.value,
+      focused: document.activeElement === typing,
+    };
     $("operations").replaceChildren(
       ...jobs.map((j) => {
         const d = element("details");
@@ -1399,6 +1406,31 @@ async function pollOperations() {
             d.append(link);
           } catch {}
         }
+        if (j.state === "running" && j.accepts_input) {
+          // Container logins cannot receive the browser callback; Claude shows a code instead.
+          const form = element("form", undefined, "operation-code");
+          const label = element("label", "Paste the code Claude shows after you sign in");
+          const input = element("input");
+          input.id = "operation-code-" + j.id;
+          input.type = "password";
+          input.autocomplete = "off";
+          input.spellcheck = false;
+          input.required = true;
+          label.htmlFor = input.id;
+          const submit = element("button", "Send code", "button primary");
+          submit.type = "submit";
+          form.append(label, input, submit);
+          form.onsubmit = (event) => {
+            event.preventDefault();
+            action(async () => {
+              await request("provider-login-code", { id: j.id, code: input.value.trim() });
+              input.value = "";
+              say("Code sent. Finishing the login…");
+              pollOperations();
+            });
+          };
+          d.append(form);
+        }
         if (j.state === "running") {
           const cancel = element("button", "Cancel", "button secondary");
           cancel.onclick = () =>
@@ -1411,6 +1443,11 @@ async function pollOperations() {
         return d;
       }),
     );
+    const restored = kept && document.getElementById(kept.id);
+    if (restored) {
+      restored.value = kept.value;
+      if (kept.focused) restored.focus();
+    }
     const current = jobs.find((j) => j.id === activeOperation?.id);
     if (current) {
       $("operation-message").textContent = /gemini_client_retired/.test(

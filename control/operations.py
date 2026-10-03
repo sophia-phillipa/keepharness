@@ -13,22 +13,27 @@ class Operations:
         self.jobs = {}
         self.tasks = set()
         self.by_id = {}
+        self.stdin = {}
 
-    def launch(self, args, timeout=300, *, env=None, on_success=None):
+    def launch(self, args, timeout=300, *, env=None, on_success=None, interactive=False):
+        """Run one CLI; ``interactive`` keeps stdin open for one pasted line (login codes)."""
         jid = uuid.uuid4().hex
-        self.jobs[jid] = {"id": jid, "state": "running", "output": ""}
+        self.jobs[jid] = {"id": jid, "state": "running", "output": "", "accepts_input": False}
 
         async def run():
             proc = None
             try:
                 proc = await asyncio.create_subprocess_exec(
                     *args,
-                    stdin=asyncio.subprocess.DEVNULL,
+                    stdin=asyncio.subprocess.PIPE if interactive else asyncio.subprocess.DEVNULL,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.STDOUT,
                     start_new_session=True,
                     env=env,
                 )
+                if interactive:
+                    self.stdin[jid] = proc.stdin
+                    self.jobs[jid]["accepts_input"] = True
                 async with asyncio.timeout(timeout):
                     while True:
                         chunk = await proc.stdout.read(2048)
@@ -48,6 +53,8 @@ class Operations:
             except OSError as exc:
                 self.jobs[jid].update(state="failed", output=str(exc))
             finally:
+                self.jobs[jid]["accepts_input"] = False
+                self.stdin.pop(jid, None)
                 if proc and proc.returncode is None:
                     try:
                         if os.name == "posix":
@@ -70,6 +77,17 @@ class Operations:
         self.tasks.add(task)
         task.add_done_callback(self.tasks.discard)
         return self.jobs[jid]
+
+    async def send_input(self, jid, text):
+        """Write one line to a running interactive operation; the text is never stored."""
+        stream = self.stdin.get(jid)
+        if stream is None or not self.jobs.get(jid, {}).get("accepts_input"):
+            raise ValueError("No login is waiting for a code.")
+        self.jobs[jid]["accepts_input"] = False
+        self.stdin.pop(jid, None)
+        stream.write(text.encode() + b"\n")
+        await stream.drain()
+        stream.close()
 
     def cancel(self, jid):
         task = self.by_id.get(jid)

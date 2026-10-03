@@ -1590,3 +1590,7 @@ body:has(#provider-dialog[open]) {
 #vault-save { margin: 1rem 0; }
 
 #catalog-drift strong { overflow-wrap: anywhere; }
+/* Login code field for container logins (Claude shows a code instead of calling back). */
+#operations .operation-code { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 8px; align-items: center; margin: 10px 0; }
+#operations .operation-code label { grid-column: 1 / -1; color: var(--th-muted); font-size: 12px; }
+#operations .operation-code input { min-width: 0; height: 34px; padding: 0 10px; border: 1px solid var(--th-border); border-radius: 10px; background: var(--th-soft); color: var(--th-text); font: 13px ui-monospace, monospace; }
