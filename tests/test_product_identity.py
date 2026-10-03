@@ -310,3 +310,80 @@ def test_install_check_refuses_while_tail_harness_state_waits_to_move(tmp_path, 
         product.main()
     assert str(old) in str(refused.value.code) and "./install.sh" in str(refused.value.code)
     assert old.is_dir() and not PRODUCT.state_path(tmp_path).exists()
+
+
+def client_bridge(home, extra=None):
+    """What ``setup-mcp.sh`` before 0.15.0 left in the state folder of an MCP client."""
+    new = PRODUCT.state_path(home)
+    (new / "venv/bin").mkdir(parents=True)
+    (new / "venv/bin/python").write_text("#!/bin/sh\n")
+    (new / "mcp_bridge.py").write_text("# bridge\n")
+    for name in extra or ():
+        (new / name).write_text("{}")
+    return new
+
+
+def test_a_target_holding_only_a_client_bridge_is_set_aside_not_adopted(tmp_path, caplog):
+    old = legacy_state(tmp_path)
+    new = client_bridge(tmp_path)
+    assert product.legacy_waiting(tmp_path) is not None  # install --check-only still refuses
+    with caplog.at_level(logging.WARNING, logger="control.product"):
+        assert migrate_legacy_state(tmp_path) is None
+    assert not old.exists() and (new / "settings.json").read_text() == "{}"
+    assert json.loads((new / "harness.identity.json").read_text()) == LEGACY
+    assert not (new / "mcp_bridge.py").exists() and not (new / "venv").exists()
+    # Nothing is deleted: the bridge install is set aside whole, and the log names where.
+    (aside,) = [p for p in new.parent.iterdir() if p.name.startswith("keepharness.bridge-")]
+    assert (aside / "mcp_bridge.py").read_text() == "# bridge\n"
+    assert (aside / "venv/bin/python").exists() and str(aside) in caplog.text
+    assert product.legacy_waiting(tmp_path) is None
+
+
+def test_a_target_with_state_next_to_a_bridge_is_never_displaced(tmp_path):
+    old = legacy_state(tmp_path)
+    new = client_bridge(tmp_path, extra=["settings.json"])
+    assert migrate_legacy_state(tmp_path) is None
+    assert (old / "settings.json").exists()
+    assert sorted(entry.name for entry in new.iterdir()) == ["mcp_bridge.py", "settings.json", "venv"]
+    assert [p.name for p in new.parent.iterdir() if "bridge-" in p.name] == []
+
+
+def test_a_bridge_target_is_not_displaced_while_the_old_state_is_in_use(tmp_path):
+    old = legacy_state(tmp_path)
+    new = client_bridge(tmp_path)
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        runtime = json.loads((old / "runtime.json").read_text())
+        runtime["port"] = listener.getsockname()[1]
+        (old / "runtime.json").write_text(json.dumps(runtime))
+        refused = migrate_legacy_state(tmp_path)
+    assert "still answers" in refused and (old / "settings.json").exists()
+    assert (new / "mcp_bridge.py").read_text() == "# bridge\n"
+
+
+def test_a_bridge_target_set_aside_failure_is_a_reason_not_a_crash(tmp_path, monkeypatch):
+    old = legacy_state(tmp_path)
+    new = client_bridge(tmp_path)
+
+    def refuse(self, target):
+        raise OSError(errno.EBUSY, "refused")
+
+    monkeypatch.setattr(Path, "rename", refuse)
+    refused = migrate_legacy_state(tmp_path)
+    assert "./install.sh" in refused and (old / "settings.json").exists()
+    assert (new / "mcp_bridge.py").exists()
+
+
+def test_the_generated_installer_keeps_the_bridge_out_of_the_state_folder(tmp_path):
+    root = Path(product.__file__).resolve().parents[1]
+    for relative in ("pyproject.toml", "agent_service/mcp_bridge.py", "agent_service/index.html", "agent_service/ui.js", "agent_service/tour.js", "agent_service/setup-mcp.sh", "control/index.html", "control/admin.js", "harness_ui/assets/theme.js"):
+        (tmp_path / relative).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / relative).write_text((root / relative).read_text())
+    script = tmp_path / "agent_service/setup-mcp.sh"
+    product.generate(tmp_path, PRODUCT)
+    assert script.read_text() == (root / "agent_service/setup-mcp.sh").read_text()
+    fork = replace(PRODUCT, slug="synthetic-harness", lineage="synthetic", state_dir=".local/share/synthetic-harness", config_dir=".config/synthetic-harness")
+    product.generate(tmp_path, fork)
+    assert "TH_PRODUCT_BRIDGE=.local/share/synthetic-harness-mcp\n" in script.read_text()
+    assert "TH_PRODUCT_STATE" not in script.read_text()

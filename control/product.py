@@ -16,6 +16,7 @@ import shlex
 import socket
 import subprocess
 import sys
+import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -153,9 +154,29 @@ def legacy_folders(home=None, product=PRODUCT):
     return found
 
 
+def holds_only_bridge(folder):
+    """Whether ``folder`` holds nothing but a client MCP bridge, which has no state to adopt.
+
+    Before 0.15.0 ``setup-mcp.sh`` installed the bridge in the state folder, so it can sit
+    where the real state must go. An empty folder is not this case: it is never merged into.
+    """
+    if folder.is_symlink() or not folder.is_dir():
+        return False
+    try:
+        names = [entry.name for entry in folder.iterdir()]
+    except OSError:
+        return False
+    return bool(names) and all(name == "venv" or name.startswith("mcp_bridge.") for name in names)
+
+
+def waits_to_move(new):
+    """Whether the state of the Tail Harness folder may still move to ``new``."""
+    return not os.path.lexists(new) or holds_only_bridge(new)
+
+
 def legacy_waiting(home=None, product=PRODUCT):
     """Why the default folders cannot be used yet (Tail Harness folders still to move), or None."""
-    waiting = [str(old) for old, new in legacy_folders(home, product) if not os.path.lexists(new)]
+    waiting = [str(old) for old, new in legacy_folders(home, product) if waits_to_move(new)]
     if not waiting:
         return None
     return f"{' and '.join(waiting)} have not moved to {product.name} yet. {STOP_AND_INSTALL}."
@@ -199,7 +220,7 @@ def move_legacy_folders(home, product):
     """Move each waiting folder; the reason when one stays behind (in use or stuck), else None."""
     waiting = []
     for old, new in legacy_folders(home, product):
-        if not os.path.lexists(new):
+        if waits_to_move(new):
             waiting.append((old, new))
             continue
         logger.warning(
@@ -215,6 +236,8 @@ def move_legacy_folders(home, product):
         return f"Not moving {waiting[0][0]} yet: {reason}. {STOP_AND_INSTALL}."
     for old, new in waiting:
         try:
+            if os.path.lexists(new):
+                set_bridge_aside(new)
             old.rename(new)
         except OSError as exc:
             return f"Could not move {old} to {new} ({exc}). {STOP_AND_INSTALL}."
@@ -222,6 +245,17 @@ def move_legacy_folders(home, product):
         if new == product.state_path(home):
             adopt_moved_state(old, new)
     return None
+
+
+def set_bridge_aside(folder):
+    """Rename a bridge-only ``folder`` out of the way of the state; nothing in it is deleted."""
+    aside = folder.with_name(f"{folder.name}.bridge-{time.strftime('%Y%m%d-%H%M%S')}")
+    folder.rename(aside)
+    logger.warning(
+        "%s held only a client MCP bridge and no state: set it aside as %s. Run setup-mcp.sh "
+        "again to install the bridge in its own folder.",
+        folder, aside,
+    )
 
 
 def adopt_moved_state(old, new):
@@ -283,7 +317,7 @@ def generate(root=None, product=PRODUCT):
     bridge.write_text(source)
     script = root / "agent_service/setup-mcp.sh"
     text = script.read_text()
-    values = {"TH_PRODUCT_SLUG": product.slug, "TH_PRODUCT_ENV": product.env_prefix, "TH_PRODUCT_STATE": product.state_dir, "TH_PRODUCT_MCP": product.mcp_name}
+    values = {"TH_PRODUCT_SLUG": product.slug, "TH_PRODUCT_ENV": product.env_prefix, "TH_PRODUCT_BRIDGE": product.state_dir + "-mcp", "TH_PRODUCT_MCP": product.mcp_name}
     for key, value in values.items():
         text = re.sub(r"^" + key + r"=.*$", lambda _, k=key, v=value: k + "=" + shlex.quote(v), text, flags=re.M)
     script.write_text(text)
