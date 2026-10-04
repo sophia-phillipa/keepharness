@@ -151,6 +151,7 @@ class Manager:
         self.operations = Operations()
         self.startup_error = None
         self.provider_revisions = {}
+        self.unavailable_models = {}
 
     def audit(self, action):
         self.state_repository.audit(action)
@@ -560,6 +561,7 @@ class Manager:
 
     def _write_runtime(self, config):
         self.state_repository.write_runtime(config)
+        self.unavailable_models = config.get("unavailable_models", {})
 
     def browser_url(self, settings):
         host = (self.inventory or {}).get("network", {}).get("hostname")
@@ -584,8 +586,11 @@ class Manager:
             if not spec["enabled"]:
                 continue
             enabled += 1
-            checked = await self.check(provider)
             info = next(s for s in self.inventory["services"] if s["id"] == provider)
+            checked, reason = await self.check_for_runtime(provider, info)
+            if reason:
+                runtime_config.quarantine_provider(cfg, provider, reason)
+                continue
             build = runtime_config.BUILDERS.get(provider, runtime_config.build_cli_provider)
             build(cfg, provider, spec, checked, info, self.state)
         if not enabled and not allow_empty:
@@ -595,6 +600,15 @@ class Manager:
         runtime_config.build_clients(cfg, settings, self.state, self._previous_runtime())
         runtime_config.build_origins(cfg, settings, self.inventory)
         return cfg
+
+    async def check_for_runtime(self, provider, info):
+        """The provider check and, for a CLI provider that cannot run, why it is quarantined."""
+        if provider not in runtime_config.SIGN_IN_PROVIDERS:
+            return await self.check(provider), None
+        if info.get("found") is False:
+            return None, runtime_config.CLI_MISSING
+        checked = await self.check(provider)
+        return checked, None if checked["authenticated"] else runtime_config.SIGN_IN_REQUIRED
 
     async def apply_settings(self, data):
         settings = self.validate(data)
@@ -828,4 +842,6 @@ class Manager:
             "shared": (self.state / "tailnet.json").exists(),
             "version": VERSION_FILE.read_text().strip(),
             "startup_error": self.startup_error,
+            # Models offline per provider, with the reason (for example "Sign in required").
+            "unavailable_models": self.unavailable_models,
         }

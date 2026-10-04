@@ -908,6 +908,11 @@ function renderDashboard() {
           "configured-models",
         ),
       );
+      // A provider the harness had to take offline says why (for example "Sign in required").
+      const offline = Object.values(
+        state.status.unavailable_models?.[info.id] || {},
+      )[0];
+      if (offline) card.append(element("p", offline, "hint"));
       card
         .querySelector(".configured-models")
         .append(

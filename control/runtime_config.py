@@ -24,6 +24,14 @@ from .local_models import runtime_permissions, runtime_roots
 logger = logging.getLogger(__name__)
 
 CATALOG_MISSING = "Model not returned by the current provider's catalog."
+SIGN_IN_REQUIRED = (
+    "Sign in required: use Log in / Renew access on the provider card, then Check account."
+)
+CLI_MISSING = "The provider's CLI was not found on this computer. Install it, then sign in."
+# Providers that sign in through their own CLI; without a login they lose their routes only.
+# Claude is not listed: a pending Claude login is an account condition that never blocked the
+# start (tests/test_provider_login.py), so its routes stay until Sophia decides otherwise.
+SIGN_IN_PROVIDERS = ("codex", "gemini")
 
 
 def base_config(settings, state, admin_port, browser_url, provider_revisions):
@@ -138,6 +146,14 @@ def catalog_models(cfg, provider, models, catalog):
     cfg["services"][provider]["models"] = kept
     cfg.setdefault("unavailable_models", {})[provider] = dict.fromkeys(retired, CATALOG_MISSING)
     return kept
+
+
+def quarantine_provider(cfg, provider, reason):
+    """Take every route of ``provider`` offline with ``reason``; the harness still starts."""
+    models = cfg["services"][provider]["models"]
+    logger.warning("%s: %s Routes unavailable until repaired.", provider, reason)
+    cfg["services"][provider]["models"] = []
+    cfg.setdefault("unavailable_models", {})[provider] = dict.fromkeys(models, reason)
 
 
 def build_cli_provider(cfg, provider, spec, checked, info, state):
