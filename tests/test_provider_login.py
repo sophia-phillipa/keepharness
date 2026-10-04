@@ -338,6 +338,53 @@ def test_sign_in_output_after_an_unterminated_osc_is_kept_when_the_cli_exits(tmp
     assert "Open https://x.test code ABCD-1234" in job["output"] and "\x1b" not in job["output"]
 
 
+def test_sign_in_url_after_an_unterminated_osc_shows_while_the_cli_waits_for_the_code():
+    """A newline ends a bogus OSC: the URL must show before the code is pasted, not at exit."""
+    script = (
+        "import sys\n"
+        "sys.stdout.write('\\x1b]0;title\\nOpen https://x.test\\nPaste code: ')\n"
+        "sys.stdout.flush()\n"
+        "sys.stdin.readline()\n"
+    )
+
+    async def exercise():
+        operations = Operations()
+        job = operations.launch([sys.executable, "-c", script], interactive=True)
+        try:
+            async with asyncio.timeout(10):
+                while "Paste code: " not in job["output"]:
+                    await asyncio.sleep(0.05)
+            assert job["state"] == "running"  # still blocked reading stdin
+            return job["output"]
+        finally:
+            await operations.close()
+
+    output = asyncio.run(exercise())
+    assert "Open https://x.test\n" in output and "\x1b" not in output
+
+
+def test_pasted_code_is_redacted_from_output_flushed_after_an_unterminated_osc():
+    script = (
+        "import sys\n"
+        "code = sys.stdin.readline().strip()\n"
+        "sys.stdout.write('\\x1b]0;echo ' + code)\n"
+    )
+
+    async def exercise():
+        operations = Operations()
+        job = operations.launch([sys.executable, "-c", script], interactive=True)
+        async with asyncio.timeout(10):
+            while not job["accepts_input"]:
+                await asyncio.sleep(0.01)
+            await operations.send_input(job["id"], "SECRET-4321")
+            await asyncio.gather(*operations.tasks)
+        return job
+
+    job = asyncio.run(exercise())
+    assert job["state"] == "completed"
+    assert "SECRET-4321" not in job["output"] and "[redacted]" in job["output"]
+
+
 @pytest.mark.parametrize(
     ("display", "expected"),
     [

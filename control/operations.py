@@ -8,9 +8,10 @@ import uuid
 from urllib.parse import urlsplit
 
 # CSI (colours, cursor), OSC (hyperlinks, titles), and ordinary terminal escape sequences.
-ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[ -/]*[0-~]")
+# An OSC never spans a line: a newline ends a bogus one so the text after it is not held back.
+ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b\n]*(?:\x07|\x1b\\)|\x1b[ -/]*[0-~]")
 # An escape sequence cut by the end of a read: held back until the next read completes it.
-ANSI_PARTIAL = re.compile(r"\x1b(?:\[[0-?]*[ -/]*|\][^\x07\x1b]*\x1b?|[ -/]+)?$")
+ANSI_PARTIAL = re.compile(r"\x1b(?:\[[0-?]*[ -/]*|\][^\x07\x1b\n]*\x1b?|[ -/]+)?$")
 
 
 # An OSC title or link longer than one read is not a real one: release it as text.
@@ -40,6 +41,13 @@ class Operations:
         self.stdin = {}
         self.codes = {}  # the code last pasted into a job, kept in memory to redact an echo of it
 
+    def append_output(self, jid, fresh):
+        """Add text to a job's output, redacting an echo of the pasted code."""
+        text = self.jobs[jid]["output"] + fresh
+        if self.codes.get(jid):
+            text = text.replace(self.codes[jid], "[redacted]")
+        self.jobs[jid]["output"] = text[-12000:]
+
     def launch(self, args, timeout=300, *, env=None, on_success=None, interactive=False):
         """Run one CLI; ``interactive`` keeps stdin open for one pasted line (login codes)."""
         jid = uuid.uuid4().hex
@@ -66,12 +74,9 @@ class Operations:
                         if not chunk:
                             break
                         fresh, held = strip_ansi(held + chunk.decode(errors="replace"))
-                        text = self.jobs[jid]["output"] + fresh
-                        if self.codes.get(jid):
-                            text = text.replace(self.codes[jid], "[redacted]")
-                        self.jobs[jid]["output"] = text[-12000:]
+                        self.append_output(jid, fresh)
                     # An OSC that never ended must not swallow the output that followed it.
-                    self.jobs[jid]["output"] = (self.jobs[jid]["output"] + released(held))[-12000:]
+                    self.append_output(jid, released(held))
                     succeeded = await proc.wait() == 0
                     if succeeded and on_success:
                         await on_success()
