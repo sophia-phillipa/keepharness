@@ -284,3 +284,8 @@ test('partly offscreen bounds retain size and maximization on greatest overlap',
   assert.deepEqual(clampBounds({...state,x:-1200,width:1600},[primary,left]),{...state,x:-1280,width:1280});
   assert.deepEqual(clampBounds({...state,x:1920},[primary]),{x:240,y:90,width:1440,height:900,maximized:false});
 });
+
+test('IPv6 loopback is refused for app and external navigation', () => {
+  assert.equal(isAppUrl('http://[::1]:8095/', ['http://[::1]:8095']), false);
+  assert.equal(externalUrl('http://[::1]:8095/'), null);
+});

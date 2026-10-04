@@ -12,7 +12,7 @@ function appOrigins(ports) {
 function isAppUrl(url, origins) {
   try {
     const parsed = new URL(url);
-    return origins.includes(parsed.origin) && !parsed.username && !parsed.password;
+    return parsed.hostname === '127.0.0.1' && origins.includes(parsed.origin) && !parsed.username && !parsed.password;
   } catch {
     return false;
   }
@@ -27,7 +27,7 @@ function externalUrl(url) {
   try {
     const parsed = new URL(url);
     if (!['https:', 'http:'].includes(parsed.protocol)) return null;
-    if (parsed.username || parsed.password) return null;
+    if (parsed.username || parsed.password || parsed.hostname === '[::1]') return null;
     return parsed.href;
   } catch {
     return null;
@@ -41,6 +41,7 @@ const PAGE_PREFERENCES = {
   webSecurity: true,
   allowRunningInsecureContent: false,
   webviewTag: false,
+  spellcheck: false,
 };
 const BACKGROUND = '#141414';
 function windowOptions(title, icon) {

@@ -12,7 +12,7 @@
 
 Setup: `cd desktop && npm install --prefer-offline && node node_modules/electron/install.js` (the Electron archive comes from `~/.cache/electron` when present). Tests: `cd desktop && env -u DISPLAY -u WAYLAND_DISPLAY npm test`. The main-process suite uses fake Electron windows and isolated state; it never opens a real window.
 
-Not yet: a packaged build (electron-builder with a frozen Python backend, as in KeepGlide, including its licence audit).
+Not yet: a frozen Python backend, AppImage, .deb, signing, or auto-update.
 
 ## Runtime recovery and desktop state
 
@@ -21,4 +21,52 @@ Not yet: a packaged build (electron-builder with a frozen Python backend, as in 
 - The KeepHarness menu contains About / Quit, Edit roles, zoom and full screen. Packaged builds expose neither Reload nor DevTools; development builds expose DevTools. Quit preserves the existing busy-work confirmation.
 - Main-window normal bounds and maximized state persist atomically through `userData/window-state.json.tmp` and rename. Restored bounds use the display work area with greatest positive overlap, preserving size and maximized state before clamping. Bounds with no overlap use centered defaults on the primary display. Minimum window size is 960 × 640.
 - All windows use one factory with identical renderer isolation and navigation policies. The splash rejects navigation and popups, and closes as soon as the admin answers. Content windows show on the first of `ready-to-show` and `did-finish-load`; saved maximization is applied immediately before showing, never during hidden enrollment.
-- Main-process diagnostics use `~/.config/KeepHarness/logs/main.log`, at most 1 MiB with one rotation (`main.log.1`), ISO timestamps and redaction of secret, ticket, cookie, Authorization, API-key, token and password values in headers, parameters and JSON-like diagnostics. `admin=` cookie values are redacted while ordinary admin log prose is preserved. Desktop profile paths are unchanged.
+- Main-process diagnostics use `~/.config/KeepHarness/logs/main.log`, at most 1 MiB with one rotation (`main.log.1`), ISO timestamps and redaction of secret, ticket, cookie, Authorization, API-key, token and password values in headers, parameters and JSON-like diagnostics. `admin=` cookie values are redacted while ordinary admin log prose is preserved. Desktop profile data uses the layout described below.
+
+## Portable Linux package lifecycle (WP-18 S3)
+
+Build with `KEEPHARNESS_ELECTRON_DIST=/path/to/electron/dist scripts/package-desktop-linux.sh`
+from a clean Git tree. The exact Electron archive must be in `~/.cache/electron/*/`, or
+selected with `KEEPHARNESS_ELECTRON_ZIP`. Its SHA-256 is verified against the committed
+release SHASUMS256.txt, then every runtime file is compared to that archive. A dirty
+tree, changed runtime, existing output folder, or invalid version stops the build.
+The package contains `resources/app.asar`, `build-manifest.json`, and exhaustive
+`SHA256SUMS`. The installer checks every package member before copying. Checksums
+identify corruption; they are not a signature or protection against an attacker who
+can replace both files and checksums. Runtime startup refuses missing or invalid
+provenance. RunAsNode, NODE_OPTIONS and CLI inspect are disabled; OnlyLoadAppFromAsar
+and embedded ASAR integrity validation are enabled. Electron does not enforce ASAR
+integrity on Linux. ASAR and fuses use the exact npm versions in the desktop lockfile.
+
+Run the package's `./install-desktop-linux.sh` as the target user. Python 3 and Linux
+`flock` semantics are required. Version directories are immutable:
+`~/.local/opt/keepharness-<version>`. The menu uses the atomic
+`~/.local/opt/keepharness/current` link; `previous` records the prior selection.
+An identical reinstall preserves the version; different contents are refused.
+`./install-desktop-linux.sh --rollback` swaps current and previous, and refuses a
+missing or broken previous installation. Pruning follows installation order, keeps
+current, previous and any running versions, and reports failures without undoing a
+successful install. Downgrades are supported. A nonblocking lifecycle lock serializes
+installation, rollback, pruning, and stage recovery.
+
+`./install-desktop-linux.sh --uninstall --dry-run` prints the deletion plan.
+`--uninstall --yes` applies it; otherwise a terminal confirmation is required.
+The complete plan is validated before deletion: canonical user HOME, ordinary owned
+roots and candidates, strict version names and ownership manifests. Unmarked folders
+and foreign desktop entries remain. Symlinked candidates, mount boundaries, a live
+app process or local SingletonLock, and case aliases of the Python config refuse the
+operation. The current/previous links are unlinked, never followed; their parent is
+removed only when empty. No previous.desktop is restored. Interrupted mktemp stages
+are recovered only under the lock. This is a local, cooperating-user lifecycle lock,
+not protection against another process maliciously racing filesystem mutations.
+
+All new Electron data and caches live in `~/.config/KeepHarness` (cache:
+`xdg-cache`). Uninstall removes this desktop profile and the legacy
+`~/.config/keepharness/electron` only; it preserves Python configuration, state,
+`local.key`, and systemd units. The launcher prints the Ubuntu AppArmor user-namespace
+hint before launch when applicable; it never disables the Chromium sandbox.
+
+The browser shortcut is `keepharness-browser.desktop`. Installing the desktop removes
+only the exact owned browser shortcut; Python registration skips it while `current`
+points to a marked install. Python rollback never removes the desktop client's entry.
+After desktop uninstall, run `./install.sh` to get the browser entry back.

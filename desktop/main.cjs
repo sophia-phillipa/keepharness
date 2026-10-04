@@ -446,7 +446,20 @@ function releaseSplash() {
 }
 
 async function start() {
-  log('KeepHarness starting');
+  log(`KeepHarness starting from ${__dirname}`);
+  if (app.isPackaged) {
+    try {
+      const manifest = JSON.parse(fs.readFileSync(path.join(project, '..', 'build-manifest.json'), 'utf8'));
+      if (manifest.product !== 'keepharness' || manifest.dirty !== false ||
+          !/^[0-9]+\.[0-9]+\.[0-9]+(?:[+-][0-9A-Za-z.]+)?$/.test(manifest.version) ||
+          !/^[0-9a-f]{40}$/.test(manifest.commit)) throw new Error('Invalid build manifest');
+    } catch (error) {
+      log('Packaged provenance refused: ' + error.message);
+      await dialog.showMessageBox({type:'error', title:TITLE, message:'KeepHarness package provenance is invalid.', detail:'Reinstall a verified desktop package.'});
+      app.quit();
+      return;
+    }
+  }
   installMenu();
   limitPermissions();
   showSplash();
