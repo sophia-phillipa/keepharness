@@ -23,6 +23,8 @@ from . import api_route, body
 # Bidirectional embedding, override and isolate controls: they can reorder how a name
 # is displayed and hide its real extension ("invoice\u202etxt.exe").
 BIDI_CONTROLS = frozenset("\u061c\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069")
+# The host's own folders belong to the owner on this computer; guests only get project roots.
+HOST_FILES_OWNER_ONLY = "host_files_owner_only"
 
 
 def require_current_read(request, service, project):
@@ -242,7 +244,8 @@ async def project_files(request, service, identity):
     if request.query_params.get("view") == "authorized":
         return await authorized_project_files(request, service, identity)
     if request.query_params.get("view") == "tree":
-        roots = workspaces.visible_system_roots()
+        harness_agents.require_local_client(identity, HOST_FILES_OWNER_ONLY)
+        roots = workspaces.system_roots()
         root_id = request.query_params.get("root_id", "home")
         try:
             start = int(request.query_params.get("start", 1))
@@ -255,10 +258,13 @@ async def project_files(request, service, identity):
             if not spec.get("root"):
                 raise APIError("project_has_no_directory")
             target = Path(spec["root"]).resolve()
-            root_id, root = next(
+            match = next(
                 ((rid, base) for rid, base in roots if target.is_relative_to(base.resolve())),
-                ("system", Path("/")),
+                None,
             )
+            if match is None:
+                raise APIError("system_root_denied")
+            root_id, root = match
             folder = target.relative_to(root.resolve()).as_posix()
         root = workspaces.system_root(root_id)
         result = await asyncio.to_thread(workspaces.browse_system, root, folder, start, limit)
@@ -330,7 +336,8 @@ async def attach_project_files(request, service, identity):
             workspaces.selected_project_files, root, data.get("paths"), maximum
         )
     else:
-        root = workspaces.system_root(data.get("root_id", "system"))
+        harness_agents.require_local_client(identity, HOST_FILES_OWNER_ONLY)
+        root = workspaces.system_root(data.get("root_id", "home"))
         selected, skipped = await asyncio.to_thread(
             workspaces.selected_system_files, root, data.get("paths"), maximum
         )

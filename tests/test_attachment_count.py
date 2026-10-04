@@ -23,20 +23,21 @@ def test_folder_selection_twenty(select, tmp_path):
         select(tmp_path, names, 21)
 
 
-def test_attach_default_and_submit_twenty(tmp_path):
+def test_attach_default_and_submit_twenty(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
     root = tmp_path / "source"
     root.mkdir()
     for i in range(21):
         (root / f"{i}.txt").write_text("text")
     app = create_app(config(tmp_path))
     # No TestClient lifespan: do not start inference workers.
-    client = TestClient(app, headers={"Authorization": "Bearer a"})
+    client = TestClient(app, headers={"Authorization": "Bearer local"})
     try:
         result = client.post(
             "/v1/project-files/attach?project_id=p",
             json={
-                "root_id": "system",
-                "paths": [str(root).lstrip("/")],
+                "root_id": "home",
+                "paths": [root.name],
                 "backend": "codex",
                 "model": "fixture",
             },

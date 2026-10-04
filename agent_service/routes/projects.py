@@ -130,7 +130,7 @@ async def project_directories(request, service, identity):
                         "media-user": "External media",
                     }[rid],
                 }
-                for rid, _ in workspaces.visible_system_roots()
+                for rid, _ in workspaces.system_roots()
             ],
             "root_id": root_id,
             "absolute_path": str(workspaces.system_path(root, folder)),

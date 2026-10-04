@@ -4,6 +4,7 @@ import hashlib
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from starlette.testclient import TestClient
 
 from agent_service.app import create_app
@@ -16,7 +17,11 @@ def config(tmp_path):
         "uploads_enabled": True,
         "projects": {"p": {}, "sem-projeto": {}},
         "clients": {
-            "a": {"sha256": hashlib.sha256(b"a").hexdigest(), "projects": ["p", "sem-projeto"]}
+            name: {
+                "sha256": hashlib.sha256(name.encode()).hexdigest(),
+                "projects": ["p", "sem-projeto"],
+            }
+            for name in ("a", "local")
         },
         "services": {
             "codex": {
@@ -30,6 +35,12 @@ def config(tmp_path):
     }
 
 
+@pytest.fixture(autouse=True)
+def host_home(tmp_path, monkeypatch):
+    """The owner's host folders are browsed from the home root (the filesystem root is gone)."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+
 def test_system_browser_lists_and_attaches_external_folder_to_project(tmp_path):
     external = tmp_path / "external"
     (external / "src").mkdir(parents=True)
@@ -39,17 +50,17 @@ def test_system_browser_lists_and_attaches_external_folder_to_project(tmp_path):
     (external / "src" / ".env").write_text("secret")
     (external / "two.txt").write_text("two")
     (external / ".hidden.txt").write_text("hidden")
-    external_path = external.relative_to(Path("/")).as_posix()
+    external_path = external.relative_to(tmp_path).as_posix()
     app = create_app(config(tmp_path))
-    with TestClient(app, headers={"Authorization": "Bearer a"}) as client:
-        tree = client.get("/v1/project-files?view=tree&root_id=system&path=" + external_path).json()
+    with TestClient(app, headers={"Authorization": "Bearer local"}) as client:
+        tree = client.get("/v1/project-files?view=tree&root_id=home&path=" + external_path).json()
         assert tree["state"] == "ready"
         assert "system" not in {root["id"] for root in tree["roots"]}
         assert {entry["name"] for entry in tree["entries"]} == {"src", "etc", "two.txt"}
         result = client.post(
             "/v1/project-files/attach?project_id=p&max_files=2",
             json={
-                "root_id": "system",
+                "root_id": "home",
                 "paths": [external_path + "/src", external_path + "/two.txt"],
                 "backend": "codex",
                 "model": "fixture",
@@ -76,7 +87,7 @@ def test_tree_defaults_to_home_and_hides_system_and_dot_entries(tmp_path):
     from agent_service import workspaces
 
     app = create_app(config(tmp_path))
-    with TestClient(app, headers={"Authorization": "Bearer a"}) as client:
+    with TestClient(app, headers={"Authorization": "Bearer local"}) as client:
         tree = client.get("/v1/project-files?view=tree").json()
         assert tree["root_id"] == "home"
         assert {root["id"] for root in tree["roots"]} >= {"home"}
@@ -96,18 +107,18 @@ def test_system_browser_denies_escape_skips_symlink_and_needs_authentication(tmp
     secret = tmp_path / "secret.txt"
     secret.write_text("private")
     (external / "link").symlink_to(secret)
-    external_path = external.relative_to(Path("/")).as_posix()
+    external_path = external.relative_to(tmp_path).as_posix()
     app = create_app(config(tmp_path))
-    with TestClient(app, headers={"Authorization": "Bearer a"}) as client:
+    with TestClient(app, headers={"Authorization": "Bearer local"}) as client:
         assert "link" in {
             entry["name"]
             for entry in client.get(
-                "/v1/project-files?view=tree&root_id=system&path=" + external_path
+                "/v1/project-files?view=tree&root_id=home&path=" + external_path
             ).json()["entries"]
         }
         result = client.post(
             "/v1/project-files/attach?project_id=p",
-            json={"root_id": "system", "paths": [external_path + "/link"]},
+            json={"root_id": "home", "paths": [external_path + "/link"]},
         ).json()
         assert result == {
             "attachments": [],
@@ -116,7 +127,7 @@ def test_system_browser_denies_escape_skips_symlink_and_needs_authentication(tmp
         assert (
             client.post(
                 "/v1/project-files/attach?project_id=p",
-                json={"root_id": "system", "paths": ["../secret.txt"]},
+                json={"root_id": "home", "paths": ["../secret.txt"]},
             ).status_code
             == 422
         )
@@ -131,16 +142,16 @@ def test_system_browser_needs_no_project_but_attach_requires_read_permission(tmp
     external = tmp_path / "external"
     external.mkdir()
     (external / "visible.txt").write_text("safe")
-    external_path = external.relative_to(Path("/")).as_posix()
+    external_path = external.relative_to(tmp_path).as_posix()
     cfg = config(tmp_path)
     cfg["services"]["codex"]["permissions"]["read"] = False
     app = create_app(cfg)
-    with TestClient(app, headers={"Authorization": "Bearer a"}) as client:
+    with TestClient(app, headers={"Authorization": "Bearer local"}) as client:
         assert client.get("/v1/project-files?view=tree").status_code == 200
         assert (
             client.post(
                 "/v1/project-files/attach?project_id=p",
-                json={"root_id": "system", "paths": [external_path + "/visible.txt"]},
+                json={"root_id": "home", "paths": [external_path + "/visible.txt"]},
             ).status_code
             == 403
         )
@@ -151,14 +162,14 @@ def test_project_browser_attach_requires_upload_permission(tmp_path):
     external = tmp_path / "external"
     external.mkdir()
     (external / "visible.txt").write_text("safe")
-    external_path = external.relative_to(Path("/")).as_posix()
+    external_path = external.relative_to(tmp_path).as_posix()
     cfg = config(tmp_path)
     cfg["services"]["codex"]["permissions"]["upload"] = False
     app = create_app(cfg)
-    with TestClient(app, headers={"Authorization": "Bearer a"}) as client:
+    with TestClient(app, headers={"Authorization": "Bearer local"}) as client:
         response = client.post(
             "/v1/project-files/attach?project_id=p",
-            json={"root_id": "system", "paths": [external_path + "/visible.txt"]},
+            json={"root_id": "home", "paths": [external_path + "/visible.txt"]},
         )
         assert response.status_code == 403
         assert response.json()["code"] == "uploads_denied"
@@ -194,10 +205,10 @@ def test_system_attachment_uses_model_from_query_for_images(tmp_path):
     external = tmp_path / "external"
     external.mkdir()
     (external / "image.png").write_bytes(b"fixture")
-    external_path = external.relative_to(Path("/")).as_posix()
+    external_path = external.relative_to(tmp_path).as_posix()
     app = create_app(config(tmp_path))
     with (
-        TestClient(app, headers={"Authorization": "Bearer a"}) as client,
+        TestClient(app, headers={"Authorization": "Bearer local"}) as client,
         patch(
             "agent_service.tools.extract",
             new=AsyncMock(return_value=[{"media_type": "image/png"}]),
@@ -207,7 +218,7 @@ def test_system_attachment_uses_model_from_query_for_images(tmp_path):
         response = client.post(
             "/v1/project-files/attach?project_id=p&backend=codex&model=fixture",
             json={
-                "root_id": "system",
+                "root_id": "home",
                 "paths": [external_path + "/image.png"],
                 "backend": "wrong",
                 "model": "wrong",
@@ -231,10 +242,8 @@ def test_navigate_primary_project_folder_uses_visible_root(tmp_path):
     cfg["projects"]["p"] = {"root": str(first), "additional_roots": [str(home / "second")]}
     app = create_app(cfg)
     with (
-        patch.object(
-            workspaces, "system_roots", return_value=[("system", Path("/")), ("home", home)]
-        ),
-        TestClient(app, headers={"Authorization": "Bearer a"}) as client,
+        patch.object(workspaces, "system_roots", return_value=[("home", home)]),
+        TestClient(app, headers={"Authorization": "Bearer local"}) as client,
     ):
         response = client.get("/v1/project-files?view=tree&navigate_project=1&project_id=p")
         assert response.status_code == 200

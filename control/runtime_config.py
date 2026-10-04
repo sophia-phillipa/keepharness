@@ -243,11 +243,13 @@ def build_clients(cfg, settings, state, previous):
         vpnkey.write_text(secrets.token_urlsafe(48))
         vpnkey.chmod(0o600)
     clients = previous.get("clients", {})
+    # Only the local owner starts with every project; the others start with "No project" and
+    # receive the rest when the owner shares them (ProjectService.share_projects).
     cfg["clients"]["vpn"] = {
         "sha256": clients.get("vpn", {}).get(
             "sha256", hashlib.sha256(vpnkey.read_text().encode()).hexdigest()
         ),
-        "projects": all_projects,
+        "projects": ["sem-projeto"],
     }
     cfg["clients"]["local"] = {
         "sha256": clients.get("local", {}).get(
@@ -262,7 +264,7 @@ def build_clients(cfg, settings, state, previous):
             "sha256": clients.get(client, {}).get(
                 "sha256", hashlib.sha256(secrets.token_bytes(48)).hexdigest()
             ),
-            "projects": all_projects,
+            "projects": ["sem-projeto"],
         }
         cfg["tailscale_logins"][login] = client
 

@@ -31,14 +31,16 @@ class ProjectService:
             raise APIError("project_denied", 403)
         return self.config["projects"][project]
 
-    def share_projects(self):
+    def share_projects(self, config=None):
         """Every project reaches every provider and the local owner; other clients receive
-        the registered ones only when the owner shares projects."""
-        projects = list(self.config["projects"])
-        for spec in self.config.get("services", {}).values():
+        the registered ones only when the owner shares projects. ``config`` is a runtime
+        candidate not installed yet (default: the live one)."""
+        config = self.config if config is None else config
+        projects = list(config["projects"])
+        for spec in config.get("services", {}).values():
             spec["projects"] = projects.copy()
-        for name, client in self.config.get("clients", {}).items():
-            if name == LOCAL_CLIENT or self.config.get("shared_projects"):
+        for name, client in config.get("clients", {}).items():
+            if name == LOCAL_CLIENT or config.get("shared_projects"):
                 client["projects"] = projects.copy()
 
     def add_project(self, data, project_id=None):

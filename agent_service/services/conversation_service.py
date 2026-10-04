@@ -226,6 +226,8 @@ class ConversationService:
         self.claude_video_cache = None
         self.claude_video_lock = asyncio.Lock()
         self.config_reload_error = None
+        # Proof that a connection came from tailscaled; tests replace it.
+        self.serve_peer_check = local_access.served_by_tailscaled
         self.cancellation_reasons = {}
         self.active_executors = {}
         self.job_tasks = {}
@@ -261,12 +263,10 @@ class ConversationService:
         # Registered projects are durable user data, not a control-file concern.
         registered = self.project_repository.registered()
         candidate = {**candidate, "projects": {**candidate["projects"], **registered}}
-        for spec in candidate["services"].values():
-            if spec.get("projects"):
-                spec["projects"] = list(dict.fromkeys([*spec["projects"], *registered]))
-        for client in candidate["clients"].values():
-            if client.get("projects"):
-                client["projects"] = list(dict.fromkeys([*client["projects"], *registered]))
+        if candidate.get("project_registration"):
+            # The startup rule, before jobs are checked against the candidate: the owner gets
+            # every project, other clients only when the owner shares them.
+            self.project_service.share_projects(candidate)
         changed_scopes = set()
         for backend in set(self.config.get("services", {})) | set(candidate["services"]):
             old = self.config.get("services", {}).get(backend, {})
@@ -382,6 +382,9 @@ class ConversationService:
             return (name, client) if revalidate else self.throttle(name, client, request)
 
         request.state.approval_session_owner = None
+        if "tailscale-funnel-request" in request.headers:
+            # Funnel puts the harness on the public internet; nothing it sends may authenticate.
+            raise APIError("funnel_denied", 403)
         origin = request.headers.get("origin")
         if origin and origin not in self.config.get("origins", []):
             raise APIError("origin_denied", 403)
@@ -499,9 +502,9 @@ class ConversationService:
         Serve proxies to 127.0.0.1 with the Host it received, sets X-Forwarded-Host to that Host
         and X-Forwarded-For to the tailnet peer's address, and drops any identity header the
         peer sent (tailscale ipn/ipnlocal/serve.go). All three must agree, and a loopback
-        ``browser_url`` never maps a login. Assumption: another account on this computer can
-        still send these headers to 127.0.0.1 itself; telling it apart from Serve needs a
-        tailscaled WhoIs lookup, which this service does not make.
+        ``browser_url`` never maps a login. Another account on this computer can send the same
+        headers to 127.0.0.1 itself, so the connecting socket must also belong to tailscaled
+        (uid 0, /proc/net/tcp); otherwise the identity headers are ignored (fail closed).
         """
         remote = urlsplit(self.config.get("browser_url") or "")
         if not remote.hostname or loopback_name(remote.hostname):
@@ -510,7 +513,15 @@ class ConversationService:
             return False
         if request.headers.get("x-forwarded-host", "").lower() != host.lower():
             return False
-        return tailnet_address(request.headers.get("x-forwarded-for", ""))
+        if not tailnet_address(request.headers.get("x-forwarded-for", "")):
+            return False
+        if self.serve_peer_check(request.client, self.config.get("port", 0)):
+            return True
+        logger.warning(
+            "Tailscale identity headers ignored: the connection was not opened by tailscaled "
+            "(Serve proof failed; if tailscaled runs without root, tailnet logins are refused)."
+        )
+        return False
 
     def limit(self, key, maximum, code="rate_limit"):
         # Keys come from configured identities, fixed lanes.

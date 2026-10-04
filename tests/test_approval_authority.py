@@ -38,6 +38,8 @@ def approval_app(make_harness_config):
             origins=[ORIGIN, REMOTE],
         )
     )
+    # The socket proof has its own tests (tests/test_serve_proof.py); here Host and headers count.
+    app.state.service.serve_peer_check = lambda client, port: True
     yield app
     app.state.service.db.close()
 

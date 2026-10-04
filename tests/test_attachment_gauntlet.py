@@ -10,9 +10,13 @@ from test_project_browser import config
 
 from agent_service.app import create_app
 
+OWNER = {"Authorization": "Bearer local"}
+
 
 @pytest.fixture
-def api(tmp_path):
+def api(tmp_path, monkeypatch):
+    # Host folders are the owner's and are browsed from the home root.
+    monkeypatch.setenv("HOME", str(tmp_path))
     cfg = config(tmp_path)
     cfg["clients"]["b"] = {
         "sha256": hashlib.sha256(b"b").hexdigest(),
@@ -109,11 +113,12 @@ def test_attachment_profile(api, round_no, profile):
         response = client.post(
             "/v1/project-files/attach?project_id=p",
             json={
-                "root_id": "system",
-                "paths": [str(folder).lstrip("/")],
+                "root_id": "home",
+                "paths": [folder.name],
                 "backend": "codex",
                 "model": "fixture",
             },
+            headers=OWNER,
         )
         assert response.status_code == 200, response.text
         data = response.json()
@@ -177,13 +182,14 @@ def test_attachment_profile(api, round_no, profile):
         folder.mkdir()
         (folder / "note.txt").write_bytes(content)
         (folder / "link.txt").symlink_to(folder / "note.txt")
-        base = str(folder).lstrip("/")
+        base = folder.name
         response = client.post(
             "/v1/project-files/attach?project_id=p",
             json={
-                "root_id": "system",
+                "root_id": "home",
                 "paths": [base + "/note.txt", base + "/note.txt", base + "/link.txt"],
             },
+            headers=OWNER,
         )
         assert response.status_code == 200, response.text
         assert len(response.json()["attachments"]) == 1
@@ -208,7 +214,9 @@ def test_attachment_profile(api, round_no, profile):
 def test_malformed_folder_root_is_controlled(api, root_id):
     client, _, _ = api
     response = client.post(
-        "/v1/project-files/attach?project_id=p", json={"root_id": root_id, "paths": ["anything"]}
+        "/v1/project-files/attach?project_id=p",
+        json={"root_id": root_id, "paths": ["anything"]},
+        headers=OWNER,
     )
     assert response.status_code == 422, response.text
 

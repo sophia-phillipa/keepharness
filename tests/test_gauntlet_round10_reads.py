@@ -50,7 +50,7 @@ def test_read_after_revocation(tmp_path, monkeypatch, route, change):
                 return original(*a, **kw)
 
             monkeypatch.setattr(workspaces, "system_root", lambda _: root)
-            monkeypatch.setattr(workspaces, "visible_system_roots", lambda: [("home", root)])
+            monkeypatch.setattr(workspaces, "system_roots", lambda: [("home", root)])
             monkeypatch.setattr(workspaces, "browse_system", browse)
         else:
 

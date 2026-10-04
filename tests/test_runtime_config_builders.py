@@ -84,6 +84,18 @@ def test_clients_reuse_hashes_and_create_the_vpn_key_once(tmp_path):
     assert (tmp_path / "vpn.key").read_text() == key
 
 
+def test_non_local_clients_start_with_sem_projeto(tmp_path):
+    cfg = {"projects": {"sem-projeto": {}, "registered": {}}, "clients": {}}
+    settings = {"logins": ["person@example.com"]}
+    runtime_config.build_clients(cfg, settings, tmp_path, {})
+    assert cfg["clients"]["local"]["projects"] == ["sem-projeto", "registered"]
+    others = {
+        name: client["projects"] for name, client in cfg["clients"].items() if name != "local"
+    }
+    assert set(others) == {"vpn", cfg["tailscale_logins"]["person@example.com"]}
+    assert all(projects == ["sem-projeto"] for projects in others.values())
+
+
 def test_origins_include_the_tailnet_host_only_when_known():
     settings = {"port": 8095, "tailnet_port": 8096}
     cfg = {}

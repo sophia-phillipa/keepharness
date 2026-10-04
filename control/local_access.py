@@ -15,6 +15,8 @@ import hmac
 import json
 import os
 import secrets
+import socket
+import sys
 import tempfile
 import time
 from collections.abc import Callable, Iterable, Mapping, MutableMapping
@@ -33,6 +35,8 @@ OPEN_SECONDS = 300
 COOKIE_SECONDS = 30 * 24 * 60 * 60
 LOOPBACK_NAMES = frozenset({"127.0.0.1", "localhost"})
 MAX_VALUE = 256
+PROC_NET_TCP = Path("/proc/net/tcp")
+TAILSCALED_UID = 0
 
 
 def ensure_secret(state: Path) -> str:
@@ -176,6 +180,38 @@ def host_allowed(host: str, names: Iterable[str]) -> bool:
 def origin_names(origins: Iterable[str]) -> frozenset[str]:
     """The host names of configured origins, plus the loopback names."""
     return LOOPBACK_NAMES | {urlsplit(origin).hostname or "" for origin in origins} - {""}
+
+
+def _proc_address(host: str, port: int) -> str:
+    """An IPv4 endpoint as /proc/net/tcp prints it: the network-order address as a host word."""
+    return f"{int.from_bytes(socket.inet_aton(host), sys.byteorder):08X}:{port:04X}"
+
+
+def served_by_tailscaled(
+    client: tuple[str, int] | None, server_port: int, *, proc_net: Path = PROC_NET_TCP
+) -> bool:
+    """True when the loopback connection from ``client`` was opened by tailscaled (uid 0).
+
+    Tailscale Serve proxies to 127.0.0.1 from tailscaled, which runs as root; any other account
+    on this computer owns its own socket, so its uid shows in /proc/net/tcp. Every row for the
+    connection (client port to ``server_port``) must be owned by uid 0. Never cached: another
+    account can rebind a freed source port between two requests. Fails closed on anything
+    unreadable, malformed or absent (another platform, no row), and never raises.
+    """
+    if client is None or client[0] != "127.0.0.1":
+        return False
+    local = _proc_address(client[0], client[1])
+    remote = _proc_address("127.0.0.1", server_port)
+    owners: list[int] = []
+    try:
+        with proc_net.open(encoding="ascii") as rows:
+            for row in rows:
+                fields = row.split()
+                if len(fields) > 7 and fields[1] == local and fields[2] == remote:
+                    owners.append(int(fields[7]))
+    except (OSError, ValueError):
+        return False
+    return bool(owners) and all(uid == TAILSCALED_UID for uid in owners)
 
 
 def _signature(secret: str, expires: int, nonce: str) -> str:

@@ -238,15 +238,11 @@ def selected_project_files(root, names, maximum):
 
 
 def system_roots():
-    roots = [("system", Path("/")), ("home", Path.home().resolve())]
+    roots = [("home", Path.home().resolve())]
     media_user = Path("/run/media") / Path.home().name
     if media_user.is_dir():
         roots.append(("media-user", media_user.resolve()))
     return roots
-
-
-def visible_system_roots():
-    return [(root_id, path) for root_id, path in system_roots() if root_id != "system"]
 
 
 def hidden_system_entry(path, name, root, top_level=False):
@@ -264,6 +260,15 @@ def hidden_system_entry(path, name, root, top_level=False):
             )
         )
     )
+
+
+def reject_hidden_components(root, relative):
+    """Refuse a requested path that passes through a hidden or system folder (SEC-RC-10)."""
+    path = Path(root)
+    for index, part in enumerate(PurePosixPath(relative).parts):
+        path = path / part
+        if hidden_system_entry(path, part, root, index == 0):
+            raise ToolError("path_not_authorized")
 
 
 def system_root(root_id):
@@ -322,6 +327,8 @@ def browse_system(root, path="", start=1, limit=100, directories_only=False, que
         raise ToolError("invalid_range")
     root = Path(root).resolve()
     target = system_path(root, path)
+    # Children were always filtered; the requested folder (as it really resolves) is checked too.
+    reject_hidden_components(root, target.relative_to(root).as_posix())
     if not target.is_dir():
         raise ToolError("directory_not_found")
     entries = []
