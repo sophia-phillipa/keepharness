@@ -1,5 +1,6 @@
 """Cross-identity API regressions using isolated state and no inference worker."""
 
+import copy
 import hashlib
 import json
 import sqlite3
@@ -196,3 +197,330 @@ def test_api_json_is_neither_compressed_nor_cached(api):
     assert response.status_code == 200
     assert "content-encoding" not in response.headers
     assert response.headers.get("cache-control", "no-store") == "no-store"
+
+
+# The local owner, the Host allow-list and the views other clients get (D09, SEC-R5 RC-01/02/04/05).
+LOCAL_SECRET = "fixture-install-secret"
+REMOTE = "http://machine.example.ts.net:8093"
+GUEST_LOGIN = "guest@example.test"
+
+
+def owner_config(tmp_path, **overrides):
+    from control import local_access
+
+    cfg = {
+        "state_dir": str(tmp_path / "runs"),
+        "port": 8095,
+        "local_access": True,
+        "local_secret_sha256": local_access.digest(LOCAL_SECRET),
+        "origins": ["http://127.0.0.1:8095", "http://localhost:8095", REMOTE],
+        "browser_url": REMOTE + "/",
+        "tailscale_logins": {GUEST_LOGIN: "tailnet-guest"},
+        "projects": {"sem-projeto": {}},
+        "clients": {
+            name: {"sha256": hashlib.sha256(name.encode()).hexdigest(), "projects": ["sem-projeto"]}
+            for name in ("local", "tailnet-guest", "vpn")
+        },
+        "services": {},
+    }
+    cfg.update(overrides)
+    return cfg
+
+
+def seeded_owner_app(cfg):
+    app = create_app(cfg)
+    with app.state.service.db as db:
+        for owner in cfg["clients"]:
+            db.execute(
+                "INSERT INTO jobs(id,project,owner,state,created,payload,result,idem,digest) VALUES(?,?,?,?,?,?,?,?,?)",
+                (owner + "-job", "sem-projeto", owner, "completed", 1, "{}", "{}", None, owner),
+            )
+    return app
+
+
+def loopback(app, **kwargs):
+    import httpx
+
+    return httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app, client=("127.0.0.1", 4321)),
+        base_url="http://127.0.0.1:8095",
+        **kwargs,
+    )
+
+
+async def who(client, **kwargs):
+    response = await client.get("/v1/conversations", **kwargs)
+    if response.status_code != 200:
+        return response.status_code, response.json()["code"]
+    return 200, [row["id"] for row in response.json()["conversations"]]
+
+
+def test_local_identity_needs_install_secret(tmp_path):
+    import asyncio
+
+    from control import local_access
+
+    app = seeded_owner_app(owner_config(tmp_path))
+
+    async def scenario():
+        async with loopback(app) as client:
+            # Loopback alone is any account on this computer: no owner without the secret.
+            assert await who(client) == (401, "authentication_required")
+            wrong = {local_access.COOKIE: "guess"}
+            assert await who(client, cookies=wrong) == (401, "authentication_required")
+            owner = {local_access.COOKIE: LOCAL_SECRET}
+            assert await who(client, cookies=owner) == (200, ["local-job"])
+            assert await who(client, cookies=owner, headers={"Host": "localhost:8095"}) == (
+                200,
+                ["local-job"],
+            )
+            # The secret is not a bearer token: it never authenticates from elsewhere.
+            bearer = {"Authorization": "Bearer " + LOCAL_SECRET}
+            assert await who(client, headers=bearer) == (401, "authentication_required")
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        app.state.service.db.close()
+
+
+def test_runtime_config_carries_only_the_install_secret_digest(tmp_path):
+    import stat
+
+    from control import local_access
+    from control.runtime_config import base_config
+
+    settings = {"services": {}, "uploads_enabled": False, "projects": [], "port": 8095}
+    cfg = base_config(settings, tmp_path, 8094, None, {})
+    key = tmp_path / local_access.KEY_FILE
+    assert stat.S_IMODE(key.stat().st_mode) == 0o600
+    secret = key.read_text()
+    assert cfg["local_secret_sha256"] == local_access.digest(secret)
+    assert secret not in json.dumps(cfg)
+    # The same install keeps its secret across rebuilds.
+    assert (
+        base_config(settings, tmp_path, 8094, None, {})["local_secret_sha256"]
+        == cfg["local_secret_sha256"]
+    )
+    assert (cfg["shared_projects"], cfg["project_registration"]) == (False, True)
+
+
+def test_tailscale_login_requires_remote_host(tmp_path):
+    import asyncio
+
+    from control import local_access
+
+    app = seeded_owner_app(owner_config(tmp_path))
+    login = {"Tailscale-User-Login": GUEST_LOGIN}
+
+    async def scenario():
+        async with loopback(app) as client:
+            # A rebinding page: same-origin to its own name, which resolves to 127.0.0.1.
+            rebinding = {**login, "Host": "attacker.test:8095", "Sec-Fetch-Site": "same-origin"}
+            assert await who(client, headers=rebinding) == (403, "host_denied")
+            # Listed hosts that are not the configured remote origin do not map the login.
+            assert await who(client, headers=login) == (401, "authentication_required")
+            # Only the remote origin's Host, as Tailscale Serve forwards it, maps the login.
+            remote = {**login, "Host": "machine.example.ts.net:8093"}
+            assert await who(client, headers=remote) == (200, ["tailnet-guest-job"])
+            # An unlisted Host never reaches the owner, even with the owner's cookie (which a
+            # browser would not send to that name anyway).
+            owner = {local_access.COOKIE: LOCAL_SECRET}
+            for path in ("/v1/projects", "/v1/conversations", "/v1/harness-agents"):
+                response = await client.get(path, cookies=owner, headers={"Host": "attacker.test"})
+                assert response.status_code == 401, path
+            for path in ("/v1/projects", "/v1/harness-agents"):
+                response = await client.get(path, headers=rebinding)
+                assert (response.status_code, response.json()["code"]) == (403, "host_denied")
+            # An explicit bearer token cannot be planted by another site, so it keeps working.
+            bearer = {"Authorization": "Bearer vpn", "Host": "attacker.test"}
+            assert await who(client, headers=bearer) == (200, ["vpn-job"])
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        app.state.service.db.close()
+
+    unshared = seeded_owner_app(owner_config(tmp_path / "unshared", browser_url=None))
+
+    async def without_remote_origin():
+        async with loopback(unshared) as client:
+            remote = {**login, "Host": "machine.example.ts.net:8093"}
+            assert await who(client, headers=remote) == (401, "authentication_required")
+
+    try:
+        asyncio.run(without_remote_origin())
+    finally:
+        unshared.state.service.db.close()
+
+
+def test_project_management_local_only(tmp_path):
+    import asyncio
+
+    from control import local_access
+
+    root = tmp_path / "host-folder"
+    root.mkdir()
+    (root / "keep.txt").write_text("fixture")
+    cfg = owner_config(tmp_path, project_registration=True, shared_projects=True)
+    app = create_app(cfg)
+    owner = {local_access.COOKIE: LOCAL_SECRET}
+    vpn = {"Authorization": "Bearer vpn"}
+
+    async def scenario():
+        async with loopback(app) as client:
+            created = await client.post(
+                "/v1/projects", json={"root": str(root), "label": "Host"}, cookies=owner
+            )
+            assert created.status_code == 201, created.text
+            pid = created.json()["project_id"]
+            # Shared on purpose here, so only the new gate stands between a guest and the folder.
+            assert pid in (await client.get("/v1/projects", headers=vpn)).json()["projects"]
+            preview = (
+                await client.get("/v1/project-folder", params={"project_id": pid}, cookies=owner)
+            ).json()
+            attempts = (
+                ("POST", "/v1/projects", None, {"root": str(tmp_path), "label": "Other"}),
+                ("PATCH", "/v1/projects", None, {"project_id": pid, "root": str(tmp_path)}),
+                (
+                    "DELETE",
+                    "/v1/project-folder",
+                    {"project_id": pid},
+                    {**preview, "confirmed": True},
+                ),
+                ("GET", "/v1/project-directories", None, None),
+            )
+            for method, path, params, data in attempts:
+                response = await client.request(method, path, params=params, json=data, headers=vpn)
+                assert (response.status_code, response.json()["code"]) == (
+                    403,
+                    "project_management_local_only",
+                ), (method, path)
+            assert (root / "keep.txt").read_text() == "fixture"
+            assert app.state.service.config["projects"][pid]["root"] == str(root)
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        app.state.service.db.close()
+
+
+def test_registered_projects_stay_with_the_owner_unless_shared(tmp_path):
+    import asyncio
+
+    from control import local_access
+
+    root = tmp_path / "owner-folder"
+    root.mkdir()
+    cfg = owner_config(tmp_path, project_registration=True)
+    app = create_app(cfg)
+    owner = {local_access.COOKIE: LOCAL_SECRET}
+
+    async def scenario():
+        async with loopback(app) as client:
+            created = await client.post("/v1/projects", json={"root": str(root)}, cookies=owner)
+            pid = created.json()["project_id"]
+            assert pid in (await client.get("/v1/projects", cookies=owner)).json()["projects"]
+            guest = (
+                await client.get("/v1/projects", headers={"Authorization": "Bearer vpn"})
+            ).json()
+            assert guest["projects"] == ["sem-projeto"]
+            return pid
+
+    try:
+        pid = asyncio.run(scenario())
+    finally:
+        app.state.service.db.close()
+    restarted = create_app(copy.deepcopy(cfg))
+    try:
+        clients = restarted.state.service.config["clients"]
+        assert pid in clients["local"]["projects"]
+        assert pid not in clients["vpn"]["projects"]
+        assert pid not in clients["tailnet-guest"]["projects"]
+    finally:
+        restarted.state.service.db.close()
+
+
+def test_non_local_views_redacted(tmp_path, monkeypatch):
+    import asyncio
+
+    from control import local_access
+
+    home = tmp_path / "home"
+    skill = home / ".claude" / "skills" / "private-skill"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text("---\nname: private-skill\ndescription: Fixture\n---\nBody\n")
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("CODEX_HOME", raising=False)
+    control = tmp_path / "control"
+    control.mkdir()
+    service = {
+        "enabled": True,
+        "mode": "native",
+        "models": ["sonnet"],
+        "projects": ["sem-projeto"],
+        "permissions": {"read": True},
+    }
+    cfg = owner_config(
+        tmp_path,
+        control_state_dir=str(control),
+        services={"claude": service},
+        project_registration=True,
+    )
+    app = create_app(cfg)
+    owner = {local_access.COOKIE: LOCAL_SECRET}
+    persona = {
+        "name": "release-checker",
+        "purpose": "Checks releases",
+        "instructions": "PRIVATE-INSTRUCTIONS",
+        "tasks": ["PRIVATE-TASK"],
+        "target_output": "PRIVATE-OUTPUT",
+        "backend": "claude",
+        "model": "sonnet",
+        "effort": "configured",
+    }
+    query = {"project_id": "sem-projeto", "backend": "claude", "model": "sonnet"}
+
+    async def scenario():
+        async with loopback(app) as client:
+            created = await client.post("/v1/harness-agents", json=persona, cookies=owner)
+            assert created.status_code == 201, created.text
+            views = {}
+            for name, credential in (
+                ("owner", {"cookies": owner}),
+                ("guest", {"headers": {"Authorization": "Bearer vpn"}}),
+            ):
+                views[name] = {
+                    path: await client.get(path, params=params, **credential)
+                    for path, params in (
+                        ("/v1/harness-agents", None),
+                        ("/v1/resources", query),
+                        ("/v1/catalog", {"project_id": "sem-projeto"}),
+                    )
+                }
+            # The owner still sees everything, which proves the fixture exposes paths at all.
+            assert "PRIVATE-INSTRUCTIONS" in views["owner"]["/v1/harness-agents"].text
+            assert str(home) in views["owner"]["/v1/resources"].text
+            for path, response in views["guest"].items():
+                assert response.status_code == 200, (path, response.text)
+                for private in (
+                    "PRIVATE-INSTRUCTIONS",
+                    "PRIVATE-TASK",
+                    "PRIVATE-OUTPUT",
+                    str(home),
+                ):
+                    assert private not in response.text, (path, private)
+            agent = views["guest"]["/v1/harness-agents"].json()["agents"][0]
+            assert (agent["name"], agent["available"]) == ("release-checker", True)
+            items = views["guest"]["/v1/resources"].json()["items"]
+            skill_item = next(item for item in items if item["name"] == "private-skill")
+            assert skill_item["source"] == skill_item["resource_id"]
+            guest_dirs = await client.get(
+                "/v1/project-directories", headers={"Authorization": "Bearer vpn"}
+            )
+            assert guest_dirs.status_code == 403
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        app.state.service.db.close()

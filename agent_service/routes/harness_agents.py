@@ -18,6 +18,8 @@ async def collection(request, service, identity):
         return JSONResponse(created, status_code=201, headers=NO_STORE)
     agents = await asyncio.to_thread(harness_agents.list_agents, service.config)
     service.identity(request, revalidate=True)
+    if identity[0] != harness_agents.LOCAL_CLIENT:
+        agents = [harness_agents.public_view(agent) for agent in agents]
     return JSONResponse({"agents": agents}, headers=NO_STORE)
 
 

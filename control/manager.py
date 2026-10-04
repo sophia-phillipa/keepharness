@@ -28,6 +28,7 @@ from . import (
     env,
     integration_catalog,
     integrations,
+    local_access,
     local_models,
     remote_models,
     runtime_config,
@@ -89,6 +90,8 @@ class Manager:
         self.state_repository = ControlStateRepository(self.state)
         self.path = self.state_repository.settings_path
         self.cookie = secrets.token_urlsafe(32)
+        self.local_secret = local_access.ensure_secret(self.state)
+        self.open_tickets = {}
         self.admin_port = 8094
         self.dashboard = DashboardReader(self.state)
         self.inventory = None

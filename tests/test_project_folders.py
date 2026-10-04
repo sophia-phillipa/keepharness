@@ -21,7 +21,7 @@ def test_named_multiple_roots_persist_and_names_are_unique(tmp_path):
     roots = [tmp_path / "one", tmp_path / "two"]
     for root in roots:
         root.mkdir()
-    with TestClient(app, headers={"Authorization": "Bearer a"}) as client:
+    with TestClient(app, headers={"Authorization": "Bearer local"}) as client:
         response = client.post(
             "/v1/projects",
             json={"name": "  My   Project  ", "paths": list(map(str, roots)) + [str(roots[0])]},
@@ -64,7 +64,7 @@ def test_directory_picker_filters_before_pagination(tmp_path):
         (root / name).mkdir()
     (root / "Alpha.txt").write_text("not a directory")
     with (
-        TestClient(app, headers={"Authorization": "Bearer a"}) as client,
+        TestClient(app, headers={"Authorization": "Bearer local"}) as client,
         patch("agent_service.workspaces.system_roots", return_value=[("home", root)]),
     ):
         assert (
@@ -242,9 +242,9 @@ def test_edit_project_preserves_id_policy_and_persists(tmp_path):
         "permissions": {"write": False},
         "test_commands": {"check": ["true"]},
     }
-    cfg["clients"]["a"]["projects"].append("existing")
+    cfg["clients"]["local"]["projects"].append("existing")
     app = create_app(copy.deepcopy(cfg))
-    with TestClient(app, headers={"Authorization": "Bearer a"}) as client:
+    with TestClient(app, headers={"Authorization": "Bearer local"}) as client:
         result = client.patch(
             "/v1/projects",
             json={
@@ -316,7 +316,7 @@ def test_edit_busy_project_is_atomic(tmp_path, state):
             ("busy", pid, "a", state, "{}"),
         )
     # No worker is started; the fixture's job remains in the requested state.
-    client = TestClient(app, headers={"Authorization": "Bearer a"})
+    client = TestClient(app, headers={"Authorization": "Bearer local"})
     response = client.patch(
         "/v1/projects", json={"project_id": pid, "name": "Changed", "paths": [str(root)]}
     )

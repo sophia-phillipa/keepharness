@@ -9,6 +9,7 @@ from starlette.testclient import TestClient
 from agent_service.app import APIError, Service
 from control.operations import operation
 from control.server import Manager, create_app
+from tests.owner_session import sign_in
 
 INVENTORY = {
     "platform": "Linux",
@@ -72,7 +73,7 @@ class ControlTest(unittest.TestCase):
     def test_claude_alias_post_returns_a_clear_400(self):
         with patch("control.discovery.scan", AsyncMock(return_value=INVENTORY)):
             with TestClient(create_app(self.tmp.name), base_url="http://127.0.0.1:8094") as client:
-                client.get("/")
+                sign_in(client).get("/")
                 settings = copy.deepcopy(client.app.state.manager.settings)
                 settings["services"]["claude"]["models"] = ["haiku"]
                 response = client.post(
@@ -99,7 +100,10 @@ class ControlTest(unittest.TestCase):
                 self.assertEqual(
                     client.get("/", headers={"Sec-Fetch-Site": "cross-site"}).status_code, 403
                 )
-                self.assertEqual(client.get("/").status_code, 200)
+                # Loopback alone is any account on this computer; the owner holds the secret.
+                self.assertNotIn("admin", client.get("/").cookies)
+                self.assertEqual(client.get("/api/state").status_code, 401)
+                self.assertEqual(sign_in(client).get("/").status_code, 200)
                 self.assertEqual(client.get("/api/state").status_code, 200)
                 settings = self.manager.settings
                 self.assertEqual(client.post("/api/settings", json=settings).status_code, 400)
@@ -144,7 +148,7 @@ class ControlTest(unittest.TestCase):
         }
         with patch("control.discovery.scan", AsyncMock(return_value=INVENTORY)):
             with TestClient(create_app(self.tmp.name), base_url="http://127.0.0.1:8094") as client:
-                response = client.get("/", headers=navigation)
+                response = sign_in(client).get("/", headers=navigation)
                 self.assertEqual(response.status_code, 200)
                 self.assertIn("admin", response.cookies)
                 self.assertEqual(client.get("/api/state").status_code, 200)

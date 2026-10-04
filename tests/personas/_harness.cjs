@@ -177,6 +177,16 @@ async function mockAdmin(page, state, over = {}) {
   return calls;
 }
 
+// scripts/test-ui.sh exports the owner's cookie ("name=value"): the real admin answers only it.
+async function signIn(context) {
+  const cookie = process.env.ADMIN_LOCAL_COOKIE || "";
+  const split = cookie.indexOf("=");
+  if (split < 1) return;
+  await context.addCookies([
+    { name: cookie.slice(0, split), value: cookie.slice(split + 1), domain: "127.0.0.1", path: "/", httpOnly: true, sameSite: "Strict" },
+  ]);
+}
+
 async function runPersona(id, scenarios) {
   const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
   const out = process.env.EVAL_OUTPUT || "/tmp/keepharness-persona-eval";
@@ -190,6 +200,7 @@ async function runPersona(id, scenarios) {
         }),
         page = await context.newPage(),
         errors = [];
+      await signIn(context);
       page.setDefaultTimeout(scenario.timeout || 5000);
       page.on("pageerror", (e) => errors.push(e.message));
       page.on("console", (m) => m.type() === "error" && errors.push(m.text()));

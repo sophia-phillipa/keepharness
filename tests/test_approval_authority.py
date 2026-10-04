@@ -12,6 +12,9 @@ import pytest
 from agent_service.app import create_app
 
 ORIGIN = "http://127.0.0.1:18095"
+# Tailscale Serve's origin: the only Host on which the login header names a client.
+REMOTE = "http://owner-host.example.ts.net:8093"
+TAILNET = {"Tailscale-User-Login": "owner@example.com", "Host": "owner-host.example.ts.net:8093"}
 TAILNET_OWNER = "tailnet-" + hashlib.sha256(b"owner@example.com").hexdigest()[:16]
 
 
@@ -22,7 +25,12 @@ def approval_app(make_harness_config):
         for owner, token in (("local", "local-token"), (TAILNET_OWNER, "tailnet-token"))
     }
     app = create_app(
-        make_harness_config(clients=clients, tailscale_logins={"owner@example.com": TAILNET_OWNER})
+        make_harness_config(
+            clients=clients,
+            tailscale_logins={"owner@example.com": TAILNET_OWNER},
+            browser_url=REMOTE + "/",
+            origins=[ORIGIN, REMOTE],
+        )
     )
     yield app
     app.state.service.db.close()
@@ -71,7 +79,7 @@ def test_worker_credentials_cannot_resolve(approval_app, credential):
                 assert login.status_code == 200
                 assert "harness_session" not in client.cookies
             elif credential == "tailnet":
-                client.headers["Tailscale-User-Login"] = "owner@example.com"
+                client.headers.update(TAILNET)
             response = await client.post("/v1/approvals/job", json={"approved": True})
             assert response.status_code == 403
             assert response.json()["code"] == "approval_session_required"
@@ -205,9 +213,11 @@ def test_cli_enrolls_existing_owner_only(approval_app, tmp_path, capsys):
     async def scenario():
         pending = pending_approval(approval_app, TAILNET_OWNER)
         async with client_for(approval_app) as client:
-            assert (await client.post(link, headers={"Origin": ORIGIN})).status_code == 303
+            # With tailnet sharing on, the CLI prints the link on the remote browser origin.
+            assert urlsplit(link).netloc == urlsplit(REMOTE).netloc
+            assert (await client.post(link, headers={"Origin": REMOTE})).status_code == 303
             assert (
-                await client.post("/v1/approvals/job", json={"approved": True})
+                await client.post(REMOTE + "/v1/approvals/job", json={"approved": True})
             ).status_code == 200
             assert pending.result()["approved"]
 
@@ -355,12 +365,14 @@ def test_a_refused_approval_names_the_owner_to_enroll(approval_app, credential, 
             if credential == "bearer":
                 client.headers["Authorization"] = "Bearer local-token"
             else:
-                client.headers["Tailscale-User-Login"] = "owner@example.com"
+                client.headers.update(TAILNET)
             response = await client.post("/v1/approvals/job", json={"approved": True})
         assert response.status_code == 403
         body = response.json()
         # The id `keepharness approve-device --owner <id>` accepts, for the caller only.
         assert (body["code"], body["owner"]) == ("approval_session_required", owner)
+        # A guest is named by the login the host's owner knows, never by the internal id.
+        assert body.get("login") == ("owner@example.com" if credential == "tailnet" else None)
 
     asyncio.run(scenario())
 

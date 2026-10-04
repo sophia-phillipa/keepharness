@@ -25,20 +25,20 @@ def test_read_after_revocation(tmp_path, monkeypatch, route, change):
         cfg = {
             "state_dir": str(tmp_path / "state"),
             "origins": ["http://testserver"],
-            "shared_projects": True,
+            "project_registration": True,
             "projects": {"p": {}},
             "services": {},
             "clients": {
-                "alice": {"sha256": hashlib.sha256(b"alice").hexdigest(), "projects": ["p"]}
+                "local": {"sha256": hashlib.sha256(b"local").hexdigest(), "projects": ["p"]}
             },
         }
         app = create_app(cfg)
         s = app.state.service
-        token = consume_enrollment(cfg, issue_enrollment(cfg, "alice"))
+        token = consume_enrollment(cfg, issue_enrollment(cfg, "local"))
         headers = (
             {"Cookie": "harness_session=" + token}
             if change in ("logout", "expired")
-            else {"Authorization": "Bearer alice"}
+            else {"Authorization": "Bearer local"}
         )
         entered, release = threading.Event(), threading.Event()
         if route == "project-directories":
@@ -71,15 +71,15 @@ def test_read_after_revocation(tmp_path, monkeypatch, route, change):
                 if change == "logout":
                     assert (await c.post("/v1/logout")).status_code == 200
                 if change == "token_rotation":
-                    cfg["clients"]["alice"]["sha256"] = hashlib.sha256(b"rotated").hexdigest()
+                    cfg["clients"]["local"]["sha256"] = hashlib.sha256(b"rotated").hexdigest()
                 if change == "expired":
                     with session_database(cfg) as db:
                         db.execute("UPDATE sessions SET expires=0")
                 if change == "disabled":
-                    cfg["shared_projects"] = False
+                    cfg["project_registration"] = False
                 if change == "reassigned":
-                    cfg["clients"]["bob"] = dict(cfg["clients"]["alice"])
-                    cfg["clients"]["alice"]["sha256"] = hashlib.sha256(b"rotated").hexdigest()
+                    cfg["clients"]["bob"] = dict(cfg["clients"]["local"])
+                    cfg["clients"]["local"]["sha256"] = hashlib.sha256(b"rotated").hexdigest()
                 release.set()
                 r = await task
                 fresh = await c.get("/v1/" + route)

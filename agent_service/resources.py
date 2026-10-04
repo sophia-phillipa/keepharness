@@ -250,6 +250,18 @@ def files(base, boundary, global_roots, kind):
         raise ResourceError("resource_scan_limit")
 
 
+def without_host_paths(result: dict) -> dict:
+    """The listing for a client other than the local owner: each item's logical id stands in
+    for its absolute source path, so no home folder or account name leaves the host."""
+    ids = {item["source"]: item["resource_id"] for item in result.get("items", [])}
+    for item in result.get("items", []):
+        item["source"] = item["resource_id"]
+    for key in ("agents", "skills"):
+        for entry in result.get(key, []):
+            entry["source"] = ids.get(entry["source"], entry["source"])
+    return result
+
+
 def discover(
     config,
     project_id,

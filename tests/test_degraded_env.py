@@ -13,6 +13,7 @@ import pytest
 
 import control.discovery as discovery
 import control.local_models as local_models
+from tests.owner_session import sign_in
 
 
 def test_scan_with_no_provider_binaries_and_a_fresh_home_returns_quickly(tmp_path, monkeypatch):
@@ -176,7 +177,7 @@ def test_settings_save_over_http_reports_400_and_state_endpoint_still_works(tmp_
     manager.state.chmod(0o500)
     try:
         with TestClient(app, base_url="http://127.0.0.1:8094") as client:
-            client.get("/")
+            sign_in(client).get("/")
             response = client.post(
                 "/api/settings", json=manager.settings, headers={"X-Harness-Admin": "1"}
             )
@@ -340,7 +341,7 @@ def test_project_folder_and_uploaded_file_with_unicode_and_punctuation_round_tri
     from starlette.testclient import TestClient
 
     with TestClient(control_app, base_url="http://127.0.0.1:8094") as client:
-        client.get("/")
+        sign_in(client).get("/")
         listing = client.get("/api/folders", params={"path": str(root.parent)})
         assert listing.status_code == 200
         names = [entry["name"] for entry in listing.json()["directories"]]

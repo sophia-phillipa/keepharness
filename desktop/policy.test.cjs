@@ -9,6 +9,10 @@ const {
   backendEnv,
   processRunning,
   portOwnedByUser,
+  LOCAL_COOKIE,
+  localKeyPath,
+  localCookie,
+  enrollmentLink,
 } = require('./policy.cjs');
 
 test('only the local admin and harness origins are app URLs', () => {
@@ -100,4 +104,33 @@ test('a dual-stack listener owned by the current user is trusted, an IPv6-only o
 test('the port is matched as a zero-padded hexadecimal number', () => {
   assert.equal(portOwnedByUser([HEADER + row('0100007F:0050', '0A', ME)], 80, ME), true);
   assert.equal(portOwnedByUser([HEADER + row('0100007F:0050', '0A', ME)], 8000, ME), false);
+});
+
+test('the window carries the per-install secret as the admin\'s own local cookie', () => {
+  assert.equal(localKeyPath('/home/owner'), '/home/owner/.local/share/keepharness/local.key');
+  const secret = 'Abc_def-0123456789xyzXYZ';
+  assert.deepEqual(localCookie(secret + '\n', 8095), {
+    url: 'http://127.0.0.1:8095/',
+    name: LOCAL_COOKIE,
+    value: secret,
+    path: '/',
+    httpOnly: true,
+    sameSite: 'strict',
+  });
+  // Matches control/local_access.py: PRODUCT.slug + "-local".
+  assert.equal(LOCAL_COOKIE, 'keepharness-local');
+  for (const bad of ['', 'short', 'has space in it here', 'semi;colon-0123456789', null]) assert.equal(localCookie(bad, 8095), null);
+});
+
+test('the window enrolls itself only through a harness enrollment link printed by the CLI', () => {
+  const origin = 'http://127.0.0.1:8095';
+  const printed = 'Open this single-use link in the owner\'s browser within 10 minutes:\nhttp://127.0.0.1:8095/approve-device?nonce=abc_DEF-123\n';
+  assert.equal(enrollmentLink(printed, origin), 'http://127.0.0.1:8095/approve-device?nonce=abc_DEF-123');
+  // The CLI prints the tailnet origin when sharing is on: the window does not show that origin.
+  assert.equal(enrollmentLink('http://host.example.ts.net:8093/approve-device?nonce=x', origin), null);
+  assert.equal(enrollmentLink('http://127.0.0.1:8095/elsewhere?nonce=x', origin), null);
+  assert.equal(enrollmentLink('http://127.0.0.1:8095/approve-device', origin), null);
+  assert.equal(enrollmentLink('http://u:p@127.0.0.1:8095/approve-device?nonce=x', origin), null);
+  assert.equal(enrollmentLink('error: Could not update approval authority', origin), null);
+  assert.equal(enrollmentLink('', origin), null);
 });

@@ -11,6 +11,7 @@ from starlette.testclient import TestClient
 from adapters import run_native as run
 from adapters.deepseek import account as deepseek
 from control.server import create_app
+from tests.owner_session import sign_in
 
 
 class DeepseekTest(unittest.IsolatedAsyncioTestCase):
@@ -123,7 +124,7 @@ class ProviderLifecycleTest(unittest.TestCase):
             patch("control.discovery.scan", AsyncMock(return_value=inventory)),
         ):
             with TestClient(create_app(d), base_url="http://127.0.0.1:8094") as c:
-                c.get("/")
+                sign_in(c).get("/")
                 h = {"X-Harness-Admin": "1"}
                 self.assertEqual(
                     c.post(

@@ -7,14 +7,24 @@ from pathlib import Path
 
 from starlette.responses import JSONResponse
 
-from .. import maestro, service_control, workspaces
+from .. import harness_agents, maestro, service_control, workspaces
 from ..approval_sessions import require_approval_session
 from ..catalog import catalog as project_catalog_items
 from ..errors import APIError
 from ..persistence.db import encoded, private_file
 from ..project_icons import discover_project_icon
+from ..resources import without_host_paths
 from ..secret_vault import redact_secrets
 from . import api_route, body
+
+PROJECTS_LOCAL_ONLY = "project_management_local_only"
+
+
+def owner_view(identity, value):
+    """Absolute host paths stay with the local owner (SEC-R2-4)."""
+    if identity[0] == harness_agents.LOCAL_CLIENT:
+        return value
+    return without_host_paths(value)
 
 
 def project_git(root):
@@ -51,7 +61,7 @@ async def resources(request, service, identity):
         params.get("execution_mode"),
     )
     service.project(service.identity(request, revalidate=True), params.get("project_id"))
-    return JSONResponse(value, headers={"Cache-Control": "no-store"})
+    return JSONResponse(owner_view(identity, value), headers={"Cache-Control": "no-store"})
 
 
 async def integrations(request, service, identity):
@@ -77,12 +87,13 @@ async def catalog(request, service, identity):
         project_catalog_items, config, config["projects"][project_id], project_id
     )
     service.project(service.identity(request, revalidate=True), project_id)
-    return JSONResponse(value, headers={"Cache-Control": "no-store"})
+    return JSONResponse(owner_view(identity, value), headers={"Cache-Control": "no-store"})
 
 
 async def project_directories(request, service, identity):
     config = service.config
-    if not config.get("shared_projects"):
+    harness_agents.require_local_client(identity, PROJECTS_LOCAL_ONLY)
+    if not config.get("project_registration"):
         raise APIError("project_registration_disabled", 403)
     params = request.query_params
     root_id = params.get("root_id", "home")
@@ -105,7 +116,7 @@ async def project_directories(request, service, identity):
         workspaces.browse_system, root, folder, start, limit, True, query
     )
     service.identity(request, revalidate=True)
-    if not config.get("shared_projects"):
+    if not config.get("project_registration"):
         raise APIError("project_registration_disabled", 403)
     for entry in result["entries"]:
         entry["absolute_path"] = str(root / entry["path"])
@@ -138,6 +149,9 @@ async def project_revision(request, service, identity):
 
 async def projects(request, service, identity):
     config = service.config
+    if request.method in ("PATCH", "POST"):
+        # Registering or repointing a folder reaches the host's disk: the owner only.
+        harness_agents.require_local_client(identity, PROJECTS_LOCAL_ONLY)
     if request.method == "PATCH":
         data = await body(request)
         if not isinstance(data, dict) or not isinstance(data.get("project_id"), str):
@@ -200,6 +214,7 @@ async def projects(request, service, identity):
 async def project_folder(request, service, identity):
     project = request.query_params.get("project_id")
     if request.method == "DELETE":
+        harness_agents.require_local_client(identity, PROJECTS_LOCAL_ONLY)
         return JSONResponse(
             await service.delete_project_folder(identity, project, await body(request))
         )

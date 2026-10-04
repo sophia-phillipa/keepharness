@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, patch
 from starlette.testclient import TestClient
 
 from control.server import create_app
+from tests.owner_session import sign_in
 
 
 def test_folder_listing_and_creation(tmp_path):
@@ -16,7 +17,7 @@ def test_folder_listing_and_creation(tmp_path):
     ):
         with TestClient(create_app(tmp_path / "state"), base_url="http://127.0.0.1:8094") as client:
             assert client.get("/api/folders").status_code == 401
-            client.get("/")
+            sign_in(client).get("/")
             data = client.get("/api/folders").json()
             assert data["path"] == str(root)
             assert data["directories"] == [{"name": "Project", "path": str(root / "Project")}]

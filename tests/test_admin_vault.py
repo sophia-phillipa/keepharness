@@ -5,6 +5,7 @@ from starlette.testclient import TestClient
 
 from control.runtime_config import base_config
 from control.server import create_app
+from tests.owner_session import sign_in
 
 
 def client_for(tmp_path):
@@ -14,7 +15,7 @@ def client_for(tmp_path):
     manager = app.state.manager
     manager.settings['projects'] = [{'id': 'demo', 'root': str(project), 'catalogs': []}]
     client = TestClient(app, base_url='http://127.0.0.1:8094')
-    client.get('/')
+    sign_in(client).get('/')
     return client, manager
 
 

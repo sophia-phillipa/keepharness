@@ -29,6 +29,10 @@ else:raise SystemExit("UI server unavailable")
 assert "v"+expected in content,"Wrong admin version served"
 assert urllib.request.urlopen(url+"/admin.js").read()==Path("control/admin.js").read_bytes(),"Wrong admin checkout served"' "$TH_ADMIN_URL"
 kill -0 "$TH_PID"
+# The admin answers only the owner, who holds the per-install secret (D09); specs that drive the
+# real admin put this cookie in their browser context.
+ADMIN_LOCAL_COOKIE="keepharness-local=$(cat "$TH_STATE/local.key")"
+export ADMIN_LOCAL_COOKIE
 "${PYTHON:-python3}" -c 'import json,sys,uuid;from pathlib import Path
 root=Path(sys.argv[1]);port=int(sys.argv[2]);(root/"chat.json").write_text(json.dumps({"state_dir":str(root/"chat"),"bind":"127.0.0.1","port":port,"local_access":True,"clients":{"local":{"sha256":"0"*64,"projects":["sem-projeto"]}},"projects":{"sem-projeto":{}},"services":{},"origins":[f"http://127.0.0.1:{port}"],"config_revision":uuid.uuid4().hex}))' "$TH_STATE" "$TH_CHAT_PORT"
 KEEPHARNESS_AGENT_CONFIG="$TH_STATE/chat.json" "${PYTHON:-python3}" -m agent_service.app >"$TH_STATE/chat.log" 2>&1 &
