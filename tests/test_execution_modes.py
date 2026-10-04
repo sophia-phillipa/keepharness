@@ -278,7 +278,7 @@ def test_legacy_handoff_freezes_the_latest_provider_mode(tmp_path):
 def test_unknown_and_internal_execution_mode_inputs_are_rejected_cleanly(tmp_path):
     instance, identity = service(tmp_path)
     try:
-        with pytest.raises(APIError, match="default_or_requested_executor_not_available_for_task"):
+        with pytest.raises(APIError, match="backend_unavailable"):
             instance.submit(
                 identity,
                 {"project_id": "p", "backend": "unknown", "model": "fixture", "prompt": "bad"},

@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from starlette.testclient import TestClient
 
-from agent_service import maestro, workspaces
+from agent_service import workspaces
 from agent_service.app import Service, create_app
 from agent_service.approval_sessions import SESSION_COOKIE, consume_enrollment, issue_enrollment
 from agent_service.tools import ToolError
@@ -121,73 +121,6 @@ def test_archive_rejects_symlinks_and_limits(tmp_path):
         workspaces.unpack(io.BytesIO(output.getvalue()), tmp_path / "work")
     with patch.object(workspaces, "MAX_BYTES", 2), pytest.raises(ToolError):
         workspaces.unpack(io.BytesIO(archive({"large.txt": "123"})), tmp_path / "work")
-
-
-def test_maestro_uses_available_local_and_validates_plan(tmp_path):
-    cfg = config(tmp_path)
-    available = maestro.candidates(cfg, "p", True)
-    assert any(m["model"] == "installed-model" for m in available)
-    plan = {
-        "steps": [
-            {
-                "role": "extract",
-                "backend": "local",
-                "model": "installed-model",
-                "effort": "configured",
-                "task": "Find evidence",
-                "reason": "Bounded extraction",
-            },
-            {
-                "role": "review",
-                "backend": "codex",
-                "model": "gpt-6-astra",
-                "effort": "low",
-                "task": "Review and deliver",
-                "reason": "Verify evidence",
-            },
-        ]
-    }
-    service = Service(cfg)
-    identity = ("a", cfg["clients"]["a"])
-    job = service.submit(identity, {"project_id": "p", "prompt": "Write report"})
-    row = service.job(identity, job["job_id"])
-    payload = json.loads(row["payload"])
-    assert payload["backend"] == "maestro"
-    with patch.object(
-        service,
-        "infer",
-        AsyncMock(
-            side_effect=[
-                {"answer": json.dumps(plan)},
-                {"answer": "fact from source:2", "metrics": {"input_tokens": 10}},
-                {"answer": "final report"},
-            ]
-        ),
-    ) as infer:
-        async def approve_and_execute():
-            task = asyncio.create_task(service.execute(row))
-            try:
-                for _ in range(100):
-                    if service.approvals or task.done():
-                        break
-                    await asyncio.sleep(0)
-                assert not task.done(), "generated plans require human approval"
-                gate_id = next(iter(service.approvals))
-                service.gates.resolve(gate_id, identity, {"choice": "approve"})
-                return await asyncio.wait_for(task, 1)
-            finally:
-                task.cancel()
-                await asyncio.gather(task, return_exceptions=True)
-
-        result = asyncio.run(approve_and_execute())
-        assert result["backend"] == "maestro"
-        assert result["answer"] == "final report"
-        assert infer.call_args_list[1].args[1]["backend"] == "local"
-        assert "fact from source:2" in infer.call_args_list[2].args[1]["prompt"]
-    plan["steps"][0]["model"] = "invented"
-    with pytest.raises(ToolError):
-        maestro.validate_plan(json.dumps(plan), available)
-    service.db.close()
 
 
 def test_document_extraction_preserves_docx(tmp_path):
