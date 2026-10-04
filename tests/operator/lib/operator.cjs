@@ -126,7 +126,10 @@ class Operator {
   async fill(locator, text) {
     await locator.waitFor({ state: "visible", timeout: 10000 });
     await this.highlight(locator);
-    if (this.visible) {
+    // Typing "09:00" into a 12-hour time field leaves its AM/PM segment empty (no value at all),
+    // so segmented date and time inputs take the value in one step even when visible.
+    const segmented = await locator.evaluate((el) => /^(time|date|datetime-local|month|week)$/.test(el.type || ""));
+    if (this.visible && !segmented) {
       await locator.click();
       await locator.fill("");
       await locator.pressSequentially(text, { delay: 28 });
