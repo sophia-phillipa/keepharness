@@ -1083,7 +1083,6 @@ const userErrors = {
   catalog_runtime_mode_unsupported: "This isolated execution mode cannot provide the catalog runtime. Choose a supported native provider.",
   catalog_runtime_unavailable: "The catalog runtime is unavailable. Check its prerequisites in Admin.",
   catalog_preflight_failed: "Catalog prerequisites are missing. Check the catalog in Admin before trying again.",
-  catalog_hooks_changed: "A catalog hook changed since you trusted it, so this turn was blocked. Review the hooks and re-trust the catalog in Admin.",
   catalog_hook_failed: "A catalog hook failed. Check its run event before trying again.",
   catalog_hook_timeout: "A catalog hook exceeded its time limit and was stopped.",
   catalog_hook_unavailable: "A catalog hook could not start. Check its executable path in the manifest.",
@@ -1098,6 +1097,7 @@ const userErrors = {
   secret_binding_invalid: "The credential binding name is invalid. Update it in Admin.",
   secret_value_invalid: "A credential field is invalid. Enter a nonempty single-line value in Admin.",
   work_item_locked: "This work item is owned by a running job. Wait until its write access is released.",
+  hooks_not_trusted: "A catalog hook changed or was never trusted, so it was skipped and the turn went on without it. Re-trust the catalog in Admin.",
   hooks_not_granted: "Catalog hooks were skipped because hook permission was not granted.",
 
   workflow_source_path_denied: "A workflow input moved outside its authorized folder. Restore it or choose a new input.",
@@ -3407,6 +3407,19 @@ function setAnswer(answer, value, notice = "", code = "") {
   if (code) note.title = "Error code: " + code;
   answer.body.append(note);
 }
+// A skipped catalog hook is not an error: the turn goes on, so the notice stays in the turn
+// (above the answer, which re-renders from its raw text) rather than in the transient status.
+function showSkippedHookNotice(data) {
+  if (!active) return;
+  const text = userErrors[data.reason] || "A catalog hook was skipped and the turn went on without it.";
+  const shown = active.el.querySelectorAll('[data-testid="catalog-hook-notice"]');
+  if ([...shown].some((note) => note.textContent === text)) return;
+  const note = document.createElement("p");
+  note.className = "run-notice";
+  note.dataset.testid = "catalog-hook-notice";
+  note.textContent = text;
+  active.el.insertBefore(note, active.body);
+}
 // One action under an answer: a quiet button with an icon and a label (Copy, Ask again).
 function answerAction(testid, label, icon) {
   const button = document.createElement("button"),
@@ -4102,6 +4115,9 @@ function event(e) {
       ["codex", "claude"].includes(selected()?.backend)
     )
       void quota();
+    return;
+  } else if (e.type === "catalog_hook" && e.data?.outcome === "skipped") {
+    showSkippedHookNotice(e.data);
     return;
   } else {
     status(e.type === "queue_wait" ? waitReasonLabel(e.data?.reason || "queue") : labels[e.type] || e.type);

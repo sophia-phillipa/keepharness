@@ -132,14 +132,13 @@ def hooks_digest(root, read=Path.read_bytes):
     ).hexdigest()
 
 
-def require_trusted_hooks(catalog, read=Path.read_bytes):
-    """Block unless the catalog's hooks still match the digest the owner trusted in Admin."""
+def hooks_trusted(catalog, read=Path.read_bytes):
+    """True only when the catalog's hooks still match the digest the owner trusted in Admin."""
     try:
         current = hooks_digest(catalog["root"], read)
     except (OSError, ValueError):
-        raise APIError("catalog_hooks_changed") from None
-    if not hmac.compare_digest(current, str(catalog.get("hooks_sha256") or "")):
-        raise APIError("catalog_hooks_changed")
+        return False
+    return hmac.compare_digest(current, str(catalog.get("hooks_sha256") or ""))
 
 
 def _runtime_root(root, state_dir, catalog_id):
@@ -292,6 +291,7 @@ def runtime_for_project(config, project_id):
         "rules": [],
         "read_only_roots": [],
         "hook_catalogs": [],
+        "hooks_skipped": [],
         "catalogs": snapshot_catalogs(config, project),
     }
     for catalog in effective_catalogs(config, project):
@@ -301,8 +301,10 @@ def runtime_for_project(config, project_id):
         if not manifest:
             continue
         hooked = bool(manifest.get("allowed_hooks")) and not catalog.get("pin")
-        if hooked:
-            require_trusted_hooks(catalog)
+        if hooked and not hooks_trusted(catalog):
+            result["hooks_skipped"].append(catalog["id"])  # skipped, never run; the turn goes on
+            hooked = False
+            manifest = {**manifest, "allowed_hooks": []}  # skipped hooks need no prerequisites
         problems = preflight(catalog["root"], manifest, state, catalog["id"])
         if problems:
             raise APIError("catalog_preflight_failed: " + "; ".join(problems))

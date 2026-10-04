@@ -60,6 +60,12 @@ Failures stop dispatch, and loaded credential values are redacted from hook even
 Provider and global hooks remain disabled for catalog runs. Isolated execution
 cannot run these native hooks.
 
+A changed, unreadable or untrusted catalog hook is skipped, never run, and the turn
+continues: the run records a `catalog_hook` event with outcome `skipped` and reason
+`hooks_not_trusted` (the UI says to re-trust the catalog in Admin). A hook that is
+not in the set verified right before exec is skipped the same way; nothing runs
+unhashed.
+
 The trust digest covers each hook script's own bytes. Right before each run the
 hooks are hashed once and exactly those bytes are executed from a private
 in-memory copy, so replacing or rewriting the file after the check changes
