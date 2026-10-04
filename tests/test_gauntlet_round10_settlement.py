@@ -56,6 +56,11 @@ def test_error_settlement_lock_does_not_strand_conversation(tmp_path, outcome):
             blocker.rollback()
             service.wake.set()
             await asyncio.sleep(0.2)
+            if outcome == "cancelled":
+                # D16: Stop holds the queued follow-up until the user runs it.
+                assert service.conversation_repository.state(child)[0] == "queued"
+                service.run_queued(identity, child)
+                await asyncio.sleep(0.2)
             observed = {
                 "outcome": outcome,
                 "parent": service.conversation_repository.state(job)[0],

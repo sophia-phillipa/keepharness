@@ -535,21 +535,20 @@ async def allow_step(service, row, data, step, results, index):
 
 
 async def wait_step_effects(service, job_id, execution_id):
-    from contextlib import nullcontext
+    from .services import capacity
 
     effects = [
         effect
         for effect in service.effects.for_job(job_id)
         if effect["execution_id"] == execution_id
     ]
-    budget = service.runtime_budgets.get(job_id)
     # Dispatch stays behind the step barrier until all human waits have ended.
     # A decision made during inference does not pause its active deadline.
     for effect in effects:
         task = service.effects.tasks.get(effect["effect_id"])
         pending = service.approvals.get(effect["gate_id"])
         if task and pending and not pending[1].done():
-            with budget.human_wait() if budget else nullcontext():
+            async with capacity.parked(service, job_id):
                 await asyncio.wait((pending[1], task), return_when=asyncio.FIRST_COMPLETED)
     ready = service.effects.execution_barriers.get(execution_id)
     if ready is not None and not ready.done():

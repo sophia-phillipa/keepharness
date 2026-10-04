@@ -12,7 +12,6 @@ import shutil
 import sys
 import time
 import uuid
-from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -61,11 +60,11 @@ from ..persistence.repositories import (
 )
 from ..private_storage import validate_attachment_source
 from ..work_items import invocation_reference, validate_reference
-from . import queue_worker
+from . import capacity, queue_worker
 from .activity_service import summarize_activity
 from .budgets import timeout_seconds
 from .effect_service import EffectService
-from .gate_service import GateService
+from .gate_service import GateService, deny_unattended
 from .project_service import ProjectService
 
 logger = logging.getLogger(__name__)
@@ -181,6 +180,14 @@ class ConversationService:
         self.runtime_budgets = {}
         self.provider_slots = {}
         self.provider_inflight = {}
+        # Dispatcher lanes and approval parking (services/capacity.py).
+        self.provider_lanes = {}
+        self.job_lanes = {}
+        self.lane_resumers = {}
+        self.lane_freed = asyncio.Event()
+        self.parked_capacity = {}
+        # Jobs the user stopped; their queued follow-ups are held when they settle (D16).
+        self.stop_requests = set()
         self.gates = GateService(self)
         self.gates.invalidate_pending()
         self.effects = EffectService(self)
@@ -241,6 +248,7 @@ class ConversationService:
         for condition in self.provider_slots.values():
             async with condition:
                 condition.notify_all()
+        capacity.notify_lanes(self)
         # Grants are evaluated at execution time; remembered approvals cannot survive
         # a changed provider/model permission policy.
         affected_scopes = changed_scopes | {
@@ -307,6 +315,9 @@ class ConversationService:
         with self.db:
             self.conversation_repository.set_result(job, state, encoded(result))
             self.event(job, state, {**result, "outcome": state})
+            if state == "cancelled" and job in self.stop_requests:
+                queue_worker.hold_followups(self, job)
+        self.stop_requests.discard(job)
 
     def identity(self, request, *, revalidate=False):
         def identified(name, client):
@@ -1302,6 +1313,7 @@ class ConversationService:
                 "_workflow_resume",
                 "_workflow_context_parent_id",
                 "_workflow_recovery_digest",
+                "_held_after_stop",
                 "schedule_id",
                 "schedule_title",
             )
@@ -1593,23 +1605,10 @@ class ConversationService:
         if backend not in ("codex", "claude", "gemini", "local", "deepseek"):
             raise APIError("backend_unavailable")
         # Capacity is checked at every inference, including Maestro planner/steps.
-        condition = self.provider_slots.setdefault(backend, asyncio.Condition())
         previous_task = self.job_tasks.get(row["id"])
         self.job_tasks[row["id"]] = asyncio.current_task()
-        waited = False
         try:
-            async with condition:
-                while True:
-                    maximum = (
-                        self.config.get("services", {}).get(backend, {}).get("max_concurrent", 1)
-                    )
-                    if type(maximum) is not int or maximum < 1:
-                        raise APIError("invalid_provider_capacity")
-                    if self.provider_inflight.get(backend, 0) < maximum:
-                        self.provider_inflight[backend] = self.provider_inflight.get(backend, 0) + 1
-                        break
-                    waited = True
-                    await condition.wait()
+            waited = await capacity.take_slot(self, backend)
             self.active_executors[row["id"]] = (backend, data.get("model"))
             try:
                 if waited:
@@ -1658,9 +1657,7 @@ class ConversationService:
                 return self._finalize_inference(plan, result)
             finally:
                 self.active_executors.pop(row["id"], None)
-                async with condition:
-                    self.provider_inflight[backend] -= 1
-                    condition.notify_all()
+                await capacity.release_slot(self, row["id"], backend)
         finally:
             if previous_task is None:
                 self.job_tasks.pop(row["id"], None)
@@ -2318,6 +2315,8 @@ class ConversationService:
         mode = data.get("access_mode", "ask")
 
         async def approve(kind, params):
+            if data.get("schedule_id"):
+                return deny_unattended(kind, progress)
             if kind == "gate":
                 return await self.gates.ask(row["id"], params, progress)
             fingerprint = approval_policy.rule_key(kind, params, permissions)
@@ -2384,8 +2383,7 @@ class ConversationService:
                     },
                 )
                 opened = True
-                budget = self.runtime_budgets.get(row["id"])
-                with budget.human_wait() if budget is not None else nullcontext():
+                async with capacity.parked(self, row["id"]):
                     try:
                         reply = await asyncio.wait_for(future, wait_limit)
                     except TimeoutError:
@@ -2752,3 +2750,6 @@ class ConversationService:
 
     def cancel(self, identity, job):
         return queue_worker.cancel(self, identity, job)
+
+    def run_queued(self, identity, job):
+        return queue_worker.run_queued(self, identity, job)

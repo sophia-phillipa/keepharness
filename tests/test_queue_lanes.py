@@ -22,6 +22,9 @@ def enqueue(instance, job, project, backend, parent=None, work_item=None):
 def test_distinct_lanes_run_concurrently_and_same_provider_waits(tmp_path):
     async def scenario():
         instance, _ = service(tmp_path)
+        # Pins one run per provider; the default for cloud providers is 2 (D14).
+        for backend in ("claude", "gemini"):
+            instance.config["services"].setdefault(backend, {})["max_concurrent"] = 1
         instance.config["projects"] = {
             key: {"root": str(tmp_path / key)} for key in ("p", "q", "r")
         }
@@ -91,6 +94,9 @@ def test_shared_root_blocks_other_provider_and_cancel_releases(tmp_path):
 def test_fairness_rechecked_between_provider_lane_dispatches(tmp_path):
     async def scenario():
         instance, _ = service(tmp_path)
+        # Pins one run per provider; the default for cloud providers is 2 (D14).
+        for backend in ("claude", "gemini"):
+            instance.config["services"].setdefault(backend, {})["max_concurrent"] = 1
         instance.config["projects"] = {
             key: {"root": str(tmp_path / key)} for key in ("p", "q", "r")
         }

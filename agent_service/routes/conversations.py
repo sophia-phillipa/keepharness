@@ -340,6 +340,10 @@ async def cancel_job(request, service, identity):
     return JSONResponse(service.cancel(identity, job))
 
 
+async def run_queued(request, service, identity):
+    return JSONResponse(service.run_queued(identity, request.path_params["job"]))
+
+
 async def job_result(request, service, identity):
     row = service.job(identity, request.path_params["job"])
     if not row["result"]:
@@ -366,5 +370,6 @@ ROUTES = [
     api_route("/v1/jobs/{job}/save-workflow", save_workflow, methods=["POST"]),
     api_route("/v1/jobs/{job}/events", job_events),
     api_route("/v1/jobs/{job}/cancel", cancel_job, methods=["POST"]),
+    api_route("/v1/jobs/{job}/run-queued", run_queued, methods=["POST"]),
     api_route("/v1/jobs/{job}/artifacts/result.json", job_result),
 ]

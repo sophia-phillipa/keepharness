@@ -11,6 +11,8 @@ from test_execution_modes import service
 def test_dispatch_capacity_covers_planner_steps_and_releases_on_cancel(tmp_path):
     async def scenario():
         instance, _ = service(tmp_path)
+        # Pins one run per provider; the default for cloud providers is 2 (D14).
+        instance.config["services"]["codex"]["max_concurrent"] = 1
         entered = []
         release = asyncio.Event()
         instance._prepare_inference = AsyncMock(

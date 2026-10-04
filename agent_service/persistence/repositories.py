@@ -53,12 +53,23 @@ class ConversationRepository:
         ).fetchone()
 
     def ready(self):
-        """Dispatch conversation turns only after their preceding turn finishes."""
+        """Dispatch conversation turns only after their preceding turn finishes.
+
+        A follow-up held after Stop waits until the user runs it (D16).
+        """
         return self.db.execute(
             "SELECT child.* FROM jobs child LEFT JOIN jobs parent "
             "ON parent.id=json_extract(child.payload,'$.parent_job_id') "
             "WHERE child.state='queued' AND (parent.id IS NULL OR parent.state NOT IN ('queued','running')) "
+            "AND json_extract(child.payload,'$._held_after_stop') IS NULL "
             "ORDER BY child.created,child.id"
+        ).fetchall()
+
+    def queued_followups(self, job):
+        return self.db.execute(
+            "SELECT id,payload FROM jobs WHERE state='queued' "
+            "AND json_extract(payload,'$.parent_job_id')=? ORDER BY created,id",
+            (job,),
         ).fetchall()
 
     def by_idempotency_key(self, owner, project, idem):
@@ -179,6 +190,17 @@ class MessageRepository:
             "SELECT type,data FROM events WHERE job=? AND type IN ('approval_required','gate_required') ORDER BY id DESC",
             (job,),
         ).fetchall()
+
+    def has_unattended_denial(self, job):
+        """Whether an unattended run denied an action that needed approval (D15)."""
+        return (
+            self.db.execute(
+                "SELECT 1 FROM events WHERE job=? AND type='approval_denied' "
+                "AND json_extract(data,'$.scope')='unattended' LIMIT 1",
+                (job,),
+            ).fetchone()
+            is not None
+        )
 
     def last_event(self, job):
         return self.db.execute(
