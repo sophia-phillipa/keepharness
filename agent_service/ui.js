@@ -923,6 +923,7 @@ const labels = {
   interrupted: "Interrupted",
   queued: "Queued",
   queue_wait: "Waiting in the queue",
+  queue_released: "Queued message released",
   running: "Running",
   thinking: "Thinking",
   planning: "Preparing the run",
@@ -1115,6 +1116,7 @@ const userErrors = {
   workflow_resource_unavailable: "A required workflow resource is missing or unavailable. Refresh the catalog.",
   workflow_sequential_only: "This release supports sequential workflows without parallel or repeat steps.",
   cancellation_retry_required: "Cancellation was not saved because storage is busy. Try Cancel again.",
+  job_not_held: "This message is no longer waiting for your choice.",
   workflow_source_busy: "Wait for the original run to finish or cancel it before recovery.",
   workflow_step_not_approved: "The workflow step was not approved. No further steps ran.",
   workflow_too_large: "The workflow exceeds the supported document size.",
@@ -2065,7 +2067,7 @@ function conversationUpdated(c = {}) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 function waitReasonLabel(reason) {
-  return ({ human_approval: "Waiting for your approval", conversation_parent: "Waiting for the previous response", provider_capacity: "Waiting for another task on this provider", conversation: "Waiting for this conversation", work_item: "Waiting for this work item", writable_root: "Waiting for access to project files", queue: "Waiting in the queue" })[reason] || reason;
+  return ({ human_approval: "Waiting for your approval", conversation_parent: "Waiting for the previous response", provider_capacity: "Waiting for another task on this provider", held_after_stop: "Held after Stop", conversation: "Waiting for this conversation", work_item: "Waiting for this work item", writable_root: "Waiting for access to project files", queue: "Waiting in the queue" })[reason] || reason;
 }
 function conversationSummary(c = {}) {
   if (c.live_wait_reason || c.wait_reason)
@@ -3736,6 +3738,7 @@ function event(e) {
   recordActivity(e);
   updateMotion(e.type);
   if (active) active.chip.textContent = $("activity-state").textContent;
+  if (active) showHeldTurn(active, e.type === "queue_wait" && e.data?.reason === "held_after_stop");
   if (e.type === "usage_metrics") {
     paintLocalUsage(e.data);
     return;
@@ -4000,6 +4003,38 @@ async function result(
   }
   saveView();
   return r;
+}
+// D16: a follow-up queued behind a stopped run waits for the user's choice.
+function showHeldTurn(response, held) {
+  response.heldActions?.remove();
+  response.heldActions = null;
+  if (!held) return;
+  const actions = document.createElement("p"),
+    run = document.createElement("button"),
+    discard = document.createElement("button"),
+    turn = job;
+  actions.className = "held-turn-actions";
+  run.type = discard.type = "button";
+  run.className = "btn btn-primary";
+  discard.className = "btn";
+  run.textContent = "Run queued message";
+  discard.textContent = "Discard";
+  const choose = async (path, done) => {
+    run.disabled = discard.disabled = true;
+    try {
+      await post("/v1/jobs/" + encodeURIComponent(turn) + path, {});
+      showHeldTurn(response, false);
+      status(done);
+    } catch (e) {
+      run.disabled = discard.disabled = false;
+      status("Couldn't update the queued message: " + e.message);
+    }
+  };
+  run.onclick = () => choose("/run-queued", "Queued message released.");
+  discard.onclick = () => choose("/cancel", "Queued message discarded.");
+  actions.append(run, discard);
+  response.heldActions = actions;
+  response.el.insertBefore(actions, response.body);
 }
 async function watchQueuedTurn() {
   const next = queuedTurns.shift();
@@ -7414,6 +7449,7 @@ async function loadSchedules(selectedId = currentSchedule?.id) {
           task.enabled ? "Active" : "Paused",
           cadenceLabel(task.cadence),
           task.enabled ? untilLabel(task.next_run) : task.paused_reason || "",
+          task.last_run?.needs_you && "Last run needs you",
         ]
           .filter(Boolean)
           .join(" · ");
@@ -7467,11 +7503,33 @@ function showScheduleEditor(task) {
   $("schedule-delete").textContent = "Delete";
   delete $("schedule-delete").dataset.confirm;
   $("schedule-save").textContent = task?.id ? "Save task" : "Create task";
-  $("schedule-last").textContent = task?.last_run
-    ? "Last run " + usageAge(stampSeconds(task.last_run.at)) + (task.last_run.state ? " · " + task.last_run.state : "")
-    : task?.id
-      ? "Not run yet."
-      : "";
+  showLastRun(task);
+}
+// The last run's real outcome (D15), with a link to its conversation.
+function showLastRun(task) {
+  const run = task?.last_run;
+  if (!run) {
+    $("schedule-last").textContent = task?.id ? "Not run yet." : "";
+    return;
+  }
+  const state = run.state === "submitted" ? "running" : run.state;
+  $("schedule-last").textContent = ["Last run " + usageAge(stampSeconds(run.at)), state, run.needs_you && "needs you"]
+    .filter(Boolean)
+    .join(" · ");
+  appendOpenRun(run.job_id);
+}
+// A scheduled run is the first turn of its own conversation.
+function appendOpenRun(jobId) {
+  if (!jobId) return;
+  const open = document.createElement("button");
+  open.type = "button";
+  open.className = "btn";
+  open.textContent = "Open run";
+  open.onclick = () => {
+    $("scheduled-dialog").close();
+    void load(jobId);
+  };
+  $("schedule-last").append(" ", open);
 }
 function scheduleBody() {
   const kind = $("schedule-kind").value;
@@ -7537,8 +7595,9 @@ $("schedule-run").onclick = async () => {
   const task = currentSchedule;
   if (!task?.id) return;
   try {
-    await post("/v1/schedules/" + encodeURIComponent(task.id) + "/run", {});
+    const started = await post("/v1/schedules/" + encodeURIComponent(task.id) + "/run", {});
     $("schedule-last").textContent = "Started now. It appears in Chats.";
+    appendOpenRun(started.job_id);
     void history();
     await loadSchedules(task.id);
   } catch (error) {

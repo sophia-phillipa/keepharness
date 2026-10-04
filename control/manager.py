@@ -39,6 +39,21 @@ from .product import PRODUCT, ensure_lineage
 
 ROOT = env.REPOSITORY_ROOT
 PERMISSIONS = ("read", "write", "upload", "tests", "internet", "shell", "hooks")
+# Settings the admin keeps from the stored file when a save does not send them (HAR-R2-5),
+# with their accepted ranges. The agent service applies its defaults when they are absent.
+MAX_CONCURRENT = range(1, 9)
+APPROVAL_LIMITS = {
+    "approval_timeout_seconds": range(60, 86401),
+    "approval_max_consecutive_expirations": range(1, 11),
+}
+
+
+def kept_setting(posted, stored, key, allowed, message):
+    """``posted[key]``, else ``stored[key]``; an int within ``allowed`` or a ``ValueError``."""
+    value = posted.get(key, stored.get(key))
+    if value is not None and (type(value) is not int or value not in allowed):
+        raise ValueError(message)
+    return {} if value is None else {key: value}
 
 
 def migrate_local_ai_directory(root: Path, state: Path) -> None:
@@ -456,6 +471,13 @@ class Manager:
                 "models": list(dict.fromkeys(models)),
                 "projects": allowed_projects,
                 "permissions": perms,
+                **kept_setting(
+                    spec,
+                    self.settings["services"].get(provider, {}),
+                    "max_concurrent",
+                    MAX_CONCURRENT,
+                    "Concurrent runs must be a whole number from 1 to 8.",
+                ),
             }
         logins = data.get("logins", [])
         if (
@@ -498,6 +520,10 @@ class Manager:
             defaults = {"backend": backend, "model": model, "effort": effort}
         out["mcp_defaults"] = defaults
         out["logins"] = list(dict.fromkeys(logins))
+        for key, allowed in APPROVAL_LIMITS.items():
+            out.update(
+                kept_setting(data, self.settings, key, allowed, "Invalid approval wait limits.")
+            )
         # Network servers change only through their own routes (they probe and store the key);
         # a posted or imported payload can neither add an address nor drop a saved one.
         if self.settings.get("remote_models"):

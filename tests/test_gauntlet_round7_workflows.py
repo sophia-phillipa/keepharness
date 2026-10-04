@@ -385,6 +385,8 @@ def test_cancelled_queued_parent_wakes_newly_ready_child():
                 return {"answer": "done"}
 
             instance.execute = execute
+            # Pins one run per provider; the default for cloud providers is 2 (D14).
+            instance.config["services"]["codex"]["max_concurrent"] = 1
             enqueue(instance, "blocker", "p", "codex")
             enqueue(instance, "parent", "p", "codex")
             enqueue(instance, "child", "p", "gemini", parent="parent")
@@ -393,6 +395,9 @@ def test_cancelled_queued_parent_wakes_newly_ready_child():
                 await spin()
                 assert entered == ["blocker"]
                 instance.cancel(identity, "parent")
+                # D16: the cancelled turn's follow-up waits for "Run queued message".
+                assert [row["id"] for row in instance.conversation_repository.ready()] == []
+                instance.run_queued(identity, "child")
                 assert [row["id"] for row in instance.conversation_repository.ready()] == ["child"]
                 await spin()
                 assert instance.conversation_repository.state("child")[0] == "completed"

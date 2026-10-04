@@ -43,7 +43,10 @@ MAX_FILE_BYTES = 131072
 ACCESS_MODES = ("ask", "read_only")
 FAILURE_LIMIT = 3
 HOURS = (1, 168)
-LAST_RUN_STATES = ("submitted", "failed")
+# "submitted": the run is queued or running; the scheduler then reads its outcome back (D15).
+# "failed" without a job is a refused submit.
+FAILED_OUTCOMES = ("failed", "cancelled", "interrupted")
+LAST_RUN_STATES = ("submitted", "completed", *FAILED_OUTCOMES)
 EDITABLE = (
     "title",
     "prompt",
@@ -256,8 +259,10 @@ def clean_last_run(value: object) -> dict | None:
     if job_id is not None and not isinstance(job_id, str):
         return None
     run = {"job_id": job_id, "at": at, "state": state}
-    if state == "failed" and isinstance(value.get("error"), str):
+    if state in FAILED_OUTCOMES and isinstance(value.get("error"), str):
         run["error"] = value["error"]
+    if value.get("needs_you") is True:
+        run["needs_you"] = True
     return run
 
 
@@ -450,6 +455,28 @@ def origin(record: dict) -> dict:
 
 def due(config: dict, now: float) -> list[dict]:
     """Enabled schedules of every owner whose ``next_run`` has come, earliest first."""
+    found = matching(
+        config,
+        lambda record: (
+            record["enabled"] and record["next_run"] is not None and record["next_run"] <= now
+        ),
+    )
+    return sorted(found, key=lambda record: (record["next_run"], record["id"]))
+
+
+def awaiting_outcome(config: dict) -> list[dict]:
+    """Schedules whose last run was submitted and has not reported how it ended."""
+    return matching(
+        config,
+        lambda record: (
+            (record["last_run"] or {}).get("state") == "submitted"
+            and record["last_run"]["job_id"] is not None
+        ),
+    )
+
+
+def matching(config: dict, wanted: Callable[[dict], bool]) -> list[dict]:
+    """The stored schedules of every owner for which ``wanted(record)`` holds."""
     found = []
     try:
         folders = owner_folders(config)
@@ -462,38 +489,105 @@ def due(config: dict, now: float) -> list[dict]:
         except APIError:
             logger.warning("A schedules folder (%s) is not safe to read.", folder)
             continue
-        found.extend(
-            record
-            for record, _ in usable
-            if record["enabled"] and record["next_run"] is not None and record["next_run"] <= now
-        )
-    return sorted(found, key=lambda record: (record["next_run"], record["id"]))
+        found.extend(record for record, _ in usable if wanted(record))
+    return found
+
+
+def counted_failure(current: dict, error: str) -> dict:
+    """One more failed run in a row; the limit pauses the schedule and says why."""
+    failures = current["failures"] + 1
+    if failures < FAILURE_LIMIT or not current["enabled"]:
+        return {"failures": failures}
+    return {
+        "failures": failures,
+        "enabled": False,
+        "next_run": None,
+        "paused_reason": (
+            f"Paused after {FAILURE_LIMIT} failed runs in a row (last error: {error}). "
+            "Check the route and the project, then turn the schedule back on."
+        ),
+    }
 
 
 def after_run(current: dict, now: float, job_id: str | None, error: str | None) -> dict:
-    """The changes after a due run: the next occurrence counts from ``now``, never catching up."""
+    """The changes after a due run: the next occurrence counts from ``now``, never catching up.
+
+    An accepted submit leaves the count of failures alone: the run's outcome decides it.
+    """
     changes = {"next_run": next_run(current["cadence"], now)}
     if error is None:
-        return {
-            **changes,
-            "failures": 0,
-            "last_run": {"job_id": job_id, "at": int(now), "state": "submitted"},
-        }
-    failures = current["failures"] + 1
-    changes.update(
-        failures=failures,
-        last_run={"job_id": None, "at": int(now), "state": "failed", "error": error},
+        return {**changes, "last_run": {"job_id": job_id, "at": int(now), "state": "submitted"}}
+    return {
+        **changes,
+        "last_run": {"job_id": None, "at": int(now), "state": "failed", "error": error},
+        **counted_failure(current, error),
+    }
+
+
+def after_outcome(
+    current: dict, job_id: str, state: str, error: str, needs_you: bool
+) -> dict | None:
+    """The changes once run ``job_id`` ended; ``None`` when the schedule moved on to another run."""
+    last_run = current["last_run"] or {}
+    if last_run.get("job_id") != job_id or last_run.get("state") != "submitted":
+        return None
+    settled = {**last_run, "state": state}
+    if needs_you:
+        settled["needs_you"] = True
+    if state not in FAILED_OUTCOMES:
+        return {"last_run": settled, "failures": 0}
+    return {"last_run": {**settled, "error": error}, **counted_failure(current, error)}
+
+
+def record_outcome(
+    config: dict, record: dict, *, state: str, error: str, needs_you: bool = False
+) -> None:
+    """Store how the last run of ``record`` ended, counting it towards pausing the schedule."""
+    job_id = record["last_run"]["job_id"]
+    rewrite(
+        config,
+        record["owner"],
+        record["id"],
+        lambda current: after_outcome(current, job_id, state, error, needs_you),
     )
-    if failures >= FAILURE_LIMIT:
-        changes.update(
-            enabled=False,
-            next_run=None,
-            paused_reason=(
-                f"Paused after {FAILURE_LIMIT} failed runs in a row (last error: {error}). "
-                "Check the route and the project, then turn the schedule back on."
-            ),
-        )
-    return changes
+
+
+def skip_due(config: dict, record: dict, now: float) -> None:
+    """Move past a due time while the previous run is still active: one run at a time (D15)."""
+    update_due(config, record, lambda current: {"next_run": next_run(current["cadence"], now)})
+
+
+def alerts(config: dict, owner: str, projects: set[str]) -> list[dict]:
+    """Attention items: paused schedules and last runs that skipped an approval (D15)."""
+    found = []
+    try:
+        usable = stored(config, owner_folder_name(owner))
+    except APIError:
+        logger.warning("The schedules folder of an owner is not safe to read.")
+        return []
+    for record, _ in usable:
+        if record["project_id"] not in projects:
+            continue
+        item = {
+            "schedule_id": record["id"],
+            "title": record["title"],
+            "project_id": record["project_id"],
+        }
+        last_run = record["last_run"] or {}
+        if not record["enabled"] and record["paused_reason"]:
+            found.append(
+                {**item, "reason": "paused", "job_id": None, "message": record["paused_reason"]}
+            )
+        elif last_run.get("needs_you"):
+            found.append(
+                {
+                    **item,
+                    "reason": "needs_you",
+                    "job_id": last_run["job_id"],
+                    "message": "The last run skipped an action that needed your approval.",
+                }
+            )
+    return found
 
 
 def rewrite(

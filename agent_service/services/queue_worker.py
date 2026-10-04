@@ -17,6 +17,8 @@ from .. import maestro, tools
 from ..config import TERMINAL
 from ..conversation_context import context_overflow
 from ..errors import APIError
+from ..persistence.db import encoded
+from . import capacity
 from .budgets import RuntimeBudget, timeout_seconds
 
 logger = logging.getLogger(__name__)
@@ -217,14 +219,13 @@ async def run(service):
     """Schedule independent provider lanes after acquiring write ownership."""
     tasks = {}
     conversations = {}
-    lanes = {}
     reasons = {}
     service.stopping = False
 
-    def released(task, job, backend, conversation):
+    def released(task, job, conversation):
         service.write_ownership.release(job)
         conversations.pop(conversation, None)
-        lanes[backend] -= 1
+        capacity.release_lane(service, job)
         tasks.pop(job, None)
         if service.job_tasks.get(job) is task:
             service.job_tasks.pop(job, None)
@@ -252,16 +253,15 @@ async def run(service):
                     if row["id"] in tasks:
                         continue
                     backend = json.loads(row["payload"]).get("backend", "codex")
-                    maximum = (
-                        service.config.get("services", {}).get(backend, {}).get("max_concurrent", 1)
-                    )
-                    if type(maximum) is not int or maximum < 1:
-                        maximum = 1  # Dispatch validates the configured capacity.
                     conversation = conversation_key(service, row)
                     reason = (
                         "conversation"
                         if conversation in conversations
-                        else ("provider_capacity" if lanes.get(backend, 0) >= maximum else None)
+                        else (
+                            None
+                            if capacity.lane_available(service, backend)
+                            else "provider_capacity"
+                        )
                     )
                     if reason is None:
                         try:
@@ -294,15 +294,15 @@ async def run(service):
                     with service.db:
                         service.conversation_repository.set_running(row["id"])
                     conversations[conversation] = row["id"]
-                    lanes[backend] = lanes.get(backend, 0) + 1
+                    capacity.take_lane(service, row["id"], backend)
                     service.dispatch_sequence += 1
                     service.last_served[row["owner"]] = service.dispatch_sequence
                     task = asyncio.create_task(run_job(service, row))
                     tasks[row["id"]] = task
                     service.job_tasks[row["id"]] = task
                     task.add_done_callback(
-                        lambda completed, job=row["id"], lane=backend, key=conversation: released(
-                            completed, job, lane, key
+                        lambda completed, job=row["id"], key=conversation: released(
+                            completed, job, key
                         )
                     )
             except sqlite3.OperationalError:
@@ -502,7 +502,35 @@ def cancel_owned(service, row):
     return task
 
 
+def hold_followups(service, job):
+    """D16: after Stop, the queued follow-ups wait for "Run queued message" or "Discard".
+
+    Runs inside the transaction that records ``job`` as cancelled, so no follow-up can become
+    ready in between.
+    """
+    for child in service.conversation_repository.queued_followups(job):
+        payload = json.loads(child["payload"])
+        payload["_held_after_stop"] = True
+        service.conversation_repository.set_payload(child["id"], encoded(payload))
+        service.event(child["id"], "queue_wait", {"reason": "held_after_stop"})
+
+
 def cancel(service, identity, job):
     row = service.job(identity, job)
+    if row["state"] not in TERMINAL:
+        service.stop_requests.add(job)
     cancel_owned(service, row)
     return {"job_id": job, "cancel_requested": row["state"] not in TERMINAL}
+
+
+def run_queued(service, identity, job):
+    """Release a follow-up held after Stop, so it runs in its turn."""
+    row = service.job(identity, job)
+    payload = json.loads(row["payload"])
+    if row["state"] != "queued" or not payload.pop("_held_after_stop", None):
+        raise APIError("job_not_held", 409)
+    with service.db:
+        service.conversation_repository.set_payload(job, encoded(payload))
+        service.event(job, "queue_released", {})
+    service.wake.set()
+    return {"job_id": job, "released": True}

@@ -353,7 +353,7 @@
       toggleButton.title = toggleButton.textContent + ' · Toggle run console (Ctrl/⌘+J)';
       inboxButton.textContent = `Needs you (${counts.needs_you || 0})`;
       const attentionCount = document.getElementById('attention-count');
-      if (attentionCount) attentionCount.textContent = String(counts.needs_you || 0);
+      if (attentionCount) attentionCount.textContent = String((counts.needs_you || 0) + (state.activity.schedule_alerts || []).length);
       window.updateProviderQuotas?.(state.activity.providers);
       for (const [name, count] of [['Runs', state.activity.jobs.length], ['Agents', state.activity.providers.length]]) {
         const tab = tabButtons.find(node => node.dataset.tab === name);
@@ -977,18 +977,26 @@
       const deadline = item.timeout_at ?? item.expires_at;
       return !deadline || deadline > Date.now() / 1000;
     });
-    const signature = JSON.stringify(requests);
+    const alerts = state.activity.schedule_alerts || [];
+    const signature = JSON.stringify([requests, alerts]);
     if (signature === inboxSignature) return;
     inboxSignature = signature;
     const focused = inboxList.contains(document.activeElement) ? document.activeElement : null;
     const retained = new Map([...inboxList.querySelectorAll('.needs-you-card')].map(card => [card.dataset.requestId, card]));
-    const cards = requests.map(item => retained.get(item.gate_id || item.approval_id) || requestCard(item));
+    const cards = [...requests.map(item => retained.get(item.gate_id || item.approval_id) || requestCard(item)), ...alerts.map(scheduleAlertCard)];
     for (const child of [...inboxList.children]) if (!cards.includes(child)) child.remove();
     for (const [index, card] of cards.entries()) {
       if (inboxList.children[index] !== card) inboxList.insertBefore(card, inboxList.children[index] || null);
     }
-    if (!requests.length) inboxList.append(el('p', 'No live requests need your attention.'));
+    if (!cards.length) inboxList.append(el('p', 'No live requests need your attention.'));
     if (focused && !focused.isConnected) inbox.querySelector('button').focus();
+  }
+  // D15: a paused scheduled task, or a scheduled run that skipped an approval.
+  function scheduleAlertCard(item) {
+    const card = el('section', null, 'needs-you-card schedule-alert');
+    card.append(el('h3', 'Scheduled task: ' + item.title), el('p', item.message));
+    if (item.job_id) card.append(button('Open run', async () => { inbox.close(); await load(item.job_id, false); }));
+    return card;
   }
   function requestCard(item) {
     const card = el('section', null, 'needs-you-card');

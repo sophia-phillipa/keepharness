@@ -245,6 +245,15 @@ const path = require("node:path");
     assert.match(await row.innerText(), /Active · Mondays at 08:30 · next in 3 h/);
     await scheduled.getByRole("button", { name: "Run now" }).click();
     await scheduled.getByText("Started now. It appears in Chats.").waitFor();
+    await scheduled.getByRole("button", { name: "Open run" }).waitFor();
+    // D15: Last run shows the run's real outcome, read back by the scheduler.
+    schedules[0].last_run = { job_id: "j9", at: Math.floor(Date.now() / 1000), state: "cancelled", error: "approval_expiration_limit", needs_you: true };
+    await scheduled.getByRole("button", { name: "Close Scheduled" }).click();
+    await page.click("#rail-scheduled");
+    await page.waitForFunction(() => /Last run needs you/.test(document.querySelector("#schedules-list")?.innerText || ""));
+    await row.click();
+    await page.waitForFunction(() => /Last run .* · cancelled · needs you/.test(document.querySelector("#schedule-last")?.innerText || ""));
+    assert.match(await row.innerText(), /Last run needs you/);
     await scheduled.getByLabel("Active").uncheck();
     await scheduled.getByRole("button", { name: "Save task" }).click();
     await page.waitForFunction(() => /Paused/.test(document.querySelector("#schedules-list")?.innerText || ""));

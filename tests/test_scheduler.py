@@ -95,6 +95,8 @@ def test_a_due_schedule_is_submitted_through_the_job_path_exactly_once(config, s
     tick(service, now)
     tick(service, now + 20)
     assert len(jobs(service)) == 1
+    # The next due time runs once this run ended (D15 skips it while the run is active).
+    service.finish(job["id"], "completed", {"answer": "done"})
     tick(service, local(2026, 10, 4, 9) + 1)
     assert len(jobs(service)) == 2
     assert current(config, created)["next_run"] == local(2026, 10, 5, 9)
@@ -201,11 +203,15 @@ def test_a_success_resets_the_count_of_failures(config, service, clock):
     assert current(config, created)["failures"] == 2
     config["services"]["codex"]["models"].append("gpt-6-astra")
     tick(service, local(2026, 10, 5, 9) + 1)
+    # D15: an accepted submit is not a success yet; the run's outcome decides.
+    assert current(config, created)["failures"] == 2
+    service.finish(current(config, created)["last_run"]["job_id"], "completed", {"answer": "ok"})
+    tick(service, local(2026, 10, 5, 9) + 31)
     after = current(config, created)
     assert (after["failures"], after["enabled"], after["last_run"]["state"]) == (
         0,
         True,
-        "submitted",
+        "completed",
     )
 
 
@@ -482,3 +488,127 @@ def test_a_replay_after_an_edited_prompt_records_the_job_already_submitted(
     assert [job["id"] for job in jobs(service)] == [first["id"]]
     assert (after["last_run"]["job_id"], after["last_run"]["state"]) == (first["id"], "submitted")
     assert after["failures"] == 0 and after["next_run"] == local(2026, 10, 4, 9)
+
+
+# --------------------------------------------------------------------------- run outcomes (D15)
+
+
+def run_of(config, created):
+    return current(config, created)["last_run"]["job_id"]
+
+
+def test_a_due_time_is_skipped_while_the_previous_run_is_active(config, service, clock):
+    created = add(config)
+    tick(service, local(2026, 10, 3, 9) + 1)
+    (first,) = jobs(service)
+    tick(service, local(2026, 10, 4, 9) + 1)  # the first run is still queued
+    after = current(config, created)
+    assert [job["id"] for job in jobs(service)] == [first["id"]]
+    assert after["next_run"] == local(2026, 10, 5, 9)
+    assert (after["failures"], after["enabled"], after["last_run"]["job_id"]) == (
+        0,
+        True,
+        first["id"],
+    )
+    service.finish(first["id"], "completed", {"answer": "done"})
+    tick(service, local(2026, 10, 5, 9) + 1)
+    assert len(jobs(service)) == 2
+
+
+def test_last_run_reads_back_the_real_outcome(config, service, clock):
+    created = add(config)
+    now = local(2026, 10, 3, 9) + 1
+    tick(service, now)
+    job_id = run_of(config, created)
+    assert current(config, created)["last_run"]["state"] == "submitted"
+    service.finish(job_id, "completed", {"answer": "done"})
+    tick(service, now + 30)
+    assert current(config, created)["last_run"] == {
+        "job_id": job_id,
+        "at": now,
+        "state": "completed",
+    }
+
+
+@pytest.mark.parametrize("outcome", ["failed", "cancelled", "interrupted"])
+def test_a_run_that_does_not_complete_counts_as_a_failure(config, service, clock, outcome):
+    created = add(config)
+    now = local(2026, 10, 3, 9) + 1
+    tick(service, now)
+    service.finish(run_of(config, created), outcome, {"error": "active_runtime_timeout"})
+    tick(service, now + 30)
+    after = current(config, created)
+    assert after["failures"] == 1 and after["enabled"] is True
+    assert after["last_run"]["state"] == outcome
+    assert after["last_run"]["error"] == "active_runtime_timeout"
+
+
+def test_three_runs_that_end_badly_pause_the_schedule(config, service, clock):
+    created = add(config)
+    endings = iter(
+        [
+            ("cancelled", {"error": "approval_expiration_limit"}),
+            ("failed", {"error": "cli_missing"}),
+            ("interrupted", {"condition": "provider_quota_exhausted"}),
+        ]
+    )
+    for day in (3, 4, 5):
+        tick(service, local(2026, 10, day, 9) + 1)
+        state, result = next(endings)
+        service.finish(run_of(config, created), state, result)
+    tick(service, local(2026, 10, 5, 9) + 31)
+    after = current(config, created)
+    assert (after["enabled"], after["failures"], after["next_run"]) == (False, 3, None)
+    assert after["paused_reason"].startswith("Paused after 3 failed runs in a row")
+    assert "provider_quota_exhausted" in after["paused_reason"]
+    tick(service, local(2026, 10, 6, 9) + 1)
+    assert len(jobs(service)) == 3
+
+
+def test_a_completed_run_resets_the_count_of_failures(config, service, clock):
+    created = add(config)
+    tick(service, local(2026, 10, 3, 9) + 1)
+    service.finish(run_of(config, created), "failed", {"error": "cli_missing"})
+    tick(service, local(2026, 10, 4, 9) + 1)
+    assert current(config, created)["failures"] == 1
+    service.finish(run_of(config, created), "completed", {"answer": "done"})
+    tick(service, local(2026, 10, 4, 9) + 31)
+    after = current(config, created)
+    assert (after["failures"], after["last_run"]["state"]) == (0, "completed")
+
+
+def test_a_run_that_denied_an_unattended_approval_is_flagged(config, service, clock):
+    created = add(config)
+    tick(service, local(2026, 10, 3, 9) + 1)
+    job_id = run_of(config, created)
+    service.event(job_id, "approval_denied", {"scope": "unattended", "kind": "mcp_tool_call"})
+    service.finish(job_id, "completed", {"answer": "done"})
+    tick(service, local(2026, 10, 3, 9) + 31)
+    last = current(config, created)["last_run"]
+    assert (last["state"], last["needs_you"]) == ("completed", True)
+    alerts = service.activity(identity(config))["schedule_alerts"]
+    assert alerts == [
+        {
+            "schedule_id": created["id"],
+            "title": created["title"],
+            "project_id": "p",
+            "reason": "needs_you",
+            "job_id": job_id,
+            "message": "The last run skipped an action that needed your approval.",
+        }
+    ]
+
+
+def test_a_paused_schedule_raises_an_attention_item(config, service, clock):
+    created = add(config)
+    fail_the_codex_route(config)
+    for day in (3, 4, 5):
+        tick(service, local(2026, 10, day, 9) + 1)
+    (alert,) = service.activity(identity(config))["schedule_alerts"]
+    assert (alert["schedule_id"], alert["reason"], alert["job_id"]) == (
+        created["id"],
+        "paused",
+        None,
+    )
+    assert alert["message"].startswith("Paused after 3 failed runs")
+    assert service.activity(identity(config, "b"))["schedule_alerts"] == []

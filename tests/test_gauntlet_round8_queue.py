@@ -11,6 +11,8 @@ from test_execution_modes import service
 def test_scheduler_transient_dispatch_failure(tmp_path, boundary):
     async def scenario():
         s, ident = service(tmp_path)
+        # Pins one run per provider; the default for cloud providers is 2 (D14).
+        s.config["services"]["codex"]["max_concurrent"] = 1
         jobs = [
             s.submit(
                 ident, dict(project_id="p", backend="codex", model="gpt-6-astra", prompt=prompt)
