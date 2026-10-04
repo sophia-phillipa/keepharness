@@ -67,6 +67,10 @@ async def approval_rules(request, service, identity):
 
 
 SEARCH_MIN = 2
+# A search reads at most this many of the newest conversations and this much stored text.
+SEARCH_MAX_CONVERSATIONS = 500
+SEARCH_MAX_BYTES = 16 * 1024 * 1024
+SEARCHES_PER_MINUTE = 60
 SNIPPET_BEFORE, SNIPPET_AFTER = 40, 60
 
 
@@ -105,11 +109,36 @@ def turn_text(row):
     return [text for text in texts if isinstance(text, str)]
 
 
+def search_snippets(candidates, needle):
+    """The first snippet per conversation, newest first, until the byte budget runs out.
+
+    ``candidates`` pairs a conversation id with its turn rows; the result says whether the
+    budget stopped the scan early.
+    """
+    found, scanned = {}, 0
+    for cid, rows in candidates:
+        for row in rows:
+            scanned += len(row["payload"]) + len(row["result"] or "")
+            if scanned > SEARCH_MAX_BYTES:
+                return found, True
+            hit = next((hit for text in turn_text(row) if (hit := snippet(text, needle))), "")
+            if hit:
+                found[cid] = hit
+                break
+    return found, False
+
+
 async def conversations(request, service, identity):
     """The owner's conversations; with ``?q=`` only those whose prompts or answers contain it."""
-    needle = fold(request.query_params.get("q", "").strip())[0]
     searching = "q" in request.query_params
-    groups = {}
+    needle = fold(request.query_params.get("q", "").strip())[0]
+    if searching:
+        if len(needle) < SEARCH_MIN:
+            raise APIError("search_query_too_short", 400)
+        service.limit(
+            (identity[0], "conversation_search"), SEARCHES_PER_MINUTE, "search_rate_limit"
+        )
+    groups, turns = {}, {}
     deleted = service.conversation_repository.deleted()
     titles = service.conversation_repository.titles()
     for r in service.conversation_rows(identity):
@@ -130,12 +159,18 @@ async def conversations(request, service, identity):
             updated=r["created"],
             execution=service.execution(r),
         )
-        if searching and len(needle) >= SEARCH_MIN and "snippet" not in groups[cid]:
-            found = next((hit for text in turn_text(r) if (hit := snippet(text, needle))), "")
-            if found:
-                groups[cid]["snippet"] = found
-    found = [c for c in groups.values() if not searching or c.get("snippet")]
-    return JSONResponse({"conversations": sorted(found, key=lambda c: c["updated"], reverse=True)})
+        turns.setdefault(cid, []).append(r)
+    newest = sorted(groups.values(), key=lambda c: c["updated"], reverse=True)
+    if not searching:
+        return JSONResponse({"conversations": newest})
+    candidates = [(c["id"], turns[c["id"]]) for c in newest[:SEARCH_MAX_CONVERSATIONS]]
+    # Text matching runs off the event loop; the rows were read above, on it.
+    snippets, limited = await asyncio.to_thread(search_snippets, candidates, needle)
+    found = [{**c, "snippet": snippets[c["id"]]} for c in newest if c["id"] in snippets]
+    response = {"conversations": found}
+    if limited or len(newest) > SEARCH_MAX_CONVERSATIONS:
+        response["limited"] = True
+    return JSONResponse(response)
 
 
 def gate_records(service, job_id):

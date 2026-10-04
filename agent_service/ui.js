@@ -1159,6 +1159,8 @@ const userErrors = {
     "Too many requests in a short time. The server has temporarily limited this access.",
   submission_rate_limit:
     "You sent new requests too quickly. This request wasn't queued.",
+  search_query_too_short: "Type at least two characters to search conversations.",
+  search_rate_limit: "Too many searches in a short time. Wait a moment and search again.",
   queue_full:
     "The server queue is full. This request wasn't queued; wait for other runs to finish.",
   owner_queue_full:
