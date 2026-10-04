@@ -15,6 +15,10 @@ const {
   openTicket,
   sessionCookie,
   enrollmentLink,
+  cookieValue,
+  busyFromState,
+  closeAllowed,
+  closePrompt,
 } = require('./policy.cjs');
 
 test('only the local admin and harness origins are app URLs', () => {
@@ -167,4 +171,49 @@ test('the clipboard write and notifications are allowed on the app origins only'
   }
   for (const permission of ['media', 'geolocation', 'clipboard-read', 'midi', 'openExternal'])
     assert.equal(permissionAllowed(permission, 'http://127.0.0.1:8095/', origins), false);
+});
+
+test('the admin cookie is read from the sign-in answer, and only when it is a token', () => {
+  const token = 'Adm_in-0123456789abcdefABCDEF0123456789abcde';
+  const answer = [`keepharness-local=other; Path=/`, `admin=${token}; HttpOnly; Path=/; SameSite=strict`];
+  assert.equal(cookieValue(answer, 'admin'), token);
+  assert.equal(cookieValue(answer, 'missing'), null);
+  assert.equal(cookieValue(['admin=bad value; Path=/'], 'admin'), null);
+  assert.equal(cookieValue(undefined, 'admin'), null);
+});
+
+test('busy is read from the admin state, and unknown when the answer cannot say', () => {
+  assert.equal(busyFromState('{"status":{"busy":true}}'), true);
+  assert.equal(busyFromState('{"status":{"busy":false}}'), false);
+  for (const body of ['', 'not json', '{}', '{"status":{}}', '{"status":{"busy":"yes"}}', 'null']) assert.equal(busyFromState(body), null);
+});
+
+test('closing the window asks first only when the app owns a backend that may be working (D18)', async () => {
+  const run = async (ownsBackend, working) => {
+    const calls = { busy: 0, asked: [] };
+    const allowed = await closeAllowed({
+      ownsBackend,
+      busy: async () => (calls.busy++, working),
+      confirm: async (state) => (calls.asked.push(state), false),
+    });
+    return { allowed, ...calls };
+  };
+  // The service belongs to systemd (or someone else): the window is only a client and closes.
+  assert.deepEqual(await run(false, true), { allowed: true, busy: 0, asked: [] });
+  // Owned and idle: closes without asking.
+  assert.deepEqual(await run(true, false), { allowed: true, busy: 1, asked: [] });
+  // Owned and busy, or not known to be idle: asks, and the answer decides.
+  assert.deepEqual(await run(true, true), { allowed: false, busy: 1, asked: [true] });
+  assert.deepEqual(await run(true, null), { allowed: false, busy: 1, asked: [null] });
+  assert.equal(await closeAllowed({ ownsBackend: true, busy: async () => true, confirm: async () => true }), true);
+});
+
+test('the close prompt keeps working by default and names what stops', () => {
+  for (const working of [true, null]) {
+    const prompt = closePrompt(working);
+    assert.deepEqual(prompt.buttons, ['Keep working', 'Close and stop the work']);
+    assert.match(prompt.message, /stops the service/i);
+  }
+  assert.match(closePrompt(true).detail, /running and queued tasks/);
+  assert.match(closePrompt(null).detail, /could not confirm/i);
 });

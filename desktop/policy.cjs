@@ -142,6 +142,46 @@ function sessionCookie(setCookies, port, nowSeconds = Date.now() / 1000) {
   }
   return null;
 }
+// The value of the cookie `name` in a Set-Cookie answer, or null when it is missing or not a token.
+function cookieValue(setCookies, name) {
+  for (const header of [].concat(setCookies || [])) {
+    const [pair] = String(header).split(';');
+    const at = pair.indexOf('=');
+    if (pair.slice(0, at).trim() !== name) continue;
+    const value = pair.slice(at + 1).trim();
+    return TOKEN.test(value) ? value : null;
+  }
+  return null;
+}
+// `status.busy` of the admin's /api/state (queued or running work): true, false, or null when
+// the body cannot say.
+function busyFromState(body) {
+  try {
+    const busy = JSON.parse(body)?.status?.busy;
+    return typeof busy === 'boolean' ? busy : null;
+  } catch {
+    return null;
+  }
+}
+// Closing the window is only a client leaving (D18) unless this app started the admin: quitting
+// then stops the service and its work. `busy()` answers true, false or null (unknown); only a
+// known-idle service closes without asking, and `confirm(busy)` says whether the user agreed.
+async function closeAllowed({ ownsBackend, busy, confirm }) {
+  if (!ownsBackend) return true;
+  const working = await busy();
+  if (working === false) return true;
+  return confirm(working);
+}
+function closePrompt(working) {
+  return {
+    message: 'Closing KeepHarness stops the service.',
+    detail:
+      working === true
+        ? 'Tasks are running or queued; the running and queued tasks stop with it.'
+        : 'KeepHarness could not confirm that nothing is running.',
+    buttons: ['Keep working', 'Close and stop the work'],
+  };
+}
 // `keepharness approve-device --owner local --yes` prints the one-time enrollment link last. The
 // window loads it only when it is an enrollment link on the harness origin the window shows.
 function enrollmentLink(output, harnessOrigin) {
@@ -169,4 +209,8 @@ module.exports = {
   openTicket,
   sessionCookie,
   enrollmentLink,
+  cookieValue,
+  busyFromState,
+  closeAllowed,
+  closePrompt,
 };

@@ -23,6 +23,10 @@ const {
   openTicket,
   sessionCookie,
   enrollmentLink,
+  cookieValue,
+  busyFromState,
+  closeAllowed,
+  closePrompt,
 } = require('./policy.cjs');
 
 const TITLE = 'KeepHarness';
@@ -38,6 +42,9 @@ const python = process.env.KEEPHARNESS_PYTHON || path.join(project, '.venv', 'bi
 let win = null,
   splash = null,
   backend = null,
+  adminCookie = null,
+  asking = false,
+  closeConfirmed = false,
   stderr = '';
 
 app.setName(TITLE);
@@ -117,8 +124,49 @@ async function signInWindow() {
     return;
   }
   const ticket = openTicket(secret);
-  const cookie = ticket && sessionCookie(await openSession(ticket), harnessPort);
+  const cookies = ticket ? await openSession(ticket) : null;
+  adminCookie = cookieValue(cookies, 'admin');
+  const cookie = sessionCookie(cookies, harnessPort);
   if (cookie) await session.defaultSession.cookies.set(cookie);
+}
+// Whether the admin reports queued or running work: true, false, or null when it cannot say.
+function backendBusy(timeout = 3000) {
+  if (!adminCookie) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const request = http.get(`${adminUrl}api/state`, { timeout, headers: { cookie: `admin=${adminCookie}` } }, (response) => {
+      let body = '';
+      response.setEncoding('utf8');
+      response.on('data', (chunk) => {
+        body += chunk;
+      });
+      response.on('end', () => resolve(response.statusCode === 200 ? busyFromState(body) : null));
+    });
+    request.on('timeout', () => request.destroy());
+    request.on('error', () => resolve(null));
+  });
+}
+// Closing the window stops an admin this app started, and the work with it: ask first while that
+// work may be running. An admin that was already running (the service) is left alone (D18).
+async function closeWindow() {
+  if (asking) return;
+  asking = true;
+  try {
+    const allowed = await closeAllowed({
+      ownsBackend: processRunning(backend),
+      busy: backendBusy,
+      confirm: async (working) => {
+        const prompt = closePrompt(working);
+        const { response } = await dialog.showMessageBox(win, { type: 'warning', title: TITLE, ...prompt, defaultId: 0, cancelId: 0, noLink: true });
+        return response === 1;
+      },
+    });
+    if (allowed && win && !win.isDestroyed()) {
+      closeConfirmed = true;
+      win.close();
+    }
+  } finally {
+    asking = false;
+  }
 }
 // Output of the owner CLI, or '' when it fails or takes too long.
 function runCli(args, seconds = 20) {
@@ -209,6 +257,11 @@ async function start() {
   win.once('ready-to-show', () => {
     win.show();
     releaseSplash();
+  });
+  win.on('close', (event) => {
+    if (closeConfirmed || !processRunning(backend)) return;
+    event.preventDefault();
+    void closeWindow();
   });
   win.webContents.on('will-navigate', (event, url) => {
     if (isAppUrl(url, origins)) return;
