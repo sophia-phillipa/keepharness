@@ -47,10 +47,11 @@ for size in 16 24 32 48 64 128 256 512; do
   install -Dm644 "desktop/build/icons/${size}x${size}.png" "$OUT/share/icons/hicolor/${size}x${size}/apps/keepharness.png"
 done
 python3 - "$OUT" "$commit" "$VERSION" <<'PY'
-import hashlib, json, pathlib, sys
+import datetime, hashlib, json, pathlib, sys
 out, commit, version = sys.argv[1:]
 out = pathlib.Path(out)
 manifest = {'product':'keepharness','version':version,'commit':commit,'dirty':False,
+            'built_at': datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
             'electron': json.loads(pathlib.Path('desktop/package.json').read_text())['devDependencies']['electron']}
 for name in ('keepharness-bin', 'resources/app.asar'):
     manifest[name.replace('/', '_').replace('-', '_') + '_sha256'] = hashlib.file_digest((out/name).open('rb'),'sha256').hexdigest()

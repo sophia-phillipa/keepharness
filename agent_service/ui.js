@@ -140,6 +140,8 @@ function setConversationTitle(value) {
   el.textContent = full.length > 80 ? truncateTitle(full, 79) + "…" : full;
   el.title = full;
   el.dir = "auto";
+  conversationWindowTitle = full + " — KeepHarness";
+  updateWindowTitle();
   syncActiveProjectBadge();
 }
 // Cuts at up to `units` UTF-16 code units, then backs off one unit if that
@@ -2249,6 +2251,10 @@ window.updateProviderQuotas = function updateProviderQuotas(items = []) {
 // D35: the needs-you count leads the window title, and an unfocused window gets an OS
 // notification when a run needs the user, fails or finishes (the desktop app allows it for its own origins).
 const WINDOW_TITLE = document.title;
+let conversationWindowTitle = WINDOW_TITLE, windowAttentionCount = 0;
+function updateWindowTitle() {
+  document.title = (windowAttentionCount ? `(${windowAttentionCount}) ` : "") + conversationWindowTitle;
+}
 const RECENT_JOB_SECONDS = 600;
 const seenJobStates = new Map();
 const seenRequests = new Set();
@@ -2268,7 +2274,8 @@ function jobAlert(job, before) {
 }
 function notifyAttention(data = {}) {
   const needs = data.needs_you || [];
-  document.title = needs.length ? `(${needs.length}) ${WINDOW_TITLE}` : WINDOW_TITLE;
+  windowAttentionCount = needs.length;
+  updateWindowTitle();
   const alerts = [];
   for (const item of needs) {
     const id = item.gate_id || item.approval_id;
@@ -2339,7 +2346,7 @@ $('provider-quotas').onclick = (event) => {
   void quota();
   setQuotaOpen(true);
 };
-async function history(timeout = 30000, background = false) {
+const history = async (timeout = 30000, background = false) => {
   const request = ++historyRequest;
   try {
     let data;
@@ -2383,7 +2390,7 @@ async function history(timeout = 30000, background = false) {
       status("Couldn't load conversations: " + e.message);
     return false;
   }
-}
+};
 function conversationRow(c) {
   const row = document.createElement("div");
   row.className = "conversation-row";
@@ -6406,6 +6413,9 @@ async function initialize() {
     if (!startupTimer) {
       try {
         saved = JSON.parse(sessionStorage.getItem("remote-view") || "{}") || {};
+        const routeConversation = new URLSearchParams(location.search).get("conversation");
+        if (routeConversation && /^[A-Za-z0-9_-]{1,200}$/.test(routeConversation) && routeConversation !== saved.conversation)
+          saved = { conversation: routeConversation };
       } catch {}
     }
     const previous = $("model").value,
@@ -6743,6 +6753,10 @@ function readDraft(key) {
 function saveView() {
   if (loading) return true;
   try {
+    const route = new URL(location.href);
+    if (conversation) route.searchParams.set("conversation", conversation);
+    else route.searchParams.delete("conversation");
+    if (route.href !== location.href) window.history.replaceState(null, "", route);
     const snapshot = JSON.stringify({
         conversation,
         composer_selection: {

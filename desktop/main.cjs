@@ -11,6 +11,7 @@ const os = require('node:os');
 const path = require('node:path');
 const {
   productAllowed, runtimePort, clampBounds, redact, logChunk,
+  restoredRoute, appRoute, windowTitle, downloadName,
   appOrigins,
   isAppUrl,
   permissionAllowed,
@@ -53,7 +54,8 @@ let win = null,
   adminCookie = null,
   asking = false,
   closeConfirmed = false,
-  stderr = '';
+  stderr = '',
+  buildLabel = 'development build';
 
 app.setName(TITLE);
 const knownSecrets = new Set();
@@ -121,19 +123,21 @@ function saveWindowState(window) {
   try {
     const file = path.join(app.getPath('userData'), 'window-state.json');
     fs.mkdirSync(path.dirname(file), {recursive:true});
-    fs.writeFileSync(file + '.tmp', JSON.stringify({...window.getNormalBounds(), maximized:window.isMaximized()}), {mode:0o600});
+    fs.writeFileSync(file + '.tmp', JSON.stringify({...window.getNormalBounds(), maximized:window.isMaximized(), route:appRoute(window.webContents.getURL(), origins)}), {mode:0o600});
     fs.renameSync(file + '.tmp', file);
   } catch (error) { log(error.message); }
 }
+function readWindowState() {
+  try { return JSON.parse(readText(path.join(app.getPath('userData'), 'window-state.json'))); } catch { return null; }
+}
 function restoredBounds() {
-  let state;
-  try { state = JSON.parse(readText(path.join(app.getPath('userData'), 'window-state.json'))); } catch { /* Defaults. */ }
+  const state = readWindowState();
   const primary = screen.getPrimaryDisplay().workArea;
   return clampBounds(state, [primary, ...screen.getAllDisplays().map(display => display.workArea)]);
 }
 function installMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate([
-    {label:TITLE, submenu:[{role:'about'}, {label:'Quit', accelerator:'CmdOrCtrl+Q', click:() => app.quit()}]},
+    {label:TITLE, submenu:[{id:'about', label:'About KeepHarness', click:() => dialog.showMessageBox({type:'info', title:'About KeepHarness', message:TITLE, detail:buildLabel})}, {label:'Quit', accelerator:'CmdOrCtrl+Q', click:() => app.quit()}]},
     {label:'Edit', submenu:['undo','redo','cut','copy','paste','selectAll'].map(role => ({role}))},
     {label:'View', submenu:[{role:'resetZoom'}, {role:'zoomIn'}, {role:'zoomOut'}, {role:'togglefullscreen'}, ...(!app.isPackaged ? [{role:'toggleDevTools'}] : [])]},
   ]));
@@ -165,6 +169,10 @@ function createWindow(kind) {
     const safe = !isSplash && externalUrl(url);
     if (safe) void shell.openExternal(safe).catch(error => log(error.message));
   };
+  window.webContents.on('page-title-updated', (event, title) => {
+    event.preventDefault();
+    window.setTitle(windowTitle(title, window.webContents.getURL(), origins));
+  });
   window.webContents.on('will-navigate', navigate);
   window.webContents.on('will-redirect', navigate);
   window.webContents.on('will-attach-webview', event => event.preventDefault());
@@ -212,6 +220,7 @@ function createWindow(kind) {
   window.webContents.on('render-process-gone', (_event, details) => void recover('The KeepHarness page stopped.', ['Reload','Quit'], 0, details.reason, true));
   window.on('unresponsive', () => void recover('KeepHarness is not responding.', ['Wait','Reload'], 1));
   if (kind === 'main') {
+    monitorWork(window);
     window.on('close', event => {
       saveWindowState(window);
       if (closeConfirmed || !processRunning(backend)) return;
@@ -369,11 +378,48 @@ function backendBusy(timeout = 3000) {
       response.setEncoding('utf8');
       response.on('data', (chunk) => {
         body += chunk;
+        if (body.length > 1048576) { resolve(null); request.destroy(); }
       });
+      response.on('error', () => resolve(null));
       response.on('end', () => resolve(response.statusCode === 200 ? busyFromState(body) : null));
     });
     request.on('timeout', () => request.destroy());
     request.on('error', () => resolve(null));
+  });
+}
+// One request at a time; unknown state backs off up to a minute.
+function monitorWork(window) {
+  let timer, delay = 5000, stopped = false;
+  const badge = count => {
+    if (process.platform === 'linux' && typeof app.setBadgeCount === 'function') {
+      try { app.setBadgeCount(count); } catch { /* Desktop shell may not support badges. */ }
+    }
+  };
+  const poll = async () => {
+    if (stopped || quitting || window.isDestroyed()) return;
+    const busy = await backendBusy();
+    if (stopped || quitting || window.isDestroyed()) return;
+    if (busy !== null) {
+      window.setProgressBar(busy ? 2 : -1);
+      badge(busy ? 1 : 0);
+      delay = 5000;
+    } else delay = Math.min(delay * 2, 60000);
+    timer = setTimeout(poll, delay);
+    timer.unref?.();
+  };
+  window.once('closed', () => { stopped = true; clearTimeout(timer); badge(0); });
+  void poll();
+}
+function limitDownloads() {
+  session.defaultSession.on('will-download', (event, item, contents) => {
+    const url = item.getURL();
+    if (!isAppUrl(url, origins) || !isAppUrl(contents?.getURL(), origins)) {
+      event.preventDefault();
+      const safe = externalUrl(url);
+      if (safe && !isAppUrl(url, origins)) void shell.openExternal(safe).catch(error => log(error.message));
+      return;
+    }
+    item.setSaveDialogOptions({defaultPath:path.join(app.getPath('downloads'), downloadName(item.getFilename()))});
   });
 }
 // Closing the window stops an admin this app started, and the work with it: ask first while that
@@ -428,10 +474,19 @@ async function enrollmentTarget() {
   return enrollmentLink(await runCli(['approve-device', '--owner', 'local', '--yes']), new URL(harnessUrl).origin);
 }
 // The enrollment page asks to confirm with a button; the app generated the link, so it confirms.
-function confirmEnrollment(link) {
-  win.webContents.once('did-finish-load', () => {
-    if (win.webContents.getURL() !== link) return;
-    win.webContents
+function confirmEnrollment(link, route) {
+  const window = win;
+  window.webContents.once('did-finish-load', () => {
+    if (window.webContents.getURL() !== link) return;
+    if (route) {
+      const restore = () => {
+        if (window.webContents.getURL() !== harnessUrl || quitting || window.isDestroyed()) return;
+        window.webContents.removeListener('did-finish-load', restore);
+        void window.loadURL(route).catch(error => log(error.message));
+      };
+      window.webContents.on('did-finish-load', restore);
+    }
+    window.webContents
       .executeJavaScript("document.querySelector('form[action^=\"/approve-device\"]')?.requestSubmit()")
       .catch(() => {});
   });
@@ -452,7 +507,12 @@ async function start() {
       const manifest = JSON.parse(fs.readFileSync(path.join(project, '..', 'build-manifest.json'), 'utf8'));
       if (manifest.product !== 'keepharness' || manifest.dirty !== false ||
           !/^[0-9]+\.[0-9]+\.[0-9]+(?:[+-][0-9A-Za-z.]+)?$/.test(manifest.version) ||
-          !/^[0-9a-f]{40}$/.test(manifest.commit)) throw new Error('Invalid build manifest');
+          !/^[0-9a-f]{40}$/.test(manifest.commit) ||
+          (manifest.built_at !== undefined && (typeof manifest.built_at !== 'string' ||
+          !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(manifest.built_at) ||
+          !Number.isFinite(Date.parse(manifest.built_at))))) throw new Error('Invalid build manifest');
+      buildLabel = `${manifest.version} (${manifest.commit.slice(0,7)}) · ${manifest.built_at || 'build date unavailable'}`;
+      log('Build: ' + JSON.stringify({version:manifest.version, commit:manifest.commit}));
     } catch (error) {
       log('Packaged provenance refused: ' + error.message);
       await dialog.showMessageBox({type:'error', title:TITLE, message:'KeepHarness package provenance is invalid.', detail:'Reinstall a verified desktop package.'});
@@ -462,6 +522,7 @@ async function start() {
   }
   installMenu();
   limitPermissions();
+  limitDownloads();
   showSplash();
   if (!(await reachable(adminUrl))) {
     if (!(await startAdmin())) return;
@@ -501,8 +562,9 @@ async function start() {
   const enrollment = target === harnessUrl ? await enrollmentTarget() : null;
   if (quitting) return;
   requireBackendAlive();
-  if (enrollment) confirmEnrollment(enrollment);
-  await win.loadURL(enrollment || target);
+  const route = restoredRoute(readWindowState()?.route, target, origins);
+  if (enrollment) confirmEnrollment(enrollment, route);
+  await win.loadURL(enrollment || route || target);
   requireBackendAlive();
   starting = false;
   backendReady = processRunning(backend);

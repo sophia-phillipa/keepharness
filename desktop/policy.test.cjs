@@ -292,3 +292,12 @@ test('IPv6 loopback is refused for app and external navigation', () => {
   assert.equal(isAppUrl('http://[::1]:8095/', ['http://[::1]:8095']), false);
   assert.equal(externalUrl('http://[::1]:8095/'), null);
 });
+
+
+test('saved routes reject foreign origins credentials controls and enrollment secrets', () => {
+  const {appRoute, restoredRoute}=require('./policy.cjs');
+  const base='http://127.0.0.1:18195/'; const origins=appOrigins([18194,18195]);
+  assert.equal(appRoute(base+'?conversation=chat',origins),'/?conversation=chat');
+  for (const route of ['https://evil.test/','//evil.test/','/\\evil.test/','/open?ticket=secret','/approve-device?a=b','/?token=secret','/\nfoo',{},null]) assert.equal(restoredRoute(route,base,origins),null);
+  assert.equal(restoredRoute('/?conversation=chat',base,origins),base+'?conversation=chat');
+});

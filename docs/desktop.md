@@ -19,6 +19,10 @@ Not yet: a frozen Python backend, AppImage, .deb, signing, or auto-update.
 - Python is checked with a bounded `--version` invocation before starting the service or owner CLI. Failure when starting the service shows “Run install.sh, or set KEEPHARNESS_PYTHON” and quits. Owner CLI failure is logged and returns no enrollment link; an attached harness still loads without Python or an enrollment cookie.
 - Renderer termination offers Reload / Quit. An unresponsive window offers Wait / Reload. A renderer crash during that dialog is remembered; choosing Wait then offers Reload / Quit. Unexpected exit of the service started by this client shows a redacted stderr tail and Restart service / Quit; attached services remain independently managed.
 - The KeepHarness menu contains About / Quit, Edit roles, zoom and full screen. Packaged builds expose neither Reload nor DevTools; development builds expose DevTools. Quit preserves the existing busy-work confirmation.
+- About KeepHarness shows the validated package version, short commit and UTC build date; source runs show “development build”. Older valid manifests without a date remain accepted and show “build date unavailable”.
+- App-origin downloads use a save dialog in Downloads with a sanitized filename. Foreign downloads are cancelled; only URLs allowed by the external-navigation policy open in the browser.
+- Queued or running work shows indeterminate taskbar progress and, on Linux where supported, a badge. The client polls the existing admin state endpoint while the main window exists, backs off on errors, and clears indicators when idle.
+- Conversation titles update the native title through `page-title-updated`, without preload IPC. The client strips control characters, caps the title and falls back to KeepHarness for empty or foreign titles. The last app-origin route is saved alongside window bounds; invalid or foreign routes use the default start page.
 - Main-window normal bounds and maximized state persist atomically through `userData/window-state.json.tmp` and rename. Restored bounds use the display work area with greatest positive overlap, preserving size and maximized state before clamping. Bounds with no overlap use centered defaults on the primary display. Minimum window size is 960 × 640.
 - All windows use one factory with identical renderer isolation and navigation policies. The splash rejects navigation and popups, and closes as soon as the admin answers. Content windows show on the first of `ready-to-show` and `did-finish-load`; saved maximization is applied immediately before showing, never during hidden enrollment.
 - Main-process diagnostics use `~/.config/KeepHarness/logs/main.log`, at most 1 MiB with one rotation (`main.log.1`), ISO timestamps and redaction of secret, ticket, cookie, Authorization, API-key, token and password values in headers, parameters and JSON-like diagnostics. `admin=` cookie values are redacted while ordinary admin log prose is preserved. Desktop profile data uses the layout described below.
@@ -39,6 +43,16 @@ can replace both files and checksums. Runtime startup refuses missing or invalid
 provenance. RunAsNode, NODE_OPTIONS and CLI inspect are disabled; OnlyLoadAppFromAsar
 and embedded ASAR integrity validation are enabled. Electron does not enforce ASAR
 integrity on Linux. ASAR and fuses use the exact npm versions in the desktop lockfile.
+
+For a packaged startup smoke, run `node scripts/smoke-desktop-package.mjs
+--executable /absolute/install/current/keepharness --scratch /absolute/scratch`.
+The script creates and removes a throwaway HOME below scratch, unsets the host
+display variables and launches only through `xvfb-run -a`. It compares the runtime's
+validated version and commit with the installed manifest, checks ASAR startup and
+disabled Node options, and uses an unavailable Python executable and port zero to
+avoid starting or attaching to services. This checks packaged startup, not backend
+inference. The package test builds a clean temporary snapshot of the working tree,
+installs it into a throwaway HOME, checks the fuses, then calls this same script.
 
 Run the package's `./install-desktop-linux.sh` as the target user. Python 3 and Linux
 `flock` semantics are required. Version directories are immutable:

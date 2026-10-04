@@ -17,6 +17,32 @@ function isAppUrl(url, origins) {
     return false;
   }
 }
+// Persist paths only, never a foreign origin or a one-time authentication link.
+function restoredRoute(route, base, origins) {
+  if (typeof route !== 'string' || route.length > 2048 || !route.startsWith('/') ||
+      route.startsWith('//') || /[\\\x00-\x1f\x7f]/.test(route)) return null;
+  try {
+    const url = new URL(route, base);
+    if (!isAppUrl(url.href, origins) || url.origin !== new URL(base).origin ||
+        /^\/(?:open|approve-device)(?:\/|$)/.test(url.pathname) ||
+        [...url.searchParams.keys()].some(key => /ticket|token|secret|password|cookie/i.test(key))) return null;
+    return url.href;
+  } catch { return null; }
+}
+function appRoute(url, origins) {
+  if (!isAppUrl(url, origins)) return null;
+  const parsed = new URL(url);
+  const route = parsed.pathname + parsed.search + parsed.hash;
+  return restoredRoute(route, parsed.origin, origins) ? route : null;
+}
+function windowTitle(title, url, origins) {
+  if (!isAppUrl(url, origins) || typeof title !== 'string') return 'KeepHarness';
+  return [...title.replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, '').trim()].slice(0,160).join('') || 'KeepHarness';
+}
+function downloadName(name) {
+  return String(name || '').replace(/[\\/:*?"<>|\x00-\x1f\x7f-\x9f]/g, '_')
+    .replace(/^[. ]+|[. ]+$/g, '').slice(0,180) || 'download';
+}
 // The only permissions the app pages get, and only on the app origins: writing the clipboard
 // (Copy on answers and code) and OS notifications (a run needs you, failed or finished).
 const APP_PERMISSIONS = new Set(['clipboard-sanitized-write', 'notifications']);
@@ -248,6 +274,7 @@ function logChunk(size, value, timestamp = new Date().toISOString()) {
 }
 module.exports = {
   productAllowed, runtimePort, clampBounds, redact, logChunk, LOG_LIMIT,
+  restoredRoute, appRoute, windowTitle, downloadName,
   appOrigins,
   isAppUrl,
   permissionAllowed,

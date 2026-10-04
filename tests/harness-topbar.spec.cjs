@@ -87,6 +87,12 @@ const assert = require("node:assert/strict");
       "New Conversation",
     );
     assert.equal(await page.locator("#new").innerText(), "New Conversation");
+    await page.evaluate(() => { setConversationTitle("Desktop conversation"); notifyAttention({needs_you:[{gate_id:"desktop-title"}]}); });
+    assert.equal(await page.title(), "(1) Desktop conversation — KeepHarness", "desktop title follows conversation and preserves attention count");
+    await page.evaluate(() => notifyAttention({}));
+    assert.equal(await page.title(), "Desktop conversation — KeepHarness");
+    await page.evaluate(() => setConversationTitle("New Conversation"));
+
     await page.locator("#prompt").fill("Preserved draft");
     // Projects are listed open by default in the Codex-style sidebar.
     if (!(await page.locator("#project-tree").evaluate((el) => el.open)))
@@ -380,6 +386,24 @@ const assert = require("node:assert/strict");
         assert(header.overflow <= 1, `header does not overflow at ${where}`);
       }
     }
+    // Desktop restart gets a fresh renderer session; only the saved URL survives.
+    const routePage = await browser.newPage();
+    const { mount } = require('./run-console-fixture.cjs');
+    await mount(routePage, async url => {
+      if (url.pathname === '/v1/conversations') return {json:{conversations:[{id:'desktop-chat',project:'sem-projeto',title:'Restored desktop conversation',state:'completed'}]}};
+      if (url.pathname === '/v1/conversations/desktop-chat') return {json:{title:'Restored desktop conversation',turns:[{id:'desktop-turn',project:'sem-projeto',state:'completed',request:{prompt:'Hello',model:'fixture'},result:{answer:'Saved reply'}}]}};
+      if (url.pathname === '/v1/jobs/desktop-turn') return {json:{state:'completed',result:{answer:'Saved reply'}}};
+      if (url.pathname.endsWith('/spans')) return {json:{spans:[]}};
+    });
+    await routePage.evaluate(() => load('desktop-chat'));
+    assert.equal(new URL(routePage.url()).searchParams.get('conversation'), 'desktop-chat', 'active conversation becomes an app route');
+    await routePage.evaluate(() => sessionStorage.clear());
+    await routePage.reload();
+    await routePage.waitForFunction(() => !loading && document.querySelector('#conversation-title').textContent === 'Restored desktop conversation');
+    assert.match(await routePage.title(), /Restored desktop conversation/);
+    await routePage.evaluate(() => newConversation());
+    assert.equal(new URL(routePage.url()).searchParams.has('conversation'), false, 'new conversation clears the last route');
+    await routePage.close();
     console.log(
       "PASS: global topbar controls, conversation/project titles, local/cloud quota visibility, right-edge activity drawer, and connection gate.",
     );

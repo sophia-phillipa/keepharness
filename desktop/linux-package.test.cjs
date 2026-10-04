@@ -285,22 +285,16 @@ test('packaged_smoke_launches_under_xvfb', async (t) => {
   assert.equal(wire[FuseV1Options.EnableEmbeddedAsarIntegrityValidation],FuseState.ENABLE);
   assert.equal(wire[FuseV1Options.OnlyLoadAppFromAsar],FuseState.ENABLE);
   run(path.join(pkg,'install-desktop-linux.sh'),[],{HOME:f.home});
-  const log=path.join(f.home,'.config/KeepHarness/logs/main.log');
-  const runtime=path.join(f.home,'runtime');fs.mkdirSync(runtime,{mode:0o700});
-  const env={...process.env,XDG_SESSION_TYPE:'x11',XDG_RUNTIME_DIR:runtime,HOME:f.home,KEEPHARNESS_PYTHON:'/nonexistent-python',KEEPHARNESS_ADMIN_PORT:'0',KEEPHARNESS_PORT:'0',ELECTRON_RUN_AS_NODE:'1',NODE_OPTIONS:'--require=/nonexistent-node-module'};
-  delete env.DISPLAY;delete env.WAYLAND_DISPLAY;delete env.XDG_CONFIG_HOME;delete env.XDG_DATA_HOME;
-  let output='';
-  // GLX can load host NVIDIA drivers and crash Xvfb before the smoke starts.
-  const child=spawn('/usr/bin/xvfb-run',['-a','-s','-screen 0 1280x1024x24 -extension GLX',path.join(f.opt,'keepharness/current/keepharness'),'--inspect=0','--ozone-platform=x11'],{env,detached:true,stdio:['ignore','pipe','pipe']});
-  child.stdout.on('data',b=>{output+=b;});child.stderr.on('data',b=>{output+=b;});
-  try {
-    try { await waitFor(()=>fs.existsSync(log)&&fs.readFileSync(log,'utf8').includes('Python could not start')); } catch (error) { throw new Error(`${error.message}; xvfb output: ${output}`); }
-    assert.match(fs.readFileSync(log,'utf8'),/app\.asar/);
-    assert.doesNotMatch(output,/Debugger listening|Cannot find module/);
-  } finally {
-    try {process.kill(-child.pid,'SIGTERM');} catch(error) {if(error.code!=='ESRCH')throw error;}
-    await stopChild(child); child.stdout.destroy();child.stderr.destroy();
-  }
+  const result = execFileSync(process.execPath, [path.join(__dirname, '../scripts/smoke-desktop-package.mjs'),
+    '--executable', path.join(f.opt, 'keepharness/current/keepharness'), '--scratch', root],
+    {env:process.env, encoding:'utf8', timeout:30000});
+  const report = JSON.parse(result);
+  const manifest = JSON.parse(fs.readFileSync(path.join(pkg, 'build-manifest.json'), 'utf8'));
+  assert.equal(report.version, manifest.version);
+  assert.equal(report.commit, manifest.commit);
+  assert.match(manifest.built_at, /^\d{4}-\d{2}-\d{2}T/);
+  assert.equal(report.asar, true);
+
 });
 
 test('prune_preserves_semver_installing_suffix_and_reinstall_is_noop', () => {
@@ -435,4 +429,14 @@ test('legacy_same_version_install_creates_current', () => {
   put(f.entry, `Exec="${target}/keepharness"\n`);
   f.invoke();
   assert.equal(current(f), target);
+});
+
+test('packaged_smoke_rejects_mismatched_runtime_identity', async () => {
+  const { verifyBuildReport } = await import('../scripts/smoke-desktop-package.mjs');
+  const manifest = {version:'0.16.0', commit:'a'.repeat(40)};
+  const log = (build) => 'start app.asar\nBuild: ' + JSON.stringify(build) + '\nPython could not start';
+  assert.deepEqual(verifyBuildReport(log(manifest), manifest), {...manifest, asar:true});
+  assert.throws(() => verifyBuildReport(log({...manifest, version:'0.15.0'}), manifest), /version/);
+  assert.throws(() => verifyBuildReport(log({...manifest, commit:'b'.repeat(40)}), manifest), /commit/);
+  assert.throws(() => verifyBuildReport('start app.asar', manifest), /runtime build/);
 });
