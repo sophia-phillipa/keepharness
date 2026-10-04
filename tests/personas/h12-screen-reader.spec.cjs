@@ -214,7 +214,7 @@ runPersona("H12", [
         .click();
       await page
         .locator("#sidebar .conversation-actions[open] button")
-        .filter({ hasText: "Delete conversation" })
+        .filter({ hasText: "Delete permanently" })
         .click();
       const dialog = page.locator("#delete-conversation-dialog");
       await dialog.waitFor();
