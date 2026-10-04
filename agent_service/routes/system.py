@@ -10,7 +10,7 @@ from starlette.responses import FileResponse, HTMLResponse, JSONResponse, Redire
 from starlette.routing import Route
 
 import adapters
-from harness_ui import asset_response, static_response
+from harness_ui import ASSETS, PUBLIC, asset_response, static_response
 
 from ..approval_sessions import SESSION_COOKIE, SESSION_SECONDS, consume_enrollment, revoke_session
 from ..config import PACKAGE_DIR, REPOSITORY_ROOT, VERSION_FILE
@@ -112,37 +112,56 @@ async def capabilities(request, service, identity):
     )
 
 
+class BuildVersions:
+    """Metadata fingerprints, not content checksums; polling never opens source files."""
+
+    def __init__(self):
+        self.version = VERSION_FILE.read_text().strip()
+        self._marker = None
+        self.build = self.disk_versions()["disk_build"]
+
+    def disk_versions(self):
+        ui_files = [
+            PACKAGE_DIR / name
+            for name in (
+                "ui.js", "run-console.js", "tour.js", "ui.css", "tour.css",
+                "vendor/markdown-it.min.js", "index.html",
+            )
+        ]
+        ui_files += [ASSETS / name for name in sorted(PUBLIC)]
+        source_files = sorted(PACKAGE_DIR.rglob("*.py"))
+        source_files += sorted(Path(adapters.__file__).parent.rglob("*.py"))
+        source_files.append(VERSION_FILE)
+
+        def metadata(paths):
+            values = []
+            for path in paths:
+                try:
+                    stat = path.stat()
+                    values.append((str(path), stat.st_mtime_ns, stat.st_size))
+                except FileNotFoundError:
+                    values.append((str(path), None, None))
+            return tuple(values)
+
+        ui_marker = metadata(ui_files)
+        marker = (ui_marker, metadata(source_files))
+        if marker != self._marker:
+            self._disk = {
+                "disk_build": hashlib.sha256(repr(marker).encode()).hexdigest()[:12],
+                "ui_build": hashlib.sha256(repr(ui_marker).encode()).hexdigest()[:12],
+            }
+            self._marker = marker
+        return self._disk
+
+
 async def version(request, service, identity):
-    config = service.config
-    source_files = [
-        PACKAGE_DIR / name
-        for name in (
-            "ui.js",
-            "run-console.js",
-            "tour.js",
-            "ui.css",
-            "tour.css",
-            "vendor/markdown-it.min.js",
-            "index.html",
-            "app.py",
-            "config.py",
-            "maestro.py",
-            "spans.py",
-            "work_items.py",
-            "workspaces.py",
-            "mcp_bridge.py",
-            "VERSION",
-        )
-    ]
-    for package in ("routes", "persistence", "services"):
-        source_files += sorted((PACKAGE_DIR / package).rglob("*.py"))
-    source_files += sorted(Path(adapters.__file__).parent.rglob("*.py"))
-    digest = hashlib.sha256(b"".join(path.read_bytes() for path in source_files)).hexdigest()[:12]
+    builds = request.app.state.build_versions
     return JSONResponse(
         {
-            "version": VERSION_FILE.read_text().strip(),
-            "build": digest,
-            "config_revision": config.get("config_revision"),
+            "version": builds.version,
+            "build": builds.build,
+            **builds.disk_versions(),
+            "config_revision": service.config.get("config_revision"),
             "config_reload_error": service.config_reload_error,
         }
     )

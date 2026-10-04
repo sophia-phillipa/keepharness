@@ -57,8 +57,8 @@ RESTART_DELAY_CAP = 30
 MAX_QUICK_CRASHES = 3
 STABLE_SECONDS = 60
 # On shutdown the admin waits this long for queued and running work before it stops the harness.
-# systemd gives the unit TimeoutStopSec (30 s) for the whole stop, the harness's own 15 s included.
-DRAIN_SECONDS = 10
+# systemd allows 90 s total: 60 s to drain, the harness's own 15 s, and 15 s of margin.
+DRAIN_SECONDS = 60
 DRAIN_POLL = 0.5
 
 

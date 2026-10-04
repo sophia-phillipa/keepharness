@@ -365,3 +365,143 @@ def test_rollback_from_the_command_line_reports_a_refusal_cleanly(home, monkeypa
     with pytest.raises(SystemExit) as refused:
         install.main(["--rollback-to-0.14"])
     assert "nothing to roll back" in str(refused.value.code)
+
+
+@pytest.fixture
+def admin_work(home, monkeypatch, request):
+    """Authenticated admin in-process; no system service or network listener is touched."""
+    import io
+    import sqlite3
+    from types import SimpleNamespace
+
+    from starlette.testclient import TestClient
+    from control.server import create_app
+
+    state = PRODUCT.state_path(home)
+    app = create_app(state, port=19876)
+    if getattr(request, "param", False):
+        app.router.routes[:] = [route for route in app.router.routes if route.path != "/open-admin"]
+    jobs = state / "runs/jobs.sqlite3"
+    jobs.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(jobs) as db:
+        db.execute("CREATE TABLE jobs (state TEXT)")
+    client = TestClient(app, base_url="http://127.0.0.1:19876")
+    requests = []
+
+    def open_url(url, **kwargs):
+        headers = url.headers if isinstance(url, urllib.request.Request) else {}
+        url = url.full_url if isinstance(url, urllib.request.Request) else url
+        requests.append(url.split("?")[0])
+        response = client.get(url, headers=headers)
+        if response.status_code >= 400:
+            raise urllib.error.HTTPError(url, response.status_code, "refused", {}, None)
+        return io.BytesIO(response.content)
+
+    monkeypatch.setattr(install.urllib.request, "build_opener", lambda *args: SimpleNamespace(open=open_url))
+    monkeypatch.setattr(install, "port_conflict", lambda *args, **kwargs: None)
+    monkeypatch.setattr(install, "port_holders", lambda port: [(os.getpid(), "admin")])
+    registered = []
+    monkeypatch.setattr(install, "register", lambda args: registered.append(args))
+
+    def set_work(work):
+        with sqlite3.connect(jobs) as db:
+            db.execute("INSERT INTO jobs VALUES (?)", (work,))
+
+    yield set_work, registered, requests
+    client.close()
+
+
+@pytest.mark.parametrize("work", ["queued", "running"])
+@pytest.mark.parametrize("check_only", [False, True])
+def test_install_refuses_admin_work_before_any_changes(admin_work, work, check_only):
+    set_work, registered, requests = admin_work
+    set_work(work)
+    args = ["--port", "19876"] + (["--check-only"] if check_only else [])
+    with pytest.raises(SystemExit) as refused:
+        install.main(args)
+    assert refused.value.code
+    assert "queued or running" in str(refused.value)
+    assert "--force" in str(refused.value)
+    assert registered == []
+    assert requests[-1].endswith("/api/state")
+
+
+@pytest.mark.parametrize("work", ["queued", "running"])
+def test_install_force_overrides_admin_work(admin_work, work):
+    set_work, registered, requests = admin_work
+    set_work(work)
+    install.main(["--port", "19876", "--force"])
+    assert len(registered) == 1
+    assert requests == []
+
+
+def test_install_continues_when_admin_is_idle(admin_work):
+    _, registered, requests = admin_work
+    install.main(["--port", "19876"])
+    assert len(registered) == 1
+    assert requests[-1].endswith("/api/state")
+
+
+def test_service_stop_budget_includes_full_drain_and_harness_shutdown(home):
+    from control.manager import DRAIN_SECONDS
+
+    unit = install.files(home, "/fake/python")[home / ".config/systemd/user" / install.SERVICE][0]
+    assert DRAIN_SECONDS == 60
+    assert "TimeoutStopSec=90\n" in unit
+
+
+def test_install_refuses_when_existing_admin_status_cannot_be_verified(admin_work, monkeypatch):
+    from control import local_access
+
+    _, registered, _ = admin_work
+
+    def unreadable_key(path):
+        raise OSError("unreadable")
+
+    monkeypatch.setattr(local_access, "read_secret", unreadable_key)
+    with pytest.raises(SystemExit, match="Cannot verify queued or running work.*--force"):
+        install.main(["--port", "19876"])
+    assert registered == []
+
+
+@pytest.mark.parametrize("existing_session", [False, True])
+def test_install_check_only_does_not_create_owner_sessions(admin_work, home, existing_session):
+    from control.local_access import SESSIONS_FILE, issue_session
+
+    _, registered, requests = admin_work
+    sessions = PRODUCT.state_path(home) / SESSIONS_FILE
+    if existing_session:
+        issue_session(PRODUCT.state_path(home))
+    before = sessions.read_bytes() if sessions.exists() else None
+    install.main(["--port", "19876", "--check-only"])
+    after = sessions.read_bytes() if sessions.exists() else None
+    assert after == before
+    assert requests[-1].endswith("/api/state")
+    assert registered == []
+
+
+@pytest.mark.parametrize("admin_work", [True], indirect=True)
+def test_install_old_admin_refuses_without_creating_owner_sessions(admin_work, home):
+    from control.local_access import SESSIONS_FILE
+
+    _, registered, _ = admin_work
+    sessions = PRODUCT.state_path(home) / SESSIONS_FILE
+    with pytest.raises(SystemExit, match="Cannot verify queued or running work.*--force"):
+        install.main(["--port", "19876", "--check-only"])
+    assert not sessions.exists()
+    assert registered == []
+
+
+def test_install_admin_auth_rejects_invalid_and_replayed_tickets(tmp_path):
+    from starlette.testclient import TestClient
+    from control.local_access import SESSIONS_FILE, open_ticket
+    from control.server import create_app
+
+    state = tmp_path / "state"
+    app = create_app(state, port=19876)
+    with TestClient(app, base_url="http://127.0.0.1:19876") as client:
+        assert client.get("/open-admin?ticket=invalid").status_code == 403
+        url = "/open-admin?ticket=" + open_ticket(app.state.manager.local_secret)
+        assert client.get(url).status_code == 200
+        assert client.get(url).status_code == 403
+        assert not (state / SESSIONS_FILE).exists()

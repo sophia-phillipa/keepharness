@@ -39,6 +39,7 @@ Service = ConversationService
 def create_app(config, runtime_path=None):
     runtime_path = Path(runtime_path) if runtime_path else None
     service = Service(config)
+    build_versions = system_routes.BuildVersions()
 
     @asynccontextmanager
     async def lifespan(app):
@@ -106,6 +107,7 @@ def create_app(config, runtime_path=None):
         StaticGZipMiddleware,
         paths=("/", "/ui.js", "/run-console.js", "/tour.js", "/ui.css", "/tour.css", "/vendor/markdown-it.min.js"),
     )
+    app.state.build_versions = build_versions
     app.state.service = service
     return app
 

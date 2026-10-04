@@ -17,7 +17,7 @@ let providers = {},
   parent = null,
   conversation = "",
   loading = false,
-  build = "",
+  uiBuild = "",
   reloadPending = false;
 let queuedTurns = [];
 let executionMode = "native",
@@ -6455,7 +6455,7 @@ async function initialize() {
       } catch {}
       startupTimer = setInterval(() => {
         if (!document.hidden && interfaceReady && !initializing) {
-          // QA-R2-3: the build only changes on a release, so it is checked every third tick.
+          // Check installed UI and runtime updates every third tick.
           if (++backgroundTicks % VERSION_CHECK_EVERY === 0) checkVersion();
           // Rebuilding the sidebar would close an open row or project actions menu.
           if (!document.querySelector(".conversation-actions[open], .project-actions-menu:popover-open")) history(undefined, true);
@@ -6828,14 +6828,17 @@ async function checkVersion() {
   void refreshComposerGit();
   try {
     const v = await json("/v1/version");
-    $("version").textContent = "Release: " + v.version;
+    const restartPending = v.disk_build && v.disk_build !== v.build;
+    $("version").textContent = "Release: " + v.version +
+      (restartPending ? " · Restart to finish the update" : "");
+    $("version").title = "";
     $("about-version").textContent = "Release " + v.version + " · MIT licence";
     if (v.config_reload_error)
       status(
         "Couldn't apply the configuration. The harness kept the last valid configuration. Review the admin panel.",
       );
-    if (build && build !== v.build) reloadPending = true;
-    build = v.build;
+    if (uiBuild && v.ui_build && uiBuild !== v.ui_build) reloadPending = true;
+    uiBuild = v.ui_build;
     if (reloadPending && !busy && !loading && !uploads && saveView()) {
       location.reload();
     } else if (reloadPending) {

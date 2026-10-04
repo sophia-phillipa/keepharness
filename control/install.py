@@ -6,6 +6,7 @@ service. ``--rollback-to-0.14`` removes the service and gives the state back to 
 """
 
 import argparse
+import http.cookiejar
 import json
 import os
 import shlex
@@ -116,7 +117,7 @@ ExecStart={quoted(python)} -m control --port {port} --state {quoted(state)}
 Environment={quoted("PATH=" + service_path(home))}
 Restart=on-failure
 RestartSec=5
-TimeoutStopSec=30
+TimeoutStopSec=90
 KillMode=mixed
 UMask=0077
 
@@ -197,6 +198,35 @@ def roll_back():
     )
 
 
+def work_refusal(port):
+    """Ask the existing admin before an upgrade can restart its harness."""
+    if not port_holders(port):
+        return None
+    from .local_access import KEY_FILE, open_ticket, read_secret
+
+    base = f"http://127.0.0.1:{port}"
+    opener = urllib.request.build_opener(
+        urllib.request.ProxyHandler({}),
+        urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()),
+    )
+    try:
+        secret = read_secret(PRODUCT.state_path() / KEY_FILE)
+        with opener.open(f"{base}/open-admin?ticket={open_ticket(secret)}", timeout=2):
+            pass
+        with opener.open(base + "/api/state", timeout=2) as response:
+            busy = json.load(response)["status"]["busy"]
+        if not isinstance(busy, bool):
+            raise ValueError("Invalid admin busy status")
+    except (OSError, ValueError, KeyError, TypeError):
+        return (
+            "Cannot verify queued or running work with the admin. "
+            "Retry, or wait for work to finish and use --force to install."
+        )
+    if busy:
+        return "There is queued or running work. Wait for it to finish, or use --force to install."
+    return None
+
+
 def register(args):
     os.umask(0o077)
     remove_legacy_service(Path.home())
@@ -218,6 +248,7 @@ def main(argv=None):
     parser.add_argument("--port", type=int, default=8094)
     parser.add_argument("--boot", action="store_true", help="Enable linger to start before login")
     parser.add_argument("--dev", action="store_true", help="Record an editable (checkout) install")
+    parser.add_argument("--force", action="store_true", help="Install even with queued or running work")
     parser.add_argument(
         "--check-only", action="store_true", help="Only check that the install may proceed"
     )
@@ -236,6 +267,8 @@ def main(argv=None):
         return roll_back()
     if refusal := preflight(args.port):
         raise SystemExit(refusal + (" Nothing was stopped or moved." if args.check_only else ""))
+    if not args.force and (refusal := work_refusal(args.port)):
+        raise SystemExit(refusal + " Nothing was stopped or moved.")
     if args.check_only:
         for old, new in legacy_folders():
             if waits_to_move(new):

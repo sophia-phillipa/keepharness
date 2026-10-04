@@ -739,3 +739,24 @@ def test_a_start_that_fails_before_spawning_keeps_the_exit_that_was_reported(tmp
     assert actions == ["harness_exited:1"]  # the same dead process is not reported again
     assert manager.last_exit["code"] == 1
     assert "3 times in a row" in manager.startup_error
+
+
+def test_shutdown_drain_allows_sixty_seconds_before_stopping(tmp_path, monkeypatch):
+    import asyncio
+    from types import SimpleNamespace
+    from control import manager as manager_module
+
+    app, events = _draining(tmp_path, monkeypatch, lambda: True)
+    elapsed = 0.0
+
+    async def sleep(seconds):
+        nonlocal elapsed
+        elapsed += seconds
+
+    monkeypatch.setattr(manager_module, "time", SimpleNamespace(monotonic=lambda: elapsed))
+    monkeypatch.setattr(manager_module, "asyncio", SimpleNamespace(sleep=sleep, to_thread=asyncio.to_thread))
+    monkeypatch.setattr(manager_module, "DRAIN_POLL", 0.5)
+    asyncio.run(app.state.manager.drain())
+    assert elapsed == 60
+    assert events.count("busy") == 120
+    assert "terminate" not in events

@@ -8,6 +8,8 @@ const path = require("node:path");
   try {
     const page = await browser.newPage();
     let build = "one",
+      diskBuild = "one",
+      uiBuild = "ui-one",
       models = ["qwen-test"],
       loads = 0,
       submissions = 0;
@@ -44,7 +46,7 @@ const path = require("node:path");
         if (p === "/v1/jobs/active-job") data = active;
         if (p === "/v1/jobs/active-job/events")
           return route.fulfill({ body: "", contentType: "text/event-stream" });
-        if (p === "/v1/version") data = { version: "test", build };
+        if (p === "/v1/version") data = { version: "test", build, disk_build: diskBuild, ui_build: uiBuild };
         if (p === "/v1/jobs" && route.request().method() === "POST")
           submissions++;
         return route.fulfill({ json: data });
@@ -70,6 +72,14 @@ const path = require("node:path");
     await page.goto("http://reload.test");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     await page.fill("#prompt", "Text not sent yet");
+    diskBuild = "python-update";
+    await page.evaluate(() => checkVersion());
+    assert.equal(loads, 1, "Python-only disk update must not reload");
+    assert.match(await page.locator("#version").textContent(), /Restart to finish the update/);
+    build = diskBuild;
+    await page.evaluate(() => checkVersion());
+    assert.equal(loads, 1, "Python-only runtime restart must not reload");
+    assert.doesNotMatch(await page.locator("#version").textContent(), /Restart to finish the update/);
     models = ["qwen-test", "new-model"];
     await page.evaluate(() => {
       readinessRetryAt = 0;
@@ -101,7 +111,8 @@ const path = require("node:path");
         throw Error("storage unavailable");
       };
     });
-    build = "two";
+    uiBuild = "ui-two";
+    diskBuild = "two";
     await page.evaluate(() => checkVersion());
     assert.equal(
       loads,
