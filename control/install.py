@@ -1,4 +1,4 @@
-"""Install a per-user systemd service and desktop shortcut, without root.
+"""Install a per-user systemd service and launcher, without root.
 
 install.sh runs ``--check-only`` with the system Python before anything else (it needs
 only the standard library), then this module from the new environment to register the
@@ -15,7 +15,6 @@ import subprocess
 import sys
 import time
 import tempfile
-import re
 import urllib.request
 from pathlib import Path
 
@@ -127,59 +126,22 @@ UMask=0077
 [Install]
 WantedBy=default.target
 """
-    # Desktop launcher starts the registered service before opening the browser.
+    # The explicit launcher starts the registered service before opening its local URL.
     launcher = f"""#!/bin/sh
 set -eu
 systemctl --user start {SERVICE}
 {shlex.quote(str(python))} -c {shlex.quote("from control.install import wait_ready; wait_ready(" + str(port) + ")")}
 exec xdg-open http://127.0.0.1:{port}/
 """
-    desktop = f'''[Desktop Entry]
-Type=Application
-Name={PRODUCT.name}
-Comment=Manage local AI services
-Exec="{home}/.local/bin/{PRODUCT.slug}-open"
-Icon={PRODUCT.desktop_icon}
-Terminal=false
-Categories=Development;
-StartupNotify=false
-'''
-    result = {
+    return {
         home / ".config/systemd/user" / SERVICE: (unit, 0o600),
         home / (".local/bin/" + PRODUCT.slug + "-open"): (launcher, 0o700),
-        home / (".local/share/applications/" + PRODUCT.slug + "-browser.desktop"): (desktop, 0o644),
     }
-
-    if desktop_installed(home):
-        result.pop(home / (".local/share/applications/" + PRODUCT.slug + "-browser.desktop"))
-    return result
-
-
-def desktop_installed(home):
-    """Only a canonical, marked desktop version suppresses the browser shortcut."""
-    opt = Path(home).resolve() / '.local/opt'
-    link = opt / 'keepharness/current'
-    try:
-        target = link.resolve(strict=True)
-        version = target.name.removeprefix('keepharness-')
-        if not link.is_symlink() or target.parent != opt or not target.name.startswith('keepharness-'):
-            return False
-        if not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+(?:[+-][0-9A-Za-z.]+)?', version):
-            return False
-        if any((target / name).is_symlink() or not (target / name).is_file()
-               for name in ('VERSION', 'build-manifest.json', 'keepharness-bin', 'keepharness')):
-            return False
-        manifest = json.loads((target / 'build-manifest.json').read_text())
-        return ((target / 'VERSION').read_text().strip() == version
-                and manifest.get('version') == version
-                and manifest.get('product', 'keepharness') == 'keepharness')
-    except (OSError, ValueError, AttributeError):
-        return False
 
 
 def remove_browser_entry(path, home):
     """Never remove another application's entry, including the desktop client."""
-    if path.is_symlink() or not path.is_file():
+    if path.name != PRODUCT.slug + '-browser.desktop' or path.is_symlink() or not path.is_file():
         return
     lines = path.read_text().splitlines()
     expected = {f'Exec="{h}/.local/bin/{PRODUCT.slug}-open"' for h in (home, Path(home).resolve())}
@@ -222,10 +184,8 @@ def rollback(home, run=subprocess.run):
     # Disabled before the state moves back: an enabled unit would take it again (OPS-R1-2).
     run(["systemctl", "--user", "disable", "--now", SERVICE], check=False)
     for path in files(home, sys.executable):
-        if path.suffix != '.desktop':
-            path.unlink(missing_ok=True)
-    for name in (PRODUCT.slug + '-browser.desktop', PRODUCT.slug + '.desktop'):
-        remove_browser_entry(Path(home) / '.local/share/applications' / name, home)
+        path.unlink(missing_ok=True)
+    remove_browser_entry(Path(home) / '.local/share/applications' / (PRODUCT.slug + '-browser.desktop'), home)
     run(["systemctl", "--user", "daemon-reload"], check=False)
     return rollback_state(home)
 
@@ -286,9 +246,7 @@ def register(args):
     os.umask(0o077)
     remove_legacy_service(Path.home())
     applications = Path.home() / '.local/share/applications'
-    remove_browser_entry(applications / (PRODUCT.slug + '.desktop'), Path.home())
-    if desktop_installed(Path.home()):
-        remove_browser_entry(applications / (PRODUCT.slug + '-browser.desktop'), Path.home())
+    remove_browser_entry(applications / (PRODUCT.slug + '-browser.desktop'), Path.home())
     for path, (content, mode) in files(Path.home(), sys.executable, args.port, args.dev).items():
         path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write(path, content, mode)
@@ -302,7 +260,7 @@ def register(args):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Install service and shortcut for this Linux user")
+    parser = argparse.ArgumentParser(description="Install service and launcher for this Linux user")
     parser.add_argument("--port", type=int, default=8094)
     parser.add_argument("--boot", action="store_true", help="Enable linger to start before login")
     parser.add_argument("--dev", action="store_true", help="Record an editable (checkout) install")

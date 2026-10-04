@@ -403,7 +403,7 @@ test('uninstall_leaves_browser_entry', () => {
     const content = `Exec="${f.home}/.local/bin/keepharness-open"\nIcon=utilities-terminal\n`;
     if (symlink) { const target = path.join(f.home, 'browser-target'); put(target, content); fs.symlinkSync(target, browser); }
     else put(browser, content);
-    assert.match(f.invoke('--uninstall', '--yes'), /run \.\/install\.sh to get the browser entry back/);
+    assert.match(f.invoke('--uninstall', '--yes'), /The KeepHarness server and keepharness-open launcher are unchanged/);
     assert.equal(fs.lstatSync(browser).isSymbolicLink(), symlink);
     assert.equal(fs.readFileSync(browser, 'utf8'), content);
   }

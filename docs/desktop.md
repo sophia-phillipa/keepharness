@@ -20,9 +20,9 @@ Not yet: a frozen Python backend, AppImage, .deb, signing, or auto-update.
 - Renderer termination offers Reload / Quit. An unresponsive window offers Wait / Reload. A renderer crash during that dialog is remembered; choosing Wait then offers Reload / Quit. Unexpected exit of the service started by this client shows a redacted stderr tail and Restart service / Quit; attached services remain independently managed.
 - The KeepHarness menu contains About / Quit, Edit roles, zoom and full screen. Packaged builds expose neither Reload nor DevTools; development builds expose DevTools. Quit preserves the existing busy-work confirmation.
 - About KeepHarness shows the validated package version, short commit and UTC build date; source runs show “development build”. Older valid manifests without a date remain accepted and show “build date unavailable”.
-- App-origin downloads use a save dialog in Downloads with a sanitized filename. Foreign downloads are cancelled; only URLs allowed by the external-navigation policy open in the browser.
-- Queued or running work shows indeterminate taskbar progress and, on Linux where supported, a badge. The client polls the existing admin state endpoint while the main window exists, backs off on errors, and clears indicators when idle.
-- Conversation titles update the native title through `page-title-updated`, without preload IPC. The client strips control characters, caps the title and falls back to KeepHarness for empty or foreign titles. The last app-origin route is saved alongside window bounds; invalid or foreign routes use the default start page.
+- App-origin HTTP and blob downloads (including Export settings) use a save dialog in Downloads with a sanitized filename. Data URLs, opaque blobs and foreign downloads are cancelled; only URLs allowed by the external-navigation policy open in the browser.
+- Queued or running work shows indeterminate taskbar progress and, on Linux where supported, a badge. The client polls the existing admin state endpoint while the main window exists, backs off on errors, and clears indicators when idle, when polling fails, when the owned backend exits, and when the window closes.
+- Conversation titles update the native title through `page-title-updated`, without preload IPC. The client strips Unicode control/format characters and line/paragraph separators, caps the title and falls back to KeepHarness for empty or foreign titles. Failed enrollment removes the pending route-restore listener. The last app-origin route is saved alongside window bounds; invalid or foreign routes use the default start page.
 - Main-window normal bounds and maximized state persist atomically through `userData/window-state.json.tmp` and rename. Restored bounds use the display work area with greatest positive overlap, preserving size and maximized state before clamping. Bounds with no overlap use centered defaults on the primary display. Minimum window size is 960 × 640.
 - All windows use one factory with identical renderer isolation and navigation policies. The splash rejects navigation and popups, and closes as soon as the admin answers. Content windows show on the first of `ready-to-show` and `did-finish-load`; saved maximization is applied immediately before showing, never during hidden enrollment.
 - Main-process diagnostics use `~/.config/KeepHarness/logs/main.log`, at most 1 MiB with one rotation (`main.log.1`), ISO timestamps and redaction of secret, ticket, cookie, Authorization, API-key, token and password values in headers, parameters and JSON-like diagnostics. `admin=` cookie values are redacted while ordinary admin log prose is preserved. Desktop profile data uses the layout described below.
@@ -86,9 +86,13 @@ All new Electron data and caches live in `~/.config/KeepHarness` (cache:
 `local.key`, and systemd units. The launcher prints the Ubuntu AppArmor user-namespace
 hint before launch when applicable; it never disables the Chromium sandbox.
 
-The browser shortcut is `keepharness-browser.desktop`. Installing the desktop removes
-only the exact owned browser shortcut; Python registration skips it while `current`
-points to a marked install. Python rollback never removes the desktop client's entry.
-Installation leaves a symlinked browser shortcut untouched and prints a note.
-Desktop uninstall always leaves the browser shortcut untouched.
-After desktop uninstall, run `./install.sh` to get the browser entry back.
+KeepHarness consists of the desktop app and its server. Install/register never creates
+`keepharness-browser.desktop`, whether the desktop app is installed or not. Python
+registration and rollback remove only that legacy filename, through the exact owned
+`Exec="<home>/.local/bin/keepharness-open"` match and `Icon=utilities-terminal` check.
+They never remove `keepharness.desktop`; edited, foreign and symlinked entries are
+preserved. Remaining installer files are written through a temporary file and
+`os.replace`. The server and explicit `keepharness-open` launcher remain available.
+The desktop installer also removes only the exact owned legacy browser entry and
+leaves symlinked browser entries untouched with a note. Desktop uninstall leaves
+browser entries untouched and does not offer to recreate them.

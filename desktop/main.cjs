@@ -301,6 +301,7 @@ async function startAdmin() {
   });
   backend.stderr.on('end', flush);
   backend.on('error', error => { stderr = (stderr + safeText(error.message)).slice(-4000); log(error.message); });
+  backend.on('exit', () => setWorkProgress(win, false));
   // close follows stdio drainage; exit alone can arrive between credential chunks.
   backend.on('close', (code, signal) => {
     flush();
@@ -387,33 +388,39 @@ function backendBusy(timeout = 3000) {
     request.on('error', () => resolve(null));
   });
 }
-// One request at a time; unknown state backs off up to a minute.
+function setWorkProgress(window, busy) {
+  if (window && !window.isDestroyed()) window.setProgressBar(busy ? 2 : -1);
+  if (process.platform === 'linux' && typeof app.setBadgeCount === 'function') {
+    try { app.setBadgeCount(busy ? 1 : 0); } catch { /* Desktop shell may not support badges. */ }
+  }
+}
+// One request at a time; unknown state clears indicators and backs off up to a minute.
 function monitorWork(window) {
   let timer, delay = 5000, stopped = false;
-  const badge = count => {
-    if (process.platform === 'linux' && typeof app.setBadgeCount === 'function') {
-      try { app.setBadgeCount(count); } catch { /* Desktop shell may not support badges. */ }
-    }
-  };
   const poll = async () => {
     if (stopped || quitting || window.isDestroyed()) return;
-    const busy = await backendBusy();
+    const polledBackend = backend;
+    let busy = await backendBusy();
     if (stopped || quitting || window.isDestroyed()) return;
-    if (busy !== null) {
-      window.setProgressBar(busy ? 2 : -1);
-      badge(busy ? 1 : 0);
-      delay = 5000;
-    } else delay = Math.min(delay * 2, 60000);
+    if (polledBackend !== backend || (backend && !processRunning(backend))) busy = null;
+    setWorkProgress(window, busy === true);
+    delay = busy === null ? Math.min(delay * 2, 60000) : 5000;
     timer = setTimeout(poll, delay);
     timer.unref?.();
   };
-  window.once('closed', () => { stopped = true; clearTimeout(timer); badge(0); });
+  window.on('close', () => setWorkProgress(window, false));
+  window.once('closed', () => { stopped = true; clearTimeout(timer); setWorkProgress(window, false); });
   void poll();
 }
 function limitDownloads() {
   session.defaultSession.on('will-download', (event, item, contents) => {
     const url = item.getURL();
-    if (!isAppUrl(url, origins) || !isAppUrl(contents?.getURL(), origins)) {
+    let downloadUrl = url;
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol === 'blob:') downloadUrl = parsed.origin;
+    } catch { /* Invalid URLs are refused by the origin policy below. */ }
+    if (!isAppUrl(downloadUrl, origins) || !isAppUrl(contents?.getURL(), origins)) {
       event.preventDefault();
       const safe = externalUrl(url);
       if (safe && !isAppUrl(url, origins)) void shell.openExternal(safe).catch(error => log(error.message));
@@ -478,17 +485,15 @@ function confirmEnrollment(link, route) {
   const window = win;
   window.webContents.once('did-finish-load', () => {
     if (window.webContents.getURL() !== link) return;
-    if (route) {
-      const restore = () => {
-        if (window.webContents.getURL() !== harnessUrl || quitting || window.isDestroyed()) return;
-        window.webContents.removeListener('did-finish-load', restore);
-        void window.loadURL(route).catch(error => log(error.message));
-      };
-      window.webContents.on('did-finish-load', restore);
-    }
+    const restore = () => {
+      if (window.webContents.getURL() !== harnessUrl || quitting || window.isDestroyed()) return;
+      window.webContents.removeListener('did-finish-load', restore);
+      void window.loadURL(route).catch(error => log(error.message));
+    };
+    if (route) window.webContents.on('did-finish-load', restore);
     window.webContents
       .executeJavaScript("document.querySelector('form[action^=\"/approve-device\"]')?.requestSubmit()")
-      .catch(() => {});
+      .catch(() => window.webContents.removeListener('did-finish-load', restore));
   });
 }
 // A fixed picture while the backend starts or is attached; it never navigates or opens windows.

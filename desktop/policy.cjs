@@ -37,7 +37,7 @@ function appRoute(url, origins) {
 }
 function windowTitle(title, url, origins) {
   if (!isAppUrl(url, origins) || typeof title !== 'string') return 'KeepHarness';
-  return [...title.replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, '').trim()].slice(0,160).join('') || 'KeepHarness';
+  return [...title.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, '').trim()].slice(0,160).join('') || 'KeepHarness';
 }
 function downloadName(name) {
   return String(name || '').replace(/[\\/:*?"<>|\x00-\x1f\x7f-\x9f]/g, '_')

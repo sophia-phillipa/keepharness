@@ -301,3 +301,13 @@ test('saved routes reject foreign origins credentials controls and enrollment se
   for (const route of ['https://evil.test/','//evil.test/','/\\evil.test/','/open?ticket=secret','/approve-device?a=b','/?token=secret','/\nfoo',{},null]) assert.equal(restoredRoute(route,base,origins),null);
   assert.equal(restoredRoute('/?conversation=chat',base,origins),base+'?conversation=chat');
 });
+
+
+test('window titles strip Unicode control format and line separator characters', () => {
+  const {windowTitle} = require('./policy.cjs');
+  const url = 'http://127.0.0.1:8095/';
+  for (const character of ['\u202e', '\u200b', '\u2028', '\u0007', '\u2029']) {
+    assert.equal(windowTitle(`Review${character} café`, url, [new URL(url).origin]), 'Review café');
+    assert.equal(windowTitle(character, url, [new URL(url).origin]), 'KeepHarness');
+  }
+});

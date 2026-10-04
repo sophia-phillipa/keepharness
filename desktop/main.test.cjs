@@ -30,7 +30,7 @@ async function boot(options = {}) {
       super(); this.options = opts; this.shows = 0; this.destroyed = false; this.bounds = {x:100,y:100,width:1200,height:800}; this.maximized = false;
       this.webContents = new EventEmitter();
       Object.assign(this.webContents, { setWindowOpenHandler: fn => { this.open = fn; }, getURL: () => this.url,
-        executeJavaScript: async () => {}, reload: () => { this.reloads = (this.reloads || 0) + 1; } });
+        executeJavaScript: async () => { if (options.failEnrollment) throw new Error("enrollment failed"); }, reload: () => { this.reloads = (this.reloads || 0) + 1; } });
       windows.push(this);
     }
     async loadURL(url) { this.url = url; if (options.dieOnRestartLoad && children.length === 2) { children[1].exitCode=1; children[1].emit('exit',1,null); children[1].emit('close',1,null); } }
@@ -353,4 +353,62 @@ test('saved conversation route resumes after device enrollment completes', async
   h.main.webContents.emit('did-finish-load');
   h.main.url='http://127.0.0.1:8095/'; h.main.webContents.emit('did-finish-load'); await settle();
   assert.equal(h.main.url,'http://127.0.0.1:8095/?conversation=restored');
+});
+
+
+test('app-origin blob downloads use the save dialog and unsafe schemes are refused', async () => {
+  const h = await boot();
+  for (const origin of ['http://127.0.0.1:18194', 'http://127.0.0.1:8095']) {
+    const item = {getURL: () => `blob:${origin}/export-id`, getFilename: () => 'settings.json',
+      setSaveDialogOptions(value) { this.save = value; }};
+    const event = h.event(); h.session.emit('will-download', event, item, h.main.webContents);
+    assert.equal(event.prevented, false);
+    assert.equal(item.save.defaultPath, path.join(h.home, 'Downloads', 'settings.json'));
+  }
+  for (const url of ['blob:https://foreign.test/id', 'blob:http://127.0.0.1:9999/id',
+    'blob:null/id', 'blob:file:///id', 'data:application/json,{}']) {
+    const event = h.event();
+    h.session.emit('will-download', event, {getURL: () => url}, h.main.webContents);
+    assert.equal(event.prevented, true, url);
+  }
+  h.main.url = 'https://foreign.test/';
+  const event = h.event();
+  h.session.emit('will-download', event, {getURL: () => 'blob:http://127.0.0.1:8095/id'}, h.main.webContents);
+  assert.equal(event.prevented, true);
+});
+
+test('busy indicators clear when polling fails', async () => {
+  const options = {busy: true}; const h = await boot(options);
+  assert.equal(h.main.progress, 2);
+  options.status = 503;
+  const timer = [...h.timers.values()][0]; h.timers.delete(timer); timer.fn(); await settle();
+  assert.equal(h.main.progress, -1); assert.equal(h.badges.at(-1), 0);
+  assert.equal([...h.timers.values()][0].ms, 10000);
+});
+
+test('busy indicators clear immediately when the backend exits', async () => {
+  const h = await boot({busy: true, startBackend: true});
+  assert.equal(h.main.progress, 2);
+  h.children[0].exitCode = 1; h.children[0].emit('exit', 1, null);
+  assert.equal(h.main.progress, -1); assert.equal(h.badges.at(-1), 0);
+  const timer = [...h.timers.values()][0]; h.timers.delete(timer); timer.fn(); await settle();
+  assert.equal(h.main.progress, -1); assert.equal(h.badges.at(-1), 0);
+});
+
+test('busy progress clears before the window is destroyed', async () => {
+  const h = await boot({busy: true});
+  assert.equal(h.main.progress, 2);
+  h.main.once('closed', () => assert.equal(h.main.progress, -1));
+  h.main.close();
+  assert.equal(h.timers.size, 0); assert.equal(h.badges.at(-1), 0);
+});
+
+test('failed enrollment removes the pending route restore listener', async () => {
+  const first = await boot(); first.main.url += '?conversation=restored'; first.main.close();
+  const h = await boot({home: first.home, noSession: true, failEnrollment: true,
+    enrollment: 'http://127.0.0.1:8095/approve-device?nonce=abcdefghijklmnop'});
+  h.main.webContents.emit('did-finish-load'); await settle();
+  assert.equal(h.main.webContents.listenerCount('did-finish-load'), 0);
+  h.main.url = 'http://127.0.0.1:8095/'; h.main.webContents.emit('did-finish-load'); await settle();
+  assert.equal(h.main.url, 'http://127.0.0.1:8095/');
 });
