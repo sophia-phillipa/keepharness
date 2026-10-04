@@ -30,7 +30,7 @@ A [especificação de instalação](dossier/installation-agent-spec.md) define o
 | 🛠️ CP-07 · Recuperação | Falhas tratadas e testes afetados repetidos. |
 | 📋 CP-08 · Entrega | URLs, instruções de operação, diagnósticos, testes e limitações. |
 
-Ao final, o painel administrativo fica em **http://127.0.0.1:8094/** e as conversas em **http://127.0.0.1:8095/**. O estado (configurações, perfis, conversas e anexos) fica em `~/.local/share/keepharness`.
+Ao final, o painel administrativo fica em **http://127.0.0.1:8094/** e as conversas em **http://127.0.0.1:8095/**. Antes, conecte o navegador com `keepharness open`, que imprime e abre um link de uso único (o aplicativo desktop conecta a própria janela). O estado (configurações, perfis, conversas e anexos) fica em `~/.local/share/keepharness`.
 
 ### Manual installation (without an agent)
 
@@ -71,7 +71,7 @@ O painel de arquivos usa o Material Icon Theme (MIT), com ícones específicos p
 | 5 | Configurar os painéis (CP-05) | Habilitar recursos descobertos e autenticados pela API administrativa | `/v1/version` mostra o `config_revision` esperado, sem `config_reload_error` |
 | 6 | Executar os testes obrigatórios (CP-06) | `"$TH_VENV/bin/python" -m control.install_check`; pytest/Playwright direcionados da tabela em `dossier/installation-agent-spec.md` | O smoke test do pacote passa; ao menos um provedor habilitado completa uma execução real |
 | 7 | Recuperar-se de qualquer falha (CP-07) | Diagnosticar conforme a tabela de falhas da spec, corrigir, repetir o teste afetado | O mesmo teste passa a aprovar, ou um bloqueio concreto é registrado |
-| 8 | Entregar à pessoa humana (CP-08) | Informar URLs, portas, testes executados e qualquer decisão pendente | A pessoa consegue abrir `http://127.0.0.1:8094/` e `http://127.0.0.1:8095/` por conta própria |
+| 8 | Entregar à pessoa humana (CP-08) | Informar URLs, portas, testes executados e qualquer decisão pendente | A pessoa executa `keepharness open` e então consegue abrir `http://127.0.0.1:8094/` e `http://127.0.0.1:8095/` por conta própria |
 
 ✅ **Concluído quando** todo checkpoint obrigatório (CP-01 ao CP-06, mais o CP-08) estiver `APPROVED`, com ao menos uma combinação de provedor/modelo operacional de ponta a ponta. Informe os checkpoints, a evidência e qualquer bloqueio; para desfazer, remova os diretórios de venv/estado e a unidade systemd criados durante a execução — nada fora deles é tocado.
 
@@ -102,7 +102,7 @@ Há dois modos:
 - **Isolado:** Linux + bubblewrap; ferramentas limitadas ao projeto, sem terminal geral ou acesso livre à internet. Alterações passam por um fluxo de proposta/aplicação com backup. Não usa conectores externos.
 - **Nativo:** Codex, Claude e DeepSeek executam diretamente no sistema, sem sandbox e com acesso a arquivos, terminal e rede. Modelos locais mantêm suas permissões e isolamento por modelo. A pasta selecionada define o projeto, mas não é uma prisão de leitura. Terminal, hooks e conectores têm o alcance de suas próprias permissões. A opção Internet não é um firewall para processos externos. Edições nativas acontecem diretamente no projeto.
 
-O projeto não é uma solução multiusuário para pessoas mutuamente não confiáveis. Todo cliente autorizado recebe a mesma política administrativa de projeto; cada um tem seu próprio histórico e aprovações. Para isolamento forte de identidades e credenciais, execute instâncias sob usuários de sistema operacional distintos.
+O projeto não é uma solução multiusuário para pessoas mutuamente não confiáveis. Outras contas do mesmo computador não são confiáveis: alcançar 127.0.0.1 não basta para agir como dono. O dono é quem tem o segredo da instalação em `~/.local/share/keepharness/local.key` (modo 0600); o aplicativo desktop o lê, e `keepharness open` o entrega a um navegador por um link de uso único. Só esse dono registra, reaponta ou apaga pastas de projeto; pastas registradas no harness não são compartilhadas com outros clientes, e outros clientes não veem personas de agentes nem caminhos da pasta pessoal. Cada cliente autorizado tem seu próprio histórico e aprovações. Para isolamento forte de identidades e credenciais, execute instâncias sob usuários de sistema operacional distintos.
 
 A barra de ícones à esquerda reúne, de cima para baixo, o botão da barra lateral, a **Busca** (Ctrl/⌘ K), o sino de atenção, arquivos e atividade, **Runs and pipeline** e **Agents and skills**; na base, nesta ordem, os medidores de cota dos provedores, **Admin**, **Theme**, **About** e **Settings**. O **Admin** só aparece quando seu endereço está disponível e, neste computador, abre **Settings › System**, que embute a administração (Providers, Operations, Runs, Catalogs and vault). Configurações mantém a preferência de tema do harness independente por navegador. A barra lateral não tem mais botões separados de recarregar tela ou recolher; o botão da barra lateral, no topo da barra de ícones (que vira barra superior nos celulares), continua útil em telas pequenas. A atualização automática espera até poder preservar o trabalho em andamento.
 

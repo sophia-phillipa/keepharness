@@ -30,7 +30,7 @@ The [installation specification](dossier/installation-agent-spec.md) defines eig
 | 🛠️ CP-07 · Recovery | Failures handled and affected tests rerun. |
 | 📋 CP-08 · Handoff | URLs, operating instructions, diagnostics, tests and limitations. |
 
-When it finishes, the admin panel is at **http://127.0.0.1:8094/** and conversations at **http://127.0.0.1:8095/**. State (settings, profiles, conversations, attachments) lives in `~/.local/share/keepharness`.
+When it finishes, the admin panel is at **http://127.0.0.1:8094/** and conversations at **http://127.0.0.1:8095/**. Sign a browser in first with `keepharness open`, which prints and opens a single-use link (the desktop app signs its own window in). State (settings, profiles, conversations, attachments) lives in `~/.local/share/keepharness`.
 
 ### Manual installation (without an agent)
 
@@ -71,7 +71,7 @@ The file panel uses Material Icon Theme (MIT), with extension-specific icons and
 | 5 | Configure panels (CP-05) | Enable discovered, authenticated resources through the admin API | `/v1/version` shows the expected `config_revision`, no `config_reload_error` |
 | 6 | Run the mandatory tests (CP-06) | `"$TH_VENV/bin/python" -m control.install_check`; targeted pytest/Playwright from the table in `dossier/installation-agent-spec.md` | Package smoke test passes; at least one enabled provider completes a real turn |
 | 7 | Recover from any failure (CP-07) | Diagnose per the failure table in the spec, fix, rerun the affected test | The same test flips to passing, or a concrete blocker is recorded |
-| 8 | Hand back to the human (CP-08) | Report URLs, ports, tests run and any pending decision | Person can open `http://127.0.0.1:8094/` and `http://127.0.0.1:8095/` themselves |
+| 8 | Hand back to the human (CP-08) | Report URLs, ports, tests run and any pending decision | Person runs `keepharness open` and can then open `http://127.0.0.1:8094/` and `http://127.0.0.1:8095/` themselves |
 
 ✅ **Done when** every required checkpoint (CP-01 through CP-06, plus CP-08) is `APPROVED`, with at least one provider/model combination operational end to end. Report the checkpoints, evidence and any blocker; to undo, remove the venv/state directories and the systemd unit created during the run — nothing outside them is touched.
 
@@ -102,7 +102,7 @@ There are two modes:
 - **Isolated:** Linux + bubblewrap; tools are limited to the project, with no general terminal or free internet access. Changes go through a propose/apply flow with a backup. It does not use external connectors.
 - **Native:** Codex, Claude and DeepSeek run directly on the system, with no sandbox and with access to files, terminal and network. Local models keep their per-model permissions and isolation. The selected folder defines the project but is not a read jail. Terminal, hooks and connectors have the reach of their own permissions. The Internet option is not a firewall for external processes. Native edits happen directly in the project.
 
-The project is not a multi-user solution for mutually untrusted people. Every authorized client receives the same administrative project policy; each has its own history and approvals. For strong isolation of identities and credentials, run instances under separate operating-system users.
+The project is not a multi-user solution for mutually untrusted people. Other accounts on the same computer are not trusted: reaching 127.0.0.1 is not enough to act as the owner. The owner is whoever holds the per-install secret in `~/.local/share/keepharness/local.key` (mode 0600); the desktop app reads it, and `keepharness open` hands it to a browser through a single-use link. Only that owner registers, repoints or deletes project folders; folders registered in the harness are not shared with other clients, and other clients see neither agent personas nor home-folder paths. Each authorized client has its own history and approvals. For strong isolation of identities and credentials, run instances under separate operating-system users.
 
 The icon rail on the left holds, from the top, the sidebar toggle, **Search** (Ctrl/⌘ K), the attention bell, files and activity, **Runs and pipeline** and **Agents and skills**; at the bottom, in order, the provider quota meters, **Admin**, **Theme**, **About** and **Settings**. **Admin** is shown only when its URL is available and, on this computer, opens **Settings › System**, which embeds the administration (Providers, Operations, Runs, Catalogs and vault). Settings retains the independent harness theme preference. The sidebar no longer has separate Reload screen or Collapse buttons; the sidebar toggle at the top of the rail (a top bar on phones) remains useful on mobile. Automatic refresh waits until it can preserve the current work.
 
