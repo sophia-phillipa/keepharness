@@ -19,6 +19,8 @@ SESSION_COOKIE = "harness_session"
 ENROLLMENT_SECONDS = 600
 # Absolute from creation: use never extends it and there is no idle timeout.
 SESSION_SECONDS = 7 * 24 * 60 * 60
+# Expired rows outlive their expiry this long so the owner sees "expired", not "not enrolled".
+EXPIRED_GRACE_SECONDS = 7 * 24 * 60 * 60
 LEGACY_SESSION_SECONDS = 30 * 24 * 60 * 60
 
 
@@ -126,7 +128,7 @@ def consume_enrollment(config, nonce):
         database.execute("DELETE FROM enrollments WHERE digest=?", (token_digest(nonce),))
         token = secrets.token_urlsafe(32)
         now = time.time()
-        database.execute("DELETE FROM sessions WHERE expires <= ?", (now,))
+        database.execute("DELETE FROM sessions WHERE expires <= ?", (now - EXPIRED_GRACE_SECONDS,))
         database.execute(
             "INSERT INTO sessions(digest, owner, expires, approval_capable, created)"
             " VALUES(?,?,?,1,?)",

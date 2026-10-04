@@ -22,7 +22,9 @@ logger = logging.getLogger(__name__)
 TICK_SECONDS = 30
 # A busy harness: the run stays due and is tried again on the next tick. Any other refusal
 # (job_storage_limit included) is a failed run that counts towards pausing the schedule.
-TRANSIENT_CODES = frozenset({"queue_full", "owner_queue_full", "submission_rate_limit"})
+TRANSIENT_CODES = frozenset(
+    {"queue_full", "owner_queue_full", "submission_rate_limit", "work_item_check_busy"}
+)
 SAFE_CODE = re.compile(r"^[a-z0-9_]{1,64}$")
 MISSING_CLIENT = "Paused because the client that owns this schedule no longer exists."
 

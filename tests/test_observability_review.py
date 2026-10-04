@@ -83,6 +83,15 @@ def test_prelogging_crash_is_in_owner_log_tail(tmp_path, monkeypatch):
         manager.proc = None
 
 
+def test_crash_stays_in_log_tail_after_a_successful_restart(tmp_path):
+    (tmp_path / "harness.log").write_bytes(b"Traceback: boom Bearer crash-secret\n")
+    with log_config.open_process_log(tmp_path) as restarted:  # supervised restart succeeds
+        restarted.write(b"serving\n")
+    lines = log_config.log_tail(tmp_path)
+    assert lines == ["[process output] Traceback: boom Bearer [redacted]", "[process output] serving"]
+    assert "crash-secret" not in str(lines)
+
+
 def test_process_output_is_capped_across_many_starts(tmp_path, monkeypatch):
     monkeypatch.setattr(log_config, "MAX_LOG_BYTES", 512)
     path = tmp_path / "harness.log"
@@ -97,7 +106,7 @@ def test_process_output_is_capped_across_many_starts(tmp_path, monkeypatch):
         assert all(item.stat().st_mode & 0o077 == 0 for item in files)
 
 
-@pytest.mark.parametrize("status", [200, 400, 401, 403, 404, 405, 422, 500, 501])
+@pytest.mark.parametrize("status", [200, 301, 302, 307, 400, 401, 403, 404, 405, 422, 500, 501])
 def test_responses_probe_uses_status_not_vendor_wording(monkeypatch, status):
     real_client = httpx.AsyncClient
     monkeypatch.setattr(
@@ -110,7 +119,7 @@ def test_responses_probe_uses_status_not_vendor_wording(monkeypatch, status):
             **kwargs,
         ),
     )
-    if status in (404, 405, 501):
+    if status in (301, 302, 307, 404, 405, 501):  # a redirect is not followed, so not evidence
         with pytest.raises(ValueError, match="responses_api_unavailable"):
             asyncio.run(remote_models.require_responses_api("http://model.test"))
     else:
@@ -223,3 +232,22 @@ def test_rotating_handler_isolates_formatter_failure(tmp_path, monkeypatch):
         error.assert_called_once_with(record)
     finally:
         handler.close()
+
+
+def test_log_tail_reads_the_active_log_and_its_backup_within_one_budget(tmp_path, monkeypatch):
+    budget = log_config.LOG_TAIL_BYTES
+    (tmp_path / "harness.log.1").write_bytes(b"".join(b"old %06d\n" % n for n in range(budget // 8)))
+    (tmp_path / "harness.log").write_bytes(b"".join(b"new %06d\n" % n for n in range(budget // 8)))
+    reads = []
+    real = log_config._file_tail
+
+    def spy(path, lines, byte_limit):
+        if path.exists():
+            reads.append(min(path.stat().st_size, byte_limit))
+        return real(path, lines, byte_limit)
+
+    monkeypatch.setattr(log_config, "_file_tail", spy)
+    lines = log_config.log_tail(tmp_path)
+    assert sum(reads) <= budget
+    assert lines[-1] == "[process output] new %06d" % (budget // 8 - 1)
+    assert not any("old" in line for line in lines)

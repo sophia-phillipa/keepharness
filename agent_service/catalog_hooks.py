@@ -7,7 +7,7 @@ from pathlib import Path
 
 from adapters.shared.process import child_environment, stop_process
 
-from .catalog_manifest import require_trusted_hooks
+from .catalog_manifest import hooks_trusted
 from .errors import APIError
 from .secret_vault import redact_secrets
 
@@ -23,22 +23,27 @@ async def _read_output(reader, limit):
     return b"".join(chunks).decode("utf-8", errors="replace")
 
 
-@contextmanager
-def _verified_copy(hook, catalogs):
-    """Yield the descriptor of a private in-memory copy of ``hook`` whose bytes were hashed.
+def _verified_bytes(hook, catalogs):
+    """Bytes of ``hook`` exactly as hashed by a catalog that is still trusted, else None.
 
-    The trust check and the exec read the same bytes, so replacing or rewriting the file after
+    The trust check and the exec use the same bytes, so replacing or rewriting the file after
     the check changes nothing. Files a hook loads itself stay outside the digest.
     """
-    verified = {}
-
-    def read(path):
-        verified[str(path)] = data = path.read_bytes()
-        return data
-
     for catalog in catalogs:
-        require_trusted_hooks(catalog, read)  # re-hash right before exec: fail closed
-    data = verified[hook] if hook in verified else Path(hook).read_bytes()
+        seen = {}
+
+        def read(path):
+            seen[str(path)] = data = path.read_bytes()
+            return data
+
+        if hooks_trusted(catalog, read) and hook in seen:  # re-hash right before exec
+            return seen[hook]
+    return None
+
+
+@contextmanager
+def _memory_copy(hook, data):
+    """Yield the descriptor of a private in-memory copy of the verified ``data``."""
     descriptor = os.memfd_create(Path(hook).name)
     try:
         with open(descriptor, "wb", closefd=False) as copy:
@@ -49,6 +54,11 @@ def _verified_copy(hook, catalogs):
 
 
 async def run_hooks(runtime, granted, event, *, timeout=30, output_limit=32768):
+    for catalog_id in runtime.get("hooks_skipped", []):
+        event(
+            "catalog_hook",
+            {"outcome": "skipped", "reason": "hooks_not_trusted", "catalog": catalog_id},
+        )
     hooks = runtime.get("allowed_hooks", [])
     if not hooks:
         return
@@ -56,11 +66,15 @@ async def run_hooks(runtime, granted, event, *, timeout=30, output_limit=32768):
         event("catalog_hook", {"outcome": "skipped", "reason": "hooks_not_granted"})
         return
     for hook in hooks:
+        data = _verified_bytes(hook, runtime.get("hook_catalogs", []))
+        if data is None:  # changed since trusted, or never hashed: skip, never run unhashed
+            event("catalog_hook", {"outcome": "skipped", "reason": "hooks_not_trusted", "hook": hook})
+            continue
         process = None
         readers = []
         try:
             async with asyncio.timeout(timeout):
-                with _verified_copy(hook, runtime.get("hook_catalogs", [])) as descriptor:
+                with _memory_copy(hook, data) as descriptor:
                     process = await asyncio.create_subprocess_exec(
                         hook,
                         executable=f"/proc/self/fd/{descriptor}",

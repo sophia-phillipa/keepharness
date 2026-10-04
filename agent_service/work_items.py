@@ -68,7 +68,7 @@ def _match_payload(config, project, data):
 def _reference(payload):
     """Match in the worker, at most ``_MAX_WORKERS`` at a time; this call blocks."""
     if not _slots.acquire(timeout=_ADMISSION_SECONDS):
-        raise APIError("queue_full", 429, 5)
+        raise APIError("work_item_check_busy", 429, 5)
     try:
         matches = json.loads(_run_worker(payload))
     except (subprocess.TimeoutExpired, OSError, ValueError):
@@ -83,6 +83,11 @@ def _reference(payload):
 
 # What prematch_reference() computed for this task: (payload, reference or the APIError).
 _prematched = contextvars.ContextVar("work_item_prematched", default=None)
+
+
+def clear_prematch():
+    """Drop an outcome no synchronous call consumed, so it cannot leak into a later submit."""
+    _prematched.set(None)
 
 
 def invocation_reference(config, project, data):

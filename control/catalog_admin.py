@@ -44,10 +44,10 @@ def hooks_trust(catalog):
     """Owner-facing state of the stored hook digest for one catalog root."""
     current = _current_digest(catalog['root'])
     if current is None:
-        return {'trusted': False, 'message': 'The catalog hooks cannot be read; hooks stay blocked.'}
+        return {'trusted': False, 'message': 'The catalog hooks cannot be read; hooks are skipped until re-trusted.'}
     if catalog.get('hooks_sha256') == current:
         return {'trusted': True, 'message': 'Catalog hooks match the trusted digest.'}
-    return {'trusted': False, 'message': 'Catalog hooks changed or are not confirmed yet. Review them, then re-trust.'}
+    return {'trusted': False, 'message': 'Catalog hooks changed or are not confirmed yet. They are skipped until you review and re-trust them.'}
 
 
 def validate_pins(project, catalogs, state):

@@ -64,7 +64,12 @@ from ..persistence.repositories import (
     ProjectRepository,
 )
 from ..private_storage import validate_attachment_source
-from ..work_items import invocation_reference, prematch_reference, validate_reference
+from ..work_items import (
+    clear_prematch,
+    invocation_reference,
+    prematch_reference,
+    validate_reference,
+)
 from . import capacity, queue_worker, retention
 from .activity_service import summarize_activity
 from .budgets import timeout_seconds
@@ -138,6 +143,8 @@ EXCERPT_CHARS = 6000
 MAX_CONCURRENT_EXTRACTIONS = 4
 CODEX_QUOTA_FRESH_SECONDS = 300  # the rail must not show an older Codex percentage as current
 DEEPSEEK_BALANCE_SECONDS = 300
+# A failed read is remembered only briefly, so a recovered provider shows up soon.
+DEEPSEEK_FAILURE_SECONDS = 60
 
 
 def text_length(pages):
@@ -1454,12 +1461,19 @@ class ConversationService:
     async def submit_async(self, identity, data, idem=None, *, workflow_recovery=None, schedule=None):
         """Normalize first so chips and inherited personas also match off the event loop."""
         data = self._prepare_submission(identity, data)
-        if "work_item" not in data:
-            project = self.project(identity, data.get("project_id"))
-            await prematch_reference(self.config, project, data)
-        return self._submit_prepared(
-            identity, data, idem, workflow_recovery=workflow_recovery, schedule=schedule
+        # A replayed key returns the job it already made, so it needs no pattern worker.
+        replayed = idem and self.conversation_repository.by_idempotency_key(
+            identity[0], data.get("project_id"), idem
         )
+        try:
+            if "work_item" not in data and not replayed:
+                project = self.project(identity, data.get("project_id"))
+                await prematch_reference(self.config, project, data)
+            return self._submit_prepared(
+                identity, data, idem, workflow_recovery=workflow_recovery, schedule=schedule
+            )
+        finally:
+            clear_prematch()
 
     def _prepare_submission(self, identity, data):
         data = dict(data)
@@ -1529,18 +1543,24 @@ class ConversationService:
         # Folder deletion may have begun while async admission awaited the matcher.
         if data.get("project_id") in self.deleting_project_folders:
             raise APIError("project_folder_busy", 409)
+        # The deletion may have run to its end while admission awaited the matcher.
+        if data.get("project_id") in self.deleted_project_folders:
+            raise APIError("project_folder_deleted", 410)
         workflow_invocations = [
             value for value in data.get("invocations", []) if value["kind"] == "workflow"
         ]
         if workflow_invocations:
             if len(data["invocations"]) != 1:
                 raise APIError("workflow_must_be_standalone", 422)
+            # Resolve with the scope the run executes with, so a scheduled run is refused here
+            # and not later at execute_workflow.
+            scope, owner = self.resource_scope(identity[0], {**data, **(schedule or {})})
             workflows.resolve_workflow(
-                self.config,
+                scope,
                 data["project_id"],
                 workflow_invocations[0]["resource_id"],
                 execution_mode=data.get("execution_mode"),
-                owner=identity[0] == harness_agents.LOCAL_CLIENT,
+                owner=owner,
             )
         if workflow_recovery is not None:
             data.update(workflow_recovery)
@@ -2633,24 +2653,25 @@ class ConversationService:
         project = self.config["projects"][row["project"]]
         if kind == "infer":
             invocation = data.get("invocations", [])
+            scope, owner = self.resource_scope(row["owner"], data)
             if data.get("_declared_workflow"):
                 declared = data["_declared_workflow"]
                 if declared.get("resource_id"):
                     declared = workflows.resolve_workflow(
-                        self.config,
+                        scope,
                         row["project"],
                         declared["resource_id"],
                         execution_mode=data.get("execution_mode"),
-                        owner=row["owner"] == harness_agents.LOCAL_CLIENT,
+                        owner=owner,
                     )
                 result = await maestro.execute_workflow(self, row, data, declared)
             elif len(invocation) == 1 and invocation[0]["kind"] == "workflow":
                 declared = workflows.resolve_workflow(
-                    self.config,
+                    scope,
                     row["project"],
                     invocation[0]["resource_id"],
                     execution_mode=data.get("execution_mode"),
-                    owner=row["owner"] == harness_agents.LOCAL_CLIENT,
+                    owner=owner,
                 )
                 result = await maestro.execute_workflow(self, row, data, declared)
             elif len(invocation) > 1:
@@ -2771,12 +2792,15 @@ class ConversationService:
         if not key_file:
             return {"provider": "deepseek", "available": False, "reason": "quota_not_reported"}
         cached = self.deepseek_usage_cache
-        if cached and time.monotonic() - cached[0] < DEEPSEEK_BALANCE_SECONDS:
-            return cached[1]
+        if cached:
+            fresh = DEEPSEEK_BALANCE_SECONDS if cached[1]["available"] else DEEPSEEK_FAILURE_SECONDS
+            if time.monotonic() - cached[0] < fresh:
+                return cached[1]
         summary = account.balance_summary(await account.fetch_balance(key_file))
         if summary is None:
-            return {"provider": "deepseek", "available": False, "reason": "balance_unavailable"}
-        result = {"provider": "deepseek", "available": True, "checked_at": time.time(), **summary}
+            result = {"provider": "deepseek", "available": False, "reason": "balance_unavailable"}
+        else:
+            result = {"provider": "deepseek", "available": True, "checked_at": time.time(), **summary}
         self.deepseek_usage_cache = (time.monotonic(), result)
         return result
 
