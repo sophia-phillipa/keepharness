@@ -105,7 +105,7 @@ def test_project_registration_protects_runtime_state(tmp_path, split_control):
     from test_project_browser import config
 
     cfg = config(tmp_path)
-    cfg["shared_projects"] = True
+    cfg["project_registration"] = True
     if split_control:
         cfg["control_state_dir"] = str(tmp_path / "control")
         Path(cfg["control_state_dir"]).mkdir()

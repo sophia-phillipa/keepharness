@@ -1,12 +1,15 @@
 """Administrative boundary checks; isolated state, no CLI or inference calls."""
 
 import asyncio
+import stat
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import httpx
 
+from control import local_access
 from control.server import ADMIN_BODY_LIMIT, ADMIN_OPERATION_LIMIT, create_app
 
 
@@ -18,6 +21,8 @@ class AdminSecurityTest(unittest.IsolatedAsyncioTestCase):
             transport=httpx.ASGITransport(app=self.app), base_url="http://127.0.0.1:8094"
         )
         self.headers = {"X-Harness-Admin": "1"}
+        # The owner's browser holds the per-install secret; the admin cookie needs it.
+        self.client.cookies.set(local_access.COOKIE, self.app.state.manager.local_secret)
         await self.client.get("/")
 
     async def asyncTearDown(self):
@@ -176,3 +181,59 @@ class AdminSecurityTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(api.headers["cache-control"], "no-store")
         self.assertNotIn("content-encoding", api.headers)
+
+    def stranger(self):
+        """Another account on this computer: loopback, but without the install secret."""
+        return httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=self.app), base_url="http://127.0.0.1:8094"
+        )
+
+    async def test_admin_cookie_needs_install_secret(self):
+        key = Path(self.folder.name) / local_access.KEY_FILE
+        self.assertEqual(stat.S_IMODE(key.stat().st_mode), 0o600)
+        async with self.stranger() as client:
+            page = await client.get("/")
+            self.assertNotIn("admin", page.cookies)
+            client.cookies.set(local_access.COOKIE, "guess")
+            self.assertNotIn("admin", (await client.get("/")).cookies)
+            response = await client.get("/api/state", headers=self.headers)
+            self.assertEqual(response.status_code, 401)
+            self.assertIn("keepharness open", response.json()["error"])
+
+    async def test_open_link_admits_one_browser_once(self):
+        ticket = local_access.open_ticket(self.app.state.manager.local_secret)
+        async with self.stranger() as client:
+            opened = await client.get("/open", params={"ticket": ticket})
+            self.assertEqual((opened.status_code, opened.headers["location"]), (303, "/"))
+            self.assertEqual(opened.headers["cache-control"], "no-store")
+            self.assertEqual(
+                client.cookies.get(local_access.COOKIE), self.app.state.manager.local_secret
+            )
+            self.assertEqual(
+                (await client.get("/api/state", headers=self.headers)).status_code, 200
+            )
+        async with self.stranger() as replay:
+            again = await replay.get("/open", params={"ticket": ticket})
+            self.assertEqual(again.status_code, 403)
+            self.assertNotIn(local_access.COOKIE, replay.cookies)
+            forged = await replay.get("/open", params={"ticket": ticket[:-1] + "0"})
+            self.assertEqual(forged.status_code, 403)
+
+
+def test_open_command_prints_a_one_time_link(tmp_path, capsys, monkeypatch):
+    from urllib.parse import parse_qs, urlsplit
+
+    from control.cli import main
+
+    opened = []
+    monkeypatch.setattr("webbrowser.open", opened.append)
+    main(["--state", str(tmp_path), "--port", "18094", "open"])
+    link = capsys.readouterr().out.strip().splitlines()[-1]
+    assert link.startswith("http://127.0.0.1:18094/open?ticket=")
+    assert opened == [link]
+    secret = (tmp_path / local_access.KEY_FILE).read_text()
+    assert secret not in link
+    ticket = parse_qs(urlsplit(link).query)["ticket"][0]
+    used = {}
+    assert local_access.consume_ticket(secret, ticket, used)
+    assert not local_access.consume_ticket(secret, ticket, used)

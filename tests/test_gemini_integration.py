@@ -9,6 +9,7 @@ import pytest
 
 from agent_service.app import Service
 from control.server import Manager
+from tests.owner_session import sign_in
 
 
 def test_discovery_finds_gemini_without_exporting_credentials(tmp_path):
@@ -216,7 +217,7 @@ def test_panel_gemini_login_launches_oauth_helper(tmp_path):
         ) as launch,
     ):
         with TestClient(create_app(tmp_path), base_url="http://127.0.0.1:8094") as client:
-            assert client.get("/").status_code == 200
+            assert sign_in(client).get("/").status_code == 200
             response = client.post(
                 "/api/provider-login", json={"provider": "gemini"}, headers={"X-Harness-Admin": "1"}
             )
@@ -242,7 +243,7 @@ def test_panel_gemini_check_without_login_returns_200(tmp_path, monkeypatch):
         with TestClient(
             create_app(tmp_path / "control"), base_url="http://127.0.0.1:8094"
         ) as client:
-            client.get("/")
+            sign_in(client).get("/")
             response = client.post(
                 "/api/check", json={"provider": "gemini"}, headers={"X-Harness-Admin": "1"}
             )

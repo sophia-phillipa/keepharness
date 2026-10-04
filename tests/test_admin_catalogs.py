@@ -4,6 +4,7 @@ import subprocess
 from starlette.testclient import TestClient
 
 from control.server import create_app
+from tests.owner_session import sign_in
 
 
 def test_pin_preview_move_and_stale_preview(tmp_path):
@@ -30,7 +31,7 @@ def test_pin_preview_move_and_stale_preview(tmp_path):
     manager.settings['catalogs'] = [{'id': 'demo', 'namespace': 'demo', 'kind': 'git', 'root': str(root), 'trusted': True}]
     manager.settings['projects'] = [{'id': 'p', 'root': str(project), 'catalogs': ['demo']}]
     client = TestClient(app, base_url='http://127.0.0.1:8094')
-    client.get('/')
+    sign_in(client).get('/')
     def post(action, **data):
         return client.post('/api/catalog-pin', headers={'X-Harness-Admin': '1'}, json={'action': action, 'project_id': 'p', 'catalog_id': 'demo', **data})
     pinned = post('pin', ref=first)

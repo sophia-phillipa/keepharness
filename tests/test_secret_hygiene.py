@@ -19,6 +19,7 @@ from agent_service.app import create_app as create_harness_app
 from agent_service.approval_sessions import SESSION_COOKIE, consume_enrollment, issue_enrollment
 from control import runtime_config
 from control.server import Manager, create_app
+from tests.owner_session import sign_in
 
 DEEPSEEK_TOKEN = "sk-hygiene-" + "d" * 32
 
@@ -74,7 +75,7 @@ def test_control_state_keeps_secrets_out_and_files_private(tmp_path, open_umask)
         patch("control.manager.Manager.refresh", AsyncMock()),
         TestClient(create_app(state), base_url="http://127.0.0.1:8094") as client,
     ):
-        client.get("/")
+        sign_in(client).get("/")
         stored = client.post(
             "/api/provider-token",
             json={"provider": "deepseek", "token": DEEPSEEK_TOKEN},

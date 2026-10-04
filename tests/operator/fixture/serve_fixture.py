@@ -72,7 +72,7 @@ def seed(root, admin_port, harness_port):
         "bind": "127.0.0.1",
         "port": harness_port,
         "local_access": True,
-        "shared_projects": True,
+        "project_registration": True,
         "uploads_enabled": True,
         "admin_url": f"http://127.0.0.1:{admin_port}/",
         "clients": {"local": {"sha256": "0" * 64, "projects": projects}},

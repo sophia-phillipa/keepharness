@@ -68,6 +68,7 @@ def error_response(exc):
             "request_id": uuid.uuid4().hex,
             **({"field": exc.field} if getattr(exc, "field", None) else {}),
             **({"owner": exc.owner} if getattr(exc, "owner", None) else {}),
+            **({"login": exc.login} if getattr(exc, "login", None) else {}),
         },
         status_code=status,
         headers={"Retry-After": str(exc.retry_after)}

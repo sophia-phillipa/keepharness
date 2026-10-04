@@ -55,6 +55,9 @@ def main(argv=None):
     enroll.add_argument(
         "--yes", action="store_true", help="Confirm enrollment without an interactive terminal"
     )
+    commands.add_parser(
+        "open", help="Sign a browser on this computer in with a one-time link, and open it"
+    )
     args = parser.parse_args(argv)
     os.umask(0o077)
     default_state = args.state == parser.get_default("state")
@@ -97,10 +100,32 @@ def main(argv=None):
         print("Open this single-use link in the owner's browser within 10 minutes:")
         print(origin + "/approve-device?nonce=" + nonce)
         return
+    if args.command == "open":
+        open_browser(parser, Path(args.state), args.port)
+        return
     if args.scan:
         print(json.dumps(asyncio.run(scan()), indent=2, ensure_ascii=False))
         return
     serve(args, default_state)
+
+
+def open_link(state, port):
+    """A one-time link that hands this computer's browser the per-install secret."""
+    from .local_access import OPEN_PATH, ensure_secret, open_ticket
+
+    return f"http://127.0.0.1:{port}{OPEN_PATH}?ticket={open_ticket(ensure_secret(state))}"
+
+
+def open_browser(parser, state, port):
+    """`keepharness open`: print a one-time link for this computer's browser and open it."""
+    import webbrowser
+
+    if not state.is_dir():
+        parser.error(f"No {PRODUCT.name} state at {state}; start {PRODUCT.slug} first.")
+    link = open_link(state, port)
+    print("Open this single-use link in your browser within 5 minutes:")
+    print(link)
+    webbrowser.open(link)
 
 
 def serve(args, default_state):
@@ -121,9 +146,15 @@ def serve(args, default_state):
     if default_state and (waiting := legacy_waiting()):
         raise SystemExit(migration_refusal(Path.home()) or waiting)
 
+    app = create_app(args.state, args.port)
     print(f"Local management: http://127.0.0.1:{args.port}/", flush=True)
+    # A link in a service journal could reach other accounts; only a terminal gets one.
+    if sys.stdout.isatty():
+        print("Sign this computer's browser in: " + open_link(Path(args.state), args.port))
+    else:
+        print(f"Run `{PRODUCT.slug} open` to sign this computer's browser in.", flush=True)
     uvicorn.run(
-        create_app(args.state, args.port),
+        app,
         host="127.0.0.1",
         port=args.port,
         proxy_headers=False,

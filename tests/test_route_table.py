@@ -26,6 +26,7 @@ from starlette.testclient import TestClient
 from agent_service.app import create_app
 from control.server import ADMIN_BODY_LIMIT, ADMIN_OPERATION_LIMIT
 from control.server import create_app as create_admin_app
+from tests.owner_session import sign_in
 
 REQUEST_ID = re.compile(r"[0-9a-f]{32}")
 
@@ -315,8 +316,9 @@ AGENT_VALID_TABLE = [
         404,
         "schedule_not_found",
     ),
-    ("projects-post", "POST", "/v1/projects", None, {}, 403, "project_registration_disabled"),
-    ("projects-patch", "PATCH", "/v1/projects", None, {}, 422, "invalid_project"),
+    # Client "a" is not the local owner: project folders are refused before anything else.
+    ("projects-post", "POST", "/v1/projects", None, {}, 403, "project_management_local_only"),
+    ("projects-patch", "PATCH", "/v1/projects", None, {}, 403, "project_management_local_only"),
     (
         "project-folder-get",
         "GET",
@@ -332,8 +334,8 @@ AGENT_VALID_TABLE = [
         "/v1/project-folder",
         {"project_id": "p"},
         {},
-        422,
-        "project_folder_confirmation_required",
+        403,
+        "project_management_local_only",
     ),
     (
         "project-git",
@@ -351,7 +353,7 @@ AGENT_VALID_TABLE = [
         None,
         None,
         403,
-        "project_registration_disabled",
+        "project_management_local_only",
     ),
     (
         "services",
@@ -785,7 +787,7 @@ async def _admin_client(app):
     client = httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1:8094"
     )
-    await client.get("/")  # acquire the admin cookie, as every admin test needs it
+    await sign_in(client, app).get("/")  # acquire the admin cookie, as every admin test needs it
     return client
 
 
@@ -863,7 +865,10 @@ def test_admin_guard_requires_cookie_on_api(admin_pair):
                 "/api/settings-export", json={}, headers={"X-Harness-Admin": "1"}
             )
             assert response.status_code == 401
-            assert response.json() == {"error": "Open the management panel on this machine first."}
+            assert response.json() == {
+                "error": "Open KeepHarness from its app, or run `keepharness open` on this computer,"
+                " to sign this browser in."
+            }
 
     asyncio.run(scenario())
 

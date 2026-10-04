@@ -14,6 +14,7 @@ from starlette.testclient import TestClient
 from control.download_model import download
 from control.install import files
 from control.server import Manager, create_app
+from tests.owner_session import sign_in
 
 INVENTORY = {
     "platform": "Linux",
@@ -73,7 +74,7 @@ class DistributionTest(unittest.TestCase):
                 ) as start,
             ):
                 with TestClient(create_app(d), base_url="http://127.0.0.1:8094") as client:
-                    client.get("/")
+                    sign_in(client).get("/")
                     state = client.get("/api/state").json()
                     self.assertEqual(state["status"]["startup_error"], "CLI unavailable")
                     start.assert_awaited_once()
@@ -85,7 +86,7 @@ class DistributionTest(unittest.TestCase):
                 patch.object(Manager, "start", AsyncMock()) as start,
             ):
                 with TestClient(create_app(d), base_url="http://127.0.0.1:8094") as c:
-                    c.get("/")
+                    sign_in(c).get("/")
                     state = c.get("/api/state").json()
                     self.assertFalse(
                         any(s["enabled"] for s in state["settings"]["services"].values())

@@ -23,7 +23,7 @@ def queued(service, ident, data):
 
 def test_reload_cancels_only_removed_model_and_keeps_registered_projects(tmp_path):
     cfg = config(tmp_path)
-    cfg["shared_projects"] = True
+    cfg["project_registration"] = True
     cfg["services"]["stable"] = {
         "enabled": True,
         "models": ["stable-model"],

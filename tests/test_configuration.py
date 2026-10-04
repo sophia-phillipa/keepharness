@@ -15,6 +15,7 @@ from control.local_models import (
     validate_profile,
 )
 from control.server import create_app
+from tests.owner_session import sign_in
 
 INVENTORY = {
     "platform": "Linux",
@@ -93,7 +94,7 @@ class ConfigurationTest(unittest.TestCase):
         ):
             Path(d, "vpn.key").write_text("never-export-this")
             with TestClient(create_app(d), base_url="http://127.0.0.1:8094") as c:
-                c.get("/")
+                sign_in(c).get("/")
                 headers = {"X-Harness-Admin": "1"}
                 bundle = c.post("/api/settings-export", json={}, headers=headers).json()
                 self.assertNotIn("never-export-this", json.dumps(bundle))
@@ -133,7 +134,7 @@ class ConfigurationTest(unittest.TestCase):
             patch("control.discovery.scan", AsyncMock(return_value=INVENTORY)),
         ):
             with TestClient(create_app(d), base_url="http://127.0.0.1:8094") as c:
-                c.get("/")
+                sign_in(c).get("/")
                 h = {"X-Harness-Admin": "1"}
                 self.assertEqual(
                     c.post("/api/settings-import", json=[], headers=h).status_code, 400

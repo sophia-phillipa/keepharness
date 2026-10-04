@@ -14,6 +14,7 @@ from starlette.testclient import TestClient
 from agent_service import workspaces
 from agent_service.app import create_app
 from control.server import create_app as create_admin_app
+from tests.owner_session import sign_in
 
 
 @pytest.fixture
@@ -22,7 +23,7 @@ def admin_client():
         with patch("control.manager.Manager.refresh", AsyncMock()):
             app = create_admin_app(Path(tmp) / "state", 8094)
             with TestClient(app, base_url="http://127.0.0.1:8094") as test_client:
-                test_client.get("/")  # receive the admin cookie
+                sign_in(test_client).get("/")  # receive the admin cookie
                 yield test_client, Path(tmp)
 
 

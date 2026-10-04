@@ -1415,6 +1415,9 @@ const userErrors = {
   project_edit_forbidden: "You can't edit this project.",
   project_registration_disabled:
     "Adding projects is turned off on this server. Ask the administrator to enable it.",
+  project_management_local_only:
+    "Project folders can only be added, changed or deleted from the computer that runs KeepHarness.",
+  host_denied: "This address is not one KeepHarness answers on. Open it by its usual address.",
   project_directory_shared:
     "One of the chosen folders already belongs to another project.",
   project_folder_busy:
@@ -1554,14 +1557,19 @@ const userErrors = {
   schedule_limit: "You have reached the limit of 50 schedules. Delete one to add another.",
   schedule_storage_unsafe: "The schedules folder cannot be used safely. Check the harness state folder.",
 };
-// The 403 body names the caller's owner id. Name it in the command only when it is safe to
-// paste into a shell; otherwise keep the generic text, which names no owner.
+// The 403 body names the caller's owner id, and a guest's Tailscale login. Name one in the
+// command only when it is safe to paste into a shell; otherwise keep the generic text, which
+// names no owner. Only the owner on this computer can run the command; a guest asks the owner
+// of this KeepHarness, by the login the owner knows them by (PRD-R4-5).
 const SAFE_OWNER_ID = /^[\w@][\w.@+-]{0,127}$/;
-function enrollmentMessage(owner) {
-  return typeof owner === "string" && SAFE_OWNER_ID.test(owner)
-    ? "This browser is not enrolled to approve actions yet. On this computer run: keepharness approve-device --owner " +
-        owner +
-        ", then open the link it prints in this browser and try again."
+function enrollmentMessage(owner, login) {
+  if (owner === "local")
+    return "This browser is not enrolled to approve actions yet. On this computer run: keepharness approve-device --owner local, then open the link it prints in this browser and try again.";
+  const id = typeof login === "string" && SAFE_OWNER_ID.test(login) ? login : owner;
+  return typeof id === "string" && SAFE_OWNER_ID.test(id)
+    ? "This browser is not enrolled to approve actions yet. Ask the owner of this KeepHarness to run keepharness approve-device --owner " +
+        id +
+        " and send you the link, then open it in this browser and try again."
     : userErrors.approval_session_required;
 }
 async function api(path, options = {}) {
@@ -1587,7 +1595,7 @@ async function api(path, options = {}) {
       e = { code: "HTTP " + r.status };
     }
     let message =
-      (e.code === "approval_session_required" && enrollmentMessage(e.owner)) ||
+      (e.code === "approval_session_required" && enrollmentMessage(e.owner, e.login)) ||
       userErrors[e.code] ||
       attachmentError(e.code) ||
       (r.status === 429

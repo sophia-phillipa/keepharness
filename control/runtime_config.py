@@ -17,6 +17,7 @@ from types import MappingProxyType
 
 from adapters.deepseek import account as deepseek
 
+from . import local_access
 from .local_models import runtime_permissions, runtime_roots
 
 logger = logging.getLogger(__name__)
@@ -42,10 +43,14 @@ def base_config(settings, state, admin_port, browser_url, provider_revisions):
         "maestro_enabled": settings.get("maestro_enabled", True),
         "maestro_instructions": settings.get("maestro_instructions", ""),
         "maestro_coordinator": settings.get("maestro_coordinator", {}),
-        "shared_projects": True,
+        # The owner registers project folders; other clients receive them only when shared.
+        "project_registration": True,
+        "shared_projects": False,
         "control_state_dir": str(state),
         "admin_url": f"http://127.0.0.1:{admin_port}/",
         "local_access": settings.get("vpn_bind", "127.0.0.1") == "127.0.0.1",
+        # Loopback is every account on this computer; the owner also holds this secret (D09).
+        "local_secret_sha256": local_access.digest(local_access.ensure_secret(state)),
         "bind": settings.get("vpn_bind", "127.0.0.1"),
         "port": settings["port"],
         "config_revision": str(uuid.uuid4()),

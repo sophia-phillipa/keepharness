@@ -12,7 +12,7 @@ import uuid
 from pathlib import Path
 
 from starlette.requests import Request
-from starlette.responses import FileResponse, JSONResponse
+from starlette.responses import FileResponse, JSONResponse, RedirectResponse
 from starlette.routing import Route
 
 from adapters.claude.auth import cli_login_environment
@@ -20,7 +20,7 @@ from adapters.deepseek import account as deepseek
 from agent_service.errors import APIError
 from harness_ui import asset_response, static_response
 
-from . import env
+from . import env, local_access
 from .catalog_admin import change_pin, read_catalogs
 from .dashboard import execution as dashboard_execution
 from .integration_catalog import catalog as integration_catalog
@@ -52,13 +52,13 @@ LIMITED_OPERATIONS = frozenset(
 def admin_guard(request, manager, port):
     """Answer requests that must not reach the API, or return ``None`` to continue.
 
-    Order: host/client/Tailscale identity, then origin and fetch metadata, then the
-    static panel files (which set the admin cookie), then the admin cookie itself.
+    Order: host/client/Tailscale identity, then origin and fetch metadata, then the one-time
+    open link and the static panel files, then the admin cookie, which only a browser holding
+    the per-install secret receives.
     """
-    host = request.headers.get("host", "")
     allowed = (f"127.0.0.1:{port}", f"localhost:{port}")
     if (
-        host not in allowed
+        not local_access.host_allowed(request.headers.get("host", ""), local_access.LOOPBACK_NAMES)
         or (request.client is None or request.client.host not in ("127.0.0.1", "::1", "testclient"))
         or request.headers.get("tailscale-user-login")
     ):
@@ -68,7 +68,7 @@ def admin_guard(request, manager, port):
     # A clicked harness link may cross sites; only allow the initial document.
     navigation = (
         request.method == "GET"
-        and path == "/"
+        and path in ("/", local_access.OPEN_PATH)
         and request.headers.get("sec-fetch-mode") == "navigate"
         and request.headers.get("sec-fetch-dest") == "document"
         and request.headers.get("sec-fetch-user") == "?1"
@@ -77,9 +77,12 @@ def admin_guard(request, manager, port):
         request.headers.get("sec-fetch-site") == "cross-site" and not navigation
     ):
         return JSONResponse({"error": "Unauthorized origin."}, 403)
+    if path == local_access.OPEN_PATH:
+        return open_link(request, manager)
     if path == "/":
         r = FileResponse(PANEL_DIR / "index.html")
-        r.set_cookie("admin", manager.cookie, httponly=True, samesite="strict")
+        if local_access.has_secret(request.cookies, local_access.digest(manager.local_secret)):
+            r.set_cookie("admin", manager.cookie, httponly=True, samesite="strict")
         return r
     if path.startswith("/assets/"):
         return asset_response(path, request.headers)
@@ -88,8 +91,39 @@ def admin_guard(request, manager, port):
     if not secrets.compare_digest(
         request.cookies.get("admin", "").encode("utf-8"), manager.cookie.encode("utf-8")
     ):
-        return JSONResponse({"error": "Open the management panel on this machine first."}, 401)
+        return JSONResponse({"error": OPEN_HINT}, 401)
     return None
+
+
+OPEN_HINT = (
+    f"Open {PRODUCT.name} from its app, or run `{PRODUCT.slug} open` on this computer, "
+    "to sign this browser in."
+)
+
+
+def open_link(request, manager):
+    """Redeem a one-time link from ``keepharness open``: the browser gets the install secret."""
+    ticket = request.query_params.get("ticket", "")
+    if request.method != "GET" or not local_access.consume_ticket(
+        manager.local_secret, ticket, manager.open_tickets
+    ):
+        return JSONResponse(
+            {"error": "This link was already used or has expired. " + OPEN_HINT},
+            403,
+            headers={"Cache-Control": "no-store"},
+        )
+    response = RedirectResponse(
+        "/", 303, headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"}
+    )
+    response.set_cookie(
+        local_access.COOKIE,
+        manager.local_secret,
+        max_age=local_access.COOKIE_SECONDS,
+        httponly=True,
+        samesite="strict",
+    )
+    response.set_cookie("admin", manager.cookie, httponly=True, samesite="strict")
+    return response
 
 
 async def list_folders(request, manager):
@@ -680,6 +714,7 @@ async def endpoint(request: Request):
 
 ROUTES = [
     Route("/", endpoint),
+    Route(local_access.OPEN_PATH, endpoint),
     Route("/admin.js", endpoint),
     Route("/catalogs.js", endpoint),
     Route("/admin.css", endpoint),

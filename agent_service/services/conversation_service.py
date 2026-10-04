@@ -15,11 +15,12 @@ import uuid
 from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import adapters
 from adapters.claude import account as claude_account
 from adapters.codex import rpc as codex_rpc
-from control import remote_models
+from control import local_access, remote_models
 
 from .. import (
     approval_policy,
@@ -146,7 +147,11 @@ class ConversationService:
         )
         self.deleted_project_folders = self.project_service.deleted_project_folders
         self.deleting_project_folders = self.project_service.deleting_project_folders
-        if config.get("shared_projects"):
+        if config.get("local_access") and not config.get("local_secret_sha256"):
+            logger.warning(
+                "Local access has no install secret: every account on this computer is the owner."
+            )
+        if config.get("project_registration"):
             config["projects"].update(self.project_repository.registered())
             self.share_projects()
         self.approvals = {}
@@ -329,6 +334,8 @@ class ConversationService:
         )
         if cross_site and not navigation:
             raise APIError("origin_denied", 403)
+        host = request.headers.get("host", "")
+        self.refuse_rebinding(request, host)
         session_owner = None
         if request.cookies.get(SESSION_COOKIE):
             if not revalidate:
@@ -377,17 +384,23 @@ class ConversationService:
             and not cross_site
             and request.client
             and request.client.host in ("127.0.0.1", "::1")
-            and request.headers.get("host", "").split(":")[0] in ("localhost", "127.0.0.1")
+            and local_access.host_allowed(host, local_access.LOOPBACK_NAMES)
             and not request.headers.get("x-forwarded-for")
             and not request.headers.get("tailscale-user-login")
             and self.config.get("local_access")
+            and self.holds_local_secret(request)
         ):
             return identified("local", self.config["clients"]["local"])
         token = auth[7:] if auth.startswith("Bearer ") else ""
         # Intentional (owner decision, F-25): unlike local_access above, a user-activated
         # cross-site top-level GET navigation still gets the Tailscale identity; every other
         # cross-site request was refused before this point.
-        if not auth and request.client and request.client.host in ("127.0.0.1", "::1"):
+        if (
+            not auth
+            and request.client
+            and request.client.host in ("127.0.0.1", "::1")
+            and self.remote_host(host)
+        ):
             login = request.headers.get("tailscale-user-login", "")
             client_name = self.config.get("tailscale_logins", {}).get(login)
             if client_name in self.config["clients"]:
@@ -397,6 +410,29 @@ class ConversationService:
             if token and hmac.compare_digest(digest, client["sha256"]):
                 return identified(name, client)
         raise APIError("authentication_required", 401)
+
+    def refuse_rebinding(self, request, host):
+        """DNS rebinding: a page whose name now resolves to 127.0.0.1 can set Tailscale's header
+        on a same-origin fetch. Cookies need no check (a browser never sends 127.0.0.1's to
+        another name), and loopback trust accepts only a loopback Host."""
+        if request.headers.get("tailscale-user-login") and not local_access.host_allowed(
+            host, local_access.origin_names(self.config.get("origins", []))
+        ):
+            raise APIError("host_denied", 403)
+
+    def holds_local_secret(self, request):
+        """The owner's browser, desktop app or CLI holds the per-install secret.
+
+        Configs written by the admin always carry its digest; a hand-written test config
+        without one keeps plain loopback trust (logged as a warning at startup).
+        """
+        expected = self.config.get("local_secret_sha256")
+        return not expected or local_access.has_secret(request.cookies, expected)
+
+    def remote_host(self, host):
+        """Tailscale Serve forwards a login only for the configured remote origin (SEC-R1-2)."""
+        remote = urlsplit(self.config.get("browser_url") or "").netloc.lower()
+        return bool(remote) and host.lower() == remote
 
     def limit(self, key, maximum, code="rate_limit"):
         # Keys come from configured identities, fixed lanes.
