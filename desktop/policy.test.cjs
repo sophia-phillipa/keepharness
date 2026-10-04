@@ -258,3 +258,29 @@ test('desktop minimum size is 960 by 640', () => {
   const opts = windowOptions('KeepHarness');
   assert.equal(opts.minWidth, 960); assert.equal(opts.minHeight, 640);
 });
+
+
+test('credential headers query parameters and JSON values are redacted', () => {
+  for (const input of [
+    'Authorization: Bearer bearer-value\nx-api-key: header-value',
+    '/path?api_key=underscore-value&api-key=dash-value&token=token-value&password=password-value&ok=visible',
+    '{"token": "json-token", "password": "json-password", "api_key": "json-key"}',
+  ]) {
+    const output=redact(input);
+    assert.ok(!/bearer-value|header-value|underscore-value|dash-value|token-value|password-value|json-token|json-password|json-key/.test(output), output);
+    assert.match(output,/\[REDACTED\]/);
+  }
+});
+test('admin prose is preserved while admin cookie assignments are redacted', () => {
+  assert.equal(redact('admin: starting service; admin started'), 'admin: starting service; admin started');
+  assert.equal(redact('admin=private-value; status=ready'), 'admin=[REDACTED]; status=ready');
+});
+test('partly offscreen bounds retain size and maximization on greatest overlap', () => {
+  const primary={x:0,y:0,width:1920,height:1080};
+  const left={x:-1280,y:0,width:1280,height:1024};
+  const state={x:-8,y:20,width:1100,height:750,maximized:true};
+  assert.deepEqual(clampBounds(state,[primary]),{...state,x:0});
+  assert.deepEqual(clampBounds(state,[left,primary]),{...state,x:0});
+  assert.deepEqual(clampBounds({...state,x:-1200,width:1600},[primary,left]),{...state,x:-1280,width:1280});
+  assert.deepEqual(clampBounds({...state,x:1920},[primary]),{x:240,y:90,width:1440,height:900,maximized:false});
+});

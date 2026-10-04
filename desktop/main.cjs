@@ -48,6 +48,7 @@ let win = null,
   backendReady = false,
   recoveryPending = false,
   harnessVerified = false,
+  productVerification = null,
   backend = null,
   adminCookie = null,
   asking = false,
@@ -75,11 +76,13 @@ function quit() {
   quitting = true;
   app.quit();
 }
-async function pythonReady() {
+async function pythonReady({fatal = true} = {}) {
   // spawnSync resolves PATH names and reports missing/non-executable files without a shell.
   let result;
   try { result = spawnSync(python, ['--version'], { timeout: 5000, windowsHide: true, env: backendEnv(process.env) }); } catch { /* Same actionable hint. */ }
   if (result && !result.error && result.status === 0) return true;
+  log('Python could not start. Run install.sh, or set KEEPHARNESS_PYTHON');
+  if (!fatal) return false;
   releaseSplash();
   await dialog.showMessageBox({ type: 'error', title: TITLE, message: 'Python could not start.', detail: 'Run install.sh, or set KEEPHARNESS_PYTHON' });
   quit();
@@ -103,10 +106,16 @@ function versionBody(url) {
 }
 async function verifyProduct(target) {
   if (new URL(target).origin !== new URL(harnessUrl).origin || harnessVerified) return true;
-  if (foreignPort([harnessPort]) === null && productAllowed(await versionBody(harnessUrl + 'v1/version'))) { harnessVerified = true; return true; }
-  await dialog.showMessageBox({type:'error', title:TITLE, message:'This is not a KeepHarness service.', detail:'The /v1/version product must be keepharness.'});
-  quit();
-  return false;
+  if (quitting) return false;
+  if (!productVerification) {
+    productVerification = (async () => {
+      if (foreignPort([harnessPort]) === null && productAllowed(await versionBody(harnessUrl + 'v1/version'))) { harnessVerified = true; return true; }
+      await dialog.showMessageBox({type:'error', title:TITLE, message:'This is not a KeepHarness service.', detail:'The /v1/version product must be keepharness.'});
+      quit();
+      return false;
+    })().finally(() => { productVerification = null; });
+  }
+  return productVerification;
 }
 function saveWindowState(window) {
   try {
@@ -134,11 +143,13 @@ function createWindow(kind) {
   const isSplash = kind === 'splash';
   const state = kind === 'main' ? restoredBounds() : null;
   const window = new BrowserWindow(isSplash ? splashOptions(TITLE, icon) : {...windowOptions(TITLE, icon), ...state});
-  if (state?.maximized) window.maximize();
   const show = () => {
     window.removeListener('ready-to-show', show);
     window.webContents.removeListener('did-finish-load', show);
-    if (!quitting && !window.isDestroyed()) window.show();
+    if (!quitting && !window.isDestroyed()) {
+      if (state?.maximized) window.maximize();
+      window.show();
+    }
   };
   window.once('ready-to-show', show);
   window.webContents.once('did-finish-load', show);
@@ -165,8 +176,9 @@ function createWindow(kind) {
         if (!adminWindow || adminWindow.isDestroyed()) {
           adminWindow = createWindow('admin');
           adminWindow.on('closed', () => { adminWindow = null; });
-        } else if (adminWindow.isVisible()) {
-          adminWindow.focus();
+        } else {
+          if (adminWindow.isMinimized()) adminWindow.restore();
+          if (adminWindow.isVisible()) adminWindow.focus();
         }
         await adminWindow.loadURL(url);
       })().catch(error => log(error.message));
@@ -176,19 +188,28 @@ function createWindow(kind) {
     }
     return {action:'deny'};
   });
-  let prompting = false;
-  const recover = async (message, buttons, reloadResponse, detail = '') => {
-    if (isSplash || prompting || quitting || window.isDestroyed()) return;
+  let prompting = false, pendingCrash = null;
+  const recover = async (message, buttons, reloadResponse, detail = '', crashed = false) => {
+    if (isSplash || quitting || window.isDestroyed()) return;
+    if (prompting) {
+      if (crashed) pendingCrash = detail;
+      return;
+    }
     prompting = true;
     log(message + ' ' + detail);
     try {
       const {response} = await dialog.showMessageBox(window, {type:'warning', title:TITLE, message, detail:safeText(detail), buttons, defaultId:0, cancelId:buttons[0] === 'Wait' ? 0 : buttons.length - 1});
       if (quitting || window.isDestroyed()) return;
-      if (response === reloadResponse) window.reload();
+      if (response === reloadResponse) { pendingCrash = null; window.reload(); }
       else if (buttons[response] === 'Quit') app.quit();
-    } finally { prompting = false; }
+    } finally {
+      prompting = false;
+      const reason = pendingCrash;
+      pendingCrash = null;
+      if (reason !== null) void recover('The KeepHarness page stopped.', ['Reload','Quit'], 0, reason, true);
+    }
   };
-  window.webContents.on('render-process-gone', (_event, details) => void recover('The KeepHarness page stopped.', ['Reload','Quit'], 0, details.reason));
+  window.webContents.on('render-process-gone', (_event, details) => void recover('The KeepHarness page stopped.', ['Reload','Quit'], 0, details.reason, true));
   window.on('unresponsive', () => void recover('KeepHarness is not responding.', ['Wait','Reload'], 1));
   if (kind === 'main') {
     window.on('close', event => {
@@ -380,7 +401,7 @@ async function closeWindow() {
 }
 // Output of the owner CLI, or '' when it fails or takes too long.
 async function runCli(args, seconds = 20) {
-  if (!(await pythonReady())) return '';
+  if (!(await pythonReady({fatal:false}))) return '';
   return new Promise((resolve) => {
     let output = '';
     const child = spawn(python, ['-m', 'control', ...args], {
@@ -448,7 +469,6 @@ async function start() {
   const target = (await waitFor(harnessUrl + 'v1/version', 15)) ? harnessUrl : adminUrl;
   const foreign = foreignPort(target === harnessUrl ? [adminPort, harnessPort] : [adminPort]);
   if (foreign !== null) {
-    releaseSplash();
     await dialog.showMessageBox({
       type: 'error',
       title: TITLE,

@@ -38,13 +38,13 @@ async function boot(options = {}) {
     show() { this.shows++; }
     isVisible() { return this.shows > 0 && !this.hidden; }
     hide() { this.hidden = true; }
-    focus() { this.focused = true; }
+    focus() { this.focused = true; this.minimizedAtFocus = this.isMinimized(); }
     isDestroyed() { return this.destroyed; }
-    isMinimized() { return false; }
-    restore() {}
+    isMinimized() { return !!this.minimized; }
+    restore() { this.minimized = false; this.restored = true; }
     reload() { this.webContents.reload(); }
     isMaximized() { return this.maximized; }
-    maximize() { this.maximized = true; }
+    maximize() { this.maximized = true; this.showsAtMaximize = this.shows; }
     getNormalBounds() { return this.bounds; }
     close() { const e = event(); this.emit('close', e); if (!e.prevented) { this.destroyed = true; this.emit('closed'); if (windows.every(w => w.destroyed)) app.emit('window-all-closed'); } }
   }
@@ -52,7 +52,7 @@ async function boot(options = {}) {
     screen: { getAllDisplays: () => [{workArea:{x:0,y:0,width:1920,height:1080}}], getPrimaryDisplay: () => ({workArea:{x:0,y:0,width:1920,height:1080}}) },
     Menu: { buildFromTemplate: template => template, setApplicationMenu: template => { menu = template; } },
     dialog: { showMessageBox: async (...args) => { const d = args.at(-1); dialogs.push(JSON.parse(JSON.stringify(d))); if (options.onDialog) return options.onDialog(d, app); return { response: options.response ?? 1 }; }, showAboutPanel() {} },
-    session: { defaultSession: { setPermissionRequestHandler(fn) { this.permission = fn; }, setPermissionCheckHandler(fn) { this.check = fn; }, cookies: { set: async () => {}, get: async () => [{}] } } } };
+    session: { defaultSession: { setPermissionRequestHandler(fn) { this.permission = fn; }, setPermissionCheckHandler(fn) { this.check = fn; }, cookies: { set: async () => {}, get: async () => options.noSession ? [] : [{}] } } } };
   let adminReady = !options.startBackend;
   const http = { get(url, opts, callback) {
     requests.push(url); const req = new EventEmitter(); req.destroy = () => req.emit('error', new Error('timeout'));
@@ -129,6 +129,7 @@ test('normal bounds and maximized state survive restart atomically', async () =>
   h.main.emit('resize'); h.main.emit('close',h.event()); await settle();
   const file=path.join(h.userData,'window-state.json'); assert.ok(fs.existsSync(file)); assert.ok(!fs.existsSync(file+'.tmp'));
   const next=await boot({home:h.home});
+  next.main.emit('ready-to-show');
   assert.equal(next.main.options.x,120); assert.equal(next.main.options.width,1100); assert.equal(next.main.maximized,true);
 });
 test('Admin popup is one reusable second window with the same policies', async () => {
@@ -207,4 +208,59 @@ test('death during restarted window loading reports failure and quits', async ()
   const h=await boot({startBackend:true,response:0,dieOnRestartLoad:true});
   h.children[0].exitCode=1; h.children[0].emit('exit',1,null); h.children[0].emit('close',1,null); await settle();
   assert.ok(h.app.quits); assert.match(h.dialogs.at(-1).message,/service stopped/);
+});
+
+
+test('attached harness loads without Python or an enrollment cookie', async () => {
+  const h = await boot({badPython:true,noSession:true});
+  assert.equal(h.main.url, 'http://127.0.0.1:8095/');
+  assert.equal(h.app.quits, 0); assert.equal(h.children.length, 0);
+  assert.equal(h.dialogs.length, 0);
+  assert.match(fs.readFileSync(path.join(h.userData,'logs/main.log'),'utf8'), /Python could not start/);
+});
+test('crash during Wait dialog is offered again after Wait', async () => {
+  const answers = [];
+  const h = await boot({onDialog:() => new Promise(resolve => answers.push(resolve))});
+  h.main.emit('unresponsive');
+  h.main.webContents.emit('render-process-gone', {}, {reason:'killed'});
+  assert.equal(h.dialogs.length, 1);
+  answers.shift()({response:0}); await settle();
+  assert.equal(h.dialogs.length, 2);
+  assert.deepEqual(h.dialogs[1].buttons, ['Reload','Quit']);
+  answers.shift()({response:0}); await settle();
+  assert.equal(h.main.reloads, 1); assert.equal(h.app.quits, 0);
+});
+test('saved maximization waits for readiness and precedes showing', async () => {
+  const first = await boot();
+  first.main.maximized = true; first.main.emit('close',first.event());
+  for (const signal of ['ready-to-show','did-finish-load']) {
+    const h = await boot({home:first.home});
+    assert.equal(h.main.maximized, false); assert.equal(h.main.shows, 0);
+    (signal === 'ready-to-show' ? h.main : h.main.webContents).emit(signal);
+    assert.equal(h.main.maximized, true); assert.equal(h.main.showsAtMaximize, 0);
+    assert.equal(h.main.shows, 1);
+  }
+});
+test('concurrent foreign harness navigation shares one verification dialog', async () => {
+  let answer;
+  const options = {harnessOffline:true,onDialog:() => new Promise(resolve => { answer=resolve; })};
+  const h = await boot(options);
+  options.harnessOffline=false; options.version='{"product":"foreign"}';
+  for (const signal of ['will-navigate','will-redirect']) {
+    const e=h.event(); h.main.webContents.emit(signal,e,'http://127.0.0.1:8095/'); assert.ok(e.prevented);
+  }
+  await settle(); assert.equal(h.dialogs.length,1);
+  answer({response:0}); await settle(); assert.equal(h.app.quits,1);
+  assert.equal(h.main.url,'http://127.0.0.1:18194/');
+});
+test('reused minimized Admin is restored before focus', async () => {
+  const h=await boot(); h.main.open({url:'http://127.0.0.1:18194/'}); await settle();
+  const admin=h.windows.at(-1); admin.emit('ready-to-show'); admin.minimized=true;
+  h.main.open({url:'http://127.0.0.1:18194/settings'}); await settle();
+  assert.equal(admin.restored,true); assert.equal(admin.minimizedAtFocus,false);
+  assert.equal(h.windows.length,3);
+});
+test('foreign-port refusal does not release an already closed splash', () => {
+  const branch=source.slice(source.indexOf('if (foreign !== null)'),source.indexOf('requireBackendAlive();',source.indexOf('if (foreign !== null)')));
+  assert.ok(!branch.includes('releaseSplash()'));
 });

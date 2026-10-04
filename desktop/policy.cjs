@@ -207,10 +207,16 @@ function runtimePort(override, body) {
   const port = Number(value);
   return Number.isInteger(port) && port > 0 && port <= 65535 ? port : 8095;
 }
-// Anchor the restored top-left corner to its display; removed displays use centered defaults.
+// Preserve partly visible bounds on their greatest-overlap display; removed displays use defaults.
 function clampBounds(state, areas) {
   const valid = state && ['x', 'y', 'width', 'height'].every(key => Number.isFinite(state[key])) && state.width > 0 && state.height > 0;
-  const area = valid && areas.find(a => state.x >= a.x && state.x < a.x + a.width && state.y >= a.y && state.y < a.y + a.height);
+  let area = null, greatestOverlap = 0;
+  if (valid) for (const candidate of areas) {
+    const width = Math.max(0, Math.min(state.x + state.width, candidate.x + candidate.width) - Math.max(state.x, candidate.x));
+    const height = Math.max(0, Math.min(state.y + state.height, candidate.y + candidate.height) - Math.max(state.y, candidate.y));
+    const overlap = width * height;
+    if (overlap > greatestOverlap) { area = candidate; greatestOverlap = overlap; }
+  }
   const target = area || areas[0] || {x:0, y:0, width:1440, height:900};
   const width = Math.min(target.width, Math.max(960, area ? state.width : 1440));
   const height = Math.min(target.height, Math.max(640, area ? state.height : 900));
@@ -224,8 +230,9 @@ function redact(value, secrets = []) {
   let text = String(value);
   for (const secret of secrets) if (secret) text = text.split(secret).join('[REDACTED]');
   return text
-    .replace(/((?:set-cookie|cookie)\s*:\s*)[^\r\n]+/gi, '$1[REDACTED]')
-    .replace(/((?:["']?)(?:secret|ticket|cookie|admin|keepharness-local|harness_session)(?:["']?)\s*[:=]\s*)(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s&;,}]+)/gi, '$1[REDACTED]');
+    .replace(/((?:set-cookie|cookie|authorization|x-api-key)\s*:\s*)[^\r\n]+/gi, '$1[REDACTED]')
+    .replace(/(\badmin\s*=\s*)(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s&;,}]+)/gi, '$1[REDACTED]')
+    .replace(/((?:["']?)\b(?:secret|ticket|cookie|keepharness-local|harness_session|api[_-]key|token|password)(?:["']?)\s*[:=]\s*)(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s&;,}]+)/gi, '$1[REDACTED]');
 }
 const LOG_LIMIT = 1024 * 1024;
 // Return a bounded UTF-8 record and rotation decision; disk writes stay in the runtime.
