@@ -3,13 +3,14 @@
 // window, keeps navigation inside the two local origins and stops the admin it
 // started when the app quits. The window is the owner's: it signs itself in with a session
 // minted from the per-install secret and enrolls itself for approvals (decisions D09 and D13).
-const { app, BrowserWindow, dialog, session, shell } = require('electron');
-const { spawn } = require('node:child_process');
+const { app, BrowserWindow, dialog, session, shell, Menu, screen } = require('electron');
+const { spawn, spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
 const {
+  productAllowed, runtimePort, clampBounds, redact, logChunk,
   appOrigins,
   isAppUrl,
   permissionAllowed,
@@ -34,13 +35,19 @@ const project = path.resolve(__dirname, '..');
 // build/ and splash.html sit next to this file, both in the repository and in the packaged app.
 const icon = path.join(__dirname, 'build', 'icon.png');
 const adminPort = Number(process.env.KEEPHARNESS_ADMIN_PORT || 8094);
-const harnessPort = Number(process.env.KEEPHARNESS_PORT || 8095);
+const harnessPort = runtimePort(process.env.KEEPHARNESS_PORT, readText(path.join(os.homedir(), '.local/share/keepharness/runtime.json')));
 const adminUrl = `http://127.0.0.1:${adminPort}/`;
 const harnessUrl = `http://127.0.0.1:${harnessPort}/`;
 const origins = appOrigins([adminPort, harnessPort]);
 const python = process.env.KEEPHARNESS_PYTHON || path.join(project, '.venv', 'bin', 'python');
 let win = null,
   splash = null,
+  adminWindow = null,
+  starting = true,
+  quitting = false,
+  backendReady = false,
+  recoveryPending = false,
+  harnessVerified = false,
   backend = null,
   adminCookie = null,
   asking = false,
@@ -48,6 +55,152 @@ let win = null,
   stderr = '';
 
 app.setName(TITLE);
+const knownSecrets = new Set();
+function readText(file) {
+  try { return fs.readFileSync(file, 'utf8'); } catch { return ''; }
+}
+function safeText(value) { return redact(value, [...knownSecrets]); }
+function log(value) {
+  try {
+    const file = path.join(app.getPath('userData'), 'logs', 'main.log');
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const size = fs.existsSync(file) ? fs.statSync(file).size : 0;
+    const chunk = logChunk(size, safeText(value));
+    if (chunk.rotate && fs.existsSync(file)) fs.renameSync(file, file + '.1');
+    fs.appendFileSync(file, chunk.text, { mode: 0o600 });
+  } catch { /* Logging must not prevent recovery. */ }
+}
+function quit() {
+  closeConfirmed = true;
+  quitting = true;
+  app.quit();
+}
+async function pythonReady() {
+  // spawnSync resolves PATH names and reports missing/non-executable files without a shell.
+  let result;
+  try { result = spawnSync(python, ['--version'], { timeout: 5000, windowsHide: true, env: backendEnv(process.env) }); } catch { /* Same actionable hint. */ }
+  if (result && !result.error && result.status === 0) return true;
+  releaseSplash();
+  await dialog.showMessageBox({ type: 'error', title: TITLE, message: 'Python could not start.', detail: 'Run install.sh, or set KEEPHARNESS_PYTHON' });
+  quit();
+  return false;
+}
+function versionBody(url) {
+  return new Promise(resolve => {
+    const request = http.get(url, {timeout:1500}, response => {
+      let body = '';
+      response.setEncoding('utf8');
+      response.on('data', chunk => {
+        body += chunk;
+        if (body.length > 65536) { resolve(''); request.destroy(); }
+      });
+      response.on('end', () => resolve(response.statusCode === 200 ? body : ''));
+      response.on('error', () => resolve(''));
+    });
+    request.on('timeout', () => request.destroy());
+    request.on('error', () => resolve(''));
+  });
+}
+async function verifyProduct(target) {
+  if (new URL(target).origin !== new URL(harnessUrl).origin || harnessVerified) return true;
+  if (foreignPort([harnessPort]) === null && productAllowed(await versionBody(harnessUrl + 'v1/version'))) { harnessVerified = true; return true; }
+  await dialog.showMessageBox({type:'error', title:TITLE, message:'This is not a KeepHarness service.', detail:'The /v1/version product must be keepharness.'});
+  quit();
+  return false;
+}
+function saveWindowState(window) {
+  try {
+    const file = path.join(app.getPath('userData'), 'window-state.json');
+    fs.mkdirSync(path.dirname(file), {recursive:true});
+    fs.writeFileSync(file + '.tmp', JSON.stringify({...window.getNormalBounds(), maximized:window.isMaximized()}), {mode:0o600});
+    fs.renameSync(file + '.tmp', file);
+  } catch (error) { log(error.message); }
+}
+function restoredBounds() {
+  let state;
+  try { state = JSON.parse(readText(path.join(app.getPath('userData'), 'window-state.json'))); } catch { /* Defaults. */ }
+  const primary = screen.getPrimaryDisplay().workArea;
+  return clampBounds(state, [primary, ...screen.getAllDisplays().map(display => display.workArea)]);
+}
+function installMenu() {
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    {label:TITLE, submenu:[{role:'about'}, {label:'Quit', accelerator:'CmdOrCtrl+Q', click:() => app.quit()}]},
+    {label:'Edit', submenu:['undo','redo','cut','copy','paste','selectAll'].map(role => ({role}))},
+    {label:'View', submenu:[{role:'resetZoom'}, {role:'zoomIn'}, {role:'zoomOut'}, {role:'togglefullscreen'}, ...(!app.isPackaged ? [{role:'toggleDevTools'}] : [])]},
+  ]));
+}
+// All BrowserWindows, including the splash, share security and lifecycle policies.
+function createWindow(kind) {
+  const isSplash = kind === 'splash';
+  const state = kind === 'main' ? restoredBounds() : null;
+  const window = new BrowserWindow(isSplash ? splashOptions(TITLE, icon) : {...windowOptions(TITLE, icon), ...state});
+  if (state?.maximized) window.maximize();
+  const show = () => {
+    window.removeListener('ready-to-show', show);
+    window.webContents.removeListener('did-finish-load', show);
+    if (!quitting && !window.isDestroyed()) window.show();
+  };
+  window.once('ready-to-show', show);
+  window.webContents.once('did-finish-load', show);
+  const navigate = (event, url) => {
+    if (!isSplash && isAppUrl(url, origins)) {
+      if (new URL(url).origin === new URL(harnessUrl).origin && !harnessVerified) {
+        event.preventDefault();
+        void verifyProduct(url).then(allowed => { if (allowed && !quitting && !window.isDestroyed()) return window.loadURL(url); }).catch(error => log(error.message));
+      }
+      return;
+    }
+    event.preventDefault();
+    const safe = !isSplash && externalUrl(url);
+    if (safe) void shell.openExternal(safe).catch(error => log(error.message));
+  };
+  window.webContents.on('will-navigate', navigate);
+  window.webContents.on('will-redirect', navigate);
+  window.webContents.on('will-attach-webview', event => event.preventDefault());
+  window.webContents.setWindowOpenHandler(({url}) => {
+    if (isSplash || quitting) return {action:'deny'};
+    if (isAppUrl(url, origins)) {
+      void (async () => {
+        if (!(await verifyProduct(url)) || quitting) return;
+        if (!adminWindow || adminWindow.isDestroyed()) {
+          adminWindow = createWindow('admin');
+          adminWindow.on('closed', () => { adminWindow = null; });
+        } else if (adminWindow.isVisible()) {
+          adminWindow.focus();
+        }
+        await adminWindow.loadURL(url);
+      })().catch(error => log(error.message));
+    } else {
+      const safe = externalUrl(url);
+      if (safe) void shell.openExternal(safe).catch(error => log(error.message));
+    }
+    return {action:'deny'};
+  });
+  let prompting = false;
+  const recover = async (message, buttons, reloadResponse, detail = '') => {
+    if (isSplash || prompting || quitting || window.isDestroyed()) return;
+    prompting = true;
+    log(message + ' ' + detail);
+    try {
+      const {response} = await dialog.showMessageBox(window, {type:'warning', title:TITLE, message, detail:safeText(detail), buttons, defaultId:0, cancelId:buttons[0] === 'Wait' ? 0 : buttons.length - 1});
+      if (quitting || window.isDestroyed()) return;
+      if (response === reloadResponse) window.reload();
+      else if (buttons[response] === 'Quit') app.quit();
+    } finally { prompting = false; }
+  };
+  window.webContents.on('render-process-gone', (_event, details) => void recover('The KeepHarness page stopped.', ['Reload','Quit'], 0, details.reason));
+  window.on('unresponsive', () => void recover('KeepHarness is not responding.', ['Wait','Reload'], 1));
+  if (kind === 'main') {
+    window.on('close', event => {
+      saveWindowState(window);
+      if (closeConfirmed || !processRunning(backend)) return;
+      event.preventDefault(); void closeWindow();
+    });
+    window.on('closed', () => { win = null; if (!quitting) quit(); });
+  }
+  return window;
+}
+
 
 function reachable(url, timeout = 1500) {
   return new Promise((resolve) => {
@@ -90,18 +243,72 @@ async function waitFor(url, seconds) {
   }
   return false;
 }
-function startAdmin() {
+async function startAdmin() {
+  if (!(await pythonReady()) || quitting) return false;
+  stderr = '';
+  backendReady = false;
+  harnessVerified = false;
   backend = spawn(python, ['-m', 'control', '--port', String(adminPort)], {
-    cwd: project,
-    env: backendEnv(process.env),
-    stdio: ['ignore', 'ignore', 'pipe'],
+    cwd: project, env: backendEnv(process.env), stdio: ['ignore', 'ignore', 'pipe'],
   });
-  backend.stderr.on('data', (chunk) => {
-    stderr = (stderr + chunk).slice(-4000);
+  // stderr chunks are not records: keep split credentials together before redaction.
+  let pending = '', oversized = false;
+  const flush = () => {
+    const clean = oversized ? '[stderr line omitted: exceeds 16 KiB]' : safeText(pending);
+    if (clean) { stderr = (stderr + clean + '\n').slice(-4000); log(clean); }
+    pending = ''; oversized = false;
+  };
+  backend.stderr.setEncoding?.('utf8');
+  backend.stderr.on('data', chunk => {
+    const lines = String(chunk).split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      if (!oversized) {
+        if (pending.length + lines[i].length > 16384) { pending = ''; oversized = true; }
+        else pending += lines[i];
+      }
+      if (i < lines.length - 1) flush();
+    }
   });
-  backend.on('error', (error) => {
-    stderr += '\n' + error.message;
+  backend.stderr.on('end', flush);
+  backend.on('error', error => { stderr = (stderr + safeText(error.message)).slice(-4000); log(error.message); });
+  // close follows stdio drainage; exit alone can arrive between credential chunks.
+  backend.on('close', (code, signal) => {
+    flush();
+    log(`Backend exited: ${code} ${signal || ''}`);
+    if (backendReady && !quitting) void recoverBackend();
   });
+  return true;
+}
+function requireBackendAlive() {
+  if (backend && !processRunning(backend)) throw new Error('The KeepHarness service stopped during startup.');
+}
+async function recoverBackend() {
+  if (recoveryPending || quitting) return;
+  recoveryPending = true;
+  try {
+    const {response} = await dialog.showMessageBox({type:'error', title:TITLE, message:'The KeepHarness service stopped.', detail:stderr.slice(-2000), buttons:['Restart service','Quit'], defaultId:0, cancelId:1});
+    if (quitting) return;
+    if (response !== 0) { quit(); return; }
+    adminCookie = null;
+    if (!(await startAdmin())) return;
+    if (!(await waitFor(adminUrl, 40))) throw new Error('The KeepHarness service did not restart.');
+    const target = (await waitFor(harnessUrl + 'v1/version', 15)) ? harnessUrl : adminUrl;
+    if (foreignPort(target === harnessUrl ? [adminPort, harnessPort] : [adminPort]) !== null) throw new Error('The service port is not owned by your account.');
+    requireBackendAlive();
+    if (!(await verifyProduct(target)) || quitting) return;
+    await signInWindow();
+    if (quitting) return;
+    requireBackendAlive();
+    backendReady = true;
+    if (win && !win.isDestroyed()) await win.loadURL(target);
+    if (quitting) return;
+    requireBackendAlive();
+    if (adminWindow && !adminWindow.isDestroyed()) adminWindow.reload();
+  } catch (error) {
+    log(error.message);
+    await dialog.showMessageBox({type:'error', title:TITLE, message:safeText(error.message), detail:stderr.slice(-2000)});
+    quit();
+  } finally { recoveryPending = false; }
 }
 // Loopback is every account on this computer; the admin and the harness know the owner by a
 // session the admin issues for a ticket signed with the secret in its 0600 key file, which only
@@ -123,11 +330,14 @@ async function signInWindow() {
   } catch {
     return;
   }
+  knownSecrets.add(secret.trim());
   const ticket = openTicket(secret);
+  if (ticket) knownSecrets.add(ticket);
   const cookies = ticket ? await openSession(ticket) : null;
   adminCookie = cookieValue(cookies, 'admin');
+  if (adminCookie) knownSecrets.add(adminCookie);
   const cookie = sessionCookie(cookies, harnessPort);
-  if (cookie) await session.defaultSession.cookies.set(cookie);
+  if (cookie) { knownSecrets.add(cookie.value); await session.defaultSession.cookies.set(cookie); }
 }
 // Whether the admin reports queued or running work: true, false, or null when it cannot say.
 function backendBusy(timeout = 3000) {
@@ -169,7 +379,8 @@ async function closeWindow() {
   }
 }
 // Output of the owner CLI, or '' when it fails or takes too long.
-function runCli(args, seconds = 20) {
+async function runCli(args, seconds = 20) {
+  if (!(await pythonReady())) return '';
   return new Promise((resolve) => {
     let output = '';
     const child = spawn(python, ['-m', 'control', ...args], {
@@ -181,7 +392,7 @@ function runCli(args, seconds = 20) {
     child.stdout.on('data', (chunk) => {
       output = (output + chunk).slice(-4000);
     });
-    child.on('error', () => resolve(''));
+    child.on('error', () => { clearTimeout(timer); resolve(''); });
     child.on('close', (code) => {
       clearTimeout(timer);
       resolve(code === 0 ? output : '');
@@ -206,25 +417,20 @@ function confirmEnrollment(link) {
 }
 // A fixed picture while the backend starts or is attached; it never navigates or opens windows.
 function showSplash() {
-  splash = new BrowserWindow(splashOptions(TITLE, icon));
-  splash.once('ready-to-show', () => splash.show());
-  splash.webContents.on('will-navigate', (event) => event.preventDefault());
-  splash.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-  splash.loadFile(path.join(__dirname, 'splash.html')).catch(() => splash.hide());
+  splash = createWindow('splash');
+  splash.loadFile(path.join(__dirname, 'splash.html')).catch(error => log(error.message));
 }
-// Once the main window exists the splash closes. On a failure it is only hidden: closing the
-// last window would quit the app (window-all-closed) before the error dialog could be shown.
 function releaseSplash() {
-  if (!splash || splash.isDestroyed()) return;
-  if (win) splash.close();
-  else splash.hide();
+  if (splash && !splash.isDestroyed()) splash.close();
 }
 
 async function start() {
+  log('KeepHarness starting');
+  installMenu();
   limitPermissions();
   showSplash();
   if (!(await reachable(adminUrl))) {
-    startAdmin();
+    if (!(await startAdmin())) return;
     if (!(await waitFor(adminUrl, 40))) {
       releaseSplash();
       await dialog.showMessageBox({
@@ -237,6 +443,7 @@ async function start() {
       return;
     }
   }
+  releaseSplash();
   // A configured admin starts the harness on its own; give it a moment.
   const target = (await waitFor(harnessUrl + 'v1/version', 15)) ? harnessUrl : adminUrl;
   const foreign = foreignPort(target === harnessUrl ? [adminPort, harnessPort] : [adminPort]);
@@ -252,34 +459,20 @@ async function start() {
     app.quit();
     return;
   }
+  requireBackendAlive();
+  if (!(await verifyProduct(target)) || quitting) return;
   await signInWindow();
-  win = new BrowserWindow(windowOptions(TITLE, icon));
-  win.once('ready-to-show', () => {
-    win.show();
-    releaseSplash();
-  });
-  win.on('close', (event) => {
-    if (closeConfirmed || !processRunning(backend)) return;
-    event.preventDefault();
-    void closeWindow();
-  });
-  win.webContents.on('will-navigate', (event, url) => {
-    if (isAppUrl(url, origins)) return;
-    event.preventDefault();
-    const safe = externalUrl(url);
-    if (safe) void shell.openExternal(safe);
-  });
-  win.webContents.setWindowOpenHandler(({ url }) => {
-    if (isAppUrl(url, origins)) void win.loadURL(url);
-    else {
-      const safe = externalUrl(url);
-      if (safe) void shell.openExternal(safe);
-    }
-    return { action: 'deny' };
-  });
+  if (quitting) return;
+  requireBackendAlive();
+  win = createWindow('main');
   const enrollment = target === harnessUrl ? await enrollmentTarget() : null;
+  if (quitting) return;
+  requireBackendAlive();
   if (enrollment) confirmEnrollment(enrollment);
   await win.loadURL(enrollment || target);
+  requireBackendAlive();
+  starting = false;
+  backendReady = processRunning(backend);
 }
 
 if (!app.requestSingleInstanceLock()) app.quit();
@@ -290,14 +483,19 @@ else {
     win.show();
     win.focus();
   });
-  app.on('window-all-closed', () => app.quit());
+  app.on('window-all-closed', () => { if (!starting) app.quit(); });
+  app.on('before-quit', event => {
+    if (!closeConfirmed && win && processRunning(backend)) { event.preventDefault(); void closeWindow(); return; }
+    quitting = true;
+  });
   app.on('will-quit', () => {
     // Stop only the admin this app started; the admin stops its harness.
     if (processRunning(backend)) backend.kill('SIGTERM');
   });
   app.whenReady().then(start).catch(async (error) => {
     releaseSplash();
-    await dialog.showMessageBox({ type: 'error', title: TITLE, message: String(error.message || error) });
+    log(error.message || error);
+    await dialog.showMessageBox({ type: 'error', title: TITLE, message: safeText(error.message || error) });
     app.quit();
   });
 }

@@ -217,3 +217,44 @@ test('the close prompt keeps working by default and names what stops', () => {
   assert.match(closePrompt(true).detail, /running and queued tasks/);
   assert.match(closePrompt(null).detail, /could not confirm/i);
 });
+
+const { productAllowed, runtimePort, clampBounds, redact, logChunk, LOG_LIMIT } = require('./policy.cjs');
+
+test('product identity must explicitly be keepharness', () => {
+  for (const body of ['{}', 'bad', '{"product":"other"}', 'null']) assert.equal(productAllowed(body), false);
+  assert.equal(productAllowed('{"product":"keepharness"}'), true);
+});
+test('runtime port accepts valid runtime.json and environment wins', () => {
+  assert.equal(runtimePort(undefined, '{"port":18195}'), 18195);
+  assert.equal(runtimePort('18295', '{"port":18195}'), 18295);
+  for (const body of ['', 'bad', 'null', '{"port":0}', '{"port":65536}', '{"port":true}', '{"port":"1e3"}']) assert.equal(runtimePort(undefined, body), 8095);
+  assert.equal(runtimePort('invalid', '{"port":18195}'), 8095);
+});
+test('bounds clamp to a visible work area and reject removed displays', () => {
+  const areas = [{x:0,y:0,width:1920,height:1080}, {x:-1280,y:0,width:1280,height:800}];
+  assert.deepEqual(clampBounds({x:-1200,y:20,width:1600,height:950,maximized:true}, areas), {x:-1280,y:0,width:1280,height:800,maximized:true});
+  const fallback = clampBounds({x:9999,y:99,width:1000,height:700}, areas);
+  assert.equal(fallback.width, 1440);
+  assert.equal(fallback.maximized, false);
+  assert.ok(fallback.x >= 0 && fallback.x + fallback.width <= 1920);
+  const small = clampBounds({x:20,y:30,width:5,height:9}, areas);
+  assert.equal(small.width, 960); assert.equal(small.height, 640);
+});
+test('logs redact secrets tickets and cookie values with ISO timestamps', () => {
+  const source = 'secret=SECRET ticket=TICKET Cookie: admin=ADMIN; keepharness-local=LOCAL\n{"secret":"JSONSECRET","ticket":"JSONTICKET"}';
+  const output = redact(source);
+  for (const value of ['SECRET','TICKET','ADMIN','LOCAL','JSONSECRET','JSONTICKET']) assert.ok(!output.includes(value));
+  const chunk = logChunk(0, source, '2026-10-04T00:00:00.000Z');
+  assert.match(chunk.text, /^2026-10-04T00:00:00.000Z /);
+});
+test('log rotation caps a two MiB write to one MiB', () => {
+  assert.equal(LOG_LIMIT, 1024 * 1024);
+  const chunk = logChunk(100, 'é'.repeat(LOG_LIMIT), '2026-10-04T00:00:00.000Z');
+  assert.equal(chunk.rotate, true);
+  assert.ok(Buffer.byteLength(chunk.text) <= LOG_LIMIT);
+  assert.equal(logChunk(LOG_LIMIT, 'next').rotate, true);
+});
+test('desktop minimum size is 960 by 640', () => {
+  const opts = windowOptions('KeepHarness');
+  assert.equal(opts.minWidth, 960); assert.equal(opts.minHeight, 640);
+});
