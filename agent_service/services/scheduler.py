@@ -1,16 +1,20 @@
 """Unattended runs of scheduled tasks: a background loop that submits what is due.
 
 The loop lives for as long as the app does (see ``agent_service/app.py``). Every
-``TICK_SECONDS`` it submits each due schedule once, through ``ConversationService.submit``
-exactly as ``POST /v1/jobs`` would, and records the outcome. Rules and storage are in
-``agent_service/schedules.py``.
+``TICK_SECONDS`` it first reads back how the last submitted runs ended (D15: a run that did not
+complete counts towards pausing the schedule), then submits each due schedule once, through
+``ConversationService.submit`` exactly as ``POST /v1/jobs`` would, and records the submit. A due
+time is skipped while the schedule's previous run is still queued or running. Rules and storage
+are in ``agent_service/schedules.py``.
 """
 
 import asyncio
+import json
 import logging
 import re
 
 from .. import schedules
+from ..config import TERMINAL
 from ..errors import HarnessError
 
 logger = logging.getLogger(__name__)
@@ -53,9 +57,40 @@ async def run(service) -> None:
             logger.exception("Scheduler tick failed")
 
 
+def outcome(service, job_id: str) -> dict | None:
+    """How run ``job_id`` ended, or ``None`` while it is active (or its conversation is gone)."""
+    row = service.conversation_repository.get(job_id)
+    if row is None or row["state"] not in TERMINAL:
+        return None
+    result = json.loads(row["result"] or "{}")
+    error = result.get("error") or result.get("condition") or row["state"]
+    return {
+        "state": row["state"],
+        "error": error if SAFE_CODE.fullmatch(str(error)) else row["state"],
+        "needs_you": service.message_repository.has_unattended_denial(job_id),
+    }
+
+
+def active(service, record: dict) -> bool:
+    job_id = (record["last_run"] or {}).get("job_id")
+    row = service.conversation_repository.state(job_id) if job_id else None
+    return row is not None and row[0] in ("queued", "running")
+
+
+async def settle_outcomes(service) -> None:
+    for record in await asyncio.to_thread(schedules.awaiting_outcome, service.config):
+        try:
+            ended = outcome(service, record["last_run"]["job_id"])
+            if ended is not None:
+                await asyncio.to_thread(schedules.record_outcome, service.config, record, **ended)
+        except Exception:
+            logger.exception("Could not record how the scheduled run of %s ended", record["id"])
+
+
 async def tick(service, now: float | None = None) -> None:
-    """Submit every schedule that is due at ``now``, at most once each."""
+    """Read back finished runs, then submit every schedule due at ``now``, at most once each."""
     now = schedules.clock() if now is None else now
+    await settle_outcomes(service)
     for record in await asyncio.to_thread(schedules.due, service.config, now):
         try:
             await run_due(service, record, now)
@@ -67,6 +102,10 @@ async def run_due(service, record: dict, now: float) -> None:
     client = service.config.get("clients", {}).get(record["owner"])
     if client is None:
         await asyncio.to_thread(schedules.pause, service.config, record, MISSING_CLIENT)
+        return
+    if active(service, record):
+        logger.info("Scheduled run of %s skipped: its previous run is still active", record["id"])
+        await asyncio.to_thread(schedules.skip_due, service.config, record, now)
         return
     job_id = error = None
     key = run_key(record)

@@ -16,9 +16,13 @@ Nobody watches a scheduled run, so it never gets automatic or full access:
 - `access_mode` is `ask` (the default) or `read_only`. `auto` and `full` are refused with
   `schedule_invalid` (`field: "access_mode"`), also when a file is edited by hand: such a file
   is skipped and never runs.
-- With `ask`, a run that needs an approval waits for someone to answer it and expires like any
-  other approval request. Choose `read_only` for a run that must finish on its own.
-- Three failed runs in a row pause the schedule (see "Failures").
+- A scheduled run never waits for a person (D15). An action that needs an approval (a tool
+  approval or a workflow gate) is denied at once with the reason `unattended`, the run goes on,
+  and an `approval_denied` event with `{"scope": "unattended", "kind": ...}` is recorded. When the
+  run ends, its `last_run` gets `"needs_you": true` and an attention item is raised (see "Attention
+  items"). A run started with "Run now" follows the same rule.
+- Three runs in a row that fail, are cancelled or are interrupted pause the schedule (see
+  "Failures").
 
 ## Data
 
@@ -201,8 +205,14 @@ unmarked conversation.
   then records the job it already submitted instead of a failure. The
   outcome is only written while the file still waits for that due time: a schedule that was edited,
   paused or deleted meanwhile keeps what the user made of it.
-- `last_run` is `{"job_id", "at", "state": "submitted"}` (`at` is a UNIX timestamp in seconds). The
-  job itself runs later, in the normal queue; `state` does not follow it.
+- `last_run` is `{"job_id", "at", "state": "submitted"}` (`at` is a UNIX timestamp in seconds) while
+  the job waits or runs in the normal queue. Each tick first reads back the outcome of every run still
+  marked `submitted`: `state` becomes `completed`, `failed`, `cancelled` or `interrupted`, with the
+  job's `error` (or its provider `condition`) for the last three. A run whose conversation was
+  deleted before it ended stays `submitted` and blocks nothing.
+- **One run at a time.** A due time that comes while the schedule's previous run is still queued or
+  running is skipped: `next_run` moves to the next occurrence, nothing is submitted and `failures`
+  is left alone.
 
 ### Failures
 
@@ -211,7 +221,10 @@ unmarked conversation.
   `{"job_id": null, "at": ..., "state": "failed", "error": "<code>"}` (an unexpected error is
   `submit_failed`, and its details only go to the server log), and `next_run` moves to the next
   occurrence.
-- A success sets `failures` back to 0.
+- A run that ends `failed`, `cancelled` (also when an approval expired twice:
+  `approval_expiration_limit`) or `interrupted` is a failure too (D15), counted when the scheduler
+  reads its outcome back.
+- An accepted submit leaves `failures` alone; a run that ends `completed` sets it back to 0.
 - After 3 failures in a row the schedule is paused: `enabled` is `false`, `next_run` is `null`, and
   `paused_reason` says why, for example "Paused after 3 failed runs in a row (last error:
   model_denied). Check the route and the project, then turn the schedule back on."
@@ -222,6 +235,20 @@ unmarked conversation.
 - If the client that owns a schedule no longer exists in the service configuration, the schedule is
   paused at once with "Paused because the client that owns this schedule no longer exists." and
   `failures` is left alone.
+
+### Attention items
+
+`GET /v1/activity` returns `schedule_alerts`, the caller's scheduled tasks (in the projects of the
+request) that need a look:
+
+- `{"reason": "paused", "message": <paused_reason>, "job_id": null, ...}` for a paused schedule
+  that has a `paused_reason`;
+- `{"reason": "needs_you", "message": ..., "job_id": <last run>, ...}` when the last run skipped an
+  action that needed approval.
+
+Every item also has `schedule_id`, `title` and `project_id`. The run console shows them in the
+"Needs you" inbox and counts them on the attention bell. A request filtered by `work_item` returns
+an empty list.
 
 ## Security
 
@@ -246,6 +273,8 @@ unmarked conversation.
 
 - Show `next_run` and `last_run.at` as local times; show `paused_reason` when `enabled` is false
   and it is not empty.
+- Show `last_run.state` (`submitted` reads as "running") and `needs_you`, and open the run's
+  conversation from `last_run.job_id` (a scheduled run is the first turn of its conversation).
 - The conversation list item has `schedule_id` and `schedule_title` only for conversations a
   schedule started.
 - Error copy for every code above lives in `userErrors` in `agent_service/ui.js`.

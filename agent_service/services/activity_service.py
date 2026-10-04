@@ -4,6 +4,7 @@ import json
 import math
 import time
 
+from .. import schedules
 from ..errors import APIError
 from ..spans import queue_wait_reason
 from ..work_items import validate_reference
@@ -134,4 +135,8 @@ def summarize_activity(service, identity, project_id=None, work_item=None):
         jobs=jobs,
         needs_you=needs_you,
         providers=list(providers.values()),
+        # Scheduled tasks that need a look: paused, or a run that skipped an approval (D15).
+        schedule_alerts=[]
+        if work_item is not None
+        else schedules.alerts(service.config, identity[0], set(projects)),
     )
