@@ -36,8 +36,10 @@ module.exports = {
       op.check(ratio >= 4.5, `muted ${muted} on ${panel} is ${ratio.toFixed(2)}:1`);
     });
 
-    await op.step("toggle-dark", "The topbar toggle switches to the dark theme", async () => {
+    await op.step("toggle-dark", "The Appearance toggle switches to the dark theme", async () => {
+      await op.click(page.locator("#settings"));
       await op.click(page.locator("#theme-toggle"));
+      await op.click(page.locator("#settings-close"));
       await op.until(async () => (await palette()) === "graphite", "the toggle did not switch to Graphite");
       op.check((await page.evaluate(() => document.documentElement.dataset.theme)) === "dark", "data-theme is not dark");
     });
@@ -78,7 +80,9 @@ module.exports = {
     });
 
     await op.step("toggle-light", "Toggle back to the light theme", async () => {
+      await op.click(page.locator("#settings"));
       await op.click(page.locator("#theme-toggle"));
+      await op.click(page.locator("#settings-close"));
       await op.until(async () => (await palette()) === "paper", "the toggle did not return to Paper");
     });
   },

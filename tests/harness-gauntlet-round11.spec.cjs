@@ -58,8 +58,8 @@ async function publication(page){await page.evaluate(()=>showGate({gate_id:'publ
  await check('A1-F3 Tour spot stays within visible target',async()=>{
   const f=await fixture(browser);await f.consoleOpen();await publication(f.page);await f.page.locator('#gate-publish button').last().scrollIntoViewIfNeeded();await f.page.keyboard.press('Control+j');
   await f.page.evaluate(()=>keepHarnessTour.start());
-  for(let i=0;i<16 && !(await f.page.locator('#tour-card').innerText()).includes('Publication gate');i++)await f.page.getByRole('button',{name:'Next',exact:true}).click();
-  assert.match(await f.page.locator('#tour-card').innerText(),/Publication gate/);await f.page.waitForTimeout(1250);
+  for(let i=0;i<16 && !(await f.page.locator('#tour-card').innerText()).includes('Live status');i++)await f.page.getByRole('button',{name:'Next',exact:true}).click();
+  assert.match(await f.page.locator('#tour-card').innerText(),/Live status/);await f.page.waitForTimeout(1250);
   const m=await f.page.locator('#messages').boundingBox(),s=await f.page.locator('.tour-spotlight').boundingBox();assert(s.y>=m.y-6,JSON.stringify({m,s}));await f.page.close();
  });
  await check('A2-F1 Escape closes only the nested conversation menu',async()=>{

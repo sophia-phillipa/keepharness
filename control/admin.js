@@ -197,11 +197,7 @@ function providerIcon(id) {
   );
 }
 function providerName(info) {
-  return (
-    { local: "Local Model via Codex", deepseek: "DeepSeek via Codex" }[
-      info.id
-    ] || info.name
-  );
+  return HarnessUI.providerName(info.id, info.name); // D42: the app's names
 }
 function providerModelName(id) {
   return (
@@ -243,6 +239,23 @@ function modelIdentity(provider, model, label = model) {
   return span;
 }
 
+// What to do next, per provider: Codex shows a link (and, on a host without a browser, a code);
+// only Claude Code asks for a code to be pasted back.
+const LOGIN_STEPS = {
+  codex:
+    "Finish the sign-in in the browser. If the operation window shows a link and a code instead, open the link and enter the code there; then click Check account.",
+  claude:
+    "Sign in in the browser, paste the code it shows into the operation window (Send code), then wait for the account status to update.",
+};
+// The one-time code Codex prints for device sign-in, shown on its own so it can be read and copied.
+const DEVICE_CODE = /\b[A-Z0-9]{4}-[A-Z0-9]{4,6}\b/;
+const DEVICE_CODE_NOTE =
+  "Device code sign-in must be turned on in your ChatGPT security settings (for a workspace: in its permissions) before this code works.";
+function operationTitle(job) {
+  return job.kind === "provider-login" && job.provider
+    ? providerName({ id: job.provider, name: job.provider }) + " sign-in"
+    : "Operation " + job.id.slice(0, 6);
+}
 function providerLoginButton(info) {
   const button = element("button", "Log in / Renew access", "button secondary");
   button.setAttribute(
@@ -253,9 +266,7 @@ function providerLoginButton(info) {
   button.onclick = () =>
     action(async () => {
       await request("provider-login", { provider: info.id });
-      say(
-        "Complete the login in the browser. If it shows a code, paste it in the operation window (Send code); then click Check account.",
-      );
+      say(LOGIN_STEPS[info.id] || LOGIN_STEPS.codex);
     });
   return button;
 }
@@ -751,6 +762,22 @@ function integrationDescription(item) {
     "Description not provided by the provider."
   );
 }
+// D48: harness runs turn Codex apps off, so "-remote" plugins (Gmail, Drive, GitHub, Calendar)
+// never load; the admin says so instead of letting them be allowed. Mirrors integrations_view.py.
+const REMOTE_PLUGIN_NOTE =
+  "Not available in KeepHarness runs: this plugin brings its tools as Codex apps, which KeepHarness keeps off. Add an MCP connector for the service instead.";
+function appBasedPlugin(provider, item) {
+  return (
+    ["codex", "deepseek"].includes(provider) &&
+    item.kind === "plugin" &&
+    /@[^@]*-remote$/.test(item.id)
+  );
+}
+function loadableIntegrations(provider) {
+  return (state.integrations?.[provider] || []).filter(
+    (item) => !appBasedPlugin(provider, item),
+  );
+}
 function renderIntegrationSelection() {
   const host = $("integration-selection");
   host.replaceChildren();
@@ -802,11 +829,19 @@ function renderIntegrationSelection() {
         },
         integrationDescription(item) +
           " " +
-          (kind === "plugin"
-            ? "Installed plugin · load in conversations"
-            : "Configured connector · make tools available"),
+          (appBasedPlugin(editing, item)
+            ? REMOTE_PLUGIN_NOTE
+            : kind === "plugin"
+              ? "Installed plugin · load in conversations"
+              : "Configured connector · make tools available"),
       );
-      if (editing === "local") row.querySelector("input").disabled = true;
+      // An already-allowed remote plugin stays untickable so the owner can remove it.
+      if (
+        editing === "local" ||
+        (appBasedPlugin(editing, item) &&
+          !(spec.integrations || []).includes(item.id))
+      )
+        row.querySelector("input").disabled = true;
       row.querySelector("strong").prepend(connectorIcon(item));
       list.append(row);
     }
@@ -1016,8 +1051,8 @@ function openWizard(provider = null) {
   if (provider && provider !== "local" && integrationEngine(provider)) {
     const current = state.settings.services[provider];
     if (!current?.added && !current?.enabled && !current?.models?.length)
-      settings.services[provider].integrations = (
-        state.integrations?.[provider] || []
+      settings.services[provider].integrations = loadableIntegrations(
+        provider,
       ).map((item) => item.id);
   }
   step = 0;
@@ -1495,10 +1530,7 @@ async function pollOperations() {
         d.append(
           element(
             "summary",
-            "Operation " +
-              j.id.slice(0, 6) +
-              " · " +
-              (names[j.state] || j.state),
+            operationTitle(j) + " · " + (names[j.state] || j.state),
           ),
         );
         const output = /Traceback \(most recent call last\)/.test(
@@ -1512,11 +1544,21 @@ async function pollOperations() {
             "Waiting for the CLI…",
         );
         d.append(pre);
-        for (const match of (j.output || "").matchAll(
-          /https:\/\/[^\s<>"']+/g,
-        )) {
+        const deviceCode =
+          j.provider === "codex" && j.kind === "provider-login"
+            ? DEVICE_CODE.exec(j.output || "")?.[0]
+            : null;
+        if (deviceCode) {
+          const code = element("p", "Your code: ", "login-code");
+          const value = element("strong", deviceCode);
+          value.dataset.testid = "login-code";
+          code.append(value);
+          d.append(code, element("p", DEVICE_CODE_NOTE, "hint"));
+        }
+        const urls = new Set((j.output || "").match(/https:\/\/[^\s<>"']+/g));
+        for (const match of urls) {
           try {
-            const url = new URL(match[0]);
+            const url = new URL(match);
             const link = element(
               "a",
               url.hostname === "antigravity.google"
@@ -1693,6 +1735,7 @@ emptyInspector.after(executionPage);
 
 const panelCopy = {
   catalogs: ["Catalogs and vault", "Manage pinned resources, prerequisites and private integration bindings."],
+  connection: ["Connection / MCP", "Choose the model and effort that connected MCP clients use when they do not name one."],
   home: ["Home", "Track operations and server usage in real time."],
   providers: [
     "AI Providers",
@@ -1706,6 +1749,7 @@ function renderPanel() {
     : "home";
   $("dashboard").hidden = section !== "providers";
   $("catalog-panel").hidden = section !== "catalogs";
+  $("config-mcp").hidden = section !== "connection";
   emptyInspector.hidden = section !== "home";
   executionPage.hidden = section !== "runs";
   document.querySelector("#overview h1").textContent = panelCopy[section][0];
@@ -1732,6 +1776,7 @@ for (const [section, name] of [
   ["providers", "plug"],
   ["runs", "list"],
   ["catalogs", "list"],
+  ["connection", "server"],
 ])
   document.querySelector('[data-panel="' + section + '"]').prepend(icon(name));
 providerDialog.addEventListener("cancel", (event) => {
@@ -2639,7 +2684,7 @@ function renderMcpDefaults() {
         HarnessUI.selectableModel(backend, m),
       )) {
         select.append(
-          new Option(backend + " · " + model, JSON.stringify([backend, model])),
+          new Option(HarnessUI.providerName(backend) + " · " + model, JSON.stringify([backend, model])),
         );
       }
   select.value = saved.model
@@ -2695,16 +2740,6 @@ $("save-mcp").onclick = () =>
       HarnessUI.notice($("mcp-feedback"), e.message, { error: true });
     }
   });
-document.querySelectorAll("[data-config-tab]").forEach(
-  (button) =>
-    (button.onclick = () => {
-      for (const name of ["appearance", "mcp"])
-        $("config-" + name).hidden = name !== button.dataset.configTab;
-      document
-        .querySelectorAll("[data-config-tab]")
-        .forEach((b) => b.setAttribute("aria-pressed", String(b === button)));
-    }),
-);
 
 let dashboardLoading = false;
 async function refreshDashboard() {
@@ -3009,7 +3044,7 @@ function describeExecutionData(value) {
     effort: "Effort",
     role: "Role",
     steps: "Steps",
-    coordinator: "Coordinator",
+    coordinator: "Maestro",
     metrics: "Metrics",
     text: "Message",
     tool: "Tool",
@@ -3178,7 +3213,7 @@ $("provider-options").addEventListener(
       !current.enabled &&
       !current.models?.length
     )
-      settings.services[id].integrations = (state.integrations?.[id] || []).map(
+      settings.services[id].integrations = loadableIntegrations(id).map(
         (item) => item.id,
       );
   },

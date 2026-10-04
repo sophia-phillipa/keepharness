@@ -93,7 +93,7 @@ runPersona("H34", [
 
       // The legacy state renders both providers.
       const providers = await page.locator("#configured-providers").innerText();
-      assert.match(providers, /Codex CLI/);
+      assert.match(providers, /Codex/);
       assert.match(providers, /Claude Code/);
 
       // Editing and saving works and posts a well-formed settings object that

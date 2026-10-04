@@ -1025,14 +1025,7 @@ const modelIcon = (id) => {
   if (name.includes("llama")) return "🦙";
   return "◈";
 };
-const providerNames = {
-  local: "Local models",
-  codex: "Codex",
-  claude: "Claude Code",
-  gemini: "Gemini CLI",
-  deepseek: "DeepSeek",
-  maestro: "Maestro",
-};
+const providerNames = HarnessUI.providerNames; // D42: shared with the admin
 function providerModelIcon(backend, model) {
   backend ||= models.find(item => item.id === model)?.backend;
   return HarnessUI.icon({codex: "brand-openai", claude: "brand-claude", gemini: "brand-gemini", maestro: "keepharness"}[backend] || "stack-2");
@@ -1311,7 +1304,7 @@ const userErrors = {
   gemini_output_limit:
     "Gemini produced more output than allowed. Narrow the request and try again.",
   gemini_acp_unavailable:
-    "The Gemini CLI connection is unavailable. Check Gemini in the admin panel.",
+    "The Gemini CLI connection is unavailable. Choose another model.",
   gemini_acp_incomplete:
     "The Gemini CLI stopped before the answer was complete. Send your message again.",
   gemini_acp_invalid:
@@ -1321,7 +1314,7 @@ const userErrors = {
   gemini_client_retired:
     "This Gemini CLI version is no longer supported. Update the Gemini CLI.",
   gemini_oauth_unavailable:
-    "Gemini is not signed in on the server. Sign in again in the admin panel.",
+    "Gemini is not signed in on the server. Choose another model.",
   gemini_effort_unavailable:
     "This reasoning level is not available for Gemini. Choose another one.",
   gemini_scoped_unsupported:
@@ -1331,7 +1324,7 @@ const userErrors = {
   gemini_integration_denied:
     "A Gemini integration is blocked by policy. Ask the administrator.",
   gemini_integration_unavailable:
-    "A Gemini integration is unavailable. Check Gemini in the admin panel.",
+    "A Gemini integration is unavailable. Choose another model.",
   gemini_system_auth_conflict:
     "The server's Gemini settings conflict with the harness sign-in. Ask the administrator to review them.",
   gemini_system_policy_conflict:
@@ -1862,9 +1855,9 @@ function updateEfforts() {
     m.backend === "maestro"
       ? "The configured coordinator plans steps using eligible local or cloud models"
       : m.backend === "local"
-        ? "Local model runs on the server · no OpenAI quota · check the sources"
+        ? "Local model runs on the server through the Codex CLI · no OpenAI quota · check the sources"
         : m.backend === "deepseek"
-          ? "DeepSeek API · uses your DeepSeek credits"
+          ? "DeepSeek API · uses your DeepSeek credits · runs through the Codex CLI"
           : m.backend === "gemini"
             ? "Gemini CLI · Google account · subscription quota"
             : m.backend === "claude"
@@ -1939,24 +1932,50 @@ function quotaText(q) {
     ? windows.map((w) => `${w.label}: ${w.percent}% remaining`).join(" · ")
     : "Percentage unavailable";
 }
-let quotaIdentityBackend = "";
+let quotaIdentityBackend = "",
+  quotaView = "",
+  quotaFocus = null; // the provider whose meter was activated; null follows the selected model
+const quotaHeadings = {
+  codex: "ChatGPT account quota",
+  claude: "Claude Code subscription quota",
+  gemini: "Gemini subscription quota",
+  deepseek: "DeepSeek balance",
+  local: "Local models",
+  maestro: "Maestro",
+};
+const quotaNotes = {
+  codex: "Shared with the account's other usage. Rounded percentages don't measure this run's exact cost.",
+  claude: "Shared with the account's other Claude usage. Percentages are what Claude Code last reported.",
+  deepseek: "Prepaid balance from your DeepSeek account, read every few minutes. It is not an estimate of this run's cost.",
+};
+const quotaViewBackend = () => quotaFocus || selected()?.backend || "";
+function quotaDetailText(view) {
+  return (
+    {
+      local: "This model runs locally. Context usage appears separately in the context indicator.",
+      maestro: "Maestro can route steps to different models; the quota depends on each step's executor.",
+      gemini: "Gemini CLI reports its own subscription usage; check it in your Google account.",
+    }[view] || "Select a model to check the provider quota."
+  );
+}
 function renderQuotaIdentity() {
   const model = selected(),
     backend = model?.backend || "",
-    changed = backend !== quotaIdentityBackend;
+    view = quotaViewBackend(),
+    modelChanged = backend !== quotaIdentityBackend,
+    changed = modelChanged || view !== quotaView;
   quotaIdentityBackend = backend;
+  quotaView = view;
   $("quota-model-icon").textContent = model ? modelIcon(model.id) : "◈";
   $("quota-model-name").textContent = model ? modelName(model.id) : "Model";
   $("quota-model-identity").title = model
     ? modelName(model.id) + " · " + (providerNames[backend] || backend)
     : "Selected model";
   $("quota-toggle").hidden = false;
-  $("quota-heading-title").textContent =
-    {
-      codex: "ChatGPT account quota",
-      claude: "Claude subscription quota",
-      gemini: "Gemini subscription quota",
-    }[backend] || "ChatGPT account quota";
+  // L55: the panel names the provider it explains, and its note matches that provider.
+  $("quota-heading-title").textContent = quotaHeadings[view] || "Provider quota";
+  $("quota-note").textContent = quotaNotes[view] || "";
+  $("quota-note").hidden = !quotaNotes[view];
   const states = {
     local: "No provider quota",
     claude: "Checking Claude quota…",
@@ -1965,28 +1984,27 @@ function renderQuotaIdentity() {
     gemini: "Checking Gemini quota…",
   };
   if (backend === "codex" || backend === "claude") {
-    if (changed) {
+    if (modelChanged)
       $("quota-short").textContent =
         backend === "claude" ? "Checking Claude quota…" : "Checking quota…";
-      $("quota-current").textContent = $("quota-short").textContent;
+  } else {
+    $("quota-short").textContent = states[backend] || "Quota unavailable";
+  }
+  if (["codex", "claude", "deepseek"].includes(view)) {
+    if (changed) {
+      $("quota-current").textContent =
+        view === "deepseek"
+          ? "This model uses your own DeepSeek account credits. Checking the balance…"
+          : view === "claude"
+            ? "Checking Claude quota…"
+            : "Checking quota…";
       $("quota-comparison").replaceChildren();
     }
   } else {
-    $("quota-short").textContent = states[backend] || "Quota unavailable";
     $("quota-comparison").replaceChildren();
-    $("quota-current").replaceChildren();
     const detail = document.createElement("p");
-    detail.textContent =
-      backend === "local"
-        ? "This model runs locally. Context usage appears separately in the context indicator."
-        : backend === "deepseek"
-          ? "This model uses your own DeepSeek account credits."
-          : backend === "maestro"
-            ? "Maestro can route steps to different models; the quota depends on each step's executor."
-            : backend === "gemini"
-              ? "Gemini CLI reports its own subscription usage; check it in your Google account."
-              : "Select a model to check the provider quota.";
-    $("quota-current").append(detail);
+    detail.textContent = quotaDetailText(view);
+    $("quota-current").replaceChildren(detail);
   }
   const description = model
     ? modelName(model.id) +
@@ -1999,8 +2017,8 @@ function renderQuotaIdentity() {
   $("quota-toggle").title = description;
   requestAnimationFrame(updateHeaderToastOffset);
 }
-function paintQuota(q, backend = selected()?.backend) {
-  if (selected()?.backend !== backend || !["codex", "claude"].includes(backend))
+function paintQuota(q, backend = quotaViewBackend()) {
+  if (quotaViewBackend() !== backend || !["codex", "claude"].includes(backend))
     return;
   const available = q?.available === true,
     windows = available ? quotaWindows(q, backend) : [];
@@ -2008,13 +2026,16 @@ function paintQuota(q, backend = selected()?.backend) {
     backend === "claude"
       ? "Latest information from Claude"
       : "Shared Codex account quota";
-  $("quota-short").textContent = available
-    ? windows.length
-      ? windows.map((w) => `${w.label}: ${w.percent}% remaining`).join(" · ")
-      : "Percentage unavailable"
-    : backend === "claude"
-      ? "Claude quota not reported"
-      : "Quota unavailable";
+  // The header summary describes the selected model; another provider's meter only fills the panel.
+  const forSelected = selected()?.backend === backend;
+  if (forSelected)
+    $("quota-short").textContent = available
+      ? windows.length
+        ? windows.map((w) => `${w.label}: ${w.percent}% remaining`).join(" · ")
+        : "Percentage unavailable"
+      : backend === "claude"
+        ? "Claude quota not reported"
+        : "Quota unavailable";
   let checked = "";
   if (backend === "claude" && q?.checked_at) {
     const timestamp =
@@ -2024,17 +2045,19 @@ function paintQuota(q, backend = selected()?.backend) {
     if (Number.isFinite(timestamp))
       checked = " · Updated on " + new Date(timestamp).toLocaleString();
   }
-  $("quota-toggle").setAttribute(
-    "aria-label",
-    modelName(selected()?.id) +
-      " · " +
-      source +
-      " · " +
-      $("quota-short").textContent +
-      checked,
-  );
-  $("quota-toggle").title =
-    source + checked + " · " + $("quota-short").textContent;
+  if (forSelected) {
+    $("quota-toggle").setAttribute(
+      "aria-label",
+      modelName(selected()?.id) +
+        " · " +
+        source +
+        " · " +
+        $("quota-short").textContent +
+        checked,
+    );
+    $("quota-toggle").title =
+      source + checked + " · " + $("quota-short").textContent;
+  }
   $("quota-current").replaceChildren();
   requestAnimationFrame(updateHeaderToastOffset);
   if (!available) {
@@ -2071,24 +2094,54 @@ function paintQuota(q, backend = selected()?.backend) {
     $("quota-current").append(wrap);
   }
 }
+// PRD-R2-11: the balance of a prepaid DeepSeek key, as the provider reported it.
+function paintBalance(value) {
+  const notes = [];
+  if (value?.available === true) {
+    for (const b of value.balances || []) {
+      const row = document.createElement("div");
+      row.className = "quota-window";
+      row.textContent = `${b.currency} ${b.total} available`;
+      const detail = document.createElement("small");
+      detail.textContent = `Granted ${b.granted} · topped up ${b.topped_up}`;
+      row.append(detail);
+      notes.push(row);
+    }
+    if (value.account_active === false) {
+      const warn = document.createElement("p");
+      warn.textContent = "DeepSeek reports this balance as unavailable for requests. Top it up in your DeepSeek account.";
+      notes.push(warn);
+    }
+  } else {
+    const miss = document.createElement("p");
+    miss.textContent = "This model uses your own DeepSeek account credits. The balance could not be read right now, and no amount was estimated.";
+    notes.push(miss);
+  }
+  $("quota-current").replaceChildren(...notes);
+}
 let quotaRequest = 0;
+const quotaUrls = {
+  codex: "/v1/usage",
+  claude: "/v1/usage?backend=claude",
+  deepseek: "/v1/usage?backend=deepseek",
+};
 async function quota() {
   const request = ++quotaRequest,
-    backend = selected()?.backend;
+    backend = quotaViewBackend();
   renderQuotaIdentity();
-  if (!["codex", "claude"].includes(backend)) {
+  if (!quotaUrls[backend]) {
     setQuotaOpen(false);
     return;
   }
+  // A prepaid balance changes only when money moves: read it when the panel opens, not on every run.
+  if (backend === "deepseek" && $("quota-panel").hidden) return;
+  const paint = (value) =>
+    backend === "deepseek" ? paintBalance(value) : paintQuota(value, backend);
   try {
-    const value = await json(
-      backend === "claude" ? "/v1/usage?backend=claude" : "/v1/usage",
-    );
-    if (request === quotaRequest && selected()?.backend === backend)
-      paintQuota(value, backend);
+    const value = await json(quotaUrls[backend]);
+    if (request === quotaRequest && quotaViewBackend() === backend) paint(value);
   } catch {
-    if (request === quotaRequest && selected()?.backend === backend)
-      paintQuota(null, backend);
+    if (request === quotaRequest && quotaViewBackend() === backend) paint(null);
   }
 }
 function quotaSnapshot(kind, q) {
@@ -2174,11 +2227,15 @@ window.updateProviderQuotas = function updateProviderQuotas(items = []) {
       perProvider.set(item.backend, { item, remaining });
   }
   for (const { item, remaining } of perProvider.values()) {
-    const meter = document.createElement("span");
+    const meter = document.createElement("button");
+    meter.type = "button";
     meter.className = "provider-quota-meter";
     meter.dataset.backend = item.backend;
     const label = document.createElement("span");
+    // The rail has room for a short word; the full canonical name (D42) is the accessible one.
     label.textContent = ({ codex: "Codex", claude: "Claude", gemini: "Gemini", deepseek: "DeepSeek" })[item.backend] || item.backend;
+    meter.setAttribute("aria-label", `${providerNames[item.backend] || item.backend} quota, ${Math.round(remaining)}% remaining. Open details.`);
+    meter.title = meter.getAttribute("aria-label");
     const bar = document.createElement("i");
     bar.style.setProperty("--quota", remaining + "%");
     const value = document.createElement("b");
@@ -2188,11 +2245,6 @@ window.updateProviderQuotas = function updateProviderQuotas(items = []) {
   }
   container.replaceChildren(...meters);
   container.hidden = !meters.length;
-  container.tabIndex = meters.length ? 0 : -1;
-  container.setAttribute("role", meters.length ? "button" : "group");
-  container.title = meters.length
-    ? "Open quota details for the selected provider"
-    : "";
 };
 // D35: the needs-you count leads the window title, and an unfocused window gets an OS
 // notification when a run needs the user, fails or finishes (the desktop app allows it for its own origins).
@@ -2279,14 +2331,13 @@ window.applyActivitySnapshot = function applyActivitySnapshot(data = {}) {
   const current = conversations.find((item) => item.id === conversation);
   if (current) renderConversationHeader(current);
 };
-$('provider-quotas').onclick = () => {
-  if (!$('provider-quotas').hidden) setQuotaOpen(true);
-};
-$('provider-quotas').onkeydown = (event) => {
-  if (["Enter", " "].includes(event.key) && !$('provider-quotas').hidden) {
-    event.preventDefault();
-    setQuotaOpen(true);
-  }
+// CDX-R2-2: a meter explains its own provider, whichever model is selected.
+$('provider-quotas').onclick = (event) => {
+  const meter = event.target.closest(".provider-quota-meter");
+  if (!meter) return;
+  quotaFocus = meter.dataset.backend;
+  void quota();
+  setQuotaOpen(true);
 };
 async function history(timeout = 30000, background = false) {
   const request = ++historyRequest;
@@ -4089,7 +4140,12 @@ function executionCondition(code, backend, detail) {
         "Your DeepSeek balance is used up. Top it up in your DeepSeek account, or select a different provider to continue this conversation.",
     },
   }[kind];
-  const copy = deepseek || {
+  // D47: the admin has no Gemini card, so there is nothing to open or renew.
+  const gemini = backend === "gemini" && ["unavailable", "authentication"].includes(kind) && {
+    title: "Gemini unavailable",
+    message: "Gemini is not available in this KeepHarness release. Select another provider to continue this conversation.",
+  };
+  const copy = deepseek || gemini || {
     unavailable: {title: name + " unavailable", message: "Open the admin panel to check " + name + ", or select another provider."},
     authentication: {
       title: "Renew " + name + " access",
@@ -5724,11 +5780,21 @@ $("about-dialog").addEventListener("close", () => {
   if (document.querySelector("#tour-root")) return;
   ($("about").checkVisibility() ? $("about") : $("settings")).focus();
 });
+// D43: the theme switch lives in Settings › Appearance; the label names what a press does.
+function syncThemeToggle() {
+  $("theme-toggle").textContent =
+    "Switch to " + (document.documentElement.dataset.theme === "dark" ? "light" : "dark") + " theme";
+}
 $("theme-toggle").onclick = () => {
   const dark = document.documentElement.dataset.theme === "dark";
   window.HarnessTheme?.apply(dark ? "paper" : "graphite");
-  $("theme-toggle-label").textContent = dark ? "Light" : "Dark";
+  syncThemeToggle();
 };
+syncThemeToggle();
+new MutationObserver(syncThemeToggle).observe(document.documentElement, {
+  attributes: true, attributeFilter: ["data-theme"],
+});
+$("take-tour").addEventListener("click", () => $("settings-dialog").close());
 // Codex-style "Choose project" under the composer: reuses the project select and its onchange.
 // Composer sub-bar shortcuts (Codex model): project files and agents.
 // OP-R1-22: the chip attaches (recent uploads, Space pages, Upload…); it never changes the mode.
@@ -6104,7 +6170,7 @@ $("project-menu").addEventListener("keydown", (event) => {
     : (index + (event.key === "ArrowDown" ? 1 : -1) + options.length) % options.length;
   options[next].focus();
 });
-// Chat | Code view switch: Code shows the run console and files beside the conversation.
+// Chat | Code view switch (D45): the same conversation, with files and run activity beside it.
 function syncViewSwitch() {
   const code = $("panel-toggle").getAttribute("aria-expanded") === "true";
   $("view-chat").setAttribute("aria-selected", String(!code));
@@ -6112,8 +6178,6 @@ function syncViewSwitch() {
   $("view-chat").tabIndex = code ? -1 : 0;
   $("view-code").tabIndex = code ? 0 : -1;
   document.body.dataset.view = code ? "code" : "chat";
-  const heading = document.querySelector("#welcome h1");
-  if (heading) heading.textContent = code ? "What should we build?" : "How can I help?";
 }
 function showView(view) {
   const code = $("panel-toggle").getAttribute("aria-expanded") === "true";
@@ -6292,17 +6356,14 @@ function modelAvailability(
       }
     } catch {}
   }
-  const shortcut = $("admin-shortcut"),
-    topShortcut = $("admin-shortcut-top");
+  const shortcut = $("admin-shortcut");
   shortcut.hidden = link.hidden;
-  topShortcut.hidden = link.hidden;
   // The embedded admin is this computer's and only accepts its own host: a page
   // opened over the network, or as localhost for a 127.0.0.1 admin, cannot frame it.
   $("settings-system-nav").hidden =
     link.hidden || location.hostname !== new URL(link.href).hostname;
   if (!link.hidden) {
     shortcut.href = link.href;
-    topShortcut.href = link.href;
   }
   $("model").disabled =
     !models.length || submitting || loading || uploads > 0 || policyPending;
@@ -6768,6 +6829,7 @@ async function checkVersion() {
   try {
     const v = await json("/v1/version");
     $("version").textContent = "Release: " + v.version;
+    $("about-version").textContent = "Release " + v.version + " · MIT licence";
     if (v.config_reload_error)
       status(
         "Couldn't apply the configuration. The harness kept the last valid configuration. Review the admin panel.",
@@ -7374,7 +7436,7 @@ function restoreSelection() {
 document.querySelectorAll("[data-settings]").forEach(
   (button) =>
     (button.onclick = () => {
-      for (const name of ["appearance", "agents", "skills", "archived", "system"])
+      for (const name of ["appearance", "customize", "models", "archived", "system"])
         $("settings-" + name).hidden = name !== button.dataset.settings;
       if (button.dataset.settings === "archived") void loadArchived();
       const system = button.dataset.settings === "system";
@@ -7441,15 +7503,12 @@ async function refreshCatalog() {
       catalogCard({
         name: modelIcon(m.id) + " " + modelLabel(m),
         description:
-          (m.backend === "local"
-            ? "Local model. "
-            : m.backend === "gemini"
-              ? "Model via Gemini CLI. "
-              : m.backend === "claude"
-                ? "Model via Claude Code. "
-                : m.backend === "deepseek"
-                  ? "Model via DeepSeek. "
-                  : "Model via Codex. ") +
+          ({
+            local: "Local model; runs through the Codex CLI. ",
+            gemini: "Model via Gemini CLI. ",
+            claude: "Model via Claude Code. ",
+            deepseek: "DeepSeek model; runs through the Codex CLI. ",
+          }[m.backend] || "Model via Codex. ") +
           "Efforts: " +
           m.efforts.map((e) => efforts[e] || e).join(", "),
         status: "Configured model",
@@ -7457,16 +7516,12 @@ async function refreshCatalog() {
       }),
     ),
   );
-  for (const provider of ["codex", "claude", "gemini"]) {
+  // D47: Gemini is unavailable in this release, so no "Not configured" card invites a setup nobody can do.
+  for (const provider of ["codex", "claude"]) {
     if (!providers[provider])
       $("catalog-models").append(
         catalogCard({
-          name:
-            provider === "gemini"
-              ? "Gemini CLI"
-              : provider === "claude"
-                ? "Claude Code"
-                : "Codex",
+          name: providerNames[provider],
           description:
             "Configure the adapter in the service to enable this provider.",
           status: "Not configured",
@@ -7501,6 +7556,7 @@ async function refreshCatalog() {
   }
 }
 $("settings").onclick = () => {
+  syncThemeToggle();
   $("settings-dialog").showModal();
   refreshCatalog();
 };
@@ -8086,8 +8142,9 @@ $("schedule-new").onclick = () => {
 };
 $("schedule-empty-new").onclick = () => $("schedule-new").click();
 $("scheduled-close").onclick = () => $("scheduled-dialog").close();
-$("rail-space").onclick = () => void openSpace();
-$("rail-scheduled").onclick = () => void openScheduled();
+// The drawer repeats Space and Scheduled for the phone layout, where the rail hides them.
+for (const id of ["rail-space", "sidebar-space"]) $(id).onclick = () => void openSpace();
+for (const id of ["rail-scheduled", "sidebar-scheduled"]) $(id).onclick = () => void openScheduled();
 function openAgentDialog(agent = null) {
   editingAgent = agent;
   $("agent-dialog-title").textContent = agent ? "Edit @@" + agent.name : "Create agent";
@@ -8280,13 +8337,8 @@ $("rail-agents").onclick = () => {
     $("settings-dialog").showModal();
     refreshCatalog();
   }
-  document.querySelector('[data-settings="agents"]').click();
+  document.querySelector('[data-settings="customize"]').click();
 };
-// The rail's admin shortcut opens Settings › System; modified clicks keep the new tab.
-$("admin-shortcut-top").addEventListener("click", (event) => {
-  if (event.button || event.ctrlKey || event.metaKey || event.shiftKey) return;
-  if (openAdminSettings()) event.preventDefault();
-});
 $("settings-tour").onclick = () => $("settings-dialog").close();
 let quotaReturnsToSettings = false;
 $("settings-quota").onclick = () => {
@@ -8691,7 +8743,12 @@ function setQuotaOpen(open) {
   }
   $("quota-panel").hidden = !open;
   $("quota-toggle").setAttribute("aria-expanded", String(open));
+  if (!open && quotaFocus) {
+    quotaFocus = null;
+    void quota();
+  }
   if (open) $("quota-refresh").focus({ preventScroll: true });
+  if (open && quotaViewBackend() === "deepseek") void quota();
 }
 document.addEventListener("pointerdown", (e) => {
   if (!e.target.closest("#quota-panel, #quota-toggle")) setQuotaOpen(false);
@@ -8727,12 +8784,14 @@ document.addEventListener("keydown", (e) => {
     }
     if (!$("quota-panel").hidden) {
       e.preventDefault();
+      const meter = [...$("provider-quotas").querySelectorAll(".provider-quota-meter")]
+        .find((node) => node.dataset.backend === quotaFocus);
       setQuotaOpen(false);
       if (quotaReturnsToSettings) {
         quotaReturnsToSettings = false;
         $("settings-dialog").showModal();
         $("settings-quota").focus();
-      } else $("quota-toggle").focus();
+      } else (meter || $("settings")).focus();
     } else if (innerWidth <= 620 && $("sidebar").classList.contains("open")) {
       e.preventDefault();
       closeSidebar();
@@ -9198,12 +9257,14 @@ for (const button of document.querySelectorAll("[data-settings]")) {
     HarnessUI.icon(
       button.dataset.settings === "appearance"
         ? "adjustments"
-        : button.dataset.settings === "agents"
+        : button.dataset.settings === "customize"
           ? "stack-2"
-          : button.dataset.settings === "archived"
+          : button.dataset.settings === "models"
+            ? "server"
+            : button.dataset.settings === "archived"
             ? "archive"
             : button.dataset.settings === "system"
-            ? { providers: "plug", home: "pulse", runs: "list", catalogs: "archive" }[
+            ? { providers: "plug", home: "pulse", runs: "list", catalogs: "archive", connection: "server" }[
                 button.dataset.adminSection
               ]
             : "message",
@@ -9450,15 +9511,7 @@ function renderPicker(id) {
     max: "Maximum effort offered by the model.",
     ultra: "The most intense reasoning level offered by the model.",
   };
-  const providers = {
-    local: "Local models",
-    qwen: "Local models",
-    codex: "Codex",
-    claude: "Claude Code",
-    gemini: "Gemini CLI",
-    deepseek: "DeepSeek",
-    maestro: "Maestro",
-  };
+  const providers = { ...HarnessUI.providerNames, qwen: HarnessUI.providerNames.local };
   const groups = new Map();
   const options = [...$(id).options];
   // Sort Claude families together, newest numeric version first within each family.
@@ -9553,14 +9606,7 @@ function renderPicker(id) {
             ),
           );
           const label =
-            {
-              codex: "Codex",
-              claude: "Claude Code",
-              local: "Local models",
-              deepseek: "DeepSeek",
-              gemini: "Gemini CLI",
-              maestro: "Maestro",
-            }[backend] ||
+            HarnessUI.providerNames[backend] ||
             model?.backend ||
             "Others";
           group.setAttribute("role", "group");

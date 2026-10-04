@@ -698,17 +698,6 @@ label {
     flex-wrap: wrap;
   }
 }
-.config-tabs {
-  display: flex;
-  gap: 8px;
-  border-bottom: 1px solid var(--th-border);
-  padding-bottom: 16px;
-  margin-bottom: 20px;
-}
-.config-tabs [aria-pressed="true"] {
-  background: var(--th-soft);
-  color: var(--th-accent);
-}
 #config-mcp p {
   font-size: 14px;
 }
@@ -1418,7 +1407,7 @@ body {
 }
 .sidebar .brand small {
   display: block;
-  font-size: 9px;
+  font-size: 11px;
   letter-spacing: 0.08em;
   color: var(--th-muted);
   margin-top: 4px;
@@ -1529,9 +1518,6 @@ body {
   }
   #configured-providers {
     grid-template-columns: 1fr;
-  }
-  .config-tabs {
-    flex-wrap: wrap;
   }
 }
 @media (max-width: 760px) {

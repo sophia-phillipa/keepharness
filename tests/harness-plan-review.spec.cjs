@@ -30,7 +30,7 @@ const { mount, run } = require('./run-console-fixture.cjs');
     // P6: Automation is an explicit planning choice and preserves the project default.
     assert.equal(await page.locator('#maestro-plan-policy').inputValue(), '');
     await page.locator('#settings').click();
-    await page.locator('[data-settings=agents]').click();
+    await page.locator('[data-settings=models]').click();
     await page.locator('#maestro-plan-policy').selectOption('auto');
     await page.locator('#settings-close').click();
     await page.locator('#prompt').fill('Review the evidence');

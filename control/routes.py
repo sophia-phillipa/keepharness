@@ -347,6 +347,13 @@ async def cancel_operation(request, manager, data):
     return result
 
 
+def browser_available():
+    """D20: Codex signs in through the browser callback where a browser can open, else by device code."""
+    return sys.platform in ("darwin", "win32") or bool(
+        os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")
+    )
+
+
 async def login_provider(request, manager, data):
     provider = data.get("provider")
     binary = (
@@ -360,7 +367,9 @@ async def login_provider(request, manager, data):
         [sys.executable, "-m", "adapters.gemini.account", "--binary", binary]
         if provider == "gemini"
         else (
-            [binary, "login", "--device-auth"] if provider == "codex" else [binary, "auth", "login"]
+            [binary, "login", *([] if browser_available() else ["--device-auth"])]
+            if provider == "codex"
+            else [binary, "auth", "login"]
         )
     )
     existing = next(

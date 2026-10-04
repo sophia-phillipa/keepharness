@@ -176,7 +176,7 @@ async function selectState(page, state) {
     await page.locator('#resource-menu [data-resource-kind="workflow"]').waitFor({ state: "visible" });
   } else if (state === "plan-review-selector") {
     await page.locator("#settings").click();
-    await page.locator('[data-settings="agents"]').click();
+    await page.locator('[data-settings="models"]').click();
     await page.locator("#maestro-plan-policy").waitFor({ state: "visible" });
   }
   await page.waitForTimeout(20);
@@ -206,7 +206,7 @@ async function geometry(page, state) {
           : ["slash-palette", "workflow-palette"].includes(currentState)
             ? ["#prompt", "#resource-menu", '#resource-menu [role="option"]']
             : currentState === "plan-review-selector"
-              ? ["#settings-dialog", '[data-settings="agents"]', "#maestro-plan-policy", "#maestro-plan-policy-help"]
+              ? ["#settings-dialog", '[data-settings="models"]', "#maestro-plan-policy", "#maestro-plan-policy-help"]
             : currentState === "console-open"
               ? ["#run-console", "#run-tab-pipeline", ".run-console-close", ".run-pipeline-summary", ".run-pipeline-actions button"].concat(innerWidth > 700 ? ["#run-console-resize", "#run-console-maximize", "#prompt", ".composer-submit button:not([hidden])"] : [])
               : ["#menu", "#panel-toggle", "#model-trigger", "#run-status-toggle"];

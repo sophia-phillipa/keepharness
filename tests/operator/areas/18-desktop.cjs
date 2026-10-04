@@ -67,11 +67,9 @@ module.exports = {
 
       await op.step("admin-navigate", "Admin opens the admin panel in the window", async () => {
         const page = desktop.page;
-        await op.click(page.locator("#admin-shortcut-top"));
-        // The rail shortcut may open Settings › System inside the app; its "Admin panel"
-        // link then opens the full admin in the window.
-        await op.until(async () => page.url().startsWith(op.options.adminUrl) || (await page.locator("#admin-frame").isVisible()), "neither the admin nor Settings › System opened");
-        if (!page.url().startsWith(op.options.adminUrl)) await op.click(page.locator("#admin-shortcut"));
+        // D43: Settings holds the "Admin panel" link, which opens the full admin in the window.
+        await op.click(page.locator("#settings"));
+        await op.click(page.locator("#admin-shortcut"));
         await op.until(async () => page.url().startsWith(op.options.adminUrl), "the window did not open the admin; it shows " + page.url());
         await op.see(page.getByRole("link", { name: "Providers", exact: true }));
       });

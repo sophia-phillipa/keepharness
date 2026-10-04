@@ -26,12 +26,26 @@ const path = require("node:path");
                     backend: "local",
                     efforts: ["low"],
                   },
+                  {
+                    id: "codex-fixture",
+                    name: "Codex fixture",
+                    backend: "codex",
+                    efforts: ["low"],
+                  },
                 ],
-                providers: { local: true },
+                providers: { local: true, codex: true },
                 uploads_enabled: false,
               }
             : pathname === "/v1/conversations"
-              ? { conversations: [] }
+              ? {
+                  conversations: ["completed", "running"].map((state, i) => ({
+                    id: "c" + i,
+                    title: "Conversation " + i,
+                    project: "sem-projeto",
+                    state,
+                    execution: { backend: "local", model: "fixture" },
+                  })),
+                }
               : pathname === "/v1/version"
                 ? { version: "fixture", build: "fixture" }
                 : {};
@@ -250,6 +264,84 @@ const path = require("node:path");
       gateBackdrop === "none",
       gateBackdrop,
     );
+
+    // UX-R1-7 / L58: every visible text clears WCAG AA (4.5:1, 3:1 for large text) in every
+    // palette, light and dark, measured from computed colors; status text is at least 11 px.
+    const measureText = () =>
+      page.evaluate(() => {
+        const parse = (c) => {
+          const m = c.match(/rgba?\(([^)]+)\)|color\(srgb ([^)]+)\)/);
+          if (!m) return null;
+          let v = (m[1] || m[2]).split(/[ ,/]+/).map(Number);
+          if (m[2]) v = [v[0] * 255, v[1] * 255, v[2] * 255, v[3] ?? 1];
+          return [v[0], v[1], v[2], v[3] ?? 1];
+        };
+        const over = (top, bottom) =>
+          [0, 1, 2].map((i) => top[i] * top[3] + bottom[i] * (1 - top[3])).concat(1);
+        const lum = (c) => {
+          const f = (x) => ((x /= 255) <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4);
+          return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2]);
+        };
+        const backdrop = (el) => {
+          let bg = over(parse(getComputedStyle(document.documentElement).backgroundColor), [255, 255, 255, 1]);
+          const chain = [];
+          for (let e = el; e; e = e.parentElement) chain.unshift(e);
+          for (const e of chain) {
+            const c = parse(getComputedStyle(e).backgroundColor);
+            if (c && c[3] > 0) bg = over(c, bg);
+          }
+          return bg;
+        };
+        const rows = [];
+        for (const el of document.querySelectorAll("body *")) {
+          if (![...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())) continue;
+          const box = el.getBoundingClientRect(),
+            style = getComputedStyle(el);
+          if (box.width <= 1 || box.height <= 1 || style.visibility === "hidden" || +style.opacity === 0) continue;
+          if (box.right < 0 || box.bottom < 0 || box.left > innerWidth || box.top > innerHeight) continue;
+          if (el.closest("[hidden],[aria-hidden=true],[inert]")) continue;
+          const background = backdrop(el);
+          let fg = parse(style.color);
+          if (fg[3] < 1) fg = over(fg, background);
+          const [hi, lo] = [lum(fg), lum(background)].sort((a, b) => b - a);
+          const size = parseFloat(style.fontSize);
+          rows.push({
+            name: el.id ? "#" + el.id : el.tagName.toLowerCase() + "." + String(el.className).split(" ")[0],
+            text: el.textContent.trim().slice(0, 24),
+            size,
+            ratio: +((hi + 0.05) / (lo + 0.05)).toFixed(2),
+            need: size >= 24 || (size >= 18.66 && +style.fontWeight >= 700) ? 3 : 4.5,
+          });
+        }
+        return rows;
+      });
+    const palettes = await page.evaluate(() => HarnessTheme.themes.map((t) => t.id));
+    assert.equal(palettes.length, 8);
+    const contrastStates = [
+      ["page", async () => {}],
+      ["quota panel", async () => page.evaluate(() => setQuotaOpen(true))],
+      ["search", async () => {
+        await page.evaluate(() => setQuotaOpen(false));
+        await page.keyboard.press("Control+k");
+      }],
+      ["settings", async () => {
+        await page.keyboard.press("Escape");
+        await page.click("#settings");
+      }],
+    ];
+    const lowContrast = [];
+    for (const [stateName, enter] of contrastStates) {
+      await enter();
+      for (const palette of palettes) {
+        await page.evaluate((id) => HarnessTheme.apply(id), palette);
+        await page.waitForTimeout(60);
+        for (const row of await measureText()) {
+          if (row.ratio < row.need) lowContrast.push(`${palette}/${stateName}: ${row.ratio} ${row.name} "${row.text}"`);
+          if (row.size < 11) lowContrast.push(`${palette}/${stateName}: ${row.size}px ${row.name} "${row.text}"`);
+        }
+      }
+    }
+    check("all palettes: text >= 4.5:1 (3:1 large) and >= 11 px", lowContrast.length === 0, [...new Set(lowContrast)].slice(0, 12));
 
     const failures = results.filter((r) => !r.ok);
     for (const r of results)

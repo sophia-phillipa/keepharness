@@ -7,6 +7,18 @@ import signal
 import uuid
 from urllib.parse import urlsplit
 
+# CSI (colours, cursor), OSC (hyperlinks, titles), and ordinary terminal escape sequences.
+ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[ -/]*[0-~]")
+# An escape sequence cut by the end of a read: held back until the next read completes it.
+ANSI_PARTIAL = re.compile(r"\x1b(?:\[[0-?]*[ -/]*|\][^\x07\x1b]*\x1b?|[ -/]+)?$")
+
+
+def strip_ansi(text):
+    """Remove terminal escape codes; the second value is an unfinished trailing sequence."""
+    partial = ANSI_PARTIAL.search(text)
+    held = partial.group(0) if partial else ""
+    return ANSI_ESCAPE.sub("", text[: len(text) - len(held)]), held
+
 
 class Operations:
     def __init__(self):
@@ -23,6 +35,7 @@ class Operations:
 
         async def run():
             proc = None
+            held = ""
             try:
                 proc = await asyncio.create_subprocess_exec(
                     *args,
@@ -40,7 +53,8 @@ class Operations:
                         chunk = await proc.stdout.read(2048)
                         if not chunk:
                             break
-                        text = self.jobs[jid]["output"] + chunk.decode(errors="replace")
+                        fresh, held = strip_ansi(held + chunk.decode(errors="replace"))
+                        text = self.jobs[jid]["output"] + fresh
                         if self.codes.get(jid):
                             text = text.replace(self.codes[jid], "[redacted]")
                         self.jobs[jid]["output"] = text[-12000:]

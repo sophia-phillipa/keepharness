@@ -6,7 +6,7 @@ const path = require("node:path");
 const root = path.join(__dirname, "../agent_service");
 const markup = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/tour.css"></head>
 <body data-connection-ready="false">
-  <header><button data-tour="top-search">Search runs, plans, files</button><span data-tour="quota-meters">Codex 80%</span><button data-tour="attention-bell">Attention</button><button data-tour="settings-admin">Settings</button><button id="take-tour" data-tour-action="start">Take the tour</button></header>
+  <header><button data-tour="rail-areas">Space</button><button data-tour="top-search">Search runs, plans, files</button><span data-tour="quota-meters">Codex 80%</span><button data-tour="attention-bell">Attention</button><button data-tour="settings-admin">Settings</button><button id="take-tour" data-tour-action="start">Take the tour</button></header>
   <aside data-tour="sidebar-state-groups">Needs you · Running · Queued · Done</aside>
   <main><section data-tour="conversation-header">Conversation</section><section data-tour="composer">Composer</section><section data-tour="composer-controls">Access Model Effort</section></main>
   <footer data-tour="status-strip"><button id="run-status-toggle">Open console</button></footer>
@@ -86,7 +86,8 @@ async function actualContext(browser) {
     assert.equal(await first.page.locator("#tour-card").count(), 0, "waits until the app is ready");
     await first.page.evaluate(() => { document.body.dataset.connectionReady = "true"; });
     await first.page.locator("#tour-card").waitFor();
-    assert.match(await first.page.locator("#tour-title").innerText(), /Search/);
+    assert.match(await first.page.locator("#tour-title").innerText(), /Write and route/);
+    assert.match(await first.page.locator("#tour-counter").innerText(), /^1 of 5$/, "D19: the tour has at most five steps");
     assert.equal(await first.page.locator(".tour-spotlight").count(), 1);
 
     await first.page.getByRole("button", { name: "Next" }).click();
@@ -94,9 +95,9 @@ async function actualContext(browser) {
     await first.page.getByRole("button", { name: "Back" }).click();
     assert.match(await first.page.locator("#tour-counter").innerText(), /^1 of /i);
     await first.page.keyboard.press("ArrowRight");
-    assert.match(await first.page.locator("#tour-title").innerText(), /quota/i);
+    assert.match(await first.page.locator("#tour-title").innerText(), /Space, Scheduled/);
     await first.page.keyboard.press("ArrowLeft");
-    assert.match(await first.page.locator("#tour-title").innerText(), /Search/);
+    assert.match(await first.page.locator("#tour-title").innerText(), /Write and route/);
     await first.page.keyboard.press("ArrowRight");
 
     await first.page.evaluate(() => {
@@ -136,9 +137,9 @@ async function actualContext(browser) {
     await actual.page.goto("http://actual-tour.test/");
     await actual.page.locator("#startup-gate").waitFor({ state: "hidden" });
     await actual.page.locator("#tour-card").waitFor();
-    assert.match(await actual.page.locator("#tour-title").innerText(), /Search/);
+    assert.match(await actual.page.locator("#tour-title").innerText(), /Write and route/);
     await actual.page.keyboard.press("Escape");
-    await actual.page.locator("#about").click();
+    await actual.page.locator('#settings').click();await actual.page.locator('#about').click();
     assert.equal(await actual.page.locator("#about-dialog").isVisible(), true);
     await actual.page.locator("#take-tour").click();
     assert.equal(await actual.page.locator("#about-dialog").isVisible(), false, "replay closes About before spotlighting the app");
@@ -165,17 +166,17 @@ async function actualContext(browser) {
       }, palette);
       assert(ratios.card >= 4.5 && ratios.action >= 4.5, `${palette} tour contrast: ${JSON.stringify(ratios)}`);
     }
-    for (let remaining = 14; remaining > 0; remaining--) {
-      if (/Run console views/i.test(await actual.page.locator("#tour-title").innerText())) break;
+    for (let remaining = 5; remaining > 0; remaining--) {
+      if (/Live status/i.test(await actual.page.locator("#tour-title").innerText())) break;
       await actual.page.locator("#tour-next").click();
     }
-    assert.match(await actual.page.locator("#tour-title").innerText(), /Run console views/i);
+    assert.match(await actual.page.locator("#tour-title").innerText(), /Live status and the Run console/i);
     assert.equal(await actual.page.locator("#run-console").isVisible(), true, "console step opens its drawer");
     await actual.page.keyboard.press("Escape");
     assert.equal(await actual.page.locator("#tour-card").count(), 0);
     assert.equal(await actual.page.locator("#run-console").isVisible(), true, "tour Escape is not handled again by the console");
-    assert.equal(await actual.page.evaluate(() => document.activeElement?.id), "about", "replay restores focus to its visible opener");
-    await actual.page.locator("#about").click();
+    assert.equal(await actual.page.evaluate(() => document.activeElement?.id), "prompt", "replay returns to the composer: its opener, About, now lives in the closed Settings (D43)");
+    await actual.page.locator('#settings').click();await actual.page.locator('#about').click();
     await actual.page.locator("#take-tour").click();
     await actual.page.locator("#tour-card").waitFor();
     await actual.page.evaluate(() => setReadiness(false, "Connection interrupted"));
@@ -215,12 +216,12 @@ async function actualContext(browser) {
     await missing.page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
     await missing.page.goto("http://tour.test/");
     await missing.page.evaluate(() => {
-      document.querySelector('[data-tour="top-search"]').remove();
+      document.querySelector('[data-tour="composer"]').remove();
       document.body.dataset.connectionReady = "true";
       window.keepHarnessTour.start();
     });
     await missing.page.locator("#tour-card").waitFor();
-    assert.match(await missing.page.locator("#tour-title").innerText(), /quota/i, "missing targets are skipped");
+    assert.match(await missing.page.locator("#tour-title").innerText(), /Space, Scheduled/, "missing targets are skipped");
     await missing.ctx.close();
 
     const reduced = await context(browser, { reducedMotion: "reduce", viewport: { width: 400, height: 812 } });
@@ -228,7 +229,7 @@ async function actualContext(browser) {
     await reduced.page.evaluate(() => { document.body.dataset.connectionReady = "true"; });
     await reduced.page.locator("#tour-card").waitFor();
     const mobileTitles = [];
-    for (let remaining = 14; remaining > 0; remaining--) {
+    for (let remaining = 5; remaining > 0; remaining--) {
       const title = await reduced.page.locator("#tour-title").innerText();
       mobileTitles.push(title);
       const [mobile, spotlight, pointer] = await Promise.all([
@@ -238,10 +239,10 @@ async function actualContext(browser) {
       ]);
       for (const box of [mobile, spotlight, pointer])
         assert(box.x >= 0 && box.x + box.width <= 400 && box.y >= 0 && box.y + box.height <= 812, `${title} stays inside the mobile viewport`);
-      if (/Settings, Admin/i.test(title)) break;
+      if (/Settings and help/i.test(title)) break;
       await reduced.page.locator("#tour-next").click();
     }
-    assert(mobileTitles.some(title => /Run console views/i.test(title)) && mobileTitles.some(title => /Files and activity/i.test(title)));
+    assert(mobileTitles.some(title => /Live status/i.test(title)) && mobileTitles.some(title => /Settings and help/i.test(title)));
     assert.equal(await reduced.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     assert.equal(await reduced.page.locator("#tour-root").evaluate(el => getComputedStyle(el).getPropertyValue("--tour-duration").trim()), "0ms");
     await reduced.ctx.close();

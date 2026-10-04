@@ -70,7 +70,7 @@ async function unobscured(locator) {
       const seen = new Set();
       while (await page.locator('#tour-root').count()) {
         const title = await page.locator('#tour-title').innerText();
-        if (['Compose and route work', 'Access, model, and effort', 'Live status'].includes(title)) {
+        if (['Write and route work', 'Live status and the Run console'].includes(title)) {
           seen.add(title);
           await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
           await page.waitForFunction(() => [...document.querySelectorAll('#tour-card, .tour-spotlight')].every(node => node.getAnimations().length === 0));
@@ -81,7 +81,7 @@ async function unobscured(locator) {
         assert(await unobscured(page.locator('#tour-next')));
         await page.locator('#tour-next').click();
       }
-      assert.equal(seen.size, 3);
+      assert.equal(seen.size, 2);
       await page.close();
     });
     await check('A1-F5 origin icons inherit the theme foreground', async () => {
@@ -164,7 +164,7 @@ async function unobscured(locator) {
     await check('A2-F5 tour restores focus after its desktop opener becomes hidden', async () => {
       for (const exit of ['Escape', 'Skip']) {
         const page = await fixture(browser, 1000);
-        await page.locator('#about').click();
+        await page.locator('#settings').click();await page.locator('#about').click();
         await page.locator('#about-dialog [data-tour-action=start]').click();
         await page.setViewportSize({ width: 400, height: 844 });
         await page.waitForFunction(() => document.getElementById('activity-panel').hidden && !document.getElementById('about').checkVisibility());

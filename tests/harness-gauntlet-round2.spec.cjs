@@ -61,13 +61,15 @@ const settle = page => page.evaluate(() => Promise.all(document.getAnimations().
       assert(await token.evaluate(n => { const r = n.getBoundingClientRect(), h = document.elementFromPoint(r.x + r.width / 2, r.bottom - 1); return n === h || n.contains(h); }));
       await page.close();
     });
-    await check('A1-F3 mobile tour exposes pane during step and after dismissal', async () => {
+    await check('A1-F3 mobile tour exposes the console during its step and releases it after dismissal', async () => {
       const { page } = await fixture(browser, 400, 812); await page.evaluate(() => keepHarnessTour.start());
-      for (let i = 0; i < 18 && await page.locator('#tour-title').innerText() !== 'Files and activity'; i++) await page.locator('#tour-next').click();
-      assert.equal(await page.locator('#tour-title').innerText(), 'Files and activity'); await settle(page);
-      assert(await page.locator('#run-console').isHidden());
+      for (let i = 0; i < 6 && await page.locator('#tour-title').innerText() !== 'Live status and the Run console'; i++) await page.locator('#tour-next').click();
+      assert.equal(await page.locator('#tour-title').innerText(), 'Live status and the Run console'); await settle(page);
+      assert(await page.locator('#run-console').isVisible());
+      assert(await hit(page.locator('#tour-next')));
       await page.keyboard.press('Escape'); await settle(page);
-      for (const summary of await page.locator('#activity-panel .workspace-section > summary').all()) assert(await hit(summary));
+      assert.equal(await page.locator('#tour-root').count(), 0);
+      assert(await hit(page.locator('#run-status-toggle')));
       await page.close();
     });
     await check('A1-F4 stable hovered Next contrast in three themes', async () => {

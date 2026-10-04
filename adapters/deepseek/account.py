@@ -21,6 +21,47 @@ def store_key(state, token):
     temp.replace(path)
 
 
+async def fetch_balance(key_path):
+    """The raw ``/user/balance`` answer for the stored key, or None when it cannot be read."""
+    try:
+        token = Path(key_path).read_text().strip()
+        async with httpx.AsyncClient(
+            base_url=API, headers={"Authorization": "Bearer " + token}, timeout=10, trust_env=False
+        ) as client:
+            response = await client.get("/user/balance")
+            return response.json() if response.status_code == 200 else None
+    except (OSError, ValueError, httpx.HTTPError):
+        return None
+
+
+def balance_summary(answer):
+    """The balance fields the quota panel shows; amounts stay the strings the provider sent."""
+    infos = answer.get("balance_infos") if isinstance(answer, dict) else None
+    if not isinstance(infos, list) or not infos:
+        return None
+    fields = ("currency", "total_balance", "granted_balance", "topped_up_balance")
+    infos = [
+        info
+        for info in infos
+        if isinstance(info, dict)
+        and all(isinstance(info.get(field), str) and info[field].strip() for field in fields)
+    ]
+    if not infos:
+        return None
+    return {
+        "account_active": answer.get("is_available") is True,
+        "balances": [
+            {
+                "currency": info["currency"],
+                "total": info["total_balance"],
+                "granted": info["granted_balance"],
+                "topped_up": info["topped_up_balance"],
+            }
+            for info in infos
+        ],
+    }
+
+
 async def check(state):
     path = key_file(state)
     if not path.exists():

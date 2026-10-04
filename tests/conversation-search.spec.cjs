@@ -202,15 +202,17 @@ const assert = require("node:assert/strict"),
       "Search runs, plans, files",
     );
     assert.equal(
-      await page.locator("#admin-shortcut-top").getAttribute("href"),
+      await page.locator("#admin-shortcut").getAttribute("href"),
       "http://localhost:8094/admin/",
-      "top admin shortcut must use the URL configured by the service",
+      "admin shortcut must use the URL configured by the service",
     );
+    await page.click("#settings");
     assert.equal(
-      await page.locator("#admin-shortcut-top").isVisible(),
+      await page.locator("#admin-shortcut").isVisible(),
       true,
-      "configured admin shortcut must be available in the top menu",
+      "configured admin shortcut must be available in Settings (D43)",
     );
+    await page.click("#settings-close");
     assert.equal(
       await page.locator("#projects .conversation-model-icon use").getAttribute("href"),
       "/assets/icons.svg#stack-2",

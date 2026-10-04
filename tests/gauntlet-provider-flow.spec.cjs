@@ -121,7 +121,7 @@ const fs = require("node:fs/promises"),
   await p.click("#add-provider");
   await p
     .locator("#provider-options")
-    .getByText("Codex CLI", { exact: false })
+    .getByText("Codex", { exact: true })
     .click();
   await p.waitForFunction(() => !document.body.hasAttribute("aria-busy"));
   await p
@@ -146,7 +146,7 @@ const fs = require("node:fs/promises"),
   await p.reload();
   await p
     .locator("[data-configured-provider=codex]")
-    .getByRole("button", { name: "Edit Codex CLI", exact: true })
+    .getByRole("button", { name: "Edit Codex", exact: true })
     .click();
   await p.waitForFunction(() => !document.body.hasAttribute("aria-busy"));
   assert(
@@ -159,10 +159,10 @@ const fs = require("node:fs/promises"),
   catalog = "beta";
   await p.click("#wizard-cancel");
   await p
-    .getByRole("button", { name: "Check account — Codex CLI", exact: true })
+    .getByRole("button", { name: "Check account — Codex", exact: true })
     .click();
   await idle();
-  await p.getByRole("button", { name: "Edit Codex CLI", exact: true }).click();
+  await p.getByRole("button", { name: "Edit Codex", exact: true }).click();
   await idle();
   assert.match(
     await p.locator("[data-provider=codex]").innerText(),

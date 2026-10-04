@@ -237,7 +237,7 @@ const assert = require("node:assert/strict"),
                 : "text/html",
         });
       });
-      const edit = async (name = "Codex CLI") => {
+      const edit = async (name = "Codex") => {
         await page.locator("[data-panel=providers]").click();
         await page
           .getByRole("button", { name: "Edit " + name, exact: true })
@@ -324,7 +324,7 @@ const assert = require("node:assert/strict"),
             await page.evaluate(() =>
               document.activeElement.getAttribute("aria-label"),
             ),
-            "Edit Codex CLI",
+            "Edit Codex",
           );
         }
         if (profile === 5) {
@@ -348,8 +348,7 @@ const assert = require("node:assert/strict"),
           });
         }
         if (profile === 6) {
-          await page.click("#theme");
-          await page.locator("[data-config-tab=mcp]").click();
+          await page.locator("[data-panel=connection]").click();
           await page.selectOption(
             "#mcp-default-model",
             JSON.stringify(["codex", "fixture"]),
@@ -497,7 +496,7 @@ const assert = require("node:assert/strict"),
           );
         }
         if (profile === 13) {
-          await edit("Local Model via Codex");
+          await edit("Local models");
           await page.locator("#hardware-editor-details summary").click();
           await page.fill("#profile-description", "Draft " + round);
           holdSave = true;

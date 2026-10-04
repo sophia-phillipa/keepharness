@@ -134,6 +134,8 @@ class InferencePlan:
 
 
 EXCERPT_CHARS = 6000
+CODEX_QUOTA_FRESH_SECONDS = 300  # the rail must not show an older Codex percentage as current
+DEEPSEEK_BALANCE_SECONDS = 300
 
 
 def text_length(pages):
@@ -222,6 +224,7 @@ class ConversationService:
         self.claude_usage_lock = asyncio.Lock()
         self.usage_cache = None
         self.usage_at = 0
+        self.deepseek_usage_cache = None
         self.codex_modalities_cache = None
         self.codex_modalities_lock = asyncio.Lock()
         self.claude_video_cache = None
@@ -2760,6 +2763,35 @@ class ConversationService:
                 self.claude_usage_cache = (cache_key, time.monotonic(), snapshot)
             snapshot = self.claude_usage_cache[2]
             return snapshot if snapshot.get("available") else self.observed_claude_quota(owner)
+
+    def observed_codex_quota(self):
+        """The last Codex quota read, or an explicit stale marker once it is too old to trust."""
+        if not self.usage_cache:
+            return None
+        if time.monotonic() - self.usage_at <= CODEX_QUOTA_FRESH_SECONDS:
+            return self.usage_cache
+        return {
+            "available": False,
+            "checked_at": self.usage_cache.get("checked_at"),
+            "reason": "quota_stale",
+        }
+
+    async def deepseek_quota(self):
+        """DeepSeek's prepaid balance, read with the harness key and kept for a few minutes."""
+        from adapters.deepseek import account
+
+        key_file = ((self.config.get("deepseek") or {}).get("api_provider") or {}).get("key_file")
+        if not key_file:
+            return {"provider": "deepseek", "available": False, "reason": "quota_not_reported"}
+        cached = self.deepseek_usage_cache
+        if cached and time.monotonic() - cached[0] < DEEPSEEK_BALANCE_SECONDS:
+            return cached[1]
+        summary = account.balance_summary(await account.fetch_balance(key_file))
+        if summary is None:
+            return {"provider": "deepseek", "available": False, "reason": "balance_unavailable"}
+        result = {"provider": "deepseek", "available": True, "checked_at": time.time(), **summary}
+        self.deepseek_usage_cache = (time.monotonic(), result)
+        return result
 
     async def quota(self, refresh=False):
         if not refresh and self.usage_cache and time.monotonic() - self.usage_at < 15:

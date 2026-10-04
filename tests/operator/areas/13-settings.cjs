@@ -1,6 +1,6 @@
-// Settings: Appearance (themes, panel position, text size), Agents and models, Skills,
-// System (the embedded admin: Providers, Operations, Runs, Catalogs), Connection/MCP,
-// Provider usage and the tour.
+// Settings: Appearance (themes, panel position, text size, theme switch), Customize (agents and
+// skills), Models, System (the embedded admin: Providers, Operations, Run history, Catalogs),
+// Connect a client, Usage, About and the tour.
 "use strict";
 const { home } = require("../lib/app.cjs");
 
@@ -48,21 +48,21 @@ module.exports = {
       await op.select(page.locator("#reading-size"), "15");
     });
 
-    await op.step("agents-models", "Agents and models lists your agents and the model catalog", async () => {
-      await op.click(nav("Agents and models"));
-      await op.see(page.locator("#settings-agents"));
+    await op.step("customize", "Customize lists your agents and the skill catalog", async () => {
+      await op.click(nav("Customize"));
+      await op.see(page.locator("#settings-customize"));
       await op.see(page.locator("#agent-create"));
+      await op.see(page.locator("#catalog-skills"));
+    });
+
+    await op.step("models", "Models lists the plan review policy and the model catalog", async () => {
+      await op.click(nav("Models"));
+      await op.see(page.locator("#settings-models"));
       await op.see(page.locator("#maestro-plan-policy"));
       await op.see(page.locator("#catalog-models"));
     });
 
-    await op.step("skills", "Skills lists the skill catalog", async () => {
-      await op.click(nav("Skills"));
-      await op.see(page.locator("#settings-skills"));
-      await op.see(page.locator("#catalog-skills"));
-    });
-
-    for (const [name, heading] of [["Providers", /AI Providers/], ["Operations", /\S/], ["Runs", /^Runs$/], ["Catalogs and vault", /Catalogs and vault/]])
+    for (const [name, heading] of [["Providers", /AI Providers/], ["Operations", /\S/], ["Run history", /^Runs$/], ["Catalogs and vault", /Catalogs and vault/]])
       await op.step("system-" + name.split(" ")[0].toLowerCase(), `System › ${name} shows the admin inside Settings`, async () => {
         if (!(await dialog.getByRole("group", { name: "System" }).isVisible())) op.skip("System is shown only on the admin's own host");
         await op.click(nav(name));
@@ -78,7 +78,7 @@ module.exports = {
       op.check(await page.frameLocator("#admin-frame").locator(".sidebar").isHidden(), "the embedded admin shows its own sidebar");
     });
 
-    await op.step("connection-mcp", "Connection / MCP shows how to connect a client", async () => {
+    await op.step("connect-a-client", "Connect a client shows how to connect through MCP", async () => {
       await op.click(page.locator("#setup"));
       await op.see(page.locator("#setup-dialog"));
       await op.seeText(page.locator("#setup-code"), /\S/);
@@ -86,7 +86,7 @@ module.exports = {
       await op.gone(page.locator("#setup-dialog"));
     });
 
-    await op.step("provider-usage", "Provider usage opens the quota panel", async () => {
+    await op.step("usage", "Usage opens the quota panel", async () => {
       await open();
       await op.click(page.locator("#settings-quota"));
       await op.see(page.locator("#quota-panel"));
