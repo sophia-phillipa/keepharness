@@ -54,16 +54,17 @@ guests (any caller other than the local owner) and scheduled runs never get it
 - Claude Code: the owner's MCP servers (`~/.claude.json`) and plugins are offered;
   `--setting-sources user,project` plus the owner's `hooks` with the hooks grant; the owner's
   `~/.claude/CLAUDE.md` is appended to the system prompt.
-- `/v1/resources` lists user-scope agents from the owner's folders; without the opt-in it
-  lists those of the harness home (none by default). `/v1/integrations` lists no Codex,
+- `/v1/resources` lists the user-scope agents, skills and commands of the home the CLI reads:
+  the harness home for Codex and Claude, `providers/deepseek` plus
+  `providers/home/.agents/skills` for DeepSeek, whatever the opt-in says; with the opt-in the owner's own `~/.codex` and `~/.claude` skills and
+  commands are listed as unavailable. Claude user skills and
+  commands are listed but unavailable unless the opt-in and the hooks grant are both on (the run
+  then reads the harness home with `--setting-sources user,project`). Gemini lists the owner's
+  `~/.gemini` only with the opt-in, so a guest never sees it. `/v1/integrations` lists no Codex,
   DeepSeek or Claude connector without the opt-in.
-- The "/" palette offers only what the CLI will load. User-scope Claude skills and commands
-  are listed but unavailable (Claude runs read skills from the project only), the owner's
-  Codex skills are unavailable too, and DeepSeek lists its own home (`providers/deepseek` and
-  `providers/home/.agents/skills`), never the Codex one.
 
 Not carried by the opt-in (follow-ups): Codex hook definitions and user skills, which the
-CLI reads only from its own home; Claude user skills (WP-09 materializes or marks them).
+CLI reads only from its own home; the owner's own Claude and Codex skills (the palette lists them as unavailable).
 
 ## Language rule (D30, rule A)
 

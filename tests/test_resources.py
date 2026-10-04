@@ -468,40 +468,89 @@ def skill(name):
     return f"---\nname: {name}\ndescription: {name} skill\n---\nDo {name}"
 
 
-def test_claude_user_skills_and_commands_are_unavailable_with_a_reason(tmp_path, monkeypatch):
+def test_claude_user_skills_load_only_with_the_personal_setup_and_hooks(tmp_path, monkeypatch):
     owner, state, root = tmp_path / "owner", tmp_path / "state", tmp_path / "project"
     monkeypatch.setenv("HOME", str(owner))
     monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
     harness = state / "providers/home/.claude"
-    for base in (harness, owner / ".claude"):
-        put(base, f"skills/{base.parent.name}/SKILL.md", skill(base.parent.name))
-        put(base, f"commands/{base.parent.name}.md", "---\ndescription: cmd\n---\nRun")
+    put(harness, "skills/home/SKILL.md", skill("home"))
+    put(harness, "commands/homecmd.md", "---\ndescription: cmd\n---\nRun")
+    put(owner / ".claude", "skills/owner/SKILL.md", skill("owner"))
     put(root, ".claude/skills/local/SKILL.md", skill("local"))
-    for extra in ({}, {"personal_setup": True}):
+
+    def listed(**extra):
         config = provider_home_config(root, state, "claude", **extra)
-        items = user_items(config, "claude")
-        assert items, extra
-        assert all(not i["selectable"] and i["unavailable_reason"] for i in items.values())
-        assert all("project" in i["preflight_hint"] for i in items.values())
-        project = [i for i in resources.discover(config, "p", "claude")["items"] if i["name"] == "local"]
-        assert [i["selectable"] for i in project] == [True]
-    assert ("skill", "home") in user_items(provider_home_config(root, state, "claude"), "claude")
-    assert ("skill", "owner") in user_items(
-        provider_home_config(root, state, "claude", personal_setup=True), "claude"
-    )
+        return user_items(config, "claude")
+
+    for extra in ({}, {"personal_setup": True}):
+        items = listed(**extra)
+        owned = {("skill", "owner")} if extra else set()
+        assert set(items) == {("skill", "home"), ("command", "homecmd")} | owned, extra
+        assert not any(i["selectable"] for i in items.values())
+        assert all(i["unavailable_reason"] for i in items.values())
+    hooks = {"projects": {"p": {"root": str(root), "permissions": {"delegate": True, "hooks": True}}}}
+    assert not any(i["selectable"] for i in listed(**hooks).values())
+    items = listed(personal_setup=True, **hooks)
+    assert {k for k, i in items.items() if i["selectable"]} == {("skill", "home"), ("command", "homecmd")}
+    assert not items[("skill", "owner")]["selectable"]
+    config = provider_home_config(root, state, "claude")
+    project = [i for i in resources.discover(config, "p", "claude")["items"] if i["name"] == "local"]
+    assert [i["selectable"] for i in project] == [True]
 
 
-def test_codex_user_skills_follow_the_home_the_cli_reads(tmp_path, monkeypatch):
+def test_claude_hint_names_the_folder_for_each_kind(tmp_path, monkeypatch):
+    state, root = tmp_path / "state", tmp_path / "project"
+    monkeypatch.setenv("HOME", str(tmp_path / "owner"))
+    harness = state / "providers/home/.claude"
+    put(harness, "skills/home/SKILL.md", skill("home"))
+    put(harness, "commands/homecmd.md", "---\ndescription: cmd\n---\nRun")
+    items = user_items(provider_home_config(root, state, "claude"), "claude")
+    assert ".claude/skills" in items[("skill", "home")]["preflight_hint"]
+    assert ".claude/commands" in items[("command", "homecmd")]["preflight_hint"]
+    assert not any(".agents" in i["preflight_hint"] for i in items.values())
+
+
+def test_legacy_claude_config_with_hooks_lists_host_skills_as_available(tmp_path, monkeypatch):
+    owner, root = tmp_path / "owner", tmp_path / "project"
+    monkeypatch.setenv("HOME", str(owner))
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+    put(owner / ".claude", "skills/owner/SKILL.md", skill("owner"))
+    config = {
+        **cfg(root, "claude"),
+        "personal_setup": True,
+        "projects": {"p": {"root": str(root), "permissions": {"hooks": True}}},
+    }
+    assert [i["selectable"] for i in user_items(config, "claude").values()] == [True]
+
+
+def test_codex_lists_the_harness_home_whatever_the_opt_in_says(tmp_path, monkeypatch):
     owner, state, root = tmp_path / "owner", tmp_path / "state", tmp_path / "project"
     monkeypatch.setenv("HOME", str(owner))
     monkeypatch.delenv("CODEX_HOME", raising=False)
     put(state / "providers/home/.codex", "skills/harness/SKILL.md", skill("harness"))
+    put(state / "providers/home", ".agents/skills/shared/SKILL.md", skill("shared"))
     put(owner / ".codex", "skills/owner/SKILL.md", skill("owner"))
-    items = user_items(provider_home_config(root, state, "codex"), "codex")
-    assert [(k, i["selectable"]) for k, i in items.items()] == [(("skill", "harness"), True)]
-    items = user_items(provider_home_config(root, state, "codex", personal_setup=True), "codex")
-    assert [(k, i["selectable"]) for k, i in items.items()] == [(("skill", "owner"), False)]
-    assert items[("skill", "owner")]["unavailable_reason"]
+    for extra in ({}, {"personal_setup": True}):
+        items = user_items(provider_home_config(root, state, "codex", **extra), "codex")
+        listed = {name: i["selectable"] for (_, name), i in items.items()}
+        # The owner's own skill shows only with the opt-in, and never as runnable.
+        assert listed == {"harness": True, "shared": True, **({"owner": False} if extra else {})}
+        assert bool(items.get(("skill", "owner"), {}).get("unavailable_reason")) is bool(extra)
+
+
+def test_gemini_user_commands_need_the_personal_setup(tmp_path, monkeypatch):
+    owner, root = tmp_path / "owner", tmp_path / "project"
+    monkeypatch.setenv("HOME", str(owner))
+    monkeypatch.delenv("GEMINI_CLI_HOME", raising=False)
+    put(owner / ".gemini", "commands/mine.toml", 'prompt = "Private"')
+    put(root, ".gemini/commands/shared.toml", 'prompt = "Project"')
+    names = lambda **extra: {  # noqa: E731
+        i["name"]: i["scope"]
+        for i in resources.discover({**cfg(root, "gemini"), **extra}, "p", "gemini")["items"]
+    }
+    # A guest's catalog is built with personal_setup forced off (conversation_service).
+    assert names(personal_setup=False) == {"shared": "project"}
+    assert names(personal_setup=True) == {"shared": "project", "mine": "user"}
 
 
 def test_deepseek_lists_its_own_home_not_the_codex_one(tmp_path, monkeypatch):

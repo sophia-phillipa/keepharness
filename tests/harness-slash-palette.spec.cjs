@@ -79,9 +79,9 @@ const path = require("node:path");
                 group: "Skills",
                 source: "/home/owner/.claude/skills/personal/SKILL.md",
                 selectable: false,
-                unavailable_reason:
-                  "Claude runs load skills and commands only from the project, not from user folders.",
-                preflight_hint: "Copy the resource into the project's .claude/skills or .agents/skills folder.",
+                unavailable_reason: "Claude loads user skills only with the personal setup and hooks on.",
+                preflight_hint:
+                  "Copy the skill into the project's .claude/skills folder, or turn on the personal setup and hooks.",
               },
               {
                 id: "catalog/demo/rules/paths.md",
@@ -264,7 +264,7 @@ const path = require("node:path");
     // L06: a user-scope Claude skill the run never loads is shown disabled with its reason.
     const personal = page.locator('#resource-menu [data-resource-id="user/claude/skills/personal/SKILL.md"]');
     assert(await personal.isDisabled());
-    assert.match(await personal.innerText(), /only from the project/);
+    assert.match(await personal.innerText(), /only with the personal setup and hooks on/);
     await personal.click({ force: true });
     assert.equal(await page.inputValue("#prompt"), "/");
     await reviewer.focus();

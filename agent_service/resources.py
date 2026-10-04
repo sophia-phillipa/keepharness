@@ -23,10 +23,21 @@ ENGINES = {
     "claude": "claude",
     "gemini": "gemini",
 }
-CLAUDE_USER_UNLOADED = (
-    "Claude runs load skills and commands only from the project, not from user folders."
-)
-CODEX_OWNER_UNLOADED = "The owner's Codex skills are not loaded in the harness-owned provider home."
+# Claude reads user skills and commands only with the personal setup and hooks on; the folder
+# the hint names is the one the project source reads.
+CLAUDE_UNLOADED = {
+    kind: (
+        f"Claude loads user {kind}s only with the personal setup and hooks on.",
+        f"Copy the {kind} into the project's .claude/{kind}s folder, or turn on the personal "
+        "setup and hooks.",
+    )
+    for kind in ("skill", "command")
+}
+OWNER_UNLOADED = "The run reads the harness-owned provider home, not the owner's own folders."
+UNLOADED_HINTS = {
+    **dict(CLAUDE_UNLOADED.values()),
+    OWNER_UNLOADED: "Copy the resource into the project's folders or the harness-owned home.",
+}
 NAME = re.compile(r"^[\w.:-]{1,160}$")
 
 
@@ -192,8 +203,8 @@ def argument_hint(meta, body, name):
 
 
 def preflight_hint(reason):
-    if reason in (CLAUDE_USER_UNLOADED, CODEX_OWNER_UNLOADED):
-        return "Copy the resource into the project's .claude/skills or .agents/skills folder."
+    if reason in UNLOADED_HINTS:
+        return UNLOADED_HINTS[reason]
     if not reason:
         return "Ready to invoke with the current provider and execution mode."
     if "disabled" in reason.lower():
@@ -210,15 +221,17 @@ def preflight_hint(reason):
 
 
 def roots(backend, engine, config):
-    """User-scope roots: the harness home's, or the owner's when they opted in (decision D01).
+    """User-scope roots: the home the provider CLI reads, or none (decision D01).
 
-    DeepSeek always reads its own Codex home, whatever the opt-in says.
+    With a state folder, Codex and Claude read their harness-owned home whatever the opt-in
+    says, and DeepSeek its own Codex home. Gemini keeps the owner's home, shown only with the
+    personal setup; a guest's catalog is built with it off.
     """
     home = Path.home()
     state = engine in ("codex", "claude") and config.get("control_state_dir")
     if state and backend == "deepseek":
         return homes_root(state) / "deepseek", [homes_root(state) / "home/.agents/skills"]
-    if state and config.get("personal_setup") is not True:
+    if state:
         home = homes_root(state) / "home"
         return home / ("." + engine), ([home / ".agents/skills"] if engine == "codex" else [])
     if engine == "codex":
@@ -226,22 +239,31 @@ def roots(backend, engine, config):
     if engine == "claude":
         return Path(os.environ.get("CLAUDE_CONFIG_DIR", home / ".claude")), []
     if engine == "gemini":
+        if config.get("personal_setup") is not True:
+            return None, []
         return Path(os.environ.get("GEMINI_CLI_HOME", home)) / ".gemini", [home / ".agents/skills"]
     raise ValueError("unsupported_resource_engine")
 
 
-def unloaded_user_resource(backend, engine, kind, config):
+def owner_root(backend, engine, config):
+    """The owner's own config folder, listed (unavailable) beside the harness home under the opt-in."""
+    if not config.get("control_state_dir") or config.get("personal_setup") is not True:
+        return None
+    if backend == "deepseek" or engine not in ("codex", "claude"):
+        return None
+    variable = "CODEX_HOME" if engine == "codex" else "CLAUDE_CONFIG_DIR"
+    return Path(os.environ.get(variable, Path.home() / ("." + engine)))
+
+
+def unloaded_user_resource(engine, kind, config, hooks):
     """Why the provider CLI will not read this user-scope resource itself, or an empty string.
 
-    Claude runs read skills and commands from the project only (``--setting-sources project``),
-    and the Codex home never holds the owner's skills (decision D01, docs/provider-homes.md).
+    Claude reads user skills and commands (from its config folder) only when a run starts with
+    ``--setting-sources user,project``: the personal setup plus the hooks grant.
     """
-    if engine == "claude" and kind in ("skill", "command"):
-        return CLAUDE_USER_UNLOADED
-    personal = config.get("control_state_dir") and config.get("personal_setup") is True
-    if backend == "codex" and kind == "skill" and personal:
-        return CODEX_OWNER_UNLOADED
-    return ""
+    if engine != "claude" or kind not in CLAUDE_UNLOADED:
+        return ""
+    return "" if config.get("personal_setup") is True and hooks else CLAUDE_UNLOADED[kind][0]
 
 
 def files(base, boundary, global_roots, kind):
@@ -301,6 +323,7 @@ def discover(
     from .catalog_pin import effective_catalogs, snapshot_catalogs
     from .harness_agents import add_resources
     from .integrations import integration_preflight
+    from .maestro import model_permissions
     from .workflows import discover_workflows
 
     engine = ENGINES.get(backend)
@@ -325,6 +348,7 @@ def discover(
         result["warnings"].append("Native resources require a native-mode execution.")
         return result
     project = config["projects"][project_id]
+    hooks = model_permissions(config, backend, model, project_id).get("hooks") is True
     root = Path(project["root"]).resolve() if project.get("root") else None
     global_base, shared = roots(backend, engine, config)
     sources = []
@@ -510,7 +534,10 @@ def discover(
             namespace,
         )
 
-    add(global_base, "user", engine, None, "user/" + engine, global_base)
+    if global_base is not None:
+        add(global_base, "user", engine, None, "user/" + engine, global_base)
+    if owner_home := owner_root(backend, engine, config):
+        add(owner_home, "user", engine, None, "owner/" + engine, owner_home)
     if engine == "codex":
         source(
             global_base / "prompts",
@@ -624,8 +651,10 @@ def discover(
                         (backend == "local" and scope == "user") or kind == "agent"
                     ):
                         reason = "This resource is not available in the isolated environment of this executor."
-                    if scope == "user" and kind != "agent":
-                        reason = unloaded_user_resource(backend, engine, kind, config) or reason
+                    if source_spec["identity"].startswith("owner/") and kind != "agent":
+                        reason = OWNER_UNLOADED
+                    elif scope == "user" and kind != "agent":
+                        reason = unloaded_user_resource(engine, kind, config, hooks) or reason
                     delegate_allowed = project.get("permissions", {}).get("delegate") is True
                     declared_mode = str(meta.get("mode", "")).strip()
                     if (
