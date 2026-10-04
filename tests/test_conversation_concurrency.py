@@ -213,3 +213,57 @@ def test_stalled_upload_does_not_block_others(tmp_path):
         asyncio.run(scenario())
     finally:
         service.db.close()
+
+
+def test_concurrent_uploads_at_the_cap_are_refused_before_writing(tmp_path, monkeypatch):
+    """Each upload reserves the largest file size up front, so a burst cannot overshoot the cap."""
+    from agent_service import tools
+    from agent_service.services import retention
+
+    monkeypatch.setattr(retention, "MAX_PROJECT_UPLOAD_BYTES", 1000)
+    monkeypatch.setattr(tools, "MAX_ATTACHMENT_BYTES", 400)
+    cfg = _config(tmp_path, ["a"])
+    cfg["uploads_enabled"] = True
+    app = create_app(cfg)
+    service = app.state.service
+
+    def stored_bytes():
+        return sum(p.stat().st_size for p in (tmp_path / "files").rglob("source"))
+
+    async def scenario():
+        started, release = asyncio.Event(), asyncio.Event()
+
+        async def body():
+            yield b"x" * 300
+            started.set()
+            await release.wait()
+
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            tasks = [
+                asyncio.create_task(
+                    client.post(
+                        "/v1/files?project_id=p",
+                        content=body(),
+                        headers={"Authorization": "Bearer a", "X-Filename": f"f{n}.txt"},
+                    )
+                )
+                for n in range(5)
+            ]
+            await asyncio.wait_for(started.wait(), 2)
+            await asyncio.sleep(0.1)
+            try:
+                assert stored_bytes() <= 1000
+            finally:
+                release.set()
+            responses = await asyncio.wait_for(asyncio.gather(*tasks), 5)
+        assert sorted(r.status_code for r in responses) == [201, 201, 413, 413, 413]
+        assert {r.json()["code"] for r in responses if r.status_code == 413} == {"upload_limit"}
+        assert stored_bytes() <= 1000
+        assert service.upload_pending["p"] == 0
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        service.db.close()

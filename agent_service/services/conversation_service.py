@@ -135,6 +135,7 @@ class InferencePlan:
 
 
 EXCERPT_CHARS = 6000
+MAX_CONCURRENT_EXTRACTIONS = 4
 CODEX_QUOTA_FRESH_SECONDS = 300  # the rail must not show an older Codex percentage as current
 DEEPSEEK_BALANCE_SECONDS = 300
 
@@ -222,6 +223,7 @@ class ConversationService:
         # Held only for the quota check and reservation, never across a body or extraction.
         self.upload_lock = asyncio.Lock()
         self.upload_pending = Counter()
+        self.extract_slots = asyncio.Semaphore(MAX_CONCURRENT_EXTRACTIONS)
         self.workspace_uploads_pending = 0
         self.provider_usage = {}
         self.claude_usage_cache = None
@@ -644,13 +646,32 @@ class ConversationService:
         )
         return bool(self.config.get("uploads_enabled")) or override is True or explicit_model
 
-    async def reserve_upload(self, project, size, digest, dest):
-        """Admit an upload against stored plus in-flight bytes; the caller releases ``added``."""
+    async def reserve_upload_slot(self, project, slot=tools.MAX_ATTACHMENT_BYTES):
+        """Hold ``slot`` bytes (the declared size, or the largest single upload) against the
+        project cap before the body is written; the caller refuses a body that grows past it.
+
+        The caller settles it with ``settle_upload`` and releases what it still holds in a
+        ``finally``; the returned amount is that hold.
+        """
         async with self.upload_lock:
             used = self.message_repository.project_bytes(project) + self.upload_pending[project]
-            added = retention.admit_upload(self, project, used, size, digest, dest)
-            self.upload_pending[project] += added
+            if used + slot > retention.MAX_PROJECT_UPLOAD_BYTES:
+                raise APIError("upload_limit", 413)
+            self.upload_pending[project] += slot
+        return slot
+
+    async def settle_upload(self, project, slot, size, digest, dest):
+        """Swap the slot for the bytes the finished upload really adds (0 for a duplicate)."""
+        async with self.upload_lock:
+            used = self.message_repository.project_bytes(project) + self.upload_pending[project]
+            added = retention.admit_upload(self, project, used - slot, size, digest, dest)
+            self.upload_pending[project] += added - slot
         return added
+
+    async def extract_upload(self, dest, name):
+        """Extract text from a stored upload, a few at a time."""
+        async with self.extract_slots:
+            return await tools.extract(dest, name)
 
     async def attach_project_files(
         self,
@@ -674,7 +695,7 @@ class ConversationService:
             dest = folder / "source"
             digest = hashlib.sha256()
             copied = 0
-            added = 0
+            held = 0
             try:
                 with workspaces.open_attachment_source(source) as input:
                     await asyncio.to_thread(
@@ -683,6 +704,8 @@ class ConversationService:
                     size = os.fstat(input.fileno()).st_size
                     if size > limit:
                         raise APIError("upload_limit", 413)
+                    limit = size
+                    held = await self.reserve_upload_slot(project, size)
                     with dest.open("xb") as output:
                         while chunk := input.read(65536):
                             copied += len(chunk)
@@ -690,7 +713,7 @@ class ConversationService:
                                 raise APIError("upload_limit", 413)
                             output.write(chunk)
                             digest.update(chunk)
-                added = await self.reserve_upload(project, copied, digest.hexdigest(), dest)
+                held = await self.settle_upload(project, held, copied, digest.hexdigest(), dest)
                 if source.suffix.lower() == ".mp4":
                     choices = maestro.candidates(self.config, project, uploads=True)
                     if not any(
@@ -701,7 +724,7 @@ class ConversationService:
                     await self.validate_video(
                         backend, model, execution_mode or self.default_execution_mode(backend)
                     )
-                pages = await tools.extract(dest, name)
+                pages = await self.extract_upload(dest, name)
                 if any(page.get("media_type") for page in pages):
                     choices = maestro.candidates(self.config, project, uploads=True)
                     if not any(
@@ -749,7 +772,7 @@ class ConversationService:
                 shutil.rmtree(folder)
                 raise
             finally:
-                self.upload_pending[project] -= added
+                self.upload_pending[project] -= held
         return {"attachments": attachments, "skipped": skipped}
 
     def conversation_rows(self, identity):

@@ -200,13 +200,14 @@ def test_attachment_profile(api, round_no, profile):
         assert response.status_code == 201, response.text
         assert "preview_url" not in response.json()
         assert client.get("/v1/files/" + response.json()["file_id"] + "/preview").status_code == 404
-    else:  # Bypass attempt via declared Content-Length does not make binary data valid.
+    else:  # A body longer than its declared Content-Length is refused and never stored.
         response = client.post(
             "/v1/files?project_id=p",
             content=b"\x00" * round_no,
             headers={"X-Filename": "fake.csv", "Content-Length": "0", "Content-Type": "text/plain"},
         )
-        assert response.status_code == 422
+        assert response.status_code == 413
+        assert response.json()["code"] == "upload_limit"
         assert not list((service.root / "files").rglob("source"))
 
 

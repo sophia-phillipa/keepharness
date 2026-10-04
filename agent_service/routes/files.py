@@ -389,10 +389,16 @@ async def upload_file(request, service, identity):
     folder.mkdir(parents=True, mode=0o700)
     dest = folder / "source"
     size = 0
-    added = 0
+    held = 0
     digest = hashlib.sha256()
     file_limit = tools.MAX_ATTACHMENT_BYTES
+    declared = request.headers.get("content-length", "")
     try:
+        if declared.isdigit():
+            if int(declared) > file_limit:
+                raise APIError("upload_limit", 413)
+            file_limit = int(declared)
+        held = await service.reserve_upload_slot(project, file_limit)
         with dest.open("xb") as out:
             async with asyncio.timeout(600):
                 async for chunk in request.stream():
@@ -401,7 +407,7 @@ async def upload_file(request, service, identity):
                         raise APIError("upload_limit", 413)
                     out.write(chunk)
                     digest.update(chunk)
-        added = await service.reserve_upload(project, size, digest.hexdigest(), dest)
+        held = await service.settle_upload(project, held, size, digest.hexdigest(), dest)
         identity = require_current_upload(request, service, project)
         if Path(filename).suffix.lower() == ".mp4":
             backend = request.query_params.get("backend")
@@ -417,7 +423,7 @@ async def upload_file(request, service, identity):
         require_current_upload(
             request, service, project, selected_media=Path(filename).suffix.lower() == ".mp4"
         )
-        pages = await tools.extract(dest, filename)
+        pages = await service.extract_upload(dest, filename)
         if any(page.get("media_type") for page in pages):
             backend = request.query_params.get("backend")
             model = request.query_params.get("model")
@@ -450,7 +456,7 @@ async def upload_file(request, service, identity):
         shutil.rmtree(folder)
         raise
     finally:
-        service.upload_pending[project] -= added
+        service.upload_pending[project] -= held
     return JSONResponse(
         {
             "file_id": fid,
