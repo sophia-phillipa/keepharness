@@ -461,11 +461,14 @@ def test_non_local_views_redacted(tmp_path, monkeypatch):
         "projects": ["sem-projeto"],
         "permissions": {"read": True},
     }
+    # The owner's user-scope skills are offered only with the personal-setup opt-in (D01), a
+    # top-level setting; non-local identities must never see them or their home paths.
     cfg = owner_config(
         tmp_path,
         control_state_dir=str(control),
         services={"claude": service},
         project_registration=True,
+        personal_setup=True,
     )
     app = create_app(cfg)
     owner = {local_access.COOKIE: LOCAL_SECRET}
@@ -513,8 +516,7 @@ def test_non_local_views_redacted(tmp_path, monkeypatch):
             agent = views["guest"]["/v1/harness-agents"].json()["agents"][0]
             assert (agent["name"], agent["available"]) == ("release-checker", True)
             items = views["guest"]["/v1/resources"].json()["items"]
-            skill_item = next(item for item in items if item["name"] == "private-skill")
-            assert skill_item["source"] == skill_item["resource_id"]
+            assert "private-skill" not in {item["name"] for item in items}
             guest_dirs = await client.get(
                 "/v1/project-directories", headers={"Authorization": "Bearer vpn"}
             )
