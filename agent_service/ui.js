@@ -8435,7 +8435,7 @@ function renderConversationSearch() {
   $("search-results").textContent = total
     ? total + " result(s) found"
     : query
-      ? "No run, plan step, or loaded file matched."
+      ? "No run or loaded file matched."
       : "No runs, plans, or loaded files are available.";
   const sections = [];
   const group = (name, items) => {
