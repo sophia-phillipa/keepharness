@@ -2376,7 +2376,8 @@ class ConversationService:
         if approval_policy.mode_disabled(self.config, mode):
             raise APIError("full_access_disabled", 403)
         # Unattended runs have no internet unless their task opts in (D03).
-        if data.get("schedule_id") and data.get("schedule_internet") is not True:
+        offline_schedule = data.get("schedule_id") and data.get("schedule_internet") is not True
+        if offline_schedule:
             permissions["internet"] = False
         if backend == "claude":
             permissions["delegate"] = project_config.get("permissions", {}).get("delegate") is True
@@ -2433,6 +2434,9 @@ class ConversationService:
             backend == "local" and "model_permissions" in self.config["services"][backend]
         ):
             backend_config = {**backend_config, "integrations": [], "unrestricted": False}
+        # Gemini connectors need the network, so an offline schedule runs without them (D03).
+        if offline_schedule and backend == "gemini":
+            backend_config = {**backend_config, "integrations": []}
         if data.get("_planning_only"):
             project_config = {"permissions": {}}
             backend_config = {**backend_config, "integrations": [], "unrestricted": False}

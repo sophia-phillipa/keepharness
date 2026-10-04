@@ -29,6 +29,13 @@ def api(config, clock):
         config["services"][name]["permissions"] = {"read": True, "internet": True}
         config[name] = {"binary": "fixture"}
     config["claude_models"] = {"sonnet": ["configured"]}
+    config["services"]["gemini"] = {
+        **config["services"]["codex"],
+        "models": ["auto-gemini-3"],
+        "permissions": {"read": True, "internet": True},
+    }
+    config["gemini_models"] = {"auto-gemini-3": ["configured"]}
+    config["gemini"] = {"binary": "fixture", "integrations": ["mcp:drive"]}
     with TestClient(create_app(config), headers=ALICE) as client:
         yield client
 
@@ -76,11 +83,10 @@ def test_a_client_cannot_grant_internet_to_its_own_job(api):
 
 def scheduled_run(api, backend, allow_internet):
     """The project and backend config a scheduled run would hand to the provider."""
-    route = (
-        {"backend": "claude", "model": "sonnet", "effort": "configured"}
-        if backend == "claude"
-        else {}
-    )
+    route = {
+        "claude": {"backend": "claude", "model": "sonnet", "effort": "configured"},
+        "gemini": {"backend": "gemini", "model": "auto-gemini-3", "effort": "configured"},
+    }.get(backend, {})
     created = make(api, allow_internet=allow_internet, **route)
     job_id = api.post("/v1/schedules/" + created["id"] + "/run").json()["job_id"]
     service = api.app.state.service
@@ -128,6 +134,25 @@ def test_claude_scheduled_runs_get_no_web_tools_unless_opted_in(api, tmp_path, a
         )
     tools = command[command.index("--tools") + 1].split(",")
     assert ("WebFetch" in tools, "WebSearch" in tools) == (allow_internet, allow_internet)
+
+
+@pytest.mark.parametrize("allow_internet", [False, True])
+def test_gemini_scheduled_runs_drop_connectors_without_internet(
+    api, tmp_path, monkeypatch, allow_internet
+):
+    """Connectors need the network (D03): without it the run starts and carries none."""
+    from adapters.gemini.policy import prepare
+
+    # Connectors are the owner's own (D04): make the schedule's client the owner.
+    monkeypatch.setattr("agent_service.harness_agents.LOCAL_CLIENT", "a")
+    project, config = scheduled_run(api, "gemini", allow_internet)
+    assert config["integrations"] == (["mcp:drive"] if allow_internet else [])
+    with (
+        patch("adapters.gemini.policy.SYSTEM_POLICIES", tmp_path / "absent"),
+        patch("adapters.gemini.policy.SYSTEM_SETTINGS", tmp_path / "absent.json"),
+        patch("adapters.gemini.policy.configurations", return_value={"gemini": {"drive": {}}}),
+    ):
+        prepare(config, tmp_path, project["permissions"], project["access_mode"])
 
 
 def test_an_attended_follow_up_keeps_the_provider_grant(api):

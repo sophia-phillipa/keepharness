@@ -38,7 +38,7 @@ adapter enforces as follows:
 | --- | --- |
 | Codex, DeepSeek | `web_search="disabled"` and the turn's sandbox has `networkAccess:false`; a command that needs the network escalates and is denied (`unattended`) |
 | Claude Code | `WebFetch` and `WebSearch` are not in `--tools`; `Bash` asks in Ask mode, so it is denied (`unattended`), and Read only has no `Bash` |
-| Gemini | `google_web_search` and `web_fetch` are denied by the run policy; a run with connectors selected fails with `gemini_integration_denied` |
+| Gemini | `google_web_search` and `web_fetch` are denied by the run policy; the run drops the selected connectors, which need the network, instead of failing with `gemini_integration_denied` |
 | Local models | no web research tool and no network in the sandbox |
 
 With `allow_internet: true` the run gets the provider's own internet grant, never more.
