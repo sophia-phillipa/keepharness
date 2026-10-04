@@ -23,6 +23,8 @@ FAIL_ON = 'case "$*" in ${FAIL:-__never__}) echo "stub failed: $*" >&2; exit 1 ;
 # `pip wheel --wheel-dir DIR` leaves one wheel in DIR, as the real build does.
 WHEEL = (
     'case "$*" in *"pip wheel"*)\n'
+    '  for source; do :; done\n'
+    '  [ -z "${SOURCE_LIST:-}" ] || (cd "$source" && find . -type f | sort > "$SOURCE_LIST")\n'
     '  while [ $# -gt 0 ]; do\n'
     '    if [ "$1" = --wheel-dir ]; then mkdir -p "$2" && : > "$2/keepharness-0.15.0-py3-none-any.whl"; fi\n'
     "    shift\n"
@@ -75,7 +77,7 @@ def install(tmp_path):
             **extra,
         }
         run.result = subprocess.run(
-            ["sh", str(ROOT / "install.sh"), *args],
+            ["sh", str(run.script), *args],
             env=environment,
             check=check,
             capture_output=True,
@@ -87,6 +89,7 @@ def install(tmp_path):
         pattern = re.escape(str(temporary)) + r"/keepharness-install\.\w+"
         return [re.sub(pattern, "TMP", line) for line in calls.read_text().splitlines()]
 
+    run.script = ROOT / "install.sh"
     run.venv = venv
     run.temporary = temporary
     return run
@@ -183,6 +186,50 @@ def test_the_wheel_is_built_from_a_copy_of_the_tracked_files(install):
     calls = install("--port", "8094")
     (build,) = [call for call in calls if " -m pip wheel " in call]
     assert build.endswith(" TMP/source")  # never the checkout itself
+
+
+def source_tree(root, *, git):
+    """A checkout shaped like the real one: code, committed brand assets, build output, secrets."""
+    for name in ("pkg/mod.py", "desktop/build/icon.png", "build/lib/old.py", "state/s.json", "k.key"):
+        (root / name).parent.mkdir(parents=True, exist_ok=True)
+        (root / name).write_text("x")
+    (root / "install.sh").write_text((ROOT / "install.sh").read_text())
+    if git:
+        (root / ".gitignore").write_text("/build/\n/state/\n*.key\n")
+        subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+        subprocess.run(["git", "-C", str(root), "add", ".gitignore", "pkg", "install.sh"], check=True)
+
+
+def built_from(install, tmp_path, root):
+    listing = tmp_path / "source-list"
+    install.script = root / "install.sh"
+    install("--port", "8094", SOURCE_LIST=str(listing))
+    return set(listing.read_text().split())
+
+
+def test_a_checkout_inside_another_repository_is_copied_whole_minus_build_and_secrets(
+    install, tmp_path
+):
+    outer = tmp_path / "outer"
+    outer.mkdir()
+    subprocess.run(["git", "-C", str(outer), "init", "-q"], check=True)
+    root = outer / "keepharness-0.15.0"
+    root.mkdir()
+    source_tree(root, git=False)
+    assert built_from(install, tmp_path, root) == {
+        "./install.sh", "./pkg/mod.py", "./desktop/build/icon.png",
+    }
+
+
+def test_a_checkout_that_is_its_own_repository_copies_untracked_files_but_not_ignored_ones(
+    install, tmp_path
+):
+    root = tmp_path / "checkout"
+    root.mkdir()
+    source_tree(root, git=True)  # desktop/build/icon.png stays untracked
+    assert built_from(install, tmp_path, root) == {
+        "./.gitignore", "./install.sh", "./pkg/mod.py", "./desktop/build/icon.png",
+    }
 
 
 def test_a_failure_after_the_move_says_how_to_go_back(install):
