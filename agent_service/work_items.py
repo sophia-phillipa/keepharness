@@ -4,6 +4,7 @@ import json
 import re
 import subprocess
 import sys
+import threading
 
 from .errors import APIError
 
@@ -59,18 +60,7 @@ def invocation_reference(config, project, data):
     if len(payload.encode()) > 2_000_000:
         raise APIError("payload_limit", 413)
     try:
-        # One isolated child for the entire request, including startup in the budget.
-        # run() kills and reaps the child on timeout; no worker can outlive admission.
-        result = subprocess.run(
-            [sys.executable, "-I", "-c", _MATCH_REFERENCES],
-            input=payload,
-            capture_output=True,
-            text=True,
-            timeout=0.1,
-        )
-        if result.returncode:
-            raise ValueError("pattern worker failed")
-        matches = json.loads(result.stdout)
+        matches = json.loads(_run_worker(payload))
     except (subprocess.TimeoutExpired, OSError, ValueError):
         raise APIError("invalid_work_item_pattern") from None
     values = {validate_reference(value) for value in matches}
@@ -79,8 +69,47 @@ def invocation_reference(config, project, data):
     return next(iter(values), None)
 
 
+# Interpreter start-up is not attacker-controlled, so a busy host only delays it: the
+# allowance is generous. Matching is what backtracking can inflate, so only it is tight.
+_STARTUP_SECONDS = 10.0
+_MATCH_SECONDS = 0.5
+
+
+def _run_worker(payload):
+    """Run the matcher in one isolated child and return its stdout.
+
+    The child prints a ready line once the interpreter and ``re`` are loaded; the match
+    deadline starts only then, so a loaded host never rejects a valid pattern.
+    Every exit path kills and reaps the child; no worker can outlive admission.
+    """
+    with subprocess.Popen(
+        [sys.executable, "-I", "-c", _MATCH_REFERENCES],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+    ) as child:
+        startup_guard = threading.Timer(_STARTUP_SECONDS, child.kill)
+        startup_guard.start()
+        try:
+            ready = child.stdout.readline()
+        finally:
+            startup_guard.cancel()
+        try:
+            if ready != "ready\n":
+                raise ValueError("pattern worker failed to start")
+            output, _ = child.communicate(payload, timeout=_MATCH_SECONDS)
+            if child.returncode:
+                raise ValueError("pattern worker failed")
+            return output
+        except BaseException:
+            child.kill()
+            raise
+
+
 _MATCH_REFERENCES = r"""
 import json, re, sys
+print("ready", flush=True)
 matches = set()
 for pattern, text in json.load(sys.stdin):
     for match in re.finditer(pattern, text):
