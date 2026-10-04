@@ -3075,7 +3075,6 @@ function describeExecutionData(value) {
     effort: "Effort",
     role: "Role",
     steps: "Steps",
-    coordinator: "Maestro",
     metrics: "Metrics",
     text: "Message",
     tool: "Tool",

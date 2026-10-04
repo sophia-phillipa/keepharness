@@ -7,7 +7,6 @@ const $ = (id) => document.getElementById(id);
 let providers = {},
   models = [],
   files = [],
-  currentMaestroPlan = null,
   observedActivityJobs = [],
   job = "",
   last = 0,
@@ -511,7 +510,6 @@ function catalogResourceMeta(item) {
 }
 function builtinResources() {
   return [
-    ...(models.some(model => model.backend === "maestro") ? [{ id:"builtin/maestro", revision:"ui", kind:"builtin", name:"maestro", description:"Generate a plan with the configured coordinator", scope:"builtin", origin:"Harness", group:"Built-ins", selectable:true, action:"maestro" }] : []),
     {
       id: "builtin/model",
       revision: "ui",
@@ -737,12 +735,6 @@ function selectResource(item, trigger) {
     closeResourceMenu();
     updateComposer();
     saveView();
-    if (item.action === "maestro") {
-      $("model").value = "auto";
-      $("model").dispatchEvent(new Event("change"));
-      input.focus();
-      return;
-    }
     const action = $(item.action);
     action?.focus();
     action?.click();
@@ -940,10 +932,10 @@ try {
     JSON.parse(localStorage.getItem("chat-selection") || "{}") || {};
 } catch {}
 const labels = {
-  maestro_planning: "Maestro is planning",
+  maestro_planning: "Planning",
   maestro_planning_completed: "Plan ready",
   maestro_plan: "Agents selected",
-  maestro_step: "Running Maestro step",
+  maestro_step: "Running workflow step",
   answer_delta: "Responding",
   reasoning_delta: "Thinking",
   reasoning_summary: "Reasoning summary",
@@ -1030,7 +1022,7 @@ const modelIcon = (id) => {
 const providerNames = HarnessUI.providerNames; // D42: shared with the admin
 function providerModelIcon(backend, model) {
   backend ||= models.find(item => item.id === model)?.backend;
-  return HarnessUI.icon({codex: "brand-openai", claude: "brand-claude", gemini: "brand-gemini", maestro: "keepharness"}[backend] || "stack-2");
+  return HarnessUI.icon({codex: "brand-openai", claude: "brand-claude", gemini: "brand-gemini"}[backend] || "stack-2");
 }
 let composerCondition = null, modelAvailabilityError = "";
 function syncComposerAvailability() {
@@ -1066,7 +1058,6 @@ const selectedIdentity = () => {
     : null;
 };
 const efforts = {
-  auto: "Maestro chooses per step",
   none: "No reasoning",
   configured: "Default",
   low: "Low",
@@ -1103,15 +1094,12 @@ const userErrors = {
   workflow_source_path_denied: "A workflow input moved outside its authorized folder. Restore it or choose a new input.",
   workflow_source_size_limit: "A workflow input exceeds the supported size. Reduce it before resuming.",
   workflow_requirement_denied: "The selected executor does not support this workflow requirement. Check permissions, integrations, operations and mode.",
-  invalid_maestro_plan_policy: "Choose review or auto for Maestro planning.",
   invalid_workflow_inputs: "Workflow inputs must be a JSON object.",
   invalid_workflow_recovery: "Use resume or re-run from a valid step with optional workflow inputs.",
   invalid_workflow_step: "Choose a step number from this workflow.",
-  maestro_coordinator_workspace_denied: "The configured coordinator needs Read and Upload access to this workspace. Check its permissions.",
   invocation_model_or_effort_mismatch: "This resource requires a different model or effort. Select its execution settings before submitting.",
   invocation_backend_mismatch: "This resource requires a different provider. Select its provider before submitting.",
   local_project_hardlink_denied: "A folder contains hardlinks that cannot be safely isolated. Remove the aliases or choose another folder.",
-  maestro_coordinator_unavailable: "The configured coordinator is unavailable for this project. Check its model and effort.",
   workflow_already_exists: "A workflow with this name already exists. Choose another name.",
   workflow_backend_mismatch: "The workflow backend must match its invocation.",
   workflow_binding_changed: "Workflow inputs or revisions changed. Resume to validate again and request fresh approval.",
@@ -1344,27 +1332,6 @@ const userErrors = {
     "The server can't isolate the local model's file access. Ask the administrator to install bubblewrap.",
   local_project_scope_invalid:
     "The local model can't reach this project's folders. Check the project folders.",
-  maestro_disabled: "Maestro is turned off. Choose another model.",
-  maestro_no_eligible_agents:
-    "Maestro has no enabled models for this project. Ask the administrator to enable one.",
-  maestro_requires_enabled_codex_for_project:
-    "Maestro needs Codex enabled for this project. Ask the administrator.",
-  maestro_model_or_effort_denied:
-    "Maestro chose a model that is not enabled. Try again or choose a model yourself.",
-  maestro_step_not_allowed:
-    "Maestro planned a step that is not allowed. Try again or choose a model yourself.",
-  maestro_invalid_plan_json:
-    "Maestro could not produce a valid plan. Try again or choose a model yourself.",
-  maestro_invalid_steps:
-    "Maestro could not produce a valid plan. Try again or choose a model yourself.",
-  maestro_invalid_step:
-    "Maestro could not produce a valid plan. Try again or choose a model yourself.",
-  maestro_invalid_step_description:
-    "Maestro could not produce a valid plan. Try again or choose a model yourself.",
-  maestro_incomplete_plan:
-    "Maestro could not finish planning. Try again or choose a model yourself.",
-  maestro_step_incomplete:
-    "A Maestro step did not finish. Try again or choose a model yourself.",
   // Invocations and human option gates.
   invalid_invocation: "This resource invocation is invalid. Select it again.",
   invalid_invocation_args:
@@ -1694,9 +1661,7 @@ function selected() {
   return models.find((m) => m.id === $("model").value) || models[0];
 }
 function composerModels(catalog) {
-  const choices = catalog.models.filter(m => HarnessUI.selectableModel(m.backend, m.id));
-  if (catalog.maestro) choices.push({ id: "auto", name: "Maestro (auto plan)", backend: "maestro", efforts: ["auto"] });
-  return choices;
+  return catalog.models.filter(m => HarnessUI.selectableModel(m.backend, m.id));
 }
 function setBusy(value) {
   value = value || streamDisconnected;
@@ -1856,17 +1821,15 @@ function updateEfforts() {
   const preferred = ["configured", "medium"].find((e) => m.efforts.includes(e));
   if (preferred) $("effort").value = preferred;
   $("model-note").textContent =
-    m.backend === "maestro"
-      ? "The configured coordinator plans steps using eligible local or cloud models"
-      : m.backend === "local"
-        ? "Local model runs on the server through the Codex CLI · no OpenAI quota · check the sources"
-        : m.backend === "deepseek"
-          ? "DeepSeek API · uses your DeepSeek credits · runs through the Codex CLI"
-          : m.backend === "gemini"
-            ? "Gemini CLI · Google account · subscription quota"
-            : m.backend === "claude"
-              ? "Claude Code on the server · Anthropic inference · quota not available"
-              : "Codex CLI on the server · OpenAI inference · uses ChatGPT quota";
+    m.backend === "local"
+      ? "Local model runs on the server through the Codex CLI · no OpenAI quota · check the sources"
+      : m.backend === "deepseek"
+        ? "DeepSeek API · uses your DeepSeek credits · runs through the Codex CLI"
+        : m.backend === "gemini"
+          ? "Gemini CLI · Google account · subscription quota"
+          : m.backend === "claude"
+            ? "Claude Code on the server · Anthropic inference · quota not available"
+            : "Codex CLI on the server · OpenAI inference · uses ChatGPT quota";
 }
 function quotaWindows(q, backend = selected()?.backend) {
   const buckets = q?.rateLimitsByLimitId || { codex: q?.rateLimits },
@@ -1945,7 +1908,6 @@ const quotaHeadings = {
   gemini: "Gemini subscription quota",
   deepseek: "DeepSeek balance",
   local: "Local models",
-  maestro: "Maestro",
 };
 const quotaNotes = {
   codex: "Shared with the account's other usage. Rounded percentages don't measure this run's exact cost.",
@@ -1957,7 +1919,6 @@ function quotaDetailText(view) {
   return (
     {
       local: "This model runs locally. Context usage appears separately in the context indicator.",
-      maestro: "Maestro can route steps to different models; the quota depends on each step's executor.",
       gemini: "Gemini CLI reports its own subscription usage; check it in your Google account.",
     }[view] || "Select a model to check the provider quota."
   );
@@ -1984,7 +1945,6 @@ function renderQuotaIdentity() {
     local: "No provider quota",
     claude: "Checking Claude quota…",
     deepseek: "DeepSeek credits",
-    maestro: "Quota varies by step model",
     gemini: "Checking Gemini quota…",
   };
   if (backend === "codex" || backend === "claude") {
@@ -2815,7 +2775,6 @@ function newConversation(title = "New Conversation", projectId = $("project").va
   resourceSelections = [];
   invalidResourceTokens.clear();
   setActivePersona(null);
-  currentMaestroPlan = null;
   // F-95: an unsent draft survives every way of starting a new conversation;
   // attachments too, unless they were uploaded to another project.
   const draft = $("prompt").value,
@@ -3674,7 +3633,7 @@ function activityTitle(e) {
   )
     return labels[type] || "Run interrupted";
   if (type === "plan_updated") return "Plan updated";
-  if (type === "maestro_planning") return "Maestro planning";
+  if (type === "maestro_planning") return "Planning";
   if (type === "maestro_plan") return "Execution plan set";
   if (type === "maestro_step") return "Specialist started working";
   return (
@@ -3879,25 +3838,18 @@ function scroll() {
     box.scrollTop = box.scrollHeight;
   updateLatest();
 }
+// Read-only: a plan recorded by an earlier version; nothing here can be approved.
 function renderPlanOutcome(card, runState = card.dataset.runState) {
   if (!card) return;
   if (runState) card.dataset.runState = runState;
-  const state = card.dataset.state, choice = card.dataset.choice;
+  const choice = card.dataset.choice;
   const terminal = { completed: "Completed", failed: "Failed", cancelled: "Cancelled", interrupted: "Interrupted" }[runState];
   let label, note;
   if (choice === "deny") { label = "Discarded"; note = "Plan discarded."; }
-  else if (state === "expired" || state === "invalidated") {
-    label = state === "expired" ? "Expired" : "Inactive";
-    note = "This plan approval is no longer active.";
-  } else if (choice === "approve") {
-    label = "Approved · " + (terminal || "running");
-    note = terminal ? "The approved run is " + terminal.toLowerCase() + "." : "Maestro is running the approved steps.";
-  } else if (state === "resolved") { label = "Decision recorded"; note = "The plan decision was recorded."; }
-  else { label = "Awaiting your approval"; note = "Nothing runs until you approve."; }
-  const decision = window.runConsole?.planDecision(card.id.slice(5));
-  const approve = card.querySelector(".maestro-plan-actions .btn-primary");
-  if (approve) approve.disabled = !!decision?.pending || state !== "pending";
-  if (decision?.pending && state === "pending") note = decision.message;
+  else if (choice === "approve") {
+    label = "Approved · " + (terminal || "recorded");
+    note = terminal ? "The approved run is " + terminal.toLowerCase() + "." : "This plan was approved earlier.";
+  } else { label = "Not active"; note = "This plan can no longer be approved."; }
   card.querySelector(".state-pill").replaceChildren(HarnessUI.icon(choice === "approve" ? "check" : "shield"), document.createTextNode(label));
   card.querySelector('[role="status"]').textContent = note;
 }
@@ -3950,12 +3902,10 @@ function showWorkflowRecovery(run) {
 }
 function showMaestroPlan(data = {}) {
   if (!active || !Array.isArray(data.steps)) return;
-  currentMaestroPlan = data;
   active.el.querySelector(".maestro-plan-card")?.remove();
   const card = document.createElement("section");
   card.className = "maestro-plan-card";
   if (data.gate_id) card.id = "gate-" + data.gate_id;
-  card.dataset.tour = "maestro-plan";
   card.dataset.state = data.state || (data.gate_id ? "pending" : "running");
   card.dataset.choice = data.choice || (data.gate_id ? "" : "approve");
   const heading = document.createElement("div");
@@ -3964,10 +3914,8 @@ function showMaestroPlan(data = {}) {
   title.textContent = "Plan";
   const state = document.createElement("span");
   state.className = "state-pill";
-  state.textContent = data.gate_id ? "Awaiting your approval" : "Approved · running";
   const note = document.createElement("span");
   note.setAttribute("role", "status");
-  note.textContent = data.gate_id ? "Nothing runs until you approve." : "Maestro is running the approved steps.";
   heading.append(title, state, note);
   const steps = document.createElement("ol");
   for (const step of data.steps) {
@@ -3987,42 +3935,7 @@ function showMaestroPlan(data = {}) {
     item.append(role, model, effort, task);
     steps.append(item);
   }
-  const actions = document.createElement("div");
-  actions.className = "maestro-plan-actions";
-  if (data.gate_id) {
-    const approve = document.createElement("button");
-    approve.type = "button";
-    approve.className = "btn btn-primary";
-    approve.append(HarnessUI.icon("check"), document.createTextNode("Approve plan & run"));
-    approve.onclick = async () => {
-      if (window.runConsole.planDecision(data.gate_id)?.pending) return;
-      card.dataset.restoreFocus = String(card.contains(document.activeElement));
-      approve.disabled = true;
-      try {
-        await window.runConsole.submitPlanDecision(data.gate_id, "approve", window.runConsole.planForApproval(data.gate_id, { steps: data.steps }));
-        window.runConsole.clearPlanDraft(data.gate_id);
-        if (card.dataset.state === "pending") card.dataset.state = "running";
-        card.dataset.choice = "approve";
-        renderPlanOutcome(card);
-      } catch (error) {
-        if (error.code === "gate_already_resolved") finishGate(data.gate_id, "resolved");
-        else if (["gate_invalidated", "gate_expired"].includes(error.code)) finishGate(data.gate_id, error.code.slice(5));
-        else { approve.disabled = false; if (card.dataset.restoreFocus === "true") approve.focus(); }
-        status("Couldn't approve the plan: " + error.message);
-      } finally {
-        delete card.dataset.restoreFocus;
-      }
-    };
-    actions.append(approve);
-  }
-  const edit = document.createElement("button");
-  edit.type = "button";
-  edit.className = "btn";
-  edit.textContent = data.gate_id ? "Edit plan in Run console" : "View plan in Run console";
-  edit.prepend(HarnessUI.icon(data.gate_id ? "pencil" : "trace"));
-  edit.onclick = () => window.runConsole?.openPlanEditor();
-  actions.append(edit);
-  card.append(heading, steps, actions);
+  card.append(heading, steps);
   renderPlanOutcome(card);
   active.el.insertBefore(card, active.body);
 }
@@ -4486,8 +4399,7 @@ async function load(id, legacy = false, restoredView = null) {
     if (!data.turns?.length) throw Error("Empty conversation");
     streamDisconnected = false;
     $("resume-execution").hidden = true;
-    currentMaestroPlan = null;
-    setActivePersona(null);
+      setActivePersona(null);
     queuedTurns = [];
     parent = null;
     job = "";
@@ -4899,8 +4811,6 @@ async function send() {
         ({ id, revision, token }) => ({ id, revision, token }),
       ),
     };
-    const planPolicy = $("maestro-plan-policy")?.value;
-    if (planPolicy) data.maestro_plan_policy = planPolicy;
     // An agent keeps its own route: choosing another agent or model ends its
     // conversation on this send; the conversation history still carries over.
     const personaRoute = activePersona?.route;
@@ -7639,7 +7549,7 @@ function fillRoute(prefix, backend, model, effort) {
     modelSelect = $(prefix + "-model"),
     effortSelect = $(prefix + "-effort"),
     backends = [
-      ...new Set(models.filter((m) => m.backend && m.backend !== "maestro").map((m) => m.backend)),
+      ...new Set(models.filter((m) => m.backend).map((m) => m.backend)),
     ];
   backendSelect.replaceChildren(...backends.map((b) => new Option(providerNames[b] || b, b)));
   backendSelect.value = backends.includes(backend) ? backend : backends[0] || "";
@@ -8507,11 +8417,6 @@ function renderConversationSearch() {
   for (const c of conversationContent)
     if (snippets.has(c.id) && !matchedIds.has(c.id))
       runMatches.push({ ...conversations.find((item) => item.id === c.id), ...c });
-  const planMatches = (currentMaestroPlan?.steps || [])
-    .map((step, index) => ({ ...step, index }))
-    .filter((step) =>
-      includes(step.role, step.task, step.reason, step.backend, step.model),
-    );
   const loadedFiles = new Map();
   for (const file of files)
     if (file?.name) loadedFiles.set(file.name, file);
@@ -8525,7 +8430,7 @@ function renderConversationSearch() {
   const fileMatches = [...loadedFiles.entries()].filter(([path, file]) =>
     includes(path, file.name),
   );
-  const total = runMatches.length + planMatches.length + fileMatches.length;
+  const total = runMatches.length + fileMatches.length;
   $("search-clear").hidden = !query;
   $("search-results").textContent = total
     ? total + " result(s) found"
@@ -8585,26 +8490,6 @@ function renderConversationSearch() {
         $("conversation-search-dialog").close();
         await load(c.id, c.legacy);
         if (c.runId) window.runConsole?.openRun(c.runId);
-      };
-      return button;
-    }),
-  );
-  group(
-    "Current plan",
-    planMatches.map((step) => {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "conversation-search-result";
-      const title = document.createElement("strong");
-      title.textContent = `${step.index + 1}. ${step.role || "Agent"} · ${step.task || "Plan step"}`;
-      const detail = document.createElement("small");
-      detail.textContent = [step.backend, step.model, step.effort, step.reason]
-        .filter(Boolean)
-        .join(" · ");
-      button.append(title, detail);
-      button.onclick = () => {
-        $("conversation-search-dialog").close();
-        window.runConsole?.openPlanEditor();
       };
       return button;
     }),
@@ -8904,10 +8789,9 @@ $("vpn-login-form").onsubmit = async (e) => {
 };
 const gateChoiceKey = id => "gate-choice-draft:" + id;
 function pendingGateStatus() {
-  const plan = active?.el.querySelector('.maestro-plan-card[data-state="pending"]');
   const gate = document.querySelector('.gate-card[data-state="pending"]');
-  if (!plan && !gate) return;
-  const text = plan ? "Waiting for plan approval" : gate.dataset.publish === "true" ? "Waiting for publication approval" : "Waiting for your choice";
+  if (!gate) return;
+  const text = gate.dataset.publish === "true" ? "Waiting for publication approval" : "Waiting for your choice";
   status(text);
   $("activity-state").textContent = text;
   if (active) { active.chip.textContent = text; setActivitySummary(active, text); }
@@ -8920,7 +8804,6 @@ function finishGate(id, state, data = {}) {
     $("prompt").focus({ preventScroll: true });
   box.dataset.state = state;
   if (box.classList.contains("maestro-plan-card")) {
-    box.querySelectorAll("button,input,textarea").forEach(node => { node.disabled = true; });
     if (data.choice) box.dataset.choice = data.choice;
     renderPlanOutcome(box);
     return;
@@ -8960,7 +8843,6 @@ function showGate(data) {
   if (document.getElementById("gate-" + data.gate_id)) return;
   if (data.kind === "maestro_plan" && data.plan?.steps) {
     showMaestroPlan({ ...data.plan, gate_id: data.gate_id, state: "pending" });
-    status("Waiting for plan approval");
     return;
   }
   if (data.publish && data.effect_id) { showPublishGate(data); return; }
@@ -9540,7 +9422,6 @@ function renderPicker(id) {
   const descriptions = {
     none: "No reasoning step.",
     configured: "Use the provider's configured default.",
-    auto: "The coordinator chooses the effort for each step.",
     low: "Brief reasoning for simple tasks.",
     medium: "Intermediate reasoning effort.",
     high: "More reasoning for complex tasks.",
@@ -9638,7 +9519,6 @@ function renderPicker(id) {
                 gemini: "brand-gemini",
                 local: "stack-2",
                 deepseek: "stack-2",
-                maestro: "keepharness",
               }[backend] || "stack-2",
             ),
           );
