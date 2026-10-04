@@ -1,4 +1,7 @@
-"""Project hook grants never silently enable unrelated global hooks."""
+"""Project hook grants never silently enable unrelated global hooks.
+
+The owner's personal-setup opt-in (decision D01) replaced the Claude-only ``global_hooks``.
+"""
 
 import json
 
@@ -8,7 +11,7 @@ from adapters.claude.native import build_command
 
 
 @pytest.mark.parametrize(
-    "hooks,global_hooks,source",
+    "hooks,personal_setup,source",
     [
         (False, False, "project"),
         (True, False, "project"),
@@ -16,11 +19,11 @@ from adapters.claude.native import build_command
         (False, True, "project"),
     ],
 )
-def test_hook_setting_sources(tmp_path, monkeypatch, hooks, global_hooks, source):
+def test_hook_setting_sources(tmp_path, monkeypatch, hooks, personal_setup, source):
     monkeypatch.setattr("adapters.claude.native.configurations", lambda: {"claude": {}})
     monkeypatch.setattr("adapters.claude.native.inventory", lambda: {"claude": []})
     command = build_command(
-        {"binary": "claude", "global_hooks": global_hooks},
+        {"binary": "claude", "personal_setup": personal_setup},
         "haiku",
         tmp_path,
         {"hooks": hooks},

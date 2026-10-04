@@ -103,6 +103,7 @@ def run_codex_route(tmp_path, provider, project, backend_config=None):
         "unrestricted": True,
         "integrations": SELECTED,
         "plugin_inventory": ["plugin:notes@market"],
+        "personal_setup": True,  # host connectors and plugins are the owner's opt-in (D01)
         **({"api_provider": {"url": "https://example.invalid", "key_file": str(key)}}
            if provider == "deepseek" else {}),
         **(backend_config or {}),
@@ -169,7 +170,7 @@ def test_claude_read_only_loads_no_connector_or_plugin(tmp_path, mode):
         ),
     ):
         command = claude_command(
-            {"binary": "claude", "unrestricted": True},
+            {"binary": "claude", "unrestricted": True, "personal_setup": True},
             "fixture",
             tmp_path,
             effective_permissions(ALL_GRANTS, mode),

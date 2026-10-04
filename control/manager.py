@@ -19,6 +19,7 @@ from adapters.claude.auth import cli_login_environment
 from adapters.codex.rpc import metadata
 from adapters.deepseek import account as deepseek
 from adapters.gemini import account as gemini
+from adapters.shared.provider_setup import child_source, homes_root, login_environment
 from agent_service.config import VERSION_FILE
 from agent_service.work_items import validate_pattern
 
@@ -206,6 +207,10 @@ class Manager:
             for p in ("codex", "claude", "gemini", "deepseek")
         )
         out["maestro_enabled"] = data.get("maestro_enabled", True) is True
+        # The owner's own Codex and Claude Code setup in their conversations (decision D01).
+        if type(data.get("personal_setup", False)) is not bool:
+            raise ValueError("Use my personal setup must be an explicit boolean.")
+        out["personal_setup"] = data.get("personal_setup", False)
         policy = data.get("maestro_instructions", "")
         if not isinstance(policy, str) or len(policy) > 12000:
             raise ValueError("Maestro instructions: maximum of 12,000 characters.")
@@ -452,10 +457,6 @@ class Manager:
                 "projects": allowed_projects,
                 "permissions": perms,
             }
-            if provider == "claude" and "global_hooks" in spec:
-                if type(spec["global_hooks"]) is not bool:
-                    raise ValueError("Global hooks must be an explicit boolean.")
-                out["services"][provider]["global_hooks"] = spec["global_hooks"]
         logins = data.get("logins", [])
         if (
             not isinstance(logins, list)
@@ -632,23 +633,25 @@ class Manager:
             self.audit("provider_check:gemini")
             return result
         if provider == "codex":
-            code, _ = await discovery.command(info["binary"], "login", "status")
+            # The login KeepHarness signed in with, in its own home (decision D02).
+            code, _ = await discovery.command(
+                info["binary"], "login", "status", env=login_environment(self.state, "codex")
+            )
             authenticated = code == 0
             if authenticated:
-                listing = await metadata(info["binary"], "model/list")
+                listing = await metadata(
+                    info["binary"],
+                    "model/list",
+                    env=child_source({"provider_homes": str(homes_root(self.state))}, "codex"),
+                )
                 self.provider_models[provider] = {
                     m["id"]: [e["reasoningEffort"] for e in m.get("supportedReasoningEfforts", [])]
                     or ["low"]
                     for m in listing.get("data", [])
                 }
         else:
-            options = (
-                {"env": cli_login_environment()}
-                if (self.state / "claude-cli-login").exists()
-                else {}
-            )
             code, raw = await discovery.command(
-                info["binary"], "auth", "status", "--json", **options
+                info["binary"], "auth", "status", "--json", env=cli_login_environment(self.state)
             )
             try:
                 authenticated = code == 0 and json.loads(raw).get("loggedIn") is True
@@ -658,7 +661,7 @@ class Manager:
             if authenticated:
                 self.provider_models[provider] = claude.model_catalog(
                     await claude.metadata(
-                        {"binary": info["binary"], "use_cli_login": bool(options)}
+                        {"binary": info["binary"], "provider_homes": str(homes_root(self.state))}
                     )
                 )
         self.auth[provider] = authenticated

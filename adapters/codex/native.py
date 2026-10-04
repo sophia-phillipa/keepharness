@@ -9,6 +9,7 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from adapters.shared.provider_setup import instructions
 from adapters.shared.workspace import readable_roots
 from agent_service.reader_mcp import SERVER_NAME as READER
 from agent_service.reader_mcp import server_spec as reader_spec
@@ -84,8 +85,10 @@ def thread_parameters(config, project, model, workspace, runtime, unrestricted):
     # Read only never starts a connector or plugin (decisions D04, D12).
     selected = [] if project.get("access_mode") == "read_only" else config.get("integrations", [])
     local_provider = runtime.model_provider
+    personal = config.get("personal_setup") is True
     plugins = []
-    if not runtime.isolated:
+    # The owner's plugins and MCP servers are part of the personal setup (decision D01).
+    if not runtime.isolated and personal:
         plugins = (
             config["plugin_inventory"]
             if "plugin_inventory" in config
@@ -107,7 +110,8 @@ def thread_parameters(config, project, model, workspace, runtime, unrestricted):
             else "on-request"
         ),
         "approvalsReviewer": "user",
-        "developerInstructions": "Use the native CLI tools and only the configured integrations. Follow the selected project instructions. Ask approval for actions that exceed the configured permissions. Do not claim a tool succeeded without evidence.",
+        "developerInstructions": "Use the native CLI tools and only the configured integrations. Follow the selected project instructions. Ask approval for actions that exceed the configured permissions. Do not claim a tool succeeded without evidence. "
+        + instructions(config),
     }
     params["developerInstructions"] += (
         " Effective permissions for this turn: "
@@ -120,7 +124,7 @@ def thread_parameters(config, project, model, workspace, runtime, unrestricted):
         {"mcp_servers": {}, "plugins": {}}
         if runtime.isolated
         else {
-            "mcp_servers": host_servers(selected, ask),
+            "mcp_servers": host_servers(selected, ask) if personal else {},
             "plugins": {
                 plugin.split(":", 1)[1]: {"enabled": plugin in selected} for plugin in plugins
             },

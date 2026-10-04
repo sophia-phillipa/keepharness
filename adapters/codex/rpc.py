@@ -155,9 +155,9 @@ async def connection(
         yield rpc
 
 
-async def metadata(binary, method):
+async def metadata(binary, method, *, env=None):
     async with asyncio.timeout(25):
-        async with connection([binary, "app-server", "--listen", "stdio://"]) as rpc:
+        async with connection([binary, "app-server", "--listen", "stdio://"], env=env) as rpc:
             return await rpc.call(
                 method,
                 ({"includeHidden": False, "limit": 100} if method == "model/list" else {}),

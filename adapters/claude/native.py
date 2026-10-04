@@ -5,10 +5,10 @@ import contextlib
 import json
 
 from adapters.shared.process import child_environment, process_diagnostics
+from adapters.shared.provider_setup import child_source, instructions
 from agent_service.tools import ToolError
 from control.integrations import configurations, inventory
 
-from .auth import cli_login_environment
 from .stream import Stream
 
 MISSING_SESSION = "No conversation found with session ID:"
@@ -18,7 +18,9 @@ def build_command(config, model, home, permissions, selected, access_mode, addit
     """Configure only selected tools and connectors for this Claude process."""
     if access_mode == "read_only":
         selected = []  # Read only never starts a connector or plugin (decisions D04, D12).
-    servers = configurations()["claude"]
+    personal = config.get("personal_setup") is True
+    # The owner's MCP servers and plugins are part of the personal setup (decision D01).
+    servers = configurations()["claude"] if personal else {}
     selected_servers = {
         k: v for k, v in servers.items() if "mcp:" + k in selected and k != "harness_effects"
     }
@@ -31,7 +33,7 @@ def build_command(config, model, home, permissions, selected, access_mode, addit
     mcp.chmod(0o600)
     plugins = {
         p["id"].split(":", 1)[1]: p["id"] in selected
-        for p in inventory()["claude"]
+        for p in (inventory()["claude"] if personal else [])
         if p["kind"] == "plugin"
     }
     tools = ["AskUserQuestion"]
@@ -52,6 +54,8 @@ def build_command(config, model, home, permissions, selected, access_mode, addit
         "enabledPlugins": plugins,
         "disableAllHooks": not permissions.get("hooks", False),
     }
+    if permissions.get("hooks") and personal:
+        settings["hooks"] = config.get("personal_hooks", {})
     if access_mode == "ask":
         # Ask rules win over any user "allow" rule and over "acceptEdits".
         settings["permissions"] = {"ask": ["Edit", "Write", "NotebookEdit", "Bash", "mcp__*"]}
@@ -79,9 +83,7 @@ def build_command(config, model, home, permissions, selected, access_mode, addit
         "--mcp-config",
         str(mcp),
         "--setting-sources",
-        "user,project"
-        if permissions.get("hooks") and config.get("global_hooks") is True
-        else "project",
+        "user,project" if permissions.get("hooks") and personal else "project",
         "--settings",
         json.dumps(settings),
     ]
@@ -189,13 +191,15 @@ async def run(
     )
     if effort != "configured":
         command += ["--effort", effort]
-    if config.get("append_system_prompt"):
-        command += ["--append-system-prompt", config["append_system_prompt"]]
+    command += [
+        "--append-system-prompt",
+        "\n".join(filter(None, [instructions(config), config.get("append_system_prompt")])),
+    ]
     event(
         "hook_scope",
         {
             "scope": "global_and_project"
-            if permissions.get("hooks") and config.get("global_hooks") is True
+            if permissions.get("hooks") and config.get("personal_setup") is True
             else "project"
             if permissions.get("hooks")
             else "disabled"
@@ -209,7 +213,7 @@ async def run(
     proc = await asyncio.create_subprocess_exec(
         *command,
         cwd=cwd,
-        env=child_environment(cli_login_environment() if config.get("use_cli_login") else None),
+        env=child_environment(child_source(config, "claude")),
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,

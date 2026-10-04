@@ -9,6 +9,8 @@ import tomllib
 from itertools import islice
 from pathlib import Path, PurePosixPath
 
+from adapters.shared.provider_setup import homes_root
+
 from .invocations import Invocation, InvocationError
 
 MAX_METADATA_BYTES = 65536
@@ -201,8 +203,13 @@ def preflight_hint(reason):
     return "Choose a compatible provider, model, and execution mode."
 
 
-def roots(engine):
+def roots(engine, config):
+    """User-scope roots: the harness home's, or the owner's when they opted in (decision D01)."""
     home = Path.home()
+    harness_home = engine in ("codex", "claude") and config.get("control_state_dir")
+    if harness_home and config.get("personal_setup") is not True:
+        home = homes_root(config["control_state_dir"]) / "home"
+        return home / ("." + engine), ([home / ".agents/skills"] if engine == "codex" else [])
     if engine == "codex":
         return Path(os.environ.get("CODEX_HOME", home / ".codex")), [home / ".agents/skills"]
     if engine == "claude":
@@ -282,7 +289,7 @@ def discover(
         return result
     project = config["projects"][project_id]
     root = Path(project["root"]).resolve() if project.get("root") else None
-    global_base, shared = roots(engine)
+    global_base, shared = roots(engine, config)
     sources = []
 
     def source(base, scope, origin, boundary, kind, identity, identity_root, namespace=""):

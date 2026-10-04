@@ -110,6 +110,7 @@ class AskModeTest(unittest.IsolatedAsyncioTestCase):
                 {
                     "integrations": ["mcp:fixture", "plugin:tool"],
                     "plugin_inventory": ["plugin:tool"],
+                    "personal_setup": True,
                 },
                 {"access_mode": "ask"},
                 "fixture",

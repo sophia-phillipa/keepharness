@@ -16,6 +16,7 @@ from pathlib import Path
 from types import MappingProxyType
 
 from adapters.deepseek import account as deepseek
+from adapters.shared.provider_setup import credential_file, homes_root
 
 from .local_models import runtime_permissions, runtime_roots
 
@@ -44,6 +45,7 @@ def base_config(settings, state, admin_port, browser_url, provider_revisions):
         "maestro_coordinator": settings.get("maestro_coordinator", {}),
         "shared_projects": True,
         "control_state_dir": str(state),
+        "personal_setup": settings.get("personal_setup") is True,
         "admin_url": f"http://127.0.0.1:{admin_port}/",
         "local_access": settings.get("vpn_bind", "127.0.0.1") == "127.0.0.1",
         "bind": settings.get("vpn_bind", "127.0.0.1"),
@@ -102,6 +104,7 @@ def build_deepseek(cfg, provider, spec, checked, info, state):
             "key_file": str(deepseek.key_file(state)),
         },
         "integrations": spec.get("integrations", []),
+        "provider_homes": str(homes_root(state)),
     }
     cfg["deepseek_models"] = {m: checked["models"][m] for m in spec["models"]}
 
@@ -147,8 +150,10 @@ def build_cli_provider(cfg, provider, spec, checked, info, state):
         "python": sys.executable,
         "integrations": spec.get("integrations", []),
     }
-    if provider == "claude" and "global_hooks" in spec:
-        cfg[provider]["global_hooks"] = spec["global_hooks"] is True
+    if provider in ("codex", "claude"):
+        # Logins and sessions live in the harness-owned home, never the terminal's (D02).
+        cfg[provider]["provider_homes"] = str(homes_root(state))
+        cfg[provider]["auth_file"] = str(credential_file(state, provider))
     if provider == "claude" and (state / "claude-cli-login").exists():
         cfg[provider]["use_cli_login"] = True
     cfg[provider + "_models"] = (

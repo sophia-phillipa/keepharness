@@ -3,6 +3,7 @@
 import json
 import time
 
+from adapters.shared.provider_setup import LANGUAGE_RULE
 from adapters.shared.scoped import (
     collect_changes,
     prepare_scoped,
@@ -62,7 +63,8 @@ async def run(
                 "cwd": "/work",
                 "sandbox": "read-only",
                 "approvalPolicy": "never",
-                "developerInstructions": "Use only selected_project MCP tools within authorized roots. File proposals are applied automatically after validation when this project enables apply_changes; do not refuse authorized local edits or local deployment. Do not publish to Git remotes, access credentials, or external tools.",
+                "developerInstructions": "Use only selected_project MCP tools within authorized roots. File proposals are applied automatically after validation when this project enables apply_changes; do not refuse authorized local edits or local deployment. Do not publish to Git remotes, access credentials, or external tools. "
+                + LANGUAGE_RULE,
             }
             if config.get("_effect_capability"):
                 params["developerInstructions"] = params["developerInstructions"].replace(

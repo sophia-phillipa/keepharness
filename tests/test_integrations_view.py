@@ -121,6 +121,7 @@ def settings(tmp_path):
         },
         "codex": {"unrestricted": True},
         "claude": {"unrestricted": True},
+        "personal_setup": True,  # host connectors come only with the owner's opt-in (D01)
     }
 
 
@@ -640,3 +641,12 @@ def test_missing_profiles_are_an_empty_inventory_without_warnings(client, home):
         (home / path).unlink()
     body = view(client, backend="claude").json()
     assert (body["items"], body["warnings"]) == ([], [])
+
+
+@pytest.mark.parametrize("backend", ["codex", "claude", "deepseek"])
+def test_personal_connectors_do_not_appear_without_the_opt_in(client, settings, backend):
+    settings["personal_setup"] = False
+    settings["services"]["deepseek"] = service_entry(["m"], ["mcp:github"])
+    body = view(client, backend=backend).json()
+    assert body["items"] == []
+    assert body["warnings"] == [integrations_view.PERSONAL_SETUP_OFF]

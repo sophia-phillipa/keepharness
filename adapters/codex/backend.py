@@ -3,6 +3,7 @@
 import json
 import tempfile
 
+from adapters.shared.provider_setup import child_source, command_permissions
 from adapters.shared.resources import copy_resource
 from adapters.shared.workspace import prepare_workspace
 
@@ -16,7 +17,13 @@ __all__ = ["SPEC_REVISION", "run_native", "run_scoped"]
 
 async def run_native(config, prompt, event, project, model, effort, session_dir, approve):
     workspace = prepare_workspace(project, prompt, session_dir)
-    command = build_command(config["binary"], workspace.permissions)
+    environment = child_source(config, "codex")
+    command = build_command(
+        config["binary"],
+        command_permissions(config, workspace.permissions),
+        # The harness home holds no host connector that would need disabling.
+        host_config=environment is None,
+    )
     if config.get("_effect_capability"):
         from agent_service.effect_transport import server_spec
 
@@ -29,7 +36,7 @@ async def run_native(config, prompt, event, project, model, effort, session_dir,
     model_provider = config.get("local_provider")
     if model_provider:
         command += ["-c", "model_provider=" + json.dumps(model_provider)]
-    runtime = RuntimeOptions(command, model_provider=model_provider)
+    runtime = RuntimeOptions(command, environment=environment, model_provider=model_provider)
     with tempfile.TemporaryDirectory(prefix="codex-agents-", dir=workspace.home) as directory:
         if workspace.permissions.get("read"):
             for item in project.get("_resources", []):
