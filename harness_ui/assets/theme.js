@@ -2,7 +2,7 @@
 (()=>{
  const root=document.documentElement,surface=root.dataset.surface==='admin'?'admin':'harness';
  const themes=[
-  {id:'paper',name:'Paper',mode:'light',colors:['#ffffff','#1a1a1a','#2f6fde']},
+  {id:'paper',name:'Paper',mode:'light',colors:['#ffffff','#1a1a1a','#2963cc']},
   {id:'graphite',name:'Graphite',mode:'dark',colors:['#141414','#e3e3e3','#9cc1ff']},
   {id:'violet-bordeaux',name:'Violet & Bordeaux',mode:'light',colors:['#ffffff','#643b92','#792f49']},
   {id:'porcelain',name:'Porcelain',mode:'light',colors:['#ffffff','#176b78','#244f69']},

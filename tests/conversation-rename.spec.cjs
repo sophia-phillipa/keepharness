@@ -39,7 +39,7 @@ const assert = require("node:assert/strict"),
       },
       result: { answer: "Recovered answer" },
     };
-    await page.route(origin + "/**", async (route) => {
+    const routeFixture = async (route) => {
       const url = new URL(route.request().url()),
         p = url.pathname;
       if (p.startsWith("/v1/")) {
@@ -203,7 +203,8 @@ const assert = require("node:assert/strict"),
               ? "text/css"
               : "text/html",
       });
-    });
+    };
+    await page.route(origin + "/**", routeFixture);
     await page.emulateMedia({ reducedMotion: "reduce" });
     await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
     await page.goto(origin);
@@ -275,6 +276,34 @@ const assert = require("node:assert/strict"),
     await save.click();
     await modal.waitFor({ state: "hidden" });
     assert.equal(conversations[0].title, "Résumé <test> & 🐋");
+    // UX-R1-8: with no hover (touch) the row menu stays visible and opens by tap.
+    const touch = await browser.newContext({
+      hasTouch: true,
+      isMobile: true,
+      viewport: { width: 1024, height: 800 },
+    });
+    try {
+      await touch.route(origin + "/**", routeFixture);
+      await touch.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
+      const touchPage = await touch.newPage();
+      await touchPage.goto(origin);
+      await touchPage.locator("#startup-gate").waitFor({ state: "hidden" });
+      const touchRow = touchPage.locator("#sidebar .conversation-row").first();
+      await touchRow.waitFor();
+      assert(
+        (await touchRow
+          .locator(".conversation-actions")
+          .evaluate((el) => +getComputedStyle(el).opacity)) >= 0.5,
+        "row menu is visible without hover",
+      );
+      await touchRow.locator(".conversation-actions > summary").tap();
+      assert(
+        await touchRow.locator(".conversation-actions-menu").isVisible(),
+        "tapping the row menu opens it",
+      );
+    } finally {
+      await touch.close();
+    }
     assert.deepEqual(errors, []);
     assert(
       !/\b(?:window\.)?prompt\s*\(/.test(
