@@ -4,13 +4,16 @@ import asyncio
 import hashlib
 import json
 import time
+import unicodedata
 
 from starlette.responses import JSONResponse, Response
 
 from ..approval_sessions import require_approval_session
 from ..config import TERMINAL
 from ..errors import APIError
+from ..harness_agents import LOCAL_CLIENT
 from ..persistence.db import encoded
+from ..resources import conversation_title
 from ..secret_vault import redact_secrets
 from . import LimitedStream, api_route, body
 
@@ -63,8 +66,79 @@ async def approval_rules(request, service, identity):
     return JSONResponse({"cleared": True})
 
 
+SEARCH_MIN = 2
+# A search reads at most this many of the newest conversations and this much stored text.
+SEARCH_MAX_CONVERSATIONS = 500
+SEARCH_MAX_BYTES = 16 * 1024 * 1024
+SEARCHES_PER_MINUTE = 60
+SNIPPET_BEFORE, SNIPPET_AFTER = 40, 60
+
+
+def fold(text):
+    """Lower-cased text without accents, and where each folded character came from."""
+    folded, origin = [], []
+    for index, char in enumerate(text):
+        for piece in unicodedata.normalize("NFD", char):
+            if unicodedata.combining(piece):
+                continue
+            for lowered in piece.casefold():
+                folded.append(lowered)
+                origin.append(index)
+    return "".join(folded), origin
+
+
+def snippet(text, needle):
+    """A short excerpt of ``text`` around the first accent- and case-insensitive match, or ''."""
+    folded, origin = fold(text)
+    at = folded.find(needle)
+    if at < 0:
+        return ""
+    start = max(0, origin[at] - SNIPPET_BEFORE)
+    end = min(len(text), origin[at + len(needle) - 1] + SNIPPET_AFTER)
+    excerpt = " ".join(text[start:end].split())
+    return ("…" if start else "") + excerpt + ("…" if end < len(text) else "")
+
+
+def turn_text(row):
+    """What a turn says: the prompt that was sent and the answer that came back."""
+    texts = [json.loads(row["payload"]).get("prompt")]
+    try:
+        texts.append(json.loads(row["result"] or "null").get("answer"))
+    except (AttributeError, ValueError):
+        pass
+    return [text for text in texts if isinstance(text, str)]
+
+
+def search_snippets(candidates, needle):
+    """The first snippet per conversation, newest first, until the byte budget runs out.
+
+    ``candidates`` pairs a conversation id with its turn rows; the result says whether the
+    budget stopped the scan early.
+    """
+    found, scanned = {}, 0
+    for cid, rows in candidates:
+        for row in rows:
+            scanned += len(row["payload"]) + len(row["result"] or "")
+            if scanned > SEARCH_MAX_BYTES:
+                return found, True
+            hit = next((hit for text in turn_text(row) if (hit := snippet(text, needle))), "")
+            if hit:
+                found[cid] = hit
+                break
+    return found, False
+
+
 async def conversations(request, service, identity):
-    groups = {}
+    """The owner's conversations; with ``?q=`` only those whose prompts or answers contain it."""
+    searching = "q" in request.query_params
+    needle = fold(request.query_params.get("q", "").strip())[0]
+    if searching:
+        if len(needle) < SEARCH_MIN:
+            raise APIError("search_query_too_short", 400)
+        service.limit(
+            (identity[0], "conversation_search"), SEARCHES_PER_MINUTE, "search_rate_limit"
+        )
+    groups, turns = {}, {}
     deleted = service.conversation_repository.deleted()
     titles = service.conversation_repository.titles()
     for r in service.conversation_rows(identity):
@@ -72,12 +146,12 @@ async def conversations(request, service, identity):
         if cid in deleted:
             continue
         if cid not in groups:
+            root = json.loads(r["payload"])
             groups[cid] = {
                 "id": cid,
                 "project": r["project"],
-                "title": titles.get(
-                    cid, json.loads(r["payload"]).get("prompt", "Conversation")[:100]
-                ),
+                "title": titles.get(cid) or conversation_title(root.get("prompt", "")),
+                **{key: root[key] for key in ("schedule_id", "schedule_title") if key in root},
             }
         groups[cid].update(
             last_job_id=r["id"],
@@ -85,9 +159,18 @@ async def conversations(request, service, identity):
             updated=r["created"],
             execution=service.execution(r),
         )
-    return JSONResponse(
-        {"conversations": sorted(groups.values(), key=lambda c: c["updated"], reverse=True)}
-    )
+        turns.setdefault(cid, []).append(r)
+    newest = sorted(groups.values(), key=lambda c: c["updated"], reverse=True)
+    if not searching:
+        return JSONResponse({"conversations": newest})
+    candidates = [(c["id"], turns[c["id"]]) for c in newest[:SEARCH_MAX_CONVERSATIONS]]
+    # Text matching runs off the event loop; the rows were read above, on it.
+    snippets, limited = await asyncio.to_thread(search_snippets, candidates, needle)
+    found = [{**c, "snippet": snippets[c["id"]]} for c in newest if c["id"] in snippets]
+    response = {"conversations": found}
+    if limited or len(newest) > SEARCH_MAX_CONVERSATIONS:
+        response["limited"] = True
+    return JSONResponse(response)
 
 
 def gate_records(service, job_id):
@@ -194,6 +277,9 @@ async def recover_workflow(request, service, identity):
 
 
 async def save_workflow(request, service, identity):
+    # A saved workflow appears in every client's "/" for the project; only the owner here adds one.
+    if identity[0] != LOCAL_CLIENT:
+        raise APIError("workflow_save_local_only", 403)
     data = await body(request)
     return JSONResponse(
         service.save_workflow(identity, request.path_params["job"], data.get("id")), status_code=201
@@ -336,6 +422,10 @@ async def cancel_job(request, service, identity):
     return JSONResponse(service.cancel(identity, job))
 
 
+async def run_queued(request, service, identity):
+    return JSONResponse(service.run_queued(identity, request.path_params["job"]))
+
+
 async def job_result(request, service, identity):
     row = service.job(identity, request.path_params["job"])
     if not row["result"]:
@@ -362,5 +452,6 @@ ROUTES = [
     api_route("/v1/jobs/{job}/save-workflow", save_workflow, methods=["POST"]),
     api_route("/v1/jobs/{job}/events", job_events),
     api_route("/v1/jobs/{job}/cancel", cancel_job, methods=["POST"]),
+    api_route("/v1/jobs/{job}/run-queued", run_queued, methods=["POST"]),
     api_route("/v1/jobs/{job}/artifacts/result.json", job_result),
 ]

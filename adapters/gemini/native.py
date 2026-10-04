@@ -2,10 +2,11 @@
 
 import asyncio
 import json
+import re
 import time
 from pathlib import Path
 
-from adapters.shared.process import process_diagnostics
+from adapters.shared.process import process_diagnostics, provider_message
 from agent_service.tools import ToolError
 from control.product import PRODUCT
 
@@ -13,6 +14,42 @@ from .policy import prepare
 
 MAX_OUTPUT_BYTES = 8 * 1024 * 1024
 MAX_TEXT_CHARS = 500000
+HANDSHAKE_SECONDS = 15
+# How the CLI says it cannot load a session: ACP's "resource not found" code, or its own words.
+SESSION_NOT_FOUND_CODE = -32002
+SESSION_NOT_FOUND = re.compile(r"session.{0,40}not found", re.I)
+
+
+def rpc_failure(error):
+    """The failure for a JSON-RPC error, carrying the provider's own message.
+
+    The worker maps ``gemini_execution_failed: <message>`` to an expired login or a quota wait
+    (like Codex's) instead of a generic stop; ``rpc_code`` lets a caller tell a missing session
+    from the rest.
+    """
+    error = error if isinstance(error, dict) else {"message": error}
+    data = error.get("data")
+    details = data.get("details") if isinstance(data, dict) else data
+    parts = [part for part in (error.get("message"), details) if isinstance(part, str) and part]
+    failure = ToolError(
+        "gemini_execution_failed" + (": " + provider_message(": ".join(parts)) if parts else "")
+    )
+    failure.rpc_code = error.get("code")
+    return failure
+
+
+def session_missing(failure):
+    return getattr(failure, "rpc_code", None) == SESSION_NOT_FOUND_CODE or bool(
+        SESSION_NOT_FOUND.search(str(failure))
+    )
+
+
+async def handshake(call):
+    """A stalled setup step is the provider going quiet, not the run reaching its time limit."""
+    try:
+        return await asyncio.wait_for(call, HANDSHAKE_SECONDS)
+    except TimeoutError:
+        raise ToolError("provider_idle_timeout") from None
 
 
 async def run(
@@ -144,7 +181,7 @@ class AcpConnection:
                 approved = bool(reply.get("approved"))
             else:
                 approved = False
-            # Never choose allow_always: Tail Harness authorization is turn-scoped.
+            # Never choose allow_always: KeepHarness authorization is turn-scoped.
             wanted = "allow_once" if approved else "reject_once"
             option = next(
                 (x.get("optionId") for x in params.get("options", []) if x.get("kind") == wanted),
@@ -186,7 +223,7 @@ class AcpConnection:
                 await self._handle_request(item)
             elif item.get("id") == request_id:
                 if item.get("error"):
-                    raise ToolError("gemini_execution_failed")
+                    raise rpc_failure(item["error"])
                 return item.get("result", {})
 
 
@@ -221,12 +258,12 @@ async def run_acp(
     rpc.mcp_selected = bool(config.get("integrations")) and access_mode != "read_only"
     event("planning", {"backend": "gemini", "model": model, "effort": "configured"})
     async with process_diagnostics(proc, "gemini", event, environment):
-        initialized = await asyncio.wait_for(
+        initialized = await handshake(
             rpc.call(
                 "initialize",
                 {
                     "protocolVersion": 1,
-                    "clientInfo": {"name": PRODUCT.mcp_name, "version": "0.14.0"},
+                    "clientInfo": {"name": PRODUCT.mcp_name, "version": "0.15.0"},
                     # Files and terminals are intentionally not proxied in this revision;
                     # admin policy routes the enabled native tools through ACP approval.
                     "clientCapabilities": {
@@ -235,8 +272,7 @@ async def run_acp(
                         "terminal": False,
                     },
                 },
-            ),
-            timeout=15,
+            )
         )
         if not initialized.get("agentCapabilities", {}).get("loadSession"):
             raise ToolError("gemini_acp_unavailable")
@@ -244,12 +280,19 @@ async def run_acp(
         session_id = saved.get("id")
         if isinstance(session_id, str) and session_id:
             state.suppressed = True
-            await asyncio.wait_for(
-                rpc.call(
-                    "session/load", {"sessionId": session_id, "cwd": str(cwd), "mcpServers": []}
-                ),
-                timeout=15,
-            )
+            try:
+                await handshake(
+                    rpc.call(
+                        "session/load", {"sessionId": session_id, "cwd": str(cwd), "mcpServers": []}
+                    )
+                )
+            except ToolError as exc:
+                if not session_missing(exc):
+                    raise
+                # Gemini keys sessions by cwd: once the state folder moves it cannot load this
+                # one. The caller starts a fresh session seeded with the harness history.
+                marker.replace(marker.with_name(marker.name + ".before-session-missing"))
+                raise ToolError("native_session_missing") from exc
             state.suppressed = False
             state.answer, state.thinking, state.first, state.started = (
                 "",
@@ -259,15 +302,11 @@ async def run_acp(
             )
             event("session_resumed", {"backend": "gemini"})
         else:
-            created = await asyncio.wait_for(
-                rpc.call("session/new", {"cwd": str(cwd), "mcpServers": []}), timeout=15
-            )
+            created = await handshake(rpc.call("session/new", {"cwd": str(cwd), "mcpServers": []}))
             session_id = created.get("sessionId")
         if not isinstance(session_id, str) or not session_id:
             raise ToolError("gemini_acp_incomplete")
-        await asyncio.wait_for(
-            rpc.call("session/set_model", {"sessionId": session_id, "modelId": model}), timeout=15
-        )
+        await handshake(rpc.call("session/set_model", {"sessionId": session_id, "modelId": model}))
         content = [{"type": "text", "text": prompt}] + [
             {"type": "image", "data": item["data"], "mimeType": item["media_type"]}
             for item in images

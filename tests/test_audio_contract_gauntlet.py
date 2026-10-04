@@ -19,7 +19,7 @@ def media(tmp_path, monkeypatch):
     model = runtime / "models/ggml-base.bin"
     model.parent.mkdir()
     model.write_text("fixture")
-    monkeypatch.setenv("TAIL_HARNESS_WHISPER_DIR", str(runtime))
+    monkeypatch.setenv("KEEPHARNESS_WHISPER_DIR", str(runtime))
     source = tmp_path / "source"
     source.write_bytes(b"SYNTHETIC AUDIO")
     return source

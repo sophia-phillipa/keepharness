@@ -11,6 +11,7 @@ from starlette.testclient import TestClient
 from adapters.claude.auth import cli_login_environment
 from control.operations import Operations
 from control.server import Manager, create_app
+from tests.owner_session import sign_in
 
 
 def test_login_environment_does_not_modify_parent(monkeypatch):
@@ -90,7 +91,7 @@ def test_login_endpoint_deduplicates_and_requires_admin(tmp_path, monkeypatch):
             assert (
                 client.post("/api/provider-login", json={"provider": "claude"}).status_code == 401
             )
-            client.get("/")
+            sign_in(client).get("/")
             assert (
                 client.post("/api/provider-login", json={"provider": "claude"}).status_code == 400
             )
@@ -148,7 +149,8 @@ def test_native_run_uses_the_selected_auth_source(tmp_path, monkeypatch, use_cli
             AsyncMock(),
         )
     )
-    assert result["answer"] == ("cli" if use_cli_login else "env")
+    # The terminal's login token never reaches a run: KeepHarness signs in to its own home (D02).
+    assert result["answer"] == "cli"
 
 
 def test_pending_claude_login_does_not_block_native_harness_startup(tmp_path):
@@ -256,7 +258,7 @@ def test_login_code_endpoint_validates_and_never_records_the_code(tmp_path):
         patch.object(Operations, "send_input", send_input),
     ):
         with TestClient(create_app(tmp_path), base_url="http://127.0.0.1:8094") as client:
-            client.get("/")
+            sign_in(client).get("/")
             headers = {"X-Harness-Admin": "1"}
             path = "/api/provider-login-code"
             assert client.post(path, json={"id": "login", "code": CODE}).status_code == 400

@@ -31,7 +31,7 @@ def test_stderr_redacts_nonce_fields(field):
 
 
 def test_codex_stderr_flood_is_drained_bounded_and_redacted(monkeypatch):
-    monkeypatch.setenv("TAIL_HARNESS_API_KEY", "harness-fixture-secret")
+    monkeypatch.setenv("KEEPHARNESS_API_KEY", "harness-fixture-secret")
     monkeypatch.setenv("OPENAI_API_KEY", "provider-fixture-secret")
     program = """
 import json, sys
@@ -72,7 +72,7 @@ sys.stdin.readline()
     assert "useful final diagnostic" in json.dumps(events)
 
 
-def test_provider_environment_strips_harness_authority_and_preserves_provider_auth():
+def test_provider_environment_strips_harness_authority_and_host_logins():
     from adapters.shared.process import child_environment
 
     source = {
@@ -81,36 +81,30 @@ def test_provider_environment_strips_harness_authority_and_preserves_provider_au
         "OPENAI_API_KEY": "provider-a",
         "ANTHROPIC_API_KEY": "provider-b",
         "CLAUDE_CODE_OAUTH_TOKEN": "provider-c",
-        "TAIL_HARNESS_API_KEY": "authority-a",
+        "KEEPHARNESS_API_KEY": "authority-a",
         "LOCAL_AGENT_TOKEN": "authority-b",
         "harness_token": "authority-c",
         "HTTP_COOKIE": "authority-d",
-        "TAIL_HARNESS_AGENT_CONFIG": "/secret/runtime.json",
+        "KEEPHARNESS_AGENT_CONFIG": "/secret/runtime.json",
         "HARNESS_SESSION_COOKIE": "authority-e",
         "ADMIN_TOKEN": "authority-f",
+        # The prefix from before the KeepHarness rename still carries harness authority.
+        "TAIL_HARNESS_TOKEN": "authority-g",
     }
     clean = child_environment(source)
-    assert clean == {
-        key: source[key]
-        for key in (
-            "PATH",
-            "HOME",
-            "OPENAI_API_KEY",
-            "ANTHROPIC_API_KEY",
-            "CLAUDE_CODE_OAUTH_TOKEN",
-        )
-    }
-    assert len(source) == 12
+    # Provider logins live in the harness-owned homes, not in host variables (D02, SEC RC-09).
+    assert clean == {key: source[key] for key in ("PATH", "HOME")}
+    assert len(source) == 13
 
 
 def test_deepseek_keeps_only_its_explicit_inference_credential(monkeypatch):
     from adapters.shared.process import child_environment
 
-    monkeypatch.setenv("TAIL_HARNESS_API_KEY", "host-authority")
-    assert "TAIL_HARNESS_API_KEY" not in child_environment(provider="deepseek")
+    monkeypatch.setenv("KEEPHARNESS_API_KEY", "host-authority")
+    assert "KEEPHARNESS_API_KEY" not in child_environment(provider="deepseek")
     assert child_environment(
-        {"TAIL_HARNESS_API_KEY": "inference-key", "HARNESS_SESSION": "human"}, provider="deepseek"
-    ) == {"TAIL_HARNESS_API_KEY": "inference-key"}
+        {"KEEPHARNESS_API_KEY": "inference-key", "HARNESS_SESSION": "human"}, provider="deepseek"
+    ) == {"KEEPHARNESS_API_KEY": "inference-key"}
 
 
 @pytest.mark.parametrize("native", [False, True])
@@ -119,14 +113,14 @@ def test_claude_spawn_scrubs_inheritance_and_reports_stderr(native, tmp_path, mo
     from adapters.claude.stream import stream
 
     monkeypatch.setenv("HARNESS_SESSION", "human-cookie")
-    monkeypatch.setenv("TAIL_HARNESS_TOKEN", "human-token")
+    monkeypatch.setenv("KEEPHARNESS_TOKEN", "human-token")
     monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "provider-oauth")
     monkeypatch.setenv("HOME", str(tmp_path))
     program = """
 import json, os, sys
 assert 'HARNESS_SESSION' not in os.environ
-assert 'TAIL_HARNESS_TOKEN' not in os.environ
-assert os.environ['CLAUDE_CODE_OAUTH_TOKEN'] == 'provider-oauth'
+assert 'KEEPHARNESS_TOKEN' not in os.environ
+assert 'CLAUDE_CODE_OAUTH_TOKEN' not in os.environ
 sys.stdin.readline()
 sys.stderr.write('harness_session=human-cookie\\n')
 sys.stderr.write('enrollment_nonce=enrollment-secret\\n')

@@ -3,12 +3,12 @@
 import json
 import xml.etree.ElementTree as ET
 
-from tail_ui import ASSETS, asset_response
+from harness_ui import ASSETS, asset_response
 
 
 def test_catalog_has_no_missing_symbols_or_duplicate_ids():
     source = (ASSETS / "file-icons-data.js").read_text()
-    manifest = json.loads(source.split("window.TailFileIcons=", 1)[1].removesuffix(";\n"))
+    manifest = json.loads(source.split("window.HarnessFileIcons=", 1)[1].removesuffix(";\n"))
     root = ET.parse(ASSETS / "file-icons.svg").getroot()
     symbols = {node.get("id") for node in root}
     ids = [node.get("id") for node in root.iter() if node.get("id")]

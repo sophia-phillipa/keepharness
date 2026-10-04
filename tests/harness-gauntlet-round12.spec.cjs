@@ -101,7 +101,7 @@ async function publication(page){await page.evaluate(()=>showGate({gate_id:'publ
  await check('A1-F1 Complete default cards across publication and completed states',async()=>{
   for(const [width,height] of [[1440,900],[1280,720],[1024,768],[400,812]])for(const theme of ['porcelain','amethyst','petroleum'])for(const published of [false,true]){
    const f=await fixture(browser,width,height),p=f.page;f.state.completed=!published;await f.open();if(published)await publication(p);
-   await p.evaluate(theme=>{TailTheme.apply(theme);runConsole.openRun('a-job');},theme);await p.locator('.run-span-row').first().waitFor();
+   await p.evaluate(theme=>{HarnessTheme.apply(theme);runConsole.openRun('a-job');},theme);await p.locator('.run-span-row').first().waitFor();
    for(const tab of ['Pipeline','Timeline']){
     await p.getByRole('tab',{name:tab,exact:true}).click();await settle(p);await p.waitForTimeout(150);
     const row=p.locator('.run-span-row').first(),b=await p.locator('.run-console-body').boundingBox(),r=await row.boundingBox();

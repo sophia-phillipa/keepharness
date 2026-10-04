@@ -17,9 +17,14 @@ from control.server import Manager
 def config(tmp_path):
     return {
         "state_dir": str(tmp_path / "state"),
+        "project_registration": True,
         "shared_projects": True,
         "projects": {"sem-projeto": {}},
-        "clients": {"a": {"sha256": hashlib.sha256(b"a").hexdigest(), "projects": ["sem-projeto"]}},
+        # "local" is the owner on this computer, the only client that manages project folders.
+        "clients": {
+            name: {"sha256": hashlib.sha256(name.encode()).hexdigest(), "projects": ["sem-projeto"]}
+            for name in ("a", "local")
+        },
         "services": {
             p: {
                 "enabled": True,
@@ -39,7 +44,7 @@ def test_registration_persists_and_shares_models(tmp_path):
     app = create_app(copy.deepcopy(cfg))
     root = tmp_path / "project"
     root.mkdir()
-    client = TestClient(app, headers={"Authorization": "Bearer a"})
+    client = TestClient(app, headers={"Authorization": "Bearer local"})
     response = client.post("/v1/projects", json={"root": str(root), "label": "Demo"})
     assert response.status_code == 201, response.text
     pid = response.json()["project_id"]
@@ -61,7 +66,7 @@ def test_registration_auth_and_paths(tmp_path):
     app = create_app(config(tmp_path))
     client = TestClient(app)
     assert client.post("/v1/projects", json={"root": str(tmp_path)}).status_code == 401
-    client.headers["Authorization"] = "Bearer a"
+    client.headers["Authorization"] = "Bearer local"
     for root in ("/", str(tmp_path / "state")):
         assert client.post("/v1/projects", json={"root": root}).status_code == 403
     for root in ("relative", str(tmp_path / "missing")):
@@ -193,7 +198,8 @@ def test_start_rechecks_providers_and_builds_native_config(tmp_path):
     assert refresh.await_count == checked.await_count == 2
     assert cfg["deepseek_models"] == {"new-model": ["configured"]}
     assert cfg["deepseek"]["unrestricted"] is True
-    assert cfg["shared_projects"] is True
+    # The owner registers folders; other clients receive them only once shared (SEC-R3-1).
+    assert (cfg["project_registration"], cfg["shared_projects"]) == (True, False)
 
 
 def test_claude_native_disables_sandbox(tmp_path):

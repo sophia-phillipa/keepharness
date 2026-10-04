@@ -7,7 +7,7 @@ from starlette.testclient import TestClient
 
 from agent_service.execution_defaults import resolve
 from control.server import Manager, create_app
-from tail_ui import ASSETS, PUBLIC, asset_response
+from harness_ui import ASSETS, PUBLIC, asset_response
 
 
 def configuration():

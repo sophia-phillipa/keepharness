@@ -11,6 +11,7 @@ from starlette.testclient import TestClient
 
 from control.local_models import load_profiles, save_profile
 from control.server import ADMIN_BODY_LIMIT, Manager, create_app
+from tests.owner_session import sign_in
 
 INVENTORY = {
     "platform": "Linux",
@@ -36,7 +37,7 @@ def admin(tmp_path, monkeypatch):
     monkeypatch.setattr(Manager, "stop", AsyncMock())
     app = create_app(tmp_path / "state")
     with TestClient(app, base_url="http://127.0.0.1:8094") as client:
-        client.get("/")
+        sign_in(client).get("/")
         client.headers["X-Harness-Admin"] = "1"
         yield client, app.state.manager
 

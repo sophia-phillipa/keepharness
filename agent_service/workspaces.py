@@ -2,6 +2,7 @@
 
 import hashlib
 import os
+import re
 import shutil
 import stat
 import zipfile
@@ -48,6 +49,59 @@ SYSTEM_DIRECTORIES = tuple(
 SYSTEM_DIRECTORY_NAMES = {directory.name for directory in SYSTEM_DIRECTORIES}
 VOLUME_DIRECTORIES = {"System Volume Information", "$RECYCLE.BIN", "RECYCLE.BIN", "lost+found"}
 
+# Credential stores, key files and dependency folders the read-only tools never open. The
+# standalone MCP bridge (mcp_bridge.py) keeps an identical copy because it is downloaded on its
+# own; tests/test_run_workspace_isolation.py keeps the two equal.
+CREDENTIAL_NAMES = frozenset(
+    {
+        ".git",
+        ".ssh",
+        ".aws",
+        ".config",
+        ".codex",
+        ".claude",
+        ".gemini",
+        ".venv",
+        "venv",
+        "node_modules",
+        "__pycache__",
+        ".DS_Store",
+        "__MACOSX",
+        ".gnupg",
+        ".password-store",
+        ".docker",
+        ".kube",
+        ".local",
+        ".mozilla",
+        ".pki",
+        ".var",
+        "Keychains",
+        "Cookies",
+        "Application Support",
+        ".netrc",
+        ".git-credentials",
+        ".pgpass",
+        ".npmrc",
+        ".pypirc",
+    }
+)
+CREDENTIAL_SUFFIXES = frozenset(
+    {
+        ".pem",
+        ".key",
+        ".gguf",
+        ".p12",
+        ".pfx",
+        ".gpg",
+        ".kdbx",
+        ".keychain",
+        ".keychain-db",
+        ".jks",
+        ".keystore",
+    }
+)
+PRIVATE_KEY_NAME = re.compile(r"id_(rsa|dsa|ecdsa|ed25519)(_sk)?(\.pub)?")
+
 
 def allowed(name):
     parts = PurePosixPath(name).parts
@@ -58,6 +112,16 @@ def allowed(name):
         and not any(p in (".", "..") or p in EXCLUDED or p.startswith(".env") for p in parts)
         and not any(ord(c) < 32 for c in name)
         and Path(name).suffix.lower() not in {".pem", ".key", ".gguf"}
+    )
+
+
+def credential_path(name):
+    """True for Git metadata, dependencies, key and model files, and credential stores."""
+    path = PurePosixPath(name)
+    return (
+        any(part in CREDENTIAL_NAMES or part.startswith(".env") for part in path.parts)
+        or path.suffix.lower() in CREDENTIAL_SUFFIXES
+        or PRIVATE_KEY_NAME.fullmatch(path.name) is not None
     )
 
 

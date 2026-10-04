@@ -53,11 +53,11 @@ for name in sorted(references):
             node.set(attribute, value)
     sprite.append(symbol)
 
-output = Path(__file__).resolve().parents[1] / "tail_ui" / "assets"
+output = Path(__file__).resolve().parents[1] / "harness_ui" / "assets"
 ET.ElementTree(sprite).write(output / "file-icons.svg", encoding="unicode")
 (output / "file-icons-data.js").write_text(
     f"// Material Icon Theme {version}, MIT; see file-icons-LICENSE.txt. Generated from generateManifest().\n"
-    + "window.TailFileIcons="
+    + "window.HarnessFileIcons="
     + json.dumps(data, separators=(",", ":"))
     + ";\n"
 )

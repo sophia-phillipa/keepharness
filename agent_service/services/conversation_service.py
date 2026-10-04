@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import hmac
+import ipaddress
 import json
 import logging
 import math
@@ -12,24 +13,25 @@ import shutil
 import sys
 import time
 import uuid
-from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import adapters
 from adapters.claude import account as claude_account
 from adapters.codex import rpc as codex_rpc
-from control import remote_models
+from adapters.shared.provider_setup import child_source, run_settings
+from control import local_access, remote_models
 
 from .. import (
     approval_policy,
     conversation_context,
     deployment,
+    harness_agents,
     integrations_view,
     invocations,
     maestro,
     resources,
-    tail_agents,
     tools,
     workflows,
     workspaces,
@@ -61,11 +63,11 @@ from ..persistence.repositories import (
 )
 from ..private_storage import validate_attachment_source
 from ..work_items import invocation_reference, validate_reference
-from . import queue_worker
+from . import capacity, queue_worker
 from .activity_service import summarize_activity
 from .budgets import timeout_seconds
 from .effect_service import EffectService
-from .gate_service import GateService
+from .gate_service import GateService, deny_unattended
 from .project_service import ProjectService
 
 logger = logging.getLogger(__name__)
@@ -79,6 +81,30 @@ def as_dict(value):
 def with_sources(prompt, context):
     """Append the source block only when there are sources; models echo an empty one."""
     return prompt if context in ("", "[]") else prompt + "\nSOURCES:\n" + context
+
+
+# Tailscale assigns node addresses from these ranges (CGNAT IPv4 and its ULA IPv6 prefix).
+TAILNET_NETWORKS = (
+    ipaddress.ip_network("100.64.0.0/10"),
+    ipaddress.ip_network("fd7a:115c:a1e0::/48"),
+)
+
+
+def loopback_name(name):
+    """True for localhost and every loopback address."""
+    try:
+        return ipaddress.ip_address(name).is_loopback
+    except ValueError:
+        return name.lower().rstrip(".") in local_access.LOOPBACK_NAMES
+
+
+def tailnet_address(value):
+    """True when ``value`` is exactly one tailnet address, as Serve writes X-Forwarded-For."""
+    try:
+        address = ipaddress.ip_address(value.strip())
+    except ValueError:
+        return False
+    return any(address in network for network in TAILNET_NETWORKS)
 
 
 @dataclass
@@ -101,6 +127,8 @@ class InferencePlan:
     attachment_notice: str
     selected_resources: object
     catalog_runtime: dict | None = None
+    # A retry after the provider lost its session: the turn's hooks and notices already ran.
+    replay: bool = False
 
 
 def preview_metadata(file_id, pages):
@@ -127,6 +155,7 @@ class ConversationService:
 
         self.root = Path(config["state_dir"])
         ensure_lineage(self.root)
+        harness_agents.migrate_legacy_folder(config)
         self.vault = SecretVault(
             config.get("secret_vault_path", self.root / "harness.secrets.json")
         )
@@ -143,7 +172,11 @@ class ConversationService:
         )
         self.deleted_project_folders = self.project_service.deleted_project_folders
         self.deleting_project_folders = self.project_service.deleting_project_folders
-        if config.get("shared_projects"):
+        if config.get("local_access") and not config.get("local_secret_sha256"):
+            logger.warning(
+                "Local access has no install secret: every account on this computer is the owner."
+            )
+        if config.get("project_registration"):
             config["projects"].update(self.project_repository.registered())
             self.share_projects()
         self.approvals = {}
@@ -178,6 +211,14 @@ class ConversationService:
         self.runtime_budgets = {}
         self.provider_slots = {}
         self.provider_inflight = {}
+        # Dispatcher lanes and approval parking (services/capacity.py).
+        self.provider_lanes = {}
+        self.job_lanes = {}
+        self.lane_resumers = {}
+        self.lane_freed = asyncio.Event()
+        self.parked_capacity = {}
+        # Jobs the user stopped; their queued follow-ups are held when they settle (D16).
+        self.stop_requests = set()
         self.gates = GateService(self)
         self.gates.invalidate_pending()
         self.effects = EffectService(self)
@@ -238,6 +279,7 @@ class ConversationService:
         for condition in self.provider_slots.values():
             async with condition:
                 condition.notify_all()
+        capacity.notify_lanes(self)
         # Grants are evaluated at execution time; remembered approvals cannot survive
         # a changed provider/model permission policy.
         affected_scopes = changed_scopes | {
@@ -304,6 +346,9 @@ class ConversationService:
         with self.db:
             self.conversation_repository.set_result(job, state, encoded(result))
             self.event(job, state, {**result, "outcome": state})
+            if state == "cancelled" and job in self.stop_requests:
+                queue_worker.hold_followups(self, job)
+        self.stop_requests.discard(job)
 
     def identity(self, request, *, revalidate=False):
         def identified(name, client):
@@ -326,6 +371,8 @@ class ConversationService:
         )
         if cross_site and not navigation:
             raise APIError("origin_denied", 403)
+        host = request.headers.get("host", "")
+        self.refuse_rebinding(request, host)
         session_owner = None
         if request.cookies.get(SESSION_COOKIE):
             if not revalidate:
@@ -374,17 +421,23 @@ class ConversationService:
             and not cross_site
             and request.client
             and request.client.host in ("127.0.0.1", "::1")
-            and request.headers.get("host", "").split(":")[0] in ("localhost", "127.0.0.1")
+            and local_access.host_allowed(host, local_access.LOOPBACK_NAMES)
             and not request.headers.get("x-forwarded-for")
             and not request.headers.get("tailscale-user-login")
             and self.config.get("local_access")
+            and self.holds_local_session(request)
         ):
             return identified("local", self.config["clients"]["local"])
         token = auth[7:] if auth.startswith("Bearer ") else ""
         # Intentional (owner decision, F-25): unlike local_access above, a user-activated
         # cross-site top-level GET navigation still gets the Tailscale identity; every other
         # cross-site request was refused before this point.
-        if not auth and request.client and request.client.host in ("127.0.0.1", "::1"):
+        if (
+            not auth
+            and request.client
+            and request.client.host in ("127.0.0.1", "::1")
+            and self.through_tailnet_serve(request, host)
+        ):
             login = request.headers.get("tailscale-user-login", "")
             client_name = self.config.get("tailscale_logins", {}).get(login)
             if client_name in self.config["clients"]:
@@ -394,6 +447,46 @@ class ConversationService:
             if token and hmac.compare_digest(digest, client["sha256"]):
                 return identified(name, client)
         raise APIError("authentication_required", 401)
+
+    def refuse_rebinding(self, request, host):
+        """DNS rebinding: a page whose name now resolves to 127.0.0.1 can set Tailscale's header
+        on a same-origin fetch. Cookies need no check (a browser never sends 127.0.0.1's to
+        another name), and loopback trust accepts only a loopback Host."""
+        if request.headers.get("tailscale-user-login") and not local_access.host_allowed(
+            host, local_access.origin_names(self.config.get("origins", []))
+        ):
+            raise APIError("host_denied", 403)
+
+    def holds_local_session(self, request):
+        """The owner's browser or desktop app holds a session the admin issued (D09).
+
+        Configs written by the admin always carry the install secret's digest, which marks that
+        sessions are required; they are listed in the admin's state folder. A hand-written test
+        config without the digest keeps plain loopback trust (logged as a warning at startup).
+        """
+        if not self.config.get("local_secret_sha256"):
+            return True
+        state = self.config.get("control_state_dir")
+        return bool(state) and local_access.has_session(request.cookies, Path(state))
+
+    def through_tailnet_serve(self, request, host):
+        """Tailscale Serve forwards a login only for the configured remote origin (SEC-R1-2).
+
+        Serve proxies to 127.0.0.1 with the Host it received, sets X-Forwarded-Host to that Host
+        and X-Forwarded-For to the tailnet peer's address, and drops any identity header the
+        peer sent (tailscale ipn/ipnlocal/serve.go). All three must agree, and a loopback
+        ``browser_url`` never maps a login. Assumption: another account on this computer can
+        still send these headers to 127.0.0.1 itself; telling it apart from Serve needs a
+        tailscaled WhoIs lookup, which this service does not make.
+        """
+        remote = urlsplit(self.config.get("browser_url") or "")
+        if not remote.hostname or loopback_name(remote.hostname):
+            return False
+        if host.lower() != remote.netloc.lower():
+            return False
+        if request.headers.get("x-forwarded-host", "").lower() != host.lower():
+            return False
+        return tailnet_address(request.headers.get("x-forwarded-for", ""))
 
     def limit(self, key, maximum, code="rate_limit"):
         # Keys come from configured identities, fixed lanes.
@@ -606,13 +699,29 @@ class ConversationService:
                 raise APIError("invalid_parent_job")
             row = dict(previous)
 
+    def session_folder(self, row, data):
+        """The provider's run folder for this conversation (or Maestro stage).
+
+        ``sessions_dir`` keeps run folders out of the state folder that holds the keys; without
+        it (older runtime files, tests) they stay under ``state_dir``.
+        """
+        sessions = (
+            Path(self.config["sessions_dir"])
+            if self.config.get("sessions_dir")
+            else self.root / "sessions"
+        )
+        sessions.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if data.get("_maestro_stage"):
+            return sessions / row["id"] / ("maestro-" + data["_maestro_stage"])
+        return sessions / self.conversation_id(row) / data.get("backend", "codex")
+
     def conversation_title(self, row):
         cid = self.conversation_id(row)
         title = self.conversation_repository.title(cid)
         if title:
             return title[0]
         root = self.conversation_repository.payload(cid)
-        return json.loads(root[0]).get("prompt", "Conversation")[:100]
+        return resources.conversation_title(json.loads(root[0]).get("prompt", ""))
 
     def execution_modes(self, backend):
         return EXECUTION_MODES.get(backend, ())
@@ -866,7 +975,14 @@ class ConversationService:
             time.time() - integrations_view.WINDOW_DAYS * 86400,
             integrations_view.USAGE_TOOL_LIMIT,
         )
-        route = integrations_view.Route(project_id, backend, model, execution_mode, access_mode)
+        route = integrations_view.Route(
+            project_id,
+            backend,
+            model,
+            execution_mode,
+            access_mode,
+            owner=identity[0] == harness_agents.LOCAL_CLIENT,
+        )
         return integrations_view.build(self.config, route, usage)
 
     def resource_catalog(self, identity, project_id, backend, model, execution_mode=None):
@@ -880,13 +996,14 @@ class ConversationService:
                 "items": [],
                 "warnings": ["Resource reading disabled for this model."],
             }
-            tail_agents.add_resources(result, self.config, project_id, private=False)
+            harness_agents.add_resources(result, self.config, project_id, private=False)
             return result
         execution_mode = execution_mode or self.default_execution_mode(backend)
         self.validate_execution_mode(backend, execution_mode)
-        return resources.discover(
-            self.config, project_id, backend, model, execution_mode=execution_mode
-        )
+        # A guest never sees the owner's personal resources (decision D01).
+        owner = identity[0] == harness_agents.LOCAL_CLIENT
+        config = self.config if owner else {**self.config, "personal_setup": False}
+        return resources.discover(config, project_id, backend, model, execution_mode=execution_mode)
 
     def selected_resources(self, data, *, canonical=None):
         if data.get("backend") == "maestro":
@@ -894,9 +1011,9 @@ class ConversationService:
             data = {**data, "backend": lead["backend"], "model": lead["model"]}
             if lead["backend"] == "local":
                 data["execution_mode"] = "scoped"
-        # "read" guards project and catalog files; a Tail agent's persona is harness-kept text.
-        # Anything that is not a list of Tail agent selections is judged by ``resources.resolve``.
-        needs_read = not tail_agents.only_tail_agents(data.get("resource_selections"))
+        # "read" guards project and catalog files; a Harness agent's persona is harness-kept text.
+        # Anything that is not a list of Harness agent selections is judged by ``resources.resolve``.
+        needs_read = not harness_agents.only_harness_agents(data.get("resource_selections"))
         if needs_read and not maestro.model_permissions(
             self.config, data["backend"], data.get("model"), data["project_id"]
         ).get("read"):
@@ -988,7 +1105,10 @@ class ConversationService:
                 previous = json.loads(self.job(identity, data["parent_job_id"])["payload"])
                 persona = previous.get("invocations", [])
                 if len(persona) == 1 and persona[0]["mode"] == "conversational":
-                    data["resource_selections"] = previous.get("resource_selections", [])
+                    data["resource_selections"] = [
+                        harness_agents.upgrade_selection(ref, self.config)
+                        for ref in previous.get("resource_selections", [])
+                    ]
                     if data["resource_selections"]:
                         data["prompt"] = (
                             data["resource_selections"][0]["token"] + " " + data.get("prompt", "")
@@ -1166,7 +1286,12 @@ class ConversationService:
         data = json.loads(row["payload"])
         context_parent = data.get("_workflow_context_parent_id", data.get("parent_job_id"))
         for key in tuple(data):
-            if key.startswith("_") or key in ("parent_job_id", "execution_parent_id"):
+            if key.startswith("_") or key in (
+                "parent_job_id",
+                "execution_parent_id",
+                "schedule_id",
+                "schedule_title",
+            ):
                 data.pop(key)
         source_invocations = data.pop("invocations", [])
         data.pop("resource_selections", None)
@@ -1248,7 +1373,7 @@ class ConversationService:
             self.write_ownership.release(lease)
         return {"id": workflow_id, "path": "workflows/" + target.name, "project_id": row["project"]}
 
-    def submit(self, identity, data, idem=None, *, workflow_recovery=None):
+    def submit(self, identity, data, idem=None, *, workflow_recovery=None, schedule=None):
         data = dict(data)
         if data.get("project_id") in self.deleting_project_folders:
             raise APIError("project_folder_busy", 409)
@@ -1268,6 +1393,9 @@ class ConversationService:
                 "_workflow_resume",
                 "_workflow_context_parent_id",
                 "_workflow_recovery_digest",
+                "_held_after_stop",
+                "schedule_id",
+                "schedule_title",
             )
         ):
             raise APIError("invalid_internal_field")
@@ -1286,6 +1414,11 @@ class ConversationService:
             ).get("access_mode", "ask")
         if data.get("access_mode", "ask") not in approval_policy.MODES:
             raise APIError("invalid_access_mode")
+        if (
+            data.get("access_mode", "ask") in approval_policy.OWNER_ONLY_MODES
+            and identity[0] != harness_agents.LOCAL_CLIENT
+        ):
+            raise APIError("access_mode_owner_only", 403)
         if data.get("parent_job_id") and data.get("workspace_id") is None:
             data["workspace_id"] = json.loads(
                 self.job(identity, data["parent_job_id"])["payload"]
@@ -1310,6 +1443,8 @@ class ConversationService:
             )
         if workflow_recovery is not None:
             data.update(workflow_recovery)
+        if schedule is not None:
+            data.update(schedule)
         project = data["project_id"]
         if len(encoded(data).encode()) > 150000:
             raise APIError("payload_limit", 413)
@@ -1506,7 +1641,12 @@ class ConversationService:
             if cache and cache[0] == binary and time.monotonic() - cache[1] < 30:
                 return cache[2]
             try:
-                result = await asyncio.wait_for(codex_rpc.metadata(binary, "model/list"), 2)
+                result = await asyncio.wait_for(
+                    codex_rpc.metadata(
+                        binary, "model/list", env=child_source(self.config["codex"], "codex")
+                    ),
+                    2,
+                )
                 modalities = {
                     item["id"]: item["inputModalities"]
                     for item in result.get("data", [])
@@ -1550,23 +1690,10 @@ class ConversationService:
         if backend not in ("codex", "claude", "gemini", "local", "deepseek"):
             raise APIError("backend_unavailable")
         # Capacity is checked at every inference, including Maestro planner/steps.
-        condition = self.provider_slots.setdefault(backend, asyncio.Condition())
         previous_task = self.job_tasks.get(row["id"])
         self.job_tasks[row["id"]] = asyncio.current_task()
-        waited = False
         try:
-            async with condition:
-                while True:
-                    maximum = (
-                        self.config.get("services", {}).get(backend, {}).get("max_concurrent", 1)
-                    )
-                    if type(maximum) is not int or maximum < 1:
-                        raise APIError("invalid_provider_capacity")
-                    if self.provider_inflight.get(backend, 0) < maximum:
-                        self.provider_inflight[backend] = self.provider_inflight.get(backend, 0) + 1
-                        break
-                    waited = True
-                    await condition.wait()
+            waited = await capacity.take_slot(self, backend)
             self.active_executors[row["id"]] = (backend, data.get("model"))
             try:
                 if waited:
@@ -1591,7 +1718,16 @@ class ConversationService:
                             "effort": data.get("effort"),
                         }
                         self.event(row["id"], "invocation_started", attribution)
-                result = await self._run_inference(plan)
+                try:
+                    result = await self._run_inference(plan)
+                except tools.ToolError as exc:
+                    if str(exc) != "native_session_missing":
+                        raise
+                    # The provider lost its session (its folder moved): the adapter set it
+                    # aside, so the new plan replays the history as after a provider switch.
+                    plan = await self._prepare_inference(row, data)
+                    plan.replay = True
+                    result = await self._run_inference(plan)
                 if attribution:
                     self.event(
                         row["id"],
@@ -1606,9 +1742,7 @@ class ConversationService:
                 return self._finalize_inference(plan, result)
             finally:
                 self.active_executors.pop(row["id"], None)
-                async with condition:
-                    self.provider_inflight[backend] -= 1
-                    condition.notify_all()
+                await capacity.release_slot(self, row["id"], backend)
         finally:
             if previous_task is None:
                 self.job_tasks.pop(row["id"], None)
@@ -1635,13 +1769,7 @@ class ConversationService:
             self.config, data.get("backend", "codex"), data.get("model"), row["project"]
         ).get("upload"):
             raise APIError("uploads_denied", 403)
-        native_session = (
-            self.root / "sessions" / self.conversation_id(row) / data.get("backend", "codex")
-        )
-        if data.get("_maestro_stage"):
-            native_session = (
-                self.root / "sessions" / row["id"] / ("maestro-" + data["_maestro_stage"])
-            )
+        native_session = self.session_folder(row, data)
         for fid in file_ids:
             file = self.file(row["project"], fid, row["owner"])
             pages = json.loads(file["pages"])
@@ -1737,18 +1865,14 @@ class ConversationService:
                 for item in selected_resources
             ]
         prompt = resources.prepare_prompt(data.get("prompt", ""), selected_resources)
+        if data.get("release_persona") and turns:
+            prompt = resources.release_notice(turns[-1][0]) + prompt
         if attachment_notice:
             prompt += (
                 "\nSYSTEM NOTICE: the frames and images mentioned below were not provided to the model; do not claim to have seen their content.\n"
                 + attachment_notice
             )
-        native_session = (
-            self.root / "sessions" / self.conversation_id(row) / data.get("backend", "codex")
-        )
-        if data.get("_maestro_stage"):
-            native_session = (
-                self.root / "sessions" / row["id"] / ("maestro-" + data["_maestro_stage"])
-            )
+        native_session = self.session_folder(row, data)
         overflow_job = next(
             (
                 payload["_overflow_job_id"]
@@ -1899,7 +2023,8 @@ class ConversationService:
         self.vault.remember(environment.values())
         if environment and (plan.execution_mode != "native" or plan.backend == "local"):
             raise APIError("integration_environment_unsupported")
-        if runtime["catalogs"]:
+        replay = getattr(plan, "replay", False)
+        if runtime["catalogs"] and not replay:
             self.event(
                 plan.row["id"],
                 "catalog_snapshot",
@@ -1946,11 +2071,12 @@ class ConversationService:
             grants = approval_policy.effective_permissions(
                 grants, plan.data.get("access_mode", "ask")
             )
-            await run_hooks(
-                runtime,
-                grants.get("hooks") is True,
-                lambda kind, value: self.event(plan.row["id"], kind, value),
-            )
+            if not replay:  # hooks are user scripts: a turn runs them once
+                await run_hooks(
+                    runtime,
+                    grants.get("hooks") is True,
+                    lambda kind, value: self.event(plan.row["id"], kind, value),
+                )
             async with effect_transport(
                 self,
                 plan.row["id"],
@@ -2034,7 +2160,7 @@ class ConversationService:
                 )
                 live["at"] = time.monotonic()
 
-        if attachment_notice:
+        if attachment_notice and not plan.replay:  # already streamed by the first attempt
             progress("answer_delta", {"text": attachment_notice})
         project_config, backend_config, permissions = self._project_config(plan)
         if execution_mode == "scoped":
@@ -2193,6 +2319,12 @@ class ConversationService:
         )
         mode = data.get("access_mode", "ask")
         permissions = approval_policy.effective_permissions(permissions, mode)
+        guest = row["owner"] != harness_agents.LOCAL_CLIENT
+        if guest:
+            # Fails closed for runs queued before the submit-time ceiling (decisions D06, D11).
+            if mode in approval_policy.OWNER_ONLY_MODES:
+                raise APIError("access_mode_owner_only", 403)
+            permissions = approval_policy.guest_permissions(permissions)
         if backend == "claude":
             permissions["delegate"] = project_config.get("permissions", {}).get("delegate") is True
         if backend == "claude" and permissions.get("read") and plan.execution_mode == "native":
@@ -2243,11 +2375,16 @@ class ConversationService:
         if not permissions.get("tests"):
             project_config["test_commands"] = {}
         backend_config = self.config[backend]
-        if backend == "local" and "model_permissions" in self.config["services"][backend]:
+        # Host connectors run with the owner's account on this computer: never for guests (D04).
+        if guest or (backend == "local" and "model_permissions" in self.config["services"][backend]):
             backend_config = {**backend_config, "integrations": [], "unrestricted": False}
         if data.get("_planning_only"):
             project_config = {"permissions": {}}
             backend_config = {**backend_config, "integrations": [], "unrestricted": False}
+        backend_config = {
+            **backend_config,
+            **run_settings(self.config, backend, guest=guest, data=data),
+        }
         return project_config, backend_config, permissions
 
     def expire_approval(self, job_id, expiration_limit):
@@ -2267,6 +2404,8 @@ class ConversationService:
         mode = data.get("access_mode", "ask")
 
         async def approve(kind, params):
+            if data.get("schedule_id"):
+                return deny_unattended(kind, progress)
             if kind == "gate":
                 return await self.gates.ask(row["id"], params, progress)
             fingerprint = approval_policy.rule_key(kind, params, permissions)
@@ -2333,8 +2472,7 @@ class ConversationService:
                     },
                 )
                 opened = True
-                budget = self.runtime_budgets.get(row["id"])
-                with budget.human_wait() if budget is not None else nullcontext():
+                async with capacity.parked(self, row["id"]):
                     try:
                         reply = await asyncio.wait_for(future, wait_limit)
                     except TimeoutError:
@@ -2498,7 +2636,9 @@ class ConversationService:
             return self.usage_cache
         try:
             value = await codex_rpc.metadata(
-                self.config["codex"]["binary"], "account/rateLimits/read"
+                self.config["codex"]["binary"],
+                "account/rateLimits/read",
+                env=child_source(self.config["codex"], "codex"),
             )
             self.usage_cache = {
                 "available": True,
@@ -2632,7 +2772,7 @@ class ConversationService:
                 continue
         return {
             "schema_version": "1.0",
-            "service": "tail-harness",
+            "service": "keepharness",
             "version": VERSION_FILE.read_text().strip(),
             "backends": {
                 p: {
@@ -2701,3 +2841,6 @@ class ConversationService:
 
     def cancel(self, identity, job):
         return queue_worker.cancel(self, identity, job)
+
+    def run_queued(self, identity, job):
+        return queue_worker.run_queued(self, identity, job)

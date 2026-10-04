@@ -177,7 +177,7 @@ const assert = require("node:assert/strict"),
         body: await fs.readFile(
           path.join(
             __dirname,
-            file.startsWith("assets/") ? "../tail_ui" : "../agent_service",
+            file.startsWith("assets/") ? "../harness_ui" : "../agent_service",
             file,
           ),
         ),
@@ -191,7 +191,7 @@ const assert = require("node:assert/strict"),
       });
     });
     await page.emulateMedia({ reducedMotion: "reduce" });
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.14.0"));
+    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
     await page.goto(origin);
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
 
@@ -235,7 +235,7 @@ const assert = require("node:assert/strict"),
       "petroleum",
       "arizona",
     ]) {
-      await page.evaluate((t) => TailTheme.apply(t, false), theme);
+      await page.evaluate((t) => HarnessTheme.apply(t, false), theme);
       const mismatches = await modal.evaluate((dialog) => {
         const probe = document.createElement("span");
         dialog.append(probe);
@@ -276,7 +276,7 @@ const assert = require("node:assert/strict"),
         [],
         theme + " must use the existing theme tokens",
       );
-      await page.screenshot({ path: "/tmp/tail-delete-" + theme + ".png" });
+      await page.screenshot({ path: "/tmp/keepharness-delete-" + theme + ".png" });
     }
 
     await page.setViewportSize({ width: 390, height: 844 });
@@ -286,7 +286,7 @@ const assert = require("node:assert/strict"),
         return r.left >= 0 && r.right <= innerWidth && r.bottom <= innerHeight;
       }),
     );
-    await page.screenshot({ path: "/tmp/tail-delete-mobile.png" });
+    await page.screenshot({ path: "/tmp/keepharness-delete-mobile.png" });
     failDelete = true;
     await page.click("#delete-conversation-confirm");
     await page

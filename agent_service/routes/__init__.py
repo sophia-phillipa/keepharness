@@ -32,12 +32,12 @@ class LimitedStream(StreamingResponse):
             self.release()
 
 
-async def body(request):
+async def body(request, limit=200000):
     chunks = bytearray()
     try:
         async with asyncio.timeout(10):
             async for chunk in request.stream():
-                if len(chunks) + len(chunk) > 200000:
+                if len(chunks) + len(chunk) > limit:
                     raise APIError("payload_limit", 413)
                 chunks.extend(chunk)
     except TimeoutError:
@@ -67,6 +67,8 @@ def error_response(exc):
             "retryable": status in (429, 503),
             "request_id": uuid.uuid4().hex,
             **({"field": exc.field} if getattr(exc, "field", None) else {}),
+            **({"owner": exc.owner} if getattr(exc, "owner", None) else {}),
+            **({"login": exc.login} if getattr(exc, "login", None) else {}),
         },
         status_code=status,
         headers={"Retry-After": str(exc.retry_after)}

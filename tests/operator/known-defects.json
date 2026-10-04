@@ -1,0 +1,157 @@
+{
+  "steps": {
+    "sidebar.row-no-internal-id": {
+      "id": "L34",
+      "note": "Rows outside a project show the internal 'sem-projeto' id (internal ids show)."
+    },
+    "sidebar.archive-offered": {
+      "id": "L48",
+      "note": "Delete only hides; there is no Archive (D31)."
+    },
+    "composer.empty-file": {
+      "id": "L74",
+      "note": "Empty files are accepted as attachments (QA-R1-8)."
+    },
+    "conversation.image-thumbnail-whole": {
+      "id": "L74",
+      "note": "V7: thumbnails are cropped (object-fit: cover)."
+    },
+    "approvals.attention-explains": {
+      "id": "L42",
+      "note": "The Attention popover lists filters but explains nothing."
+    },
+    "agents.dialog-buttons-visible": {
+      "id": "L46",
+      "note": "V8: the Create agent dialog cuts its Cancel/Create buttons."
+    },
+    "files-code.folder-opens": {
+      "id": "L51",
+      "note": "Folders in the Files panel are inert."
+    },
+    "window-sizes.800-sidebar-share": {
+      "id": "L42",
+      "note": "V14: the sidebar keeps 350 px in small windows."
+    },
+    "window-sizes.390-space-scheduled": {
+      "id": "L52",
+      "note": "Space and Scheduled are unreachable below 620 px."
+    },
+    "themes.dark-contrast": {
+      "id": "L58",
+      "note": "Graphite muted text is 4.14:1, below AA."
+    },
+    "desktop.no-dev-menu": {
+      "id": "L63",
+      "note": "Stock Electron menu with Reload and DevTools."
+    }
+  },
+  "lint": [
+    {
+      "id": "noise",
+      "kinds": [
+        "spills"
+      ],
+      "match": "kbd",
+      "note": "Keyboard hint glyphs (UX-R5 allowlist)."
+    },
+    {
+      "id": "noise",
+      "kinds": [
+        "spills"
+      ],
+      "match": "\"sel\":\"#send\"",
+      "note": "Visually hidden Send label (UX-R5 allowlist)."
+    },
+    {
+      "id": "L27",
+      "kinds": [
+        "spills"
+      ],
+      "match": "execution-mode-heading",
+      "note": "V4: 'Native conversation' paints outside its pill."
+    },
+    {
+      "id": "L27",
+      "kinds": [
+        "fields"
+      ],
+      "match": "#prompt|effort",
+      "note": "V5: placeholder and picker labels clipped."
+    },
+    {
+      "id": "noise",
+      "kinds": [
+        "spills"
+      ],
+      "match": "access-trigger-icon|model-logo-icon",
+      "note": "Hidden glyph spans (UX-R5 allowlist)."
+    },
+    {
+      "id": "L42",
+      "kinds": [
+        "overlaps"
+      ],
+      "match": "conversation-row.*conversation-actions",
+      "note": "V11: hovered row actions sit over the row button."
+    },
+    {
+      "id": "L64",
+      "kinds": [
+        "overlaps"
+      ],
+      "match": "-resize",
+      "note": "V13: 24 px resize strips over console tabs and composer controls."
+    },
+    {
+      "id": "L64",
+      "kinds": [
+        "spills"
+      ],
+      "match": "run-span-connector",
+      "note": "V13: pipeline connector spills out of the span card."
+    },
+    {
+      "id": "L42",
+      "kinds": [
+        "spills",
+        "beyond"
+      ],
+      "match": "conversation-row",
+      "note": "V11: sidebar row metadata is truncated or cut."
+    },
+    {
+      "id": "L28",
+      "kinds": [
+        "spills",
+        "beyond"
+      ],
+      "match": "run-status-strip|run-status-toggle",
+      "note": "V3: the status strip outgrows its bar."
+    },
+    {
+      "id": "L26",
+      "kinds": [
+        "spills",
+        "overlaps"
+      ],
+      "match": "composer-(submit|models|right)|#effort-trigger.*#(send|cancel)|#(send|cancel).*#effort-trigger",
+      "note": "V1: composer controls overlap or spill."
+    },
+    {
+      "id": "noise",
+      "kinds": [
+        "overlaps"
+      ],
+      "match": "#(plugins|model|effort|access|project|resource)-menu|#attention-(popover|open-inbox)",
+      "note": "An open popover floats over the page on purpose."
+    },
+    {
+      "id": "noise",
+      "kinds": [
+        "overlaps"
+      ],
+      "match": "\"b\":\"(#settings-|#setup|#admin-shortcut|#space-|#page-|#pages-|#schedule|#agent-|#project-(name|dialog|directory|create|selected)|#rename-|#delete-|#conversation-search|#about|#take-tour)",
+      "note": "A page control under an open modal dialog: the shared lint hit-test keeps pairs where the dialog side is on top."
+    }
+  ]
+}

@@ -22,7 +22,7 @@
     }
   ],
   "conversation_title": {
-    "source": "Tail Harness root prompt (100 chars) or explicit conversation title",
+    "source": "KeepHarness root prompt (100 chars) or explicit conversation title",
     "sync": "unsupported by installed Gemini CLI 0.60.0 ACP; explicit event emitted",
     "validation": "Focused offline contract tests; no model inference"
   }

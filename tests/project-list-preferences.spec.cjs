@@ -17,7 +17,7 @@ const path = require("node:path");
         path: path.join(
           __dirname,
           "..",
-          pathname.startsWith("/assets/") ? "tail_ui" : "agent_service",
+          pathname.startsWith("/assets/") ? "harness_ui" : "agent_service",
           pathname === "/" ? "index.html" : pathname,
         ),
       });
@@ -63,7 +63,7 @@ const path = require("node:path");
       return route.fulfill({ json: data });
     });
     const ready = async () => {
-      await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.14.0"));
+      await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
       await page.goto("http://panel.test");
       await page.locator("#startup-gate").waitFor({ state: "hidden" });
     // Projects are listed open by default in the Codex-style sidebar.

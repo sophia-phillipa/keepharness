@@ -1,12 +1,15 @@
 """Administrative boundary checks; isolated state, no CLI or inference calls."""
 
 import asyncio
+import stat
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import httpx
 
+from control import local_access
 from control.server import ADMIN_BODY_LIMIT, ADMIN_OPERATION_LIMIT, create_app
 
 
@@ -18,6 +21,10 @@ class AdminSecurityTest(unittest.IsolatedAsyncioTestCase):
             transport=httpx.ASGITransport(app=self.app), base_url="http://127.0.0.1:8094"
         )
         self.headers = {"X-Harness-Admin": "1"}
+        # The owner's browser holds a session issued for the install; the admin cookie needs it.
+        self.client.cookies.set(
+            local_access.COOKIE, local_access.issue_session(self.app.state.manager.state)
+        )
         await self.client.get("/")
 
     async def asyncTearDown(self):
@@ -176,3 +183,124 @@ class AdminSecurityTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(api.headers["cache-control"], "no-store")
         self.assertNotIn("content-encoding", api.headers)
+
+    def stranger(self):
+        """Another account on this computer: loopback, but without the install secret."""
+        return httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=self.app), base_url="http://127.0.0.1:8094"
+        )
+
+    async def test_admin_cookie_needs_install_secret(self):
+        key = Path(self.folder.name) / local_access.KEY_FILE
+        self.assertEqual(stat.S_IMODE(key.stat().st_mode), 0o600)
+        async with self.stranger() as client:
+            page = await client.get("/")
+            self.assertNotIn("admin", page.cookies)
+            client.cookies.set(local_access.COOKIE, "guess")
+            self.assertNotIn("admin", (await client.get("/")).cookies)
+            response = await client.get("/api/state", headers=self.headers)
+            self.assertEqual(response.status_code, 401)
+            self.assertIn("keepharness open", response.json()["error"])
+
+    async def test_raw_secret_cookie_from_before_sessions_is_refused(self):
+        async with self.stranger() as client:
+            client.cookies.set(local_access.COOKIE, self.app.state.manager.local_secret)
+            self.assertNotIn("admin", (await client.get("/")).cookies)
+            response = await client.get("/api/state", headers=self.headers)
+            self.assertEqual(response.status_code, 401)
+            self.assertIn("keepharness open", response.json()["error"])
+
+    async def test_revoked_or_expired_sessions_sign_the_browser_out(self):
+        state = self.app.state.manager.state
+        async with self.stranger() as client:
+            client.cookies.set(local_access.COOKIE, local_access.issue_session(state))
+            self.assertIn("admin", (await client.get("/")).cookies)
+        self.assertGreaterEqual(local_access.revoke_sessions(state), 1)
+        async with self.stranger() as client:
+            client.cookies.set(local_access.COOKIE, local_access.issue_session(state, now=0))
+            self.assertNotIn("admin", (await client.get("/")).cookies)
+
+    async def test_open_link_without_a_writable_session_list_signs_nobody_in(self):
+        ticket = local_access.open_ticket(self.app.state.manager.local_secret)
+        with patch.object(local_access, "issue_session", side_effect=PermissionError):
+            async with self.stranger() as client:
+                opened = await client.get("/open", params={"ticket": ticket})
+                self.assertEqual(opened.status_code, 503)
+                self.assertNotIn(local_access.COOKIE, client.cookies)
+                self.assertNotIn("admin", client.cookies)
+
+    async def test_open_link_admits_one_browser_once(self):
+        ticket = local_access.open_ticket(self.app.state.manager.local_secret)
+        async with self.stranger() as client:
+            opened = await client.get("/open", params={"ticket": ticket})
+            self.assertEqual((opened.status_code, opened.headers["location"]), (303, "/"))
+            self.assertEqual(opened.headers["cache-control"], "no-store")
+            # The browser gets a random session token; only its SHA-256 stays on disk.
+            token = client.cookies.get(local_access.COOKIE)
+            self.assertNotEqual(token, self.app.state.manager.local_secret)
+            sessions = local_access.read_sessions(self.app.state.manager.state)
+            self.assertIn(local_access.digest(token), sessions)
+            stored = (Path(self.folder.name) / local_access.SESSIONS_FILE).read_text()
+            self.assertNotIn(token, stored)
+            self.assertNotIn(self.app.state.manager.local_secret, stored)
+            self.assertEqual(
+                (await client.get("/api/state", headers=self.headers)).status_code, 200
+            )
+        async with self.stranger() as replay:
+            again = await replay.get("/open", params={"ticket": ticket})
+            self.assertEqual(again.status_code, 403)
+            self.assertNotIn(local_access.COOKIE, replay.cookies)
+            forged = await replay.get("/open", params={"ticket": ticket[:-1] + "0"})
+            self.assertEqual(forged.status_code, 403)
+
+
+def test_open_command_prints_a_one_time_link(tmp_path, capsys, monkeypatch):
+    from urllib.parse import parse_qs, urlsplit
+
+    from control.cli import main
+
+    opened = []
+    monkeypatch.setattr("webbrowser.open", opened.append)
+    main(["--state", str(tmp_path), "--port", "18094", "open"])
+    link = capsys.readouterr().out.strip().splitlines()[-1]
+    assert link.startswith("http://127.0.0.1:18094/open?ticket=")
+    assert opened == [link]
+    secret = (tmp_path / local_access.KEY_FILE).read_text()
+    assert secret not in link
+    ticket = parse_qs(urlsplit(link).query)["ticket"][0]
+    used = {}
+    assert local_access.consume_ticket(secret, ticket, used)
+    assert not local_access.consume_ticket(secret, ticket, used)
+
+
+def test_sessions_are_private_hashed_bounded_and_revocable(tmp_path):
+    import stat as stat_module
+
+    tokens = [local_access.issue_session(tmp_path, now=1000 + i) for i in range(3)]
+    path = tmp_path / local_access.SESSIONS_FILE
+    assert stat_module.S_IMODE(path.stat().st_mode) == 0o600
+    assert all(token not in path.read_text() for token in tokens)
+    cookies = {local_access.COOKIE: tokens[0]}
+    assert local_access.has_session(cookies, tmp_path, now=1001)
+    assert not local_access.has_session(cookies, tmp_path, now=1000 + local_access.COOKIE_SECONDS)
+    assert not local_access.has_session({local_access.COOKIE: "x" * 300}, tmp_path, now=1001)
+    # A full list drops its oldest sessions first.
+    for i in range(local_access.MAX_SESSIONS):
+        local_access.issue_session(tmp_path, now=2000 + i)
+    assert len(local_access.read_sessions(tmp_path)) == local_access.MAX_SESSIONS
+    assert not local_access.has_session(cookies, tmp_path, now=2000)
+    latest = {local_access.COOKIE: local_access.issue_session(tmp_path, now=3000)}
+    assert local_access.revoke_sessions(tmp_path) == local_access.MAX_SESSIONS
+    assert not local_access.has_session(latest, tmp_path, now=3001)
+    # A damaged list signs nobody in.
+    path.write_text("not json")
+    assert local_access.read_sessions(tmp_path) == {}
+
+
+def test_open_revoke_signs_every_browser_out(tmp_path, capsys):
+    from control.cli import main
+
+    cookies = {local_access.COOKIE: local_access.issue_session(tmp_path)}
+    main(["--state", str(tmp_path), "open", "--revoke"])
+    assert "Signed out 1 browser session(s)." in capsys.readouterr().out
+    assert not local_access.has_session(cookies, tmp_path)

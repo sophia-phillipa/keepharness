@@ -44,7 +44,7 @@ const path = require("node:path");
           body: await fs.readFile(
             path.join(
               __dirname,
-              file.startsWith("assets/") ? "../tail_ui" : "../agent_service",
+              file.startsWith("assets/") ? "../harness_ui" : "../agent_service",
               file,
             ),
           ),
@@ -59,7 +59,7 @@ const path = require("node:path");
       });
     const errors = [];
     page.on("pageerror", (error) => errors.push(error.message));
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.14.0"));
+    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
     await page.goto(origin);
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     const [missing, other] = await page.evaluate(() =>
@@ -95,7 +95,7 @@ const path = require("node:path");
     );
     assert.match(conditions[0], /^Your Codex quota is temporarily exhausted/);
     assert.match(conditions[1], /^Gemini is limiting requests/);
-    assert.match(conditions[2], /Your DeepSeek access needs to be renewed/);
+    assert.match(conditions[2], /^DeepSeek rejected the API key\. In the admin panel, paste a valid DeepSeek API key/);
     // F-23: an isolated conversation refused up front names what the server lacks.
     const isolation = await page.evaluate(
       () => userErrors.isolation_unavailable,

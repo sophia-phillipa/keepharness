@@ -191,7 +191,7 @@ const assert = require("node:assert/strict"),
         body: await fs.readFile(
           path.join(
             __dirname,
-            file.startsWith("assets/") ? "../tail_ui" : "../agent_service",
+            file.startsWith("assets/") ? "../harness_ui" : "../agent_service",
             file,
           ),
         ),
@@ -205,7 +205,7 @@ const assert = require("node:assert/strict"),
       });
     });
     await page.emulateMedia({ reducedMotion: "reduce" });
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.14.0"));
+    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
     await page.goto(origin);
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
 
@@ -270,7 +270,7 @@ const assert = require("node:assert/strict"),
         return r.left >= 0 && r.right <= innerWidth && r.bottom <= innerHeight;
       }),
     );
-    await page.screenshot({ path: "/tmp/tail-rename-mobile.png" });
+    await page.screenshot({ path: "/tmp/keepharness-rename-mobile.png" });
     failRename = false;
     await save.click();
     await modal.waitFor({ state: "hidden" });

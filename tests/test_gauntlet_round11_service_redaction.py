@@ -7,6 +7,7 @@ import pytest
 from test_workspaces import config
 
 from agent_service.app import create_app
+from agent_service.approval_sessions import SESSION_COOKIE, consume_enrollment, issue_enrollment
 from agent_service.log_config import redact
 
 
@@ -16,6 +17,8 @@ def test_service_action_diagnostics_are_redacted(tmp_path, syntax):
         cfg = config(tmp_path / "state")
         cfg["projects"]["p"]["service_units"] = ["demo.service"]
         cfg["services"]["codex"].update(mode="native", permissions={"shell": True})
+        # Host services are changed only by the owner on this computer.
+        cfg["clients"]["local"] = {"sha256": "0" * 64, "projects": ["p"]}
         app = create_app(cfg)
         service = app.state.service
         secret = "SYNTHETIC-SERVICE-R11-SECRET-481"
@@ -38,7 +41,11 @@ def test_service_action_diagnostics_are_redacted(tmp_path, syntax):
                 async with httpx.AsyncClient(
                     transport=httpx.ASGITransport(app=app),
                     base_url="http://localhost",
-                    headers={"Authorization": "Bearer a"},
+                    headers={
+                        "Cookie": SESSION_COOKIE
+                        + "="
+                        + consume_enrollment(cfg, issue_enrollment(cfg, "local"))
+                    },
                 ) as client:
                     response = await client.post(
                         "/v1/services",

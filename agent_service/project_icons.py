@@ -16,7 +16,7 @@ MIMES = {
     ".jpeg": "image/jpeg",
 }
 LIMIT = 128 * 1024
-FOLDERS = ("", "public", "static", "assets", "src/assets", "public/assets", "tail_ui/assets")
+FOLDERS = ("", "public", "static", "assets", "src/assets", "public/assets", "harness_ui/assets")
 
 
 class IconLinks(HTMLParser):

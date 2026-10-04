@@ -15,7 +15,7 @@ const path = require("node:path");
         pathname = url.pathname;
       if (!pathname.startsWith("/v1/"))
         return route.fulfill({
-          path: path.join(__dirname, "..", pathname.startsWith("/assets/") ? "tail_ui" : "agent_service", pathname === "/" ? "index.html" : pathname),
+          path: path.join(__dirname, "..", pathname.startsWith("/assets/") ? "harness_ui" : "agent_service", pathname === "/" ? "index.html" : pathname),
         });
       let data = {};
       if (pathname === "/v1/projects") data = { projects: ["sem-projeto", "alpha"], details: { alpha: { label: "Alpha" } } };
@@ -45,7 +45,7 @@ const path = require("node:path");
       }
       return route.fulfill({ json: data });
     });
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.14.0"));
+    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
     await page.goto("http://plugins.test/");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
 
@@ -68,6 +68,20 @@ const path = require("node:path");
     assert.match(text, /drive\s+Connector · stdio · not used here recently/);
     assert.match(text, /Installed, not available here[\s\S]*superpowers@market\s+Plugin · Not allowed for this provider/);
     assert.match(text, /Other tools used in this project \(30 days\)/);
+    // A row opens the connector's detail (Codex plugin page); Back returns to the list.
+    await menu.getByRole("button", { name: /^github/ }).click();
+    const detail = await menu.innerText();
+    assert.match(detail, /github\s+Connector \(MCP server\) · http/);
+    assert.match(detail, /In this conversation\s+Available/);
+    assert.match(detail, /Allowed for this provider\s+Yes/);
+    assert.match(detail, /Used in this project\s+3× · last 2 h ago/);
+    assert.match(detail, /Tools used\s+create_issue/);
+    assert.match(detail, /Approvals\s+Each connector call asks for your approval\./);
+    await menu.getByRole("button", { name: "Connectors and plugins" }).click();
+    assert(await menu.getByRole("button", { name: /^github/ }).evaluate((el) => el === document.activeElement));
+    await menu.getByRole("button", { name: /^superpowers/ }).click();
+    assert.match(await menu.innerText(), /In this conversation\s+Not allowed for this provider/);
+    await menu.getByRole("button", { name: "Connectors and plugins" }).click();
     await page.keyboard.press("Escape");
     await page.waitForFunction(() => document.getElementById("plugins-chip").getAttribute("aria-expanded") === "false");
     assert.equal(await menu.isVisible(), false);

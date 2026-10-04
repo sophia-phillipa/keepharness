@@ -43,7 +43,7 @@ const settle = page => page.evaluate(() => Promise.all(document.getAnimations().
   try {
     await check('A1-F1 plan labels have separate hit targets', async () => {
       for (const theme of ['porcelain','amethyst','petroleum']) {
-        const {page,state}=await pendingPlan(); await page.evaluate(t=>TailTheme.apply(t),theme);
+        const {page,state}=await pendingPlan(); await page.evaluate(t=>HarnessTheme.apply(t),theme);
         const actions=page.locator('.maestro-plan-actions'); await actions.evaluate(n=>n.scrollIntoView({block:'center',behavior:'instant'})); await settle(page);
         const points=await actions.locator('button').evaluateAll(nodes=>nodes.map(n=>{const range=document.createRange();range.selectNodeContents(n);const r=range.getBoundingClientRect(),box=n.getBoundingClientRect(); return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,box:box.toJSON(),hit:[r.left+1,r.right-1].every(x=>n.contains(document.elementFromPoint(x,r.top+r.height/2)))};}));
         assert(points.every(p=>p.left>=p.box.left && p.right<=p.box.right && p.hit), JSON.stringify(points));
@@ -67,7 +67,7 @@ const settle = page => page.evaluate(() => Promise.all(document.getAnimations().
     });
     await check('A1-F3 running follow-up does not put Send over Access', async () => {
       for (const theme of ['porcelain','amethyst','petroleum']) {
-        const {page,state,open}=await fixture(browser);state.running=true;await open('a'); await page.evaluate(t=>TailTheme.apply(t),theme); await page.fill('#prompt','Please also review spacing.');
+        const {page,state,open}=await fixture(browser);state.running=true;await open('a'); await page.evaluate(t=>HarnessTheme.apply(t),theme); await page.fill('#prompt','Please also review spacing.');
         const boxes=await page.locator('#access-trigger,#send,#cancel').evaluateAll(nodes=>nodes.filter(n=>n.checkVisibility()).map(n=>({id:n.id,...n.getBoundingClientRect().toJSON()})));
         for(let i=0;i<boxes.length;i++) for(let j=i+1;j<boxes.length;j++) assert(Math.min(boxes[i].right,boxes[j].right)<=Math.max(boxes[i].left,boxes[j].left) || Math.min(boxes[i].bottom,boxes[j].bottom)<=Math.max(boxes[i].top,boxes[j].top),JSON.stringify(boxes));
         assert(await hit(page.locator('#access-trigger')));await capture(page,'composer-'+theme); const b=await page.locator('#access-trigger').boundingBox(); await page.mouse.click(b.x+b.width/2,b.y+b.height/2); assert.equal(state.posts.length,0); await page.close();

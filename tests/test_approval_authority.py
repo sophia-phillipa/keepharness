@@ -12,6 +12,15 @@ import pytest
 from agent_service.app import create_app
 
 ORIGIN = "http://127.0.0.1:18095"
+# Tailscale Serve's origin: the only Host on which the login header names a client.
+REMOTE = "http://owner-host.example.ts.net:8093"
+TAILNET = {
+    "Tailscale-User-Login": "owner@example.com",
+    "Host": "owner-host.example.ts.net:8093",
+    # What Serve adds when it proxies a tailnet peer (ipn/ipnlocal/serve.go).
+    "X-Forwarded-Host": "owner-host.example.ts.net:8093",
+    "X-Forwarded-For": "100.101.102.103",
+}
 TAILNET_OWNER = "tailnet-" + hashlib.sha256(b"owner@example.com").hexdigest()[:16]
 
 
@@ -22,7 +31,12 @@ def approval_app(make_harness_config):
         for owner, token in (("local", "local-token"), (TAILNET_OWNER, "tailnet-token"))
     }
     app = create_app(
-        make_harness_config(clients=clients, tailscale_logins={"owner@example.com": TAILNET_OWNER})
+        make_harness_config(
+            clients=clients,
+            tailscale_logins={"owner@example.com": TAILNET_OWNER},
+            browser_url=REMOTE + "/",
+            origins=[ORIGIN, REMOTE],
+        )
     )
     yield app
     app.state.service.db.close()
@@ -71,7 +85,7 @@ def test_worker_credentials_cannot_resolve(approval_app, credential):
                 assert login.status_code == 200
                 assert "harness_session" not in client.cookies
             elif credential == "tailnet":
-                client.headers["Tailscale-User-Login"] = "owner@example.com"
+                client.headers.update(TAILNET)
             response = await client.post("/v1/approvals/job", json={"approved": True})
             assert response.status_code == 403
             assert response.json()["code"] == "approval_session_required"
@@ -205,9 +219,11 @@ def test_cli_enrolls_existing_owner_only(approval_app, tmp_path, capsys):
     async def scenario():
         pending = pending_approval(approval_app, TAILNET_OWNER)
         async with client_for(approval_app) as client:
-            assert (await client.post(link, headers={"Origin": ORIGIN})).status_code == 303
+            # With tailnet sharing on, the CLI prints the link on the remote browser origin.
+            assert urlsplit(link).netloc == urlsplit(REMOTE).netloc
+            assert (await client.post(link, headers={"Origin": REMOTE})).status_code == 303
             assert (
-                await client.post("/v1/approvals/job", json={"approved": True})
+                await client.post(REMOTE + "/v1/approvals/job", json={"approved": True})
             ).status_code == 200
             assert pending.result()["approved"]
 
@@ -345,3 +361,122 @@ def test_approval_expiring_during_body_read_rejects_late_reply(approval_app, rem
             assert response.json()["code"] == "approval_expired"
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("credential, owner", [("bearer", "local"), ("tailnet", TAILNET_OWNER)])
+def test_a_refused_approval_names_the_owner_to_enroll(approval_app, credential, owner):
+    async def scenario():
+        pending_approval(approval_app, owner)
+        async with client_for(approval_app) as client:
+            if credential == "bearer":
+                client.headers["Authorization"] = "Bearer local-token"
+            else:
+                client.headers.update(TAILNET)
+            response = await client.post("/v1/approvals/job", json={"approved": True})
+        assert response.status_code == 403
+        body = response.json()
+        # The id `keepharness approve-device --owner <id>` accepts, for the caller only.
+        assert (body["code"], body["owner"]) == ("approval_session_required", owner)
+        # A guest is named by the login the host's owner knows, never by the internal id.
+        assert body.get("login") == ("owner@example.com" if credential == "tailnet" else None)
+
+    asyncio.run(scenario())
+
+
+def ceiling_config(tmp_path):
+    root = tmp_path / "project"
+    root.mkdir()
+    clients = {
+        owner: {"sha256": hashlib.sha256(token.encode()).hexdigest(), "projects": ["p"]}
+        for owner, token in (
+            ("local", "local-token"),
+            ("vpn", "vpn-token"),
+            (TAILNET_OWNER, "tailnet-token"),
+        )
+    }
+    grants = {"read": True, "write": True, "shell": True, "internet": True, "hooks": True}
+    return {
+        "state_dir": str(tmp_path / "state"),
+        "projects": {"p": {"root": str(root)}},
+        "clients": clients,
+        "tailscale_logins": {"owner@example.com": TAILNET_OWNER},
+        "services": {
+            "codex": {
+                "enabled": True,
+                "mode": "native",
+                "models": ["gpt-6-astra"],
+                "projects": ["p"],
+                "permissions": grants,
+                "integrations": ["mcp:node_repl"],
+            }
+        },
+        "codex": {"binary": "fixture", "unrestricted": True, "integrations": ["mcp:node_repl"]},
+        "codex_models": {"gpt-6-astra": ["low"]},
+        "origins": [ORIGIN],
+    }
+
+
+@pytest.mark.parametrize("guest", ["vpn-token", "tailnet-token"])
+def test_non_owner_capability_ceiling(tmp_path, guest):
+    """Only the local owner may start Automatic or Full runs, the shell or host connectors."""
+    from unittest.mock import AsyncMock, patch
+
+    from test_approval_policy import run_codex_route
+
+    from agent_service.errors import APIError
+
+    app = create_app(ceiling_config(tmp_path))
+    service = app.state.service
+    job = {"project_id": "p", "backend": "codex", "model": "gpt-6-astra", "prompt": "fixture"}
+
+    async def submit(token, mode):
+        async with client_for(app, headers={"Authorization": "Bearer " + token}) as client:
+            return await client.post("/v1/jobs", json={**job, "access_mode": mode})
+
+    async def scenario():
+        for mode in ("auto", "full"):
+            refused = await submit(guest, mode)
+            assert refused.status_code == 403, refused.text
+            assert refused.json()["code"] == "access_mode_owner_only"
+        for mode in ("auto", "full"):
+            assert (await submit("local-token", mode)).status_code == 202
+        accepted = await submit(guest, "ask")
+        assert accepted.status_code == 202, accepted.text
+        return accepted.json()["job_id"]
+
+    seen = {}
+
+    async def native(config, prompt, event, project, *rest):
+        seen.update(config=config, project=project)
+        return {"answer": "fixture"}
+
+    try:
+        job_id = asyncio.run(scenario())
+        row = service.conversation_repository.get(job_id)
+        assert row["owner"] != "local"
+        with (
+            patch("adapters.run_native", side_effect=native),
+            patch.object(service, "quota", AsyncMock(return_value={})),
+        ):
+            asyncio.run(service.infer(row, {**job, "effort": "low", "access_mode": "ask"}))
+            # A queued guest run that carries an owner-only mode fails closed at run time.
+            with pytest.raises(APIError) as refused:
+                asyncio.run(service.infer(row, {**job, "effort": "low", "access_mode": "full"}))
+        assert refused.value.code == "access_mode_owner_only"
+    finally:
+        service.db.close()
+    assert seen["config"]["integrations"] == [] and seen["config"]["unrestricted"] is False
+    assert seen["project"]["permissions"]["shell"] is False
+    assert seen["project"]["permissions"]["hooks"] is False
+    # The Codex configuration actually built for that guest run.
+    command, thread, turn = run_codex_route(
+        tmp_path, "codex", seen["project"], {**seen["config"], "plugin_inventory": []}
+    )
+    assert thread["sandbox"] != "danger-full-access" and turn["sandboxPolicy"]["type"] != "dangerFullAccess"
+    assert thread["approvalPolicy"] == turn["approvalPolicy"] == "on-request"
+    assert not any(
+        spec["enabled"]
+        for name, spec in thread["config"]["mcp_servers"].items()
+        if name != "harness_reader"
+    )
+    assert "features.shell_tool=false" in command and "features.hooks=false" in command

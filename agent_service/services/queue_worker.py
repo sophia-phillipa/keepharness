@@ -17,6 +17,8 @@ from .. import maestro, tools
 from ..config import TERMINAL
 from ..conversation_context import context_overflow
 from ..errors import APIError
+from ..persistence.db import encoded
+from . import capacity
 from .budgets import RuntimeBudget, timeout_seconds
 
 logger = logging.getLogger(__name__)
@@ -29,6 +31,7 @@ PROVIDER_CONDITIONS = frozenset(
         "provider_authentication_failed",
         "provider_quota_exhausted",
         "provider_rate_limit",
+        "provider_unavailable",
     }
 )
 # Older Claude adapter codes, still accepted as aliases.
@@ -38,13 +41,21 @@ CONDITION_ALIASES = {
     "claude_rate_limit": "provider_quota_exhausted",
     "claude_quota_exhausted": "provider_quota_exhausted",
 }
-# Provider messages carried by "<provider>_execution_failed: <message>" (Codex).
+# Provider messages carried by "<provider>_execution_failed: <message>" (the Codex
+# app-server transport: Codex, DeepSeek, local). DeepSeek is prepaid: 402 is an empty balance.
 CONDITION_PATTERNS = (
-    ("provider_quota_exhausted", re.compile(r"usage limit|quota", re.I)),
+    (
+        "provider_quota_exhausted",
+        re.compile(r"usage limit|quota|\b402\b|insufficient balance", re.I),
+    ),
     ("provider_rate_limit", re.compile(r"\b429\b|rate.?limit|too many requests", re.I)),
     (
         "provider_authentication_required",
-        re.compile(r"\b401\b|unauthori[sz]ed|not logged in|log ?in again|access token", re.I),
+        re.compile(
+            r"\b401\b|unauthori[sz]ed|not logged in|log ?in again|access token"
+            r"|authentication required",
+            re.I,
+        ),
     ),
 )
 CONDITION_ANSWERS = {
@@ -52,6 +63,7 @@ CONDITION_ANSWERS = {
     "provider_authentication_failed": "Renew access to {} in the admin panel.",
     "provider_quota_exhausted": "Wait for the {} quota to renew, or select another provider.",
     "provider_rate_limit": "{} is limiting requests. Wait a moment, or select another provider.",
+    "provider_unavailable": "{} is unavailable. Wait a moment, or select another provider.",
 }
 PROVIDER_NAMES = {"codex": "Codex", "claude": "Claude", "gemini": "Gemini", "deepseek": "DeepSeek"}
 # F-114: a failed/interrupted/cancelled run keeps the answer text already streamed to
@@ -207,14 +219,13 @@ async def run(service):
     """Schedule independent provider lanes after acquiring write ownership."""
     tasks = {}
     conversations = {}
-    lanes = {}
     reasons = {}
     service.stopping = False
 
-    def released(task, job, backend, conversation):
+    def released(task, job, conversation):
         service.write_ownership.release(job)
         conversations.pop(conversation, None)
-        lanes[backend] -= 1
+        capacity.release_lane(service, job)
         tasks.pop(job, None)
         if service.job_tasks.get(job) is task:
             service.job_tasks.pop(job, None)
@@ -242,16 +253,15 @@ async def run(service):
                     if row["id"] in tasks:
                         continue
                     backend = json.loads(row["payload"]).get("backend", "codex")
-                    maximum = (
-                        service.config.get("services", {}).get(backend, {}).get("max_concurrent", 1)
-                    )
-                    if type(maximum) is not int or maximum < 1:
-                        maximum = 1  # Dispatch validates the configured capacity.
                     conversation = conversation_key(service, row)
                     reason = (
                         "conversation"
                         if conversation in conversations
-                        else ("provider_capacity" if lanes.get(backend, 0) >= maximum else None)
+                        else (
+                            None
+                            if capacity.lane_available(service, backend)
+                            else "provider_capacity"
+                        )
                     )
                     if reason is None:
                         try:
@@ -284,15 +294,15 @@ async def run(service):
                     with service.db:
                         service.conversation_repository.set_running(row["id"])
                     conversations[conversation] = row["id"]
-                    lanes[backend] = lanes.get(backend, 0) + 1
+                    capacity.take_lane(service, row["id"], backend)
                     service.dispatch_sequence += 1
                     service.last_served[row["owner"]] = service.dispatch_sequence
                     task = asyncio.create_task(run_job(service, row))
                     tasks[row["id"]] = task
                     service.job_tasks[row["id"]] = task
                     task.add_done_callback(
-                        lambda completed, job=row["id"], lane=backend, key=conversation: released(
-                            completed, job, lane, key
+                        lambda completed, job=row["id"], key=conversation: released(
+                            completed, job, key
                         )
                     )
             except sqlite3.OperationalError:
@@ -492,7 +502,44 @@ def cancel_owned(service, row):
     return task
 
 
+def hold_followups(service, job):
+    """D16: after Stop, the queued follow-ups wait for "Run queued message" or "Discard".
+
+    Runs inside the transaction that records ``job`` as cancelled, so no follow-up can become
+    ready in between.
+    """
+    for child in service.conversation_repository.queued_followups(job):
+        payload = json.loads(child["payload"])
+        payload["_held_after_stop"] = True
+        service.conversation_repository.set_payload(child["id"], encoded(payload))
+        service.event(child["id"], "queue_wait", {"reason": "held_after_stop"})
+
+
 def cancel(service, identity, job):
     row = service.job(identity, job)
+    if row["state"] not in TERMINAL:
+        service.stop_requests.add(job)
     cancel_owned(service, row)
     return {"job_id": job, "cancel_requested": row["state"] not in TERMINAL}
+
+
+def run_queued(service, identity, job):
+    """Release a follow-up held after Stop, so it runs in its turn.
+
+    The check and the write share one write transaction, so a concurrent Stop, Discard or
+    conversation delete cannot slip between them; a deleted conversation is never resumed.
+    """
+    with service.db:
+        # The shared connection may already be inside a transaction; the writes then join it.
+        if not service.db.in_transaction:
+            service.db.execute("BEGIN IMMEDIATE")
+        row = service.job(identity, job)
+        if service.conversation_repository.is_deleted(service.conversation_id(row)):
+            raise APIError("job_not_found", 404)
+        payload = json.loads(row["payload"])
+        if row["state"] != "queued" or not payload.pop("_held_after_stop", None):
+            raise APIError("job_not_held", 409)
+        service.conversation_repository.set_payload(job, encoded(payload))
+        service.event(job, "queue_released", {})
+    service.wake.set()
+    return {"job_id": job, "released": True}

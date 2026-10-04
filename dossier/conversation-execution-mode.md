@@ -58,4 +58,29 @@ This closes finding F-110. Acceptance is a live check, at most two turns per pro
 
 Final backend validation: `.venv/bin/python -m pytest -q tests/test_execution_modes.py tests/test_conversations.py tests/test_model_handoff.py tests/test_model_permissions.py tests/test_native.py tests/test_attachment_formats.py tests/test_context_recovery.py` — **86 passed**, one external Starlette deprecation warning. Both browser scripts named above passed using the bundled Playwright runtime. JavaScript syntax and `git diff --check` passed.
 
-Deployment: an initial guard deferred restart while one job was active. Once it completed, the guard confirmed zero active/queued jobs and `tail-harness.service` was restarted. Live HTTP checks on port 8095 confirmed the simplified copy and model `execution_modes` fields. No active job was interrupted. The UI hides the new mode controls until the server advertises this contract, preserving compatibility during rollout.
+Deployment: an initial guard deferred restart while one job was active. Once it completed, the guard confirmed zero active/queued jobs and `keepharness.service` was restarted. Live HTTP checks on port 8095 confirmed the simplified copy and model `execution_modes` fields. No active job was interrupted. The UI hides the new mode controls until the server advertises this contract, preserving compatibility during rollout.
+
+## 0.15.0: access-mode ceiling, connector gating and the harness reader (WP-04)
+
+Owner decisions D04, D06, D08, D10, D11 and D12 (KeepHarness 0.15.0 gauntlet). This section supersedes the "MCP connectors and plugins stay enabled in `ask`" and "auto, full, read_only unchanged" rows above where they differ.
+
+**Who may pick which mode.** Automatic and Full access run without asking, so only the owner on this computer (the `local` client, including devices enrolled for it) may start them. Any other identity (the vpn bearer key, a tailnet login) gets `APIError("access_mode_owner_only", 403)` at submit. A guest run is also clamped when it starts: the native shell and hooks are off, no host connector or plugin is enabled and the provider is never unrestricted; a queued guest run that still carries `auto` or `full` fails closed with the same code. Scheduled tasks already accept only Ask and Read only.
+
+**Connectors per mode (Codex, DeepSeek, Claude native).**
+
+| Mode | Host connectors and plugins | Reading files |
+| --- | --- | --- |
+| Read only | none: every host server and plugin is disabled (Claude gets an empty MCP config and no plugin) | Claude: Read/Glob/Grep inside the project folders. Codex/DeepSeek: the harness reader |
+| Ask | the allowed ones, each with `default_tools_approval_mode = "prompt"` on Codex/DeepSeek (an approval card per call); Claude already asks for `mcp__*` | native tools; Codex/DeepSeek read-only commands can read any file the account can |
+| Automatic, Full (owner only) | the allowed ones, unchanged | native tools, unrestricted when the shell grant is on |
+| Guest (any mode) | none | Codex/DeepSeek: the harness reader whenever the shell is off |
+
+A per-tool `approval_mode` that the owner set in the provider's own configuration still applies in Ask, because Codex merges the generated settings over its own configuration file.
+
+**The harness reader** (`agent_service/reader_mcp.py`). When a native Codex or DeepSeek run has the read grant but no shell, `thread_parameters` adds one stdio MCP server, `harness_reader`, started as `python -m agent_service.reader_mcp ROOT...` with `enabled_tools = ["read_file", "list_directory", "search_files"]` and `default_tools_approval_mode = "approve"`. Its roots are the authorized project roots (including the conversation-history folder) plus the conversation's extracted attachment text, when present. The reader resolves every path inside those roots and applies the project browser's name policy (no `.git`, `.ssh`, `.config`, `.env*`, `*.key`, `*.pem`, symbolic links); it has no write, shell, network or upload tool. Codex 0.157.1 rejects the `readOnly.access` / `workspaceWrite.readOnlyAccess` read allow-list (its protocol schema has no such field and the binary reports "no longer supported; use permissionProfile"), so the reader, not the sandbox, enforces the read boundary. A named permission profile (`permissions` on `thread/start`) is the follow-up for Ask's read-only commands.
+
+**Run folders outside the state folder.** The runtime config gains `sessions_dir`, a sibling of the state folder (`~/.local/share/keepharness-sessions`, mode 0700). Each conversation's provider folder (cwd of a "No project" run, thread markers, extracted attachments, history files) lives there, so the folder that holds `vpn.key`, `deepseek.key` and the database is never a parent of a run's working directory. `sessions_dir` is private storage: it cannot be registered as a project folder. Without the key (an older runtime file) the folders stay under `state_dir/sessions`. Markers left in the old place are not migrated: the next turn of an existing conversation starts a new native thread seeded with the harness history (`conversation_context.pending_turns`).
+
+**Not in this change.** Automatic stays unrestricted for the owner on Codex, DeepSeek and Claude when the shell grant is on (decision D11's project-bounded Automatic needs the Codex and Claude adapters together); the copy says so. The vpn key is rotated by the operator after upgrading (see the 0.15.0 release notes).
+
+Validation: `tests/test_approval_authority.py::test_non_owner_capability_ceiling`, `tests/test_approval_policy.py::test_mcp_gating_matrix` and `::test_claude_read_only_loads_no_connector_or_plugin`, `tests/test_run_workspace_isolation.py` (including a real stdio session with the reader) and `tests/test_integrations_view.py`.

@@ -1,6 +1,6 @@
 # Claude Code alias: opus
 
-**Responsible agent:** `integrate-claude_tail-harness_engineer`.
+**Responsible agent:** `integrate-claude_keepharness_engineer`.
 
 `opus` and its resolved version identifiers come from the installed Claude CLI catalog. Effort choices are taken from `supportedEffortLevels`; without that capability only `configured` is offered. Explicit effort selections are passed through `--effort`. See [dynamic catalog](cli-catalog.md).
 

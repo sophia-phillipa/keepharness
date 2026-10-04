@@ -11,6 +11,7 @@ from pathlib import Path
 from .. import workspaces
 from ..config import REPOSITORY_ROOT
 from ..errors import APIError
+from ..harness_agents import LOCAL_CLIENT
 from ..persistence.db import encoded
 from ..private_storage import private_roots
 
@@ -31,14 +32,17 @@ class ProjectService:
         return self.config["projects"][project]
 
     def share_projects(self):
+        """Every project reaches every provider and the local owner; other clients receive
+        the registered ones only when the owner shares projects."""
         projects = list(self.config["projects"])
         for spec in self.config.get("services", {}).values():
             spec["projects"] = projects.copy()
-        for client in self.config.get("clients", {}).values():
-            client["projects"] = projects.copy()
+        for name, client in self.config.get("clients", {}).items():
+            if name == LOCAL_CLIENT or self.config.get("shared_projects"):
+                client["projects"] = projects.copy()
 
     def add_project(self, data, project_id=None):
-        if not self.config.get("shared_projects"):
+        if not self.config.get("project_registration"):
             raise APIError("project_registration_disabled", 403)
         if not isinstance(data, dict):
             raise APIError("invalid_project")

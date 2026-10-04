@@ -17,7 +17,7 @@ const assert = require("node:assert/strict");
         body: await fs.readFile(
           path.join(
             __dirname,
-            file.startsWith("assets/") ? "../tail_ui" : "../control",
+            file.startsWith("assets/") ? "../harness_ui" : "../control",
             file,
           ),
         ),
@@ -272,7 +272,7 @@ const assert = require("node:assert/strict");
       /codex mcp list|claude mcp list|plugin list/i,
     );
     await page.screenshot({
-      path: "/tmp/tail-admin-integrations.png",
+      path: "/tmp/keepharness-admin-integrations.png",
       fullPage: true,
     });
     state.settings.services.codex = {
@@ -323,7 +323,7 @@ const assert = require("node:assert/strict");
       /AI services and local models on this computer/,
     );
     await page.screenshot({
-      path: "/tmp/tail-admin-dashboard-updated.png",
+      path: "/tmp/keepharness-admin-dashboard-updated.png",
       fullPage: true,
     });
     for (const width of [390, 768]) {
@@ -434,7 +434,7 @@ const assert = require("node:assert/strict");
       /No plugins installed/,
     );
     await page.screenshot({
-      path: "/tmp/tail-admin-integrations-mobile.png",
+      path: "/tmp/keepharness-admin-integrations-mobile.png",
       fullPage: true,
     });
 

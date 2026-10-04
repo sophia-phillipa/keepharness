@@ -224,7 +224,7 @@ const assert = require("node:assert/strict"),
           body: await fs.readFile(
             path.join(
               __dirname,
-              file.startsWith("assets/") ? "../tail_ui" : "../control",
+              file.startsWith("assets/") ? "../harness_ui" : "../control",
               file,
             ),
           ),
@@ -343,7 +343,8 @@ const assert = require("node:assert/strict"),
             );
           }
           await page.screenshot({
-            path: "/tmp/tail-admin-gauntlet/mobile-round" + round + ".png",
+            path:
+              "/tmp/keepharness-admin-gauntlet/mobile-round" + round + ".png",
           });
         }
         if (profile === 6) {

@@ -13,7 +13,7 @@ const fs = require("node:fs");
     await page.addStyleTag({
       content: fs.readFileSync("agent_service/ui.css", "utf8"),
     });
-    await page.addScriptTag({ path: "tail_ui/assets/components.js" });
+    await page.addScriptTag({ path: "harness_ui/assets/components.js" });
     const source = fs.readFileSync("agent_service/ui.js", "utf8");
     await page.evaluate((source) => {
       window.busy = false;
@@ -42,7 +42,7 @@ const fs = require("node:fs");
       await groups.evaluateAll((els) =>
         els.map((el) => el.getAttribute("aria-label")),
       ),
-      ["Codex", "Local model", "Claude", "DeepSeek", "Gemini CLI"],
+      ["Codex", "Local models", "Claude Code", "DeepSeek", "Gemini CLI"],
     );
     assert.equal(await groups.first().locator("[role=option]").count(), 2);
     assert.equal(await groups.nth(1).locator("[role=option]").count(), 2);

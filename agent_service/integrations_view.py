@@ -12,6 +12,7 @@ import sqlite3
 from collections.abc import Sequence
 from typing import Any, NamedTuple
 
+from adapters.shared.provider_setup import CONFIG_FOLDERS
 from control.integrations import inventory
 
 from . import approval_policy, maestro
@@ -33,10 +34,25 @@ PUBLIC_KEYS = ("id", "kind", "name", "transport", "status")
 ISOLATED = "Isolated conversations use no host connectors or plugins."
 NOT_ALLOWED = "Not allowed for this provider. Change it in Settings › System › Providers."
 GEMINI_READ_ONLY = "Read-only access turns connectors off for Gemini."
+READ_ONLY = "Read-only access turns connectors and plugins off."
+OWNER_ONLY = "Connectors run only for the owner of this computer."
 GEMINI_INTERNET = "Gemini connectors need the internet permission."
 ASKS = "Each connector call asks for your approval."
 UNATTENDED = "Connector calls run without asking (full access)."
 INVENTORY_UNREADABLE = "Could not read the connector and plugin inventory."
+PERSONAL_SETUP_OFF = (
+    "Your Codex and Claude Code connectors and plugins come with your personal setup,"
+    " which is off. Turn it on in Settings › System."
+)
+# Harness Codex runs set features.apps=false (adapters/codex/native.py); remote ChatGPT
+# plugins bring their tools as apps, so those plugins never load in a run.
+REMOTE_PLUGIN = "Remote ChatGPT plugins bring their tools as Codex apps, which harness runs turn off."
+APPS_OFF_BACKENDS = frozenset({"codex", "deepseek"})
+
+
+def app_based(item: Item, backend: str) -> bool:
+    marketplace = item["id"].rsplit("@", 1)[-1] if "@" in item["id"] else ""
+    return backend in APPS_OFF_BACKENDS and item["kind"] == "plugin" and marketplace.endswith("-remote")
 
 
 class Route(NamedTuple):
@@ -45,6 +61,7 @@ class Route(NamedTuple):
     model: str
     execution_mode: str
     access_mode: str
+    owner: bool  # the caller is the local owner; guests get no host connectors
 
 
 class Limits(NamedTuple):
@@ -57,6 +74,8 @@ def route_limits(config: Settings, route: Route) -> Limits:
     """What the adapters do with allowed integrations on this route (adapters/*/native.py)."""
     if route.execution_mode == "scoped":
         return Limits(ISOLATED, "", ISOLATED)
+    if not route.owner:
+        return Limits(OWNER_ONLY, "", "")
     permissions = approval_policy.effective_permissions(
         maestro.model_permissions(config, route.backend, route.model, route.project_id),
         route.access_mode,
@@ -67,7 +86,9 @@ def route_limits(config: Settings, route: Route) -> Limits:
             "" if permissions.get("internet") else GEMINI_INTERNET,
             "",
         )
-    if route.backend == "claude" and route.access_mode == "ask":
+    if route.access_mode == "read_only":
+        return Limits(READ_ONLY, "", "")
+    if route.access_mode == "ask":
         return Limits("", "", ASKS)
     unattended = (
         config.get(route.backend, {}).get("unrestricted") is True
@@ -167,13 +188,19 @@ def attribute_usage(
 
 def build(config: Settings, route: Route, usage_rows: Sequence[sqlite3.Row]) -> Item:
     """The ``/v1/integrations`` response for one route; ``usage_rows`` come from the repository."""
-    items, warnings = read_inventory(config, route.backend)
+    # These run in a harness-owned home: host connectors only through the owner's opt-in (D01).
+    if route.backend in CONFIG_FOLDERS and config.get("personal_setup") is not True:
+        items, warnings = [], [PERSONAL_SETUP_OFF]
+    else:
+        items, warnings = read_inventory(config, route.backend)
     allowed = set(config.get("services", {}).get(route.backend, {}).get("integrations", []))
     limits = route_limits(config, route)
     used, other_tools = attribute_usage(items, usage_rows)
     for item in items:
         item["allowed"] = item["id"] in allowed
-        item["reason"] = item_reason(item["allowed"], limits)
+        item["reason"] = item_reason(item["allowed"], limits) or (
+            REMOTE_PLUGIN if app_based(item, route.backend) else ""
+        )
         item["effective"] = not item["reason"]
         item["used"] = used.get(item["id"], no_usage())
     return {

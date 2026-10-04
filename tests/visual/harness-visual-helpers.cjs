@@ -50,7 +50,7 @@ const PUBLISH_GATE = {
 
 function outputDirectory() {
   const explicit = process.env.VISUAL_OUTPUT_DIR;
-  const directory = explicit ? path.resolve(explicit) : fs.mkdtempSync(path.join(os.tmpdir(), "tail-harness-visual-"));
+  const directory = explicit ? path.resolve(explicit) : fs.mkdtempSync(path.join(os.tmpdir(), "keepharness-visual-"));
   fs.mkdirSync(directory, { recursive: true });
   return { directory, temporary: !explicit };
 }
@@ -67,7 +67,7 @@ async function routeVisual(route, options = {}) {
   const method = route.request().method();
   if (!url.pathname.startsWith("/v1/")) {
     const file = url.pathname === "/" ? "index.html" : url.pathname.slice(1);
-    const root = file.startsWith("assets/") ? "tail_ui" : "agent_service";
+    const root = file.startsWith("assets/") ? "harness_ui" : "agent_service";
     return route.fulfill({
       body: fs.readFileSync(path.join(__dirname, "..", "..", root, file)),
       contentType: contentType(file),
@@ -111,14 +111,14 @@ async function routeVisual(route, options = {}) {
   }
   else if (url.pathname === "/v1/catalog") data = { agents: [], skills: [], warnings: [] };
   else if (url.pathname === "/v1/usage") data = { available: false };
-  else if (url.pathname === "/v1/version") data = { version: "0.14.0", build: "visual-fixture" };
+  else if (url.pathname === "/v1/version") data = { version: "0.15.0", build: "visual-fixture" };
   else if (url.pathname.startsWith("/v1/approvals/") && method === "POST") data = { state: "resolved", choice: route.request().postDataJSON()?.choice };
   return route.fulfill({ json: data });
 }
 
 async function mountVisual(page, options = {}) {
   await page.addInitScript(() => {
-    localStorage.setItem("tail-harness-tour-seen", "0.14.0");
+    localStorage.setItem("keepharness-tour-seen", "0.15.0");
     localStorage.setItem("activity-open", "1");
   });
   await page.route("http://visual.test/**", route => routeVisual(route, options));
@@ -136,7 +136,7 @@ async function mountVisual(page, options = {}) {
 
 async function resetState(page) {
   await page.evaluate(() => {
-    window.tailHarnessTour?.stop(false);
+    window.keepHarnessTour?.stop(false);
     const settings = document.getElementById("settings-dialog");
     if (settings?.open) settings.close();
     const menu = document.getElementById("resource-menu");
@@ -159,7 +159,7 @@ async function selectState(page, state) {
     // The geometry check measures the first span row; wait until the pipeline has rendered it.
     await page.locator("#run-console-panel .run-span-row").first().waitFor({ state: "attached" });
   } else if (state === "tour-step") {
-    await page.evaluate(() => window.tailHarnessTour.start());
+    await page.evaluate(() => window.keepHarnessTour.start());
     await page.locator("#tour-card").waitFor({ state: "visible" });
   } else if (state === "plan-card-review") {
     await page.locator(".maestro-plan-card").evaluate(node => { node.hidden = false; node.scrollIntoView({ block: "center", behavior: "instant" }); });

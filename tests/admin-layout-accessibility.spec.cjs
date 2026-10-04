@@ -17,7 +17,7 @@ const assert = require("node:assert/strict");
         body: await fs.readFile(
           path.join(
             __dirname,
-            file.startsWith("assets/") ? "../tail_ui" : "../control",
+            file.startsWith("assets/") ? "../harness_ui" : "../control",
             file,
           ),
         ),
@@ -273,7 +273,7 @@ const assert = require("node:assert/strict");
       await page.locator("#catalog-items .subtle").first().isVisible(),
       "Catalog provider/kind metadata visible on mobile",
     );
-    await page.evaluate(() => TailTheme.apply("arizona", false));
+    await page.evaluate(() => HarnessTheme.apply("arizona", false));
     await page.waitForTimeout(250);
     await page.screenshot({
       path: "/tmp/tester-a11y-arizona-mobile.png",
@@ -369,7 +369,7 @@ const assert = require("node:assert/strict");
       focus,
     );
     for (const theme of ["violet-bordeaux", "arizona"]) {
-      await page.evaluate((theme) => TailTheme.apply(theme, false), theme);
+      await page.evaluate((theme) => HarnessTheme.apply(theme, false), theme);
       const contrast = await page.locator("#catalog-status").evaluate((e) => {
         let b = e;
         while (b && getComputedStyle(b).backgroundColor === "rgba(0, 0, 0, 0)")

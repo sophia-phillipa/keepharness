@@ -26,6 +26,7 @@ from starlette.testclient import TestClient
 from agent_service.app import create_app
 from control.server import ADMIN_BODY_LIMIT, ADMIN_OPERATION_LIMIT
 from control.server import create_app as create_admin_app
+from tests.owner_session import sign_in
 
 REQUEST_ID = re.compile(r"[0-9a-f]{32}")
 
@@ -164,36 +165,160 @@ AGENT_VALID_TABLE = [
         ),
     ),
     (
-        "tail-agents-list",
+        "harness-agents-list",
         "GET",
-        "/v1/tail-agents",
+        "/v1/harness-agents",
         None,
         None,
         200,
         lambda r: r.json() == {"agents": []},
     ),
     # Client "a" is authenticated but not the local browser, so every write is refused first.
-    ("tail-agents-post", "POST", "/v1/tail-agents", None, {}, 403, "tail_agent_local_only"),
     (
-        "tail-agents-put",
-        "PUT",
-        "/v1/tail-agents/ghost-agent",
+        "harness-agents-post",
+        "POST",
+        "/v1/harness-agents",
         None,
         {},
         403,
-        "tail_agent_local_only",
+        "harness_agent_local_only",
     ),
     (
-        "tail-agents-delete",
+        "harness-agents-put",
+        "PUT",
+        "/v1/harness-agents/ghost-agent",
+        None,
+        {},
+        403,
+        "harness_agent_local_only",
+    ),
+    (
+        "harness-agents-delete",
         "DELETE",
-        "/v1/tail-agents/ghost-agent",
+        "/v1/harness-agents/ghost-agent",
         None,
         {"revision": "r"},
         403,
-        "tail_agent_local_only",
+        "harness_agent_local_only",
     ),
-    ("projects-post", "POST", "/v1/projects", None, {}, 403, "project_registration_disabled"),
-    ("projects-patch", "PATCH", "/v1/projects", None, {}, 422, "invalid_project"),
+    (
+        "pages-list",
+        "GET",
+        "/v1/pages",
+        {"project_id": "p"},
+        None,
+        200,
+        lambda r: r.json() == {"pages": []},
+    ),
+    ("pages-list-no-project", "GET", "/v1/pages", None, None, 422, "page_invalid"),
+    (
+        "pages-list-other-project",
+        "GET",
+        "/v1/pages",
+        {"project_id": "x"},
+        None,
+        403,
+        "project_denied",
+    ),
+    (
+        "pages-post",
+        "POST",
+        "/v1/pages",
+        None,
+        {"project_id": "p", "title": "Plan", "body": "# Plan"},
+        201,
+        lambda r: (
+            r.json()["title"] == "Plan"
+            and len(r.json()["id"]) == 32
+            and r.headers["Cache-Control"] == "no-store"
+        ),
+    ),
+    ("pages-post-invalid", "POST", "/v1/pages", None, {"project_id": "p"}, 422, "page_invalid"),
+    ("pages-get", "GET", "/v1/pages/" + "0" * 32, {"project_id": "p"}, None, 404, "page_not_found"),
+    (
+        "pages-put",
+        "PUT",
+        "/v1/pages/" + "0" * 32,
+        None,
+        {"project_id": "p", "title": "Plan", "body": "", "revision": "r"},
+        404,
+        "page_not_found",
+    ),
+    (
+        "pages-delete",
+        "DELETE",
+        "/v1/pages/" + "0" * 32,
+        None,
+        {"project_id": "p", "revision": "r"},
+        404,
+        "page_not_found",
+    ),
+    (
+        "schedules-list",
+        "GET",
+        "/v1/schedules",
+        None,
+        None,
+        200,
+        lambda r: r.json() == {"schedules": []} and r.headers["Cache-Control"] == "no-store",
+    ),
+    ("schedules-post-invalid", "POST", "/v1/schedules", None, {}, 422, "schedule_invalid"),
+    (
+        "schedules-post-other-project",
+        "POST",
+        "/v1/schedules",
+        None,
+        {"project_id": "x"},
+        403,
+        "project_denied",
+    ),
+    (
+        "schedules-post-no-provider",
+        "POST",
+        "/v1/schedules",
+        None,
+        {
+            "title": "Digest",
+            "prompt": "Summarize.",
+            "project_id": "p",
+            "backend": "codex",
+            "model": "m",
+            "effort": "low",
+            "cadence": {"kind": "daily", "time": "09:00"},
+        },
+        422,
+        "schedule_invalid",
+    ),
+    (
+        "schedules-put",
+        "PUT",
+        "/v1/schedules/" + "0" * 32,
+        None,
+        {"revision": "r", "title": "Digest"},
+        404,
+        "schedule_not_found",
+    ),
+    (
+        "schedules-delete",
+        "DELETE",
+        "/v1/schedules/" + "0" * 32,
+        None,
+        {"revision": "r"},
+        404,
+        "schedule_not_found",
+    ),
+    (
+        "schedules-run",
+        "POST",
+        "/v1/schedules/" + "0" * 32 + "/run",
+        None,
+        None,
+        404,
+        "schedule_not_found",
+    ),
+    # Client "a" is not the local owner: project folders are refused before anything else.
+    ("projects-post", "POST", "/v1/projects", None, {}, 403, "project_management_local_only"),
+    ("projects-patch", "PATCH", "/v1/projects", None, {}, 403, "project_management_local_only"),
     (
         "project-folder-get",
         "GET",
@@ -209,8 +334,8 @@ AGENT_VALID_TABLE = [
         "/v1/project-folder",
         {"project_id": "p"},
         {},
-        422,
-        "project_folder_confirmation_required",
+        403,
+        "project_management_local_only",
     ),
     (
         "project-git",
@@ -228,7 +353,7 @@ AGENT_VALID_TABLE = [
         None,
         None,
         403,
-        "project_registration_disabled",
+        "project_management_local_only",
     ),
     (
         "services",
@@ -478,7 +603,16 @@ def test_agent_unknown_path_is_404_before_auth(client):
     assert response.status_code == 404
 
 
-@pytest.mark.parametrize("method,path", [("GET", "/v1/jobs"), ("PUT", "/v1/projects")])
+@pytest.mark.parametrize(
+    "method,path",
+    [
+        ("GET", "/v1/jobs"),
+        ("PUT", "/v1/projects"),
+        ("PATCH", "/v1/pages"),
+        ("PATCH", "/v1/schedules"),
+        ("GET", "/v1/schedules/x/run"),
+    ],
+)
 def test_agent_wrong_method_is_405_before_auth(client, method, path):
     client.headers.pop("Authorization", None)
     response = client.request(method, path)
@@ -653,7 +787,7 @@ async def _admin_client(app):
     client = httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1:8094"
     )
-    await client.get("/")  # acquire the admin cookie, as every admin test needs it
+    await sign_in(client, app).get("/")  # acquire the admin cookie, as every admin test needs it
     return client
 
 
@@ -731,7 +865,10 @@ def test_admin_guard_requires_cookie_on_api(admin_pair):
                 "/api/settings-export", json={}, headers={"X-Harness-Admin": "1"}
             )
             assert response.status_code == 401
-            assert response.json() == {"error": "Open the management panel on this machine first."}
+            assert response.json() == {
+                "error": "Open KeepHarness from its app, or run `keepharness open` on this computer,"
+                " to sign this browser in."
+            }
 
     asyncio.run(scenario())
 
@@ -910,7 +1047,7 @@ ADMIN_ROUTE_TABLE = [
         None,
         {},
         200,
-        lambda r: r.json()["format"] == "tail-harness-settings" and r.json()["version"] == 1,
+        lambda r: r.json()["format"] == "keepharness-settings" and r.json()["version"] == 1,
     ),
     (
         "settings-import",
@@ -1113,3 +1250,30 @@ def test_admin_wrong_method_is_405(admin_pair, method, path):
 
     response = asyncio.run(scenario())
     assert response.status_code == 405
+
+
+def test_admin_imports_settings_exported_before_the_rename(admin_pair):
+    # A bundle exported by Tail Harness (before 0.15.0) names its format after the old slug.
+    app, _manager = admin_pair
+
+    async def scenario():
+        client = await _admin_client(app)
+        try:
+            headers = {"X-Harness-Admin": "1"}
+            bundle = (await client.post("/api/settings-export", json={}, headers=headers)).json()
+            bundle["format"] = "tail-harness-settings"
+            imported = await client.post(
+                "/api/settings-import", json={"bundle": bundle}, headers=headers
+            )
+            bundle["format"] = "another-harness-settings"
+            refused = await client.post(
+                "/api/settings-import", json={"bundle": bundle}, headers=headers
+            )
+            return imported, refused
+        finally:
+            await client.aclose()
+
+    imported, refused = asyncio.run(scenario())
+    assert imported.status_code == 200, imported.text
+    assert refused.status_code == 400
+    assert refused.json() == {"error": "Incompatible configuration format."}

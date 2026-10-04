@@ -103,6 +103,22 @@ runPersona("h16", [
       assert(keyMs < 500, "keystroke handled in " + keyMs + " ms (< 500)");
       console.log("H16-S1 paste " + ms + " ms, keystroke " + keyMs + " ms");
       await page.keyboard.press("Backspace");
+      // The composer states the byte limit before Enter: 200 KB is over it, so Send is
+      // blocked, the draft stays and nothing is posted.
+      assert.match(
+        await page.locator("#draft-limit").innerText(),
+        /bytes over the 150,000-byte limit\. Shorten it or attach it as a file\./,
+      );
+      assert(await page.locator("#send").isDisabled(), "over the limit blocks Send");
+      assert.equal(posts, 0, "nothing posted over the limit");
+      assert.equal(await page.locator("#prompt").inputValue(), log, "draft kept");
+      // Shorten it to just under the limit: the server's payload_limit refusal (413) is
+      // still handled, as a sentence with a next step and a kept draft.
+      const shorter = log.slice(0, 140 * 1024);
+      await page.locator("#prompt").evaluate((el, value) => {
+        el.value = value;
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+      }, shorter);
       await page.locator("#send:not([disabled])").click();
       await page.locator("#status", { hasText: "Couldn't run" }).waitFor();
       assert.equal(posts, 1);
@@ -113,7 +129,7 @@ runPersona("h16", [
       assert.doesNotMatch(text, /payload_limit/);
       assert.equal(
         await page.locator("#prompt").inputValue(),
-        log,
+        shorter,
         "draft kept",
       );
       assert.equal(

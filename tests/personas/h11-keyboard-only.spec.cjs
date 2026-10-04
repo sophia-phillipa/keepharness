@@ -5,7 +5,7 @@ const assert = require("node:assert/strict");
 const { mockHarness, runPersona } = require("./_harness.cjs");
 
 // Default Mx fixture (roster): fx-claude and fx-codex (the Claude id is
-// "claude-fx-5" because TailUI.selectableModel hides non "claude-<family>-<n>" ids), native+scoped; sem-projeto + demo.
+// "claude-fx-5" because HarnessUI.selectableModel hides non "claude-<family>-<n>" ids), native+scoped; sem-projeto + demo.
 const MX = {
   "GET /v1/models": {
     json: {

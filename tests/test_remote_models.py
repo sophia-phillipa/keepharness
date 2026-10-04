@@ -17,6 +17,7 @@ from starlette.testclient import TestClient
 
 from control import discovery, local_models, remote_models, runtime_config
 from control.server import Manager, create_app
+from tests.owner_session import sign_in
 
 REAL_CLIENT = httpx.AsyncClient
 KEY = "sk-remote-" + "k" * 24
@@ -75,7 +76,7 @@ def admin(tmp_path, network, open_umask):
         patch("control.manager.Manager.refresh", AsyncMock()),
         TestClient(create_app(state), base_url="http://127.0.0.1:8094") as client,
     ):
-        client.get("/")
+        sign_in(client).get("/")
         client.headers["X-Harness-Admin"] = "1"
         yield client, state
 
@@ -307,7 +308,7 @@ def test_routes_require_the_admin_cookie_and_header(tmp_path, network):
         for path in (ADD, REMOVE):
             no_cookie = client.post(path, json={"url": URL}, headers={"X-Harness-Admin": "1"})
             assert no_cookie.status_code == 401
-        client.get("/")
+        sign_in(client).get("/")
         for path in (ADD, REMOVE):
             no_header = client.post(path, json={"url": URL})
             assert no_header.status_code == 400

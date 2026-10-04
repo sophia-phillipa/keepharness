@@ -1,6 +1,6 @@
 # Claude adapter specification
 
-**Responsible agent:** `integrate-claude_tail-harness_engineer` (`.codex/agents/integrate-claude_tail-harness_engineer.toml`).
+**Responsible agent:** `integrate-claude_keepharness_engineer` (`.codex/agents/integrate-claude_keepharness_engineer.toml`).
 
 `adapter_spec_revision: 5`
 `harness_baseline: 0.4.4 working-tree`
@@ -81,14 +81,23 @@ quota conditions end the attempt as `interrupted`, with `condition` metadata,
 rather than `failed`; the UI explains the next action in both live and saved turns.
 Unknown failures still retain the generic failure contract.
 
+Error kinds, 0.15.0: every kind Claude Code reports maps to a harness code. The account
+variants (`oauth_org_not_allowed`, `account_on_hold`, `verification_required`,
+`cloud_credential_error`) end as `claude_authentication_failed`; `billing_error` as
+`provider_quota_exhausted`; `overloaded` as `provider_rate_limit`; `server_error` as
+`provider_unavailable` (all `interrupted` with a `condition`); `model_not_found` (a retired
+or unentitled model id) as the failed run `model_or_effort_unavailable`. For these known kinds
+only, the failed result's text travels as `error_detail`: one line, redacted, at most 300
+characters. Any other kind stays `claude_execution_failed` and its text is never shown.
+
 The administration dashboard and provider editor expose account login/renewal.
-An explicit successful Claude browser login persists a non-secret
-`claude-cli-login` preference in the control state directory and updates the
-runtime's `use_cli_login` flag. Login, later account checks and subsequent native
-Claude processes then omit inherited `CLAUDE_CODE_OAUTH_TOKEN`; the parent
-environment is unchanged. Failed/cancelled logins do not change this preference.
-The preference survives admin restarts. Credentials remain managed by the CLI.
-Native Claude account renewal does not block starting the rest of the Harness.
+Login, account checks and every Claude process use the harness-owned
+`CLAUDE_CONFIG_DIR` under the control state directory
+([docs/provider-homes.md](../../../docs/provider-homes.md)); the login KeepHarness
+signs in with lives there, never the terminal's `~/.claude` or an inherited
+`CLAUDE_CODE_OAUTH_TOKEN`. A successful browser login still records the non-secret
+`claude-cli-login` marker. Credentials remain managed by the CLI. Native Claude
+account renewal does not block starting the rest of the Harness.
 
 Validation: `tests/test_claude_errors.py`, `tests/test_provider_login.py`,
 `tests/account-renewal.spec.cjs`, and related native/session/runtime tests.
@@ -102,6 +111,15 @@ Claude Code 2.1.236 was checked on this host with non-inference control requests
 ## Live throughput (2026-09-21)
 
 The shared native/scoped stream parser now emits live usage metrics from message_start and message_delta counts, retaining the latest cumulative output count per message. Source: [official streaming contract](https://platform.claude.com/docs/en/build-with-claude/streaming). Claude Code 2.1.258 was checked locally. Offline fixtures cover multiple messages, duplicate counts and invalid metrics; no live model inference was run.
+
+Context meter (0.15.0): `usage.input_tokens` leaves out cache reads and writes, so a one-line turn
+reported "2 input tokens" for a prompt of about 57k. Each main-thread `message_start` now emits
+`context_usage` with `last.totalTokens = input + cache_read + cache_creation` of that call (never
+a sum over calls; subagent calls are ignored), and the final result keeps the last one. The
+model's context window is not known to the adapter, so the meter shows tokens without a
+percentage. The turn's `metrics.input_tokens` is now the whole prompt across the turn's calls,
+cache included (as Codex counts it), with `cached_tokens` and `cache_creation_tokens` kept
+separately and `usage_scope: "turn"`.
 
 The displayed rate is output tokens divided by elapsed execution time, including tool waits; it is not decoder-only speed. Missing provider counts remain unavailable and are never estimated from text length. Final results remain authoritative when reopening a conversation.
 
@@ -120,10 +138,12 @@ and model, while tool grants remain controlled by the Harness. This catalog
 materialization route is covered by synthetic adapter tests, not a paid live
 certification of `--agents` execution.
 
-Hooks use `--setting-sources project` by default. The explicit backend option
-`global_hooks: true` also requires the hooks grant and changes the emitted scope
-to `global_and_project`. This opt-in adds the `user` setting source. An unrelated
-global hook is not enabled by a project hook grant alone.
+Hooks use `--setting-sources project` by default. The owner's personal-setup
+opt-in (`personal_setup: true`, which replaced `global_hooks` in 0.15.0) also
+requires the hooks grant and changes the emitted scope to `global_and_project`:
+it adds the `user` setting source and passes the owner's own `hooks` from
+`~/.claude/settings.json` through `--settings`. Guests and scheduled runs never
+get it. An unrelated global hook is not enabled by a project hook grant alone.
 
 A leading native command is preserved only when the Harness can retain its
 native position and context. Other invocations use the inline fallback.

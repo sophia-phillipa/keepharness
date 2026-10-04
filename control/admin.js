@@ -13,7 +13,7 @@ function visibleProviders() {
   return state.inventory.services.filter((info) => info.id !== "gemini");
 }
 function say(text, error = false) {
-  TailUI.notice(
+  HarnessUI.notice(
     $("network").open ? $("network-feedback") : $("feedback"),
     text,
     { error, persistent: !error && /…$/.test(text) },
@@ -570,7 +570,7 @@ function providerCard(info) {
       ? info.models || Object.keys(state.models[id] || {})
       : Object.keys(state.models[id] || {});
   for (const m of new Set(
-    [...models, ...spec.models].filter((m) => TailUI.selectableModel(id, m)),
+    [...models, ...spec.models].filter((m) => HarnessUI.selectableModel(id, m)),
   ))
     choices.append(
       toggle(
@@ -720,7 +720,7 @@ function renderProviders() {
       $("permission-editor").append(
         element(
           "p",
-          "Operation permissions belong to the model selected above. Projects are set up in the Tail Harness interface and are available to all models.",
+          "Operation permissions belong to the model selected above. Projects are set up in the KeepHarness interface and are available to all models.",
           "hint",
         ),
       );
@@ -728,7 +728,7 @@ function renderProviders() {
     renderIntegrationSelection();
   }
   renderDashboard();
-  TailUI.decorate($("provider-dialog"));
+  HarnessUI.decorate($("provider-dialog"));
 }
 function integrationEngine(provider = editing) {
   return {
@@ -778,7 +778,7 @@ function renderIntegrationSelection() {
       element(
         "p",
         description +
-          " The selection below defines what Tail Harness requests from this provider's CLI in conversations. Save to apply.",
+          " The selection below defines what KeepHarness requests from this provider's CLI in conversations. Save to apply.",
         "hint",
       ),
     );
@@ -908,6 +908,11 @@ function renderDashboard() {
           "configured-models",
         ),
       );
+      // A provider the harness had to take offline says why (for example "Sign in required").
+      const offline = Object.values(
+        state.status.unavailable_models?.[info.id] || {},
+      )[0];
+      if (offline) card.append(element("p", offline, "hint"));
       card
         .querySelector(".configured-models")
         .append(
@@ -1025,7 +1030,7 @@ function openWizard(provider = null) {
   $("provider-dialog").hidden = false;
   renderProfile();
   $("wizard-feedback").append($("feedback"));
-  TailUI.decorate();
+  HarnessUI.decorate();
   if (!provider) $("provider-options").querySelector("button")?.focus();
 }
 function dashboard() {
@@ -1045,7 +1050,7 @@ function renderProjects() {
   $("project-list").replaceChildren(
     element(
       "p",
-      "Add projects in the Tail Harness sidebar. All enabled models are available in the projects you set up.",
+      "Add projects in the KeepHarness sidebar. All enabled models are available in the projects you set up.",
       "hint",
     ),
   );
@@ -1063,9 +1068,16 @@ function renderStatus() {
     ? "● Harness active"
     : "● Harness stopped";
   $("runtime-badge").classList.toggle("good", s.running);
-  $("open-harness").href = (s.shared ? s.remote_url : s.local_url) || "#";
+  // The link carries the real address as soon as the status gives it, and works only while the harness runs.
+  const open = $("open-harness");
+  open.href = (s.shared ? s.remote_url : s.local_url) || "#";
+  open.setAttribute("aria-disabled", String(!s.running));
+  open.title = s.running ? "Open the harness chat" : "The harness is stopped. Start it from Providers, then open it.";
   $("save").disabled = working;
 }
+$("open-harness").onclick = (event) => {
+  if (event.currentTarget.getAttribute("aria-disabled") === "true") event.preventDefault();
+};
 function render() {
   renderProviders();
   renderProjects();
@@ -1109,7 +1121,7 @@ async function load({ select = true } = {}) {
     $("wizard-title").textContent =
       "Edit " +
       (visibleProviders().find((i) => i.id === editing)?.name || "provider");
-  TailUI.decorate();
+  HarnessUI.decorate();
 }
 async function action(fn) {
   if (working) return;
@@ -1162,11 +1174,11 @@ async function action(fn) {
 
 function collect() {
   settings.uploads_enabled = $("uploads").checked;
-  // spec.models can still hold ids that TailUI.selectableModel() hides from
+  // spec.models can still hold ids that HarnessUI.selectableModel() hides from
   // the toggle list (e.g. unversioned Claude aliases); never send those back.
   for (const [id, spec] of Object.entries(settings.services))
     if (Array.isArray(spec.models))
-      spec.models = spec.models.filter((m) => TailUI.selectableModel(id, m));
+      spec.models = spec.models.filter((m) => HarnessUI.selectableModel(id, m));
   return settings;
 }
 $("scan").onclick = () =>
@@ -1204,12 +1216,12 @@ $("save").onclick = () =>
     try {
       await request("settings", collect());
     } catch (e) {
-      TailUI.toast("Could not save: " + e.message, { error: true });
+      HarnessUI.toast("Could not save: " + e.message, { error: true });
       throw e;
     }
     unsaved = false;
     $("dirty").textContent = "Settings saved";
-    TailUI.toast(
+    HarnessUI.toast(
       state.status.running
         ? "Settings saved. Updating the active harness."
         : "Settings saved. The harness starts automatically with an enabled model.",
@@ -1552,7 +1564,7 @@ async function pollOperations() {
   } catch (e) {
     if (sequence !== operationRequest) return;
     $("operations-panel").hidden = false;
-    TailUI.notice(
+    HarnessUI.notice(
       $("operations-status"),
       "Could not refresh operations. We will try again in 5 seconds.",
       { error: true },
@@ -1800,7 +1812,7 @@ $("main").append(reopen);
 operationDialog.addEventListener("close", () => operationOpener?.focus());
 
 function icon(name) {
-  return TailUI.icon({ layers: "stack-2", edit: "pencil" }[name] || name);
+  return HarnessUI.icon({ layers: "stack-2", edit: "pencil" }[name] || name);
 }
 for (const [id, name, text] of [
   ["add-provider", "plus", "Add provider"],
@@ -2494,7 +2506,7 @@ profileSave.onclick = () =>
     state.local_profiles = { ...profiles(), [profile.model_file]: profile };
     profileDirty = false;
     renderProfile();
-    TailUI.toast(
+    HarnessUI.toast(
       "Profile saved for " +
         profile.model_file.split("/").pop() +
         ". The current process was preserved.",
@@ -2513,7 +2525,7 @@ $("local-import").onclick = () =>
     state.local_profiles = { ...profiles(), [profile.model_file]: profile };
     profileDirty = false;
     renderProfile();
-    TailUI.toast("Configuration copied only for this model.");
+    HarnessUI.toast("Configuration copied only for this model.");
   });
 action(async () => {
   await load();
@@ -2529,7 +2541,7 @@ $("export-settings").onclick = () =>
     );
     const link = element("a");
     link.href = url;
-    link.download = "tail-harness-settings.json";
+    link.download = "keepharness-settings.json";
     link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
     say(
@@ -2593,7 +2605,7 @@ function renderMcpDefaults() {
   for (const [backend, spec] of Object.entries(state.settings.services))
     if (spec.enabled)
       for (const model of spec.models.filter((m) =>
-        TailUI.selectableModel(backend, m),
+        HarnessUI.selectableModel(backend, m),
       )) {
         select.append(
           new Option(backend + " · " + model, JSON.stringify([backend, model])),
@@ -2644,12 +2656,12 @@ $("save-mcp").onclick = () =>
       await request("settings", draft);
       state.settings = draft;
       settings.mcp_defaults = draft.mcp_defaults;
-      TailUI.notice(
+      HarnessUI.notice(
         $("mcp-feedback"),
         "MCP default saved. The configuration is applied automatically to upcoming requests.",
       );
     } catch (e) {
-      TailUI.notice($("mcp-feedback"), e.message, { error: true });
+      HarnessUI.notice($("mcp-feedback"), e.message, { error: true });
     }
   });
 document.querySelectorAll("[data-config-tab]").forEach(

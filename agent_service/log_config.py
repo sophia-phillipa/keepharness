@@ -6,7 +6,7 @@ import sys
 
 from control import env
 
-HANDLER_NAME = "tail-harness"
+HANDLER_NAME = "keepharness"
 REDACTIONS = (
     (re.compile(r"(Bearer\s+)[^\s\"',;]+", re.IGNORECASE), r"\1[redacted]"),
     (re.compile(r"\b(harness_token|admin)=[^\s;,\"']+"), r"\1=[redacted]"),
@@ -39,7 +39,7 @@ class RedactingFilter(logging.Filter):
 
 
 def configure_logging():
-    """Install one redacting stderr handler at ``TAIL_HARNESS_LOG_LEVEL`` (default WARNING)."""
+    """Install one redacting stderr handler at ``KEEPHARNESS_LOG_LEVEL`` (default WARNING)."""
     root = logging.getLogger()
     level = env.read("LOG_LEVEL", "WARNING").strip().upper()
     root.setLevel(logging.getLevelNamesMapping().get(level, logging.WARNING))

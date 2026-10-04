@@ -227,7 +227,7 @@ const assert = require("node:assert/strict");
       ),
     );
     await p.screenshot({
-      path: "/tmp/tail-admin-profiles-mobile.png",
+      path: "/tmp/keepharness-admin-profiles-mobile.png",
       fullPage: true,
     });
     assert(dialogs >= 3);

@@ -9,6 +9,7 @@ from test_configuration import INVENTORY
 
 from control.local_models import load_profile, load_profiles, save_profile
 from control.server import create_app
+from tests.owner_session import sign_in
 
 
 def profiles(tmp_path):
@@ -53,7 +54,7 @@ def test_profiles_api_import_exact_model_start_and_export(tmp_path):
         patch("control.operations.Operations.launch", return_value={"id": "fixture"}) as launch,
     ):
         with TestClient(create_app(tmp_path), base_url="http://127.0.0.1:8094") as client:
-            client.get("/")
+            sign_in(client).get("/")
             headers = {"X-Harness-Admin": "1"}
 
             def post(path, data):
@@ -95,7 +96,7 @@ def test_invalid_profile_catalog_does_not_partially_import(tmp_path):
     qwen, gemma = profiles(tmp_path)
     with patch("control.discovery.scan", AsyncMock(return_value=INVENTORY)):
         with TestClient(create_app(tmp_path), base_url="http://127.0.0.1:8094") as client:
-            client.get("/")
+            sign_in(client).get("/")
             headers = {"X-Harness-Admin": "1"}
             bundle = client.post("/api/settings-export", json={}, headers=headers).json()
             bundle["local_profiles"] = {qwen["model_file"]: qwen, gemma["model_file"]: qwen}
@@ -213,7 +214,7 @@ def test_panel_uses_project_internal_runtime_models_and_key(tmp_path):
     ):
         disk.return_value.free = 100 * 1024**3
         with TestClient(create_app(tmp_path), base_url="http://127.0.0.1:8094") as client:
-            client.get("/")
+            sign_in(client).get("/")
             headers = {"X-Harness-Admin": "1"}
             r = client.post(
                 "/api/local-start", json={"file": str(model), "gpu_layers": 0}, headers=headers

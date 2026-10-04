@@ -1,6 +1,6 @@
 # Codex model ID: gpt-6-astra
 
-**Responsible agent:** `integrate-codex_tail-harness_engineer`.
+**Responsible agent:** `integrate-codex_keepharness_engineer`.
 `adapter_spec_revision: 1`
 `harness_baseline: 0.4.4 working-tree`
 

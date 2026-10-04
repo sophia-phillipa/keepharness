@@ -68,7 +68,7 @@ async function captureMatrix(browser, directory, summary) {
     for (const theme of THEMES) {
       const { context, page } = await newVisualPage(browser, viewport);
       try {
-        await page.evaluate(value => window.TailTheme.apply(value), theme);
+        await page.evaluate(value => window.HarnessTheme.apply(value), theme);
         assert.equal(await page.locator("html").getAttribute("data-palette"), theme);
         if (viewport.width === 1440 && theme === THEMES[0]) {
           // Codex-style shell (2026-10-03): the top bar is a 50 px icon rail and the

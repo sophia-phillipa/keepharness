@@ -330,6 +330,13 @@ function renderPromptHighlights() {
     mirror = $("prompt-highlights"),
     tokens = new Set(resourceSelections.map((ref) => ref.token));
   mirror.replaceChildren();
+  // QA-R4-5: without a highlighted token the mirror stays empty, so a long draft is never split per keystroke.
+  if (!tokens.size) {
+    input.classList.remove("has-resource-highlights");
+    mirror.hidden = true;
+    renderResourceChips();
+    return;
+  }
   for (const part of input.value.split(/(\s+)/)) {
     if (tokens.has(part)) {
       const span = document.createElement("span");
@@ -551,9 +558,9 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
   heading.className = "access-menu-heading";
   heading.textContent =
     trigger.prefix === "@@"
-      ? "Tail Harness agents"
+      ? "KeepHarness agents"
       : trigger.prefix === "//"
-        ? "Tail Harness skills and commands"
+        ? "KeepHarness skills and commands"
         : trigger.prefix === "@"
           ? "Available agents"
           : "Agents, skills and commands";
@@ -568,7 +575,7 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
   if (trigger.prefix === "//") {
     const empty = document.createElement("p");
     empty.className = "resource-empty";
-    empty.textContent = "Tail Harness resources are not available yet.";
+    empty.textContent = "KeepHarness resources are not available yet.";
     options.append(empty);
   } else if (loading) {
     const row = document.createElement("p");
@@ -581,7 +588,7 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
       const scope =
           item.scope === "project"
             ? "Project"
-            : item.scope === "tail"
+            : item.scope === "harness"
               ? "Yours"
             : item.scope === "catalog"
               ? "Catalog"
@@ -595,7 +602,7 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
           title = document.createElement("h3");
         section.className = "resource-group";
         title.textContent =
-          item.scope === "tail" ? category : category + " · " + scope + " · " + item.origin;
+          item.scope === "harness" ? category : category + " · " + scope + " · " + item.origin;
         section.append(title);
         groups.set(groupKey, section);
         options.append(section);
@@ -616,7 +623,7 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
       glyph.className = "resource-origin-icon";
       glyph.setAttribute("aria-hidden", "true");
       glyph.append(
-        item.scope === "tail" ? providerModelIcon(item.backend, item.model) : resourceIcon(item),
+        item.scope === "harness" ? providerModelIcon(item.backend, item.model) : resourceIcon(item),
       );
       const text = document.createElement("span"),
         name = document.createElement("strong"),
@@ -651,7 +658,7 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
     const create = document.createElement("button");
     create.type = "button";
     create.className = "resource-create";
-    create.append(TailUI.icon("plus"), document.createTextNode("Create agent…"));
+    create.append(HarnessUI.icon("plus"), document.createTextNode("Create agent…"));
     create.onclick = () => {
       closeResourceMenu();
       openAgentDialog();
@@ -667,7 +674,9 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
     empty.className = "resource-empty";
     empty.textContent = loading
       ? ""
-      : "No resource compatible with this engine.";
+      : trigger.prefix[0] === "@"
+        ? "No agents for this model yet."
+        : "No skills or commands for this model yet.";
     options.append(empty);
   }
   const preview = document.createElement("div");
@@ -736,15 +745,17 @@ function selectResource(item, trigger) {
     action?.click();
     return;
   }
-  const tailAgent = item.scope === "tail" && item.kind === "agent",
-    marker = tailAgent ? "@@" : trigger.prefix[0] === "@" ? "@" : "/",
+  const harnessAgent = item.scope === "harness" && item.kind === "agent",
+    marker = harnessAgent ? "@@" : trigger.prefix[0] === "@" ? "@" : "/",
     token = marker + item.name;
-  if (tailAgent) applyAgentRoute(item);
+  if (harnessAgent) applyAgentRoute(item);
   const input = $("prompt"),
     before = input.value.slice(0, trigger.start),
     after = input.value.slice(trigger.end);
-  input.value = before + token + " " + after;
-  const caret = (before + token + " ").length;
+  // A token chosen from the Agents chip may follow a word directly.
+  const gap = before && !/\s$/.test(before) ? " " : "";
+  input.value = before + gap + token + " " + after;
+  const caret = (before + gap + token + " ").length;
   input.setSelectionRange(caret, caret);
   resourceSelections.push({ id: item.id, revision: item.revision, token });
   invalidResourceTokens.delete(token);
@@ -753,12 +764,43 @@ function selectResource(item, trigger) {
   updateComposer();
   saveView();
 }
+// QA-R2-4: the resource list is fetched once per project and engine, then filtered locally while typing.
+const RESOURCE_CACHE_MS = 30000;
+const resourceCache = { key: "", at: 0, warnings: [] };
+function clearResourceItems() {
+  resourceItems = [];
+  resourceCache.at = 0;
+}
+function showResources(trigger, warnings = []) {
+  let filtered = [...resourceItems, ...builtinResources()]
+    .filter((item) =>
+      trigger.prefix === "@@"
+        ? item.kind === "agent" && item.scope === "harness"
+        : trigger.prefix === "@"
+          ? item.kind === "agent"
+          : ["agent", "skill", "command", "workflow", "rule", "context", "builtin"].includes(item.kind),
+    )
+    .map((item) => ({ item, score: resourceMatchScore(item, trigger.query) }))
+    .filter((entry) => entry.score >= 0)
+    .sort((left, right) => right.score - left.score)
+    .map((entry) => entry.item);
+  const exact = filtered.filter(
+    (item) => item.name.toLowerCase() === trigger.query.toLowerCase(),
+  );
+  if (exact.length) filtered = exact;
+  renderResourceMenu(trigger, filtered, false, warnings);
+}
 async function refreshResources(trigger) {
   const request = ++resourceRequest,
     m = resourceEngine(),
     project = $("project").value;
   if (!m.backend) {
     renderResourceMenu(trigger, [], false);
+    return;
+  }
+  const key = [project, m.backend, m.model, m.execution_mode].join("|");
+  if (resourceCache.key === key && Date.now() - resourceCache.at < RESOURCE_CACHE_MS) {
+    showResources(trigger, resourceCache.warnings);
     return;
   }
   renderResourceMenu(trigger, [], true);
@@ -781,31 +823,12 @@ async function refreshResources(trigger) {
     )
       return;
     resourceItems = Array.isArray(data.items) ? data.items : [];
-    let filtered = [...resourceItems, ...builtinResources()]
-      .filter((item) =>
-        trigger.prefix === "@@"
-          ? item.kind === "agent" && item.scope === "tail"
-          : trigger.prefix === "@"
-            ? item.kind === "agent"
-            : ["agent", "skill", "command", "workflow", "rule", "context", "builtin"].includes(item.kind),
-      )
-      .map((item) => ({ item, score: resourceMatchScore(item, trigger.query) }))
-      .filter((entry) => entry.score >= 0)
-      .sort((left, right) => right.score - left.score)
-      .map((entry) => entry.item);
-    const exact = filtered.filter(
-      (item) => item.name.toLowerCase() === trigger.query.toLowerCase(),
-    );
-    if (exact.length) filtered = exact;
-    renderResourceMenu(
-      trigger,
-      filtered,
-      false,
-      Array.isArray(data.warnings) ? data.warnings : [],
-    );
+    Object.assign(resourceCache, { key, at: Date.now(), warnings: Array.isArray(data.warnings) ? data.warnings : [] });
+    // The menu follows what is typed now, not what was typed when the request started.
+    showResources(triggerAtCaret() || trigger, resourceCache.warnings);
   } catch {
     if (request !== resourceRequest) return;
-    resourceItems = [];
+    clearResourceItems();
     renderResourceMenu(trigger, [], false);
     const note = $("resource-menu").querySelector(".resource-empty");
     if (note) note.textContent = "Couldn't refresh resources.";
@@ -841,7 +864,7 @@ function openResourceMenu() {
 function invalidateResources() {
   for (const ref of resourceSelections) invalidResourceTokens.add(ref.token);
   resourceSelections = [];
-  resourceItems = [];
+  clearResourceItems();
   void refreshWorkspaceResources();
   closeResourceMenu();
   renderPromptHighlights();
@@ -923,6 +946,7 @@ const labels = {
   interrupted: "Interrupted",
   queued: "Queued",
   queue_wait: "Waiting in the queue",
+  queue_released: "Queued message released",
   running: "Running",
   thinking: "Thinking",
   planning: "Preparing the run",
@@ -957,10 +981,10 @@ const status = (text) => {
       text,
     )
   ) {
-    TailUI.notice(target, text, { error: true });
+    HarnessUI.notice(target, text, { error: true });
   } else if (
     Object.values(labels).includes(text) ||
-    /^(Completed|Failed run|Cancelled|Running|Thinking|Reasoning|Receiving response|Preparing|Using tool|Tool finished|Plan updated|Run steps|Working|Checking quota|Sending request|Loading|Connected|Cancelling|Reconnecting|Ready to chat)/i.test(
+    /^(Completed|Copied|Failed run|Cancelled|Running|Thinking|Reasoning|Receiving response|Preparing|Using tool|Tool finished|Plan updated|Run steps|Working|Checking quota|Sending request|Loading|Connected|Cancelling|Reconnecting|Ready to chat)/i.test(
       text,
     )
   ) {
@@ -1000,7 +1024,7 @@ const modelIcon = (id) => {
   return "◈";
 };
 const providerNames = {
-  local: "Local server",
+  local: "Local models",
   codex: "Codex",
   claude: "Claude Code",
   gemini: "Gemini CLI",
@@ -1009,7 +1033,7 @@ const providerNames = {
 };
 function providerModelIcon(backend, model) {
   backend ||= models.find(item => item.id === model)?.backend;
-  return TailUI.icon({codex: "brand-openai", claude: "brand-claude", gemini: "brand-gemini", maestro: "tail-harness"}[backend] || "stack-2");
+  return HarnessUI.icon({codex: "brand-openai", claude: "brand-claude", gemini: "brand-gemini", maestro: "keepharness"}[backend] || "stack-2");
 }
 let composerCondition = null, modelAvailabilityError = "";
 function syncComposerAvailability() {
@@ -1021,8 +1045,18 @@ function syncComposerAvailability() {
   $("prompt").disabled = blocked;
   return blocked;
 }
-const modelName = (id) =>
-  names[id] || models.find((m) => m.id === id)?.name || id || "No model";
+// D42: people read "Claude Opus 4.7" and "GPT-6 Astra", never the raw identifier.
+const capitalized = (word) => word[0].toUpperCase() + word.slice(1);
+function friendlyModelName(id) {
+  const claude = /^claude-(opus|sonnet|haiku)-(\d+)(?:-(\d{1,2}))?$/.exec(id);
+  if (claude) return "Claude " + capitalized(claude[1]) + " " + claude[2] + (claude[3] ? "." + claude[3] : "");
+  const gpt = /^gpt-(\d+(?:\.\d+)?)(?:-([a-z]+))?$/.exec(id);
+  if (gpt) return "GPT-" + gpt[1] + (gpt[2] ? " " + capitalized(gpt[2]) : "");
+  return id;
+}
+const modelLabel = (model) =>
+  names[model.id] || (model.name && model.name !== model.id ? model.name : friendlyModelName(model.id));
+const modelName = (id) => (id ? modelLabel(models.find((m) => m.id === id) || { id }) : "No model");
 const selectedIdentity = () => {
   const m = selected();
   return m
@@ -1037,7 +1071,7 @@ const selectedIdentity = () => {
 const efforts = {
   auto: "Maestro chooses per step",
   none: "No reasoning",
-  configured: "Provider's default",
+  configured: "Default",
   low: "Low",
   medium: "Medium",
   high: "High",
@@ -1109,11 +1143,13 @@ const userErrors = {
   workflow_must_be_standalone: "Select one workflow at a time.",
   workflow_output_not_approved: "The step output was not approved. Review the evidence before continuing.",
   workflow_owner_denied: "Only the owner of this run can recover or save it.",
+  workflow_save_local_only: "Workflows can only be saved from the computer that runs KeepHarness.",
   workflow_published_step_requires_explicit_rerun: "This changed step already published. Use an explicit re-run with fresh approval.",
   workflow_requires_successful_chain: "Only a completed, successful chain can be saved as a workflow.",
   workflow_resource_unavailable: "A required workflow resource is missing or unavailable. Refresh the catalog.",
   workflow_sequential_only: "This release supports sequential workflows without parallel or repeat steps.",
   cancellation_retry_required: "Cancellation was not saved because storage is busy. Try Cancel again.",
+  job_not_held: "This message is no longer waiting for your choice.",
   workflow_source_busy: "Wait for the original run to finish or cancel it before recovery.",
   workflow_step_not_approved: "The workflow step was not approved. No further steps ran.",
   workflow_too_large: "The workflow exceeds the supported document size.",
@@ -1123,6 +1159,8 @@ const userErrors = {
     "Too many requests in a short time. The server has temporarily limited this access.",
   submission_rate_limit:
     "You sent new requests too quickly. This request wasn't queued.",
+  search_query_too_short: "Type at least two characters to search conversations.",
+  search_rate_limit: "Too many searches in a short time. Wait a moment and search again.",
   queue_full:
     "The server queue is full. This request wasn't queued; wait for other runs to finish.",
   owner_queue_full:
@@ -1176,6 +1214,8 @@ const userErrors = {
     "The requested answer length is invalid. Refresh the page and try again.",
   invalid_access_mode:
     "That access mode is not available. Choose another one and try again.",
+  access_mode_owner_only:
+    "Automatic and Full access are only for the owner on the computer running KeepHarness. Choose Ask for approval or Read only.",
   invalid_parent_job:
     "The earlier message this reply continues is unavailable. Start a new conversation.",
   invalid_event_id: "Tracking could not resume. Refresh the page.",
@@ -1241,6 +1281,14 @@ const userErrors = {
     "Codex returned an unexpected response. Try again; if it persists, update Codex.",
   codex_output_limit:
     "Codex produced more output than allowed. Narrow the request and try again.",
+  deepseek_execution_failed:
+    "DeepSeek stopped before finishing the run. Check the activity and try again.",
+  deepseek_output_limit:
+    "DeepSeek produced more output than allowed. Narrow the request and try again.",
+  local_execution_failed:
+    "The local model stopped before finishing the run. Check the activity and try again.",
+  local_output_limit:
+    "The local model produced more output than allowed. Narrow the request and try again.",
   claude_execution_failed:
     "Claude stopped before finishing the run. Check the activity and try again.",
   claude_stream_incomplete:
@@ -1404,6 +1452,9 @@ const userErrors = {
   project_edit_forbidden: "You can't edit this project.",
   project_registration_disabled:
     "Adding projects is turned off on this server. Ask the administrator to enable it.",
+  project_management_local_only:
+    "Project folders can only be added, changed or deleted from the computer that runs KeepHarness.",
+  host_denied: "This address is not one KeepHarness answers on. Open it by its usual address.",
   project_directory_shared:
     "One of the chosen folders already belongs to another project.",
   project_folder_busy:
@@ -1466,8 +1517,6 @@ const userErrors = {
   restart_schedule_failed:
     "The changes were applied, but the panel could not schedule its restart.",
   service_control_denied: "You can't control this service.",
-  explicit_service_request_required:
-    "Controlling a service needs an explicit request. Use the service controls.",
   invalid_service_action: "That service action is not available.",
   invalid_service_unit: "That service is not available.",
   service_not_registered: "That service is not registered for this project.",
@@ -1485,7 +1534,7 @@ const userErrors = {
   approval_expiration_limit:
     "The run was cancelled after repeated approval requests expired. Send your message again when you are ready to respond.",
   approval_session_required:
-    "Enroll this browser using an owner-issued link. On the server, run tail-harness approve-device with your existing owner id and state directory.",
+    "This browser is not enrolled to approve actions yet. Ask the admin of this KeepHarness to enroll this browser for your own account (keepharness approve-device), then open the link they send you and try again.",
   approval_storage_unsafe:
     "Approval sessions could not be stored securely. Ask the server owner to check the state directory permissions before trying again.",
   approval_enrollment_invalid:
@@ -1526,15 +1575,40 @@ const userErrors = {
   invalid_command_arguments: "The command arguments are invalid.",
   resources_unavailable_in_workspace:
     "Resources are not available in this workspace.",
-  tail_resources_unavailable: "Resources are not available right now.",
-  tail_agent_exists: "An agent with that name already exists.",
-  tail_agent_invalid: "The agent details are not valid. Check each field and try again.",
-  tail_agent_limit: "You have reached the limit of 100 agents. Delete one to add another.",
-  tail_agent_changed: "This agent was changed elsewhere. Reload it and try again.",
-  tail_agent_not_found: "That agent no longer exists.",
-  tail_agent_storage_unsafe: "The agents folder cannot be used safely. Check the harness state folder.",
-  tail_agent_local_only: "Agents can only be created, edited or deleted from the computer that runs Tail Harness.",
+  harness_resources_unavailable: "Resources are not available right now.",
+  harness_agent_exists: "An agent with that name already exists.",
+  harness_agent_invalid: "The agent details are not valid. Check each field and try again.",
+  harness_agent_limit: "You have reached the limit of 100 agents. Delete one to add another.",
+  harness_agent_changed: "This agent was changed elsewhere. Reload it and try again.",
+  harness_agent_not_found: "That agent no longer exists.",
+  harness_agent_storage_unsafe: "The agents folder cannot be used safely. Check the harness state folder.",
+  harness_agent_local_only: "Agents can only be created, edited or deleted from the computer that runs KeepHarness.",
+  page_invalid: "The page is not valid. Check the title and the text and try again.",
+  page_not_found: "That page no longer exists.",
+  page_changed: "This page was changed elsewhere. Reload it and try again.",
+  page_limit: "This project has reached the limit of 500 pages. Delete one to add another.",
+  page_storage_unsafe: "The pages folder cannot be used safely. Check the harness state folder.",
+  schedule_invalid: "The schedule is not valid. Check each field and try again.",
+  schedule_not_found: "That schedule no longer exists.",
+  schedule_changed: "This schedule was changed elsewhere. Reload it and try again.",
+  schedule_limit: "You have reached the limit of 50 schedules. Delete one to add another.",
+  schedule_storage_unsafe: "The schedules folder cannot be used safely. Check the harness state folder.",
 };
+// The 403 body names the caller's owner id, and a guest's Tailscale login. Name one in the
+// command only when it is safe to paste into a shell; otherwise keep the generic text, which
+// names no owner. Only the owner on this computer can run the command; a guest asks the owner
+// of this KeepHarness, by the login the owner knows them by (PRD-R4-5).
+const SAFE_OWNER_ID = /^[\w@][\w.@+-]{0,127}$/;
+function enrollmentMessage(owner, login) {
+  if (owner === "local")
+    return "This browser is not enrolled to approve actions yet. On this computer run: keepharness approve-device --owner local, then open the link it prints in this browser and try again.";
+  const id = typeof login === "string" && SAFE_OWNER_ID.test(login) ? login : owner;
+  return typeof id === "string" && SAFE_OWNER_ID.test(id)
+    ? "This browser is not enrolled to approve actions yet. Ask the owner of this KeepHarness to run keepharness approve-device --owner " +
+        id +
+        " and send you the link, then open it in this browser and try again."
+    : userErrors.approval_session_required;
+}
 async function api(path, options = {}) {
   let r;
   try {
@@ -1558,6 +1632,7 @@ async function api(path, options = {}) {
       e = { code: "HTTP " + r.status };
     }
     let message =
+      (e.code === "approval_session_required" && enrollmentMessage(e.owner, e.login)) ||
       userErrors[e.code] ||
       attachmentError(e.code) ||
       (r.status === 429
@@ -1610,7 +1685,7 @@ function selected() {
   return models.find((m) => m.id === $("model").value) || models[0];
 }
 function composerModels(catalog) {
-  const choices = catalog.models.filter(m => TailUI.selectableModel(m.backend, m.id));
+  const choices = catalog.models.filter(m => HarnessUI.selectableModel(m.backend, m.id));
   if (catalog.maestro) choices.push({ id: "auto", name: "Maestro (auto plan)", backend: "maestro", efforts: ["auto"] });
   return choices;
 }
@@ -1655,7 +1730,7 @@ async function refreshProjectPermissions(timeout = 30000) {
     models = composerModels(data);
     uploadsAllowed = data.uploads_enabled === true;
     $("model").replaceChildren(
-      ...models.map((m) => new Option(names[m.id] || m.name || m.id, m.id)),
+      ...models.map((m) => new Option(modelLabel(m), m.id)),
     );
     if (models.some((m) => m.id === previous)) $("model").value = previous;
     // F-90: never switch the draft to another model silently.
@@ -1703,7 +1778,9 @@ function canAttachVideo() {
 function updateModelPermissions() {
   const m = selected(),
     allowed = canUpload();
-  $("attach").disabled = busy || loading || uploads > 0 || !allowed;
+  // QA-R4-4: at the limit the button says why instead of failing after a pick.
+  const full = files.length >= MAX_ATTACHMENTS;
+  $("attach").disabled = busy || loading || uploads > 0 || !allowed || full;
   const textOnly =
     m?.backend === "deepseek" ||
     (executionMode !== "native" && m?.backend !== "local");
@@ -1721,9 +1798,11 @@ function updateModelPermissions() {
     imageHelp +
     " · " +
     videoHelp;
-  $("attach").title = allowed
-    ? "Attach file. " + attachmentHelp
-    : "Attachments not allowed for this model";
+  $("attach").title = full
+    ? MAX_ATTACHMENTS + " of " + MAX_ATTACHMENTS + " files attached. Remove one to add another."
+    : allowed
+      ? "Attach file. " + attachmentHelp
+      : "Attachments not allowed for this model";
   $("attachment-help").textContent = allowed
     ? attachmentHelp
     : "Attachments disabled for this model. Review your permissions in the admin panel.";
@@ -1763,6 +1842,9 @@ function updateEfforts() {
       return o;
     }),
   );
+  // CDX-R4-3: a fresh choice starts on the provider's default, or Medium, not on whatever is listed first.
+  const preferred = ["configured", "medium"].find((e) => m.efforts.includes(e));
+  if (preferred) $("effort").value = preferred;
   $("model-note").textContent =
     m.backend === "maestro"
       ? "The configured coordinator plans steps using eligible local or cloud models"
@@ -2035,7 +2117,7 @@ function conversationUpdated(c = {}) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 function waitReasonLabel(reason) {
-  return ({ human_approval: "Waiting for your approval", conversation_parent: "Waiting for the previous response", provider_capacity: "Waiting for another task on this provider", conversation: "Waiting for this conversation", work_item: "Waiting for this work item", writable_root: "Waiting for access to project files", queue: "Waiting in the queue" })[reason] || reason;
+  return ({ human_approval: "Waiting for your approval", conversation_parent: "Waiting for the previous response", provider_capacity: "Waiting for another task on this provider", held_after_stop: "Held after Stop", conversation: "Waiting for this conversation", work_item: "Waiting for this work item", writable_root: "Waiting for access to project files", queue: "Waiting in the queue" })[reason] || reason;
 }
 function conversationSummary(c = {}) {
   if (c.live_wait_reason || c.wait_reason)
@@ -2047,13 +2129,24 @@ function conversationSummary(c = {}) {
   if (state === "queued") return "Waiting in the queue";
   return ({ failed: "Failed", cancelled: "Cancelled", interrupted: "Interrupted" })[c.state] || c.summary || "Completed";
 }
+// QA-R1-2: "Worked for" counts the time the run was active; time in the queue is shown apart.
+function runTiming(result = {}) {
+  const total = Number(result.total_seconds),
+    queued = Number(result.queue_seconds),
+    waited = Number.isFinite(queued) && queued >= 1 && queued < total ? queued : 0,
+    seconds = (value) => value.toFixed(1) + " s";
+  return {
+    worked: Number.isFinite(total) && total - waited > 0 ? seconds(total - waited) : "",
+    waited: waited ? seconds(waited) : "",
+  };
+}
 function renderConversationHeader(c = null) {
   const state = c ? conversationState(c) : "draft";
   const states = { "needs-you": "Awaiting approval", running: "Running", queued: "Queued", done: "Completed", draft: "Draft" };
   $("conversation-state-pill").textContent = ({ failed: "Failed", cancelled: "Cancelled", interrupted: "Interrupted" })[c?.state] || states[state];
   $("conversation-state-pill").dataset.state = state;
   $("header-execution-mode").textContent = executionMode === "scoped" ? "Isolated conversation" : "Native conversation";
-  $("header-access").textContent = $("access-mode").value || "ask";
+  $("header-access").textContent = accessLabel();
 }
 window.updateProviderQuotas = function updateProviderQuotas(items = []) {
   const container = $("provider-quotas");
@@ -2088,7 +2181,55 @@ window.updateProviderQuotas = function updateProviderQuotas(items = []) {
     ? "Open quota details for the selected provider"
     : "";
 };
+// D35: the needs-you count leads the window title, and an unfocused window gets an OS
+// notification when a run needs the user, fails or finishes (the desktop app allows it for its own origins).
+const WINDOW_TITLE = document.title;
+const RECENT_JOB_SECONDS = 600;
+const seenJobStates = new Map();
+const seenRequests = new Set();
+let alertsPrimed = false;
+function notifyUser(text) {
+  if (document.hasFocus() || typeof Notification === "undefined" || Notification.permission !== "granted") return;
+  try {
+    new Notification("KeepHarness", { body: text });
+  } catch {}
+}
+function jobAlert(job, before) {
+  const known = before !== undefined && before !== job.state;
+  const recent = before === undefined && Date.now() / 1000 - (job.created || 0) < RECENT_JOB_SECONDS;
+  if (!known && !recent) return "";
+  const prefix = { failed: "Failed: ", completed: "Finished: " }[job.state];
+  return prefix ? prefix + (job.title || "a run") : "";
+}
+function notifyAttention(data = {}) {
+  const needs = data.needs_you || [];
+  document.title = needs.length ? `(${needs.length}) ${WINDOW_TITLE}` : WINDOW_TITLE;
+  const alerts = [];
+  for (const item of needs) {
+    const id = item.gate_id || item.approval_id;
+    if (seenRequests.has(id)) continue;
+    seenRequests.add(id);
+    alerts.push("Needs you: " + (item.title || "a run"));
+  }
+  for (const job of data.jobs || []) {
+    const alert = jobAlert(job, seenJobStates.get(job.job_id));
+    seenJobStates.set(job.job_id, job.state);
+    if (alert) alerts.push(alert);
+  }
+  if (alertsPrimed) alerts.forEach(notifyUser);
+  alertsPrimed = true;
+}
+// The permission prompt comes with the first message, when the user has a run to wait for.
+function askNotificationPermission() {
+  if (typeof Notification === "undefined" || Notification.permission !== "default") return;
+  Notification.requestPermission().catch(() => {});
+}
+$("send").addEventListener("click", askNotificationPermission);
+$("prompt").addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && !event.shiftKey) askNotificationPermission();
+});
 window.applyActivitySnapshot = function applyActivitySnapshot(data = {}) {
+  notifyAttention(data);
   observedActivityJobs = Array.isArray(data.jobs) ? [...data.jobs] : [];
   renderWorkspaceTasks(observedActivityJobs);
   const pending = new Set(
@@ -2134,7 +2275,7 @@ $('provider-quotas').onkeydown = (event) => {
     setQuotaOpen(true);
   }
 };
-async function history(timeout = 30000) {
+async function history(timeout = 30000, background = false) {
   const request = ++historyRequest;
   try {
     let data;
@@ -2160,7 +2301,7 @@ async function history(timeout = 30000) {
     conversations.forEach(observeConversation);
     saveConversationActivity();
     renderProjects();
-    document.dispatchEvent(new Event("tail:history"));
+    document.dispatchEvent(new CustomEvent("harness:history", { detail: { background } }));
     if ($("conversation-search-dialog").open) renderConversationSearch();
     if (conversation) {
       const current = conversations.find((item) => item.id === conversation);
@@ -2302,12 +2443,22 @@ function conversationRow(c) {
   const backend = document.createElement("span");
   backend.className = "backend-chip";
   backend.dataset.backend = c.execution?.backend || c.backend || "";
-  backend.textContent = c.execution?.backend || c.backend || "";
+  const backendId = c.execution?.backend || c.backend || "";
+  backend.textContent = providerNames[backendId] || backendId;
   backend.title = backend.textContent;
   const project = document.createElement("span");
   project.className = "conversation-project";
   project.textContent = projectDetails[c.project]?.label || c.project || "No project";
   meta.append(summary, age, backend, project);
+  // Runs started by a scheduled task say so, with the task's title.
+  if (c.schedule_title) {
+    const scheduled = document.createElement("span");
+    scheduled.className = "conversation-scheduled";
+    scheduled.textContent = "Scheduled";
+    scheduled.title = "Scheduled task: " + c.schedule_title;
+    meta.prepend(scheduled);
+    open.title += "\nScheduled task: " + c.schedule_title;
+  }
   open.append(meta);
   if (conversationState(c) === "needs-you") {
     const peek = document.createElement("button");
@@ -2570,7 +2721,7 @@ function newConversation(title = "New Conversation", projectId = $("project").va
   status("");
   $("prompt").focus({ preventScroll: true });
   refreshProjectPermissions();
-  if (changedProject) { resourceItems = []; void refreshWorkspaceResources(); }
+  if (changedProject) { clearResourceItems(); void refreshWorkspaceResources(); }
 }
 function chooseProject(id) {
   if (busy || loading || uploads) return;
@@ -2825,7 +2976,7 @@ function renderProjects() {
         const navigate = document.createElement("button");
         navigate.type = "button";
         navigate.append(
-          TailUI.icon("folder"),
+          HarnessUI.icon("folder"),
           document.createTextNode("Go to project folder"),
         );
         navigate.onclick = () => {
@@ -2835,7 +2986,7 @@ function renderProjects() {
         const pin = document.createElement("button");
         pin.type = "button";
         pin.append(
-          TailUI.icon("star"),
+          HarnessUI.icon("star"),
           document.createTextNode(
             favorite ? "Remove from favorites" : "Add to favorites",
           ),
@@ -2847,7 +2998,7 @@ function renderProjects() {
         const remove = document.createElement("button");
         remove.type = "button";
         remove.append(
-          TailUI.icon("x"),
+          HarnessUI.icon("x"),
           document.createTextNode("Remove from list"),
         );
         remove.title = "Preserves the project's folders and conversations";
@@ -2859,7 +3010,7 @@ function renderProjects() {
         deleteFolder.type = "button";
         deleteFolder.className = "project-delete-folder";
         deleteFolder.append(
-          TailUI.icon("trash"),
+          HarnessUI.icon("trash"),
           document.createTextNode("Delete folder"),
         );
         deleteFolder.onclick = () => {
@@ -2899,7 +3050,7 @@ function renderProjects() {
         iconToggle.setAttribute("aria-pressed", String(showIcon));
         iconToggle.disabled = !projectIcon;
         iconToggle.append(
-          TailUI.icon("scan"),
+          HarnessUI.icon("scan"),
           document.createTextNode(
             showIcon ? "Hide project icon" : "Show project icon",
           ),
@@ -2915,7 +3066,7 @@ function renderProjects() {
         edit.type = "button";
         edit.title = "Change the name, add folders, and choose the main folder";
         edit.append(
-          TailUI.icon("pencil"),
+          HarnessUI.icon("pencil"),
           document.createTextNode("Edit project"),
         );
         edit.onclick = () => {
@@ -2929,7 +3080,7 @@ function renderProjects() {
         deleteFolder.title =
           "Review deleting the project's main folder from the computer";
         trigger.title = "Open project actions";
-        trigger.replaceChildren(TailUI.icon("settings"));
+        trigger.replaceChildren(HarnessUI.icon("settings"));
         menu.append(edit, navigate, pin, iconToggle, remove, deleteFolder);
         actions.append(trigger, menu);
         heading.append(button, actions);
@@ -2951,7 +3102,7 @@ function renderProjects() {
         const create = document.createElement("button");
         create.type = "button";
         create.className = "project-new";
-        create.append(TailUI.icon("message-plus"));
+        create.append(HarnessUI.icon("message-plus"));
         create.setAttribute(
           "aria-label",
           "New Conversation in " + o.textContent,
@@ -2988,7 +3139,7 @@ function renderProjects() {
     section.open = removedOpen;
     const heading = document.createElement("summary");
     heading.append(
-      TailUI.icon("archive"),
+      HarnessUI.icon("archive"),
       document.createTextNode("Removed projects (" + removed.length + ")"),
     );
     section.append(heading);
@@ -2996,7 +3147,7 @@ function renderProjects() {
       const restore = document.createElement("button");
       restore.type = "button";
       restore.append(
-        TailUI.icon("refresh"),
+        HarnessUI.icon("refresh"),
         document.createTextNode("Restore " + option.textContent),
       );
       restore.onclick = () =>
@@ -3053,6 +3204,7 @@ answerMarkdown.renderer.rules.link_open = (
   return self.renderToken(tokens, index, options);
 };
 const answerFence = answerMarkdown.renderer.rules.fence;
+// Every code block: a header with the language and a Copy button (D34).
 answerMarkdown.renderer.rules.fence = (tokens, index, options, env, self) => {
   const token = tokens[index];
   if (token.info.trim().toLowerCase() === "json") {
@@ -3060,8 +3212,19 @@ answerMarkdown.renderer.rules.fence = (tokens, index, options, env, self) => {
       token.content = JSON.stringify(JSON.parse(token.content), null, 2) + "\n";
     } catch {}
   }
-  return answerFence(tokens, index, options, env, self);
+  const language = token.info.trim().split(/\s+/)[0] || "text";
+  return (
+    '<div class="code-block"><div class="code-head"><span class="code-lang">' +
+    answerMarkdown.utils.escapeHtml(language) +
+    '</span><button type="button" class="copy-code" data-testid="copy-code" aria-label="Copy code">Copy</button></div>' +
+    answerFence(tokens, index, options, env, self) +
+    "</div>"
+  );
 };
+// A wide table scrolls inside its own region; its words are never split (OP-R2-9).
+answerMarkdown.renderer.rules.table_open = () =>
+  '<div class="table-scroll" role="region" aria-label="Table" tabindex="0"><table>';
+answerMarkdown.renderer.rules.table_close = () => "</table></div>";
 function renderAnswer(body, value) {
   const source =
     typeof value === "string"
@@ -3075,12 +3238,8 @@ function renderAnswer(body, value) {
     if (candidate && typeof candidate === "object") parsed = candidate;
   } catch {}
   if (parsed !== undefined) {
-    const pre = document.createElement("pre"),
-      code = document.createElement("code");
-    code.className = "language-json";
-    code.textContent = JSON.stringify(parsed, null, 2);
-    pre.append(code);
-    body.replaceChildren(pre);
+    // Four backticks: a pretty-printed JSON line can never close the fence.
+    body.innerHTML = answerMarkdown.render("````json\n" + JSON.stringify(parsed, null, 2) + "\n````");
     syncResponseMotion(body);
     return source;
   }
@@ -3111,6 +3270,51 @@ function setAnswer(answer, value, notice = "", code = "") {
   if (code) note.title = "Error code: " + code;
   answer.body.append(note);
 }
+// One action under an answer: a quiet button with an icon and a label (Copy, Ask again).
+function answerAction(testid, label, icon) {
+  const button = document.createElement("button"),
+    text = document.createElement("span");
+  button.type = "button";
+  button.className = "btn " + testid;
+  button.dataset.testid = testid;
+  button.setAttribute("aria-label", label);
+  text.className = "action-label";
+  text.textContent = label;
+  button.append(HarnessUI.icon(icon), text);
+  return button;
+}
+const COPIED_LABEL_MS = 1600;
+// navigator.clipboard exists only on secure origins; a tailnet http page falls back to execCommand.
+async function writeClipboard(text) {
+  if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(text);
+  const area = document.createElement("textarea");
+  area.value = text;
+  area.readOnly = true;
+  area.className = "visually-hidden";
+  document.body.append(area);
+  area.select();
+  const copied = document.execCommand("copy");
+  area.remove();
+  if (!copied) throw new Error("copy failed");
+}
+async function copyText(text, label) {
+  if (!text) return;
+  try {
+    await writeClipboard(text);
+  } catch {
+    status("Couldn't copy to the clipboard");
+    return;
+  }
+  const before = label.textContent;
+  label.textContent = "Copied";
+  status("Copied");
+  clearTimeout(label.copiedTimer);
+  label.copiedTimer = setTimeout(() => (label.textContent = before), COPIED_LABEL_MS);
+}
+$("messages").addEventListener("click", (event) => {
+  const button = event.target.closest?.(".copy-code");
+  if (button) copyText(button.closest(".code-block")?.querySelector("code")?.textContent, button);
+});
 function messageAttachments(message, attachments = []) {
   const gallery = document.createElement("div");
   gallery.className = "message-images";
@@ -3370,9 +3574,7 @@ function assistant(id = "", model = $("model").value, replayTools = false) {
   badge.textContent = modelIcon(model);
   title.append(
     badge,
-    document.createTextNode(
-      names[model] || models.find((m) => m.id === model)?.name || "Response",
-    ),
+    document.createTextNode(model ? modelName(model) : "Response"),
   );
   a.el.prepend(title);
   const chip = document.createElement("p");
@@ -3403,8 +3605,26 @@ function assistant(id = "", model = $("model").value, replayTools = false) {
   const meta = document.createElement("div");
   meta.className = "run-meta";
   a.el.append(meta);
+  const copy = answerAction("copy-answer", "Copy", "copy");
+  copy.onclick = () => copyText(a.body.rawAnswer || a.body.textContent, copy.querySelector(".action-label"));
+  a.el.append(copy, askAgainButton(a.el));
   window.runConsole?.attachAnswer(a.el, id);
   return { ...a, activity, activitySummary, milestones, meta, chip };
+}
+// D37: "Ask again" sends the question this answer replied to as a new turn, on the model now selected.
+function askAgainButton(answer) {
+  const button = answerAction("ask-again", "Ask again", "refresh");
+  button.onclick = () => {
+    let asked = answer.previousElementSibling;
+    while (asked && !asked.matches("article.message.user")) asked = asked.previousElementSibling;
+    const question = asked?.textContent;
+    if (!question || busy || submitting) return;
+    if ($("prompt").value.trim()) return status("Send or clear the draft first, then ask again.");
+    $("prompt").value = question.trim();
+    updateComposer();
+    send();
+  };
+  return button;
 }
 async function loadResponseTools(id, target) {
   target.replaceChildren();
@@ -3517,7 +3737,7 @@ function renderPlanOutcome(card, runState = card.dataset.runState) {
   const approve = card.querySelector(".maestro-plan-actions .btn-primary");
   if (approve) approve.disabled = !!decision?.pending || state !== "pending";
   if (decision?.pending && state === "pending") note = decision.message;
-  card.querySelector(".state-pill").replaceChildren(TailUI.icon(choice === "approve" ? "check" : "shield"), document.createTextNode(label));
+  card.querySelector(".state-pill").replaceChildren(HarnessUI.icon(choice === "approve" ? "check" : "shield"), document.createTextNode(label));
   card.querySelector('[role="status"]').textContent = note;
 }
 const workflowResumeKeys = new Map();
@@ -3612,7 +3832,7 @@ function showMaestroPlan(data = {}) {
     const approve = document.createElement("button");
     approve.type = "button";
     approve.className = "btn btn-primary";
-    approve.append(TailUI.icon("check"), document.createTextNode("Approve plan & run"));
+    approve.append(HarnessUI.icon("check"), document.createTextNode("Approve plan & run"));
     approve.onclick = async () => {
       if (window.runConsole.planDecision(data.gate_id)?.pending) return;
       card.dataset.restoreFocus = String(card.contains(document.activeElement));
@@ -3638,7 +3858,7 @@ function showMaestroPlan(data = {}) {
   edit.type = "button";
   edit.className = "btn";
   edit.textContent = data.gate_id ? "Edit plan in Run console" : "View plan in Run console";
-  edit.prepend(TailUI.icon(data.gate_id ? "pencil" : "trace"));
+  edit.prepend(HarnessUI.icon(data.gate_id ? "pencil" : "trace"));
   edit.onclick = () => window.runConsole?.openPlanEditor();
   actions.append(edit);
   card.append(heading, steps, actions);
@@ -3697,6 +3917,7 @@ function event(e) {
   recordActivity(e);
   updateMotion(e.type);
   if (active) active.chip.textContent = $("activity-state").textContent;
+  if (active) showHeldTurn(active, e.type === "queue_wait" && e.data?.reason === "held_after_stop");
   if (e.type === "usage_metrics") {
     paintLocalUsage(e.data);
     return;
@@ -3767,7 +3988,20 @@ function executionCondition(code, backend, detail) {
       "provider",
     panel = providerNames[backend] || name,
     reason = providerMessage(detail);
-  const copy = {
+  // DeepSeek runs on a pasted API key and a prepaid balance: no sign-in, nothing renews.
+  const deepseek = backend === "deepseek" && {
+    authentication: {
+      title: "Replace the DeepSeek API key",
+      message:
+        "DeepSeek rejected the API key. In the admin panel, paste a valid DeepSeek API key and send your message again.",
+    },
+    quota: {
+      title: "Top up your DeepSeek balance",
+      message:
+        "Your DeepSeek balance is used up. Top it up in your DeepSeek account, or select a different provider to continue this conversation.",
+    },
+  }[kind];
+  const copy = deepseek || {
     unavailable: {title: name + " unavailable", message: "Open the admin panel to check " + name + ", or select another provider."},
     authentication: {
       title: "Renew " + name + " access",
@@ -3849,8 +4083,7 @@ async function result(
     : (activityIcons[r.state] || "•") + " " + (labels[r.state] || r.state);
   if (active) {
     active.chip.textContent = $("activity-state").textContent;
-    const data = r.result || {},
-      seconds = Number(data.total_seconds);
+    const data = r.result || {};
     if (data.context_usage) paintContext(data.context_usage, data.metrics);
     else if (data.metrics) paintLocalUsage(data.metrics);
     else if (["cancelled", "failed", "interrupted"].includes(r.state))
@@ -3894,15 +4127,10 @@ async function result(
       model = modelId
         ? modelIcon(modelId) +
           " " +
-          (names[modelId] ||
-            models.find((m) => m.id === modelId)?.name ||
-            modelId)
+          modelName(modelId)
         : "",
-      duration =
-        Number.isFinite(seconds) && seconds > 0
-          ? seconds.toFixed(1) + " s"
-          : "";
-    active.meta.textContent = [model, duration].filter(Boolean).join(" · ");
+      { worked: duration, waited } = runTiming(data);
+    active.meta.textContent = [model, duration, waited && "waited " + waited].filter(Boolean).join(" · ");
     if (data.deployment)
       active.meta.textContent +=
         (active.meta.textContent ? " · " : "") +
@@ -3948,6 +4176,38 @@ async function result(
   }
   saveView();
   return r;
+}
+// D16: a follow-up queued behind a stopped run waits for the user's choice.
+function showHeldTurn(response, held) {
+  response.heldActions?.remove();
+  response.heldActions = null;
+  if (!held) return;
+  const actions = document.createElement("p"),
+    run = document.createElement("button"),
+    discard = document.createElement("button"),
+    turn = job;
+  actions.className = "held-turn-actions";
+  run.type = discard.type = "button";
+  run.className = "btn btn-primary";
+  discard.className = "btn";
+  run.textContent = "Run queued message";
+  discard.textContent = "Discard";
+  const choose = async (path, done) => {
+    run.disabled = discard.disabled = true;
+    try {
+      await post("/v1/jobs/" + encodeURIComponent(turn) + path, {});
+      showHeldTurn(response, false);
+      status(done);
+    } catch (e) {
+      run.disabled = discard.disabled = false;
+      status("Couldn't update the queued message: " + e.message);
+    }
+  };
+  run.onclick = () => choose("/run-queued", "Queued message released.");
+  discard.onclick = () => choose("/cancel", "Queued message discarded.");
+  actions.append(run, discard);
+  response.heldActions = actions;
+  response.el.insertBefore(actions, response.body);
 }
 async function watchQueuedTurn() {
   const next = queuedTurns.shift();
@@ -4151,12 +4411,8 @@ async function load(id, legacy = false, restoredView = null) {
           : (activityIcons[r.state] || "•") +
             " " +
             (labels[r.state] || r.state);
-        const seconds = Number(r.result?.total_seconds),
-          duration =
-            Number.isFinite(seconds) && seconds > 0
-              ? seconds.toFixed(1) + " s"
-              : "";
-        active.meta.textContent = [r.result?.model || model || "", duration]
+        const { worked: duration, waited } = runTiming(r.result);
+        active.meta.textContent = [r.result?.model || model || "", duration, waited && "waited " + waited]
           .filter(Boolean)
           .join(" · ");
         setActivitySummary(
@@ -4390,7 +4646,7 @@ async function send() {
     return;
   }
   if (/^\s*\/\/[A-Za-z_][\w:-]*(?=\s|$)/.test(unfenced)) {
-    status("Tail Harness skills and commands are not available yet.");
+    status("KeepHarness skills and commands are not available yet.");
     return;
   }
   syncResourceSelections();
@@ -4757,7 +5013,7 @@ function renderProjectFileEntries(list, entries, tree = fileTree) {
       const paths = Array.from(tree.selected);
       e.dataTransfer.effectAllowed = "copy";
       e.dataTransfer.setData(
-        "application/x-tail-authorized-project-files",
+        "application/x-keepharness-authorized-project-files",
         JSON.stringify({ root_id: tree.rootId, paths }),
       );
     };
@@ -4815,7 +5071,7 @@ function selectProjectFileEntry(item, entry, event = {}) {
   renderProjectFileSelection();
 }
 function projectFileIcon(filename = "", folder = false, open = false) {
-  const theme = window.TailFileIcons,
+  const theme = window.HarnessFileIcons,
     name = filename.replaceAll("\\", "/").split("/").pop().toLowerCase();
   if (!theme) {
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -5102,6 +5358,11 @@ async function attachSelectedProjectFiles(
     renderProjectFileTree();
   }
 }
+function fileSizeLabel(bytes) {
+  if (bytes < 1024) return bytes + " B";
+  if (bytes < 1024 * 1024) return Math.round(bytes / 1024) + " KB";
+  return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+}
 function renderFiles() {
   $("attachments").replaceChildren(
     ...files.map((f, i) => {
@@ -5121,9 +5382,15 @@ function renderFiles() {
       name.textContent = f.name;
       name.className = "attachment-name";
       el.append(name);
+      if (f.size > 0) {
+        const size = document.createElement("small");
+        size.className = "attachment-size";
+        size.textContent = fileSizeLabel(f.size);
+        el.append(size);
+      }
       const b = document.createElement("button");
       b.type = "button";
-      b.append(TailUI.icon("x"));
+      b.append(HarnessUI.icon("x"));
       b.title = "Remove from the next message";
       b.setAttribute("aria-label", "Remove attachment " + f.name);
       b.disabled = busy || uploads > 0;
@@ -5150,6 +5417,7 @@ function renderFiles() {
   count.hidden = files.length === 0;
   count.textContent =
     files.length + " / " + MAX_ATTACHMENTS + " files attached";
+  count.title = "Up to " + MAX_ATTACHMENTS + " files per message, 100 MiB each";
   renderProjectFileSelection();
 }
 $("send").onclick = send;
@@ -5236,7 +5504,7 @@ $("file").onchange = () => {
 $("dropzone").ondragover = (e) => {
   if (
     e.dataTransfer.types.includes(
-      "application/x-tail-authorized-project-files",
+      "application/x-keepharness-authorized-project-files",
     ) ||
     e.dataTransfer.files.length
   ) {
@@ -5249,7 +5517,7 @@ $("dropzone").ondrop = (e) => {
   e.preventDefault();
   $("dropzone").classList.remove("drag");
   const payload = e.dataTransfer.getData(
-    "application/x-tail-authorized-project-files",
+    "application/x-keepharness-authorized-project-files",
   );
   if (payload) {
     try {
@@ -5347,7 +5615,7 @@ $("about-dialog").addEventListener("close", () => {
 });
 $("theme-toggle").onclick = () => {
   const dark = document.documentElement.dataset.theme === "dark";
-  window.TailTheme?.apply(dark ? "paper" : "graphite");
+  window.HarnessTheme?.apply(dark ? "paper" : "graphite");
   $("theme-toggle-label").textContent = dark ? "Light" : "Dark";
 };
 // Codex-style "Choose project" under the composer: reuses the project select and its onchange.
@@ -5360,14 +5628,12 @@ $("files-chip").onclick = () => {
     document.querySelector('[data-workspace-section="files"] > summary');
   target?.focus({ preventScroll: true });
 };
+// OP-R1-14: the chip opens the agent list at the caret; the draft is not touched until one is chosen.
 $("agents-chip").onclick = () => {
   const input = $("prompt"),
-    at = input.selectionStart ?? input.value.length,
-    before = input.value.slice(0, at),
-    marker = before && !/\s$/.test(before) ? " @" : "@";
+    at = input.selectionEnd ?? input.value.length;
   input.focus();
-  input.setRangeText(marker, at, input.selectionEnd ?? at, "end");
-  input.dispatchEvent(new Event("input", { bubbles: true }));
+  void refreshResources({ prefix: "@", query: "", start: at, end: at });
 };
 $("files-attach-selected").onclick = () => void attachSelectedProjectFiles();
 // Start a chat from a set of files: a new conversation in this project with them attached.
@@ -5400,7 +5666,7 @@ $("project-button").onclick = () => {
       item.setAttribute("role", "option");
       item.setAttribute("aria-selected", String(option.value === $("project").value));
       item.append(
-        TailUI.icon("folder"),
+        HarnessUI.icon("folder"),
         document.createTextNode(option.value === "sem-projeto" ? "No project" : option.textContent),
       );
       item.onclick = () => {
@@ -5431,12 +5697,18 @@ function usageAge(seconds) {
       ? Math.round(age / 3600) + " h ago"
       : Math.round(age / 86400) + " d ago";
 }
+let pluginsView = null;
 function integrationRow(item, sharedReason = "") {
   const row = document.createElement("li"),
+    open = document.createElement("button"),
     text = document.createElement("div"),
     name = document.createElement("strong"),
     meta = document.createElement("small");
-  row.className = "integration-row" + (item.effective ? "" : " unavailable");
+  open.type = "button";
+  open.className = "integration-row" + (item.effective ? "" : " unavailable");
+  open.dataset.integrationId = item.id;
+  open.title = "Show details";
+  open.onclick = () => showIntegrationDetail(item);
   name.textContent = item.name;
   meta.textContent = [
     item.kind === "mcp" ? "Connector" + (item.transport ? " · " + item.transport : "") : "Plugin",
@@ -5450,8 +5722,68 @@ function integrationRow(item, sharedReason = "") {
     .filter(Boolean)
     .join(" · ");
   text.append(name, meta);
-  row.append(TailUI.icon(item.kind === "mcp" ? "plug" : "stack-2"), text);
+  open.append(HarnessUI.icon(item.kind === "mcp" ? "plug" : "stack-2"), text);
+  row.append(open);
   return row;
+}
+// Detail of one connector or plugin (Codex plugin page): what it is, whether
+// this conversation may use it and why, and how it was used in this project.
+function showIntegrationDetail(item) {
+  const body = $("plugins-menu").querySelector(".plugins-body"),
+    data = pluginsView?.data || {},
+    back = document.createElement("button"),
+    head = document.createElement("div"),
+    title = document.createElement("h3"),
+    kind = document.createElement("small"),
+    facts = document.createElement("dl");
+  back.type = "button";
+  back.className = "plugins-back";
+  back.append(HarnessUI.icon("chevron-left"), document.createTextNode("Connectors and plugins"));
+  back.onclick = () => {
+    body.replaceChildren(...(pluginsView?.parts || []));
+    body.querySelector('[data-integration-id="' + CSS.escape(item.id) + '"]')?.focus();
+  };
+  head.className = "plugins-detail-head";
+  title.textContent = item.name;
+  kind.textContent =
+    item.kind === "mcp"
+      ? "Connector (MCP server)" + (item.transport ? " · " + item.transport : "")
+      : "Plugin";
+  head.append(HarnessUI.icon(item.kind === "mcp" ? "plug" : "stack-2"), title, kind);
+  const fact = (term, value) => {
+    if (!value) return;
+    const dt = document.createElement("dt"),
+      dd = document.createElement("dd");
+    dt.textContent = term;
+    dd.textContent = value;
+    facts.append(dt, dd);
+  };
+  fact("In this conversation", item.effective ? "Available" : item.reason || "Not available");
+  fact("Allowed for this provider", item.allowed ? "Yes" : "No");
+  fact("Installed", item.status === "installed" || item.status === "configured" ? "Yes · " + item.status : item.status);
+  fact(
+    "Used in this project",
+    item.used?.count
+      ? item.used.count + "× · last " + usageAge(item.used.last_used)
+      : "Not in the last " + (data.window_days || 30) + " days",
+  );
+  fact("Tools used", (item.used?.tools || []).join(", "));
+  fact("Approvals", item.effective ? data.effective_note || "Follows the conversation's access mode." : "");
+  facts.className = "plugins-facts";
+  const parts = [back, head, facts];
+  if (!$("settings-system-nav").hidden) {
+    const manage = document.createElement("button");
+    manage.type = "button";
+    manage.className = "plugins-manage";
+    manage.append(HarnessUI.icon("settings"), document.createTextNode("Manage connectors and plugins"));
+    manage.onclick = () => {
+      $("plugins-menu").hidePopover();
+      openAdminSettings("providers");
+    };
+    parts.push(manage);
+  }
+  body.replaceChildren(...parts);
+  back.focus();
 }
 async function renderPluginsMenu() {
   const menu = $("plugins-menu"),
@@ -5532,7 +5864,7 @@ async function renderPluginsMenu() {
       const manage = document.createElement("button");
       manage.type = "button";
       manage.className = "plugins-manage";
-      manage.append(TailUI.icon("settings"), document.createTextNode("Manage connectors and plugins"));
+      manage.append(HarnessUI.icon("settings"), document.createTextNode("Manage connectors and plugins"));
       manage.onclick = () => {
         menu.hidePopover();
         openAdminSettings("providers");
@@ -5540,6 +5872,7 @@ async function renderPluginsMenu() {
       parts.push(manage);
     }
     body.replaceChildren(...parts);
+    pluginsView = { data, parts };
   } catch (error) {
     body.textContent = "Couldn't check connectors and plugins. " + error.message;
   }
@@ -5618,6 +5951,8 @@ $("attention-bell").onclick = () => {
   popover.hidden = !popover.hidden;
   positionAttentionPopover();
   $("attention-bell").setAttribute("aria-expanded", String(!popover.hidden));
+  // UX-R4-3: a dialog-role popover opened from the keyboard puts focus on its first control.
+  if (!popover.hidden) popover.querySelector("button")?.focus();
 };
 const updateAttentionLabel = () => {
   const count = Number($("attention-count").textContent) || 0;
@@ -5625,6 +5960,9 @@ const updateAttentionLabel = () => {
     "aria-label",
     `Attention, ${count} ${count === 1 ? "item" : "items"}`,
   );
+  $("attention-summary").textContent =
+    (count ? `${count} ${count === 1 ? "item needs" : "items need"} you now.` : "Nothing needs you right now.") +
+    " Choose which events to open in the inbox.";
 };
 new MutationObserver(updateAttentionLabel).observe($("attention-count"), {
   childList: true,
@@ -5699,7 +6037,7 @@ function setReadiness(ready, message = "") {
     const active = document.activeElement;
     readinessFocus = active.closest("#settings-dialog") ? $("settings") : active;
   }
-  if (!ready) window.tailHarnessTour?.stop(false);
+  if (!ready) window.keepHarnessTour?.stop(false);
   interfaceReady = ready;
   for (const node of [
     $("app-topbar"),
@@ -5720,13 +6058,14 @@ function setReadiness(ready, message = "") {
     if (readinessFocus?.isConnected && readinessFocus.checkVisibility() && !readinessFocus.closest("[inert]"))
       readinessFocus.focus({ preventScroll: true });
     readinessFocus = null;
-    document.dispatchEvent(new Event("tail:ready"));
+    document.dispatchEvent(new Event("harness:ready"));
   }
   if (!ready) {
     for (const menu of document.querySelectorAll(".composer-menu:popover-open"))
       menu.hidePopover();
+    // Editors stay open with what was typed; their own saves report a failed request.
     for (const dialog of document.querySelectorAll(
-      "dialog[open]:not(#vpn-login)",
+      "dialog[open]:not(#vpn-login, #space-dialog, #scheduled-dialog, #agent-dialog)",
     ))
       dialog.close();
   } else if ($("vpn-login").open) $("vpn-login").close();
@@ -5775,7 +6114,7 @@ function modelAvailability(
     !models.length || submitting || loading || uploads > 0 || policyPending;
   $("effort").disabled = $("model").disabled;
   $("prompt").placeholder = models.length
-    ? "Send a message… · / agents, skills and commands · Enter to send · Shift+Enter for a new line"
+    ? "Send a message, or / for agents and skills"
     : "Set up a model to send; your draft will be preserved.";
   $("model-note").hidden = !models.length;
   updateModelPermissions();
@@ -5787,6 +6126,9 @@ function modelAvailability(
   if ($("welcome")) $("welcome").hidden = !models.length;
   updateComposer();
 }
+// QA-R2-3: an idle tab keeps under ~30 requests a minute (the server budget is shared by every tab of a person).
+const VERSION_CHECK_EVERY = 3;
+let backgroundTicks = 0;
 async function initialize() {
   if (initializing) return;
   initializing = true;
@@ -5833,7 +6175,7 @@ async function initialize() {
     policyProject = null;
     policyPending = false;
     $("model").replaceChildren(
-      ...models.map((m) => new Option(names[m.id] || m.name || m.id, m.id)),
+      ...models.map((m) => new Option(modelLabel(m), m.id)),
     );
     if (models.some((m) => m.id === previous)) $("model").value = previous;
     updateEfforts();
@@ -5857,8 +6199,10 @@ async function initialize() {
       } catch {}
       startupTimer = setInterval(() => {
         if (!document.hidden && interfaceReady && !initializing) {
-          checkVersion();
-          history();
+          // QA-R2-3: the build only changes on a release, so it is checked every third tick.
+          if (++backgroundTicks % VERSION_CHECK_EVERY === 0) checkVersion();
+          // Rebuilding the sidebar would close an open row or project actions menu.
+          if (!document.querySelector(".conversation-actions[open], .project-actions-menu:popover-open")) history(undefined, true);
         }
       }, 10000);
     }
@@ -6613,7 +6957,7 @@ function beginActivity(id, model = $("model").value) {
   $("activity-run-title").textContent =
     modelIcon(model) +
     " " +
-    (names[model] || model || "Model") +
+    (model ? modelName(model) : "Model") +
     " · Run " +
     id;
 }
@@ -6891,14 +7235,14 @@ function catalogCard(item) {
   return card;
 }
 async function refreshCatalog() {
-  void loadTailAgents();
+  void loadHarnessAgents();
   const request = ++catalogRequest,
     project = $("project").value;
   $("catalog-status").textContent = "Checking catalog for " + project + "…";
   $("catalog-models").replaceChildren(
     ...models.map((m) =>
       catalogCard({
-        name: modelIcon(m.id) + " " + (names[m.id] || m.name || m.id),
+        name: modelIcon(m.id) + " " + modelLabel(m),
         description:
           (m.backend === "local"
             ? "Local model. "
@@ -6964,9 +7308,9 @@ $("settings").onclick = () => {
   refreshCatalog();
 };
 $("settings-close").onclick = () => $("settings-dialog").close();
-// Tail-owned agents: own instructions, purpose, tasks, target output and the
+// Harness-owned agents: own instructions, purpose, tasks, target output and the
 // provider, model and effort they run on; called with @@name in any chat.
-let tailAgents = [],
+let harnessAgents = [],
   editingAgent = null;
 const agentFieldInputs = {
   name: "agent-name",
@@ -7001,26 +7345,475 @@ function applyAgentRoute(item) {
   rememberSelection();
   updateComposer();
 }
-function fillAgentRoute(backend, model, effort) {
-  const backends = [
-    ...new Set(models.filter((m) => m.backend && m.backend !== "maestro").map((m) => m.backend)),
-  ];
-  $("agent-backend").replaceChildren(
-    ...backends.map((b) => new Option(providerNames[b] || b, b)),
-  );
-  $("agent-backend").value = backends.includes(backend) ? backend : backends[0] || "";
-  const choices = models.filter((m) => m.backend === $("agent-backend").value);
-  $("agent-model").replaceChildren(...choices.map((m) => new Option(modelName(m.id), m.id)));
-  $("agent-model").value = choices.some((m) => m.id === model) ? model : choices[0]?.id || "";
-  const efforts = choices.find((m) => m.id === $("agent-model").value)?.efforts || [];
-  $("agent-effort").replaceChildren(
+// Provider, model and effort pickers shared by agents and scheduled tasks.
+function fillRoute(prefix, backend, model, effort) {
+  const backendSelect = $(prefix + "-backend"),
+    modelSelect = $(prefix + "-model"),
+    effortSelect = $(prefix + "-effort"),
+    backends = [
+      ...new Set(models.filter((m) => m.backend && m.backend !== "maestro").map((m) => m.backend)),
+    ];
+  backendSelect.replaceChildren(...backends.map((b) => new Option(providerNames[b] || b, b)));
+  backendSelect.value = backends.includes(backend) ? backend : backends[0] || "";
+  const choices = models.filter((m) => m.backend === backendSelect.value);
+  modelSelect.replaceChildren(...choices.map((m) => new Option(modelName(m.id), m.id)));
+  modelSelect.value = choices.some((m) => m.id === model) ? model : choices[0]?.id || "";
+  const efforts = choices.find((m) => m.id === modelSelect.value)?.efforts || [];
+  effortSelect.replaceChildren(
     ...efforts.map((e) => new Option(e === "configured" ? "Provider's default" : e[0].toUpperCase() + e.slice(1), e)),
   );
-  $("agent-effort").value = efforts.includes(effort) ? effort : efforts[0] || "";
+  effortSelect.value = efforts.includes(effort) ? effort : efforts[0] || "";
 }
-$("agent-backend").onchange = () => fillAgentRoute($("agent-backend").value, "", "");
-$("agent-model").onchange = () =>
-  fillAgentRoute($("agent-backend").value, $("agent-model").value, $("agent-effort").value);
+const fillAgentRoute = (backend, model, effort) => fillRoute("agent", backend, model, effort);
+for (const prefix of ["agent", "schedule"]) {
+  $(prefix + "-backend").onchange = () => fillRoute(prefix, $(prefix + "-backend").value, "", "");
+  $(prefix + "-model").onchange = () =>
+    fillRoute(prefix, $(prefix + "-backend").value, $(prefix + "-model").value, $(prefix + "-effort").value);
+}
+// Seconds since a timestamp given as UNIX seconds or an ISO string.
+function stampSeconds(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : Date.parse(value) / 1000 || 0;
+}
+function projectChoices(select, value) {
+  select.replaceChildren(
+    ...[...$("project").options].map(
+      (o) => new Option(o.value === "sem-projeto" ? "No project" : o.textContent, o.value),
+    ),
+  );
+  select.value = [...select.options].some((o) => o.value === value) ? value : "sem-projeto";
+}
+async function confirmTwice(button, label, action) {
+  if (!button.dataset.confirm) {
+    button.dataset.confirm = "1";
+    button.textContent = "Confirm delete";
+    return;
+  }
+  delete button.dataset.confirm;
+  button.textContent = label;
+  await action();
+}
+
+// Space › Pages (Codex Space): Markdown pages kept per project, usable in any chat.
+let currentPage = null,
+  pageProject = "",
+  pageDirty = false,
+  pageEdits = 0,
+  pageSession = 0,
+  pageSaving = Promise.resolve(true);
+async function openSpace() {
+  if (!$("space-dialog").open) $("space-dialog").showModal();
+  // A page that could not be saved on its way out is still here; keep showing it.
+  if (pageDirty) return;
+  projectChoices($("space-project"), $("project").value);
+  showPageEditor(undefined);
+  await loadPages();
+}
+async function loadPages(selectedId = currentPage?.id) {
+  try {
+    const data = await json("/v1/pages?" + new URLSearchParams({ project_id: $("space-project").value }));
+    const pages = Array.isArray(data.pages) ? data.pages : [];
+    $("pages-list").replaceChildren(
+      ...pages.map((page) => {
+        const row = document.createElement("li"),
+          open = document.createElement("button"),
+          title = document.createElement("strong"),
+          meta = document.createElement("small");
+        open.type = "button";
+        open.className = "page-view-row";
+        open.dataset.pageId = page.id;
+        if (page.id === selectedId) open.setAttribute("aria-current", "true");
+        title.textContent = page.title;
+        meta.textContent = "Edited " + usageAge(stampSeconds(page.updated_at));
+        open.append(title, meta);
+        open.onclick = () => void openPage(page.id);
+        row.append(open);
+        return row;
+      }),
+    );
+    $("pages-empty").textContent = "No pages in this project yet.";
+    $("pages-empty").hidden = pages.length > 0;
+  } catch (error) {
+    $("pages-list").replaceChildren();
+    $("pages-empty").textContent = "Couldn't load pages. " + error.message;
+    $("pages-empty").hidden = false;
+  }
+}
+function showPageEditor(page) {
+  currentPage = page || null;
+  pageProject = $("space-project").value;
+  pageDirty = false;
+  pageSession++;
+  const editing = page !== undefined;
+  $("page-empty-state").hidden = editing;
+  $("page-editor").hidden = !editing;
+  if (!editing) return;
+  $("page-title").value = page?.title || "";
+  $("page-body").value = page?.body || "";
+  $("page-delete").hidden = !page?.id;
+  $("page-delete").textContent = "Delete";
+  delete $("page-delete").dataset.confirm;
+  setPagePreview(false);
+  $("page-status").textContent = page?.id
+    ? "Saved " + usageAge(stampSeconds(page.updated_at))
+    : "New page";
+}
+function setPagePreview(on) {
+  $("page-preview-toggle").setAttribute("aria-pressed", String(on));
+  $("page-preview").hidden = !on;
+  $("page-body").hidden = on;
+  if (on) renderAnswer($("page-preview"), $("page-body").value || "*Empty page*");
+}
+async function openPage(id) {
+  if (!(await leavePage())) return;
+  try {
+    const page = await json(
+      "/v1/pages/" + encodeURIComponent(id) + "?" + new URLSearchParams({ project_id: $("space-project").value }),
+    );
+    showPageEditor(page);
+    await loadPages(page.id);
+  } catch (error) {
+    status(error.message);
+  }
+}
+function savePage() {
+  // One save at a time, so the next one sends the revision the previous one returned.
+  pageSaving = pageSaving.then(writePage);
+  return pageSaving;
+}
+async function writePage() {
+  const page = currentPage,
+    session = pageSession,
+    edits = pageEdits,
+    body = {
+      project_id: pageProject,
+      title: $("page-title").value.trim() || "Untitled",
+      body: $("page-body").value,
+    };
+  $("page-save").disabled = true;
+  try {
+    const saved = page?.id
+      ? await json("/v1/pages/" + encodeURIComponent(page.id), {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...body, revision: page.revision }),
+        })
+      : await post("/v1/pages", body);
+    if (session === pageSession) {
+      currentPage = { ...saved, body: saved.body ?? body.body };
+      $("page-delete").hidden = false;
+      // Text typed while this save was in flight stays unsaved for the next save.
+      if (edits === pageEdits) {
+        pageDirty = false;
+        $("page-title").value = currentPage.title;
+        $("page-status").textContent = "Saved";
+      }
+    }
+    await loadPages();
+    return true;
+  } catch (error) {
+    if (session === pageSession) $("page-status").textContent = error.message;
+    return false;
+  } finally {
+    $("page-save").disabled = false;
+  }
+}
+async function leavePage() {
+  // False keeps the page, its project and the save error in view.
+  while (pageDirty) if (!(await savePage())) return false;
+  return true;
+}
+async function closeSpace() {
+  if (await leavePage()) $("space-dialog").close();
+}
+function pageFile() {
+  const title = $("page-title").value.trim() || "Untitled",
+    name = title.replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "page";
+  return new File([$("page-body").value], name + ".md", { type: "text/markdown" });
+}
+async function usePage(startChat) {
+  if (!(await leavePage())) return;
+  const project = $("space-project").value,
+    file = pageFile(),
+    title = $("page-title").value.trim() || "Untitled";
+  $("space-dialog").close();
+  if (startChat) newConversation(title, project);
+  else if ($("project").value !== project && !conversation) {
+    $("project").value = project;
+    $("project").onchange?.();
+  }
+  await upload([file]);
+  $("prompt").focus({ preventScroll: true });
+}
+$("page-editor").onsubmit = (event) => {
+  event.preventDefault();
+  void savePage();
+};
+$("page-editor").addEventListener("input", () => {
+  pageDirty = true;
+  pageEdits++;
+  $("page-status").textContent = "Unsaved changes";
+});
+$("page-editor").addEventListener("keydown", (event) => {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+    event.preventDefault();
+    void savePage();
+  }
+});
+$("page-preview-toggle").onclick = () =>
+  setPagePreview($("page-preview-toggle").getAttribute("aria-pressed") !== "true");
+$("page-new").onclick = async () => {
+  if (!(await leavePage())) return;
+  showPageEditor(null);
+  await loadPages(null);
+  $("page-title").focus();
+};
+$("page-attach").onclick = () => void usePage(false);
+$("page-chat").onclick = () => void usePage(true);
+$("page-delete").onclick = () =>
+  void confirmTwice($("page-delete"), "Delete", async () => {
+    try {
+      await json("/v1/pages/" + encodeURIComponent(currentPage.id), {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ project_id: $("space-project").value, revision: currentPage.revision }),
+      });
+      showPageEditor(undefined);
+      await loadPages(null);
+    } catch (error) {
+      $("page-status").textContent = error.message;
+    }
+  });
+$("space-project").onchange = async () => {
+  if (!(await leavePage())) {
+    $("space-project").value = pageProject;
+    return;
+  }
+  showPageEditor(undefined);
+  void loadPages(null);
+};
+$("space-close").onclick = () => void closeSpace();
+$("space-dialog").addEventListener("cancel", (event) => {
+  if (!pageDirty) return;
+  event.preventDefault();
+  void closeSpace();
+});
+
+// Scheduled tasks (Codex Scheduled): a prompt that runs unattended on its own
+// route as a new conversation each time; only Ask and Read only access.
+let currentSchedule = null;
+const weekdays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+function cadenceLabel(cadence = {}) {
+  if (cadence.kind === "interval") return "Every " + cadence.hours + " h";
+  if (cadence.kind === "weekly") return weekdays[cadence.weekday] + "s at " + cadence.time;
+  return "Daily at " + cadence.time;
+}
+function untilLabel(seconds) {
+  const wait = Number(seconds) - Date.now() / 1000;
+  if (!Number.isFinite(wait)) return "";
+  if (wait <= 60) return "due now";
+  return "next in " + (wait < 3600 ? Math.round(wait / 60) + " min" : wait < 86400 ? Math.round(wait / 3600) + " h" : Math.round(wait / 86400) + " d");
+}
+async function openScheduled() {
+  if (!$("scheduled-dialog").open) $("scheduled-dialog").showModal();
+  showScheduleEditor(undefined);
+  await loadSchedules();
+}
+async function loadSchedules(selectedId = currentSchedule?.id) {
+  try {
+    const data = await json("/v1/schedules");
+    const schedules = Array.isArray(data.schedules) ? data.schedules : [];
+    $("schedules-list").replaceChildren(
+      ...schedules.map((task) => {
+        const row = document.createElement("li"),
+          open = document.createElement("button"),
+          title = document.createElement("strong"),
+          meta = document.createElement("small");
+        open.type = "button";
+        open.className = "page-view-row" + (task.enabled ? "" : " paused");
+        open.dataset.scheduleId = task.id;
+        if (task.id === selectedId) open.setAttribute("aria-current", "true");
+        title.textContent = task.title;
+        meta.textContent = [
+          task.enabled ? "Active" : "Paused",
+          cadenceLabel(task.cadence),
+          task.enabled ? untilLabel(task.next_run) : task.paused_reason || "",
+          task.last_run?.needs_you && "Last run needs you",
+        ]
+          .filter(Boolean)
+          .join(" · ");
+        open.append(title, meta);
+        open.onclick = () => showScheduleEditor(task);
+        row.append(open);
+        return row;
+      }),
+    );
+    $("schedules-empty").textContent = "No scheduled tasks yet.";
+    $("schedules-empty").hidden = schedules.length > 0;
+    return schedules;
+  } catch (error) {
+    $("schedules-list").replaceChildren();
+    $("schedules-empty").textContent = "Couldn't load scheduled tasks. " + error.message;
+    $("schedules-empty").hidden = false;
+    return [];
+  }
+}
+function syncCadenceFields() {
+  const kind = $("schedule-kind").value;
+  $("schedule-weekday-field").hidden = kind !== "weekly";
+  $("schedule-time-field").hidden = kind === "interval";
+  $("schedule-hours-field").hidden = kind !== "interval";
+}
+function showScheduleEditor(task) {
+  currentSchedule = task || null;
+  const editing = task !== undefined;
+  $("schedule-empty-state").hidden = editing;
+  $("schedule-editor").hidden = !editing;
+  for (const row of $("schedules-list").querySelectorAll("[aria-current]")) row.removeAttribute("aria-current");
+  if (task?.id)
+    $("schedules-list").querySelector('[data-schedule-id="' + CSS.escape(task.id) + '"]')?.setAttribute("aria-current", "true");
+  if (!editing) return;
+  const current = selected(),
+    cadence = task?.cadence || { kind: "daily", time: "09:00" };
+  $("schedule-title").value = task?.title || "";
+  $("schedule-prompt").value = task?.prompt || "";
+  projectChoices($("schedule-project"), task?.project_id || $("project").value);
+  fillRoute("schedule", task?.backend || current?.backend, task?.model || current?.id, task?.effort || $("effort").value);
+  $("schedule-kind").value = cadence.kind;
+  $("schedule-time").value = cadence.time || "09:00";
+  $("schedule-weekday").value = String(cadence.weekday ?? 0);
+  $("schedule-hours").value = String(cadence.hours || 6);
+  $("schedule-access").value = task?.access_mode || "ask";
+  $("schedule-enabled").checked = task ? !!task.enabled : true;
+  syncCadenceFields();
+  $("schedule-error").textContent = "";
+  for (const el of $("schedule-editor").querySelectorAll("[aria-invalid]")) el.removeAttribute("aria-invalid");
+  $("schedule-delete").hidden = $("schedule-run").hidden = !task?.id;
+  $("schedule-delete").textContent = "Delete";
+  delete $("schedule-delete").dataset.confirm;
+  $("schedule-save").textContent = task?.id ? "Save task" : "Create task";
+  showLastRun(task);
+}
+// The last run's real outcome (D15), with a link to its conversation.
+function showLastRun(task) {
+  const run = task?.last_run;
+  if (!run) {
+    $("schedule-last").textContent = task?.id ? "Not run yet." : "";
+    return;
+  }
+  const state = run.state === "submitted" ? "running" : run.state;
+  $("schedule-last").textContent = ["Last run " + usageAge(stampSeconds(run.at)), state, run.needs_you && "needs you"]
+    .filter(Boolean)
+    .join(" · ");
+  appendOpenRun(run.job_id);
+}
+// A scheduled run is the first turn of its own conversation.
+function appendOpenRun(jobId) {
+  if (!jobId) return;
+  const open = document.createElement("button");
+  open.type = "button";
+  open.className = "btn";
+  open.textContent = "Open run";
+  open.onclick = () => {
+    $("scheduled-dialog").close();
+    void load(jobId);
+  };
+  $("schedule-last").append(" ", open);
+}
+function scheduleBody() {
+  const kind = $("schedule-kind").value;
+  return {
+    title: $("schedule-title").value.trim(),
+    prompt: $("schedule-prompt").value.trim(),
+    project_id: $("schedule-project").value,
+    backend: $("schedule-backend").value,
+    model: $("schedule-model").value,
+    effort: $("schedule-effort").value,
+    access_mode: $("schedule-access").value,
+    cadence:
+      kind === "interval"
+        ? { kind, hours: Number($("schedule-hours").value) }
+        : kind === "weekly"
+          ? { kind, weekday: Number($("schedule-weekday").value), time: $("schedule-time").value }
+          : { kind, time: $("schedule-time").value },
+    enabled: $("schedule-enabled").checked,
+  };
+}
+function showScheduleError(field, message) {
+  $("schedule-error").textContent = message;
+  const input = $(
+    { title: "schedule-title", prompt: "schedule-prompt", project_id: "schedule-project", backend: "schedule-backend", model: "schedule-model", effort: "schedule-effort", access_mode: "schedule-access", cadence: $("schedule-kind").value === "interval" ? "schedule-hours" : "schedule-time" }[field] || "",
+  );
+  if (!input) return;
+  input.setAttribute("aria-invalid", "true");
+  input.focus();
+}
+$("schedule-kind").onchange = syncCadenceFields;
+$("schedule-editor").addEventListener("input", (event) => {
+  if (event.target.getAttribute?.("aria-invalid") !== "true") return;
+  event.target.removeAttribute("aria-invalid");
+  $("schedule-error").textContent = "";
+});
+$("schedule-editor").onsubmit = async (event) => {
+  event.preventDefault();
+  const body = scheduleBody(),
+    task = currentSchedule;
+  if (!body.title) return showScheduleError("title", "Give the task a title.");
+  if (!body.prompt) return showScheduleError("prompt", "Write what the task should do.");
+  if (body.cadence.kind !== "interval" && !/^\d{2}:\d{2}$/.test(body.cadence.time))
+    return showScheduleError("cadence", "Choose a time.");
+  $("schedule-save").disabled = true;
+  try {
+    const saved = task?.id
+      ? await json("/v1/schedules/" + encodeURIComponent(task.id), {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...body, revision: task.revision }),
+        })
+      : await post("/v1/schedules", body);
+    const schedules = await loadSchedules(saved.id);
+    showScheduleEditor(schedules.find((item) => item.id === saved.id) || saved);
+    $("schedule-last").textContent = (task?.id ? "Saved." : "Created.") + " " + (saved.enabled ? untilLabel(saved.next_run) : "Paused.");
+  } catch (error) {
+    showScheduleError(error.field || "", error.message);
+  } finally {
+    $("schedule-save").disabled = false;
+  }
+};
+$("schedule-run").onclick = async () => {
+  const task = currentSchedule;
+  if (!task?.id) return;
+  try {
+    const started = await post("/v1/schedules/" + encodeURIComponent(task.id) + "/run", {});
+    $("schedule-last").textContent = "Started now. It appears in Chats.";
+    appendOpenRun(started.job_id);
+    void history();
+    await loadSchedules(task.id);
+  } catch (error) {
+    showScheduleError("", error.message);
+  }
+};
+$("schedule-delete").onclick = () =>
+  void confirmTwice($("schedule-delete"), "Delete", async () => {
+    try {
+      await json("/v1/schedules/" + encodeURIComponent(currentSchedule.id), {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ revision: currentSchedule.revision }),
+      });
+      showScheduleEditor(undefined);
+      await loadSchedules(null);
+    } catch (error) {
+      showScheduleError("", error.message);
+    }
+  });
+$("schedule-new").onclick = () => {
+  showScheduleEditor(null);
+  $("schedule-title").focus();
+};
+$("scheduled-close").onclick = () => $("scheduled-dialog").close();
+$("rail-space").onclick = () => void openSpace();
+$("rail-scheduled").onclick = () => void openScheduled();
 function openAgentDialog(agent = null) {
   editingAgent = agent;
   $("agent-dialog-title").textContent = agent ? "Edit @@" + agent.name : "Create agent";
@@ -7087,15 +7880,15 @@ $("agent-form").onsubmit = async (event) => {
   $("agent-save").disabled = true;
   try {
     const saved = agent
-      ? await json("/v1/tail-agents/" + encodeURIComponent(agent.id), {
+      ? await json("/v1/harness-agents/" + encodeURIComponent(agent.id), {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ ...body, revision: agent.revision }),
         })
-      : await post("/v1/tail-agents", body);
+      : await post("/v1/harness-agents", body);
     $("agent-dialog").close();
-    resourceItems = [];
-    await loadTailAgents();
+    clearResourceItems();
+    await loadHarnessAgents();
     status((agent ? "Saved" : "Created") + " @@" + (saved?.name || body.name) + ".");
   } catch (error) {
     showAgentError(error.field || "", error.message);
@@ -7113,14 +7906,14 @@ $("agent-delete").onclick = async () => {
     return;
   }
   try {
-    await json("/v1/tail-agents/" + encodeURIComponent(agent.id), {
+    await json("/v1/harness-agents/" + encodeURIComponent(agent.id), {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ revision: agent.revision }),
     });
     $("agent-dialog").close();
-    resourceItems = [];
-    await loadTailAgents();
+    clearResourceItems();
+    await loadHarnessAgents();
     status("Deleted @@" + agent.name + ".");
   } catch (error) {
     showAgentError("", error.message);
@@ -7133,21 +7926,21 @@ $("agent-form").addEventListener("input", (event) => {
 });
 $("agent-cancel").onclick = $("agent-dialog-close").onclick = () => $("agent-dialog").close();
 $("agent-create").onclick = () => openAgentDialog();
-async function loadTailAgents() {
+async function loadHarnessAgents() {
   try {
-    const data = await json("/v1/tail-agents");
-    tailAgents = Array.isArray(data.agents) ? data.agents : [];
-    $("tail-agents-empty").textContent =
+    const data = await json("/v1/harness-agents");
+    harnessAgents = Array.isArray(data.agents) ? data.agents : [];
+    $("harness-agents-empty").textContent =
       "No agents yet. Create one to give a task its own instructions, provider and model.";
   } catch {
-    tailAgents = [];
-    $("tail-agents-empty").textContent = "Couldn't load your agents.";
+    harnessAgents = [];
+    $("harness-agents-empty").textContent = "Couldn't load your agents.";
   }
-  renderTailAgents();
+  renderHarnessAgents();
 }
-function renderTailAgents() {
-  $("tail-agents-list").replaceChildren(
-    ...tailAgents.map((agent) => {
+function renderHarnessAgents() {
+  $("harness-agents-list").replaceChildren(
+    ...harnessAgents.map((agent) => {
       const row = document.createElement("li"),
         text = document.createElement("div"),
         title = document.createElement("strong"),
@@ -7155,7 +7948,7 @@ function renderTailAgents() {
         route = document.createElement("small"),
         use = document.createElement("button"),
         edit = document.createElement("button");
-      row.className = "tail-agent";
+      row.className = "harness-agent";
       title.textContent = "@@" + agent.name;
       purpose.textContent = agent.purpose;
       route.textContent =
@@ -7168,7 +7961,7 @@ function renderTailAgents() {
       use.textContent = "Use";
       use.setAttribute("aria-label", "Use @@" + agent.name + " in the message");
       use.disabled = agent.available === false;
-      use.onclick = () => void useTailAgent(agent);
+      use.onclick = () => void useHarnessAgent(agent);
       edit.textContent = "Edit";
       edit.setAttribute("aria-label", "Edit @@" + agent.name);
       edit.onclick = () => openAgentDialog(agent);
@@ -7176,10 +7969,10 @@ function renderTailAgents() {
       return row;
     }),
   );
-  $("tail-agents-empty").hidden = tailAgents.length > 0;
+  $("harness-agents-empty").hidden = harnessAgents.length > 0;
 }
 // "Use" selects the agent like the palette does, so the message carries its revision.
-async function useTailAgent(agent) {
+async function useHarnessAgent(agent) {
   $("settings-dialog").close();
   const input = $("prompt"),
     at = input.selectionStart ?? input.value.length,
@@ -7199,7 +7992,7 @@ async function useTailAgent(agent) {
           execution_mode: m.execution_mode,
         }),
     );
-    const item = (data.items || []).find((i) => i.resource_id === "tail/agents/" + agent.id);
+    const item = (data.items || []).find((i) => i.resource_id === "harness/agents/" + agent.id);
     if (!item) throw Error("@@" + agent.name + " is not available here.");
     selectResource(item, trigger);
   } catch (error) {
@@ -7255,11 +8048,33 @@ let projectFileSearch = [],
   projectFileSearchQuery = "",
   projectFileSearchRequest = 0,
   projectFileSearchTimer = 0;
+// Prompts and answers are searched on the server; only conversations with a snippet count.
+let conversationContent = [],
+  conversationContentQuery = "",
+  conversationContentRequest = 0;
+async function refreshConversationContentSearch(value) {
+  const normalized = normalizeSearch(value.trim()),
+    request = ++conversationContentRequest;
+  conversationContent = [];
+  conversationContentQuery = "";
+  if (normalized.length >= 2) {
+    try {
+      const data = await json("/v1/conversations?" + new URLSearchParams({ q: value.trim() }));
+      if (request !== conversationContentRequest) return;
+      conversationContent = (data.conversations || []).filter((c) => c.snippet);
+      conversationContentQuery = normalized;
+    } catch {
+      if (request !== conversationContentRequest) return;
+    }
+  }
+  renderConversationSearch();
+}
 async function refreshProjectFileSearch(value) {
   const query = value.trim(),
     normalized = normalizeSearch(query),
     request = ++projectFileSearchRequest;
-  if (normalized.length < 2) {
+  // A project without a folder has no files to search (the server answers 422).
+  if (normalized.length < 2 || !projectDetails[$("project").value]?.root) {
     projectFileSearch = [];
     projectFileSearchQuery = "";
     renderConversationSearch();
@@ -7312,6 +8127,9 @@ function renderConversationSearch() {
     ...observedRuns,
     ...conversations.filter((item) => !observedConversationIds.has(item.id)),
   ];
+  const snippets = new Map(
+    conversationContentQuery === query ? conversationContent.map((c) => [c.id, c.snippet]) : [],
+  );
   const runMatches = searchableRuns.filter((c) =>
     includes(
       c.title || "Conversation",
@@ -7323,7 +8141,11 @@ function renderConversationSearch() {
       c.execution?.model,
       projectDetails[c.project]?.label,
     ),
-  );
+  ).map((c) => ({ ...c, snippet: snippets.get(c.id) || "" }));
+  const matchedIds = new Set(runMatches.map((c) => c.id));
+  for (const c of conversationContent)
+    if (snippets.has(c.id) && !matchedIds.has(c.id))
+      runMatches.push({ ...conversations.find((item) => item.id === c.id), ...c });
   const planMatches = (currentMaestroPlan?.steps || [])
     .map((step, index) => ({ ...step, index }))
     .filter((step) =>
@@ -7372,7 +8194,8 @@ function renderConversationSearch() {
         [...$("project").options].find((o) => o.value === c.project)
           ?.textContent || "No project";
       detail.append(document.createTextNode(project));
-      if (c.runId) detail.append(document.createTextNode(" · " + c.runId));
+      if (c.execution?.backend && providerNames[c.execution.backend])
+        detail.append(document.createTextNode(" · " + providerNames[c.execution.backend]));
       if (c.execution?.model) {
         const icon = document.createElement("span");
         icon.className = "model-logo-icon";
@@ -7384,9 +8207,17 @@ function renderConversationSearch() {
           document.createTextNode(" " + modelName(c.execution.model)),
         );
       }
+      const updated = conversationUpdated(c);
+      if (updated) detail.append(document.createTextNode(" · " + new Date(updated * 1000).toLocaleDateString()));
       const indicator = conversationIndicator(c);
       if (indicator) title.prepend(indicator);
       button.append(title, detail);
+      if (c.snippet) {
+        const excerpt = document.createElement("small");
+        excerpt.className = "search-snippet";
+        excerpt.textContent = c.snippet;
+        button.append(excerpt);
+      }
       button.disabled = submitting || cancelling || uploads > 0;
       button.onclick = async () => {
         if (submitting || cancelling || uploads) return;
@@ -7456,7 +8287,10 @@ $("conversation-search").addEventListener("input", () => {
   renderConversationSearch();
   clearTimeout(projectFileSearchTimer);
   projectFileSearchTimer = setTimeout(
-    () => refreshProjectFileSearch($("conversation-search").value),
+    () => {
+      refreshProjectFileSearch($("conversation-search").value);
+      refreshConversationContentSearch($("conversation-search").value);
+    },
     180,
   );
 });
@@ -7472,10 +8306,51 @@ new ResizeObserver(entries => {
   composerWidth = width;
   updateComposer();
 }).observe($("prompt"));
+// QA-R4-3: the server refuses a request above this many UTF-8 bytes; say so before Enter, in bytes.
+const PROMPT_BYTE_LIMIT = 150000;
+const PROMPT_WARN_BYTES = PROMPT_BYTE_LIMIT * 0.8;
+const utf8 = new TextEncoder();
+function syncDraftLimit(value) {
+  const note = $("draft-limit");
+  // UTF-8 takes at most 3 bytes per UTF-16 unit, so a short draft needs no exact count.
+  const bytes = value.length * 3 < PROMPT_WARN_BYTES ? 0 : utf8.encode(value).length;
+  const over = bytes > PROMPT_BYTE_LIMIT;
+  note.hidden = bytes < PROMPT_WARN_BYTES;
+  note.dataset.over = String(over);
+  note.textContent = note.hidden
+    ? ""
+    : over
+      ? "This message is " + (bytes - PROMPT_BYTE_LIMIT).toLocaleString("en-US") + " bytes over the " +
+        PROMPT_BYTE_LIMIT.toLocaleString("en-US") + "-byte limit. Shorten it or attach it as a file."
+      : bytes.toLocaleString("en-US") + " / " + PROMPT_BYTE_LIMIT.toLocaleString("en-US") + " bytes";
+  return over;
+}
+// The spoken character count is computed once typing pauses: counting code points of a long draft per key is slow.
+const CHARACTER_COUNT_DELAY_MS = 250;
+let characterCountTimer = 0;
+function scheduleCharacterCount() {
+  clearTimeout(characterCountTimer);
+  characterCountTimer = setTimeout(() => {
+    const count = Array.from($("prompt").value).length;
+    $("character-count").textContent = count.toLocaleString("en-US") + (count === 1 ? " character" : " characters");
+  }, CHARACTER_COUNT_DELAY_MS);
+}
+// UX-R1-4: before a message goes to another provider, say that the conversation goes along.
+function syncRouteCarryover() {
+  const note = $("route-carryover"),
+    next = selected(),
+    switching = lastRoute?.backend && next?.backend && lastRoute.backend !== next.backend;
+  note.hidden = !switching;
+  note.textContent = switching
+    ? "Next message goes to " + (providerNames[next.backend] || next.backend) + " · " + modelName(next.id) +
+      ". The conversation so far goes with it."
+    : "";
+}
 function updateComposer() {
   syncComposerProjectButton();
   syncViewSwitch();
   syncComposerPickers();
+  syncRouteCarryover();
   syncExecutionMode();
   updateModelPermissions();
   const blocked = syncComposerAvailability();
@@ -7483,10 +8358,8 @@ function updateComposer() {
   prompt.style.height = "auto";
   prompt.style.height = Math.min(prompt.scrollHeight, 170) + "px";
   renderPromptHighlights();
-  const count = Array.from(prompt.value).length;
-  $("character-count").textContent =
-    count.toLocaleString("en-US") +
-    (count === 1 ? " character" : " characters");
+  const overLimit = syncDraftLimit(prompt.value);
+  scheduleCharacterCount();
   const hasPrompt = !!prompt.value.trim();
   $("send").hidden = busy && !hasPrompt;
   $("cancel").hidden = !busy;
@@ -7509,6 +8382,7 @@ function updateComposer() {
     policyPending ||
     !selected() ||
     !prompt.value.trim() ||
+    overLimit ||
     !supportedExecutionModes().includes(executionMode) ||
     cooldown > 0;
 }
@@ -7785,6 +8659,10 @@ function showGate(data) {
   box.scrollIntoView({ block: "nearest" });
 }
 
+// OP-R1-21: "mediated" and "unenforced" are protocol words; say what they mean for the user.
+function publicationLabel(enforcement) {
+  return enforcement === "mediated" ? "Sent through KeepHarness" : "Not controlled by KeepHarness";
+}
 function appendPublishEvidence(container, data) {
   const evidence = document.createElement("div");
   evidence.className = "publish-evidence";
@@ -7799,7 +8677,7 @@ function appendPublishEvidence(container, data) {
   };
   add("Operation", data.operation);
   add("Destination", data.destination);
-  add("Publication", data.enforcement === "mediated" ? "mediated" : "unenforced");
+  add("Publication", publicationLabel(data.enforcement));
   add("Risk", data.risk);
   add("Integration", data.integration);
   add("Jira site", data.endpoint);
@@ -7887,6 +8765,7 @@ function showApproval(data) {
   const reason = document.createElement("p");
   reason.textContent =
     data.request.reason ||
+    data.request.message ||
     (changes.length
       ? "The executor wants to change these files."
       : "The executor requested additional authorization.");
@@ -7903,8 +8782,8 @@ function showApproval(data) {
     data.request.command ||
     [data.request.tool_name, toolInput.file_path || toolInput.command]
       .filter(Boolean)
-      .join(" ") ||
-    data.kind;
+      .join(" ");
+  command.hidden = !command.textContent;
   const diff = document.createElement("pre");
   diff.className = "approval-diff";
   diff.textContent = changes
@@ -7956,9 +8835,9 @@ function showApproval(data) {
       progress.hidden = false;
       progress.textContent = "Sending your decision…";
       try {
-        const answers = Object.fromEntries(
-          fields.map(([id, input]) => [id, { answers: [input.value] }]),
-        );
+        const answers = approved
+          ? Object.fromEntries(fields.map(([id, input]) => [id, { answers: [input.value] }]))
+          : {};
         await post("/v1/approvals/" + data.approval_id, {
           approved,
           answers,
@@ -7972,7 +8851,12 @@ function showApproval(data) {
           box.querySelectorAll("button,input").forEach(node => node.remove());
           if (hadFocus) $("prompt").focus({ preventScroll: true });
         } else if (e.code === "approval_expired") expireApproval(data.approval_id);
-        else if (box.dataset.state !== "expired") progress.textContent = "Couldn't confirm your decision. " + e.message;
+        else if (e.code === "approval_session_required") {
+          // Approvals need an owner-enrolled browser; say how, here and in the status line.
+          progress.textContent = e.message;
+          box.dataset.enrollment = "required";
+          status(e.message);
+        } else if (box.dataset.state !== "expired") progress.textContent = "Couldn't confirm your decision. " + e.message;
       } finally {
         deciding = false;
         if (box.dataset.state !== "expired") {
@@ -8010,7 +8894,7 @@ for (const [id, name] of [
     cancel: "Stop",
     reload: "Reload screen",
   }[id];
-  b.replaceChildren(TailUI.icon(name));
+  b.replaceChildren(HarnessUI.icon(name));
   if (label) {
     if (["send", "cancel"].includes(id)) {
       const text = document.createElement("span");
@@ -8029,15 +8913,15 @@ for (const [id, name, label] of [
   const button = $(id);
   button.classList.add("btn");
   if (!label) button.classList.add("btn-icon");
-  button.replaceChildren(TailUI.icon(name));
+  button.replaceChildren(HarnessUI.icon(name));
   if (label) button.append(document.createTextNode(label));
 }
 for (const node of document.querySelectorAll(".brandmark,.welcome-icon"))
-  node.replaceChildren(TailUI.icon("stack-2"));
+  node.replaceChildren(HarnessUI.icon("stack-2"));
 for (const button of document.querySelectorAll("[data-settings]")) {
   button.textContent = button.textContent.replace(/^[^A-Za-zÀ-ÿ]+/, "");
   button.prepend(
-    TailUI.icon(
+    HarnessUI.icon(
       button.dataset.settings === "appearance"
         ? "adjustments"
         : button.dataset.settings === "agents"
@@ -8190,14 +9074,15 @@ document.addEventListener("click", (event) => {
 });
 
 // Shared native popovers for the three concrete composer controls.
+// OP-R2-2: one label per access mode, the same in the composer menu and the header chip.
+const accessLabel = () => $("access-mode").selectedOptions[0]?.textContent || "Ask for approval";
 function syncAccessMode() {
   const mode = $("access-mode").value;
-  $("access-label").textContent =
-    $("access-mode").selectedOptions[0]?.textContent || "Ask for approval";
+  $("access-label").textContent = accessLabel();
   $("access-mode-notice").textContent =
     "Access: " + $("access-label").textContent;
   $("access-trigger").dataset.mode = mode;
-  $("header-access").textContent = mode;
+  $("header-access").textContent = accessLabel();
   const option = $("access-menu").querySelector('[data-access="' + mode + '"]'),
     optionIcon = option?.querySelector(".access-option-icon"),
     description = option?.querySelector("small")?.textContent || "";
@@ -8242,6 +9127,28 @@ function syncComposerPickers() {
       $(id + "-menu").hidePopover();
   }
 }
+function moreModels(group) {
+  let more = group.querySelector(".model-more");
+  if (more) return more;
+  more = document.createElement("details");
+  more.className = "model-more";
+  const summary = document.createElement("summary"),
+    list = document.createElement("div");
+  summary.textContent = "More models";
+  list.className = "model-more-options";
+  more.append(summary, list);
+  group.querySelector(".model-provider-options").append(more);
+  return more;
+}
+// A menu entry is reachable only while every group around it is open.
+function menuEntryVisible(entry) {
+  let group = (entry.tagName === "SUMMARY" ? entry.parentElement.parentElement : entry).closest("details");
+  while (group) {
+    if (!group.open) return false;
+    group = group.parentElement.closest("details");
+  }
+  return true;
+}
 function renderPicker(id) {
   if (id === "access") {
     syncAccessMode();
@@ -8259,13 +9166,13 @@ function renderPicker(id) {
     ultra: "The most intense reasoning level offered by the model.",
   };
   const providers = {
-    local: "Local model on the server",
-    qwen: "Local model on the server",
+    local: "Local models",
+    qwen: "Local models",
     codex: "Codex",
     claude: "Claude Code",
     gemini: "Gemini CLI",
     deepseek: "DeepSeek",
-    maestro: "Model coordinator",
+    maestro: "Maestro",
   };
   const groups = new Map();
   const options = [...$(id).options];
@@ -8278,6 +9185,14 @@ function renderPicker(id) {
         b.value.localeCompare(a.value, undefined, { numeric: true }),
     );
   let claudeIndex = 0;
+  // Only the newest model of each Claude family stays on top; older ones sit under "More models".
+  const legacy = new Set(),
+    families = new Set();
+  for (const option of claude) {
+    const family = option.value.split("-")[1];
+    if (families.has(family)) legacy.add(option.value);
+    families.add(family);
+  }
   const buttons = options
     .map((o) =>
       id === "model" &&
@@ -8341,22 +9256,22 @@ function renderPicker(id) {
           list.setAttribute("role", "listbox");
           heading.setAttribute("aria-controls", list.id);
           heading.append(
-            TailUI.icon(
+            HarnessUI.icon(
               {
                 codex: "brand-openai",
                 claude: "brand-claude",
                 gemini: "brand-gemini",
                 local: "stack-2",
                 deepseek: "stack-2",
-                maestro: "tail-harness",
+                maestro: "keepharness",
               }[backend] || "stack-2",
             ),
           );
           const label =
             {
               codex: "Codex",
-              claude: "Claude",
-              local: "Local model",
+              claude: "Claude Code",
+              local: "Local models",
               deepseek: "DeepSeek",
               gemini: "Gemini CLI",
               maestro: "Maestro",
@@ -8367,7 +9282,7 @@ function renderPicker(id) {
           group.setAttribute("aria-label", label);
           heading.className = "model-provider-heading";
           heading.append(document.createTextNode(label));
-          const chevron = TailUI.icon("chevron-left");
+          const chevron = HarnessUI.icon("chevron-left");
           chevron.classList.add("model-provider-chevron");
           heading.append(chevron);
           list.setAttribute("aria-label", label);
@@ -8380,11 +9295,12 @@ function renderPicker(id) {
           });
           heading.setAttribute("aria-expanded", "false");
         }
-        groups
-          .get(backend)
-          .querySelector(".model-provider-options")
-          .append(button);
+        const more = legacy.has(option.value) ? moreModels(groups.get(backend)) : null;
+        (more?.querySelector(".model-more-options") ||
+          groups.get(backend).querySelector(".model-provider-options")
+        ).append(button);
         if (option.selected) {
+          if (more) more.open = true;
           groups.get(backend).open = true;
           groups
             .get(backend)
@@ -8394,6 +9310,11 @@ function renderPicker(id) {
       }
       return button;
     });
+  // "More models" closes each list.
+  for (const group of groups.values()) {
+    const more = group.querySelector(".model-more");
+    if (more) more.parentElement.append(more);
+  }
   $(id + "-menu")
     .querySelector(".picker-options")
     .replaceChildren(...(id === "model" ? groups.values() : buttons));
@@ -8450,15 +9371,10 @@ for (const id of ["access", "model", "effort"]) {
   menu.addEventListener("keydown", (event) => {
     const options = [
         ...menu.querySelectorAll("summary,[role=option]:not(:disabled)"),
-      ].filter(
-        (el) =>
-          !el.closest("details") ||
-          el.tagName === "SUMMARY" ||
-          el.closest("details").open,
-      ),
+      ].filter(menuEntryVisible),
       index = options.indexOf(document.activeElement);
     if (id === "model" && ["ArrowLeft", "ArrowRight"].includes(event.key)) {
-      const group = document.activeElement.closest("details");
+      const group = document.activeElement.closest("details[data-provider]");
       if (group) {
         event.preventDefault();
         group.open = event.key === "ArrowRight";
@@ -8577,7 +9493,7 @@ async function loadProjectDirectories(
           const button = document.createElement("button");
           button.type = "button";
           button.append(
-            TailUI.icon("folder"),
+            HarnessUI.icon("folder"),
             document.createTextNode(root.label),
           );
           button.title = "Browse " + root.label;
@@ -8643,7 +9559,7 @@ function renderSelectedProjectDirectories() {
     const isPrimary = path === projectDirectory.selected.keys().next().value;
     primary.type = "button";
     primary.append(
-      TailUI.icon("home"),
+      HarnessUI.icon("home"),
       document.createTextNode(isPrimary ? "Main" : "Make main"),
     );
     primary.title = isPrimary
@@ -8664,7 +9580,7 @@ function renderSelectedProjectDirectories() {
       renderSelectedProjectDirectories();
     };
     remove.type = "button";
-    remove.append(TailUI.icon("x"), document.createTextNode("Remove"));
+    remove.append(HarnessUI.icon("x"), document.createTextNode("Remove"));
     remove.title =
       "Remove the folder from the project without deleting its files";
     remove.setAttribute("aria-label", "Remove folder " + name);
@@ -8697,7 +9613,7 @@ function openProjectDialog(projectId = null) {
     ? "Edit project"
     : "Create project";
   $("project-create").replaceChildren(
-    TailUI.icon(projectId ? "pencil" : "folder-plus"),
+    HarnessUI.icon(projectId ? "pencil" : "folder-plus"),
     document.createTextNode(projectId ? "Save changes" : "Create project"),
   );
   $("project-create").title = projectId
@@ -8720,7 +9636,7 @@ for (const [id, icon, title] of [
 ]) {
   const button = $(id);
   button.title = title;
-  if (!button.querySelector("svg")) button.prepend(TailUI.icon(icon));
+  if (!button.querySelector("svg")) button.prepend(HarnessUI.icon(icon));
 }
 $("add-project").onclick = () => {
   if (!busy && !loading) openProjectDialog();
@@ -8921,4 +9837,4 @@ function updateWorkspaceCounts() {
 }
 for (const id of ["files-view", "activity-events"])
   new MutationObserver(updateWorkspaceCounts).observe($(id), { childList: true, subtree: true });
-document.addEventListener("tail:ready", refreshWorkspaceResources);
+document.addEventListener("harness:ready", refreshWorkspaceResources);

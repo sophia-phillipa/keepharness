@@ -5,15 +5,58 @@ import json
 from contextlib import asynccontextmanager
 
 from adapters.shared.process import IdleWatchdog, child_environment, process_diagnostics
+from agent_service.log_config import redact
+from agent_service.tools import MAX_ATTACHMENT_BYTES, ToolError
+
+# Codex echoes the user message item on one stdout line, each attached image as base64 (4/3
+# of its size). The margin covers the prompt and the JSON envelope.
+READ_LIMIT = MAX_ATTACHMENT_BYTES * 4 // 3 + 8 * 1024 * 1024
+
+
+class RPCError(RuntimeError):
+    """A JSON-RPC error answer: ``str()`` stays ``codex_rpc_error``, ``error`` keeps its detail."""
+
+    def __init__(self, error):
+        super().__init__("codex_rpc_error")
+        self.error = error if isinstance(error, dict) else {}
+
+
+def provider_message(error):
+    """The provider's own words from a JSON-RPC error or a TurnError, bounded and redacted.
+
+    The HTTP status and error kind stay in the text, so a rejected key, an empty balance or a
+    rate limit can still be told apart downstream (queue_worker.provider_condition).
+    """
+    if not isinstance(error, dict):
+        return "provider error"
+    parts = [str(error.get("message") or "provider error")]
+    details = error.get("additionalDetails") or error.get("data")
+    if details:
+        parts.append(str(details))
+    info = error.get("codexErrorInfo")
+    if isinstance(info, str):
+        parts.append(info)
+    for kind, value in info.items() if isinstance(info, dict) else ():
+        status = value.get("httpStatusCode") if isinstance(value, dict) else None
+        parts.append(f"{kind} HTTP {status}" if status else kind)
+    return redact("; ".join(parts))[:500]
+
+
+def execution_failed(provider, error=None):
+    """``<provider>_execution_failed``, followed by the provider's own words when it gave any."""
+    return ToolError(
+        provider + "_execution_failed" + (": " + provider_message(error) if error else "")
+    )
 
 
 class RPC:
-    def __init__(self, process, idle_timeout_seconds=300, config=None):
+    def __init__(self, process, idle_timeout_seconds=300, config=None, provider="codex"):
         self.process = process
         self.watchdog = IdleWatchdog(
             {"idle_timeout_seconds": idle_timeout_seconds, **(config or {})}
         )
         self.sequence = 0
+        self.provider = provider
 
     async def send(self, method, params=None, request=True):
         self.sequence += 1
@@ -25,7 +68,10 @@ class RPC:
         return self.sequence
 
     async def receive(self):
-        line = await self.watchdog.wait(self.process.stdout.readline())
+        try:
+            line = await self.watchdog.wait(self.process.stdout.readline())
+        except ValueError as exc:  # one line above READ_LIMIT: the stream lost its framing
+            raise ToolError(self.provider + "_output_limit") from exc
         if not line:
             raise RuntimeError("codex_connection_closed")
         item = json.loads(line)
@@ -50,7 +96,7 @@ class RPC:
             item = await self.receive()
             if item.get("id") == request_id:
                 if "error" in item:
-                    raise RuntimeError("codex_rpc_error")
+                    raise RPCError(item["error"])
                 return item.get("result", {})
 
     async def initialize(self):
@@ -59,7 +105,7 @@ class RPC:
             {
                 "clientInfo": {
                     "name": "local-agent",
-                    "title": "Tail Harness local agent",
+                    "title": "KeepHarness local agent",
                     "version": "1.0",
                 },
                 "capabilities": {"experimentalApi": True},
@@ -100,18 +146,18 @@ async def connection(
         stderr=stderr,
         env=environment,
         start_new_session=True,
-        limit=2 * 1024 * 1024,
+        limit=READ_LIMIT,
         pass_fds=pass_fds,
     )
     async with process_diagnostics(proc, provider, event, env):
-        rpc = RPC(proc, config=config)
+        rpc = RPC(proc, config=config, provider=provider)
         await rpc.initialize()
         yield rpc
 
 
-async def metadata(binary, method):
+async def metadata(binary, method, *, env=None):
     async with asyncio.timeout(25):
-        async with connection([binary, "app-server", "--listen", "stdio://"]) as rpc:
+        async with connection([binary, "app-server", "--listen", "stdio://"], env=env) as rpc:
             return await rpc.call(
                 method,
                 ({"includeHidden": False, "limit": 100} if method == "model/list" else {}),

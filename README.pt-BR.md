@@ -1,21 +1,21 @@
-# 🔷 Tail Harness
+# 🔷 KeepHarness
 
 [![🇺🇸 English](https://img.shields.io/badge/%F0%9F%87%BA%F0%9F%87%B8-English-blue.svg)](README.md) [![🇧🇷 Português (Brasil)](https://img.shields.io/badge/%F0%9F%87%A7%F0%9F%87%B7-Portugu%C3%AAs%20(Brasil)-green.svg)](README.pt-BR.md)
 
-Painel local em Python para descobrir, configurar e executar o Codex CLI, o Claude Code, o Gemini CLI e modelos de IA locais, com uma interface de conversa acessível pela Tailscale ou outra VPN. Python 3.11+, licença MIT, versão **0.14.0**.
+Painel local em Python para descobrir, configurar e executar o Codex CLI, o Claude Code, o Gemini CLI e modelos de IA locais, com uma interface de conversa acessível pela Tailscale ou outra VPN. Python 3.11+, licença MIT, versão **0.15.0**.
 
 ## 🚀 Installation — agent-guided (start here)
 
-O Tail Harness é um harness para as ferramentas de IA que já estão na sua máquina: ele descobre e opera o Codex CLI, o Claude Code, o Gemini CLI e os servidores de modelos locais que você já instalou e autenticou. Como cada servidor tem uma combinação diferente de CLIs, contas, modelos e permissões, a instalação é **conduzida por um agente de IA** (Claude Code, Codex, …) que inspeciona a máquina, reaproveita o que já existe, pergunta só as decisões que faltam e valida cada etapa.
+O KeepHarness é um harness para as ferramentas de IA que já estão na sua máquina: ele descobre e opera o Codex CLI, o Claude Code, o Gemini CLI e os servidores de modelos locais que você já instalou e autenticou. Como cada servidor tem uma combinação diferente de CLIs, contas, modelos e permissões, a instalação é **conduzida por um agente de IA** (Claude Code, Codex, …) que inspeciona a máquina, reaproveita o que já existe, pergunta só as decisões que faltam e valida cada etapa.
 
 **Requisitos:** Linux (systemd para o serviço em segundo plano), Python 3.11+ e ao menos um CLI de IA ou servidor de modelo local instalado. Clone o repositório e faça este pedido ao seu agente:
 
 ```sh
-git clone https://github.com/sophia-phillipa/tail-harness.git
-cd tail-harness
+git clone https://github.com/sophia-phillipa/keepharness.git
+cd keepharness
 ```
 
-> Instale o Tail Harness seguindo `dossier/installation-agent-spec.md`, do CP-01 ao CP-08. Antes de cada fase, diga o que vai fazer; ao terminar, informe status, evidência e próximo passo. Reaproveite CLIs, contas e modelos existentes, pergunte só as decisões que faltarem e informe os testes executados e eventuais bloqueios.
+> Instale o KeepHarness seguindo `dossier/installation-agent-spec.md`, do CP-01 ao CP-08. Antes de cada fase, diga o que vai fazer; ao terminar, informe status, evidência e próximo passo. Reaproveite CLIs, contas e modelos existentes, pergunte só as decisões que faltarem e informe os testes executados e eventuais bloqueios.
 
 A [especificação de instalação](dossier/installation-agent-spec.md) define oito checkpoints, cada um fechado com evidência antes de avançar:
 
@@ -30,17 +30,24 @@ A [especificação de instalação](dossier/installation-agent-spec.md) define o
 | 🛠️ CP-07 · Recuperação | Falhas tratadas e testes afetados repetidos. |
 | 📋 CP-08 · Entrega | URLs, instruções de operação, diagnósticos, testes e limitações. |
 
-Ao final, o painel administrativo fica em **http://127.0.0.1:8094/** e as conversas em **http://127.0.0.1:8095/**. O estado (configurações, perfis, conversas e anexos) fica em `~/.local/share/tail-harness`.
+Ao final, o painel administrativo fica em **http://127.0.0.1:8094/** e as conversas em **http://127.0.0.1:8095/**. Antes, conecte o navegador com `keepharness open`, que imprime e abre um link de uso único (o aplicativo desktop conecta a própria janela). O estado (configurações, perfis, conversas e anexos) fica em `~/.local/share/keepharness`.
 
 ### Manual installation (without an agent)
 
 Os scripts instalam o app, mas não inspecionam nem configuram seus provedores; isso é feito depois no painel administrativo.
 
 ```sh
-./install.sh               # Linux/systemd: venv em ~/.local/share/tail-harness/venv, serviço do usuário e atalho
-./install.sh --check-only  # verifica o pacote instalado sem registrar o serviço
-./setup.sh && ./start.sh   # ou: .venv no checkout e painel administrativo em primeiro plano
+./install.sh                # Linux/systemd: gera um wheel, instala em ~/.local/share/keepharness/venv, serviço do usuário e atalho
+./install.sh --check-only   # as mesmas verificações e uma instalação de teste em pasta temporária; não altera mais nada
+./install.sh --dev          # instalação editável: o serviço executa o código deste checkout
+./setup.sh && ./start.sh    # ou: .venv no checkout e painel administrativo em primeiro plano
 ```
+
+O `install.sh` primeiro verifica se está no host, se nenhum outro programa ocupa a porta do painel (padrão 8094) e se o estado do Tail Harness pode ser movido (um Tail Harness rodando no próprio `tail-harness.service` não bloqueia: o `install.sh` para esse serviço sozinho; um iniciado de outra forma, num terminal ou no cliente desktop, precisa ser parado antes); depois instala o pacote num ambiente temporário e faz um teste rápido. Só então para o Tail Harness, move o estado uma única vez e registra o serviço; ele só informa sucesso quando o próprio processo do serviço responde na porta. Se um passo posterior falhar, ele diz como tentar de novo ou voltar.
+
+- **Hosts Fedora Atomic (Bazzite, Silverblue) com distrobox ou toolbox:** rode `./install.sh` num terminal do host. Dentro de um contêiner ele recusa, porque o systemd do host não consegue executar um ambiente criado com o Python do contêiner; de dentro do contêiner, `distrobox-host-exec ./install.sh` o executa no host. O serviço recebe o PATH do shell que rodou o instalador, então encontra as mesmas CLIs (por exemplo em `~/.local/bin` ou no Homebrew).
+- **Atualizando do Tail Harness 0.14:** só o `install.sh` move `~/.local/share/tail-harness` para `~/.local/share/keepharness`; iniciar o KeepHarness nunca o move. Se uma pré-versão anterior deixou dados nas duas pastas, `./install.sh --merge-legacy` mostra um plano de fusão e `./install.sh --merge-legacy --apply` faz backup das duas pastas e as funde em `~/.local/share/tail-harness`, recusando quando uma conversa tem arquivos nas duas.
+- **Voltando ao Tail Harness 0.14:** `./install.sh --rollback-to-0.14` remove o serviço, o atalho e a entrada de menu do KeepHarness, devolve o estado, põe de lado os marcadores de thread dos provedores como `*.before-rollback` (assim o 0.14 reexecuta o histórico de cada conversa em vez de retomar uma thread que não tem os turnos do 0.15) e registra a reversão em `~/.local/share/tail-harness.rolled-back`; nada volta a ser movido para o KeepHarness até você apagar esse arquivo e rodar `./install.sh`.
 
 Modelos locais também precisam de um runtime llama.cpp ou do Ollama — veja [Modelos locais](docs/LOCAL-INSTALL.md).
 
@@ -64,7 +71,7 @@ O painel de arquivos usa o Material Icon Theme (MIT), com ícones específicos p
 | 5 | Configurar os painéis (CP-05) | Habilitar recursos descobertos e autenticados pela API administrativa | `/v1/version` mostra o `config_revision` esperado, sem `config_reload_error` |
 | 6 | Executar os testes obrigatórios (CP-06) | `"$TH_VENV/bin/python" -m control.install_check`; pytest/Playwright direcionados da tabela em `dossier/installation-agent-spec.md` | O smoke test do pacote passa; ao menos um provedor habilitado completa uma execução real |
 | 7 | Recuperar-se de qualquer falha (CP-07) | Diagnosticar conforme a tabela de falhas da spec, corrigir, repetir o teste afetado | O mesmo teste passa a aprovar, ou um bloqueio concreto é registrado |
-| 8 | Entregar à pessoa humana (CP-08) | Informar URLs, portas, testes executados e qualquer decisão pendente | A pessoa consegue abrir `http://127.0.0.1:8094/` e `http://127.0.0.1:8095/` por conta própria |
+| 8 | Entregar à pessoa humana (CP-08) | Informar URLs, portas, testes executados e qualquer decisão pendente | A pessoa executa `keepharness open` e então consegue abrir `http://127.0.0.1:8094/` e `http://127.0.0.1:8095/` por conta própria |
 
 ✅ **Concluído quando** todo checkpoint obrigatório (CP-01 ao CP-06, mais o CP-08) estiver `APPROVED`, com ao menos uma combinação de provedor/modelo operacional de ponta a ponta. Informe os checkpoints, a evidência e qualquer bloqueio; para desfazer, remova os diretórios de venv/estado e a unidade systemd criados durante a execução — nada fora deles é tocado.
 
@@ -95,7 +102,7 @@ Há dois modos:
 - **Isolado:** Linux + bubblewrap; ferramentas limitadas ao projeto, sem terminal geral ou acesso livre à internet. Alterações passam por um fluxo de proposta/aplicação com backup. Não usa conectores externos.
 - **Nativo:** Codex, Claude e DeepSeek executam diretamente no sistema, sem sandbox e com acesso a arquivos, terminal e rede. Modelos locais mantêm suas permissões e isolamento por modelo. A pasta selecionada define o projeto, mas não é uma prisão de leitura. Terminal, hooks e conectores têm o alcance de suas próprias permissões. A opção Internet não é um firewall para processos externos. Edições nativas acontecem diretamente no projeto.
 
-O projeto não é uma solução multiusuário para pessoas mutuamente não confiáveis. Todo cliente autorizado recebe a mesma política administrativa de projeto; cada um tem seu próprio histórico e aprovações. Para isolamento forte de identidades e credenciais, execute instâncias sob usuários de sistema operacional distintos.
+O projeto não é uma solução multiusuário para pessoas mutuamente não confiáveis. Outras contas do mesmo computador não são confiáveis: alcançar 127.0.0.1 não basta para agir como dono. O dono é quem tem o segredo da instalação em `~/.local/share/keepharness/local.key` (modo 0600). O segredo nunca sai desse arquivo: o aplicativo desktop e `keepharness open` o usam para assinar um link de uso único que dá ao navegador uma sessão própria, válida por 30 dias; `keepharness open --revoke` desconecta todos os navegadores. Só esse dono registra, reaponta ou apaga pastas de projeto; pastas registradas no harness não são compartilhadas com outros clientes, e outros clientes não veem personas de agentes nem caminhos da pasta pessoal. Cada cliente autorizado tem seu próprio histórico e aprovações. Para isolamento forte de identidades e credenciais, execute instâncias sob usuários de sistema operacional distintos.
 
 A barra de ícones à esquerda reúne, de cima para baixo, o botão da barra lateral, a **Busca** (Ctrl/⌘ K), o sino de atenção, arquivos e atividade, **Runs and pipeline** e **Agents and skills**; na base, nesta ordem, os medidores de cota dos provedores, **Admin**, **Theme**, **About** e **Settings**. O **Admin** só aparece quando seu endereço está disponível e, neste computador, abre **Settings › System**, que embute a administração (Providers, Operations, Runs, Catalogs and vault). Configurações mantém a preferência de tema do harness independente por navegador. A barra lateral não tem mais botões separados de recarregar tela ou recolher; o botão da barra lateral, no topo da barra de ícones (que vira barra superior nos celulares), continua útil em telas pequenas. A atualização automática espera até poder preservar o trabalho em andamento.
 
@@ -138,16 +145,16 @@ Instale Python e as dependências do projeto no outro computador, copie o projet
 ```json
 {
   "mcpServers": {
-    "tail-harness": {
-      "command": "/caminho/tail-harness/.venv/bin/python",
-      "args": ["/caminho/tail-harness/agent_service/mcp_bridge.py"],
-      "env": {"TAIL_HARNESS_AGENT_URL": "http://SEU-SERVIDOR:8095"}
+    "keepharness": {
+      "command": "/caminho/keepharness/.venv/bin/python",
+      "args": ["/caminho/keepharness/agent_service/mcp_bridge.py"],
+      "env": {"KEEPHARNESS_AGENT_URL": "http://SEU-SERVIDOR:8095"}
     }
   }
 }
 ```
 
-Na Tailscale com uma identidade autorizada, a rota encaminha a identidade. Para uma VPN com chave, crie `~/.config/tail-harness/client.json` contendo `{"url":"http://IP-DA-VPN:8095","key_file":"/caminho/privado/para/a/chave"}`. Mantenha a chave em um arquivo privado nesse computador. Nunca coloque uma chave no Git ou em prompts.
+Na Tailscale com uma identidade autorizada, a rota encaminha a identidade. Para uma VPN com chave, crie `~/.config/keepharness/client.json` contendo `{"url":"http://IP-DA-VPN:8095","key_file":"/caminho/privado/para/a/chave"}`. Mantenha a chave em um arquivo privado nesse computador. Nunca coloque uma chave no Git ou em prompts.
 
 O bridge oferece descoberta de modelos/projetos, transferência de arquivos e workspaces, tarefas, progresso compacto, artefatos, cancelamento e aprovações. Continue uma sessão usando o último `job_id` como `parent_job_id`. O Maestro opcional planeja tarefas sequenciais limitadas entre os executores elegíveis; sem ele, a execução automática escolhe o padrão configurado ou o primeiro serviço elegível. Unidades systemd de projetos cadastrados só podem ser controladas pelas permissões correspondentes e por pedidos explícitos.
 
@@ -209,9 +216,9 @@ flowchart TD
 
 ## 💾 Persistence and portable configuration
 
-Instalar a partir do checkout usa um vínculo editável: o serviço executa o código desta pasta diretamente, sem uma segunda cópia em site-packages. Mantenha o checkout neste caminho e reinicie o serviço após alterações de código Python. Wheels continuam sendo distribuições independentes e precisam de atualização explícita.
+O `install.sh` instala um wheel gerado a partir dos arquivos versionados do checkout, então o serviço continua funcionando quando o checkout é movido ou troca de branch; rode `./install.sh` de novo para atualizá-lo. Com `--dev` ele instala um vínculo editável (registrado no arquivo da unit): o serviço passa a executar o código desta pasta diretamente, então mantenha o checkout neste caminho e reinicie o serviço após alterações de código Python.
 
-O estado de produção usa por padrão `~/.local/share/tail-harness`: configurações, perfis de modelo, conversas e anexos. Prévias temporárias usando `/tmp` não substituem o estado de produção. Exporte e importe configurações pelo dashboard ao mudar de instalação; migrar apenas o código ou o banco não migra todas as permissões.
+O estado de produção usa por padrão `~/.local/share/keepharness`: configurações, perfis de modelo, conversas e anexos. Prévias temporárias usando `/tmp` não substituem o estado de produção. Exporte e importe configurações pelo dashboard ao mudar de instalação; migrar apenas o código ou o banco não migra todas as permissões.
 
 As exportações de configuração omitem credenciais, mas podem conter caminhos locais e identidades autorizadas. Trate-as como privadas. A exclusão de conversas na interface é lógica, não uma garantia de apagamento físico. Administradores são responsáveis por backups e retenção.
 
@@ -226,7 +233,7 @@ Quando o compartilhamento Tailscale está configurado com identidades autorizada
 PYTHON="$PWD/.venv/bin/python" PLAYWRIGHT_MODULE=/caminho/playwright ./scripts/test-ui.sh
 ```
 
-As fixtures de UI evitam inferência em nuvem e download de modelos. Uma suíte mocada passando não prova autenticação de terceiros, reinício físico ou desempenho em contexto completo. Para verificar o pacote instalado, use `"$TH_VENV/bin/python" -m control.install_check`, com `TH_VENV` apontando para o ambiente usado na instalação (`~/.local/share/tail-harness/venv` para `install.sh`, `.venv` para `setup.sh`). Esse smoke check roda fora do checkout, com estado temporário e uma porta disponível; ele não instala dependências nem valida a instância de produção e os provedores. Para simular uma instalação limpa, siga a seção dedicada da [spec](dossier/installation-agent-spec.md), preparando ambiente, estado e portas separados por comandos individuais.
+As fixtures de UI evitam inferência em nuvem e download de modelos. Uma suíte mocada passando não prova autenticação de terceiros, reinício físico ou desempenho em contexto completo. Para verificar o pacote instalado, use `"$TH_VENV/bin/python" -m control.install_check`, com `TH_VENV` apontando para o ambiente usado na instalação (`~/.local/share/keepharness/venv` para `install.sh`, `.venv` para `setup.sh`). Esse smoke check roda fora do checkout, com estado temporário e uma porta disponível; ele não instala dependências nem valida a instância de produção e os provedores. Para simular uma instalação limpa, siga a seção dedicada da [spec](dossier/installation-agent-spec.md), preparando ambiente, estado e portas separados por comandos individuais.
 
 Toda nova versão exige uma especificação em inglês em `dossier/releases/v<VERSÃO>.md`, com comportamento, critérios de aceitação, diagramas relevantes, notas de migração e validação realmente executada. Atualize `README.md`, `README.pt-BR.md` e os identificadores de versão juntos. Veja a [versão 0.13.14](dossier/releases/v0.13.14.md) e o [dossiê](dossier/README.md). Referência de produto: [T3 Code](https://github.com/pingdotgg/t3code). Esta é uma implementação independente; não incorpora código ou recursos gráficos do T3 e não alega equivalência de recursos.
 
@@ -244,7 +251,7 @@ O dashboard mostra somente os provedores cadastrados, com ações de edição e 
 
 No dashboard, em **Acesso remoto e configuração → Exportar ou importar configuração**, exporte as escolhas salvas ou selecione um arquivo JSON para pré-visualizar e aplicar. Credenciais, tokens e chaves de VPN são excluídos. O arquivo ainda contém caminhos locais e identidades autorizadas: trate-o como privado. A importação valida caminhos e integrações existentes, não inicia serviços e não pode substituir escolhas durante uma execução ativa. Sem um perfil no arquivo, o perfil local atual é preservado.
 
-Para verificar o pacote já instalado, use o Python do ambiente da instalação (`~/.local/share/tail-harness/venv` para `install.sh`, `.venv` para `setup.sh`):
+Para verificar o pacote já instalado, use o Python do ambiente da instalação (`~/.local/share/keepharness/venv` para `install.sh`, `.venv` para `setup.sh`):
 
 ```sh
 "$TH_VENV/bin/python" -m control.install_check
@@ -276,7 +283,7 @@ O lançador genérico e o painel compartilham o mesmo construtor de comando, inc
 
 ### Projects and provider refresh
 
-Adicione projetos pela barra lateral de conversas do **Tail Harness**, com um nome único de pelo menos três letras e uma ou mais pastas existentes no servidor. Pesquise nomes de pasta no diretório atual, navegue e selecione até 20 pastas; a primeira é o diretório de trabalho principal. O nome e o ícone do projeto aparecem ao lado do título da conversa. Os projetos cadastrados ficam disponíveis para todo modelo habilitado e persistem no banco de conversas entre reinícios. O painel administrativo concentra provedores e perfis locais; modelos, provedores e permissões podem ser alterados enquanto o harness está em execução.
+Adicione projetos pela barra lateral de conversas do **KeepHarness**, com um nome único de pelo menos três letras e uma ou mais pastas existentes no servidor. Pesquise nomes de pasta no diretório atual, navegue e selecione até 20 pastas; a primeira é o diretório de trabalho principal. O nome e o ícone do projeto aparecem ao lado do título da conversa. Os projetos cadastrados ficam disponíveis para todo modelo habilitado e persistem no banco de conversas entre reinícios. O painel administrativo concentra provedores e perfis locais; modelos, provedores e permissões podem ser alterados enquanto o harness está em execução.
 
 Cada inicialização reverifica os provedores habilitados e os modelos selecionados. A interface de conversa também atualiza catálogos de modelo alterados, preservando rascunhos e seleções ainda válidas; as atualizações esperam o fim de uma execução ativa. Codex, Claude e DeepSeek recebem acesso nativo a arquivos, terminal, rede e anexos sem sandbox. Os controles de permissão permanecem específicos aos modelos locais. Autenticação do provedor e compatibilidade de modelo/ferramenta continuam necessárias.
 
@@ -330,7 +337,7 @@ Entre mensagens, selecione outro modelo ou esforço: a próxima execução conti
 
 Os cartões **Modelo local via Codex** e **DeepSeek via Codex** identificam as combinações disponíveis atualmente. O modelo local responde pelo servidor de inferência local; o DeepSeek responde pela sua API e consome créditos DeepSeek. O Codex CLI envia as requisições, executa as ferramentas autorizadas e mantém as sessões; essas integrações não usam um modelo OpenAI como intermediário.
 
-O Tail Harness distingue o modelo do motor de execução. Outras combinações, como DeepSeek ou um modelo local via Claude Code, exigem integração e validação próprias e ainda não são opções nesses cartões. Desenvolver este projeto com o Codex não torna o Harness exclusivo dos modelos OpenAI.
+O KeepHarness distingue o modelo do motor de execução. Outras combinações, como DeepSeek ou um modelo local via Claude Code, exigem integração e validação próprias e ainda não são opções nesses cartões. Desenvolver este projeto com o Codex não torna o Harness exclusivo dos modelos OpenAI.
 
 ## 🆕 Version 0.10.0
 
@@ -369,7 +376,7 @@ O Run console abre com altura útil para inspecionar os cartões do pipeline e s
 
 Catálogos podem declarar recursos, contexto, pré-requisitos de runtime e estado gravável no arquivo opcional `harness.catalog.json`. Pins de projeto executam a partir de worktrees privadas somente para leitura; o painel administrativo local mostra as alterações de recursos antes da troca explícita do pin. O mesmo painel mostra divergências e permite gravar credenciais de integração, sem relê-las, vinculadas ao projeto/catálogo. A injeção por ambiente continua consultiva; a publicação mediada mantém a aprovação humana.
 
-Raízes graváveis e itens de trabalho recebem exclusividade antes do despacho por filas independentes de provedor. Turnos da mesma conversa continuam serializados. `control/product.py` concentra a identidade atual e gera os arquivos de pacote/cliente; um build de segunda identidade sintética verifica comandos e estado separados sem renomear Tail Harness. Veja a [especificação da release](dossier/releases/v0.12.0.md), o [contrato de catálogo](docs/catalog-manifests.md), o [contrato de credenciais](docs/integration-credentials.md) e o [guia de identidade](docs/product-identity.md) para configuração, limites de isolamento e modos explicitamente não suportados.
+Raízes graváveis e itens de trabalho recebem exclusividade antes do despacho por filas independentes de provedor. Turnos da mesma conversa continuam serializados. `control/product.py` concentra a identidade atual e gera os arquivos de pacote/cliente; um build de segunda identidade sintética verifica comandos e estado separados sem renomear KeepHarness. Veja a [especificação da release](dossier/releases/v0.12.0.md), o [contrato de catálogo](docs/catalog-manifests.md), o [contrato de credenciais](docs/integration-credentials.md) e o [guia de identidade](docs/product-identity.md) para configuração, limites de isolamento e modos explicitamente não suportados.
 
 ## 🆕 Version 0.12.1
 
@@ -398,3 +405,7 @@ A rodada 14 move os avisos de bloqueio de modelo/provedor para uma faixa compact
 ## 🆕 Version 0.14.0
 
 O chat adota um shell no estilo do Codex, com uma barra lateral de ícones e uma subbarra no composer. As conversas de um projeto aparecem só na pasta dele e todas as outras ficam em **Chats**, cada uma com um indicador de estado (precisa da sua resposta, em execução, na fila, com falha, não lida) no lugar dos grupos de estado. A subbarra acrescenta **Files**, **Agents** e **Plugins**; a última lista os conectores e plugins disponíveis para o projeto e a rota escolhidos. Crie seus próprios agentes e chame-os com `@@nome` em qualquer provedor: o agente mantém a rota, o histórico acompanha a troca de modelo ou de agente e o chat marca cada mudança com um divisor. **Settings › System** mostra a administração local na mesma tela, o provedor local aceita servidores de modelos compatíveis com a OpenAI na sua rede (por exemplo pela Tailscale), e o login do Claude na administração aceita o código que o navegador mostra. As verificações ao vivo com provedores cobriram o Codex; as rotas do Claude e do DeepSeek e um servidor de modelos real na tailnet não foram validados ao vivo. Veja a [especificação da release](dossier/releases/v0.14.0.md) para migração e validação.
+
+## 🆕 Version 0.15.0
+
+O produto agora se chama **KeepHarness**. O pacote, os comandos (`keepharness`, `keepharness-install`, `keepharness-mcp`, `keepharness-local`), o servidor MCP, as variáveis de ambiente (`KEEPHARNESS_*`) e as pastas (`~/.local/share/keepharness`, `~/.config/keepharness`) usam o novo nome; na primeira inicialização com a pasta de estado padrão, e no `install.sh`, o KeepHarness move e adota as pastas de estado e de configuração do Tail Harness, sem nunca mesclar com uma pasta já existente. Renomeie as variáveis `TAIL_HARNESS_*` que você define e rode o novo `setup-mcp.sh` nos computadores clientes de MCP. A barra lateral ganha **Space** (páginas Markdown por projeto, para anexar ou iniciar um chat) e **Scheduled** (prompts que rodam diariamente, semanalmente ou a cada poucas horas com acesso Ask ou Read only), cada linha de plugin abre uma visão de detalhes, e `desktop/` traz um cliente Electron. Veja a [especificação da release](dossier/releases/v0.15.0.md) para migração e validação.

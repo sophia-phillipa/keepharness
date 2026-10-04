@@ -9,7 +9,7 @@ const { mockHarness, mockAdmin, runPersona } = require("./_harness.cjs");
 const SEED = Number(process.env.GAUNTLET_ROUND || 1);
 const STEPS = Number(process.env.CHAOS_STEPS || 300);
 
-// Mx fixture ("claude-fx-5" stands for fx-claude: TailUI.selectableModel hides other Claude ids).
+// Mx fixture ("claude-fx-5" stands for fx-claude: HarnessUI.selectableModel hides other Claude ids).
 const MX = {
   "GET /v1/models": {
     json: {

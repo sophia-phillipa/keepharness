@@ -1,8 +1,8 @@
 (() => {
   "use strict";
 
-  const STORAGE_KEY = "tail-harness-tour-seen";
-  const RELEASE = "0.14.0";
+  const STORAGE_KEY = "keepharness-tour-seen";
+  const RELEASE = "0.15.0";
   const steps = [
     { target: "top-search", title: "Search the workspace", text: "Search runs and conversations, steps in the current plan, and loaded files from one place. Use Ctrl/⌘+K to open it without leaving the keyboard." },
     { target: "quota-meters", title: "Provider quota", text: "These meters show the latest known allowance for each configured provider. Providers without quota data stay out of the way." },
@@ -281,5 +281,5 @@
   const readiness = new MutationObserver(autoStart);
   readiness.observe(document.body, { attributes: true, subtree: true, attributeFilter: ["data-connection-ready", "open"] });
   autoStart();
-  window.tailHarnessTour = { start, stop, isActive: () => !!root, storageKey: STORAGE_KEY };
+  window.keepHarnessTour = { start, stop, isActive: () => !!root, storageKey: STORAGE_KEY };
 })();

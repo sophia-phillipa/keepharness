@@ -55,7 +55,7 @@ def test_readonly_private_hardlink_is_not_readable(tmp_path, monkeypatch, privat
     os.link(source, alias)
     session = tmp_path / "session"
     session.mkdir()
-    monkeypatch.setenv("TAIL_HARNESS_ROOT", str(install))
+    monkeypatch.setenv("KEEPHARNESS_ROOT", str(install))
     try:
         command = wrap(
             ["/usr/bin/python3", "-c", f"print(open({str(alias)!r}).read())"],
@@ -91,7 +91,7 @@ def test_relocated_private_root_is_not_readable(tmp_path, monkeypatch, private_n
     )
     session = tmp_path / "session"
     session.mkdir()
-    monkeypatch.setenv("TAIL_HARNESS_ROOT", str(install))
+    monkeypatch.setenv("KEEPHARNESS_ROOT", str(install))
     try:
         command = wrap(
             ["/usr/bin/python3", "-c", f"print(open({str(sentinel)!r}).read())"],

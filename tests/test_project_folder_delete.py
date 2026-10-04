@@ -1,5 +1,6 @@
 """Explicit, path-bound primary folder deletion; only temporary fixtures are removed."""
 
+import hashlib
 from pathlib import Path
 from unittest.mock import patch
 
@@ -7,7 +8,17 @@ import pytest
 from starlette.testclient import TestClient
 
 from agent_service.app import APIError, create_app
-from tests.test_project_browser import config
+from tests.test_project_browser import config as browser_config
+
+
+def config(tmp_path):
+    """The browser fixture plus the owner on this computer, who alone deletes folders."""
+    cfg = browser_config(tmp_path)
+    cfg["clients"]["local"] = {
+        "sha256": hashlib.sha256(b"local").hexdigest(),
+        "projects": ["p", "sem-projeto"],
+    }
+    return cfg
 
 
 @pytest.fixture
@@ -22,7 +33,7 @@ def setup(tmp_path):
     cfg = config(tmp_path)
     cfg["projects"]["p"] = {"root": str(root), "additional_roots": [str(extra)]}
     app = create_app(cfg)
-    with TestClient(app, headers={"Authorization": "Bearer a"}) as client:
+    with TestClient(app, headers={"Authorization": "Bearer local"}) as client:
         yield client, app.state.service, root, extra
     app.state.service.db.close()
 
@@ -88,11 +99,11 @@ def test_authentication_and_project_grant(setup):
             "DELETE",
             URL,
             json=data,
-            headers={"Authorization": "Bearer a", "Origin": "https://foreign.invalid"},
+            headers={"Authorization": "Bearer local", "Origin": "https://foreign.invalid"},
         ).status_code
         == 403
     )
-    service.config["clients"]["a"]["projects"] = []
+    service.config["clients"]["local"]["projects"] = []
     assert delete(client, data).status_code == 403
     assert root.exists()
 
@@ -152,7 +163,7 @@ def test_deleted_folder_stays_out_of_catalog_after_restart(setup):
     cfg = copy.deepcopy(service.config)
     assert delete(client, payload(client)).status_code == 200
     assert "p" not in client.get("/v1/projects").json()["projects"]
-    with TestClient(create_app(cfg), headers={"Authorization": "Bearer a"}) as restarted:
+    with TestClient(create_app(cfg), headers={"Authorization": "Bearer local"}) as restarted:
         assert "p" not in restarted.get("/v1/projects").json()["projects"]
     assert not root.exists()
 
@@ -161,7 +172,7 @@ def test_duplicate_registration_is_deleted_together_and_checks_busy_alias(setup)
     client, service, root, _ = setup
     service.config["projects"]["p"]["label"] = "Primary"
     service.config["projects"]["alias"] = {"label": "Primary", "root": str(root)}
-    service.config["clients"]["a"]["projects"].append("alias")
+    service.config["clients"]["local"]["projects"].append("alias")
     data = payload(client)
     assert data["project_ids"] == ["alias", "p"]
     with service.db:
@@ -180,7 +191,7 @@ def test_alias_requires_access_and_reconfirmation(setup):
     data = payload(client)
     service.config["projects"]["alias"] = {"label": "p", "root": str(root)}
     assert client.get(URL).json()["code"] == "project_directory_shared"
-    service.config["clients"]["a"]["projects"].append("alias")
+    service.config["clients"]["local"]["projects"].append("alias")
     assert delete(client, data).json()["code"] == "project_folder_changed"
     assert root.exists()
 
@@ -239,7 +250,7 @@ def test_repository_checkout_is_a_protected_folder(tmp_path):
     cfg = config(tmp_path)
     cfg["projects"]["p"] = {"root": str(REPOSITORY_ROOT / "docs")}
     app = create_app(cfg)
-    with TestClient(app, headers={"Authorization": "Bearer a"}) as client:
+    with TestClient(app, headers={"Authorization": "Bearer local"}) as client:
         response = client.get(URL)
     app.state.service.db.close()
     assert response.status_code == 403

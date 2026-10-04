@@ -9,6 +9,7 @@ const path = require("node:path");
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 860 } });
     const attached = [];
+    let noAgents = false;
     page.on("pageerror", (e) => console.error("PAGEERROR", e.message));
     await page.route("http://panel.test/**", async (route) => {
       const url = new URL(route.request().url()),
@@ -18,7 +19,7 @@ const path = require("node:path");
           path: path.join(
             __dirname,
             "..",
-            pathname.startsWith("/assets/") ? "tail_ui" : "agent_service",
+            pathname.startsWith("/assets/") ? "harness_ui" : "agent_service",
             pathname === "/" ? "index.html" : pathname,
           ),
         });
@@ -35,7 +36,7 @@ const path = require("node:path");
       else if (pathname === "/v1/version") data = { version: "fixture", build: "files-agents" };
       else if (pathname === "/v1/resources")
         data = {
-          items: [
+          items: noAgents ? [] : [
             {
               id: "catalog/demo/agents/reviewer.toml",
               resource_id: "catalog/demo/agents/reviewer.toml",
@@ -76,7 +77,7 @@ const path = require("node:path");
       }
       return route.fulfill({ json: data });
     });
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.14.0"));
+    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
     await page.goto("http://panel.test/");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
 
@@ -86,13 +87,31 @@ const path = require("node:path");
     for (const name of [/Choose project/, /^Files$/, /^Agents$/])
       assert(await bar.getByRole("button", { name }).isVisible(), String(name));
 
-    // Agents inserts "@" and opens the agent list without losing the draft.
+    // OP-R1-14: Agents opens the agent list and leaves the draft exactly as it was.
     await page.fill("#prompt", "Review this");
     await bar.getByRole("button", { name: "Agents" }).click();
-    assert.equal(await page.locator("#prompt").inputValue(), "Review this @");
-    await page.locator("#resource-menu").getByRole("option", { name: /reviewer/ }).waitFor();
+    assert.equal(await page.locator("#prompt").inputValue(), "Review this");
+    const reviewer = page.locator("#resource-menu").getByRole("option", { name: /reviewer/ });
+    await reviewer.waitFor();
     await page.keyboard.press("Escape");
+    assert.equal(await page.locator("#resource-menu").isVisible(), false);
+    assert.equal(await page.locator("#prompt").inputValue(), "Review this");
+    // Choosing an agent adds its token after the draft.
+    await bar.getByRole("button", { name: "Agents" }).click();
+    await reviewer.click();
+    assert.equal(await page.locator("#prompt").inputValue(), "Review this @reviewer ");
     await page.fill("#prompt", "");
+    // With no agent for the model the list offers to create one, in plain words.
+    noAgents = true;
+    await page.evaluate(() => clearResourceItems());
+    await bar.getByRole("button", { name: "Agents" }).click();
+    const menu = page.locator("#resource-menu");
+    await menu.getByRole("button", { name: "Create agent…" }).waitFor();
+    assert.match(await menu.innerText(), /No agents for this model yet\./);
+    assert.doesNotMatch(await menu.innerText(), /No resource compatible/);
+    assert.equal(await page.locator("#prompt").inputValue(), "");
+    await page.keyboard.press("Escape");
+    noAgents = false;
 
     // Files opens the files panel; a selection offers attach and a new chat.
     await bar.getByRole("button", { name: "Files" }).click();

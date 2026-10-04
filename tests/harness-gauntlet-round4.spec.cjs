@@ -45,7 +45,7 @@ const question = (id='question', multi=false) => ({gate_id:id,job_id:'a-job',con
  try {
  await check('A1-F1 complete cards and decisions fit without scrolling', async()=>{
   for(const [width,height] of [[1440,900],[1280,720],[1024,768],[400,812]]) for(const theme of ['porcelain','amethyst','petroleum']){
-   const {page,state,open}=await fixture(browser,width,height);state.plan=true;state.running=true;await page.evaluate(theme=>TailTheme.apply(theme),theme);await open('a');await page.evaluate(()=>runConsole.openRun('a-job'));await page.locator('.run-span-row').nth(2).waitFor();await settle(page);const originalHeight=(await page.locator('#run-console').boundingBox()).height;
+   const {page,state,open}=await fixture(browser,width,height);state.plan=true;state.running=true;await page.evaluate(theme=>HarnessTheme.apply(theme),theme);await open('a');await page.evaluate(()=>runConsole.openRun('a-job'));await page.locator('.run-span-row').nth(2).waitFor();await settle(page);const originalHeight=(await page.locator('#run-console').boundingBox()).height;
    for(const mode of ['default','max','restore']){
     if(width>700&&mode!=='default')await page.locator('#run-console-maximize').click();
     const geometry=await page.evaluate(()=>{const body=document.querySelector('.run-console-body'),bounds=body.getBoundingClientRect();return {scroll:body.scrollTop,limit:bounds.bottom,items:[...body.querySelectorAll('.run-span-row,.run-plan-actions')].map(n=>({text:n.textContent,top:n.getBoundingClientRect().top,bottom:n.getBoundingClientRect().bottom})),buttons:[...body.querySelectorAll('.run-plan-actions button')].map(n=>{const r=n.getBoundingClientRect();return {text:n.textContent,hit:n.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))};})};});

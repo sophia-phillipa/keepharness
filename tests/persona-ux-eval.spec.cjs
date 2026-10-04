@@ -11,7 +11,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
 const assert = require("node:assert/strict"),
   fs = require("node:fs/promises"),
   path = require("node:path");
-const out = process.env.EVAL_OUTPUT || "/tmp/tail-persona-eval";
+const out = process.env.EVAL_OUTPUT || "/tmp/keepharness-persona-eval";
 const personas = [
   ["Ana", "Beginner", 1280],
   ["Bruno", "Occasional mobile user", 390],
@@ -80,10 +80,8 @@ test(0, "Find where to type", async (p) => {
 test(0, "Discover how to add a line break without sending", async (p) => {
   const prompt = p.locator("#prompt");
   assert(await prompt.evaluate((e) => e.matches(":placeholder-shown")));
-  assert.match(
-    await prompt.getAttribute("placeholder"),
-    /Enter to send.*Shift\+Enter for a new line/,
-  );
+  // WP-05: the placeholder is short enough to fit; the line-break hint stays in the field's description.
+  assert.match(await prompt.getAttribute("placeholder"), /Send a message.*\/ for agents and skills/);
   assert.match(await prompt.getAttribute("aria-describedby"), /composer-help/);
   assert.match(
     await p.locator("#composer-help").textContent(),
@@ -802,7 +800,7 @@ test(5, "A query limit does not simulate a disconnection", async (p, s) => {
             body: await fs.readFile(
               path.join(
                 __dirname,
-                file.startsWith("assets/") ? "../tail_ui" : "../agent_service",
+                file.startsWith("assets/") ? "../harness_ui" : "../agent_service",
                 file,
               ),
             ),
@@ -825,7 +823,7 @@ test(5, "A query limit does not simulate a disconnection", async (p, s) => {
         task: c.title,
       };
       try {
-        await p.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.14.0"));
+        await p.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
         await p.goto("http://eval.test");
         await p.locator("#startup-gate").waitFor({ state: "hidden" });
         await c.run(p, s);

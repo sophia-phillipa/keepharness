@@ -4,12 +4,16 @@ from unittest.mock import patch
 from adapters.codex.native import RuntimeOptions, thread_parameters
 
 
-def test_plugin_inventory_is_authoritative_and_only_selects_integrations():
-    workspace = SimpleNamespace(cwd="/tmp/project", permissions={"read": True, "write": True})
+def test_plugin_inventory_is_authoritative_and_only_selects_integrations(tmp_path):
+    # A read grant without the shell also asks for the harness reader's roots.
+    workspace = SimpleNamespace(
+        cwd="/tmp/project", permissions={"read": True, "write": True}, roots=[], home=tmp_path
+    )
     runtime = RuntimeOptions(command=["codex"])
     config = {
         "plugin_inventory": ["plugin:installed@marketplace", "plugin:other@marketplace"],
         "integrations": ["plugin:other@marketplace"],
+        "personal_setup": True,
     }
 
     with (
@@ -62,7 +66,7 @@ def test_plugin_inventory_falls_back_to_legacy_catalog_when_absent():
         ),
     ):
         params = thread_parameters(
-            {"integrations": ["plugin:legacy@marketplace"]},
+            {"integrations": ["plugin:legacy@marketplace"], "personal_setup": True},
             {},
             "fixture",
             workspace,

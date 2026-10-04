@@ -6,6 +6,7 @@ provider (``await manager.check``) and hands the result to the matching builder 
 
 import hashlib
 import json
+import logging
 import platform
 import secrets
 import shutil
@@ -15,14 +16,31 @@ from pathlib import Path
 from types import MappingProxyType
 
 from adapters.deepseek import account as deepseek
+from adapters.shared.provider_setup import credential_file, homes_root
 
+from . import local_access
 from .local_models import runtime_permissions, runtime_roots
+
+logger = logging.getLogger(__name__)
+
+CATALOG_MISSING = "Model not returned by the current provider's catalog."
+SIGN_IN_REQUIRED = (
+    "Sign in required: use Log in / Renew access on the provider card, then Check account."
+)
+CLI_MISSING = "The provider's CLI was not found on this computer. Install it, then sign in."
+# Providers that sign in through their own CLI; without a login they lose their routes only.
+# Claude is not listed: a pending Claude login is an account condition that never blocked the
+# start (tests/test_provider_login.py), so its routes stay until Sophia decides otherwise.
+SIGN_IN_PROVIDERS = ("codex", "gemini")
 
 
 def base_config(settings, state, admin_port, browser_url, provider_revisions):
     cfg = {
         "browser_url": browser_url,
         "state_dir": str(state / "runs"),
+        # Run folders (provider cwd, thread markers, attachment text) never sit under the state
+        # folder that holds the keys: a sibling keeps the key folder out of every run's parents.
+        "sessions_dir": str(state.parent / (state.name + "-sessions")),
         "projects": {"sem-projeto": {"label": "No project"}},
         "catalogs": json.loads(json.dumps(settings.get("catalogs", []))),
         "clients": {},
@@ -34,15 +52,23 @@ def base_config(settings, state, admin_port, browser_url, provider_revisions):
         "maestro_enabled": settings.get("maestro_enabled", True),
         "maestro_instructions": settings.get("maestro_instructions", ""),
         "maestro_coordinator": settings.get("maestro_coordinator", {}),
-        "shared_projects": True,
+        # The owner registers project folders; other clients receive them only when shared.
+        "project_registration": True,
+        "shared_projects": False,
         "control_state_dir": str(state),
+        "personal_setup": settings.get("personal_setup") is True,
         "admin_url": f"http://127.0.0.1:{admin_port}/",
         "local_access": settings.get("vpn_bind", "127.0.0.1") == "127.0.0.1",
+        # Loopback is every account on this computer; the owner also holds this secret (D09).
+        "local_secret_sha256": local_access.digest(local_access.ensure_secret(state)),
         "bind": settings.get("vpn_bind", "127.0.0.1"),
         "port": settings["port"],
         "config_revision": str(uuid.uuid4()),
         "provider_revisions": provider_revisions,
     }
+    for key in ("approval_timeout_seconds", "approval_max_consecutive_expirations"):
+        if key in settings:
+            cfg[key] = settings[key]
     for key in ("integrations", "integration_bindings", "effect_integrations", "secret_vault_revision"):
         if key in settings:
             cfg[key] = json.loads(json.dumps(settings[key]))
@@ -94,8 +120,40 @@ def build_deepseek(cfg, provider, spec, checked, info, state):
             "key_file": str(deepseek.key_file(state)),
         },
         "integrations": spec.get("integrations", []),
+        "provider_homes": str(homes_root(state)),
     }
     cfg["deepseek_models"] = {m: checked["models"][m] for m in spec["models"]}
+
+
+def catalog_models(cfg, provider, models, catalog):
+    """The ``models`` this run routes to once codex and gemini are checked against ``catalog``.
+
+    A codex model the catalog no longer returns loses only its own route in ``cfg``; the saved
+    settings keep the selection so the admin can repair it. Gemini still refuses to start.
+    """
+    if provider not in ("codex", "gemini"):
+        return models
+    kept = [model for model in models if model in catalog]
+    retired = [model for model in models if model not in catalog]
+    if not retired:
+        return models
+    if provider == "gemini":
+        raise ValueError(CATALOG_MISSING)
+    logger.warning(
+        "%s: %s Routes unavailable until repaired: %s",
+        provider, CATALOG_MISSING, ", ".join(retired),
+    )
+    cfg["services"][provider]["models"] = kept
+    cfg.setdefault("unavailable_models", {})[provider] = dict.fromkeys(retired, CATALOG_MISSING)
+    return kept
+
+
+def quarantine_provider(cfg, provider, reason):
+    """Take every route of ``provider`` offline with ``reason``; the harness still starts."""
+    models = cfg["services"][provider]["models"]
+    logger.warning("%s: %s Routes unavailable until repaired.", provider, reason)
+    cfg["services"][provider]["models"] = []
+    cfg.setdefault("unavailable_models", {})[provider] = dict.fromkeys(models, reason)
 
 
 def build_cli_provider(cfg, provider, spec, checked, info, state):
@@ -109,22 +167,23 @@ def build_cli_provider(cfg, provider, spec, checked, info, state):
             + " and use local file authentication. Keychain is not supported by the current sandbox."
         )
     binary = native_binary(info["binary"])
-    if provider in ("codex", "gemini") and any(m not in checked["models"] for m in spec["models"]):
-        raise ValueError("Model not returned by the current provider's catalog.")
+    models = catalog_models(cfg, provider, spec["models"], checked["models"])
     cfg[provider] = {
         "binary": str(binary),
         "auth_file": info["auth_file"],
         "python": sys.executable,
         "integrations": spec.get("integrations", []),
     }
-    if provider == "claude" and "global_hooks" in spec:
-        cfg[provider]["global_hooks"] = spec["global_hooks"] is True
+    if provider in ("codex", "claude"):
+        # Logins and sessions live in the harness-owned home, never the terminal's (D02).
+        cfg[provider]["provider_homes"] = str(homes_root(state))
+        cfg[provider]["auth_file"] = str(credential_file(state, provider))
     if provider == "claude" and (state / "claude-cli-login").exists():
         cfg[provider]["use_cli_login"] = True
     cfg[provider + "_models"] = (
-        {m: checked["models"].get(m, ["configured"]) for m in spec["models"]}
+        {m: checked["models"].get(m, ["configured"]) for m in models}
         if provider in ("codex", "claude")
-        else spec["models"]
+        else models
     )
 
 
@@ -154,6 +213,8 @@ def check_mcp_defaults(cfg):
     if defaults:
         backend = defaults["backend"]
         model = defaults["model"]
+        if model in cfg.get("unavailable_models", {}).get(backend, {}):
+            return  # its route is quarantined: the default fails alone, not the start
         catalog = cfg.get(backend + "_models", {})
         supported = catalog.get(model, []) if isinstance(catalog, dict) else ["configured"]
         if defaults.get("effort") and defaults["effort"] not in supported:

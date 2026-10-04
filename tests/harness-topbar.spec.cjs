@@ -13,7 +13,7 @@ const assert = require("node:assert/strict");
           path: require("node:path").join(
             __dirname,
             "..",
-            pathname.startsWith("/assets/") ? "tail_ui" : "agent_service",
+            pathname.startsWith("/assets/") ? "harness_ui" : "agent_service",
             pathname === "/" ? "index.html" : pathname,
           ),
         });
@@ -60,7 +60,7 @@ const assert = require("node:assert/strict");
                   : {};
       return route.fulfill({ json: data });
     });
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.14.0"));
+    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
     await page.goto(process.env.HARNESS_URL || "http://panel.test/");
     await page.locator("#startup-gate").waitFor({ state: "visible" });
     assert.equal(
@@ -77,7 +77,7 @@ const assert = require("node:assert/strict");
       await page.locator("#app-topbar > :first-child").getAttribute("id"),
       "app-brand",
     );
-    assert.equal(await page.locator("#app-brand").innerText(), "Tail Harness");
+    assert.equal(await page.locator("#app-brand").innerText(), "KeepHarness");
     assert.equal(await page.locator("#sidebar .brand").count(), 0);
     const top = await page.locator("#app-topbar").boundingBox();
     assert.equal(top.y, 0);
@@ -214,9 +214,14 @@ const assert = require("node:assert/strict");
         .locator("#prompt")
         .evaluate((el) => el.matches(":placeholder-shown")),
     );
+    // The placeholder is short enough to fit (WP-05); the key hints stay in the field's description.
     assert.match(
       await page.locator("#prompt").getAttribute("placeholder"),
-      /Send a message.*Enter to send.*Shift\+Enter for a new line/,
+      /Send a message.*\/ for agents and skills/,
+    );
+    assert.match(
+      await page.locator("#composer-help").textContent(),
+      /Enter to send.*Shift\+Enter for a new line/,
     );
     await page.locator("#prompt").fill("Text");
     assert.equal(
@@ -232,7 +237,7 @@ const assert = require("node:assert/strict");
     );
     await page.locator("#prompt").fill("");
     assert((await page.locator("#prompt").boundingBox()).height < 42);
-    await page.screenshot({ path: "/tmp/tail-composer-project.png" });
+    await page.screenshot({ path: "/tmp/keepharness-composer-project.png" });
     await page.locator("#new").click();
     assert.equal(
       await page.locator("#conversation-title").innerText(),
@@ -277,7 +282,7 @@ const assert = require("node:assert/strict");
       "false",
     );
     assert(await page.locator("#app-topbar").isVisible());
-    await page.screenshot({ path: "/tmp/tail-topbar-desktop.png" });
+    await page.screenshot({ path: "/tmp/keepharness-topbar-desktop.png" });
     await page.setViewportSize({ width: 390, height: 844 });
     await page.click("#menu");
     await page.locator("#sidebar.open").waitFor({ state: "visible" });
@@ -303,7 +308,7 @@ const assert = require("node:assert/strict");
       "activity drawer begins below topbar",
     );
     await page.click("#panel-toggle");
-    await page.screenshot({ path: "/tmp/tail-topbar-mobile.png" });
+    await page.screenshot({ path: "/tmp/keepharness-topbar-mobile.png" });
     for (const width of [1280, 900, 390]) {
       await page.setViewportSize({ width, height: 860 });
       for (const order of ["conversations-right", "conversations-left"]) {
@@ -349,6 +354,30 @@ const assert = require("node:assert/strict");
         assert.equal(await page.locator("#sidebar").isVisible(), false);
         await page.click("#menu");
         assert.equal(await page.locator("#sidebar").isVisible(), true);
+      }
+    }
+    // QA-R3-1, OP-R2-7: the state pill and the access chip stay in the header at every desktop width,
+    // with the Code panel closed and open; the header holds one line.
+    for (const width of [1440, 1280, 1279, 1024, 800]) {
+      for (const panelOpen of [false, true]) {
+        await page.setViewportSize({ width, height: 860 });
+        await page.evaluate((open) => {
+          document.body.classList.add("sidebar-collapsed");
+          setPanelOpen(open, false);
+          fitPanels();
+        }, panelOpen);
+        const where = `${width}px, Code panel ${panelOpen ? "open" : "closed"}`;
+        const header = await page.evaluate(() => {
+          const box = (id) => {
+            const el = document.getElementById(id), rect = el.getBoundingClientRect();
+            return { width: rect.width, text: el.innerText, visible: el.checkVisibility() };
+          };
+          const bar = document.querySelector("main > header");
+          return { pill: box("conversation-state-pill"), access: box("header-access"), overflow: bar.scrollWidth - bar.clientWidth };
+        });
+        assert(header.pill.visible && header.pill.width > 0 && header.pill.text, `state pill visible at ${where}`);
+        assert(header.access.visible && header.access.width > 0 && !header.access.text.includes("_"), `access chip visible at ${where}`);
+        assert(header.overflow <= 1, `header does not overflow at ${where}`);
       }
     }
     console.log(

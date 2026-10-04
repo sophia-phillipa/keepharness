@@ -16,7 +16,7 @@ const { VIEWPORTS, THEMES } = require('./visual/harness-visual-helpers.cjs');
     const status = {catalogs: [catalog], projects: [project], preflight: [{project_id:'demo',catalog_id:'demo',manifest:true,integrations:[{integration:'reader',consumers:['codex','claude'],environment:{ISSUE_TOKEN:'token'},precedence:'vault',mediated:false}],preflight:['Provision the catalog Python environment in Admin.']}], drift: [{resource_id:'catalog/demo/commands/check.md', locations:['demo','other'], revisions:{demo:{revision:'aaa'},other:{revision:'bbb'}}}]};
     const vault = { credentials: [], bindings: [], contracts: [] };
     let writes = 0, moves = 0, fail = false, malformed = false;
-    const output=process.env.EVAL_OUTPUT || await fs.mkdtemp(path.join(os.tmpdir(),'tail-harness-p5-admin-'));
+    const output=process.env.EVAL_OUTPUT || await fs.mkdtemp(path.join(os.tmpdir(),'keepharness-p5-admin-'));
     await fs.mkdir(output,{recursive:true});
     const visualEvidence=[];
     await page.route('http://admin.test/**', async route => {
@@ -44,14 +44,14 @@ const { VIEWPORTS, THEMES } = require('./visual/harness-visual-helpers.cjs');
         return route.fulfill({json:result});
       }
       const file = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);
-      return route.fulfill({body:await fs.readFile(path.join(__dirname,file.startsWith('assets/')?'../tail_ui':'../control',file)),contentType:file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':file.endsWith('.svg')?'image/svg+xml':'text/html'});
+      return route.fulfill({body:await fs.readFile(path.join(__dirname,file.startsWith('assets/')?'../harness_ui':'../control',file)),contentType:file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':file.endsWith('.svg')?'image/svg+xml':'text/html'});
     });
     await page.goto('http://admin.test/#catalogs');
     await page.locator('#catalog-project').selectOption('demo');
     async function captureVisualMatrix(state,target,pattern) {
       assert.match(await page.locator(target).innerText(),pattern,`${state} content is present before capture`);
       for (const theme of THEMES) {
-        await page.evaluate(value => window.TailTheme.apply(value,false),theme);
+        await page.evaluate(value => window.HarnessTheme.apply(value,false),theme);
         for (const viewport of VIEWPORTS) {
           await page.setViewportSize(viewport);
           await page.locator(target).scrollIntoViewIfNeeded();
@@ -67,7 +67,7 @@ const { VIEWPORTS, THEMES } = require('./visual/harness-visual-helpers.cjs');
         }
       }
       await page.setViewportSize({width:1440,height:900});
-      await page.evaluate(() => window.TailTheme.apply('violet-bordeaux',false));
+      await page.evaluate(() => window.HarnessTheme.apply('violet-bordeaux',false));
     }
     const duplicates=await page.locator('[id]').evaluateAll(nodes=>{const seen=new Set();return nodes.filter(node=>{if(seen.has(node.id))return true;seen.add(node.id);return false;}).map(node=>node.id);});
     assert.deepEqual(duplicates,[],'Panel IDs must remain unique across provider and catalog views');

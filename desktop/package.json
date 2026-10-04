@@ -1,0 +1,14 @@
+{
+  "name": "keepharness-desktop",
+  "version": "0.15.0",
+  "private": true,
+  "description": "KeepHarness desktop client: runs the local admin and opens the harness in its own window",
+  "main": "main.cjs",
+  "scripts": {
+    "dev": "electron .",
+    "test": "node --test *.test.cjs"
+  },
+  "devDependencies": {
+    "electron": "44.4.1"
+  }
+}

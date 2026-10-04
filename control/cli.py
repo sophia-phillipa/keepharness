@@ -4,11 +4,35 @@ import argparse
 import asyncio
 import json
 import os
+import socket
 import sys
 from pathlib import Path
 
 from .discovery import scan
-from .product import PRODUCT, ensure_lineage
+from .product import (
+    PRODUCT,
+    describe,
+    ensure_lineage,
+    legacy_waiting,
+    migration_refusal,
+    port_holders,
+)
+
+
+def port_taken(port):
+    """Why 127.0.0.1:``port`` cannot be bound, or None.
+
+    uvicorn runs the lifespan (discovery, provider checks) before it binds, so a busy port is
+    checked first instead of after that work, at every restart of the unit.
+    """
+    with socket.socket() as probe:
+        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)  # as uvicorn binds
+        try:
+            probe.bind(("127.0.0.1", port))
+        except OSError as exc:
+            holders = describe(port_holders(port)) or "another program"
+            return f"127.0.0.1:{port} is already in use by {holders} ({exc.strerror})."
+    return None
 
 
 def main(argv=None):
@@ -31,8 +55,15 @@ def main(argv=None):
     enroll.add_argument(
         "--yes", action="store_true", help="Confirm enrollment without an interactive terminal"
     )
+    sign_in = commands.add_parser(
+        "open", help="Sign a browser on this computer in with a one-time link, and open it"
+    )
+    sign_in.add_argument(
+        "--revoke", action="store_true", help="Sign every browser on this computer out instead"
+    )
     args = parser.parse_args(argv)
     os.umask(0o077)
+    default_state = args.state == parser.get_default("state")
     if not 1024 <= args.port <= 65535:
         parser.error("Port must be between 1024 and 65535")
     if args.command == "approve-device":
@@ -41,6 +72,9 @@ def main(argv=None):
 
         if args.all and not args.revoke:
             parser.error("--all requires --revoke")
+        # Creating the new folder here would make the pending move refuse to merge.
+        if default_state and (waiting := legacy_waiting()):
+            parser.error(waiting)
         try:
             ensure_lineage(Path(args.state), PRODUCT)
             config = json.loads((Path(args.state) / "runtime.json").read_text())
@@ -69,20 +103,73 @@ def main(argv=None):
         print("Open this single-use link in the owner's browser within 10 minutes:")
         print(origin + "/approve-device?nonce=" + nonce)
         return
+    if args.command == "open" and args.revoke:
+        revoke_browsers(parser, Path(args.state))
+        return
+    if args.command == "open":
+        open_browser(parser, Path(args.state), args.port)
+        return
     if args.scan:
         print(json.dumps(asyncio.run(scan()), indent=2, ensure_ascii=False))
         return
+    serve(args, default_state)
+
+
+def revoke_browsers(parser, state):
+    """`keepharness open --revoke`: every browser signed in on this computer must open again."""
+    from .local_access import revoke_sessions
+
+    if not state.is_dir():
+        parser.error(f"No {PRODUCT.name} state at {state}; start {PRODUCT.slug} first.")
+    print(f"Signed out {revoke_sessions(state)} browser session(s).")
+
+
+def open_link(state, port):
+    """A one-time link that signs this computer's browser in; the secret only signs it."""
+    from .local_access import OPEN_PATH, ensure_secret, open_ticket
+
+    return f"http://127.0.0.1:{port}{OPEN_PATH}?ticket={open_ticket(ensure_secret(state))}"
+
+
+def open_browser(parser, state, port):
+    """`keepharness open`: print a one-time link for this computer's browser and open it."""
+    import webbrowser
+
+    if not state.is_dir():
+        parser.error(f"No {PRODUCT.name} state at {state}; start {PRODUCT.slug} first.")
+    link = open_link(state, port)
+    print("Open this single-use link in your browser within 5 minutes:")
+    print(link)
+    webbrowser.open(link)
+
+
+def serve(args, default_state):
+    """Start the admin server once its port is free and its state folder may be used."""
     import uvicorn
 
     from agent_service.log_config import configure_logging
 
+    from .env import warn_legacy_names
     from .server import create_app
 
+    if busy := port_taken(args.port):
+        raise SystemExit(busy)
     configure_logging()
+    warn_legacy_names()
+    # Only install.sh moves Tail Harness state (decision D24). Starting now would create an
+    # empty new folder beside the old one, and the move would then never happen.
+    if default_state and (waiting := legacy_waiting()):
+        raise SystemExit(migration_refusal(Path.home()) or waiting)
 
+    app = create_app(args.state, args.port)
     print(f"Local management: http://127.0.0.1:{args.port}/", flush=True)
+    # A link in a service journal could reach other accounts; only a terminal gets one.
+    if sys.stdout.isatty():
+        print("Sign this computer's browser in: " + open_link(Path(args.state), args.port))
+    else:
+        print(f"Run `{PRODUCT.slug} open` to sign this computer's browser in.", flush=True)
     uvicorn.run(
-        create_app(args.state, args.port),
+        app,
         host="127.0.0.1",
         port=args.port,
         proxy_headers=False,

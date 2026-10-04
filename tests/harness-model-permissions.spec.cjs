@@ -56,7 +56,7 @@ const assert = require("node:assert/strict");
         }));
       await r.fulfill({ json: data });
     });
-    await p.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.14.0"));
+    await p.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
     await p.goto(process.env.HARNESS_URL || "http://127.0.0.1:18196/");
     await p.waitForFunction(
       () =>

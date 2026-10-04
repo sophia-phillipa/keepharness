@@ -75,8 +75,12 @@ def test_consecutive_expirations_cancel_job_and_release_queue(
         instance.quota = AsyncMock(return_value={})
         worker = asyncio.create_task(instance.worker())
         try:
+            # D14: the waiting run frees its lane, so the next job may finish first.
             async with asyncio.timeout(1):
-                while instance.conversation_repository.state(jobs[1])[0] != "completed":
+                while (
+                    instance.conversation_repository.state(jobs[1])[0] != "completed"
+                    or instance.conversation_repository.state(jobs[0])[0] == "running"
+                ):
                     await asyncio.sleep(0.001)
             row = instance.conversation_repository.get(jobs[0])
             assert row["state"] == "cancelled"

@@ -207,7 +207,7 @@ def test_no_read_or_scoped_and_reserved_prefix(tmp_path, monkeypatch):
     config["services"]["codex"]["mode"] = "scoped"
     assert not resources.discover(config, "p", "codex")["items"]
     for prefix in ("@@a", "//skill"):
-        with pytest.raises(resources.ResourceError, match="tail_resources_unavailable"):
+        with pytest.raises(resources.ResourceError, match="harness_resources_unavailable"):
             resources.resolve(config, {"project_id": "p", "backend": "codex", "prompt": prefix})
 
 

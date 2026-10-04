@@ -7,7 +7,9 @@ import re
 import shlex
 import tomllib
 from itertools import islice
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+
+from adapters.shared.provider_setup import homes_root
 
 from .invocations import Invocation, InvocationError
 
@@ -201,8 +203,13 @@ def preflight_hint(reason):
     return "Choose a compatible provider, model, and execution mode."
 
 
-def roots(engine):
+def roots(engine, config):
+    """User-scope roots: the harness home's, or the owner's when they opted in (decision D01)."""
     home = Path.home()
+    harness_home = engine in ("codex", "claude") and config.get("control_state_dir")
+    if harness_home and config.get("personal_setup") is not True:
+        home = homes_root(config["control_state_dir"]) / "home"
+        return home / ("." + engine), ([home / ".agents/skills"] if engine == "codex" else [])
     if engine == "codex":
         return Path(os.environ.get("CODEX_HOME", home / ".codex")), [home / ".agents/skills"]
     if engine == "claude":
@@ -243,6 +250,18 @@ def files(base, boundary, global_roots, kind):
         raise ResourceError("resource_scan_limit")
 
 
+def without_host_paths(result: dict) -> dict:
+    """The listing for a client other than the local owner: each item's logical id stands in
+    for its absolute source path, so no home folder or account name leaves the host."""
+    ids = {item["source"]: item["resource_id"] for item in result.get("items", [])}
+    for item in result.get("items", []):
+        item["source"] = item["resource_id"]
+    for key in ("agents", "skills"):
+        for entry in result.get(key, []):
+            entry["source"] = ids.get(entry["source"], entry["source"])
+    return result
+
+
 def discover(
     config,
     project_id,
@@ -255,8 +274,8 @@ def discover(
 ):
     from .catalog_manifest import load_manifest, preflight
     from .catalog_pin import effective_catalogs, snapshot_catalogs
+    from .harness_agents import add_resources
     from .integrations import integration_preflight
-    from .tail_agents import add_resources
     from .workflows import discover_workflows
 
     engine = ENGINES.get(backend)
@@ -271,7 +290,7 @@ def discover(
         ),
     }
     if include_workflows:
-        # Tail-owned resources need no engine, so they come with the workflows; plan
+        # Harness-owned resources need no engine, so they come with the workflows; plan
         # dependency lookups (include_workflows=False) read native resources only.
         add_resources(result, config, project_id, private=private)
     if engine is None:
@@ -282,7 +301,7 @@ def discover(
         return result
     project = config["projects"][project_id]
     root = Path(project["root"]).resolve() if project.get("root") else None
-    global_base, shared = roots(engine)
+    global_base, shared = roots(engine, config)
     sources = []
 
     def source(base, scope, origin, boundary, kind, identity, identity_root, namespace=""):
@@ -725,17 +744,30 @@ def discover(
 def accepted_tokens(item):
     """Spellings a selection may use for ``item``; the last is the canonical one."""
     name = item["name"]
-    if item["scope"] == "tail":
+    if item["scope"] == "harness":
         return ("@@" + name,)
     return ("/" + name, "@" + name) if item["kind"] == "agent" else ("/" + name,)
+
+
+TITLE_LIMIT = 100
+RESERVED_MARKER = re.compile(r"(?<!\S)@@[\w:-]+(?=\s|$)")
+SENTENCE_END = re.compile(r"(?<=[.!?])\s|\n")
+
+
+def conversation_title(prompt):
+    """A readable default title: the first sentence of the prompt without its ``@@`` markers."""
+    text = RESERVED_MARKER.sub(" ", str(prompt)).strip()
+    sentence = " ".join(SENTENCE_END.split(text, 1)[0].split())
+    # "e.g." or "Hi." is not a title: a very short first sentence falls back to the whole prompt.
+    return (sentence if len(sentence) > 11 else " ".join(text.split()))[:TITLE_LIMIT] or "Conversation"
 
 
 def reserved_markers(prompt, selections):
     """The ``@@`` markers in the prompt; ``//`` or a marker nothing was selected for is refused."""
     prose = unfenced(prompt, preserve_offsets=True)
-    markers = set(re.findall(r"(?<!\S)@@[\w:-]+(?=\s|$)", prose))
+    markers = set(RESERVED_MARKER.findall(prose))
     if re.search(r"^\s*//[A-Za-z_][\w:-]*(?=\s|$)", prose) or (markers and not selections):
-        raise ResourceError("tail_resources_unavailable")
+        raise ResourceError("harness_resources_unavailable")
     return markers
 
 
@@ -780,10 +812,27 @@ def resolve(config, data):
             raise ResourceError("resource_selection_missing")
         if not any(value["id"] == item["id"] for value in result):
             result.append({**item, "_token": token})
-    # An @@ marker is honored only for a Tail agent that was selected with that token.
+    # An @@ marker is honored only for a Harness agent that was selected with that token.
     if reserved - {value["_token"] for value in result}:
-        raise ResourceError("tail_resources_unavailable")
+        raise ResourceError("harness_resources_unavailable")
     return result
+
+
+def release_notice(previous):
+    """The line telling the model that the previous turn's agent was released, or ``""``.
+
+    A native provider session keeps the persona text for good, so releasing the agent in the
+    harness alone would leave the model playing it.
+    """
+    persona = previous.get("invocations", [])
+    if len(persona) != 1 or persona[0].get("mode") != "conversational":
+        return ""
+    name = PurePosixPath(persona[0]["resource_id"]).stem
+    return (
+        "The conversational agent "
+        + json.dumps(name)
+        + " was released; answer normally from now on.\n"
+    )
 
 
 def prepare_prompt(prompt, items, selections=None):
@@ -805,18 +854,18 @@ def prepare_prompt(prompt, items, selections=None):
         token = item.get("_token", "/" + name)
         if item["kind"] == "agent":
             if item.get("mode") == "conversational":
-                # A Tail agent has no file in the project: naming one would invite the model to look.
-                tail = item.get("scope") == "tail"
+                # A Harness agent has no file in the project: naming one would invite the model to look.
+                harness_agent = item.get("scope") == "harness"
                 notes.append(
                     "Adopt the conversational agent "
                     + json.dumps(name)
                     + (
-                        " defined by the user in Tail Harness"
-                        if tail
+                        " defined by the user in KeepHarness"
+                        if harness_agent
                         else " defined at " + json.dumps(item["source"])
                     )
                     + " for this main-thread conversation until it is released."
-                    + (" Its definition follows inline." if tail else "")
+                    + (" Its definition follows inline." if harness_agent else "")
                     + "\n"
                     + item.get("_body", "")
                 )

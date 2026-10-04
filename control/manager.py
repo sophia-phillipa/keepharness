@@ -19,6 +19,7 @@ from adapters.claude.auth import cli_login_environment
 from adapters.codex.rpc import metadata
 from adapters.deepseek import account as deepseek
 from adapters.gemini import account as gemini
+from adapters.shared.provider_setup import child_source, homes_root, login_environment
 from agent_service.config import VERSION_FILE
 from agent_service.work_items import validate_pattern
 
@@ -27,6 +28,7 @@ from . import (
     env,
     integration_catalog,
     integrations,
+    local_access,
     local_models,
     remote_models,
     runtime_config,
@@ -38,6 +40,21 @@ from .product import PRODUCT, ensure_lineage
 
 ROOT = env.REPOSITORY_ROOT
 PERMISSIONS = ("read", "write", "upload", "tests", "internet", "shell", "hooks")
+# Settings the admin keeps from the stored file when a save does not send them (HAR-R2-5),
+# with their accepted ranges. The agent service applies its defaults when they are absent.
+MAX_CONCURRENT = range(1, 9)
+APPROVAL_LIMITS = {
+    "approval_timeout_seconds": range(60, 86401),
+    "approval_max_consecutive_expirations": range(1, 11),
+}
+
+
+def kept_setting(posted, stored, key, allowed, message):
+    """``posted[key]``, else ``stored[key]``; an int within ``allowed`` or a ``ValueError``."""
+    value = posted.get(key, stored.get(key))
+    if value is not None and (type(value) is not int or value not in allowed):
+        raise ValueError(message)
+    return {} if value is None else {key: value}
 
 
 def migrate_local_ai_directory(root: Path, state: Path) -> None:
@@ -73,6 +90,8 @@ class Manager:
         self.state_repository = ControlStateRepository(self.state)
         self.path = self.state_repository.settings_path
         self.cookie = secrets.token_urlsafe(32)
+        self.local_secret = local_access.ensure_secret(self.state)
+        self.open_tickets = {}
         self.admin_port = 8094
         self.dashboard = DashboardReader(self.state)
         self.inventory = None
@@ -132,6 +151,7 @@ class Manager:
         self.operations = Operations()
         self.startup_error = None
         self.provider_revisions = {}
+        self.unavailable_models = {}
 
     def audit(self, action):
         self.state_repository.audit(action)
@@ -206,6 +226,10 @@ class Manager:
             for p in ("codex", "claude", "gemini", "deepseek")
         )
         out["maestro_enabled"] = data.get("maestro_enabled", True) is True
+        # The owner's own Codex and Claude Code setup in their conversations (decision D01).
+        if type(data.get("personal_setup", False)) is not bool:
+            raise ValueError("Use my personal setup must be an explicit boolean.")
+        out["personal_setup"] = data.get("personal_setup", False)
         policy = data.get("maestro_instructions", "")
         if not isinstance(policy, str) or len(policy) > 12000:
             raise ValueError("Maestro instructions: maximum of 12,000 characters.")
@@ -402,7 +426,7 @@ class Manager:
                 or any(not isinstance(x, str) or not re.fullmatch(model_pattern, x) for x in models)
             ):
                 raise ValueError("Invalid model list.")
-            # Same rule as TailUI.selectableModel, which hides other ids from both UIs;
+            # Same rule as HarnessUI.selectableModel, which hides other ids from both UIs;
             # ids stored by an older version stay accepted so saving never locks up.
             stored = self.settings["services"].get(provider, {}).get("models", [])
             hidden = [
@@ -451,11 +475,14 @@ class Manager:
                 "models": list(dict.fromkeys(models)),
                 "projects": allowed_projects,
                 "permissions": perms,
+                **kept_setting(
+                    spec,
+                    self.settings["services"].get(provider, {}),
+                    "max_concurrent",
+                    MAX_CONCURRENT,
+                    "Concurrent runs must be a whole number from 1 to 8.",
+                ),
             }
-            if provider == "claude" and "global_hooks" in spec:
-                if type(spec["global_hooks"]) is not bool:
-                    raise ValueError("Global hooks must be an explicit boolean.")
-                out["services"][provider]["global_hooks"] = spec["global_hooks"]
         logins = data.get("logins", [])
         if (
             not isinstance(logins, list)
@@ -497,6 +524,10 @@ class Manager:
             defaults = {"backend": backend, "model": model, "effort": effort}
         out["mcp_defaults"] = defaults
         out["logins"] = list(dict.fromkeys(logins))
+        for key, allowed in APPROVAL_LIMITS.items():
+            out.update(
+                kept_setting(data, self.settings, key, allowed, "Invalid approval wait limits.")
+            )
         # Network servers change only through their own routes (they probe and store the key);
         # a posted or imported payload can neither add an address nor drop a saved one.
         if self.settings.get("remote_models"):
@@ -530,6 +561,7 @@ class Manager:
 
     def _write_runtime(self, config):
         self.state_repository.write_runtime(config)
+        self.unavailable_models = config.get("unavailable_models", {})
 
     def browser_url(self, settings):
         host = (self.inventory or {}).get("network", {}).get("hostname")
@@ -554,8 +586,11 @@ class Manager:
             if not spec["enabled"]:
                 continue
             enabled += 1
-            checked = await self.check(provider)
             info = next(s for s in self.inventory["services"] if s["id"] == provider)
+            checked, reason = await self.check_for_runtime(provider, info)
+            if reason:
+                runtime_config.quarantine_provider(cfg, provider, reason)
+                continue
             build = runtime_config.BUILDERS.get(provider, runtime_config.build_cli_provider)
             build(cfg, provider, spec, checked, info, self.state)
         if not enabled and not allow_empty:
@@ -565,6 +600,15 @@ class Manager:
         runtime_config.build_clients(cfg, settings, self.state, self._previous_runtime())
         runtime_config.build_origins(cfg, settings, self.inventory)
         return cfg
+
+    async def check_for_runtime(self, provider, info):
+        """The provider check and, for a CLI provider that cannot run, why it is quarantined."""
+        if provider not in runtime_config.SIGN_IN_PROVIDERS:
+            return await self.check(provider), None
+        if info.get("found") is False:
+            return None, runtime_config.CLI_MISSING
+        checked = await self.check(provider)
+        return checked, None if checked["authenticated"] else runtime_config.SIGN_IN_REQUIRED
 
     async def apply_settings(self, data):
         settings = self.validate(data)
@@ -632,23 +676,25 @@ class Manager:
             self.audit("provider_check:gemini")
             return result
         if provider == "codex":
-            code, _ = await discovery.command(info["binary"], "login", "status")
+            # The login KeepHarness signed in with, in its own home (decision D02).
+            code, _ = await discovery.command(
+                info["binary"], "login", "status", env=login_environment(self.state, "codex")
+            )
             authenticated = code == 0
             if authenticated:
-                listing = await metadata(info["binary"], "model/list")
+                listing = await metadata(
+                    info["binary"],
+                    "model/list",
+                    env=child_source({"provider_homes": str(homes_root(self.state))}, "codex"),
+                )
                 self.provider_models[provider] = {
                     m["id"]: [e["reasoningEffort"] for e in m.get("supportedReasoningEfforts", [])]
                     or ["low"]
                     for m in listing.get("data", [])
                 }
         else:
-            options = (
-                {"env": cli_login_environment()}
-                if (self.state / "claude-cli-login").exists()
-                else {}
-            )
             code, raw = await discovery.command(
-                info["binary"], "auth", "status", "--json", **options
+                info["binary"], "auth", "status", "--json", env=cli_login_environment(self.state)
             )
             try:
                 authenticated = code == 0 and json.loads(raw).get("loggedIn") is True
@@ -658,7 +704,7 @@ class Manager:
             if authenticated:
                 self.provider_models[provider] = claude.model_catalog(
                     await claude.metadata(
-                        {"binary": info["binary"], "use_cli_login": bool(options)}
+                        {"binary": info["binary"], "provider_homes": str(homes_root(self.state))}
                     )
                 )
         self.auth[provider] = authenticated
@@ -796,4 +842,6 @@ class Manager:
             "shared": (self.state / "tailnet.json").exists(),
             "version": VERSION_FILE.read_text().strip(),
             "startup_error": self.startup_error,
+            # Models offline per provider, with the reason (for example "Sign in required").
+            "unavailable_models": self.unavailable_models,
         }

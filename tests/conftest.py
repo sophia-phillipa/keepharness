@@ -10,9 +10,9 @@ import pytest
 
 MEDIA_SANDBOX_MARKER = "requires_media_sandbox"
 MEDIA_SANDBOX_TOOLS = ("ffmpeg", "bwrap", "prlimit")
-LIVE_ENV_VAR = "TAIL_HARNESS_LIVE"
+LIVE_ENV_VAR = "KEEPHARNESS_LIVE"
 # CI sets this so a broken media sandbox fails the run instead of skipping tests.
-REQUIRE_MEDIA_ENV_VAR = "TAIL_HARNESS_REQUIRE_MEDIA_SANDBOX"
+REQUIRE_MEDIA_ENV_VAR = "KEEPHARNESS_REQUIRE_MEDIA_SANDBOX"
 
 
 def pytest_addoption(parser):
@@ -148,3 +148,22 @@ def client(tmp_path):
     app = create_app(cfg)
     with TestClient(app, headers={"Authorization": "Bearer a"}) as test_client:
         yield test_client
+
+
+@pytest.fixture
+def zone():
+    """Switch the process time zone (``zone("UTC")``); the original one comes back afterwards."""
+    import time
+
+    saved = os.environ.get("TZ")
+
+    def use(name):
+        os.environ["TZ"] = name
+        time.tzset()
+
+    yield use
+    if saved is None:
+        os.environ.pop("TZ", None)
+    else:
+        os.environ["TZ"] = saved
+    time.tzset()

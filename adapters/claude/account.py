@@ -8,8 +8,7 @@ import time
 from datetime import datetime
 
 from adapters.shared.process import child_environment, process_diagnostics
-
-from .auth import cli_login_environment
+from adapters.shared.provider_setup import child_source
 
 # Active versions omitted by the CLI picker. Reviewed 2026-09-26 against
 # https://platform.claude.com/docs/en/about-claude/model-deprecations and
@@ -31,7 +30,7 @@ LEGACY_MODELS = {
 
 async def metadata(config, subtype="initialize"):
     # No user message, tools, hooks, project settings, or inference in this probe.
-    with tempfile.TemporaryDirectory(prefix="tail-claude-metadata-") as cwd:
+    with tempfile.TemporaryDirectory(prefix="keepharness-claude-metadata-") as cwd:
         proc = await asyncio.create_subprocess_exec(
             config["binary"],
             "--print",
@@ -51,7 +50,7 @@ async def metadata(config, subtype="initialize"):
             '{"disableAllHooks":true,"enabledPlugins":{}}',
             "--no-session-persistence",
             cwd=cwd,
-            env=child_environment(cli_login_environment() if config.get("use_cli_login") else None),
+            env=child_environment(child_source(config, "claude")),
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,

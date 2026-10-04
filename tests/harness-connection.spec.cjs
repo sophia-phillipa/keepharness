@@ -86,7 +86,7 @@ const path = require("node:path");
         body: await fs.readFile(
           path.join(
             __dirname,
-            file.startsWith("assets/") ? "../tail_ui" : "../agent_service",
+            file.startsWith("assets/") ? "../harness_ui" : "../agent_service",
             file,
           ),
         ),
@@ -120,7 +120,7 @@ const path = require("node:path");
       await gate.waitFor({ state: "hidden", timeout: 20000 });
       assert(!(await page.locator("main").evaluate((el) => el.inert)));
     }
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.14.0"));
+    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
     await page.goto("http://panel.test");
     await blocked();
     const before = requests;
@@ -211,15 +211,15 @@ const path = require("node:path");
         ),
       );
       for (const theme of ["violet-bordeaux", "amethyst"]) {
-        await page.evaluate((t) => TailTheme.apply(t, false), theme);
+        await page.evaluate((t) => HarnessTheme.apply(t, false), theme);
         await page.screenshot({
-          path: "/tmp/tail-harness-connection-" + width + "-" + theme + ".png",
+          path: "/tmp/keepharness-connection-" + width + "-" + theme + ".png",
           fullPage: true,
         });
       }
     }
     await page.screenshot({
-      path: "/tmp/tail-harness-connection-wait.png",
+      path: "/tmp/keepharness-connection-wait.png",
       fullPage: true,
     });
     mode = "ready";

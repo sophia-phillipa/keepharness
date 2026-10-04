@@ -62,3 +62,68 @@ def test_manager_keeps_its_delegate_methods(tmp_path):
     manager._write_runtime({"x": 1})
     assert manager._previous_runtime() == {"x": 1}
     assert manager.busy() is False
+
+
+def admin(tmp_path):
+    manager = Manager(tmp_path)
+    manager.admin_port = 8094
+    return manager
+
+
+def test_admin_save_keeps_capacity_and_approval_settings(tmp_path):
+    """HAR-R2-5: a save that does not send these keys keeps the stored values."""
+    import copy
+
+    manager = admin(tmp_path)
+    stored = copy.deepcopy(manager.settings)
+    stored["services"]["claude"]["max_concurrent"] = 3
+    stored["approval_timeout_seconds"] = 600
+    stored["approval_max_consecutive_expirations"] = 1
+    manager.save(stored)
+    posted = copy.deepcopy(manager.settings)
+    del posted["services"]["claude"]["max_concurrent"]
+    del posted["approval_timeout_seconds"], posted["approval_max_consecutive_expirations"]
+    manager.save(posted)
+    saved = json.loads(manager.path.read_text())
+    assert saved["services"]["claude"]["max_concurrent"] == 3
+    assert "max_concurrent" not in saved["services"]["codex"]  # the D14 default applies
+    assert (saved["approval_timeout_seconds"], saved["approval_max_consecutive_expirations"]) == (
+        600,
+        1,
+    )
+    posted["services"]["claude"]["max_concurrent"] = 1
+    manager.save(posted)
+    assert manager.settings["services"]["claude"]["max_concurrent"] == 1
+
+
+def test_admin_refuses_invalid_capacity_and_approval_settings(tmp_path):
+    import copy
+
+    import pytest
+
+    manager = admin(tmp_path)
+    for key, value in (
+        ("max_concurrent", 0),
+        ("max_concurrent", True),
+        ("max_concurrent", 99),
+        ("approval_timeout_seconds", 0),
+        ("approval_timeout_seconds", "1800"),
+        ("approval_max_consecutive_expirations", 0),
+    ):
+        settings = copy.deepcopy(manager.settings)
+        target = settings["services"]["codex"] if key == "max_concurrent" else settings
+        target[key] = value
+        with pytest.raises(ValueError):
+            manager.validate(settings)
+
+
+def test_runtime_config_carries_the_approval_settings(tmp_path):
+    from pathlib import Path
+
+    from control.runtime_config import base_config
+
+    manager = admin(tmp_path)
+    settings = {**manager.settings, "approval_timeout_seconds": 900}
+    runtime = base_config(settings, Path(tmp_path), 8094, "http://127.0.0.1:8095/", {})
+    assert runtime["approval_timeout_seconds"] == 900
+    assert "approval_max_consecutive_expirations" not in runtime

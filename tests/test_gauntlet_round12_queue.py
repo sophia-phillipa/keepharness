@@ -14,6 +14,8 @@ from agent_service.app import create_app
 def test_cancel_queued_while_other_job_runs(tmp_path, locked):
     async def scenario():
         s, ident = service(tmp_path)
+        # Pins one run per provider; the default for cloud providers is 2 (D14).
+        s.config["services"]["codex"]["max_concurrent"] = 1
         payload = dict(
             project_id="p", backend="codex", model="gpt-6-astra", prompt="synthetic task"
         )

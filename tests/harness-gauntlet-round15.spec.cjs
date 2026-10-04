@@ -2,6 +2,7 @@
 const {chromium}=require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const assert=require('node:assert/strict');
 const {mount,run,span}=require('./run-console-fixture.cjs');
+const {handleHitZones,assertHitAreas}=require('./support/handle-hit-zone.cjs');
 const hit=loc=>loc.evaluate(n=>{const r=n.getBoundingClientRect();return n.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));});
 const painted=async loc=>{for(let i=0;i<20;i++){if(await loc.evaluate(n=>{const r=n.getBoundingClientRect();return r.width>0&&r.height>0;}))return true;await new Promise(r=>setTimeout(r,50));}return false;};
 async function fixture(browser,width=1440,height=900){
@@ -36,15 +37,15 @@ async function fixture(browser,width=1440,height=900){
  await check('A1-F2 resource text owns boundary',async()=>{
   const {page:p}=await fixture(browser);
   for(const theme of ['porcelain','amethyst','petroleum']){
-   await p.evaluate(t=>TailTheme.apply(t),theme);if(await p.locator('#activity-panel').isHidden())await p.locator('#panel-toggle').click();
+   await p.evaluate(t=>HarnessTheme.apply(t),theme);if(await p.locator('#activity-panel').isHidden())await p.locator('#panel-toggle').click();
    await p.locator('#header-execution-mode').click();
-   const geometry=await p.locator('#workspace-resources').evaluate(n=>{const walker=document.createTreeWalker(n,NodeFilter.SHOW_TEXT);let t;while(t=walker.nextNode())if(t.textContent.trim()){const range=document.createRange();range.selectNodeContents(t);const r=range.getBoundingClientRect();if(r.width&&r.height){const h=document.elementFromPoint(r.x+1,r.y+r.height/2);return{owns:n.contains(h),left:r.left,hit:h?.id};}}});assert(geometry?.owns,JSON.stringify(geometry));assert((await p.locator('#activity-panel-resize').boundingBox()).width>=24);assert(await p.locator('#activity-panel-resize').evaluate(n=>{const r=n.getBoundingClientRect();return [r.left+1,r.right-1].every(x=>document.elementFromPoint(x,r.y+r.height*.45)===n);}), 'entire resize target owns hit area');
+   const geometry=await p.locator('#workspace-resources').evaluate(n=>{const walker=document.createTreeWalker(n,NodeFilter.SHOW_TEXT);let t;while(t=walker.nextNode())if(t.textContent.trim()){const range=document.createRange();range.selectNodeContents(t);const r=range.getBoundingClientRect();if(r.width&&r.height){const h=document.elementFromPoint(r.x+1,r.y+r.height/2);return{owns:n.contains(h),left:r.left,hit:h?.id};}}});assert(geometry?.owns,JSON.stringify(geometry));assertHitAreas(await handleHitZones(p,'#activity-panel-resize')); /* WP-16 L64: drawn as a 6 px strip, grabbed through a 24 px zone clear of controls (WCAG 2.5.8) */assert(await p.locator('#activity-panel-resize').evaluate(n=>{const r=n.getBoundingClientRect();return [r.left+1,r.right-1].every(x=>document.elementFromPoint(x,r.y+r.height*.45)===n);}), 'entire resize target owns hit area');
    await p.locator('#header-execution-mode').click();
   }await p.close();
  });
  await check('A1-F3 distinct console tab semantics',async()=>{
   const {page:p}=await fixture(browser);await p.keyboard.press('Control+j');
-  for(const theme of ['porcelain','amethyst']){await p.evaluate(t=>TailTheme.apply(t),theme);for(const [name,id] of Object.entries({Pipeline:'plan',Timeline:'trace',Logs:'list',Runs:'pulse',Agents:'server'})){const tab=p.getByRole('tab',{name,exact:true});await tab.click();assert.equal(await tab.locator('use').getAttribute('href'),'/assets/icons.svg#'+id);assert(await painted(tab.locator('use')));assert(await hit(tab));}}
+  for(const theme of ['porcelain','amethyst']){await p.evaluate(t=>HarnessTheme.apply(t),theme);for(const [name,id] of Object.entries({Pipeline:'plan',Timeline:'trace',Logs:'list',Runs:'pulse',Agents:'server'})){const tab=p.getByRole('tab',{name,exact:true});await tab.click();assert.equal(await tab.locator('use').getAttribute('href'),'/assets/icons.svg#'+id);assert(await painted(tab.locator('use')));assert(await hit(tab));}}
   await p.close();
  });
  await check('A1-F4 span state markers',async()=>{

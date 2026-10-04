@@ -2,14 +2,14 @@
 
 ## Mandatory rule
 
-Every new agent and skill that belongs to this project must use **objective_context_role**, with names always in English, lowercase ASCII, no accents. Use exactly two `_` to separate the three stems; within each stem, use `-` between compound words (kebab-case). Descriptions and instructions may remain in the project's working language. There are exactly three stems, obtained by splitting the name on `_`: objective, context and role. Each stem can be compound; `tail-harness` is a single entity in the context stem. The fixed context `tail-harness` always occupies the second stem. Do not abbreviate it to `th` or `tailharness`.
+Every new agent and skill that belongs to this project must use **objective_context_role**, with names always in English, lowercase ASCII, no accents. Use exactly two `_` to separate the three stems; within each stem, use `-` between compound words (kebab-case). Descriptions and instructions may remain in the project's working language. There are exactly three stems, obtained by splitting the name on `_`: objective, context and role. Each stem can be compound; `keepharness` is a single entity in the context stem. The fixed context `keepharness` always occupies the second stem. Do not abbreviate it to `kh` or split it into `keep-harness`.
 
 - **Objective:** an English verb in its base form and, when needed, an object that differentiates the specialty: `test`, `integrate-codex`, `develop-interface`.
-- **Context:** always `tail-harness` in this project.
+- **Context:** always `keepharness` in this project.
 - **Role:** the agent's role (`engineer`) or the skill's function (`procedure`, `guide`, `audit`). The artifact's type is also identified by its directory and format.
 
-Agent example: `test_tail-harness_engineer` = `test` + `tail-harness` + `engineer`.
-Example for a future skill: `validate-interface_tail-harness_procedure`. This example does not create a skill.
+Agent example: `test_keepharness_engineer` = `test` + `keepharness` + `engineer`.
+Example for a future skill: `validate-interface_keepharness_procedure`. This example does not create a skill.
 
 The name contains no model, effort, version, seniority or personal name; that data belongs to configuration/description. IDs must be unique within their catalog and compatible with the consumer. Use the same English ID across every language of the interface and documentation.
 
@@ -25,16 +25,18 @@ External skills, installed plugins and global agents belong to their distributor
 
 | Previous name | Canonical name |
 |---|---|
-| `nucleo` | `maintain-core_tail-harness_engineer` |
-| `modelos_mcp` | `integrate-contracts_tail-harness_engineer` |
-| `interface` | `develop-interface_tail-harness_engineer` |
-| `operacao` | `operate-runtime_tail-harness_engineer` |
-| `provedor_codex` | `integrate-codex_tail-harness_engineer` |
-| `provedor_claude` | `integrate-claude_tail-harness_engineer` |
-| `provedor_gemini` | `integrate-gemini_tail-harness_engineer` |
-| `provedor_deepseek` | `integrate-deepseek_tail-harness_engineer` |
-| `provedor_local` | `integrate-local_tail-harness_engineer` |
-| New | `test_tail-harness_engineer` |
+| `nucleo` | `maintain-core_keepharness_engineer` |
+| `modelos_mcp` | `integrate-contracts_keepharness_engineer` |
+| `interface` | `develop-interface_keepharness_engineer` |
+| `operacao` | `operate-runtime_keepharness_engineer` |
+| `provedor_codex` | `integrate-codex_keepharness_engineer` |
+| `provedor_claude` | `integrate-claude_keepharness_engineer` |
+| `provedor_gemini` | `integrate-gemini_keepharness_engineer` |
+| `provedor_deepseek` | `integrate-deepseek_keepharness_engineer` |
+| `provedor_local` | `integrate-local_keepharness_engineer` |
+| New | `test_keepharness_engineer` |
+
+In 0.15.0 the product was renamed to KeepHarness and the context stem became `keepharness`; each developer renames the local `.codex/agents/` files and their `name` fields to match this table.
 
 The nine existing agents keep their models, efforts and areas. The new test engineer uses `gpt-6-astra` with `low` effort (Astra Light). Its persona adopts the perspective of 30 years of development and refactoring experience, specializing in Clean Code, SOLID, UI/UX, harnesses and agentic technologies; it does not represent a real human biography.
 
@@ -46,7 +48,7 @@ Update file names, `name` fields, cross-references and operational documentation
 2. Read AGENTS.md, scope the responsibility, and preserve Maestro policies, permissions and per-feature tests.
 3. Create the file in the consumer's format, aligning path and `name`.
 4. Update this catalog for agents, references and the documentation index; record new project-owned skills with their path.
-5. Validate exactly three parts via `name.split("_")`, with `tail-harness` in the second position and each part matching `[a-z]+(?:-[a-z]+)*`; validate parsing, uniqueness, identity between name/path, and links; search for old operational references. Test discovery on the runtime when available and record limitations.
+5. Validate exactly three parts via `name.split("_")`, with `keepharness` in the second position and each part matching `[a-z]+(?:-[a-z]+)*`; validate parsing, uniqueness, identity between name/path, and links; search for old operational references. Test discovery on the runtime when available and record limitations.
 
 Agent definitions under `.codex/agents/` are local to each developer and are not versioned; `AGENTS.md` and `.agents/skills/` are. This document is the versioned reference for naming; adopting agent definitions in another checkout requires creating them locally and verifying their discovery.
 
@@ -58,17 +60,17 @@ Runtime discovery was not performed: `codex` is not on the PATH for this run, an
 
 In the initial decision, before the separators were explicitly corrected, the JEV prioritized the semantic convention: `semantic`, confidence 0.87, model `jev-1.13.0`, 619 input tokens, 40 output tokens and 912ms returned. The choice was checked against the local files; no retry or rework of the choice. No savings were measured.
 
-Naming correction: all ten IDs and files were migrated to English (`objective_context_role`), including `test_tail-harness_engineer`. The intermediate non-English form was replaced across operational references. TOML validation, uniqueness, name/file matching and preservation of models/efforts were repeated; runtime discovery remains unverified.
+Naming correction: all ten IDs and files were migrated to English (`objective_context_role`), including `test_keepharness_engineer`. The intermediate non-English form was replaced across operational references. TOML validation, uniqueness, name/file matching and preservation of models/efforts were repeated; runtime discovery remains unverified.
 
-Separator correction: the ten agents now use `objective_context_role`, with `_` between stems and `-` within compound terms. Files, `name` fields and operational references were updated together. Local validation repeated: exactly three stems, `tail-harness` context, valid TOML, unique names and preserved models/efforts. Runtime discovery remains unverified.
+Separator correction: the ten agents now use `objective_context_role`, with `_` between stems and `-` within compound terms. Files, `name` fields and operational references were updated together. Local validation repeated: exactly three stems, `keepharness` context, valid TOML, unique names and preserved models/efforts. Runtime discovery remains unverified.
 
 ## Project skills
 
 | Canonical name | File | Associated agent |
 |---|---|---|
-| `test-gauntlet_tail-harness_procedure` | [SKILL.md](../.agents/skills/test-gauntlet_tail-harness_procedure/SKILL.md) | `test_tail-harness_engineer` |
+| `test-gauntlet_keepharness_procedure` | [SKILL.md](../.agents/skills/test-gauntlet_keepharness_procedure/SKILL.md) | `test_keepharness_engineer` |
 
-The same three-stem pattern applies to agents and skills. In the gauntlet skill: objective `test-gauntlet`, context `tail-harness`, role `procedure`. The association is made through an explicit read instruction in the agent's TOML and in AGENTS.md; it does not assume a nonexistent skills-configuration field.
+The same three-stem pattern applies to agents and skills. In the gauntlet skill: objective `test-gauntlet`, context `keepharness`, role `procedure`. The association is made through an explicit read instruction in the agent's TOML and in AGENTS.md; it does not assume a nonexistent skills-configuration field.
 
 ### Validation of the gauntlet skill — 2026-09-21
 

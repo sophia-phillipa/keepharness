@@ -46,7 +46,7 @@ const { mount, run } = require('./run-console-fixture.cjs');
     // P1 beginner: readable evidence, deny an unintended publication.
     let card = await gate('beginner');
     assert.match(await card.innerText(), /Publish approval/);
-    for (const text of ['jira.create_issue', 'https://jira.example.test', 'Artifact digest', 'Arguments', 'unenforced']) assert((await card.innerText()).includes(text));
+    for (const text of ['jira.create_issue', 'https://jira.example.test', 'Artifact digest', 'Arguments', 'Not controlled by KeepHarness']) assert((await card.innerText()).includes(text));
     assert.equal(await card.locator('img').count(), 0);
     await card.getByRole('button', { name: 'Deny', exact: true }).click();
     await page.waitForFunction(() => document.querySelector('#gate-beginner').dataset.state === 'resolved');
@@ -125,7 +125,7 @@ const { mount, run } = require('./run-console-fixture.cjs');
     await detail.getByRole('button', { name: 'Check evidence', exact: true }).click();
     await page.waitForFunction(() => document.querySelector('.run-span-detail').textContent.includes('SYN-1'));
     assert.match(await detail.innerText(), /Receipt/);
-    assert.match(await detail.innerText(), /unenforced/);
+    assert.match(await detail.innerText(), /Not controlled by KeepHarness/);
     assert.equal(await detail.getByRole('button', { name: 'Reconcile', exact: true }).count(), 0);
     await page.getByRole('button', { name: 'Collapse run console' }).click();
     needsYou = [{ ...metadata, gate_id: 'inbox-publish', job_id: 'run-a', kind: 'gate', publish: true,

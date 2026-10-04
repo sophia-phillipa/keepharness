@@ -1,6 +1,6 @@
 # Qwen3.6 35B A3B UD-Q3_K_M
 
-**Responsible agent:** `integrate-local_tail-harness_engineer`.
+**Responsible agent:** `integrate-local_keepharness_engineer`.
 
 The project catalog pins `Qwen3.6-35B-A3B-UD-Q3_K_M.gguf` from `unsloth/Qwen3.6-35B-A3B-GGUF` at revision `a483e9e6cbd595906af30beda3187c2663a1118c`, SHA-256 `1b715841683f960bd9a49f008181bd910ee169b78d4cf465b6fde7f4d929ff99`. This documents the downloader input, not a locally inspected weight.
 

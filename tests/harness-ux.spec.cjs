@@ -122,7 +122,7 @@ const assert = require("node:assert/strict");
         };
       return route.fulfill({ json: data });
     });
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.14.0"));
+    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
     await page.goto(process.env.HARNESS_URL || "http://127.0.0.1:18196/");
     await page.waitForFunction(
       () =>
@@ -227,6 +227,7 @@ const assert = require("node:assert/strict");
       await box.waitFor({ state: "detached" });
       assert.equal(decisionRequests, 2);
       assert.equal(decisions[1].approved, false);
+      assert.deepEqual(decisions[1].answers, {}, "Deny sends no typed answers");
     } else if (
       scenario === "pending-submit" ||
       scenario === "duplicate-cancel"

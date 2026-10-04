@@ -16,8 +16,10 @@ from starlette.testclient import TestClient
 from test_workspaces import config
 
 from agent_service.app import create_app as create_harness_app
+from agent_service.approval_sessions import SESSION_COOKIE, consume_enrollment, issue_enrollment
 from control import runtime_config
 from control.server import Manager, create_app
+from tests.owner_session import sign_in
 
 DEEPSEEK_TOKEN = "sk-hygiene-" + "d" * 32
 
@@ -73,7 +75,7 @@ def test_control_state_keeps_secrets_out_and_files_private(tmp_path, open_umask)
         patch("control.manager.Manager.refresh", AsyncMock()),
         TestClient(create_app(state), base_url="http://127.0.0.1:8094") as client,
     ):
-        client.get("/")
+        sign_in(client).get("/")
         stored = client.post(
             "/api/provider-token",
             json={"provider": "deepseek", "token": DEEPSEEK_TOKEN},
@@ -99,7 +101,7 @@ def test_control_state_keeps_secrets_out_and_files_private(tmp_path, open_umask)
 def test_harness_starts_with_the_prefixed_config_variable(tmp_path, open_umask):
     spawn = start_without_process(tmp_path / "state")
     env = spawn.call_args.kwargs["env"]
-    assert env["TAIL_HARNESS_AGENT_CONFIG"] == str(tmp_path / "state" / "runtime.json")
+    assert env["KEEPHARNESS_AGENT_CONFIG"] == str(tmp_path / "state" / "runtime.json")
     assert env.get("LOCAL_AGENT_CONFIG") == os.environ.get("LOCAL_AGENT_CONFIG")
 
 
@@ -107,6 +109,8 @@ def test_harness_request_logs_and_database_are_private(tmp_path, open_umask):
     cfg = config(tmp_path / "runs")
     cfg["projects"]["p"]["service_units"] = ["demo.service"]
     cfg["services"]["codex"].update(mode="native", permissions={"shell": True})
+    # Host services are changed only by the owner on this computer.
+    cfg["clients"]["local"] = {"sha256": "0" * 64, "projects": ["p"]}
     app = create_harness_app(cfg)
     with (
         TestClient(app, headers={"Authorization": "Bearer a"}) as client,
@@ -116,6 +120,7 @@ def test_harness_request_logs_and_database_are_private(tmp_path, open_umask):
             AsyncMock(return_value=(0, "ActiveState=active\nLoadState=loaded")),
         ),
     ):
+        session = consume_enrollment(cfg, issue_enrollment(cfg, "local"))
         response = client.post(
             "/v1/services",
             json={
@@ -124,6 +129,7 @@ def test_harness_request_logs_and_database_are_private(tmp_path, open_umask):
                 "unit": "demo.service",
                 "user_requested": True,
             },
+            headers={"Cookie": SESSION_COOKIE + "=" + session},
         )
         assert response.status_code == 200, response.text
     app.state.service.db.close()
@@ -135,7 +141,7 @@ def test_harness_request_logs_and_database_are_private(tmp_path, open_umask):
 
 def test_existing_world_readable_state_directory_is_made_private(tmp_path, open_umask):
     # A venv created inside the state folder leaves it 0755 before the admin first runs.
-    state = tmp_path / "tail-harness"
+    state = tmp_path / "keepharness"
     state.mkdir(mode=0o755)
     state.chmod(0o755)
     Manager(state)

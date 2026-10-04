@@ -29,7 +29,7 @@ const path = require("node:path");
         result: { answer: '{"name":"Test person","list":[1,2]}' },
       },
     ];
-    const origin = process.env.HARNESS_URL || "http://panel.test";
+    const origin = process.env.HARNESS_URL || "http://localhost:18199";
     await page.route(origin + "/**", async (route) => {
       const p = new URL(route.request().url()).pathname;
       if (p.startsWith("/v1/")) {
@@ -54,7 +54,7 @@ const path = require("node:path");
         body: await fs.readFile(
           path.join(
             __dirname,
-            file.startsWith("assets/") ? "../tail_ui" : "../agent_service",
+            file.startsWith("assets/") ? "../harness_ui" : "../agent_service",
             file,
           ),
         ),
@@ -65,9 +65,19 @@ const path = require("node:path");
             : "text/html",
       });
     });
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.14.0"));
+    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
     await page.goto(origin);
     await page.waitForFunction(() => models.length === 1);
+    // An answer with no text yet offers neither Copy nor Ask again.
+    assert.equal(
+      await page.evaluate(() => {
+        const empty = assistant();
+        const hidden = ["copy-answer", "ask-again"].every((id) => getComputedStyle(empty.el.querySelector(`[data-testid="${id}"]`)).display === "none");
+        empty.el.remove();
+        return hidden;
+      }),
+      true,
+    );
     // Real event handler, including a Markdown token split across chunks.
     await page.evaluate(() => {
       active = assistant();
@@ -113,7 +123,12 @@ const path = require("node:path");
       ).trim(),
       pretty,
     );
-    assert.equal(await page.locator(".copy-answer").count(), 0);
+    // D34: every answer has Copy, every code block has a header with its language and Copy.
+    assert.equal(
+      await page.locator(".copy-answer").count(),
+      await page.locator(".assistant").count(),
+    );
+    assert.equal(await page.locator(".code-block .code-lang").first().textContent(), "js");
     // Reuse actual final-result path for fenced JSON, invalid JSON and hostile Markdown.
     async function finalAnswer(answer) {
       turns[1].result.answer = answer;
@@ -181,7 +196,7 @@ const path = require("node:path");
       await page.setViewportSize({ width, height: 960 });
       for (const theme of ["light", "dark"]) {
         await page.evaluate((t) => {
-          TailTheme.apply(t === "dark" ? "amethyst" : "violet-bordeaux", false);
+          HarnessTheme.apply(t === "dark" ? "amethyst" : "violet-bordeaux", false);
         }, theme);
         assert(
           await page.evaluate(
@@ -190,21 +205,72 @@ const path = require("node:path");
         );
       }
     }
+    // OP-R2-9: a wide table scrolls in its own region and keeps header words whole;
+    // code has a header, a visible scrollbar in light and dark themes and Copy writes the source.
+    const wideCode = "b".repeat(220);
+    const wideAnswer =
+      "| Identifier | Description | Component | Environment | Responsibility | Estimate | Reviewer |\n| --- | --- | --- | --- | --- | --- | --- |\n| a | b | c | d | e | f | g |\n\n```python\n" +
+      wideCode +
+      "\n```";
+    await finalAnswer(wideAnswer);
+    await page.setViewportSize({ width: 390, height: 960 });
+    const region = page.locator(".assistant .text .table-scroll").last();
+    assert.equal(await region.getAttribute("tabindex"), "0");
+    assert(await region.evaluate((el) => el.scrollWidth > el.clientWidth), "wide table scrolls");
+    assert.equal(
+      await region.locator("th").first().evaluate((el) => getComputedStyle(el).overflowWrap),
+      "normal",
+    );
+    assert(
+      await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+      "table and code never widen the page",
+    );
+    for (const theme of ["violet-bordeaux", "amethyst"]) {
+      await page.evaluate((t) => HarnessTheme.apply(t, false), theme);
+      const cue = await page
+        .locator(".assistant .text .code-block pre")
+        .last()
+        .evaluate((el) => {
+          const style = getComputedStyle(el);
+          return { color: style.scrollbarColor, overflow: style.overflowX, scrolls: el.scrollWidth > el.clientWidth };
+        });
+      assert.notEqual(cue.color, "auto");
+      assert.equal(cue.overflow, "auto");
+      assert(cue.scrolls, "long code line scrolls instead of being cut");
+    }
+    assert.equal(
+      (await page.locator(".assistant .text .code-block .code-lang").last().textContent()).trim(),
+      "python",
+    );
+    await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin });
+    await page.locator(".assistant .text .copy-code").last().click();
+    assert.equal(await page.evaluate(() => navigator.clipboard.readText()), wideCode + "\n");
+    assert.equal(await page.locator(".assistant .text .copy-code").last().textContent(), "Copied");
+    assert.equal(await page.locator("#status").textContent(), "Copied");
+    await page.locator(".copy-answer").last().click();
+    assert.equal(await page.evaluate(() => navigator.clipboard.readText()), wideAnswer);
+    // An insecure origin has no navigator.clipboard: the copy event still carries the text.
+    await page.evaluate(() => {
+      Object.defineProperty(navigator, "clipboard", { value: undefined, configurable: true });
+      document.addEventListener("copy", () => (window.fallbackCopy = getSelection().toString() || document.activeElement?.value));
+    });
+    await page.locator(".copy-answer").last().click();
+    assert.equal(await page.evaluate(() => window.fallbackCopy), wideAnswer);
     await page.setViewportSize({ width: 1280, height: 960 });
     await page.evaluate(() => {
-      TailTheme.apply("violet-bordeaux", false);
+      HarnessTheme.apply("violet-bordeaux", false);
       $("messages").style.scrollBehavior = "auto";
       $("messages").scrollTop = 0;
     });
     await page.screenshot({
       path:
         process.env.FORMAT_SCREENSHOT ||
-        "/tmp/tail-harness-response-format.png",
+        "/tmp/keepharness-response-format.png",
       fullPage: true,
     });
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: streaming, historical/final Markdown, tables, JSON, no copy button, literal user text, XSS and responsive layout.",
+      "PASS: streaming, historical/final Markdown, tables, JSON, Copy on answers and code, literal user text, XSS and responsive layout.",
     );
   } finally {
     await browser.close();

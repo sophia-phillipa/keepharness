@@ -102,7 +102,7 @@ def prepare(config, home, permissions, access_mode):
         "--extensions",
         "none",
         "--allowed-mcp-server-names",
-        *(names or ["tail-harness-none-" + uuid.uuid4().hex]),
+        *(names or ["keepharness-none-" + uuid.uuid4().hex]),
         "--admin-policy",
         str(policy_file),
         "--approval-mode",

@@ -2,6 +2,7 @@
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const assert = require('node:assert/strict');
 const { mount, run, span } = require('./run-console-fixture.cjs');
+const { handleHitZones, assertHitAreas } = require('./support/handle-hit-zone.cjs');
 const resource = { id: 'project/p/reviewer', resource_id: 'project/p/reviewer', revision: '1', name: 'reviewer', kind: 'agent', mode: 'delegated', scope: 'project', origin: 'codex', selectable: true };
 const plan = { steps: [{ role: 'Reviewer', backend: 'codex', model: 'fixture-model-with-a-long-identity', effort: 'configured', task: 'Review synthetic report' }] };
 async function fixture(browser, width = 1024, height = 768) {
@@ -61,7 +62,7 @@ const settle = page => page.evaluate(() => Promise.all(document.getAnimations().
       await page.close();
     });
     await check('A1-F3 mobile tour exposes pane during step and after dismissal', async () => {
-      const { page } = await fixture(browser, 400, 812); await page.evaluate(() => tailHarnessTour.start());
+      const { page } = await fixture(browser, 400, 812); await page.evaluate(() => keepHarnessTour.start());
       for (let i = 0; i < 18 && await page.locator('#tour-title').innerText() !== 'Files and activity'; i++) await page.locator('#tour-next').click();
       assert.equal(await page.locator('#tour-title').innerText(), 'Files and activity'); await settle(page);
       assert(await page.locator('#run-console').isHidden());
@@ -72,16 +73,16 @@ const settle = page => page.evaluate(() => Promise.all(document.getAnimations().
     await check('A1-F4 stable hovered Next contrast in three themes', async () => {
       const { page } = await fixture(browser);
       for (const theme of ['porcelain','amethyst','petroleum']) {
-        await page.evaluate(theme => { TailTheme.apply(theme); tailHarnessTour.start(); }, theme);
+        await page.evaluate(theme => { HarnessTheme.apply(theme); keepHarnessTour.start(); }, theme);
         await page.locator('#tour-next').hover(); await settle(page);
         const ratio = await page.locator('#tour-next').evaluate(n => { const s = getComputedStyle(n), canvas = document.createElement('canvas'), c = canvas.getContext('2d'); function lum(color) { c.fillStyle = color; c.fillRect(0,0,1,1); const values = [...c.getImageData(0,0,1,1).data].slice(0,3).map(v => { v /= 255; return v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4; }); return values[0]*.2126 + values[1]*.7152 + values[2]*.0722; } const a = lum(s.color), b = lum(s.backgroundColor); return (Math.max(a,b)+.05)/(Math.min(a,b)+.05); });
         assert(ratio >= 4.5, theme + ': ' + ratio); await page.keyboard.press('Escape');
       }
       await page.close();
     });
-    await check('A2-F5 resize handle is 24px with uncovered edges', async () => {
+    await check('A2-F5 resize handle keeps a 24px hit area with uncovered edges', async () => {
       const { page } = await fixture(browser, 1280, 900); await page.keyboard.press('Control+j'); await settle(page);
-      const handle = page.locator('#run-console-resize'); const box = await handle.boundingBox(); assert(box.width >= 24 && box.height >= 24, JSON.stringify(box));
+      const handle = page.locator('#run-console-resize'); assertHitAreas(await handleHitZones(page, '#run-console-resize')); // WP-16 L64: drawn as a 6 px strip, grabbed through a 24 px zone above the tabs (WCAG 2.5.8)
       assert(await handle.evaluate(n => { const r = n.getBoundingClientRect(); return [r.top+1, r.bottom-1].every(y => { const h = document.elementFromPoint(r.x+r.width/2,y); return n===h || n.contains(h); }); })); await page.close();
     });
     await check('A2-F1 new drafts belong to the source project', async () => {

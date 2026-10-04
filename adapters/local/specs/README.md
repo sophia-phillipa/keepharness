@@ -1,6 +1,6 @@
 # Local adapter specification
 
-**Responsible agent:** `integrate-local_tail-harness_engineer` (`.codex/agents/integrate-local_tail-harness_engineer.toml`).
+**Responsible agent:** `integrate-local_keepharness_engineer` (`.codex/agents/integrate-local_keepharness_engineer.toml`).
 
 `adapter_spec_revision: 3`
 `harness_baseline: 0.4.4 working-tree`
@@ -25,7 +25,7 @@ The build recipe is versioned project configuration, not proof of an installed r
 | Streaming | The adapter relies on app-server events after it calls the local Responses endpoint. | Tool events and answer received in the live Qwen smoke; no Ollama validation. |
 | Cancel | Job cancellation follows the app-server/job lifecycle. No local endpoint cancellation acknowledgement is verified. | Documental limitation. |
 | Errors | Missing local CLI, filesystem isolation and invalid project scope become explicit harness errors. Endpoint/protocol errors are not mapped from a live runtime here. | Targeted isolation tests; no endpoint compatibility claim. |
-| Authentication | A configured local key may be injected only into the isolated environment as `TAIL_HARNESS_LOCAL_KEY`. | Source review; secret value not read or documented. |
+| Authentication | A configured local key may be injected only into the isolated environment as `KEEPHARNESS_LOCAL_KEY`. | Source review; secret value not read or documented. |
 
 llama.cpp documents `GET /v1/models` and `POST /v1/responses`; its server reference says Responses requests are converted to Chat Completions requests. This is a compatibility surface, not proof that every Responses feature or tool pattern required by Codex works with the pinned runtime or a selected GGUF. Ollama's cited official compatibility page documents `/v1/chat/completions`; it does not validate this adapter's `/v1/responses` requirement. Treat Ollama as discovered inventory until a compatible endpoint is directly verified.
 
@@ -43,7 +43,7 @@ Review after changing the pinned llama.cpp revision, the endpoint `wire_api`, a 
 The local Responses endpoint does not implement Codex hosted web search. Keep
 `web_search="disabled"`; instead, when both effective `internet` and `shell`
 permissions are enabled, mount the standard-library helper read-only at
-`/tail-web-search.py`. The agent invokes `python3 /tail-web-search.py 'query'`
+`/keepharness-web-search.py`. The agent invokes `python3 /keepharness-web-search.py 'query'`
 through its existing terminal tool. No model or OpenAI inference intermediary
 is involved in retrieval. Query terms are sent to the public Bing RSS endpoint.
 The JSON response contains titles, URLs, snippets, retrieval time and an

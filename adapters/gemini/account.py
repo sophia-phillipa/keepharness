@@ -68,7 +68,7 @@ async def check(binary):
 
 
 async def _check_authenticated_cli(binary):
-    with tempfile.TemporaryDirectory(prefix="tail-harness-gemini-check-") as directory:
+    with tempfile.TemporaryDirectory(prefix="keepharness-gemini-check-") as directory:
         command, environment = prepare({"binary": binary}, directory, {}, "ask")
         environment.pop("GEMINI_CLI_SYSTEM_SETTINGS_PATH", None)
         environment["NO_BROWSER"] = "true"
@@ -89,7 +89,7 @@ async def _check_authenticated_cli(binary):
                     "initialize",
                     {
                         "protocolVersion": 1,
-                        "clientInfo": {"name": PRODUCT.mcp_name, "version": "0.14.0"},
+                        "clientInfo": {"name": PRODUCT.mcp_name, "version": "0.15.0"},
                         "clientCapabilities": {
                             "auth": {"terminal": False},
                             "fs": {},
@@ -169,7 +169,7 @@ async def login(binary):
     The caller must run this only after the user asked to log in. Gemini CLI owns
     the browser flow and credential storage; this function never reads either.
     """
-    with tempfile.TemporaryDirectory(prefix="tail-harness-gemini-login-") as directory:
+    with tempfile.TemporaryDirectory(prefix="keepharness-gemini-login-") as directory:
         command, environment = prepare({"binary": binary}, directory, {}, "ask")
         environment.pop("GEMINI_CLI_SYSTEM_SETTINGS_PATH", None)
         environment.pop("NO_BROWSER", None)
@@ -189,7 +189,7 @@ async def login(binary):
                 "initialize",
                 {
                     "protocolVersion": 1,
-                    "clientInfo": {"name": PRODUCT.mcp_name, "version": "0.14.0"},
+                    "clientInfo": {"name": PRODUCT.mcp_name, "version": "0.15.0"},
                     "clientCapabilities": {
                         "auth": {"terminal": False},
                         "fs": {},

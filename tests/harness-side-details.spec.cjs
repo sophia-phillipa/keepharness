@@ -24,6 +24,7 @@ const fs = require("node:fs/promises"),
         answer: "Answer " + id,
         model: "fixture",
         total_seconds: 12,
+        ...(id === "two" ? { queue_seconds: 8 } : {}),
         metrics: { output_tokens: 11, debug: "RAW_METRIC_SENTINEL" },
         references: ["RAW_REFERENCE_SENTINEL"],
       },
@@ -131,7 +132,7 @@ const fs = require("node:fs/promises"),
         body: await fs.readFile(
           path.join(
             __dirname,
-            file.startsWith("assets/") ? "../tail_ui" : "../agent_service",
+            file.startsWith("assets/") ? "../harness_ui" : "../agent_service",
             file,
           ),
         ),
@@ -144,7 +145,7 @@ const fs = require("node:fs/promises"),
               : "text/html",
       });
     });
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.14.0"));
+    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
     await page.goto(origin);
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     await page.locator(".conversation-row>button").first().click();
@@ -157,6 +158,10 @@ const fs = require("node:fs/promises"),
       latest = page.locator("#messages .message-activity").nth(1);
     assert.equal(await old.evaluate((el) => el.open), false);
     assert.equal(await latest.evaluate((el) => el.open), false);
+    // QA-R1-2: "Worked for" leaves out the time spent waiting in the queue, which is shown apart.
+    assert.equal(await old.locator("summary").innerText(), "Worked for 12.0 s");
+    assert.equal(await latest.locator("summary").innerText(), "Worked for 4.0 s");
+    assert.match(await page.locator("#messages .run-meta").last().innerText(), /4\.0 s · waited 8\.0 s$/);
     await old.locator("summary").click();
     await old
       .getByText(/command ls/i)
@@ -215,11 +220,11 @@ const fs = require("node:fs/promises"),
       "Sidebar is for main milestones",
     );
     await page.fill("#prompt", "Preserved draft");
-    await page.evaluate(() => TailTheme.apply("arizona", false));
+    await page.evaluate(() => HarnessTheme.apply("arizona", false));
     if (await page.locator("#th-toast").isVisible())
       await page.locator("#th-toast button").click();
     await page.screenshot({
-      path: "/tmp/tail-inline-milestones-desktop.png",
+      path: "/tmp/keepharness-inline-milestones-desktop.png",
       fullPage: true,
     });
     await page.setViewportSize({ width: 390, height: 844 });
@@ -232,7 +237,7 @@ const fs = require("node:fs/promises"),
     );
     assert.equal(await page.locator("#prompt").inputValue(), "Preserved draft");
     await page.screenshot({
-      path: "/tmp/tail-inline-milestones-mobile.png",
+      path: "/tmp/keepharness-inline-milestones-mobile.png",
       fullPage: true,
     });
     assert.deepEqual(errors, []);

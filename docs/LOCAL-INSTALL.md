@@ -12,7 +12,7 @@ It does not install system dependencies, does not download weights together with
 
 ## 0. Install the application
 
-From the checkout root, run `./setup.sh` to create `.venv` and install the Python dependencies. On Linux/systemd, `./install.sh` also installs the admin service, without running the test suite. The module commands below use `.venv/bin/python`; if you used `install.sh`, use `~/.local/share/tail-harness/venv/bin/python` instead.
+From the checkout root, run `./setup.sh` to create `.venv` and install the Python dependencies. On Linux/systemd, `./install.sh` also installs the admin service, without running the test suite. The module commands below use `.venv/bin/python`; if you used `install.sh`, use `~/.local/share/keepharness/venv/bin/python` instead.
 
 ## 1. Build llama.cpp
 
@@ -79,6 +79,6 @@ On 2026-09-19, the CPU installation completed in `local-ai/portable-check` with 
 
 ## Installation from a wheel
 
-The wheel includes the profiles under `share/tail-harness/profiles` in the Python environment's prefix. Copy the chosen profile into a `profiles/` folder in your data root and pass that root via `--root` to the installer/launcher. For a panel installed from a wheel, set `TAIL_HARNESS_ROOT` to the same root: runtime, downloads and the key will use `<root>/local_ai`. The package does not ship this server's private configuration or weights.
+The wheel includes the profiles under `share/keepharness/profiles` in the Python environment's prefix. Copy the chosen profile into a `profiles/` folder in your data root and pass that root via `--root` to the installer/launcher. For a panel installed from a wheel, set `KEEPHARNESS_ROOT` to the same root: runtime, downloads and the key will use `<root>/local_ai`. The package does not ship this server's private configuration or weights.
 
 The default `qwen36` text downloader only downloads the UD-Q3_K_M weights. For images, explicitly configure a compatible multimodal projector in a local profile; the distributed CPU profile does not include a projector.

@@ -12,7 +12,7 @@ from pathlib import Path
 
 from starlette.responses import FileResponse, JSONResponse
 
-from .. import maestro, tools, workspaces
+from .. import harness_agents, maestro, tools, workspaces
 from ..errors import APIError
 from ..persistence.db import encoded
 from ..services.conversation_service import preview_metadata
@@ -212,7 +212,9 @@ async def authorized_project_files(request, service, identity):
         "entries": [],
         "path": "",
         "limited": False,
-        "can_authorize": bool(service.config.get("shared_projects")) and project != "sem-projeto",
+        "can_authorize": bool(service.config.get("project_registration"))
+        and identity[0] == harness_agents.LOCAL_CLIENT
+        and project != "sem-projeto",
     }
     if not roots:
         return JSONResponse(result)

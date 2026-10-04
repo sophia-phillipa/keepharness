@@ -37,7 +37,7 @@ SILENT_NAME_BASENAMES = set(
 
 # Paths (or fnmatch globs, matched against the full relative path) that never count as errors.
 SILENT_NAME_ALLOWLIST = set(
-    "docs/*-2026*.md dossier/UC-*.md dossier/UX-*.md tail_ui/assets/*LICENSE* agent_service/vendor agent_service/vendor/** .github .github/** .agents .agents/** profiles/*.json adapters/*/specs adapters/*/specs/** tests/personas/_harness.cjs".split()  # noqa: SIM905
+    "docs/*-2026*.md dossier/UC-*.md dossier/UX-*.md harness_ui/assets/*LICENSE* agent_service/vendor agent_service/vendor/** .github .github/** .agents .agents/** profiles/*.json adapters/*/specs adapters/*/specs/** tests/personas/_harness.cjs".split()  # noqa: SIM905
 )
 
 # Known naming-model violations already tracked in the migration table: counted as warnings only.
@@ -196,7 +196,7 @@ def check_words(files: list[str]) -> int:
         p = Path(rel_path)
         if p.suffix not in TEXT_EXTENSIONS:
             continue
-        if "min." in p.name or rel_path == "tail_ui/assets/file-icons-data.js":
+        if "min." in p.name or rel_path == "harness_ui/assets/file-icons-data.js":
             continue
         hits += _scan_file_for_pt_words(rel_path)
     return hits

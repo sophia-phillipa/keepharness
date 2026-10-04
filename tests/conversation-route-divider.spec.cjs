@@ -26,7 +26,7 @@ const turn = (id, backend, model, prompt) => ({
           path: path.join(
             __dirname,
             "..",
-            pathname.startsWith("/assets/") ? "tail_ui" : "agent_service",
+            pathname.startsWith("/assets/") ? "harness_ui" : "agent_service",
             pathname === "/" ? "index.html" : pathname,
           ),
         });
@@ -65,7 +65,7 @@ const turn = (id, backend, model, prompt) => ({
       else if (/^\/v1\/jobs\/t[123]$/.test(pathname)) data = turns.find((t) => "/v1/jobs/" + t.id === pathname);
       return route.fulfill({ json: data });
     });
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.14.0"));
+    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
     await page.goto("http://route.test/");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     await page.locator("#history .conversation-row > button", { hasText: "Mixed models" }).click();
@@ -82,6 +82,17 @@ const turn = (id, backend, model, prompt) => ({
     );
     assert.deepEqual(order.filter((kind) => kind !== "other"), ["user", "divider", "user", "divider", "user"]);
 
+    // UX-R1-4: a visible one-line note before sending on another provider, hidden when it is the same one.
+    const carryover = page.locator("#route-carryover");
+    await page.locator("#model").selectOption("claude-sonnet-5-5");
+    assert.equal(await carryover.isHidden(), true, "the last turn used Claude already");
+    await page.locator("#model").selectOption("gpt-6-astra");
+    assert.equal(
+      await carryover.innerText(),
+      "Next message goes to Codex · GPT-6 Astra. The conversation so far goes with it.",
+    );
+    await page.locator("#model").selectOption("claude-sonnet-5-5");
+    assert.equal(await carryover.isHidden(), true);
     // Switching back to Codex in the same conversation adds one more divider.
     await page.locator("#model").selectOption("gpt-6-astra");
     await page.fill("#prompt", "Back to Astra");
@@ -94,6 +105,7 @@ const turn = (id, backend, model, prompt) => ({
     );
     assert.equal(await dividers.count(), 3);
 
+    assert.equal(await carryover.isHidden(), true, "the sent turn is the new baseline");
     // A new conversation starts without dividers.
     await page.click("#new");
     assert.equal(await page.locator("#messages .route-divider").count(), 0);

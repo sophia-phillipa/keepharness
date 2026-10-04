@@ -46,7 +46,9 @@ validated the same way; `access_mode` is one of `ask` (default), `auto`, `full`,
 
 - `items` is the provider's inventory, connectors first, then plugins, each sorted by
   name. `transport` is `http` or `stdio` for connectors and `null` for plugins. Servers
-  named `harness_effects*` are the harness's own and are never listed.
+  named `harness_effects*` are the harness's own and are never listed. Codex, DeepSeek
+  and Claude list nothing while the owner's personal setup is off (`personal_setup`,
+  see [provider-homes.md](provider-homes.md)); `warnings` then says so.
 - `allowed` is the provider-level list in Settings (`services.<provider>.integrations`).
   There is no per-project list.
 - `effective` is `allowed` and usable on this route; when it is false, `reason` says why.
@@ -55,12 +57,14 @@ validated the same way; `access_mode` is one of `ask` (default), `auto`, `full`,
   | Route | Result |
   | --- | --- |
   | Isolated (`scoped`) conversation or the local provider | Nothing is effective: no host connectors or plugins. |
+  | A caller other than the owner on this computer (vpn key, tailnet login) | Nothing is effective: host connectors run only for the owner. |
   | Gemini with `read_only` | Nothing is effective: connectors are turned off. |
+  | Codex, DeepSeek or Claude with `read_only` | Nothing is effective: connectors and plugins are turned off. |
   | Gemini without the `internet` permission (provider or project grant) | Allowed connectors are not effective. |
   | Any item not in the allowed list | Not effective: change it in Settings. |
 
-- `effective_note` is one sentence about approvals: Claude in `ask` asks for every
-  connector call; Codex, DeepSeek or Claude run them without asking when the adapter is
+- `effective_note` is one sentence about approvals: Codex, DeepSeek and Claude in `ask` ask
+  for every connector call; they run them without asking when the adapter is
   unrestricted, the access mode is `auto` or `full` and the shell is granted; the
   isolated sentence for isolated routes; otherwise empty.
 - `used` and `other_tools` count `tool_start` events of this provider's runs by the

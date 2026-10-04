@@ -2,11 +2,11 @@
 
 Status: implemented on branch `feat/ui-codex-shell` (2026-10-03), awaiting Sophia's approval before release.
 
-The harness UI follows the layout of the ChatGPT/Codex desktop app, measured on 2026-10-03 through the app's local DevTools port, while keeping every Tail Harness capability. Colors come only from the `--th-*` theme tokens; the two new default palettes (Graphite, Paper) match the reference neutrals and the six existing palettes stay selectable.
+The harness UI follows the layout of the ChatGPT/Codex desktop app, measured on 2026-10-03 through the app's local DevTools port, while keeping every KeepHarness capability. Colors come only from the `--th-*` theme tokens; the two new default palettes (Graphite, Paper) match the reference neutrals and the six existing palettes stay selectable.
 
 ## Regions
 
-| Region | Reference | Tail Harness |
+| Region | Reference | KeepHarness |
 | --- | --- | --- |
 | Icon rail | 50 px, 34 px buttons (radius 12.5), icons only; Home, Space, Scheduled, Customize at the top, rare actions at the bottom | `#app-topbar` as a rail: brand, sidebar toggle, search, attention bell, files/activity, Runs and pipeline (run console), Agents and skills (Settings › Agents and models); provider quota meters, admin (Settings › System), theme, about and settings at the bottom; every button has a title and an accessible name; the phone top bar drops Runs and Agents |
 | Sidebar | product title, New chat, Pinned, Projects (folders expand to their chats, "No chats" when empty, compose icon on hover), Chats | product title, New Conversation, **Projects** (folders start expanded and remember a collapse; a project's chats live only in its folder; compose icon and actions on hover; "No conversations" when empty), then **Chats** for conversations outside the listed projects, ordered needs you, running, queued, then the rest; one status dot per row (yellow needs you, spinner running, ring queued, red failed, accent unread) and a summary dot on a collapsed folder |

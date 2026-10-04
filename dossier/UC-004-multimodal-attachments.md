@@ -18,7 +18,7 @@ Large extracted documents are stored in the conversation's private attachments d
 
 The Qwen3.6 F16 vision projector was checksum verified and enabled using `--mmproj` with `--no-mmproj-offload`, retaining the existing language model GPU/CPU settings. The original launch profile was backed up privately. The runtime reports vision and video support, but this interface currently forwards still images only.
 
-Whisper.cpp was built locally for CPU transcription; its base model checksum was verified. Runtime and model weights remain outside the repository. The optional runtime directory defaults to `~/.local/share/tail-harness/whisper.cpp` and can be changed using `TAIL_HARNESS_WHISPER_DIR`. This optional runtime is not bundled with the Python distribution.
+Whisper.cpp was built locally for CPU transcription; its base model checksum was verified. Runtime and model weights remain outside the repository. The optional runtime directory defaults to `~/.local/share/keepharness/whisper.cpp` and can be changed using `KEEPHARNESS_WHISPER_DIR`. This optional runtime is not bundled with the Python distribution.
 
 Local integration job `227884aa980c49ea99c298493cd2c190` completed: an uploaded red PNG was identified correctly and a WAV speech sample was transcribed and quoted. No cloud inference was used. Native Codex/Claude image serialization is implemented but cloud execution was not tested.
 

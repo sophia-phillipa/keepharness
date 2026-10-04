@@ -201,7 +201,7 @@ def test_local_internet_uses_permitted_shell_not_hosted_search(tmp_path):
     assert 'web_search="disabled"' in recorded["command"]
     assert "features.shell_tool=true" in recorded["command"]
     assert recorded["turn"]["sandboxPolicy"]["networkAccess"] is True
-    assert "python3 /tail-web-search.py" in recorded["thread"]["developerInstructions"]
+    assert "python3 /keepharness-web-search.py" in recorded["thread"]["developerInstructions"]
 
 
 def test_full_mode_auto_approves_native_requests_without_expanding_grants(tmp_path):
@@ -212,8 +212,10 @@ def test_full_mode_auto_approves_native_requests_without_expanding_grants(tmp_pa
         "shell": True,
         "internet": False,
     }
+    # Full access belongs to the owner on this computer.
+    cfg["clients"]["local"] = cfg["clients"].pop("a")
     service = Service(cfg)
-    identity = ("a", cfg["clients"]["a"])
+    identity = ("local", cfg["clients"]["local"])
     data = {
         "project_id": "p",
         "backend": "local",
@@ -328,7 +330,9 @@ def test_native_model_policy_network_shell_and_write_scope(tmp_path, allowed):
         )
     sandbox = recorded["turn"]["sandboxPolicy"]
     assert sandbox["networkAccess"] is allowed
-    assert ("python3 /tail-web-search.py" in recorded["thread"]["developerInstructions"]) is allowed
+    assert (
+        "python3 /keepharness-web-search.py" in recorded["thread"]["developerInstructions"]
+    ) is allowed
     assert ("features.shell_tool=" + str(allowed).lower()) in recorded["command"]
     assert ("features.unified_exec=" + str(allowed).lower()) in recorded["command"]
     assert ("features.hooks=" + str(allowed).lower()) in recorded["command"]

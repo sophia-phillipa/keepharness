@@ -58,7 +58,7 @@
   body.tabIndex = -1;
   for (const name of ['Pipeline', 'Timeline', 'Logs', 'Runs', 'Agents']) {
     const tab = button(name, () => setTab(name));
-    tab.prepend(TailUI.icon({Pipeline: 'plan', Timeline: 'trace', Logs: 'list', Runs: 'pulse', Agents: 'server'}[name]));
+    tab.prepend(HarnessUI.icon({Pipeline: 'plan', Timeline: 'trace', Logs: 'list', Runs: 'pulse', Agents: 'server'}[name]));
     tab.dataset.tab = name;
     tab.id = 'run-tab-' + name.toLowerCase();
     tab.setAttribute('aria-label', name);
@@ -77,7 +77,7 @@
   });
   const close = button('Collapse run console', () => toggle(false));
   close.classList.add('run-console-close');
-  close.prepend(TailUI.icon('chevron-down'));
+  close.prepend(HarnessUI.icon('chevron-down'));
   let consoleHeight = Math.max(340, innerHeight * .45), restoreHeight = consoleHeight, maximized = false, manuallyResized = false;
   try { const saved = Number(localStorage.getItem('run-console-height')); if (saved >= 190) consoleHeight = saved; } catch {}
   const maximize = button('Maximize', () => {
@@ -117,7 +117,7 @@
   shortcut.setAttribute('aria-hidden', 'true');
   const stripAction = button('Expand', () => toggle(drawer.hidden));
   stripAction.id = 'run-status-action';
-  stripAction.prepend(TailUI.icon('chevron-up'));
+  stripAction.prepend(HarnessUI.icon('chevron-up'));
   stripAction.setAttribute('aria-label', 'Toggle console from status strip');
   stripAction.setAttribute('aria-controls', drawer.id);
   stripAction.setAttribute('aria-expanded', 'false');
@@ -187,7 +187,7 @@
     drawer.hidden = !open;
     syncConsoleModal();
     toggleButton.setAttribute('aria-expanded', String(open));
-    stripAction.replaceChildren(TailUI.icon(open ? 'chevron-down' : 'chevron-up'), document.createTextNode(open ? 'Collapse' : 'Expand'));
+    stripAction.replaceChildren(HarnessUI.icon(open ? 'chevron-down' : 'chevron-up'), document.createTextNode(open ? 'Collapse' : 'Expand'));
     stripAction.setAttribute('aria-expanded', String(open));
     if (open) {
       setTab(state.tab);
@@ -348,12 +348,12 @@
       refreshRunOptions();
       const pendingPlan = currentPlan();
       const current = state.activity.jobs.find(item => item.job_id === state.run);
-      const highlight = pendingPlan ? 'Maestro plan awaiting approval' : current ? [current.work_item || current.title, current.state].filter(Boolean).join(' · ') : 'No active run';
-      toggleButton.replaceChildren(TailUI.icon('pulse'), document.createTextNode(`${counts.running || 0} running · ${counts.queued || 0} queued · ${counts.needs_you || 0} needs you · ${highlight}`));
+      const highlight = pendingPlan ? 'Maestro plan awaiting approval' : current ? [current.work_item, current.state].filter(Boolean).join(' · ') : 'No active run';
+      toggleButton.replaceChildren(HarnessUI.icon('pulse'), document.createTextNode(`${counts.running || 0} running · ${counts.queued || 0} queued · ${counts.needs_you || 0} needs you · ${highlight}`));
       toggleButton.title = toggleButton.textContent + ' · Toggle run console (Ctrl/⌘+J)';
       inboxButton.textContent = `Needs you (${counts.needs_you || 0})`;
       const attentionCount = document.getElementById('attention-count');
-      if (attentionCount) attentionCount.textContent = String(counts.needs_you || 0);
+      if (attentionCount) attentionCount.textContent = String((counts.needs_you || 0) + (state.activity.schedule_alerts || []).length);
       window.updateProviderQuotas?.(state.activity.providers);
       for (const [name, count] of [['Runs', state.activity.jobs.length], ['Agents', state.activity.providers.length]]) {
         const tab = tabButtons.find(node => node.dataset.tab === name);
@@ -543,9 +543,9 @@
       route.dataset.backend = backend;
       route.title = route.textContent;
       const heading = el('strong', span.name);
-      heading.prepend(TailUI.icon(span.kind === 'harness.gate' && span.end_ts == null ? 'shield' : {completed:'check', pending:'clock', running:'pulse', waiting_approval:'shield', blocked:'shield', failed:'x', cancelled:'x', interrupted:'x', skipped:'chevron-right'}[outcome(span)] || 'clock'));
+      heading.prepend(HarnessUI.icon(span.kind === 'harness.gate' && span.end_ts == null ? 'shield' : {completed:'check', pending:'clock', running:'pulse', waiting_approval:'shield', blocked:'shield', failed:'x', cancelled:'x', interrupted:'x', skipped:'chevron-right'}[outcome(span)] || 'clock'));
       row.append(heading, spanState, route, el('span', span.attrs?.effort || '', 'run-span-effort'), el('span', duration(span), 'run-span-duration'), el('span', tokenCount(span), 'run-span-tokens'));
-      if (span.attrs?.enforcement) row.append(el('span', 'Publication: ' + span.attrs.enforcement, 'run-span-enforcement'));
+      if (span.attrs?.enforcement) row.append(el('span', 'Publication: ' + publicationLabel(span.attrs.enforcement), 'run-span-enforcement'));
       if (state.tab === 'Timeline') {
         const track = el('span', null, 'run-waterfall-track');
         row.style.flexBasis = 240 * state.zoom + 'px';
@@ -557,7 +557,7 @@
         track.append(bar); row.append(track);
       }
       const connector = el('span', null, 'run-span-connector');
-      connector.append(TailUI.icon('chevron-right'));
+      connector.append(HarnessUI.icon('chevron-right'));
       row.append(connector);
       list.append(row);
     }
@@ -726,7 +726,7 @@
     detail.append(el('h3', span.name));
     if (span.kind === 'harness.effect') {
       const attrs = span.attrs || {};
-      detail.append(el('p', 'Effect status: ' + outcome(span)), el('p', 'Publication: ' + (attrs.enforcement || 'unenforced')));
+      detail.append(el('p', 'Effect status: ' + outcome(span)), el('p', 'Publication: ' + publicationLabel(attrs.enforcement)));
       for (const [label, value] of [['Operation', attrs.operation], ['Destination', attrs.destination],
         ['Integration', attrs.integration], ['Jira site', attrs.endpoint],
         ['Artifact digest', attrs.artifact_digest], ['Arguments digest', attrs.arguments_digest],
@@ -977,18 +977,26 @@
       const deadline = item.timeout_at ?? item.expires_at;
       return !deadline || deadline > Date.now() / 1000;
     });
-    const signature = JSON.stringify(requests);
+    const alerts = state.activity.schedule_alerts || [];
+    const signature = JSON.stringify([requests, alerts]);
     if (signature === inboxSignature) return;
     inboxSignature = signature;
     const focused = inboxList.contains(document.activeElement) ? document.activeElement : null;
     const retained = new Map([...inboxList.querySelectorAll('.needs-you-card')].map(card => [card.dataset.requestId, card]));
-    const cards = requests.map(item => retained.get(item.gate_id || item.approval_id) || requestCard(item));
+    const cards = [...requests.map(item => retained.get(item.gate_id || item.approval_id) || requestCard(item)), ...alerts.map(scheduleAlertCard)];
     for (const child of [...inboxList.children]) if (!cards.includes(child)) child.remove();
     for (const [index, card] of cards.entries()) {
       if (inboxList.children[index] !== card) inboxList.insertBefore(card, inboxList.children[index] || null);
     }
-    if (!requests.length) inboxList.append(el('p', 'No live requests need your attention.'));
+    if (!cards.length) inboxList.append(el('p', 'No live requests need your attention.'));
     if (focused && !focused.isConnected) inbox.querySelector('button').focus();
+  }
+  // D15: a paused scheduled task, or a scheduled run that skipped an approval.
+  function scheduleAlertCard(item) {
+    const card = el('section', null, 'needs-you-card schedule-alert');
+    card.append(el('h3', 'Scheduled task: ' + item.title), el('p', item.message));
+    if (item.job_id) card.append(button('Open run', async () => { inbox.close(); await load(item.job_id, false); }));
+    return card;
   }
   function requestCard(item) {
     const card = el('section', null, 'needs-you-card');
@@ -1029,7 +1037,7 @@
       if (item.risk || item.publish) card.append(el('p', [item.risk && 'Risk: ' + item.risk, item.publish && 'Publication approval'].filter(Boolean).join(' · ')));
       if (item.evidence?.length) card.append(el('pre', JSON.stringify(item.evidence, null, 2)));
     } else {
-      card.append(el('p', item.approval_kind || 'Action approval'), el('pre', JSON.stringify(item.request || {}, null, 2)));
+      card.append(el('p', item.request?.message || 'Action approval'), el('pre', JSON.stringify(item.request || {}, null, 2)));
       for (const question of item.request?.questions || []) {
         const answer = input('needs-answer-' + id + '-' + question.id);
         questions.push([question.id, answer]);
@@ -1092,7 +1100,7 @@
     attachAnswer(target, id) {
       if (!id) return;
       const view = button('View run', async () => { syncContext(); toggle(true); setTab('Pipeline'); await chooseRun(id); });
-      view.prepend(TailUI.icon('trace'));
+      view.prepend(HarnessUI.icon('trace'));
       target.append(view);
     },
     observe(event) {
@@ -1108,8 +1116,18 @@
   };
   resize(consoleHeight, false);
   void refresh();
-  document.addEventListener('tail:ready', refresh);
-  document.addEventListener('tail:history', refresh);
-  setInterval(() => { if (!document.hidden) void refresh(); }, 4000);
+  // QA-R2-3: a tab with runs, or an open console, follows them every 4 s; an idle tab asks every 20 s.
+  const following = () => {
+    const counts = state.activity.counts || {};
+    return (counts.running || 0) + (counts.queued || 0) + (counts.needs_you || 0) > 0 || !drawer.hidden;
+  };
+  let idleTicks = 0;
+  document.addEventListener('harness:ready', refresh);
+  // The timer's own history poll only refreshes a tab that is following runs; anything else (a send, a rename) always does.
+  document.addEventListener('harness:history', event => { if (!event.detail?.background || following()) void refresh(); });
+  setInterval(() => {
+    if (document.hidden) return;
+    if (following() || ++idleTicks % 5 === 0) void refresh();
+  }, 4000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) void refresh(); });
 })();

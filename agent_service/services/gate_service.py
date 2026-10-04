@@ -5,12 +5,21 @@ import json
 import sqlite3
 import time
 import uuid
-from contextlib import nullcontext
 
 from ..errors import APIError
 from ..persistence.gates import GateRepository
 from ..secret_vault import redact_secrets
+from . import capacity
 from .budgets import timeout_seconds
+
+
+def deny_unattended(kind, progress):
+    """D15: nobody watches a scheduled run, so an action that needs approval is denied at once.
+
+    The run goes on; the ``approval_denied`` event flags it "needs you" on its schedule.
+    """
+    progress("approval_denied", {"scope": "unattended", "kind": kind})
+    return {"approved": False, "reason": "unattended"}
 
 
 def validate_options(request):
@@ -94,6 +103,9 @@ class GateService:
 
     async def ask(self, job_id, request, progress, *, plan=None):
         validate_options(request)
+        row = self.service.conversation_repository.payload(job_id)
+        if row is not None and json.loads(row["payload"]).get("schedule_id"):
+            return deny_unattended("gate", progress)
         wait_limit = timeout_seconds(self.service.config, "approval_timeout_seconds", 1800)
         expiration_limit = self.service.config.get("approval_max_consecutive_expirations", 2)
         if type(expiration_limit) is not int or expiration_limit < 1:
@@ -121,8 +133,7 @@ class GateService:
         self.progress[gate_id] = progress
         try:
             progress("gate_required", spec)
-            budget = self.service.runtime_budgets.get(job_id)
-            with budget.human_wait() if budget else nullcontext():
+            async with capacity.parked(self.service, job_id):
                 try:
                     reply = await asyncio.wait_for(future, wait_limit)
                     self.service.approval_expirations.pop(job_id, None)

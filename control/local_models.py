@@ -384,7 +384,7 @@ def validate_profile(profile, *, state_dir=None):
                 ".claude",
                 ".gemini",
                 ".config",
-                ".local/share/tail-harness",
+                ".local/share/keepharness",
             )
         ]
         from .product import PRODUCT

@@ -1,6 +1,6 @@
 # DeepSeek adapter specification
 
-Responsible agent: `integrate-deepseek_tail-harness_engineer`. Adapter spec revision: **1**.
+Responsible agent: `integrate-deepseek_keepharness_engineer`. Adapter spec revision: **1**.
 Harness baseline: **0.4.4 working-tree**. Reviewed: **2026-09-19**.
 Executor observed: **codex-cli 0.155.0-alpha.9.2**. Remote API: rolling, unversioned `/responses`.
 Machine-readable correlation: [compatibility.json](compatibility.json).
@@ -33,6 +33,12 @@ Other tests cover dispatch, missing configuration, key privacy and model catalog
 ## Change policy
 
 Read this local spec first. Review after changes to the CLI version, remote API contract, model alias, effort mapping, tool items, persistence or compaction. Increment the spec revision with corresponding code/tests, retain the old revision record in Git, and update `compatibility.json` and model notes. A matching version is necessary evidence, never proof by itself; rerun the local wire test for each new CLI baseline. Recheck official sources when this boundary changes, not on every prompt.
+
+## Transport errors and dropped setting (2026-10-03, codex-cli 0.157.1)
+
+- `model_supports_reasoning_summaries=true` is no longer passed: 0.157.1 ignores the key and logs an ERROR on every run (HAR-R2-9). `model_reasoning_summary="none"` stays; `tests/test_deepseek_continuity.py` still sees raw reasoning replayed.
+- Failures carry the provider name and its words: `deepseek_execution_failed: <message>`, with `additionalDetails` and the HTTP status. 401 maps to `provider_authentication_required` (the UI asks to replace the API key) and 402 "Insufficient Balance" to `provider_quota_exhausted` (the UI asks to top up the balance). `error` notifications with `willRetry: true` no longer end the run (HAR-R3-2).
+- A lost Codex thread falls back to the harness history, as described in the Codex spec.
 
 ## Conversation display title (2026-09-20)
 

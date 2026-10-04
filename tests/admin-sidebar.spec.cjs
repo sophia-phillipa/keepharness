@@ -17,7 +17,7 @@ const assert = require("node:assert/strict");
         body: await fs.readFile(
           path.join(
             __dirname,
-            file.startsWith("assets/") ? "../tail_ui" : "../control",
+            file.startsWith("assets/") ? "../harness_ui" : "../control",
             file,
           ),
         ),
@@ -217,7 +217,7 @@ const assert = require("node:assert/strict");
         ),
       "Modal action icons are rendered",
     );
-    await page.screenshot({ path: "/tmp/tail-provider-modal.png" });
+    await page.screenshot({ path: "/tmp/keepharness-provider-modal.png" });
     await page
       .locator("#inspector-tabs")
       .getByText("Connectors", { exact: true })
@@ -258,7 +258,7 @@ const assert = require("node:assert/strict");
         document.activeElement.getAttribute("aria-label") === "Edit Codex CLI",
     );
     for (const theme of ["violet-bordeaux", "arizona"]) {
-      await page.evaluate((theme) => TailTheme.apply(theme, false), theme);
+      await page.evaluate((theme) => HarnessTheme.apply(theme, false), theme);
       for (const width of [320, 390, 768, 1440]) {
         await page.setViewportSize({ width, height: 1000 });
         for (const section of ["home", "providers", "runs"]) {
@@ -289,13 +289,13 @@ const assert = require("node:assert/strict");
     await page.locator("[data-panel=home]").click();
     await page.locator("#inspector-empty").waitFor();
     await page.screenshot({
-      path: "/tmp/tail-panel-sidebar.png",
+      path: "/tmp/keepharness-panel-sidebar.png",
       fullPage: true,
     });
     await page.locator("[data-panel=providers]").click();
     await page.locator("#dashboard").waitFor();
     await page.screenshot({
-      path: "/tmp/tail-panel-providers.png",
+      path: "/tmp/keepharness-panel-providers.png",
       fullPage: true,
     });
     await page.goto("http://admin.test/#runs");

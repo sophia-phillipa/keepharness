@@ -20,7 +20,7 @@ const { outputDirectory, mountVisual, selectState } = require("./harness-visual-
 
     const actual = await browser.newPage({ viewport: { width: 1440, height: 900 } });
     await mountVisual(actual);
-    await actual.evaluate(() => window.TailTheme.apply("porcelain"));
+    await actual.evaluate(() => window.HarnessTheme.apply("porcelain"));
     await selectState(actual, "console-closed");
     await actual.screenshot({ path: path.join(output.directory, "compact-desktop-app-closed.png") });
     await selectState(actual, "console-open");

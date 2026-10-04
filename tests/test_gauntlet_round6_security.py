@@ -244,7 +244,7 @@ def test_private_nested_symlink_hardlink_not_readable(tmp_path, monkeypatch, kin
     (private / "cycle").symlink_to(private, target_is_directory=True)
     session = tmp_path / "session"
     session.mkdir()
-    monkeypatch.setenv("TAIL_HARNESS_ROOT", str(install))
+    monkeypatch.setenv("KEEPHARNESS_ROOT", str(install))
     try:
         command = wrap(
             ["/usr/bin/python3", "-c", f"print(open({str(alias)!r}).read())"],

@@ -1,5 +1,5 @@
 agent_service/vendor/
-tail_ui/assets/
+harness_ui/assets/
 graphify-out/
 dist/
 build/

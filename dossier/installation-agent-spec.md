@@ -1,10 +1,10 @@
-# AI-conducted Tail Harness installation
+# AI-conducted KeepHarness installation
 
 Status: operational specification. Audience: an AI agent with authorized server access and the person responsible for the installation. This is not a new release nor proof of an executed installation.
 
 ## Objective and contract
 
-Install Tail Harness, reuse already-available CLIs, accounts, tokens and model servers, and deliver usable administration and conversation, with tests and evidence. **The installer is the AI agent:** it inspects, explains, runs individual commands, checks results and resolves decisions with the person, because the harness depends on the AI providers already installed on each server. Do not use `install.sh`, `setup.sh` or `tail-harness-install` as substitutes for this procedure (they are the manual path described in the README); run the equivalent commands individually so each checkpoint has its own evidence. Test scripts remain allowed.
+Install KeepHarness, reuse already-available CLIs, accounts, tokens and model servers, and deliver usable administration and conversation, with tests and evidence. **The installer is the AI agent:** it inspects, explains, runs individual commands, checks results and resolves decisions with the person, because the harness depends on the AI providers already installed on each server. Do not use `install.sh`, `setup.sh` or `keepharness-install` as substitutes for this procedure (they are the manual path described in the README); run the equivalent commands individually so each checkpoint has its own evidence. Test scripts remain allowed.
 
 Read the README (both language sections), `pyproject.toml` and the specs of the adapters used. Confirm the commands against the installed revision.
 
@@ -44,7 +44,7 @@ For long-running operations, explain which command is still running and what rem
 
 Before installing over an existing instance, prefer a private temporary directory, a fresh venv, empty state and free ports of its own. Test an out-of-checkout installed package first, then the editable flow. Do not register a service, shortcut, linger or VPN route during this simulation.
 
-`--state` separates settings/history, but **it is not a server sandbox**: discovery still queries the user's profiles and already-active processes/models. Also set `TAIL_HARNESS_ROOT` to a dedicated temporary folder if there are operations with local resources. Only query metadata from existing profiles; do not perform login, plugin install/removal or changes to shared runtimes. If credential/process isolation is needed, use a dedicated user or container, recognizing that this changes what will be discovered.
+`--state` separates settings/history, but **it is not a server sandbox**: discovery still queries the user's profiles and already-active processes/models. Also set `KEEPHARNESS_ROOT` to a dedicated temporary folder if there are operations with local resources. Only query metadata from existing profiles; do not perform login, plugin install/removal or changes to shared runtimes. If credential/process isolation is needed, use a dedicated user or container, recognizing that this changes what will be discovered.
 
 In a real local test, enable only the chosen model on the temporary instance and restrict access with a synthetic project. **This simulation cannot restrict network, hooks or integrations for native Codex/Claude:** those providers are native-only, and `Manager.validate` forces every stored permission (read/write/upload/tests/internet/shell/hooks) to `true` for them regardless of the submitted payload (finding F-42) — there is no per-provider network or hooks toggle to withhold. What the simulation *can* restrict for native providers is per-conversation: the access mode (Read only / Ask for approval / Automatic / Full access, per [conversation-execution-mode.md](conversation-execution-mode.md) and the F-110 approval guarantees) and, where the provider supports it, an isolated conversation instead of a native one. Grant the synthetic project and pick the most restrictive access mode that still exercises the scenario; do not treat a permissions payload of all-`false` as achievable or as a test failure when the server persists `true`. Saving an enabled model can start the harness process immediately (the admin restarts it on save): check ports and reachability right after saving, not only before. Wait for runtime availability, do not compete with someone else's inference, impose a deadline and cancel only your own job when it is exceeded. When done, stop only the simulation's processes and check the production listeners. Preserve the report and evidence, noting that directories under `/tmp` are temporary.
 
@@ -53,7 +53,7 @@ In a real local test, enable only the chosen model on the temporary instance and
 1. Confirm the effective user, system, architecture, checkout/revision and local changes. Record whether this is a first installation, an update or a resumption.
 2. Check Python 3.11+, venv/pip, disk space, RAM, Node/Chromium when needed for tests, and access to dependencies. GPU is optional; do not load models just to measure availability.
 3. Identify the service, process, Python environment, state directory and ports actually in use. Compare the terminal's environment to the service's, including PATH and access to the CLIs' profiles.
-4. Default to the `~/.local/share/tail-harness` state and a permanent checkout. Inventory `settings.json`, `local-profiles.json`, the existing database and attachments, without exposing private content.
+4. Default to the `~/.local/share/keepharness` state and a permanent checkout. Inventory `settings.json`, `local-profiles.json`, the existing database and attachments, without exposing private content.
 5. Locate code with Graphify/rg before broad reads. Implementation references are at the end of this spec.
 
 **Acceptance:** unambiguous destination and user; prerequisites met or gaps identified; prior state preserved. Do not install a second instance by failing to recognize the first one.
@@ -73,9 +73,9 @@ Resolve only the remaining unknown choices: desired providers/models, authorized
 The agent runs each command, inspects the return and only then proceeds. Example for a checkout already obtained from the authorized source, with adjusted variables and absolute paths:
 
 ```sh
-TH_CHECKOUT=/absolute/path/tail-harness
-TH_VENV="$HOME/.local/share/tail-harness-venv"
-TH_STATE="$HOME/.local/share/tail-harness"
+TH_CHECKOUT=/absolute/path/keepharness
+TH_VENV="$HOME/.local/share/keepharness-venv"
+TH_STATE="$HOME/.local/share/keepharness"
 TH_ADMIN_PORT=8094
 python3 -m venv "$TH_VENV"
 "$TH_VENV/bin/python" -m pip install -e "$TH_CHECKOUT[test]"
@@ -83,7 +83,7 @@ python3 -m venv "$TH_VENV"
 "$TH_VENV/bin/python" -m control --port "$TH_ADMIN_PORT" --state "$TH_STATE"
 ```
 
-The venv lives at `~/.local/share/tail-harness-venv`, a sibling of the state directory, never inside it: the admin only forces `0700` on the state directory when it creates it (`control/manager.py`), so a `python3 -m venv` run inside an existing `TH_STATE` leaves that directory at the umask's mode (typically `0755`) and world-listable. See [the naming model](naming-model.md) for the `TAIL_HARNESS_VENV`/legacy `TH_VENV` alias.
+The venv lives at `~/.local/share/keepharness-venv`, a sibling of the state directory, never inside it: the admin only forces `0700` on the state directory when it creates it (`control/manager.py`), so a `python3 -m venv` run inside an existing `TH_STATE` leaves that directory at the umask's mode (typically `0755`) and world-listable. See [the naming model](naming-model.md) for the `KEEPHARNESS_VENV`/legacy `TH_VENV` alias.
 
 Do not blindly recreate an existing environment. The last command stays in the foreground: follow it in a managed session or use the approved unit below. An editable install depends on the checkout staying at that path. Do not routinely run a wheel install and an editable one at the same time.
 
@@ -127,8 +127,8 @@ For Codex/Claude catalogs, the code uses `codex mcp list --json`, `claude mcp li
 ## ⚙️ CP-05 — Fill in and check the panels
 
 1. Fill in the cards through the supported configuration mechanisms, reusing real IDs and icons. Identify **Local model via Codex** and **DeepSeek via Codex** when those are the effective combinations; do not announce alternative engines that are not yet implemented.
-2. Present the models and resources already found and enabled in the source profile. Reconcile each inventory item with the provider panel: ID, state, selection and origin. Detected does not mean authorized for every Tail Harness task.
-3. The installation defaults to discovering and activating resources that are already installed/configured, authenticated and supported by Tail Harness, reusing already-authorized permissions and projects. In routine updates, preserve an explicit deactivation made by the person. A present credential does not prove authentication; do not perform interactive login, install CLIs, download models, widen access, or trigger paid inference to complete the matrix. Keep reading the inventory separate from writing the selection. Saving an enabled model can start the harness: check ports and reach before saving.
+2. Present the models and resources already found and enabled in the source profile. Reconcile each inventory item with the provider panel: ID, state, selection and origin. Detected does not mean authorized for every KeepHarness task.
+3. The installation defaults to discovering and activating resources that are already installed/configured, authenticated and supported by KeepHarness, reusing already-authorized permissions and projects. In routine updates, preserve an explicit deactivation made by the person. A present credential does not prove authentication; do not perform interactive login, install CLIs, download models, widen access, or trigger paid inference to complete the matrix. Keep reading the inventory separate from writing the selection. Saving an enabled model can start the harness: check ports and reach before saving.
 4. Explicitly record resources the panel does not represent. Do not invent fields in `settings.json`, nor claim an artifact/skill is in the panel just because it exists on the server. For a required resource with no support, mark the checkpoint blocked and describe the needed implementation; for an optional one, record the accepted limitation.
 5. After saving, wait for the effective configuration: check `config_revision` and the absence of `config_reload_error` in `/v1/version`, plus the expected model, project and permissions in `/v1/models?project_id=ID`. The administrative save can precede the conversation process's reload; do not submit a task before this convergence. Reopen/reload the panel and compare the persisted configuration with the matrix. Verify names, icons, model, engine, selected integrations and projects actually available in the conversation.
 
@@ -150,7 +150,7 @@ Run tests targeted at the installation and the selected contracts, using the com
 | Continuity and artifact | Continue the same task using an earlier synthetic piece of information; reload and check the history. Open/download the result and check its content. Attachments/modalities are approved only after testing the supported format. |
 | Permissions and cancellation | In a synthetic scenario, check approval/denial per policy and cancellation of one's own job. Do not grant additional access just to make the test pass. Dangerous negative tests stay in isolated fixtures. |
 | Enabled connector/plugin | When allowed, perform one minimal read-only operation, with scope and test data; check real execution. A listed configuration with no successful call is marked untested. |
-| Restart and recovery | With no active jobs and within authorization, restart only Tail Harness; check the return of administration, configured resumption, settings/history and reconnection. Do not stop a shared runtime. A real boot can only be declared tested after actual observation. |
+| Restart and recovery | With no active jobs and within authorization, restart only KeepHarness; check the return of administration, configured resumption, settings/history and reconnection. Do not stop a shared runtime. A real boot can only be declared tested after actual observation. |
 | VPN, if requested | Test an authorized client, blocking of an unauthorized client, and administration being unreachable externally. Do not open a public firewall or enable sharing for convenience. |
 
 Targeted regressions available in this revision (confirm the files before running them):
@@ -166,7 +166,7 @@ The first command validates distribution, startup and catalog, not the whole ins
 
 ## 🛠️ CP-07 — Handle failures and resume
 
-Before changing anything, collect the sanitized error, time, command, version, effective process/port and user, and state. Check the unit's logs (`journalctl --user -u tail-harness -n 50`) or the manual session's. Avoid environment dumps and configs with secrets.
+Before changing anything, collect the sanitized error, time, command, version, effective process/port and user, and state. Check the unit's logs (`journalctl --user -u keepharness -n 50`) or the manual session's. Avoid environment dumps and configs with secrets.
 
 | Failure | Agent action |
 | --- | --- |

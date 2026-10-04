@@ -164,7 +164,7 @@ const assert = require("node:assert/strict"),
         body: await fs.readFile(
           path.join(
             __dirname,
-            file.startsWith("assets/") ? "../tail_ui" : "../agent_service",
+            file.startsWith("assets/") ? "../harness_ui" : "../agent_service",
             file,
           ),
         ),
@@ -178,7 +178,7 @@ const assert = require("node:assert/strict"),
       });
     });
     await page.emulateMedia({ reducedMotion: "reduce" });
-    await page.addInitScript(() => localStorage.setItem("tail-harness-tour-seen", "0.14.0"));
+    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
     await page.goto(origin);
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
 
@@ -215,7 +215,7 @@ const assert = require("node:assert/strict"),
     // Project folders start expanded (Codex model); open it only if it is collapsed.
     if (!(await page.locator(".project-group").evaluate((el) => el.open)))
       await page.locator(".project-group > summary").click();
-    await page.screenshot({ path: "/tmp/tail-conversation-indicators.png" });
+    await page.screenshot({ path: "/tmp/keepharness-conversation-indicators.png" });
     await page.locator("#projects .conversation-row > button").click();
     await page.waitForFunction(() =>
       Array.from(document.querySelectorAll(".assistant .text")).some((e) =>

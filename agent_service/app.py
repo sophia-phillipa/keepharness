@@ -10,7 +10,7 @@ from pathlib import Path
 from starlette.applications import Starlette
 
 from control import env
-from tail_ui import StaticGZipMiddleware
+from harness_ui import StaticGZipMiddleware
 
 from .conversation_context import context_overflow  # noqa: F401  (re-exported)
 from .errors import APIError
@@ -19,12 +19,15 @@ from .routes import activity as activity_routes
 from .routes import conversations as conversation_routes
 from .routes import effects as effect_routes
 from .routes import files as file_routes
+from .routes import harness_agents as harness_agent_routes
 from .routes import models as model_routes
+from .routes import pages as page_routes
 from .routes import projects as project_routes
+from .routes import schedules as schedule_routes
 from .routes import spans as span_routes
 from .routes import system as system_routes
-from .routes import tail_agents as tail_agent_routes
 from .routes.projects import project_git  # noqa: F401  (re-exported)
+from .services import scheduler
 from .services.conversation_service import ConversationService
 
 logger = logging.getLogger(__name__)
@@ -40,6 +43,7 @@ def create_app(config, runtime_path=None):
     @asynccontextmanager
     async def lifespan(app):
         worker = asyncio.create_task(service.worker())
+        due_runs = asyncio.create_task(scheduler.run(service))
 
         async def watch_runtime():
             previous = None
@@ -63,6 +67,11 @@ def create_app(config, runtime_path=None):
         try:
             yield
         finally:
+            due_runs.cancel()
+            try:
+                await due_runs
+            except asyncio.CancelledError:
+                pass
             if watcher:
                 watcher.cancel()
                 try:
@@ -83,10 +92,12 @@ def create_app(config, runtime_path=None):
             *project_routes.ROUTES,
             *file_routes.ROUTES,
             *model_routes.ROUTES,
+            *page_routes.ROUTES,
+            *schedule_routes.ROUTES,
             *conversation_routes.ROUTES,
             *activity_routes.ROUTES,
             *span_routes.ROUTES,
-            *tail_agent_routes.ROUTES,
+            *harness_agent_routes.ROUTES,
             *effect_routes.ROUTES,
         ],
         lifespan=lifespan,

@@ -26,6 +26,7 @@ from pathlib import Path
 import pytest
 
 from agent_service.app import create_app
+from tests.owner_session import sign_in
 
 REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 PYTHON = sys.executable
@@ -210,7 +211,7 @@ def test_start_reports_port_in_use_without_touching_other_state(tmp_path, monkey
         manager.settings["services"]["local"]["models"] = ["installed-model"]
 
         with TestClient(admin_app, base_url="http://127.0.0.1:8094") as client:
-            client.get("/")
+            sign_in(client).get("/")
             response = client.post("/api/start", json={}, headers={"X-Harness-Admin": "1"})
 
         assert response.status_code == 400
@@ -284,7 +285,7 @@ def _wait_for_http(base_url, timeout=20):
 
 
 def _spawn_harness(config_path, log_path):
-    env = {**os.environ, "TAIL_HARNESS_AGENT_CONFIG": str(config_path)}
+    env = {**os.environ, "KEEPHARNESS_AGENT_CONFIG": str(config_path)}
     log = open(log_path, "ab")
     proc = subprocess.Popen(
         [PYTHON, "-m", "agent_service.app"], cwd=REPOSITORY_ROOT, env=env, stdout=log, stderr=log

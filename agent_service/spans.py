@@ -51,7 +51,14 @@ def queue_wait_reason(reason):
         return "conversation_parent"
     return (
         reason
-        if reason in {"provider_capacity", "writable_root", "work_item", "conversation_parent"}
+        if reason
+        in {
+            "provider_capacity",
+            "writable_root",
+            "work_item",
+            "conversation_parent",
+            "held_after_stop",
+        }
         else "queue"
     )
 

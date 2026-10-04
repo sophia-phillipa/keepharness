@@ -10,7 +10,7 @@ const { spawn } = require('node:child_process');
  try {
   let ready;for(let i=0;i<100;i++){try{ready=JSON.parse(await fs.readFile(path.join(folder,'ready.json')));if((await fetch('http://127.0.0.1:'+ready.port+'/v1/version')).ok)break;}catch{}if(proc.exitCode!==null)throw Error(log);await new Promise(r=>setTimeout(r,50));}assert(ready,log);
   const origin='http://127.0.0.1:'+ready.port;browser=await chromium.launch();
-  async function page(){const context=await browser.newContext();await context.addCookies([{name:'harness_session',value:ready.session,url:origin}]);const p=await context.newPage();p.setDefaultTimeout(8000);await p.addInitScript(v=>localStorage.setItem('tail-harness-tour-seen',v),(await fs.readFile(path.join(__dirname,'../agent_service/VERSION'),'utf8')).trim());await p.goto(origin);await p.locator('#startup-gate').waitFor({state:'hidden'});return p;}
+  async function page(){const context=await browser.newContext();await context.addCookies([{name:'harness_session',value:ready.session,url:origin}]);const p=await context.newPage();p.setDefaultTimeout(8000);await p.addInitScript(v=>localStorage.setItem('keepharness-tour-seen',v),(await fs.readFile(path.join(__dirname,'../agent_service/VERSION'),'utf8')).trim());await p.goto(origin);await p.locator('#startup-gate').waitFor({state:'hidden'});return p;}
   async function check(name,fn){try{await fn();console.log('PASS '+name);}catch(e){failures.push(name+': '+e.stack);console.error('FAIL '+name+': '+e.message);}}
   await check('A5-F1 failed agent and skill retry retains persisted executable identity',async()=>{
    for(const name of ['reviewer','check']) {

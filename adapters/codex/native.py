@@ -9,11 +9,26 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from adapters.shared.provider_setup import instructions
+from adapters.shared.workspace import readable_roots
+from agent_service.reader_mcp import SERVER_NAME as READER
+from agent_service.reader_mcp import server_spec as reader_spec
 from agent_service.tool_metadata import event_metadata
 from agent_service.tools import ToolError
 from control.integrations import configurations, inventory
 
-from .rpc import connection, sync_title, usage_delta
+from .rpc import (
+    RPCError,
+    connection,
+    execution_failed,
+    provider_message,
+    sync_title,
+    usage_delta,
+)
+
+# codex-cli 0.157.1 answers thread/resume for a thread whose rollout is gone (a restored or
+# moved state, a cleaned sessions folder) with -32600 "no rollout found for thread id <id>".
+MISSING_THREAD = re.compile(r"no rollout found|thread not found", re.I)
 
 
 @dataclass
@@ -67,10 +82,13 @@ def thread_parameters(config, project, model, workspace, runtime, unrestricted):
     cwd, permissions = workspace.cwd, workspace.permissions
     # Ask: the read-only sandbox makes every write escalate to an approval card.
     ask = project.get("access_mode", "ask") == "ask" and not runtime.isolated
-    selected = config.get("integrations", [])
+    # Read only never starts a connector or plugin (decisions D04, D12).
+    selected = [] if project.get("access_mode") == "read_only" else config.get("integrations", [])
     local_provider = runtime.model_provider
+    personal = config.get("personal_setup") is True
     plugins = []
-    if not runtime.isolated:
+    # The owner's plugins and MCP servers are part of the personal setup (decision D01).
+    if not runtime.isolated and personal:
         plugins = (
             config["plugin_inventory"]
             if "plugin_inventory" in config
@@ -92,7 +110,8 @@ def thread_parameters(config, project, model, workspace, runtime, unrestricted):
             else "on-request"
         ),
         "approvalsReviewer": "user",
-        "developerInstructions": "Use the native CLI tools and only the configured integrations. Follow the selected project instructions. Ask approval for actions that exceed the configured permissions. Do not claim a tool succeeded without evidence.",
+        "developerInstructions": "Use the native CLI tools and only the configured integrations. Follow the selected project instructions. Ask approval for actions that exceed the configured permissions. Do not claim a tool succeeded without evidence. "
+        + instructions(config),
     }
     params["developerInstructions"] += (
         " Effective permissions for this turn: "
@@ -105,18 +124,14 @@ def thread_parameters(config, project, model, workspace, runtime, unrestricted):
         {"mcp_servers": {}, "plugins": {}}
         if runtime.isolated
         else {
-            "mcp_servers": {
-                name: {
-                    **spec,
-                    "enabled": not name.startswith("harness_effects") and "mcp:" + name in selected,
-                }
-                for name, spec in configurations()["codex"].items()
-            },
+            "mcp_servers": host_servers(selected, ask) if personal else {},
             "plugins": {
                 plugin.split(":", 1)[1]: {"enabled": plugin in selected} for plugin in plugins
             },
         }
     )
+    if not runtime.isolated:
+        add_reader(params, workspace)
     if config.get("_effect_capability"):
         from agent_service.effect_transport import server_spec
 
@@ -127,6 +142,36 @@ def thread_parameters(config, project, model, workspace, runtime, unrestricted):
     if local_provider:
         params["modelProvider"] = local_provider
     return params
+
+
+def host_servers(selected, ask):
+    """The host's connectors, enabled only when selected; Ask shows a card before every call."""
+    return {
+        name: {
+            **spec,
+            "enabled": not name.startswith("harness_effects") and "mcp:" + name in selected,
+            **({"default_tools_approval_mode": "prompt"} if ask else {}),
+        }
+        for name, spec in configurations()["codex"].items()
+    }
+
+
+def add_reader(params, workspace):
+    """Without the native shell, read through the harness reader over the authorized roots.
+
+    The reader enforces the roots itself: Codex 0.157.1 has no sandbox read allow-list.
+    """
+    permissions = workspace.permissions
+    if not permissions.get("read") or permissions.get("shell"):
+        return
+    roots = readable_roots(workspace)
+    if not roots:
+        return
+    params["config"]["mcp_servers"][READER] = reader_spec(roots)
+    params["developerInstructions"] += (
+        " Read files only with the " + READER + " tools (read_file, list_directory,"
+        " search_files); they accept paths inside the authorized folders: " + ", ".join(roots) + "."
+    )
 
 
 async def respond_to_interaction(rpc, item, approve, project, permissions, unrestricted, isolated):
@@ -155,12 +200,14 @@ async def respond_to_interaction(rpc, item, approve, project, permissions, unres
         else await approve(kind, params)
     )
     decision = reply.get("approved", False)
+    # A denial carries no typed answers to the provider.
+    answers = reply.get("answers") if decision else None
     if "requestUserInput" in kind:
-        result = {"answers": reply.get("answers", {})}
+        result = {"answers": answers or {}}
     elif "elicitation" in kind:
         result = {
             "action": "accept" if decision else "decline",
-            "content": reply.get("answers") or None,
+            "content": answers or None,
         }
     elif "permissions/requestApproval" in kind:
         result = {
@@ -229,6 +276,18 @@ async def resource_inputs(rpc, project, cwd):
     return result
 
 
+async def open_thread(rpc, method, params, marker, provider):
+    """Start or resume the thread; a resume whose rollout is gone is ``native_session_missing``."""
+    try:
+        return await rpc.call(method, params)
+    except RPCError as exc:
+        if method == "thread/resume" and MISSING_THREAD.search(str(exc.error.get("message", ""))):
+            # The caller replays the harness history on a fresh thread, as for Claude and Gemini.
+            marker.replace(marker.with_name(marker.name + ".before-session-missing"))
+            raise ToolError("native_session_missing") from exc
+        raise execution_failed(provider, exc.error) from exc
+
+
 async def run_turn(
     config,
     event,
@@ -285,12 +344,14 @@ async def run_turn(
         isolation = runtime.session_metadata
         params = thread_parameters(config, project, model, workspace, runtime, unrestricted)
         if resumable:
-            params["threadId"] = saved["id"]
-            thread = await rpc.call("thread/resume", params)
+            # Thread metadata only: the stored turns (attached images included) can outgrow
+            # any line limit, and the harness never reads them back.
+            params.update(threadId=saved["id"], excludeTurns=True)
+            thread = await open_thread(rpc, "thread/resume", params, marker, provider)
             event("session_resumed", {"thread_id": params["threadId"]})
         else:
             params["ephemeral"] = not bool(session_dir)
-            thread = await rpc.call("thread/start", params)
+            thread = await open_thread(rpc, "thread/start", params, marker, provider)
         thread_id = thread["thread"]["id"]
         marker.write_text(
             json.dumps(
@@ -355,7 +416,7 @@ async def run_turn(
             kind = item.get("method", "")
             params = item.get("params", {})
             if "error" in item:
-                raise ToolError("codex_rpc_error")
+                raise execution_failed(provider, item["error"])
             if "id" in item and "method" in item:
                 if params.get("itemId") in file_changes:
                     # The approval request has no diff; the card shows the started patch.
@@ -459,17 +520,19 @@ async def run_turn(
             elif kind == "thread/compacted":
                 event("context_compacted", {})
             elif kind == "turn/completed":
-                if params.get("turn", {}).get("status") != "completed":
-                    raise ToolError("codex_execution_failed")
+                turn = params.get("turn", {})
+                if turn.get("status") != "completed":
+                    raise execution_failed(provider, turn.get("error"))
                 break
+            elif kind == "error" and params.get("willRetry") is True:
+                # Codex retries on its own (a dropped stream, a busy server); its next message
+                # arrives within the idle watchdog, so the run keeps waiting for it.
+                event("provider_retrying", {"message": provider_message(params.get("error"))})
             elif kind == "error":
                 event("error", params)
-                raise ToolError(
-                    "codex_execution_failed: "
-                    + str(params.get("error", {}).get("message", "provider error"))[:500]
-                )
+                raise execution_failed(provider, params.get("error"))
             if len(answer) + len(thinking) > 500000:
-                raise ToolError("codex_output_limit")
+                raise ToolError(provider + "_output_limit")
 
     return {
         "answer": answer,

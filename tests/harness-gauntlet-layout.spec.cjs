@@ -2,6 +2,7 @@
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const assert = require('node:assert/strict');
 const { mount, run, span } = require('./run-console-fixture.cjs');
+const { handleHitZones, assertHitAreas } = require('./support/handle-hit-zone.cjs');
 const resources = ['command', 'skill', 'agent'].map((kind, index) => ({ id: 'project/p/' + kind, resource_id: 'project/p/' + kind, revision: '1', name: ['check', 'inspect', 'reviewer'][index], kind, scope: 'project', origin: 'codex', selectable: true, description: 'Inspect synthetic evidence', source: '/fixture/' + kind }));
 async function fixture(browser, width = 1024, plan = false) {
   const page = await browser.newPage({ viewport: { width, height: 812 } });
@@ -65,7 +66,7 @@ async function unobscured(locator) {
     });
     await check('A1-F4 mobile tour leaves composer, controls and status visible', async () => {
       const page = await fixture(browser, 400);
-      await page.evaluate(() => tailHarnessTour.start());
+      await page.evaluate(() => keepHarnessTour.start());
       const seen = new Set();
       while (await page.locator('#tour-root').count()) {
         const title = await page.locator('#tour-title').innerText();
@@ -86,7 +87,7 @@ async function unobscured(locator) {
     await check('A1-F5 origin icons inherit the theme foreground', async () => {
       const page = await fixture(browser, 1280);
       for (const theme of ['porcelain', 'amethyst', 'petroleum']) {
-        await page.evaluate(theme => TailTheme.apply(theme), theme);
+        await page.evaluate(theme => HarnessTheme.apply(theme), theme);
         await page.fill('#prompt', '/');
         await page.locator('.resource-origin-icon svg').first().waitFor();
         const colors = await page.locator('.resource-origin-icon svg').first().evaluate(node => ({ fill: getComputedStyle(node).fill, color: getComputedStyle(node).color }));
@@ -137,11 +138,9 @@ async function unobscured(locator) {
       for (const width of [1440, 400]) {
         const page = await fixture(browser, width);
         if (!(await page.locator('#activity-panel').isVisible())) await page.locator('#panel-toggle').click();
-        for (const handle of await page.locator('#activity-panel .workspace-resize, #activity-panel-resize').all()) {
-          const box = await handle.boundingBox();
-          assert(box.width >= 24 && box.height >= 24, JSON.stringify(box));
-          assert(await unobscured(handle));
-        }
+        // The column handle is drawn as a 6 px strip (WP-16 L64) but keeps a 24 px hit area in free space (WCAG 2.5.8).
+        assertHitAreas(await handleHitZones(page, '#activity-panel .workspace-resize, #activity-panel-resize'));
+        for (const handle of await page.locator('#activity-panel .workspace-resize, #activity-panel-resize').all()) assert(await unobscured(handle));
         for (const summary of await page.locator('#activity-panel .workspace-section > summary').all()) {
           await summary.scrollIntoViewIfNeeded();
           assert(await summary.evaluate(node => { const r = node.getBoundingClientRect(); return [2, r.height - 2].every(y => node.contains(document.elementFromPoint(r.x + r.width / 2, r.y + y))); }), 'section summaries do not share resize hit areas');

@@ -24,6 +24,7 @@ import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
+from control import local_access
 from control.server import Manager
 
 PYTHON = sys.executable
@@ -132,6 +133,8 @@ def test_build_runtime_config_matches_golden_shape(tmp_path):
 
     revision = cfg.pop("config_revision")
     assert re.fullmatch(r"[0-9a-f-]{36}", revision)
+    # Only the digest of the per-install secret travels; the secret stays in its 0600 file.
+    assert cfg.pop("local_secret_sha256") == local_access.digest(manager.local_secret)
 
     replacements = [
         (PYTHON_RESOLVED, "<PYTHON_RESOLVED>"),
@@ -156,6 +159,7 @@ def test_build_runtime_config_matches_golden_shape(tmp_path):
     expected = {
         "browser_url": "http://example-host:8096/",
         "state_dir": "<TMP>/control/runs",
+        "sessions_dir": "<TMP>/control-sessions",
         "catalogs": [],
         "projects": {
             "sem-projeto": {"label": "No project"},
@@ -236,8 +240,10 @@ def test_build_runtime_config_matches_golden_shape(tmp_path):
         "maestro_enabled": True,
         "maestro_instructions": "",
         "maestro_coordinator": {},
-        "shared_projects": True,
+        "project_registration": True,
+        "shared_projects": False,
         "control_state_dir": "<TMP>/control",
+        "personal_setup": False,
         "admin_url": "http://127.0.0.1:8094/",
         "local_access": True,
         "bind": "127.0.0.1",
@@ -245,18 +251,20 @@ def test_build_runtime_config_matches_golden_shape(tmp_path):
         "provider_revisions": {},
         "codex": {
             "binary": "<PYTHON_RESOLVED>",
-            "auth_file": "<TMP>/codex-auth.json",
+            "auth_file": "<TMP>/control/providers/home/.codex/auth.json",
             "python": "<PYTHON>",
             "integrations": [],
+            "provider_homes": "<TMP>/control/providers",
             "unrestricted": True,
             "plugin_inventory": [],
         },
         "codex_models": {"gpt-5-codex": ["low", "medium"]},
         "claude": {
             "binary": "<PYTHON_RESOLVED>",
-            "auth_file": "<TMP>/claude-auth.json",
+            "auth_file": "<TMP>/control/providers/home/.claude/.credentials.json",
             "python": "<PYTHON>",
             "integrations": [],
+            "provider_homes": "<TMP>/control/providers",
             "unrestricted": True,
         },
         "claude_models": {"claude-opus-4-6": ["configured"]},
@@ -277,6 +285,7 @@ def test_build_runtime_config_matches_golden_shape(tmp_path):
                 "key_file": "<TMP>/control/deepseek.key",
             },
             "integrations": [],
+            "provider_homes": "<TMP>/control/providers",
             "unrestricted": True,
             "plugin_inventory": [],
         },
