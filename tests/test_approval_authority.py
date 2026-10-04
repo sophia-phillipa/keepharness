@@ -235,6 +235,26 @@ def test_cli_enrolls_existing_owner_only(approval_app, tmp_path, capsys):
         main(["--state", str(tmp_path), "approve-device", "--owner", "unknown"])
 
 
+def test_expired_session_row_survives_enrollment_for_the_grace_period(approval_app, monkeypatch):
+    from types import SimpleNamespace
+
+    from agent_service import approval_sessions
+
+    now = approval_sessions.time.time()
+    monkeypatch.setattr(approval_sessions.time, "time", lambda: now)
+    config = approval_app.state.service.config
+    token = approval_sessions.consume_enrollment(
+        config, approval_sessions.issue_enrollment(config, "local")
+    )
+    request = SimpleNamespace(cookies={approval_sessions.SESSION_COOKIE: token})
+    now += approval_sessions.SESSION_SECONDS + 1
+    approval_sessions.consume_enrollment(config, approval_sessions.issue_enrollment(config, "local"))
+    assert approval_sessions.session_expired(request, config, "local")  # not purged yet
+    now += approval_sessions.EXPIRED_GRACE_SECONDS
+    approval_sessions.consume_enrollment(config, approval_sessions.issue_enrollment(config, "local"))
+    assert not approval_sessions.session_expired(request, config, "local")  # purged after grace
+
+
 def test_expired_enrollment_and_session_fail_closed(approval_app, monkeypatch):
     from agent_service import approval_sessions
     from agent_service.errors import APIError
