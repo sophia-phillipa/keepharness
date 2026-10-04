@@ -1,5 +1,5 @@
 // D42 / D47: one display name per provider in the app and the admin, "through the Codex CLI"
-// said in the model note, and no Gemini setup card or admin-panel pointer in 0.15.
+// said in the model note, and no Gemini setup card or admin-panel pointer in this release.
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
 const assert = require("node:assert/strict");
 const path = require("node:path");
@@ -58,7 +58,7 @@ const models = [
     const text = await cards.innerText();
     assert.match(text, /Local model; runs through the Codex CLI\./);
     assert.match(text, /Claude Code/);
-    assert.doesNotMatch(text, /Gemini/i, "no Gemini card in 0.15 (D47)");
+    assert.doesNotMatch(text, /Gemini/i, "no Gemini card in this release (D47)");
     await page.click("#settings-close");
 
     // The model note names the engine for DeepSeek and local models.
@@ -71,8 +71,9 @@ const models = [
 
     // A Gemini condition never sends anyone to an admin card that does not exist.
     const copy = await page.evaluate(() => executionCondition("provider_unavailable", "gemini")?.message ?? "");
+    assert.equal(copy, "Gemini is not available in this KeepHarness release. Select another provider to continue this conversation.");
     assert.doesNotMatch(copy, /admin panel/i);
-    console.log("PASS: canonical provider names, Codex CLI note and Gemini out of the 0.15 copy");
+    console.log("PASS: canonical provider names, Codex CLI note and release-independent Gemini copy");
   } finally {
     await browser.close();
   }

@@ -1957,7 +1957,8 @@ function renderQuotaIdentity() {
   const model = selected(),
     backend = model?.backend || "",
     view = quotaViewBackend(),
-    changed = backend !== quotaIdentityBackend || view !== quotaView;
+    modelChanged = backend !== quotaIdentityBackend,
+    changed = modelChanged || view !== quotaView;
   quotaIdentityBackend = backend;
   quotaView = view;
   $("quota-model-icon").textContent = model ? modelIcon(model.id) : "◈";
@@ -1978,7 +1979,7 @@ function renderQuotaIdentity() {
     gemini: "Checking Gemini quota…",
   };
   if (backend === "codex" || backend === "claude") {
-    if (changed)
+    if (modelChanged)
       $("quota-short").textContent =
         backend === "claude" ? "Checking Claude quota…" : "Checking quota…";
   } else {
@@ -4137,7 +4138,7 @@ function executionCondition(code, backend, detail) {
   // D47: the admin has no Gemini card, so there is nothing to open or renew.
   const gemini = backend === "gemini" && ["unavailable", "authentication"].includes(kind) && {
     title: "Gemini unavailable",
-    message: "Gemini is not part of KeepHarness 0.15. Select another provider to continue this conversation.",
+    message: "Gemini is not available in this KeepHarness release. Select another provider to continue this conversation.",
   };
   const copy = deepseek || gemini || {
     unavailable: {title: name + " unavailable", message: "Open the admin panel to check " + name + ", or select another provider."},
@@ -7510,7 +7511,7 @@ async function refreshCatalog() {
       }),
     ),
   );
-  // D47: Gemini is out of 0.15, so no "Not configured" card invites a setup nobody can do.
+  // D47: Gemini is unavailable in this release, so no "Not configured" card invites a setup nobody can do.
   for (const provider of ["codex", "claude"]) {
     if (!providers[provider])
       $("catalog-models").append(
@@ -8739,7 +8740,7 @@ function setQuotaOpen(open) {
   $("quota-toggle").setAttribute("aria-expanded", String(open));
   if (!open && quotaFocus) {
     quotaFocus = null;
-    renderQuotaIdentity();
+    void quota();
   }
   if (open) $("quota-refresh").focus({ preventScroll: true });
   if (open && quotaViewBackend() === "deepseek") void quota();

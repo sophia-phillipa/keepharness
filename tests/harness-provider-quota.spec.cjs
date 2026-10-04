@@ -95,11 +95,23 @@ const balance = {
     assert.match(await page.locator("#quota-current").innerText(), /75% remaining/);
     assert.match(await page.locator("#quota-note").innerText(), /Claude Code last reported/);
     assert.doesNotMatch(await page.locator("#quota-panel").innerText(), /Qwen and Claude don't use this quota|isn't available in this panel/);
-    assert.match(await page.locator("#quota-short").innerText(), /Quota unavailable|Checking quota|remaining/, "the header still describes the selected model");
+    const selectedSummary = await page.locator("#quota-short").innerText();
     assert.equal(await page.locator("#quota-toggle").getAttribute("aria-label").then((text) => /Claude/.test(text)), false, "the header summary stays on the selected Codex model");
     await page.keyboard.press("Escape");
     await page.locator("#quota-panel").waitFor({ state: "hidden" });
     assert(await claudeMeter.evaluate(el => el === document.activeElement), "Escape restores focus to the provider meter");
+
+    // Returning through Settings restores the selected Codex model's quota.
+    await page.click("#settings");
+    await page.click("#settings-quota");
+    await page.locator("#quota-panel").waitFor({ state: "visible" });
+    assert.equal(await heading(), "ChatGPT account quota");
+    await page.waitForFunction(() => /60% remaining/.test(document.getElementById("quota-current").textContent), null, { timeout: 3000 });
+    assert.match(await page.locator("#quota-current").innerText(), /60% remaining/);
+    assert.match(selectedSummary, /remaining|Quota unavailable/, "the header still describes the selected model while Claude has focus");
+    assert.match(await page.locator("#quota-short").innerText(), /60% remaining/);
+    await page.keyboard.press("Escape");
+    await page.click("#settings-close");
 
     // The Codex meter opens by keyboard and says it is the ChatGPT account.
     await codexMeter.focus();

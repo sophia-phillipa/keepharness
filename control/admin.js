@@ -768,7 +768,7 @@ const REMOTE_PLUGIN_NOTE =
   "Not available in KeepHarness runs: this plugin brings its tools as Codex apps, which KeepHarness keeps off. Add an MCP connector for the service instead.";
 function appBasedPlugin(provider, item) {
   return (
-    ["codex", "deepseek", "local"].includes(provider) &&
+    ["codex", "deepseek"].includes(provider) &&
     item.kind === "plugin" &&
     /@[^@]*-remote$/.test(item.id)
   );
