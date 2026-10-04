@@ -13,11 +13,23 @@ ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1
 ANSI_PARTIAL = re.compile(r"\x1b(?:\[[0-?]*[ -/]*|\][^\x07\x1b]*\x1b?|[ -/]+)?$")
 
 
+# An OSC title or link longer than one read is not a real one: release it as text.
+MAX_HELD_ESCAPE = 2048
+
+
+def released(held):
+    """The text of an OSC sequence that never ended; other unfinished sequences are noise."""
+    return held[2:] if held.startswith("\x1b]") else ""
+
+
 def strip_ansi(text):
     """Remove terminal escape codes; the second value is an unfinished trailing sequence."""
     partial = ANSI_PARTIAL.search(text)
     held = partial.group(0) if partial else ""
-    return ANSI_ESCAPE.sub("", text[: len(text) - len(held)]), held
+    done = ANSI_ESCAPE.sub("", text[: len(text) - len(held)])
+    if len(held) > MAX_HELD_ESCAPE:
+        return done + released(held), ""
+    return done, held
 
 
 class Operations:
@@ -58,6 +70,8 @@ class Operations:
                         if self.codes.get(jid):
                             text = text.replace(self.codes[jid], "[redacted]")
                         self.jobs[jid]["output"] = text[-12000:]
+                    # An OSC that never ended must not swallow the output that followed it.
+                    self.jobs[jid]["output"] = (self.jobs[jid]["output"] + released(held))[-12000:]
                     succeeded = await proc.wait() == 0
                     if succeeded and on_success:
                         await on_success()

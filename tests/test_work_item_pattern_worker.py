@@ -211,12 +211,16 @@ def test_match_gives_up_when_no_worker_slot_frees_up(monkeypatch):
     monkeypatch.setattr(work_items, "_ADMISSION_SECONDS", 0.05)
     held = [work_items._slots.acquire() for _ in range(work_items._MAX_WORKERS)]
     try:
-        with pytest.raises(APIError, match="queue_full") as error:
+        with pytest.raises(APIError) as error:
             work_items.invocation_reference({}, PROJECT, DATA)
     finally:
         for _ in held:
             work_items._slots.release()
-    assert error.value.status == 429
+    # The pattern-check cap is not the job queue: the copy must not say the queue is full.
+    assert error.value.code == "work_item_check_busy" and error.value.status == 429
+    from agent_service.services import scheduler
+
+    assert "work_item_check_busy" in scheduler.TRANSIENT_CODES  # a busy check defers a run
 
 
 @pytest.mark.parametrize("source", ["explicit", "chips", "persona", "schedule"])
@@ -386,3 +390,76 @@ def test_scheduled_runs_without_an_agent_never_reach_the_worker():
         page_ids=[],
     )
     assert work_items._match_payload({}, PROJECT, schedules.job_request({}, record)) is None
+
+
+def submission_service(tmp_path, monkeypatch):
+    from test_invocation_normalization import invocation_service
+
+    service, identity = invocation_service(tmp_path, monkeypatch)
+    service.config["projects"]["p"]["work_item_pattern"] = r"TASK-\d{4}"
+    item = next(
+        item
+        for item in service.resource_catalog(identity, "p", "codex", "gpt-6-astra")["items"]
+        if item["name"] == "reviewer"
+    )
+    data = dict(
+        project_id="p",
+        backend="codex",
+        model="gpt-6-astra",
+        effort="low",
+        prompt="/reviewer Review TASK-1234",
+        resource_selections=[
+            {"id": item["id"], "revision": item["revision"], "token": "/reviewer"}
+        ],
+    )
+    return service, identity, data
+
+
+def test_submit_refuses_a_project_whose_deletion_finished_during_admission(tmp_path, monkeypatch):
+    from agent_service.services import conversation_service
+
+    service, identity, data = submission_service(tmp_path, monkeypatch)
+    record_worker(monkeypatch, reply='["TASK-1234"]')
+
+    async def deletion_finishes_while_matching(*args):
+        await work_items.prematch_reference(*args)
+        # Neither "deleting" nor "deleted" was set at the first look; both have passed by now.
+        service.deleted_project_folders.add("p")
+
+    monkeypatch.setattr(conversation_service, "prematch_reference", deletion_finishes_while_matching)
+    try:
+        with pytest.raises(APIError, match="project_folder_deleted") as error:
+            asyncio.run(service.submit_async(identity, data))
+        assert error.value.status == 410
+        assert service.conversation_repository.count_pending_for_owner(identity[0]) == 0
+    finally:
+        service.db.close()
+
+
+def test_a_replayed_idempotency_key_never_spawns_a_pattern_worker(tmp_path, monkeypatch):
+    service, identity, data = submission_service(tmp_path, monkeypatch)
+    seen = record_worker(monkeypatch, reply='["TASK-1234"]')
+    try:
+        first = asyncio.run(service.submit_async(identity, data, "key-1"))
+        assert seen.calls == 1
+        second = asyncio.run(service.submit_async(identity, data, "key-1"))
+        assert second["reused"] is True and second["job_id"] == first["job_id"]
+        assert seen.calls == 1
+    finally:
+        service.db.close()
+
+
+def test_a_prematched_outcome_never_outlives_a_refused_submit(tmp_path, monkeypatch):
+    service, identity, data = submission_service(tmp_path, monkeypatch)
+    record_worker(monkeypatch, reply='["TASK-1234"]')
+    service.deleted_project_folders.add("p")
+
+    async def scenario():
+        with pytest.raises(APIError, match="project_folder_deleted"):
+            await service.submit_async(identity, data)
+        return work_items._prematched.get()
+
+    try:
+        assert asyncio.run(scenario()) is None
+    finally:
+        service.db.close()

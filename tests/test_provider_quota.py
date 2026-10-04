@@ -194,6 +194,31 @@ def test_deepseek_balance_is_served_cached_and_never_invented(tmp_path):
     service.db.close()
 
 
+def test_a_failed_deepseek_balance_read_is_cached_briefly(tmp_path):
+    """Every Usage open must not retry a failing read with its 10 s timeout."""
+    from adapters.deepseek import account as deepseek
+    from agent_service.services import conversation_service
+
+    app = create_app(config(tmp_path))
+    service = app.state.service
+    key = tmp_path / "deepseek.key"
+    key.write_text("k" * 24)
+    service.config = {**service.config, "deepseek": {"api_provider": {"url": deepseek.API, "key_file": str(key)}}}
+    clock = [1000.0]
+    with TestClient(app, headers={"Authorization": "Bearer a"}) as client, patch.object(
+        conversation_service.time, "monotonic", lambda: clock[0]
+    ), patch.object(deepseek, "fetch_balance", AsyncMock(return_value=None)) as fetch:
+        first = client.get("/v1/usage?backend=deepseek").json()
+        second = client.get("/v1/usage?backend=deepseek").json()
+        assert first == second == {"provider": "deepseek", "available": False, "reason": "balance_unavailable"}
+        assert fetch.await_count == 1
+        clock[0] += conversation_service.DEEPSEEK_FAILURE_SECONDS + 1  # the failure is retried soon
+        client.get("/v1/usage?backend=deepseek")
+        assert fetch.await_count == 2
+        assert conversation_service.DEEPSEEK_FAILURE_SECONDS < conversation_service.DEEPSEEK_BALANCE_SECONDS
+    service.db.close()
+
+
 def test_codex_quota_in_activity_expires_instead_of_staying_current(tmp_path):
     """CDX-R4-2: a refresh that keeps failing must not leave an old percentage looking current."""
     service = create_app(config(tmp_path)).state.service

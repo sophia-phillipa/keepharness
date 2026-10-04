@@ -1160,6 +1160,8 @@ const userErrors = {
   search_rate_limit: "Too many searches in a short time. Wait a moment and search again.",
   queue_full:
     "The server queue is full. This request wasn't queued; wait for other runs to finish.",
+  work_item_check_busy:
+    "The server is busy checking work-item patterns. This request wasn't queued; try again in a moment.",
   owner_queue_full:
     "You reached the queue limit for requests. Wait for one of your runs to finish before sending another.",
   stream_limit:

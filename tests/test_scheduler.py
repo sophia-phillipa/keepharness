@@ -364,6 +364,30 @@ def test_recovering_a_scheduled_workflow_starts_an_unscheduled_conversation(tmp_
         service.db.close()
 
 
+def test_a_scheduled_workflow_is_resolved_without_the_personal_setup_at_admission(config, service):
+    """Scheduled runs never carry the personal setup, so admission must refuse what execution would."""
+    config["personal_setup"] = True
+    seen = []
+
+    def resolve(scope, *args, **kwargs):
+        seen.append((scope["personal_setup"], kwargs["owner"]))
+        raise workflows.WorkflowError("workflow_resource_unavailable")
+
+    data = {
+        **VALID,
+        "execution_mode": "native",
+        "invocations": [{"kind": "workflow", "resource_id": "project/p/workflows/review.json"}],
+    }
+    owner = ("local", {})
+    with patch.object(workflows, "resolve_workflow", resolve):
+        with pytest.raises(workflows.WorkflowError):
+            service._submit_prepared(owner, data, None, schedule={"schedule_id": "f" * 32})
+        with pytest.raises(workflows.WorkflowError):
+            service._submit_prepared(owner, dict(data), None)
+    # The owner's scheduled run drops the personal setup; the same owner's live run keeps it.
+    assert seen == [(False, True), (True, True)]
+
+
 # --------------------------------------------------------------------------- the background task
 
 

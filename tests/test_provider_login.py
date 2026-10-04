@@ -317,6 +317,27 @@ def test_login_output_has_no_ansi_escape_codes_even_when_split_between_reads(tmp
     assert "link done" in job["output"]
 
 
+def test_an_unterminated_osc_sequence_does_not_hold_back_later_output():
+    text, held = strip_ansi("before\x1b]0;" + "x" * 3000)
+    assert held == "" and text.startswith("before0;x")  # released as text, not held forever
+    text, held = strip_ansi("\x1b]8;;https://x.test")  # a short one is still waited for
+    assert (text, held) == ("", "\x1b]8;;https://x.test")
+
+
+def test_sign_in_output_after_an_unterminated_osc_is_kept_when_the_cli_exits(tmp_path):
+    script = "import sys\nsys.stdout.write('\\x1b]0;title\\nOpen https://x.test code ABCD-1234\\n')\n"
+
+    async def exercise():
+        operations = Operations()
+        job = operations.launch([sys.executable, "-c", script])
+        await asyncio.gather(*operations.tasks)
+        return job
+
+    job = asyncio.run(exercise())
+    assert job["state"] == "completed"
+    assert "Open https://x.test code ABCD-1234" in job["output"] and "\x1b" not in job["output"]
+
+
 @pytest.mark.parametrize(
     ("display", "expected"),
     [
