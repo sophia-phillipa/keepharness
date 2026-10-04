@@ -1,16 +1,23 @@
 # Model servers on your network
 
-Use a model that runs on another machine of your tailnet or local network, through the existing `local` provider. The other machine runs any OpenAI-compatible server (llama.cpp `llama-server`, Ollama's OpenAI endpoint, LM Studio...) and the harness talks to it like it talks to a local one.
+Use a model that runs on another machine of your tailnet or local network, through the existing `local` provider. The other machine must run an OpenAI-compatible server with the **Responses API** enabled. A server that implements only Chat Completions is not sufficient for Local Model via Codex.
 
 Initial scope: manual entry of the address in the admin panel, probe, persist, and expose the models of the server next to the local ones. There is no automatic discovery of tailnet machines.
 
 ## Behavior
 
 1. In the admin panel, open **Providers**, then the **Local Model via Codex** card. The **Model server on your network** form takes an address (for example `http://machine.tailnet.ts.net:8080`) and an optional API key.
-2. **Add server** asks the server for `<address>/v1/models`. Only a reachable server that answers with a model list is saved. Any failure is reported with its reason (could not connect, timed out, key rejected or required, unexpected HTTP status, not a model list, answer too large) and nothing is saved.
+2. **Add server** asks the server for `<address>/v1/models` and checks its Responses API. Only a reachable server that answers with a model list and passes the capability check is saved. Any failure is reported with its reason (including a missing Responses API) and nothing is saved.
 3. The saved servers are probed again on every inventory scan (**Check environment**, starting the harness, saving choices). Their models join the local ones in the model list; choose and save them like any other local model.
 4. The list under the form shows each server with the number of models it listed, or **Unreachable** and the reason. **Remove** deletes the server and its key file after a confirmation.
 5. An unreachable server never breaks a scan: it is skipped for that scan and reported as unreachable. It is probed again on the next one.
+
+The capability check sends an invalid, empty request to `/v1/responses`, without
+a prompt or model, so it does not request inference. A missing endpoint reports
+`responses_api_unavailable`. Generic HTTP success or failure alone does not
+establish support: the probe checks the response structure. Existing saved
+servers are checked again during discovery and incompatible servers do not
+contribute models to the inventory.
 
 The machine must be reachable over Tailscale or the local network, and its server must listen on a network address (for `llama-server`, `--host 0.0.0.0` or the Tailscale address), not only on `127.0.0.1`.
 

@@ -1095,6 +1095,22 @@ function renderProjects() {
 let tailnetNoticeShown = false;
 function renderStatus() {
   const s = state.status;
+  const diagnostics = [];
+  if (s.startup_error) diagnostics.push("Startup error: " + s.startup_error);
+  if (s.last_exit)
+    diagnostics.push("Last exit: " + s.last_exit.code + " at " + new Date(s.last_exit.at * 1000).toISOString() + " (uptime " + s.last_exit.uptime_seconds + "s)");
+  $("runtime-diagnostics").textContent = diagnostics.join(" · ");
+  $("runtime-diagnostics").hidden = diagnostics.length === 0;
+  $("environment-tools").replaceChildren(...(state.inventory.tools || []).map(tool => {
+    const row = element("div");
+    row.append(element("h3", tool.name + " — " + (tool.present ? "Available" : "Missing")));
+    for (const [distro, hint] of Object.entries(tool.package_hints || {}))
+      row.append(element("p", distro + ": " + hint, "hint"));
+    return row;
+  }));
+  for (const provider of state.inventory.services)
+    for (const failure of provider.runtime_errors || [])
+      $("environment-tools").append(element("p", failure.url + ": " + failure.error, "hint"));
   $("add-provider").disabled = working;
   $("wizard-content-lock").disabled = working;
   $("wizard-next").disabled = working;
@@ -1165,6 +1181,18 @@ async function load({ select = true } = {}) {
       (visibleProviders().find((i) => i.id === editing)?.name || "provider");
   HarnessUI.decorate();
 }
+$("refresh-log-tail").onclick = async () => {
+  const button = $("refresh-log-tail");
+  button.disabled = true;
+  try {
+    const result = await request("logs");
+    $("log-tail").textContent = result.lines.join("\n") || "No harness log entries yet.";
+  } catch (error) {
+    $("log-tail").textContent = "Could not read the log: " + error.message;
+  } finally {
+    button.disabled = false;
+  }
+};
 async function action(fn) {
   if (working) return;
   working = true;

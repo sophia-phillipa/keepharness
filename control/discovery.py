@@ -17,6 +17,27 @@ OLLAMA_TAGS_URL = "http://127.0.0.1:11434/api/tags"
 PROBE_SECONDS = 3
 
 
+def tool_inventory():
+    """Executable presence and package-manager hints; never install anything."""
+    rows = []
+    for name, package in (("ffmpeg", "ffmpeg"), ("bwrap", "bubblewrap"), ("prlimit", "util-linux")):
+        binary = shutil.which(name)
+        rows.append(
+            {
+                "name": name,
+                "present": bool(binary),
+                "binary": binary,
+                "package_hints": {
+                    "Fedora": f"sudo dnf install {package}",
+                    "Bazzite": f"rpm-ostree install {package}; or install {package} inside a distrobox running KeepHarness",
+                    "Debian / Ubuntu": f"sudo apt install {package}",
+                    "Arch": f"sudo pacman -S {package}",
+                },
+            }
+        )
+    return rows
+
+
 async def command(*args, env=None):
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -47,6 +68,9 @@ async def scan(remote_servers=(), *, reserved=()):
             "node",
             "git",
             "pdftotext",
+            "ffmpeg",
+            "bwrap",
+            "prlimit",
         )
     }
     if not binaries["codex"]:
@@ -114,7 +138,8 @@ async def scan(remote_servers=(), *, reserved=()):
             )
         except (httpx.HTTPError, ValueError, KeyError, TimeoutError):
             pass
-    local["runtimes"] = await discover()
+    local["runtime_errors"] = []
+    local["runtimes"] = await discover(errors=local["runtime_errors"])
     remote, local["remote_servers"] = await discover_remote(
         remote_servers, {m["id"] for m in local["runtimes"]} | set(local["models"]) | set(reserved)
     )
@@ -168,6 +193,7 @@ async def scan(remote_servers=(), *, reserved=()):
         "platform": platform.system(),
         "services": services,
         "binaries": binaries,
+        "tools": tool_inventory(),
         "network": network,
         "projects": projects,
         "memory_bytes": mem,

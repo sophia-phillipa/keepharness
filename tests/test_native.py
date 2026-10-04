@@ -554,6 +554,15 @@ print(json.dumps({'type':'result','subtype':'success','result':decision,'session
                         request=httpx.Request("GET", url),
                     )
 
+                @asynccontextmanager
+                async def stream(self, method, url, headers, json):
+                    assert method == "POST" and url.endswith("/v1/responses")
+                    assert headers["Authorization"] == "Bearer private-test-token"
+                    assert json == {}
+                    yield httpx.Response(
+                        400, json={"error": {"message": "Missing required parameter: model"}}
+                    )
+
             class Factory(Client):
                 def __init__(self, **kwargs):
                     pass

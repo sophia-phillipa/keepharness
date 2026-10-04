@@ -9323,6 +9323,7 @@ function attachmentNotice(filename, code) {
     unsupported_binary_format: "this format has no reader available in the app",
     binary_denied: "this binary format has no reader available in the app",
     invalid_pdf: "the PDF is invalid or damaged",
+    document_tools_unavailable: "PDF extraction requires bwrap (bubblewrap) on the server",
     pdf_extraction_failed: "its text could not be extracted from the PDF",
     document_text_unavailable: "the document contains no readable text",
     document_text_limit: "the document's text exceeds the size limit",
@@ -9399,6 +9400,7 @@ function attachmentError(code) {
     document_expansion_limit:
       "The document exceeds the safe decompression limit.",
     invalid_pdf: "The PDF is invalid or damaged.",
+    document_tools_unavailable: "PDF extraction is unavailable. Install bwrap (bubblewrap) on the server.",
     pdf_extraction_failed: "Couldn't extract the text from the PDF.",
     unsafe_document_xml:
       "The document contains XML declarations that are not allowed.",

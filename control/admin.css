@@ -1651,3 +1651,6 @@ body dialog { border: 0; border-radius: 20px; background: var(--th-panel); box-s
 html[data-embedded] body { padding-left: 0; }
 html[data-embedded] :is(.sidebar, .skip, #main .breadcrumb, #open-harness, #theme) { display: none; }
 html[data-embedded] #main { max-width: none; margin: 0; padding-inline: 24px; }
+
+#log-tail { max-height: 24rem; max-width: 100%; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+#environment-tools p { overflow-wrap: anywhere; }
