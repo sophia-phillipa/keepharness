@@ -32,11 +32,12 @@ const path = require("node:path");
       event({ id: 1, type: "catalog_hook", data: { outcome: "skipped", reason: "hooks_not_trusted", hook: "fixture-hook" } });
       event({ id: 2, type: "catalog_hook", data: { outcome: "skipped", reason: "hooks_not_granted" } });
       event({ id: 3, type: "catalog_hook", data: { outcome: "skipped", reason: "unknown_reason" } });
-      event({ id: 4, type: "answer_delta", data: { text: "Hello" } });
+      event({ id: 4, type: "catalog_hook", data: { outcome: "skipped", reason: "hooks_not_trusted", hook: "fixture-hook-2" } });
+      event({ id: 5, type: "answer_delta", data: { text: "Hello" } });
     });
     await page.getByText("Hello", { exact: true }).waitFor();
     const notices = await page.locator(".run-notice").allInnerTexts();
-    assert.equal(notices.length, 3);
+    assert.equal(notices.length, 3); // a repeated reason does not stack a second notice
     assert.match(notices[0], /Re-trust the catalog in Admin/);
     assert.match(notices[1], /hook permission was not granted/);
     assert.match(notices[2], /hook was skipped/i);
