@@ -2,17 +2,17 @@
 
 ## Supported paths
 
-- UTF-8 text, source code, CSV and TSV: decoded as text without an extension allowlist.
+- Text, source code, CSV and TSV: decoded without an extension allowlist. A UTF-8 or UTF-16 byte-order mark is honoured, and bytes that are not UTF-8 are read as Windows-1252 (Excel's CSV default) unless they contain control codes, which marks them as binary.
 - PDF: local selectable-text extraction (scanned pages are not automatically OCRed).
 - EPUB: archive container, package manifest and spine order; chapter markup stripped; no scripts or external resources executed. DRM is not supported.
-- DOCX, PPTX, XLSX, ODT, ODS and ODP: bounded ZIP/XML text extraction. Spreadsheet cell coordinates and shared strings are retained; layout, embedded images and recalculation are not provided.
+- DOCX, PPTX, XLSX, ODT, ODS and ODP: bounded ZIP/XML text extraction. Word runs are joined as written with one line per paragraph, and headers, footers, footnotes and endnotes are read. Spreadsheet cell coordinates and shared strings are retained (shared strings are resolved into the cells, not sent a second time); layout, embedded images and recalculation are not provided.
 - PNG, JPEG, GIF and WebP: original image bytes sent as native image content. Upload and execution verify the selected service. Local llama.cpp must report `modalities.vision=true`; an upload permission alone does not imply vision.
 - MP4: model-aware admission, four sampled JPEG frames with timestamps and local speech transcription when an audio track exists. Frames represent 0%, 25%, 50% and 75% of duration; motion, intervening events and the full visual timeline are not reconstructed.
 - WAV, MP3, M4A, OGG, FLAC, WEBM, AAC and OPUS: offline speech transcription using whisper.cpp base, followed by text input. This is speech recognition, not native sound/music understanding or speech synthesis.
 
 All individual attachments are limited to 100 MiB (104,857,600 bytes), inclusive. Audio and MP4 duration is limited to four hours. Office/EPUB archives have a 20 MiB uncompressed and 2,000-entry limit. Parsers do not extract archive paths to disk or load external XML entities. Media decoding/transcription runs in a bounded, network-isolated sandbox.
 
-Large extracted documents are stored in the conversation's private attachments directory. The prompt includes at most 6,000 characters per file, explicitly labeled as an excerpt, plus the complete text path for bounded tool reads. If tools are disabled, the agent must request a smaller excerpt rather than claim full access. Conversation/project ownership and upload grants still apply. Raw uploads are preserved.
+Large extracted documents are stored in the conversation's private attachments directory. The prompt includes at most 6,000 characters per file, explicitly labeled as an excerpt, plus the complete text path for bounded tool reads. If tools are disabled, the agent must request a smaller excerpt rather than claim full access. Claude receives that directory as a readable folder and Codex reads it through the harness reader, so neither raises an approval card for it; the attachment chip reads "excerpt sent" whenever only the excerpt was inlined. The 100,000-character source limit counts what is sent to the provider session, not the files its native session already holds. The notice that an image was ignored appears on the turn that attaches it, or when the route changes to one that drops it, and is not repeated on later turns of that route. Conversation/project ownership and upload grants still apply. Raw uploads are preserved.
 
 ## Local deployment verified
 

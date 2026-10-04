@@ -3315,6 +3315,16 @@ $("messages").addEventListener("click", (event) => {
   const button = event.target.closest?.(".copy-code");
   if (button) copyText(button.closest(".code-block")?.querySelector("code")?.textContent, button);
 });
+function excerptChip(file) {
+  const chip = document.createElement("small");
+  chip.className = "attachment-excerpt";
+  chip.textContent = "excerpt sent";
+  chip.title =
+    "Only the first part of " +
+    file.name +
+    " was sent inline. The model can read the rest only if it has file tools.";
+  return chip;
+}
 function messageAttachments(message, attachments = []) {
   const gallery = document.createElement("div");
   gallery.className = "message-images";
@@ -3325,6 +3335,7 @@ function messageAttachments(message, attachments = []) {
     const label = document.createElement("span");
     label.textContent = file.name;
     card.append(icon, label);
+    if (file.excerpt) card.append(excerptChip(file));
     if (!file.preview_url) {
       gallery.append(card);
       continue;
@@ -4581,6 +4592,7 @@ async function upload(list) {
           id: r.file_id,
           name: f.name,
           preview_url: r.preview_url,
+          excerpt: r.excerpt,
           project: $("project").value,
           size: f.size,
           modified: f.lastModified,
@@ -5336,6 +5348,7 @@ async function attachSelectedProjectFiles(
         id: attachment.file_id,
         name: attachment.name,
         preview_url: attachment.preview_url,
+        excerpt: attachment.excerpt,
         project: $("project").value,
       });
     renderFiles();
@@ -5382,6 +5395,7 @@ function renderFiles() {
       name.textContent = f.name;
       name.className = "attachment-name";
       el.append(name);
+      if (f.excerpt) el.append(excerptChip(f));
       if (f.size > 0) {
         const size = document.createElement("small");
         size.className = "attachment-size";

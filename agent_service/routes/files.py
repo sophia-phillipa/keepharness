@@ -15,7 +15,7 @@ from starlette.responses import FileResponse, JSONResponse
 from .. import harness_agents, maestro, tools, workspaces
 from ..errors import APIError
 from ..persistence.db import encoded
-from ..services.conversation_service import preview_metadata
+from ..services.conversation_service import excerpt_metadata, preview_metadata
 from . import api_route, body
 
 # Bidirectional embedding, override and isolate controls: they can reorder how a name
@@ -444,6 +444,7 @@ async def upload_file(request, service, identity):
             "bytes": size,
             "pages": len(pages),
             **preview_metadata(fid, pages),
+            **excerpt_metadata(pages),
         },
         status_code=201,
     )
