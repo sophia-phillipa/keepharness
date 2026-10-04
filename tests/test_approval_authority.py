@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from urllib.parse import urlsplit
 
 import httpx
@@ -535,6 +536,49 @@ def test_legacy_thirty_day_session_clamped_at_startup(approval_app, monkeypatch)
         expires = dict(database.execute("SELECT digest, expires FROM sessions"))
     assert expires["fresh"] == now + SEVEN_DAYS
     assert expires["old"] == now - 20 * 86400 + SEVEN_DAYS < now
+
+
+def test_session_without_creation_time_is_clamped_and_a_lost_alter_race_is_tolerated(
+    approval_app, monkeypatch
+):
+    from agent_service import approval_sessions
+
+    now = 1_000_000.0
+    monkeypatch.setattr(approval_sessions.time, "time", lambda: now)
+    config = approval_app.state.service.config
+    legacy = 30 * 24 * 60 * 60
+    with approval_sessions.session_database(config) as database:
+        database.executescript(LEGACY_SESSIONS_SCHEMA)
+        database.execute("ALTER TABLE sessions ADD COLUMN created REAL")  # crash before UPDATE
+        database.execute("INSERT INTO sessions VALUES('orphan','local',?,1,NULL)", (now + legacy,))
+
+    real_database = approval_sessions.session_database
+
+    class StaleSchema:
+        """Reports the pre-ALTER columns, as a concurrent starter that lost the race sees them."""
+
+        def __init__(self, database):
+            self.database = database
+
+        def execute(self, sql, *args):
+            if sql.startswith("PRAGMA table_info"):
+                return iter([(0, "digest"), (1, "owner"), (2, "expires"), (3, "approval_capable")])
+            return self.database.execute(sql, *args)
+
+        def __getattr__(self, name):
+            return getattr(self.database, name)
+
+    @contextmanager
+    def stale_database(*args, **kwargs):
+        with real_database(*args, **kwargs) as database:
+            yield StaleSchema(database)
+
+    monkeypatch.setattr(approval_sessions, "session_database", stale_database)
+    approval_sessions.initialize_session_database(config)
+    monkeypatch.setattr(approval_sessions, "session_database", real_database)
+    with approval_sessions.session_database(config, readonly=True) as database:
+        expires = dict(database.execute("SELECT digest, expires FROM sessions"))
+    assert expires["orphan"] == now + SEVEN_DAYS
 
 
 def test_expired_session_keeps_card_pending_with_expiry_message(approval_app, monkeypatch):

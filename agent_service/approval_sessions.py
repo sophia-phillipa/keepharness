@@ -61,11 +61,18 @@ def initialize_session_database(config):
         """)
         columns = {row[1] for row in database.execute("PRAGMA table_info(sessions)")}
         if "created" not in columns:
-            # Legacy rows kept only their 30-day expiry; the creation time follows from it.
-            database.execute("ALTER TABLE sessions ADD COLUMN created REAL")
-            database.execute(
-                "UPDATE sessions SET created = expires - ?", (LEGACY_SESSION_SECONDS,)
-            )
+            try:
+                database.execute("ALTER TABLE sessions ADD COLUMN created REAL")
+            except sqlite3.OperationalError as exc:
+                # The server and the owner CLI can start together; the other one won the race.
+                if "duplicate column" not in str(exc):
+                    raise
+        # Every start: rows left without a creation time (a crash after the ALTER, or a row
+        # an older version inserted) follow from their legacy 30-day expiry.
+        database.execute(
+            "UPDATE sessions SET created = expires - ? WHERE created IS NULL",
+            (LEGACY_SESSION_SECONDS,),
+        )
         database.execute(
             "UPDATE sessions SET expires = created + ? WHERE expires > created + ?",
             (SESSION_SECONDS, SESSION_SECONDS),
