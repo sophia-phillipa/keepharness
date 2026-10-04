@@ -152,11 +152,11 @@ def _run_worker(payload):
         startup_guard.start()
         try:
             if child.stdout.readline() != "ready\n":
-                raise UserMessageError("pattern worker failed to start")
+                raise ValueError("pattern worker failed to start")
             startup_guard.cancel()
             output, _ = child.communicate(payload, timeout=_MATCH_SECONDS)
             if child.returncode:
-                raise UserMessageError("pattern worker failed")
+                raise ValueError("pattern worker failed")
             return output
         except BaseException:
             child.kill()

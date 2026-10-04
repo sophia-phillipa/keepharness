@@ -230,7 +230,10 @@ class Manager:
         bind = data.get("vpn_bind", "127.0.0.1")
         if not isinstance(bind, str):
             raise UserMessageError("Provide the private IP as text.")
-        address = ipaddress.ip_address(bind)
+        try:
+            address = ipaddress.ip_address(bind)
+        except ValueError:
+            raise UserMessageError("Provide the private IP as a valid IPv4 address.") from None
         if (
             address.version != 4
             or not (address.is_loopback or address.is_private)
@@ -863,6 +866,7 @@ class Manager:
             )
             return False
         await asyncio.sleep(min(RESTART_DELAY * 2 ** max(self.crashes - 1, 0), RESTART_DELAY_CAP))
+        spawned = None
         try:
             async with self.lock:  # as an owner's Start, which holds this lock: never two at once
                 spawned = await self.start(supervised=True)
@@ -871,8 +875,11 @@ class Manager:
                 async with self.lock:
                     self.finish_start(spawned)
         except (ValueError, RuntimeError, OSError) as exc:
-            self.startup_error = str(exc)
-            self.started_at = time.monotonic()  # a start that fails counts as a quick crash
+            async with self.lock:
+                # An owner's Start may have replaced the process while this one was awaited.
+                if spawned is None or self.proc is spawned:
+                    self.startup_error = str(exc)
+                    self.started_at = time.monotonic()  # a start that fails counts as a quick crash
         return True
 
     async def drain(self):

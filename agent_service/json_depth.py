@@ -5,6 +5,8 @@ MAX_JSON_DEPTH = 64
 
 def too_deep(data):
     """Iterative nesting check, so it holds on every Python version."""
+    if not isinstance(data, (dict, list)):
+        return False
     level = [data]
     for _ in range(MAX_JSON_DEPTH):
         level = [

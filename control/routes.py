@@ -596,7 +596,10 @@ async def start_local_model(request, manager, data):
             raise UserMessageError(
                 "This runtime did not confirm support for: " + ", ".join(sorted(unsupported))
             )
-    layers = int(data.get("gpu_layers", 0))
+    try:
+        layers = int(data.get("gpu_layers", 0))
+    except (TypeError, ValueError):
+        raise UserMessageError("Invalid GPU layers.") from None
     if not 0 <= layers <= 999:
         raise UserMessageError("Invalid GPU layers.")
     from .start_local import ensure_key

@@ -326,10 +326,10 @@ def discover(
     access_mode=None,
 ):
     """The caller's resources; ``owner`` must be True for the owner's personal ones to show."""
-    from .approval_policy import effective_permissions, hooks_allowed
     from .catalog_manifest import load_manifest, preflight
     from .catalog_pin import effective_catalogs, snapshot_catalogs
     from .harness_agents import add_resources
+    from .approval_policy import effective_permissions, hooks_allowed
     from .integrations import integration_preflight
     from .maestro import model_permissions
     from .workflows import discover_workflows

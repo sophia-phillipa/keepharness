@@ -4,6 +4,8 @@ from pathlib import Path
 
 import httpx
 
+from agent_service.errors import UserMessageError
+
 API = "https://api.deepseek.com"
 
 
@@ -13,7 +15,7 @@ def key_file(state):
 
 def store_key(state, token):
     if not isinstance(token, str) or not 16 <= len(token) <= 512 or any(c.isspace() for c in token):
-        raise ValueError("Invalid API token.")
+        raise UserMessageError("Invalid API token.")
     path = key_file(state)
     temp = path.with_suffix(".tmp")
     temp.write_text(token)
@@ -65,7 +67,7 @@ def balance_summary(answer):
 async def check(state):
     path = key_file(state)
     if not path.exists():
-        raise ValueError("Add your DeepSeek key in the assistant.")
+        raise UserMessageError("Add your DeepSeek key in the assistant.")
     async with httpx.AsyncClient(
         base_url=API,
         headers={"Authorization": "Bearer " + path.read_text().strip()},
@@ -75,7 +77,7 @@ async def check(state):
         try:
             response = await client.get("/models")
             if response.status_code in (401, 403):
-                raise ValueError("DeepSeek key rejected. Check the credential with the provider.")
+                raise UserMessageError("DeepSeek key rejected. Check the credential with the provider.")
             response.raise_for_status()
             models = {
                 m["id"]: ["configured", "none", "low", "high", "max"]
@@ -90,4 +92,4 @@ async def check(state):
                 "model_source": "DeepSeek API /models",
             }
         except (httpx.HTTPError, KeyError):
-            raise ValueError("Could not query the DeepSeek API. Try again.") from None
+            raise UserMessageError("Could not query the DeepSeek API. Try again.") from None
