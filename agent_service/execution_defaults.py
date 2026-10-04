@@ -11,9 +11,7 @@ def resolve(config, data):
     if all(v not in AUTO for v in (backend, model, effort)):
         return None  # Existing assessment validates explicit requests.
     if not defaults and all(v in AUTO for v in (backend, model, effort)):
-        return None  # Keep existing automatic/Maestro selection.
-    if backend == "maestro":
-        return None
+        return None  # Keep existing automatic selection.
     choices = maestro.candidates(
         config, data.get("project_id"), bool(data.get("file_ids") or data.get("workspace_id"))
     )

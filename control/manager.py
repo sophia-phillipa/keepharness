@@ -244,7 +244,6 @@ class Manager:
             data.get("services", {}).get(p, {}).get("enabled") is True
             for p in ("codex", "claude", "gemini", "deepseek")
         )
-        out["maestro_enabled"] = data.get("maestro_enabled", True) is True
         # The owner's own Codex and Claude Code setup in their conversations (decision D01).
         if type(data.get("personal_setup", False)) is not bool:
             raise ValueError("Use my personal setup must be an explicit boolean.")
@@ -257,23 +256,6 @@ class Manager:
         if type(data.get("shared_projects", False)) is not bool:
             raise ValueError("Share projects with guests must be an explicit boolean.")
         out["shared_projects"] = data.get("shared_projects", False)
-        policy = data.get("maestro_instructions", "")
-        if not isinstance(policy, str) or len(policy) > 12000:
-            raise ValueError("Maestro instructions: maximum of 12,000 characters.")
-        out["maestro_instructions"] = policy
-        coordinator = data.get("maestro_coordinator", {})
-        if (
-            not isinstance(coordinator, dict)
-            or set(coordinator) - {"backend", "model", "effort"}
-            or any(
-                not isinstance(value, str) or not 1 <= len(value) <= 200
-                for value in coordinator.values()
-            )
-            or coordinator.get("backend", "codex")
-            not in ("codex", "claude", "gemini", "local", "deepseek")
-        ):
-            raise ValueError("Invalid Maestro coordinator.")
-        out["maestro_coordinator"] = dict(coordinator)
         default = data.get("default_backend", "")
         if default not in ("", "codex", "claude", "gemini", "local", "deepseek"):
             raise ValueError("Invalid default executor.")
@@ -410,8 +392,6 @@ class Manager:
                 )
             ):
                 raise ValueError("Catalog not registered.")
-            if project.get("maestro_plan_policy", "review") not in ("review", "auto"):
-                raise ValueError("Invalid Maestro plan policy.")
             from .catalog_admin import validate_pins
 
             catalog_pins = validate_pins(project, catalogs, self.state)
@@ -424,11 +404,6 @@ class Manager:
                     "permissions": dict(overrides),
                     "catalogs": list(dict.fromkeys(project_catalogs)),
                     **({"catalog_pins": catalog_pins} if catalog_pins else {}),
-                    **(
-                        {"maestro_plan_policy": project["maestro_plan_policy"]}
-                        if "maestro_plan_policy" in project
-                        else {}
-                    ),
                     **(
                         {"work_item_pattern": validate_pattern(project["work_item_pattern"])}
                         if "work_item_pattern" in project

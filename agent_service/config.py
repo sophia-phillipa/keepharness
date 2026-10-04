@@ -37,9 +37,6 @@ EXECUTION_MODES = MappingProxyType(
         "gemini": ("native",),
         "deepseek": ("native",),
         "local": ("scoped",),
-        # Maestro may use an isolated local step internally, but its own session is
-        # not a separate provider session the user can choose a transport for.
-        "maestro": ("native",),
     }
 )
 
@@ -61,11 +58,6 @@ def validate_runtime_config(candidate):
         ):
             return False
     if any(not isinstance(spec, dict) for spec in candidate["projects"].values()):
-        return False
-    if any(
-        spec.get("maestro_plan_policy", "review") not in ("review", "auto")
-        for spec in [candidate, *candidate["projects"].values()]
-    ):
         return False
     for spec in candidate["clients"].values():
         if (
@@ -131,8 +123,7 @@ def runtime_job_affected(config, active_executors, row, candidate):
     ]:
         return True
     orchestrated = (
-        backend in ("auto", "maestro")
-        or data.get("_declared_workflow")
+        data.get("_declared_workflow")
         or len(data.get("invocations", [])) > 1
         or any(item.get("kind") == "workflow" for item in data.get("invocations", []))
     )
@@ -144,21 +135,8 @@ def runtime_job_affected(config, active_executors, row, candidate):
     ):
         return True
     executor = active_executors.get(row["id"]) if row["state"] == "running" else None
-    if backend == "maestro" and executor:
+    if executor:
         backend, model = executor
-    elif backend in ("auto", "maestro"):
-        try:
-            previous = maestro.coordinator(config, row["project"])
-            selected = maestro.coordinator(candidate, row["project"])
-        except maestro.ToolError:
-            return True
-        if (previous["backend"], previous["model"], previous["effort"]) != (
-            selected["backend"],
-            selected["model"],
-            selected["effort"],
-        ):
-            return True
-        backend, model = selected["backend"], selected["model"]
     old = config.get("services", {}).get(backend, {})
     new = candidate.get("services", {}).get(backend, {})
     if not new.get("enabled") or model not in new.get("models", []):
