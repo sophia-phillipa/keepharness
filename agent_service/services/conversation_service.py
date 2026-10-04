@@ -63,7 +63,7 @@ from ..persistence.repositories import (
     ProjectRepository,
 )
 from ..private_storage import validate_attachment_source
-from ..work_items import invocation_reference, validate_reference
+from ..work_items import invocation_reference, prematch_reference, validate_reference
 from . import capacity, queue_worker, retention
 from .activity_service import summarize_activity
 from .budgets import timeout_seconds
@@ -1453,6 +1453,22 @@ class ConversationService:
         return {"id": workflow_id, "path": "workflows/" + target.name, "project_id": row["project"]}
 
     def submit(self, identity, data, idem=None, *, workflow_recovery=None, schedule=None):
+        data = self._prepare_submission(identity, data)
+        return self._submit_prepared(
+            identity, data, idem, workflow_recovery=workflow_recovery, schedule=schedule
+        )
+
+    async def submit_async(self, identity, data, idem=None, *, workflow_recovery=None, schedule=None):
+        """Normalize first so chips and inherited personas also match off the event loop."""
+        data = self._prepare_submission(identity, data)
+        if "work_item" not in data:
+            project = self.project(identity, data.get("project_id"))
+            await prematch_reference(self.config, project, data)
+        return self._submit_prepared(
+            identity, data, idem, workflow_recovery=workflow_recovery, schedule=schedule
+        )
+
+    def _prepare_submission(self, identity, data):
         data = dict(data)
         if data.get("project_id") in self.deleting_project_folders:
             raise APIError("project_folder_busy", 409)
@@ -1511,6 +1527,12 @@ class ConversationService:
         if decision["decision"] != "accept":
             raise APIError(decision.get("reason", "unsupported"), 422)
         self.normalize_invocations(identity, data)
+        return data
+
+    def _submit_prepared(self, identity, data, idem, *, workflow_recovery=None, schedule=None):
+        # Folder deletion may have begun while async admission awaited the matcher.
+        if data.get("project_id") in self.deleting_project_folders:
+            raise APIError("project_folder_busy", 409)
         workflow_invocations = [
             value for value in data.get("invocations", []) if value["kind"] == "workflow"
         ]

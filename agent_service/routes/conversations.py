@@ -275,8 +275,9 @@ async def assess(request, service, identity):
 
 
 async def submit_job(request, service, identity):
+    data = await body(request)
     return JSONResponse(
-        service.submit(identity, await body(request), request.headers.get("idempotency-key")),
+        await service.submit_async(identity, data, request.headers.get("idempotency-key")),
         status_code=202,
     )
 

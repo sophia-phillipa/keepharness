@@ -49,7 +49,9 @@ async def run_now(request, service, identity):
         schedules.owned_record, service.config, identity[0], schedule_id
     )
     service.project(identity, record["project_id"])
-    submitted = scheduler.submit(service, identity, record, request.headers.get("idempotency-key"))
+    submitted = await scheduler.submit(
+        service, identity, record, request.headers.get("idempotency-key")
+    )
     await asyncio.to_thread(
         schedules.note_manual_run,
         service.config,

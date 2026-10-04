@@ -256,10 +256,10 @@ def test_an_unexpected_error_is_a_failure_and_its_details_are_not_stored(
 ):
     created = add(config)
 
-    def explode(*_args, **_kwargs):
+    async def explode(*_args, **_kwargs):
         raise RuntimeError("password=hunter2 /home/sophia/secret")
 
-    monkeypatch.setattr(service, "submit", explode)
+    monkeypatch.setattr(service, "submit_async", explode)
     with caplog.at_level(logging.ERROR):
         tick(service, local(2026, 10, 3, 9) + 1)
     after = current(config, created)
@@ -451,10 +451,10 @@ def test_the_tick_interval_is_thirty_seconds():
 def test_a_full_project_is_a_failure_not_a_deferral(config, service, clock, monkeypatch):
     created = add(config)
 
-    def full(*_args, **_kwargs):
+    async def full(*_args, **_kwargs):
         raise APIError("job_storage_limit", 429)
 
-    monkeypatch.setattr(service, "submit", full)
+    monkeypatch.setattr(service, "submit_async", full)
     for day in (3, 4, 5):
         tick(service, local(2026, 10, day, 9) + 1)
     after = current(config, created)
