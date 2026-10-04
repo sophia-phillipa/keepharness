@@ -8,6 +8,11 @@ MODES = {"ask", "auto", "full", "read_only"}
 OWNER_ONLY_MODES = frozenset({"auto", "full"})
 
 
+def mode_disabled(config, mode):
+    """Full access stays off until the owner turns it on in the admin (``full_access``, D11)."""
+    return mode == "full" and config.get("full_access") is not True
+
+
 def rule_key(kind, request, permissions):
     if "commandExecution/requestApproval" not in kind and kind != "execCommandApproval":
         return None

@@ -413,6 +413,7 @@ def ceiling_config(tmp_path):
         "codex": {"binary": "fixture", "unrestricted": True, "integrations": ["mcp:node_repl"]},
         "codex_models": {"gpt-6-astra": ["low"]},
         "origins": [ORIGIN],
+        "full_access": True,  # the owner turned Full access on (D11)
     }
 
 

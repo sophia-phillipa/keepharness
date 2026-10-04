@@ -39,6 +39,7 @@ FIELDS = [
     "model",
     "effort",
     "access_mode",
+    "allow_internet",
     "cadence",
     "enabled",
     "created_at",

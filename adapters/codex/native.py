@@ -82,6 +82,8 @@ def thread_parameters(config, project, model, workspace, runtime, unrestricted):
     cwd, permissions = workspace.cwd, workspace.permissions
     # Ask: the read-only sandbox makes every write escalate to an approval card.
     ask = project.get("access_mode", "ask") == "ask" and not runtime.isolated
+    # Automatic: the workspace sandbox on the project; anything beyond asks (decision D11).
+    automatic = project.get("access_mode") == "auto" and not runtime.isolated
     # Read only never starts a connector or plugin (decisions D04, D12).
     selected = [] if project.get("access_mode") == "read_only" else config.get("integrations", [])
     local_provider = runtime.model_provider
@@ -106,7 +108,7 @@ def thread_parameters(config, project, model, workspace, runtime, unrestricted):
         ),
         "approvalPolicy": (
             "never"
-            if project.get("access_mode") in ("auto", "full", "read_only") and not runtime.isolated
+            if project.get("access_mode") in ("full", "read_only") and not runtime.isolated
             else "on-request"
         ),
         "approvalsReviewer": "user",
@@ -124,7 +126,7 @@ def thread_parameters(config, project, model, workspace, runtime, unrestricted):
         {"mcp_servers": {}, "plugins": {}}
         if runtime.isolated
         else {
-            "mcp_servers": host_servers(selected, ask) if personal else {},
+            "mcp_servers": host_servers(selected, ask or automatic) if personal else {},
             "plugins": {
                 plugin.split(":", 1)[1]: {"enabled": plugin in selected} for plugin in plugins
             },
@@ -145,7 +147,7 @@ def thread_parameters(config, project, model, workspace, runtime, unrestricted):
 
 
 def host_servers(selected, ask):
-    """The host's connectors, enabled only when selected; Ask shows a card before every call."""
+    """The host's connectors, enabled only when selected; ``ask`` shows a card before every call."""
     return {
         name: {
             **spec,
@@ -307,7 +309,7 @@ async def run_turn(
     unrestricted = (
         not runtime.isolated
         and config.get("unrestricted") is True
-        and access_mode not in ("ask", "read_only")
+        and access_mode == "full"
         and bool(permissions.get("shell"))
     )
     command, environment, _local_provider = (

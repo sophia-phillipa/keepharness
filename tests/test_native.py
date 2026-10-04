@@ -127,8 +127,8 @@ class AskModeTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(params["config"]["plugins"], {"tool": {"enabled": True}})
 
     async def test_codex_other_modes_keep_their_sandbox(self):
+        # Automatic is project-bounded since D11: tests/test_access_mode_bounds.py.
         expected = {
-            "auto": ("danger-full-access", "never", {"type": "dangerFullAccess"}),
             "full": ("danger-full-access", "never", {"type": "dangerFullAccess"}),
             "read_only": (
                 "read-only",
@@ -211,8 +211,8 @@ class AskModeTest(unittest.IsolatedAsyncioTestCase):
         self.assertIs(settings["sandbox"]["autoAllowBashIfSandboxed"], False)
 
     def test_claude_other_modes_are_unchanged(self):
+        # Automatic is project-bounded since D11: tests/test_access_mode_bounds.py.
         expected = {
-            "auto": "bypassPermissions",
             "full": "bypassPermissions",
             "read_only": "dontAsk",
         }

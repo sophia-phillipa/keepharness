@@ -362,11 +362,17 @@ def test_claude_native_ask_gates_every_connector_call(client):
 
 
 @pytest.mark.parametrize("backend", ["claude", "codex"])
-@pytest.mark.parametrize("access_mode", ["auto", "full"])
-def test_unrestricted_shell_runs_connectors_without_asking(client, settings, backend, access_mode):
+def test_unrestricted_shell_runs_connectors_without_asking(client, settings, backend):
     settings["services"][backend]["permissions"]["shell"] = True
-    body = view(client, backend=backend, access_mode=access_mode).json()
+    body = view(client, backend=backend, access_mode="full").json()
     assert body["effective_note"] == NO_ASK
+
+
+@pytest.mark.parametrize("backend", ["claude", "codex"])
+def test_automatic_asks_before_every_connector_call(client, settings, backend):
+    # Automatic is bounded to the project; a connector call leaves it (D11).
+    settings["services"][backend]["permissions"]["shell"] = True
+    assert view(client, backend=backend, access_mode="auto").json()["effective_note"] == ASKS
 
 
 def test_ask_mode_never_claims_unattended_connector_calls(client, settings):

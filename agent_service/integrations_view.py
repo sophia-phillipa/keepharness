@@ -88,11 +88,12 @@ def route_limits(config: Settings, route: Route) -> Limits:
         )
     if route.access_mode == "read_only":
         return Limits(READ_ONLY, "", "")
-    if route.access_mode == "ask":
+    # Automatic is bounded to the project, so a connector call asks there too (D11).
+    if route.access_mode in ("ask", "auto"):
         return Limits("", "", ASKS)
     unattended = (
         config.get(route.backend, {}).get("unrestricted") is True
-        and route.access_mode not in ("ask", "read_only")
+        and route.access_mode == "full"
         and bool(permissions.get("shell"))
     )
     return Limits("", "", UNATTENDED if unattended else "")

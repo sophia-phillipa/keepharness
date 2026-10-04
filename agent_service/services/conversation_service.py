@@ -1321,6 +1321,7 @@ class ConversationService:
                 "execution_parent_id",
                 "schedule_id",
                 "schedule_title",
+                "schedule_internet",
             ):
                 data.pop(key)
         source_invocations = data.pop("invocations", [])
@@ -1426,6 +1427,7 @@ class ConversationService:
                 "_held_after_stop",
                 "schedule_id",
                 "schedule_title",
+                "schedule_internet",
             )
         ):
             raise APIError("invalid_internal_field")
@@ -1449,6 +1451,8 @@ class ConversationService:
             and identity[0] != harness_agents.LOCAL_CLIENT
         ):
             raise APIError("access_mode_owner_only", 403)
+        if approval_policy.mode_disabled(self.config, data.get("access_mode", "ask")):
+            raise APIError("full_access_disabled", 403)
         if data.get("parent_job_id") and data.get("workspace_id") is None:
             data["workspace_id"] = json.loads(
                 self.job(identity, data["parent_job_id"])["payload"]
@@ -2361,6 +2365,12 @@ class ConversationService:
             if mode in approval_policy.OWNER_ONLY_MODES:
                 raise APIError("access_mode_owner_only", 403)
             permissions = approval_policy.guest_permissions(permissions)
+        # Fails closed for a Full run queued before the owner turned Full access off (D11).
+        if approval_policy.mode_disabled(self.config, mode):
+            raise APIError("full_access_disabled", 403)
+        # Unattended runs have no internet unless their task opts in (D03).
+        if data.get("schedule_id") and data.get("schedule_internet") is not True:
+            permissions["internet"] = False
         if backend == "claude":
             permissions["delegate"] = project_config.get("permissions", {}).get("delegate") is True
         if backend == "claude" and permissions.get("read") and plan.execution_mode == "native":
