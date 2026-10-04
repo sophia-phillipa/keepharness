@@ -54,9 +54,13 @@ guests (any caller other than the local owner) and scheduled runs never get it
 - Claude Code: the owner's MCP servers (`~/.claude.json`) and plugins are offered;
   `--setting-sources user,project` plus the owner's `hooks` with the hooks grant; the owner's
   `~/.claude/CLAUDE.md` is appended to the system prompt.
-- `/v1/resources` lists user-scope skills and agents from the owner's folders; without the
-  opt-in it lists those of the harness home (none by default). `/v1/integrations` lists no
-  Codex, DeepSeek or Claude connector without the opt-in.
+- `/v1/resources` lists user-scope agents from the owner's folders; without the opt-in it
+  lists those of the harness home (none by default). `/v1/integrations` lists no Codex,
+  DeepSeek or Claude connector without the opt-in.
+- The "/" palette offers only what the CLI will load. User-scope Claude skills and commands
+  are listed but unavailable (Claude runs read skills from the project only), the owner's
+  Codex skills are unavailable too, and DeepSeek lists its own home (`providers/deepseek` and
+  `providers/home/.agents/skills`), never the Codex one.
 
 Not carried by the opt-in (follow-ups): Codex hook definitions and user skills, which the
 CLI reads only from its own home; Claude user skills (WP-09 materializes or marks them).

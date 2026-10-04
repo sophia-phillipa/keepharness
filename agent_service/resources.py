@@ -23,6 +23,10 @@ ENGINES = {
     "claude": "claude",
     "gemini": "gemini",
 }
+CLAUDE_USER_UNLOADED = (
+    "Claude runs load skills and commands only from the project, not from user folders."
+)
+CODEX_OWNER_UNLOADED = "The owner's Codex skills are not loaded in the harness-owned provider home."
 NAME = re.compile(r"^[\w.:-]{1,160}$")
 
 
@@ -188,6 +192,8 @@ def argument_hint(meta, body, name):
 
 
 def preflight_hint(reason):
+    if reason in (CLAUDE_USER_UNLOADED, CODEX_OWNER_UNLOADED):
+        return "Copy the resource into the project's .claude/skills or .agents/skills folder."
     if not reason:
         return "Ready to invoke with the current provider and execution mode."
     if "disabled" in reason.lower():
@@ -203,12 +209,17 @@ def preflight_hint(reason):
     return "Choose a compatible provider, model, and execution mode."
 
 
-def roots(engine, config):
-    """User-scope roots: the harness home's, or the owner's when they opted in (decision D01)."""
+def roots(backend, engine, config):
+    """User-scope roots: the harness home's, or the owner's when they opted in (decision D01).
+
+    DeepSeek always reads its own Codex home, whatever the opt-in says.
+    """
     home = Path.home()
-    harness_home = engine in ("codex", "claude") and config.get("control_state_dir")
-    if harness_home and config.get("personal_setup") is not True:
-        home = homes_root(config["control_state_dir"]) / "home"
+    state = engine in ("codex", "claude") and config.get("control_state_dir")
+    if state and backend == "deepseek":
+        return homes_root(state) / "deepseek", [homes_root(state) / "home/.agents/skills"]
+    if state and config.get("personal_setup") is not True:
+        home = homes_root(state) / "home"
         return home / ("." + engine), ([home / ".agents/skills"] if engine == "codex" else [])
     if engine == "codex":
         return Path(os.environ.get("CODEX_HOME", home / ".codex")), [home / ".agents/skills"]
@@ -217,6 +228,20 @@ def roots(engine, config):
     if engine == "gemini":
         return Path(os.environ.get("GEMINI_CLI_HOME", home)) / ".gemini", [home / ".agents/skills"]
     raise ValueError("unsupported_resource_engine")
+
+
+def unloaded_user_resource(backend, engine, kind, config):
+    """Why the provider CLI will not read this user-scope resource itself, or an empty string.
+
+    Claude runs read skills and commands from the project only (``--setting-sources project``),
+    and the Codex home never holds the owner's skills (decision D01, docs/provider-homes.md).
+    """
+    if engine == "claude" and kind in ("skill", "command"):
+        return CLAUDE_USER_UNLOADED
+    personal = config.get("control_state_dir") and config.get("personal_setup") is True
+    if backend == "codex" and kind == "skill" and personal:
+        return CODEX_OWNER_UNLOADED
+    return ""
 
 
 def files(base, boundary, global_roots, kind):
@@ -301,7 +326,7 @@ def discover(
         return result
     project = config["projects"][project_id]
     root = Path(project["root"]).resolve() if project.get("root") else None
-    global_base, shared = roots(engine, config)
+    global_base, shared = roots(backend, engine, config)
     sources = []
 
     def source(base, scope, origin, boundary, kind, identity, identity_root, namespace=""):
@@ -595,8 +620,12 @@ def discover(
                         reason = (
                             "The Gemini adapter still disables agents and skills in this execution."
                         )
-                    if backend in ("local", "deepseek") and (scope == "user" or kind == "agent"):
+                    if backend in ("local", "deepseek") and (
+                        (backend == "local" and scope == "user") or kind == "agent"
+                    ):
                         reason = "This resource is not available in the isolated environment of this executor."
+                    if scope == "user" and kind != "agent":
+                        reason = unloaded_user_resource(backend, engine, kind, config) or reason
                     delegate_allowed = project.get("permissions", {}).get("delegate") is True
                     declared_mode = str(meta.get("mode", "")).strip()
                     if (

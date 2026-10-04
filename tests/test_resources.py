@@ -453,3 +453,76 @@ def test_resources_follow_conversation_mode_not_service_default(
     finally:
         client.close()
         app.state.service.db.close()
+
+
+def provider_home_config(root, state, backend, **extra):
+    return {**cfg(root, backend), "control_state_dir": str(state), **extra}
+
+
+def user_items(config, backend):
+    items = resources.discover(config, "p", backend)["items"]
+    return {(i["kind"], i["name"]): i for i in items if i["scope"] == "user"}
+
+
+def skill(name):
+    return f"---\nname: {name}\ndescription: {name} skill\n---\nDo {name}"
+
+
+def test_claude_user_skills_and_commands_are_unavailable_with_a_reason(tmp_path, monkeypatch):
+    owner, state, root = tmp_path / "owner", tmp_path / "state", tmp_path / "project"
+    monkeypatch.setenv("HOME", str(owner))
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+    harness = state / "providers/home/.claude"
+    for base in (harness, owner / ".claude"):
+        put(base, f"skills/{base.parent.name}/SKILL.md", skill(base.parent.name))
+        put(base, f"commands/{base.parent.name}.md", "---\ndescription: cmd\n---\nRun")
+    put(root, ".claude/skills/local/SKILL.md", skill("local"))
+    for extra in ({}, {"personal_setup": True}):
+        config = provider_home_config(root, state, "claude", **extra)
+        items = user_items(config, "claude")
+        assert items, extra
+        assert all(not i["selectable"] and i["unavailable_reason"] for i in items.values())
+        assert all("project" in i["preflight_hint"] for i in items.values())
+        project = [i for i in resources.discover(config, "p", "claude")["items"] if i["name"] == "local"]
+        assert [i["selectable"] for i in project] == [True]
+    assert ("skill", "home") in user_items(provider_home_config(root, state, "claude"), "claude")
+    assert ("skill", "owner") in user_items(
+        provider_home_config(root, state, "claude", personal_setup=True), "claude"
+    )
+
+
+def test_codex_user_skills_follow_the_home_the_cli_reads(tmp_path, monkeypatch):
+    owner, state, root = tmp_path / "owner", tmp_path / "state", tmp_path / "project"
+    monkeypatch.setenv("HOME", str(owner))
+    monkeypatch.delenv("CODEX_HOME", raising=False)
+    put(state / "providers/home/.codex", "skills/harness/SKILL.md", skill("harness"))
+    put(owner / ".codex", "skills/owner/SKILL.md", skill("owner"))
+    items = user_items(provider_home_config(root, state, "codex"), "codex")
+    assert [(k, i["selectable"]) for k, i in items.items()] == [(("skill", "harness"), True)]
+    items = user_items(provider_home_config(root, state, "codex", personal_setup=True), "codex")
+    assert [(k, i["selectable"]) for k, i in items.items()] == [(("skill", "owner"), False)]
+    assert items[("skill", "owner")]["unavailable_reason"]
+
+
+def test_deepseek_lists_its_own_home_not_the_codex_one(tmp_path, monkeypatch):
+    owner, state, root = tmp_path / "owner", tmp_path / "state", tmp_path / "project"
+    monkeypatch.setenv("HOME", str(owner))
+    monkeypatch.delenv("CODEX_HOME", raising=False)
+    put(state / "providers/deepseek", "skills/seek/SKILL.md", skill("seek"))
+    put(state / "providers/home", ".agents/skills/shared/SKILL.md", skill("shared"))
+    put(state / "providers/home/.codex", "skills/codexonly/SKILL.md", skill("codexonly"))
+    put(owner / ".codex", "skills/owner/SKILL.md", skill("owner"))
+    for extra in ({}, {"personal_setup": True}):
+        items = user_items(provider_home_config(root, state, "deepseek", **extra), "deepseek")
+        assert {name: i["selectable"] for (_, name), i in items.items()} == {
+            "seek": True,
+            "shared": True,
+        }
+
+
+def test_local_user_skills_stay_unavailable_in_the_isolated_executor(tmp_path, monkeypatch):
+    owner, state, root = tmp_path / "owner", tmp_path / "state", tmp_path / "project"
+    monkeypatch.setenv("HOME", str(owner))
+    put(state / "providers/home/.codex", "skills/harness/SKILL.md", skill("harness"))
+    items = user_items(provider_home_config(root, state, "local"), "local")
+    assert [i["selectable"] for i in items.values()] == [False]

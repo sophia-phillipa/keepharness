@@ -69,6 +69,21 @@ const path = require("node:path");
                 selectable: true,
               },
               {
+                id: "user/claude/skills/personal/SKILL.md",
+                revision: "u1",
+                kind: "skill",
+                name: "personal",
+                description: "A skill from the owner's user folder",
+                scope: "user",
+                origin: "claude",
+                group: "Skills",
+                source: "/home/owner/.claude/skills/personal/SKILL.md",
+                selectable: false,
+                unavailable_reason:
+                  "Claude runs load skills and commands only from the project, not from user folders.",
+                preflight_hint: "Copy the resource into the project's .claude/skills or .agents/skills folder.",
+              },
+              {
                 id: "catalog/demo/rules/paths.md",
                 revision: "r1",
                 kind: "rule",
@@ -246,6 +261,12 @@ const path = require("node:path");
     await page.locator('#resource-menu [data-resource-id="catalog/demo/commands/install.md"]').waitFor();
     assert.match(await page.locator("#resource-menu").innerText(), /MAINTENANCE/);
     assert(await page.locator('#resource-menu [data-resource-id="catalog/demo/rules/paths.md"]').isDisabled());
+    // L06: a user-scope Claude skill the run never loads is shown disabled with its reason.
+    const personal = page.locator('#resource-menu [data-resource-id="user/claude/skills/personal/SKILL.md"]');
+    assert(await personal.isDisabled());
+    assert.match(await personal.innerText(), /only from the project/);
+    await personal.click({ force: true });
+    assert.equal(await page.inputValue("#prompt"), "/");
     await reviewer.focus();
     assert.match(await page.locator("#resource-preview").innerText(), /<change>/);
     assert.match(await page.locator("#resource-preview").innerText(), /reviewer\.toml/);
