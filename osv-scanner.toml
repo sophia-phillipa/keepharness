@@ -1,0 +1,8 @@
+# osv-scanner ignores for the dependency-scan CI job (requirements.txt, the bridge lock and
+# desktop/package-lock.json). A finding fails CI unless it is listed here. Every entry needs a
+# reason and an ignoreUntil date, so an accepted risk expires and gets reviewed again:
+#
+# [[IgnoredVulns]]
+# id = "GHSA-xxxx-xxxx-xxxx"
+# ignoreUntil = 2027-01-31
+# reason = "Why this does not affect KeepHarness, and what removes the entry."

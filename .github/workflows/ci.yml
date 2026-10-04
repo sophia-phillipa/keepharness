@@ -10,8 +10,8 @@ jobs:
     name: Naming and language conventions
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.11"
       - name: Run convention checks
@@ -21,22 +21,22 @@ jobs:
     name: Formatting and lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.11"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "20"
       - name: Install ruff
-        run: pip install ruff
+        run: pip install ruff==0.16.10
       - name: Check Python formatting and lint
         run: |
           ruff format --check .
           ruff check .
       - name: Check JS/CSS formatting
         # HTML is excluded on purpose: reflowing text nodes changes textContent.
-        run: npx --yes prettier@3 --check "control/*.{js,css}" "agent_service/*.{js,css}" "tests/*.cjs" "scripts/*.cjs"
+        run: npx --yes prettier@3.9.9 --check "control/*.{js,css}" "agent_service/*.{js,css}" "tests/*.cjs" "scripts/*.cjs"
 
   unit:
     name: Unit tests (Python ${{ matrix.python }})
@@ -46,8 +46,8 @@ jobs:
       matrix:
         python: ["3.11", "3.14"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: ${{ matrix.python }}
       - name: Install media sandbox tools (ffmpeg, bubblewrap, poppler)
@@ -64,7 +64,7 @@ jobs:
         run: python -m pytest -rs --junitxml=reports/unit-${{ matrix.python }}.xml
       - name: Upload unit test report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: unit-test-report-${{ matrix.python }}
           path: reports/unit-${{ matrix.python }}.xml
@@ -73,11 +73,11 @@ jobs:
     name: UI tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.11"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "20"
       - name: Install media sandbox tools (ffmpeg, bubblewrap, poppler)
@@ -88,7 +88,7 @@ jobs:
       - name: Install package
         run: pip install .
       - name: Install Playwright
-        run: npm install --no-save playwright
+        run: npm install --no-save playwright@1.62.1
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
       - name: Run UI tests
@@ -98,8 +98,8 @@ jobs:
     name: Build and install package
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.11"
       - name: Install build tool
@@ -113,7 +113,47 @@ jobs:
           cd /tmp
           keepharness --help
       - name: Upload dist artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: dist
           path: dist/
+
+  dependency-scan:
+    name: Dependency scan (OSV)
+    runs-on: ubuntu-latest
+    env:
+      OSV_SCANNER_VERSION: "2.6.0"
+      OSV_SCANNER_SHA256: ca69b3d3cd08f889a49dc0a383122f71cc528b83803671df5fd874d97485b108
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Install osv-scanner (pinned release, checksum verified)
+        run: |
+          curl -sSfL -o "$RUNNER_TEMP/osv-scanner" \
+            "https://github.com/google/osv-scanner/releases/download/v${OSV_SCANNER_VERSION}/osv-scanner_linux_amd64"
+          echo "${OSV_SCANNER_SHA256}  $RUNNER_TEMP/osv-scanner" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/osv-scanner"
+      - name: Scan the Python locks and the desktop lockfile
+        # Fails on any finding that osv-scanner.toml does not ignore (with a reason and a date).
+        run: >
+          "$RUNNER_TEMP/osv-scanner" scan source --config osv-scanner.toml
+          -L requirements.txt -L agent_service/bridge-requirements.txt -L desktop/package-lock.json
+
+  secret-scan:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    env:
+      GITLEAKS_VERSION: "8.30.1"
+      GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - name: Install gitleaks (pinned release, checksum verified)
+        run: |
+          curl -sSfL -o "$RUNNER_TEMP/gitleaks.tar.gz" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  $RUNNER_TEMP/gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/gitleaks.tar.gz" -C "$RUNNER_TEMP" gitleaks
+      - name: Scan the full history
+        # Reviewed false positives are fingerprinted in .gitleaksignore.
+        run: '"$RUNNER_TEMP/gitleaks" git --redact --no-banner --exit-code 1 .'
