@@ -1,3 +1,5 @@
+import pytest
+
 from agent_service.write_ownership import WriteOwnership
 
 
@@ -52,3 +54,12 @@ def test_catalog_cwd_shared_between_distinct_projects_is_locked(tmp_path):
         )
         == "writable_root"
     )
+
+
+def test_looping_symlink_root_is_refused_on_every_python(tmp_path):
+    loop = tmp_path / "loop"
+    loop.symlink_to(loop.name)
+    locks = WriteOwnership()
+    with pytest.raises((OSError, RuntimeError)):
+        locks.acquire("one", "p", None, [loop])
+    assert locks.leases == {}

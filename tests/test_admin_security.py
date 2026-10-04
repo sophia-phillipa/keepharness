@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 import httpx
 
+from agent_service.errors import UserMessageError
 from control import local_access
 from control.server import ADMIN_BODY_LIMIT, ADMIN_OPERATION_LIMIT, create_app
 
@@ -92,6 +93,67 @@ class AdminSecurityTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(response.status_code, 400)
             self.assertEqual(response.json(), {"error": code})
         self.assertNotIn("leaky", os_error.text + key_error.text + bad_json.text)
+
+    async def test_unexpected_value_errors_are_codes_and_deliberate_ones_keep_their_sentence(self):
+        async def library(request, manager, data):
+            int("/home/leaky/not-a-number")
+
+        async def runtime(request, manager, data):
+            raise RuntimeError("/home/leaky/runtime detail")
+
+        async def deliberate(request, manager, data):
+            raise UserMessageError("Pick an existing project.")
+
+        with patch.dict(
+            "control.routes.POST_ROUTES",
+            {"/api/a": library, "/api/b": runtime, "/api/c": deliberate},
+        ):
+            replies = [
+                await self.client.post(path, json={}, headers=self.headers)
+                for path in ("/api/a", "/api/b", "/api/c")
+            ]
+        for response in replies:
+            self.assertEqual(response.status_code, 400)
+        self.assertEqual(replies[0].json(), {"error": "operation_failed"})
+        self.assertEqual(replies[1].json(), {"error": "operation_failed"})
+        self.assertEqual(replies[2].json(), {"error": "Pick an existing project."})
+
+    async def test_a_slow_supervised_restart_does_not_turn_admin_mutations_away(self):
+        manager = self.app.state.manager
+
+        class Proc:
+            def __init__(self, returncode):
+                self.returncode, self.never = returncode, asyncio.Event()
+
+            async def wait(self):
+                if self.returncode is None:
+                    await self.never.wait()
+                return self.returncode
+
+        ready, waiting, spawned = asyncio.Event(), asyncio.Event(), Proc(None)
+
+        async def start(supervised=False):
+            manager.proc = spawned
+            return spawned
+
+        async def await_ready(proc):
+            waiting.set()
+            await ready.wait()
+
+        manager.proc = Proc(1)
+        manager.start, manager.await_ready = start, await_ready
+        with patch("control.manager.RESTART_DELAY", 0):
+            manager.watch()
+            async with asyncio.timeout(5):
+                await waiting.wait()
+            response = await self.client.post("/api/settings-export", json={}, headers=self.headers)
+            self.assertEqual(response.status_code, 200)
+            self.assertFalse(manager.lock.locked())
+            ready.set()
+            async with asyncio.timeout(5):
+                while not (manager.state / "autostart").exists():
+                    await asyncio.sleep(0.01)
+        manager.unwatch()
 
     async def test_large_stream_rejected_before_remaining_body_is_read(self):
         reads = []

@@ -10,6 +10,19 @@ from pathlib import Path
 
 import httpx
 
+from .local_access import KEY_FILE, open_ticket, read_secret
+
+
+def check_admin_api(client, state):
+    """Sign in with the install's local secret, as the installer does, then check the fresh state."""
+    ticket = open_ticket(read_secret(Path(state) / KEY_FILE))
+    if client.get("/open-admin", params={"ticket": ticket}).status_code != 200:
+        raise RuntimeError("Installed server refused the local admin secret")
+    snapshot = client.get("/api/state").json()
+    assert not snapshot["status"]["running"]
+    assert not any(s["enabled"] for s in snapshot["settings"]["services"].values())
+    assert snapshot["local_profile"] == {}
+
 
 def main():
     with tempfile.TemporaryDirectory(prefix="keepharness-install-check-") as folder:
@@ -50,10 +63,7 @@ def main():
                         "/assets/inter-latin.woff2",
                     ):
                         assert client.get(path).status_code == 200
-                    state = client.get("/api/state").json()
-                    assert not state["status"]["running"]
-                    assert not any(s["enabled"] for s in state["settings"]["services"].values())
-                    assert state["local_profile"] == {}
+                    check_admin_api(client, folder)
                     print(
                         "PASS: installed package outside checkout, fresh private state, HTTP/assets/API, no services enabled."
                     )

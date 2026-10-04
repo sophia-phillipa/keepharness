@@ -11,6 +11,7 @@ from pathlib import Path, PurePosixPath
 
 from adapters.shared.provider_setup import homes_root, personal_setup_on
 
+from .errors import UserMessageError
 from .invocations import Invocation, InvocationError
 
 MAX_METADATA_BYTES = 65536
@@ -49,7 +50,7 @@ def read(path):
     with path.open("rb") as stream:
         value = stream.read(MAX_BODY_BYTES + 1)
     if len(value) > MAX_BODY_BYTES:
-        raise ValueError("resource_too_large")
+        raise UserMessageError("resource_too_large")
     return value.decode("utf-8")
 
 
@@ -59,19 +60,19 @@ def dependency_snapshot(path, meta, boundary):
     if isinstance(declared, str):
         declared = json.loads(declared)
     if not isinstance(declared, list) or len(declared) > 32:
-        raise ValueError("invalid_resource_dependencies")
+        raise UserMessageError("invalid_resource_dependencies")
     revisions, contents = {}, {}
     size = 0
     for relative in declared:
         if not isinstance(relative, str) or not relative or Path(relative).is_absolute():
-            raise ValueError("invalid_resource_dependencies")
+            raise UserMessageError("invalid_resource_dependencies")
         dependency = (path.parent / relative).resolve()
         if not dependency.is_relative_to(boundary.resolve()):
-            raise ValueError("resource_dependency_outside_root")
+            raise UserMessageError("resource_dependency_outside_root")
         text = read(dependency)
         size += len(text.encode())
         if size > MAX_BODY_BYTES:
-            raise ValueError("resource_dependencies_too_large")
+            raise UserMessageError("resource_dependencies_too_large")
         name = dependency.relative_to(boundary.resolve()).as_posix()
         revisions[name] = hashlib.sha256(text.encode()).hexdigest()
         contents[name] = text
@@ -88,7 +89,7 @@ def markdown(text):
     for index, line in enumerate(lines[1:], 1):
         if line.strip() == "---":
             if len("".join(raw_lines[: index + 1]).encode()) > MAX_METADATA_BYTES:
-                raise ValueError("metadata_too_large")
+                raise UserMessageError("metadata_too_large")
             return meta, "\n".join(lines[index + 1 :])
         if line.startswith((" ", "\t")) and key:
             meta[key] += " " + line.strip()
@@ -100,7 +101,7 @@ def markdown(text):
                 meta[key] = ""
         else:
             key = None
-    raise ValueError("invalid_frontmatter")
+    raise UserMessageError("invalid_frontmatter")
 
 
 def unfenced(text, *, preserve_offsets=False, keep_language=None):
@@ -242,7 +243,7 @@ def roots(backend, engine, config, owner):
         if not owner:
             return None, []
         return Path(os.environ.get("GEMINI_CLI_HOME", home)) / ".gemini", [home / ".agents/skills"]
-    raise ValueError("unsupported_resource_engine")
+    raise UserMessageError("unsupported_resource_engine")
 
 
 def owner_root(backend, engine, config, personal):
@@ -642,7 +643,7 @@ def discover(
                         else text
                     )
                     if not isinstance(body, str):
-                        raise ValueError("invalid_resource_body")
+                        raise UserMessageError("invalid_resource_body")
                     name = meta.get("name") or (path.parent.name if kind == "skill" else path.stem)
                     if kind == "command":
                         name = str(path.relative_to(base).with_suffix("")).replace(os.sep, ":")
@@ -651,13 +652,13 @@ def discover(
                     if kind == "agent" and namespace and not str(name).startswith(namespace + "--"):
                         name = namespace + "--" + str(name)
                     if not isinstance(name, str) or not NAME.fullmatch(name):
-                        raise ValueError("invalid_name")
+                        raise UserMessageError("invalid_name")
                     if (
                         kind == "agent"
                         and engine == "codex"
                         and not isinstance(meta.get("developer_instructions"), str)
                     ):
-                        raise ValueError("invalid_agent")
+                        raise UserMessageError("invalid_agent")
                     reason = ""
                     if canonical in disabled:
                         reason = "Skill disabled in the engine configuration."

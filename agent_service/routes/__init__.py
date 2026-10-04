@@ -14,6 +14,7 @@ from starlette.routing import Route
 
 from .. import tools
 from ..errors import APIError
+from ..json_depth import too_deep
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,8 @@ async def body(request, limit=200000):
         raise APIError("request_timeout", 408)
     try:
         data = json.loads(chunks)
+        if too_deep(data):
+            raise ValueError("json_too_deep")
         json.dumps(data, allow_nan=False, ensure_ascii=False).encode("utf-8")
     except (ValueError, UnicodeError, RecursionError):
         raise APIError("invalid_json")

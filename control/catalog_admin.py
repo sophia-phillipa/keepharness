@@ -7,8 +7,14 @@ import time
 from pathlib import Path
 
 from agent_service.catalog_drift import compare_resources
-from agent_service.catalog_manifest import hooks_digest, load_manifest, materialize_runtime, preflight
+from agent_service.catalog_manifest import (
+    hooks_digest,
+    load_manifest,
+    materialize_runtime,
+    preflight,
+)
 from agent_service.catalog_pin import effective_catalogs, pin_catalog, preview_update
+from agent_service.errors import UserMessageError
 from agent_service.resources import discover
 
 
@@ -53,10 +59,10 @@ def hooks_trust(catalog):
 def validate_pins(project, catalogs, state):
     pins = project.get('catalog_pins', {})
     if not isinstance(pins, dict) or set(pins) - set(project.get('catalogs', [])):
-        raise ValueError('Invalid project catalog pins.')
+        raise UserMessageError('Invalid project catalog pins.')
     if pins:
         if any(not isinstance(pin, dict) or set(pin) != {'root', 'commit'} for pin in pins.values()):
-            raise ValueError('Invalid project catalog pins.')
+            raise UserMessageError('Invalid project catalog pins.')
         effective_catalogs({'catalogs': catalogs, 'control_state_dir': str(state)}, project)
     return copy.deepcopy(pins)
 
@@ -93,50 +99,50 @@ async def change_pin(request, manager, data):
     project = next((item for item in draft['projects'] if item['id'] == project_id), None)
     catalog = next((item for item in draft.get('catalogs', []) if item['id'] == catalog_id), None)
     if project is None or catalog is None or catalog_id not in project.get('catalogs', []):
-        raise ValueError('Choose a catalog assigned to this project.')
+        raise UserMessageError('Choose a catalog assigned to this project.')
     action = data.get('action')
     pins = project.setdefault('catalog_pins', {})
     if action == 'preview':
         if catalog_id not in pins:
-            raise ValueError('Pin this catalog before checking for an update.')
+            raise UserMessageError('Pin this catalog before checking for an update.')
         result = await asyncio.to_thread(preview_update, catalog, pins[catalog_id], manager.state, data.get('ref'), owner=True)
         previews = getattr(manager, 'catalog_previews', {})
         previews = {key: value for key, value in previews.items() if value['expires'] > time.monotonic()}
         if len(previews) >= 50:
-            raise ValueError('Too many pending catalog previews; wait for expiry.')
+            raise UserMessageError('Too many pending catalog previews; wait for expiry.')
         token = secrets.token_urlsafe(24)
         previews[token] = {'project_id': project_id, 'catalog_id': catalog_id, 'before': copy.deepcopy(pins[catalog_id]),
                            'root': catalog['root'], 'pin': result['pin'], 'expires': time.monotonic() + 900}
         manager.catalog_previews = previews
         return {**result, 'preview_token': token}
     if manager.busy():
-        raise ValueError('Wait for running and queued work before changing catalog provisioning.')
+        raise UserMessageError('Wait for running and queued work before changing catalog provisioning.')
     if action == 'pin':
         if catalog_id in pins:
-            raise ValueError('Use Preview update and Move pin for an existing pin.')
+            raise UserMessageError('Use Preview update and Move pin for an existing pin.')
         pins[catalog_id] = await asyncio.to_thread(pin_catalog, catalog, manager.state, data.get('ref'), owner=True)
     elif action == 'update':
         token = data.get('preview_token')
         preview = getattr(manager, 'catalog_previews', {}).get(token) if isinstance(token, str) else None
         if (not preview or preview['expires'] <= time.monotonic() or preview['project_id'] != project_id
             or preview['catalog_id'] != catalog_id or preview['before'] != pins.get(catalog_id) or preview['root'] != catalog['root']):
-            raise ValueError('Preview is missing or stale. Preview the update again.')
+            raise UserMessageError('Preview is missing or stale. Preview the update again.')
         pins[catalog_id] = await asyncio.to_thread(pin_catalog, catalog, manager.state, preview['pin']['commit'], owner=True)
     elif action == 'retrust':
         digest = await asyncio.to_thread(hooks_digest, catalog['root'])
         catalog['hooks_sha256'] = digest
     elif action == 'provision':
         if manager.running():
-            raise ValueError('Stop the harness before provisioning a shared catalog runtime.')
+            raise UserMessageError('Stop the harness before provisioning a shared catalog runtime.')
         effective = next(item for item in effective_catalogs(catalog_config(manager), project) if item['id'] == catalog_id)
         manifest = load_manifest(effective['root'])
         if manifest is None:
-            raise ValueError('This catalog has no provisioning manifest.')
+            raise UserMessageError('This catalog has no provisioning manifest.')
         await asyncio.to_thread(materialize_runtime, effective['root'], manifest, manager.state, catalog_id)
         manager.audit('catalog_provision')
         return await read_catalogs(request, manager)
     else:
-        raise ValueError('Choose pin, preview, update, retrust or provision.')
+        raise UserMessageError('Choose pin, preview, update, retrust or provision.')
     await manager.apply_settings(draft)
     if action == 'update':
         manager.catalog_previews.pop(token, None)

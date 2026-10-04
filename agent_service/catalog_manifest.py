@@ -15,7 +15,7 @@ from pathlib import Path
 from control.product import PRODUCT
 
 from .catalog_pin import effective_catalogs, snapshot_catalogs
-from .errors import APIError
+from .errors import APIError, UserMessageError
 
 MANIFEST_NAME = "harness.catalog.json"
 KINDS = frozenset({"command", "agent", "skill", "rule", "context", "workflow"})
@@ -28,7 +28,7 @@ def _relative(value):
         or Path(value).is_absolute()
         or ".." in Path(value).parts
     ):
-        raise ValueError("invalid_catalog_path")
+        raise UserMessageError("invalid_catalog_path")
     return value
 
 
@@ -36,7 +36,7 @@ def _inside(root, value):
     root = Path(root).resolve()
     path = root / _relative(value)
     if not path.resolve().is_relative_to(root):
-        raise ValueError("catalog_path_escape")
+        raise UserMessageError("catalog_path_escape")
     return path
 
 
@@ -45,7 +45,7 @@ def load_manifest(root):
     if not path.exists():
         return None
     if not path.resolve().is_relative_to(Path(root).resolve()) or path.stat().st_size > 65536:
-        raise ValueError("invalid_catalog_manifest")
+        raise UserMessageError("invalid_catalog_manifest")
     manifest = json.loads(path.read_text())
     allowed = {
         "version",
@@ -61,23 +61,23 @@ def load_manifest(root):
         "provisions_maintenance",
     }
     if not isinstance(manifest, dict) or manifest.get("version") != 1 or set(manifest) - allowed:
-        raise ValueError("invalid_catalog_manifest")
+        raise UserMessageError("invalid_catalog_manifest")
     for key in ("context", "rules", "writable_state", "allowed_hooks"):
         values = manifest.get(key, [])
         if not isinstance(values, list) or len(values) > 64:
-            raise ValueError("invalid_catalog_manifest")
+            raise UserMessageError("invalid_catalog_manifest")
         for value in values:
             _inside(root, value)
     if "cwd" in manifest:
         _inside(root, manifest["cwd"])
     if not isinstance(manifest.get("provisions_maintenance", False), bool):
-        raise ValueError("invalid_catalog_manifest")
+        raise UserMessageError("invalid_catalog_manifest")
     resources = manifest.get("resources", {})
     if not isinstance(resources, dict) or set(resources) - KINDS:
-        raise ValueError("invalid_catalog_resources")
+        raise UserMessageError("invalid_catalog_resources")
     for values in resources.values():
         if not isinstance(values, list) or len(values) > 64:
-            raise ValueError("invalid_catalog_resources")
+            raise UserMessageError("invalid_catalog_resources")
         for value in values:
             _inside(root, value)
     runtime = manifest.get("runtime", {})
@@ -86,19 +86,19 @@ def load_manifest(root):
         or set(runtime) - {"venv", "requirements"}
         or not isinstance(runtime.get("venv", False), bool)
     ):
-        raise ValueError("invalid_catalog_runtime")
+        raise UserMessageError("invalid_catalog_runtime")
     if "requirements" in runtime:
         _inside(root, runtime["requirements"])
         if not runtime.get("venv"):
-            raise ValueError("catalog_requirements_need_venv")
+            raise UserMessageError("catalog_requirements_need_venv")
     integrations = manifest.get("integrations", [])
     if not isinstance(integrations, list) or any(
         not isinstance(item, dict) for item in integrations
     ):
-        raise ValueError("invalid_catalog_integrations")
+        raise UserMessageError("invalid_catalog_integrations")
     checks = manifest.get("preflight", [])
     if not isinstance(checks, list) or len(checks) > 64:
-        raise ValueError("invalid_catalog_preflight")
+        raise UserMessageError("invalid_catalog_preflight")
     for check in checks:
         if not isinstance(check, dict) or set(check) - {
             "file",
@@ -106,11 +106,11 @@ def load_manifest(root):
             "environment",
             "hint",
         }:
-            raise ValueError("invalid_catalog_preflight")
+            raise UserMessageError("invalid_catalog_preflight")
         if len(set(check) & {"file", "executable", "environment"}) != 1 or any(
             not isinstance(value, str) or not value for value in check.values()
         ):
-            raise ValueError("invalid_catalog_preflight")
+            raise UserMessageError("invalid_catalog_preflight")
         if "file" in check:
             _inside(root, check["file"])
     return manifest
@@ -143,17 +143,17 @@ def hooks_trusted(catalog, read=Path.read_bytes):
 
 def _runtime_root(root, state_dir, catalog_id):
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", catalog_id):
-        raise ValueError("invalid_catalog_id")
+        raise UserMessageError("invalid_catalog_id")
     state = Path(state_dir).resolve()
     target = state / "catalog_runtime" / catalog_id
     if target.resolve().is_relative_to(Path(root).resolve()) or not target.resolve().is_relative_to(
         state
     ):
-        raise ValueError("catalog_state_inside_source")
+        raise UserMessageError("catalog_state_inside_source")
     # Even links remaining inside state can alias another catalog's writable state.
     for path in (state / "catalog_runtime", target):
         if path.is_symlink():
-            raise ValueError("catalog_state_symlink")
+            raise UserMessageError("catalog_state_symlink")
     return target
 
 
@@ -162,14 +162,14 @@ def _runtime_options(root, manifest, state_dir, catalog_id):
     roots = [_inside(target, value) for value in manifest.get("writable_state", [])]
     for path in roots:
         if any(part.is_symlink() for part in (path, *path.parents) if part.is_relative_to(target)):
-            raise ValueError("catalog_state_symlink")
+            raise UserMessageError("catalog_state_symlink")
     environment = {
         PRODUCT.env_prefix + "_CATALOG_STATE_" + catalog_id.upper().replace("-", "_"): str(target)
     }
     if manifest.get("runtime", {}).get("venv"):
         python_home = target / "venv"
         if python_home.is_symlink() or (python_home / "bin").is_symlink():
-            raise ValueError("catalog_state_symlink")
+            raise UserMessageError("catalog_state_symlink")
         environment.update(
             VIRTUAL_ENV=str(python_home),
             PATH=str(python_home / "bin") + os.pathsep + os.environ.get("PATH", ""),
@@ -187,7 +187,7 @@ def _runtime_options(root, manifest, state_dir, catalog_id):
 def _dependency_stamp(runtime_root):
     stamp = runtime_root / "requirements.sha256"
     if stamp.is_symlink() or (stamp.exists() and not stamp.is_file()):
-        raise ValueError("invalid_catalog_dependency_stamp")
+        raise UserMessageError("invalid_catalog_dependency_stamp")
     return stamp
 
 
