@@ -57,9 +57,10 @@ async function unobscured(locator) {
     await check('A1-F3 plan heading and instructions do not overlap', async () => {
       const page = await fixture(browser, 1024, true);
       await page.keyboard.press('Control+j');
-      await page.locator('.run-plan-approval').waitFor();
+      await page.locator('#needs-you-toggle').click();
+      await page.locator('.needs-you-card').waitFor();
       await page.locator('.run-span-row').nth(3).waitFor();
-      const boxes = await page.evaluate(() => { const node = document.querySelector('.run-plan-approval'); return ['strong', 'p'].map(selector => { const range = document.createRange(); range.selectNodeContents(node.querySelector(selector)); return range.getBoundingClientRect().toJSON(); }); });
+      const boxes = await page.evaluate(() => { const node = document.querySelector('.needs-you-card'); return ['h3', 'p'].map(selector => { const range = document.createRange(); range.selectNodeContents(node.querySelector(selector)); return range.getBoundingClientRect().toJSON(); }); });
       assert(boxes[0].width > 0);
       assert(boxes[0].right <= boxes[1].left || boxes[0].bottom <= boxes[1].top || boxes[1].bottom <= boxes[0].top, JSON.stringify(boxes));
       await page.close();

@@ -41,15 +41,12 @@ const settle = page => page.evaluate(() => Promise.all(document.getAnimations().
   async function check(name, fn) { if (process.env.ONLY && !process.env.ONLY.split(',').some(id => name.startsWith(id))) return; try { await fn(); console.log('PASS ' + name); } catch (error) { failures.push(name + ': ' + error.stack); console.error('FAIL ' + name + ': ' + error.message); } }
   async function pendingPlan(width=1024, height=768) { const f=await fixture(browser,width,height); f.state.plan=true; f.state.running=true; await f.open('a'); await f.page.evaluate(()=>runConsole.openRun('a-job')); await f.page.keyboard.press('Control+j'); return f; }
   try {
-    await check('A1-F1 plan labels have separate hit targets', async () => {
+    await check('A1-F1 an old pending plan card is read-only in every theme', async () => {
       for (const theme of ['porcelain','amethyst','petroleum']) {
         const {page,state}=await pendingPlan(); await page.evaluate(t=>HarnessTheme.apply(t),theme);
-        const actions=page.locator('.maestro-plan-actions'); await actions.evaluate(n=>n.scrollIntoView({block:'center',behavior:'instant'})); await settle(page);
-        const points=await actions.locator('button').evaluateAll(nodes=>nodes.map(n=>{const range=document.createRange();range.selectNodeContents(n);const r=range.getBoundingClientRect(),box=n.getBoundingClientRect(); return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,box:box.toJSON(),hit:[r.left+1,r.right-1].every(x=>n.contains(document.elementFromPoint(x,r.top+r.height/2)))};}));
-        assert(points.every(p=>p.left>=p.box.left && p.right<=p.box.right && p.hit), JSON.stringify(points));
-        assert(points[0].right<=points[1].left || points[0].bottom<=points[1].top, JSON.stringify(points));await capture(page,'plan-actions-'+theme);
-        await actions.locator('button').first().click(); assert.equal(state.posts[0].data.choice,'approve');
-        await actions.locator('button').last().click(); await page.getByRole('textbox',{name:'Task for step 1'}).waitFor(); await page.close();
+        const card=page.locator('.maestro-plan-card'); await card.scrollIntoViewIfNeeded(); await settle(page);
+        assert.equal(await card.locator('button').count(),0); assert.equal(await page.locator('.maestro-plan-actions').count(),0);
+        assert.match(await card.locator('.state-pill').innerText(),/Not active/); assert.equal(state.posts.length,0); await capture(page,'plan-readonly-'+theme); await page.close();
       }
     });
     await check('A1-F2 pending approval and descriptive pipeline fit', async () => {
@@ -102,16 +99,10 @@ const settle = page => page.evaluate(() => Promise.all(document.getAnimations().
     await check('A5-F1 New retains selected invocation semantics', async () => {
       const {page,state,open}=await fixture(browser);await open('a');await page.fill('#prompt','/reviewer');await page.locator('#resource-menu [data-resource-id="project/p/reviewer"]').click();await page.keyboard.type(' inspect synthetic draft');const draft=await page.inputValue('#prompt');await page.locator('#new').click();assert.equal(await page.inputValue('#prompt'),draft);assert.equal(await page.locator('.resource-chip').count(),1);await page.locator('#send').click();await page.waitForFunction(()=>!submitting);assert.deepEqual(state.posts.at(-1).data.resource_selections.map(r=>({id:r.id,revision:r.revision})),[{id:resource.id,revision:resource.revision}]);await page.close();
     });
-    await check('A5-F2 plan edits survive tabs hide and telemetry', async () => {
-      const {page,state}=await pendingPlan();await page.locator('.maestro-plan-actions button').last().click();const editor=page.getByRole('textbox',{name:'Task for step 1'});await editor.waitFor();const exact='Only summarize; do not rewrite the synthetic report';await editor.fill(exact);
-      await page.getByRole('tab',{name:'Logs',exact:true}).click();await page.getByRole('tab',{name:'Pipeline',exact:true}).click();assert.equal(await editor.inputValue(),exact);
-      await page.getByRole('button',{name:'Hide editor',exact:true}).focus();await page.keyboard.press('Enter');assert.equal(await page.locator(':focus').innerText(),'Edit plan');await settle(page);assert(await hit(page.locator(':focus')),JSON.stringify(await page.locator(':focus').evaluate(n=>({text:n.textContent,rect:n.getBoundingClientRect().toJSON(),scroll:n.closest('.run-console-body').scrollTop}))));await page.keyboard.press('Enter');assert.equal(await page.locator(':focus').innerText(),'Hide editor');await settle(page);assert(await hit(page.locator(':focus')),JSON.stringify(await page.locator(':focus').evaluate(n=>({text:n.textContent,rect:n.getBoundingClientRect().toJSON(),scroll:n.closest('.run-console-body').scrollTop}))));assert.equal(await editor.inputValue(),exact);
-      await page.waitForTimeout(2200);assert.equal(await editor.inputValue(),exact);await page.locator('.run-plan-actions button').filter({hasText:'Run with edits'}).click();assert.equal(state.posts.at(-1).data.plan.steps[0].task,exact);await page.close();
-    });
-    await check('A5-F3 late approval cannot replace terminal outcome', async () => {
-      for(const outcome of ['completed','failed']){const {page,state}=await pendingPlan();let release;state.approvalResponse=new Promise(r=>release=r);await page.locator('.maestro-plan-actions button').first().click();await page.waitForFunction(()=>document.querySelector('.maestro-plan-actions button').disabled);
+    await check('A5-F3 late approval event cannot replace terminal outcome', async () => {
+      for(const outcome of ['completed','failed']){const {page}=await pendingPlan();
         await page.evaluate(outcome=>{event({id:101,type:'gate_resolved',data:{gate_id:'plan',choice:'approve'}});result(job,controller,{state:outcome,result:{answer:'Synthetic terminal answer'}});},outcome);
-        release();await page.waitForTimeout(100);assert.match(await page.locator('.maestro-plan-card .state-pill').innerText(),new RegExp(outcome,'i'));await page.close();}
+        assert.match(await page.locator('.maestro-plan-card .state-pill').innerText(),new RegExp(outcome,'i'));assert.equal(await page.locator('.maestro-plan-card button').count(),0);await page.close();}
     });
     await check('A5-F4 publication expiry and invalidation retain identity', async () => {
       const {page,open}=await fixture(browser);await open('a');for(const state of ['expired','invalidated']){await page.evaluate(state=>{showGate({gate_id:state,kind:'publish',publish:true,effect_id:'effect-'+state,operation:'jira.create_issue',destination:'TEST',artifact_preview:'Synthetic evidence',options:[{id:'approve',label:'Approve'},{id:'deny',label:'Deny'}]});finishGate(state,state);},state);const gate=page.locator('#gate-'+state);assert.match(await gate.innerText(),/Publication (approval )?(expired|closed)/);assert.match(await gate.innerText(),/fresh approval/i);assert.match(await gate.innerText(),/Synthetic evidence/);assert.equal(await gate.locator('button:enabled').count(),0);}await page.close();
