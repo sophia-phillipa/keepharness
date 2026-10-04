@@ -255,7 +255,7 @@ async def require_responses_api(url: str, key: str = "") -> None:
             async with client.stream(
                 "POST", url + "/v1/responses", headers=headers, json={}
             ) as response:
-                if response.status_code in (404, 405, 501):
+                if response.status_code in (404, 405, 501) or 300 <= response.status_code < 400:
                     raise ValueError(reason)
                 body = bytearray()
                 async for chunk in response.aiter_bytes():
