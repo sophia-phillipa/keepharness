@@ -96,6 +96,15 @@ def test_the_dry_run_lists_every_action_and_changes_nothing(split, capsys):
     assert "venv" not in out
 
 
+def test_apply_never_glues_two_audit_records_when_the_first_lacks_a_newline(split, capsys):
+    home, old, new = split
+    (new / "audit.jsonl").write_text('{"event": "older"}')
+    state_merge.main(["--apply"], home=home)
+    capsys.readouterr()
+    lines = (old / "audit.jsonl").read_text().splitlines()
+    assert [json.loads(line)["event"] for line in lines] == ["older", "newer"]
+
+
 def test_apply_merges_into_tail_harness_and_retires_the_split_folder(split, capsys):
     home, old, new = split
     state_merge.main(["--apply"], home=home)

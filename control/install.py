@@ -16,8 +16,10 @@ import urllib.request
 from pathlib import Path
 
 from .product import (
+    LEGACY_SERVICE,
     PRODUCT,
     describe,
+    held_by_unit,
     is_original,
     legacy_folders,
     migration_refusal,
@@ -46,10 +48,14 @@ def unit_pid(service=SERVICE):
     return int(value) if value.isdigit() and value != "0" else None
 
 
-def port_conflict(port, service=SERVICE):
-    """Who holds loopback ``port`` when it is not ``service``'s own process, else None."""
+def port_conflict(port, service=SERVICE, stopping=None):
+    """Who holds loopback ``port`` when it is not ``service``'s own process, else None.
+
+    ``stopping`` names a unit install.sh stops next: its processes do not conflict."""
     holders = port_holders(port)
     if not holders or unit_pid(service) in [pid for pid, _ in holders]:
+        return None
+    if stopping and held_by_unit(holders, stopping):
         return None
     return (
         f"127.0.0.1:{port} is held by {describe(holders)}, not by {service}: stop it, then run "
@@ -176,7 +182,7 @@ def preflight(port):
             "systemd cannot use an environment built here: run ./install.sh in a host terminal, "
             "or `distrobox-host-exec ./install.sh` from this checkout."
         )
-    return port_conflict(port) or migration_refusal(Path.home())
+    return port_conflict(port, stopping=LEGACY_SERVICE) or migration_refusal(Path.home(), stopping=True)
 
 
 def roll_back():

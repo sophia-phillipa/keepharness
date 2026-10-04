@@ -44,12 +44,20 @@ preflight_failed() {
 # Preflight: a trial install in a temporary venv, before anything is stopped or moved.
 python3 -m venv "$TH_TMP/venv" ||
   preflight_failed "$(command -v python3) cannot create a virtual environment (on Debian/Ubuntu: install python3-venv)."
-# Build from a copy of the tracked files: the checkout may be read-only and stays untouched.
-TH_SOURCE=.
-if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  TH_SOURCE=$TH_TMP/source
-  mkdir "$TH_SOURCE"
-  git ls-files -z | tar --null --ignore-failed-read -T - -cf - | tar -xf - -C "$TH_SOURCE"
+# Build from a copy of the source: the checkout may be read-only and stays untouched. This folder is
+# the git repository itself: copy its tracked and untracked files minus the ignored ones. A tarball
+# extracted inside another repository, or no git at all: copy the tree minus build, state and secrets.
+TH_SOURCE=$TH_TMP/source
+mkdir "$TH_SOURCE"
+if [ "$(git rev-parse --show-toplevel 2>/dev/null)" = "$(pwd -P)" ]; then
+  git ls-files -z --cached --others --exclude-standard |
+    tar --null --ignore-failed-read -T - -cf - | tar -xf - -C "$TH_SOURCE"
+else
+  tar --exclude=.git --exclude=.venv --exclude=__pycache__ --exclude=.pytest_cache \
+    --exclude=node_modules --exclude=graphify-out --exclude=local_ai --exclude=local-ai \
+    --exclude='*.egg-info' --exclude='.env*' --exclude='*.key' --exclude='*.gguf' \
+    --exclude='*.sqlite3*' --exclude=./build --exclude=./dist --exclude=./state \
+    --exclude=./reports -cf - . | tar -xf - -C "$TH_SOURCE"
 fi
 "$TH_TMP/venv/bin/python" -m pip wheel --quiet --no-deps --wheel-dir "$TH_TMP/wheel" "$TH_SOURCE" ||
   preflight_failed "The package did not build."
