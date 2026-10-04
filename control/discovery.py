@@ -62,7 +62,7 @@ async def scan(remote_servers=(), *, reserved=()):
     services = [
         {
             "id": "codex",
-            "name": "Codex CLI",
+            "name": "Codex",
             "binary": binaries["codex"],
             "found": bool(binaries["codex"]),
             "credential_present": codex_auth.is_file(),
@@ -92,7 +92,7 @@ async def scan(remote_servers=(), *, reserved=()):
     )
     local = {
         "id": "local",
-        "name": "Local models · llama.cpp / Ollama",
+        "name": "Local models",
         "found": False,
         "binary": binaries["codex"],
         "cloud": False,

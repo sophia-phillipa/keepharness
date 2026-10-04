@@ -25,6 +25,9 @@
  }
  // Picker policy only: keep legacy execution IDs intact for existing sessions.
  function selectableModel(provider,id){return provider!=='claude'||/^claude-[a-z]+-\d{1,3}(?:-\d{1,3})?$/.test(id);}
- window.HarnessUI={icon,decorate,notice,toast,mountThemes,selectableModel};
+ // D42: one display name per provider and coordinator, shared by the app and the admin.
+ const providerNames={codex:'Codex',claude:'Claude Code',deepseek:'DeepSeek',local:'Local models',maestro:'Maestro',gemini:'Gemini CLI'};
+ function providerName(id,fallback){return providerNames[id]||fallback||id;}
+ window.HarnessUI={icon,decorate,notice,toast,mountThemes,selectableModel,providerName,providerNames};
  document.addEventListener('DOMContentLoaded',()=>{decorate();document.querySelectorAll('[data-theme-picker]').forEach(mountThemes);});
 })();
