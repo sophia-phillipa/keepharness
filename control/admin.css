@@ -1654,3 +1654,22 @@ html[data-embedded] #main { max-width: none; margin: 0; padding-inline: 24px; }
 
 #log-tail { max-height: 24rem; max-width: 100%; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 #environment-tools p { overflow-wrap: anywhere; }
+
+/* Runtime diagnostics: a status row like the other Admin notices; one fact per line. */
+#runtime-diagnostics {
+  margin: 0 0 8px; padding: 10px 14px; border: 1px solid var(--th-line); border-left: 3px solid var(--th-error);
+  border-radius: 10px; background: var(--th-panel); color: var(--th-text); font-size: 13px;
+  white-space: pre-line; overflow-wrap: anywhere;
+}
+/* Intentional at every width: #feedback is the one Admin notice row (Tailnet alert included); the 13 px/compact padding match the other status rows. */
+#feedback.th-notice { padding: 8px 12px; font-size: 13px; }
+/* At the desktop minimum width the header stays on one row; the sidebar already names the product. */
+@media (min-width: 761px) and (max-width: 1100px) {
+  body { --th-admin-sidebar-width: 240px; }
+  #main { padding-inline: 24px; }
+  #main > header { justify-content: flex-end; gap: 8px; }
+  #main .breadcrumb { display: none; }
+  #main .header-right { flex-wrap: nowrap; gap: 8px; }
+  .header-right #scan { margin-inline-end: 0; }
+  #main .header-right :is(.btn, .button, .pill) { padding-inline: 10px; white-space: nowrap; }
+}

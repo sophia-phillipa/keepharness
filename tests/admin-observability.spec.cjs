@@ -30,7 +30,18 @@ const path = require("node:path");
     });
     await page.goto("http://admin.test/");
     await page.locator("#runtime-diagnostics").waitFor({ timeout: 3000 });
-    assert.match(await page.locator("#runtime-diagnostics").innerText(), /startup failed.*Last exit: 9/s);
+    const diagnostics = await page.locator("#runtime-diagnostics").innerText();
+    assert.match(diagnostics, /startup failed.*Last exit: 9/s);
+    assert.doesNotMatch(diagnostics, /[.!?] ·/); // The two facts are separate lines, not joined with doubled punctuation.
+    assert.doesNotMatch(await page.locator("#feedback").innerText(), /Could not resume/); // The startup error is not repeated as a notice.
+    assert.equal(await page.locator("#runtime-diagnostics").evaluate(e => getComputedStyle(e).borderLeftWidth), "3px"); // Styled like the other status rows.
+    for (const width of [960, 850, 761]) { // 960 is the desktop minimum; the compact header rule starts at 761.
+      await page.setViewportSize({ width, height: 640 });
+      const centers = await page.locator(".header-right > *").evaluateAll(items => items.map(e => { const r = e.getBoundingClientRect(); return r.top + r.height / 2; }));
+      assert.ok(Math.max(...centers) - Math.min(...centers) < 2, `header controls share one row at ${width}px`);
+      assert.ok((await page.locator("#main > header").boundingBox()).height < 80, `header stays under 80px at ${width}px`);
+    }
+    await page.setViewportSize({ width: 1280, height: 900 });
     await page.getByText("Environment and logs", { exact: true }).click();
     const inventory = await page.locator("#environment-tools").innerText();
     assert.match(inventory, /bwrap.*Missing/s);

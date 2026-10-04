@@ -1099,7 +1099,7 @@ function renderStatus() {
   if (s.startup_error) diagnostics.push("Startup error: " + s.startup_error);
   if (s.last_exit)
     diagnostics.push("Last exit: " + s.last_exit.code + " at " + new Date(s.last_exit.at * 1000).toISOString() + " (uptime " + s.last_exit.uptime_seconds + "s)");
-  $("runtime-diagnostics").textContent = diagnostics.join(" · ");
+  $("runtime-diagnostics").textContent = diagnostics.join("\n");
   $("runtime-diagnostics").hidden = diagnostics.length === 0;
   $("environment-tools").replaceChildren(...(state.inventory.tools || []).map(tool => {
     const row = element("div");
@@ -1114,8 +1114,6 @@ function renderStatus() {
   $("add-provider").disabled = working;
   $("wizard-content-lock").disabled = working;
   $("wizard-next").disabled = working;
-  if (s.startup_error)
-    say("Could not resume the harness: " + s.startup_error, true);
   // Persistent, so it is said once per page load and never buries a later message.
   if (s.tailnet_signin_off && !tailnetNoticeShown) {
     tailnetNoticeShown = true;

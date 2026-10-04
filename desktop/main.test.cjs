@@ -57,15 +57,18 @@ async function boot(options = {}) {
     Menu: { buildFromTemplate: template => template, setApplicationMenu: template => { menu = template; } },
     dialog: { showMessageBox: async (...args) => { const d = args.at(-1); dialogs.push(JSON.parse(JSON.stringify(d))); if (options.onDialog) return options.onDialog(d, app); return { response: options.response ?? 1 }; }, showAboutPanel() {} },
     session: { defaultSession: Object.assign(new EventEmitter(), { setPermissionRequestHandler(fn) { this.permission = fn; }, setPermissionCheckHandler(fn) { this.check = fn; }, cookies: { set: async cookie => { cookies.push(cookie); }, get: async query => query.name === 'keepharness-local' ? cookies.filter(cookie => cookie.name === query.name && new URL(cookie.url).origin === new URL(query.url).origin) : options.noSession ? [] : [{}] } }) } };
+  const clock = options.clock || {t: Date.now()}; // the app's waits run on this clock: 250 ms polls advance it without sleeping
   let adminReady = !options.startBackend;
   const http = { get(url, opts, callback) {
     requests.push(url); requestDetails.push({url, ...opts}); const req = new EventEmitter(); req.destroy = () => req.emit('error', new Error('timeout'));
     queueMicrotask(() => {
+      if (url.includes('v1/version')) options.onVersionProbe?.(windows);
+      if (options.stateCost && url.endsWith('api/state')) clock.t += options.stateCost; // a probe that runs into its timeout
       if ((options.harnessOffline && url.includes('v1/version')) || (!adminReady && !url.includes('v1/version'))) { req.emit('error', new Error('offline')); return; }
       const res = new EventEmitter(); res.statusCode = options.status || 200; res.headers = {}; if (url.includes('v1/version') && (options.rejectCredential || opts.headers?.cookie !== `keepharness-local=${ownerSession}`)) res.statusCode=401; if (url.includes('/open?')) { res.statusCode=options.failOpen ? 500 : 303; res.headers['set-cookie']=['admin=abcdefghijklmnop; Path=/', `keepharness-local=${ownerSession}; Path=/`]; } res.resume = () => {}; res.setEncoding = () => {};
       callback(res);
       if (options.dieDuringVersion && url.includes('v1/version') && children.length) { children.at(-1).exitCode=1; children.at(-1).emit('exit',1,null); }
-      res.emit('data', url.includes('v1/version') ? (options.version ?? '{"product":"keepharness"}') : url.endsWith('api/state') ? JSON.stringify({status:{busy:options.busy}}) : '{}'); res.emit('end');
+      res.emit('data', url.includes('v1/version') ? (options.version ?? '{"product":"keepharness"}') : url.endsWith('api/state') ? JSON.stringify({status:{busy:options.busy,running:options.running}}) : '{}'); res.emit('end');
     }); return req;
   } };
   const childProcess = { spawnSync(executable) { probes.push(executable); return options.badPython ? {error:new Error('ENOENT'),status:null} : {status:0}; },
@@ -76,7 +79,7 @@ async function boot(options = {}) {
     return target[key];
   } });
   const proc = new EventEmitter(); Object.assign(proc, { env:{ KEEPHARNESS_ADMIN_PORT:'18194', KEEPHARNESS_PYTHON:process.execPath, ...options.env }, platform:'linux', getuid: () => 1000 });
-  vm.runInNewContext(source, { require(name) { return ({electron, 'node:fs':fakeFs, 'node:os':{homedir:()=>home}, 'node:http':http, 'node:child_process':childProcess, './policy.cjs':require('./policy.cjs')})[name] || require(name); }, __dirname, process:proc, console, Buffer, URL, setTimeout:(fn,ms)=> { if (ms >= 5000) { const timer={fn,ms,unref(){}}; timers.set(timer,timer); return timer; } return setTimeout(fn,ms===250?0:ms); }, clearTimeout:timer => { timers.delete(timer); clearTimeout(timer); } }, {filename:'main.cjs'});
+  vm.runInNewContext(source, { require(name) { return ({electron, 'node:fs':fakeFs, 'node:os':{homedir:()=>home}, 'node:http':http, 'node:child_process':childProcess, './policy.cjs':require('./policy.cjs')})[name] || require(name); }, __dirname, process:proc, console, Buffer, URL, Date: {now: () => clock.t, parse: Date.parse}, setTimeout:(fn,ms)=> { if (ms >= 5000) { const timer={fn,ms,unref(){}}; timers.set(timer,timer); return timer; } if (ms === 250) clock.t += 250; return setTimeout(fn,ms===250?0:ms); }, clearTimeout:timer => { timers.delete(timer); clearTimeout(timer); } }, {filename:'main.cjs'});
   await settle();
   return {timers,badges,session:electron.session.defaultSession,home,userData,windows,dialogs,external,requests,requestDetails,children,probes,app,event,get menu(){return menu;},main:windows.find(w=>!w.options.frame && !w.file) || windows.find(w=>w.options.frame !== false)};
 }
@@ -166,13 +169,40 @@ test('Admin popup is one reusable second window with the same policies', async (
   const e=h.event(); admin.webContents.emit('will-redirect',e,'https://example.com/'); assert.ok(e.prevented);
   const attach=h.event(); admin.webContents.emit('will-attach-webview',attach); assert.ok(attach.prevented);
 });
-test('windows show once in either event order and splash closes when admin answers', async () => {
+test('windows show once in either event order and the splash closes when the first window is shown', async () => {
   for (const reverse of [false,true]) {
-    const h=await boot(); assert.ok(h.windows[0].destroyed);
+    const h=await boot(); assert.ok(!h.windows[0].destroyed);
     if (reverse) h.main.webContents.emit('did-finish-load');
     h.main.emit('ready-to-show'); h.main.webContents.emit('did-finish-load'); assert.equal(h.main.shows,1);
+    assert.ok(h.windows[0].destroyed);
     h.windows[0].emit('ready-to-show'); assert.equal(h.windows[0].shows,0);
   }
+});
+test('the splash stays up while the harness is awaited, and no window is hidden meanwhile', async () => {
+  const seen = [];
+  const h = await boot({harnessOffline:true, onVersionProbe: windows => seen.push(windows[0].destroyed)});
+  assert.ok(seen.length > 1 && seen.every(destroyed => !destroyed));
+  assert.equal(h.main.url, 'http://127.0.0.1:18194/');
+  assert.ok(!h.windows[0].destroyed);
+});
+test('an admin that reports the harness is not running opens Admin without waiting out the harness', async () => {
+  const h = await boot({harnessOffline:true, running:false});
+  assert.equal(h.main.url, 'http://127.0.0.1:18194/');
+  assert.ok(h.requests.filter(url => url.endsWith('/v1/version')).length <= 2);
+  assert.equal(h.dialogs.length, 0);
+});
+test('a stuck admin state probe cannot stretch the 15 s harness wait', async () => {
+  const clock = {t: 0}; const h = await boot({harnessOffline:true, clock, stateCost:1500});
+  assert.equal(h.main.url, 'http://127.0.0.1:18194/');
+  assert.ok(h.requests.filter(url => url.endsWith('/v1/version')).length <= 12);
+});
+test('Restart service with no provider opens Admin without the harness wait', async () => {
+  const h = await boot({startBackend:true, response:0, harnessOffline:true, running:false});
+  const before = h.requests.filter(url => url.endsWith('/v1/version')).length;
+  h.children[0].exitCode=1; h.children[0].emit('exit',1,null); h.children[0].emit('close',1,null); await settle();
+  assert.equal(h.children.length, 2);
+  assert.ok(h.requests.filter(url => url.endsWith('/v1/version')).length - before <= 2);
+  assert.equal(h.main.url, 'http://127.0.0.1:18194/');
 });
 test('main log rotates after two MiB and never stores sensitive values', async () => {
   const h=await boot({startBackend:true});
@@ -285,9 +315,13 @@ test('reused minimized Admin is restored before focus', async () => {
   assert.equal(admin.restored,true); assert.equal(admin.minimizedAtFocus,false);
   assert.equal(h.windows.length,3);
 });
-test('foreign-port refusal does not release an already closed splash', () => {
-  const branch=source.slice(source.indexOf('if (foreign !== null)'),source.indexOf('requireBackendAlive();',source.indexOf('if (foreign !== null)')));
-  assert.ok(!branch.includes('releaseSplash()'));
+test('a foreign-port refusal leaves the splash to the quit, which closes it', async () => {
+  const h = await boot({tcp: foreignHarnessTable});
+  assert.ok(h.dialogs.some(d => /not yours/.test(d.message))); assert.equal(h.app.quits, 1);
+  const splash = h.windows.find(w => w.file);
+  assert.equal(splash.destroyed, false); // still the picture behind the dialog
+  for (const w of h.windows) w.close(); // Electron closes every window on quit
+  assert.equal(splash.destroyed, true);
 });
 
 test('packaged startup refuses missing or dirty provenance before network access', async () => {
