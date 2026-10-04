@@ -1,5 +1,5 @@
 #!/bin/sh
-# Linux and macOS: chmod +x setup-mcp.sh
+# Linux and Apple Silicon macOS: chmod +x setup-mcp.sh
 # Run: ./setup-mcp.sh 'https://your-tailscale-server'
 set -eu
 # Generated identity block; the installer is downloadable on its own.
@@ -17,6 +17,10 @@ case "$server" in
     http://?*|https://?*) ;;
     *) printf '%s\n' 'Provide the http:// or https:// URL of the harness.' >&2; exit 1 ;;
 esac
+if [ "$(uname -s)" = Darwin ] && [ "$(uname -m)" = x86_64 ]; then
+    printf '%s\n' 'Intel macOS is unsupported by the bridge installer: the locked cryptography release has no macOS x86_64 wheel, and older wheels have known vulnerabilities. Use Linux or native Apple Silicon macOS.' >&2
+    exit 1
+fi
 for dependency in python3 curl claude; do
     if ! command -v "$dependency" >/dev/null 2>&1; then
         printf 'Install %s and run again. Requirements: Python 3.10+, curl and Claude Code.\n' "$dependency" >&2

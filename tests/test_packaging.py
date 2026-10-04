@@ -19,6 +19,10 @@ LOCK_COMMAND = (
     "uv pip compile pyproject.toml scripts/build-requirements.in --universal "
     "--python-version 3.11 --generate-hashes -o requirements.txt"
 )
+BRIDGE_LOCK_COMMAND = (
+    "uv pip compile scripts/bridge-requirements.in --universal "
+    "--python-version 3.10 --generate-hashes -o agent_service/bridge-requirements.txt"
+)
 HASH = re.compile(r"--hash=sha256:[0-9a-f]{64}")
 
 
@@ -79,6 +83,14 @@ def test_build_backend_pinned():
 
 
 def test_bridge_lock_is_hashed():
+    header = " ".join(
+        line[1:].strip() for line in BRIDGE_LOCK.read_text().splitlines() if line.startswith("#")
+    )
+    assert BRIDGE_LOCK_COMMAND in header
+    assert (ROOT / "scripts/bridge-requirements.in").read_text().splitlines() == [
+        "mcp>=1.12,<2",
+        "httpx>=0.27,<1",
+    ]
     locked = lock_entries(BRIDGE_LOCK)
     assert {"mcp", "httpx"} <= locked.keys()
     assert "*.txt" in pyproject()["tool"]["setuptools"]["package-data"]["agent_service"]

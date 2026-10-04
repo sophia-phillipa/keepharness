@@ -263,3 +263,20 @@ def test_a_failure_after_the_move_says_how_to_go_back(install):
 def test_merge_and_rollback_run_alone(install, args, expected):
     calls = install(*args)
     assert significant(calls) == [expected]
+
+
+@pytest.mark.parametrize("fail_lock", [False, True])
+def test_setup_installs_hashed_dependencies_before_the_package(install, tmp_path, fail_lock):
+    checkout = tmp_path / "setup-checkout"
+    checkout.mkdir()
+    install.script = checkout / "setup.sh"
+    install.script.write_text((ROOT / "setup.sh").read_text())
+    calls = install(check=not fail_lock, FAIL="*--require-hashes*" if fail_lock else "__never__")
+    lock = "preflight-python -m pip install --require-hashes -r requirements.txt"
+    package = "preflight-python -m pip install --no-deps --no-build-isolation ."
+    assert lock in calls
+    if fail_lock:
+        assert install.result.returncode != 0
+        assert package not in calls
+    else:
+        assert calls.index(lock) < calls.index(package)

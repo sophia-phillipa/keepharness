@@ -8,6 +8,8 @@ import os
 import subprocess
 from pathlib import Path
 
+import pytest
+
 SCRIPT = Path(__file__).resolve().parents[1] / "agent_service/setup-mcp.sh"
 URL = "https://example.ts.net"
 
@@ -30,7 +32,13 @@ CLAUDE = '#!/bin/sh\necho "claude $*" >> "$CALLS"\n'
 def run_script(root, **extra):
     binaries = root / "bin"
     binaries.mkdir()
-    for name, source in {"python3": PYTHON3, "curl": CURL, "claude": CLAUDE}.items():
+    uname = '#!/bin/sh\ncase "$1" in -s) echo "${TEST_OS:-Linux}";; -m) echo "${TEST_ARCH:-x86_64}";; esac\n'
+    for name, source in {
+        "python3": PYTHON3,
+        "curl": CURL,
+        "claude": CLAUDE,
+        "uname": uname,
+    }.items():
         (binaries / name).write_text(source)
         (binaries / name).chmod(0o755)
     calls = root / "calls"
@@ -47,6 +55,21 @@ def run_script(root, **extra):
 
 def test_script_has_valid_shell_syntax():
     assert subprocess.run(["sh", "-n", str(SCRIPT)]).returncode == 0
+
+
+def test_intel_macos_stops_before_creating_environment(tmp_path):
+    result, calls = run_script(tmp_path, TEST_OS="Darwin", TEST_ARCH="x86_64")
+    assert result.returncode != 0
+    assert "Intel macOS is unsupported" in result.stderr
+    assert calls == []
+    assert not (tmp_path / ".local").exists()
+
+
+@pytest.mark.parametrize("system,architecture", [("Linux", "x86_64"), ("Darwin", "arm64")])
+def test_supported_platforms_install_the_bridge(tmp_path, system, architecture):
+    result, calls = run_script(tmp_path, TEST_OS=system, TEST_ARCH=architecture)
+    assert result.returncode == 0, result.stderr
+    assert any("pip install --require-hashes -r" in call for call in calls)
 
 
 def test_dependencies_come_from_the_downloaded_hashed_lock(tmp_path):
