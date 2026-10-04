@@ -20,6 +20,7 @@ from adapters.claude.auth import cli_login_environment
 from adapters.deepseek import account as deepseek
 from adapters.shared.provider_setup import login_environment
 from agent_service.errors import APIError, UserMessageError
+from agent_service.json_depth import too_deep
 from harness_ui import asset_response, static_response
 
 from . import env, local_access
@@ -719,6 +720,8 @@ async def endpoint(request: Request):
                         return JSONResponse({"error": "Request too large."}, 413)
                     raw.extend(chunk)
             data = json.loads(raw or "{}")
+            if too_deep(data):
+                raise TypeError("json_too_deep")
             if not isinstance(data, dict):
                 raise UserMessageError("The request must be a JSON object.")
             if (

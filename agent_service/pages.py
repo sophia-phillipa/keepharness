@@ -14,6 +14,7 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from .errors import APIError
+from .json_depth import too_deep
 from .persistence.json_file_repository import (
     JsonFileRepository,
     owner_folder_name,
@@ -113,6 +114,8 @@ def load(page_id: str, text: str) -> dict:
     """A stored page, held to the request limits; ``ValueError`` when the file is unusable."""
     try:
         data = json.loads(text)
+        if too_deep(data):
+            raise ValueError("invalid_page")
         if not isinstance(data, dict) or data.get("id") != page_id:
             raise ValueError("invalid_page")
         record = {"id": page_id, **normalize(data)}

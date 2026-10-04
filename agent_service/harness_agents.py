@@ -18,6 +18,7 @@ from types import MappingProxyType
 
 from . import maestro
 from .errors import APIError
+from .json_depth import too_deep
 from .persistence.harness_agent_repository import AGENT_ID, MAX_FILE_BYTES, HarnessAgentRepository
 from .resources import ENGINES
 
@@ -193,6 +194,8 @@ def load(agent_id: str, text: str) -> dict:
     """A stored record, held to the request limits; ``ValueError`` when the file is unusable."""
     try:
         data = json.loads(text)
+        if too_deep(data):
+            raise ValueError("invalid_harness_agent")
         if not isinstance(data, dict) or data.get("id") != agent_id or data.get("name") != agent_id:
             raise ValueError("invalid_harness_agent")
         record = normalize(data, agent_id)

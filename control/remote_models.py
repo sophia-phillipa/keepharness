@@ -22,6 +22,7 @@ import httpx
 from starlette.requests import Request
 
 from agent_service.errors import UserMessageError
+from agent_service.json_depth import too_deep
 
 if TYPE_CHECKING:
     from .manager import Manager
@@ -232,7 +233,10 @@ async def probe(url: str, key: str = "") -> list[dict]:
     """List the models at ``<url>/v1/models``, or raise ``ValueError`` with a reason safe to show."""
     body = await fetch_body(url, key)
     try:
-        entries = json.loads(body)["data"]
+        parsed = json.loads(body)
+        if too_deep(parsed):
+            raise ValueError("json_too_deep")
+        entries = parsed["data"]
     except (ValueError, KeyError, TypeError, RecursionError):  # deeply nested JSON
         entries = None
     if not isinstance(entries, list):
@@ -264,7 +268,8 @@ async def require_responses_api(url: str, key: str = "") -> None:
                     body += chunk
                     if len(body) > MAX_RESPONSE_BYTES:
                         raise UserMessageError(reason)
-        json.loads(body)  # Any JSON validation/error dialect proves the route exists.
+        if too_deep(json.loads(body)):  # Any JSON validation/error dialect proves the route exists.
+            raise ValueError("json_too_deep")
     except (TimeoutError, httpx.HTTPError, ValueError, RecursionError):
         raise UserMessageError(reason) from None
 

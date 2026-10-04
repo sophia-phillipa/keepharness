@@ -14,6 +14,7 @@ from starlette.routing import Route
 
 from .. import tools
 from ..errors import APIError
+from ..json_depth import too_deep
 
 logger = logging.getLogger(__name__)
 
@@ -30,24 +31,6 @@ class LimitedStream(StreamingResponse):
             await super().__call__(scope, receive, send)
         finally:
             self.release()
-
-
-MAX_JSON_DEPTH = 64
-
-
-def too_deep(data):
-    """Iterative nesting check; Python 3.14's json no longer raises RecursionError for deep input."""
-    level = [data]
-    for _ in range(MAX_JSON_DEPTH):
-        level = [
-            child
-            for node in level
-            for child in (node.values() if isinstance(node, dict) else node)
-            if isinstance(child, (dict, list))
-        ]
-        if not level:
-            return False
-    return True
 
 
 async def body(request, limit=200000):
