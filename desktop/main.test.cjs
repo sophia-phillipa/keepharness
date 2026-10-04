@@ -272,3 +272,12 @@ test('packaged startup refuses missing or dirty provenance before network access
     assert.ok(h.dialogs.some(d=>/provenance/i.test(d.message)));
   }
 });
+test('Quit in the crash dialog does not re-prompt for a crash queued meanwhile', async () => {
+  const answers = [];
+  const h = await boot({onDialog:() => new Promise(resolve => answers.push(resolve))});
+  h.main.webContents.emit('render-process-gone', {}, {reason:'crashed'});
+  h.main.webContents.emit('render-process-gone', {}, {reason:'killed'});
+  assert.equal(h.dialogs.length, 1);
+  answers.shift()({response:1}); await settle();
+  assert.equal(h.dialogs.length, 1); assert.equal(h.app.quits, 1);
+});
