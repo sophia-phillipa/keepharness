@@ -524,12 +524,21 @@ def cancel(service, identity, job):
 
 
 def run_queued(service, identity, job):
-    """Release a follow-up held after Stop, so it runs in its turn."""
-    row = service.job(identity, job)
-    payload = json.loads(row["payload"])
-    if row["state"] != "queued" or not payload.pop("_held_after_stop", None):
-        raise APIError("job_not_held", 409)
+    """Release a follow-up held after Stop, so it runs in its turn.
+
+    The check and the write share one write transaction, so a concurrent Stop, Discard or
+    conversation delete cannot slip between them; a deleted conversation is never resumed.
+    """
     with service.db:
+        # The shared connection may already be inside a transaction; the writes then join it.
+        if not service.db.in_transaction:
+            service.db.execute("BEGIN IMMEDIATE")
+        row = service.job(identity, job)
+        if service.conversation_repository.is_deleted(service.conversation_id(row)):
+            raise APIError("job_not_found", 404)
+        payload = json.loads(row["payload"])
+        if row["state"] != "queued" or not payload.pop("_held_after_stop", None):
+            raise APIError("job_not_held", 409)
         service.conversation_repository.set_payload(job, encoded(payload))
         service.event(job, "queue_released", {})
     service.wake.set()

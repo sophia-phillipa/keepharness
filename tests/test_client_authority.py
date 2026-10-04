@@ -28,6 +28,7 @@ def test_service_state_changes_need_an_enrolled_session(tmp_path):
     cfg = config(tmp_path)
     cfg["projects"]["p"]["service_units"] = ["demo.service"]
     cfg["services"]["codex"].update(mode="native", permissions={"shell": True})
+    cfg["clients"]["local"] = {"sha256": hashlib.sha256(b"local").hexdigest(), "projects": ["p"]}
     app = create_app(cfg)
     bearer = {"Authorization": "Bearer a"}
     start = {"project_id": "p", "action": "start", "unit": "demo.service", "user_requested": True}
@@ -46,8 +47,25 @@ def test_service_state_changes_need_an_enrolled_session(tmp_path):
             process.assert_not_awaited()
             listed = request(app, "POST", "/v1/services", headers=bearer, json={"project_id": "p"})
             assert listed.status_code == 200, listed.text
-            # The person's enrolled browser session starts it, with or without the flag.
-            token = consume_enrollment(cfg, issue_enrollment(cfg, "a"))
+            # Host services are machine-wide: a guest's enrolled session still cannot change them.
+            for action in ("start", "stop", "restart"):
+                guest = consume_enrollment(cfg, issue_enrollment(cfg, "a"))
+                refused = request(
+                    app,
+                    "POST",
+                    "/v1/services",
+                    headers={"Cookie": SESSION_COOKIE + "=" + guest},
+                    json={**start, "action": action},
+                )
+                assert refused.status_code == 403, action
+                assert refused.json()["code"] == "service_control_denied", action
+            assert not [
+                call
+                for call in process.call_args_list
+                if {"start", "stop", "restart"} & set(call.args[0])
+            ]
+            # The local owner's enrolled browser session starts it, with or without the flag.
+            token = consume_enrollment(cfg, issue_enrollment(cfg, "local"))
             started = request(
                 app,
                 "POST",

@@ -1,10 +1,13 @@
 // Navigation policy for the desktop window: only the local admin and harness
 // origins load inside the app; everything else opens in the user's browser.
+const crypto = require('node:crypto');
 const path = require('node:path');
 const { URL } = require('node:url');
 
+// Only 127.0.0.1: these origins get the clipboard and notification permissions, and a
+// `localhost` name can resolve elsewhere than loopback.
 function appOrigins(ports) {
-  return ports.flatMap((port) => [`http://127.0.0.1:${port}`, `http://localhost:${port}`]);
+  return ports.map((port) => `http://127.0.0.1:${port}`);
 }
 function isAppUrl(url, origins) {
   try {
@@ -106,18 +109,38 @@ function portOwnedByUser(tables, port, uid) {
   }
   return owners.length > 0 && owners.every((owner) => owner === uid);
 }
-// The local owner holds a per-install secret (decision D09): the admin keeps it in its state
-// folder with mode 0600 and hands a browser the same cookie through `keepharness open`. Cookies
-// ignore the port, so one cookie on 127.0.0.1 reaches both the admin and the harness.
+// The local owner holds a per-install secret (decision D09) in the admin's 0600 state file. It
+// never becomes a cookie: the main process signs a one-time `/open` ticket with it, exactly as
+// `keepharness open` does (control/local_access.py open_ticket), and the admin answers with a
+// session token of the window's own. Cookies ignore the port, so that one session cookie on
+// 127.0.0.1 reaches both the admin and the harness.
 const LOCAL_COOKIE = 'keepharness-local';
-const SECRET = /^[A-Za-z0-9_-]{16,256}$/;
+const OPEN_SECONDS = 300;
+const TOKEN = /^[A-Za-z0-9_-]{16,256}$/;
 function localKeyPath(home) {
   return path.join(home, '.local', 'share', 'keepharness', 'local.key');
 }
-function localCookie(secret, port) {
-  const value = String(secret || '').trim();
-  if (!SECRET.test(value)) return null;
-  return { url: `http://127.0.0.1:${port}/`, name: LOCAL_COOKIE, value, path: '/', httpOnly: true, sameSite: 'strict' };
+function openTicket(secret, nowSeconds = Date.now() / 1000, nonce = crypto.randomBytes(16).toString('base64url')) {
+  const key = String(secret || '').trim();
+  if (!TOKEN.test(key)) return null;
+  const expires = Math.floor(nowSeconds) + OPEN_SECONDS;
+  const signature = crypto.createHmac('sha256', key).update(`open:${expires}.${nonce}`).digest('hex');
+  return `${expires}.${nonce}.${signature}`;
+}
+// The session cookie from the admin's `/open` answer (its Set-Cookie headers), for the window's
+// cookie jar; null when the answer holds none.
+function sessionCookie(setCookies, port, nowSeconds = Date.now() / 1000) {
+  for (const header of [].concat(setCookies || [])) {
+    const [pair, ...attributes] = String(header).split(';');
+    const at = pair.indexOf('=');
+    if (pair.slice(0, at).trim() !== LOCAL_COOKIE) continue;
+    const value = pair.slice(at + 1).trim();
+    if (!TOKEN.test(value)) return null;
+    const maxAge = attributes.map((a) => a.trim().match(/^max-age=(\d+)$/i)).find(Boolean);
+    const cookie = { url: `http://127.0.0.1:${port}/`, name: LOCAL_COOKIE, value, path: '/', httpOnly: true, sameSite: 'strict' };
+    return maxAge ? { ...cookie, expirationDate: Math.floor(nowSeconds) + Number(maxAge[1]) } : cookie;
+  }
+  return null;
 }
 // `keepharness approve-device --owner local --yes` prints the one-time enrollment link last. The
 // window loads it only when it is an enrollment link on the harness origin the window shows.
@@ -143,6 +166,7 @@ module.exports = {
   portOwnedByUser,
   LOCAL_COOKIE,
   localKeyPath,
-  localCookie,
+  openTicket,
+  sessionCookie,
   enrollmentLink,
 };

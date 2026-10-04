@@ -234,9 +234,10 @@ async def services(request, service, identity):
         raise APIError("service_control_denied", 403)
     action = data.get("action", "list")
     if action in ("start", "stop", "restart"):
-        # Changing host services takes the same human authority as answering an approval;
-        # a flag in the request body is the caller's own claim.
+        # Host services are machine-wide: only the owner on this computer changes them, and with
+        # the same human authority as answering an approval (a body flag is the caller's claim).
         require_approval_session(request, config, identity, revalidate=True)
+        harness_agents.require_local_client(identity, "service_control_denied")
     result = redact_secrets(
         await service_control.operate(config, spec, action, data.get("unit", ""))
     )

@@ -14,7 +14,13 @@ from agent_service.app import create_app
 ORIGIN = "http://127.0.0.1:18095"
 # Tailscale Serve's origin: the only Host on which the login header names a client.
 REMOTE = "http://owner-host.example.ts.net:8093"
-TAILNET = {"Tailscale-User-Login": "owner@example.com", "Host": "owner-host.example.ts.net:8093"}
+TAILNET = {
+    "Tailscale-User-Login": "owner@example.com",
+    "Host": "owner-host.example.ts.net:8093",
+    # What Serve adds when it proxies a tailnet peer (ipn/ipnlocal/serve.go).
+    "X-Forwarded-Host": "owner-host.example.ts.net:8093",
+    "X-Forwarded-For": "100.101.102.103",
+}
 TAILNET_OWNER = "tailnet-" + hashlib.sha256(b"owner@example.com").hexdigest()[:16]
 
 

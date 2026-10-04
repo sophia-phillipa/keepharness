@@ -17,6 +17,8 @@ def test_service_action_diagnostics_are_redacted(tmp_path, syntax):
         cfg = config(tmp_path / "state")
         cfg["projects"]["p"]["service_units"] = ["demo.service"]
         cfg["services"]["codex"].update(mode="native", permissions={"shell": True})
+        # Host services are changed only by the owner on this computer.
+        cfg["clients"]["local"] = {"sha256": "0" * 64, "projects": ["p"]}
         app = create_app(cfg)
         service = app.state.service
         secret = "SYNTHETIC-SERVICE-R11-SECRET-481"
@@ -42,7 +44,7 @@ def test_service_action_diagnostics_are_redacted(tmp_path, syntax):
                     headers={
                         "Cookie": SESSION_COOKIE
                         + "="
-                        + consume_enrollment(cfg, issue_enrollment(cfg, "a"))
+                        + consume_enrollment(cfg, issue_enrollment(cfg, "local"))
                     },
                 ) as client:
                     response = await client.post(

@@ -66,6 +66,31 @@ def test_discard_cancels_it_and_holds_the_next_one(stopped):
     assert ready(instance) == ["other"]
 
 
+def test_a_deleted_conversation_is_never_resumed(stopped):
+    instance, identity, _ = stopped
+    with instance.db:
+        instance.conversation_repository.mark_deleted("first")
+    with pytest.raises(APIError, match="job_not_found"):
+        instance.run_queued(identity, "second")
+    assert ready(instance) == ["other"]
+    assert json.loads(instance.conversation_repository.get("second")["payload"])["_held_after_stop"]
+    assert not instance.db.in_transaction
+
+
+def test_run_queued_writes_in_one_immediate_transaction(stopped):
+    instance, identity, _ = stopped
+    statements = []
+    instance.db.set_trace_callback(statements.append)
+    try:
+        instance.run_queued(identity, "second")
+    finally:
+        instance.db.set_trace_callback(None)
+    begin = statements.index("BEGIN IMMEDIATE")
+    reads = [i for i, sql in enumerate(statements) if sql.lstrip().upper().startswith("SELECT")]
+    assert reads and min(reads) > begin
+    assert not instance.db.in_transaction
+
+
 def test_a_finished_run_holds_nothing(tmp_path):
     instance, identity = service(tmp_path)
     try:

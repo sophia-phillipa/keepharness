@@ -275,6 +275,8 @@ def test_client_transfer_streams_bytes_and_does_not_overwrite(tmp_path):
 def test_service_control_requires_registration_permission_and_request(tmp_path):
     cfg = config(tmp_path)
     cfg["projects"]["p"]["service_units"] = ["demo.service"]
+    # Host services are changed only by the owner on this computer.
+    cfg["clients"]["local"] = {"sha256": "0" * 64, "projects": ["p"]}
     with TestClient(create_app(cfg), headers={"Authorization": "Bearer a"}) as client:
         with (
             patch("agent_service.service_control.shutil.which", return_value="/usr/bin/systemctl"),
@@ -294,7 +296,9 @@ def test_service_control_requires_registration_permission_and_request(tmp_path):
             # The request flag is not authority: a state change needs the enrolled session.
             assert client.post("/v1/services", json=data).status_code == 403
             session = {
-                "Cookie": SESSION_COOKIE + "=" + consume_enrollment(cfg, issue_enrollment(cfg, "a"))
+                "Cookie": SESSION_COOKIE
+                + "="
+                + consume_enrollment(cfg, issue_enrollment(cfg, "local"))
             }
             assert (
                 client.post(
