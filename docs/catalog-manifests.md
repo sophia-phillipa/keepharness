@@ -64,7 +64,9 @@ The trust digest covers each hook script's own bytes. Right before each run the
 hooks are hashed once and exactly those bytes are executed from a private
 in-memory copy, so replacing or rewriting the file after the check changes
 nothing. Files a hook loads or runs itself (sourced scripts, interpreter
-modules, data) are outside the digest and remain the catalog owner's trust.
+modules, data) are outside the digest and remain the catalog owner's trust. A hook runs from an in-memory copy, so `$0` (or `__file__`) is
+`/proc/self/fd/N`; find catalog files from the working directory or an absolute path, not
+from `dirname "$0"`.
 
 Pins disable the catalog update command and omit catalog hooks from runtime.
 Runs record each active catalog's commit, dirty state and pin status. Permission

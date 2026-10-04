@@ -394,7 +394,7 @@ async def upload_file(request, service, identity):
     file_limit = tools.MAX_ATTACHMENT_BYTES
     declared = request.headers.get("content-length", "")
     try:
-        if declared.isdigit():
+        if declared.isascii() and declared.isdigit():
             if int(declared) > file_limit:
                 raise APIError("upload_limit", 413)
             file_limit = int(declared)
