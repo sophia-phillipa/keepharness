@@ -67,6 +67,7 @@ async function boot(options = {}) {
   const childProcess = { spawnSync(executable) { probes.push(executable); return options.badPython ? {error:new Error('ENOENT'),status:null} : {status:0}; },
     spawn() { const child = new EventEmitter(); Object.assign(child, {stderr:new EventEmitter(),stdout:new EventEmitter(),exitCode:null,signalCode:null,kill() { this.signalCode='SIGTERM'; }}); children.push(child); adminReady=true; return child; } };
   const fakeFs = new Proxy(fs, { get(target, key) {
+    if (key === 'readFileSync') return (file, ...args) => String(file).endsWith('build-manifest.json') ? (options.manifest ?? JSON.stringify({product:'keepharness',version:'0.16.0',commit:'a'.repeat(40),dirty:false})) : target.readFileSync(file,...args);
     if (key === 'existsSync') return file => file === '/proc/net/tcp' ? false : options.badPython && String(file).includes('python') ? false : target.existsSync(file);
     return target[key];
   } });
@@ -263,6 +264,13 @@ test('reused minimized Admin is restored before focus', async () => {
 test('foreign-port refusal does not release an already closed splash', () => {
   const branch=source.slice(source.indexOf('if (foreign !== null)'),source.indexOf('requireBackendAlive();',source.indexOf('if (foreign !== null)')));
   assert.ok(!branch.includes('releaseSplash()'));
+});
+
+test('packaged startup refuses missing or dirty provenance before network access', async () => {
+  for (const manifest of ['', '{"dirty":true}']) {
+    const h=await boot({manifest}); assert.ok(h.app.quits); assert.equal(h.requests.length,0);
+    assert.ok(h.dialogs.some(d=>/provenance/i.test(d.message)));
+  }
 });
 test('Quit in the crash dialog does not re-prompt for a crash queued meanwhile', async () => {
   const answers = [];
