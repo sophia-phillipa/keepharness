@@ -46,7 +46,9 @@ validated the same way; `access_mode` is one of `ask` (default), `auto`, `full`,
 
 - `items` is the provider's inventory, connectors first, then plugins, each sorted by
   name. `transport` is `http` or `stdio` for connectors and `null` for plugins. Servers
-  named `harness_effects*` are the harness's own and are never listed.
+  named `harness_effects*` are the harness's own and are never listed. Codex, DeepSeek
+  and Claude list nothing while the owner's personal setup is off (`personal_setup`,
+  see [provider-homes.md](provider-homes.md)); `warnings` then says so.
 - `allowed` is the provider-level list in Settings (`services.<provider>.integrations`).
   There is no per-project list.
 - `effective` is `allowed` and usable on this route; when it is false, `reason` says why.
