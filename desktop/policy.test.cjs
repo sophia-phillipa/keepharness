@@ -265,9 +265,12 @@ test('credential headers query parameters and JSON values are redacted', () => {
     'Authorization: Bearer bearer-value\nx-api-key: header-value',
     '/path?api_key=underscore-value&api-key=dash-value&token=token-value&password=password-value&ok=visible',
     '{"token": "json-token", "password": "json-password", "api_key": "json-key"}',
+    'client_secret=underscore-secret&access_token=access-value&x_harness_session=session-value',
+    'refresh_token: refresh-value',
+    '{"Authorization": "Bearer json-bearer"}',
   ]) {
     const output=redact(input);
-    assert.ok(!/bearer-value|header-value|underscore-value|dash-value|token-value|password-value|json-token|json-password|json-key/.test(output), output);
+    assert.ok(!/bearer-value|header-value|underscore-value|dash-value|token-value|password-value|json-token|json-password|json-key|underscore-secret|access-value|session-value|refresh-value|json-bearer/.test(output), output);
     assert.match(output,/\[REDACTED\]/);
   }
 });

@@ -201,7 +201,7 @@ function createWindow(kind) {
       const {response} = await dialog.showMessageBox(window, {type:'warning', title:TITLE, message, detail:safeText(detail), buttons, defaultId:0, cancelId:buttons[0] === 'Wait' ? 0 : buttons.length - 1});
       if (quitting || window.isDestroyed()) return;
       if (response === reloadResponse) { pendingCrash = null; window.reload(); }
-      else if (buttons[response] === 'Quit') app.quit();
+      else if (buttons[response] === 'Quit') quit();
     } finally {
       prompting = false;
       const reason = pendingCrash;

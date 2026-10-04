@@ -230,9 +230,9 @@ function redact(value, secrets = []) {
   let text = String(value);
   for (const secret of secrets) if (secret) text = text.split(secret).join('[REDACTED]');
   return text
-    .replace(/((?:set-cookie|cookie|authorization|x-api-key)\s*:\s*)[^\r\n]+/gi, '$1[REDACTED]')
+    .replace(/((?:set-cookie|cookie|authorization|x-api-key)["']?\s*:\s*)[^\r\n]+/gi, '$1[REDACTED]')
     .replace(/(\badmin\s*=\s*)(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s&;,}]+)/gi, '$1[REDACTED]')
-    .replace(/((?:["']?)\b(?:secret|ticket|cookie|keepharness-local|harness_session|api[_-]key|token|password)(?:["']?)\s*[:=]\s*)(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s&;,}]+)/gi, '$1[REDACTED]');
+    .replace(/((?:["']?)(?<![A-Za-z0-9])(?:secret|ticket|cookie|keepharness-local|harness_session|api[_-]key|token|password)(?:["']?)\s*[:=]\s*)(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s&;,}]+)/gi, '$1[REDACTED]');
 }
 const LOG_LIMIT = 1024 * 1024;
 // Return a bounded UTF-8 record and rotation decision; disk writes stay in the runtime.
