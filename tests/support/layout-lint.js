@@ -5,27 +5,31 @@
 // Returns { meta, overlaps, layered, spills, beyond, fields }
 //  overlaps  (a) pairs of visible interactive elements whose clipped rects intersect by > 2 px on both axes,
 //                ancestor/descendant pairs excluded, and only when the point at the middle of the intersection
-//                hits one of the two (elementFromPoint), so controls behind a modal or an inert region are ignored.
+//                hits one of the two (elementFromPoint) and the one underneath is itself reachable somewhere, so
+//                controls behind a modal, an inert region or a full-page view are ignored; focusable regions and logs
+//                (the message log) are surfaces, not controls.
 //                "layered" = the smaller one sits fully inside the larger (a deliberate overlay such as row
 //                actions) and is listed separately for review.
 //  spills    (b) elements whose scrollWidth/Height exceed clientWidth/Height by > 1 px, that are not scroll
 //                containers (overflow auto/scroll) and have no effective ellipsis/line-clamp. kind=spill when the
 //                content paints outside the box (overflow visible), kind=clipped when it is cut (hidden/clip).
 //                Only the element whose own text or direct child exceeds its box is reported (not every ancestor).
+//                Text painted transparent (the notification dot's count) cannot spill.
 //  beyond    (c) outermost elements whose rect leaves the nearest hidden/clip container or the viewport
 //                horizontally (scroll/auto containers are by design and skipped; fully off-canvas is skipped).
 //  fields    (d) inputs/textareas/selects: text (placeholder, value or selected option) measured with canvas
 //                against the content box, minus any sibling icon/button rect that covers the content box;
-//                reports padding-right vs the covered width (deficit > 0 means text runs under the icon).
+//                reports padding-right vs the covered width (deficit > 0 means text runs under the icon). Fields
+//                under another layer are skipped, a cover must be on top at the overlap, and a textarea's value scrolls.
 (() => {
   const VW = document.documentElement.clientWidth;
   const VH = window.innerHeight;
-  const INTERACTIVE = [
+  const WIDGETS = [
     "button", "a[href]", "input:not([type=hidden])", "select", "textarea", "summary",
     "[role=button]", "[role=option]", "[role=menuitem]", "[role=menuitemradio]", "[role=menuitemcheckbox]",
     "[role=tab]", "[role=switch]", "[role=checkbox]", "[role=radio]", "[class~=chip]", "[class*=-chip]",
-    "[tabindex]:not([tabindex='-1'])",
   ].join(",");
+  const INTERACTIVE = WIDGETS + ",[tabindex]:not([tabindex='-1'])";
   const r1 = (n) => Math.round(n * 10) / 10;
   const num = (v) => parseFloat(v) || 0;
   const cs = (el) => getComputedStyle(el);
@@ -80,10 +84,26 @@
     return { b, clipper };
   }
 
+  // True when the element can be reached by a pointer somewhere in its visible rect: a 3x3 grid of
+  // points is hit-tested. A control that sits wholly under a modal dialog, an inert region or a
+  // full-page view (a different layer from what is on top of it) is not reachable and never overlaps it.
+  function reachable(item) {
+    const { l, t, r, b } = item.b;
+    for (const fx of [0.15, 0.5, 0.85])
+      for (const fy of [0.15, 0.5, 0.85]) {
+        const hit = document.elementFromPoint(l + (r - l) * fx, t + (b - t) * fy);
+        if (hit && item.el.contains(hit)) return true;
+      }
+    return false;
+  }
+
   // ---------- (a) interactive overlaps ----------
   const items = [];
   for (const el of document.querySelectorAll(INTERACTIVE)) {
     if (el.closest("svg") && el.tagName.toLowerCase() !== "svg") continue;
+    // A region or log made focusable only so the keyboard can scroll it (the message log) is a surface,
+    // not a control: a menu or popover floating over it is not an overlap.
+    if (el.matches("[role=region],[role=log]") && !el.matches(WIDGETS)) continue;
     const v = visible(el);
     if (v) items.push({ el, b: v.b });
   }
@@ -105,6 +125,8 @@
         (Math.max(a.b.t, c.b.t) + Math.min(a.b.b, c.b.b)) / 2,
       );
       if (!top || !(a.el.contains(top) || c.el.contains(top))) continue;
+      // The one underneath must itself be reachable somewhere; otherwise it belongs to a covered layer.
+      if (!reachable(a.el.contains(top) ? c : a)) continue;
       const row = {
         a: sel(a.el), aLabel: label(a.el), aBox: box(a.b),
         b: sel(c.el), bLabel: label(c.el), bBox: box(c.b),
@@ -155,8 +177,8 @@
     const v = visible(el);
     if (!v) continue;
 
-    // (b) scroll overflow
-    if (!["input", "textarea", "select", "svg", "img", "canvas", "video"].includes(tag) && !(el.clientWidth <= 2 && el.clientHeight <= 2)) {
+    // (b) scroll overflow (text painted transparent, such as the notification dot's count, cannot spill)
+    if (st.color !== "rgba(0, 0, 0, 0)" && !["input", "textarea", "select", "svg", "img", "canvas", "video"].includes(tag) && !(el.clientWidth <= 2 && el.clientHeight <= 2)) {
       const xOver = el.scrollWidth > el.clientWidth + 1;
       const yOver = el.scrollHeight > el.clientHeight + 1;
       const xScroll = /(auto|scroll)/.test(st.overflowX);
@@ -216,6 +238,7 @@
     if (!v) continue;
     const st = cs(f), rc = f.getBoundingClientRect();
     if (rc.width <= 2 || rc.height <= 2) continue;
+    if (!reachable({ el: f, b: v.b })) continue; // under a dialog or a full-page view
     const content = {
       l: rc.left + num(st.borderLeftWidth) + num(st.paddingLeft),
       r: rc.right - num(st.borderRightWidth) - num(st.paddingRight),
@@ -237,14 +260,18 @@
       const w = Math.min(it.b.r, content.r) - Math.max(it.b.l, content.l);
       const h = Math.min(it.b.b, content.b) - Math.max(it.b.t, content.t);
       if (w <= 2 || h <= 2) continue;
+      // Only a control that is on top at the overlap covers the field (not one behind its dialog).
+      const hit = document.elementFromPoint((Math.max(it.b.l, content.l) + Math.min(it.b.r, content.r)) / 2, (Math.max(it.b.t, content.t) + Math.min(it.b.b, content.b)) / 2);
+      if (!hit || !it.el.contains(hit)) continue;
       const fromRight = Math.max(0, content.r - it.b.l), fromLeft = Math.max(0, it.b.r - content.l);
       if (it.b.l + it.b.r > content.l + content.r) coveredRight = Math.max(coveredRight, fromRight); else coveredLeft = Math.max(coveredLeft, fromLeft);
       covers.push({ sel: sel(it.el), label: label(it.el), box: box(it.b), coversPx: r1(Math.min(fromRight, fromLeft)) });
     }
     const wraps = tag === "textarea" && !/(nowrap|pre\b)/.test(st.whiteSpace);
     const free = avail - coveredRight - coveredLeft;
-    const textClipped = !wraps && text && textW > avail + 1;
-    const textCovered = !wraps && text && covers.length > 0 && textW > free + 1;
+    const scrolls = tag === "textarea" && !isPlaceholder; // a value longer than the box scrolls
+    const textClipped = !wraps && !scrolls && text && textW > avail + 1;
+    const textCovered = !wraps && !scrolls && text && covers.length > 0 && textW > free + 1;
     const deficit = r1(Math.max(coveredRight - num(st.paddingRight), coveredLeft - num(st.paddingLeft), 0));
     if (textClipped || textCovered || deficit > 0) {
       fields.push({
