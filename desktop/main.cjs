@@ -125,6 +125,7 @@ async function verifyProduct(target) {
         const {response} = await dialog.showMessageBox({type:'error', title:TITLE, message:'Could not sign in to the KeepHarness service.', detail:'The service did not accept this account\'s local session.', buttons:['Retry','Quit'], defaultId:0, cancelId:1});
         if (response !== 0 || quitting) { quit(); return false; }
         await signInWindow();
+        if (quitting) return false;
       }
       await dialog.showMessageBox({type:'error', title:TITLE, message:'This is not a KeepHarness service.', detail:'The /v1/version product must be keepharness.'});
       quit();

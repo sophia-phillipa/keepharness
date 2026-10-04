@@ -193,3 +193,19 @@ def test_browser_cleanup_preserves_foreign_entries_and_desktop(tmp_path, monkeyp
     if kind == 'symlink':
         assert browser.is_symlink()
         assert target.read_text() == content
+
+
+def test_unreadable_or_non_utf8_menu_entry_is_kept(tmp_path):
+    from control import install
+    bad = tmp_path / 'keepharness.desktop'
+    bad.write_bytes(b'Exec="\xff\xfe"\nIcon=utilities-terminal\n')
+    install.remove_browser_entry(bad, tmp_path)
+    assert bad.exists()
+    locked = tmp_path / 'keepharness-browser.desktop'
+    locked.write_text(f'Exec="{tmp_path}/.local/bin/keepharness-open"\nIcon=utilities-terminal\n')
+    locked.chmod(0)
+    try:
+        install.remove_browser_entry(locked, tmp_path)
+        assert locked.exists()
+    finally:
+        locked.chmod(0o644)

@@ -150,7 +150,10 @@ def remove_browser_entry(path, home):
     """
     if path.is_symlink() or not path.is_file():
         return
-    lines = path.read_text().splitlines()
+    try:
+        lines = path.read_text().splitlines()
+    except (OSError, UnicodeDecodeError):
+        return  # unreadable or not ours: keep it
     expected = {f'Exec="{h}/.local/bin/{PRODUCT.slug}-open"' for h in (home, Path(home).resolve())}
     execs = [line for line in lines if line.startswith('Exec=')]
     if len(execs) == 1 and execs[0] in expected and 'Icon=utilities-terminal' in lines:
