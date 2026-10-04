@@ -5978,7 +5978,8 @@ async function initialize() {
       startupTimer = setInterval(() => {
         if (!document.hidden && interfaceReady && !initializing) {
           checkVersion();
-          history();
+          // Rebuilding the sidebar would close an open row or project actions menu.
+          if (!document.querySelector(".conversation-actions[open], .project-actions-menu:popover-open")) history();
         }
       }, 10000);
     }
