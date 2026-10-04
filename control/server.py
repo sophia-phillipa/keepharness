@@ -31,6 +31,8 @@ def create_app(state, port=8094):
             except (ValueError, RuntimeError, OSError) as exc:
                 manager.startup_error = str(exc)
         yield
+        # A SIGTERM (systemd stop, the desktop app quitting) waits for running work first.
+        await manager.drain()
         await manager.stop(force=True)
         await manager.operations.close()
 

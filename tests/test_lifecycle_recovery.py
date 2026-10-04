@@ -432,3 +432,310 @@ def test_sigterm_during_native_codex_job_exits_promptly(hanging_codex_harness):
     assert state in ("cancelled", "interrupted")
 
     assert proc.poll() is not None, "harness did not exit within 10s of SIGTERM"
+
+
+# --- Supervision and drain (OPS-R3-3, OPS-R1-3, OPS-R4-2): the admin watches its harness. ---
+
+
+class _Exited:
+    """A harness process that has already exited with ``code``."""
+
+    def __init__(self, code):
+        self.returncode = code
+
+    async def wait(self):
+        return self.returncode
+
+
+def _supervised(tmp_path, monkeypatch, **limits):
+    import asyncio
+    from unittest.mock import AsyncMock
+
+    from control import manager as manager_module
+    from control.server import Manager
+
+    for name, value in limits.items():
+        monkeypatch.setattr(manager_module, name, value)
+    delays = []
+
+    async def sleep(seconds):
+        delays.append(seconds)
+
+    monkeypatch.setattr(manager_module.asyncio, "sleep", sleep)
+    manager = Manager(tmp_path)
+    manager.proc = _Exited(1)
+    manager.started_at = manager_module.time.monotonic()
+
+    def start(supervised=False):  # a new process that exits at once, as a real start would record
+        manager.proc, manager.started_at = _Exited(1), manager_module.time.monotonic()
+
+    manager.start = AsyncMock(side_effect=start)
+    return manager, delays, asyncio
+
+
+def test_three_quick_crashes_stop_the_restarts_and_say_why(tmp_path, monkeypatch):
+    manager, delays, asyncio = _supervised(tmp_path, monkeypatch)
+
+    asyncio.run(manager.supervise())
+
+    assert manager.start.await_count == 2  # crash 1 and 2 restart; crash 3 gives up
+    assert not manager.running()
+    assert manager.last_exit["code"] == 1
+    assert "3 times in a row" in manager.startup_error
+    assert manager.status()["last_exit"]["code"] == 1
+    assert delays == [2, 4]
+
+
+def test_restart_delays_grow_but_stay_capped(tmp_path, monkeypatch):
+    manager, delays, asyncio = _supervised(
+        tmp_path, monkeypatch, MAX_QUICK_CRASHES=6, RESTART_DELAY=2, RESTART_DELAY_CAP=5
+    )
+
+    asyncio.run(manager.supervise())
+
+    assert delays == [2, 4, 5, 5, 5]
+
+
+def test_a_stop_during_the_backoff_cancels_the_restart(tmp_path, monkeypatch):
+    import asyncio
+    from unittest.mock import AsyncMock
+
+    from control.server import Manager
+
+    manager = Manager(tmp_path)
+    manager.proc = _Exited(1)
+    manager.start = AsyncMock()
+
+    async def scenario():
+        manager.watch()
+        await asyncio.sleep(0.05)  # the watcher saw the exit and waits out its backoff
+        assert manager.last_exit["code"] == 1
+        await manager.stop(force=True)
+        await asyncio.sleep(0.05)
+
+    asyncio.run(scenario())
+
+    manager.start.assert_not_awaited()
+    assert manager.watcher is None
+
+
+def test_killed_harness_is_restarted_and_last_exit_recorded(tmp_path, monkeypatch):
+    """A real harness killed with SIGKILL comes back on its own and the admin says how it ended."""
+    import asyncio
+    import socket
+    from unittest.mock import AsyncMock
+
+    from control import manager as manager_module
+    from control.server import Manager
+
+    monkeypatch.setattr(manager_module, "RESTART_DELAY", 0.05)
+
+    async def scenario():
+        with socket.socket() as listener:
+            listener.bind(("127.0.0.1", 0))
+            port = listener.getsockname()[1]
+        manager = Manager(tmp_path)
+        manager.settings["port"] = port
+        manager.refresh = AsyncMock()
+        manager.build_runtime_config = AsyncMock(
+            return_value={
+                "state_dir": str(tmp_path / "runs"),
+                "bind": "127.0.0.1",
+                "port": port,
+                "clients": {},
+                "projects": {},
+                "services": {},
+                "origins": [],
+            }
+        )
+        try:
+            await manager.start()
+            first = manager.proc
+            os.kill(first.pid, signal.SIGKILL)
+            for _ in range(200):
+                await asyncio.sleep(0.1)
+                if manager.proc is not first and manager.running() and manager.startup_error is None:
+                    break
+            assert manager.proc is not first and manager.running()
+            assert manager.last_exit["code"] == -signal.SIGKILL
+            assert manager.status()["last_exit"]["code"] == -signal.SIGKILL
+        finally:
+            await manager.stop(force=True)
+        assert not manager.running()
+
+    asyncio.run(scenario())
+
+
+def _draining(tmp_path, monkeypatch, busy_answers):
+    """An admin app whose harness is a fake that records when it is told to stop."""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, Mock
+
+    from control import manager as manager_module
+    from control.server import create_app as create_control_app
+
+    monkeypatch.setattr(manager_module, "DRAIN_POLL", 0.01)
+    app = create_control_app(tmp_path / "state")
+    manager = app.state.manager
+    manager.refresh = AsyncMock()
+    events = []
+
+    def busy():
+        events.append("busy")
+        return busy_answers() if callable(busy_answers) else busy_answers.pop(0)
+
+    manager.busy = busy
+    manager.proc = SimpleNamespace(
+        returncode=None,
+        terminate=Mock(side_effect=lambda: events.append("terminate")),
+        wait=AsyncMock(),
+    )
+    return app, events
+
+
+def test_shutdown_waits_for_running_work_before_stopping_the_harness(tmp_path, monkeypatch):
+    from starlette.testclient import TestClient
+
+    app, events = _draining(tmp_path, monkeypatch, [True, True, True, False, False])
+
+    with TestClient(app, base_url="http://127.0.0.1:8094"):
+        pass
+
+    assert events[-1] == "terminate"
+    assert events.count("busy") >= 4  # it polled until the work was gone
+    assert "terminate" not in events[:-1]
+
+
+def test_shutdown_stops_a_harness_whose_work_never_ends_after_the_drain_limit(tmp_path, monkeypatch):
+    from starlette.testclient import TestClient
+
+    from control import manager as manager_module
+
+    monkeypatch.setattr(manager_module, "DRAIN_SECONDS", 0.2)
+    app, events = _draining(tmp_path, monkeypatch, lambda: True)
+
+    with TestClient(app, base_url="http://127.0.0.1:8094"):
+        pass
+
+    assert events[-1] == "terminate"
+    assert 3 <= events.count("busy") < 100
+
+
+def test_a_supervisor_that_breaks_says_so_instead_of_dying_silently(tmp_path):
+    import asyncio
+
+    from control.server import Manager
+
+    manager = Manager(tmp_path)
+    manager.proc = object()  # no wait(): supervision itself fails
+
+    asyncio.run(manager.supervise())
+
+    assert "no longer watched" in manager.startup_error
+
+
+class _Alive:
+    """A harness process that runs until it is told to stop."""
+
+    def __init__(self):
+        self.returncode = None
+        self.gone = None
+
+    async def wait(self):
+        import asyncio
+
+        self.gone = self.gone or asyncio.Event()
+        if self.returncode is None:
+            await self.gone.wait()
+        return self.returncode
+
+    def terminate(self):
+        self.returncode = -15
+        if self.gone:
+            self.gone.set()
+
+
+def test_a_start_during_the_backoff_and_the_restart_never_run_together(tmp_path, monkeypatch):
+    import asyncio
+
+    from control import manager as manager_module
+    from control.server import Manager
+
+    monkeypatch.setattr(manager_module, "RESTART_DELAY", 0.05)
+    manager = Manager(tmp_path)
+    manager.proc = _Exited(1)
+    active, peak, spawned = 0, 0, []
+
+    async def slow_start(supervised=False):
+        nonlocal active, peak
+        if manager.running():
+            return
+        active += 1
+        peak = max(peak, active)
+        await asyncio.sleep(0.1)
+        manager.proc = _Alive()
+        spawned.append(manager.proc)
+        active -= 1
+
+    manager.start = slow_start
+
+    async def scenario():
+        manager.watch()
+        await asyncio.sleep(0.08)  # the restart is under way
+        async with manager.lock:  # the owner clicks Start: the route holds this lock
+            await manager.start()
+        await asyncio.sleep(0.05)
+        await manager.stop(force=True)
+
+    asyncio.run(scenario())
+
+    assert peak == 1 and len(spawned) == 1
+    assert manager.last_exit["code"] == 1  # the crash only; the stop is not recorded as one
+
+
+def test_a_stop_is_not_recorded_as_an_exit_of_its_own(tmp_path):
+    import asyncio
+
+    from control.server import Manager
+
+    manager = Manager(tmp_path)
+    manager.proc = _Alive()
+    manager.audit = lambda action: None
+
+    async def scenario():
+        manager.watch()
+        await asyncio.sleep(0.02)
+        await manager.stop(force=True)
+        await asyncio.sleep(0.02)
+
+    asyncio.run(scenario())
+
+    assert manager.last_exit is None
+
+
+def test_crashes_after_a_stable_run_start_a_fresh_count(tmp_path, monkeypatch):
+    manager, delays, asyncio = _supervised(tmp_path, monkeypatch, STABLE_SECONDS=60)
+    manager.started_at -= 120  # the first process ran for two minutes
+
+    asyncio.run(manager.supervise())
+
+    # The long run is not a quick crash: three quick ones follow it before the restarts stop.
+    assert manager.start.await_count == 3
+    assert "3 times in a row" in manager.startup_error
+    assert delays == [2, 2, 4]
+
+
+def test_a_start_that_fails_before_spawning_keeps_the_exit_that_was_reported(tmp_path, monkeypatch):
+    from unittest.mock import AsyncMock
+
+    manager, delays, asyncio = _supervised(tmp_path, monkeypatch)
+    manager.start = AsyncMock(side_effect=ValueError("Port in use."))
+    actions = []
+    manager.audit = actions.append
+
+    asyncio.run(manager.supervise())
+
+    assert manager.start.await_count == 2
+    assert actions == ["harness_exited:1"]  # the same dead process is not reported again
+    assert manager.last_exit["code"] == 1
+    assert "3 times in a row" in manager.startup_error

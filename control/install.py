@@ -117,6 +117,7 @@ Environment={quoted("PATH=" + service_path(home))}
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=30
+KillMode=mixed
 UMask=0077
 
 [Install]
