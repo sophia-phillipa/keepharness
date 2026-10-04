@@ -12,7 +12,7 @@
 <label for="catalog-source">Catalog</label><select id="catalog-source"></select>
 <p id="catalog-current"></p><div id="catalog-preflight"></div>
 <label for="catalog-ref">Git reference</label><input id="catalog-ref" value="HEAD" autocomplete="off">
-<div class="catalog-actions"><button id="catalog-pin" class="button secondary" type="button">Pin catalog</button><button id="catalog-provision" class="button secondary" type="button">Provision runtime</button><button id="catalog-preview" class="button secondary" type="button">Preview update</button><button id="catalog-move" class="button primary" type="button" disabled>Move pin</button></div>
+<div class="catalog-actions"><button id="catalog-pin" class="button secondary" type="button">Pin catalog</button><button id="catalog-provision" class="button secondary" type="button">Provision runtime</button><button id="catalog-retrust" class="button secondary" type="button" disabled>Re-trust hooks</button><button id="catalog-preview" class="button secondary" type="button">Preview update</button><button id="catalog-move" class="button primary" type="button" disabled>Move pin</button></div>
 <div id="catalog-diff" aria-live="polite"></div><h3>Resource drift</h3><p>Differences in the same resource across project catalogs.</p><div id="catalog-drift"></div>
 <h2>Integration vault</h2><p>Credentials are stored privately on this server. Values are write-only. Environment injection is advisory; mediation uses the existing human-approved effect executor.</p>
 <form id="vault-form"><label for="vault-binding">Credential binding</label><input id="vault-binding" required autocomplete="off" placeholder="demo-reader">

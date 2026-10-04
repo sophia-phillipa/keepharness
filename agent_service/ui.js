@@ -1083,6 +1083,7 @@ const userErrors = {
   catalog_runtime_mode_unsupported: "This isolated execution mode cannot provide the catalog runtime. Choose a supported native provider.",
   catalog_runtime_unavailable: "The catalog runtime is unavailable. Check its prerequisites in Admin.",
   catalog_preflight_failed: "Catalog prerequisites are missing. Check the catalog in Admin before trying again.",
+  catalog_hooks_changed: "A catalog hook changed since you trusted it, so this turn was blocked. Review the hooks and re-trust the catalog in Admin.",
   catalog_hook_failed: "A catalog hook failed. Check its run event before trying again.",
   catalog_hook_timeout: "A catalog hook exceeded its time limit and was stopped.",
   catalog_hook_unavailable: "A catalog hook could not start. Check its executable path in the manifest.",

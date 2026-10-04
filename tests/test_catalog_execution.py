@@ -10,7 +10,7 @@ from test_invocation_normalization import invocation_service
 
 from adapters.shared.process import child_environment
 from adapters.shared.workspace import prepare_workspace
-from agent_service.catalog_manifest import load_manifest, materialize_runtime
+from agent_service.catalog_manifest import hooks_digest, load_manifest, materialize_runtime
 from agent_service.services.queue_worker import ownership_roots
 from control.product import PRODUCT
 
@@ -34,7 +34,16 @@ def test_catalog_dispatch_cwd_environment_snapshot_and_lease(tmp_path, monkeypat
             }
         )
     )
-    service.config.update(catalogs=[{"id": "demo", "root": str(catalog), "trusted": True}])
+    service.config.update(
+        catalogs=[
+            {
+                "id": "demo",
+                "root": str(catalog),
+                "trusted": True,
+                "hooks_sha256": hooks_digest(catalog),
+            }
+        ]
+    )
     service.config["projects"]["p"]["catalogs"] = ["demo"]
     service.config["codex"] = {"binary": "synthetic"}
     service.config["services"]["codex"]["permissions"]["hooks"] = True

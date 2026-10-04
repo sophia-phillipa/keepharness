@@ -44,6 +44,8 @@
     const check=catalogState.preflight.find(item=>item.project_id===selection.project_id && item.catalog_id===selection.catalog_id);
     byId('catalog-preflight').replaceChildren(...(check?.preflight?.length ? check.preflight : [check?.manifest?'Provisioning checks passed.':'No catalog manifest. Existing maintenance commands remain available.']).map(value=>text('p',value)));
     byId('catalog-provision').disabled=!check?.manifest;
+    byId('catalog-retrust').disabled=!check?.hooks_trust || check.hooks_trust.trusted;
+    if(check?.hooks_trust)byId('catalog-preflight').append(text('p',check.hooks_trust.message));
     credentialFields();
   }
   function renderCatalogs(value) {
@@ -81,6 +83,7 @@
       byId('catalog-move').disabled=!preview;
       const check=catalogState?.preflight?.find(item=>item.project_id===selected().project_id && item.catalog_id===selected().catalog_id);
       byId('catalog-provision').disabled=!check?.manifest;
+      byId('catalog-retrust').disabled=!check?.hooks_trust || check.hooks_trust.trusted;
       if(focused?.isConnected && byId('catalog-panel').contains(focused)) {
         const target=focused.disabled?byId('catalog-message'):focused;
         if(target===byId('catalog-message'))target.tabIndex=-1;
@@ -105,6 +108,10 @@
       message(action==='pin'?'Catalog pinned.':'Catalog provisioning completed.');
     });
   }
+  byId('catalog-retrust').onclick=()=>operate(async()=>{
+    renderCatalogs(await request('catalog-pin',{...selected(),action:'retrust'}));
+    message('Catalog hooks trusted.');
+  });
   byId('catalog-preview').onclick=()=>operate(async()=>{
     clearPreview();
     preview=await request('catalog-pin',{...selected(),action:'preview',ref:byId('catalog-ref').value.trim()});

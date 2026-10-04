@@ -1,5 +1,7 @@
 """Optional declarative catalog provisioning, checked without executing discovery hooks."""
 
+import hashlib
+import hmac
 import json
 import os
 import re
@@ -112,6 +114,29 @@ def load_manifest(root):
         if "file" in check:
             _inside(root, check["file"])
     return manifest
+
+
+def hooks_digest(root):
+    """Digest of the manifest bytes and each declared hook (relpath, sha256); any error raises."""
+    raw = (Path(root) / MANIFEST_NAME).read_bytes()
+    manifest = load_manifest(root)
+    hooks = sorted(
+        (value, hashlib.sha256(_inside(root, value).read_bytes()).hexdigest())
+        for value in manifest.get("allowed_hooks", [])
+    )
+    return hashlib.sha256(
+        json.dumps([hashlib.sha256(raw).hexdigest(), hooks]).encode()
+    ).hexdigest()
+
+
+def require_trusted_hooks(catalog):
+    """Block unless the catalog's hooks still match the digest the owner trusted in Admin."""
+    try:
+        current = hooks_digest(catalog["root"])
+    except (OSError, ValueError):
+        raise APIError("catalog_hooks_changed") from None
+    if not hmac.compare_digest(current, str(catalog.get("hooks_sha256") or "")):
+        raise APIError("catalog_hooks_changed")
 
 
 def _runtime_root(root, state_dir, catalog_id):
@@ -263,6 +288,7 @@ def runtime_for_project(config, project_id):
         "contexts": [],
         "rules": [],
         "read_only_roots": [],
+        "hook_catalogs": [],
         "catalogs": snapshot_catalogs(config, project),
     }
     for catalog in effective_catalogs(config, project):
@@ -271,6 +297,9 @@ def runtime_for_project(config, project_id):
         manifest = load_manifest(catalog["root"])
         if not manifest:
             continue
+        hooked = bool(manifest.get("allowed_hooks")) and not catalog.get("pin")
+        if hooked:
+            require_trusted_hooks(catalog)
         problems = preflight(catalog["root"], manifest, state, catalog["id"])
         if problems:
             raise APIError("catalog_preflight_failed: " + "; ".join(problems))
@@ -285,6 +314,9 @@ def runtime_for_project(config, project_id):
             result["environment"][key] = value
         for key in ("writable_roots", "contexts", "rules"):
             result[key].extend(options[key])
-        if not catalog.get("pin"):
+        if hooked:
             result["allowed_hooks"].extend(options["allowed_hooks"])
+            result["hook_catalogs"].append(
+                {"root": catalog["root"], "hooks_sha256": catalog["hooks_sha256"]}
+            )
     return result

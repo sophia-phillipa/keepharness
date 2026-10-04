@@ -5,6 +5,7 @@ from pathlib import Path
 
 from adapters.shared.process import child_environment, stop_process
 
+from .catalog_manifest import require_trusted_hooks
 from .errors import APIError
 from .secret_vault import redact_secrets
 
@@ -28,6 +29,8 @@ async def run_hooks(runtime, granted, event, *, timeout=30, output_limit=32768):
         event("catalog_hook", {"outcome": "skipped", "reason": "hooks_not_granted"})
         return
     for hook in hooks:
+        for catalog in runtime.get("hook_catalogs", []):
+            require_trusted_hooks(catalog)  # re-hash right before exec: fail closed
         process = None
         readers = []
         try:
