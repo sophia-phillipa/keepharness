@@ -81,7 +81,7 @@ def test_limiter_recovery_and_bounded_keys(tmp_path):
 
 
 def test_login_burst_limited_before_body_and_forwarded_headers_cannot_evade(tmp_path):
-    app = create_app(config(tmp_path))
+    app = create_app({**config(tmp_path), "origins": ["http://test"]})
 
     async def scenario():
         async with httpx.AsyncClient(
@@ -90,7 +90,9 @@ def test_login_burst_limited_before_body_and_forwarded_headers_cannot_evade(tmp_
             results = await asyncio.gather(
                 *(
                     client.post(
-                        "/v1/login", json={"token": "bad"}, headers={"X-Forwarded-For": str(i)}
+                        "/v1/login",
+                        json={"token": "bad"},
+                        headers={"Origin": "http://test", "X-Forwarded-For": str(i)},
                     )
                     for i in range(300)
                 )

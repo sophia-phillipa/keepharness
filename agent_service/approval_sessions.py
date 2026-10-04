@@ -17,7 +17,9 @@ from .persistence.db import private_file
 
 SESSION_COOKIE = "harness_session"
 ENROLLMENT_SECONDS = 600
-SESSION_SECONDS = 30 * 24 * 60 * 60
+# Absolute from creation: use never extends it and there is no idle timeout.
+SESSION_SECONDS = 7 * 24 * 60 * 60
+LEGACY_SESSION_SECONDS = 30 * 24 * 60 * 60
 
 
 def initialize_session_database(config):
@@ -54,9 +56,27 @@ def initialize_session_database(config):
             );
             CREATE TABLE IF NOT EXISTS sessions(
                 digest TEXT PRIMARY KEY, owner TEXT NOT NULL, expires REAL NOT NULL,
-                approval_capable INTEGER NOT NULL
+                approval_capable INTEGER NOT NULL, created REAL
             );
         """)
+        columns = {row[1] for row in database.execute("PRAGMA table_info(sessions)")}
+        if "created" not in columns:
+            try:
+                database.execute("ALTER TABLE sessions ADD COLUMN created REAL")
+            except sqlite3.OperationalError as exc:
+                # The server and the owner CLI can start together; the other one won the race.
+                if "duplicate column" not in str(exc):
+                    raise
+        # Every start: rows left without a creation time (a crash after the ALTER, or a row
+        # an older version inserted) follow from their legacy 30-day expiry.
+        database.execute(
+            "UPDATE sessions SET created = expires - ? WHERE created IS NULL",
+            (LEGACY_SESSION_SECONDS,),
+        )
+        database.execute(
+            "UPDATE sessions SET expires = created + ? WHERE expires > created + ?",
+            (SESSION_SECONDS, SESSION_SECONDS),
+        )
 
 
 @contextmanager
@@ -105,10 +125,12 @@ def consume_enrollment(config, nonce):
             raise APIError("approval_enrollment_invalid", 403)
         database.execute("DELETE FROM enrollments WHERE digest=?", (token_digest(nonce),))
         token = secrets.token_urlsafe(32)
-        database.execute("DELETE FROM sessions WHERE expires <= ?", (time.time(),))
+        now = time.time()
+        database.execute("DELETE FROM sessions WHERE expires <= ?", (now,))
         database.execute(
-            "INSERT INTO sessions VALUES(?,?,?,1)",
-            (token_digest(token), row[0], time.time() + SESSION_SECONDS),
+            "INSERT INTO sessions(digest, owner, expires, approval_capable, created)"
+            " VALUES(?,?,?,1,?)",
+            (token_digest(token), row[0], now + SESSION_SECONDS, now),
         )
     return token
 
@@ -144,6 +166,19 @@ def session_identity(request, config):
     return row[0] if row and row[0] in config["clients"] else None
 
 
+def session_expired(request, config, owner):
+    """True when the browser's cookie names this owner's session that has already expired."""
+    token = request.cookies.get(SESSION_COOKIE)
+    if not token or len(token) > 128:
+        return False
+    with session_database(config, readonly=True) as database:
+        row = database.execute(
+            "SELECT 1 FROM sessions WHERE digest=? AND owner=? AND expires<=? AND approval_capable=1",
+            (token_digest(token), owner, time.time()),
+        ).fetchone()
+    return row is not None
+
+
 def require_approval_session(request, config, identity, *, revalidate=False):
     owner = (
         session_identity(request, config)
@@ -159,4 +194,9 @@ def require_approval_session(request, config, identity, *, revalidate=False):
             ),
             None,
         )
-        raise APIError("approval_session_required", 403, owner=identity[0], login=login)
+        code = (
+            "approval_session_expired"
+            if session_expired(request, config, identity[0])
+            else "approval_session_required"
+        )
+        raise APIError(code, 403, owner=identity[0], login=login)

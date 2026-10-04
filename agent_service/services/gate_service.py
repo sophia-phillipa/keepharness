@@ -154,8 +154,6 @@ class GateService:
     def resolve(self, gate_id, identity, data):
         row = self.repository.get(gate_id)
         job = self.service.job(identity, row["job_id"])
-        if job["owner"] != identity[0]:
-            raise APIError("approval_owner_denied", 403)
         if row["state"] != "pending":
             raise APIError(
                 "gate_already_resolved" if row["state"] == "resolved" else "gate_" + row["state"],

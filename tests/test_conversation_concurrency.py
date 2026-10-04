@@ -77,10 +77,10 @@ def test_two_tabs_racing_the_same_continuation_admit_exactly_one(tmp_path):
                 headers={"Authorization": "Bearer b"},
             )
             assert 400 <= other.status_code < 500, other.text
-            # ``self.job()`` enforces ownership before the continuation checks run, so
-            # the code is the ownership-denial one rather than a generic parent error;
-            # either way the cross-owner continuation is rejected.
-            assert other.json()["code"] == "job_owner_denied"
+            # ``self.job()`` enforces ownership before the continuation checks run; a
+            # foreign parent answers like a missing one, so the cross-owner continuation
+            # is rejected without confirming the job exists.
+            assert other.json()["code"] == "job_not_found"
 
     asyncio.run(scenario())
 
@@ -163,3 +163,107 @@ def test_cancel_frees_queue_capacity_but_submission_rate_limit_persists(tmp_path
             assert int(second_batch[2].headers["Retry-After"]) >= 1
 
     asyncio.run(scenario())
+
+
+def test_stalled_upload_does_not_block_others(tmp_path):
+    """One client trickling an upload body must not stall another client's upload."""
+    cfg = _config(tmp_path, ["a", "b"])
+    cfg["uploads_enabled"] = True
+    app = create_app(cfg)
+    service = app.state.service
+
+    async def scenario():
+        stalled, release = asyncio.Event(), asyncio.Event()
+
+        async def trickle():
+            yield b"first bytes"
+            stalled.set()
+            await release.wait()
+            yield b" last bytes"
+
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            url = "/v1/files?project_id=p"
+            slow = asyncio.create_task(
+                client.post(
+                    url,
+                    content=trickle(),
+                    headers={"Authorization": "Bearer a", "X-Filename": "slow.txt"},
+                )
+            )
+            try:
+                await asyncio.wait_for(stalled.wait(), 2)
+                fast = await asyncio.wait_for(
+                    client.post(
+                        url,
+                        content=b"quick upload",
+                        headers={"Authorization": "Bearer b", "X-Filename": "fast.txt"},
+                    ),
+                    2,
+                )
+                assert fast.status_code == 201, fast.text
+            finally:
+                release.set()
+            done = await asyncio.wait_for(slow, 5)
+            assert done.status_code == 201, done.text
+        assert service.upload_pending["p"] == 0
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        service.db.close()
+
+
+def test_concurrent_uploads_at_the_cap_are_refused_before_writing(tmp_path, monkeypatch):
+    """Each upload reserves the largest file size up front, so a burst cannot overshoot the cap."""
+    from agent_service import tools
+    from agent_service.services import retention
+
+    monkeypatch.setattr(retention, "MAX_PROJECT_UPLOAD_BYTES", 1000)
+    monkeypatch.setattr(tools, "MAX_ATTACHMENT_BYTES", 400)
+    cfg = _config(tmp_path, ["a"])
+    cfg["uploads_enabled"] = True
+    app = create_app(cfg)
+    service = app.state.service
+
+    def stored_bytes():
+        return sum(p.stat().st_size for p in (tmp_path / "files").rglob("source"))
+
+    async def scenario():
+        started, release = asyncio.Event(), asyncio.Event()
+
+        async def body():
+            yield b"x" * 300
+            started.set()
+            await release.wait()
+
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            tasks = [
+                asyncio.create_task(
+                    client.post(
+                        "/v1/files?project_id=p",
+                        content=body(),
+                        headers={"Authorization": "Bearer a", "X-Filename": f"f{n}.txt"},
+                    )
+                )
+                for n in range(5)
+            ]
+            await asyncio.wait_for(started.wait(), 2)
+            await asyncio.sleep(0.1)
+            try:
+                assert stored_bytes() <= 1000
+            finally:
+                release.set()
+            responses = await asyncio.wait_for(asyncio.gather(*tasks), 5)
+        assert sorted(r.status_code for r in responses) == [201, 201, 413, 413, 413]
+        assert {r.json()["code"] for r in responses if r.status_code == 413} == {"upload_limit"}
+        assert stored_bytes() <= 1000
+        assert service.upload_pending["p"] == 0
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        service.db.close()

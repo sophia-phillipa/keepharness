@@ -64,6 +64,35 @@ class AdminSecurityTest(unittest.IsolatedAsyncioTestCase):
         async with httpx.AsyncClient(transport=remote, base_url="http://127.0.0.1:8094") as client:
             self.assertEqual((await client.get("/")).status_code, 403)
 
+    async def test_admin_errors_are_codes(self):
+        leak = "/home/leaky/.secret/token.json"
+
+        async def denied(request, manager, data):
+            raise PermissionError(13, "Permission denied", leak)
+
+        async def missing_key(request, manager, data):
+            return data["internal_field_name"]
+
+        with patch.dict(
+            "control.routes.POST_ROUTES",
+            {"/api/settings-export": denied, "/api/vpn-key": missing_key},
+        ):
+            os_error = await self.client.post(
+                "/api/settings-export", json={}, headers=self.headers
+            )
+            key_error = await self.client.post("/api/vpn-key", json={}, headers=self.headers)
+        bad_json = await self.client.post(
+            "/api/settings-export", content=b"{not json", headers=self.headers
+        )
+        for response, code in (
+            (os_error, "operation_failed"),
+            (key_error, "invalid_request"),
+            (bad_json, "invalid_json"),
+        ):
+            self.assertEqual(response.status_code, 400)
+            self.assertEqual(response.json(), {"error": code})
+        self.assertNotIn("leaky", os_error.text + key_error.text + bad_json.text)
+
     async def test_large_stream_rejected_before_remaining_body_is_read(self):
         reads = []
 

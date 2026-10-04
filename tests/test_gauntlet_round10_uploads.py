@@ -270,17 +270,42 @@ def test_identical_uploads_share_one_copy_and_count_once(tmp_path, monkeypatch):
 
 
 def test_upload_cap_counts_kept_content_once(tmp_path, monkeypatch):
+    from agent_service import tools
     from agent_service.services import retention
 
     client, service = dedupe_client(tmp_path)
     kept = b"Already kept upload"
     post_file(client, kept)
-    monkeypatch.setattr(retention, "MAX_PROJECT_UPLOAD_BYTES", len(kept) + 4)
+    # Every upload holds a whole file's worth of room while it streams (the "slot").
+    monkeypatch.setattr(tools, "MAX_ATTACHMENT_BYTES", 30)
+    monkeypatch.setattr(retention, "MAX_PROJECT_UPLOAD_BYTES", len(kept) + 30)
 
     assert post_file(client, kept, "again.txt").status_code == 201
-    refused = post_file(client, b"New content past the cap")
+    # Counted once: a double-counted duplicate would leave no room for this one.
+    assert post_file(client, b"New content, 25 bytes.").status_code == 201
+    refused = post_file(client, b"One more past the cap")
     assert refused.status_code == 413
     assert refused.json()["code"] == "upload_limit"
-    assert service.db.execute("SELECT count(*) FROM files").fetchone()[0] == 2
+    assert service.db.execute("SELECT count(*) FROM files").fetchone()[0] == 3
+    client.close()
+    service.db.close()
+
+
+def test_small_upload_near_the_cap_reserves_only_its_declared_size(tmp_path, monkeypatch):
+    """A project with less free room than the largest upload still takes a small file."""
+    from agent_service import tools
+    from agent_service.services import retention
+
+    client, service = dedupe_client(tmp_path)
+    kept = b"Already kept upload"
+    post_file(client, kept)
+    monkeypatch.setattr(tools, "MAX_ATTACHMENT_BYTES", 400)
+    monkeypatch.setattr(retention, "MAX_PROJECT_UPLOAD_BYTES", len(kept) + 30)
+
+    assert post_file(client, b"Twenty bytes of text").status_code == 201
+    refused = post_file(client, b"Eleven more")
+    assert refused.status_code == 413
+    assert refused.json()["code"] == "upload_limit"
+    assert service.upload_pending["p"] == 0
     client.close()
     service.db.close()

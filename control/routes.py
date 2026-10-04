@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 import os
 import re
 import secrets
@@ -48,6 +49,8 @@ PANEL_DIR = env.REPOSITORY_ROOT / "control"
 LIMITED_OPERATIONS = frozenset(
     {"/api/provider-login", "/api/integration", "/api/model-install", "/api/local-start"}
 )
+
+logger = logging.getLogger(__name__)
 
 
 def admin_guard(request, manager, port):
@@ -743,7 +746,15 @@ async def endpoint(request: Request):
         return JSONResponse(
             {"error": "Invalid request structure. Check the submitted fields."}, 400
         )
-    except (ValueError, OSError, RuntimeError, KeyError) as exc:
+    except (json.JSONDecodeError, UnicodeError):
+        return JSONResponse({"error": "invalid_json"}, 400)
+    except (OSError, KeyError) as exc:
+        # Paths, errno and field names stay in the log; the panel gets a stable code.
+        logger.warning("Admin %s %s failed", request.method, path, exc_info=exc)
+        return JSONResponse(
+            {"error": "operation_failed" if isinstance(exc, OSError) else "invalid_request"}, 400
+        )
+    except (ValueError, RuntimeError) as exc:
         return JSONResponse({"error": str(exc)}, 400)
 
 

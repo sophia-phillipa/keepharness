@@ -29,9 +29,7 @@ async def approval(request, service, identity):
     pending = service.approvals.get(aid)
     if not pending:
         raise APIError("approval_expired", 404)
-    row = service.job(identity, pending[0])
-    if row["owner"] != identity[0]:
-        raise APIError("approval_owner_denied", 403)
+    service.job(identity, pending[0])
     data = await body(request)
     require_approval_session(request, service.config, identity, revalidate=True)
     service.job(identity, pending[0])

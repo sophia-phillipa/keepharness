@@ -102,7 +102,7 @@ def test_manual_tag_checks_owner_and_can_clear(tmp_path, monkeypatch):
     job = submit(service, identity)
     assert service.tag_work_item(identity, job, "TASK-1234")["work_item"] == "TASK-1234"
     service.config["clients"]["other"] = {"projects": ["p"]}
-    with pytest.raises(APIError, match="job_owner_denied"):
+    with pytest.raises(APIError, match="job_not_found"):
         service.tag_work_item(("other", service.config["clients"]["other"]), job, "TASK-1234")
     assert service.tag_work_item(identity, job, None)["work_item"] is None
     service.db.close()

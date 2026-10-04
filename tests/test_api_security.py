@@ -65,10 +65,10 @@ def test_job_events_result_cancel_and_conversation_require_owner(api):
     jid = seed_job(service)
     other = {"Authorization": "Bearer bob"}
     for suffix in ("", "/events", "/artifacts/result.json"):
-        assert client.get("/v1/jobs/" + jid + suffix, headers=other).status_code == 403
-    assert client.post("/v1/jobs/" + jid + "/cancel", headers=other).status_code == 403
-    assert client.get("/v1/conversations/" + jid, headers=other).status_code == 403
-    assert client.delete("/v1/conversations/" + jid, headers=other).status_code == 403
+        assert client.get("/v1/jobs/" + jid + suffix, headers=other).status_code == 404
+    assert client.post("/v1/jobs/" + jid + "/cancel", headers=other).status_code == 404
+    assert client.get("/v1/conversations/" + jid, headers=other).status_code == 404
+    assert client.delete("/v1/conversations/" + jid, headers=other).status_code == 404
     assert client.get("/v1/conversations", headers=other).json()["conversations"] == []
 
 
@@ -733,3 +733,32 @@ def test_guest_cannot_browse_or_attach_host_files(tmp_path, monkeypatch):
         asyncio.run(scenario())
     finally:
         app.state.service.db.close()
+
+
+def test_cross_site_login_refused_before_limit(api):
+    client, _, _ = api
+    hostile = {"Origin": "https://evil.example", "Sec-Fetch-Site": "cross-site"}
+    for _ in range(25):
+        response = client.post("/v1/login", content='{"token":"x"}', headers=hostile)
+        assert response.status_code == 403, response.text
+        assert response.json()["code"] == "origin_denied"
+    # The hostile loop spent none of the shared budget a real device needs.
+    ok = client.post(
+        "/v1/login", json={"token": "alice"}, headers={"Origin": "http://testserver"}
+    )
+    assert ok.status_code == 200, ok.text
+
+
+def test_v1_no_store_and_foreign_404(api):
+    client, service, _ = api
+    job = seed_job(service)
+    for path in ("/v1/projects", "/v1/conversations", "/v1/models", "/v1/usage"):
+        response = client.get(path)
+        assert response.status_code == 200, path
+        assert response.headers["cache-control"] == "no-store", path
+    missing = client.get("/v1/jobs/does-not-exist", headers={"Authorization": "Bearer bob"})
+    foreign = client.get("/v1/jobs/" + job, headers={"Authorization": "Bearer bob"})
+    assert missing.status_code == foreign.status_code == 404
+    assert foreign.json()["code"] == missing.json()["code"] == "job_not_found"
+    assert foreign.headers["cache-control"] == "no-store"
+    assert client.get("/v1/jobs/" + job).status_code == 200

@@ -1083,6 +1083,7 @@ const userErrors = {
   catalog_runtime_mode_unsupported: "This isolated execution mode cannot provide the catalog runtime. Choose a supported native provider.",
   catalog_runtime_unavailable: "The catalog runtime is unavailable. Check its prerequisites in Admin.",
   catalog_preflight_failed: "Catalog prerequisites are missing. Check the catalog in Admin before trying again.",
+  catalog_hooks_changed: "A catalog hook changed since you trusted it, so this turn was blocked. Review the hooks and re-trust the catalog in Admin.",
   catalog_hook_failed: "A catalog hook failed. Check its run event before trying again.",
   catalog_hook_timeout: "A catalog hook exceeded its time limit and was stopped.",
   catalog_hook_unavailable: "A catalog hook could not start. Check its executable path in the manifest.",
@@ -1139,7 +1140,6 @@ const userErrors = {
   workflow_model_or_effort_denied: "Choose a model and effort enabled for this project.",
   workflow_must_be_standalone: "Select one workflow at a time.",
   workflow_output_not_approved: "The step output was not approved. Review the evidence before continuing.",
-  workflow_owner_denied: "Only the owner of this run can recover or save it.",
   workflow_save_local_only: "Workflows can only be saved from the computer that runs KeepHarness.",
   workflow_published_step_requires_explicit_rerun: "This changed step already published. Use an explicit re-run with fresh approval.",
   workflow_requires_successful_chain: "Only a completed, successful chain can be saved as a workflow.",
@@ -1219,7 +1219,6 @@ const userErrors = {
     "The earlier message this reply continues is unavailable. Start a new conversation.",
   invalid_event_id: "Tracking could not resume. Refresh the page.",
   job_not_found: "This run no longer exists. Refresh the conversation list.",
-  job_owner_denied: "This run belongs to another user.",
   result_not_ready: "The run has not finished yet. Wait for it to finish.",
   job_storage_limit:
     "This project's run storage is full. Use Delete permanently on conversations you no longer need (archived ones are in Settings › Archived chats), then try again.",
@@ -1539,6 +1538,8 @@ const userErrors = {
     "The run was cancelled after repeated approval requests expired. Send your message again when you are ready to respond.",
   approval_session_required:
     "This browser is not enrolled to approve actions yet. Ask the admin of this KeepHarness to enroll this browser for your own account (keepharness approve-device), then open the link they send you and try again.",
+  approval_session_expired:
+    "This browser's approval session expired (approval sessions last 7 days). The approval is still waiting: ask the admin of this KeepHarness for a new enrollment link (keepharness approve-device), open it in this browser, then approve again.",
   approval_storage_unsafe:
     "Approval sessions could not be stored securely. Ask the server owner to check the state directory permissions before trying again.",
   approval_enrollment_invalid:
@@ -1555,7 +1556,6 @@ const userErrors = {
     "The provider stopped responding. Review the run details and try again.",
   active_runtime_timeout:
     "The run reached its active time limit. Human approval waiting time was excluded.",
-  approval_owner_denied: "This approval request belongs to another user.",
   invalid_approval_scope: "That approval option is not available.",
   // Resources.
   resource_read_denied:
@@ -9201,7 +9201,7 @@ function showApproval(data) {
           box.querySelectorAll("button,input").forEach(node => node.remove());
           if (hadFocus) $("prompt").focus({ preventScroll: true });
         } else if (e.code === "approval_expired") expireApproval(data.approval_id);
-        else if (e.code === "approval_session_required") {
+        else if (e.code === "approval_session_required" || e.code === "approval_session_expired") {
           // Approvals need an owner-enrolled browser; say how, here and in the status line.
           progress.textContent = e.message;
           box.dataset.enrollment = "required";

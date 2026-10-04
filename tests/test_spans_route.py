@@ -64,7 +64,7 @@ def test_spans_default_redacts_recursively_and_owner_opt_in(span_client):
 def test_spans_owner_and_project_boundaries(span_client):
     client, service, job_id = span_client
     path = f"/v1/jobs/{job_id}/spans?include_content=true"
-    assert client.get(path, headers={"Authorization": "Bearer b"}).status_code == 403
+    assert client.get(path, headers={"Authorization": "Bearer b"}).status_code == 404
     service.config["clients"]["a"]["projects"] = []
     assert client.get(path).status_code == 403
     assert client.get("/v1/jobs/missing/spans").status_code == 404
@@ -103,7 +103,7 @@ def test_json_event_log_paginates_without_truncation_or_foreign_reads(span_clien
         client.get(
             f"/v1/jobs/{job_id}/events?format=json", headers={"Authorization": "Bearer b"}
         ).status_code
-        == 403
+        == 404
     )
     assert client.get(f"/v1/jobs/{job_id}/events?format=json&limit=999").status_code == 422
 

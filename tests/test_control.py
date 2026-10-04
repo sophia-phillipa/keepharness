@@ -297,7 +297,7 @@ class OwnershipTest(unittest.TestCase):
             job = service.submit(
                 alice, {"project_id": "p", "backend": "local", "model": "m", "prompt": "test"}
             )
-            with self.assertRaisesRegex(APIError, "job_owner_denied"):
+            with self.assertRaisesRegex(APIError, "job_not_found"):
                 service.job(bob, job["job_id"])
             self.assertEqual(service.job(alice, job["job_id"])["owner"], "alice")
             service.db.close()

@@ -280,9 +280,10 @@ class Manager:
         out["default_backend"] = default
         catalogs = []
         catalog_ids = set()
-        saved_catalog_roots = {
-            catalog.get("id"): catalog.get("root") for catalog in self.settings.get("catalogs", [])
-        }
+        saved_catalogs = {catalog.get("id"): catalog for catalog in self.settings.get("catalogs", [])}
+        saved_catalog_roots = {key: catalog.get("root") for key, catalog in saved_catalogs.items()}
+        from .catalog_admin import hooks_trust_record
+
         raw_catalogs = data.get("catalogs", [])
         if not isinstance(raw_catalogs, list) or len(raw_catalogs) > 50:
             raise ValueError("Invalid catalog configuration.")
@@ -335,6 +336,9 @@ class Manager:
                     "kind": kind,
                     "trusted": catalog.get("trusted", False),
                     "namespace": namespace,
+                    **hooks_trust_record(
+                        catalog, saved_catalogs.get(catalog_id), str(catalog_root)
+                    ),
                     **({"pin": pin} if pin else {}),
                     **(
                         {"work_item_pattern": validate_pattern(catalog["work_item_pattern"])}

@@ -7,8 +7,6 @@ from starlette.responses import JSONResponse
 from .. import pages
 from . import api_route, body
 
-NO_STORE = {"Cache-Control": "no-store"}
-
 
 async def collection(request, service, identity):
     if request.method == "POST":
@@ -18,12 +16,12 @@ async def collection(request, service, identity):
         created = await asyncio.to_thread(
             pages.create_page, service.config, identity[0], project_id, data
         )
-        return JSONResponse(created, status_code=201, headers=NO_STORE)
+        return JSONResponse(created, status_code=201)
     project_id = pages.project_of(request.query_params)
     service.project(identity, project_id)
     listing = await asyncio.to_thread(pages.list_pages, service.config, identity[0], project_id)
     service.project(service.identity(request, revalidate=True), project_id)
-    return JSONResponse({"pages": listing}, headers=NO_STORE)
+    return JSONResponse({"pages": listing})
 
 
 async def member(request, service, identity):
@@ -35,7 +33,7 @@ async def member(request, service, identity):
             pages.read_page, service.config, identity[0], project_id, page_id
         )
         service.project(service.identity(request, revalidate=True), project_id)
-        return JSONResponse(page, headers=NO_STORE)
+        return JSONResponse(page)
     data = await body(request, pages.REQUEST_LIMIT)
     project_id = pages.project_of(data)
     service.project(identity, project_id)
@@ -43,7 +41,7 @@ async def member(request, service, identity):
     result = await asyncio.to_thread(
         operation, service.config, identity[0], project_id, page_id, data
     )
-    return JSONResponse(result, headers=NO_STORE)
+    return JSONResponse(result)
 
 
 ROUTES = [

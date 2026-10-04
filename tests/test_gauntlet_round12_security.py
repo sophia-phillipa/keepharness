@@ -120,7 +120,10 @@ def test_deep_json_is_controlled(tmp_path, route):
         headers = {"Authorization": "Bearer a"}
         before = client.get("/v1/jobs/" + job, headers=headers)
         if route == "login":
-            response = client.post("/v1/login", content=content)
+            instance.config["origins"] = ["http://testserver"]
+            response = client.post(
+                "/v1/login", content=content, headers={"Origin": "http://testserver"}
+            )
         else:
             response = client.patch(
                 "/v1/jobs/" + job + "/work-item", content=content, headers=headers
