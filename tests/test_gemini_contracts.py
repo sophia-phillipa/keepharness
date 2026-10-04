@@ -29,18 +29,26 @@ class Input:
         ("read_only", "read", {"read": True}, "once"),
         ("read_only", "execute", {"shell": True}, "deny"),
         ("auto", "execute", {"shell": False}, "deny"),
-        ("auto", "execute", {"shell": True}, "once"),
+        ("auto", "edit", {"write": True}, "once"),
+        ("full", "execute", {"shell": True}, "once"),
         ("full", "mystery", {"shell": True}, "deny"),
     ],
 )
 def test_permissions_never_persist_or_exceed_grants(mode, kind, permissions, expected):
+    approve = AsyncMock(return_value={"approved": True})
+    assert permission_option(mode, kind, permissions, approve) == expected
+    approve.assert_not_awaited()
+
+
+def permission_option(mode, kind, permissions, approve, mcp_selected=False):
+    """The option id KeepHarness answers to a Gemini `session/request_permission`."""
     from types import SimpleNamespace
 
     stdin = Input()
-    approve = AsyncMock(return_value={"approved": True})
     rpc = AcpConnection(
         SimpleNamespace(stdin=stdin), AcpStream(lambda *_: None), approve, permissions, mode
     )
+    rpc.mcp_selected = mcp_selected
     asyncio.run(
         rpc._handle_request(
             {
@@ -57,7 +65,29 @@ def test_permissions_never_persist_or_exceed_grants(mode, kind, permissions, exp
             }
         )
     )
-    assert stdin.values[-1]["result"]["outcome"]["optionId"] == expected
+    return stdin.values[-1]["result"]["outcome"]["optionId"]
+
+
+@pytest.mark.parametrize(
+    "kind,permissions,mcp_selected",
+    [
+        ("execute", {"shell": True}, False),
+        ("other", {"internet": True}, True),
+    ],
+)
+@pytest.mark.parametrize("approved,expected", [(True, "once"), (False, "deny")])
+def test_automatic_mode_asks_the_owner_beyond_the_project(
+    kind, permissions, mcp_selected, approved, expected
+):
+    """Automatic stays inside the project: a shell command or connector call needs the owner (D11)."""
+    approve = AsyncMock(return_value={"approved": approved})
+    assert permission_option("auto", kind, permissions, approve, mcp_selected) == expected
+    approve.assert_awaited_once()
+
+
+def test_automatic_mode_does_not_ask_for_an_edit_inside_the_project():
+    approve = AsyncMock(return_value={"approved": False})
+    assert permission_option("auto", "edit", {"write": True}, approve) == "once"
     approve.assert_not_awaited()
 
 
