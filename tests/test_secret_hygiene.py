@@ -109,6 +109,8 @@ def test_harness_request_logs_and_database_are_private(tmp_path, open_umask):
     cfg = config(tmp_path / "runs")
     cfg["projects"]["p"]["service_units"] = ["demo.service"]
     cfg["services"]["codex"].update(mode="native", permissions={"shell": True})
+    # Host services are changed only by the owner on this computer.
+    cfg["clients"]["local"] = {"sha256": "0" * 64, "projects": ["p"]}
     app = create_harness_app(cfg)
     with (
         TestClient(app, headers={"Authorization": "Bearer a"}) as client,
@@ -118,7 +120,7 @@ def test_harness_request_logs_and_database_are_private(tmp_path, open_umask):
             AsyncMock(return_value=(0, "ActiveState=active\nLoadState=loaded")),
         ),
     ):
-        session = consume_enrollment(cfg, issue_enrollment(cfg, "a"))
+        session = consume_enrollment(cfg, issue_enrollment(cfg, "local"))
         response = client.post(
             "/v1/services",
             json={
