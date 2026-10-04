@@ -20,6 +20,10 @@ owned by KeepHarness under the control state folder, and only an allow-listed en
   `claude auth login` in these homes, so the login lives there and is refreshed there (one
   sign-in per provider, D02). Status checks, model lists and quota reads use the same homes.
   Isolated (`scoped`) runs copy the credential file from these homes, not from the terminal's.
+- A Codex or Gemini service that is enabled but not signed in (or whose CLI is
+  missing) does not stop the harness: its models are taken offline with the reason "Sign in
+  required" (`unavailable_models` in the runtime config and the admin status), the other
+  providers keep working, and signing in then applying the settings brings it back.
 - DeepSeek keeps its own Codex home: it never holds the ChatGPT login; its key file is passed
   as its only credential.
 - Sessions (Codex rollouts, Claude transcripts) stay in these homes, inside the state folder.
