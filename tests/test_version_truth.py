@@ -90,3 +90,8 @@ def test_added_and_removed_python_files_change_only_disk_build(version_client):
     assert changed["ui_build"] == initial["ui_build"]
     added.unlink()
     assert poll_without_reads(client) == initial
+
+
+def test_version_identifies_keepharness_product(version_client):
+    client, _, _ = version_client
+    assert client.get("/v1/version").json()["product"] == "keepharness"

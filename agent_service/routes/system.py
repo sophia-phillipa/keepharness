@@ -158,6 +158,7 @@ async def version(request, service, identity):
     builds = request.app.state.build_versions
     return JSONResponse(
         {
+            "product": "keepharness",
             "version": builds.version,
             "build": builds.build,
             **builds.disk_versions(),
