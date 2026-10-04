@@ -255,30 +255,14 @@ async def require_responses_api(url: str, key: str = "") -> None:
             async with client.stream(
                 "POST", url + "/v1/responses", headers=headers, json={}
             ) as response:
-                if response.status_code not in (400, 422):
+                if response.status_code in (404, 405, 501):
                     raise ValueError(reason)
                 body = bytearray()
                 async for chunk in response.aiter_bytes():
                     body += chunk
                     if len(body) > MAX_RESPONSE_BYTES:
                         raise ValueError(reason)
-        payload = json.loads(body)
-        # OpenAI-style errors and FastAPI/Pydantic missing-field validation.
-        error = payload.get("error", {}) if isinstance(payload, dict) else {}
-        message = error.get("message", "") if isinstance(error, dict) else ""
-        named = isinstance(message, str) and re.search(r"\b(model|input)\b", message, re.I)
-        required = isinstance(message, str) and re.search(
-            r"required|missing|must.*provide", message, re.I
-        )
-        details = payload.get("detail", []) if isinstance(payload, dict) else []
-        validated = isinstance(details, list) and any(
-            isinstance(item, dict)
-            and item.get("type") in ("missing", "value_error.missing")
-            and item.get("loc") in (["body", "model"], ["body", "input"])
-            for item in details
-        )
-        if not ((named and required) or validated):
-            raise ValueError(reason)
+        json.loads(body)  # Any JSON validation/error dialect proves the route exists.
     except (TimeoutError, httpx.HTTPError, ValueError, RecursionError):
         raise ValueError(reason) from None
 

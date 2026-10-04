@@ -36,7 +36,7 @@ from . import (
 )
 from .dashboard import DashboardReader
 from .operations import Operations
-from .persistence import ControlStateRepository, private_file
+from .persistence import ControlStateRepository
 from .product import PRODUCT, ensure_lineage
 
 ROOT = env.REPOSITORY_ROOT
@@ -762,17 +762,21 @@ class Manager:
                 raise ValueError("Port in use. Choose another; no existing service was stopped.")
         path = self.state / "runtime.json"
         self._write_runtime(cfg)
-        log = open(self.state / "harness.log", "ab", opener=private_file)
-        self.proc = await asyncio.create_subprocess_exec(
-            sys.executable,
-            "-m",
-            "agent_service.app",
-            cwd=ROOT,
-            env={**os.environ, PRODUCT.env_prefix + "_AGENT_CONFIG": str(path)},
-            stdout=log,
-            stderr=log,
-        )
-        log.close()
+        from agent_service.log_config import open_process_log
+
+        log = open_process_log(self.state)
+        try:
+            self.proc = await asyncio.create_subprocess_exec(
+                sys.executable,
+                "-m",
+                "agent_service.app",
+                cwd=ROOT,
+                env={**os.environ, PRODUCT.env_prefix + "_AGENT_CONFIG": str(path)},
+                stdout=log,
+                stderr=log,
+            )
+        finally:
+            log.close()
         async with httpx.AsyncClient(trust_env=False, timeout=1) as client:
             for _ in range(40):
                 if self.proc.returncode is not None:

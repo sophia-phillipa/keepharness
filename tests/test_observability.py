@@ -84,7 +84,7 @@ def test_missing_bwrap_has_named_document_error(tmp_path, monkeypatch):
     with pytest.raises(ToolError) as raised:
         asyncio.run(tools.extract(pdf, pdf.name))
     assert raised.value.code == "document_tools_unavailable"
-    assert "bwrap" in str(raised.value)
+    assert str(raised.value) == "document_tools_unavailable"
 
 
 @pytest.mark.parametrize("status", [404, 405, 501])
@@ -143,12 +143,12 @@ def test_log_tail_is_bounded_redacted_and_owner_local_only(tmp_path):
     [
         (400, {"error": {"message": "Missing required parameter: model"}}, True),
         (422, {"detail": [{"type": "missing", "loc": ["body", "input"]}]}, True),
-        (400, {"error": {"message": "Bad request"}}, False),
-        (422, {"error": "route not found"}, False),
-        (200, {"data": [{"id": "model"}]}, False),
+        (400, {"error": {"message": "Bad request"}}, True),
+        (422, {"error": "route not found"}, True),
+        (200, {"data": [{"id": "model"}]}, True),
     ],
 )
-def test_responses_preflight_requires_validation_evidence(monkeypatch, status, payload, accepted):
+def test_responses_preflight_accepts_json_endpoint_evidence(monkeypatch, status, payload, accepted):
     real_client = httpx.AsyncClient
     monkeypatch.setattr(
         httpx,

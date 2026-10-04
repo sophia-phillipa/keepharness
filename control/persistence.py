@@ -44,12 +44,15 @@ class ControlStateRepository:
         self._replace(self.runtime_path, json.dumps(config))
 
     @staticmethod
-    def _replace(path, text):
+    def _replace(path, text, *, sync=False):
         """Atomic owner-only replace; a failed write (e.g. disk full) leaves no temporary file."""
         tmp = path.with_suffix(".tmp")
         try:
             tmp.write_text(text)
             tmp.chmod(0o600)
+            if sync:
+                with tmp.open("rb") as stream:
+                    os.fsync(stream.fileno())
             tmp.replace(path)
         finally:
             tmp.unlink(missing_ok=True)
@@ -66,6 +69,7 @@ class ControlStateRepository:
             "".join(line.rstrip("\n") + "\n" for line in entries)
             + json.dumps({"time": time.time(), "action": action})
             + "\n",
+            sync=True,
         )
 
     def snapshot(self):

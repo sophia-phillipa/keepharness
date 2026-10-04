@@ -26,15 +26,31 @@ Logs use UTC ISO timestamps and the same secret redaction as stderr.
 Each file is capped at 1 MiB (`MAX_LOG_BYTES`), with three rotated backups
 (`LOG_BACKUP_COUNT`), for at most 4 MiB per process. Oversized records are
 truncated. The separate `audit.jsonl` retains its JSON Lines format and the
-newest 1,000 entries; older entries are trimmed by an atomic replacement.
+newest 1,000 entries; older entries are trimmed by an atomic replacement after
+flushing and fsyncing the temporary file.
 
-The admin provides a read-only tail of `harness.log`, limited to 200 lines and
-a 64 KiB read. The tail is redacted again and available only to the local
+The manager also redirects child stdout/stderr to `state/harness.log`, including
+tracebacks before logging is configured and server diagnostics. At every harness
+start, its last 1 MiB is retained in a single owner-only `harness.log.1` backup
+and the active file starts empty. This bounds retention across starts; raw output
+can still grow during one long-running process.
+
+The admin provides a read-only tail of `logs/harness.log` and the active process
+output, limited to 200 combined lines and a combined 64 KiB read. Process output
+lines carry a `[process output]` label. A record larger than the tail window with
+no complete line produces `[line truncated]`, never a partial secret.
+The tail is redacted again and available only to the local
 owner session. The status also shows the harness's last exit alongside startup
 errors. **Check environment** reports whether `ffmpeg`, `bwrap` and `prlimit`
 are on PATH, with installation hints for Fedora/Bazzite, Debian/Ubuntu and
 Arch. Hints do not install packages. Document extraction that needs an absent
-`bwrap` reports `document_tools_unavailable` and names the missing tool.
+`bwrap` reports the stable wire code `document_tools_unavailable`; the UI names
+the missing tool.
+
+Remote and local model discovery probe `/v1/responses` without inference. HTTP
+404, 405 and 501 or a non-JSON response refuse admission; JSON responses, including
+400 and 422 validation errors, establish endpoint presence regardless of vendor
+wording. Timeouts, transport errors and oversized responses remain bounded failures.
 
 ## 1. Build llama.cpp
 

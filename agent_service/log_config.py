@@ -5,6 +5,7 @@ import os
 import re
 import sys
 import time
+from copy import copy
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -69,28 +70,85 @@ class PrivateRotatingHandler(RotatingFileHandler):
         os.chmod(self.baseFilename, 0o600)
         return stream
 
+    def format(self, record):
+        cached = getattr(record, "_keepharness_formatted", None)
+        return cached if cached is not None else super().format(record)
+
+    def emit(self, record):
+        # Cache on a private record so the formatter runs once, including tracebacks.
+        try:
+            prepared = copy(record)
+            prepared._keepharness_formatted = self.format(record)
+            super().emit(prepared)
+        except Exception:
+            self.handleError(record)
+
     def shouldRollover(self, record):
-        if self.stream is None:
-            self.stream = self._open()
-        return (
-            self.stream.tell() + len((self.format(record) + "\n").encode("utf-8")) > self.maxBytes
+        rendered = self.format(record)
+        probe = copy(record)
+        # stdlib counts characters; padding makes its check count UTF-8 bytes.
+        probe._keepharness_formatted = rendered + " " * (
+            len(rendered.encode("utf-8")) - len(rendered)
         )
+        return super().shouldRollover(probe)
 
 
-def log_tail(state, lines=LOG_TAIL_LINES):
-    """Read only the bounded suffix of the harness log; redact again for old files."""
-    lines = min(LOG_TAIL_LINES, max(1, int(lines)))
+def open_process_log(state):
+    """Keep the bounded suffix of the previous run, then redirect a fresh run."""
+    path = Path(state) / "harness.log"
     try:
-        with (Path(state) / "logs" / "harness.log").open("rb") as stream:
+        with path.open("rb") as source:
+            source.seek(0, os.SEEK_END)
+            source.seek(max(0, source.tell() - MAX_LOG_BYTES))
+            content = source.read(MAX_LOG_BYTES)
+        backup = path.with_name(path.name + ".1")
+        with open(backup, "wb", opener=lambda p, f: os.open(p, f, 0o600)) as stream:
+            os.chmod(backup, 0o600)
+            stream.write(content)
+    except FileNotFoundError:
+        pass
+    stream = open(path, "wb", opener=lambda p, f: os.open(p, f, 0o600))
+    os.chmod(path, 0o600)
+    return stream
+
+
+def _file_tail(path, lines, byte_limit):
+    try:
+        with path.open("rb") as stream:
             stream.seek(0, os.SEEK_END)
-            start = max(0, stream.tell() - LOG_TAIL_BYTES)
+            start = max(0, stream.tell() - byte_limit)
             stream.seek(start)
-            content = stream.read(LOG_TAIL_BYTES)
+            content = stream.read(byte_limit)
         if start:
-            content = content.partition(b"\n")[2]
+            _, newline, content = content.partition(b"\n")
+            if not newline or not content:
+                return ["[line truncated]"]
         return redact(content.decode("utf-8", errors="replace")).splitlines()[-lines:]
     except FileNotFoundError:
         return []
+
+
+def log_tail(state, lines=LOG_TAIL_LINES):
+    """Bound and redact both structured logs and otherwise invisible crash output."""
+    lines = min(LOG_TAIL_LINES, max(1, int(lines)))
+    state = Path(state)
+    process_path = state / "harness.log"
+    structured_path = state / "logs" / "harness.log"
+    byte_limit = (
+        LOG_TAIL_BYTES // 2
+        if process_path.exists() and structured_path.exists()
+        else LOG_TAIL_BYTES
+    )
+    structured = _file_tail(structured_path, lines, byte_limit)
+    process = _file_tail(process_path, lines, byte_limit)
+    if not process:
+        return structured
+    # Reserve room for both sources when present; every process line is labelled.
+    process = process[-(max(1, lines // 2) if structured else lines) :]
+    remaining = lines - len(process)
+    return (structured[-remaining:] if remaining else []) + [
+        "[process output] " + line for line in process
+    ]
 
 
 def configure_logging(state=None, filename="harness.log"):

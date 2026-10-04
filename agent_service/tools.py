@@ -269,9 +269,7 @@ async def extract(path, filename):
         if not data.startswith(b"%PDF-"):
             raise ToolError("invalid_pdf")
         if shutil.which("bwrap") is None:
-            error = ToolError("document_tools_unavailable")
-            error.args = ("document_tools_unavailable: bwrap is required for PDF extraction",)
-            raise error
+            raise ToolError("document_tools_unavailable")
         code, text = await process(
             sandbox(path.parent, ["pdftotext", "-layout", "/work/" + path.name, "-"]), 30
         )
