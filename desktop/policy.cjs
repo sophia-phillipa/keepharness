@@ -13,6 +13,12 @@ function isAppUrl(url, origins) {
     return false;
   }
 }
+// The only permissions the app pages get, and only on the app origins: writing the clipboard
+// (Copy on answers and code) and OS notifications (a run needs you, failed or finished).
+const APP_PERMISSIONS = new Set(['clipboard-sanitized-write', 'notifications']);
+function permissionAllowed(permission, url, origins) {
+  return APP_PERMISSIONS.has(permission) && isAppUrl(url, origins);
+}
 function externalUrl(url) {
   try {
     const parsed = new URL(url);
@@ -99,4 +105,4 @@ function portOwnedByUser(tables, port, uid) {
   }
   return owners.length > 0 && owners.every((owner) => owner === uid);
 }
-module.exports = { appOrigins, isAppUrl, externalUrl, windowOptions, splashOptions, backendEnv, processRunning, portOwnedByUser };
+module.exports = { appOrigins, isAppUrl, permissionAllowed, externalUrl, windowOptions, splashOptions, backendEnv, processRunning, portOwnedByUser };

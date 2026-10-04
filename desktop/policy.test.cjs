@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const {
   appOrigins,
   isAppUrl,
+  permissionAllowed,
   externalUrl,
   windowOptions,
   splashOptions,
@@ -100,4 +101,17 @@ test('a dual-stack listener owned by the current user is trusted, an IPv6-only o
 test('the port is matched as a zero-padded hexadecimal number', () => {
   assert.equal(portOwnedByUser([HEADER + row('0100007F:0050', '0A', ME)], 80, ME), true);
   assert.equal(portOwnedByUser([HEADER + row('0100007F:0050', '0A', ME)], 8000, ME), false);
+});
+
+test('the clipboard write and notifications are allowed on the app origins only', () => {
+  const origins = appOrigins([8094, 8095]);
+  for (const permission of ['clipboard-sanitized-write', 'notifications']) {
+    assert.equal(permissionAllowed(permission, 'http://127.0.0.1:8095/', origins), true);
+    assert.equal(permissionAllowed(permission, 'http://localhost:8094', origins), true);
+    assert.equal(permissionAllowed(permission, 'https://example.com/', origins), false);
+    assert.equal(permissionAllowed(permission, 'file:///splash.html', origins), false);
+    assert.equal(permissionAllowed(permission, undefined, origins), false);
+  }
+  for (const permission of ['media', 'geolocation', 'clipboard-read', 'midi', 'openExternal'])
+    assert.equal(permissionAllowed(permission, 'http://127.0.0.1:8095/', origins), false);
 });

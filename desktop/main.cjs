@@ -10,6 +10,7 @@ const path = require('node:path');
 const {
   appOrigins,
   isAppUrl,
+  permissionAllowed,
   externalUrl,
   windowOptions,
   splashOptions,
@@ -57,10 +58,15 @@ function foreignPort(ports) {
   });
   return ports.find((port) => !portOwnedByUser(tables, port, process.getuid())) ?? null;
 }
-// The app needs no camera, microphone, location, notifications or clipboard access.
-function denyPermissions() {
-  session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
-  session.defaultSession.setPermissionCheckHandler(() => false);
+// Only the app origins may write the clipboard and show notifications; every other permission
+// (camera, microphone, location, clipboard read...) stays denied.
+function limitPermissions() {
+  session.defaultSession.setPermissionRequestHandler((_contents, permission, callback, details) =>
+    callback(permissionAllowed(permission, details?.requestingUrl, origins)),
+  );
+  session.defaultSession.setPermissionCheckHandler((_contents, permission, requestingOrigin) =>
+    permissionAllowed(permission, requestingOrigin, origins),
+  );
 }
 async function waitFor(url, seconds) {
   for (let i = 0; i < seconds * 4; i++) {
@@ -101,7 +107,7 @@ function releaseSplash() {
 }
 
 async function start() {
-  denyPermissions();
+  limitPermissions();
   showSplash();
   if (!(await reachable(adminUrl))) {
     startAdmin();
