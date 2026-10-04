@@ -182,6 +182,21 @@ const SCREENS = [
     },
     extra: SMALL_WINDOWS,
   },
+  {
+    // The multiple-choice question card (operator suite, approvals area): its legend is the question.
+    id: "question-gate",
+    open: async (page) => {
+      await openConversation(page, "c-long");
+      await page.evaluate(() =>
+        showGate({
+          gate_id: "g-lint",
+          question: "Which fixture option should run, and should it also publish the result to every connected project afterwards?",
+          options: [{ id: "a", label: "Alpha", description: "First option" }, { id: "b", label: "Beta", description: "Second option" }],
+        }),
+      );
+      await page.locator("#gate-g-lint legend").waitFor();
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------- named invariants

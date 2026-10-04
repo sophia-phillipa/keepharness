@@ -93,7 +93,8 @@ await op.step("rename", "Rename the conversation from its row", async (page) => 
 
 - Locate by id, role and accessible name; never by layout classes.
 - Act with `op.click`, `op.fill`, `op.type`, `op.press`, `op.select` (they highlight and
-  pace in visible mode); assert with `op.see`, `op.gone`, `op.seeText`, `op.until`,
+  pace in visible mode; `op.fill` types key by key when visible, except date and time fields,
+  which take the value in one step because a 12-hour field needs its AM/PM segment); assert with `op.see`, `op.gone`, `op.seeText`, `op.until`,
   `op.check`; `op.skip(reason)` when the step does not apply.
 - Shared helpers (`home`, `newChat`, `chooseModel`, `send`, `ask`, `waitAnswer`, `row`)
   are in `lib/app.cjs`.
