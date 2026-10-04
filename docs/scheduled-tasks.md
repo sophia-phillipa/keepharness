@@ -279,7 +279,7 @@ workflow from a scheduled job starts an unmarked conversation.
   `paused_reason` says why, for example "Paused after 3 failed runs in a row (last error:
   model_denied). Check the route and the project, then turn the schedule back on."
 - A busy queue is not a failure. If the service answers 429 (`queue_full`, `owner_queue_full`,
-  `submission_rate_limit`), the run is deferred: nothing changes and the next tick tries again.
+  `submission_rate_limit`, `work_item_check_busy`), the run is deferred: nothing changes and the next tick tries again.
   Any other 429, such as `job_storage_limit` (the project already holds 1000 jobs), does not clear
   by waiting and is a failure.
 - If the client that owns a schedule no longer exists in the service configuration, the schedule is
