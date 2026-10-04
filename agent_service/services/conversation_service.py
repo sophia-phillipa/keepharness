@@ -1469,7 +1469,6 @@ class ConversationService:
             key in data
             for key in (
                 "_maestro_stage",
-                "_planning_only",
                 "_invocation_context",
                 "execution_parent_id",
                 "_execution_id",
@@ -1862,7 +1861,7 @@ class ConversationService:
             owner=row["owner"] == harness_agents.LOCAL_CLIENT,
         )
         sources = []
-        turns = [] if data.get("_planning_only") else self.context_turns(row, data)
+        turns = self.context_turns(row, data)
         file_ids = list(
             dict.fromkeys(
                 [fid for payload, _ in turns for fid in payload.get("file_ids", [])]
@@ -2038,7 +2037,6 @@ class ConversationService:
                 and execution_mode == "native"
                 and permissions.get("read")
                 and permissions.get("shell")
-                and not data.get("_planning_only")
             ):
                 history_folder = native_session / "conversation-history"
                 history_folder.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -2098,8 +2096,6 @@ class ConversationService:
         from ..integrations import integration_environment
         from ..secret_vault import execution_environment, redact_secrets
 
-        if plan.data.get("_planning_only"):
-            return redact_secrets(await self._run_transport_inference(plan, None))
         project_id = plan.row["project"]
         selected_config = runtime_config(
             self.config, project_id, getattr(plan, "selected_resources", [])
@@ -2502,9 +2498,6 @@ class ConversationService:
         # Gemini connectors need the network, so an offline schedule runs without them (D03).
         if offline_schedule and backend == "gemini":
             backend_config = {**backend_config, "integrations": []}
-        if data.get("_planning_only"):
-            project_config = {"permissions": {}}
-            backend_config = {**backend_config, "integrations": [], "unrestricted": False}
         backend_config = {
             **backend_config,
             **run_settings(self.config, backend, guest=guest, data=data),
