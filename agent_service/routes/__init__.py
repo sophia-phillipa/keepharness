@@ -32,6 +32,24 @@ class LimitedStream(StreamingResponse):
             self.release()
 
 
+MAX_JSON_DEPTH = 64
+
+
+def too_deep(data):
+    """Iterative nesting check; Python 3.14's json no longer raises RecursionError for deep input."""
+    level = [data]
+    for _ in range(MAX_JSON_DEPTH):
+        level = [
+            child
+            for node in level
+            for child in (node.values() if isinstance(node, dict) else node)
+            if isinstance(child, (dict, list))
+        ]
+        if not level:
+            return False
+    return True
+
+
 async def body(request, limit=200000):
     chunks = bytearray()
     try:
@@ -44,6 +62,8 @@ async def body(request, limit=200000):
         raise APIError("request_timeout", 408)
     try:
         data = json.loads(chunks)
+        if too_deep(data):
+            raise ValueError("json_too_deep")
         json.dumps(data, allow_nan=False, ensure_ascii=False).encode("utf-8")
     except (ValueError, UnicodeError, RecursionError):
         raise APIError("invalid_json")
