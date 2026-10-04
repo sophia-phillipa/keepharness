@@ -3,6 +3,7 @@
 import asyncio
 import ipaddress
 import json
+import logging
 import os
 import re
 import secrets
@@ -39,6 +40,7 @@ from .persistence import ControlStateRepository, private_file
 from .product import PRODUCT, ensure_lineage
 
 ROOT = env.REPOSITORY_ROOT
+logger = logging.getLogger(__name__)
 PERMISSIONS = ("read", "write", "upload", "tests", "internet", "shell", "hooks")
 # Settings the admin keeps from the stored file when a save does not send them (HAR-R2-5),
 # with their accepted ranges. The agent service applies its defaults when they are absent.
@@ -47,6 +49,17 @@ APPROVAL_LIMITS = {
     "approval_timeout_seconds": range(60, 86401),
     "approval_max_consecutive_expirations": range(1, 11),
 }
+# A harness that exits on its own is started again after RESTART_DELAY seconds, doubling up to
+# the cap. MAX_QUICK_CRASHES exits in a row, each within STABLE_SECONDS of its start, stop the
+# restarts and report instead (OPS-R3-3).
+RESTART_DELAY = 2
+RESTART_DELAY_CAP = 30
+MAX_QUICK_CRASHES = 3
+STABLE_SECONDS = 60
+# On shutdown the admin waits this long for queued and running work before it stops the harness.
+# systemd gives the unit TimeoutStopSec (30 s) for the whole stop, the harness's own 15 s included.
+DRAIN_SECONDS = 10
+DRAIN_POLL = 0.5
 
 
 def kept_setting(posted, stored, key, allowed, message):
@@ -97,6 +110,10 @@ class Manager:
         self.inventory = None
         self.plugin_catalog = None
         self.proc = None
+        self.watcher = None
+        self.started_at = time.monotonic()
+        self.crashes = 0
+        self.last_exit = None
         self.lock = asyncio.Lock()
         self.settings = (
             json.loads(self.path.read_text())
@@ -721,9 +738,11 @@ class Manager:
             else "Claude Code catalog and legacy official releases; access subject to account",
         }
 
-    async def start(self):
+    async def start(self, supervised=False):
         if self.running():
             return
+        if not supervised:
+            self.crashes = 0  # the owner starts it again: a fresh count
         await self.refresh()
         self.settings = self.validate(self.settings)
         cfg = await self.build_runtime_config(self.settings)
@@ -763,13 +782,65 @@ class Manager:
                 await self.stop(force=True)
                 raise ValueError("The service did not become ready in time.")
         self.applied = time.time()
+        self.started_at = time.monotonic()
         (self.state / "autostart").touch(mode=0o600)
         self.startup_error = None
         self.audit("harness_started")
+        self.watch()
+
+    def watch(self):
+        """Keep one task watching the harness process; it restarts the harness if it dies."""
+        if self.watcher is None or self.watcher.done():
+            self.watcher = asyncio.create_task(self.supervise())
+
+    def unwatch(self):
+        """Stop watching (a stop or a shutdown is not a crash); safe from the watcher itself."""
+        watcher = self.watcher
+        if watcher is not None and watcher is not asyncio.current_task():
+            self.watcher = None
+            watcher.cancel()
+
+    async def supervise(self):
+        """Start the harness again after each unexpected exit, with a capped, growing delay."""
+        try:
+            while await self.restart_after_exit():
+                pass
+        except Exception:
+            logger.exception("Harness supervision stopped")
+            self.startup_error = "The service is no longer watched. Check the local log."
+
+    async def restart_after_exit(self):
+        """Wait for the harness to exit, then restart it; False once it gave up."""
+        code = await self.proc.wait()
+        lived = time.monotonic() - self.started_at
+        self.crashes = self.crashes + 1 if lived < STABLE_SECONDS else 1
+        self.last_exit = {"code": code, "at": time.time(), "uptime_seconds": round(lived, 1)}
+        self.audit(f"harness_exited:{code}")
+        if self.crashes >= MAX_QUICK_CRASHES:
+            self.startup_error = (
+                f"The service stopped {self.crashes} times in a row (last exit code {code}). "
+                "Check the local log, then start it again."
+            )
+            return False
+        await asyncio.sleep(min(RESTART_DELAY * 2 ** (self.crashes - 1), RESTART_DELAY_CAP))
+        try:
+            await self.start(supervised=True)
+        except (ValueError, RuntimeError, OSError) as exc:
+            self.startup_error = str(exc)
+            self.started_at = time.monotonic()  # a start that fails counts as a quick crash
+        return True
+
+    async def drain(self):
+        """Wait, up to DRAIN_SECONDS, for queued and running work to finish before a shutdown."""
+        self.unwatch()
+        deadline = time.monotonic() + DRAIN_SECONDS
+        while self.running() and time.monotonic() < deadline and await asyncio.to_thread(self.busy):
+            await asyncio.sleep(DRAIN_POLL)
 
     async def stop(self, force=False):
         if not force and self.busy():
             raise ValueError("There are tasks queued or running. Cancel or wait before stopping.")
+        self.unwatch()
         if self.running():
             self.proc.terminate()
             try:
@@ -846,6 +917,8 @@ class Manager:
             "shared": (self.state / "tailnet.json").exists(),
             "version": VERSION_FILE.read_text().strip(),
             "startup_error": self.startup_error,
+            # How the harness last exited on its own, if it did: {"code", "at", "uptime_seconds"}.
+            "last_exit": self.last_exit,
             # Models offline per provider, with the reason (for example "Sign in required").
             "unavailable_models": self.unavailable_models,
         }
