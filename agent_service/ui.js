@@ -27,6 +27,7 @@ let policyProject = null,
   policyError = "",
   policySequence = 0;
 let uploadsAllowed = false,
+  fullAccessOffered = false,
   streamDisconnected = false,
   submitting = false,
   cancelling = false,
@@ -1216,6 +1217,8 @@ const userErrors = {
     "That access mode is not available. Choose another one and try again.",
   access_mode_owner_only:
     "Automatic and Full access are only for the owner on the computer running KeepHarness. Choose Ask for approval or Read only.",
+  full_access_disabled:
+    "Full access is turned off. The owner can turn it on in Settings › System › Providers (Allow Full access), or choose another access mode.",
   invalid_parent_job:
     "The earlier message this reply continues is unavailable. Start a new conversation.",
   invalid_event_id: "Tracking could not resume. Refresh the page.",
@@ -1729,6 +1732,7 @@ async function refreshProjectPermissions(timeout = 30000) {
       effort = $("effort").value;
     models = composerModels(data);
     uploadsAllowed = data.uploads_enabled === true;
+    offerFullAccess(data.full_access === true);
     $("model").replaceChildren(
       ...models.map((m) => new Option(modelLabel(m), m.id)),
     );
@@ -6172,6 +6176,7 @@ async function initialize() {
     providers = m.providers || {};
     models = composerModels(m);
     uploadsAllowed = m.uploads_enabled === true;
+    offerFullAccess(m.full_access === true);
     policyProject = null;
     policyPending = false;
     $("model").replaceChildren(
@@ -7684,6 +7689,7 @@ function showScheduleEditor(task) {
   $("schedule-weekday").value = String(cadence.weekday ?? 0);
   $("schedule-hours").value = String(cadence.hours || 6);
   $("schedule-access").value = task?.access_mode || "ask";
+  $("schedule-internet").checked = task?.allow_internet === true;
   $("schedule-enabled").checked = task ? !!task.enabled : true;
   syncCadenceFields();
   $("schedule-error").textContent = "";
@@ -7730,6 +7736,7 @@ function scheduleBody() {
     model: $("schedule-model").value,
     effort: $("schedule-effort").value,
     access_mode: $("schedule-access").value,
+    allow_internet: $("schedule-internet").checked,
     cadence:
       kind === "interval"
         ? { kind, hours: Number($("schedule-hours").value) }
@@ -7742,7 +7749,7 @@ function scheduleBody() {
 function showScheduleError(field, message) {
   $("schedule-error").textContent = message;
   const input = $(
-    { title: "schedule-title", prompt: "schedule-prompt", project_id: "schedule-project", backend: "schedule-backend", model: "schedule-model", effort: "schedule-effort", access_mode: "schedule-access", cadence: $("schedule-kind").value === "interval" ? "schedule-hours" : "schedule-time" }[field] || "",
+    { title: "schedule-title", prompt: "schedule-prompt", project_id: "schedule-project", backend: "schedule-backend", model: "schedule-model", effort: "schedule-effort", access_mode: "schedule-access", allow_internet: "schedule-internet", cadence: $("schedule-kind").value === "interval" ? "schedule-hours" : "schedule-time" }[field] || "",
   );
   if (!input) return;
   input.setAttribute("aria-invalid", "true");
@@ -9076,7 +9083,16 @@ document.addEventListener("click", (event) => {
 // Shared native popovers for the three concrete composer controls.
 // OP-R2-2: one label per access mode, the same in the composer menu and the header chip.
 const accessLabel = () => $("access-mode").selectedOptions[0]?.textContent || "Ask for approval";
+// D11: the menu offers Full access only to the owner, once turned on in the admin.
+function offerFullAccess(offered) {
+  fullAccessOffered = offered;
+  const option = $("access-menu").querySelector('[data-access="full"]');
+  option.hidden = option.disabled = !offered;
+  syncAccessMode();
+}
 function syncAccessMode() {
+  if ($("access-mode").value === "full" && !fullAccessOffered)
+    $("access-mode").value = "ask";
   const mode = $("access-mode").value;
   $("access-label").textContent = accessLabel();
   $("access-mode-notice").textContent =

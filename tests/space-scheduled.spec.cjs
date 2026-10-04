@@ -211,6 +211,10 @@ const path = require("node:path");
       ["Ask for approval", "Read only"],
       "unattended runs never get automatic or full access",
     );
+    // D03: no internet unless the task opts in.
+    const internet = scheduled.getByLabel("Allow internet");
+    assert.equal(await internet.isChecked(), false);
+    assert.match(await page.locator("#schedule-internet-help").innerText(), /^Off by default: the run gets no web search/);
     await scheduled.getByRole("button", { name: "Create task" }).click();
     assert.equal(await page.locator("#schedule-title").getAttribute("aria-invalid"), "true");
     await scheduled.getByLabel("Title").fill("Weekly AI radar");
@@ -239,6 +243,7 @@ const path = require("node:path");
       model: "claude-sonnet-5-5",
       effort: "configured",
       access_mode: "ask",
+      allow_internet: false,
       cadence: { kind: "weekly", weekday: 0, time: "08:30" },
       enabled: true,
     });
@@ -254,10 +259,16 @@ const path = require("node:path");
     await row.click();
     await page.waitForFunction(() => /Last run .* · cancelled · needs you/.test(document.querySelector("#schedule-last")?.innerText || ""));
     assert.match(await row.innerText(), /Last run needs you/);
+    assert.equal(await internet.isChecked(), false, "a saved task shows its stored choice");
+    await internet.check();
     await scheduled.getByLabel("Active").uncheck();
     await scheduled.getByRole("button", { name: "Save task" }).click();
     await page.waitForFunction(() => /Paused/.test(document.querySelector("#schedules-list")?.innerText || ""));
-    assert.equal(calls.filter((c) => c[0] === "PUT" && c[1] === "/v1/schedules/s1").at(-1)[2].enabled, false);
+    const saved = calls.filter((c) => c[0] === "PUT" && c[1] === "/v1/schedules/s1").at(-1)[2];
+    assert.equal(saved.enabled, false);
+    assert.equal(saved.allow_internet, true);
+    await row.click();
+    assert.equal(await internet.isChecked(), true, "the opt-in comes back when the task is reopened");
     await scheduled.getByRole("button", { name: "Delete" }).click();
     await scheduled.getByRole("button", { name: "Confirm delete" }).click();
     await scheduled.getByText("No scheduled tasks yet.").waitFor();

@@ -83,6 +83,7 @@ const path = require("node:path");
           ],
           providers: { local: true, deepseek: true },
           uploads_enabled: true,
+          full_access: true, // the owner turned Full access on (D11)
         };
       else if (path === "/v1/conversations/restore-fixture") {
         await new Promise((resolve) => setTimeout(resolve, 150));
@@ -279,13 +280,13 @@ const path = require("node:path");
         "auto",
         "↗",
         "Automatic",
-        "Owner only. Codex, DeepSeek and Claude run any command or edit on this computer without asking, with no sandbox. Local models stay in their sandbox.",
+        "Owner only. Edits inside the project folders without asking; anything outside them, and every connector call, asks first. Codex and DeepSeek run commands in a sandbox limited to those folders (network only with the provider's internet setting) and can still read any file your account can; Claude Code asks before every command. Local models stay in their sandbox.",
       ],
       [
         "full",
         "!",
         "Full access",
-        "Owner only. Runs everything without asking: no sandbox for Codex, DeepSeek and Claude; local models keep the permissions set in the admin.",
+        "Owner only, once turned on in the admin. Runs everything without asking: no sandbox for Codex, DeepSeek and Claude; local models keep the permissions set in the admin.",
       ],
       [
         "read_only",

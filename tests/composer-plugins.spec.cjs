@@ -24,6 +24,7 @@ const path = require("node:path");
           models: [{ id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5", backend: "claude", efforts: ["configured"] }],
           providers: { claude: true },
           uploads_enabled: false,
+          full_access: true, // the owner turned Full access on (D11)
         };
       else if (pathname === "/v1/conversations") data = { conversations: [] };
       else if (pathname === "/v1/version") data = { version: "fixture", build: "plugins" };

@@ -107,6 +107,7 @@ const path = require("node:path");
             ],
             providers: { codex: true, local: true, claude: true },
             uploads_enabled: true,
+            full_access: true, // the owner turned Full access on (D11)
           };
         if (p === "/v1/conversations")
           data = {
