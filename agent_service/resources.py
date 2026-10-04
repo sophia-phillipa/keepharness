@@ -9,7 +9,7 @@ import tomllib
 from itertools import islice
 from pathlib import Path, PurePosixPath
 
-from adapters.shared.provider_setup import homes_root
+from adapters.shared.provider_setup import homes_root, personal_setup_on
 
 from .invocations import Invocation, InvocationError
 
@@ -22,6 +22,21 @@ ENGINES = {
     "deepseek": "codex",
     "claude": "claude",
     "gemini": "gemini",
+}
+# Claude reads user skills and commands only with the personal setup and hooks on; the folder
+# the hint names is the one the project source reads.
+CLAUDE_UNLOADED = {
+    kind: (
+        f"Claude loads user {kind}s only with the personal setup and hooks on.",
+        f"Copy the {kind} into the project's .claude/{kind}s folder, or turn on the personal "
+        "setup and hooks.",
+    )
+    for kind in ("skill", "command")
+}
+OWNER_UNLOADED = "The run reads the harness-owned provider home, not the owner's own folders."
+UNLOADED_HINTS = {
+    **dict(CLAUDE_UNLOADED.values()),
+    OWNER_UNLOADED: "Copy the resource into the project's folders or the harness-owned home.",
 }
 NAME = re.compile(r"^[\w.:-]{1,160}$")
 
@@ -188,6 +203,8 @@ def argument_hint(meta, body, name):
 
 
 def preflight_hint(reason):
+    if reason in UNLOADED_HINTS:
+        return UNLOADED_HINTS[reason]
     if not reason:
         return "Ready to invoke with the current provider and execution mode."
     if "disabled" in reason.lower():
@@ -203,20 +220,53 @@ def preflight_hint(reason):
     return "Choose a compatible provider, model, and execution mode."
 
 
-def roots(engine, config):
-    """User-scope roots: the harness home's, or the owner's when they opted in (decision D01)."""
+def roots(backend, engine, config, owner):
+    """User-scope roots: the home the provider CLI reads, or none (decision D01).
+
+    With a state folder, Codex and Claude read their harness-owned home whatever the opt-in
+    says, and DeepSeek its own Codex home. Gemini keeps the owner's home (its commands are
+    expanded by the harness), listed only when the caller is positively the owner.
+    """
     home = Path.home()
-    harness_home = engine in ("codex", "claude") and config.get("control_state_dir")
-    if harness_home and config.get("personal_setup") is not True:
-        home = homes_root(config["control_state_dir"]) / "home"
+    state = engine in ("codex", "claude") and config.get("control_state_dir")
+    if state and backend == "deepseek":
+        return homes_root(state) / "deepseek", [homes_root(state) / "home/.agents/skills"]
+    if state:
+        home = homes_root(state) / "home"
         return home / ("." + engine), ([home / ".agents/skills"] if engine == "codex" else [])
     if engine == "codex":
         return Path(os.environ.get("CODEX_HOME", home / ".codex")), [home / ".agents/skills"]
     if engine == "claude":
         return Path(os.environ.get("CLAUDE_CONFIG_DIR", home / ".claude")), []
     if engine == "gemini":
+        if not owner:
+            return None, []
         return Path(os.environ.get("GEMINI_CLI_HOME", home)) / ".gemini", [home / ".agents/skills"]
     raise ValueError("unsupported_resource_engine")
+
+
+def owner_root(backend, engine, config, personal):
+    """The owner's own config folder, listed beside the harness home under the opt-in."""
+    if not personal or not config.get("control_state_dir"):
+        return None
+    if backend == "deepseek" or engine not in ("codex", "claude"):
+        return None
+    variable = "CODEX_HOME" if engine == "codex" else "CLAUDE_CONFIG_DIR"
+    return Path(os.environ.get(variable, Path.home() / ("." + engine)))
+
+
+def unloaded_user_resource(engine, kind, owned, personal, hooks):
+    """Why the provider CLI will not read this user-scope resource itself, or an empty string.
+
+    Only skills and Claude's native commands are loaded by the CLI; the harness expands the
+    other commands into the prompt. Claude reads its config folder only when a run starts with
+    ``--setting-sources user,project``: the personal setup plus the hooks grant.
+    """
+    if kind != "skill" and not (engine == "claude" and kind == "command"):
+        return ""
+    if owned:
+        return OWNER_UNLOADED
+    return CLAUDE_UNLOADED[kind][0] if engine == "claude" and not (personal and hooks) else ""
 
 
 def files(base, boundary, global_roots, kind):
@@ -271,11 +321,16 @@ def discover(
     private=False,
     execution_mode=None,
     include_workflows=True,
+    owner=False,
+    access_mode=None,
 ):
+    """The caller's resources; ``owner`` must be True for the owner's personal ones to show."""
     from .catalog_manifest import load_manifest, preflight
     from .catalog_pin import effective_catalogs, snapshot_catalogs
     from .harness_agents import add_resources
+    from .approval_policy import effective_permissions, hooks_allowed
     from .integrations import integration_preflight
+    from .maestro import model_permissions
     from .workflows import discover_workflows
 
     engine = ENGINES.get(backend)
@@ -283,7 +338,12 @@ def discover(
         "engine": engine,
         **(
             discover_workflows(
-                config, project_id, backend, private=private, execution_mode=execution_mode
+                config,
+                project_id,
+                backend,
+                private=private,
+                execution_mode=execution_mode,
+                owner=owner,
             )
             if include_workflows
             else {"items": [], "warnings": []}
@@ -300,8 +360,12 @@ def discover(
         result["warnings"].append("Native resources require a native-mode execution.")
         return result
     project = config["projects"][project_id]
+    permissions = effective_permissions(
+        model_permissions(config, backend, model, project_id), access_mode
+    )
     root = Path(project["root"]).resolve() if project.get("root") else None
-    global_base, shared = roots(engine, config)
+    personal = personal_setup_on(config, owner=owner)
+    global_base, shared = roots(backend, engine, config, owner)
     sources = []
 
     def source(base, scope, origin, boundary, kind, identity, identity_root, namespace=""):
@@ -485,17 +549,16 @@ def discover(
             namespace,
         )
 
-    add(global_base, "user", engine, None, "user/" + engine, global_base)
+    if global_base is not None:
+        add(global_base, "user", engine, None, "user/" + engine, global_base)
+    if owner_home := owner_root(backend, engine, config, personal):
+        add(owner_home, "user", engine, None, "owner/" + engine, owner_home)
     if engine == "codex":
-        source(
-            global_base / "prompts",
-            "user",
-            "codex",
-            None,
-            "command",
-            "user/codex",
-            global_base,
-        )
+        for prompts_base, identity in ((global_base, "user/codex"), (owner_home, "owner/codex")):
+            if prompts_base:
+                source(
+                    prompts_base / "prompts", "user", "codex", None, "command", identity, prompts_base
+                )
     for shared_root in shared:
         source(
             shared_root,
@@ -522,7 +585,10 @@ def discover(
                 pass
     disabled = set()
     if engine == "codex":
-        for path in [global_base / "config.toml", *([root / ".codex/config.toml"] if root else [])]:
+        for path in [
+            *([global_base / "config.toml"] if global_base else []),
+            *([root / ".codex/config.toml"] if root else []),
+        ]:
             try:
                 settings = tomllib.loads(read(path))
                 for item in settings.get("skills", {}).get("config", []):
@@ -532,6 +598,10 @@ def discover(
                 pass
             except (ValueError, OSError, TypeError, AttributeError):
                 result["warnings"].append("Could not check the Codex skills configuration.")
+    # The run's own rule. The palette cannot know which catalog resources a run will select, so
+    # any catalog of the project counts (the conservative answer); a scheduled run also drops the
+    # opt-in, which this view cannot know either.
+    hooks = hooks_allowed(permissions, catalog_details)
     seen_paths = set()
     seen_names = set()
     for source_spec in sources:
@@ -595,8 +665,13 @@ def discover(
                         reason = (
                             "The Gemini adapter still disables agents and skills in this execution."
                         )
-                    if backend in ("local", "deepseek") and (scope == "user" or kind == "agent"):
+                    if backend in ("local", "deepseek") and (
+                        (backend == "local" and scope == "user") or kind == "agent"
+                    ):
                         reason = "This resource is not available in the isolated environment of this executor."
+                    if scope == "user":
+                        owned = source_spec["identity"].startswith("owner/")
+                        reason = unloaded_user_resource(engine, kind, owned, personal, hooks) or reason
                     delegate_allowed = project.get("permissions", {}).get("delegate") is True
                     declared_mode = str(meta.get("mode", "")).strip()
                     if (
@@ -771,7 +846,14 @@ def reserved_markers(prompt, selections):
     return markers
 
 
-def resolve(config, data):
+def run_config(config, data, *, owner):
+    """The config a run resolves resources with: its effective personal setup (decision D01)."""
+    personal = personal_setup_on(config, owner=owner, schedule_id=data.get("schedule_id"))
+    return {**config, "personal_setup": personal}
+
+
+def resolve(config, data, *, owner=False):
+    config = run_config(config, data, owner=owner)
     prompt = data.get("prompt", "")
     reserved = reserved_markers(prompt, data.get("resource_selections"))
     selections = data.get("resource_selections", [])
@@ -790,6 +872,8 @@ def resolve(config, data):
             data.get("model"),
             private=True,
             execution_mode=data.get("execution_mode"),
+            owner=owner,
+            access_mode=data.get("access_mode"),
         )["items"]
     }
     result = []

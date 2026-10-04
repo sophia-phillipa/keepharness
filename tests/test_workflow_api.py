@@ -229,6 +229,7 @@ def test_queued_recovery_resolves_current_workflow_revision(tmp_path):
             "p",
             "project/p/workflows/review.json",
             execution_mode=data["execution_mode"],
+            owner=False,
         )
         assert execute.call_args.args[3] == current
     finally:

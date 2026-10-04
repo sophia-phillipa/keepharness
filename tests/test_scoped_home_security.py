@@ -311,7 +311,7 @@ def test_user_scope_resources_follow_the_personal_setup(tmp_path, personal_home,
         }
         users = [
             item
-            for item in resources.discover(config, "p", backend)["items"]
+            for item in resources.discover(config, "p", backend, owner=True)["items"]
             if item["scope"] == "user"
         ]
         assert bool(users) is personal

@@ -453,3 +453,354 @@ def test_resources_follow_conversation_mode_not_service_default(
     finally:
         client.close()
         app.state.service.db.close()
+
+
+def provider_home_config(root, state, backend, **extra):
+    return {**cfg(root, backend), "control_state_dir": str(state), **extra}
+
+
+def user_items(config, backend, owner=True):
+    items = resources.discover(config, "p", backend, owner=owner)["items"]
+    return {(i["kind"], i["name"]): i for i in items if i["scope"] == "user"}
+
+
+def skill(name):
+    return f"---\nname: {name}\ndescription: {name} skill\n---\nDo {name}"
+
+
+def test_claude_user_skills_load_only_with_the_personal_setup_and_hooks(tmp_path, monkeypatch):
+    owner, state, root = tmp_path / "owner", tmp_path / "state", tmp_path / "project"
+    monkeypatch.setenv("HOME", str(owner))
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+    harness = state / "providers/home/.claude"
+    put(harness, "skills/home/SKILL.md", skill("home"))
+    put(harness, "commands/homecmd.md", "---\ndescription: cmd\n---\nRun")
+    put(owner / ".claude", "skills/owner/SKILL.md", skill("owner"))
+    put(root, ".claude/skills/local/SKILL.md", skill("local"))
+
+    def listed(**extra):
+        config = provider_home_config(root, state, "claude", **extra)
+        return user_items(config, "claude")
+
+    for extra in ({}, {"personal_setup": True}):
+        items = listed(**extra)
+        owned = {("skill", "owner")} if extra else set()
+        assert set(items) == {("skill", "home"), ("command", "homecmd")} | owned, extra
+        assert not any(i["selectable"] for i in items.values())
+        assert all(i["unavailable_reason"] for i in items.values())
+    hooks = {"projects": {"p": {"root": str(root), "permissions": {"delegate": True, "hooks": True}}}}
+    assert not any(i["selectable"] for i in listed(**hooks).values())
+    items = listed(personal_setup=True, **hooks)
+    assert {k for k, i in items.items() if i["selectable"]} == {("skill", "home"), ("command", "homecmd")}
+    assert not items[("skill", "owner")]["selectable"]
+    config = provider_home_config(root, state, "claude")
+    project = [i for i in resources.discover(config, "p", "claude")["items"] if i["name"] == "local"]
+    assert [i["selectable"] for i in project] == [True]
+
+
+def test_claude_hint_names_the_folder_for_each_kind(tmp_path, monkeypatch):
+    state, root = tmp_path / "state", tmp_path / "project"
+    monkeypatch.setenv("HOME", str(tmp_path / "owner"))
+    harness = state / "providers/home/.claude"
+    put(harness, "skills/home/SKILL.md", skill("home"))
+    put(harness, "commands/homecmd.md", "---\ndescription: cmd\n---\nRun")
+    items = user_items(provider_home_config(root, state, "claude"), "claude")
+    assert ".claude/skills" in items[("skill", "home")]["preflight_hint"]
+    assert ".claude/commands" in items[("command", "homecmd")]["preflight_hint"]
+    assert not any(".agents" in i["preflight_hint"] for i in items.values())
+
+
+def test_legacy_claude_config_with_hooks_lists_host_skills_as_available(tmp_path, monkeypatch):
+    owner, root = tmp_path / "owner", tmp_path / "project"
+    monkeypatch.setenv("HOME", str(owner))
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+    put(owner / ".claude", "skills/owner/SKILL.md", skill("owner"))
+    config = {
+        **cfg(root, "claude"),
+        "personal_setup": True,
+        "projects": {"p": {"root": str(root), "permissions": {"hooks": True}}},
+    }
+    assert [i["selectable"] for i in user_items(config, "claude").values()] == [True]
+
+
+def test_codex_lists_the_harness_home_whatever_the_opt_in_says(tmp_path, monkeypatch):
+    owner, state, root = tmp_path / "owner", tmp_path / "state", tmp_path / "project"
+    monkeypatch.setenv("HOME", str(owner))
+    monkeypatch.delenv("CODEX_HOME", raising=False)
+    put(state / "providers/home/.codex", "skills/harness/SKILL.md", skill("harness"))
+    put(state / "providers/home", ".agents/skills/shared/SKILL.md", skill("shared"))
+    put(owner / ".codex", "skills/owner/SKILL.md", skill("owner"))
+    for extra in ({}, {"personal_setup": True}):
+        items = user_items(provider_home_config(root, state, "codex", **extra), "codex")
+        listed = {name: i["selectable"] for (_, name), i in items.items()}
+        # The owner's own skill shows only with the opt-in, and never as runnable.
+        assert listed == {"harness": True, "shared": True, **({"owner": False} if extra else {})}
+        assert bool(items.get(("skill", "owner"), {}).get("unavailable_reason")) is bool(extra)
+
+
+def test_gemini_owner_commands_are_harness_expanded_and_hidden_unless_owner(tmp_path, monkeypatch):
+    owner, root = tmp_path / "owner", tmp_path / "project"
+    monkeypatch.setenv("HOME", str(owner))
+    monkeypatch.delenv("GEMINI_CLI_HOME", raising=False)
+    put(owner / ".gemini", "commands/mine.toml", 'prompt = "Private"')
+    put(root, ".gemini/commands/shared.toml", 'prompt = "Project"')
+
+    def names(**extra):
+        items = resources.discover(cfg(root, "gemini"), "p", "gemini", **extra)["items"]
+        return {i["name"]: i["scope"] for i in items}
+
+    assert names(owner=True) == {"shared": "project", "mine": "user"}
+    # A call that does not positively say it is the owner never gets the owner's files.
+    assert names() == {"shared": "project"}
+    assert names(owner=False) == {"shared": "project"}
+
+
+def test_codex_owner_prompts_stay_available_with_the_opt_in(tmp_path, monkeypatch):
+    owner, state, root = tmp_path / "owner", tmp_path / "state", tmp_path / "project"
+    monkeypatch.setenv("HOME", str(owner))
+    monkeypatch.delenv("CODEX_HOME", raising=False)
+    put(owner / ".codex", "prompts/mine.md", "---\ndescription: mine\n---\nDo it")
+    on = provider_home_config(root, state, "codex", personal_setup=True)
+    assert ("command", "mine") not in user_items(provider_home_config(root, state, "codex"), "codex")
+    assert ("command", "mine") not in user_items(on, "codex", owner=False)
+    assert user_items(on, "codex")[("command", "mine")]["selectable"] is True
+
+
+def test_claude_user_skills_are_unavailable_when_a_catalog_turns_hooks_off(tmp_path, monkeypatch):
+    owner, state, root = tmp_path / "owner", tmp_path / "state", tmp_path / "project"
+    catalog = tmp_path / "catalog"
+    monkeypatch.setenv("HOME", str(owner))
+    put(state / "providers/home/.claude", "skills/home/SKILL.md", skill("home"))
+    config = {
+        **catalog_cfg(root, catalog, "claude"),
+        "control_state_dir": str(state),
+        "personal_setup": True,
+    }
+    config["projects"]["p"]["permissions"]["hooks"] = True
+    assert not user_items(config, "claude")[("skill", "home")]["selectable"]
+    config["projects"]["p"]["catalogs"] = []
+    assert user_items(config, "claude")[("skill", "home")]["selectable"]
+
+
+def test_hooks_run_only_when_granted_and_no_catalog_is_in_the_run():
+    from agent_service.approval_policy import hooks_allowed
+
+    assert hooks_allowed({"hooks": True}, [])
+    assert not hooks_allowed({"hooks": True}, [{"id": "demo"}])
+    assert not hooks_allowed({}, [])
+
+
+def guest_and_owner_clients(tmp_path, monkeypatch):
+    """A service with a guest ("a") and the owner ("local"), the owner's personal files in HOME."""
+    import hashlib
+
+    from test_workspaces import config
+
+    owner = tmp_path / "owner"
+    monkeypatch.setenv("HOME", str(owner))
+    monkeypatch.delenv("CODEX_HOME", raising=False)
+    monkeypatch.delenv("GEMINI_CLI_HOME", raising=False)
+    put(owner / ".gemini", "commands/mine.toml", 'prompt = "Owner private gemini"')
+    put(owner / ".codex", "prompts/secret.md", "---\ndescription: s\n---\nOwner private prompt")
+    conf = config(tmp_path)
+    conf["clients"]["local"] = {"sha256": hashlib.sha256(b"local").hexdigest(), "projects": ["p"]}
+    conf["projects"]["p"]["root"] = str(tmp_path / "project")
+    conf["control_state_dir"] = str(tmp_path / "state")
+    conf["personal_setup"] = True
+    conf["codex_models"] = {"gpt-6-astra": ["low"]}
+    conf["services"]["codex"]["mode"] = "native"
+    conf["services"]["gemini"] = {
+        "enabled": True,
+        "models": ["fixture"],
+        "projects": ["p"],
+        "mode": "native",
+        "permissions": {"read": True},
+    }
+    return conf
+
+
+def test_guest_never_sees_the_owners_personal_resources_in_catalog_or_palette(
+    tmp_path, monkeypatch
+):
+    from starlette.testclient import TestClient
+
+    from agent_service.app import create_app
+
+    app = create_app(guest_and_owner_clients(tmp_path, monkeypatch))
+    try:
+        with TestClient(app) as client:
+
+            def names(who, url):
+                response = client.get(url, headers={"Authorization": "Bearer " + who})
+                return {item["name"] for item in response.json()["items"]}
+
+            catalog = "/v1/catalog?project_id=p"
+            assert {"mine", "secret"} <= names("local", catalog)
+            assert not {"mine", "secret"} & names("a", catalog)
+            palette = "/v1/resources?project_id=p&backend={}&model={}"
+            assert "mine" in names("local", palette.format("gemini", "fixture"))
+            assert "mine" not in names("a", palette.format("gemini", "fixture"))
+            assert "secret" in names("local", palette.format("codex", "gpt-6-astra"))
+            assert "secret" not in names("a", palette.format("codex", "gpt-6-astra"))
+    finally:
+        app.state.service.db.close()
+
+
+def test_guest_cannot_resolve_an_owner_resource_id_at_run_time(tmp_path, monkeypatch):
+    from starlette.testclient import TestClient
+
+    from agent_service.app import create_app
+    from agent_service.errors import APIError
+
+    app = create_app(guest_and_owner_clients(tmp_path, monkeypatch))
+    try:
+        with TestClient(app, headers={"Authorization": "Bearer local"}) as owner:
+            item = next(
+                i
+                for i in owner.get(
+                    "/v1/resources?project_id=p&backend=gemini&model=fixture"
+                ).json()["items"]
+                if i["name"] == "mine"
+            )
+        data = {
+            "project_id": "p",
+            "backend": "gemini",
+            "model": "fixture",
+            "prompt": "/mine hi",
+            "resource_selections": [{"id": item["id"], "revision": item["revision"], "token": "/mine"}],
+        }
+        service = app.state.service
+        assert service.selected_resources(data, owner=True)[0]["name"] == "mine"
+        with pytest.raises(APIError):
+            service.selected_resources(data, owner=False)
+        with pytest.raises(APIError):
+            service.selected_resources(data)
+    finally:
+        app.state.service.db.close()
+
+
+def test_claude_hooks_follow_read_only_mode(tmp_path, monkeypatch):
+    owner, state, root = tmp_path / "owner", tmp_path / "state", tmp_path / "project"
+    monkeypatch.setenv("HOME", str(owner))
+    put(state / "providers/home/.claude", "skills/home/SKILL.md", skill("home"))
+    config = provider_home_config(root, state, "claude", personal_setup=True)
+    config["projects"]["p"]["permissions"]["hooks"] = True
+
+    def selectable(**extra):
+        items = resources.discover(config, "p", "claude", owner=True, **extra)["items"]
+        return next(i for i in items if i["name"] == "home")["selectable"]
+
+    assert selectable(access_mode="ask")
+    assert selectable()
+    assert not selectable(access_mode="read_only")
+
+
+def owner_resource(service, backend, model, name):
+    owner = ("local", service.config["clients"]["local"])
+    catalog = service.resource_catalog(owner, "p", backend, model)
+    return next(i for i in catalog["items"] if i["name"] == name)
+
+
+def selection(item, token):
+    return [{"id": item["id"], "revision": item["revision"], "token": token}]
+
+
+def test_scheduled_run_does_not_resolve_prompts_behind_the_opt_in(tmp_path, monkeypatch):
+    from agent_service.app import create_app
+    from agent_service.errors import APIError
+
+    app = create_app(guest_and_owner_clients(tmp_path, monkeypatch))
+    service = app.state.service
+    try:
+        secret = owner_resource(service, "codex", "gpt-6-astra", "secret")
+        mine = owner_resource(service, "gemini", "fixture", "mine")
+        codex = {
+            "project_id": "p",
+            "backend": "codex",
+            "model": "gpt-6-astra",
+            "prompt": "/secret hi",
+            "resource_selections": selection(secret, "/secret"),
+        }
+        gemini = {
+            "project_id": "p",
+            "backend": "gemini",
+            "model": "fixture",
+            "prompt": "/mine hi",
+            "resource_selections": selection(mine, "/mine"),
+        }
+        scheduled = {"schedule_id": "f" * 32}
+        assert service.selected_resources(codex, owner=True)[0]["name"] == "secret"
+        with pytest.raises(APIError):
+            service.selected_resources({**codex, **scheduled}, owner=True)
+        # Gemini commands do not depend on the opt-in, so the owner's schedule keeps them.
+        assert service.selected_resources({**gemini, **scheduled}, owner=True)[0]["name"] == "mine"
+    finally:
+        service.db.close()
+
+
+def test_owner_workflow_resolves_the_owners_resource_and_a_guest_does_not(tmp_path, monkeypatch):
+    import json
+
+    from agent_service import workflows
+    from agent_service.app import create_app
+
+    conf = guest_and_owner_clients(tmp_path, monkeypatch)
+    conf["gemini_models"] = {"fixture": ["configured"]}
+    put(
+        tmp_path / "project",
+        "workflows/w.json",
+        json.dumps(
+            {
+                "id": "w",
+                "steps": [
+                    {
+                        "id": "s1",
+                        "kind": "command",
+                        "resource_id": "user/gemini/commands/mine.toml",
+                        "requested_backend": "gemini",
+                        "model": "fixture",
+                        "effort": "configured",
+                    }
+                ],
+            }
+        ),
+    )
+    app = create_app(conf)
+    service = app.state.service
+    try:
+        rid = "project/p/workflows/w.json"
+        scope, owner = service.resource_scope("local", {})
+        assert owner and workflows.resolve_workflow(scope, "p", rid, owner=True)["steps"]
+        scope, owner = service.resource_scope("a", {})
+        assert not owner
+        with pytest.raises(workflows.WorkflowError):
+            workflows.resolve_workflow(scope, "p", rid, owner=owner)
+    finally:
+        service.db.close()
+
+
+def test_maestro_step_resources_follow_the_row_owner(tmp_path, monkeypatch):
+    from agent_service import maestro
+    from agent_service.app import create_app
+    from agent_service.errors import APIError
+
+    app = create_app(guest_and_owner_clients(tmp_path, monkeypatch))
+    service = app.state.service
+    try:
+        mine = owner_resource(service, "gemini", "fixture", "mine")
+        data = {"project_id": "p", "backend": "gemini", "model": "fixture"}
+        step = {
+            "task": "/mine hi",
+            "backend": "gemini",
+            "model": "fixture",
+            "resource_selections": selection(mine, "/mine"),
+        }
+        plan = {"steps": [dict(step)]}
+        maestro.retain_resources(service, {"owner": "local"}, data, plan)
+        assert plan["steps"][0]["resource_snapshots"][0]["resource_id"] == mine["resource_id"]
+        assert maestro.resources_unchanged(service, {"owner": "local"}, data, plan)
+        assert not maestro.resources_unchanged(service, {"owner": "a"}, data, plan)
+        with pytest.raises(APIError):
+            maestro.retain_resources(service, {"owner": "a"}, data, {"steps": [dict(step)]})
+    finally:
+        service.db.close()

@@ -54,12 +54,31 @@ guests (any caller other than the local owner) and scheduled runs never get it
 - Claude Code: the owner's MCP servers (`~/.claude.json`) and plugins are offered;
   `--setting-sources user,project` plus the owner's `hooks` with the hooks grant; the owner's
   `~/.claude/CLAUDE.md` is appended to the system prompt.
-- `/v1/resources` lists user-scope skills and agents from the owner's folders; without the
-  opt-in it lists those of the harness home (none by default). `/v1/integrations` lists no
-  Codex, DeepSeek or Claude connector without the opt-in.
+- `/v1/resources` lists the user-scope agents, skills and commands of the home the CLI reads:
+  the harness home for Codex and Claude, `providers/deepseek` plus
+  `providers/home/.agents/skills` for DeepSeek, whatever the opt-in says. With the opt-in the
+  owner's own `~/.codex` and `~/.claude` skills (and Claude commands) are listed as unavailable;
+  the owner's agents and Codex prompts stay available because the harness inserts their text
+  itself. Claude user skills and commands are unavailable unless the opt-in and the hooks grant
+  are both on, the access mode is not Read only, and the project has no catalog
+  (`approval_policy.hooks_allowed` and `effective_permissions`, shared with the run, which
+  looks only at the catalogs of the selected resources: the palette cannot know the selection,
+  so any catalog counts). The run then reads the harness home with
+  `--setting-sources user,project`. A scheduled run drops the opt-in, which the palette cannot
+  know. The owner's personal resources (`~/.gemini` commands, the owner's `~/.codex` and
+  `~/.claude` folders) are listed only when the caller is positively the owner
+  (`owner=True` in `resources.discover`, `resolve`, `catalog.catalog` and
+  `ConversationService.selected_resources`; every default is "hidden"), in the palette, in
+  `/v1/catalog` and when a run resolves its selections, so a guest cannot run an owner resource
+  by id. Workflows and the Maestro derive the owner from the job row the same way. Resources
+  behind the opt-in (the owner's `~/.codex/prompts`) resolve only for a run whose effective
+  personal setup is on (`provider_setup.personal_setup_on`: opted in, the owner's own, not
+  scheduled), so an owner's scheduled run does not insert them. Gemini commands do not depend on
+  the opt-in, so the owner sees `~/.gemini` as before, scheduled or not.
+  `/v1/integrations` lists no Codex, DeepSeek or Claude connector without the opt-in.
 
 Not carried by the opt-in (follow-ups): Codex hook definitions and user skills, which the
-CLI reads only from its own home; Claude user skills (WP-09 materializes or marks them).
+CLI reads only from its own home; the owner's own Claude and Codex skills (the palette lists them as unavailable).
 
 ## Language rule (D30, rule A)
 
