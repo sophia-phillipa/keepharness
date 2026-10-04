@@ -2,7 +2,7 @@
 
 [![🇺🇸 English](https://img.shields.io/badge/%F0%9F%87%BA%F0%9F%87%B8-English-blue.svg)](README.md) [![🇧🇷 Português (Brasil)](https://img.shields.io/badge/%F0%9F%87%A7%F0%9F%87%B7-Portugu%C3%AAs%20(Brasil)-green.svg)](README.pt-BR.md)
 
-Painel local em Python para descobrir, configurar e executar o Codex CLI, o Claude Code, o Gemini CLI e modelos de IA locais, com uma interface de conversa acessível pela Tailscale ou outra VPN. Python 3.11+, licença MIT, versão **0.15.0**.
+Painel local em Python para descobrir, configurar e executar o Codex CLI, o Claude Code, o Gemini CLI e modelos de IA locais, com uma interface de conversa acessível pela Tailscale ou outra VPN. Python 3.11+, licença MIT, versão **0.16.0**.
 
 ## 🚀 Installation — agent-guided (start here)
 
@@ -409,3 +409,7 @@ O chat adota um shell no estilo do Codex, com uma barra lateral de ícones e uma
 ## 🆕 Version 0.15.0
 
 O produto agora se chama **KeepHarness**. O pacote, os comandos (`keepharness`, `keepharness-install`, `keepharness-mcp`, `keepharness-local`), o servidor MCP, as variáveis de ambiente (`KEEPHARNESS_*`) e as pastas (`~/.local/share/keepharness`, `~/.config/keepharness`) usam o novo nome; na primeira inicialização com a pasta de estado padrão, e no `install.sh`, o KeepHarness move e adota as pastas de estado e de configuração do Tail Harness, sem nunca mesclar com uma pasta já existente. Renomeie as variáveis `TAIL_HARNESS_*` que você define e rode o novo `setup-mcp.sh` nos computadores clientes de MCP. A barra lateral ganha **Space** (páginas Markdown por projeto, para anexar ou iniciar um chat) e **Scheduled** (prompts que rodam diariamente, semanalmente ou a cada poucas horas com acesso Ask ou Read only), cada linha de plugin abre uma visão de detalhes, e `desktop/` traz um cliente Electron. Veja a [especificação da release](dossier/releases/v0.15.0.md) para migração e validação.
+
+## 🆕 Version 0.16.0
+
+Em desenvolvimento; isto é o que já foi integrado. Os anexos leem o texto de **DOCX** (cabeçalhos, rodapés, notas de rodapé e notas de fim) e de **XLSX** (cada string compartilhada uma só vez) sem quebrar trechos, decodificam arquivos UTF-16/UTF-8 com BOM e Windows-1252, e mostram o chip "excerpt sent" quando só parte de um arquivo longo vai ao modelo. O modo **Automatic** agora fica dentro do projeto: as edições ali seguem e qualquer outra coisa gera um cartão de aprovação, enquanto o **Full access** só funciona quando o dono liga "Allow Full access" no painel de administração (desligado por padrão). **As tarefas agendadas rodam sem internet**, a menos que a tarefa marque "Allow internet", e um agendamento pode escolher um agente e páginas do Space. **Archive** substitui o antigo Delete e pode ser desfeito em Settings › Archived chats, enquanto **Delete permanently** apaga de fato a conversa e não tem volta. Projetos não precisam mais de uma pasta, e o chip **Files** abre um seletor (uploads recentes, páginas do Space, Upload…, Browse project files…) em vez de trocar o Chat por Code. Faça backup da pasta de estado antes de apagar de vez e marque "Allow internet" nos agendamentos que precisam de rede. Veja a [especificação da release](dossier/releases/v0.16.0.md) para migração e validação.

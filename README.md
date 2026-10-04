@@ -2,7 +2,7 @@
 
 [![🇺🇸 English](https://img.shields.io/badge/%F0%9F%87%BA%F0%9F%87%B8-English-blue.svg)](README.md) [![🇧🇷 Português (Brasil)](https://img.shields.io/badge/%F0%9F%87%A7%F0%9F%87%B7-Portugu%C3%AAs%20(Brasil)-green.svg)](README.pt-BR.md)
 
-A local Python control panel for discovering, configuring and running Codex CLI, Claude Code, Gemini CLI and local AI models, with a conversational harness accessible through Tailscale or another VPN. Python 3.11+, MIT license, version **0.15.0**.
+A local Python control panel for discovering, configuring and running Codex CLI, Claude Code, Gemini CLI and local AI models, with a conversational harness accessible through Tailscale or another VPN. Python 3.11+, MIT license, version **0.16.0**.
 
 ## 🚀 Installation — agent-guided (start here)
 
@@ -409,3 +409,7 @@ The chat adopts a Codex-style shell with an icon rail and a composer sub-bar. A 
 ## 🆕 Version 0.15.0
 
 The product is now **KeepHarness**. The package, commands (`keepharness`, `keepharness-install`, `keepharness-mcp`, `keepharness-local`), MCP server, environment variables (`KEEPHARNESS_*`) and folders (`~/.local/share/keepharness`, `~/.config/keepharness`) use the new name; on its first start with the default state folder, and in `install.sh`, KeepHarness moves the Tail Harness state and config folders and adopts them, never merging into an existing folder. Rename any `TAIL_HARNESS_*` variable you set and run the new `setup-mcp.sh` on MCP client computers. The rail gains **Space** (Markdown pages per project, to attach or to start a chat with) and **Scheduled** (prompts that run daily, weekly or every few hours with Ask or Read only access), each plugin row opens a detail view, and `desktop/` holds an Electron client. See the [release specification](dossier/releases/v0.15.0.md) for migration and validation.
+
+## 🆕 Version 0.16.0
+
+In development; this is what has merged so far. Attachments read **DOCX** (headers, footers, footnotes and endnotes) and **XLSX** (each shared string once) text without splitting runs, decode UTF-16/UTF-8 BOM and Windows-1252 files, and show an "excerpt sent" chip when only part of a long file goes to the model. **Automatic** mode now stays inside the project: edits there proceed and anything else raises an approval card, while **Full access** works only when the owner turns on "Allow Full access" in the admin dashboard (off by default). **Scheduled tasks run without internet** unless a task ticks "Allow internet", and a schedule can pick an agent and Space pages. **Archive** replaces the old Delete and can be undone under Settings › Archived chats, while **Delete permanently** really erases the conversation and cannot be undone. Projects no longer need a folder, and the **Files** chip opens a picker (recent uploads, Space pages, Upload…, Browse project files…) instead of switching Chat to Code. Back up the state folder before deleting permanently, and tick "Allow internet" on schedules that need the network. See the [release specification](dossier/releases/v0.16.0.md) for migration and validation.
