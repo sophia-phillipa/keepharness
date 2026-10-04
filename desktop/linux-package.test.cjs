@@ -20,7 +20,7 @@ function fakePackage(name, version) {
   };
   copy('launcher.sh', 'keepharness', 0o755);
   copy('install-desktop-linux.sh', 'install-desktop-linux.sh', 0o755);
-  copy('install-desktop-linux.py', 'install-desktop-linux.py');
+  copy('install_desktop_linux.py', 'install_desktop_linux.py');
   copy('keepharness.desktop', 'share/applications/keepharness.desktop');
   fs.mkdirSync(path.join(dir, 'share/icons/hicolor/256x256/apps'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'share/icons/hicolor/256x256/apps/keepharness.png'), '');
@@ -320,7 +320,7 @@ test('uninstall_unreadable_subtree_refuses_before_any_delete', () => {
 test('uninstall_mount_root_refused_before_any_delete', () => {
  const f=fixture();f.invoke();const mount=path.join(f.home,'.config/KeepHarness');put(path.join(mount,'precious'));
  const script=`import pathlib,sys,runpy\noriginal=pathlib.Path.read_text;mount=sys.argv[2]\npathlib.Path.read_text=lambda p,*a,**kw: ('1 0 0:1 / '+mount+' rw - tmpfs tmpfs rw\\n') if str(p)=='/proc/self/mountinfo' else original(p,*a,**kw)\nhelper=sys.argv[1];sys.argv=[helper,'--source',sys.argv[3],'--uninstall','--yes'];runpy.run_path(helper,run_name='__main__')`;
- assert.throws(()=>run('python3',['-c',script,path.join(f.pkg,'install-desktop-linux.py'),mount,f.pkg],{HOME:f.home}),/Mounted deletion root/);
+ assert.throws(()=>run('python3',['-c',script,path.join(f.pkg,'install_desktop_linux.py'),mount,f.pkg],{HOME:f.home}),/Mounted deletion root/);
  assert.ok(fs.existsSync(f.entry));assert.ok(fs.existsSync(path.join(f.opt,'keepharness-0.15.0')));
 });
 test('uninstall_reports_rm_failure_and_refuses_symlinked_parent', () => {
@@ -358,7 +358,7 @@ test('package_outside_git_refused', () => {
   const script = path.join(checkout, 'scripts/package-desktop-linux.sh');
   put(script, fs.readFileSync(path.join(__dirname, '../scripts/package-desktop-linux.sh')));
   // Fail visibly if packaging proceeds past its git preflight.
-  put(path.join(checkout, 'scripts/verify-electron.py'), 'raise RuntimeError("verification reached")');
+  put(path.join(checkout, 'scripts/verify_electron.py'), 'raise RuntimeError("verification reached")');
   assert.throws(() => run('bash', [script], {HOME:f.home}), error => {
     assert.match(error.stderr, /not a git repository/i);
     assert.doesNotMatch(error.stderr, /verification reached/);
@@ -419,7 +419,7 @@ test('tree_refuses_changed_parent_root', () => {
   const moved = path.join(f.home, 'moved'); put(path.join(original, 'candidate/precious'));
   fs.renameSync(original, moved); fs.symlinkSync(moved, original);
   const script = `import runpy,sys,pathlib\nm=runpy.run_path(sys.argv[1]);m['tree'](pathlib.Path(sys.argv[2]))`;
-  assert.throws(() => run('python3', ['-c',script,path.join(f.pkg,'install-desktop-linux.py'),path.join(original,'candidate')], {HOME:f.home}), /Outside expected parent/);
+  assert.throws(() => run('python3', ['-c',script,path.join(f.pkg,'install_desktop_linux.py'),path.join(original,'candidate')], {HOME:f.home}), /Outside expected parent/);
   assert.equal(fs.readFileSync(path.join(moved, 'candidate/precious'), 'utf8'), 'sentinel');
 });
 test('refusal_assertions_require_diagnostics', () => {

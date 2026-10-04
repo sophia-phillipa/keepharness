@@ -10,7 +10,7 @@ import zipfile
 root, dist = map(Path, sys.argv[1:])
 version = json.loads((root / 'desktop/package.json').read_text())['devDependencies']['electron']
 name = f'electron-v{version}-linux-x64.zip'
-checksums = (root / f'desktop/linux/electron-v{version}-SHASUMS256.txt').read_text().splitlines()
+checksums = (root / f'desktop/linux/electron-v{version}-shasums256.txt').read_text().splitlines()
 expected = next(line.split()[0] for line in checksums if line.split()[-1].lstrip('*') == name)
 archive = os.environ.get('KEEPHARNESS_ELECTRON_ZIP')
 if archive:
