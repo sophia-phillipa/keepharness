@@ -295,11 +295,11 @@ runPersona("H38", [
       await audit(page, "start", sink);
 
       await page.click("#settings");
-      for (const section of ["appearance", "agents", "skills"]) {
+      for (const section of ["appearance", "customize", "models"]) {
         await page.click(`[data-settings=${section}]`);
         await audit(page, "settings " + section, sink);
       }
-      // "Connection / MCP" lives in the settings navigation.
+      // "Connect a client" lives in the settings navigation.
       await page.click("#setup");
       await visible(page, "#setup-dialog");
       await audit(page, "setup", sink);
@@ -473,7 +473,7 @@ runPersona("H38", [
       });
       await page.goto("http://admin.test/");
       await visible(page, "[data-panel=providers]");
-      for (const panel of ["home", "providers", "runs"]) {
+      for (const panel of ["home", "providers", "runs", "connection"]) {
         await page.click(`[data-panel=${panel}]`);
         await audit(page, panel, sink);
       }
@@ -482,12 +482,7 @@ runPersona("H38", [
       await audit(page, "import/export", sink);
       await page.click("#network-close");
       await page.click("#theme");
-      for (const tab of await page
-        .locator("#appearance-dialog .config-tabs button")
-        .all()) {
-        await tab.click();
-        await audit(page, "appearance", sink);
-      }
+      await audit(page, "appearance", sink);
       await page.click("#appearance-close");
 
       await page.click("[data-panel=providers]");

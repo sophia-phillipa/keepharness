@@ -368,7 +368,7 @@ runPersona("H37", [
       await fits(page, "#settings-dialog");
       await reachable(page, "#settings-close");
       assert(await noPageScroll(page));
-      for (const section of ["agents", "skills"]) {
+      for (const section of ["customize", "models"]) {
         await page.click(`[data-settings=${section}]`);
         assert.deepEqual(
           await page.evaluate(sideOverflow),

@@ -139,12 +139,11 @@ runPersona("H30", [
         await text(page, "#quota-current"),
         /your own DeepSeek account credits/,
       );
-      // F-92 scope decision (JEV, WP-C2): only Gemini (and Claude) get their
-      // own quota heading; DeepSeek keeps the generic "ChatGPT account quota"
-      // heading, matching the triage row's fix scope.
+      // L55: every provider names itself in the panel; DeepSeek no longer claims
+      // "ChatGPT account quota" for a balance that is not a ChatGPT quota.
       assert.equal(
         await text(page, "#quota-panel .quota-heading strong"),
-        "ChatGPT account quota",
+        "DeepSeek balance",
       );
       await page.keyboard.press("Escape");
       await page.keyboard.press("Escape");

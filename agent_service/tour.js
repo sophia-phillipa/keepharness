@@ -3,21 +3,13 @@
 
   const STORAGE_KEY = "keepharness-tour-seen";
   const RELEASE = "0.15.0";
+  // D19: five steps, each for something a new user cannot guess. The rest is discoverable in place.
   const steps = [
-    { target: "top-search", title: "Search the workspace", text: "Search runs and conversations, steps in the current plan, and loaded files from one place. Use Ctrl/⌘+K to open it without leaving the keyboard." },
-    { target: "quota-meters", title: "Provider quota", text: "These meters show the latest known allowance for each configured provider. Providers without quota data stay out of the way." },
-    { target: "attention-bell", title: "Attention inbox", text: "The bell gathers completed work, requests, and errors that need a look. Its count and filters help you focus on the right events." },
-    { target: "sidebar-state-groups", title: "Conversations by state", text: "Project chats stay inside their project; other conversations are listed under Chats, with what needs you first. A yellow dot means a conversation needs your answer; a spinner, running; a ring, queued; red, failed; blue, an unread answer. Each row shows its live activity, age, backend, and project." },
-    { target: "conversation-header", title: "Conversation context", text: "The header shows the conversation state, project, execution mode, and access level. Check it before sending work that depends on a specific project or permission." },
-    { target: "maestro-plan", title: "Maestro plan and approval", text: "Maestro turns a task into ordered steps with a role, model, and effort for each one. Review the plan here, then approve it or edit it in the Run console." },
-    { target: "composer", title: "Compose and route work", text: "Write a request or type / to choose agents, skills, and commands. You can chain resources before sending and preview what will be applied." },
-    { target: "composer-controls", title: "Access, model, and effort", text: "These controls set what the assistant may do and which model will work. Effort adjusts how much reasoning the selected model uses when supported." },
-    { target: "status-strip", title: "Live status", text: "The strip keeps running, queued, and needs-you counts visible while you chat. Select it or press Ctrl/⌘+J to expand the Run console." },
-    { target: "run-console-tabs", title: "Run console views", text: "Pipeline shows the current plan while Timeline and Logs expose execution detail. Runs and Agents let you inspect work across the project.", reveal: "console" },
-    { target: "span-detail", title: "Span details", text: "Select a pipeline span to inspect its timing, tokens, and recorded events. Prompt and tool content remains hidden until you choose Show content.", reveal: "console" },
-    { target: "publish-gate", title: "Publication gate", text: "A mediated publish waits for your explicit approval and records the outcome. An unenforced destination is clearly marked so you can judge the risk before continuing." },
-    { target: "right-pane", title: "Files and activity", text: "Files, background tasks, resources and activity stay together here. Collapse section headings or drag their handles to make room for what you need.", reveal: "panel" },
-    { target: "settings-admin", title: "Settings, Admin, and help", text: "Settings controls this browser's appearance and working preferences; its System section (or the Admin button) shows providers, operations, runs and catalogs on the same screen. Open About or Help later and choose Take the tour to replay this guide." },
+    { target: "composer", title: "Write and route work", text: "Write a request, type / to choose agents, skills and commands, or @@ to call one of your agents. The chips under the box attach files and Space pages and choose plugins; the pickers set access, model and effort." },
+    { target: "rail-areas", title: "Space, Scheduled and Customize", text: "The rail opens Space (pages for each project), Scheduled (recurring tasks), Runs and Customize (your agents and skills). Hover or focus a rail button to read its name." },
+    { target: "sidebar-state-groups", title: "Conversations by state", text: "Project chats stay inside their project; other conversations are listed under Chats, with what needs you first. A yellow dot means a conversation needs your answer; a spinner, running; a ring, queued; red, failed; blue, an unread answer." },
+    { target: "run-console-tabs", title: "Live status and the Run console", text: "The status strip keeps running, queued and needs-you counts visible; select it or press Ctrl/⌘+J to open the Run console. Pipeline shows the current plan, Timeline and Logs show execution detail, and Runs lists work across the project.", reveal: "console" },
+    { target: "settings-admin", title: "Settings and help", text: "Settings holds Appearance, Customize, Models, Usage, Connect a client and About. On the computer that runs KeepHarness, its System section shows providers, operations, run history and catalogs. KeepHarness was called Tail Harness before 0.15. Choose Take the tour in Settings to replay this guide." },
   ];
 
   let root = null;
@@ -50,12 +42,6 @@
     if (step.reveal === "console") {
       const drawer = document.querySelector("#run-console");
       if (drawer?.hidden) document.querySelector("#run-status-toggle")?.click();
-    }
-    if (step.reveal === "panel") {
-      if (innerWidth <= 700 && !document.querySelector("#run-console")?.hidden)
-        document.querySelector("#run-status-toggle")?.click();
-      const panel = document.querySelector("#activity-panel");
-      if (panel?.hidden) document.querySelector("#panel-toggle")?.click();
     }
   }
 

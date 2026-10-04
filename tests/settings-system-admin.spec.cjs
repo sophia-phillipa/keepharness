@@ -56,7 +56,9 @@ const path = require("node:path");
     await page.goto(harness + "/");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
 
-    await page.click("#admin-shortcut-top");
+    // D43: the rail has no Admin button; Settings › System opens the same admin.
+    await page.click("#settings");
+    await page.getByRole("button", { name: "Providers" }).click();
     const dialog = page.locator("#settings-dialog");
     await dialog.waitFor({ state: "visible" });
     const providers = dialog.getByRole("button", { name: "Providers" });
@@ -82,9 +84,9 @@ const path = require("node:path");
     const frameBox = await frame.boundingBox();
     assert(frameBox.height > 700 && frameBox.width > 900, JSON.stringify(frameBox));
 
-    await dialog.getByRole("button", { name: "Runs" }).click();
+    await dialog.getByRole("button", { name: "Run history" }).click();
     await heading.filter({ hasText: /^Runs$/ }).waitFor({ state: "attached" });
-    assert.equal(await frame.getAttribute("title"), "Administration: Runs");
+    assert.equal(await frame.getAttribute("title"), "Administration: Run history");
 
     await dialog.getByRole("button", { name: "Appearance" }).click();
     assert(await page.locator("#settings-system").isHidden());

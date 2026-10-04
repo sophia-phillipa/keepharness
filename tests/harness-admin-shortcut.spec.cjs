@@ -78,20 +78,17 @@ const assert = require("node:assert/strict");
     );
     assert.equal(await page.locator("#app-brand").innerText(), "KeepHarness");
     assert.equal(await page.locator("#sidebar .brand").count(), 0);
-    assert.equal(await page.locator("#admin-shortcut-top").isVisible(), true);
+    // D43: the rail no longer carries an Admin button; Settings holds the shortcut.
+    assert.equal(await page.locator("#admin-shortcut-top").count(), 0);
     assert.equal(
-      await page.locator("#admin-shortcut-top").getAttribute("href"),
+      await page.locator("#admin-shortcut").getAttribute("href"),
       "http://127.0.0.1:8094/",
     );
     await page.click("#new");
     assert.equal(
-      await page.locator("#admin-shortcut-top").isVisible(),
-      true,
-      "administration remains available after a new conversation",
-    );
-    assert.equal(
-      await page.locator("#admin-shortcut-top").getAttribute("href"),
+      await page.locator("#admin-shortcut").getAttribute("href"),
       "http://127.0.0.1:8094/",
+      "administration remains available after a new conversation",
     );
     await page.click("#settings");
     assert.equal(

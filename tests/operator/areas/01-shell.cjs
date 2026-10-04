@@ -57,7 +57,7 @@ module.exports = {
       for (const [id, name] of [
         ["menu", /conversations panel/i], ["search-conversations", /Search/], ["attention-bell", /Attention/],
         ["panel-toggle", /files and activity/i], ["rail-space", /Space/], ["rail-scheduled", /Scheduled/],
-        ["rail-runs", /Runs/], ["rail-agents", /Agents/], ["theme-toggle", /theme/i], ["about", /About/], ["settings", /Settings/],
+        ["rail-runs", /Runs/], ["rail-agents", /Customize/], ["settings", /Settings/],
       ]) {
         const button = page.locator("#" + id);
         await op.see(button);
@@ -81,7 +81,8 @@ module.exports = {
       await op.gone(page.locator("#activity-panel"));
     });
 
-    await op.step("about", "Open About: it describes the app and offers the tour", async () => {
+    await op.step("about", "Open About from Settings: it describes the app and offers the tour", async () => {
+      await op.click(page.locator("#settings"));
       await op.click(page.locator("#about"));
       await op.see(page.locator("#about-dialog"));
       await op.seeText(page.locator("#about-dialog"), /About KeepHarness/);
@@ -89,7 +90,10 @@ module.exports = {
     });
 
     await op.step("about-tour", "Restart the tour from About, then skip it", async () => {
-      if (!(await page.locator("#about-dialog").isVisible())) await op.click(page.locator("#about"));
+      if (!(await page.locator("#about-dialog").isVisible())) {
+        if (!(await page.locator("#settings-dialog").isVisible())) await op.click(page.locator("#settings"));
+        await op.click(page.locator("#about"));
+      }
       await op.click(page.locator("#take-tour"));
       await op.see(page.locator("#tour-root"));
       await dismissTour(op);

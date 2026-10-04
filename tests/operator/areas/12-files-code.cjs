@@ -69,10 +69,10 @@ module.exports = {
       await op.see(page.locator("#files-view, #workspace-files").first());
     });
 
-    await op.step("code-mode", "Code mode asks what to build and keeps the files panel", async () => {
+    await op.step("code-mode", "Code view keeps the greeting and shows the files panel", async () => {
       await ensurePanel();
       await op.click(page.getByRole("tab", { name: "Code" }));
-      await op.seeText(page.locator("#welcome"), /What should we build/);
+      await op.seeText(page.locator("#welcome"), /How can I help/);
       await op.see(panel);
     });
 
