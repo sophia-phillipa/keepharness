@@ -26,7 +26,9 @@ Not yet: a frozen Python backend, AppImage, .deb, signing, or auto-update.
 ## Portable Linux package lifecycle (WP-18 S3)
 
 Build with `KEEPHARNESS_ELECTRON_DIST=/path/to/electron/dist scripts/package-desktop-linux.sh`
-from a clean Git tree. The exact Electron archive must be in `~/.cache/electron/*/`, or
+from a clean Git tree with a valid HEAD; running outside a Git repository is refused.
+The installer requires the manifest commit to contain exactly 40 hexadecimal characters.
+The exact Electron archive must be in `~/.cache/electron/*/`, or
 selected with `KEEPHARNESS_ELECTRON_ZIP`. Its SHA-256 is verified against the committed
 release SHASUMS256.txt, then every runtime file is compared to that archive. A dirty
 tree, changed runtime, existing output folder, or invalid version stops the build.
@@ -42,6 +44,10 @@ Run the package's `./install-desktop-linux.sh` as the target user. Python 3 and 
 `flock` semantics are required. Version directories are immutable:
 `~/.local/opt/keepharness-<version>`. The menu uses the atomic
 `~/.local/opt/keepharness/current` link; `previous` records the prior selection.
+On the first upgrade from a legacy installation without `current`, an exact versioned
+`Exec=` line in `keepharness.desktop` identifies the marked installation to preserve as
+`previous`. Package paths are canonicalized, allowing symlinked ancestors such as
+Fedora Atomic's `/home` while still refusing symlinks inside the package.
 An identical reinstall preserves the version; different contents are refused.
 `./install-desktop-linux.sh --rollback` swaps current and previous, and refuses a
 missing or broken previous installation. Pruning follows installation order, keeps
@@ -69,4 +75,6 @@ hint before launch when applicable; it never disables the Chromium sandbox.
 The browser shortcut is `keepharness-browser.desktop`. Installing the desktop removes
 only the exact owned browser shortcut; Python registration skips it while `current`
 points to a marked install. Python rollback never removes the desktop client's entry.
+Installation leaves a symlinked browser shortcut untouched and prints a note.
+Desktop uninstall always leaves the browser shortcut untouched.
 After desktop uninstall, run `./install.sh` to get the browser entry back.

@@ -38,7 +38,7 @@ def checked(path, root=None):
 
 def tree(path):
     """Do not follow links or cross devices, including bind-mounted descendants."""
-    info = checked(path, path.parent.resolve(strict=True))
+    info = checked(path, path.parent)
     # mountinfo also identifies same-device bind mounts that ismount cannot detect.
     mounts = {Path(re.sub(r'\\([0-7]{3})', lambda m: chr(int(m[1], 8)), line.split()[4]))
               for line in Path('/proc/self/mountinfo').read_text().splitlines()}
@@ -177,7 +177,7 @@ def verify_package(source):
     if not version_name('keepharness-' + version):
         refuse('Invalid package version')
     manifest = json.loads((source / 'build-manifest.json').read_text())
-    if manifest.get('version') != version or manifest.get('product') != 'keepharness' or manifest.get('dirty') is not False:
+    if manifest.get('version') != version or manifest.get('product') != 'keepharness' or manifest.get('dirty') is not False or not isinstance(manifest.get('commit'), str) or not re.fullmatch('[0-9a-fA-F]{40}', manifest['commit']):
         refuse('Invalid package provenance')
     return version
 
@@ -303,11 +303,7 @@ def main():
                 atomic_link(container, 'previous', current)
                 atomic_link(container, 'current', previous)
             return
-        source = Path(os.path.abspath(args.source))
-        # Reject symlinked source ancestors as well as every package member.
-        for p in (source, *source.parents):
-            if p.is_symlink():
-                refuse(f'Symlinked package source: {p}')
+        source = Path(args.source).resolve(strict=True)
         version = verify_package(source)
         target = opt / ('keepharness-' + version)
         if exists(target):
@@ -317,7 +313,11 @@ def main():
                 refuse('Version already installed with different contents')
         browser_lines = {f'Exec="{h}/.local/bin/keepharness-open"' for h in {raw.rstrip('/'), str(home)}}
         browser = apps / 'keepharness-browser.desktop'
-        drop_browser = exact_entry(browser, browser_lines, browser=True)
+        if browser.is_symlink():
+            print(f'Skip symlinked browser entry: {browser}')
+            drop_browser = False
+        else:
+            drop_browser = exact_entry(browser, browser_lines, browser=True)
         entry = apps / 'keepharness.desktop'
         if exists(entry):
             checked(entry, apps)
@@ -326,6 +326,15 @@ def main():
             if not exact_entry(entry, own) and not exact_entry(entry, browser_lines, browser=True):
                 refuse('Foreign desktop entry preserved')
         old = target_of(container, 'current', opt) if exists(container / 'current') else None
+        if old is None:
+            for candidate in opt.iterdir():
+                if marker(candidate) and exact_entry(entry, {
+                    f'Exec="{h}/{candidate.relative_to(home)}/keepharness"'
+                    for h in {raw.rstrip('/'), str(home)}
+                }):
+                    checked(candidate, opt)
+                    old = candidate
+                    break
         if args.dry_run:
             print(f'Install: {target}')
             return
@@ -349,8 +358,8 @@ def main():
                 if exists(stage):
                     remove([stage])
         container.mkdir(exist_ok=True)
-        if old != target:
-            if old:
+        if old != target or not exists(container / 'current'):
+            if old and old != target:
                 atomic_link(container, 'previous', old)
             atomic_link(container, 'current', target)
         temp = Path(subprocess.check_output(['mktemp', str(apps / '.keepharness-XXXXXX')], text=True).strip())

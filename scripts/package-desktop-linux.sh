@@ -3,10 +3,12 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
-if [ -n "$(git status --porcelain --untracked-files=normal)" ]; then
+s=$(git status --porcelain --untracked-files=normal) || exit 1
+if [ -n "$s" ]; then
   echo 'Dirty source tree refused; commit or export a clean snapshot before packaging.' >&2
   exit 1
 fi
+commit=$(git rev-parse --verify HEAD) || exit 1
 ELECTRON_DIST="${KEEPHARNESS_ELECTRON_DIST:-$ROOT/desktop/node_modules/electron/dist}"
 python3 scripts/verify-electron.py "$ROOT" "$ELECTRON_DIST"
 VERSION="$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
@@ -44,7 +46,7 @@ install -Dm644 desktop/linux/keepharness.desktop "$OUT/share/applications/keepha
 for size in 16 24 32 48 64 128 256 512; do
   install -Dm644 "desktop/build/icons/${size}x${size}.png" "$OUT/share/icons/hicolor/${size}x${size}/apps/keepharness.png"
 done
-python3 - "$OUT" "$(git rev-parse HEAD)" "$VERSION" <<'PY'
+python3 - "$OUT" "$commit" "$VERSION" <<'PY'
 import hashlib, json, pathlib, sys
 out, commit, version = sys.argv[1:]
 out = pathlib.Path(out)

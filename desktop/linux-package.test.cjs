@@ -30,17 +30,20 @@ function fakePackage(name, version) {
     '#!/bin/sh\nprintf "%s|%s|%s|%s\\n" "$KEEPHARNESS_PYTHON" "$XDG_CACHE_HOME" "$KEEPHARNESS_HOST_XDG_CACHE_HOME" "$*"\n',
     { mode: 0o755 },
   );
-  fs.writeFileSync(path.join(dir, 'build-manifest.json'), JSON.stringify({version, product:'keepharness', dirty:false}));
+  fs.writeFileSync(path.join(dir, 'build-manifest.json'), JSON.stringify({version, product:'keepharness', dirty:false, commit:'a'.repeat(40)}));
+  writeSums(dir);
+  return dir;
+}
+function writeSums(dir) {
   const sums = [];
   function walk(folder) {
     for (const entry of fs.readdirSync(folder, {withFileTypes:true})) {
       const file = path.join(folder, entry.name);
       if (entry.isDirectory()) walk(file);
-      else sums.push(require('node:crypto').createHash('sha256').update(fs.readFileSync(file)).digest('hex') + '  ' + path.relative(dir,file));
+      else if (entry.name !== 'SHA256SUMS') sums.push(require('node:crypto').createHash('sha256').update(fs.readFileSync(file)).digest('hex') + '  ' + path.relative(dir,file));
     }
   }
   walk(dir); fs.writeFileSync(path.join(dir,'SHA256SUMS'), sums.sort().join('\n')+'\n');
-  return dir;
 }
 function newHome(name) {
   const dir = path.join(root, name);
@@ -130,7 +133,7 @@ function current(f, name = 'current') { return fs.realpathSync(path.join(f.opt, 
 
 test('uninstall_refuses_empty_root_or_relative_home', () => {
   const f = fixture();
-  for (const home of ['', '/', 'relative']) assert.throws(() => run(f.installer, ['--uninstall','--yes'], {HOME:home}));
+  for (const home of ['', '/', 'relative']) assert.throws(() => run(f.installer, ['--uninstall','--yes'], {HOME:home}), /HOME|Invalid HOME/);
 });
 test('uninstall_works_with_home_behind_symlink', () => {
   const f = fixture(); f.invoke(); const alias = f.home + '-alias'; fs.symlinkSync(f.home, alias);
@@ -139,11 +142,11 @@ test('uninstall_works_with_home_behind_symlink', () => {
 test('uninstall_refuses_symlinked_config_keepharness_target', () => {
   const f = fixture(); f.invoke(); const outside = f.home + '-outside'; fs.mkdirSync(outside); put(path.join(outside,'sentinel'));
   fs.mkdirSync(path.join(f.home,'.config'), {recursive:true}); fs.symlinkSync(outside,path.join(f.home,'.config/KeepHarness'));
-  assert.throws(() => f.invoke('--uninstall','--yes')); assert.ok(fs.existsSync(f.entry)); assert.ok(fs.existsSync(path.join(outside,'sentinel')));
+  assert.throws(() => f.invoke('--uninstall','--yes'), /symlink/i); assert.ok(fs.existsSync(f.entry)); assert.ok(fs.existsSync(path.join(outside,'sentinel')));
 });
 test('uninstall_refuses_symlinked_version_dir', () => {
   const f = fixture(); f.invoke(); fs.symlinkSync(f.pkg,path.join(f.opt,'keepharness-9.0.0'));
-  assert.throws(() => f.invoke('--uninstall','--yes')); assert.ok(fs.existsSync(f.entry));
+  assert.throws(() => f.invoke('--uninstall','--yes'), /symlink/i); assert.ok(fs.existsSync(f.entry));
 });
 test('current_unlinked_target_untouched', () => {
   const f = fixture(); f.invoke(); const link = path.join(f.opt,'keepharness/current'); fs.unlinkSync(link); fs.symlinkSync(f.pkg,link);
@@ -162,12 +165,12 @@ for (const [name, exec] of [['foreign','/foreign'],['prefix_lookalike', '/keepha
 test('uninstall_case_insensitive_alias_refused', () => {
   const f=fixture(); f.invoke(); fs.mkdirSync(path.join(f.home,'.config/keepharness'),{recursive:true});
   fs.symlinkSync('keepharness',path.join(f.home,'.config/KeepHarness'));
-  assert.throws(() => f.invoke('--uninstall','--yes')); assert.ok(fs.existsSync(f.entry));
+  assert.throws(() => f.invoke('--uninstall','--yes'), /share an inode/); assert.ok(fs.existsSync(f.entry));
 });
 test('uninstall_refused_while_running', () => {
   const f=fixture(); f.invoke(); fs.mkdirSync(path.join(f.home,'.config/KeepHarness'),{recursive:true});
   fs.symlinkSync(`${os.hostname()}-${process.pid}`,path.join(f.home,'.config/KeepHarness/SingletonLock'));
-  assert.throws(() => f.invoke('--uninstall','--yes')); assert.ok(fs.existsSync(f.entry));
+  assert.throws(() => f.invoke('--uninstall','--yes'), /Desktop is running/); assert.ok(fs.existsSync(f.entry));
 });
 test('uninstall_python_product_byte_identical', () => {
   const f=fixture(); f.invoke(); const keep=['.config/keepharness/settings.json','.local/share/keepharness/local.key','.config/systemd/user/keepharness.service'];
@@ -186,7 +189,7 @@ test('prune_ignores_installing_and_failed_copy', () => {
   installNext(f,'0.15.1'); installNext(f,'0.15.2');
   for (const suffix of ['.installing','.failed-copy-123']) assert.ok(fs.existsSync(path.join(f.opt,'keepharness-1.0.0'+suffix,'precious')));
 });
-test('rollback_single_version_refused', () => {const f=fixture(); f.invoke(); assert.throws(()=>f.invoke('--rollback'));});
+test('rollback_single_version_refused', () => {const f=fixture(); f.invoke(); assert.throws(()=>f.invoke('--rollback'), /Missing link/);});
 test('rollback_twice_toggles', () => {
   const f=fixture(); f.invoke(); installNext(f,'0.15.1'); f.invoke('--rollback'); assert.equal(path.basename(current(f)),'keepharness-0.15.0');
   f.invoke('--rollback'); assert.equal(path.basename(current(f)),'keepharness-0.15.1');
@@ -205,7 +208,7 @@ test('desktop_install_removes_exact_browser_entry_only', () => {
 test('tampered_file_refused_and_identical_reinstall_noop', () => {
   const f=fixture(); f.invoke(); const before=fs.statSync(path.join(f.opt,'keepharness/current')).mtimeMs; f.invoke();
   assert.equal(fs.statSync(path.join(f.opt,'keepharness/current')).mtimeMs,before);
-  put(path.join(f.pkg,'keepharness-bin'),'tampered'); assert.throws(()=>f.invoke());
+  put(path.join(f.pkg,'keepharness-bin'),'tampered'); assert.throws(()=>f.invoke(), /SHA256SUMS mismatch/);
 });
 
 const {spawn} = require('node:child_process');
@@ -220,7 +223,7 @@ async function stopChild(child) {
 test('prune_skips_running_version', async () => {
   const f=fixture(); f.invoke(); const binary=path.join(f.opt,'keepharness-0.15.0/keepharness-bin');
   const child=spawn('/usr/bin/sleep',['30'],{argv0:binary,stdio:'ignore'});
-  try {await delay(60); installNext(f,'0.15.1');installNext(f,'0.15.2');assert.ok(fs.existsSync(binary));assert.throws(()=>f.invoke('--uninstall','--yes'));}
+  try {await delay(60); installNext(f,'0.15.1');installNext(f,'0.15.2');assert.ok(fs.existsSync(binary));assert.throws(()=>f.invoke('--uninstall','--yes'), /Desktop is running/);}
   finally {await stopChild(child);}
 });
 test('concurrent_install_second_refused', async () => {
@@ -266,7 +269,10 @@ test('packaged_smoke_launches_under_xvfb', async (t) => {
   execFileSync('git',['-C',checkout,'add','.']);
   execFileSync('git',['-C',checkout,'-c','user.name=Package test','-c','user.email=package@test.invalid','commit','-qm','test: snapshot S3 package sources']);
   const dist=process.env.KEEPHARNESS_ELECTRON_DIST || path.join(__dirname,'node_modules/electron/dist');
-  execFileSync('bash',[path.join(checkout,'scripts/package-desktop-linux.sh')],{cwd:checkout,env:{...process.env,KEEPHARNESS_ELECTRON_DIST:dist},encoding:'utf8',stdio:'pipe'});
+  const archiveName = `electron-v${require('./package.json').devDependencies.electron}-linux-x64.zip`;
+  const cache = path.join(os.homedir(), '.cache/electron');
+  const archive = process.env.KEEPHARNESS_ELECTRON_ZIP || fs.readdirSync(cache).map(dir => path.join(cache, dir, archiveName)).find(file => fs.existsSync(file));
+  execFileSync('bash',[path.join(checkout,'scripts/package-desktop-linux.sh')],{cwd:checkout,env:{...process.env,HOME:f.home,KEEPHARNESS_ELECTRON_ZIP:archive,KEEPHARNESS_ELECTRON_DIST:dist},encoding:'utf8',stdio:'pipe'});
   const pkg=path.join(checkout,'dist',fs.readdirSync(path.join(checkout,'dist'))[0]);
   assert.ok(fs.existsSync(path.join(pkg,'resources/app.asar'))); assert.ok(!fs.existsSync(path.join(pkg,'resources/app'))); assert.ok(!fs.existsSync(path.join(pkg,'resources/default_app.asar')));
   const {getCurrentFuseWire,FuseV1Options,FuseState}=await import('@electron/fuses');
@@ -284,7 +290,8 @@ test('packaged_smoke_launches_under_xvfb', async (t) => {
   const env={...process.env,XDG_SESSION_TYPE:'x11',XDG_RUNTIME_DIR:runtime,HOME:f.home,KEEPHARNESS_PYTHON:'/nonexistent-python',KEEPHARNESS_ADMIN_PORT:'0',KEEPHARNESS_PORT:'0',ELECTRON_RUN_AS_NODE:'1',NODE_OPTIONS:'--require=/nonexistent-node-module'};
   delete env.DISPLAY;delete env.WAYLAND_DISPLAY;delete env.XDG_CONFIG_HOME;delete env.XDG_DATA_HOME;
   let output='';
-  const child=spawn('/usr/bin/xvfb-run',['-a',path.join(f.opt,'keepharness/current/keepharness'),'--inspect=0','--ozone-platform=x11'],{env,detached:true,stdio:['ignore','pipe','pipe']});
+  // GLX can load host NVIDIA drivers and crash Xvfb before the smoke starts.
+  const child=spawn('/usr/bin/xvfb-run',['-a','-s','-screen 0 1280x1024x24 -extension GLX',path.join(f.opt,'keepharness/current/keepharness'),'--inspect=0','--ozone-platform=x11'],{env,detached:true,stdio:['ignore','pipe','pipe']});
   child.stdout.on('data',b=>{output+=b;});child.stderr.on('data',b=>{output+=b;});
   try {
     try { await waitFor(()=>fs.existsSync(log)&&fs.readFileSync(log,'utf8').includes('Python could not start')); } catch (error) { throw new Error(`${error.message}; xvfb output: ${output}`); }
@@ -306,7 +313,7 @@ test('prune_preserves_semver_installing_suffix_and_reinstall_is_noop', () => {
 });
 test('uninstall_unreadable_subtree_refuses_before_any_delete', () => {
  const f=fixture();f.invoke();const data=path.join(f.home,'.config/KeepHarness/private');put(path.join(data,'secret'));fs.chmodSync(data,0);
- try {assert.throws(()=>f.invoke('--uninstall','--yes'));assert.ok(fs.existsSync(f.entry));assert.ok(fs.existsSync(path.join(f.opt,'keepharness-0.15.0')));}
+ try {assert.throws(()=>f.invoke('--uninstall','--yes'), /Permission denied/);assert.ok(fs.existsSync(f.entry));assert.ok(fs.existsSync(path.join(f.opt,'keepharness-0.15.0')));}
  finally {fs.chmodSync(data,0o700);}
 });
 
@@ -327,4 +334,105 @@ test('uninstall_reports_rm_failure_and_refuses_symlinked_parent', () => {
 test('install_refuses_protected_stage_version_suffix', () => {
  const f=fixture('1.2.3+build.installing');assert.throws(()=>f.invoke(),/Invalid package version/);
  assert.ok(!fs.existsSync(path.join(f.opt,'keepharness-1.2.3+build.installing')));
+});
+
+
+test('legacy_upgrade_keeps_previous_and_rollback_works', () => {
+  for (const aliased of [false, true]) {
+    const f = fixture();
+    const old = path.join(f.opt, 'keepharness-0.14.0');
+    fs.cpSync(fakePackage(path.basename(f.home) + '-legacy', '0.14.0'), old, {recursive:true});
+    put(path.join(old, 'build-manifest.json'), '{"version":"0.14.0"}');
+    const home = aliased ? f.home + '-alias' : f.home;
+    if (aliased) fs.symlinkSync(f.home, home);
+    put(f.entry, `Exec="${home}/.local/opt/keepharness-0.14.0/keepharness"\n`);
+    run(f.installer, [], {HOME:home});
+    assert.equal(current(f, 'previous'), old);
+    assert.ok(fs.existsSync(old));
+    f.invoke('--rollback'); assert.equal(current(f), old);
+    f.invoke('--rollback'); assert.equal(current(f), path.join(f.opt, 'keepharness-0.15.0'));
+  }
+});
+test('package_outside_git_refused', () => {
+  const f = fixture(); const checkout = path.join(f.home, 'export');
+  const script = path.join(checkout, 'scripts/package-desktop-linux.sh');
+  put(script, fs.readFileSync(path.join(__dirname, '../scripts/package-desktop-linux.sh')));
+  // Fail visibly if packaging proceeds past its git preflight.
+  put(path.join(checkout, 'scripts/verify-electron.py'), 'raise RuntimeError("verification reached")');
+  assert.throws(() => run('bash', [script], {HOME:f.home}), error => {
+    assert.match(error.stderr, /not a git repository/i);
+    assert.doesNotMatch(error.stderr, /verification reached/);
+    return true;
+  });
+  assert.ok(!fs.existsSync(path.join(checkout, 'dist')));
+});
+test('installer_refuses_bad_commit', () => {
+  for (const commit of ['', 'a'.repeat(39), 'g'.repeat(40), 'a'.repeat(41), null, 123]) {
+    const f = fixture();
+    put(path.join(f.pkg, 'build-manifest.json'), JSON.stringify({version:'0.15.0',product:'keepharness',dirty:false,commit}));
+    writeSums(f.pkg);
+    assert.throws(() => f.invoke(), /Invalid package provenance/);
+    assert.ok(!fs.existsSync(path.join(f.opt, 'keepharness-0.15.0')));
+  }
+});
+test('install_via_symlinked_home_ancestor', () => {
+  const f = fixture(); const layout = path.join(f.home, 'atomic');
+  const actual = path.join(layout, 'var/home'); fs.mkdirSync(actual, {recursive:true});
+  fs.symlinkSync('var/home', path.join(layout, 'home'));
+  fs.renameSync(f.pkg, path.join(actual, 'package'));
+  run(path.join(layout, 'home/package/install-desktop-linux.sh'), [], {HOME:f.home});
+  assert.equal(current(f), path.join(f.opt, 'keepharness-0.15.0'));
+});
+test('launcher_apparmor_hint', () => {
+  const f = fixture(); const launcher = path.join(f.pkg, 'keepharness');
+  put(path.join(f.pkg, 'keepharness-bin'), '#!/bin/sh\nprintf "EXEC:%s\\n" "$*" >&2\n');
+  const script = `function [ { if [[ "$1" == -r && "$2" == /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]]; then return 0; fi; builtin [ "$@"; }
+function cat { if [[ "$1" == /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]]; then echo 1; else command cat "$@"; fi; }
+source "$0" --flag`;
+  const result = require('node:child_process').spawnSync('bash', ['-c', script, launcher], {env:{PATH:process.env.PATH, HOME:f.home},encoding:'utf8'});
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stderr, /^Ubuntu AppArmor[^\n]+\nEXEC:--flag\n$/);
+  assert.doesNotMatch(result.stdout + result.stderr + fs.readFileSync(launcher, 'utf8'), /--no-sandbox/);
+});
+test('desktop_install_skips_symlinked_browser_entry', () => {
+  const f = fixture(); const target = path.join(f.home, 'browser-target');
+  const content = `Exec="${f.home}/.local/bin/keepharness-open"\nIcon=utilities-terminal\n`;
+  put(target, content); fs.mkdirSync(path.dirname(f.entry), {recursive:true});
+  const browser = path.join(path.dirname(f.entry), 'keepharness-browser.desktop'); fs.symlinkSync(target, browser);
+  assert.match(f.invoke(), /skip.*symlink/i);
+  assert.equal(fs.readlinkSync(browser), target); assert.equal(fs.readFileSync(target, 'utf8'), content);
+});
+test('uninstall_leaves_browser_entry', () => {
+  for (const symlink of [false, true]) {
+    const f = fixture(); f.invoke();
+    const browser = path.join(path.dirname(f.entry), 'keepharness-browser.desktop');
+    const content = `Exec="${f.home}/.local/bin/keepharness-open"\nIcon=utilities-terminal\n`;
+    if (symlink) { const target = path.join(f.home, 'browser-target'); put(target, content); fs.symlinkSync(target, browser); }
+    else put(browser, content);
+    assert.match(f.invoke('--uninstall', '--yes'), /run \.\/install\.sh to get the browser entry back/);
+    assert.equal(fs.lstatSync(browser).isSymbolicLink(), symlink);
+    assert.equal(fs.readFileSync(browser, 'utf8'), content);
+  }
+});
+test('tree_refuses_changed_parent_root', () => {
+  const f = fixture(); const original = path.join(f.home, 'original');
+  const moved = path.join(f.home, 'moved'); put(path.join(original, 'candidate/precious'));
+  fs.renameSync(original, moved); fs.symlinkSync(moved, original);
+  const script = `import runpy,sys,pathlib\nm=runpy.run_path(sys.argv[1]);m['tree'](pathlib.Path(sys.argv[2]))`;
+  assert.throws(() => run('python3', ['-c',script,path.join(f.pkg,'install-desktop-linux.py'),path.join(original,'candidate')], {HOME:f.home}), /Outside expected parent/);
+  assert.equal(fs.readFileSync(path.join(moved, 'candidate/precious'), 'utf8'), 'sentinel');
+});
+test('refusal_assertions_require_diagnostics', () => {
+  const source = fs.readFileSync(__filename, 'utf8');
+  assert.doesNotMatch(source, /assert\.throws\([^\n]*?\{HOME:home\}\)\);/);
+  assert.doesNotMatch(source, /assert\.throws\(\s*\(\)\s*=>\s*f\.invoke\([^()]*\)\);/);
+});
+
+
+test('legacy_same_version_install_creates_current', () => {
+  const f = fixture(); const target = path.join(f.opt, 'keepharness-0.15.0');
+  fs.cpSync(f.pkg, target, {recursive:true});
+  put(f.entry, `Exec="${target}/keepharness"\n`);
+  f.invoke();
+  assert.equal(current(f), target);
 });
