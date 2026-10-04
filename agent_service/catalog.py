@@ -3,7 +3,7 @@
 from . import resources
 
 
-def catalog(config, project, project_id=None):
+def catalog(config, project, project_id=None, *, owner=False):
     if project_id is None:
         project_id = next(
             (key for key, value in config.get("projects", {}).items() if value is project), None
@@ -28,7 +28,7 @@ def catalog(config, project, project_id=None):
         )
         if project_id is None or project_id not in service.get("projects", []):
             continue
-        discovered = resources.discover(config, project_id, provider)
+        discovered = resources.discover(config, project_id, provider, owner=owner)
         result["warnings"].extend(discovered["warnings"])
         existing = {value["resource_id"] for value in result["items"]}
         for item in discovered["items"]:

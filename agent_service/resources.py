@@ -220,12 +220,12 @@ def preflight_hint(reason):
     return "Choose a compatible provider, model, and execution mode."
 
 
-def roots(backend, engine, config):
+def roots(backend, engine, config, owner):
     """User-scope roots: the home the provider CLI reads, or none (decision D01).
 
     With a state folder, Codex and Claude read their harness-owned home whatever the opt-in
     says, and DeepSeek its own Codex home. Gemini keeps the owner's home (its commands are
-    expanded by the harness); a guest's catalog is flagged ``guest`` and sees none of it.
+    expanded by the harness), listed only when the caller is positively the owner.
     """
     home = Path.home()
     state = engine in ("codex", "claude") and config.get("control_state_dir")
@@ -239,15 +239,15 @@ def roots(backend, engine, config):
     if engine == "claude":
         return Path(os.environ.get("CLAUDE_CONFIG_DIR", home / ".claude")), []
     if engine == "gemini":
-        if config.get("guest"):
+        if not owner:
             return None, []
         return Path(os.environ.get("GEMINI_CLI_HOME", home)) / ".gemini", [home / ".agents/skills"]
     raise ValueError("unsupported_resource_engine")
 
 
-def owner_root(backend, engine, config):
-    """The owner's own config folder, listed (unavailable) beside the harness home under the opt-in."""
-    if not config.get("control_state_dir") or config.get("personal_setup") is not True:
+def owner_root(backend, engine, config, owner):
+    """The owner's own config folder, listed beside the harness home under the opt-in."""
+    if not owner or not config.get("control_state_dir") or config.get("personal_setup") is not True:
         return None
     if backend == "deepseek" or engine not in ("codex", "claude"):
         return None
@@ -322,11 +322,14 @@ def discover(
     private=False,
     execution_mode=None,
     include_workflows=True,
+    owner=False,
+    access_mode=None,
 ):
+    """The caller's resources; ``owner`` must be True for the owner's personal ones to show."""
     from .catalog_manifest import load_manifest, preflight
     from .catalog_pin import effective_catalogs, snapshot_catalogs
     from .harness_agents import add_resources
-    from .approval_policy import hooks_allowed
+    from .approval_policy import effective_permissions, hooks_allowed
     from .integrations import integration_preflight
     from .maestro import model_permissions
     from .workflows import discover_workflows
@@ -353,9 +356,11 @@ def discover(
         result["warnings"].append("Native resources require a native-mode execution.")
         return result
     project = config["projects"][project_id]
-    permissions = model_permissions(config, backend, model, project_id)
+    permissions = effective_permissions(
+        model_permissions(config, backend, model, project_id), access_mode
+    )
     root = Path(project["root"]).resolve() if project.get("root") else None
-    global_base, shared = roots(backend, engine, config)
+    global_base, shared = roots(backend, engine, config, owner)
     sources = []
 
     def source(base, scope, origin, boundary, kind, identity, identity_root, namespace=""):
@@ -541,7 +546,7 @@ def discover(
 
     if global_base is not None:
         add(global_base, "user", engine, None, "user/" + engine, global_base)
-    if owner_home := owner_root(backend, engine, config):
+    if owner_home := owner_root(backend, engine, config, owner):
         add(owner_home, "user", engine, None, "owner/" + engine, owner_home)
     if engine == "codex":
         for prompts_base, identity in ((global_base, "user/codex"), (owner_home, "owner/codex")):
@@ -575,7 +580,10 @@ def discover(
                 pass
     disabled = set()
     if engine == "codex":
-        for path in [global_base / "config.toml", *([root / ".codex/config.toml"] if root else [])]:
+        for path in [
+            *([global_base / "config.toml"] if global_base else []),
+            *([root / ".codex/config.toml"] if root else []),
+        ]:
             try:
                 settings = tomllib.loads(read(path))
                 for item in settings.get("skills", {}).get("config", []):
@@ -585,7 +593,9 @@ def discover(
                 pass
             except (ValueError, OSError, TypeError, AttributeError):
                 result["warnings"].append("Could not check the Codex skills configuration.")
-    # The adapter's own rule; a scheduled run also drops the opt-in, which this view cannot know.
+    # The run's own rule. The palette cannot know which catalog resources a run will select, so
+    # any catalog of the project counts (the conservative answer); a scheduled run also drops the
+    # opt-in, which this view cannot know either.
     hooks = hooks_allowed(permissions, catalog_details)
     seen_paths = set()
     seen_names = set()
@@ -831,7 +841,7 @@ def reserved_markers(prompt, selections):
     return markers
 
 
-def resolve(config, data):
+def resolve(config, data, *, owner=False):
     prompt = data.get("prompt", "")
     reserved = reserved_markers(prompt, data.get("resource_selections"))
     selections = data.get("resource_selections", [])
@@ -850,6 +860,8 @@ def resolve(config, data):
             data.get("model"),
             private=True,
             execution_mode=data.get("execution_mode"),
+            owner=owner,
+            access_mode=data.get("access_mode"),
         )["items"]
     }
     result = []

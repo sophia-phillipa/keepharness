@@ -303,7 +303,14 @@ def ensure_recovery_safe(service, job_id):
             raise ToolError("workflow_effect_outcome_unknown")
 
 
-def retain_resources(service, data, plan):
+def row_is_owner(row):
+    """Whether the run belongs to the owner on this computer (decision D01)."""
+    from .harness_agents import LOCAL_CLIENT
+
+    return row["owner"] == LOCAL_CLIENT
+
+
+def retain_resources(service, row, data, plan):
     if plan.get("resource_id"):
         from . import resources
 
@@ -321,7 +328,9 @@ def retain_resources(service, data, plan):
     for step in plan["steps"]:
         if not step.get("resource_selections"):
             continue
-        selected = service.selected_resources({**data, **step, "prompt": step["task"]})
+        selected = service.selected_resources(
+            {**data, **step, "prompt": step["task"]}, owner=row_is_owner(row)
+        )
         step["resource_snapshots"] = [
             {
                 key: item.get(key)
@@ -339,7 +348,7 @@ def retain_resources(service, data, plan):
         ]
 
 
-def resources_unchanged(service, data, plan):
+def resources_unchanged(service, row, data, plan):
     try:
         if plan.get("workflow_snapshot"):
             from . import resources
@@ -356,7 +365,9 @@ def resources_unchanged(service, data, plan):
                 return False
         for step in plan["steps"]:
             if step.get("resource_selections"):
-                selected = service.selected_resources({**data, **step, "prompt": step["task"]})
+                selected = service.selected_resources(
+                    {**data, **step, "prompt": step["task"]}, owner=row_is_owner(row)
+                )
                 current = [
                     {
                         key: item.get(key)
@@ -450,7 +461,7 @@ def input_sources(service, row, data):
 def binding_valid(service, row, data, plan, expected):
     try:
         return (
-            resources_unchanged(service, data, plan)
+            resources_unchanged(service, row, data, plan)
             and digest(Checkpoints(service.root, row["id"], plan, data).inputs) == expected
             and input_sources(service, row, data) == data["_checkpoint_sources"]
         )
@@ -648,7 +659,7 @@ async def execute_plan(service, row, data, declared, *, planning_result=None, co
         available,
         declared=True,
     )
-    retain_resources(service, data, plan)
+    retain_resources(service, row, data, plan)
     data = {**data, "_checkpoint_sources": input_sources(service, row, data)}
     service.event(row["id"], "maestro_plan", plan)
     folder = service.root / "maestro" / row["id"]

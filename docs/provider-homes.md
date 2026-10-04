@@ -60,11 +60,18 @@ guests (any caller other than the local owner) and scheduled runs never get it
   owner's own `~/.codex` and `~/.claude` skills (and Claude commands) are listed as unavailable;
   the owner's agents and Codex prompts stay available because the harness inserts their text
   itself. Claude user skills and commands are unavailable unless the opt-in and the hooks grant
-  are both on and no catalog takes part in the run (`approval_policy.hooks_allowed`; the run
-  then reads the harness home with `--setting-sources user,project`). A scheduled run drops the
-  opt-in, which the palette cannot know. Gemini commands are expanded by the harness, so the
-  owner sees `~/.gemini` as before; a guest never does. `/v1/integrations` lists no Codex,
-  DeepSeek or Claude connector without the opt-in.
+  are both on, the access mode is not Read only, and the project has no catalog
+  (`approval_policy.hooks_allowed` and `effective_permissions`, shared with the run, which
+  looks only at the catalogs of the selected resources: the palette cannot know the selection,
+  so any catalog counts). The run then reads the harness home with
+  `--setting-sources user,project`. A scheduled run drops the opt-in, which the palette cannot
+  know. The owner's personal resources (`~/.gemini` commands, the owner's `~/.codex` and
+  `~/.claude` folders) are listed only when the caller is positively the owner
+  (`owner=True` in `resources.discover`, `resolve`, `catalog.catalog` and
+  `ConversationService.selected_resources`; every default is "hidden"), in the palette, in
+  `/v1/catalog` and when a run resolves its selections, so a guest cannot run an owner resource
+  by id. Gemini commands are expanded by the harness, so the owner sees `~/.gemini` as before.
+  `/v1/integrations` lists no Codex, DeepSeek or Claude connector without the opt-in.
 
 Not carried by the opt-in (follow-ups): Codex hook definitions and user skills, which the
 CLI reads only from its own home; the owner's own Claude and Codex skills (the palette lists them as unavailable).

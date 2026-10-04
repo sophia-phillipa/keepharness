@@ -799,7 +799,7 @@ async function refreshResources(trigger) {
     renderResourceMenu(trigger, [], false);
     return;
   }
-  const key = [project, m.backend, m.model, m.execution_mode].join("|");
+  const key = [project, m.backend, m.model, m.execution_mode, $("access-mode").value].join("|");
   if (resourceCache.key === key && Date.now() - resourceCache.at < RESOURCE_CACHE_MS) {
     showResources(trigger, resourceCache.warnings);
     return;
@@ -811,6 +811,7 @@ async function refreshResources(trigger) {
       backend: m.backend,
       model: m.model,
       execution_mode: m.execution_mode,
+      access_mode: $("access-mode").value,
     });
     const data = await json("/v1/resources?" + query, {
       signal: AbortSignal.timeout(5000),

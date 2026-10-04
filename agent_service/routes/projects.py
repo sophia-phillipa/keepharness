@@ -59,6 +59,7 @@ async def resources(request, service, identity):
         params.get("backend"),
         params.get("model"),
         params.get("execution_mode"),
+        params.get("access_mode"),
     )
     service.project(service.identity(request, revalidate=True), params.get("project_id"))
     return JSONResponse(owner_view(identity, value), headers={"Cache-Control": "no-store"})
@@ -84,7 +85,11 @@ async def catalog(request, service, identity):
     project_id = request.query_params.get("project_id")
     service.project(identity, project_id)
     value = await asyncio.to_thread(
-        project_catalog_items, config, config["projects"][project_id], project_id
+        project_catalog_items,
+        config,
+        config["projects"][project_id],
+        project_id,
+        owner=identity[0] == harness_agents.LOCAL_CLIENT,
     )
     service.project(service.identity(request, revalidate=True), project_id)
     return JSONResponse(owner_view(identity, value), headers={"Cache-Control": "no-store"})

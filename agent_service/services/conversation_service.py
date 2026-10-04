@@ -1022,7 +1022,9 @@ class ConversationService:
         )
         return integrations_view.build(self.config, route, usage)
 
-    def resource_catalog(self, identity, project_id, backend, model, execution_mode=None):
+    def resource_catalog(
+        self, identity, project_id, backend, model, execution_mode=None, access_mode=None
+    ):
         backend, model, execution_mode = self._resolve_route(
             identity, project_id, backend, model, execution_mode
         )
@@ -1037,12 +1039,22 @@ class ConversationService:
             return result
         execution_mode = execution_mode or self.default_execution_mode(backend)
         self.validate_execution_mode(backend, execution_mode)
-        # A guest never sees the owner's personal resources (decision D01).
         owner = identity[0] == harness_agents.LOCAL_CLIENT
-        config = self.config if owner else {**self.config, "personal_setup": False, "guest": True}
-        return resources.discover(config, project_id, backend, model, execution_mode=execution_mode)
+        return resources.discover(
+            self.resource_config(owner),
+            project_id,
+            backend,
+            model,
+            execution_mode=execution_mode,
+            owner=owner,
+            access_mode=access_mode,
+        )
 
-    def selected_resources(self, data, *, canonical=None):
+    def resource_config(self, owner):
+        """A guest never gets the owner's personal setup or files (decision D01)."""
+        return self.config if owner else {**self.config, "personal_setup": False}
+
+    def selected_resources(self, data, *, canonical=None, owner=False):
         if data.get("backend") == "maestro":
             lead = maestro.coordinator(self.config, data["project_id"])
             data = {**data, "backend": lead["backend"], "model": lead["model"]}
@@ -1056,7 +1068,7 @@ class ConversationService:
         ).get("read"):
             raise APIError("resource_read_denied", 403)
         try:
-            selected = resources.resolve(self.config, data)
+            selected = resources.resolve(self.resource_config(owner), data, owner=owner)
             if canonical is None:
                 resources.prepare_prompt(
                     data.get("prompt", ""), selected, data.get("resource_selections")
@@ -1117,6 +1129,7 @@ class ConversationService:
                     data["backend"],
                     data.get("model"),
                     data.get("execution_mode"),
+                    data.get("access_mode"),
                 )
                 found = {item["resource_id"]: item for item in catalog["items"]}
                 refs = []
@@ -1151,7 +1164,9 @@ class ConversationService:
                             data["resource_selections"][0]["token"] + " " + data.get("prompt", "")
                         )
             canonical = values if values is not None and not supplied_selections else None
-            selected = self.selected_resources(data, canonical=canonical)
+            selected = self.selected_resources(
+                data, canonical=canonical, owner=identity[0] == harness_agents.LOCAL_CLIENT
+            )
             selected_by_id = {item["resource_id"]: item for item in selected}
             normalized = (
                 [
@@ -1262,7 +1277,7 @@ class ConversationService:
         data = json.loads(row["payload"])
         if "_workflow_context_parent_id" in data:
             data["parent_job_id"] = data["_workflow_context_parent_id"]
-        if not maestro.resources_unchanged(self, data, plan):
+        if not maestro.resources_unchanged(self, row, data, plan):
             return 0
         try:
             data["_checkpoint_sources"] = maestro.input_sources(self, row, data)
@@ -1523,6 +1538,7 @@ class ConversationService:
             canonical=[invocations.Invocation(**value) for value in data["invocations"]]
             if data.get("invocations")
             else None,
+            owner=identity[0] == harness_agents.LOCAL_CLIENT,
         )
         legacy_root = None
         if data.get("parent_job_id"):
@@ -1797,6 +1813,7 @@ class ConversationService:
             canonical=[invocations.Invocation(**value) for value in data["invocations"]]
             if data.get("invocations")
             else None,
+            owner=row["owner"] == harness_agents.LOCAL_CLIENT,
         )
         sources = []
         turns = [] if data.get("_planning_only") else self.context_turns(row, data)
@@ -2604,6 +2621,7 @@ class ConversationService:
                         canonical=[invocations.Invocation(**value) for value in data["invocations"]]
                         if data.get("invocations")
                         else None,
+                        owner=row["owner"] == harness_agents.LOCAL_CLIENT,
                     ),
                 )
                 result = await maestro.execute_plan(self, row, data, declared)
