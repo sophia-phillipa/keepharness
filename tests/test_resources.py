@@ -538,40 +538,51 @@ def test_codex_lists_the_harness_home_whatever_the_opt_in_says(tmp_path, monkeyp
         assert bool(items.get(("skill", "owner"), {}).get("unavailable_reason")) is bool(extra)
 
 
-def test_gemini_user_commands_need_the_personal_setup(tmp_path, monkeypatch):
+def test_gemini_owner_commands_are_harness_expanded_and_hidden_from_guests(tmp_path, monkeypatch):
     owner, root = tmp_path / "owner", tmp_path / "project"
     monkeypatch.setenv("HOME", str(owner))
     monkeypatch.delenv("GEMINI_CLI_HOME", raising=False)
     put(owner / ".gemini", "commands/mine.toml", 'prompt = "Private"')
     put(root, ".gemini/commands/shared.toml", 'prompt = "Project"')
-    names = lambda **extra: {  # noqa: E731
-        i["name"]: i["scope"]
-        for i in resources.discover({**cfg(root, "gemini"), **extra}, "p", "gemini")["items"]
-    }
-    # A guest's catalog is built with personal_setup forced off (conversation_service).
-    assert names(personal_setup=False) == {"shared": "project"}
-    assert names(personal_setup=True) == {"shared": "project", "mine": "user"}
+
+    def names(**extra):
+        config = {**cfg(root, "gemini"), **extra}
+        return {i["name"]: i["scope"] for i in resources.discover(config, "p", "gemini")["items"]}
+
+    assert names() == {"shared": "project", "mine": "user"}
+    # resource_catalog marks a guest's config; the owner's personal files stay hidden.
+    assert names(guest=True, personal_setup=False) == {"shared": "project"}
 
 
-def test_deepseek_lists_its_own_home_not_the_codex_one(tmp_path, monkeypatch):
+def test_codex_owner_prompts_stay_available_with_the_opt_in(tmp_path, monkeypatch):
     owner, state, root = tmp_path / "owner", tmp_path / "state", tmp_path / "project"
     monkeypatch.setenv("HOME", str(owner))
     monkeypatch.delenv("CODEX_HOME", raising=False)
-    put(state / "providers/deepseek", "skills/seek/SKILL.md", skill("seek"))
-    put(state / "providers/home", ".agents/skills/shared/SKILL.md", skill("shared"))
-    put(state / "providers/home/.codex", "skills/codexonly/SKILL.md", skill("codexonly"))
-    put(owner / ".codex", "skills/owner/SKILL.md", skill("owner"))
-    for extra in ({}, {"personal_setup": True}):
-        items = user_items(provider_home_config(root, state, "deepseek", **extra), "deepseek")
-        assert {name: i["selectable"] for (_, name), i in items.items()} == {
-            "seek": True,
-            "shared": True,
-        }
+    put(owner / ".codex", "prompts/mine.md", "---\ndescription: mine\n---\nDo it")
+    assert ("command", "mine") not in user_items(provider_home_config(root, state, "codex"), "codex")
+    items = user_items(provider_home_config(root, state, "codex", personal_setup=True), "codex")
+    assert items[("command", "mine")]["selectable"] is True
 
 
-def test_local_user_skills_stay_unavailable_in_the_isolated_executor(tmp_path, monkeypatch):
+def test_claude_user_skills_are_unavailable_when_a_catalog_turns_hooks_off(tmp_path, monkeypatch):
     owner, state, root = tmp_path / "owner", tmp_path / "state", tmp_path / "project"
+    catalog = tmp_path / "catalog"
     monkeypatch.setenv("HOME", str(owner))
-    put(state / "providers/home/.codex", "skills/harness/SKILL.md", skill("harness"))
-    items = user_items(provider_home_config(root, state, "local"), "local")
-    assert [i["selectable"] for i in items.values()] == [False]
+    put(state / "providers/home/.claude", "skills/home/SKILL.md", skill("home"))
+    config = {
+        **catalog_cfg(root, catalog, "claude"),
+        "control_state_dir": str(state),
+        "personal_setup": True,
+    }
+    config["projects"]["p"]["permissions"]["hooks"] = True
+    assert not user_items(config, "claude")[("skill", "home")]["selectable"]
+    config["projects"]["p"]["catalogs"] = []
+    assert user_items(config, "claude")[("skill", "home")]["selectable"]
+
+
+def test_hooks_run_only_when_granted_and_no_catalog_is_in_the_run():
+    from agent_service.approval_policy import hooks_allowed
+
+    assert hooks_allowed({"hooks": True}, [])
+    assert not hooks_allowed({"hooks": True}, [{"id": "demo"}])
+    assert not hooks_allowed({}, [])

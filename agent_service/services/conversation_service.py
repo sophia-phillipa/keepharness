@@ -1039,7 +1039,7 @@ class ConversationService:
         self.validate_execution_mode(backend, execution_mode)
         # A guest never sees the owner's personal resources (decision D01).
         owner = identity[0] == harness_agents.LOCAL_CLIENT
-        config = self.config if owner else {**self.config, "personal_setup": False}
+        config = self.config if owner else {**self.config, "personal_setup": False, "guest": True}
         return resources.discover(config, project_id, backend, model, execution_mode=execution_mode)
 
     def selected_resources(self, data, *, canonical=None):
@@ -2411,7 +2411,9 @@ class ConversationService:
             for page in source["pages"]
             if page.get("media_type")
         ]
-        if runtime.get("catalogs"):
+        if permissions.get("hooks") and not approval_policy.hooks_allowed(
+            permissions, runtime.get("catalogs")
+        ):
             permissions["hooks"] = False
         project_config["permissions"] = permissions
         if history_folder is not None:

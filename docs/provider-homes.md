@@ -56,11 +56,14 @@ guests (any caller other than the local owner) and scheduled runs never get it
   `~/.claude/CLAUDE.md` is appended to the system prompt.
 - `/v1/resources` lists the user-scope agents, skills and commands of the home the CLI reads:
   the harness home for Codex and Claude, `providers/deepseek` plus
-  `providers/home/.agents/skills` for DeepSeek, whatever the opt-in says; with the opt-in the owner's own `~/.codex` and `~/.claude` skills and
-  commands are listed as unavailable. Claude user skills and
-  commands are listed but unavailable unless the opt-in and the hooks grant are both on (the run
-  then reads the harness home with `--setting-sources user,project`). Gemini lists the owner's
-  `~/.gemini` only with the opt-in, so a guest never sees it. `/v1/integrations` lists no Codex,
+  `providers/home/.agents/skills` for DeepSeek, whatever the opt-in says. With the opt-in the
+  owner's own `~/.codex` and `~/.claude` skills (and Claude commands) are listed as unavailable;
+  the owner's agents and Codex prompts stay available because the harness inserts their text
+  itself. Claude user skills and commands are unavailable unless the opt-in and the hooks grant
+  are both on and no catalog takes part in the run (`approval_policy.hooks_allowed`; the run
+  then reads the harness home with `--setting-sources user,project`). A scheduled run drops the
+  opt-in, which the palette cannot know. Gemini commands are expanded by the harness, so the
+  owner sees `~/.gemini` as before; a guest never does. `/v1/integrations` lists no Codex,
   DeepSeek or Claude connector without the opt-in.
 
 Not carried by the opt-in (follow-ups): Codex hook definitions and user skills, which the

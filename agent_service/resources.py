@@ -224,8 +224,8 @@ def roots(backend, engine, config):
     """User-scope roots: the home the provider CLI reads, or none (decision D01).
 
     With a state folder, Codex and Claude read their harness-owned home whatever the opt-in
-    says, and DeepSeek its own Codex home. Gemini keeps the owner's home, shown only with the
-    personal setup; a guest's catalog is built with it off.
+    says, and DeepSeek its own Codex home. Gemini keeps the owner's home (its commands are
+    expanded by the harness); a guest's catalog is flagged ``guest`` and sees none of it.
     """
     home = Path.home()
     state = engine in ("codex", "claude") and config.get("control_state_dir")
@@ -239,7 +239,7 @@ def roots(backend, engine, config):
     if engine == "claude":
         return Path(os.environ.get("CLAUDE_CONFIG_DIR", home / ".claude")), []
     if engine == "gemini":
-        if config.get("personal_setup") is not True:
+        if config.get("guest"):
             return None, []
         return Path(os.environ.get("GEMINI_CLI_HOME", home)) / ".gemini", [home / ".agents/skills"]
     raise ValueError("unsupported_resource_engine")
@@ -255,15 +255,19 @@ def owner_root(backend, engine, config):
     return Path(os.environ.get(variable, Path.home() / ("." + engine)))
 
 
-def unloaded_user_resource(engine, kind, config, hooks):
+def unloaded_user_resource(engine, kind, owner, config, hooks):
     """Why the provider CLI will not read this user-scope resource itself, or an empty string.
 
-    Claude reads user skills and commands (from its config folder) only when a run starts with
+    Only skills and Claude's native commands are loaded by the CLI; the harness expands the
+    other commands into the prompt. Claude reads its config folder only when a run starts with
     ``--setting-sources user,project``: the personal setup plus the hooks grant.
     """
-    if engine != "claude" or kind not in CLAUDE_UNLOADED:
+    if kind != "skill" and not (engine == "claude" and kind == "command"):
         return ""
-    return "" if config.get("personal_setup") is True and hooks else CLAUDE_UNLOADED[kind][0]
+    if owner:
+        return OWNER_UNLOADED
+    personal = config.get("personal_setup") is True
+    return CLAUDE_UNLOADED[kind][0] if engine == "claude" and not (personal and hooks) else ""
 
 
 def files(base, boundary, global_roots, kind):
@@ -322,6 +326,7 @@ def discover(
     from .catalog_manifest import load_manifest, preflight
     from .catalog_pin import effective_catalogs, snapshot_catalogs
     from .harness_agents import add_resources
+    from .approval_policy import hooks_allowed
     from .integrations import integration_preflight
     from .maestro import model_permissions
     from .workflows import discover_workflows
@@ -348,7 +353,7 @@ def discover(
         result["warnings"].append("Native resources require a native-mode execution.")
         return result
     project = config["projects"][project_id]
-    hooks = model_permissions(config, backend, model, project_id).get("hooks") is True
+    permissions = model_permissions(config, backend, model, project_id)
     root = Path(project["root"]).resolve() if project.get("root") else None
     global_base, shared = roots(backend, engine, config)
     sources = []
@@ -539,15 +544,11 @@ def discover(
     if owner_home := owner_root(backend, engine, config):
         add(owner_home, "user", engine, None, "owner/" + engine, owner_home)
     if engine == "codex":
-        source(
-            global_base / "prompts",
-            "user",
-            "codex",
-            None,
-            "command",
-            "user/codex",
-            global_base,
-        )
+        for prompts_base, identity in ((global_base, "user/codex"), (owner_home, "owner/codex")):
+            if prompts_base:
+                source(
+                    prompts_base / "prompts", "user", "codex", None, "command", identity, prompts_base
+                )
     for shared_root in shared:
         source(
             shared_root,
@@ -584,6 +585,8 @@ def discover(
                 pass
             except (ValueError, OSError, TypeError, AttributeError):
                 result["warnings"].append("Could not check the Codex skills configuration.")
+    # The adapter's own rule; a scheduled run also drops the opt-in, which this view cannot know.
+    hooks = hooks_allowed(permissions, catalog_details)
     seen_paths = set()
     seen_names = set()
     for source_spec in sources:
@@ -651,10 +654,9 @@ def discover(
                         (backend == "local" and scope == "user") or kind == "agent"
                     ):
                         reason = "This resource is not available in the isolated environment of this executor."
-                    if source_spec["identity"].startswith("owner/") and kind != "agent":
-                        reason = OWNER_UNLOADED
-                    elif scope == "user" and kind != "agent":
-                        reason = unloaded_user_resource(engine, kind, config, hooks) or reason
+                    if scope == "user":
+                        owned = source_spec["identity"].startswith("owner/")
+                        reason = unloaded_user_resource(engine, kind, owned, config, hooks) or reason
                     delegate_allowed = project.get("permissions", {}).get("delegate") is True
                     declared_mode = str(meta.get("mode", "")).strip()
                     if (

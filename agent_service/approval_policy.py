@@ -36,6 +36,11 @@ def effective_permissions(permissions, mode):
     return result
 
 
+def hooks_allowed(permissions, catalogs):
+    """Hooks run only when granted and no pinned catalog takes part in the run."""
+    return permissions.get("hooks") is True and not catalogs
+
+
 def guest_permissions(permissions):
     """A guest run never gets the host shell or hooks, whatever the provider grants (D06)."""
     return {**permissions, "shell": False, "hooks": False}
