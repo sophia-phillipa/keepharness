@@ -18,6 +18,7 @@ const path = require("node:path");
 const origin = "http://layout-lint.test";
 const ROOT = path.join(__dirname, "..");
 const LINT = fs.readFileSync(path.join(__dirname, "support", "layout-lint.js"), "utf8");
+const { handleHitZones } = require("./support/handle-hit-zone.cjs");
 const SHOTS = path.join(os.tmpdir(), "keepharness-layout-lint");
 // Lint findings that are not defects.
 const KNOWN_NOISE = new Set([
@@ -300,35 +301,24 @@ async function namedInvariants(page, viewport) {
   return problems;
 }
 
-// V6: a resize handle shares at most 2 px with any control; V12: a dialog's close button never sits on its text.
-// Only overlaps a user can reach count: the handle must be what a click hits there, and the control what lies under it.
+// V6: a resize handle's hit area (what a click reaches, its invisible ::before included) is at least 24 px both ways
+// and shares at most 2 px with any control (tests/support/handle-hit-zone.cjs; a control counts only where the handle is
+// what a click hits and the control is what lies under it); V12: a dialog's close button never sits on its text.
 async function handleAndDialogInvariants(page) {
-  return page.evaluate(() => {
+  const problems = [];
+  for (const { name, zone, covers } of await handleHitZones(page)) {
+    if (!zone) continue; // behind a modal, an inert region or another layer: no click reaches it
+    if (zone.width < 24 || zone.height < 24) problems.push(`V6 handle "${name}" hit area ${zone.width}x${zone.height} px is under 24 px`);
+    for (const c of covers) problems.push(`V6 handle "${name}" overlaps "${c.name}" by ${c.width}x${c.height} px`);
+  }
+  return problems.concat(await page.evaluate(() => {
     const problems = [];
     const shown = (el) => el.checkVisibility() && el.getBoundingClientRect().width > 0;
     const overlap = (a, b) => {
       const w = Math.min(a.right, b.right) - Math.max(a.left, b.left), h = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
-      return w > 2 && h > 2 ? { w, h, x: Math.max(a.left, b.left) + w / 2, y: Math.max(a.top, b.top) + h / 2 } : null;
+      return w > 2 && h > 2 ? { w, h } : null;
     };
     const name = (el) => el.getAttribute("aria-label") || el.id || el.className;
-    const handles = [...document.querySelectorAll('[role="separator"]')].filter(shown);
-    const controls = [...document.querySelectorAll("button, a[href], input, select, textarea, summary, [role=tab]")].filter(shown);
-    const reachable = (handle, control, point) => {
-      const top = document.elementFromPoint(point.x, point.y);
-      if (!top || !handle.contains(top)) return false;
-      const saved = handle.style.pointerEvents;
-      handle.style.pointerEvents = "none";
-      const below = document.elementFromPoint(point.x, point.y);
-      handle.style.pointerEvents = saved;
-      return !!below && control.contains(below);
-    };
-    for (const handle of handles)
-      for (const control of controls) {
-        if (handle.contains(control) || control.contains(handle)) continue;
-        const hit = overlap(handle.getBoundingClientRect(), control.getBoundingClientRect());
-        if (hit && reachable(handle, control, hit))
-          problems.push(`V6 handle "${name(handle)}" overlaps "${name(control)}" by ${Math.round(hit.w)}x${Math.round(hit.h)} px`);
-      }
     // Text lines, not the whole block: a heading's padding is not text.
     const lines = (el) => {
       const range = document.createRange();
@@ -347,7 +337,7 @@ async function handleAndDialogInvariants(page) {
         }
       }
     return problems;
-  });
+  }));
 }
 
 // ---------------------------------------------------------------------------- generic lint

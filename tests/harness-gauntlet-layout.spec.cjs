@@ -2,6 +2,7 @@
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const assert = require('node:assert/strict');
 const { mount, run, span } = require('./run-console-fixture.cjs');
+const { handleHitZones, assertHitAreas } = require('./support/handle-hit-zone.cjs');
 const resources = ['command', 'skill', 'agent'].map((kind, index) => ({ id: 'project/p/' + kind, resource_id: 'project/p/' + kind, revision: '1', name: ['check', 'inspect', 'reviewer'][index], kind, scope: 'project', origin: 'codex', selectable: true, description: 'Inspect synthetic evidence', source: '/fixture/' + kind }));
 async function fixture(browser, width = 1024, plan = false) {
   const page = await browser.newPage({ viewport: { width, height: 812 } });
@@ -137,14 +138,9 @@ async function unobscured(locator) {
       for (const width of [1440, 400]) {
         const page = await fixture(browser, width);
         if (!(await page.locator('#activity-panel').isVisible())) await page.locator('#panel-toggle').click();
-        for (const handle of await page.locator('#activity-panel .workspace-resize, #activity-panel-resize').all()) {
-          const box = await handle.boundingBox();
-          // The column handle is a 6 px strip on the panel edge (WP-16 L64: it may not sit over controls);
-          // arrow keys resize it too. The row handles inside the panel keep the 24 px target.
-          const column = await handle.evaluate((node) => node.id === 'activity-panel-resize');
-          assert(column ? box.width >= 6 && box.height >= 24 : box.width >= 24 && box.height >= 24, JSON.stringify(box));
-          assert(await unobscured(handle));
-        }
+        // The column handle is drawn as a 6 px strip (WP-16 L64) but keeps a 24 px hit area in free space (WCAG 2.5.8).
+        assertHitAreas(await handleHitZones(page, '#activity-panel .workspace-resize, #activity-panel-resize'));
+        for (const handle of await page.locator('#activity-panel .workspace-resize, #activity-panel-resize').all()) assert(await unobscured(handle));
         for (const summary of await page.locator('#activity-panel .workspace-section > summary').all()) {
           await summary.scrollIntoViewIfNeeded();
           assert(await summary.evaluate(node => { const r = node.getBoundingClientRect(); return [2, r.height - 2].every(y => node.contains(document.elementFromPoint(r.x + r.width / 2, r.y + y))); }), 'section summaries do not share resize hit areas');

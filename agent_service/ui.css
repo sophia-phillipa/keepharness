@@ -5470,10 +5470,6 @@ main > header .view-switch { top: 6px; }
 @media (min-width: 701px) and (max-height: 500px) { .run-console { inset: 0 0 28px var(--th-rail-width); } }
 #sidebar:focus { outline: none; }
 #sidebar:focus-visible { outline: 2px solid var(--th-accent); outline-offset: -2px; }
-@media (max-width: 620px) {
-  /* Row actions stay clear of the drawer's 24 px resize handle. */
-  #sidebar .sidebar-tree { padding-right: 28px; }
-}
 /* "Choose project" in the composer sub-bar (reference: Choose project · Plugins). */
 #execution-mode-choice #project-button { display: inline-flex; align-items: center; gap: 6px; height: 28px; min-height: 0; margin-right: 6px; padding: 0 10px; border: 0; border-radius: 10px; background: transparent; color: var(--th-text); font-size: 13px; }
 #execution-mode-choice #project-button:hover { background: var(--th-hover); }
@@ -5712,4 +5708,24 @@ main > #run-console { order: 11; }
 #messages .message.assistant:not(:last-of-type) > .ask-again,
 #messages .message.assistant:has(> .text:empty) > :is(.ask-again, .copy-answer) {
   display: none;
+}
+
+/* Resize handles are drawn thin but grabbed through an invisible 24 px zone (WCAG 2.5.8). The zone only
+   spans free space: the sidebar and panel keep their controls out of it, and it never reaches the tabs. */
+.panel-resize::before { content: ""; position: absolute; top: 0; bottom: 0; left: var(--hit-left); width: 24px; }
+/* The clip margin lets the console handle's zone reach into the free strip above the drawer. */
+.run-console { overflow: clip; overflow-clip-margin: 16px; }
+.run-console > .run-console-resizer::before { content: ""; position: absolute; left: 0; right: 0; top: -16px; height: 24px; }
+#sidebar-resize { --hit-left: -9px; }
+#activity-panel-resize { --hit-left: 0px; }
+body.panel-order-reversed #sidebar-resize { --hit-left: -6px; }
+body.panel-order-reversed #activity-panel-resize { left: auto; right: 0; --hit-left: -18px; }
+/* The sidebar's rows and scrollbar stay out of the zone: the tree's margin on the handle's side is the zone. */
+#sidebar .sidebar-tree { margin-right: 12px; padding-right: 4px; }
+body.panel-order-reversed #sidebar .sidebar-tree { margin: 0 0 0 12px; padding: 0 8px 8px 4px; }
+@media (max-width: 620px) {
+  #sidebar .sidebar-tree { margin-right: 24px; }
+  body.panel-order-reversed #sidebar .sidebar-tree { margin: 0 0 0 24px; }
+  #sidebar-resize { --hit-left: -18px; }
+  body.panel-order-reversed #sidebar-resize { --hit-left: 6px; }
 }
