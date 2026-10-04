@@ -1,11 +1,13 @@
 // KeepHarness desktop client: starts the local admin when it is not running,
 // opens the harness (or the admin when no provider is set up yet) in its own
 // window, keeps navigation inside the two local origins and stops the admin it
-// started when the app quits.
+// started when the app quits. The window is the owner's: it carries the per-install
+// secret and enrolls itself for approvals (decisions D09 and D13).
 const { app, BrowserWindow, dialog, session, shell } = require('electron');
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const http = require('node:http');
+const os = require('node:os');
 const path = require('node:path');
 const {
   appOrigins,
@@ -16,6 +18,9 @@ const {
   backendEnv,
   processRunning,
   portOwnedByUser,
+  localKeyPath,
+  localCookie,
+  enrollmentLink,
 } = require('./policy.cjs');
 
 const TITLE = 'KeepHarness';
@@ -27,6 +32,7 @@ const harnessPort = Number(process.env.KEEPHARNESS_PORT || 8095);
 const adminUrl = `http://127.0.0.1:${adminPort}/`;
 const harnessUrl = `http://127.0.0.1:${harnessPort}/`;
 const origins = appOrigins([adminPort, harnessPort]);
+const python = process.env.KEEPHARNESS_PYTHON || path.join(project, '.venv', 'bin', 'python');
 let win = null,
   splash = null,
   backend = null,
@@ -71,7 +77,6 @@ async function waitFor(url, seconds) {
   return false;
 }
 function startAdmin() {
-  const python = process.env.KEEPHARNESS_PYTHON || path.join(project, '.venv', 'bin', 'python');
   backend = spawn(python, ['-m', 'control', '--port', String(adminPort)], {
     cwd: project,
     env: backendEnv(process.env),
@@ -82,6 +87,54 @@ function startAdmin() {
   });
   backend.on('error', (error) => {
     stderr += '\n' + error.message;
+  });
+}
+// Loopback is every account on this computer; the admin and the harness know the owner by the
+// secret in the admin's 0600 key file, which only this account can read.
+async function presentLocalSecret() {
+  let secret = '';
+  try {
+    secret = fs.readFileSync(localKeyPath(os.homedir()), 'utf8');
+  } catch {
+    return;
+  }
+  const cookie = localCookie(secret, harnessPort);
+  if (cookie) await session.defaultSession.cookies.set(cookie);
+}
+// Output of the owner CLI, or '' when it fails or takes too long.
+function runCli(args, seconds = 20) {
+  return new Promise((resolve) => {
+    let output = '';
+    const child = spawn(python, ['-m', 'control', ...args], {
+      cwd: project,
+      env: backendEnv(process.env),
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    const timer = setTimeout(() => child.kill('SIGTERM'), seconds * 1000);
+    child.stdout.on('data', (chunk) => {
+      output = (output + chunk).slice(-4000);
+    });
+    child.on('error', () => resolve(''));
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      resolve(code === 0 ? output : '');
+    });
+  });
+}
+// Approvals need an enrolled browser. The window enrolls itself for the local owner once, with
+// the same single-use link `keepharness approve-device` prints, and never for anyone else.
+async function enrollmentTarget() {
+  const enrolled = await session.defaultSession.cookies.get({ url: harnessUrl, name: 'harness_session' });
+  if (enrolled.length) return null;
+  return enrollmentLink(await runCli(['approve-device', '--owner', 'local', '--yes']), new URL(harnessUrl).origin);
+}
+// The enrollment page asks to confirm with a button; the app generated the link, so it confirms.
+function confirmEnrollment(link) {
+  win.webContents.once('did-finish-load', () => {
+    if (win.webContents.getURL() !== link) return;
+    win.webContents
+      .executeJavaScript("document.querySelector('form[action^=\"/approve-device\"]')?.requestSubmit()")
+      .catch(() => {});
   });
 }
 // A fixed picture while the backend starts or is attached; it never navigates or opens windows.
@@ -132,6 +185,7 @@ async function start() {
     app.quit();
     return;
   }
+  await presentLocalSecret();
   win = new BrowserWindow(windowOptions(TITLE, icon));
   win.once('ready-to-show', () => {
     win.show();
@@ -151,7 +205,9 @@ async function start() {
     }
     return { action: 'deny' };
   });
-  await win.loadURL(target);
+  const enrollment = target === harnessUrl ? await enrollmentTarget() : null;
+  if (enrollment) confirmEnrollment(enrollment);
+  await win.loadURL(enrollment || target);
 }
 
 if (!app.requestSingleInstanceLock()) app.quit();

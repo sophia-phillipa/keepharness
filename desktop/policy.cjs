@@ -1,5 +1,6 @@
 // Navigation policy for the desktop window: only the local admin and harness
 // origins load inside the app; everything else opens in the user's browser.
+const path = require('node:path');
 const { URL } = require('node:url');
 
 function appOrigins(ports) {
@@ -99,4 +100,42 @@ function portOwnedByUser(tables, port, uid) {
   }
   return owners.length > 0 && owners.every((owner) => owner === uid);
 }
-module.exports = { appOrigins, isAppUrl, externalUrl, windowOptions, splashOptions, backendEnv, processRunning, portOwnedByUser };
+// The local owner holds a per-install secret (decision D09): the admin keeps it in its state
+// folder with mode 0600 and hands a browser the same cookie through `keepharness open`. Cookies
+// ignore the port, so one cookie on 127.0.0.1 reaches both the admin and the harness.
+const LOCAL_COOKIE = 'keepharness-local';
+const SECRET = /^[A-Za-z0-9_-]{16,256}$/;
+function localKeyPath(home) {
+  return path.join(home, '.local', 'share', 'keepharness', 'local.key');
+}
+function localCookie(secret, port) {
+  const value = String(secret || '').trim();
+  if (!SECRET.test(value)) return null;
+  return { url: `http://127.0.0.1:${port}/`, name: LOCAL_COOKIE, value, path: '/', httpOnly: true, sameSite: 'strict' };
+}
+// `keepharness approve-device --owner local --yes` prints the one-time enrollment link last. The
+// window loads it only when it is an enrollment link on the harness origin the window shows.
+function enrollmentLink(output, harnessOrigin) {
+  const line = String(output || '').trim().split('\n').pop().trim();
+  try {
+    const url = new URL(line);
+    const valid = url.origin === harnessOrigin && url.pathname === '/approve-device' && url.searchParams.get('nonce') && !url.username && !url.password;
+    return valid ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+module.exports = {
+  appOrigins,
+  isAppUrl,
+  externalUrl,
+  windowOptions,
+  splashOptions,
+  backendEnv,
+  processRunning,
+  portOwnedByUser,
+  LOCAL_COOKIE,
+  localKeyPath,
+  localCookie,
+  enrollmentLink,
+};
