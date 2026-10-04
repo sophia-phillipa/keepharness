@@ -1,4 +1,4 @@
-"""A catalog hook is trusted by digest; a changed or unreadable one blocks until re-trusted."""
+"""A catalog hook is trusted by digest; a changed or unreadable one is skipped until re-trusted."""
 
 import asyncio
 import json
@@ -7,8 +7,7 @@ from pathlib import Path
 import pytest
 
 from agent_service.catalog_hooks import run_hooks
-from agent_service.catalog_manifest import hooks_digest, require_trusted_hooks, runtime_for_project
-from agent_service.errors import APIError
+from agent_service.catalog_manifest import hooks_digest, hooks_trusted, runtime_for_project
 from control.catalog_admin import catalog_config, change_pin
 from control.server import Manager
 
@@ -38,11 +37,7 @@ def config_for(tmp_path, root, digest):
     }
 
 
-def code_of(error):
-    return error.value.code
-
-
-def test_changed_hook_blocks_turn_until_retrusted(tmp_path):
+def test_changed_hook_is_skipped_until_retrusted(tmp_path):
     root = make_catalog(tmp_path / "catalog")
     manager = Manager(tmp_path / "state")
     manager.settings["catalogs"] = [
@@ -52,9 +47,12 @@ def test_changed_hook_blocks_turn_until_retrusted(tmp_path):
     manager.settings["projects"] = [{"id": "p", "root": str(project_root(tmp_path)), "catalogs": ["demo"]}]
     assert runtime_for_project(catalog_config(manager), "p")["allowed_hooks"]
     (root / "check.sh").write_text("#!/bin/sh\ntouch tampered\n")
-    with pytest.raises(APIError) as error:
-        runtime_for_project(catalog_config(manager), "p")
-    assert code_of(error) == "catalog_hooks_changed"
+    skipped = runtime_for_project(catalog_config(manager), "p")  # the turn goes on, hooks dropped
+    assert skipped["allowed_hooks"] == [] and skipped["hooks_skipped"] == ["demo"]
+    events = []
+    asyncio.run(run_hooks(skipped, True, lambda kind, value: events.append((kind, value))))
+    assert events == [("catalog_hook", {"outcome": "skipped", "reason": "hooks_not_trusted", "catalog": "demo"})]
+    assert not (root / "tampered").exists()
     status = asyncio.run(
         change_pin(None, manager, {"action": "retrust", "project_id": "p", "catalog_id": "demo"})
     )
@@ -63,31 +61,27 @@ def test_changed_hook_blocks_turn_until_retrusted(tmp_path):
     assert runtime_for_project(catalog_config(manager), "p")["allowed_hooks"]
 
 
-def test_hook_changed_between_preflight_and_exec_is_refused(tmp_path):
+def test_hook_changed_between_preflight_and_exec_is_skipped(tmp_path):
     root = make_catalog(tmp_path / "catalog")
     runtime = runtime_for_project(config_for(tmp_path, root, hooks_digest(root)), "p")
     (root / "check.sh").write_text("#!/bin/sh\ntouch " + str(tmp_path / "ran") + "\n")
-    with pytest.raises(APIError) as error:
-        asyncio.run(run_hooks(runtime, True, lambda *_: None))
-    assert code_of(error) == "catalog_hooks_changed"
+    events = []
+    asyncio.run(run_hooks(runtime, True, lambda kind, value: events.append(value)))
+    assert events[0]["outcome"] == "skipped" and events[0]["reason"] == "hooks_not_trusted"
     assert not (tmp_path / "ran").exists()
 
 
-def test_unreadable_hook_fails_closed(tmp_path):
+def test_unreadable_hook_is_skipped(tmp_path):
     root = make_catalog(tmp_path / "catalog")
     digest = hooks_digest(root)
     config = config_for(tmp_path, root, digest)
     (root / "check.sh").chmod(0)
     with pytest.raises(OSError):
         hooks_digest(root)
-    with pytest.raises(APIError) as error:
-        runtime_for_project(config, "p")
-    assert code_of(error) == "catalog_hooks_changed"
+    assert runtime_for_project(config, "p")["hooks_skipped"] == ["demo"]
     (root / "check.sh").chmod(0o700)
     (root / "harness.catalog.json").write_text("{not json")
-    with pytest.raises(APIError) as error:
-        require_trusted_hooks(config["catalogs"][0])
-    assert code_of(error) == "catalog_hooks_changed"
+    assert hooks_trusted(config["catalogs"][0]) is False
 
 
 def test_legacy_trusted_catalog_reconfirms_once(tmp_path):
@@ -100,9 +94,7 @@ def test_legacy_trusted_catalog_reconfirms_once(tmp_path):
     for _ in range(2):  # a plain re-save never grants trust
         manager.settings = manager.validate(manager.settings)
         assert "hooks_sha256" not in manager.settings["catalogs"][0]
-        with pytest.raises(APIError) as error:
-            runtime_for_project(catalog_config(manager), "p")
-        assert code_of(error) == "catalog_hooks_changed"
+        assert runtime_for_project(catalog_config(manager), "p")["hooks_skipped"] == ["demo"]
     asyncio.run(change_pin(None, manager, {"action": "retrust", "project_id": "p", "catalog_id": "demo"}))
     manager.settings = manager.validate(manager.settings)
     assert manager.settings["catalogs"][0]["hooks_sha256"] == hooks_digest(root)
@@ -136,10 +128,10 @@ def test_hook_swapped_after_the_hash_runs_the_verified_bytes(tmp_path, monkeypat
     root = make_catalog(tmp_path / "catalog", body="touch " + str(tmp_path / "verified") + "\n")
     runtime = runtime_for_project(config_for(tmp_path, root, hooks_digest(root)), "p")
     hook = root / "check.sh"
-    real = catalog_hooks.require_trusted_hooks
+    real = catalog_hooks.hooks_trusted
 
     def check_then_swap(catalog, *args):
-        real(catalog, *args)
+        trusted = real(catalog, *args)
         evil = "#!/bin/sh\ntouch " + str(tmp_path / "swapped") + "\n"
         if swap == "replace":
             (root / "evil.sh").write_text(evil)
@@ -147,8 +139,9 @@ def test_hook_swapped_after_the_hash_runs_the_verified_bytes(tmp_path, monkeypat
             (root / "evil.sh").replace(hook)
         else:
             hook.write_text(evil)
+        return trusted
 
-    monkeypatch.setattr(catalog_hooks, "require_trusted_hooks", check_then_swap)
+    monkeypatch.setattr(catalog_hooks, "hooks_trusted", check_then_swap)
     events = []
     asyncio.run(run_hooks(runtime, True, lambda kind, value: events.append(value)))
     assert (tmp_path / "verified").exists()

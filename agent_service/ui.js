@@ -1083,7 +1083,6 @@ const userErrors = {
   catalog_runtime_mode_unsupported: "This isolated execution mode cannot provide the catalog runtime. Choose a supported native provider.",
   catalog_runtime_unavailable: "The catalog runtime is unavailable. Check its prerequisites in Admin.",
   catalog_preflight_failed: "Catalog prerequisites are missing. Check the catalog in Admin before trying again.",
-  catalog_hooks_changed: "A catalog hook changed since you trusted it, so this turn was blocked. Review the hooks and re-trust the catalog in Admin.",
   catalog_hook_failed: "A catalog hook failed. Check its run event before trying again.",
   catalog_hook_timeout: "A catalog hook exceeded its time limit and was stopped.",
   catalog_hook_unavailable: "A catalog hook could not start. Check its executable path in the manifest.",
@@ -1098,6 +1097,7 @@ const userErrors = {
   secret_binding_invalid: "The credential binding name is invalid. Update it in Admin.",
   secret_value_invalid: "A credential field is invalid. Enter a nonempty single-line value in Admin.",
   work_item_locked: "This work item is owned by a running job. Wait until its write access is released.",
+  hooks_not_trusted: "A catalog hook changed or was never trusted, so it was skipped and the turn went on without it. Re-trust the catalog in Admin.",
   hooks_not_granted: "Catalog hooks were skipped because hook permission was not granted.",
 
   workflow_source_path_denied: "A workflow input moved outside its authorized folder. Restore it or choose a new input.",
