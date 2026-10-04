@@ -95,7 +95,7 @@ const path = require("node:path");
     );
     assert.match(conditions[0], /^Your Codex quota is temporarily exhausted/);
     assert.match(conditions[1], /^Gemini is limiting requests/);
-    assert.match(conditions[2], /Your DeepSeek access needs to be renewed/);
+    assert.match(conditions[2], /^DeepSeek rejected the API key\. In the admin panel, paste a valid DeepSeek API key/);
     // F-23: an isolated conversation refused up front names what the server lacks.
     const isolation = await page.evaluate(
       () => userErrors.isolation_unavailable,
