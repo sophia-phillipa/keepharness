@@ -17,6 +17,10 @@ const path = require("node:path");
   const browser = await chromium.launch({ args: ["--disable-features=LocalNetworkAccessChecks"] });
   try {
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, colorScheme: "dark" });
+    // The framed admin answers only the owner's browser (scripts/test-ui.sh exports its cookie).
+    const [cookieName, ...cookieValue] = (process.env.ADMIN_LOCAL_COOKIE || "").split("=");
+    if (cookieName && cookieValue.length)
+      await page.context().addCookies([{ name: cookieName, value: cookieValue.join("="), domain: "127.0.0.1", path: "/", httpOnly: true, sameSite: "Strict" }]);
     // Serve this checkout's harness at the origin the admin trusts.
     const serveHarness = async (route) => {
       const pathname = new URL(route.request().url()).pathname;
