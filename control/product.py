@@ -68,10 +68,15 @@ PRODUCT = ProductIdentity()
 LEGACY_MARKER = {"slug": "tail-harness", "lineage": "tail-harness"}
 LEGACY_FOLDERS = (".local/share/tail-harness", ".config/tail-harness")
 LEGACY_UNIT = ".config/systemd/user/tail-harness.service"
+LEGACY_SERVICE = Path(LEGACY_UNIT).name
 STOP_AND_INSTALL = (
     "Stop Tail Harness (systemctl --user stop tail-harness.service, or the terminal or desktop "
     "client that started it), then run ./install.sh"
 )
+# Provider thread markers (as in agent_service.conversation_context.MARKERS; this module stays
+# stdlib-only). A rollback sets them aside: 0.15 turns live outside the runs/sessions folders
+# 0.14 reads, so a stale marker would resume a pre-upgrade thread and lose every 0.15 turn.
+THREAD_MARKERS = ("native-thread.json", "remote-thread.json", "claude-session.json", "gemini-session.json")
 # Written by ``./install.sh --rollback-to-0.14``: while it exists nothing moves to this identity.
 ROLLBACK_RECORD = ".local/share/tail-harness.rolled-back"
 # Loopback and wildcard addresses as /proc/net/tcp{,6} print them (hex, host byte order).
@@ -248,6 +253,20 @@ def describe(holders):
     return ", ".join(f"pid {pid} ({command})" if pid else command for pid, command in holders)
 
 
+def in_unit(pid, unit):
+    """Whether process ``pid`` runs in the control group of the systemd unit ``unit``."""
+    try:
+        lines = Path(f"/proc/{pid}/cgroup").read_text().splitlines()
+    except OSError:
+        return False
+    return any(unit in line.split("/") for line in lines)
+
+
+def held_by_unit(holders, unit):
+    """Whether every ``(pid, command)`` holder runs in ``unit`` (an unseen holder never does)."""
+    return bool(holders) and all(pid and in_unit(pid, unit) for pid, _ in holders)
+
+
 def processes_using(folder):
     """This user's other processes with a file open under ``folder``, as ``(pid, command)``."""
     root = str(Path(folder).resolve())
@@ -271,23 +290,29 @@ def runtime_ports(state):
     return [port for port in ports if type(port) is int and 0 < port < 65536]
 
 
-def state_in_use(state):
+def state_in_use(state, unit=None):
     """Why ``state`` may still be in use (a port its runtime.json names answers, or a process
-    has a file open in it), or None."""
+    has a file open in it), or None. What runs in systemd unit ``unit`` does not count."""
     for port in runtime_ports(state):
         try:
             socket.create_connection(("127.0.0.1", port), timeout=0.5).close()
         except OSError:
             continue
         holders = port_holders(port)
+        if unit and held_by_unit(holders, unit):
+            continue
         return f"127.0.0.1:{port} still answers" + (f" ({describe(holders)})" if holders else "")
-    if users := processes_using(state):
+    if users := [user for user in processes_using(state) if not (unit and in_unit(user[0], unit))]:
         return f"{describe(users)} has files open in it"
     return None
 
 
-def legacy_in_use(home):
-    """Why the Tail Harness state may still be in use, or None."""
+def legacy_in_use(home, stopping=False):
+    """Why the Tail Harness state may still be in use, or None.
+
+    ``stopping``: install.sh stops tail-harness.service itself right after its preflight, so
+    that unit, and what runs in it, is not a reason to refuse; anything else still is.
+    """
     state = home / LEGACY_FOLDERS[0]
     unit = home / LEGACY_UNIT
     if unit.exists():
@@ -297,14 +322,14 @@ def legacy_in_use(home):
             )
         except (OSError, subprocess.SubprocessError):
             status = None  # no systemctl: the port check below still applies
-        if status is not None and status.returncode == 0:
+        if status is not None and status.returncode == 0 and not stopping:
             return f"{unit.name} is active"
     if Path(sys.prefix).resolve().is_relative_to(state.resolve()):
         return f"this program runs from it ({sys.prefix})"
-    return state_in_use(state)
+    return state_in_use(state, LEGACY_SERVICE if stopping else None)
 
 
-def migration_refusal(home, product=PRODUCT):
+def migration_refusal(home, product=PRODUCT, stopping=False):
     """Why install.sh must not move, or install beside, the Tail Harness folders now, or None.
 
     Also checked when both folders exist: a new service would otherwise report success while
@@ -314,7 +339,7 @@ def migration_refusal(home, product=PRODUCT):
         return None
     if record := rolled_back(home):
         return record
-    if reason := legacy_in_use(home):
+    if reason := legacy_in_use(home, stopping):
         return f"{home / LEGACY_FOLDERS[0]} is still in use: {reason}. {STOP_AND_INSTALL}."
     return None
 
@@ -431,6 +456,9 @@ def rollback_state(home, product=PRODUCT):
         agents = new / "runs/harness-agents"
         if agents.is_dir() and not os.path.lexists(new / "runs/tail-agents"):
             agents.rename(new / "runs/tail-agents")
+        for name in THREAD_MARKERS:
+            for marker in (new / "runs/sessions").glob(f"*/*/{name}"):
+                marker.replace(marker.with_name(name + ".before-rollback"))
         current = {"slug": product.slug, "lineage": product.lineage}
         for folder in (new, new / "runs"):
             if folder.is_dir() and read_marker(folder) == current:

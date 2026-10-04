@@ -182,6 +182,56 @@ def test_check_only_refuses_while_the_old_state_still_answers(home):
     assert old.is_dir() and not PRODUCT.state_path(home).exists()
 
 
+@pytest.fixture
+def running_tail_harness(home, monkeypatch):
+    """Tail Harness 0.14 running under its own unit and holding the admin port (a listener here)."""
+    unit = home / ".config/systemd/user/tail-harness.service"
+    unit.parent.mkdir(parents=True)
+    unit.write_text("[Service]\n")
+    monkeypatch.setattr(install.subprocess, "run", recorder([]))  # is-active: exit 0
+    monkeypatch.setattr(install, "unit_pid", lambda service=install.SERVICE: None)
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        port = listener.getsockname()[1]
+        legacy_state(home, port)
+        yield port
+
+
+def belongs_to(monkeypatch, unit):
+    def in_unit(pid, name):
+        return name == unit
+
+    monkeypatch.setattr(product, "in_unit", in_unit)
+
+
+def test_the_preflight_lets_a_running_tail_harness_unit_through_for_install_sh_to_stop(
+    running_tail_harness, monkeypatch
+):
+    belongs_to(monkeypatch, "tail-harness.service")
+    for argv in (["--check-only"], []):
+        assert install.preflight(running_tail_harness) is None, argv
+
+
+def test_the_preflight_still_refuses_tail_harness_running_outside_its_unit(
+    running_tail_harness, monkeypatch
+):
+    belongs_to(monkeypatch, "something-else.service")
+    refusal = install.preflight(running_tail_harness)
+    assert f"127.0.0.1:{running_tail_harness}" in refusal and "stop it" in refusal
+
+
+@pytest.mark.parametrize("stopping, refused", [(True, False), (False, True)])
+def test_only_install_sh_stopping_the_unit_excuses_an_active_unit_and_its_ports(
+    home, running_tail_harness, monkeypatch, stopping, refused
+):
+    belongs_to(monkeypatch, "tail-harness.service")
+    reason = product.migration_refusal(home, stopping=stopping)
+    assert (reason is not None) is refused
+    if refused:
+        assert "Stop Tail Harness" in reason
+
+
 # --------------------------------------------------------------------------- unit text
 
 
@@ -266,6 +316,21 @@ def test_rollback_gives_the_state_back_to_0_14_and_stays_rolled_back(home, monke
     # Deleting the record is the one explicit step that allows the upgrade again.
     (home / product.ROLLBACK_RECORD).unlink()
     assert migrate_legacy_state(home) is None and new.is_dir() and not old.exists()
+
+
+def test_rollback_sets_provider_thread_markers_aside_so_0_14_replays_history(home):
+    _, new = installed_from_tail_harness(home)
+    session = new / "runs/sessions/c1/codex"
+    session.mkdir(parents=True)
+    for name in product.THREAD_MARKERS:
+        (session / name).write_text('{"id": "pre-upgrade"}')
+    (session / "context-recovery.json").write_text("{}")
+    install.rollback(home, run=recorder([]))
+    kept = home / ".local/share/tail-harness/runs/sessions/c1/codex"
+    for name in product.THREAD_MARKERS:
+        assert not (kept / name).exists()
+        assert (kept / (name + ".before-rollback")).read_text() == '{"id": "pre-upgrade"}'
+    assert (kept / "context-recovery.json").exists()
 
 
 def test_rollback_never_nests_into_an_existing_tail_harness_folder(home):
