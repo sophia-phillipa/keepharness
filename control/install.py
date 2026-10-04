@@ -6,6 +6,7 @@ service. ``--rollback-to-0.14`` removes the service and gives the state back to 
 """
 
 import argparse
+import http.client
 import http.cookiejar
 import json
 import os
@@ -217,7 +218,7 @@ def work_refusal(port):
             busy = json.load(response)["status"]["busy"]
         if not isinstance(busy, bool):
             raise ValueError("Invalid admin busy status")
-    except (OSError, ValueError, KeyError, TypeError):
+    except (OSError, http.client.HTTPException, ValueError, KeyError, TypeError):
         return (
             "Cannot verify queued or running work with the admin. "
             "Retry, or wait for work to finish and use --force to install."
@@ -268,7 +269,10 @@ def main(argv=None):
     if refusal := preflight(args.port):
         raise SystemExit(refusal + (" Nothing was stopped or moved." if args.check_only else ""))
     if not args.force and (refusal := work_refusal(args.port)):
-        raise SystemExit(refusal + " Nothing was stopped or moved.")
+        raise SystemExit(refusal + (
+            " Nothing was stopped or moved." if args.check_only else
+            " The package is installed; the service keeps the old code until it restarts."
+        ))
     if args.check_only:
         for old, new in legacy_folders():
             if waits_to_move(new):

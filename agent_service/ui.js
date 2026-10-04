@@ -6828,7 +6828,7 @@ async function checkVersion() {
   void refreshComposerGit();
   try {
     const v = await json("/v1/version");
-    const restartPending = v.disk_build && v.disk_build !== v.build;
+    const restartPending = v.disk_source_build && v.disk_source_build !== v.source_build;
     $("version").textContent = "Release: " + v.version +
       (restartPending ? " · Restart to finish the update" : "");
     $("version").title = "";

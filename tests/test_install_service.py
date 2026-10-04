@@ -4,6 +4,7 @@ Nothing here runs systemctl for real: every call goes through a recorder, and HO
 temporary folder.
 """
 
+import http.client
 import json
 import os
 import socket
@@ -422,6 +423,12 @@ def test_install_refuses_admin_work_before_any_changes(admin_work, work, check_o
     assert refused.value.code
     assert "queued or running" in str(refused.value)
     assert "--force" in str(refused.value)
+    if check_only:
+        assert "Nothing was stopped or moved" in str(refused.value)
+    else:
+        assert "Nothing was stopped or moved" not in str(refused.value)
+        assert "package is installed" in str(refused.value)
+        assert "old code until it restarts" in str(refused.value)
     assert registered == []
     assert requests[-1].endswith("/api/state")
 
@@ -443,10 +450,10 @@ def test_install_continues_when_admin_is_idle(admin_work):
 
 
 def test_service_stop_budget_includes_full_drain_and_harness_shutdown(home):
-    from control.manager import DRAIN_SECONDS
+    from control.manager import DRAIN_SECONDS, HARNESS_STOP_SECONDS
 
     unit = install.files(home, "/fake/python")[home / ".config/systemd/user" / install.SERVICE][0]
-    assert DRAIN_SECONDS == 60
+    assert DRAIN_SECONDS + HARNESS_STOP_SECONDS < 90
     assert "TimeoutStopSec=90\n" in unit
 
 
@@ -505,3 +512,60 @@ def test_install_admin_auth_rejects_invalid_and_replayed_tickets(tmp_path):
         assert client.get(url).status_code == 200
         assert client.get(url).status_code == 403
         assert not (state / SESSIONS_FILE).exists()
+
+
+@pytest.mark.parametrize("error", [http.client.IncompleteRead(b"partial"), http.client.BadStatusLine("broken")])
+def test_install_refuses_http_protocol_errors(admin_work, monkeypatch, error):
+    from types import SimpleNamespace
+
+    def broken_open(*args, **kwargs):
+        raise error
+
+    monkeypatch.setattr(install.urllib.request, "build_opener", lambda *args: SimpleNamespace(open=broken_open))
+    with pytest.raises(SystemExit, match="Cannot verify queued or running work"):
+        install.main(["--port", "19876", "--check-only"])
+    assert admin_work[1] == []
+
+
+def test_work_refusal_real_opener_carries_admin_cookie(home, monkeypatch):
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+    from threading import Thread
+    from urllib.parse import parse_qs, urlsplit
+    from control.local_access import KEY_FILE
+
+    state = PRODUCT.state_path(home)
+    state.mkdir(parents=True)
+    (state / KEY_FILE).write_bytes(b"test-secret")
+    requests = []
+
+    class Admin(BaseHTTPRequestHandler):
+        def do_GET(self):
+            requests.append((self.path, self.headers.get("Cookie")))
+            if self.path.startswith("/open-admin?"):
+                assert parse_qs(urlsplit(self.path).query)["ticket"]
+                self.send_response(302)
+                self.send_header("Set-Cookie", "test-admin=authenticated; Path=/; HttpOnly")
+                self.send_header("Location", "/")
+                self.end_headers()
+            elif self.headers.get("Cookie") == "test-admin=authenticated":
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b'{"status":{"busy":true}}')
+            else:
+                self.send_error(403)
+
+        def log_message(self, *args):
+            pass
+
+    monkeypatch.setattr(install, "port_holders", lambda port: [(os.getpid(), "admin")])
+    with HTTPServer(("127.0.0.1", 0), Admin) as server:
+        thread = Thread(target=server.serve_forever)
+        thread.start()
+        try:
+            refusal = install.work_refusal(server.server_port)
+        finally:
+            server.shutdown()
+            thread.join(timeout=5)
+    assert refusal.startswith("There is queued or running work")
+    assert requests[-1] == ("/api/state", "test-admin=authenticated")
+    assert len(requests) == 3

@@ -9,6 +9,8 @@ const path = require("node:path");
     const page = await browser.newPage();
     let build = "one",
       diskBuild = "one",
+      sourceBuild = "source-one",
+      diskSourceBuild = "source-one",
       uiBuild = "ui-one",
       models = ["qwen-test"],
       loads = 0,
@@ -46,7 +48,7 @@ const path = require("node:path");
         if (p === "/v1/jobs/active-job") data = active;
         if (p === "/v1/jobs/active-job/events")
           return route.fulfill({ body: "", contentType: "text/event-stream" });
-        if (p === "/v1/version") data = { version: "test", build, disk_build: diskBuild, ui_build: uiBuild };
+        if (p === "/v1/version") data = { version: "test", build, disk_build: diskBuild, source_build: sourceBuild, disk_source_build: diskSourceBuild, ui_build: uiBuild };
         if (p === "/v1/jobs" && route.request().method() === "POST")
           submissions++;
         return route.fulfill({ json: data });
@@ -73,10 +75,12 @@ const path = require("node:path");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     await page.fill("#prompt", "Text not sent yet");
     diskBuild = "python-update";
+    diskSourceBuild = "source-two";
     await page.evaluate(() => checkVersion());
     assert.equal(loads, 1, "Python-only disk update must not reload");
     assert.match(await page.locator("#version").textContent(), /Restart to finish the update/);
     build = diskBuild;
+    sourceBuild = diskSourceBuild;
     await page.evaluate(() => checkVersion());
     assert.equal(loads, 1, "Python-only runtime restart must not reload");
     assert.doesNotMatch(await page.locator("#version").textContent(), /Restart to finish the update/);
@@ -137,6 +141,7 @@ const path = require("node:path");
       await page.locator("#prompt").inputValue(),
       "Text not sent yet",
     );
+    assert.doesNotMatch(await page.locator("#version").textContent(), /Restart to finish the update/, "UI-only edit must not require a service restart");
     assert.equal(await page.evaluate(() => files[0]?.id), "attachment-test");
     await page.evaluate(() => {
       conversation = "active-job";

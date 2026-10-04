@@ -51,11 +51,14 @@ def test_version_poll_reads_no_contents_and_keeps_runtime_identity_after_python_
     client, package, _ = version_client
     initial = poll_without_reads(client)
     assert initial["disk_build"] == initial["build"]
+    assert initial["disk_source_build"] == initial["source_build"]
     assert poll_without_reads(client) == initial
     (package / "services/worker.py").write_text("installed Python update")
     changed = poll_without_reads(client)
     assert changed["build"] == initial["build"]
     assert changed["disk_build"] != initial["disk_build"]
+    assert changed["disk_source_build"] != initial["source_build"]
+    assert changed["source_build"] == initial["source_build"]
     assert changed["ui_build"] == initial["ui_build"]
     assert poll_without_reads(client) == changed
 
@@ -74,6 +77,7 @@ def test_ui_edit_changes_ui_build_and_restart_adopts_disk_build(version_client):
         with TestClient(restarted, headers={"Authorization": "Bearer a"}) as second:
             current = poll_without_reads(second)
             assert current["version"] == "0.16.1"
+            assert current["source_build"] == current["disk_source_build"] == changed["disk_source_build"]
             assert current["build"] == current["disk_build"] == changed["disk_build"]
     finally:
         restarted.state.service.db.close()
@@ -86,6 +90,8 @@ def test_added_and_removed_python_files_change_only_disk_build(version_client):
     added.write_text("new module")
     changed = poll_without_reads(client)
     assert changed["disk_build"] != initial["disk_build"]
+    assert changed["disk_source_build"] != initial["source_build"]
+    assert changed["source_build"] == initial["source_build"]
     assert changed["build"] == initial["build"]
     assert changed["ui_build"] == initial["ui_build"]
     added.unlink()
@@ -95,3 +101,29 @@ def test_added_and_removed_python_files_change_only_disk_build(version_client):
 def test_version_identifies_keepharness_product(version_client):
     client, _, _ = version_client
     assert client.get("/v1/version").json()["product"] == "keepharness"
+
+
+def test_ui_only_edit_preserves_source_build(version_client):
+    client, package, _ = version_client
+    initial = poll_without_reads(client)
+    (package / "ui.js").write_text("UI-only update")
+    changed = poll_without_reads(client)
+    assert changed["disk_build"] != initial["build"]
+    assert changed["disk_source_build"] == changed["source_build"] == initial["source_build"]
+
+
+def test_shared_ui_python_edit_changes_source_build(version_client, monkeypatch, tmp_path):
+    import harness_ui
+
+    module = tmp_path / "harness_ui" / "__init__.py"
+    module.parent.mkdir()
+    module.write_text("original Python")
+    monkeypatch.setattr(harness_ui, "__file__", str(module))
+    client, _, _ = version_client
+    client.app.state.build_versions = system.BuildVersions()
+    initial = poll_without_reads(client)
+    module.write_text("updated shared UI Python")
+    changed = poll_without_reads(client)
+    assert changed["disk_source_build"] != initial["source_build"]
+    assert changed["source_build"] == initial["source_build"]
+    assert changed["ui_build"] == initial["ui_build"]

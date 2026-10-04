@@ -59,6 +59,7 @@ STABLE_SECONDS = 60
 # On shutdown the admin waits this long for queued and running work before it stops the harness.
 # systemd allows 90 s total: 60 s to drain, the harness's own 15 s, and 15 s of margin.
 DRAIN_SECONDS = 60
+HARNESS_STOP_SECONDS = 15
 DRAIN_POLL = 0.5
 
 
@@ -854,7 +855,7 @@ class Manager:
         if self.running():
             self.proc.terminate()
             try:
-                await asyncio.wait_for(self.proc.wait(), 15)
+                await asyncio.wait_for(self.proc.wait(), HARNESS_STOP_SECONDS)
             except asyncio.TimeoutError:
                 self.proc.kill()
                 await self.proc.wait()

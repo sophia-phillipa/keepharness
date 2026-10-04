@@ -10,6 +10,7 @@ from starlette.responses import FileResponse, HTMLResponse, JSONResponse, Redire
 from starlette.routing import Route
 
 import adapters
+import harness_ui
 from harness_ui import ASSETS, PUBLIC, asset_response, static_response
 
 from ..approval_sessions import SESSION_COOKIE, SESSION_SECONDS, consume_enrollment, revoke_session
@@ -118,7 +119,9 @@ class BuildVersions:
     def __init__(self):
         self.version = VERSION_FILE.read_text().strip()
         self._marker = None
-        self.build = self.disk_versions()["disk_build"]
+        disk = self.disk_versions()
+        self.build = disk["disk_build"]
+        self.source_build = disk["disk_source_build"]
 
     def disk_versions(self):
         ui_files = [
@@ -131,7 +134,7 @@ class BuildVersions:
         ui_files += [ASSETS / name for name in sorted(PUBLIC)]
         source_files = sorted(PACKAGE_DIR.rglob("*.py"))
         source_files += sorted(Path(adapters.__file__).parent.rglob("*.py"))
-        source_files.append(VERSION_FILE)
+        source_files += [Path(harness_ui.__file__), VERSION_FILE]
 
         def metadata(paths):
             values = []
@@ -144,10 +147,12 @@ class BuildVersions:
             return tuple(values)
 
         ui_marker = metadata(ui_files)
-        marker = (ui_marker, metadata(source_files))
+        source_marker = metadata(source_files)
+        marker = (ui_marker, source_marker)
         if marker != self._marker:
             self._disk = {
                 "disk_build": hashlib.sha256(repr(marker).encode()).hexdigest()[:12],
+                "disk_source_build": hashlib.sha256(repr(source_marker).encode()).hexdigest()[:12],
                 "ui_build": hashlib.sha256(repr(ui_marker).encode()).hexdigest()[:12],
             }
             self._marker = marker
@@ -161,6 +166,7 @@ async def version(request, service, identity):
             "product": "keepharness",
             "version": builds.version,
             "build": builds.build,
+            "source_build": builds.source_build,
             **builds.disk_versions(),
             "config_revision": service.config.get("config_revision"),
             "config_reload_error": service.config_reload_error,
