@@ -14,6 +14,9 @@ SCRIPT = Path(__file__).resolve().parents[1] / "agent_service/setup-mcp.sh"
 URL = "https://example.ts.net"
 
 PYTHON3 = """#!/bin/sh
+if [ "$1" = '-c' ]; then
+  case "$2" in *platform*) echo "${TEST_PY_ARCH:-${TEST_ARCH:-x86_64}}" ;; esac
+fi
 if [ "$1" = '-m' ]; then
   mkdir -p "$3/bin"
   printf '#!/bin/sh\\necho "$*" >> "$CALLS"\\n' > "$3/bin/python"
@@ -65,11 +68,20 @@ def test_intel_macos_stops_before_creating_environment(tmp_path):
     assert not (tmp_path / ".local").exists()
 
 
+def test_intel_python_on_an_arm64_shell_stops_before_creating_environment(tmp_path):
+    """The installing interpreter decides, not the shell (no cryptography source build)."""
+    result, calls = run_script(tmp_path, TEST_OS="Darwin", TEST_ARCH="arm64", TEST_PY_ARCH="x86_64")
+    assert result.returncode != 0
+    assert "Intel macOS" in result.stderr
+    assert calls == []
+    assert not (tmp_path / ".local").exists()
+
+
 @pytest.mark.parametrize("system,architecture", [("Linux", "x86_64"), ("Darwin", "arm64")])
 def test_supported_platforms_install_the_bridge(tmp_path, system, architecture):
     result, calls = run_script(tmp_path, TEST_OS=system, TEST_ARCH=architecture)
     assert result.returncode == 0, result.stderr
-    assert any("pip install --require-hashes -r" in call for call in calls)
+    assert any("pip install --only-binary :all: --require-hashes -r" in call for call in calls)
 
 
 def test_dependencies_come_from_the_downloaded_hashed_lock(tmp_path):
@@ -79,7 +91,7 @@ def test_dependencies_come_from_the_downloaded_hashed_lock(tmp_path):
     lock = folder / "bridge-requirements.txt"
     assert lock.read_text() == "# fixture\n"
     (install,) = [call for call in calls if "pip install" in call]
-    assert install.startswith("-m pip install --require-hashes -r ")
+    assert install.startswith("-m pip install --only-binary :all: --require-hashes -r ")
     assert "mcp>=" not in install and "httpx>=" not in install
     downloads = [call for call in calls if call.startswith("curl")]
     assert any(

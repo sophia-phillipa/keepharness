@@ -354,7 +354,7 @@ test('package_outside_git_refused', () => {
   // Fail visibly if packaging proceeds past its git preflight.
   put(path.join(checkout, 'scripts/verify_electron.py'), 'raise RuntimeError("verification reached")');
   assert.throws(() => run('bash', [script], {HOME:f.home}), error => {
-    assert.match(error.stderr, /not a git repository/i);
+    assert.match(error.stderr, /not the top of its own Git work tree/);
     assert.doesNotMatch(error.stderr, /verification reached/);
     return true;
   });

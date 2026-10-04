@@ -5,6 +5,8 @@
 """
 
 import re
+import shutil
+import subprocess
 import tomllib
 from pathlib import Path
 
@@ -94,3 +96,26 @@ def test_bridge_lock_is_hashed():
     locked = lock_entries(BRIDGE_LOCK)
     assert {"mcp", "httpx"} <= locked.keys()
     assert "*.txt" in pyproject()["tool"]["setuptools"]["package-data"]["agent_service"]
+
+
+def test_tour_release_follows_the_product_version():
+    tour = (ROOT / "agent_service/tour.js").read_text()
+    release = re.search(r'const RELEASE = "([^"]+)";', tour).group(1)
+    assert release == (ROOT / "agent_service/VERSION").read_text().strip()
+
+
+def test_desktop_package_refuses_a_source_export_inside_another_work_tree(tmp_path):
+    """An ignored export would otherwise report the parent repository's status and commit."""
+    parent = tmp_path / "parent"
+    export = parent / "export"
+    (export / "scripts").mkdir(parents=True)
+    shutil.copy(ROOT / "scripts/package-desktop-linux.sh", export / "scripts")
+    (parent / ".gitignore").write_text("export/\n")
+    subprocess.run(["git", "init", "-q", str(parent)], check=True)
+    result = subprocess.run(
+        ["bash", str(export / "scripts/package-desktop-linux.sh")],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0 and "not the top of its own Git work tree" in result.stderr
+    assert not (export / "dist").exists()
