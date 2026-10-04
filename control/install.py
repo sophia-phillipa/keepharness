@@ -14,6 +14,8 @@ import shlex
 import subprocess
 import sys
 import time
+import tempfile
+import re
 import urllib.request
 from pathlib import Path
 
@@ -142,11 +144,60 @@ Terminal=false
 Categories=Development;
 StartupNotify=false
 '''
-    return {
+    result = {
         home / ".config/systemd/user" / SERVICE: (unit, 0o600),
         home / (".local/bin/" + PRODUCT.slug + "-open"): (launcher, 0o700),
-        home / (".local/share/applications/" + PRODUCT.slug + ".desktop"): (desktop, 0o644),
+        home / (".local/share/applications/" + PRODUCT.slug + "-browser.desktop"): (desktop, 0o644),
     }
+
+    if desktop_installed(home):
+        result.pop(home / (".local/share/applications/" + PRODUCT.slug + "-browser.desktop"))
+    return result
+
+
+def desktop_installed(home):
+    """Only a canonical, marked desktop version suppresses the browser shortcut."""
+    opt = Path(home).resolve() / '.local/opt'
+    link = opt / 'keepharness/current'
+    try:
+        target = link.resolve(strict=True)
+        version = target.name.removeprefix('keepharness-')
+        if not link.is_symlink() or target.parent != opt or not target.name.startswith('keepharness-'):
+            return False
+        if not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+(?:[+-][0-9A-Za-z.]+)?', version):
+            return False
+        if any((target / name).is_symlink() or not (target / name).is_file()
+               for name in ('VERSION', 'build-manifest.json', 'keepharness-bin', 'keepharness')):
+            return False
+        manifest = json.loads((target / 'build-manifest.json').read_text())
+        return ((target / 'VERSION').read_text().strip() == version
+                and manifest.get('version') == version
+                and manifest.get('product', 'keepharness') == 'keepharness')
+    except (OSError, ValueError, AttributeError):
+        return False
+
+
+def remove_browser_entry(path, home):
+    """Never remove another application's entry, including the desktop client."""
+    if path.is_symlink() or not path.is_file():
+        return
+    lines = path.read_text().splitlines()
+    expected = {f'Exec="{h}/.local/bin/{PRODUCT.slug}-open"' for h in (home, Path(home).resolve())}
+    execs = [line for line in lines if line.startswith('Exec=')]
+    if len(execs) == 1 and execs[0] in expected and 'Icon=utilities-terminal' in lines:
+        path.unlink()
+
+
+def atomic_write(path, content, mode):
+    """Replace the entry itself, never follow an existing symlink."""
+    fd, name = tempfile.mkstemp(prefix='.' + path.name + '-', dir=path.parent)
+    try:
+        with os.fdopen(fd, 'w') as stream:
+            stream.write(content)
+            os.fchmod(stream.fileno(), mode)
+        os.replace(name, path)
+    finally:
+        Path(name).unlink(missing_ok=True)
 
 
 def remove_legacy_service(home, run=subprocess.run):
@@ -171,7 +222,10 @@ def rollback(home, run=subprocess.run):
     # Disabled before the state moves back: an enabled unit would take it again (OPS-R1-2).
     run(["systemctl", "--user", "disable", "--now", SERVICE], check=False)
     for path in files(home, sys.executable):
-        path.unlink(missing_ok=True)
+        if path.suffix != '.desktop':
+            path.unlink(missing_ok=True)
+    for name in (PRODUCT.slug + '-browser.desktop', PRODUCT.slug + '.desktop'):
+        remove_browser_entry(Path(home) / '.local/share/applications' / name, home)
     run(["systemctl", "--user", "daemon-reload"], check=False)
     return rollback_state(home)
 
@@ -231,10 +285,13 @@ def work_refusal(port):
 def register(args):
     os.umask(0o077)
     remove_legacy_service(Path.home())
+    applications = Path.home() / '.local/share/applications'
+    remove_browser_entry(applications / (PRODUCT.slug + '.desktop'), Path.home())
+    if desktop_installed(Path.home()):
+        remove_browser_entry(applications / (PRODUCT.slug + '-browser.desktop'), Path.home())
     for path, (content, mode) in files(Path.home(), sys.executable, args.port, args.dev).items():
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content)
-        path.chmod(mode)
+        atomic_write(path, content, mode)
     subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
     subprocess.run(["systemctl", "--user", "enable", "--now", SERVICE], check=True)
     subprocess.run(["systemctl", "--user", "restart", SERVICE], check=True)

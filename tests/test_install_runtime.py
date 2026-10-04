@@ -33,3 +33,70 @@ class InstallRuntimeTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_install_py_skips_browser_entry_when_current_valid(tmp_path):
+    from control import install
+    home = tmp_path
+    version = home / '.local/opt/keepharness-0.15.1'
+    version.mkdir(parents=True)
+    (version / 'VERSION').write_text('0.15.1\n')
+    (version / 'build-manifest.json').write_text('{"version":"0.15.1","product":"keepharness"}')
+    (version / 'keepharness-bin').write_text('binary')
+    (version / 'keepharness').write_text('launcher')
+    links = home / '.local/opt/keepharness'
+    links.mkdir()
+    (links / 'current').symlink_to(version)
+    assert not any(p.suffix == '.desktop' for p in install.files(home, '/python'))
+    (links / 'current').unlink()
+    assert home / '.local/share/applications/keepharness-browser.desktop' in install.files(home, '/python')
+
+
+def test_install_py_rollback_removes_legacy_entry_exact_match(tmp_path, monkeypatch):
+    from control import install
+    monkeypatch.setattr(install, 'rollback_refusal', lambda home: None)
+    monkeypatch.setattr(install, 'rollback_state', lambda home: home)
+    entry = tmp_path / '.local/share/applications/keepharness.desktop'
+    entry.parent.mkdir(parents=True)
+    for line, removed in [(f'Exec="{tmp_path}/.local/bin/keepharness-open"', True),
+                          (f'Exec="{tmp_path}/.local/bin/keepharness-open" --foreign', False),
+                          (f'Exec="{tmp_path}/.local/opt/keepharness/current/keepharness"', False)]:
+        entry.write_text('[Desktop Entry]\n' + line + '\nIcon=utilities-terminal\n')
+        install.rollback(tmp_path, run=lambda *a, **kw: None)
+        assert entry.exists() is not removed
+
+
+def test_install_py_atomic_entry_does_not_follow_symlink(tmp_path):
+    from control import install
+    foreign = tmp_path / 'foreign'
+    foreign.write_text('unchanged')
+    entry = tmp_path / 'keepharness-browser.desktop'
+    entry.symlink_to(foreign)
+    install.atomic_write(entry, 'owned entry', 0o644)
+    assert foreign.read_text() == 'unchanged'
+    assert not entry.is_symlink()
+    assert entry.read_text() == 'owned entry'
+
+
+def test_install_py_register_removes_only_exact_stale_browser(tmp_path, monkeypatch):
+    from control import install
+    from types import SimpleNamespace
+    from pathlib import Path
+    monkeypatch.setattr(Path, 'home', lambda: tmp_path)
+    monkeypatch.setattr(install, 'desktop_installed', lambda home: True)
+    monkeypatch.setattr(install, 'remove_legacy_service', lambda home: None)
+    monkeypatch.setattr(install.subprocess, 'run', lambda *a, **kw: None)
+    monkeypatch.setattr(install, 'wait_ready', lambda *a: None)
+    apps = tmp_path / '.local/share/applications'
+    apps.mkdir(parents=True)
+    desktop = apps / 'keepharness.desktop'
+    desktop.write_text('Exec="' + str(tmp_path) + '/.local/opt/keepharness/current/keepharness"\n')
+    browser = apps / 'keepharness-browser.desktop'
+    for extra in (' --foreign', ''):
+        text = f'Exec="{tmp_path}/.local/bin/keepharness-open"{extra}\nIcon=utilities-terminal\n'
+        browser.write_text(text)
+        install.register(SimpleNamespace(port=0, dev=False, boot=False))
+        assert browser.exists() == bool(extra)
+        if extra:
+            assert browser.read_text() == text
+        assert desktop.read_text().endswith('/current/keepharness"\n')
