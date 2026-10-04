@@ -145,7 +145,7 @@ const assert = require("node:assert/strict");
     await page.click("#add-provider");
     await page
       .locator("#provider-options")
-      .getByText("Codex CLI", { exact: false })
+      .getByText("Codex", { exact: true })
       .click();
     const tabs = page.locator("#inspector-tabs");
     const connectors = tabs.getByRole("button", {

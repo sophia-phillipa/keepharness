@@ -145,7 +145,7 @@ const assert = require("node:assert/strict");
   await p.click("#wizard-back");
   await p
     .locator("#provider-options")
-    .getByText("Codex CLI", { exact: false })
+    .getByText("Codex", { exact: true })
     .click();
   const codex = p.locator("[data-provider=codex]");
   await codex.getByText("Check account", { exact: true }).click();
@@ -368,7 +368,7 @@ const assert = require("node:assert/strict");
   await p.reload();
   await p
     .locator("[data-configured-provider=local]")
-    .getByRole("button", { name: "Edit Local Model via Codex", exact: true })
+    .getByRole("button", { name: "Edit Local models", exact: true })
     .click();
   assert.equal(await p.locator("#provider-dialog[open]").count(), 1);
   assert.equal(await p.locator("#wizard-next").isVisible(), false);

@@ -76,6 +76,7 @@ const assert = require("node:assert/strict");
         codex: [
           { id: "mcp:drive", name: "Drive", kind: "mcp" },
           { id: "plugin:github@openai", name: "github@openai", kind: "plugin" },
+          { id: "plugin:gmail@openai-remote", name: "gmail@openai-remote", kind: "plugin" },
         ],
         claude: [
           { id: "mcp:linear", name: "Linear", kind: "mcp" },
@@ -153,7 +154,7 @@ const assert = require("node:assert/strict");
     await page.click("#add-provider");
     await page
       .locator("#provider-options")
-      .getByText("Codex CLI", { exact: false })
+      .getByText("Codex", { exact: true })
       .click();
     const tabs = page.locator("#inspector-tabs");
     assert(
@@ -226,7 +227,7 @@ const assert = require("node:assert/strict");
     );
     assert.equal(
       await page.locator(".provider-connectors .connector-icon").count(),
-      1,
+      2, // github and the remote gmail plugin added for D48
     );
     assert.match(
       await page.locator("#catalog-items").innerText(),
@@ -253,6 +254,11 @@ const assert = require("node:assert/strict");
       await plugin.isChecked(),
       "available plugin is selected by default for a new provider",
     );
+    // D48: a "-remote" plugin never loads in a KeepHarness run, so it is neither preselected nor allowed.
+    const remote = page.getByRole("checkbox", { name: /gmail/i });
+    assert(!(await remote.isChecked()), "remote plugin is not preselected");
+    assert(await remote.isDisabled(), "remote plugin cannot be allowed");
+    assert.match(await page.locator("#integration-selection").innerText(), /Not available in KeepHarness runs/);
     await page
       .locator("#inspector-tabs")
       .getByText("Plugins", { exact: true })
@@ -284,7 +290,7 @@ const assert = require("node:assert/strict");
     await page.reload();
     const available = page
       .locator("[data-configured-provider=codex]")
-      .getByRole("checkbox", { name: "Make Codex CLI available", exact: true });
+      .getByRole("checkbox", { name: "Make Codex available", exact: true });
     const before = structuredClone(state.settings);
     await available.click();
     await page.waitForFunction(() =>
@@ -337,7 +343,7 @@ const assert = require("node:assert/strict");
     }
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page
-      .getByRole("button", { name: "Edit Codex CLI", exact: true })
+      .getByRole("button", { name: "Edit Codex", exact: true })
       .click();
     assert.equal(
       await page.locator("#provider-dialog .provider-enabled").count(),
