@@ -186,7 +186,7 @@ def test_only_install_sh_moves_the_default_state(tmp_path, monkeypatch):
     cli.main(["--scan"])
     assert old.is_dir() and not PRODUCT.state_path(tmp_path).exists()
     started = []
-    monkeypatch.setattr(log_config, "configure_logging", lambda: None)
+    monkeypatch.setattr(log_config, "configure_logging", lambda *args, **kwargs: None)
     monkeypatch.setattr(server, "create_app", lambda state, port: (state, port))
     monkeypatch.setattr(uvicorn, "run", lambda app, **_: started.append(app))
     # A server start (boot, login, the desktop client) never moves it: it names install.sh.
@@ -212,7 +212,7 @@ def test_the_server_does_not_start_while_the_old_state_is_in_use(tmp_path, monke
     monkeypatch.setenv("HOME", str(tmp_path))
     old = legacy_state(tmp_path)
     started = []
-    monkeypatch.setattr(log_config, "configure_logging", lambda: None)
+    monkeypatch.setattr(log_config, "configure_logging", lambda *args, **kwargs: None)
     monkeypatch.setattr(uvicorn, "run", lambda app, **_: started.append(app))
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
@@ -431,7 +431,7 @@ def test_the_admin_refuses_a_held_port_before_any_startup_work(tmp_path, monkeyp
     from control import cli, server
 
     created, started = [], []
-    monkeypatch.setattr(log_config, "configure_logging", lambda: None)
+    monkeypatch.setattr(log_config, "configure_logging", lambda *args, **kwargs: None)
     monkeypatch.setattr(server, "create_app", lambda state, port: created.append(state))
     monkeypatch.setattr(uvicorn, "run", lambda app, **_: started.append(app))
     with socket.socket() as listener:
