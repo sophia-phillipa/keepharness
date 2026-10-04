@@ -15,7 +15,7 @@
    - V3: the 28 px status strip holds its content on one line and its children stay inside it.
    - V4: the "Native conversation" row and the access notice stay inside their box.
    - V5: the placeholder, the effort label and the access label are not clipped.
-   - V6: a resize handle (`role=separator`) shares at most 2 px with any control it can actually hit. The panel column handles are 6 px strips on the panel edge and the run console handle a 6 px strip in the flow above its header.
+   - V6: a resize handle (`role=separator`) shares at most 2 px with any control it can actually hit. Each handle is drawn as a 6 px strip but keeps an invisible hit zone of at least 24 px in free space (WCAG 2.5.8); V6 checks that the zone's size and that it covers no other control.
    - V12: a dialog's close button never sits on a line of the dialog's text.
    The V6/V12 screens (side panel and console, search dialog, Setup) run only those rules and the field lint (`lint` in the screen entry); the generic overlap lint of an open side panel at tablet widths is a separate layout concern.
 2. **The generic lint** (`tests/support/layout-lint.js`): interactive elements that overlap by more than 2 px (confirmed with `elementFromPoint`, so controls behind a modal, an inert region or a pointer-events-none layer do not count), text that escapes its box, elements beyond their container, input or select text that is clipped or runs under an icon, and horizontal page scroll.
