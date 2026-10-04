@@ -122,7 +122,7 @@ def summarize_activity(service, identity, project_id=None, work_item=None):
         if provider["backend"] == "claude":
             provider["quota"] = service.observed_claude_quota(identity[0])
         elif provider["backend"] == "codex":
-            provider["quota"] = service.usage_cache
+            provider["quota"] = service.observed_codex_quota()
         else:
             provider["quota"] = None
     return dict(

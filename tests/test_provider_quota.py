@@ -141,3 +141,70 @@ def test_account_quota_before_first_inference_is_cached_and_recovers(tmp_path):
             probe.side_effect = ValueError("unavailable")
             assert not client.get("/v1/usage?backend=claude").json()["available"]
     service.db.close()
+
+
+@pytest.mark.parametrize(
+    "infos",
+    [[None], [{}], [{"currency": "USD", "total_balance": None}], [{"currency": "USD", "total_balance": ""}]],
+)
+def test_deepseek_malformed_balance_is_not_reported_as_available(infos):
+    from adapters.deepseek import account as deepseek
+
+    assert deepseek.balance_summary({"is_available": True, "balance_infos": infos}) is None
+
+
+def test_deepseek_balance_is_served_cached_and_never_invented(tmp_path):
+    """PRD-R2-11: the panel shows the DeepSeek balance without opening the admin."""
+    from adapters.deepseek import account as deepseek
+
+    app = create_app(config(tmp_path))
+    service = app.state.service
+    key = tmp_path / "deepseek.key"
+    key.write_text("k" * 24)
+    answer = {
+        "is_available": True,
+        "balance_infos": [
+            {"currency": "USD", "total_balance": "12.34", "granted_balance": "2.00", "topped_up_balance": "10.34"}
+        ],
+    }
+    with TestClient(app, headers={"Authorization": "Bearer a"}) as client:
+        # No key configured: nothing is reported, exactly as before.
+        assert client.get("/v1/usage?backend=deepseek").json() == {
+            "provider": "deepseek",
+            "available": False,
+            "reason": "quota_not_reported",
+        }
+        service.config = {**service.config, "deepseek": {"api_provider": {"url": deepseek.API, "key_file": str(key)}}}
+        with patch.object(deepseek, "fetch_balance", AsyncMock(return_value=answer)) as fetch:
+            first = client.get("/v1/usage?backend=deepseek").json()
+            second = client.get("/v1/usage?backend=deepseek").json()
+        assert fetch.await_count == 1, "the balance is cached for a few minutes"
+        assert first == second
+        assert first["available"] is True and first["provider"] == "deepseek"
+        assert first["account_active"] is True
+        assert first["balances"] == [
+            {"currency": "USD", "total": "12.34", "granted": "2.00", "topped_up": "10.34"}
+        ]
+        assert "k" * 24 not in json.dumps(first)
+        # A failing provider call is reported as unavailable, never as a zero balance.
+        service.deepseek_usage_cache = None
+        with patch.object(deepseek, "fetch_balance", AsyncMock(return_value=None)):
+            failed = client.get("/v1/usage?backend=deepseek").json()
+        assert failed["available"] is False and "balances" not in failed
+    service.db.close()
+
+
+def test_codex_quota_in_activity_expires_instead_of_staying_current(tmp_path):
+    """CDX-R4-2: a refresh that keeps failing must not leave an old percentage looking current."""
+    service = create_app(config(tmp_path)).state.service
+    snapshot = {"available": True, "checked_at": time.time(), "rateLimits": {"primary": {"usedPercent": 59}}}
+    service.usage_cache = snapshot
+    service.usage_at = time.monotonic()
+    assert service.observed_codex_quota() == snapshot
+    service.usage_at = time.monotonic() - 3600
+    expired = service.observed_codex_quota()
+    assert expired["available"] is False and expired["reason"] == "quota_stale"
+    assert expired["checked_at"] == snapshot["checked_at"]
+    service.usage_cache = None
+    assert service.observed_codex_quota() is None
+    service.db.close()

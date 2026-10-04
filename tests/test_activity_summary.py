@@ -222,6 +222,7 @@ def test_activity_reuses_reported_codex_quota_without_fetching(tmp_path, monkeyp
         "rateLimitsByLimitId": None,
     }
     service.usage_cache = snapshot
+    service.usage_at = time.monotonic()  # a quota read is fresh when it was just taken (CDX-R4-2)
     fetch = AsyncMock(side_effect=AssertionError("Activity must not fetch provider quota"))
     monkeypatch.setattr(service, "quota", fetch)
     activity = service.activity(identity, "p")
