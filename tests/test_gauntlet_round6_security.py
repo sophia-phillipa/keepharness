@@ -54,7 +54,7 @@ def app(tmp_path):
 )
 def test_cross_owner_read(app, suffix):
     c = TestClient(app, headers={"Authorization": "Bearer bob"})
-    assert c.get("/v1/jobs/a" + suffix).status_code == 403
+    assert c.get("/v1/jobs/a" + suffix).status_code == 404
 
 
 @pytest.mark.parametrize(
@@ -71,7 +71,8 @@ def test_cross_owner_write(app, route, payload):
     response = c.request(
         "PATCH" if route == "/work-item" else "POST", "/v1/jobs/a" + route, json=payload
     )
-    assert response.status_code == 403
+    # Saving a workflow is refused for every non-local client before any job is looked up.
+    assert response.status_code == (403 if route == "/save-workflow" else 404)
 
 
 @pytest.mark.parametrize("suffix", ["", "/spans", "/events?format=json", "/effects"])

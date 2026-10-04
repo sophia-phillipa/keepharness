@@ -134,7 +134,7 @@ def test_enrolled_owner_cannot_approve_another_owner(approval_app):
         async with client_for(approval_app) as client:
             await client.post("/approve-device?nonce=" + nonce, headers={"Origin": ORIGIN})
             response = await client.post("/v1/approvals/job", json={"approved": True})
-            assert response.status_code == 403
+            assert response.status_code == 404
             assert not pending.done()
 
     asyncio.run(scenario())

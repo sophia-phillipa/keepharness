@@ -1139,7 +1139,6 @@ const userErrors = {
   workflow_model_or_effort_denied: "Choose a model and effort enabled for this project.",
   workflow_must_be_standalone: "Select one workflow at a time.",
   workflow_output_not_approved: "The step output was not approved. Review the evidence before continuing.",
-  workflow_owner_denied: "Only the owner of this run can recover or save it.",
   workflow_save_local_only: "Workflows can only be saved from the computer that runs KeepHarness.",
   workflow_published_step_requires_explicit_rerun: "This changed step already published. Use an explicit re-run with fresh approval.",
   workflow_requires_successful_chain: "Only a completed, successful chain can be saved as a workflow.",
@@ -1219,7 +1218,6 @@ const userErrors = {
     "The earlier message this reply continues is unavailable. Start a new conversation.",
   invalid_event_id: "Tracking could not resume. Refresh the page.",
   job_not_found: "This run no longer exists. Refresh the conversation list.",
-  job_owner_denied: "This run belongs to another user.",
   result_not_ready: "The run has not finished yet. Wait for it to finish.",
   job_storage_limit:
     "This project's run storage is full. Use Delete permanently on conversations you no longer need (archived ones are in Settings › Archived chats), then try again.",
@@ -1555,7 +1553,6 @@ const userErrors = {
     "The provider stopped responding. Review the run details and try again.",
   active_runtime_timeout:
     "The run reached its active time limit. Human approval waiting time was excluded.",
-  approval_owner_denied: "This approval request belongs to another user.",
   invalid_approval_scope: "That approval option is not available.",
   // Resources.
   resource_read_denied:

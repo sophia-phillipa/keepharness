@@ -16,7 +16,6 @@ from .. import harness_agents, maestro, tools, workspaces
 from ..config import MAX_PROJECT_UPLOAD_BYTES
 from ..errors import APIError
 from ..persistence.db import encoded
-from ..services import retention
 from ..services.conversation_service import excerpt_metadata, preview_metadata
 from . import api_route, body
 
@@ -77,34 +76,39 @@ async def upload_workspace(request, service, identity):
         base = service.root / "workspaces"
         base.mkdir(exist_ok=True, mode=0o700)
         used = sum(p.stat().st_size for p in base.rglob("*") if p.is_file() and not p.is_symlink())
+        # Each upload in flight may still grow to the archive limit.
+        used += service.workspace_uploads_pending * workspaces.MAX_BYTES
         if used > MAX_PROJECT_UPLOAD_BYTES - workspaces.MAX_BYTES * 2:
             raise APIError("workspace_storage_limit", 413)
         wid = uuid.uuid4().hex
         folder = base / wid
         folder.mkdir(mode=0o700)
-        archive = folder / "original.zip"
-        size = 0
-        try:
-            with archive.open("xb") as output:
-                async with asyncio.timeout(120):
-                    async for chunk in request.stream():
-                        size += len(chunk)
-                        if size > workspaces.MAX_BYTES:
-                            raise APIError("workspace_size_limit", 413)
-                        output.write(chunk)
-            identity = require_current_upload(request, service, project)
-            manifest = await asyncio.to_thread(workspaces.unpack, archive, folder / "work")
-            if not manifest:
-                raise APIError("empty_workspace")
-            warnings = await workspaces.prepare_documents(folder / "work", manifest)
-            identity = require_current_upload(request, service, project)
-            with service.db:
-                service.project_repository.add_workspace(
-                    wid, project, identity[0], name, time.time(), encoded(manifest)
-                )
-        except BaseException:
-            shutil.rmtree(folder, ignore_errors=True)
-            raise
+        service.workspace_uploads_pending += 1
+    archive = folder / "original.zip"
+    size = 0
+    try:
+        with archive.open("xb") as output:
+            async with asyncio.timeout(120):
+                async for chunk in request.stream():
+                    size += len(chunk)
+                    if size > workspaces.MAX_BYTES:
+                        raise APIError("workspace_size_limit", 413)
+                    output.write(chunk)
+        identity = require_current_upload(request, service, project)
+        manifest = await asyncio.to_thread(workspaces.unpack, archive, folder / "work")
+        if not manifest:
+            raise APIError("empty_workspace")
+        warnings = await workspaces.prepare_documents(folder / "work", manifest)
+        identity = require_current_upload(request, service, project)
+        with service.db:
+            service.project_repository.add_workspace(
+                wid, project, identity[0], name, time.time(), encoded(manifest)
+            )
+    except BaseException:
+        shutil.rmtree(folder, ignore_errors=True)
+        raise
+    finally:
+        service.workspace_uploads_pending -= 1
     return JSONResponse(
         {
             "workspace_id": wid,
@@ -380,73 +384,73 @@ async def upload_file(request, service, identity):
         )
     ):
         raise APIError("invalid_filename")
-    async with service.upload_lock:
+    fid = uuid.uuid4().hex
+    folder = service.root / "files" / project / fid
+    folder.mkdir(parents=True, mode=0o700)
+    dest = folder / "source"
+    size = 0
+    added = 0
+    digest = hashlib.sha256()
+    file_limit = tools.MAX_ATTACHMENT_BYTES
+    try:
+        with dest.open("xb") as out:
+            async with asyncio.timeout(600):
+                async for chunk in request.stream():
+                    size += len(chunk)
+                    if size > file_limit:
+                        raise APIError("upload_limit", 413)
+                    out.write(chunk)
+                    digest.update(chunk)
+        added = await service.reserve_upload(project, size, digest.hexdigest(), dest)
         identity = require_current_upload(request, service, project)
-        used = service.message_repository.project_bytes(project)
-        fid = uuid.uuid4().hex
-        folder = service.root / "files" / project / fid
-        folder.mkdir(parents=True, mode=0o700)
-        dest = folder / "source"
-        size = 0
-        digest = hashlib.sha256()
-        file_limit = tools.MAX_ATTACHMENT_BYTES
-        try:
-            with dest.open("xb") as out:
-                async with asyncio.timeout(600):
-                    async for chunk in request.stream():
-                        size += len(chunk)
-                        if size > file_limit:
-                            raise APIError("upload_limit", 413)
-                        out.write(chunk)
-                        digest.update(chunk)
-            retention.admit_upload(service, project, used, size, digest.hexdigest(), dest)
-            identity = require_current_upload(request, service, project)
-            if Path(filename).suffix.lower() == ".mp4":
-                backend = request.query_params.get("backend")
-                model = request.query_params.get("model")
-                choices = maestro.candidates(config, project, uploads=True)
-                if not any(c["backend"] == backend and c["model"] == model for c in choices):
-                    raise APIError("model_video_unavailable")
-                execution_mode = request.query_params.get(
-                    "execution_mode"
-                ) or service.default_execution_mode(backend)
-                service.validate_execution_mode(backend, execution_mode)
-                await service.validate_video(backend, model, execution_mode)
-            require_current_upload(
-                request, service, project, selected_media=Path(filename).suffix.lower() == ".mp4"
-            )
-            pages = await tools.extract(dest, filename)
-            if any(page.get("media_type") for page in pages):
-                backend = request.query_params.get("backend")
-                model = request.query_params.get("model")
-                choices = maestro.candidates(config, project, uploads=True)
-                if not any(c["backend"] == backend and c["model"] == model for c in choices):
-                    raise APIError("select_model_for_image")
-                execution_mode = request.query_params.get(
-                    "execution_mode"
-                ) or service.default_execution_mode(backend)
-                service.validate_execution_mode(backend, execution_mode)
-                await service.validate_images(backend, model, execution_mode)
-            identity = require_current_upload(
-                request,
-                service,
+        if Path(filename).suffix.lower() == ".mp4":
+            backend = request.query_params.get("backend")
+            model = request.query_params.get("model")
+            choices = maestro.candidates(config, project, uploads=True)
+            if not any(c["backend"] == backend and c["model"] == model for c in choices):
+                raise APIError("model_video_unavailable")
+            execution_mode = request.query_params.get(
+                "execution_mode"
+            ) or service.default_execution_mode(backend)
+            service.validate_execution_mode(backend, execution_mode)
+            await service.validate_video(backend, model, execution_mode)
+        require_current_upload(
+            request, service, project, selected_media=Path(filename).suffix.lower() == ".mp4"
+        )
+        pages = await tools.extract(dest, filename)
+        if any(page.get("media_type") for page in pages):
+            backend = request.query_params.get("backend")
+            model = request.query_params.get("model")
+            choices = maestro.candidates(config, project, uploads=True)
+            if not any(c["backend"] == backend and c["model"] == model for c in choices):
+                raise APIError("select_model_for_image")
+            execution_mode = request.query_params.get(
+                "execution_mode"
+            ) or service.default_execution_mode(backend)
+            service.validate_execution_mode(backend, execution_mode)
+            await service.validate_images(backend, model, execution_mode)
+        identity = require_current_upload(
+            request,
+            service,
+            project,
+            selected_media=Path(filename).suffix.lower() == ".mp4"
+            or any(page.get("media_type") for page in pages),
+        )
+        with service.db:
+            service.message_repository.add_file(
+                fid,
                 project,
-                selected_media=Path(filename).suffix.lower() == ".mp4"
-                or any(page.get("media_type") for page in pages),
+                filename,
+                size,
+                digest.hexdigest(),
+                encoded(pages),
+                identity[0],
             )
-            with service.db:
-                service.message_repository.add_file(
-                    fid,
-                    project,
-                    filename,
-                    size,
-                    digest.hexdigest(),
-                    encoded(pages),
-                    identity[0],
-                )
-        except BaseException:
-            shutil.rmtree(folder)
-            raise
+    except BaseException:
+        shutil.rmtree(folder)
+        raise
+    finally:
+        service.upload_pending[project] -= added
     return JSONResponse(
         {
             "file_id": fid,

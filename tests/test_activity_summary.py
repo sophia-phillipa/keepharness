@@ -142,7 +142,7 @@ def test_activity_routes_auth_and_manual_tag(tmp_path, monkeypatch):
             assert (await client.get("/v1/activity?project_id=p")).json()["jobs"] == []
             assert (
                 await client.patch("/v1/jobs/" + job + "/work-item", json={"work_item": None})
-            ).status_code == 403
+            ).status_code == 404
         service.db.close()
 
     asyncio.run(scenario())

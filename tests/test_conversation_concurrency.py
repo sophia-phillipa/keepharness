@@ -77,10 +77,10 @@ def test_two_tabs_racing_the_same_continuation_admit_exactly_one(tmp_path):
                 headers={"Authorization": "Bearer b"},
             )
             assert 400 <= other.status_code < 500, other.text
-            # ``self.job()`` enforces ownership before the continuation checks run, so
-            # the code is the ownership-denial one rather than a generic parent error;
-            # either way the cross-owner continuation is rejected.
-            assert other.json()["code"] == "job_owner_denied"
+            # ``self.job()`` enforces ownership before the continuation checks run; a
+            # foreign parent answers like a missing one, so the cross-owner continuation
+            # is rejected without confirming the job exists.
+            assert other.json()["code"] == "job_not_found"
 
     asyncio.run(scenario())
 
@@ -163,3 +163,53 @@ def test_cancel_frees_queue_capacity_but_submission_rate_limit_persists(tmp_path
             assert int(second_batch[2].headers["Retry-After"]) >= 1
 
     asyncio.run(scenario())
+
+
+def test_stalled_upload_does_not_block_others(tmp_path):
+    """One client trickling an upload body must not stall another client's upload."""
+    cfg = _config(tmp_path, ["a", "b"])
+    cfg["uploads_enabled"] = True
+    app = create_app(cfg)
+    service = app.state.service
+
+    async def scenario():
+        stalled, release = asyncio.Event(), asyncio.Event()
+
+        async def trickle():
+            yield b"first bytes"
+            stalled.set()
+            await release.wait()
+            yield b" last bytes"
+
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            url = "/v1/files?project_id=p"
+            slow = asyncio.create_task(
+                client.post(
+                    url,
+                    content=trickle(),
+                    headers={"Authorization": "Bearer a", "X-Filename": "slow.txt"},
+                )
+            )
+            try:
+                await asyncio.wait_for(stalled.wait(), 2)
+                fast = await asyncio.wait_for(
+                    client.post(
+                        url,
+                        content=b"quick upload",
+                        headers={"Authorization": "Bearer b", "X-Filename": "fast.txt"},
+                    ),
+                    2,
+                )
+                assert fast.status_code == 201, fast.text
+            finally:
+                release.set()
+            done = await asyncio.wait_for(slow, 5)
+            assert done.status_code == 201, done.text
+        assert service.upload_pending["p"] == 0
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        service.db.close()

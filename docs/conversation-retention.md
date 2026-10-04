@@ -9,7 +9,7 @@ permanently (erased), and the caps count only what is kept.
 ## Who can do it
 
 Every client, on its own conversations only. Another client's conversation answers
-`job_owner_denied` (403) to archive and delete, exactly like reading it. A conversation with
+`job_not_found` (404) to archive and delete, exactly like reading it. A conversation with
 a queued or running turn answers `conversation_busy` (409).
 
 ## Archive

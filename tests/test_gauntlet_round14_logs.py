@@ -23,4 +23,4 @@ def test_newest_event_pages_and_live_tail(span_client):  # noqa: F811
     assert len(live["events"]) == 1
     assert live["events"][0]["data"]["index"] == "live"
     assert client.get(url + "&before=-1").status_code == 422
-    assert client.get(url, headers={"Authorization": "Bearer b"}).status_code == 403
+    assert client.get(url, headers={"Authorization": "Bearer b"}).status_code == 404

@@ -77,6 +77,13 @@ def error_response(exc):
     )
 
 
+def no_store(response):
+    """Private data is never cached: one rule for every /v1 JSON answer."""
+    if isinstance(response, JSONResponse):
+        response.headers.setdefault("Cache-Control", "no-store")
+    return response
+
+
 def api_route(path, handler, methods=None, *, authenticated=True):
     """A route whose handler receives ``(request, service, identity)``.
 
@@ -90,17 +97,19 @@ def api_route(path, handler, methods=None, *, authenticated=True):
         try:
             identity = service.identity(request) if authenticated else None
             request.state.authenticated_owner = identity[0] if identity else None
-            return await handler(request, service, identity)
+            return no_store(await handler(request, service, identity))
         except (APIError, tools.ToolError) as exc:
-            return error_response(exc)
+            return no_store(error_response(exc))
         except Exception:
             request_id = uuid.uuid4().hex
             logger.exception(
                 "Internal error on %s %s (request %s)", request.method, request.url.path, request_id
             )
-            return JSONResponse(
-                {"code": "internal_error", "retryable": False, "request_id": request_id},
-                status_code=500,
+            return no_store(
+                JSONResponse(
+                    {"code": "internal_error", "retryable": False, "request_id": request_id},
+                    status_code=500,
+                )
             )
 
     return Route(path, endpoint, methods=methods)

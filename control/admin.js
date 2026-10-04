@@ -92,6 +92,11 @@ async function requestRaw(path, data) {
         authentication_required: "Authenticate your account and check again.",
         permission_denied:
           "This action is not permitted. Review the provider permissions.",
+        operation_failed:
+          "The server could not complete this action. Check the server log for details.",
+        invalid_request:
+          "The request is missing required data. Check the fields and try again.",
+        invalid_json: "The request could not be read. Reload the page and try again.",
       }[value.error] ||
         value.error ||
         "Could not complete this action. Check the data and try again.",

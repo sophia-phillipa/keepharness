@@ -68,7 +68,7 @@ def test_rename_requires_conversation_owner(api):
         headers={"Authorization": "Bearer bob"},
         json={"title": "Private"},
     )
-    assert response.status_code == 403
+    assert response.status_code == 404
 
 
 @pytest.mark.parametrize(
@@ -165,7 +165,7 @@ def test_terminal_conversation_exposes_gate_audit_for_reload(api):
         api.get(
             "/v1/conversations/conversation-1", headers={"Authorization": "Bearer bob"}
         ).status_code
-        == 403
+        == 404
     )
 
 
@@ -466,9 +466,9 @@ def test_guests_archive_and_delete_only_their_own_conversations(retention):
         client.patch(
             "/v1/conversations/alice-root", headers=bob, json={"archived": True}
         ).status_code
-        == 403
+        == 404
     )
-    assert client.delete("/v1/conversations/alice-root", headers=bob).status_code == 403
+    assert client.delete("/v1/conversations/alice-root", headers=bob).status_code == 404
     assert listed(client) == ["alice-root"]
     assert count(service, "events", "job", ("alice-root",)) == 1
     assert (

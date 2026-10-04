@@ -13,6 +13,7 @@ import shutil
 import sys
 import time
 import uuid
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -218,7 +219,10 @@ class ConversationService:
         self.streams = {}
         self.last_served = {}
         self.dispatch_sequence = 0
+        # Held only for the quota check and reservation, never across a body or extraction.
         self.upload_lock = asyncio.Lock()
+        self.upload_pending = Counter()
+        self.workspace_uploads_pending = 0
         self.provider_usage = {}
         self.claude_usage_cache = None
         self.claude_usage_lock = asyncio.Lock()
@@ -578,7 +582,8 @@ class ConversationService:
             raise APIError("job_not_found", 404)
         self.project(identity, row["project"])
         if row["owner"] != identity[0]:
-            raise APIError("job_owner_denied", 403)
+            # A foreign job must look exactly like a missing one (SEC-R1-8).
+            raise APIError("job_not_found", 404)
         return dict(row)
 
     def file(self, project, file_id, owner):
@@ -639,6 +644,14 @@ class ConversationService:
         )
         return bool(self.config.get("uploads_enabled")) or override is True or explicit_model
 
+    async def reserve_upload(self, project, size, digest, dest):
+        """Admit an upload against stored plus in-flight bytes; the caller releases ``added``."""
+        async with self.upload_lock:
+            used = self.message_repository.project_bytes(project) + self.upload_pending[project]
+            added = retention.admit_upload(self, project, used, size, digest, dest)
+            self.upload_pending[project] += added
+        return added
+
     async def attach_project_files(
         self,
         identity,
@@ -653,92 +666,90 @@ class ConversationService:
     ):
         self.project(identity, project)
         attachments = []
-        async with self.upload_lock:
-            used = self.message_repository.project_bytes(project)
-            for name, source in selected:
-                limit = tools.MAX_ATTACHMENT_BYTES
-                fid = uuid.uuid4().hex
-                folder = self.root / "files" / project / fid
-                folder.mkdir(parents=True, mode=0o700)
-                dest = folder / "source"
-                digest = hashlib.sha256()
-                copied = 0
-                try:
-                    with workspaces.open_attachment_source(source) as input:
-                        await asyncio.to_thread(
-                            validate_attachment_source, self.config, self.root, source, input
-                        )
-                        size = os.fstat(input.fileno()).st_size
-                        if size > limit:
-                            raise APIError("upload_limit", 413)
-                        with dest.open("xb") as output:
-                            while chunk := input.read(65536):
-                                copied += len(chunk)
-                                if copied > limit:
-                                    raise APIError("upload_limit", 413)
-                                output.write(chunk)
-                                digest.update(chunk)
-                    added = retention.admit_upload(
-                        self, project, used, copied, digest.hexdigest(), dest
+        for name, source in selected:
+            limit = tools.MAX_ATTACHMENT_BYTES
+            fid = uuid.uuid4().hex
+            folder = self.root / "files" / project / fid
+            folder.mkdir(parents=True, mode=0o700)
+            dest = folder / "source"
+            digest = hashlib.sha256()
+            copied = 0
+            added = 0
+            try:
+                with workspaces.open_attachment_source(source) as input:
+                    await asyncio.to_thread(
+                        validate_attachment_source, self.config, self.root, source, input
                     )
-                    if source.suffix.lower() == ".mp4":
-                        choices = maestro.candidates(self.config, project, uploads=True)
-                        if not any(
-                            choice["backend"] == backend and choice["model"] == model
-                            for choice in choices
-                        ):
-                            raise APIError("model_video_unavailable")
-                        await self.validate_video(
-                            backend, model, execution_mode or self.default_execution_mode(backend)
-                        )
-                    pages = await tools.extract(dest, name)
-                    if any(page.get("media_type") for page in pages):
-                        choices = maestro.candidates(self.config, project, uploads=True)
-                        if not any(
-                            choice["backend"] == backend and choice["model"] == model
-                            for choice in choices
-                        ):
-                            raise APIError("select_model_for_image")
-                        await self.validate_images(
-                            backend, model, execution_mode or self.default_execution_mode(backend)
-                        )
-                    self.project(identity, project)
-                    if revalidate:
-                        revalidate()
-                    if not self.can_read_project(project):
-                        raise APIError("read_denied", 403)
-                    with self.db:
-                        self.message_repository.add_file(
-                            fid,
-                            project,
-                            name,
-                            copied,
-                            digest.hexdigest(),
-                            encoded(pages),
-                            identity[0],
-                        )
-                    used += added
-                    attachments.append(
-                        {
-                            "file_id": fid,
-                            "name": name,
-                            **preview_metadata(fid, pages),
-                            **excerpt_metadata(pages),
-                        }
+                    size = os.fstat(input.fileno()).st_size
+                    if size > limit:
+                        raise APIError("upload_limit", 413)
+                    with dest.open("xb") as output:
+                        while chunk := input.read(65536):
+                            copied += len(chunk)
+                            if copied > limit:
+                                raise APIError("upload_limit", 413)
+                            output.write(chunk)
+                            digest.update(chunk)
+                added = await self.reserve_upload(project, copied, digest.hexdigest(), dest)
+                if source.suffix.lower() == ".mp4":
+                    choices = maestro.candidates(self.config, project, uploads=True)
+                    if not any(
+                        choice["backend"] == backend and choice["model"] == model
+                        for choice in choices
+                    ):
+                        raise APIError("model_video_unavailable")
+                    await self.validate_video(
+                        backend, model, execution_mode or self.default_execution_mode(backend)
                     )
-                except (APIError, tools.ToolError, OSError) as exc:
-                    shutil.rmtree(folder)
-                    if isinstance(exc, APIError) and exc.status in (401, 403):
-                        raise
-                    skipped.append(
-                        {
-                            "path": name,
-                            "reason": exc.code if isinstance(exc, APIError) else str(exc),
-                        }
+                pages = await tools.extract(dest, name)
+                if any(page.get("media_type") for page in pages):
+                    choices = maestro.candidates(self.config, project, uploads=True)
+                    if not any(
+                        choice["backend"] == backend and choice["model"] == model
+                        for choice in choices
+                    ):
+                        raise APIError("select_model_for_image")
+                    await self.validate_images(
+                        backend, model, execution_mode or self.default_execution_mode(backend)
                     )
-                except BaseException:
-                    shutil.rmtree(folder)
+                self.project(identity, project)
+                if revalidate:
+                    revalidate()
+                if not self.can_read_project(project):
+                    raise APIError("read_denied", 403)
+                with self.db:
+                    self.message_repository.add_file(
+                        fid,
+                        project,
+                        name,
+                        copied,
+                        digest.hexdigest(),
+                        encoded(pages),
+                        identity[0],
+                    )
+                attachments.append(
+                    {
+                        "file_id": fid,
+                        "name": name,
+                        **preview_metadata(fid, pages),
+                        **excerpt_metadata(pages),
+                    }
+                )
+            except (APIError, tools.ToolError, OSError) as exc:
+                shutil.rmtree(folder)
+                if isinstance(exc, APIError) and exc.status in (401, 403):
                     raise
+                skipped.append(
+                    {
+                        "path": name,
+                        "reason": exc.code if isinstance(exc, APIError) else str(exc),
+                    }
+                )
+            except BaseException:
+                shutil.rmtree(folder)
+                raise
+            finally:
+                self.upload_pending[project] -= added
         return {"attachments": attachments, "skipped": skipped}
 
     def conversation_rows(self, identity):
@@ -1320,8 +1331,6 @@ class ConversationService:
 
     def recover_workflow(self, identity, job_id, changes, *, rerun=False, idem=None):
         row = self.job(identity, job_id)
-        if row["owner"] != identity[0]:
-            raise APIError("workflow_owner_denied", 403)
         if row["state"] not in TERMINAL:
             raise APIError("workflow_source_busy", 409)
         if set(changes) - {"workflow_inputs", "from_step", "maestro_plan_policy"}:
@@ -1409,8 +1418,6 @@ class ConversationService:
 
     def save_workflow(self, identity, job_id, workflow_id):
         row = self.job(identity, job_id)
-        if row["owner"] != identity[0]:
-            raise APIError("workflow_owner_denied", 403)
         result = json.loads(row["result"]) if row["result"] else {}
         orchestration = result.get("orchestration", {})
         plan = orchestration.get("plan")
