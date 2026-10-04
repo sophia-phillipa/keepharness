@@ -36,7 +36,15 @@ COOKIE_SECONDS = 30 * 24 * 60 * 60
 LOOPBACK_NAMES = frozenset({"127.0.0.1", "localhost"})
 MAX_VALUE = 256
 PROC_NET_TCP = Path("/proc/net/tcp")
+UID_MAP = Path("/proc/self/uid_map")
 TAILSCALED_UID = 0
+ESTABLISHED = "01"
+# Inside a user namespace host uid 0 is unmapped (shown as 65534, like every other unmapped
+# account), so Serve cannot be proven there and 65534 must never be accepted instead.
+USER_NAMESPACE_NOTICE = (
+    "Tailnet sign-in is off: KeepHarness runs inside a user namespace; "
+    "run it on the host or use the VPN key"
+)
 
 
 def ensure_secret(state: Path) -> str:
@@ -187,6 +195,15 @@ def _proc_address(host: str, port: int) -> str:
     return f"{int.from_bytes(socket.inet_aton(host), sys.byteorder):08X}:{port:04X}"
 
 
+def in_user_namespace(uid_map: Path = UID_MAP) -> bool:
+    """True when this process runs in a user namespace (uid_map is not the identity map)."""
+    try:
+        ranges = [int(field) for field in uid_map.read_text(encoding="ascii").split()]
+    except (OSError, ValueError):
+        return False
+    return ranges not in ([], [0, 0, 4294967295])
+
+
 def served_by_tailscaled(
     client: tuple[str, int] | None, server_port: int, *, proc_net: Path = PROC_NET_TCP
 ) -> bool:
@@ -194,24 +211,31 @@ def served_by_tailscaled(
 
     Tailscale Serve proxies to 127.0.0.1 from tailscaled, which runs as root; any other account
     on this computer owns its own socket, so its uid shows in /proc/net/tcp. Every row for the
-    connection (client port to ``server_port``) must be owned by uid 0. Never cached: another
-    account can rebind a freed source port between two requests. Fails closed on anything
-    unreadable, malformed or absent (another platform, no row), and never raises.
+    connection (client port to ``server_port``) must be ESTABLISHED, owned by uid 0 and backed
+    by a socket inode: once the client closes, the kernel re-labels the row (FIN_WAIT2 or
+    TIME_WAIT) as uid 0 with inode 0 whoever opened it, while the harness can still read the
+    request. Never cached: another account can rebind a freed source port between two requests.
+    Fails closed on anything unreadable, malformed or absent (another platform, no row), and
+    never raises.
     """
     if client is None or client[0] != "127.0.0.1":
         return False
     local = _proc_address(client[0], client[1])
     remote = _proc_address("127.0.0.1", server_port)
-    owners: list[int] = []
+    proven: list[bool] = []
     try:
         with proc_net.open(encoding="ascii") as rows:
             for row in rows:
                 fields = row.split()
-                if len(fields) > 7 and fields[1] == local and fields[2] == remote:
-                    owners.append(int(fields[7]))
+                if len(fields) > 9 and fields[1] == local and fields[2] == remote:
+                    proven.append(
+                        fields[3] == ESTABLISHED
+                        and int(fields[7]) == TAILSCALED_UID
+                        and int(fields[9]) != 0
+                    )
     except (OSError, ValueError):
         return False
-    return bool(owners) and all(uid == TAILSCALED_UID for uid in owners)
+    return bool(proven) and all(proven)
 
 
 def _signature(secret: str, expires: int, nonce: str) -> str:

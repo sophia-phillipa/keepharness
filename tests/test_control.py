@@ -90,6 +90,28 @@ class ControlTest(unittest.TestCase):
             version.read_text.return_value = "9.9.9\n"
             self.assertEqual(self.manager.status()["version"], "9.9.9")
 
+    def test_status_says_when_tailnet_sign_in_cannot_work(self):
+        # A user namespace hides host uid 0 (tailscaled), so Serve cannot be proven there.
+        with patch("control.local_access.in_user_namespace", return_value=True):
+            notice = self.manager.status()["tailnet_signin_off"]
+        self.assertEqual(
+            notice,
+            "Tailnet sign-in is off: KeepHarness runs inside a user namespace; "
+            "run it on the host or use the VPN key",
+        )
+        with patch("control.local_access.in_user_namespace", return_value=False):
+            self.assertIsNone(self.manager.status()["tailnet_signin_off"])
+
+    def test_shared_projects_setting_is_an_explicit_boolean_off_by_default(self):
+        settings = copy.deepcopy(self.manager.settings)
+        self.assertIs(self.manager.validate(settings)["shared_projects"], False)
+        settings["shared_projects"] = True
+        self.assertIs(self.manager.validate(settings)["shared_projects"], True)
+        for bad in ("yes", 1, None):
+            settings["shared_projects"] = bad
+            with self.assertRaisesRegex(ValueError, "Share projects with guests"):
+                self.manager.validate(settings)
+
     def test_auth_csrf_and_save(self):
         with patch("control.discovery.scan", AsyncMock(return_value=INVENTORY)):
             with TestClient(create_app(self.tmp.name), base_url="http://127.0.0.1:8094") as client:

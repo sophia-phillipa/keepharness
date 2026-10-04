@@ -54,7 +54,7 @@ def base_config(settings, state, admin_port, browser_url, provider_revisions):
         "maestro_coordinator": settings.get("maestro_coordinator", {}),
         # The owner registers project folders; other clients receive them only when shared.
         "project_registration": True,
-        "shared_projects": False,
+        "shared_projects": settings.get("shared_projects") is True,
         "control_state_dir": str(state),
         "personal_setup": settings.get("personal_setup") is True,
         "full_access": settings.get("full_access") is True,

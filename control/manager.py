@@ -234,6 +234,10 @@ class Manager:
         if type(data.get("full_access", False)) is not bool:
             raise ValueError("Allow Full access must be an explicit boolean.")
         out["full_access"] = data.get("full_access", False)
+        # Registered projects reach guests and the VPN key only when the owner shares them.
+        if type(data.get("shared_projects", False)) is not bool:
+            raise ValueError("Share projects with guests must be an explicit boolean.")
+        out["shared_projects"] = data.get("shared_projects", False)
         policy = data.get("maestro_instructions", "")
         if not isinstance(policy, str) or len(policy) > 12000:
             raise ValueError("Maestro instructions: maximum of 12,000 characters.")
@@ -846,6 +850,9 @@ class Manager:
             "shared": (self.state / "tailnet.json").exists(),
             "version": VERSION_FILE.read_text().strip(),
             "startup_error": self.startup_error,
+            "tailnet_signin_off": local_access.USER_NAMESPACE_NOTICE
+            if local_access.in_user_namespace()
+            else None,
             # Models offline per provider, with the reason (for example "Sign in required").
             "unavailable_models": self.unavailable_models,
         }

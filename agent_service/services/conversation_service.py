@@ -72,6 +72,7 @@ from .gate_service import GateService, deny_unattended
 from .project_service import ProjectService
 
 logger = logging.getLogger(__name__)
+SERVE_REFUSAL_LOG_SECONDS = 60
 
 
 def as_dict(value):
@@ -228,6 +229,13 @@ class ConversationService:
         self.config_reload_error = None
         # Proof that a connection came from tailscaled; tests replace it.
         self.serve_peer_check = local_access.served_by_tailscaled
+        self.serve_refusal_logged = -SERVE_REFUSAL_LOG_SECONDS
+        if config.get("tailscale_logins") and local_access.in_user_namespace():
+            logger.warning(
+                "Running inside a user namespace: host uid 0 (tailscaled) is not visible, so "
+                "Tailscale logins cannot be proven and are refused. Run KeepHarness on the host "
+                "or use the VPN key."
+            )
         self.cancellation_reasons = {}
         self.active_executors = {}
         self.job_tasks = {}
@@ -517,10 +525,14 @@ class ConversationService:
             return False
         if self.serve_peer_check(request.client, self.config.get("port", 0)):
             return True
-        logger.warning(
-            "Tailscale identity headers ignored: the connection was not opened by tailscaled "
-            "(Serve proof failed; if tailscaled runs without root, tailnet logins are refused)."
-        )
+        # Any local account can trigger this: one line a minute keeps the log readable.
+        now = time.monotonic()
+        if now - self.serve_refusal_logged >= SERVE_REFUSAL_LOG_SECONDS:
+            self.serve_refusal_logged = now
+            logger.warning(
+                "Tailscale identity headers ignored: the connection was not opened by tailscaled "
+                "(Serve proof failed; if tailscaled runs without root, tailnet logins are refused)."
+            )
         return False
 
     def limit(self, key, maximum, code="rate_limit"):

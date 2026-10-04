@@ -9,6 +9,7 @@ import functools
 import struct
 from pathlib import Path
 
+import pytest
 from test_api_security import (
     GUEST_LOGIN,
     SERVE_HEADERS,
@@ -31,10 +32,13 @@ def hex_address(host: str, port: int) -> str:
     return f"{word:08X}:{port:04X}"
 
 
-def row(index: int, local: str, remote: str, uid: int, state: str = "01") -> str:
+def row(
+    index: int, local: str, remote: str, uid: int, state: str = "01", inode: int | None = None
+) -> str:
+    inode = 1234000 + index if inode is None else inode
     return (
         f"{index:4d}: {local} {remote} {state} 00000000:00000000 00:00000000 00000000 "
-        f"{uid:5d}        0 1234{index} 1 0000000000000000 100 0 0 10 0"
+        f"{uid:5d}        0 {inode} 1 0000000000000000 100 0 0 10 0"
     )
 
 
@@ -78,6 +82,53 @@ def test_other_uid_or_no_row_is_not_served(tmp_path):
     target = hex_address("127.0.0.1", PORT)
     mixed = proc_file(tmp_path, row(0, source, target, 0, "06"), row(1, source, target, 1000))
     assert not local_access.served_by_tailscaled(client, PORT, proc_net=mixed)
+
+
+@pytest.mark.parametrize("state", ["05", "06", "08", "04"])
+def test_closed_connection_rows_are_not_served(tmp_path, state):
+    # After the client closes, the kernel re-labels the row as an orphan: uid 0, inode 0 (FIN_WAIT2
+    # or TIME_WAIT). A local account can send forged headers and close; the harness still reads
+    # the body, so such a row must never count as tailscaled.
+    client = hex_address("127.0.0.1", CLIENT_PORT)
+    server = hex_address("127.0.0.1", PORT)
+    orphan = proc_file(tmp_path, row(1, server, client, 1000), row(2, client, server, 0, state, 0))
+    assert not local_access.served_by_tailscaled(("127.0.0.1", CLIENT_PORT), PORT, proc_net=orphan)
+    # Only an established row with a socket inode counts, and every row of the connection must.
+    live = proc_file(tmp_path, row(2, client, server, 0, "01", 4242))
+    assert local_access.served_by_tailscaled(("127.0.0.1", CLIENT_PORT), PORT, proc_net=live)
+    no_inode = proc_file(tmp_path, row(2, client, server, 0, "01", 0))
+    assert not local_access.served_by_tailscaled(
+        ("127.0.0.1", CLIENT_PORT), PORT, proc_net=no_inode
+    )
+    mixed = proc_file(
+        tmp_path, row(2, client, server, 0, "01", 4242), row(3, client, server, 0, state, 0)
+    )
+    assert not local_access.served_by_tailscaled(("127.0.0.1", CLIENT_PORT), PORT, proc_net=mixed)
+
+
+def test_overflow_uid_is_never_tailscaled(tmp_path):
+    # Inside a user namespace every unmapped host account shows as 65534: accepting it would let
+    # any local account pass.
+    assert not local_access.served_by_tailscaled(
+        ("127.0.0.1", CLIENT_PORT), PORT, proc_net=proc_file(tmp_path, *peer_rows(65534))
+    )
+
+
+@pytest.mark.parametrize(
+    "text, inside",
+    [
+        ("         0          0 4294967295\n", False),
+        ("         0          1       1000\n      1000          0          1\n", True),
+        ("         0       1000          1\n", True),
+        ("", False),
+        ("garbage", False),
+    ],
+)
+def test_user_namespace_detection(tmp_path, text, inside):
+    path = tmp_path / "uid_map"
+    path.write_text(text, encoding="utf-8")
+    assert local_access.in_user_namespace(path) is inside
+    assert local_access.in_user_namespace(tmp_path / "missing") is False
 
 
 def test_malformed_proc_file_fails_closed(tmp_path):
@@ -136,3 +187,36 @@ def test_default_serve_check_is_the_proc_lookup(tmp_path):
         assert app.state.service.serve_peer_check is local_access.served_by_tailscaled
     finally:
         app.state.service.db.close()
+
+
+def test_refusal_warning_is_rate_limited(tmp_path, caplog):
+    app = seeded_owner_app(owner_config(tmp_path))
+    forged = {"Tailscale-User-Login": GUEST_LOGIN, **SERVE_HEADERS}
+
+    async def scenario():
+        async with loopback(app) as client:
+            app.state.service.serve_peer_check = lambda peer, port: False
+            with caplog.at_level("WARNING"):
+                for _ in range(5):
+                    assert await who(client, headers=forged) == (401, "authentication_required")
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        app.state.service.db.close()
+    # A local account can repeat this as often as it likes; the log gets one line a minute.
+    assert caplog.text.count("Tailscale identity headers ignored") == 1
+
+
+def test_startup_logs_once_when_running_in_a_user_namespace(tmp_path, caplog, monkeypatch):
+    monkeypatch.setattr(local_access, "in_user_namespace", lambda *args: True)
+    with caplog.at_level("WARNING"):
+        app = seeded_owner_app(owner_config(tmp_path))
+    app.state.service.db.close()
+    assert caplog.text.count("user namespace") == 1
+    caplog.clear()
+    monkeypatch.setattr(local_access, "in_user_namespace", lambda *args: False)
+    with caplog.at_level("WARNING"):
+        app = seeded_owner_app(owner_config(tmp_path / "again"))
+    app.state.service.db.close()
+    assert "user namespace" not in caplog.text
