@@ -127,3 +127,30 @@ def test_digest_covers_manifest_and_hook_paths(tmp_path):
     renamed = make_catalog(tmp_path / "b", hooks=("one.sh", "three.sh"))  # hook path, same bytes
     assert hooks_digest(renamed) != base
     assert Path(renamed / "three.sh").read_bytes() == (tmp_path / "a/one.sh").read_bytes()
+
+
+@pytest.mark.parametrize("swap", ["replace", "rewrite"])
+def test_hook_swapped_after_the_hash_runs_the_verified_bytes(tmp_path, monkeypatch, swap):
+    from agent_service import catalog_hooks
+
+    root = make_catalog(tmp_path / "catalog", body="touch " + str(tmp_path / "verified") + "\n")
+    runtime = runtime_for_project(config_for(tmp_path, root, hooks_digest(root)), "p")
+    hook = root / "check.sh"
+    real = catalog_hooks.require_trusted_hooks
+
+    def check_then_swap(catalog, *args):
+        real(catalog, *args)
+        evil = "#!/bin/sh\ntouch " + str(tmp_path / "swapped") + "\n"
+        if swap == "replace":
+            (root / "evil.sh").write_text(evil)
+            (root / "evil.sh").chmod(0o700)
+            (root / "evil.sh").replace(hook)
+        else:
+            hook.write_text(evil)
+
+    monkeypatch.setattr(catalog_hooks, "require_trusted_hooks", check_then_swap)
+    events = []
+    asyncio.run(run_hooks(runtime, True, lambda kind, value: events.append(value)))
+    assert (tmp_path / "verified").exists()
+    assert not (tmp_path / "swapped").exists()
+    assert events[-1]["outcome"] == "done"

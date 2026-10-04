@@ -60,6 +60,12 @@ Failures stop dispatch, and loaded credential values are redacted from hook even
 Provider and global hooks remain disabled for catalog runs. Isolated execution
 cannot run these native hooks.
 
+The trust digest covers each hook script's own bytes. Right before each run the
+hooks are hashed once and exactly those bytes are executed from a private
+in-memory copy, so replacing or rewriting the file after the check changes
+nothing. Files a hook loads or runs itself (sourced scripts, interpreter
+modules, data) are outside the digest and remain the catalog owner's trust.
+
 Pins disable the catalog update command and omit catalog hooks from runtime.
 Runs record each active catalog's commit, dirty state and pin status. Permission
 bits prevent accidental edits, but do not provide an OS security boundary against

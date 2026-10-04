@@ -116,12 +116,15 @@ def load_manifest(root):
     return manifest
 
 
-def hooks_digest(root):
-    """Digest of the manifest bytes and each declared hook (relpath, sha256); any error raises."""
+def hooks_digest(root, read=Path.read_bytes):
+    """Digest of the manifest bytes and each declared hook (relpath, sha256); any error raises.
+
+    ``read`` fetches a hook's bytes, so a caller can keep exactly what was hashed.
+    """
     raw = (Path(root) / MANIFEST_NAME).read_bytes()
     manifest = load_manifest(root)
     hooks = sorted(
-        (value, hashlib.sha256(_inside(root, value).read_bytes()).hexdigest())
+        (value, hashlib.sha256(read(_inside(root, value))).hexdigest())
         for value in manifest.get("allowed_hooks", [])
     )
     return hashlib.sha256(
@@ -129,10 +132,10 @@ def hooks_digest(root):
     ).hexdigest()
 
 
-def require_trusted_hooks(catalog):
+def require_trusted_hooks(catalog, read=Path.read_bytes):
     """Block unless the catalog's hooks still match the digest the owner trusted in Admin."""
     try:
-        current = hooks_digest(catalog["root"])
+        current = hooks_digest(catalog["root"], read)
     except (OSError, ValueError):
         raise APIError("catalog_hooks_changed") from None
     if not hmac.compare_digest(current, str(catalog.get("hooks_sha256") or "")):
