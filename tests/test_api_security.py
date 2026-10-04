@@ -212,6 +212,11 @@ SERVE_HEADERS = {
 }
 
 
+def serve_from_tailscaled(client, port):
+    """Stands in for the /proc/net/tcp proof, which tests/test_serve_proof.py covers."""
+    return True
+
+
 def owner_config(tmp_path, **overrides):
     from control import local_access
 
@@ -331,6 +336,7 @@ def test_tailscale_login_requires_remote_host(tmp_path):
 
     cfg = owner_config(tmp_path)
     app = seeded_owner_app(cfg)
+    app.state.service.serve_peer_check = serve_from_tailscaled
     login = {"Tailscale-User-Login": GUEST_LOGIN}
 
     async def scenario():
@@ -377,6 +383,7 @@ def test_tailscale_login_requires_remote_host(tmp_path):
         app.state.service.db.close()
 
     unshared = seeded_owner_app(owner_config(tmp_path / "unshared", browser_url=None))
+    unshared.state.service.serve_peer_check = serve_from_tailscaled
 
     async def without_remote_origin():
         async with loopback(unshared) as client:
@@ -399,6 +406,7 @@ def test_tailscale_login_never_maps_on_a_loopback_browser_url(tmp_path, browser_
     host = urlsplit(browser_url).netloc
     cfg = owner_config(tmp_path, browser_url=browser_url, origins=[browser_url.rstrip("/")])
     app = seeded_owner_app(cfg)
+    app.state.service.serve_peer_check = serve_from_tailscaled
     forged = {
         "Tailscale-User-Login": GUEST_LOGIN,
         **SERVE_HEADERS,
@@ -577,6 +585,120 @@ def test_non_local_views_redacted(tmp_path, monkeypatch):
                 "/v1/project-directories", headers={"Authorization": "Bearer vpn"}
             )
             assert guest_dirs.status_code == 403
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        app.state.service.db.close()
+
+
+def test_funnel_request_is_refused(tmp_path):
+    import asyncio
+
+    import httpx
+
+    from control import local_access
+    from control.server import create_app as create_admin_app
+
+    cfg = owner_config(tmp_path)
+    app = seeded_owner_app(cfg)
+    app.state.service.serve_peer_check = serve_from_tailscaled
+    funnel = {"Tailscale-Funnel-Request": "?1"}
+    serve = {"Tailscale-User-Login": GUEST_LOGIN, **SERVE_HEADERS}
+
+    async def scenario():
+        async with loopback(app) as client:
+            assert await who(client, headers=serve) == (200, ["tailnet-guest-job"])
+            # Funnel traffic reaches the harness through the same proxy; whatever else it
+            # carries, it never authenticates (not by login, owner session or token).
+            for headers, cookies in (
+                ({**serve, **funnel}, None),
+                (funnel, owner_cookie(cfg)),
+                ({**funnel, "Authorization": "Bearer vpn"}, None),
+            ):
+                assert await who(client, headers=headers, cookies=cookies) == (
+                    403,
+                    "funnel_denied",
+                )
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        app.state.service.db.close()
+
+    admin = create_admin_app(tmp_path / "admin", 8094)
+
+    async def admin_scenario():
+        transport = httpx.ASGITransport(app=admin, client=("127.0.0.1", 4321))
+        async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1:8094") as c:
+            session = {local_access.COOKIE: local_access.issue_session(admin.state.manager.state)}
+            assert (await c.get("/", cookies=session)).status_code == 200
+            assert (await c.get("/", cookies=session, headers=funnel)).status_code == 403
+            assert (await c.get("/api/state", cookies=session, headers=funnel)).status_code == 403
+
+    asyncio.run(admin_scenario())
+
+
+def test_guest_cannot_browse_or_attach_host_files(tmp_path, monkeypatch):
+    import asyncio
+
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / "notes.txt").write_text("the owner's file")
+    monkeypatch.setenv("HOME", str(home))
+    cfg = owner_config(
+        tmp_path,
+        uploads_enabled=True,
+        services={
+            "codex": {
+                "enabled": True,
+                "models": ["fixture"],
+                "projects": ["sem-projeto"],
+                "permissions": {"read": True, "upload": True},
+            }
+        },
+        codex_models={"fixture": ["low"]},
+    )
+    app = create_app(cfg)
+    owner = owner_cookie(cfg)
+    vpn = {"Authorization": "Bearer vpn"}
+    attach = "/v1/project-files/attach?project_id=sem-projeto&backend=codex&model=fixture"
+    from_root = (home / "notes.txt").relative_to("/").as_posix()
+
+    async def scenario():
+        async with loopback(app) as client:
+            tree = "/v1/project-files?view=tree&root_id=home"
+            attempts = (
+                await client.get(tree, headers=vpn),
+                await client.get("/v1/project-files?view=tree", headers=vpn),
+                await client.post(
+                    attach, json={"root_id": "home", "paths": ["notes.txt"]}, headers=vpn
+                ),
+                # The attach root used to default to the filesystem root, which reaches the same file.
+                await client.post(attach, json={"paths": [from_root]}, headers=vpn),
+                await client.post(
+                    attach, json={"root_id": "system", "paths": [from_root]}, headers=vpn
+                ),
+            )
+            for response in attempts:
+                assert (response.status_code, response.json()["code"]) == (
+                    403,
+                    "host_files_owner_only",
+                ), response.text
+            listing = await client.get(tree, cookies=owner)
+            assert [entry["name"] for entry in listing.json()["entries"]] == ["notes.txt"]
+            owned = await client.post(
+                attach, json={"root_id": "home", "paths": ["notes.txt"]}, cookies=owner
+            )
+            assert owned.status_code == 200, owned.text
+            assert [item["name"] for item in owned.json()["attachments"]] == ["notes.txt"]
+            default = await client.post(attach, json={"paths": ["notes.txt"]}, cookies=owner)
+            assert [item["name"] for item in default.json()["attachments"]] == ["notes.txt"]
+            # Not even the owner browses the filesystem root any more.
+            gone = await client.post(
+                attach, json={"root_id": "system", "paths": [from_root]}, cookies=owner
+            )
+            assert (gone.status_code, gone.json()["code"]) == (422, "system_root_denied")
 
     try:
         asyncio.run(scenario())

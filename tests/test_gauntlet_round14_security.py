@@ -26,16 +26,16 @@ def test_tree_delivery_revalidates_current_identity(tmp_path, monkeypatch, chang
             "projects": {"p": {"root": str(root)}},
             "services": {},
             "clients": {
-                "alice": {"sha256": hashlib.sha256(b"alice").hexdigest(), "projects": ["p"]}
+                "local": {"sha256": hashlib.sha256(b"local").hexdigest(), "projects": ["p"]}
             },
         }
         app = create_app(cfg)
         s = app.state.service
-        token = consume_enrollment(cfg, issue_enrollment(cfg, "alice"))
+        token = consume_enrollment(cfg, issue_enrollment(cfg, "local"))
         headers = (
             {"Cookie": "harness_session=" + token}
             if change in ("logout", "expiry")
-            else {"Authorization": "Bearer alice"}
+            else {"Authorization": "Bearer local"}
         )
         entered, release = threading.Event(), threading.Event()
         original = workspaces.browse_system
@@ -46,7 +46,7 @@ def test_tree_delivery_revalidates_current_identity(tmp_path, monkeypatch, chang
             return original(*args, **kw)
 
         monkeypatch.setattr(workspaces, "system_root", lambda _: root)
-        monkeypatch.setattr(workspaces, "visible_system_roots", lambda: [("home", root)])
+        monkeypatch.setattr(workspaces, "system_roots", lambda: [("home", root)])
         monkeypatch.setattr(workspaces, "browse_system", browse)
         try:
             async with httpx.AsyncClient(
@@ -65,8 +65,8 @@ def test_tree_delivery_revalidates_current_identity(tmp_path, monkeypatch, chang
                     assert (await c.post("/v1/logout")).status_code == 200
                 if change in ("rotation", "reassigned"):
                     if change == "reassigned":
-                        cfg["clients"]["bob"] = dict(cfg["clients"]["alice"])
-                    cfg["clients"]["alice"]["sha256"] = hashlib.sha256(b"new").hexdigest()
+                        cfg["clients"]["bob"] = dict(cfg["clients"]["local"])
+                    cfg["clients"]["local"]["sha256"] = hashlib.sha256(b"new").hexdigest()
                 if change == "expiry":
                     with session_database(cfg) as db:
                         db.execute("UPDATE sessions SET expires=0")
@@ -147,9 +147,13 @@ def test_project_registration_protects_runtime_state(tmp_path, split_control):
         "ordinary",
     ],
 )
-def test_system_attachment_import_rejects_runtime_private_sources(tmp_path, private_source):
+def test_system_attachment_import_rejects_runtime_private_sources(
+    tmp_path, monkeypatch, private_source
+):
     from test_project_browser import config
 
+    # Host folders are the owner's: attach through the home root, which is the temp folder here.
+    monkeypatch.setenv("HOME", str(tmp_path))
     cfg = config(tmp_path)
     app = create_app(cfg)
     s = app.state.service
@@ -184,18 +188,19 @@ def test_system_attachment_import_rejects_runtime_private_sources(tmp_path, priv
         os.link(source, alias)
         source = alias
     try:
-        c = TestClient(app, headers={"Authorization": "Bearer a"})
+        c = TestClient(app, headers={"Authorization": "Bearer local"})
         r = c.post(
             "/v1/project-files/attach?project_id=p",
             json={
-                "root_id": "system",
-                "paths": [source.relative_to("/").as_posix()],
+                "root_id": "home",
+                "paths": [source.relative_to(tmp_path).as_posix()],
                 "backend": "codex",
                 "model": "fixture",
             },
         )
         records = [
-            dict(row) for row in s.db.execute("SELECT id,owner,pages FROM files WHERE owner='a'")
+            dict(row)
+            for row in s.db.execute("SELECT id,owner,pages FROM files WHERE owner='local'")
         ]
         context = ""
         if records:
@@ -210,7 +215,7 @@ def test_system_attachment_import_rejects_runtime_private_sources(tmp_path, priv
                 s.conversation_repository.insert(
                     "synthetic-read",
                     "p",
-                    "a",
+                    "local",
                     "completed",
                     1,
                     json.dumps(data),

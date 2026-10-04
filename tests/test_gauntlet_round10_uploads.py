@@ -234,7 +234,8 @@ def source(service, file_id):
     return service.root / "files" / "p" / file_id / "source"
 
 
-def test_identical_uploads_share_one_copy_and_count_once(tmp_path):
+def test_identical_uploads_share_one_copy_and_count_once(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))  # host folders are the owner's, under home
     client, service = dedupe_client(tmp_path)
     data = b"Identical upload bytes"
     first = post_file(client, data, "first.txt").json()["file_id"]
@@ -245,11 +246,12 @@ def test_identical_uploads_share_one_copy_and_count_once(tmp_path):
     attached = client.post(
         "/v1/project-files/attach?project_id=p",
         json={
-            "root_id": "system",
-            "paths": [str(folder / "third.txt").lstrip("/")],
+            "root_id": "home",
+            "paths": ["attach/third.txt"],
             "backend": "codex",
             "model": "fixture",
         },
+        headers={"Authorization": "Bearer local"},
     )
     assert attached.status_code == 200, attached.text
     third = attached.json()["attachments"][0]["file_id"]

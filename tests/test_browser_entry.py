@@ -71,6 +71,7 @@ def test_history_and_attachments_keep_owner_and_survive_restart(tmp_path):
             for owner in ("local", "tailnet-fixture")
         }
         app = create_app(cfg)
+        app.state.service.serve_peer_check = lambda client, port: True
         with app.state.service.db as db:
             for owner in cfg["clients"]:
                 fid = owner + "-image"
@@ -105,6 +106,7 @@ def test_history_and_attachments_keep_owner_and_survive_restart(tmp_path):
             if restart:
                 app.state.service.db.close()
                 app = create_app(cfg)
+                app.state.service.serve_peer_check = lambda client, port: True
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=app, client=("127.0.0.1", 4321)),
                 base_url="http://127.0.0.1:8095",

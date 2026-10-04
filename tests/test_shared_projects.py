@@ -258,3 +258,31 @@ def test_model_catalog_excludes_maestro_even_when_enabled(tmp_path, project_id):
         assert models
         assert all(model["backend"] != "maestro" for model in models)
         assert any(model["backend"] == "codex" for model in models)
+
+
+@pytest.mark.parametrize("shared", [False, True])
+def test_guest_scope_survives_hot_reload(tmp_path, shared):
+    cfg = config(tmp_path)
+    cfg["shared_projects"] = shared
+    app = create_app(copy.deepcopy(cfg))
+    root = tmp_path / "project"
+    root.mkdir()
+    client = TestClient(app, headers={"Authorization": "Bearer local"})
+    pid = client.post("/v1/projects", json={"root": str(root), "label": "Demo"}).json()[
+        "project_id"
+    ]
+    client.close()
+    service = app.state.service
+    try:
+        # The control plane rebuilds clients without the registered project; the reload must not
+        # hand it to everyone (the owner's registered folders are durable data, not shared ones).
+        candidate = copy.deepcopy(cfg)
+        candidate["config_revision"] = "after-a-settings-save"
+        asyncio.run(service.apply_runtime_config(candidate))
+        clients = service.config["clients"]
+        assert pid in clients["local"]["projects"]
+        assert (pid in clients["a"]["projects"]) is shared
+        assert "sem-projeto" in clients["a"]["projects"]
+        assert all(pid in spec["projects"] for spec in service.config["services"].values())
+    finally:
+        service.db.close()

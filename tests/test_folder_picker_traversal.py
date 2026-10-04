@@ -13,6 +13,7 @@ from starlette.testclient import TestClient
 
 from agent_service import workspaces
 from agent_service.app import create_app
+from agent_service.tools import ToolError
 from control.server import create_app as create_admin_app
 from tests.owner_session import sign_in
 
@@ -79,7 +80,11 @@ def project_files_config(tmp_path):
         "uploads_enabled": True,
         "projects": {"p": {}, "sem-projeto": {}},
         "clients": {
-            "a": {"sha256": hashlib.sha256(b"a").hexdigest(), "projects": ["p", "sem-projeto"]}
+            name: {
+                "sha256": hashlib.sha256(name.encode()).hexdigest(),
+                "projects": ["p", "sem-projeto"],
+            }
+            for name in ("a", "local")
         },
         "services": {
             "codex": {
@@ -94,19 +99,15 @@ def project_files_config(tmp_path):
 
 
 def test_system_root_hides_proc_and_etc_entries_at_any_depth(tmp_path):
+    # The filesystem root is no longer a browsable root (SEC-RC-10); the hiding still guards
+    # any folder handed to the browser as "/", and now refuses the request itself.
+    for path in ("proc", "etc"):
+        with pytest.raises(ToolError, match="path_not_authorized"):
+            workspaces.browse_system(Path("/"), path)
     app = create_app(project_files_config(tmp_path))
-    with TestClient(app, headers={"Authorization": "Bearer a"}) as client:
-        for path in ("proc", "etc"):
-            response = client.get(f"/v1/project-files?view=tree&root_id=system&path={path}")
-            assert response.status_code in (200, 422)
-            if response.status_code == 200:
-                data = response.json()
-                # Entries are canonical paths: a symlink such as /etc/resolv.conf may point
-                # outside, but nothing inside a system directory is ever listed.
-                assert not any(
-                    entry["path"].split("/")[0] in workspaces.SYSTEM_DIRECTORY_NAMES
-                    for entry in data["entries"]
-                )
+    with TestClient(app, headers={"Authorization": "Bearer local"}) as client:
+        response = client.get("/v1/project-files?view=tree&root_id=system&path=etc")
+        assert (response.status_code, response.json()["code"]) == (422, "system_root_denied")
     app.state.service.db.close()
 
 
@@ -129,7 +130,7 @@ def test_runtime_and_ostree_physical_roots_are_hidden_system_directories():
 @pytest.mark.parametrize("path", ["../", "%2e%2e/"])
 def test_system_tree_traversal_outside_the_root_is_rejected(tmp_path, path):
     app = create_app(project_files_config(tmp_path))
-    with TestClient(app, headers={"Authorization": "Bearer a"}) as client:
+    with TestClient(app, headers={"Authorization": "Bearer local"}) as client:
         response = client.get(f"/v1/project-files?view=tree&path={path}")
         assert response.status_code == 422
         assert response.json()["code"] == "path_not_authorized"
@@ -137,31 +138,24 @@ def test_system_tree_traversal_outside_the_root_is_rejected(tmp_path, path):
 
 
 def test_attach_of_procfs_and_etc_files_is_never_actually_attached(tmp_path):
+    environ = f"proc/{os.getpid()}/environ"
+    if not (Path("/") / environ).is_file():
+        pytest.skip("procfs is not available")
+    # /proc/<pid> is not a symlink (unlike /proc/self), so this one is caught by the
+    # sensitive-file filter rather than the symlink guard.
+    for name in (environ, "etc/hostname"):
+        selected, skipped = workspaces.selected_system_files(Path("/"), [name], 10)
+        assert selected == []
+        assert skipped == [{"path": name, "reason": "sensitive_file"}]
+    # The filesystem root is no longer reachable through the API at all.
     app = create_app(project_files_config(tmp_path))
-    with TestClient(app, headers={"Authorization": "Bearer a"}) as client:
-        environ = f"proc/{__import__('os').getpid()}/environ"
-        if (Path("/") / environ).is_file():
+    with TestClient(app, headers={"Authorization": "Bearer local"}) as client:
+        for name in (environ, "etc/hostname"):
             response = client.post(
                 "/v1/project-files/attach?project_id=p",
-                json={"root_id": "system", "paths": [environ]},
+                json={"root_id": "system", "paths": [name]},
             )
-            # /proc/<pid> is not a symlink (unlike /proc/self), so this one is caught by
-            # the sensitive-file filter rather than the symlink guard.
-            assert response.status_code == 200
-            body = response.json()
-            assert body["attachments"] == []
-            assert body["skipped"] == [{"path": environ, "reason": "sensitive_file"}]
-        else:
-            pytest.skip("procfs is not available")
-
-        response = client.post(
-            "/v1/project-files/attach?project_id=p",
-            json={"root_id": "system", "paths": ["etc/hostname"]},
-        )
-        assert response.status_code == 200
-        body = response.json()
-        assert body["attachments"] == []
-        assert body["skipped"] == [{"path": "etc/hostname", "reason": "sensitive_file"}]
+            assert (response.status_code, response.json()["code"]) == (422, "system_root_denied")
     app.state.service.db.close()
 
 
@@ -174,7 +168,7 @@ def test_home_root_does_not_list_or_attach_a_symlink_pointing_outside(tmp_path):
     (home / "escape-link").symlink_to(outside)
     with patch("pathlib.Path.home", return_value=home):
         app = create_app(project_files_config(tmp_path))
-        with TestClient(app, headers={"Authorization": "Bearer a"}) as client:
+        with TestClient(app, headers={"Authorization": "Bearer local"}) as client:
             tree = client.get("/v1/project-files?view=tree&root_id=home").json()
             assert [entry["name"] for entry in tree["entries"]] == ["visible.txt"]
             response = client.post(

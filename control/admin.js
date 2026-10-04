@@ -1057,6 +1057,7 @@ function renderProjects() {
   $("project-count").textContent = settings.projects.length;
 }
 
+let tailnetNoticeShown = false;
 function renderStatus() {
   const s = state.status;
   $("add-provider").disabled = working;
@@ -1064,6 +1065,11 @@ function renderStatus() {
   $("wizard-next").disabled = working;
   if (s.startup_error)
     say("Could not resume the harness: " + s.startup_error, true);
+  // Persistent, so it is said once per page load and never buries a later message.
+  if (s.tailnet_signin_off && !tailnetNoticeShown) {
+    tailnetNoticeShown = true;
+    say(s.tailnet_signin_off, true);
+  }
   $("runtime-badge").textContent = s.running
     ? "● Harness active"
     : "● Harness stopped";

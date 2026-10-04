@@ -141,25 +141,25 @@ runPersona("H19", [
         assert(!Array.isArray(j.entries), "no listing for " + p);
       }
 
-      // Root `/` never exposes the system directories (F-05 / F-22 hold).
-      const system = await (
-        await req.get(
-          HARNESS + "/v1/project-files?view=tree&root_id=system&limit=200",
-        )
-      ).json();
-      assert.equal(system.state, "ready");
-      const names = system.entries.map((e) => e.name);
-      for (const dir of SYSTEM_DIRS)
-        assert(!names.includes(dir), "system root must hide /" + dir);
-
-      // Descending directly into a system directory yields nothing.
-      for (const dir of ["proc", "etc", "run", "sys", "var"]) {
+      // The filesystem root is not a browsable root any more (SEC-RC-10): neither `/` nor
+      // any system directory can be listed, so F-05 / F-22 hold by construction.
+      for (const query of ["&limit=200", ...SYSTEM_DIRS.map((dir) => "&path=" + dir)]) {
         const r = await req.get(
-          HARNESS + "/v1/project-files?view=tree&root_id=system&path=" + dir,
+          HARNESS + "/v1/project-files?view=tree&root_id=system" + query,
         );
-        assert(r.status() < 400, "system/" + dir + " is a controlled response");
+        assert(r.status() >= 400, "system root must be refused" + query);
         const j = await r.json();
-        assert.deepEqual(j.entries, [], "/" + dir + " must list nothing");
+        assert.equal(j.code, "system_root_denied", "code for system" + query);
+        assert(!Array.isArray(j.entries), "no listing for system" + query);
+      }
+
+      // A hidden folder inside an allowed root is refused as a requested path too.
+      for (const dir of [".ssh", ".config", ".gnupg"]) {
+        const r = await req.get(
+          HARNESS + "/v1/project-files?view=tree&root_id=home&path=" + dir,
+        );
+        assert(r.status() >= 400, "hidden folder must be refused: " + dir);
+        assert(!Array.isArray((await r.json()).entries), "no listing for " + dir);
       }
 
       // An unknown root cannot be forged.

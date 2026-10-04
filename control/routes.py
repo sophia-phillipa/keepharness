@@ -62,6 +62,8 @@ def admin_guard(request, manager, port):
         not local_access.host_allowed(request.headers.get("host", ""), local_access.LOOPBACK_NAMES)
         or (request.client is None or request.client.host not in ("127.0.0.1", "::1", "testclient"))
         or request.headers.get("tailscale-user-login")
+        # Funnel would put the panel on the public internet; refuse it whatever the Host says.
+        or "tailscale-funnel-request" in request.headers
     ):
         return JSONResponse({"error": "Management is only available on this machine."}, 403)
     origin = request.headers.get("origin")

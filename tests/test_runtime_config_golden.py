@@ -176,9 +176,10 @@ def test_build_runtime_config_matches_golden_shape(tmp_path):
             },
         },
         "clients": {
-            "vpn": {"sha256": "0" * 64, "projects": all_projects},
+            # Only the local owner starts with every project; guests start with "No project".
+            "vpn": {"sha256": "0" * 64, "projects": ["sem-projeto"]},
             "local": {"sha256": "1" * 64, "projects": all_projects},
-            client_id: {"sha256": "2" * 64, "projects": all_projects},
+            client_id: {"sha256": "2" * 64, "projects": ["sem-projeto"]},
         },
         "services": {
             "codex": {

@@ -1,12 +1,16 @@
 """The Files pane lists only project roots and reports observed Git state."""
 
+import hashlib
 import subprocess
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from starlette.testclient import TestClient
 from test_workspaces import config
 
+from agent_service import workspaces
 from agent_service.app import create_app
+from agent_service.tools import ToolError
 
 
 def test_authorized_roots_git_badges_and_path_boundaries(tmp_path):
@@ -88,3 +92,38 @@ def test_attachment_uses_only_the_requested_authorized_project_root(tmp_path):
             })
             assert response.status_code in (403, 422)
         assert attach.call_count == 1
+
+
+def test_system_root_is_gone(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    assert "system" not in {root_id for root_id, _ in workspaces.system_roots()}
+    with pytest.raises(ToolError, match="system_root_denied"):
+        workspaces.system_root("system")
+    assert workspaces.system_root("home") == tmp_path.resolve()
+
+
+def test_hidden_component_in_request_rejected(monkeypatch, tmp_path):
+    home = tmp_path / "home"
+    (home / ".ssh").mkdir(parents=True)
+    (home / ".ssh" / "id_ed25519").write_text("private key")
+    (home / "work" / ".config").mkdir(parents=True)
+    (home / "work" / ".config" / "token").write_text("token")
+    (home / "work" / "lost+found").mkdir()
+    (home / "work" / "lost+found" / "orphan").write_text("orphan")
+    (home / "work" / "notes.txt").write_text("notes")
+    (home / "alias").symlink_to(home / ".ssh", target_is_directory=True)
+    # The children of a hidden folder were listed because only the children were checked.
+    for path in (".ssh", "work/.config", "work/lost+found", "alias"):
+        with pytest.raises(ToolError, match="path_not_authorized"):
+            workspaces.browse_system(home, path)
+    assert [entry["name"] for entry in workspaces.browse_system(home, "work")["entries"]] == [
+        "notes.txt"
+    ]
+    monkeypatch.setenv("HOME", str(home))
+    cfg = config(tmp_path / "state")
+    cfg["clients"]["local"] = {"sha256": hashlib.sha256(b"local").hexdigest(), "projects": ["p"]}
+    with TestClient(create_app(cfg), headers={"Authorization": "Bearer local"}) as client:
+        for path in (".ssh", "work/.config", "alias"):
+            response = client.get("/v1/project-files", params={"view": "tree", "path": path})
+            assert (response.status_code, response.json()["code"]) == (422, "path_not_authorized")
+        assert client.get("/v1/project-files?view=tree&path=work").status_code == 200

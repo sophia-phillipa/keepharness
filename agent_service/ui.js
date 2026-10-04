@@ -1459,6 +1459,10 @@ const userErrors = {
   project_management_local_only:
     "Project folders can only be added, changed or deleted from the computer that runs KeepHarness.",
   host_denied: "This address is not one KeepHarness answers on. Open it by its usual address.",
+  funnel_denied:
+    "KeepHarness does not answer requests from the public internet. Turn off Tailscale Funnel for it.",
+  host_files_owner_only:
+    "Only the owner can browse or attach files from the folders of the computer that runs KeepHarness.",
   project_directory_shared:
     "One of the chosen folders already belongs to another project.",
   project_folder_busy:
