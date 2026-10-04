@@ -36,7 +36,18 @@ from .product import (
 MANIFEST = "manifest.json"
 FORMAT = 1
 KEPT = ("venv",)  # the installed program: never backed up, never moved by a restore
-SECRET_FILES = ("approval_sessions.sqlite3", "harness.secrets.json", "local-sessions.json")
+# Names that can hold a credential wherever they sit: the secret vaults, the sign-in sessions,
+# and a conversation's MCP config (the owner's connector settings and the effect capability).
+SECRET_FILES = (
+    "approval_sessions.sqlite3",
+    "harness.secrets.json",
+    "harness.effect_credentials.json",
+    "local-sessions.json",
+    "mcp.json",
+    ".credentials.json",
+    "oauth_creds.json",
+    ".claude.json",
+)
 SECRET_SUFFIXES = (".key", ".pem")
 VOLATILE_SUFFIXES = (".log", ".lock", ".tmp", ".partial", "-wal", "-shm", "-journal")
 
@@ -176,7 +187,7 @@ def read_manifest(archive: Path) -> dict:
     try:
         with tarfile.open(archive) as tar:
             first = tar.next()
-            manifest = json.load(tar.extractfile(first)) if first and first.name == MANIFEST else None
+            manifest = json.load(tar.extractfile(first)) if first and first.name == MANIFEST and first.isfile() else None
     except (tarfile.TarError, OSError, ValueError, KeyError) as exc:
         raise BackupRefused(f"{archive} is not a {PRODUCT.name} backup ({exc}).") from exc
     if not isinstance(manifest, dict) or manifest.get("format") != FORMAT or not isinstance(manifest.get("databases", {}), dict):
@@ -218,7 +229,8 @@ def extract(archive: Path, staging: Path) -> None:
     try:
         with tarfile.open(archive) as tar:
             for member in tar:
-                if member.name != MANIFEST and member.name.split("/")[0] not in KEPT:
+                parts = Path(member.name).parts  # "./venv/x" is the environment too
+                if member.name != MANIFEST and parts and parts[0] not in KEPT:
                     tar.extract(member, staging, filter="data")
     except (tarfile.TarError, OSError) as exc:
         raise BackupRefused(f"{archive} cannot be restored ({exc}); nothing was changed.") from exc
@@ -253,12 +265,14 @@ def swap_in(staging: Path, state: Path) -> Path | None:
     try:
         for entry in sorted(state.iterdir()):
             if entry.name not in KEPT:
-                aside.mkdir(mode=0o700, exist_ok=True)
+                if not moved:
+                    aside.mkdir(mode=0o700)  # never into a folder that already exists
                 moved.append((entry.rename(aside / entry.name), entry))
         for entry in sorted(staging.iterdir()):
             placed.append((entry.rename(state / entry.name), entry))
     except BaseException:
-        for current, original in reversed(placed + moved):
+        # Newest first: the restored entries leave before the originals come back.
+        for current, original in reversed(moved + placed):
             current.rename(original)
         raise
     return aside if moved else None

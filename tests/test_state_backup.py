@@ -27,6 +27,9 @@ def make_state(root: Path) -> Path:
     (state / "local.key").write_text("local secret")
     (state / "vpn.key").write_text("vpn secret")
     (state / "harness.secrets.json").write_text("{}")
+    (state / "harness.effect_credentials.json").write_text("{}")
+    (state / "runs/sessions/o/c").mkdir(parents=True)
+    (state / "runs/sessions/o/c/mcp.json").write_text('{"mcpServers": {"x": {"env": {"TOKEN": "t"}}}}')
     (state / "local-sessions.json").write_text("{}")
     (state / "harness.log").write_text("noise")
     (state / "harness.identity.json").write_text(json.dumps(IDENTITY))
@@ -61,7 +64,8 @@ def test_backup_leaves_out_secrets_the_environment_and_logs_by_default(tmp_path)
     assert {"manifest.json", "settings.json", "runs/jobs.sqlite3", "runs/notes.txt"} <= found
     assert not {n for n in found if n.endswith(".key") or n.startswith(("providers", "venv"))}
     assert not found & {
-        "harness.secrets.json", "local-sessions.json", "harness.log", "runs/approval_sessions.sqlite3",
+        "harness.secrets.json", "harness.effect_credentials.json", "runs/sessions/o/c/mcp.json",
+        "local-sessions.json", "harness.log", "runs/approval_sessions.sqlite3",
     }
     assert archive.stat().st_mode & 0o777 == 0o600
     assert not [p for p in tmp_path.iterdir() if p.name.startswith(".keepharness-backup")]
@@ -74,7 +78,10 @@ def test_backup_with_secrets_adds_them_but_still_not_the_environment(tmp_path):
     manifest = backup.create(state, archive, with_secrets=True)
 
     found = names(archive)
-    assert {"local.key", "vpn.key", "providers/codex/auth.json", "runs/approval_sessions.sqlite3"} <= found
+    assert {
+        "local.key", "vpn.key", "providers/codex/auth.json", "runs/approval_sessions.sqlite3",
+        "harness.effect_credentials.json", "runs/sessions/o/c/mcp.json",
+    } <= found
     assert not any(n.startswith("venv") for n in found)
     assert manifest["with_secrets"] is True
 
@@ -266,3 +273,69 @@ def test_the_command_line_backs_up_and_restores(tmp_path, capsys, monkeypatch):
 
     with pytest.raises(SystemExit, match="still holds data|--replace"):
         cli.main(["--state", str(target), "restore", str(archive), "--apply"])
+
+
+def existing_state(root: Path) -> Path:
+    target = root / "existing"
+    (target / "venv").mkdir(parents=True)
+    (target / "venv/keep").write_text("environment")
+    (target / "runs").mkdir()
+    (target / "runs/own.txt").write_text("own")
+    (target / "settings.json").write_text("newer settings")
+    (target / "zz-extra.txt").write_text("extra")
+    return target
+
+
+def test_a_swap_that_fails_midway_puts_every_original_back(tmp_path, monkeypatch):
+    state = make_state(tmp_path)
+    backup.create(state, tmp_path / "out.tar.gz")
+    target = existing_state(tmp_path)
+    real_rename = Path.rename
+
+    def failing(self, destination):
+        if self.name == "settings.json" and ".restoring-" in str(self.parent):
+            raise OSError("disk went away")
+        return real_rename(self, destination)
+
+    monkeypatch.setattr(Path, "rename", failing)
+    with pytest.raises(OSError, match="disk went away"):
+        backup.restore(tmp_path / "out.tar.gz", target, apply=True, replace=True, home=tmp_path)
+    monkeypatch.undo()
+
+    assert (target / "settings.json").read_text() == "newer settings"
+    assert (target / "runs/own.txt").read_text() == "own"
+    assert (target / "zz-extra.txt").read_text() == "extra"
+    assert (target / "venv/keep").read_text() == "environment"
+    assert not (target / "runs/notes.txt").exists()  # nothing of the backup was left half in
+
+
+def test_restore_never_lets_a_dot_prefixed_environment_member_touch_the_venv(tmp_path):
+    state = make_state(tmp_path)
+    backup.create(state, tmp_path / "out.tar.gz")
+
+    with tarfile.open(tmp_path / "out.tar.gz") as old, tarfile.open(tmp_path / "dot.tar.gz", "w:gz") as new:
+        for member in old.getmembers():
+            new.addfile(member, old.extractfile(member) if member.isfile() else None)
+        extra = tarfile.TarInfo("./venv/x")
+        extra.size = 1
+        new.addfile(extra, io.BytesIO(b"x"))
+    target = existing_state(tmp_path)
+
+    backup.restore(tmp_path / "dot.tar.gz", target, apply=True, replace=True, home=tmp_path)
+
+    assert (target / "settings.json").read_text() == '{"port": 8095}'
+    assert (target / "venv/keep").read_text() == "environment"
+    assert not (target / "venv/x").exists()
+    aside = next(p for p in tmp_path.iterdir() if p.name.startswith("existing.before-restore-"))
+    assert (aside / "settings.json").read_text() == "newer settings"
+
+
+def test_a_manifest_that_is_a_folder_is_refused_cleanly(tmp_path):
+    archive = tmp_path / "odd.tar.gz"
+    with tarfile.open(archive, "w:gz") as tar:
+        folder = tarfile.TarInfo("manifest.json")
+        folder.type = tarfile.DIRTYPE
+        tar.addfile(folder)
+
+    with pytest.raises(BackupRefused, match="not a KeepHarness backup"):
+        backup.restore(archive, tmp_path / "t", home=tmp_path)
