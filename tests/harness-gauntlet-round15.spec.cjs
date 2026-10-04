@@ -2,6 +2,7 @@
 const {chromium}=require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const assert=require('node:assert/strict');
 const {mount,run,span}=require('./run-console-fixture.cjs');
+const {handleHitZones,assertHitAreas}=require('./support/handle-hit-zone.cjs');
 const hit=loc=>loc.evaluate(n=>{const r=n.getBoundingClientRect();return n.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));});
 const painted=async loc=>{for(let i=0;i<20;i++){if(await loc.evaluate(n=>{const r=n.getBoundingClientRect();return r.width>0&&r.height>0;}))return true;await new Promise(r=>setTimeout(r,50));}return false;};
 async function fixture(browser,width=1440,height=900){
@@ -38,7 +39,7 @@ async function fixture(browser,width=1440,height=900){
   for(const theme of ['porcelain','amethyst','petroleum']){
    await p.evaluate(t=>HarnessTheme.apply(t),theme);if(await p.locator('#activity-panel').isHidden())await p.locator('#panel-toggle').click();
    await p.locator('#header-execution-mode').click();
-   const geometry=await p.locator('#workspace-resources').evaluate(n=>{const walker=document.createTreeWalker(n,NodeFilter.SHOW_TEXT);let t;while(t=walker.nextNode())if(t.textContent.trim()){const range=document.createRange();range.selectNodeContents(t);const r=range.getBoundingClientRect();if(r.width&&r.height){const h=document.elementFromPoint(r.x+1,r.y+r.height/2);return{owns:n.contains(h),left:r.left,hit:h?.id};}}});assert(geometry?.owns,JSON.stringify(geometry));assert((await p.locator('#activity-panel-resize').boundingBox()).width>=6); /* WP-16 L64: a 6 px strip on the panel edge, no longer over controls */assert(await p.locator('#activity-panel-resize').evaluate(n=>{const r=n.getBoundingClientRect();return [r.left+1,r.right-1].every(x=>document.elementFromPoint(x,r.y+r.height*.45)===n);}), 'entire resize target owns hit area');
+   const geometry=await p.locator('#workspace-resources').evaluate(n=>{const walker=document.createTreeWalker(n,NodeFilter.SHOW_TEXT);let t;while(t=walker.nextNode())if(t.textContent.trim()){const range=document.createRange();range.selectNodeContents(t);const r=range.getBoundingClientRect();if(r.width&&r.height){const h=document.elementFromPoint(r.x+1,r.y+r.height/2);return{owns:n.contains(h),left:r.left,hit:h?.id};}}});assert(geometry?.owns,JSON.stringify(geometry));assertHitAreas(await handleHitZones(p,'#activity-panel-resize')); /* WP-16 L64: drawn as a 6 px strip, grabbed through a 24 px zone clear of controls (WCAG 2.5.8) */assert(await p.locator('#activity-panel-resize').evaluate(n=>{const r=n.getBoundingClientRect();return [r.left+1,r.right-1].every(x=>document.elementFromPoint(x,r.y+r.height*.45)===n);}), 'entire resize target owns hit area');
    await p.locator('#header-execution-mode').click();
   }await p.close();
  });
