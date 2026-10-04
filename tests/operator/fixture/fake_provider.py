@@ -78,7 +78,7 @@ def claude_metadata(request):
         }
     else:
         effort = {"supportsEffort": True, "supportedEffortLevels": ["low", "medium", "high"]}
-        payload = {"models": [{"value": "claude-sonnet-5-5", **effort}, {"value": "claude-opus-5-5", **effort}]}
+        payload = {"models": [{"value": model, **effort} for model in ("claude-sonnet-5-5", "claude-opus-5-5", "claude-sonnet-4-5")]}
     emit(
         {
             "type": "control_response",

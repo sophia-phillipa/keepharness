@@ -79,7 +79,8 @@ module.exports = {
       await op.step("admin-back", "Open harness brings the chat back", async () => {
         const page = desktop.page;
         const link = page.locator("#open-harness");
-        if (await link.isVisible()) await op.click(link);
+        // The link is disabled while the admin reports its harness stopped (or has no status yet).
+        if ((await link.isVisible()) && (await link.getAttribute("aria-disabled")) !== "true") await op.click(link);
         else await page.goBack();
         await op.until(async () => page.url().startsWith(base), "the window did not return to the chat");
         await page.locator("#startup-gate").waitFor({ state: "hidden", timeout: 30000 });

@@ -48,7 +48,7 @@ module.exports = {
       await op.click(page.locator("#attention-bell"));
       const popover = page.locator("#attention-popover");
       await op.see(popover);
-      for (const name of ["Complete", "Request", "Error"]) await op.see(popover.getByRole("button", { name }));
+      for (const name of ["Finished", "Needs you", "Failed"]) await op.see(popover.getByRole("button", { name, exact: true }));
       await op.see(page.locator("#attention-open-inbox"));
     });
 

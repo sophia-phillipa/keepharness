@@ -3,11 +3,15 @@
 // roles and accessible names only, never layout classes.
 "use strict";
 
+const crypto = require("node:crypto");
+const fs = require("node:fs");
+const path = require("node:path");
+
 const ANSWER_DONE = /OPERATOR_OK|Approval (granted|denied)|You chose|declined/;
 
-async function home(op, path = "/") {
+async function home(op, route = "/") {
   const page = op.page;
-  await page.goto(op.session.base + path);
+  await page.goto(op.session.base + route);
   // Mark the tour as seen for this release, as a returning user would have it.
   await page.evaluate(async () => {
     const { version } = await fetch("/v1/version").then((r) => r.json());
@@ -49,16 +53,42 @@ async function chooseModel(op, wanted) {
   }
   const menu = op.page.locator("#model-menu");
   await op.click(op.page.locator("#model-trigger"));
-  const option = menu.getByRole("option", { name: new RegExp(escapeRegex(id)) }).first();
-  // Only the selected provider's group starts open; open the model's group first.
-  if (!(await option.isVisible())) {
-    // A filter's inner locator is matched inside each group, so it must not be rooted at the menu.
-    const hidden = op.page.getByRole("option", { name: new RegExp(escapeRegex(id)), includeHidden: true });
-    await op.click(menu.getByRole("group", { includeHidden: true }).filter({ has: hidden }).locator("summary").first());
+  // The option's data-value is the model id; its visible name is a friendly label.
+  const selector = `[role="option"][data-value=${JSON.stringify(id)}]`;
+  const option = menu.locator(selector);
+  // Only the selected provider's group starts open, and older Claude models sit in a nested
+  // "More models" group: open each closed group around the option, outermost first.
+  // A filter's inner locator is matched inside each group, so it must not be rooted at the menu.
+  for (const group of ["details[data-provider]", "details.model-more"]) {
+    const closed = menu.locator(group).filter({ has: op.page.locator(selector) }).first();
+    if ((await closed.count()) && !(await closed.evaluate((n) => n.open))) await op.click(closed.locator(":scope > summary"));
   }
   await op.click(option);
   await op.until(async () => (await op.page.locator("#model").inputValue()) === id, "model " + id + " was not selected");
   return id;
+}
+
+// Fixture only: the owner's personal-setup opt-in (D01) lives in the harness config, which the
+// harness reloads when the file changes; wait until it reports the new revision.
+async function setPersonalSetup(op, on) {
+  const file = path.join(op.fixture.root, "chat.json");
+  const config = { ...JSON.parse(fs.readFileSync(file, "utf8")), personal_setup: on, config_revision: crypto.randomUUID() };
+  fs.writeFileSync(file + ".tmp", JSON.stringify(config));
+  fs.renameSync(file + ".tmp", file);
+  await op.until(
+    async () => (await op.page.evaluate(() => fetch("/v1/version").then((r) => r.json()))).config_revision === config.config_revision,
+    "the harness did not reload the configuration",
+  );
+}
+
+// Fixture only: the admin answers the owner, who holds the install secret (D09). Mint the
+// one-time link `keepharness open` prints, from the secret in the fixture's admin state.
+function adminOpenUrl(op) {
+  const secret = fs.readFileSync(path.join(op.fixture.root, "admin", "local.key"), "utf8").trim();
+  const expires = Math.floor(Date.now() / 1000) + 300;
+  const nonce = crypto.randomBytes(16).toString("base64url");
+  const signature = crypto.createHmac("sha256", secret).update(`open:${expires}.${nonce}`).digest("hex");
+  return `${op.options.adminUrl}/open?ticket=${expires}.${nonce}.${signature}`;
 }
 
 async function chooseAccess(op, label) {
@@ -118,4 +148,4 @@ function escapeRegex(text) {
   return String(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-module.exports = { home, row, cancelWaiting, dismissTour, newChat, chooseModel, chooseAccess, send, submit, waitAnswer, ask, catalog, escapeRegex };
+module.exports = { home, row, cancelWaiting, dismissTour, newChat, chooseModel, setPersonalSetup, adminOpenUrl, chooseAccess, send, submit, waitAnswer, ask, catalog, escapeRegex };

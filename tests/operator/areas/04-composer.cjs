@@ -159,7 +159,7 @@ module.exports = {
         const menu = page.locator("#plugins-menu");
         await op.see(menu);
         await op.seeText(menu, /Connectors and plugins/);
-        if (op.fixtureMode) await op.seeText(menu, /fixture-docs/);
+        if (op.fixtureMode) await op.seeText(menu, /personal setup, which is off/); // D01: no personal connector by default
         await op.see(menu.getByRole("button", { name: "Manage connectors and plugins" }));
         await op.press("Escape");
       });

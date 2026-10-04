@@ -1,6 +1,6 @@
 // Plugins and connectors: the composer panel, a connector's detail and the way to manage it.
 "use strict";
-const { home, newChat, chooseModel } = require("../lib/app.cjs");
+const { home, newChat, chooseModel, setPersonalSetup } = require("../lib/app.cjs");
 
 module.exports = {
   id: "plugins",
@@ -18,10 +18,25 @@ module.exports = {
       await op.seeText(menu, /Connectors and plugins · /);
     }, { critical: true });
 
-    await op.step("sections", "The panel separates what is available here from what is installed", async () => {
+    await op.step("sections", "The panel lists what is available in this conversation", async () => {
       await op.seeText(menu, /Available in this conversation/);
-      if (op.fixtureMode) await op.seeText(menu, /Installed, not available here/);
     });
+
+    // D01: the owner's Codex and Claude Code setup is off unless they opt in.
+    await op.step("personal-setup-off", "By default no personal connector shows, and the panel says how to turn them on", async () => {
+      await op.seeText(menu, /None for this project and model\./);
+      await op.seeText(menu, /Your Codex and Claude Code connectors and plugins come with your personal setup, which is off\. Turn it on in Settings › System\./);
+      op.check(!/fixture-docs/.test(await menu.innerText()), "a personal connector shows with the personal setup off");
+    }, { fixtureOnly: true });
+
+    await op.step("personal-setup-on", "With the personal setup on, the installed connector appears", async () => {
+      await setPersonalSetup(op, true);
+      await op.press("Escape");
+      await op.gone(menu);
+      await op.click(page.locator("#plugins-chip"));
+      await op.seeText(menu, /Installed, not available here/);
+      await op.seeText(menu, /fixture-docs/);
+    }, { fixtureOnly: true });
 
     await op.step("detail", "Open a connector's detail", async () => {
       const first = menu.getByRole("button").filter({ hasText: /Connector|Plugin/ }).first();
@@ -47,5 +62,9 @@ module.exports = {
       await op.see(settings.getByRole("group", { name: "System" }));
       await op.click(page.locator("#settings-close"));
     });
+
+    await op.step("personal-setup-reset", "Turn the personal setup off again", async () => {
+      await setPersonalSetup(op, false);
+    }, { fixtureOnly: true, always: true });
   },
 };

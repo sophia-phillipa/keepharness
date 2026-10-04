@@ -23,13 +23,19 @@ module.exports = {
       if (op.fixtureMode) {
         await op.seeText(menu, /Claude/);
         await op.seeText(menu, /Gemini/);
+        // Options carry friendly names; the older Claude model sits under "More models".
+        for (const [id, name] of [["claude-sonnet-5-5", "Claude Sonnet 5.5"], ["claude-opus-5-5", "Claude Opus 5.5"], ["claude-sonnet-4-5", "Claude Sonnet 4.5"]]) {
+          const title = menu.locator(`[role="option"][data-value="${id}"] strong`);
+          op.check((await title.allTextContents()).join() === name, `${id} is not listed as "${name}"`);
+        }
+        op.check((await menu.locator('.model-more [role="option"][data-value="claude-sonnet-4-5"]').count()) === 1, "claude-sonnet-4-5 is not under More models");
       }
       await op.press("Escape");
       await op.gone(menu);
     });
 
     const providers = op.fixtureMode
-      ? [["claude", "claude-sonnet-5-5"], ["claude-opus", "claude-opus-5-5"], ["gemini", "gemini-fixture"]]
+      ? [["claude", "claude-sonnet-5-5"], ["claude-opus", "claude-opus-5-5"], ["claude-legacy", "claude-sonnet-4-5"], ["gemini", "gemini-fixture"]]
       : [["real", null]];
     for (const [name, model] of providers) {
       await op.step("send-" + name, `New chat with ${model || "a real provider (Claude first)"}: send and get an answer`, async () => {
