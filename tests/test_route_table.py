@@ -97,6 +97,7 @@ AGENT_VALID_TABLE = [
                 "project_id": "p",
                 "providers": {},
                 "uploads_enabled": False,
+                "full_access": False,
                 "admin_url": None,
             }
         ),

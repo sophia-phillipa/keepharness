@@ -63,9 +63,9 @@ validated the same way; `access_mode` is one of `ask` (default), `auto`, `full`,
   | Gemini without the `internet` permission (provider or project grant) | Allowed connectors are not effective. |
   | Any item not in the allowed list | Not effective: change it in Settings. |
 
-- `effective_note` is one sentence about approvals: Codex, DeepSeek and Claude in `ask` ask
-  for every connector call; they run them without asking when the adapter is
-  unrestricted, the access mode is `auto` or `full` and the shell is granted; the
+- `effective_note` is one sentence about approvals: Codex, DeepSeek and Claude in `ask` and
+  `auto` (project-bounded since D11) ask for every connector call; they run them without asking
+  when the adapter is unrestricted, the access mode is `full` and the shell is granted; the
   isolated sentence for isolated routes; otherwise empty.
 - `used` and `other_tools` count `tool_start` events of this provider's runs by the
   caller in this project over the last `window_days`. Claude names tools

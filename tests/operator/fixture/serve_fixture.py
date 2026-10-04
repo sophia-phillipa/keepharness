@@ -78,6 +78,8 @@ def seed(root, admin_port, harness_port):
         "local_access": True,
         "project_registration": True,
         "uploads_enabled": True,
+        # The owner turned Full access on, so the access menu shows its four modes (D11).
+        "full_access": True,
         "admin_url": f"http://127.0.0.1:{admin_port}/",
         "clients": {"local": {"sha256": "0" * 64, "projects": projects}},
         "projects": {"sem-projeto": {}, "alpha": {"label": "Alpha research", "root": str(alpha)}},

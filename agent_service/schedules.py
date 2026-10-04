@@ -1,10 +1,10 @@
 """Scheduled tasks: recurring prompts that run unattended as new conversations.
 
-A schedule is a prompt, the route it runs on (provider, model, effort), an access mode and a
-cadence. It belongs to the client that created it. This module decides what a schedule may
-hold, when it is due and how a run is recorded; ``services/scheduler.py`` submits the due ones
-and ``docs/scheduled-tasks.md`` describes the whole feature. The files live in
-``JsonFileRepository``.
+A schedule is a prompt, the route it runs on (provider, model, effort), an access mode, whether
+it may use the internet and a cadence. It belongs to the client that created it. This module
+decides what a schedule may hold, when it is due and how a run is recorded;
+``services/scheduler.py`` submits the due ones and ``docs/scheduled-tasks.md`` describes the
+whole feature. The files live in ``JsonFileRepository``.
 """
 
 import itertools
@@ -55,6 +55,7 @@ EDITABLE = (
     "model",
     "effort",
     "access_mode",
+    "allow_internet",
     "cadence",
     "enabled",
 )
@@ -222,6 +223,8 @@ def normalize(body: dict) -> dict:
         "model": clean_name(body.get("model"), "model"),
         "effort": clean_name(body.get("effort"), "effort"),
         "access_mode": body.get("access_mode"),
+        # Unattended runs have no internet unless the task opts in (D03); older files lack it.
+        "allow_internet": body.get("allow_internet", False),
         "cadence": normalize_cadence(body.get("cadence")),
         "enabled": body.get("enabled"),
     }
@@ -229,6 +232,8 @@ def normalize(body: dict) -> dict:
         raise invalid("backend")
     if not isinstance(fields["access_mode"], str) or fields["access_mode"] not in ACCESS_MODES:
         raise invalid("access_mode")
+    if type(fields["allow_internet"]) is not bool:
+        raise invalid("allow_internet")
     if type(fields["enabled"]) is not bool:
         raise invalid("enabled")
     return fields
@@ -449,8 +454,12 @@ def job_request(record: dict) -> dict:
 
 
 def origin(record: dict) -> dict:
-    """What marks a conversation as started by this schedule."""
-    return {"schedule_id": record["id"], "schedule_title": record["title"]}
+    """What marks a conversation as started by this schedule, and whether it may go online."""
+    return {
+        "schedule_id": record["id"],
+        "schedule_title": record["title"],
+        "schedule_internet": record["allow_internet"],
+    }
 
 
 def due(config: dict, now: float) -> list[dict]:

@@ -23,6 +23,31 @@ Nobody watches a scheduled run, so it never gets automatic or full access:
   items"). A run started with "Run now" follows the same rule.
 - Three runs in a row that fail, are cancelled or are interrupted pause the schedule (see
   "Failures").
+- A scheduled run is isolated from the owner's setup (no personal MCP servers, plugins, hooks or
+  instructions; see `docs/provider-homes.md`) and has **no internet unless the task opts in**
+  (`allow_internet`, default `false`, D03; see "Internet").
+
+## Internet
+
+`allow_internet` is a per-task boolean, off by default; the Scheduled editor shows it as
+**Allow internet**. When it is off, the run's effective `internet` permission is forced to
+`false` whatever the provider's grant (`ConversationService._project_config`), which each
+adapter enforces as follows:
+
+| Provider | Without internet |
+| --- | --- |
+| Codex, DeepSeek | `web_search="disabled"` and the turn's sandbox has `networkAccess:false`; a command that needs the network escalates and is denied (`unattended`) |
+| Claude Code | `WebFetch` and `WebSearch` are not in `--tools`; `Bash` asks in Ask mode, so it is denied (`unattended`), and Read only has no `Bash` |
+| Gemini | `google_web_search` and `web_fetch` are denied by the run policy; a run with connectors selected fails with `gemini_integration_denied` |
+| Local models | no web research tool and no network in the sandbox |
+
+With `allow_internet: true` the run gets the provider's own internet grant, never more.
+
+Limits that this option cannot enforce: the provider is always reached over the internet (the
+prompt, the project text the run reads and the answer go to the provider's API); a connector
+that the harness itself runs (an effect such as a Jira publication) needs an approval, which an
+unattended run denies; Claude Code has no network sandbox of its own, so its limit is the tool
+list plus the denied approvals, not an OS boundary.
 
 ## Data
 
@@ -43,6 +68,7 @@ One JSON file per schedule:
   "model": "gpt-6-astra",
   "effort": "low",
   "access_mode": "ask",
+  "allow_internet": false,
   "cadence": {"kind": "daily", "time": "09:00"},
   "enabled": true,
   "created_at": "2026-10-03T12:00:00.000Z",
@@ -66,6 +92,7 @@ The `revision` the API returns is the SHA-256 of the exact file text, so any cha
 | `project_id` | a project the caller may use |
 | `backend`, `model`, `effort` | must be offered for that project right now (see below) |
 | `access_mode` | `ask` (default) or `read_only` |
+| `allow_internet` | boolean, default `false`; a file saved before it existed reads as `false` |
 | `cadence` | see below |
 | `enabled` | boolean, default `true` |
 | per owner | at most 50 schedules |
@@ -129,6 +156,7 @@ A schedule in a response is the stored record without `owner`, plus `revision`:
   "model": "gpt-6-astra",
   "effort": "low",
   "access_mode": "ask",
+  "allow_internet": false,
   "cadence": {"kind": "daily", "time": "09:00"},
   "enabled": true,
   "created_at": "2026-10-03T12:00:00.000Z",
@@ -159,7 +187,7 @@ POST /v1/schedules/0b8f.../run   (no body; an Idempotency-Key header is honoured
 ```
 
 - `POST` takes the editable fields. `title`, `prompt`, `project_id`, `backend`, `model`, `effort` and
-  `cadence` are required; `access_mode` and `enabled` default. `id`, `created_at`, `updated_at`,
+  `cadence` are required; `access_mode`, `allow_internet` and `enabled` default. `id`, `created_at`, `updated_at`,
   `revision`, `next_run`, `last_run`, `failures` and `paused_reason` are accepted and ignored, so a
   schedule that was read can be sent back; any other unknown key is `schedule_invalid` naming it.
 - `PUT` is a partial update: only the editable fields that are sent change, the rest keep their
@@ -187,11 +215,12 @@ Every 30 seconds a background task of the agent service loads the enabled schedu
 ```
 
 There is no parent job, so every run is a fresh conversation, and no text is added to the prompt.
-The job payload carries `schedule_id` and `schedule_title`; the conversation list
-(`GET /v1/conversations`) repeats them on the item of a conversation that a schedule started, so
-a UI can mark it. Follow-up turns of that conversation keep the mark. A client cannot send these two
-fields itself (`invalid_internal_field`), and recovering a workflow from a scheduled job starts an
-unmarked conversation.
+The job payload carries `schedule_id`, `schedule_title` and `schedule_internet` (the task's
+`allow_internet`); the conversation list (`GET /v1/conversations`) repeats the first two on the
+item of a conversation that a schedule started, so a UI can mark it. Follow-up turns of that
+conversation keep the mark; they are attended turns, so they get the provider's internet grant.
+A client cannot send these three fields itself (`invalid_internal_field`), and recovering a
+workflow from a scheduled job starts an unmarked conversation.
 
 - The first check comes 30 seconds after the service starts. The task starts and stops with the app
   (the same lifespan as the job worker) and is cancelled on shutdown.

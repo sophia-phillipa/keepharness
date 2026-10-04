@@ -84,3 +84,20 @@ A per-tool `approval_mode` that the owner set in the provider's own configuratio
 **Not in this change.** Automatic stays unrestricted for the owner on Codex, DeepSeek and Claude when the shell grant is on (decision D11's project-bounded Automatic needs the Codex and Claude adapters together); the copy says so. The vpn key is rotated by the operator after upgrading (see the 0.15.0 release notes).
 
 Validation: `tests/test_approval_authority.py::test_non_owner_capability_ceiling`, `tests/test_approval_policy.py::test_mcp_gating_matrix` and `::test_claude_read_only_loads_no_connector_or_plugin`, `tests/test_run_workspace_isolation.py` (including a real stdio session with the reader) and `tests/test_integrations_view.py`.
+
+## Project-bounded Automatic and opt-in Full access (WP-04b, D11)
+
+This section supersedes the "Automatic, Full" row of the connector table and the "Not in this change" note of the WP-04 section above.
+
+**Automatic is bounded to the project.** Checked against the installed CLIs (codex-cli 0.157.1 app-server JSON schema, Claude Code 2.1.288 `--help`):
+
+| | Codex and DeepSeek (`adapters/codex/native.py`) | Claude Code (`adapters/claude/native.py`) |
+| --- | --- | --- |
+| Automatic | `thread/start` `sandbox:"workspace-write"` (`read-only` without the write grant), `approvalPolicy:"on-request"`; turn `sandboxPolicy:{type:"workspaceWrite", writableRoots:[project root, additional roots], networkAccess:<internet grant>, excludeSlashTmp:true, excludeTmpdirEnvVar:true}`; host connectors carry `default_tools_approval_mode:"prompt"`. A command or write outside the roots, or network without the grant, escalates to an approval card. | `--permission-mode acceptEdits` with the project roots as working directories (cwd plus `--add-dir`): edits inside them are accepted, edits and reads outside them ask; `--settings` adds `permissions.ask:["Bash","mcp__*"]`, so every command and connector call asks. |
+| Full access | unchanged: `danger-full-access` / `dangerFullAccess`, `approvalPolicy:"never"` when the shell grant is on | unchanged: `bypassPermissions` when the shell grant is on, `dontAsk` otherwise |
+
+Limits that cannot be enforced with these CLIs: Codex 0.157.1 has no sandbox read allow-list (`workspaceWrite` takes no `readOnlyAccess`), so Automatic commands on Codex and DeepSeek can still read any file the account can; Claude Code's own command sandbox needs `bubblewrap` and `socat` on Linux, which a KeepHarness host does not guarantee, so Automatic on Claude asks before every command instead of running it in a folder sandbox; an owner's personal-setup permission rules (`--setting-sources user`) can still widen what `acceptEdits` accepts.
+
+**Full access is opt-in and owner-only.** A top-level admin setting `full_access` (boolean, default `false`, an explicit boolean or the save is refused) is copied to the runtime config. While it is off, `POST /v1/jobs` with `access_mode:"full"` is refused with `APIError("full_access_disabled", 403)`, and a Full run queued before it was turned off fails closed with the same code when it starts. `GET /v1/models` returns `full_access: true` only to the local owner with the setting on; the access menu hides (and disables) the Full access option otherwise, and a restored `full` choice falls back to Ask. The owner turns it on in the admin dashboard (Settings › System › Providers, **Allow Full access**). Guests keep `access_mode_owner_only` for Automatic and Full.
+
+Validation: `tests/test_access_mode_bounds.py`, `tests/test_integrations_view.py::test_automatic_asks_before_every_connector_call`, `tests/session-start-notice.spec.cjs` (copy, hidden Full access) and `tests/admin.spec.cjs` (the toggle).

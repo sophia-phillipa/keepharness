@@ -57,6 +57,7 @@ def base_config(settings, state, admin_port, browser_url, provider_revisions):
         "shared_projects": False,
         "control_state_dir": str(state),
         "personal_setup": settings.get("personal_setup") is True,
+        "full_access": settings.get("full_access") is True,
         "admin_url": f"http://127.0.0.1:{admin_port}/",
         "local_access": settings.get("vpn_bind", "127.0.0.1") == "127.0.0.1",
         # Loopback is every account on this computer; the owner also holds this secret (D09).

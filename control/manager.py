@@ -230,6 +230,10 @@ class Manager:
         if type(data.get("personal_setup", False)) is not bool:
             raise ValueError("Use my personal setup must be an explicit boolean.")
         out["personal_setup"] = data.get("personal_setup", False)
+        # Full access in the chat's access menu: off until the owner turns it on (decision D11).
+        if type(data.get("full_access", False)) is not bool:
+            raise ValueError("Allow Full access must be an explicit boolean.")
+        out["full_access"] = data.get("full_access", False)
         policy = data.get("maestro_instructions", "")
         if not isinstance(policy, str) or len(policy) > 12000:
             raise ValueError("Maestro instructions: maximum of 12,000 characters.")

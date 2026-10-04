@@ -2,8 +2,9 @@
 
 from starlette.responses import JSONResponse
 
-from .. import maestro
+from .. import approval_policy, maestro
 from ..errors import ToolError
+from ..harness_agents import LOCAL_CLIENT
 from . import api_route
 
 
@@ -45,6 +46,9 @@ async def models(request, service, identity):
                 p: c.get("enabled", False) for p, c in config.get("services", {}).items()
             },
             "uploads_enabled": service.uploads_enabled(project_id),
+            # The access menu offers Full access only to the owner, once enabled (D11).
+            "full_access": identity[0] == LOCAL_CLIENT
+            and not approval_policy.mode_disabled(config, "full"),
             "admin_url": config.get("admin_url"),
         }
     )
