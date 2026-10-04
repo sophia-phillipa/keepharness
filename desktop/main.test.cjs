@@ -61,11 +61,12 @@ async function boot(options = {}) {
   const http = { get(url, opts, callback) {
     requests.push(url); requestDetails.push({url, ...opts}); const req = new EventEmitter(); req.destroy = () => req.emit('error', new Error('timeout'));
     queueMicrotask(() => {
+      if (url.includes('v1/version')) options.onVersionProbe?.(windows);
       if ((options.harnessOffline && url.includes('v1/version')) || (!adminReady && !url.includes('v1/version'))) { req.emit('error', new Error('offline')); return; }
       const res = new EventEmitter(); res.statusCode = options.status || 200; res.headers = {}; if (url.includes('v1/version') && (options.rejectCredential || opts.headers?.cookie !== `keepharness-local=${ownerSession}`)) res.statusCode=401; if (url.includes('/open?')) { res.statusCode=options.failOpen ? 500 : 303; res.headers['set-cookie']=['admin=abcdefghijklmnop; Path=/', `keepharness-local=${ownerSession}; Path=/`]; } res.resume = () => {}; res.setEncoding = () => {};
       callback(res);
       if (options.dieDuringVersion && url.includes('v1/version') && children.length) { children.at(-1).exitCode=1; children.at(-1).emit('exit',1,null); }
-      res.emit('data', url.includes('v1/version') ? (options.version ?? '{"product":"keepharness"}') : url.endsWith('api/state') ? JSON.stringify({status:{busy:options.busy}}) : '{}'); res.emit('end');
+      res.emit('data', url.includes('v1/version') ? (options.version ?? '{"product":"keepharness"}') : url.endsWith('api/state') ? JSON.stringify({status:{busy:options.busy,running:options.running}}) : '{}'); res.emit('end');
     }); return req;
   } };
   const childProcess = { spawnSync(executable) { probes.push(executable); return options.badPython ? {error:new Error('ENOENT'),status:null} : {status:0}; },
@@ -166,13 +167,27 @@ test('Admin popup is one reusable second window with the same policies', async (
   const e=h.event(); admin.webContents.emit('will-redirect',e,'https://example.com/'); assert.ok(e.prevented);
   const attach=h.event(); admin.webContents.emit('will-attach-webview',attach); assert.ok(attach.prevented);
 });
-test('windows show once in either event order and splash closes when admin answers', async () => {
+test('windows show once in either event order and the splash closes when the first window is shown', async () => {
   for (const reverse of [false,true]) {
-    const h=await boot(); assert.ok(h.windows[0].destroyed);
+    const h=await boot(); assert.ok(!h.windows[0].destroyed);
     if (reverse) h.main.webContents.emit('did-finish-load');
     h.main.emit('ready-to-show'); h.main.webContents.emit('did-finish-load'); assert.equal(h.main.shows,1);
+    assert.ok(h.windows[0].destroyed);
     h.windows[0].emit('ready-to-show'); assert.equal(h.windows[0].shows,0);
   }
+});
+test('the splash stays up while the harness is awaited, and no window is hidden meanwhile', async () => {
+  const seen = [];
+  const h = await boot({harnessOffline:true, onVersionProbe: windows => seen.push(windows[0].destroyed)});
+  assert.ok(seen.length > 1 && seen.every(destroyed => !destroyed));
+  assert.equal(h.main.url, 'http://127.0.0.1:18194/');
+  assert.ok(!h.windows[0].destroyed);
+});
+test('an admin that reports the harness is not running opens Admin without waiting out the harness', async () => {
+  const h = await boot({harnessOffline:true, running:false});
+  assert.equal(h.main.url, 'http://127.0.0.1:18194/');
+  assert.ok(h.requests.filter(url => url.endsWith('/v1/version')).length <= 2);
+  assert.equal(h.dialogs.length, 0);
 });
 test('main log rotates after two MiB and never stores sensitive values', async () => {
   const h=await boot({startBackend:true});

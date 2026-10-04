@@ -27,6 +27,7 @@ const {
   enrollmentLink,
   cookieValue,
   busyFromState,
+  runningFromState,
   closeAllowed,
   closePrompt,
 } = require('./policy.cjs');
@@ -168,6 +169,8 @@ function createWindow(kind) {
     if (!quitting && !window.isDestroyed()) {
       if (state?.maximized) window.maximize();
       window.show();
+      // The splash covers the whole wait: it goes only once the first window is on screen.
+      if (kind === 'main') releaseSplash();
     }
   };
   window.once('ready-to-show', show);
@@ -280,10 +283,11 @@ function limitPermissions() {
     permissionAllowed(permission, requestingOrigin, origins),
   );
 }
-async function waitFor(url, seconds) {
+async function waitFor(url, seconds, giveUp = null) {
   for (let i = 0; i < seconds * 4; i++) {
     if (await reachable(url)) return true;
     if (backend && !processRunning(backend)) return false;
+    if (giveUp && await giveUp()) return false;
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
   return false;
@@ -385,8 +389,8 @@ async function signInWindow() {
   const cookie = sessionCookie(cookies, harnessPort);
   if (cookie) { knownSecrets.add(cookie.value); await session.defaultSession.cookies.set(cookie); }
 }
-// Whether the admin reports queued or running work: true, false, or null when it cannot say.
-function backendBusy(timeout = 3000) {
+// What the admin's state says through `read` (true, false or null when it cannot say).
+function adminState(read, timeout) {
   if (!adminCookie) return Promise.resolve(null);
   return new Promise((resolve) => {
     const request = http.get(`${adminUrl}api/state`, { timeout, headers: { cookie: `admin=${adminCookie}` } }, (response) => {
@@ -397,12 +401,14 @@ function backendBusy(timeout = 3000) {
         if (body.length > 1048576) { resolve(null); request.destroy(); }
       });
       response.on('error', () => resolve(null));
-      response.on('end', () => resolve(response.statusCode === 200 ? busyFromState(body) : null));
+      response.on('end', () => resolve(response.statusCode === 200 ? read(body) : null));
     });
     request.on('timeout', () => request.destroy());
     request.on('error', () => resolve(null));
   });
 }
+const backendBusy = (timeout = 3000) => adminState(busyFromState, timeout);
+const harnessRunning = (timeout = 1500) => adminState(runningFromState, timeout);
 function setWorkProgress(window, busy) {
   if (window && !window.isDestroyed()) window.setProgressBar(busy ? 2 : -1);
   if (process.platform === 'linux' && typeof app.setBadgeCount === 'function') {
@@ -520,6 +526,18 @@ function releaseSplash() {
   if (splash && !splash.isDestroyed()) splash.close();
 }
 
+// A configured admin starts the harness before it answers, so one that reports the harness as
+// not running (no provider yet) has nothing to wait for: open Admin to set it up. Unknown state
+// keeps waiting. The sign-in comes first because the state needs the admin session; a foreign
+// admin port gets none and is refused by the caller.
+async function chooseTarget() {
+  if (foreignPort([adminPort]) !== null) return adminUrl;
+  requireBackendAlive();
+  await signInWindow();
+  const notRunning = async () => (await harnessRunning()) === false;
+  return (await waitFor(harnessUrl + 'v1/version', 15, notRunning)) ? harnessUrl : adminUrl;
+}
+
 async function start() {
   log(`KeepHarness starting from ${__dirname}`);
   if (app.isPackaged) {
@@ -558,9 +576,7 @@ async function start() {
       return;
     }
   }
-  releaseSplash();
-  // A configured admin starts the harness on its own; give it a moment.
-  const target = (await waitFor(harnessUrl + 'v1/version', 15)) ? harnessUrl : adminUrl;
+  const target = await chooseTarget();
   const foreign = foreignPort(target === harnessUrl ? [adminPort, harnessPort] : [adminPort]);
   if (foreign !== null) {
     await dialog.showMessageBox({
@@ -574,7 +590,6 @@ async function start() {
     return;
   }
   requireBackendAlive();
-  await signInWindow();
   if (!(await verifyProduct(target)) || quitting) return;
   if (quitting) return;
   requireBackendAlive();

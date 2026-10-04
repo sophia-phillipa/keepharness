@@ -190,6 +190,15 @@ function busyFromState(body) {
     return null;
   }
 }
+// Whether the admin reports the harness as running: true, false, or null when it cannot say.
+function runningFromState(body) {
+  try {
+    const running = JSON.parse(body)?.status?.running;
+    return typeof running === 'boolean' ? running : null;
+  } catch {
+    return null;
+  }
+}
 // Closing the window is only a client leaving (D18) unless this app started the admin: quitting
 // then stops the service and its work. `busy()` answers true, false or null (unknown); only a
 // known-idle service closes without asking, and `confirm(busy)` says whether the user agreed.
@@ -291,6 +300,7 @@ module.exports = {
   enrollmentLink,
   cookieValue,
   busyFromState,
+  runningFromState,
   closeAllowed,
   closePrompt,
 };

@@ -596,11 +596,17 @@ module.exports = {
         const page = h.app.windows().find((w) => w.url().startsWith(adminUrl()));
         focus(page);
         const measured = await matrix(page, "admin", adminUrl(), "s2-admin-fresh");
-        // Known polish gap to hold the screen to: header actions on one row at the minimum width.
+        // Held to the polish bar: header actions on one row (same vertical centre) and the sidebar footer whole, at the minimum width.
         await resizeTo(page, adminUrl(), 960, 640);
-        const rows = await page.evaluate(() => new Set([...document.querySelectorAll("main > header .header-right > *")].filter((e) => e.offsetParent).map((e) => Math.round(e.getBoundingClientRect().top))).size);
+        const fit = await page.evaluate(() => {
+          const centers = [...document.querySelectorAll("main > header .header-right > *")].filter((e) => e.offsetParent).map((e) => { const r = e.getBoundingClientRect(); return r.top + r.height / 2; });
+          const note = document.querySelector(".sidebar-bottom p"), foot = document.querySelector(".sidebar-bottom");
+          return { spread: Math.max(...centers) - Math.min(...centers), crumbLines: Math.round((document.querySelector("main .breadcrumb")?.getBoundingClientRect().height || 0) / 18), noteCut: !note || note.scrollWidth > note.clientWidth || foot.getBoundingClientRect().bottom > innerHeight };
+        });
         await resizeTo(page, adminUrl(), 1440, 900);
-        op.check(rows === 1, `Admin header actions wrap to ${rows} rows at 960px (${measured.join(" ")})`);
+        op.check(fit.spread < 2, `Admin header actions wrap onto more than one row at 960px (centre spread ${fit.spread.toFixed(1)}px; ${measured.join(" ")})`);
+        op.check(fit.crumbLines <= 1, `the breadcrumb wraps to ${fit.crumbLines} lines at 960px`);
+        op.check(!fit.noteCut, "the sidebar footer text is cut at 960px");
       }, { lint: false });
 
       await S("s2", "s2.log-rotation-redaction", "main.log stays within 1 MiB with one rotation, and credentials in the backend's output are redacted", async () => {
@@ -629,7 +635,7 @@ module.exports = {
       if (h) await quit();
 
       // Launch B: the harness is configured, so it needs the owner's credential.
-      await S("s2", "s2.accepts-own-harness", "Fresh install with a credential-requiring harness: the app accepts it (no 'not a KeepHarness service')", async () => {
+      await S("s2", "s2.accepts-own-harness", "Fresh install with a credential-requiring harness: the app accepts it (no 'Could not sign in' and no 'not a KeepHarness service')", async () => {
         h = await launchApp(box, options);
         h.label = "B";
         const page = await chatReady();
@@ -637,7 +643,8 @@ module.exports = {
         const dialogs = await dialogsNow(h.app);
         // The credential is required: without the owner session the version probe is refused.
         op.check([401, 403].includes(anonymous.status), "the harness answered /v1/version without a credential: " + anonymous.status);
-        op.check(!dialogs.some((d) => /not a KeepHarness/i.test(d.message || "")), "refused: " + JSON.stringify(dialogs));
+        // A 401 for our own session is the sign-in failure ("Could not sign in to the KeepHarness service."); only a wrong product is "not a KeepHarness service".
+        op.check(!dialogs.some((d) => /not a KeepHarness|Could not sign in/i.test(d.message || "")), "refused: " + JSON.stringify(dialogs));
         op.check(page.url().startsWith(harnessUrl()), "the window shows " + page.url());
         const version = await page.evaluate(() => fetch("/v1/version").then((r) => r.json()));
         op.check(version.product === "keepharness", "product: " + version.product);

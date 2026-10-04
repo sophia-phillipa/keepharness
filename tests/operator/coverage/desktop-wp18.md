@@ -6,14 +6,14 @@ How to run: package once (`scripts/package-desktop-linux.sh`), then make an insp
 
 | Requirement | Check(s) | Note |
 |---|---|---|
-| S2 splash first, then one window, no flicker | `s2.fresh-launch`, `s2.splash-then-one-window` | Window shown once, never hidden; fails on the blank gap (see defects) |
+| S2 splash first, then one window, no flicker | `s2.fresh-launch`, `s2.splash-then-one-window` | Window shown once, never hidden; the splash stays up until the first window is shown (no blank gap) |
 | S2 branded menu, no Reload/DevTools when packaged | `s2.menu` | Native menu read from the main process |
 | S2 Admin in ONE reusable second window | `s2.admin-second-window`, `s2.admin-window-close-reopen` | Opened twice: still 2 windows |
 | S2 size/position/maximized restored | `s2.bounds-save`, `s2.bounds-restore`, `s2.maximized-restore`, `s2.min-size` | Real quit and relaunch; 960x640 minimum |
 | S2 renderer-crash dialog | `s2.renderer-crash` | Dialog answered through the Electron API (Reload); Playwright cannot follow a crashed page, so the reload is read from the main process |
 | S2 backend-exit dialog | `s2.backend-exit` | SIGTERM to the app's own backend child; "Restart service" answered through the API |
 | S2 foreign-product refusal | `s2.foreign-product` | Tiny server answering `product: other-product`; native dialog drawn, closed through the window manager; app exits; the foreign page was never requested |
-| S2 own credential-requiring harness accepted on a fresh install (fix 0b8e9db) | `s2.accepts-own-harness` | Also proves the harness refuses `/v1/version` without the owner session (401/403) |
+| S2 own credential-requiring harness accepted on a fresh install (fix 0b8e9db) | `s2.accepts-own-harness` | Also proves the harness refuses `/v1/version` without the owner session (401/403); neither "Could not sign in" nor "not a KeepHarness service" may appear (a 401 is the sign-in failure, only a wrong product is the product refusal) |
 | S2 main.log rotation and redaction | `s2.log-rotation-redaction` | Backend stderr stand-in writes 2.2 MB, then fake secrets, Authorization and Cookie lines |
 | S4 last_exit next to startup_error | `s4.last-exit-and-startup-error` | Harness SIGKILLed 3 times: both shown, startup error first |
 | S4 log-tail panel | `s4.log-tail` | Initial hint, load on demand, read-only note, no secret |
@@ -26,7 +26,7 @@ How to run: package once (`scripts/package-desktop-linux.sh`), then make an insp
 | S5 foreign download refused | `s5.download-foreign` | Page link to another origin is handed to the browser (recorded, never opened); `downloadURL` of a foreign and a `data:` URL are refused |
 | S1 restart notice after a Python change, none after a UI-only change | `s1.baseline`, `s1.ui-only-change`, `s1.python-change` | Edits only in a copy of the code made for the run (the tracked files are never touched) |
 | S3 installer links, entry, no browser entry, rollback, uninstall | `s3.install-first`, `s3.install-second`, `s3.rollback`, `s3.uninstall-dry-run`, `s3.uninstall`, `s3.no-browser-entry-from-python-install` | Throwaway HOME, no window; a second package is made by copying the first and re-signing its sums |
-| Visual polish at 960x640 and 1280x800, light and dark | `s2.fresh-admin-visual`, `s4.admin-visual`, plus PNGs in `shots/` | Own screenshots in the output folder |
+| Visual polish at 960x640 and 1280x800, light and dark | `s2.fresh-admin-visual`, `s4.admin-visual`, plus PNGs in `shots/` | Header on one row, one-line breadcrumb and whole sidebar footer at 960px; own screenshots in the output folder |
 
 Not covered / not observable
 - Taskbar progress and badge rendering (shell-owned); only the Electron calls are observed.

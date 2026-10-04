@@ -17,6 +17,7 @@ const {
   enrollmentLink,
   cookieValue,
   busyFromState,
+  runningFromState,
   closeAllowed,
   closePrompt,
 } = require('./policy.cjs');
@@ -310,4 +311,10 @@ test('window titles strip Unicode control format and line separator characters',
     assert.equal(windowTitle(`Review${character} café`, url, [new URL(url).origin]), 'Review café');
     assert.equal(windowTitle(character, url, [new URL(url).origin]), 'KeepHarness');
   }
+});
+
+test('running is read from the admin state, and unknown when the answer cannot say', () => {
+  assert.equal(runningFromState('{"status":{"running":true}}'), true);
+  assert.equal(runningFromState('{"status":{"running":false}}'), false);
+  for (const body of ['', 'not json', '{}', '{"status":{}}', '{"status":{"running":"no"}}', 'null']) assert.equal(runningFromState(body), null);
 });

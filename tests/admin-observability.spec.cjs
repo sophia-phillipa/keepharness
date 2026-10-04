@@ -30,7 +30,16 @@ const path = require("node:path");
     });
     await page.goto("http://admin.test/");
     await page.locator("#runtime-diagnostics").waitFor({ timeout: 3000 });
-    assert.match(await page.locator("#runtime-diagnostics").innerText(), /startup failed.*Last exit: 9/s);
+    const diagnostics = await page.locator("#runtime-diagnostics").innerText();
+    assert.match(diagnostics, /startup failed.*Last exit: 9/s);
+    assert.doesNotMatch(diagnostics, /[.!?] ·/); // The two facts are separate lines, not joined with doubled punctuation.
+    assert.doesNotMatch(await page.locator("#feedback").innerText(), /Could not resume/); // The startup error is not repeated as a notice.
+    assert.equal(await page.locator("#runtime-diagnostics").evaluate(e => getComputedStyle(e).borderLeftWidth), "3px"); // Styled like the other status rows.
+    await page.setViewportSize({ width: 960, height: 640 }); // The desktop minimum: the header stays on one row.
+    const centers = await page.locator(".header-right > *").evaluateAll(items => items.map(e => { const r = e.getBoundingClientRect(); return r.top + r.height / 2; }));
+    assert.ok(Math.max(...centers) - Math.min(...centers) < 2);
+    assert.ok((await page.locator("#main > header").boundingBox()).height < 80);
+    await page.setViewportSize({ width: 1280, height: 900 });
     await page.getByText("Environment and logs", { exact: true }).click();
     const inventory = await page.locator("#environment-tools").innerText();
     assert.match(inventory, /bwrap.*Missing/s);
