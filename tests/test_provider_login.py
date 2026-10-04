@@ -9,7 +9,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from adapters.claude.auth import cli_login_environment
-from control.operations import Operations
+from control.operations import Operations, strip_ansi
 from control.server import Manager, create_app
 from tests.owner_session import sign_in
 
@@ -278,3 +278,79 @@ def test_login_code_endpoint_validates_and_never_records_the_code(tmp_path):
             assert ok.status_code == 200 and ok.json() == {"sent": True}
             assert sent == [("login", CODE)]
     assert CODE not in "".join(path.read_text() for path in tmp_path.rglob("*") if path.is_file())
+
+
+@pytest.mark.parametrize(
+    "sequence",
+    ["\x1b[94m", "\x1b]8;;https://x.test\x07", "\x1b]8;;https://x.test\x1b\\", "\x1b(B", "\x1b7", "\x1b8"],
+)
+def test_login_output_strips_terminal_sequences_at_every_read_boundary(sequence):
+    for boundary in range(len(sequence) + 1):
+        first, held = strip_ansi("before" + sequence[:boundary])
+        second, held = strip_ansi(held + sequence[boundary:] + "after")
+        assert first + second == "beforeafter"
+        assert held == ""
+
+
+def test_login_output_has_no_ansi_escape_codes_even_when_split_between_reads(tmp_path):
+    """Codex colours its URL and one-time code; the raw codes broke the link and the code (PRD-R2-1)."""
+    script = (
+        "import sys,time\n"
+        "w=lambda s:(sys.stdout.write(s),sys.stdout.flush(),time.sleep(0.15))\n"
+        "w('Open \\x1b[94mhttps://auth.openai.com/codex/device\\x1b[0m\\n')\n"
+        "w('code \\x1b[9')\n"  # an escape sequence cut in two reads
+        "w('4mABCD-12345\\x1b[0')\n"
+        "w('m\\n\\x1b]8;;https://x.test\\x07link\\x1b]8;;\\x07 done\\n')\n"
+    )
+
+    async def exercise():
+        operations = Operations()
+        job = operations.launch([sys.executable, "-c", script])
+        await asyncio.gather(*operations.tasks)
+        return job
+
+    job = asyncio.run(exercise())
+    assert job["state"] == "completed"
+    assert "\x1b" not in job["output"]
+    assert "Open https://auth.openai.com/codex/device\n" in job["output"]
+    assert "code ABCD-12345\n" in job["output"]
+    assert "link done" in job["output"]
+
+
+@pytest.mark.parametrize(
+    ("display", "expected"),
+    [
+        ({"DISPLAY": ":0"}, ["/fixture/codex", "login"]),
+        ({"WAYLAND_DISPLAY": "wayland-0"}, ["/fixture/codex", "login"]),
+        ({}, ["/fixture/codex", "login", "--device-auth"]),
+    ],
+)
+def test_codex_signs_in_in_the_browser_locally_and_by_device_code_when_headless(
+    tmp_path, monkeypatch, display, expected
+):
+    """D20: the browser callback where a browser can open, device auth for a headless host."""
+    monkeypatch.setattr(sys, "platform", "linux")
+    for name in ("DISPLAY", "WAYLAND_DISPLAY"):
+        monkeypatch.delenv(name, raising=False)
+    for name, value in display.items():
+        monkeypatch.setenv(name, value)
+    inventory = {"services": [], "binaries": {"codex": "/fixture/codex"}, "network": {}}
+    seen = []
+
+    def launch(operations, args, timeout=300, **kwargs):
+        seen.append(args)
+        job = {"id": "login", "state": "running", "output": ""}
+        operations.jobs["login"] = job
+        return job
+
+    with (
+        patch("control.discovery.scan", AsyncMock(return_value=inventory)),
+        patch.object(Operations, "launch", launch),
+    ):
+        with TestClient(create_app(tmp_path), base_url="http://127.0.0.1:8094") as client:
+            sign_in(client).get("/")
+            response = client.post(
+                "/api/provider-login", json={"provider": "codex"}, headers={"X-Harness-Admin": "1"}
+            )
+    assert response.status_code == 200
+    assert seen == [expected]

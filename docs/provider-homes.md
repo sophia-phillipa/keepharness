@@ -16,9 +16,11 @@ owned by KeepHarness under the control state folder, and only an allow-listed en
   `<provider>.provider_homes` (`control/runtime_config.py`); `adapters/shared/provider_setup.py`
   turns it into the child's variables. A runtime config without it (written before 0.15.0)
   keeps the host home until the admin restarts the harness.
-- Sign-in: Settings › Providers › Log in / Renew access runs `codex login --device-auth` and
-  `claude auth login` in these homes, so the login lives there and is refreshed there (one
-  sign-in per provider, D02). Status checks, model lists and quota reads use the same homes.
+- Sign-in: Settings › Providers › Log in / Renew access runs `codex login` when a browser
+  can open (DISPLAY or WAYLAND_DISPLAY, macOS, or Windows), and `codex login --device-auth`
+  on a headless host. Claude Code uses `claude auth login`. Both use these homes, so the
+  login lives there and is refreshed there (one sign-in per provider, D02).
+  Status checks, model lists and quota reads use the same homes.
   Isolated (`scoped`) runs copy the credential file from these homes, not from the terminal's.
 - A Codex or Gemini service that is enabled but not signed in (or whose CLI is
   missing) does not stop the harness: its models are taken offline with the reason "Sign in
