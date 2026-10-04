@@ -3,4 +3,4 @@
 set -euo pipefail
 [[ ! -L "$0" ]] || { echo 'Installer must not be a symlink.' >&2; exit 1; }
 source_dir="$(dirname -- "$0")"
-exec python3 "$source_dir/install-desktop-linux.py" --source "$source_dir" "$@"
+exec python3 "$source_dir/install_desktop_linux.py" --source "$source_dir" "$@"

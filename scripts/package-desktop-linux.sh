@@ -10,7 +10,7 @@ if [ -n "$s" ]; then
 fi
 commit=$(git rev-parse --verify HEAD) || exit 1
 ELECTRON_DIST="${KEEPHARNESS_ELECTRON_DIST:-$ROOT/desktop/node_modules/electron/dist}"
-python3 scripts/verify-electron.py "$ROOT" "$ELECTRON_DIST"
+python3 scripts/verify_electron.py "$ROOT" "$ELECTRON_DIST"
 VERSION="$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.]+)?$ ]] || { echo 'Invalid version.' >&2; exit 1; }
 OUT="$ROOT/dist/keepharness-$VERSION-linux-x64"
@@ -41,7 +41,7 @@ await flipFuses(`${out}/keepharness-bin`, {version:FuseVersion.V1,
 JS
 install -m755 desktop/linux/launcher.sh "$OUT/keepharness"
 install -m755 desktop/linux/install-desktop-linux.sh "$OUT/install-desktop-linux.sh"
-install -m644 desktop/linux/install-desktop-linux.py "$OUT/install-desktop-linux.py"
+install -m644 desktop/linux/install_desktop_linux.py "$OUT/install_desktop_linux.py"
 install -Dm644 desktop/linux/keepharness.desktop "$OUT/share/applications/keepharness.desktop"
 for size in 16 24 32 48 64 128 256 512; do
   install -Dm644 "desktop/build/icons/${size}x${size}.png" "$OUT/share/icons/hicolor/${size}x${size}/apps/keepharness.png"
