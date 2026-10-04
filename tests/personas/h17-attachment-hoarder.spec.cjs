@@ -62,7 +62,10 @@ async function open(page) {
 
 const chips = (page) =>
   page.locator("#attachments .attachment-name").allInnerTexts();
-const idle = (page) => page.locator("#attach:not([disabled])").waitFor();
+// Uploads are done when the controls they lock (project, model, new chat) come back. #attach is no
+// signal: at the 20-file limit it stays disabled on purpose and its title says why.
+const idle = (page) =>
+  page.waitForFunction(() => !document.getElementById("project").disabled);
 
 runPersona("h17", [
   {
@@ -80,6 +83,11 @@ runPersona("h17", [
       assert.equal(
         await page.locator("#attachment-count").innerText(),
         "20 / 20 files attached",
+      );
+      assert(await page.locator("#attach").isDisabled(), "full: no more picks");
+      assert.match(
+        await page.locator("#attach").getAttribute("title"),
+        /20 of 20 files attached\. Remove one/,
       );
       // F-71: the file-picker path says how many of the selection were dropped
       // and a persistent notice names them.
