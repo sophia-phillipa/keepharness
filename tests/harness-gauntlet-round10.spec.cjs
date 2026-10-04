@@ -74,8 +74,8 @@ async function geometry(page) {
         const cdp=await p.context().newCDPSession(p),ax=await cdp.send('Accessibility.getFullAXTree');
         const combo=ax.nodes.find(n=>n.name?.value==='Message'&&n.role?.value==='combobox');assert(combo);assert(combo.properties.some(v=>v.name==='expanded'&&v.value.value===true));await cdp.detach();
         await editor.press('Tab');assert.equal(await p.locator('.resource-chip').count(),1);assert.equal(await editor.getAttribute('aria-expanded'),'false');assert.equal(await editor.getAttribute('aria-activedescendant'),null);
-        await editor.fill('/zzzzzznonexistent');await p.locator('.resource-empty').filter({hasText:'No resource'}).waitFor();
-        assert.equal(await p.locator('#resource-status').getAttribute('role'),'status');assert.match(await p.locator('#resource-status').textContent(),/No resource/);assert.equal(await editor.getAttribute('aria-activedescendant'),null);
+        await editor.fill('/zzzzzznonexistent');await p.locator('.resource-empty').filter({hasText:'No skills or commands for this model yet.'}).waitFor();
+        assert.equal(await p.locator('#resource-status').getAttribute('role'),'status');assert.match(await p.locator('#resource-status').textContent(),/No skills or commands for this model yet\./);assert.equal(await editor.getAttribute('aria-activedescendant'),null);
         await editor.press('Escape');assert.equal(await editor.getAttribute('aria-expanded'),'false');await p.close();
       }
     });

@@ -96,13 +96,37 @@ const path = require("node:path");
       await page
         .locator("[data-provider=claude] [role=option]")
         .evaluateAll((els) => els.map((e) => e.dataset.value)),
+      // The newest model of each family first; older ones under "More models" (D42, QA-R3-3).
       [
         "claude-haiku-4-5",
         "claude-opus-5",
+        "claude-sonnet-4-6",
         "claude-opus-4-10",
         "claude-opus-4-6",
-        "claude-sonnet-4-6",
       ],
+    );
+    assert.deepEqual(
+      await page
+        .locator("[data-provider=claude] .model-more [role=option]")
+        .evaluateAll((els) => els.map((e) => e.dataset.value)),
+      ["claude-opus-4-10", "claude-opus-4-6"],
+    );
+    assert.equal(await page.locator("[data-provider=claude] .model-more > summary").textContent(), "More models");
+    assert.equal(
+      await page.locator("[data-provider=claude] .model-more").getAttribute("open"),
+      "",
+      "the selected model is legacy, so its list is open",
+    );
+    // No raw identifier where a name exists.
+    assert.deepEqual(
+      await page
+        .locator("[data-provider=claude] [role=option] strong")
+        .evaluateAll((els) => els.map((e) => e.textContent)),
+      ["Claude Haiku 4.5", "Claude Opus 5", "Claude Sonnet 4.6", "Claude Opus 4.10", "Claude Opus 4.6"],
+    );
+    assert.equal(
+      await page.locator("#model-menu [data-provider=claude] > summary").first().textContent(),
+      "Claude Code",
     );
     assert.equal(
       await page
@@ -121,14 +145,14 @@ const path = require("node:path");
     );
     assert.equal(
       await page
-        .locator("[data-provider=claude] summary")
+        .locator("[data-provider=claude] > summary")
         .evaluate((el) => el === document.activeElement),
       true,
     );
     await page.keyboard.press("ArrowDown");
     assert.equal(
       await page
-        .locator("[data-provider=local] summary")
+        .locator("[data-provider=local] > summary")
         .evaluate((el) => el === document.activeElement),
       true,
     );

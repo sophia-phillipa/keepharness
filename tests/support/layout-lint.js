@@ -237,6 +237,9 @@
       const w = Math.min(it.b.r, content.r) - Math.max(it.b.l, content.l);
       const h = Math.min(it.b.b, content.b) - Math.max(it.b.t, content.t);
       if (w <= 2 || h <= 2) continue;
+      // Only what is painted over the field counts: a control behind a modal or another region is not on top of it.
+      const top = document.elementFromPoint(Math.max(it.b.l, content.l) + w / 2, Math.max(it.b.t, content.t) + h / 2);
+      if (!top || !it.el.contains(top)) continue;
       const fromRight = Math.max(0, content.r - it.b.l), fromLeft = Math.max(0, it.b.r - content.l);
       if (it.b.l + it.b.r > content.l + content.r) coveredRight = Math.max(coveredRight, fromRight); else coveredLeft = Math.max(coveredLeft, fromLeft);
       covers.push({ sel: sel(it.el), label: label(it.el), box: box(it.b), coversPx: r1(Math.min(fromRight, fromLeft)) });

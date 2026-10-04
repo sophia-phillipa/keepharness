@@ -139,7 +139,10 @@ async function unobscured(locator) {
         if (!(await page.locator('#activity-panel').isVisible())) await page.locator('#panel-toggle').click();
         for (const handle of await page.locator('#activity-panel .workspace-resize, #activity-panel-resize').all()) {
           const box = await handle.boundingBox();
-          assert(box.width >= 24 && box.height >= 24, JSON.stringify(box));
+          // The column handle is a 6 px strip on the panel edge (WP-16 L64: it may not sit over controls);
+          // arrow keys resize it too. The row handles inside the panel keep the 24 px target.
+          const column = await handle.evaluate((node) => node.id === 'activity-panel-resize');
+          assert(column ? box.width >= 6 && box.height >= 24 : box.width >= 24 && box.height >= 24, JSON.stringify(box));
           assert(await unobscured(handle));
         }
         for (const summary of await page.locator('#activity-panel .workspace-section > summary').all()) {

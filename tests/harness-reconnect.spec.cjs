@@ -130,9 +130,17 @@ const path = require("node:path");
     await page.locator("#startup-gate").waitFor({ state: "hidden", timeout: 3000 });
     assert.equal(await space.getByLabel("Page content (Markdown)").inputValue(), "Unsaved body");
     assert.equal(loads, 1);
+    // QA-R2-3: an idle tab asks the server at most ~30 times a minute.
+    await space.getByRole("button", { name: "Close Space" }).click();
+    const idleRequests = [];
+    page.on("request", (request) => {
+      if (new URL(request.url()).pathname.startsWith("/v1/")) idleRequests.push(request.url());
+    });
+    for (let second = 0; second < 60; second++) await page.clock.runFor(1000);
+    assert(idleRequests.length <= 30, "an idle minute made " + idleRequests.length + " requests");
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: recovery owns history polling, online/foreground recovery, no reload, draft preserved.",
+      "PASS: recovery owns history polling, online/foreground recovery, no reload, draft preserved, idle polling budget.",
     );
   } finally {
     await browser.close();
