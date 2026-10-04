@@ -90,9 +90,14 @@ async function pythonReady({fatal = true} = {}) {
   quit();
   return false;
 }
-function versionBody(url) {
+async function versionBody() {
+  const cookies = await session.defaultSession.cookies.get({url:harnessUrl, name:'keepharness-local'});
+  const owner = cookies.find(cookie => cookie.name === 'keepharness-local');
+  const headers = owner ? {cookie:`keepharness-local=${owner.value}`} : {};
+  // Node HTTP does not use Electron's cookie jar or follow redirects. Keep the credential
+  // on this fixed loopback harness URL, never on a navigation target.
   return new Promise(resolve => {
-    const request = http.get(url, {timeout:1500}, response => {
+    const request = http.get(harnessUrl + 'v1/version', {timeout:1500, headers}, response => {
       let body = '';
       response.setEncoding('utf8');
       response.on('data', chunk => {
@@ -111,7 +116,7 @@ async function verifyProduct(target) {
   if (quitting) return false;
   if (!productVerification) {
     productVerification = (async () => {
-      if (foreignPort([harnessPort]) === null && productAllowed(await versionBody(harnessUrl + 'v1/version'))) { harnessVerified = true; return true; }
+      if (foreignPort([harnessPort]) === null && productAllowed(await versionBody())) { harnessVerified = true; return true; }
       await dialog.showMessageBox({type:'error', title:TITLE, message:'This is not a KeepHarness service.', detail:'The /v1/version product must be keepharness.'});
       quit();
       return false;
@@ -326,8 +331,8 @@ async function recoverBackend() {
     const target = (await waitFor(harnessUrl + 'v1/version', 15)) ? harnessUrl : adminUrl;
     if (foreignPort(target === harnessUrl ? [adminPort, harnessPort] : [adminPort]) !== null) throw new Error('The service port is not owned by your account.');
     requireBackendAlive();
-    if (!(await verifyProduct(target)) || quitting) return;
     await signInWindow();
+    if (!(await verifyProduct(target)) || quitting) return;
     if (quitting) return;
     requireBackendAlive();
     backendReady = true;
@@ -559,8 +564,8 @@ async function start() {
     return;
   }
   requireBackendAlive();
-  if (!(await verifyProduct(target)) || quitting) return;
   await signInWindow();
+  if (!(await verifyProduct(target)) || quitting) return;
   if (quitting) return;
   requireBackendAlive();
   win = createWindow('main');

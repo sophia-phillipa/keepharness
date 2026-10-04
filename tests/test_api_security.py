@@ -310,6 +310,35 @@ def test_local_identity_needs_install_secret(tmp_path):
         app.state.service.db.close()
 
 
+def test_version_requires_desktop_owner_session(tmp_path):
+    import asyncio
+
+    from control import local_access
+
+    cfg = owner_config(tmp_path)
+    app = create_app(cfg)
+
+    async def scenario():
+        async with loopback(app) as client:
+            for cookie in (None, "invalid-session"):
+                headers = {"Cookie": f"{local_access.COOKIE}={cookie}"} if cookie else {}
+                response = await client.get("/v1/version", headers=headers)
+                assert response.status_code == 401
+                assert response.json()["code"] == "authentication_required"
+            session = owner_cookie(cfg)[local_access.COOKIE]
+            headers = {"Cookie": f"{local_access.COOKIE}={session}"}
+            response = await client.get("/v1/version", headers=headers)
+            assert response.status_code == 200
+            assert response.json()["product"] == "keepharness"
+            local_access.revoke_sessions(Path(cfg["control_state_dir"]))
+            assert (await client.get("/v1/version", headers=headers)).status_code == 401
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        app.state.service.db.close()
+
+
 def test_runtime_config_carries_only_the_install_secret_digest(tmp_path):
     import stat
 

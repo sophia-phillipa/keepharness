@@ -19,7 +19,7 @@ async function boot(options = {}) {
     fs.mkdirSync(path.join(home, '.local/share/keepharness'), { recursive: true });
     fs.writeFileSync(path.join(home, '.local/share/keepharness/runtime.json'), options.runtime);
   }
-  const windows = [], dialogs = [], external = [], requests = [], children = [], probes = [], timers = new Map(), badges = [];
+  const windows = [], dialogs = [], external = [], requests = [], requestDetails = [], children = [], probes = [], timers = new Map(), badges = [];
   const app = new EventEmitter();
   Object.assign(app, { isPackaged: options.packaged ?? true, setName() {}, setBadgeCount: n => badges.push(n), getPath: name => name === 'downloads' ? path.join(home, 'Downloads') : userData,
     requestSingleInstanceLock: () => true, whenReady: async () => {}, quit: () => { app.quits++; app.emit('before-quit', event()); }, quits: 0 });
@@ -50,17 +50,19 @@ async function boot(options = {}) {
     getNormalBounds() { return this.bounds; }
     close() { const e = event(); this.emit('close', e); if (!e.prevented) { this.destroyed = true; this.emit('closed'); if (windows.every(w => w.destroyed)) app.emit('window-all-closed'); } }
   }
+  const ownerSession = 'owner-session-abcdefghijklmnop';
+  const cookies = [];
   const electron = { app, BrowserWindow: Window, shell: { openExternal: async url => external.push(url) },
     screen: { getAllDisplays: () => [{workArea:{x:0,y:0,width:1920,height:1080}}], getPrimaryDisplay: () => ({workArea:{x:0,y:0,width:1920,height:1080}}) },
     Menu: { buildFromTemplate: template => template, setApplicationMenu: template => { menu = template; } },
     dialog: { showMessageBox: async (...args) => { const d = args.at(-1); dialogs.push(JSON.parse(JSON.stringify(d))); if (options.onDialog) return options.onDialog(d, app); return { response: options.response ?? 1 }; }, showAboutPanel() {} },
-    session: { defaultSession: Object.assign(new EventEmitter(), { setPermissionRequestHandler(fn) { this.permission = fn; }, setPermissionCheckHandler(fn) { this.check = fn; }, cookies: { set: async () => {}, get: async () => options.noSession ? [] : [{}] } }) } };
+    session: { defaultSession: Object.assign(new EventEmitter(), { setPermissionRequestHandler(fn) { this.permission = fn; }, setPermissionCheckHandler(fn) { this.check = fn; }, cookies: { set: async cookie => { cookies.push(cookie); }, get: async query => query.name === 'keepharness-local' ? cookies.filter(cookie => cookie.name === query.name && new URL(cookie.url).origin === new URL(query.url).origin) : options.noSession ? [] : [{}] } }) } };
   let adminReady = !options.startBackend;
   const http = { get(url, opts, callback) {
-    requests.push(url); const req = new EventEmitter(); req.destroy = () => req.emit('error', new Error('timeout'));
+    requests.push(url); requestDetails.push({url, ...opts}); const req = new EventEmitter(); req.destroy = () => req.emit('error', new Error('timeout'));
     queueMicrotask(() => {
       if ((options.harnessOffline && url.includes('v1/version')) || (!adminReady && !url.includes('v1/version'))) { req.emit('error', new Error('offline')); return; }
-      const res = new EventEmitter(); res.statusCode = options.status || 200; res.headers = {}; if (options.busy !== undefined && url.includes('/open?')) { res.statusCode=303; res.headers['set-cookie']=['admin=abcdefghijklmnop; Path=/', 'keepharness-local=abcdefghijklmnop; Path=/']; } res.resume = () => {}; res.setEncoding = () => {};
+      const res = new EventEmitter(); res.statusCode = options.status || 200; res.headers = {}; if (url.includes('v1/version') && (options.rejectCredential || opts.headers?.cookie !== `keepharness-local=${ownerSession}`)) res.statusCode=401; if (url.includes('/open?')) { res.statusCode=303; res.headers['set-cookie']=['admin=abcdefghijklmnop; Path=/', `keepharness-local=${ownerSession}; Path=/`]; } res.resume = () => {}; res.setEncoding = () => {};
       callback(res);
       if (options.dieDuringVersion && url.includes('v1/version') && children.length) { children.at(-1).exitCode=1; children.at(-1).emit('exit',1,null); }
       res.emit('data', url.includes('v1/version') ? (options.version ?? '{"product":"keepharness"}') : url.endsWith('api/state') ? JSON.stringify({status:{busy:options.busy}}) : '{}'); res.emit('end');
@@ -69,19 +71,39 @@ async function boot(options = {}) {
   const childProcess = { spawnSync(executable) { probes.push(executable); return options.badPython ? {error:new Error('ENOENT'),status:null} : {status:0}; },
     spawn(_executable,args) { const child = new EventEmitter(); Object.assign(child, {stderr:new EventEmitter(),stdout:new EventEmitter(),exitCode:null,signalCode:null,kill() { this.signalCode='SIGTERM'; }}); children.push(child); adminReady=true; if (options.enrollment && args.includes('approve-device')) queueMicrotask(() => { child.stdout.emit('data',options.enrollment); child.exitCode=0; child.emit('close',0); }); return child; } };
   const fakeFs = new Proxy(fs, { get(target, key) {
-    if (key === 'readFileSync') return (file, ...args) => String(file).endsWith('build-manifest.json') ? (options.manifest ?? JSON.stringify({product:'keepharness',version:'0.16.0',commit:'a'.repeat(40),dirty:false,built_at:'2026-10-04T12:00:00Z'})) : options.busy !== undefined && String(file).endsWith('local.key') ? 'abcdefghijklmnop' : target.readFileSync(file,...args);
+    if (key === 'readFileSync') return (file, ...args) => String(file).endsWith('build-manifest.json') ? (options.manifest ?? JSON.stringify({product:'keepharness',version:'0.16.0',commit:'a'.repeat(40),dirty:false,built_at:'2026-10-04T12:00:00Z'})) : String(file).endsWith('local.key') ? 'abcdefghijklmnop' : target.readFileSync(file,...args);
     if (key === 'existsSync') return file => file === '/proc/net/tcp' ? false : options.badPython && String(file).includes('python') ? false : target.existsSync(file);
     return target[key];
   } });
   const proc = new EventEmitter(); Object.assign(proc, { env:{ KEEPHARNESS_ADMIN_PORT:'18194', KEEPHARNESS_PYTHON:process.execPath, ...options.env }, platform:'linux', getuid: () => 1000 });
   vm.runInNewContext(source, { require(name) { return ({electron, 'node:fs':fakeFs, 'node:os':{homedir:()=>home}, 'node:http':http, 'node:child_process':childProcess, './policy.cjs':require('./policy.cjs')})[name] || require(name); }, __dirname, process:proc, console, Buffer, URL, setTimeout:(fn,ms)=> { if (ms >= 5000) { const timer={fn,ms,unref(){}}; timers.set(timer,timer); return timer; } return setTimeout(fn,ms===250?0:ms); }, clearTimeout:timer => { timers.delete(timer); clearTimeout(timer); } }, {filename:'main.cjs'});
   await settle();
-  return {timers,badges,session:electron.session.defaultSession,home,userData,windows,dialogs,external,requests,children,probes,app,event,get menu(){return menu;},main:windows.find(w=>!w.options.frame && !w.file) || windows.find(w=>w.options.frame !== false)};
+  return {timers,badges,session:electron.session.defaultSession,home,userData,windows,dialogs,external,requests,requestDetails,children,probes,app,event,get menu(){return menu;},main:windows.find(w=>!w.options.frame && !w.file) || windows.find(w=>w.options.frame !== false)};
 }
 
+test('credential-requiring harness is accepted and opens the main window', async () => {
+  const h = await boot();
+  assert.equal(h.app.quits, 0);
+  assert.equal(h.dialogs.length, 0);
+  assert.equal(h.main.url, 'http://127.0.0.1:8095/');
+  const checks = h.requestDetails.filter(r => r.url.endsWith('/v1/version'));
+  assert.ok(checks.some(r => !r.headers?.cookie)); // Readiness may receive 401.
+  assert.ok(checks.some(r => r.headers?.cookie === 'keepharness-local=owner-session-abcdefghijklmnop'));
+  for (const request of h.requestDetails.filter(r => r.headers?.cookie?.includes('keepharness-local='))) {
+    assert.equal(request.url, 'http://127.0.0.1:8095/v1/version');
+  }
+});
+test('401 with the owner credential is refused before a page loads', async () => {
+  const h = await boot({rejectCredential:true});
+  assert.ok(h.requestDetails.some(r => r.headers?.cookie === 'keepharness-local=owner-session-abcdefghijklmnop'));
+  assert.ok(h.dialogs.some(d => /KeepHarness service/.test(d.message)));
+  assert.ok(h.app.quits);
+  assert.equal(h.windows.filter(w => w.url).length, 0);
+});
 test('foreign or malformed product is refused before a page loads', async () => {
   for (const version of ['{"product":"foreign"}', '{}', 'broken']) {
     const h = await boot({version});
+    assert.ok(h.requestDetails.some(r => r.headers?.cookie === 'keepharness-local=owner-session-abcdefghijklmnop'));
     assert.ok(h.dialogs.some(d => /product|KeepHarness service/i.test(d.message)));
     assert.ok(h.app.quits); assert.equal(h.windows.filter(w=>w.url).length, 0);
   }
