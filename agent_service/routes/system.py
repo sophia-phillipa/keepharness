@@ -70,10 +70,9 @@ async def approve_device(request, service, identity):
 async def login(request, service, identity):
     config = service.config
     origin = request.headers.get("origin")
-    # A hostile page must not be able to spend the shared login budget (SEC-R1-5).
-    if (origin and origin not in config.get("origins", [])) or (
-        request.headers.get("sec-fetch-site") == "cross-site"
-    ):
+    # Checked before the limit and the token: a hostile page must not spend the shared login
+    # budget (SEC-R1-5), and the answer must not tell a good token from a bad one (403 vs 401).
+    if origin not in config.get("origins", []):
         raise APIError("origin_denied", 403)
     service.limit(("public", "login"), 20, "login_rate_limit")
     data = await body(request)
@@ -85,8 +84,6 @@ async def login(request, service, identity):
         hmac.compare_digest(digest, c["sha256"]) for c in config["clients"].values()
     ):
         raise APIError("authentication_required", 401)
-    if origin not in config.get("origins", []):
-        raise APIError("origin_denied", 403)
     response = JSONResponse({"authenticated": True})
     response.set_cookie(
         "harness_token",

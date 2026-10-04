@@ -676,6 +676,17 @@ def test_login_without_origin_is_denied(login_client):
     assert_api_error(response, 403, "origin_denied")
 
 
+def test_login_without_origin_is_denied_before_the_token_and_the_limit(login_client):
+    # 403 for a good and a bad token alike (no token oracle); none of it spends the budget.
+    for token in ["a", "wrong"] * 12:
+        response = login_client.post("/v1/login", json={"token": token})
+        assert_api_error(response, 403, "origin_denied")
+    response = login_client.post(
+        "/v1/login", json={"token": "wrong"}, headers={"Origin": "http://testserver"}
+    )
+    assert_api_error(response, 401, "authentication_required")
+
+
 def test_login_with_wrong_token_is_unauthenticated(login_client):
     response = login_client.post(
         "/v1/login", json={"token": "wrong"}, headers={"Origin": "http://testserver"}
