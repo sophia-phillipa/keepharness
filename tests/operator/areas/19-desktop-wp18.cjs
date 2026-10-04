@@ -6,6 +6,7 @@
 "use strict";
 const { spawn, spawnSync, execFileSync } = require("node:child_process");
 const fs = require("node:fs");
+const os = require("node:os");
 const http = require("node:http");
 const path = require("node:path");
 const policy = require("../../../desktop/policy.cjs");
@@ -16,20 +17,20 @@ const ADMIN_PORT = "18520";
 const HARNESS_PORT = "18521";
 const FOREIGN_PORT = "18522";
 const DOWNLOAD_PORT = "18523";
-const OUT = process.env.WP18_OUT || "/home/sophia/.cache/kho/wp18";
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const playwright = () => require(process.env.PLAYWRIGHT_MODULE || "playwright");
 
 // ------------------------------------------------------------------ sandbox
 
 function makeBox(python, backend) {
-  // A short path: Chromium's single-instance socket must fit 108 bytes.
-  const parent = process.env.WP18_SCRATCH || "/run/media/system/Midia/dev-cache";
-  const root = fs.mkdtempSync(path.join(fs.existsSync(parent) ? parent : "/tmp", "kw18-"));
+  // A short path: Chromium's single-instance socket must fit 108 bytes, so keep TMPDIR (or
+  // WP18_SCRATCH) short.
+  const parent = process.env.WP18_SCRATCH || os.tmpdir();
+  const root = fs.mkdtempSync(path.join(parent, "kw18-"));
   const box = {
     root,
     home: path.join(root, "h"),
-    tmp: fs.mkdtempSync("/tmp/kw18t-"),
+    tmp: fs.mkdtempSync(path.join(parent, "kw18t-")),
     bin: path.join(root, "bin"),
     python,
     backend,
@@ -358,6 +359,7 @@ module.exports = {
   title: "Desktop app: WP-18 journeys",
   async run(op) {
     const options = op.options;
+    const OUT = process.env.WP18_OUT || op.report.dir; // the runner's report folder unless overridden
     const slices = new Set((process.env.WP18_SLICES || "s2,s5,s4,s1,s3").split(","));
     const previous = op.session;
     const shim = { target: "desktop", page: null, base: harnessUrl(), admin: adminUrl(), async resize() { return false; }, async newPage() { throw new Error("n/a"); }, async close() {} };

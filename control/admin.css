@@ -1661,6 +1661,7 @@ html[data-embedded] #main { max-width: none; margin: 0; padding-inline: 24px; }
   border-radius: 10px; background: var(--th-panel); color: var(--th-text); font-size: 13px;
   white-space: pre-line; overflow-wrap: anywhere;
 }
+/* Intentional at every width: #feedback is the one Admin notice row (Tailnet alert included); the 13 px/compact padding match the other status rows. */
 #feedback.th-notice { padding: 8px 12px; font-size: 13px; }
 /* At the desktop minimum width the header stays on one row; the sidebar already names the product. */
 @media (min-width: 761px) and (max-width: 1100px) {

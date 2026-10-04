@@ -284,7 +284,9 @@ function limitPermissions() {
   );
 }
 async function waitFor(url, seconds, giveUp = null) {
-  for (let i = 0; i < seconds * 4; i++) {
+  // A deadline, not a count: a slow giveUp probe must not stretch the wait.
+  const deadline = Date.now() + seconds * 1000;
+  while (Date.now() < deadline) {
     if (await reachable(url)) return true;
     if (backend && !processRunning(backend)) return false;
     if (giveUp && await giveUp()) return false;
@@ -342,10 +344,9 @@ async function recoverBackend() {
     adminCookie = null;
     if (!(await startAdmin())) return;
     if (!(await waitFor(adminUrl, 40))) throw new Error('The KeepHarness service did not restart.');
-    const target = (await waitFor(harnessUrl + 'v1/version', 15)) ? harnessUrl : adminUrl;
+    const target = await chooseTarget();
     if (foreignPort(target === harnessUrl ? [adminPort, harnessPort] : [adminPort]) !== null) throw new Error('The service port is not owned by your account.');
     requireBackendAlive();
-    await signInWindow();
     if (!(await verifyProduct(target)) || quitting) return;
     if (quitting) return;
     requireBackendAlive();
