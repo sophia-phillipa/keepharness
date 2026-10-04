@@ -3405,6 +3405,16 @@ function setAnswer(answer, value, notice = "", code = "") {
   if (code) note.title = "Error code: " + code;
   answer.body.append(note);
 }
+// A skipped catalog hook is not an error: the turn goes on, so the notice stays in the turn
+// (above the answer, which re-renders from its raw text) rather than in the transient status.
+function showSkippedHookNotice(data) {
+  if (!active) return;
+  const note = document.createElement("p");
+  note.className = "run-notice";
+  note.dataset.testid = "catalog-hook-notice";
+  note.textContent = userErrors[data.reason] || "A catalog hook was skipped and the turn went on without it.";
+  active.el.insertBefore(note, active.body);
+}
 // One action under an answer: a quiet button with an icon and a label (Copy, Ask again).
 function answerAction(testid, label, icon) {
   const button = document.createElement("button"),
@@ -4100,6 +4110,9 @@ function event(e) {
       ["codex", "claude"].includes(selected()?.backend)
     )
       void quota();
+    return;
+  } else if (e.type === "catalog_hook" && e.data?.outcome === "skipped") {
+    showSkippedHookNotice(e.data);
     return;
   } else {
     status(e.type === "queue_wait" ? waitReasonLabel(e.data?.reason || "queue") : labels[e.type] || e.type);
