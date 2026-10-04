@@ -8,6 +8,7 @@ const path = require("node:path");
   const browser = await chromium.launch();
   try {
     const page = await browser.newPage();
+    let resourceRequests = 0;
     await page.route("http://slash-palette.test/**", async (route) => {
       const url = new URL(route.request().url());
       if (url.pathname.startsWith("/v1/")) {
@@ -21,6 +22,7 @@ const path = require("node:path");
           };
         if (url.pathname === "/v1/usage") data = { available: false };
         if (url.pathname === "/v1/conversations") data = { conversations: [] };
+        if (url.pathname === "/v1/resources") resourceRequests++;
         if (url.pathname === "/v1/resources")
           data = {
             items: [
@@ -257,6 +259,26 @@ const path = require("node:path");
     assert(bounds.y >= 0 && bounds.y + bounds.height <= 844);
     await reviewer.click();
     assert.equal(await page.inputValue("#prompt"), "/demo--reviewer ");
+    // QA-R2-4: typing a name fetches the list once and filters it locally; the menu never blanks to "Refreshing".
+    await page.fill("#prompt", "");
+    await page.evaluate(() => {
+      clearResourceItems();
+      window.resourceStatuses = [];
+      new MutationObserver(() => window.resourceStatuses.push($("resource-status").textContent)).observe($("resource-status"), {
+        childList: true,
+        characterData: true,
+        subtree: true,
+      });
+    });
+    const before = resourceRequests;
+    await page.keyboard.type("/demo--reviewer", { delay: 25 });
+    await reviewer.waitFor({ state: "visible" });
+    assert.equal(resourceRequests - before, 1, "one GET /v1/resources for the whole name");
+    assert.equal(
+      (await page.evaluate(() => window.resourceStatuses)).filter((text) => /Refreshing/.test(text)).length <= 1,
+      true,
+      "the menu says Refreshing at most once",
+    );
     console.log("PASS: unified slash palette, fuzzy match, chips, preview and mobile bounds");
   } finally {
     await browser.close();

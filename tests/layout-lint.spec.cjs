@@ -44,6 +44,8 @@ const PIXEL_PNG = Buffer.from(
 );
 const LONG_RUN_TEXT =
   "Review the release notes against the migration checklist and report every step that still lacks a verified owner, a rollback note or a measured result before the cut-over window opens";
+// The strip no longer echoes the prompt (OP-R1-3); a long work item reference is what can still make it long.
+const LONG_WORK_ITEM = "RELEASE-CUT-OVER-" + "0123456789".repeat(8);
 const LONG_ANSWER = [
   "Here is the matrix you asked for.",
   "",
@@ -126,7 +128,7 @@ const conversationList = [
 ];
 const activity = {
   counts: { running: 1, queued: 0, needs_you: 0 },
-  jobs: [{ job_id: "j-run", conversation_id: "c-run", project_id: "sem-projeto", state: "running", backend: "codex", model: "gpt-6-astra", title: LONG_RUN_TEXT }],
+  jobs: [{ job_id: "j-run", conversation_id: "c-run", project_id: "sem-projeto", state: "running", backend: "codex", model: "gpt-6-astra", title: LONG_RUN_TEXT, work_item: LONG_WORK_ITEM }],
   providers: [{ backend: "codex", model: "gpt-6-astra", state: "ready", running: 1, queued: 0 }],
   needs_you: [],
 };
@@ -178,7 +180,7 @@ const SCREENS = [
     id: "status-bar-long",
     open: async (page) => {
       await openConversation(page, "c-run");
-      await page.waitForFunction(() => document.getElementById("run-status-toggle")?.textContent.includes("migration checklist"));
+      await page.waitForFunction(() => document.getElementById("run-status-toggle")?.textContent.includes("RELEASE-CUT-OVER"));
     },
     extra: SMALL_WINDOWS,
   },
@@ -196,6 +198,40 @@ const SCREENS = [
       );
       await page.locator("#gate-g-lint legend").waitFor();
     },
+  },
+  // L64: resize handles (V6), dialog close buttons (V12) and search fields (generic field lint) must not sit
+  // on text or controls. These screens are checked for those rules only: the generic overlap lint of an open side
+  // panel at tablet widths is a separate layout concern.
+  {
+    id: "side-panel-and-console",
+    lint: [],
+    open: async (page) => {
+      await openConversation(page, "c-run");
+      await page.keyboard.press("Control+j");
+      await page.locator("#run-console").waitFor({ state: "visible" });
+      if (await page.locator("#activity-panel").isHidden()) await page.click("#panel-toggle");
+      await page.locator("#activity-panel").waitFor({ state: "visible" });
+    },
+    close: async (page) => {
+      await page.keyboard.press("Control+j");
+      await page.locator("#run-console").waitFor({ state: "hidden" });
+      await page.click("#panel-toggle");
+    },
+  },
+  {
+    id: "search-dialog",
+    lint: ["fields"],
+    open: async (page) => {
+      await page.click("#search-conversations");
+      await page.fill("#conversation-search", "release migration");
+    },
+    close: (page) => page.keyboard.press("Escape"),
+  },
+  {
+    id: "setup-dialog",
+    lint: [],
+    open: (page) => page.evaluate(() => document.getElementById("setup-dialog").showModal()),
+    close: (page) => page.keyboard.press("Escape"),
   },
 ];
 
@@ -264,9 +300,60 @@ async function namedInvariants(page, viewport) {
   return problems;
 }
 
+// V6: a resize handle shares at most 2 px with any control; V12: a dialog's close button never sits on its text.
+// Only overlaps a user can reach count: the handle must be what a click hits there, and the control what lies under it.
+async function handleAndDialogInvariants(page) {
+  return page.evaluate(() => {
+    const problems = [];
+    const shown = (el) => el.checkVisibility() && el.getBoundingClientRect().width > 0;
+    const overlap = (a, b) => {
+      const w = Math.min(a.right, b.right) - Math.max(a.left, b.left), h = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+      return w > 2 && h > 2 ? { w, h, x: Math.max(a.left, b.left) + w / 2, y: Math.max(a.top, b.top) + h / 2 } : null;
+    };
+    const name = (el) => el.getAttribute("aria-label") || el.id || el.className;
+    const handles = [...document.querySelectorAll('[role="separator"]')].filter(shown);
+    const controls = [...document.querySelectorAll("button, a[href], input, select, textarea, summary, [role=tab]")].filter(shown);
+    const reachable = (handle, control, point) => {
+      const top = document.elementFromPoint(point.x, point.y);
+      if (!top || !handle.contains(top)) return false;
+      const saved = handle.style.pointerEvents;
+      handle.style.pointerEvents = "none";
+      const below = document.elementFromPoint(point.x, point.y);
+      handle.style.pointerEvents = saved;
+      return !!below && control.contains(below);
+    };
+    for (const handle of handles)
+      for (const control of controls) {
+        if (handle.contains(control) || control.contains(handle)) continue;
+        const hit = overlap(handle.getBoundingClientRect(), control.getBoundingClientRect());
+        if (hit && reachable(handle, control, hit))
+          problems.push(`V6 handle "${name(handle)}" overlaps "${name(control)}" by ${Math.round(hit.w)}x${Math.round(hit.h)} px`);
+      }
+    // Text lines, not the whole block: a heading's padding is not text.
+    const lines = (el) => {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      return [...range.getClientRects()].filter((r) => r.width > 0);
+    };
+    for (const dialog of document.querySelectorAll("dialog[open]"))
+      for (const close of dialog.querySelectorAll(".dialog-close, [id$='-close']")) {
+        if (!shown(close)) continue;
+        for (const text of dialog.querySelectorAll("h2, h3, p, label")) {
+          if (!shown(text) || close.contains(text) || text.contains(close)) continue;
+          for (const line of lines(text)) {
+            const hit = overlap(close.getBoundingClientRect(), line);
+            if (hit) problems.push(`V12 "${name(close)}" sits on text "${text.textContent.trim().slice(0, 30)}" by ${Math.round(hit.w)}x${Math.round(hit.h)} px`);
+          }
+        }
+      }
+    return problems;
+  });
+}
+
 // ---------------------------------------------------------------------------- generic lint
-function lintProblems(report) {
+function lintProblems(report, keep = ["overlaps", "spills", "beyond", "fields"]) {
   const problems = [];
+  for (const key of ["overlaps", "spills", "beyond", "fields"]) if (!keep.includes(key)) report = { ...report, [key]: [] };
   for (const o of report.overlaps) problems.push(`${o.aLabel} ${JSON.stringify(o.aBox)} overlaps ${o.bLabel} ${JSON.stringify(o.bBox)} by ${o.overlap.w}x${o.overlap.h} px`);
   for (const sp of report.spills) if (!KNOWN_NOISE.has(`${sp.kind}|${sp.sel}`)) problems.push(`${sp.sel} "${sp.text}" ${sp.kind}: scroll ${JSON.stringify(sp.scroll)} in client ${JSON.stringify(sp.client)}`);
   for (const b of report.beyond) problems.push(`${b.sel} "${b.text}" ${b.kind} by ${b.excess} px`);
@@ -298,7 +385,11 @@ function lintProblems(report) {
           for (const size of [viewport, ...(viewport === MAIN_VIEWPORTS[1] ? screen.extra || [] : [])]) {
             await page.setViewportSize(size);
             const where = `${theme} ${screen.id}@${size.width}x${size.height}`;
-            const problems = [...(await namedInvariants(page, size)), ...lintProblems(await page.evaluate(LINT))];
+            const problems = [
+              ...(screen.lint ? [] : await namedInvariants(page, size)),
+              ...(await handleAndDialogInvariants(page)),
+              ...lintProblems(await page.evaluate(LINT), screen.lint),
+            ];
             if (problems.length) {
               const shot = path.join(SHOTS, where.replace(/\W+/g, "-") + ".png");
               fs.mkdirSync(SHOTS, { recursive: true });
@@ -308,6 +399,7 @@ function lintProblems(report) {
             measurements++;
           }
           await page.setViewportSize(viewport);
+          await screen.close?.(page);
         }
         for (const message of pageErrors) failures.push(`${theme} ${viewport.width}x${viewport.height}: page error ${message}`);
         await context.close();

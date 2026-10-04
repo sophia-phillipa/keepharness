@@ -24,6 +24,7 @@ const fs = require("node:fs/promises"),
         answer: "Answer " + id,
         model: "fixture",
         total_seconds: 12,
+        ...(id === "two" ? { queue_seconds: 8 } : {}),
         metrics: { output_tokens: 11, debug: "RAW_METRIC_SENTINEL" },
         references: ["RAW_REFERENCE_SENTINEL"],
       },
@@ -157,6 +158,10 @@ const fs = require("node:fs/promises"),
       latest = page.locator("#messages .message-activity").nth(1);
     assert.equal(await old.evaluate((el) => el.open), false);
     assert.equal(await latest.evaluate((el) => el.open), false);
+    // QA-R1-2: "Worked for" leaves out the time spent waiting in the queue, which is shown apart.
+    assert.equal(await old.locator("summary").innerText(), "Worked for 12.0 s");
+    assert.equal(await latest.locator("summary").innerText(), "Worked for 4.0 s");
+    assert.match(await page.locator("#messages .run-meta").last().innerText(), /4\.0 s · waited 8\.0 s$/);
     await old.locator("summary").click();
     await old
       .getByText(/command ls/i)

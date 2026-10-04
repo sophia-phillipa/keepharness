@@ -42,7 +42,7 @@ const fs = require("node:fs");
       await groups.evaluateAll((els) =>
         els.map((el) => el.getAttribute("aria-label")),
       ),
-      ["Codex", "Local model", "Claude", "DeepSeek", "Gemini CLI"],
+      ["Codex", "Local models", "Claude Code", "DeepSeek", "Gemini CLI"],
     );
     assert.equal(await groups.first().locator("[role=option]").count(), 2);
     assert.equal(await groups.nth(1).locator("[role=option]").count(), 2);

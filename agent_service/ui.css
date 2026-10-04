@@ -806,16 +806,16 @@ header {
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 24px;
+  width: 6px;
   z-index: 15;
   cursor: col-resize;
   touch-action: none;
 }
 #sidebar-resize {
-  right: -12px;
+  right: -3px;
 }
 #activity-panel-resize {
-  left: 0;
+  left: -3px;
 }
 .panel-resize:after {
   content: "";
@@ -823,11 +823,10 @@ header {
   top: 42%;
   height: 56px;
   width: 4px;
-  left: 10px;
+  left: 1px;
   border-radius: 4px;
   background: var(--tone-28);
 }
-#activity-panel-resize:after { left: 0; }
 .panel-resize:hover:after,
 .panel-resize:focus-visible:after {
   background: var(--th-accent);
@@ -1035,7 +1034,7 @@ header {
   min-width: 0;
   border: 1px solid transparent;
   border-radius: 10px;
-  padding: 9px 36px 9px 10px;
+  padding: 9px 48px 9px 10px;
   color: inherit;
   background: var(--th-panel);
 }
@@ -1352,10 +1351,68 @@ small {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.message table {
-  display: block;
+.message .table-scroll {
   max-width: 100%;
-  overflow: auto;
+  overflow-x: auto;
+  margin: 8px 0;
+}
+.message table {
+  overflow-wrap: normal;
+  word-break: normal;
+}
+.message th,
+.message td {
+  overflow-wrap: normal;
+  word-break: normal;
+}
+.message th {
+  white-space: nowrap;
+}
+.message pre,
+.message .table-scroll {
+  scrollbar-width: auto;
+  scrollbar-color: var(--th-muted) var(--th-soft);
+}
+.message .code-block {
+  min-width: 0;
+  max-width: 100%;
+  margin: 8px 0;
+  border: 1px solid var(--th-border);
+  border-radius: 10px;
+  background: var(--th-code);
+  overflow: hidden;
+}
+.message .code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 6px 2px 12px;
+  border-bottom: 1px solid var(--th-border);
+  color: var(--th-muted);
+  font-size: 12px;
+}
+.message .copy-code,
+.message .copy-answer {
+  border: 0;
+  background: transparent;
+  color: var(--th-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.message .copy-code {
+  min-height: 24px;
+  padding: 0 8px;
+  border-radius: 6px;
+}
+.message .copy-code:hover,
+.message .copy-code:focus-visible {
+  background: var(--th-hover);
+  color: var(--th-text);
+}
+.message.assistant .chat-bubble .code-block pre {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
 }
 .send.btn {
   border-radius: 9px;
@@ -1647,10 +1704,7 @@ small {
   border-radius: 4px;
 }
 .message.assistant .chat-bubble table {
-  display: block;
   width: max-content;
-  max-width: 100%;
-  overflow: auto;
   border-collapse: collapse;
 }
 .message.assistant .chat-bubble th,
@@ -4290,8 +4344,21 @@ body.panel-order-reversed #app-topbar #menu .th-icon {
   padding-left: 8px;
   border-left: 1px solid var(--th-border);
 }
+#model-menu .model-more > summary {
+  padding: 6px 8px;
+  border-radius: 7px;
+  color: var(--th-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+#model-menu .model-more > summary:hover,
+#model-menu .model-more > summary:focus-visible {
+  background: var(--th-soft);
+  color: var(--th-text);
+}
 @media (pointer: coarse) {
   #model-menu .model-provider-heading,
+  #model-menu .model-more > summary,
   #model-menu [role="option"] {
     min-height: 44px;
   }
@@ -4585,7 +4652,7 @@ main { padding-bottom:28px; }
 .run-span-row > strong { font-size:12px; }
 .run-span-state { color:var(--th-muted); text-transform:capitalize; }
 .run-span-effort,.run-span-duration,.run-span-tokens { color:var(--th-muted); font-size:10px!important; }
-.run-span-connector { position:absolute; right:-21px; top:38px; color:var(--th-muted); }
+.run-span-connector { position:absolute; right:4px; top:38px; color:var(--th-muted); }
 .run-span-row:last-child > .run-span-connector { display:none; }
 .run-span-row > strong > .th-icon { display:inline-block; width:14px; height:14px; vertical-align:middle; margin-right:6px; }
 .run-span-row[aria-pressed=true] { box-shadow:0 0 0 2px color-mix(in srgb,var(--th-accent) 25%,transparent); }
@@ -4941,7 +5008,8 @@ body .composer-submit .send > span { position: absolute; width: 1px; height: 1px
 body .composer-submit .send:disabled { opacity: .35; }
 /* Header: title left, view switch centered, conversation chips right. */
 main > header #header-execution-mode { margin-left: auto; }
-@media (max-width: 1279px) { body main > header :is(.header-chip, #conversation-state-pill) { display: none!important; } }
+/* QA-R3-1: narrower windows drop the mode chip first; the state pill and the access chip stay. */
+@media (max-width: 1279px) { body main > header :is(#header-execution-mode) { display: none!important; } }
 /* Sidebar shows only the conversation groups that have conversations. */
 #history { flex: none; }
 .conversation-state-group:not(:has(.conversation-row)) { display: none; }
@@ -5012,7 +5080,7 @@ main { container-type: inline-size; container-name: chatpane; }
 #messages { padding-inline: max(16px, calc((100% - 768px) / 2)); }
 main > header h1 { max-width: calc(50% - 150px); }
 /* Narrower chat: drop the passive chips first; the conversation-mode chip is a control and stays. */
-@container chatpane (max-width: 980px) { main > header :is(#header-access, #conversation-state-pill, #active-project-badge) { display: none!important; } }
+@container chatpane (max-width: 980px) { main > header #active-project-badge { display: none!important; } }
 @container chatpane (max-width: 760px) { main > header .view-switch { position: static; transform: none; margin-left: auto; } main > header .view-switch button { width: 76px; } }
 @container chatpane (max-width: 640px) { main > header h1 { display: none; } }
 /* Sidebar conversation rows: one line, status lives in the group heading. */
@@ -5263,8 +5331,10 @@ body dialog:not(#settings-dialog) .btn.btn-danger { background: color-mix(in srg
 #workspace-files { height: 160px; }
 #workspace-resources, #workspace-activity { height: 80px; }
 #activity-panel .authorized-root-card > strong { flex-direction: row-reverse; justify-content: flex-end; }
-#sidebar .conversation-row .conversation-row-meta .conversation-summary { flex: none; }
-#sidebar .conversation-row .conversation-row-meta .conversation-project { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* QA-R1-4: a long summary shortens with an ellipsis; the project label always keeps a visible part. */
+#sidebar .conversation-row .conversation-row-meta .conversation-summary { flex: 0 1 auto; min-width: 4ch; overflow: hidden; text-overflow: ellipsis; }
+#sidebar .conversation-row .conversation-row-meta .conversation-project { flex: 0 1 auto; min-width: 4ch; overflow: hidden; text-overflow: ellipsis; }
+#sidebar .conversation-row .conversation-row-meta .backend-chip { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 /* Isolated conversations keep the theme accent on their indicator (conversation-execution-mode spec). */
 main #dropzone #execution-mode-indicator[data-isolated="true"] { color: var(--th-accent); }
 main:not(:has(#messages > #welcome:only-child)) #dropzone #execution-mode-indicator[data-isolated="true"] { color: var(--th-accent); }
@@ -5379,8 +5449,8 @@ main > header .view-switch { top: 6px; }
   body.panel-order-reversed #sidebar.open { left: auto; right: 0; }
 }
 /* Console resizer keeps its 24 px hit area but overlaps the header's empty top edge. */
-.run-console > .run-console-resizer { margin-bottom: -12px; z-index: 3; }
-.run-console > .run-console-resizer::after { top: 6px; }
+.run-console > .run-console-resizer { height: 6px; margin-bottom: 0; z-index: 3; }
+.run-console > .run-console-resizer::after { top: 2px; }
 /* Evidence/code blocks inside approval cards: readable text on the soft surface in every theme. */
 #messages .approval-card :is(pre, .approval-diff), #messages .approval-card pre * { color: var(--th-text); }
 /* Console tabs stay compact so all five fit beside the console controls. */
@@ -5609,3 +5679,37 @@ main > #run-console { order: 11; }
   #app-topbar :is(#rail-space, #rail-scheduled) { display: none; }
 }
 #sidebar .conversation-row-meta .conversation-scheduled { color: var(--th-accent); font-weight: 500; }
+
+.route-carryover,
+.draft-limit {
+  flex: 1 0 100%;
+  margin: 0;
+  padding: 0;
+  color: var(--th-muted);
+  font-size: 12px;
+  line-height: 16px;
+  text-align: center;
+}
+#setup-dialog > h2 {
+  min-height: 44px;
+  padding-right: 48px;
+}
+.draft-limit[data-over="true"] {
+  color: var(--th-error);
+}
+.attachment-size {
+  color: var(--th-muted);
+  font-size: 11px;
+}
+/* Ask again belongs to the newest answer only, and only once it has text. */
+.message .ask-again {
+  border: 0;
+  background: transparent;
+  color: var(--th-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+#messages .message.assistant:not(:last-of-type) > .ask-again,
+#messages .message.assistant:has(> .text:empty) > :is(.ask-again, .copy-answer) {
+  display: none;
+}

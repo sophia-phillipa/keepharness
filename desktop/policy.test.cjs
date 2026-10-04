@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const {
   appOrigins,
   isAppUrl,
+  permissionAllowed,
   externalUrl,
   windowOptions,
   splashOptions,
@@ -133,4 +134,17 @@ test('the window enrolls itself only through a harness enrollment link printed b
   assert.equal(enrollmentLink('http://u:p@127.0.0.1:8095/approve-device?nonce=x', origin), null);
   assert.equal(enrollmentLink('error: Could not update approval authority', origin), null);
   assert.equal(enrollmentLink('', origin), null);
+});
+
+test('the clipboard write and notifications are allowed on the app origins only', () => {
+  const origins = appOrigins([8094, 8095]);
+  for (const permission of ['clipboard-sanitized-write', 'notifications']) {
+    assert.equal(permissionAllowed(permission, 'http://127.0.0.1:8095/', origins), true);
+    assert.equal(permissionAllowed(permission, 'http://localhost:8094', origins), true);
+    assert.equal(permissionAllowed(permission, 'https://example.com/', origins), false);
+    assert.equal(permissionAllowed(permission, 'file:///splash.html', origins), false);
+    assert.equal(permissionAllowed(permission, undefined, origins), false);
+  }
+  for (const permission of ['media', 'geolocation', 'clipboard-read', 'midi', 'openExternal'])
+    assert.equal(permissionAllowed(permission, 'http://127.0.0.1:8095/', origins), false);
 });

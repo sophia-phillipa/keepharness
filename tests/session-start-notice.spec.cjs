@@ -128,7 +128,7 @@ const assert = require("node:assert/strict"),
     assert.equal(await notice.isVisible(), false);
     assert.equal(await page.locator("#header-execution-mode").isVisible(), true);
     assert.equal(await page.locator("#header-execution-mode").innerText(), "Isolated conversation");
-    assert.equal(await page.locator("#header-access").innerText(), "full");
+    assert.equal(await page.locator("#header-access").innerText(), "Full access");
     assert.equal(
       await toggle.isVisible(),
       false,
@@ -141,7 +141,7 @@ const assert = require("node:assert/strict"),
     // The access mode can still change for this conversation; the notice follows.
     await chooseAccess("read_only");
     assert.equal(await access.innerText(), "Access: Read only");
-    assert.equal(await page.locator("#header-access").innerText(), "read_only");
+    assert.equal(await page.locator("#header-access").innerText(), "Read only");
     await page.locator("#prompt").fill("Follow up");
     await page.locator("#send").click();
     await idle();
@@ -176,7 +176,7 @@ const assert = require("node:assert/strict"),
     assert.equal(await toggle.isVisible(), false);
     assert.equal(await page.locator("#header-execution-mode").isVisible(), true);
     assert.equal(await page.locator("#header-execution-mode").innerText(), "Isolated conversation");
-    assert.equal(await page.locator("#header-access").innerText(), "read_only");
+    assert.equal(await page.locator("#header-access").innerText(), "Read only");
     assert.equal(await access.innerText(), "Access: Read only");
 
     // A new conversation never inherits the previous access mode.

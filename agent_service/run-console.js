@@ -348,7 +348,7 @@
       refreshRunOptions();
       const pendingPlan = currentPlan();
       const current = state.activity.jobs.find(item => item.job_id === state.run);
-      const highlight = pendingPlan ? 'Maestro plan awaiting approval' : current ? [current.work_item || current.title, current.state].filter(Boolean).join(' · ') : 'No active run';
+      const highlight = pendingPlan ? 'Maestro plan awaiting approval' : current ? [current.work_item, current.state].filter(Boolean).join(' · ') : 'No active run';
       toggleButton.replaceChildren(HarnessUI.icon('pulse'), document.createTextNode(`${counts.running || 0} running · ${counts.queued || 0} queued · ${counts.needs_you || 0} needs you · ${highlight}`));
       toggleButton.title = toggleButton.textContent + ' · Toggle run console (Ctrl/⌘+J)';
       inboxButton.textContent = `Needs you (${counts.needs_you || 0})`;
@@ -545,7 +545,7 @@
       const heading = el('strong', span.name);
       heading.prepend(HarnessUI.icon(span.kind === 'harness.gate' && span.end_ts == null ? 'shield' : {completed:'check', pending:'clock', running:'pulse', waiting_approval:'shield', blocked:'shield', failed:'x', cancelled:'x', interrupted:'x', skipped:'chevron-right'}[outcome(span)] || 'clock'));
       row.append(heading, spanState, route, el('span', span.attrs?.effort || '', 'run-span-effort'), el('span', duration(span), 'run-span-duration'), el('span', tokenCount(span), 'run-span-tokens'));
-      if (span.attrs?.enforcement) row.append(el('span', 'Publication: ' + span.attrs.enforcement, 'run-span-enforcement'));
+      if (span.attrs?.enforcement) row.append(el('span', 'Publication: ' + publicationLabel(span.attrs.enforcement), 'run-span-enforcement'));
       if (state.tab === 'Timeline') {
         const track = el('span', null, 'run-waterfall-track');
         row.style.flexBasis = 240 * state.zoom + 'px';
@@ -726,7 +726,7 @@
     detail.append(el('h3', span.name));
     if (span.kind === 'harness.effect') {
       const attrs = span.attrs || {};
-      detail.append(el('p', 'Effect status: ' + outcome(span)), el('p', 'Publication: ' + (attrs.enforcement || 'unenforced')));
+      detail.append(el('p', 'Effect status: ' + outcome(span)), el('p', 'Publication: ' + publicationLabel(attrs.enforcement)));
       for (const [label, value] of [['Operation', attrs.operation], ['Destination', attrs.destination],
         ['Integration', attrs.integration], ['Jira site', attrs.endpoint],
         ['Artifact digest', attrs.artifact_digest], ['Arguments digest', attrs.arguments_digest],
@@ -1037,7 +1037,7 @@
       if (item.risk || item.publish) card.append(el('p', [item.risk && 'Risk: ' + item.risk, item.publish && 'Publication approval'].filter(Boolean).join(' · ')));
       if (item.evidence?.length) card.append(el('pre', JSON.stringify(item.evidence, null, 2)));
     } else {
-      card.append(el('p', item.approval_kind || 'Action approval'), el('pre', JSON.stringify(item.request || {}, null, 2)));
+      card.append(el('p', item.request?.message || 'Action approval'), el('pre', JSON.stringify(item.request || {}, null, 2)));
       for (const question of item.request?.questions || []) {
         const answer = input('needs-answer-' + id + '-' + question.id);
         questions.push([question.id, answer]);
@@ -1116,8 +1116,18 @@
   };
   resize(consoleHeight, false);
   void refresh();
+  // QA-R2-3: a tab with runs, or an open console, follows them every 4 s; an idle tab asks every 20 s.
+  const following = () => {
+    const counts = state.activity.counts || {};
+    return (counts.running || 0) + (counts.queued || 0) + (counts.needs_you || 0) > 0 || !drawer.hidden;
+  };
+  let idleTicks = 0;
   document.addEventListener('harness:ready', refresh);
-  document.addEventListener('harness:history', refresh);
-  setInterval(() => { if (!document.hidden) void refresh(); }, 4000);
+  // The timer's own history poll only refreshes a tab that is following runs; anything else (a send, a rename) always does.
+  document.addEventListener('harness:history', event => { if (!event.detail?.background || following()) void refresh(); });
+  setInterval(() => {
+    if (document.hidden) return;
+    if (following() || ++idleTicks % 5 === 0) void refresh();
+  }, 4000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) void refresh(); });
 })();

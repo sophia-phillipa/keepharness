@@ -82,6 +82,17 @@ const turn = (id, backend, model, prompt) => ({
     );
     assert.deepEqual(order.filter((kind) => kind !== "other"), ["user", "divider", "user", "divider", "user"]);
 
+    // UX-R1-4: a visible one-line note before sending on another provider, hidden when it is the same one.
+    const carryover = page.locator("#route-carryover");
+    await page.locator("#model").selectOption("claude-sonnet-5-5");
+    assert.equal(await carryover.isHidden(), true, "the last turn used Claude already");
+    await page.locator("#model").selectOption("gpt-6-astra");
+    assert.equal(
+      await carryover.innerText(),
+      "Next message goes to Codex · GPT-6 Astra. The conversation so far goes with it.",
+    );
+    await page.locator("#model").selectOption("claude-sonnet-5-5");
+    assert.equal(await carryover.isHidden(), true);
     // Switching back to Codex in the same conversation adds one more divider.
     await page.locator("#model").selectOption("gpt-6-astra");
     await page.fill("#prompt", "Back to Astra");
@@ -94,6 +105,7 @@ const turn = (id, backend, model, prompt) => ({
     );
     assert.equal(await dividers.count(), 3);
 
+    assert.equal(await carryover.isHidden(), true, "the sent turn is the new baseline");
     // A new conversation starts without dividers.
     await page.click("#new");
     assert.equal(await page.locator("#messages .route-divider").count(), 0);

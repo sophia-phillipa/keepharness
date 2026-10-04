@@ -1,3 +1,4 @@
+// WP-16 (OP-R1-3): the status strip shows the work item, never the conversation title, so the long label comes from work_item.
 // Round-thirteen synthetic browser regressions, with actual assets and pointer hit tests.
 const {chromium}=require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const assert=require('node:assert/strict');
@@ -28,7 +29,7 @@ async function fixture(browser,width=1280,kind='plan'){
   if(url.pathname.startsWith('/v1/conversations/')){const id=url.pathname.split('/').pop();return{json:{title:id==='source'?'Synthetic source':'Resumed synthetic run',turns:[turn(id)]}};}
   if(url.pathname==='/v1/jobs/source-job')return{json:turn('source')};
   if(url.pathname==='/v1/jobs/child-job')return{json:turn('child')};
-  if(url.pathname==='/v1/activity')return{json:{counts:{running:state.plan?1:0,needs_you:state.plan?1:0},jobs:[{...run,...turn('source'),job_id:'source-job',conversation_id:'source',project_id:'p',backend:'codex',model:'fixture',title:state.title,work_item:null}],needs_you:state.plan?[pending]:[],providers:[]}};
+  if(url.pathname==='/v1/activity')return{json:{counts:{running:state.plan?1:0,needs_you:state.plan?1:0},jobs:[{...run,...turn('source'),job_id:'source-job',conversation_id:'source',project_id:'p',backend:'codex',model:'fixture',title:state.title,work_item:state.title}],needs_you:state.plan?[pending]:[],providers:[]}};
   if(url.pathname.endsWith('/spans'))return{json:{spans:[{...span,span_id:'review',name:'Review synthetic facts',attrs:{backend:'codex',model:'fixture'}}]}};
   if(url.pathname.endsWith('/events'))return{body:'',contentType:'text/event-stream'};
  });

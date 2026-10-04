@@ -679,7 +679,7 @@ class ConversationService:
         if title:
             return title[0]
         root = self.conversation_repository.payload(cid)
-        return json.loads(root[0]).get("prompt", "Conversation")[:100]
+        return resources.conversation_title(json.loads(root[0]).get("prompt", ""))
 
     def execution_modes(self, backend):
         return EXECUTION_MODES.get(backend, ())

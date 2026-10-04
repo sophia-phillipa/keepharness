@@ -7,6 +7,7 @@ const assert = require("node:assert/strict"),
   try {
     let eventRequests = 0,
       cancelRequests = 0,
+      projectFileRequests = 0,
       createdProject = null;
     const origin = "http://127.0.0.1:8094";
     const page = await browser.newPage({
@@ -65,6 +66,7 @@ const assert = require("node:assert/strict"),
           }
         }
         let data = {};
+        if (p === "/v1/project-files") projectFileRequests++;
         if (p === "/v1/projects" && route.request().method() === "POST") {
           createdProject = route.request().postDataJSON();
           return route.fulfill({ json: { project_id: "new-project" } });
@@ -121,7 +123,15 @@ const assert = require("node:assert/strict"),
             ],
             admin_url: "http://localhost:8094/admin/",
           };
-        if (p === "/v1/conversations") data = { conversations };
+        if (p === "/v1/conversations")
+          data = url.searchParams.has("q")
+            ? {
+                conversations: [
+                  { ...conversations[3], snippet: "…the KESTREL launch slipped to Friday…" },
+                  { ...conversations[4] },
+                ],
+              }
+            : { conversations };
         if (p === "/v1/conversations/c34")
           data = {
             title: "Naïve Philosophy",
@@ -334,6 +344,16 @@ const assert = require("node:assert/strict"),
       1,
       "unified search also matches the run model",
     );
+    // A term that only an answer contains finds the conversation, with its snippet and no internal id.
+    await page.fill("#conversation-search", "KESTREL");
+    await page.locator(".search-snippet").waitFor();
+    assert.equal(await page.locator(".conversation-search-result").count(), 1);
+    const hit = await page.locator(".conversation-search-result").innerText();
+    assert.match(hit, /Conversation 3/);
+    assert.match(hit, /KESTREL launch slipped/);
+    assert.match(hit, /Local models/);
+    assert.doesNotMatch(hit, /[0-9a-f]{32}|\bc3\b/);
+    assert.equal(projectFileRequests, 0, "a project without a folder never asks for its files (422)");
     await page.fill("#conversation-search", "Naïve");
     await page.locator(".conversation-search-result").click();
     await page
@@ -548,7 +568,7 @@ const assert = require("node:assert/strict"),
     );
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: search dialog, title-only/accent-insensitive search, project folder selection, and project badge, clear, empty results, sidebar navigation, keyboard and mobile.",
+      "PASS: search dialog, title and answer-text search, accent-insensitive search, no ids, project folder selection, and project badge, clear, empty results, sidebar navigation, keyboard and mobile.",
     );
   } finally {
     await browser.close();

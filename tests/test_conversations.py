@@ -167,3 +167,69 @@ def test_terminal_conversation_exposes_gate_audit_for_reload(api):
         ).status_code
         == 403
     )
+
+
+def add_turn(service, job_id, prompt, answer, created):
+    with service.db:
+        service.db.execute(
+            "INSERT INTO jobs(id,project,owner,state,created,payload,result,idem,digest) VALUES(?,?,?,?,?,?,?,?,?)",
+            (
+                job_id,
+                "shared",
+                "alice",
+                "completed",
+                created,
+                json.dumps({"prompt": prompt, "backend": "codex", "model": "fixture"}),
+                json.dumps({"answer": answer}),
+                None,
+                job_id,
+            ),
+        )
+
+
+def test_search_finds_text_inside_answers_and_prompts(api):
+    add_turn(
+        api.app.state.service,
+        "answered",
+        "@@planner Summarize the quarterly report. Then mail it.",
+        "The Kestrel migration finishes on Friday, café included.",
+        2,
+    )
+    found = api.get("/v1/conversations", params={"q": "KESTREL"}).json()["conversations"]
+    assert [c["id"] for c in found] == ["answered"]
+    assert "Kestrel migration" in found[0]["snippet"]
+    assert found[0]["title"] == "Summarize the quarterly report."
+    assert [c["id"] for c in api.get("/v1/conversations", params={"q": "CAFE"}).json()["conversations"]] == ["answered"]
+    by_prompt = api.get("/v1/conversations", params={"q": "quarterly"}).json()["conversations"]
+    assert "quarterly report" in by_prompt[0]["snippet"]
+    assert api.get("/v1/conversations", params={"q": "absent-term"}).json() == {"conversations": []}
+    assert api.get("/v1/conversations", params={"q": "k"}).json() == {"conversations": []}
+    # Without q the list is unchanged and carries no snippet.
+    listed = api.get("/v1/conversations").json()["conversations"]
+    assert {c["id"] for c in listed} == {"conversation-1", "answered"}
+    assert all("snippet" not in c for c in listed)
+
+
+def test_search_is_limited_to_the_callers_conversations(api):
+    add_turn(api.app.state.service, "mine", "Question", "Kestrel", 2)
+    found = api.get(
+        "/v1/conversations", params={"q": "kestrel"}, headers={"Authorization": "Bearer bob"}
+    )
+    assert found.status_code == 200
+    assert found.json() == {"conversations": []}
+
+
+@pytest.mark.parametrize(
+    ("prompt", "title"),
+    [
+        ("@@planner Summarize the quarterly report. Then mail it.", "Summarize the quarterly report."),
+        ("First line of a long request\nsecond line", "First line of a long request"),
+        ("Hi. please plan the whole migration for me", "Hi. please plan the whole migration for me"),
+        ("@@only @@markers", "Conversation"),
+        ("x" * 300, "x" * 100),
+    ],
+)
+def test_default_title_is_a_readable_first_sentence(prompt, title):
+    from agent_service.resources import conversation_title
+
+    assert conversation_title(prompt) == title

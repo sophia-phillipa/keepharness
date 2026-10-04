@@ -356,6 +356,30 @@ const assert = require("node:assert/strict");
         assert.equal(await page.locator("#sidebar").isVisible(), true);
       }
     }
+    // QA-R3-1, OP-R2-7: the state pill and the access chip stay in the header at every desktop width,
+    // with the Code panel closed and open; the header holds one line.
+    for (const width of [1440, 1280, 1279, 1024, 800]) {
+      for (const panelOpen of [false, true]) {
+        await page.setViewportSize({ width, height: 860 });
+        await page.evaluate((open) => {
+          document.body.classList.add("sidebar-collapsed");
+          setPanelOpen(open, false);
+          fitPanels();
+        }, panelOpen);
+        const where = `${width}px, Code panel ${panelOpen ? "open" : "closed"}`;
+        const header = await page.evaluate(() => {
+          const box = (id) => {
+            const el = document.getElementById(id), rect = el.getBoundingClientRect();
+            return { width: rect.width, text: el.innerText, visible: el.checkVisibility() };
+          };
+          const bar = document.querySelector("main > header");
+          return { pill: box("conversation-state-pill"), access: box("header-access"), overflow: bar.scrollWidth - bar.clientWidth };
+        });
+        assert(header.pill.visible && header.pill.width > 0 && header.pill.text, `state pill visible at ${where}`);
+        assert(header.access.visible && header.access.width > 0 && !header.access.text.includes("_"), `access chip visible at ${where}`);
+        assert(header.overflow <= 1, `header does not overflow at ${where}`);
+      }
+    }
     console.log(
       "PASS: global topbar controls, conversation/project titles, local/cloud quota visibility, right-edge activity drawer, and connection gate.",
     );

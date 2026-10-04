@@ -749,10 +749,23 @@ def accepted_tokens(item):
     return ("/" + name, "@" + name) if item["kind"] == "agent" else ("/" + name,)
 
 
+TITLE_LIMIT = 100
+RESERVED_MARKER = re.compile(r"(?<!\S)@@[\w:-]+(?=\s|$)")
+SENTENCE_END = re.compile(r"(?<=[.!?])\s|\n")
+
+
+def conversation_title(prompt):
+    """A readable default title: the first sentence of the prompt without its ``@@`` markers."""
+    text = RESERVED_MARKER.sub(" ", str(prompt)).strip()
+    sentence = " ".join(SENTENCE_END.split(text, 1)[0].split())
+    # "e.g." or "Hi." is not a title: a very short first sentence falls back to the whole prompt.
+    return (sentence if len(sentence) > 11 else " ".join(text.split()))[:TITLE_LIMIT] or "Conversation"
+
+
 def reserved_markers(prompt, selections):
     """The ``@@`` markers in the prompt; ``//`` or a marker nothing was selected for is refused."""
     prose = unfenced(prompt, preserve_offsets=True)
-    markers = set(re.findall(r"(?<!\S)@@[\w:-]+(?=\s|$)", prose))
+    markers = set(RESERVED_MARKER.findall(prose))
     if re.search(r"^\s*//[A-Za-z_][\w:-]*(?=\s|$)", prose) or (markers and not selections):
         raise ResourceError("harness_resources_unavailable")
     return markers

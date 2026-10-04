@@ -79,9 +79,9 @@ const settle = page => page.evaluate(() => Promise.all(document.getAnimations().
       }
       await page.close();
     });
-    await check('A2-F5 resize handle is 24px with uncovered edges', async () => {
+    await check('A2-F5 resize handle is a full-width 6px strip with uncovered edges', async () => {
       const { page } = await fixture(browser, 1280, 900); await page.keyboard.press('Control+j'); await settle(page);
-      const handle = page.locator('#run-console-resize'); const box = await handle.boundingBox(); assert(box.width >= 24 && box.height >= 24, JSON.stringify(box));
+      const handle = page.locator('#run-console-resize'); const box = await handle.boundingBox(); assert(box.width >= 24 && box.height >= 6, JSON.stringify(box)); // WP-16 L64: a 6 px strip on the console edge, no longer over the tabs
       assert(await handle.evaluate(n => { const r = n.getBoundingClientRect(); return [r.top+1, r.bottom-1].every(y => { const h = document.elementFromPoint(r.x+r.width/2,y); return n===h || n.contains(h); }); })); await page.close();
     });
     await check('A2-F1 new drafts belong to the source project', async () => {

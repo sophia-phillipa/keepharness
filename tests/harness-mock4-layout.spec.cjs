@@ -38,7 +38,7 @@ const path = require("node:path");
               : url.pathname === "/v1/jobs/j1"
                 ? { id: "j1", project: "p", state: "running", request: { backend: "codex", model: "fixture" }, result: {} }
                 : url.pathname === "/v1/activity"
-                  ? { counts: { running: 2, queued: 1, needs_you: planPending ? 1 : 0 }, jobs: [{ job_id: "j1", conversation_id: "c1", project_id: "p", state: "running", backend: "codex", model: "fixture" }], providers: [{ backend: "codex", model: "fixture", state: "ready", running: 2, queued: 1 }], needs_you: planPending ? [{ gate_id: "plan-gate", kind: "gate", approval_kind: "maestro_plan", conversation_id: "c1", job_id: "j1", plan: { steps: [{ role: "reviewer", backend: "codex", model: "fixture", effort: "medium", task: "Review" }] } }] : [] }
+                  ? { counts: { running: 2, queued: 1, needs_you: planPending ? 1 : 0 }, jobs: [{ job_id: "j1", conversation_id: "c1", project_id: "p", state: "running", backend: "codex", model: "fixture", title: "SECRET-TITLE prompt" }], providers: [{ backend: "codex", model: "fixture", state: "ready", running: 2, queued: 1 }], needs_you: planPending ? [{ gate_id: "plan-gate", kind: "gate", approval_kind: "maestro_plan", conversation_id: "c1", job_id: "j1", plan: { steps: [{ role: "reviewer", backend: "codex", model: "fixture", effort: "medium", task: "Review" }] } }] : [] }
                   : url.pathname === "/v1/jobs/j1/spans"
                     ? { spans: [{ span_id: "s1", name: "Planner", start_ts: 1, end_ts: 2, status: "completed", attrs: { backend: "codex", model: "fixture", effort: "medium", "gen_ai.usage.input_tokens": 10, "gen_ai.usage.output_tokens": 5 } }] }
                     : url.pathname === "/v1/project-files"
@@ -80,6 +80,8 @@ const path = require("node:path");
     assert.equal(await approvalRow.getByRole("img", { name: "Needs your answer" }).count(), 1);
     await page.waitForFunction(() => /2 running.*1 queued.*1 needs you/i.test(document.getElementById("run-status-toggle")?.textContent || ""));
     assert.match(await page.locator("#run-status-toggle").innerText(), /2 running.*1 queued.*1 needs you/i);
+    // OP-R1-3: the strip counts and states runs; it never echoes the prompt or its title.
+    assert.doesNotMatch(await page.locator("#run-status-toggle").innerText(), /SECRET-TITLE/);
     assert.equal(await page.locator("#conversation-state-pill").innerText(), "Awaiting approval");
     const strip = await page.locator(".run-status-strip").boundingBox();
     // The status strip spans the chat column to the right edge (the sidebar keeps its own footer area).
@@ -110,6 +112,9 @@ const path = require("node:path");
     await page.evaluate(() => finishGate("plan-gate", "resolved", { choice: "approve" }));
     await page.waitForFunction(() => document.querySelector(".maestro-plan-card")?.dataset.state === "resolved");
     assert.equal(await plan.getAttribute("data-state"), "resolved");
+    await page.evaluate(() => runConsole.refresh?.());
+    await page.waitForFunction(() => /needs you · running$/.test(document.getElementById("run-status-toggle").textContent), null, { timeout: 15000 });
+    assert.doesNotMatch(await page.locator("#run-status-toggle").innerText(), /SECRET-TITLE/);
     assert.equal(await plan.getByRole("button", { name: "Approve plan & run" }).isDisabled(), true);
 
     for (const theme of ["violet-bordeaux", "porcelain", "mineral-rose", "amethyst", "petroleum", "arizona"]) {

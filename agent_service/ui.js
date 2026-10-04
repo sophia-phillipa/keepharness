@@ -330,6 +330,13 @@ function renderPromptHighlights() {
     mirror = $("prompt-highlights"),
     tokens = new Set(resourceSelections.map((ref) => ref.token));
   mirror.replaceChildren();
+  // QA-R4-5: without a highlighted token the mirror stays empty, so a long draft is never split per keystroke.
+  if (!tokens.size) {
+    input.classList.remove("has-resource-highlights");
+    mirror.hidden = true;
+    renderResourceChips();
+    return;
+  }
   for (const part of input.value.split(/(\s+)/)) {
     if (tokens.has(part)) {
       const span = document.createElement("span");
@@ -667,7 +674,9 @@ function renderResourceMenu(trigger, items, loading = false, warnings = []) {
     empty.className = "resource-empty";
     empty.textContent = loading
       ? ""
-      : "No resource compatible with this engine.";
+      : trigger.prefix[0] === "@"
+        ? "No agents for this model yet."
+        : "No skills or commands for this model yet.";
     options.append(empty);
   }
   const preview = document.createElement("div");
@@ -743,8 +752,10 @@ function selectResource(item, trigger) {
   const input = $("prompt"),
     before = input.value.slice(0, trigger.start),
     after = input.value.slice(trigger.end);
-  input.value = before + token + " " + after;
-  const caret = (before + token + " ").length;
+  // A token chosen from the Agents chip may follow a word directly.
+  const gap = before && !/\s$/.test(before) ? " " : "";
+  input.value = before + gap + token + " " + after;
+  const caret = (before + gap + token + " ").length;
   input.setSelectionRange(caret, caret);
   resourceSelections.push({ id: item.id, revision: item.revision, token });
   invalidResourceTokens.delete(token);
@@ -753,12 +764,43 @@ function selectResource(item, trigger) {
   updateComposer();
   saveView();
 }
+// QA-R2-4: the resource list is fetched once per project and engine, then filtered locally while typing.
+const RESOURCE_CACHE_MS = 30000;
+const resourceCache = { key: "", at: 0, warnings: [] };
+function clearResourceItems() {
+  resourceItems = [];
+  resourceCache.at = 0;
+}
+function showResources(trigger, warnings = []) {
+  let filtered = [...resourceItems, ...builtinResources()]
+    .filter((item) =>
+      trigger.prefix === "@@"
+        ? item.kind === "agent" && item.scope === "harness"
+        : trigger.prefix === "@"
+          ? item.kind === "agent"
+          : ["agent", "skill", "command", "workflow", "rule", "context", "builtin"].includes(item.kind),
+    )
+    .map((item) => ({ item, score: resourceMatchScore(item, trigger.query) }))
+    .filter((entry) => entry.score >= 0)
+    .sort((left, right) => right.score - left.score)
+    .map((entry) => entry.item);
+  const exact = filtered.filter(
+    (item) => item.name.toLowerCase() === trigger.query.toLowerCase(),
+  );
+  if (exact.length) filtered = exact;
+  renderResourceMenu(trigger, filtered, false, warnings);
+}
 async function refreshResources(trigger) {
   const request = ++resourceRequest,
     m = resourceEngine(),
     project = $("project").value;
   if (!m.backend) {
     renderResourceMenu(trigger, [], false);
+    return;
+  }
+  const key = [project, m.backend, m.model, m.execution_mode].join("|");
+  if (resourceCache.key === key && Date.now() - resourceCache.at < RESOURCE_CACHE_MS) {
+    showResources(trigger, resourceCache.warnings);
     return;
   }
   renderResourceMenu(trigger, [], true);
@@ -781,31 +823,12 @@ async function refreshResources(trigger) {
     )
       return;
     resourceItems = Array.isArray(data.items) ? data.items : [];
-    let filtered = [...resourceItems, ...builtinResources()]
-      .filter((item) =>
-        trigger.prefix === "@@"
-          ? item.kind === "agent" && item.scope === "harness"
-          : trigger.prefix === "@"
-            ? item.kind === "agent"
-            : ["agent", "skill", "command", "workflow", "rule", "context", "builtin"].includes(item.kind),
-      )
-      .map((item) => ({ item, score: resourceMatchScore(item, trigger.query) }))
-      .filter((entry) => entry.score >= 0)
-      .sort((left, right) => right.score - left.score)
-      .map((entry) => entry.item);
-    const exact = filtered.filter(
-      (item) => item.name.toLowerCase() === trigger.query.toLowerCase(),
-    );
-    if (exact.length) filtered = exact;
-    renderResourceMenu(
-      trigger,
-      filtered,
-      false,
-      Array.isArray(data.warnings) ? data.warnings : [],
-    );
+    Object.assign(resourceCache, { key, at: Date.now(), warnings: Array.isArray(data.warnings) ? data.warnings : [] });
+    // The menu follows what is typed now, not what was typed when the request started.
+    showResources(triggerAtCaret() || trigger, resourceCache.warnings);
   } catch {
     if (request !== resourceRequest) return;
-    resourceItems = [];
+    clearResourceItems();
     renderResourceMenu(trigger, [], false);
     const note = $("resource-menu").querySelector(".resource-empty");
     if (note) note.textContent = "Couldn't refresh resources.";
@@ -841,7 +864,7 @@ function openResourceMenu() {
 function invalidateResources() {
   for (const ref of resourceSelections) invalidResourceTokens.add(ref.token);
   resourceSelections = [];
-  resourceItems = [];
+  clearResourceItems();
   void refreshWorkspaceResources();
   closeResourceMenu();
   renderPromptHighlights();
@@ -961,7 +984,7 @@ const status = (text) => {
     HarnessUI.notice(target, text, { error: true });
   } else if (
     Object.values(labels).includes(text) ||
-    /^(Completed|Failed run|Cancelled|Running|Thinking|Reasoning|Receiving response|Preparing|Using tool|Tool finished|Plan updated|Run steps|Working|Checking quota|Sending request|Loading|Connected|Cancelling|Reconnecting|Ready to chat)/i.test(
+    /^(Completed|Copied|Failed run|Cancelled|Running|Thinking|Reasoning|Receiving response|Preparing|Using tool|Tool finished|Plan updated|Run steps|Working|Checking quota|Sending request|Loading|Connected|Cancelling|Reconnecting|Ready to chat)/i.test(
       text,
     )
   ) {
@@ -1001,7 +1024,7 @@ const modelIcon = (id) => {
   return "◈";
 };
 const providerNames = {
-  local: "Local server",
+  local: "Local models",
   codex: "Codex",
   claude: "Claude Code",
   gemini: "Gemini CLI",
@@ -1022,8 +1045,18 @@ function syncComposerAvailability() {
   $("prompt").disabled = blocked;
   return blocked;
 }
-const modelName = (id) =>
-  names[id] || models.find((m) => m.id === id)?.name || id || "No model";
+// D42: people read "Claude Opus 4.7" and "GPT-6 Astra", never the raw identifier.
+const capitalized = (word) => word[0].toUpperCase() + word.slice(1);
+function friendlyModelName(id) {
+  const claude = /^claude-(opus|sonnet|haiku)-(\d+)(?:-(\d{1,2}))?$/.exec(id);
+  if (claude) return "Claude " + capitalized(claude[1]) + " " + claude[2] + (claude[3] ? "." + claude[3] : "");
+  const gpt = /^gpt-(\d+(?:\.\d+)?)(?:-([a-z]+))?$/.exec(id);
+  if (gpt) return "GPT-" + gpt[1] + (gpt[2] ? " " + capitalized(gpt[2]) : "");
+  return id;
+}
+const modelLabel = (model) =>
+  names[model.id] || (model.name && model.name !== model.id ? model.name : friendlyModelName(model.id));
+const modelName = (id) => (id ? modelLabel(models.find((m) => m.id === id) || { id }) : "No model");
 const selectedIdentity = () => {
   const m = selected();
   return m
@@ -1695,7 +1728,7 @@ async function refreshProjectPermissions(timeout = 30000) {
     models = composerModels(data);
     uploadsAllowed = data.uploads_enabled === true;
     $("model").replaceChildren(
-      ...models.map((m) => new Option(names[m.id] || m.name || m.id, m.id)),
+      ...models.map((m) => new Option(modelLabel(m), m.id)),
     );
     if (models.some((m) => m.id === previous)) $("model").value = previous;
     // F-90: never switch the draft to another model silently.
@@ -1743,7 +1776,9 @@ function canAttachVideo() {
 function updateModelPermissions() {
   const m = selected(),
     allowed = canUpload();
-  $("attach").disabled = busy || loading || uploads > 0 || !allowed;
+  // QA-R4-4: at the limit the button says why instead of failing after a pick.
+  const full = files.length >= MAX_ATTACHMENTS;
+  $("attach").disabled = busy || loading || uploads > 0 || !allowed || full;
   const textOnly =
     m?.backend === "deepseek" ||
     (executionMode !== "native" && m?.backend !== "local");
@@ -1761,9 +1796,11 @@ function updateModelPermissions() {
     imageHelp +
     " · " +
     videoHelp;
-  $("attach").title = allowed
-    ? "Attach file. " + attachmentHelp
-    : "Attachments not allowed for this model";
+  $("attach").title = full
+    ? MAX_ATTACHMENTS + " of " + MAX_ATTACHMENTS + " files attached. Remove one to add another."
+    : allowed
+      ? "Attach file. " + attachmentHelp
+      : "Attachments not allowed for this model";
   $("attachment-help").textContent = allowed
     ? attachmentHelp
     : "Attachments disabled for this model. Review your permissions in the admin panel.";
@@ -1803,6 +1840,9 @@ function updateEfforts() {
       return o;
     }),
   );
+  // CDX-R4-3: a fresh choice starts on the provider's default, or Medium, not on whatever is listed first.
+  const preferred = ["configured", "medium"].find((e) => m.efforts.includes(e));
+  if (preferred) $("effort").value = preferred;
   $("model-note").textContent =
     m.backend === "maestro"
       ? "The configured coordinator plans steps using eligible local or cloud models"
@@ -2087,13 +2127,24 @@ function conversationSummary(c = {}) {
   if (state === "queued") return "Waiting in the queue";
   return ({ failed: "Failed", cancelled: "Cancelled", interrupted: "Interrupted" })[c.state] || c.summary || "Completed";
 }
+// QA-R1-2: "Worked for" counts the time the run was active; time in the queue is shown apart.
+function runTiming(result = {}) {
+  const total = Number(result.total_seconds),
+    queued = Number(result.queue_seconds),
+    waited = Number.isFinite(queued) && queued >= 1 && queued < total ? queued : 0,
+    seconds = (value) => value.toFixed(1) + " s";
+  return {
+    worked: Number.isFinite(total) && total - waited > 0 ? seconds(total - waited) : "",
+    waited: waited ? seconds(waited) : "",
+  };
+}
 function renderConversationHeader(c = null) {
   const state = c ? conversationState(c) : "draft";
   const states = { "needs-you": "Awaiting approval", running: "Running", queued: "Queued", done: "Completed", draft: "Draft" };
   $("conversation-state-pill").textContent = ({ failed: "Failed", cancelled: "Cancelled", interrupted: "Interrupted" })[c?.state] || states[state];
   $("conversation-state-pill").dataset.state = state;
   $("header-execution-mode").textContent = executionMode === "scoped" ? "Isolated conversation" : "Native conversation";
-  $("header-access").textContent = $("access-mode").value || "ask";
+  $("header-access").textContent = accessLabel();
 }
 window.updateProviderQuotas = function updateProviderQuotas(items = []) {
   const container = $("provider-quotas");
@@ -2128,7 +2179,55 @@ window.updateProviderQuotas = function updateProviderQuotas(items = []) {
     ? "Open quota details for the selected provider"
     : "";
 };
+// D35: the needs-you count leads the window title, and an unfocused window gets an OS
+// notification when a run needs the user, fails or finishes (the desktop app allows it for its own origins).
+const WINDOW_TITLE = document.title;
+const RECENT_JOB_SECONDS = 600;
+const seenJobStates = new Map();
+const seenRequests = new Set();
+let alertsPrimed = false;
+function notifyUser(text) {
+  if (document.hasFocus() || typeof Notification === "undefined" || Notification.permission !== "granted") return;
+  try {
+    new Notification("KeepHarness", { body: text });
+  } catch {}
+}
+function jobAlert(job, before) {
+  const known = before !== undefined && before !== job.state;
+  const recent = before === undefined && Date.now() / 1000 - (job.created || 0) < RECENT_JOB_SECONDS;
+  if (!known && !recent) return "";
+  const prefix = { failed: "Failed: ", completed: "Finished: " }[job.state];
+  return prefix ? prefix + (job.title || "a run") : "";
+}
+function notifyAttention(data = {}) {
+  const needs = data.needs_you || [];
+  document.title = needs.length ? `(${needs.length}) ${WINDOW_TITLE}` : WINDOW_TITLE;
+  const alerts = [];
+  for (const item of needs) {
+    const id = item.gate_id || item.approval_id;
+    if (seenRequests.has(id)) continue;
+    seenRequests.add(id);
+    alerts.push("Needs you: " + (item.title || "a run"));
+  }
+  for (const job of data.jobs || []) {
+    const alert = jobAlert(job, seenJobStates.get(job.job_id));
+    seenJobStates.set(job.job_id, job.state);
+    if (alert) alerts.push(alert);
+  }
+  if (alertsPrimed) alerts.forEach(notifyUser);
+  alertsPrimed = true;
+}
+// The permission prompt comes with the first message, when the user has a run to wait for.
+function askNotificationPermission() {
+  if (typeof Notification === "undefined" || Notification.permission !== "default") return;
+  Notification.requestPermission().catch(() => {});
+}
+$("send").addEventListener("click", askNotificationPermission);
+$("prompt").addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && !event.shiftKey) askNotificationPermission();
+});
 window.applyActivitySnapshot = function applyActivitySnapshot(data = {}) {
+  notifyAttention(data);
   observedActivityJobs = Array.isArray(data.jobs) ? [...data.jobs] : [];
   renderWorkspaceTasks(observedActivityJobs);
   const pending = new Set(
@@ -2174,7 +2273,7 @@ $('provider-quotas').onkeydown = (event) => {
     setQuotaOpen(true);
   }
 };
-async function history(timeout = 30000) {
+async function history(timeout = 30000, background = false) {
   const request = ++historyRequest;
   try {
     let data;
@@ -2200,7 +2299,7 @@ async function history(timeout = 30000) {
     conversations.forEach(observeConversation);
     saveConversationActivity();
     renderProjects();
-    document.dispatchEvent(new Event("harness:history"));
+    document.dispatchEvent(new CustomEvent("harness:history", { detail: { background } }));
     if ($("conversation-search-dialog").open) renderConversationSearch();
     if (conversation) {
       const current = conversations.find((item) => item.id === conversation);
@@ -2342,7 +2441,8 @@ function conversationRow(c) {
   const backend = document.createElement("span");
   backend.className = "backend-chip";
   backend.dataset.backend = c.execution?.backend || c.backend || "";
-  backend.textContent = c.execution?.backend || c.backend || "";
+  const backendId = c.execution?.backend || c.backend || "";
+  backend.textContent = providerNames[backendId] || backendId;
   backend.title = backend.textContent;
   const project = document.createElement("span");
   project.className = "conversation-project";
@@ -2619,7 +2719,7 @@ function newConversation(title = "New Conversation", projectId = $("project").va
   status("");
   $("prompt").focus({ preventScroll: true });
   refreshProjectPermissions();
-  if (changedProject) { resourceItems = []; void refreshWorkspaceResources(); }
+  if (changedProject) { clearResourceItems(); void refreshWorkspaceResources(); }
 }
 function chooseProject(id) {
   if (busy || loading || uploads) return;
@@ -3102,6 +3202,7 @@ answerMarkdown.renderer.rules.link_open = (
   return self.renderToken(tokens, index, options);
 };
 const answerFence = answerMarkdown.renderer.rules.fence;
+// Every code block: a header with the language and a Copy button (D34).
 answerMarkdown.renderer.rules.fence = (tokens, index, options, env, self) => {
   const token = tokens[index];
   if (token.info.trim().toLowerCase() === "json") {
@@ -3109,8 +3210,19 @@ answerMarkdown.renderer.rules.fence = (tokens, index, options, env, self) => {
       token.content = JSON.stringify(JSON.parse(token.content), null, 2) + "\n";
     } catch {}
   }
-  return answerFence(tokens, index, options, env, self);
+  const language = token.info.trim().split(/\s+/)[0] || "text";
+  return (
+    '<div class="code-block"><div class="code-head"><span class="code-lang">' +
+    answerMarkdown.utils.escapeHtml(language) +
+    '</span><button type="button" class="copy-code" data-testid="copy-code" aria-label="Copy code">Copy</button></div>' +
+    answerFence(tokens, index, options, env, self) +
+    "</div>"
+  );
 };
+// A wide table scrolls inside its own region; its words are never split (OP-R2-9).
+answerMarkdown.renderer.rules.table_open = () =>
+  '<div class="table-scroll" role="region" aria-label="Table" tabindex="0"><table>';
+answerMarkdown.renderer.rules.table_close = () => "</table></div>";
 function renderAnswer(body, value) {
   const source =
     typeof value === "string"
@@ -3124,12 +3236,8 @@ function renderAnswer(body, value) {
     if (candidate && typeof candidate === "object") parsed = candidate;
   } catch {}
   if (parsed !== undefined) {
-    const pre = document.createElement("pre"),
-      code = document.createElement("code");
-    code.className = "language-json";
-    code.textContent = JSON.stringify(parsed, null, 2);
-    pre.append(code);
-    body.replaceChildren(pre);
+    // Four backticks: a pretty-printed JSON line can never close the fence.
+    body.innerHTML = answerMarkdown.render("````json\n" + JSON.stringify(parsed, null, 2) + "\n````");
     syncResponseMotion(body);
     return source;
   }
@@ -3160,6 +3268,51 @@ function setAnswer(answer, value, notice = "", code = "") {
   if (code) note.title = "Error code: " + code;
   answer.body.append(note);
 }
+// One action under an answer: a quiet button with an icon and a label (Copy, Ask again).
+function answerAction(testid, label, icon) {
+  const button = document.createElement("button"),
+    text = document.createElement("span");
+  button.type = "button";
+  button.className = "btn " + testid;
+  button.dataset.testid = testid;
+  button.setAttribute("aria-label", label);
+  text.className = "action-label";
+  text.textContent = label;
+  button.append(HarnessUI.icon(icon), text);
+  return button;
+}
+const COPIED_LABEL_MS = 1600;
+// navigator.clipboard exists only on secure origins; a tailnet http page falls back to execCommand.
+async function writeClipboard(text) {
+  if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(text);
+  const area = document.createElement("textarea");
+  area.value = text;
+  area.readOnly = true;
+  area.className = "visually-hidden";
+  document.body.append(area);
+  area.select();
+  const copied = document.execCommand("copy");
+  area.remove();
+  if (!copied) throw new Error("copy failed");
+}
+async function copyText(text, label) {
+  if (!text) return;
+  try {
+    await writeClipboard(text);
+  } catch {
+    status("Couldn't copy to the clipboard");
+    return;
+  }
+  const before = label.textContent;
+  label.textContent = "Copied";
+  status("Copied");
+  clearTimeout(label.copiedTimer);
+  label.copiedTimer = setTimeout(() => (label.textContent = before), COPIED_LABEL_MS);
+}
+$("messages").addEventListener("click", (event) => {
+  const button = event.target.closest?.(".copy-code");
+  if (button) copyText(button.closest(".code-block")?.querySelector("code")?.textContent, button);
+});
 function messageAttachments(message, attachments = []) {
   const gallery = document.createElement("div");
   gallery.className = "message-images";
@@ -3419,9 +3572,7 @@ function assistant(id = "", model = $("model").value, replayTools = false) {
   badge.textContent = modelIcon(model);
   title.append(
     badge,
-    document.createTextNode(
-      names[model] || models.find((m) => m.id === model)?.name || "Response",
-    ),
+    document.createTextNode(model ? modelName(model) : "Response"),
   );
   a.el.prepend(title);
   const chip = document.createElement("p");
@@ -3452,8 +3603,26 @@ function assistant(id = "", model = $("model").value, replayTools = false) {
   const meta = document.createElement("div");
   meta.className = "run-meta";
   a.el.append(meta);
+  const copy = answerAction("copy-answer", "Copy", "copy");
+  copy.onclick = () => copyText(a.body.rawAnswer || a.body.textContent, copy.querySelector(".action-label"));
+  a.el.append(copy, askAgainButton(a.el));
   window.runConsole?.attachAnswer(a.el, id);
   return { ...a, activity, activitySummary, milestones, meta, chip };
+}
+// D37: "Ask again" sends the question this answer replied to as a new turn, on the model now selected.
+function askAgainButton(answer) {
+  const button = answerAction("ask-again", "Ask again", "refresh");
+  button.onclick = () => {
+    let asked = answer.previousElementSibling;
+    while (asked && !asked.matches("article.message.user")) asked = asked.previousElementSibling;
+    const question = asked?.textContent;
+    if (!question || busy || submitting) return;
+    if ($("prompt").value.trim()) return status("Send or clear the draft first, then ask again.");
+    $("prompt").value = question.trim();
+    updateComposer();
+    send();
+  };
+  return button;
 }
 async function loadResponseTools(id, target) {
   target.replaceChildren();
@@ -3912,8 +4081,7 @@ async function result(
     : (activityIcons[r.state] || "•") + " " + (labels[r.state] || r.state);
   if (active) {
     active.chip.textContent = $("activity-state").textContent;
-    const data = r.result || {},
-      seconds = Number(data.total_seconds);
+    const data = r.result || {};
     if (data.context_usage) paintContext(data.context_usage, data.metrics);
     else if (data.metrics) paintLocalUsage(data.metrics);
     else if (["cancelled", "failed", "interrupted"].includes(r.state))
@@ -3957,15 +4125,10 @@ async function result(
       model = modelId
         ? modelIcon(modelId) +
           " " +
-          (names[modelId] ||
-            models.find((m) => m.id === modelId)?.name ||
-            modelId)
+          modelName(modelId)
         : "",
-      duration =
-        Number.isFinite(seconds) && seconds > 0
-          ? seconds.toFixed(1) + " s"
-          : "";
-    active.meta.textContent = [model, duration].filter(Boolean).join(" · ");
+      { worked: duration, waited } = runTiming(data);
+    active.meta.textContent = [model, duration, waited && "waited " + waited].filter(Boolean).join(" · ");
     if (data.deployment)
       active.meta.textContent +=
         (active.meta.textContent ? " · " : "") +
@@ -4246,12 +4409,8 @@ async function load(id, legacy = false, restoredView = null) {
           : (activityIcons[r.state] || "•") +
             " " +
             (labels[r.state] || r.state);
-        const seconds = Number(r.result?.total_seconds),
-          duration =
-            Number.isFinite(seconds) && seconds > 0
-              ? seconds.toFixed(1) + " s"
-              : "";
-        active.meta.textContent = [r.result?.model || model || "", duration]
+        const { worked: duration, waited } = runTiming(r.result);
+        active.meta.textContent = [r.result?.model || model || "", duration, waited && "waited " + waited]
           .filter(Boolean)
           .join(" · ");
         setActivitySummary(
@@ -5197,6 +5356,11 @@ async function attachSelectedProjectFiles(
     renderProjectFileTree();
   }
 }
+function fileSizeLabel(bytes) {
+  if (bytes < 1024) return bytes + " B";
+  if (bytes < 1024 * 1024) return Math.round(bytes / 1024) + " KB";
+  return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+}
 function renderFiles() {
   $("attachments").replaceChildren(
     ...files.map((f, i) => {
@@ -5216,6 +5380,12 @@ function renderFiles() {
       name.textContent = f.name;
       name.className = "attachment-name";
       el.append(name);
+      if (f.size > 0) {
+        const size = document.createElement("small");
+        size.className = "attachment-size";
+        size.textContent = fileSizeLabel(f.size);
+        el.append(size);
+      }
       const b = document.createElement("button");
       b.type = "button";
       b.append(HarnessUI.icon("x"));
@@ -5245,6 +5415,7 @@ function renderFiles() {
   count.hidden = files.length === 0;
   count.textContent =
     files.length + " / " + MAX_ATTACHMENTS + " files attached";
+  count.title = "Up to " + MAX_ATTACHMENTS + " files per message, 100 MiB each";
   renderProjectFileSelection();
 }
 $("send").onclick = send;
@@ -5455,14 +5626,12 @@ $("files-chip").onclick = () => {
     document.querySelector('[data-workspace-section="files"] > summary');
   target?.focus({ preventScroll: true });
 };
+// OP-R1-14: the chip opens the agent list at the caret; the draft is not touched until one is chosen.
 $("agents-chip").onclick = () => {
   const input = $("prompt"),
-    at = input.selectionStart ?? input.value.length,
-    before = input.value.slice(0, at),
-    marker = before && !/\s$/.test(before) ? " @" : "@";
+    at = input.selectionEnd ?? input.value.length;
   input.focus();
-  input.setRangeText(marker, at, input.selectionEnd ?? at, "end");
-  input.dispatchEvent(new Event("input", { bubbles: true }));
+  void refreshResources({ prefix: "@", query: "", start: at, end: at });
 };
 $("files-attach-selected").onclick = () => void attachSelectedProjectFiles();
 // Start a chat from a set of files: a new conversation in this project with them attached.
@@ -5780,6 +5949,8 @@ $("attention-bell").onclick = () => {
   popover.hidden = !popover.hidden;
   positionAttentionPopover();
   $("attention-bell").setAttribute("aria-expanded", String(!popover.hidden));
+  // UX-R4-3: a dialog-role popover opened from the keyboard puts focus on its first control.
+  if (!popover.hidden) popover.querySelector("button")?.focus();
 };
 const updateAttentionLabel = () => {
   const count = Number($("attention-count").textContent) || 0;
@@ -5787,6 +5958,9 @@ const updateAttentionLabel = () => {
     "aria-label",
     `Attention, ${count} ${count === 1 ? "item" : "items"}`,
   );
+  $("attention-summary").textContent =
+    (count ? `${count} ${count === 1 ? "item needs" : "items need"} you now.` : "Nothing needs you right now.") +
+    " Choose which events to open in the inbox.";
 };
 new MutationObserver(updateAttentionLabel).observe($("attention-count"), {
   childList: true,
@@ -5950,6 +6124,9 @@ function modelAvailability(
   if ($("welcome")) $("welcome").hidden = !models.length;
   updateComposer();
 }
+// QA-R2-3: an idle tab keeps under ~30 requests a minute (the server budget is shared by every tab of a person).
+const VERSION_CHECK_EVERY = 3;
+let backgroundTicks = 0;
 async function initialize() {
   if (initializing) return;
   initializing = true;
@@ -5996,7 +6173,7 @@ async function initialize() {
     policyProject = null;
     policyPending = false;
     $("model").replaceChildren(
-      ...models.map((m) => new Option(names[m.id] || m.name || m.id, m.id)),
+      ...models.map((m) => new Option(modelLabel(m), m.id)),
     );
     if (models.some((m) => m.id === previous)) $("model").value = previous;
     updateEfforts();
@@ -6020,9 +6197,10 @@ async function initialize() {
       } catch {}
       startupTimer = setInterval(() => {
         if (!document.hidden && interfaceReady && !initializing) {
-          checkVersion();
+          // QA-R2-3: the build only changes on a release, so it is checked every third tick.
+          if (++backgroundTicks % VERSION_CHECK_EVERY === 0) checkVersion();
           // Rebuilding the sidebar would close an open row or project actions menu.
-          if (!document.querySelector(".conversation-actions[open], .project-actions-menu:popover-open")) history();
+          if (!document.querySelector(".conversation-actions[open], .project-actions-menu:popover-open")) history(undefined, true);
         }
       }, 10000);
     }
@@ -6777,7 +6955,7 @@ function beginActivity(id, model = $("model").value) {
   $("activity-run-title").textContent =
     modelIcon(model) +
     " " +
-    (names[model] || model || "Model") +
+    (model ? modelName(model) : "Model") +
     " · Run " +
     id;
 }
@@ -7062,7 +7240,7 @@ async function refreshCatalog() {
   $("catalog-models").replaceChildren(
     ...models.map((m) =>
       catalogCard({
-        name: modelIcon(m.id) + " " + (names[m.id] || m.name || m.id),
+        name: modelIcon(m.id) + " " + modelLabel(m),
         description:
           (m.backend === "local"
             ? "Local model. "
@@ -7707,7 +7885,7 @@ $("agent-form").onsubmit = async (event) => {
         })
       : await post("/v1/harness-agents", body);
     $("agent-dialog").close();
-    resourceItems = [];
+    clearResourceItems();
     await loadHarnessAgents();
     status((agent ? "Saved" : "Created") + " @@" + (saved?.name || body.name) + ".");
   } catch (error) {
@@ -7732,7 +7910,7 @@ $("agent-delete").onclick = async () => {
       body: JSON.stringify({ revision: agent.revision }),
     });
     $("agent-dialog").close();
-    resourceItems = [];
+    clearResourceItems();
     await loadHarnessAgents();
     status("Deleted @@" + agent.name + ".");
   } catch (error) {
@@ -7868,11 +8046,33 @@ let projectFileSearch = [],
   projectFileSearchQuery = "",
   projectFileSearchRequest = 0,
   projectFileSearchTimer = 0;
+// Prompts and answers are searched on the server; only conversations with a snippet count.
+let conversationContent = [],
+  conversationContentQuery = "",
+  conversationContentRequest = 0;
+async function refreshConversationContentSearch(value) {
+  const normalized = normalizeSearch(value.trim()),
+    request = ++conversationContentRequest;
+  conversationContent = [];
+  conversationContentQuery = "";
+  if (normalized.length >= 2) {
+    try {
+      const data = await json("/v1/conversations?" + new URLSearchParams({ q: value.trim() }));
+      if (request !== conversationContentRequest) return;
+      conversationContent = (data.conversations || []).filter((c) => c.snippet);
+      conversationContentQuery = normalized;
+    } catch {
+      if (request !== conversationContentRequest) return;
+    }
+  }
+  renderConversationSearch();
+}
 async function refreshProjectFileSearch(value) {
   const query = value.trim(),
     normalized = normalizeSearch(query),
     request = ++projectFileSearchRequest;
-  if (normalized.length < 2) {
+  // A project without a folder has no files to search (the server answers 422).
+  if (normalized.length < 2 || !projectDetails[$("project").value]?.root) {
     projectFileSearch = [];
     projectFileSearchQuery = "";
     renderConversationSearch();
@@ -7925,6 +8125,9 @@ function renderConversationSearch() {
     ...observedRuns,
     ...conversations.filter((item) => !observedConversationIds.has(item.id)),
   ];
+  const snippets = new Map(
+    conversationContentQuery === query ? conversationContent.map((c) => [c.id, c.snippet]) : [],
+  );
   const runMatches = searchableRuns.filter((c) =>
     includes(
       c.title || "Conversation",
@@ -7936,7 +8139,11 @@ function renderConversationSearch() {
       c.execution?.model,
       projectDetails[c.project]?.label,
     ),
-  );
+  ).map((c) => ({ ...c, snippet: snippets.get(c.id) || "" }));
+  const matchedIds = new Set(runMatches.map((c) => c.id));
+  for (const c of conversationContent)
+    if (snippets.has(c.id) && !matchedIds.has(c.id))
+      runMatches.push({ ...conversations.find((item) => item.id === c.id), ...c });
   const planMatches = (currentMaestroPlan?.steps || [])
     .map((step, index) => ({ ...step, index }))
     .filter((step) =>
@@ -7985,7 +8192,8 @@ function renderConversationSearch() {
         [...$("project").options].find((o) => o.value === c.project)
           ?.textContent || "No project";
       detail.append(document.createTextNode(project));
-      if (c.runId) detail.append(document.createTextNode(" · " + c.runId));
+      if (c.execution?.backend && providerNames[c.execution.backend])
+        detail.append(document.createTextNode(" · " + providerNames[c.execution.backend]));
       if (c.execution?.model) {
         const icon = document.createElement("span");
         icon.className = "model-logo-icon";
@@ -7997,9 +8205,17 @@ function renderConversationSearch() {
           document.createTextNode(" " + modelName(c.execution.model)),
         );
       }
+      const updated = conversationUpdated(c);
+      if (updated) detail.append(document.createTextNode(" · " + new Date(updated * 1000).toLocaleDateString()));
       const indicator = conversationIndicator(c);
       if (indicator) title.prepend(indicator);
       button.append(title, detail);
+      if (c.snippet) {
+        const excerpt = document.createElement("small");
+        excerpt.className = "search-snippet";
+        excerpt.textContent = c.snippet;
+        button.append(excerpt);
+      }
       button.disabled = submitting || cancelling || uploads > 0;
       button.onclick = async () => {
         if (submitting || cancelling || uploads) return;
@@ -8069,7 +8285,10 @@ $("conversation-search").addEventListener("input", () => {
   renderConversationSearch();
   clearTimeout(projectFileSearchTimer);
   projectFileSearchTimer = setTimeout(
-    () => refreshProjectFileSearch($("conversation-search").value),
+    () => {
+      refreshProjectFileSearch($("conversation-search").value);
+      refreshConversationContentSearch($("conversation-search").value);
+    },
     180,
   );
 });
@@ -8085,10 +8304,51 @@ new ResizeObserver(entries => {
   composerWidth = width;
   updateComposer();
 }).observe($("prompt"));
+// QA-R4-3: the server refuses a request above this many UTF-8 bytes; say so before Enter, in bytes.
+const PROMPT_BYTE_LIMIT = 150000;
+const PROMPT_WARN_BYTES = PROMPT_BYTE_LIMIT * 0.8;
+const utf8 = new TextEncoder();
+function syncDraftLimit(value) {
+  const note = $("draft-limit");
+  // UTF-8 takes at most 3 bytes per UTF-16 unit, so a short draft needs no exact count.
+  const bytes = value.length * 3 < PROMPT_WARN_BYTES ? 0 : utf8.encode(value).length;
+  const over = bytes > PROMPT_BYTE_LIMIT;
+  note.hidden = bytes < PROMPT_WARN_BYTES;
+  note.dataset.over = String(over);
+  note.textContent = note.hidden
+    ? ""
+    : over
+      ? "This message is " + (bytes - PROMPT_BYTE_LIMIT).toLocaleString("en-US") + " bytes over the " +
+        PROMPT_BYTE_LIMIT.toLocaleString("en-US") + "-byte limit. Shorten it or attach it as a file."
+      : bytes.toLocaleString("en-US") + " / " + PROMPT_BYTE_LIMIT.toLocaleString("en-US") + " bytes";
+  return over;
+}
+// The spoken character count is computed once typing pauses: counting code points of a long draft per key is slow.
+const CHARACTER_COUNT_DELAY_MS = 250;
+let characterCountTimer = 0;
+function scheduleCharacterCount() {
+  clearTimeout(characterCountTimer);
+  characterCountTimer = setTimeout(() => {
+    const count = Array.from($("prompt").value).length;
+    $("character-count").textContent = count.toLocaleString("en-US") + (count === 1 ? " character" : " characters");
+  }, CHARACTER_COUNT_DELAY_MS);
+}
+// UX-R1-4: before a message goes to another provider, say that the conversation goes along.
+function syncRouteCarryover() {
+  const note = $("route-carryover"),
+    next = selected(),
+    switching = lastRoute?.backend && next?.backend && lastRoute.backend !== next.backend;
+  note.hidden = !switching;
+  note.textContent = switching
+    ? "Next message goes to " + (providerNames[next.backend] || next.backend) + " · " + modelName(next.id) +
+      ". The conversation so far goes with it."
+    : "";
+}
 function updateComposer() {
   syncComposerProjectButton();
   syncViewSwitch();
   syncComposerPickers();
+  syncRouteCarryover();
   syncExecutionMode();
   updateModelPermissions();
   const blocked = syncComposerAvailability();
@@ -8096,10 +8356,8 @@ function updateComposer() {
   prompt.style.height = "auto";
   prompt.style.height = Math.min(prompt.scrollHeight, 170) + "px";
   renderPromptHighlights();
-  const count = Array.from(prompt.value).length;
-  $("character-count").textContent =
-    count.toLocaleString("en-US") +
-    (count === 1 ? " character" : " characters");
+  const overLimit = syncDraftLimit(prompt.value);
+  scheduleCharacterCount();
   const hasPrompt = !!prompt.value.trim();
   $("send").hidden = busy && !hasPrompt;
   $("cancel").hidden = !busy;
@@ -8122,6 +8380,7 @@ function updateComposer() {
     policyPending ||
     !selected() ||
     !prompt.value.trim() ||
+    overLimit ||
     !supportedExecutionModes().includes(executionMode) ||
     cooldown > 0;
 }
@@ -8398,6 +8657,10 @@ function showGate(data) {
   box.scrollIntoView({ block: "nearest" });
 }
 
+// OP-R1-21: "mediated" and "unenforced" are protocol words; say what they mean for the user.
+function publicationLabel(enforcement) {
+  return enforcement === "mediated" ? "Sent through KeepHarness" : "Not controlled by KeepHarness";
+}
 function appendPublishEvidence(container, data) {
   const evidence = document.createElement("div");
   evidence.className = "publish-evidence";
@@ -8412,7 +8675,7 @@ function appendPublishEvidence(container, data) {
   };
   add("Operation", data.operation);
   add("Destination", data.destination);
-  add("Publication", data.enforcement === "mediated" ? "mediated" : "unenforced");
+  add("Publication", publicationLabel(data.enforcement));
   add("Risk", data.risk);
   add("Integration", data.integration);
   add("Jira site", data.endpoint);
@@ -8500,6 +8763,7 @@ function showApproval(data) {
   const reason = document.createElement("p");
   reason.textContent =
     data.request.reason ||
+    data.request.message ||
     (changes.length
       ? "The executor wants to change these files."
       : "The executor requested additional authorization.");
@@ -8516,8 +8780,8 @@ function showApproval(data) {
     data.request.command ||
     [data.request.tool_name, toolInput.file_path || toolInput.command]
       .filter(Boolean)
-      .join(" ") ||
-    data.kind;
+      .join(" ");
+  command.hidden = !command.textContent;
   const diff = document.createElement("pre");
   diff.className = "approval-diff";
   diff.textContent = changes
@@ -8808,14 +9072,15 @@ document.addEventListener("click", (event) => {
 });
 
 // Shared native popovers for the three concrete composer controls.
+// OP-R2-2: one label per access mode, the same in the composer menu and the header chip.
+const accessLabel = () => $("access-mode").selectedOptions[0]?.textContent || "Ask for approval";
 function syncAccessMode() {
   const mode = $("access-mode").value;
-  $("access-label").textContent =
-    $("access-mode").selectedOptions[0]?.textContent || "Ask for approval";
+  $("access-label").textContent = accessLabel();
   $("access-mode-notice").textContent =
     "Access: " + $("access-label").textContent;
   $("access-trigger").dataset.mode = mode;
-  $("header-access").textContent = mode;
+  $("header-access").textContent = accessLabel();
   const option = $("access-menu").querySelector('[data-access="' + mode + '"]'),
     optionIcon = option?.querySelector(".access-option-icon"),
     description = option?.querySelector("small")?.textContent || "";
@@ -8860,6 +9125,28 @@ function syncComposerPickers() {
       $(id + "-menu").hidePopover();
   }
 }
+function moreModels(group) {
+  let more = group.querySelector(".model-more");
+  if (more) return more;
+  more = document.createElement("details");
+  more.className = "model-more";
+  const summary = document.createElement("summary"),
+    list = document.createElement("div");
+  summary.textContent = "More models";
+  list.className = "model-more-options";
+  more.append(summary, list);
+  group.querySelector(".model-provider-options").append(more);
+  return more;
+}
+// A menu entry is reachable only while every group around it is open.
+function menuEntryVisible(entry) {
+  let group = (entry.tagName === "SUMMARY" ? entry.parentElement.parentElement : entry).closest("details");
+  while (group) {
+    if (!group.open) return false;
+    group = group.parentElement.closest("details");
+  }
+  return true;
+}
 function renderPicker(id) {
   if (id === "access") {
     syncAccessMode();
@@ -8877,13 +9164,13 @@ function renderPicker(id) {
     ultra: "The most intense reasoning level offered by the model.",
   };
   const providers = {
-    local: "Local model on the server",
-    qwen: "Local model on the server",
+    local: "Local models",
+    qwen: "Local models",
     codex: "Codex",
     claude: "Claude Code",
     gemini: "Gemini CLI",
     deepseek: "DeepSeek",
-    maestro: "Model coordinator",
+    maestro: "Maestro",
   };
   const groups = new Map();
   const options = [...$(id).options];
@@ -8896,6 +9183,14 @@ function renderPicker(id) {
         b.value.localeCompare(a.value, undefined, { numeric: true }),
     );
   let claudeIndex = 0;
+  // Only the newest model of each Claude family stays on top; older ones sit under "More models".
+  const legacy = new Set(),
+    families = new Set();
+  for (const option of claude) {
+    const family = option.value.split("-")[1];
+    if (families.has(family)) legacy.add(option.value);
+    families.add(family);
+  }
   const buttons = options
     .map((o) =>
       id === "model" &&
@@ -8973,8 +9268,8 @@ function renderPicker(id) {
           const label =
             {
               codex: "Codex",
-              claude: "Claude",
-              local: "Local model",
+              claude: "Claude Code",
+              local: "Local models",
               deepseek: "DeepSeek",
               gemini: "Gemini CLI",
               maestro: "Maestro",
@@ -8998,11 +9293,12 @@ function renderPicker(id) {
           });
           heading.setAttribute("aria-expanded", "false");
         }
-        groups
-          .get(backend)
-          .querySelector(".model-provider-options")
-          .append(button);
+        const more = legacy.has(option.value) ? moreModels(groups.get(backend)) : null;
+        (more?.querySelector(".model-more-options") ||
+          groups.get(backend).querySelector(".model-provider-options")
+        ).append(button);
         if (option.selected) {
+          if (more) more.open = true;
           groups.get(backend).open = true;
           groups
             .get(backend)
@@ -9012,6 +9308,11 @@ function renderPicker(id) {
       }
       return button;
     });
+  // "More models" closes each list.
+  for (const group of groups.values()) {
+    const more = group.querySelector(".model-more");
+    if (more) more.parentElement.append(more);
+  }
   $(id + "-menu")
     .querySelector(".picker-options")
     .replaceChildren(...(id === "model" ? groups.values() : buttons));
@@ -9068,15 +9369,10 @@ for (const id of ["access", "model", "effort"]) {
   menu.addEventListener("keydown", (event) => {
     const options = [
         ...menu.querySelectorAll("summary,[role=option]:not(:disabled)"),
-      ].filter(
-        (el) =>
-          !el.closest("details") ||
-          el.tagName === "SUMMARY" ||
-          el.closest("details").open,
-      ),
+      ].filter(menuEntryVisible),
       index = options.indexOf(document.activeElement);
     if (id === "model" && ["ArrowLeft", "ArrowRight"].includes(event.key)) {
-      const group = document.activeElement.closest("details");
+      const group = document.activeElement.closest("details[data-provider]");
       if (group) {
         event.preventDefault();
         group.open = event.key === "ArrowRight";
