@@ -27,12 +27,16 @@ python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else "Install 
 folder="$HOME/$TH_PRODUCT_BRIDGE"
 mkdir -p "$folder"
 python3 -m venv "$folder/venv"
-"$folder/venv/bin/python" -m pip install 'mcp>=1.12,<2' 'httpx>=0.27,<1'
 temporary=$(mktemp "$folder/mcp_bridge.XXXXXX")
-trap 'rm -f "$temporary"' EXIT
+lock=$(mktemp "$folder/bridge-requirements.XXXXXX")
+trap 'rm -f "$temporary" "$lock"' EXIT
 trap 'exit 1' HUP INT TERM
+# The server publishes the bridge's dependencies as a hashed lock: pip refuses anything else.
+curl -fS --connect-timeout 15 --max-time 120 "$server/bridge-requirements.txt" -o "$lock"
+"$folder/venv/bin/python" -m pip install --require-hashes -r "$lock"
 curl -fS --connect-timeout 15 --max-time 120 "$server/mcp_bridge.py" -o "$temporary"
 "$folder/venv/bin/python" -c 'import ast, pathlib, sys; ast.parse(pathlib.Path(sys.argv[1]).read_text())' "$temporary"
+mv "$lock" "$folder/bridge-requirements.txt"
 mv "$temporary" "$folder/mcp_bridge.py"
 claude mcp add --transport stdio --scope user --env "${TH_PRODUCT_ENV}_AGENT_URL=$server" "$TH_PRODUCT_MCP" -- "$folder/venv/bin/python" "$folder/mcp_bridge.py"
 printf '%s\n' 'Connector registered. Open Claude Code and use /mcp to verify the connection.'

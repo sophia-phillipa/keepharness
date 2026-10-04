@@ -148,6 +148,13 @@ async def version(request, service, identity):
     )
 
 
+# Served as downloads to the MCP bridge installer: the script and the hashed lock it installs from.
+DOWNLOADS = {
+    "/setup-mcp.sh": ("setup-mcp.sh", "text/x-shellscript"),
+    "/bridge-requirements.txt": ("bridge-requirements.txt", "text/plain"),
+}
+
+
 async def ui(request):
     config = request.app.state.service.config
     # Keep browser storage and authenticated history on the shared origin.
@@ -167,11 +174,12 @@ async def ui(request):
         )
     if request.url.path.startswith("/assets/"):
         return asset_response(request.url.path, request.headers)
-    if request.url.path == "/setup-mcp.sh":
+    if request.url.path in DOWNLOADS:
+        name, media_type = DOWNLOADS[request.url.path]
         return FileResponse(
-            PACKAGE_DIR / "setup-mcp.sh",
-            media_type="text/x-shellscript",
-            filename="setup-mcp.sh",
+            PACKAGE_DIR / name,
+            media_type=media_type,
+            filename=name,
             headers={"Cache-Control": "no-store"},
         )
     if request.url.path == "/guide":
@@ -227,4 +235,5 @@ ROUTES = [
     Route("/assets/{path:path}", ui),
     Route("/mcp_bridge.py", ui),
     Route("/setup-mcp.sh", ui),
+    Route("/bridge-requirements.txt", ui),
 ]

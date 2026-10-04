@@ -59,11 +59,15 @@ else
     --exclude='*.sqlite3*' --exclude=./build --exclude=./dist --exclude=./state \
     --exclude=./reports -cf - . | tar -xf - -C "$TH_SOURCE"
 fi
-"$TH_TMP/venv/bin/python" -m pip wheel --quiet --no-deps --wheel-dir "$TH_TMP/wheel" "$TH_SOURCE" ||
+# requirements.txt is a hashed lock (it also pins the build backend), so the build needs no index.
+"$TH_TMP/venv/bin/python" -m pip install --quiet --require-hashes -r "$TH_SOURCE/requirements.txt" ||
+  preflight_failed "The locked dependencies did not install (offline, or a hash did not match)."
+"$TH_TMP/venv/bin/python" -m pip wheel --quiet --no-deps --no-build-isolation \
+  --wheel-dir "$TH_TMP/wheel" "$TH_SOURCE" ||
   preflight_failed "The package did not build."
 TH_WHEEL=$(ls "$TH_TMP"/wheel/*.whl)
-"$TH_TMP/venv/bin/python" -m pip install --quiet "$TH_WHEEL" ||
-  preflight_failed "The package or its dependencies did not install (offline?)."
+"$TH_TMP/venv/bin/python" -m pip install --quiet --no-deps "$TH_WHEEL" ||
+  preflight_failed "The package did not install."
 "$TH_TMP/venv/bin/python" -m control.install_check ||
   preflight_failed "The installed package failed its smoke test."
 if [ -n "$TH_CHECK" ]; then
@@ -84,11 +88,11 @@ else
 fi
 # Its console scripts (tail-harness, tail-harness-install, ...) would outlive the rename.
 "$TH_VENV/bin/python" -m pip uninstall --yes tail-harness 2>/dev/null || true
+"$TH_VENV/bin/python" -m pip install --quiet --require-hashes -r "$TH_SOURCE/requirements.txt"
 if [ -n "$TH_DEV" ]; then
   "$TH_VENV/bin/python" -m pip install --editable .
 else
-  # The second step replaces an install of the same version (an editable one included).
-  "$TH_VENV/bin/python" -m pip install --quiet "$TH_WHEEL"
+  # Replaces an install of the same version (an editable one included).
   "$TH_VENV/bin/python" -m pip install --quiet --force-reinstall --no-deps "$TH_WHEEL"
 fi
 "$TH_VENV/bin/$TH_PRODUCT_SLUG-install" "$@"
