@@ -28,3 +28,13 @@ class APIError(HarnessError):
 
 class ToolError(HarnessError):
     """A tool, provider or adapter failure; ``str()`` is the reason."""
+
+
+class UserMessageError(HarnessError, ValueError):
+    """A deliberate, user-facing validation failure; ``str()`` is the sentence the panel shows.
+
+    Plain ``ValueError`` and ``RuntimeError`` reaching an admin route are treated as unexpected.
+    """
+
+    def __init__(self, message):
+        super().__init__(message, status=400)

@@ -8,18 +8,18 @@ import subprocess
 import sys
 import threading
 
-from .errors import APIError
+from .errors import APIError, UserMessageError
 
 
 def validate_pattern(pattern):
     if pattern is None:
         return None
     if not isinstance(pattern, str) or not pattern or len(pattern) > 512:
-        raise ValueError("Invalid work-item pattern.")
+        raise UserMessageError("Invalid work-item pattern.")
     try:
         re.compile(pattern)
     except re.error:
-        raise ValueError("Invalid work-item pattern.") from None
+        raise UserMessageError("Invalid work-item pattern.") from None
     return pattern
 
 
@@ -152,11 +152,11 @@ def _run_worker(payload):
         startup_guard.start()
         try:
             if child.stdout.readline() != "ready\n":
-                raise ValueError("pattern worker failed to start")
+                raise UserMessageError("pattern worker failed to start")
             startup_guard.cancel()
             output, _ = child.communicate(payload, timeout=_MATCH_SECONDS)
             if child.returncode:
-                raise ValueError("pattern worker failed")
+                raise UserMessageError("pattern worker failed")
             return output
         except BaseException:
             child.kill()

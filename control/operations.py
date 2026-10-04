@@ -7,6 +7,8 @@ import signal
 import uuid
 from urllib.parse import urlsplit
 
+from agent_service.errors import UserMessageError
+
 # CSI (colours, cursor), OSC (hyperlinks, titles), and ordinary terminal escape sequences.
 # An OSC never spans a line: a newline ends a bogus one so the text after it is not held back.
 ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b\n]*(?:\x07|\x1b\\)|\x1b[ -/]*[0-~]")
@@ -123,7 +125,7 @@ class Operations:
         """
         stream = self.stdin.get(jid)
         if stream is None or not self.jobs.get(jid, {}).get("accepts_input"):
-            raise ValueError("No login is waiting for a code.")
+            raise UserMessageError("No login is waiting for a code.")
         self.jobs[jid]["accepts_input"] = False
         self.stdin.pop(jid, None)
         self.codes[jid] = text.strip()
@@ -146,7 +148,7 @@ def operation(binary, provider, data):
     action = data.get("action")
     name = data.get("name", "")
     if not re.fullmatch(r"[A-Za-z0-9_@./:-]{1,160}", name) or name.startswith("-"):
-        raise ValueError("Invalid name.")
+        raise UserMessageError("Invalid name.")
     if action == "login":
         return [binary, "mcp", "login", name]
     if action == "plugin_install":
@@ -174,7 +176,7 @@ def operation(binary, provider, data):
                 or parsed.query
                 or parsed.fragment
             ):
-                raise ValueError("Use the MCP server's HTTPS URL, with no credentials in the URL.")
+                raise UserMessageError("Use the MCP server's HTTPS URL, with no credentials in the URL.")
             return (
                 [binary, "mcp", "add", name, "--url", url]
                 if provider == "codex"
@@ -186,7 +188,7 @@ def operation(binary, provider, data):
             or not args
             or any(not isinstance(x, str) or len(x) > 500 for x in args)
         ):
-            raise ValueError("Command must be a JSON list, with no intermediate shell.")
+            raise UserMessageError("Command must be a JSON list, with no intermediate shell.")
         return [
             binary,
             "mcp",
@@ -196,4 +198,4 @@ def operation(binary, provider, data):
             "--",
             *args,
         ]
-    raise ValueError("Unknown operation.")
+    raise UserMessageError("Unknown operation.")

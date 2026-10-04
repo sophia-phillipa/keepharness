@@ -17,6 +17,7 @@ from types import MappingProxyType
 
 from adapters.deepseek import account as deepseek
 from adapters.shared.provider_setup import credential_file, homes_root
+from agent_service.errors import UserMessageError
 
 from . import local_access
 from .local_models import runtime_permissions, runtime_roots
@@ -113,7 +114,7 @@ def native_binary(binary):
 
 def build_deepseek(cfg, provider, spec, checked, info, state):
     if any(m not in checked["models"] for m in spec["models"]):
-        raise ValueError("DeepSeek model not available on the account.")
+        raise UserMessageError("DeepSeek model not available on the account.")
     cfg[provider] = {
         "binary": info["binary"],
         "api_provider": {
@@ -139,7 +140,7 @@ def catalog_models(cfg, provider, models, catalog):
     if not retired:
         return models
     if provider == "gemini":
-        raise ValueError(CATALOG_MISSING)
+        raise UserMessageError(CATALOG_MISSING)
     logger.warning(
         "%s: %s Routes unavailable until repaired: %s",
         provider, CATALOG_MISSING, ", ".join(retired),
@@ -162,7 +163,7 @@ def build_cli_provider(cfg, provider, spec, checked, info, state):
     # A pending native Claude login is an account condition; it must
     # not prevent the UI and other configured providers from starting.
     if not checked["authenticated"] and provider != "claude":
-        raise ValueError(
+        raise UserMessageError(
             "Log in to "
             + provider
             + " and use local file authentication. Keychain is not supported by the current sandbox."
@@ -191,7 +192,7 @@ def build_cli_provider(cfg, provider, spec, checked, info, state):
 def build_local(cfg, provider, spec, checked, info, state):
     build_cli_provider(cfg, provider, spec, checked, info, state)
     if any(m not in checked["models"] for m in spec["models"]):
-        raise ValueError("Local model is not available. Refresh discovery.")
+        raise UserMessageError("Local model is not available. Refresh discovery.")
     cfg[provider]["local_provider"] = "ollama"
     cfg[provider]["local_models"] = {m["id"]: m for m in info.get("runtimes", [])}
     cfg["services"][provider]["model_permissions"] = runtime_permissions(
@@ -219,7 +220,7 @@ def check_mcp_defaults(cfg):
         catalog = cfg.get(backend + "_models", {})
         supported = catalog.get(model, []) if isinstance(catalog, dict) else ["configured"]
         if defaults.get("effort") and defaults["effort"] not in supported:
-            raise ValueError("Check the default MCP effort before starting.")
+            raise UserMessageError("Check the default MCP effort before starting.")
 
 
 def mark_unrestricted(cfg, integrations):

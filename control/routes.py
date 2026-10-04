@@ -19,7 +19,7 @@ from starlette.routing import Route
 from adapters.claude.auth import cli_login_environment
 from adapters.deepseek import account as deepseek
 from adapters.shared.provider_setup import login_environment
-from agent_service.errors import APIError
+from agent_service.errors import APIError, UserMessageError
 from harness_ui import asset_response, static_response
 
 from . import env, local_access
@@ -149,7 +149,7 @@ async def list_folders(request, manager):
     def folders():
         folder = Path(request.query_params.get("path") or Path.home()).expanduser()
         if not folder.is_absolute():
-            raise ValueError("Provide a folder with an absolute path on this server.")
+            raise UserMessageError("Provide a folder with an absolute path on this server.")
         try:
             folder = folder.resolve(strict=True)
             directories = []
@@ -164,9 +164,9 @@ async def list_folders(request, manager):
                         if len(directories) > 200:
                             break
         except PermissionError:
-            raise ValueError("No permission to open this folder. Choose another folder.") from None
+            raise UserMessageError("No permission to open this folder. Choose another folder.") from None
         except (FileNotFoundError, NotADirectoryError):
-            raise ValueError(
+            raise UserMessageError(
                 "The folder was not found on this server. Choose another folder."
             ) from None
         return {
@@ -214,16 +214,16 @@ async def create_folder(request, manager, data):
         or any(c in name for c in ("/", "\\", "\x00"))
         or len(name) > 120
     ):
-        raise ValueError("Use a simple folder name, with no slashes, up to 120 characters.")
+        raise UserMessageError("Use a simple folder name, with no slashes, up to 120 characters.")
     if not isinstance(parent, str) or not Path(parent).is_absolute():
-        raise ValueError("Select the folder to create the project in.")
+        raise UserMessageError("Select the folder to create the project in.")
     folder = Path(parent).resolve(strict=True) / name
     try:
         await asyncio.to_thread(folder.mkdir)
     except FileExistsError:
-        raise ValueError("An item with that name already exists. Choose another name.") from None
+        raise UserMessageError("An item with that name already exists. Choose another name.") from None
     except PermissionError:
-        raise ValueError("No permission to create a folder in this location.") from None
+        raise UserMessageError("No permission to create a folder in this location.") from None
     result = {"path": str(folder), "created": True}
     return result
 
@@ -240,7 +240,7 @@ async def check_provider(request, manager, data):
 
 async def save_provider_token(request, manager, data):
     if data.get("provider") != "deepseek":
-        raise ValueError("Unknown API provider.")
+        raise UserMessageError("Unknown API provider.")
     deepseek.store_key(manager.state, data.get("token"))
     manager.provider_revisions["deepseek"] = str(uuid.uuid4())
     manager.auth["deepseek"] = False
@@ -255,7 +255,7 @@ async def save_provider_token(request, manager, data):
 async def delete_provider(request, manager, data):
     provider = data.get("provider")
     if provider not in manager.settings["services"]:
-        raise ValueError("Unknown provider.")
+        raise UserMessageError("Unknown provider.")
     import copy
 
     draft = copy.deepcopy(manager.settings)
@@ -298,17 +298,17 @@ async def import_settings(request, manager, data):
         or bundle.get("format") not in formats
         or bundle.get("version") != 1
     ):
-        raise ValueError("Incompatible configuration format.")
+        raise UserMessageError("Incompatible configuration format.")
     imported = manager.validate(bundle.get("settings"))
     profile = validate_profile(bundle.get("local_profile", {}), state_dir=manager.state)
     profiles = bundle.get("local_profiles", {})
     if not isinstance(profiles, dict):
-        raise ValueError("Invalid local profile catalog.")
+        raise UserMessageError("Invalid local profile catalog.")
     validated = {}
     for key, value in profiles.items():
         item = validate_profile(value, state_dir=manager.state)
         if not item or str(Path(key).expanduser().resolve()) != item["model_file"]:
-            raise ValueError("The profile does not match the given weights file.")
+            raise UserMessageError("The profile does not match the given weights file.")
         validated[item["model_file"]] = item
     if profile:
         validated.setdefault(profile["model_file"], profile)
@@ -370,7 +370,7 @@ async def login_provider(request, manager, data):
         else None
     )
     if not binary:
-        raise ValueError("CLI not found.")
+        raise UserMessageError("CLI not found.")
     command = (
         [sys.executable, "-m", "adapters.gemini.account", "--binary", binary]
         if provider == "gemini"
@@ -421,10 +421,10 @@ async def submit_login_code(request, manager, data):
         or job.get("state") != "running"
         or not job.get("accepts_input")
     ):
-        raise ValueError("No login is waiting for a code.")
+        raise UserMessageError("No login is waiting for a code.")
     code = data.get("code")
     if not isinstance(code, str) or not re.fullmatch(r"[A-Za-z0-9#_.~+/=-]{8,512}", code):
-        raise ValueError("Paste the code exactly as shown.")
+        raise UserMessageError("Paste the code exactly as shown.")
     await manager.operations.send_input(job["id"], code)
     manager.audit("claude_login_code_submitted")
     return {"sent": True}
@@ -433,10 +433,10 @@ async def submit_login_code(request, manager, data):
 async def read_integration_catalog(request, manager, data):
     provider = data.get("provider")
     if provider not in ("codex", "claude"):
-        raise ValueError("Invalid provider.")
+        raise UserMessageError("Invalid provider.")
     binary = manager.inventory["binaries"].get(provider)
     if not binary:
-        raise ValueError("CLI not installed.")
+        raise UserMessageError("CLI not installed.")
     result = await integration_catalog(provider, binary, inventory())
     return result
 
@@ -444,10 +444,10 @@ async def read_integration_catalog(request, manager, data):
 async def change_integration(request, manager, data):
     provider = data.get("provider")
     if provider not in ("codex", "claude"):
-        raise ValueError("Invalid provider.")
+        raise UserMessageError("Invalid provider.")
     binary = manager.inventory["binaries"][provider]
     if not binary:
-        raise ValueError("CLI not installed.")
+        raise UserMessageError("CLI not installed.")
     result = manager.operations.launch(operation(binary, provider, data))
     manager.audit("integration:" + data.get("action", ""))
     return result
@@ -461,13 +461,13 @@ async def install_model(request, manager, data):
     model = catalog.get(data.get("model"))
     binary = manager.inventory["binaries"].get("ollama")
     if not model:
-        raise ValueError("Unknown model.")
+        raise UserMessageError("Unknown model.")
     if not data.get("accepted"):
-        raise ValueError("Confirm the license and download size.")
+        raise UserMessageError("Confirm the license and download size.")
     required = {"gemma4": 6 * 1024**3, "qwen36": 18 * 1024**3}[data["model"]]
     env.LOCAL_AI.mkdir(parents=True, exist_ok=True)
     if shutil.disk_usage(env.LOCAL_AI).free < required:
-        raise ValueError("Not enough free space for the model.")
+        raise UserMessageError("Not enough free space for the model.")
     args = (
         [binary, "pull", model]
         if data.get("runtime") == "ollama" and binary
@@ -497,7 +497,7 @@ async def import_local_profile(request, manager, data):
             and str(Path(server["model_file"]).expanduser().resolve()) == selected
         ]
     if len(active) != 1:
-        raise ValueError("A single active local server is required to import the profile.")
+        raise UserMessageError("A single active local server is required to import the profile.")
     selected = {
         k: active[0][k]
         for k in ("binary", "model_file", "mmproj_file", "flags", "performance")
@@ -514,7 +514,7 @@ async def import_local_profile(request, manager, data):
 async def save_local_profile(request, manager, data):
     profile = validate_profile(data, state_dir=manager.state)
     if not profile:
-        raise ValueError("Provide the model and executable for this profile.")
+        raise UserMessageError("Provide the model and executable for this profile.")
     with manager.configuration_change():
         result = save_profile(manager.state, profile)
         if manager.running():
@@ -536,7 +536,7 @@ async def list_local_files(request, manager, data):
     if data.get("folder"):
         root = Path(data["folder"]).expanduser().resolve()
         if not root.is_dir() or root == Path("/"):
-            raise ValueError("Choose an existing models folder.")
+            raise UserMessageError("Choose an existing models folder.")
         roots.add(root)
     files = []
     for root in roots:
@@ -560,14 +560,14 @@ async def start_local_model(request, manager, data):
     model = Path(data.get("file", "")).expanduser().resolve()
     profile = load_profile(manager.state, model) if data.get("use_profile") else {}
     if data.get("use_profile") and not profile:
-        raise ValueError(
+        raise UserMessageError(
             "This model does not have a saved profile yet. Set one up before starting."
         )
     if profile:
         profile = validate_profile(profile, state_dir=manager.state)
     cpu_only = bool(profile) and profile.get("performance", {}).get("n-gpu-layers") == "0"
     if active and not cpu_only:
-        raise ValueError(
+        raise UserMessageError(
             "Another local server is active. To preserve it, another model can only be started with an explicit CPU profile (0 GPU layers)."
         )
     binary = (
@@ -580,9 +580,9 @@ async def start_local_model(request, manager, data):
         )
     )
     if not binary or not Path(binary).is_file() or Path(binary).name != "llama-server":
-        raise ValueError("Provide the installed llama-server executable.")
+        raise UserMessageError("Provide the installed llama-server executable.")
     if not model.is_file() or model.suffix != ".gguf":
-        raise ValueError("Select an existing GGUF file.")
+        raise UserMessageError("Select an existing GGUF file.")
     multigpu = set(profile.get("performance", {})) & {
         "main-gpu",
         "split-mode",
@@ -592,12 +592,12 @@ async def start_local_model(request, manager, data):
         details = await runtime_details(binary)
         unsupported = multigpu - set(details["supported_flags"])
         if unsupported:
-            raise ValueError(
+            raise UserMessageError(
                 "This runtime did not confirm support for: " + ", ".join(sorted(unsupported))
             )
     layers = int(data.get("gpu_layers", 0))
     if not 0 <= layers <= 999:
-        raise ValueError("Invalid GPU layers.")
+        raise UserMessageError("Invalid GPU layers.")
     from .start_local import ensure_key
 
     key = ensure_key(env.LOCAL_AI / "config/api-key")
@@ -606,7 +606,7 @@ async def start_local_model(request, manager, data):
         try:
             probe.bind(("127.0.0.1", 8096))
         except OSError:
-            raise ValueError("Port 8096 is busy; the existing process was preserved.")
+            raise UserMessageError("Port 8096 is busy; the existing process was preserved.")
     launch_profile = (
         {**profile, "binary": str(binary)}
         if profile
@@ -628,7 +628,7 @@ async def start_local_model(request, manager, data):
 async def reveal_vpn_key(request, manager, data):
     key = manager.state / "vpn.key"
     if not key.exists():
-        raise ValueError("Start the harness first to generate the key.")
+        raise UserMessageError("Start the harness first to generate the key.")
     result = {"token": key.read_text()}
     manager.audit("vpn_key_revealed")
     return result
@@ -698,7 +698,7 @@ async def endpoint(request: Request):
                 return JSONResponse({"error": "Not found"}, 404)
             return JSONResponse(await handler(request, manager))
         if request.headers.get("x-harness-admin") != "1":
-            raise ValueError("Administrative header required.")
+            raise UserMessageError("Administrative header required.")
         if manager.lock.locked():
             return JSONResponse(
                 {"error": "Another administrative operation is in progress. Wait and try again."},
@@ -709,7 +709,7 @@ async def endpoint(request: Request):
             length = request.headers.get("content-length")
             if length is not None:
                 if not length.isdecimal():
-                    raise ValueError("Invalid request size.")
+                    raise UserMessageError("Invalid request size.")
                 if int(length) > ADMIN_BODY_LIMIT:
                     return JSONResponse({"error": "Request too large."}, 413)
             raw = bytearray()
@@ -720,7 +720,7 @@ async def endpoint(request: Request):
                     raw.extend(chunk)
             data = json.loads(raw or "{}")
             if not isinstance(data, dict):
-                raise ValueError("The request must be a JSON object.")
+                raise UserMessageError("The request must be a JSON object.")
             if (
                 path in LIMITED_OPERATIONS
                 and sum(j.get("state") == "running" for j in manager.operations.jobs.values())
@@ -754,8 +754,11 @@ async def endpoint(request: Request):
         return JSONResponse(
             {"error": "operation_failed" if isinstance(exc, OSError) else "invalid_request"}, 400
         )
-    except (ValueError, RuntimeError) as exc:
+    except UserMessageError as exc:
         return JSONResponse({"error": str(exc)}, 400)
+    except (ValueError, RuntimeError) as exc:
+        logger.warning("Admin %s %s failed", request.method, path, exc_info=exc)
+        return JSONResponse({"error": "operation_failed"}, 400)
 
 
 ROUTES = [

@@ -21,6 +21,8 @@ from urllib.parse import SplitResult, urlsplit
 import httpx
 from starlette.requests import Request
 
+from agent_service.errors import UserMessageError
+
 if TYPE_CHECKING:
     from .manager import Manager
 
@@ -64,12 +66,12 @@ def is_host(host: str) -> bool:
 
 def clean_address(value: object) -> str:
     if not isinstance(value, str) or not value.strip():
-        raise ValueError("Enter the address of the model server.")
+        raise UserMessageError("Enter the address of the model server.")
     text = value.strip()
     if len(text) > MAX_URL_LENGTH:
-        raise ValueError("That address is too long.")
+        raise UserMessageError("That address is too long.")
     if "?" in text or "#" in text:
-        raise ValueError("The address cannot have a query or fragment.")
+        raise UserMessageError("The address cannot have a query or fragment.")
     return text
 
 
@@ -78,17 +80,17 @@ def split_address(text: str) -> SplitResult:
     try:
         parts = urlsplit(text)
     except ValueError:
-        raise ValueError("That is not a valid address.") from None
+        raise UserMessageError("That is not a valid address.") from None
     if parts.scheme not in DEFAULT_PORTS:
-        raise ValueError("Use an address that starts with http:// or https://.")
+        raise UserMessageError("Use an address that starts with http:// or https://.")
     if "@" in parts.netloc:
-        raise ValueError(
+        raise UserMessageError(
             "Do not put a user name or password in the address; use the API key field."
         )
     if not parts.hostname:
-        raise ValueError("The address needs a host name.")
+        raise UserMessageError("The address needs a host name.")
     if not is_host(parts.hostname):
-        raise ValueError("The host name is not valid.")
+        raise UserMessageError("The host name is not valid.")
     return parts
 
 
@@ -97,9 +99,9 @@ def parse_port(parts: SplitResult) -> int | None:
     try:
         port = parts.port
     except ValueError:
-        raise ValueError(PORT_ERROR) from None
+        raise UserMessageError(PORT_ERROR) from None
     if port == 0:
-        raise ValueError(PORT_ERROR)
+        raise UserMessageError(PORT_ERROR)
     return None if port == DEFAULT_PORTS[parts.scheme] else port
 
 
@@ -108,7 +110,7 @@ def normalize_url(value: object) -> str:
     parts = split_address(clean_address(value))
     port = parse_port(parts)
     if parts.path.rstrip("/") not in ("", "/v1"):
-        raise ValueError("Use the base address of the server: no path, or only /v1.")
+        raise UserMessageError("Use the base address of the server: no path, or only /v1.")
     host = f"[{parts.hostname}]" if ":" in parts.hostname else parts.hostname
     return f"{parts.scheme}://{host}" + (f":{port}" if port else "")
 
@@ -140,7 +142,7 @@ def validate_key(token: object) -> str:
         or not token.isprintable()
         or " " in token
     ):
-        raise ValueError("The API key must be 1 to 512 visible characters, with no spaces.")
+        raise UserMessageError("The API key must be 1 to 512 visible characters, with no spaces.")
     return token
 
 
@@ -181,11 +183,11 @@ def load_servers(state: Path, settings: dict) -> list[dict]:
 
 def check_status(status_code: int, key: str) -> None:
     if status_code in (401, 403):
-        raise ValueError(
+        raise UserMessageError(
             "The server rejected the API key." if key else "The server requires an API key."
         )
     if status_code != 200:
-        raise ValueError(f"The server answered HTTP {status_code} instead of a model list.")
+        raise UserMessageError(f"The server answered HTTP {status_code} instead of a model list.")
 
 
 async def fetch_body(url: str, key: str, path: str = "/v1/models") -> bytearray:
@@ -204,11 +206,11 @@ async def fetch_body(url: str, key: str, path: str = "/v1/models") -> bytearray:
             async for chunk in response.aiter_bytes():
                 body += chunk
                 if len(body) > MAX_RESPONSE_BYTES:
-                    raise ValueError("The model list is too large.")
+                    raise UserMessageError("The model list is too large.")
     except (TimeoutError, httpx.TimeoutException):
-        raise ValueError("The server did not answer in time.") from None
+        raise UserMessageError("The server did not answer in time.") from None
     except httpx.HTTPError:
-        raise ValueError("Could not connect to the server.") from None
+        raise UserMessageError("Could not connect to the server.") from None
     return body
 
 
@@ -234,7 +236,7 @@ async def probe(url: str, key: str = "") -> list[dict]:
     except (ValueError, KeyError, TypeError, RecursionError):  # deeply nested JSON
         entries = None
     if not isinstance(entries, list):
-        raise ValueError("The server did not return an OpenAI-style model list.")
+        raise UserMessageError("The server did not return an OpenAI-style model list.")
     await require_responses_api(url, key)
     return [model for model in map(parse_model, entries) if model][:MAX_MODELS]
 
@@ -256,15 +258,15 @@ async def require_responses_api(url: str, key: str = "") -> None:
                 "POST", url + "/v1/responses", headers=headers, json={}
             ) as response:
                 if response.status_code in (404, 405, 501) or 300 <= response.status_code < 400:
-                    raise ValueError(reason)
+                    raise UserMessageError(reason)
                 body = bytearray()
                 async for chunk in response.aiter_bytes():
                     body += chunk
                     if len(body) > MAX_RESPONSE_BYTES:
-                        raise ValueError(reason)
+                        raise UserMessageError(reason)
         json.loads(body)  # Any JSON validation/error dialect proves the route exists.
     except (TimeoutError, httpx.HTTPError, ValueError, RecursionError):
-        raise ValueError(reason) from None
+        raise UserMessageError(reason) from None
 
 
 async def check_server(server: dict) -> tuple[dict, list[dict]]:
@@ -282,7 +284,7 @@ async def check_server(server: dict) -> tuple[dict, list[dict]]:
         try:
             key = Path(path).read_text(encoding="utf-8").strip() if path else ""
         except (OSError, ValueError):
-            raise ValueError("The saved API key could not be read.") from None
+            raise UserMessageError("The saved API key could not be read.") from None
         models = await probe(server["url"], key)
     except ValueError as reason:
         return {**status, "error": str(reason)}, []
@@ -335,11 +337,11 @@ async def add_remote_model(request: Request, manager: "Manager", data: dict) -> 
     token = validate_key(data["key"]) if data.get("key") not in (None, "") else ""
     unencrypted = travels_unencrypted(url)
     if token and unencrypted:
-        raise ValueError(UNENCRYPTED_KEY)
+        raise UserMessageError(UNENCRYPTED_KEY)
     saved = list(manager.settings.get("remote_models", []))
     entry = {"url": url}
     if entry not in saved and len(saved) >= MAX_SERVERS:
-        raise ValueError(f"At most {MAX_SERVERS} network servers can be saved. Remove one first.")
+        raise UserMessageError(f"At most {MAX_SERVERS} network servers can be saved. Remove one first.")
     models = await probe(url, token)
     with manager.configuration_change():
         save_servers(manager, saved if entry in saved else [*saved, entry])
@@ -356,7 +358,7 @@ async def remove_remote_model(request: Request, manager: "Manager", data: dict) 
     url = normalize_url(data.get("url"))
     saved = list(manager.settings.get("remote_models", []))
     if {"url": url} not in saved:
-        raise ValueError("That network server is not saved.")
+        raise UserMessageError("That network server is not saved.")
     with manager.configuration_change():
         save_servers(manager, [item for item in saved if item != {"url": url}])
         key_file(manager.state, url).unlink(missing_ok=True)
