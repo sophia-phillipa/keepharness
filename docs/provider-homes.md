@@ -72,7 +72,7 @@ guests (any caller other than the local owner) and scheduled runs never get it
   (`owner=True` in `resources.discover`, `resolve`, `catalog.catalog` and
   `ConversationService.selected_resources`; every default is "hidden"), in the palette, in
   `/v1/catalog` and when a run resolves its selections, so a guest cannot run an owner resource
-  by id. Workflows and the Maestro derive the owner from the job row the same way. Resources
+  by id. Workflows (and declared multi-invocation `/` chains) derive the owner from the job row the same way. Resources
   behind the opt-in (the owner's `~/.codex/prompts`) resolve only for a run whose effective
   personal setup is on (`provider_setup.personal_setup_on`: opted in, the owner's own, not
   scheduled), so an owner's scheduled run does not insert them. Gemini commands do not depend on

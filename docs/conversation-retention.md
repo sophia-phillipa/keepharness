@@ -38,8 +38,9 @@ request. The purge removes:
 - uploads that only this conversation attaches (row and `files/<project>/<id>/`); an upload
   that another conversation attaches survives, and so does another upload with the same
   sha256, which owns its own hard link to the bytes;
-- the session folders (`sessions/<conversation>` and `sessions/<turn>` for Maestro stages),
-  Maestro plans (`maestro/<turn>`) and workspace answer copies
+- the session folders (`sessions/<conversation>` and `sessions/<turn>` for workflow step
+  stages), step-engine run folders (`maestro/<turn>`, a persisted folder name kept from
+  the removed Maestro planner) and workspace answer copies
   (`workspaces/<id>/work/_harness_results/<turn>`);
 - provider sessions in the harness-owned provider homes (`provider_homes`, the state's
   `providers/` folder): every file or folder named after a session id found in the

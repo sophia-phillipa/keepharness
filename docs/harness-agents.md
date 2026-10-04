@@ -58,7 +58,7 @@ are rejected. A file is at most 64 KiB and the folder holds at most 100 agents.
 
 `backend` is one of `codex`, `claude`, `deepseek`, `gemini`, `local`. The route is
 checked against the enabled services: the provider must be enabled, the model listed
-under it, and the effort one of that model's efforts (`maestro.model_efforts`; `local`
+under it, and the effort one of that model's efforts (`maestro.model_efforts`, a helper in the step-engine module that kept its name; `local`
 and `gemini` use `configured`). The error names the first field that fails.
 
 ## API

@@ -106,7 +106,7 @@ with a warning; it still counts toward the 50-schedule limit until removed by ha
 
 ### Route
 
-`backend` is one of `codex`, `claude`, `deepseek`, `gemini`, `local` (not `maestro` or `auto`). The
+`backend` is one of `codex`, `claude`, `deepseek`, `gemini`, `local` (not `auto`; the `maestro` backend was removed). The
 route is checked with the logic Harness agents use (`harness_agents.offered`): the provider must be
 enabled for the project, the model listed under it, and the effort one of that model's efforts. The
 error names the first field that fails (`backend`, `model` or `effort`). The route is checked when a
