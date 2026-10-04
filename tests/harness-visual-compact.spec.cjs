@@ -110,26 +110,10 @@ async function captureMatrix(browser, directory, summary) {
             assert.equal(await workflow.locator("xpath=ancestor::section[1]/h3").textContent(), "Workflows · Project · project");
             assert.match(await page.locator("#resource-preview").innerText(), /release-review[\s\S]*Review a release in two sequential steps/);
           }
-          if (state === "plan-review-selector") {
-            assert.deepEqual(
-              await page.locator("#maestro-plan-policy option").allTextContents(),
-              ["Project default", "Review before running", "Auto — run generated plan"],
-              `${label}: plan policy must present all explicit choices`,
-            );
-            assert.match(await page.locator("#maestro-plan-policy-help").innerText(), /Auto skips plan review only; publication and step approvals still apply/);
-          }
-          if (state === "plan-card-review") {
+          if (state === "plan-card-readonly") {
             const card = page.locator(".maestro-plan-card");
-            assert.equal(await card.getAttribute("data-state"), "pending");
-            assert.match(await card.innerText(), /Awaiting your approval[\s\S]*Nothing runs until you approve/);
-            assert.equal(await card.getByRole("button", { name: /Approve plan & run/ }).count(), 1);
-          }
-          if (state === "plan-card-auto") {
-            const card = page.locator(".maestro-plan-card");
-            assert.equal(await card.getAttribute("data-state"), "running");
-            assert.match(await card.innerText(), /Approved · running[\s\S]*Maestro is running the approved steps/);
-            assert.equal(await card.getByRole("button", { name: /Approve plan & run/ }).count(), 0);
-            assert.equal(await card.getByRole("button", { name: "View plan in Run console" }).count(), 1);
+            assert.match(await card.innerText(), /Not active[\s\S]*This plan can no longer be approved/);
+            assert.equal(await card.locator("button").count(), 0, `${label}: an old plan card offers no action`);
           }
           const contrast = viewport.width === 1440 ? await page.evaluate(contrastScan) : [];
           assert.deepEqual(contrast, [], `${label}: WCAG AA contrast failures`);
@@ -140,8 +124,8 @@ async function captureMatrix(browser, directory, summary) {
       }
     }
   }
-  assert.equal(summary.screenshots.length, 216, "visual matrix must contain 4 × 6 × 9 screenshots");
-  assert.equal(new Set(summary.screenshots.map(item => item.filename)).size, 216, "every matrix screenshot has a distinct filename");
+  assert.equal(summary.screenshots.length, 168, "visual matrix must contain 4 × 6 × 7 screenshots");
+  assert.equal(new Set(summary.screenshots.map(item => item.filename)).size, 168, "every matrix screenshot has a distinct filename");
 }
 
 async function runScenario(summary, details, action) {
