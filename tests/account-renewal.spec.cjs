@@ -189,7 +189,7 @@ const assert = require("node:assert/strict"),
     const close = () =>
       page.getByRole("button", { name: "Close", exact: true }).click();
     // P1: novice finds renewal directly; missing CLI has a disabled action.
-    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
+    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
     await page.goto("http://admin.test/#providers");
     await idle();
     assert(await login().isVisible());

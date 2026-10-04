@@ -92,7 +92,7 @@ const path = require("node:path");
         data = { id: "j1", project: "sem-projeto", state: "completed", request: jobs.at(-1), result: { answer: "A cat on a red chair." } };
       return route.fulfill({ status, json: data });
     });
-    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
+    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
     await page.goto("http://agents.test/");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     await page.locator("#model").selectOption("gpt-6-astra");

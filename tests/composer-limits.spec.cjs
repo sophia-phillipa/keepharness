@@ -26,7 +26,7 @@ const path = require("node:path");
       else if (pathname === "/v1/files") data = { file_id: "file-" + ++uploads, name: "n" };
       return route.fulfill({ json: data });
     });
-    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
+    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
     await page.goto("http://limits.test/");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     await page.waitForFunction(() => document.getElementById("model-label")?.textContent !== "Loading models…");

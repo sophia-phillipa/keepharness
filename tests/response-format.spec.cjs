@@ -65,7 +65,7 @@ const path = require("node:path");
             : "text/html",
       });
     });
-    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
+    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
     await page.goto(origin);
     await page.waitForFunction(() => models.length === 1);
     // An answer with no text yet offers neither Copy nor Ask again.

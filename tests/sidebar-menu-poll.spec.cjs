@@ -28,7 +28,7 @@ const path = require("node:path");
         path: path.join(__dirname, "..", pathname.startsWith("/assets/") ? "harness_ui" : "agent_service", pathname === "/" ? "index.html" : pathname),
       });
     });
-    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
+    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
     await page.goto("http://poll.test");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     const sidebar = page.locator("#sidebar");

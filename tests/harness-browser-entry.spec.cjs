@@ -60,7 +60,7 @@ const { spawn } = require("node:child_process");
         viewport: { width: 1600, height: 950 },
         storageState,
       });
-      await context.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
+      await context.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
       await context.route("**/v1/**", (route) => {
         const endpoint = new URL(route.request().url()).pathname;
         const data =
@@ -90,7 +90,7 @@ const { spawn } = require("node:child_process");
     }
     let { context, page } = await open();
     // Distinct origins really contain different preferences before the restart.
-    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
+    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
     await page.goto(local + "/ui.css");
     await page.evaluate(() =>
       localStorage.setItem("panel-order", "conversations-left"),
