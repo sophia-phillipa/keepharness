@@ -149,6 +149,81 @@ def test_reader_never_reads_or_searches_the_key_folder(roots):
             reader.search_files("needle", path)
 
 
+CREDENTIAL_FILES = [
+    ".netrc",
+    ".git-credentials",
+    ".pgpass",
+    ".npmrc",
+    ".pypirc",
+    "id_ed25519",
+    "id_rsa.pub",
+    "bundle.p12",
+    "vault.kdbx",
+    ".docker/config.json",
+    ".kube/config",
+    ".gnupg/pubring.kbx",
+    ".password-store/mail.gpg",
+    ".local/share/keyrings/login.txt",
+    "Cookies/session.txt",
+]
+
+
+def test_reader_refuses_the_bridge_credential_list(tmp_path):
+    project = tmp_path / "project"
+    for name in CREDENTIAL_FILES:
+        (project / name).parent.mkdir(parents=True, exist_ok=True)
+        (project / name).write_text("needle\n")
+    (project / "notes.txt").write_text("needle\n")
+    reader = Reader([str(project)])
+    for name in CREDENTIAL_FILES:
+        with pytest.raises(ToolError):
+            reader.read_file(name)
+    assert [Path(m["path"]).name for m in reader.search_files("needle")] == ["notes.txt"]
+    assert [e["name"] for e in reader.list_directory("")["entries"]] == ["notes.txt"]
+
+
+def test_reader_credential_list_matches_the_standalone_bridge_copy():
+    from agent_service import mcp_bridge, workspaces
+
+    assert workspaces.CREDENTIAL_NAMES == mcp_bridge.EXCLUDED_NAMES
+    assert workspaces.CREDENTIAL_SUFFIXES == mcp_bridge.EXCLUDED_SUFFIXES
+    assert workspaces.PRIVATE_KEY_NAME.pattern == mcp_bridge.PRIVATE_KEY_NAME.pattern
+
+
+def test_reader_does_not_follow_a_folder_swapped_for_a_link_after_the_checks(roots, monkeypatch):
+    """A folder replaced by a link between the name checks and the open must not be followed."""
+    from agent_service import tools
+
+    project, _, outside = roots
+    (project / "docs").mkdir()
+    (project / "docs" / "notes.txt").write_text("inside\n")
+    reader = Reader([str(project)])
+    original = tools.os.open
+
+    def swap_then_open(path, flags, *args, **kwargs):
+        if path == "docs" and not (project / "docs").is_symlink():
+            (project / "docs").rename(project / "docs-moved")
+            (project / "docs").symlink_to(outside, target_is_directory=True)
+        return original(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(tools.os, "open", swap_then_open)
+    with pytest.raises(ToolError):
+        reader.read_file("docs/notes.txt")
+    monkeypatch.undo()
+    with pytest.raises(ToolError):
+        reader.read_file("docs/notes.txt")
+    assert reader.read_file("docs-moved/notes.txt")["lines"][0]["text"] == "inside"
+
+
+def test_reader_refuses_a_fifo_without_blocking(roots):
+    import os
+
+    project, _, _ = roots
+    os.mkfifo(project / "pipe.txt")
+    with pytest.raises(ToolError):
+        Reader([str(project)]).read_file("pipe.txt")
+
+
 def test_reader_server_spec_names_only_read_tools_and_the_given_roots(roots):
     project, attachments, _ = roots
     spec = server_spec([str(project), str(attachments)])

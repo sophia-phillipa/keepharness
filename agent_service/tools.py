@@ -1,15 +1,17 @@
 """Deterministic tools. Source content never grants permissions."""
 
 import asyncio
+import errno
 import hashlib
 import ipaddress
 import json
 import os
 import shutil
 import socket
+import stat
 import tempfile
 import urllib.parse
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from control.product import PRODUCT
 
@@ -145,6 +147,38 @@ def safe_file(root, name):
     if path.stat().st_size > MAX_OUTPUT:
         raise ToolError("file_too_large")
     return path
+
+
+def read_contained(root, name, errors="strict"):
+    """The text of one regular file under ``root``, opened without following a link at any step.
+
+    Each folder is opened relative to its parent's descriptor with O_NOFOLLOW, so a folder
+    replaced by a link after the name checks cannot redirect the read outside ``root``.
+    """
+    parts = PurePosixPath(name).parts
+    if not parts or PurePosixPath(name).is_absolute() or ".." in parts:
+        raise ToolError("invalid_path")
+    folder = os.open(Path(root).resolve(), os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        for part in parts[:-1]:
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=folder)
+            os.close(folder)
+            folder = child
+        descriptor = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=folder)
+    except OSError as exc:
+        raise ToolError(
+            "symlink_denied" if exc.errno == errno.ELOOP else "file_not_found"
+        ) from None
+    finally:
+        os.close(folder)
+    with os.fdopen(descriptor, "rb") as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode):
+            raise ToolError("file_not_found")
+        data = stream.read(MAX_OUTPUT + 1)
+    if info.st_size > MAX_OUTPUT or len(data) > MAX_OUTPUT:
+        raise ToolError("file_too_large")
+    return data.decode("utf-8", errors)
 
 
 async def extract(path, filename):

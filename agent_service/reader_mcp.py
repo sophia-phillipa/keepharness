@@ -2,8 +2,9 @@
 
 The provider CLI starts this module as a stdio MCP server (``server_spec``). It never writes,
 runs commands, opens the network or uploads. Every path must stay inside one of the roots
-given on the command line and pass the project browser's name policy, so credential folders,
-``.env`` files, key files and symbolic links are refused.
+given on the command line and pass the project browser's name policy plus the broader credential
+list (``workspaces.credential_path``), so credential folders, ``.env`` files, key files and
+symbolic links are refused. Files are opened one folder at a time without following links.
 """
 
 import os
@@ -13,8 +14,14 @@ from itertools import islice
 from pathlib import Path
 from typing import Any
 
-from agent_service.tools import ToolError, safe_file
-from agent_service.workspaces import MAX_FILES, browse_project, project_allowed, project_path
+from agent_service.tools import ToolError, read_contained
+from agent_service.workspaces import (
+    MAX_FILES,
+    browse_project,
+    credential_path,
+    project_allowed,
+    project_path,
+)
 
 SERVER_NAME = "harness_reader"
 TOOLS = ("read_file", "list_directory", "search_files")
@@ -34,7 +41,7 @@ class Reader:
         """The root that holds ``path`` and the allowed path relative to it ("" is the root).
 
         A relative ``path`` is relative to the first root. Containment is checked here on the
-        names and again on the resolved file by ``safe_file`` / ``project_path``.
+        names and again when the file is opened (``read_contained`` / ``project_path``).
         """
         if not isinstance(path, str) or "\x00" in path or not self.roots:
             raise ToolError("path_not_authorized")
@@ -44,7 +51,7 @@ class Reader:
                 return root, ""
             if candidate.is_relative_to(root):
                 relative = candidate.relative_to(root).as_posix()
-                if project_allowed(relative):
+                if readable(relative):
                     return root, relative
         raise ToolError("path_not_authorized")
 
@@ -55,7 +62,7 @@ class Reader:
         root, relative = self.locate(path)
         if not relative:
             raise ToolError("file_not_found")
-        lines = safe_file(root, relative).read_text(encoding="utf-8", errors="replace").splitlines()
+        lines = read_contained(root, relative, errors="replace").splitlines()
         return {
             "path": str(root / relative),
             "total_lines": len(lines),
@@ -69,6 +76,7 @@ class Reader:
         """List a folder inside the authorized folders; an empty path lists the first one."""
         root, relative = self.locate(path)
         listing = browse_project(root, relative, start, limit)
+        listing["entries"] = [e for e in listing["entries"] if not credential_path(e["path"])]
         for entry in listing["entries"]:
             entry["path"] = str(root / entry["path"])
         return {**listing, "path": str(root / relative), "roots": [str(r) for r in self.roots]}
@@ -92,7 +100,7 @@ class Reader:
 def matching_lines(root: Path, name: str, needle: str) -> list[dict[str, Any]]:
     """The lines of one allowed text file that contain ``needle``; unreadable files have none."""
     try:
-        text = safe_file(root, name).read_text(encoding="utf-8")
+        text = read_contained(root, name)
     except (OSError, UnicodeError, ToolError):
         return []
     return [
@@ -100,6 +108,11 @@ def matching_lines(root: Path, name: str, needle: str) -> list[dict[str, Any]]:
         for number, line in enumerate(text.splitlines(), 1)
         if needle in line.casefold()
     ]
+
+
+def readable(relative: str) -> bool:
+    """The project browser's name policy plus the broader credential list."""
+    return project_allowed(relative) and not credential_path(relative)
 
 
 def allowed_files(root: Path, relative: str) -> Iterator[str]:
@@ -110,12 +123,11 @@ def allowed_files(root: Path, relative: str) -> Iterator[str]:
         folders[:] = sorted(
             folder
             for folder in folders
-            if not Path(current, folder).is_symlink()
-            and project_allowed((here / folder).as_posix())
+            if not Path(current, folder).is_symlink() and readable((here / folder).as_posix())
         )
         for name in sorted(names):
             candidate = (here / name).as_posix()
-            if project_allowed(candidate) and not Path(current, name).is_symlink():
+            if readable(candidate) and not Path(current, name).is_symlink():
                 yield candidate
 
 
