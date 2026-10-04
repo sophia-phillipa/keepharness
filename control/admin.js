@@ -3475,6 +3475,7 @@ renderIntegrationForm();
 const buttonActions = [
   [/^Pin catalog/, "lock", "Runs this catalog from the chosen immutable revision."],
   [/^Provision runtime/, "download", "Creates the catalog environment and writable state declared by its manifest."],
+  [/^Re-trust hooks/, "shield", "Trusts the catalog hook files as they are now, so they run again."],
   [/^Preview update/, "search", "Fetches the catalog and compares resource revisions without moving its pin."],
   [/^Move pin/, "check", "Applies the exact revision shown in the current update preview."],
   [/^Remove binding/, "trash", "Removes stored credentials and their project bindings."],
