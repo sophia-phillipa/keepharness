@@ -53,16 +53,19 @@ def test_install_py_never_writes_browser_entry_with_or_without_desktop(tmp_path)
     assert not any(p.suffix == '.desktop' for p in install.files(home, '/python'))
 
 
-def test_install_py_rollback_preserves_desktop_entry(tmp_path, monkeypatch):
+def test_install_py_rollback_removes_only_exact_legacy_browser_entry(tmp_path, monkeypatch):
     from control import install
     monkeypatch.setattr(install, 'rollback_refusal', lambda home: None)
     monkeypatch.setattr(install, 'rollback_state', lambda home: home)
     entry = tmp_path / '.local/share/applications/keepharness.desktop'
     entry.parent.mkdir(parents=True)
-    for line, removed in [(f'Exec="{tmp_path}/.local/bin/keepharness-open"', False),
-                          (f'Exec="{tmp_path}/.local/bin/keepharness-open" --foreign', False),
-                          (f'Exec="{tmp_path}/.local/opt/keepharness/current/keepharness"', False)]:
-        entry.write_text('[Desktop Entry]\n' + line + '\nIcon=utilities-terminal\n')
+    legacy = f'Exec="{tmp_path}/.local/bin/keepharness-open"'
+    for lines, removed in [(legacy + '\nIcon=utilities-terminal\n', True),
+                           (legacy + ' --foreign\nIcon=utilities-terminal\n', False),
+                           (legacy + '\nIcon=keepharness\n', False),
+                           (legacy + '\n', False),
+                           (f'Exec="{tmp_path}/.local/opt/keepharness/current/keepharness"\nIcon=utilities-terminal\n', False)]:
+        entry.write_text('[Desktop Entry]\n' + lines)
         install.rollback(tmp_path, run=lambda *a, **kw: None)
         assert entry.exists() is not removed
 
@@ -90,7 +93,7 @@ def test_install_py_register_removes_only_exact_stale_browser(tmp_path, monkeypa
     apps = tmp_path / '.local/share/applications'
     apps.mkdir(parents=True)
     desktop = apps / 'keepharness.desktop'
-    desktop_text = f'Exec="{tmp_path}/.local/bin/keepharness-open"\nIcon=utilities-terminal\n'
+    desktop_text = f'Exec="{tmp_path}/.local/opt/keepharness/current/keepharness"\nIcon=keepharness\n'
     desktop.write_text(desktop_text)
     browser = apps / 'keepharness-browser.desktop'
     for extra in (' --foreign', ''):
@@ -101,6 +104,45 @@ def test_install_py_register_removes_only_exact_stale_browser(tmp_path, monkeypa
         if extra:
             assert browser.read_text() == text
         assert desktop.read_text() == desktop_text
+
+
+@pytest.mark.parametrize('operation', ['register', 'rollback'])
+@pytest.mark.parametrize('kind', ['exact', 'other_icon', 'extra_exec', 'edited_exec', 'foreign', 'symlink'])
+def test_legacy_browser_desktop_entry_removed_only_when_exact(tmp_path, monkeypatch, operation, kind):
+    from control import install
+    from pathlib import Path
+    from types import SimpleNamespace
+    monkeypatch.setattr(Path, 'home', lambda: tmp_path)
+    monkeypatch.setattr(install, 'remove_legacy_service', lambda home: None)
+    monkeypatch.setattr(install.subprocess, 'run', lambda *a, **kw: None)
+    monkeypatch.setattr(install, 'wait_ready', lambda *a: None)
+    monkeypatch.setattr(install, 'rollback_refusal', lambda home: None)
+    monkeypatch.setattr(install, 'rollback_state', lambda home: home)
+    apps = tmp_path / '.local/share/applications'
+    apps.mkdir(parents=True)
+    exec_line = f'Exec="{tmp_path}/.local/bin/keepharness-open"'
+    content = {
+        'exact': exec_line + '\nIcon=utilities-terminal\n',
+        'other_icon': exec_line + '\nIcon=keepharness\n',
+        'extra_exec': exec_line + '\nExec="/foreign"\nIcon=utilities-terminal\n',
+        'edited_exec': exec_line + ' --custom\nIcon=utilities-terminal\n',
+        'foreign': 'Exec="/foreign"\nIcon=utilities-terminal\n',
+        'symlink': exec_line + '\nIcon=utilities-terminal\n',
+    }[kind]
+    legacy = apps / 'keepharness.desktop'
+    if kind == 'symlink':
+        target = tmp_path / 'foreign-target'
+        target.write_text(content)
+        legacy.symlink_to(target)
+    else:
+        legacy.write_text(content)
+    if operation == 'register':
+        install.register(SimpleNamespace(port=0, dev=False, boot=False))
+    else:
+        install.rollback(tmp_path, run=lambda *a, **kw: None)
+    assert legacy.is_symlink() or legacy.exists() is (kind != 'exact')
+    if kind != 'exact':
+        assert legacy.read_text() == content
 
 
 @pytest.mark.parametrize('operation', ['register', 'rollback', 'remove_browser_entry'])
@@ -119,7 +161,8 @@ def test_browser_cleanup_preserves_foreign_entries_and_desktop(tmp_path, monkeyp
     apps.mkdir(parents=True)
     text = f'Exec="{tmp_path}/.local/bin/keepharness-open"\nIcon=utilities-terminal\n'
     desktop = apps / 'keepharness.desktop'
-    desktop.write_text(text)
+    desktop_text = f'Exec="{tmp_path}/.local/opt/keepharness/current/keepharness"\nIcon=keepharness\n'
+    desktop.write_text(desktop_text)
     browser = apps / 'keepharness-browser.desktop'
     content = text
     if kind == 'edited':
@@ -143,7 +186,7 @@ def test_browser_cleanup_preserves_foreign_entries_and_desktop(tmp_path, monkeyp
     else:
         install.remove_browser_entry(browser, tmp_path)
         install.remove_browser_entry(desktop, tmp_path)
-    assert desktop.read_text() == text
+    assert desktop.read_text() == desktop_text
     assert browser.exists() == (kind != 'owned')
     if kind != 'owned':
         assert browser.read_text() == content

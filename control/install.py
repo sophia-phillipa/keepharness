@@ -139,9 +139,16 @@ exec xdg-open http://127.0.0.1:{port}/
     }
 
 
+BROWSER_ENTRIES = (PRODUCT.slug + '-browser.desktop', PRODUCT.slug + '.desktop')
+
+
 def remove_browser_entry(path, home):
-    """Never remove another application's entry, including the desktop client."""
-    if path.name != PRODUCT.slug + '-browser.desktop' or path.is_symlink() or not path.is_file():
+    """Remove only the browser shortcut this installer once wrote (S3 or pre-S3 name).
+
+    The Exec line must be exactly our explicit launcher and the icon ours, so the desktop
+    client's own entry and any edited or foreign file are left alone.
+    """
+    if path.is_symlink() or not path.is_file():
         return
     lines = path.read_text().splitlines()
     expected = {f'Exec="{h}/.local/bin/{PRODUCT.slug}-open"' for h in (home, Path(home).resolve())}
@@ -185,7 +192,8 @@ def rollback(home, run=subprocess.run):
     run(["systemctl", "--user", "disable", "--now", SERVICE], check=False)
     for path in files(home, sys.executable):
         path.unlink(missing_ok=True)
-    remove_browser_entry(Path(home) / '.local/share/applications' / (PRODUCT.slug + '-browser.desktop'), home)
+    for name in BROWSER_ENTRIES:
+        remove_browser_entry(Path(home) / '.local/share/applications' / name, home)
     run(["systemctl", "--user", "daemon-reload"], check=False)
     return rollback_state(home)
 
@@ -246,7 +254,8 @@ def register(args):
     os.umask(0o077)
     remove_legacy_service(Path.home())
     applications = Path.home() / '.local/share/applications'
-    remove_browser_entry(applications / (PRODUCT.slug + '-browser.desktop'), Path.home())
+    for name in BROWSER_ENTRIES:
+        remove_browser_entry(applications / name, Path.home())
     for path, (content, mode) in files(Path.home(), sys.executable, args.port, args.dev).items():
         path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write(path, content, mode)

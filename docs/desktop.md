@@ -88,10 +88,11 @@ hint before launch when applicable; it never disables the Chromium sandbox.
 
 KeepHarness consists of the desktop app and its server. Install/register never creates
 `keepharness-browser.desktop`, whether the desktop app is installed or not. Python
-registration and rollback remove only that legacy filename, through the exact owned
-`Exec="<home>/.local/bin/keepharness-open"` match and `Icon=utilities-terminal` check.
-They never remove `keepharness.desktop`; edited, foreign and symlinked entries are
-preserved. Remaining installer files are written through a temporary file and
+registration and rollback remove `keepharness-browser.desktop` and the pre-S3
+`keepharness.desktop` only when the file is exactly the browser entry this installer
+wrote: the exact owned `Exec="<home>/.local/bin/keepharness-open"` line (the only
+`Exec=`) and `Icon=utilities-terminal`. A `keepharness.desktop` that launches the
+desktop app, and any edited, foreign or symlinked entry, is preserved. Remaining installer files are written through a temporary file and
 `os.replace`. The server and explicit `keepharness-open` launcher remain available.
 The desktop installer also removes only the exact owned legacy browser entry and
 leaves symlinked browser entries untouched with a note. Desktop uninstall leaves
