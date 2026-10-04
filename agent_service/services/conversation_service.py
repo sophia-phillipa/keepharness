@@ -2696,24 +2696,25 @@ class ConversationService:
         project = self.config["projects"][row["project"]]
         if kind == "infer":
             invocation = data.get("invocations", [])
+            scope, owner = self.resource_scope(row["owner"], data)
             if data.get("_declared_workflow"):
                 declared = data["_declared_workflow"]
                 if declared.get("resource_id"):
                     declared = workflows.resolve_workflow(
-                        self.config,
+                        scope,
                         row["project"],
                         declared["resource_id"],
                         execution_mode=data.get("execution_mode"),
-                        owner=row["owner"] == harness_agents.LOCAL_CLIENT,
+                        owner=owner,
                     )
                 result = await maestro.execute_workflow(self, row, data, declared)
             elif len(invocation) == 1 and invocation[0]["kind"] == "workflow":
                 declared = workflows.resolve_workflow(
-                    self.config,
+                    scope,
                     row["project"],
                     invocation[0]["resource_id"],
                     execution_mode=data.get("execution_mode"),
-                    owner=row["owner"] == harness_agents.LOCAL_CLIENT,
+                    owner=owner,
                 )
                 result = await maestro.execute_workflow(self, row, data, declared)
             elif len(invocation) > 1:

@@ -224,8 +224,10 @@ def test_queued_recovery_resolves_current_workflow_revision(tmp_path):
             ) as execute,
         ):
             asyncio.run(service.execute(service.job(identity, job)))
+        scope, _ = service.resource_scope(identity[0], data)
+        assert "personal_setup" in scope  # the run's own resource scope, as at submit time
         resolve.assert_called_once_with(
-            service.config,
+            scope,
             "p",
             "project/p/workflows/review.json",
             execution_mode=data["execution_mode"],
