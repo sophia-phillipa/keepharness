@@ -138,7 +138,7 @@ Clientes autorizados têm históricos e aprovações separados, mas isso não é
 
 ## 🌐 MCP on another computer
 
-Abra **Conexão / MCP** no harness e baixe o instalador. No Linux ou macOS nativo em Apple Silicon com Python 3.10+, curl e Claude Code instalados, salve o arquivo em Downloads. O instalador do bridge não suporta macOS Intel (incluindo um terminal x86_64 sob Rosetta): cryptography 49 removeu as wheels Intel, e a última versão Intel, 48.0.1, tem um [alerta conhecido no OSV](https://osv.dev/vulnerability/GHSA-g6cj-pr64-35w5). O bridge mantém cryptography 50.0.2 em vez de fazer downgrade. Em um Mac suportado, abra o Terminal pelo Spotlight (⌘ + Espaço → Terminal). Execute:
+Abra **Conexão / MCP** no harness e baixe o instalador. No Linux ou macOS nativo em Apple Silicon com Python 3.10+, curl e Claude Code instalados, salve o arquivo em Downloads. O instalador do bridge não suporta macOS Intel (incluindo um terminal ou Python x86_64 sob Rosetta): cryptography 49 removeu as wheels Intel, e a última versão Intel, 48.0.1, tem um [alerta conhecido no OSV](https://osv.dev/vulnerability/GHSA-g6cj-pr64-35w5). O bridge mantém cryptography 50.0.2 em vez de fazer downgrade. Em um Mac suportado, abra o Terminal pelo Spotlight (⌘ + Espaço → Terminal). Execute:
 
 ```sh
 cd ~/Downloads
