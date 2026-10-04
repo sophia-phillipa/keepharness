@@ -42,6 +42,8 @@ FIELDS = [
     "allow_internet",
     "cadence",
     "enabled",
+    "agent",
+    "page_ids",
     "created_at",
     "updated_at",
     "next_run",

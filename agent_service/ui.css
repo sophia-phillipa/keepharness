@@ -2860,7 +2860,7 @@ main > header > #project {
   display: grid;
   place-items: center;
   width: 24px;
-  height: 22px;
+  height: 24px;
   flex: 0 0 24px;
   padding: 0;
   border: 0;
@@ -3440,7 +3440,8 @@ main > header {
   font-size: 12px;
 }
 #project-directory-list {
-  max-height: clamp(48px, calc(88dvh - 580px), 140px);
+  /* UX-R4-2: the tree is the dialog's main content; at least eight 32 px rows, more when the window is tall. */
+  max-height: clamp(264px, calc(100dvh - 480px), 560px);
   overflow: auto;
   list-style: none;
   padding: 0;
@@ -5655,9 +5656,10 @@ main > #run-console { order: 11; }
 .page-view-empty { margin: 4px 8px; color: var(--th-muted); font-size: 13px; }
 .page-view-empty[hidden] { display: none; }
 .page-view-content { grid-column: 2; grid-row: 1 / -1; min-height: 0; overflow: auto; padding: 48px max(32px, calc((100% - 768px) / 2)) 48px; }
-.page-view-intro { display: grid; place-items: center; min-height: 60%; text-align: center; color: var(--th-muted); }
+.page-view-intro { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 60%; text-align: center; color: var(--th-muted); }
 .page-view-intro h3 { margin: 0 0 6px; color: var(--th-text); font-size: 20px; font-weight: 500; }
 .page-view-intro p { max-width: 460px; margin: 0; font-size: 14px; }
+.page-view-intro .btn { margin-top: 8px; }
 .page-view-intro[hidden], #page-editor[hidden], #schedule-editor[hidden] { display: none; }
 #page-editor { display: grid; grid-template-rows: auto auto minmax(320px, 1fr); gap: 10px; min-height: 100%; }
 #page-title { padding: 4px 0; border: 0; background: transparent; color: var(--th-text); font: inherit; font-size: 26px; font-weight: 500; outline: none; }
@@ -5742,3 +5744,31 @@ body.panel-order-reversed #sidebar .sidebar-tree { margin: 0 0 0 12px; padding: 
   #sidebar-resize { --hit-left: -18px; }
   body.panel-order-reversed #sidebar-resize { --hit-left: 6px; }
 }
+
+/* UX-R1-6: the Files section takes the height the other sections leave; a height the user dragged wins. */
+#activity-panel .workspace-section[data-workspace-section="files"][open]:not([data-sized]) { display: flex; flex: 1 1 0; flex-direction: column; min-height: 224px; }
+#activity-panel .workspace-section[data-workspace-section="files"][open]:not([data-sized])::details-content { display: flex; flex: 1 1 0; flex-direction: column; min-height: 0; }
+#activity-panel .workspace-section[data-workspace-section="files"]:not([data-sized]) > #workspace-files { flex: 1 1 0; height: auto; min-height: 168px; }
+
+/* The status strip is fixed over the bottom 28 px of the window: the last section stays above it. */
+@media (min-width: 701px) { #activity-panel { padding-bottom: 38px; } }
+
+/* Composer Files chip popover (OP-R1-22, D40): recent uploads, Space pages and Upload…. */
+#files-menu { position: fixed; inset: auto; width: min(380px, calc(100vw - 24px)); max-height: min(480px, calc(100vh - 24px)); overflow: auto; margin: 0; background: var(--th-panel); backdrop-filter: none; }
+#files-menu .files-body { display: grid; gap: 10px; padding: 0 4px 6px; font-size: 13px; }
+#files-menu section { display: grid; gap: 2px; }
+#files-menu h3 { margin: 4px 6px; color: var(--th-muted); font-size: 12px; font-weight: 500; }
+#files-menu .plugins-empty { margin: 0 6px; color: var(--th-muted); font-size: 12px; }
+#files-menu .files-menu-item { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 32px; padding: 4px 8px; border: 0; border-radius: 10px; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+#files-menu .files-menu-item:hover:not(:disabled), #files-menu .files-menu-item:focus-visible { background: var(--th-hover, color-mix(in srgb, var(--th-text) 7%, transparent)); }
+#files-menu .files-menu-item:disabled { color: var(--th-muted); cursor: default; }
+#files-menu .files-menu-item > :is(.th-icon, svg) { flex: none; width: 16px; height: 16px; color: var(--th-muted); }
+#files-menu .files-menu-item > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#files-menu .files-menu-item > small { flex: none; color: var(--th-muted); font-size: 12px; }
+
+/* Scheduled editor: the agent and page pickers (D41). */
+.schedule-pages { display: grid; gap: 4px; margin: 6px 0 0; padding: 0; border: 0; }
+.schedule-pages legend { padding: 0; font-size: 13px; font-weight: 500; }
+#schedule-pages-list { display: grid; gap: 2px; max-height: 160px; overflow: auto; font-size: 14px; }
+#schedule-pages-list label { display: flex; align-items: center; gap: 8px; min-height: 28px; }
+.agent-fields #schedule-pages-list input[type="checkbox"] { width: auto; padding: 0; }

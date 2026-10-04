@@ -364,6 +364,26 @@ const path = require("node:path");
       await page.locator("#files-help").textContent(),
       "Drag files or folders into the chat to use them",
     );
+    // UX-R1-6: the Files section takes the height the other sections leave, instead of a 160 px window.
+    const layout = await page.evaluate(() => {
+      const box = (selector) => document.querySelector(selector).getBoundingClientRect();
+      return {
+        files: box("#workspace-files").height,
+        panel: box("#activity-panel").height,
+        others: ["background-tasks", "resources", "activity"].reduce(
+          (sum, name) => sum + box('[data-workspace-section="' + name + '"]').height,
+          0,
+        ),
+        scrolls: document.querySelector("#activity-panel").scrollHeight > document.querySelector("#activity-panel").clientHeight,
+      };
+    });
+    assert(layout.files >= 168, "the Files body is at least 168 px: " + JSON.stringify(layout));
+    assert(layout.scrolls || layout.files > 160, "the Files body is not the old 160 px window");
+    // The folder chevrons are 24 px targets.
+    for (const chevron of await page.locator("#files-tree .file-chevron").all()) {
+      const size = await chevron.boundingBox();
+      assert(size.width >= 24 && size.height >= 24, "chevron " + JSON.stringify(size));
+    }
     assert.deepEqual(await page.locator(".file-root").allTextContents(), [
       "Local Folders",
       "External Folders",

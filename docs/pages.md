@@ -7,7 +7,10 @@ backend of the Space > Pages area; the UI is separate.
 Pages are private. Each one belongs to the client that created it (the same identity that
 owns jobs and conversations) and to the project it was created in. Another client never
 sees it, not even in a project they share. A page is not part of any conversation and
-is never added to a prompt by the harness.
+is never added to a prompt by the harness on its own. Two places use its current text, both
+read when they are used and never as a live link afterwards: the composer's Files chip (a Space
+pages group attaches the page as a file, D40) and a scheduled task (D41, see
+`scheduled-tasks.md`).
 
 ## Who can use pages
 
