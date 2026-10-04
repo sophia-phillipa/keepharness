@@ -13,6 +13,7 @@ from pathlib import Path
 from starlette.responses import FileResponse, JSONResponse
 
 from .. import harness_agents, maestro, tools, workspaces
+from ..config import MAX_PROJECT_UPLOAD_BYTES
 from ..errors import APIError
 from ..persistence.db import encoded
 from ..services import retention
@@ -74,7 +75,7 @@ async def upload_workspace(request, service, identity):
         base = service.root / "workspaces"
         base.mkdir(exist_ok=True, mode=0o700)
         used = sum(p.stat().st_size for p in base.rglob("*") if p.is_file() and not p.is_symlink())
-        if used > 2 * 1024**3 - workspaces.MAX_BYTES * 2:
+        if used > MAX_PROJECT_UPLOAD_BYTES - workspaces.MAX_BYTES * 2:
             raise APIError("workspace_storage_limit", 413)
         wid = uuid.uuid4().hex
         folder = base / wid
