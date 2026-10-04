@@ -55,7 +55,7 @@ def admin_guard(request, manager, port):
 
     Order: host/client/Tailscale identity, then origin and fetch metadata, then the one-time
     open link and the static panel files, then the admin cookie, which only a browser holding
-    the per-install secret receives.
+    an owner session receives.
     """
     allowed = (f"127.0.0.1:{port}", f"localhost:{port}")
     if (
@@ -82,7 +82,7 @@ def admin_guard(request, manager, port):
         return open_link(request, manager)
     if path == "/":
         r = FileResponse(PANEL_DIR / "index.html")
-        if local_access.has_secret(request.cookies, local_access.digest(manager.local_secret)):
+        if local_access.has_session(request.cookies, manager.state):
             r.set_cookie("admin", manager.cookie, httponly=True, samesite="strict")
         return r
     if path.startswith("/assets/"):
@@ -103,7 +103,7 @@ OPEN_HINT = (
 
 
 def open_link(request, manager):
-    """Redeem a one-time link from ``keepharness open``: the browser gets the install secret."""
+    """Redeem a one-time link from ``keepharness open``: the browser gets a session of its own."""
     ticket = request.query_params.get("ticket", "")
     if request.method != "GET" or not local_access.consume_ticket(
         manager.local_secret, ticket, manager.open_tickets
@@ -113,12 +113,20 @@ def open_link(request, manager):
             403,
             headers={"Cache-Control": "no-store"},
         )
+    try:
+        token = local_access.issue_session(manager.state)
+    except OSError:
+        return JSONResponse(
+            {"error": f"Could not record the sign-in in {manager.state}. Check that folder."},
+            503,
+            headers={"Cache-Control": "no-store"},
+        )
     response = RedirectResponse(
         "/", 303, headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"}
     )
     response.set_cookie(
         local_access.COOKIE,
-        manager.local_secret,
+        token,
         max_age=local_access.COOKIE_SECONDS,
         httponly=True,
         samesite="strict",

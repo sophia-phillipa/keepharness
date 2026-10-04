@@ -12,14 +12,16 @@ const {
   portOwnedByUser,
   LOCAL_COOKIE,
   localKeyPath,
-  localCookie,
+  openTicket,
+  sessionCookie,
   enrollmentLink,
 } = require('./policy.cjs');
 
 test('only the local admin and harness origins are app URLs', () => {
   const origins = appOrigins([8094, 8095]);
   assert.equal(isAppUrl('http://127.0.0.1:8095/#x', origins), true);
-  assert.equal(isAppUrl('http://localhost:8094/', origins), true);
+  // RC-13: `localhost` may resolve away from loopback, and app origins get permissions.
+  assert.equal(isAppUrl('http://localhost:8094/', origins), false);
   assert.equal(isAppUrl('http://127.0.0.1:9999/', origins), false);
   assert.equal(isAppUrl('https://127.0.0.1:8095/', origins), false);
   assert.equal(isAppUrl('http://user:pass@127.0.0.1:8095/', origins), false);
@@ -107,20 +109,38 @@ test('the port is matched as a zero-padded hexadecimal number', () => {
   assert.equal(portOwnedByUser([HEADER + row('0100007F:0050', '0A', ME)], 8000, ME), false);
 });
 
-test('the window carries the per-install secret as the admin\'s own local cookie', () => {
+test('the secret only signs a one-time open ticket, as keepharness open does', () => {
   assert.equal(localKeyPath('/home/owner'), '/home/owner/.local/share/keepharness/local.key');
   const secret = 'Abc_def-0123456789xyzXYZ';
-  assert.deepEqual(localCookie(secret + '\n', 8095), {
+  // Reference from control/local_access.py open_ticket(secret, now=1000) with this nonce.
+  assert.equal(
+    openTicket(secret + '\n', 1000, 'nonce_0123'),
+    '1300.nonce_0123.0fd978c55fea1d69cf2ad6b60cb82fb9eebf84c090f1b7da89901be5182a8acc',
+  );
+  assert.ok(!openTicket(secret).includes(secret));
+  for (const bad of ['', 'short', 'has space in it here', 'semi;colon-0123456789', null]) assert.equal(openTicket(bad), null);
+});
+
+test('the window keeps only the session token the admin issued', () => {
+  // Matches control/local_access.py: PRODUCT.slug + "-local".
+  assert.equal(LOCAL_COOKIE, 'keepharness-local');
+  const token = 'Tok_en-0123456789abcdefABCDEF0123456789abcde';
+  const answer = [
+    'admin=other; HttpOnly; Path=/; SameSite=strict',
+    `keepharness-local=${token}; HttpOnly; Max-Age=2592000; Path=/; SameSite=strict`,
+  ];
+  assert.deepEqual(sessionCookie(answer, 8095, 1000), {
     url: 'http://127.0.0.1:8095/',
     name: LOCAL_COOKIE,
-    value: secret,
+    value: token,
     path: '/',
     httpOnly: true,
     sameSite: 'strict',
+    expirationDate: 1000 + 2592000,
   });
-  // Matches control/local_access.py: PRODUCT.slug + "-local".
-  assert.equal(LOCAL_COOKIE, 'keepharness-local');
-  for (const bad of ['', 'short', 'has space in it here', 'semi;colon-0123456789', null]) assert.equal(localCookie(bad, 8095), null);
+  assert.equal(sessionCookie(['admin=x; Path=/'], 8095), null);
+  assert.equal(sessionCookie(['keepharness-local=bad value; Path=/'], 8095), null);
+  assert.equal(sessionCookie(null, 8095), null);
 });
 
 test('the window enrolls itself only through a harness enrollment link printed by the CLI', () => {
@@ -140,7 +160,7 @@ test('the clipboard write and notifications are allowed on the app origins only'
   const origins = appOrigins([8094, 8095]);
   for (const permission of ['clipboard-sanitized-write', 'notifications']) {
     assert.equal(permissionAllowed(permission, 'http://127.0.0.1:8095/', origins), true);
-    assert.equal(permissionAllowed(permission, 'http://localhost:8094', origins), true);
+    assert.equal(permissionAllowed(permission, 'http://localhost:8094', origins), false);
     assert.equal(permissionAllowed(permission, 'https://example.com/', origins), false);
     assert.equal(permissionAllowed(permission, 'file:///splash.html', origins), false);
     assert.equal(permissionAllowed(permission, undefined, origins), false);

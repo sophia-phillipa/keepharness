@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import hmac
+import ipaddress
 import json
 import logging
 import math
@@ -80,6 +81,30 @@ def as_dict(value):
 def with_sources(prompt, context):
     """Append the source block only when there are sources; models echo an empty one."""
     return prompt if context in ("", "[]") else prompt + "\nSOURCES:\n" + context
+
+
+# Tailscale assigns node addresses from these ranges (CGNAT IPv4 and its ULA IPv6 prefix).
+TAILNET_NETWORKS = (
+    ipaddress.ip_network("100.64.0.0/10"),
+    ipaddress.ip_network("fd7a:115c:a1e0::/48"),
+)
+
+
+def loopback_name(name):
+    """True for localhost and every loopback address."""
+    try:
+        return ipaddress.ip_address(name).is_loopback
+    except ValueError:
+        return name.lower().rstrip(".") in local_access.LOOPBACK_NAMES
+
+
+def tailnet_address(value):
+    """True when ``value`` is exactly one tailnet address, as Serve writes X-Forwarded-For."""
+    try:
+        address = ipaddress.ip_address(value.strip())
+    except ValueError:
+        return False
+    return any(address in network for network in TAILNET_NETWORKS)
 
 
 @dataclass
@@ -400,7 +425,7 @@ class ConversationService:
             and not request.headers.get("x-forwarded-for")
             and not request.headers.get("tailscale-user-login")
             and self.config.get("local_access")
-            and self.holds_local_secret(request)
+            and self.holds_local_session(request)
         ):
             return identified("local", self.config["clients"]["local"])
         token = auth[7:] if auth.startswith("Bearer ") else ""
@@ -411,7 +436,7 @@ class ConversationService:
             not auth
             and request.client
             and request.client.host in ("127.0.0.1", "::1")
-            and self.remote_host(host)
+            and self.through_tailnet_serve(request, host)
         ):
             login = request.headers.get("tailscale-user-login", "")
             client_name = self.config.get("tailscale_logins", {}).get(login)
@@ -432,19 +457,36 @@ class ConversationService:
         ):
             raise APIError("host_denied", 403)
 
-    def holds_local_secret(self, request):
-        """The owner's browser, desktop app or CLI holds the per-install secret.
+    def holds_local_session(self, request):
+        """The owner's browser or desktop app holds a session the admin issued (D09).
 
-        Configs written by the admin always carry its digest; a hand-written test config
-        without one keeps plain loopback trust (logged as a warning at startup).
+        Configs written by the admin always carry the install secret's digest, which marks that
+        sessions are required; they are listed in the admin's state folder. A hand-written test
+        config without the digest keeps plain loopback trust (logged as a warning at startup).
         """
-        expected = self.config.get("local_secret_sha256")
-        return not expected or local_access.has_secret(request.cookies, expected)
+        if not self.config.get("local_secret_sha256"):
+            return True
+        state = self.config.get("control_state_dir")
+        return bool(state) and local_access.has_session(request.cookies, Path(state))
 
-    def remote_host(self, host):
-        """Tailscale Serve forwards a login only for the configured remote origin (SEC-R1-2)."""
-        remote = urlsplit(self.config.get("browser_url") or "").netloc.lower()
-        return bool(remote) and host.lower() == remote
+    def through_tailnet_serve(self, request, host):
+        """Tailscale Serve forwards a login only for the configured remote origin (SEC-R1-2).
+
+        Serve proxies to 127.0.0.1 with the Host it received, sets X-Forwarded-Host to that Host
+        and X-Forwarded-For to the tailnet peer's address, and drops any identity header the
+        peer sent (tailscale ipn/ipnlocal/serve.go). All three must agree, and a loopback
+        ``browser_url`` never maps a login. Assumption: another account on this computer can
+        still send these headers to 127.0.0.1 itself; telling it apart from Serve needs a
+        tailscaled WhoIs lookup, which this service does not make.
+        """
+        remote = urlsplit(self.config.get("browser_url") or "")
+        if not remote.hostname or loopback_name(remote.hostname):
+            return False
+        if host.lower() != remote.netloc.lower():
+            return False
+        if request.headers.get("x-forwarded-host", "").lower() != host.lower():
+            return False
+        return tailnet_address(request.headers.get("x-forwarded-for", ""))
 
     def limit(self, key, maximum, code="rate_limit"):
         # Keys come from configured identities, fixed lanes.

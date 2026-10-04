@@ -98,6 +98,8 @@ def test_history_and_attachments_keep_owner_and_survive_restart(tmp_path):
         remote_headers = {
             "host": "machine.example.ts.net:8093",
             "tailscale-user-login": "fixture@example.test",
+            "x-forwarded-host": "machine.example.ts.net:8093",
+            "x-forwarded-for": "100.101.102.103",
         }
         for restart in (False, True):
             if restart:

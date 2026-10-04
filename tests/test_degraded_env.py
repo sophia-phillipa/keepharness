@@ -174,10 +174,12 @@ def test_settings_save_over_http_reports_400_and_state_endpoint_still_works(tmp_
     app = create_app(tmp_path / "state")
     manager = app.state.manager
 
+    # The browser signed in before the folder became read-only (a sign-in records a session).
+    client = sign_in(TestClient(app, base_url="http://127.0.0.1:8094"), app)
     manager.state.chmod(0o500)
     try:
-        with TestClient(app, base_url="http://127.0.0.1:8094") as client:
-            sign_in(client).get("/")
+        with client:
+            client.get("/")
             response = client.post(
                 "/api/settings", json=manager.settings, headers={"X-Harness-Admin": "1"}
             )

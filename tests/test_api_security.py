@@ -4,6 +4,7 @@ import copy
 import hashlib
 import json
 import sqlite3
+from pathlib import Path
 
 import pytest
 from starlette.testclient import TestClient
@@ -203,6 +204,12 @@ def test_api_json_is_neither_compressed_nor_cached(api):
 LOCAL_SECRET = "fixture-install-secret"
 REMOTE = "http://machine.example.ts.net:8093"
 GUEST_LOGIN = "guest@example.test"
+# What Tailscale Serve adds when it proxies a tailnet peer to 127.0.0.1 (ipn/ipnlocal/serve.go).
+SERVE_HEADERS = {
+    "Host": "machine.example.ts.net:8093",
+    "X-Forwarded-Host": "machine.example.ts.net:8093",
+    "X-Forwarded-For": "100.101.102.103",
+}
 
 
 def owner_config(tmp_path, **overrides):
@@ -213,6 +220,7 @@ def owner_config(tmp_path, **overrides):
         "port": 8095,
         "local_access": True,
         "local_secret_sha256": local_access.digest(LOCAL_SECRET),
+        "control_state_dir": str(tmp_path / "control"),
         "origins": ["http://127.0.0.1:8095", "http://localhost:8095", REMOTE],
         "browser_url": REMOTE + "/",
         "tailscale_logins": {GUEST_LOGIN: "tailnet-guest"},
@@ -225,6 +233,15 @@ def owner_config(tmp_path, **overrides):
     }
     cfg.update(overrides)
     return cfg
+
+
+def owner_cookie(cfg):
+    """A browser session the admin issued, as ``keepharness open`` or the desktop app gets."""
+    from control import local_access
+
+    state = Path(cfg["control_state_dir"])
+    state.mkdir(parents=True, exist_ok=True)
+    return {local_access.COOKIE: local_access.issue_session(state)}
 
 
 def seeded_owner_app(cfg):
@@ -260,7 +277,8 @@ def test_local_identity_needs_install_secret(tmp_path):
 
     from control import local_access
 
-    app = seeded_owner_app(owner_config(tmp_path))
+    cfg = owner_config(tmp_path)
+    app = seeded_owner_app(cfg)
 
     async def scenario():
         async with loopback(app) as client:
@@ -268,7 +286,10 @@ def test_local_identity_needs_install_secret(tmp_path):
             assert await who(client) == (401, "authentication_required")
             wrong = {local_access.COOKIE: "guess"}
             assert await who(client, cookies=wrong) == (401, "authentication_required")
-            owner = {local_access.COOKIE: LOCAL_SECRET}
+            # A cookie holding the install secret itself (issued before 0.15.0) is refused.
+            raw = {local_access.COOKIE: LOCAL_SECRET}
+            assert await who(client, cookies=raw) == (401, "authentication_required")
+            owner = owner_cookie(cfg)
             assert await who(client, cookies=owner) == (200, ["local-job"])
             assert await who(client, cookies=owner, headers={"Host": "localhost:8095"}) == (
                 200,
@@ -308,9 +329,8 @@ def test_runtime_config_carries_only_the_install_secret_digest(tmp_path):
 def test_tailscale_login_requires_remote_host(tmp_path):
     import asyncio
 
-    from control import local_access
-
-    app = seeded_owner_app(owner_config(tmp_path))
+    cfg = owner_config(tmp_path)
+    app = seeded_owner_app(cfg)
     login = {"Tailscale-User-Login": GUEST_LOGIN}
 
     async def scenario():
@@ -321,11 +341,26 @@ def test_tailscale_login_requires_remote_host(tmp_path):
             # Listed hosts that are not the configured remote origin do not map the login.
             assert await who(client, headers=login) == (401, "authentication_required")
             # Only the remote origin's Host, as Tailscale Serve forwards it, maps the login.
-            remote = {**login, "Host": "machine.example.ts.net:8093"}
+            remote = {**login, **SERVE_HEADERS}
             assert await who(client, headers=remote) == (200, ["tailnet-guest-job"])
+            # Without Serve's forwarding headers, or with a peer outside the tailnet ranges or a
+            # forwarded Host that differs, the request did not come through Serve.
+            for name, value in (
+                ("X-Forwarded-For", ""),
+                ("X-Forwarded-For", "203.0.113.7"),
+                ("X-Forwarded-For", "100.101.102.103, 100.101.102.104"),
+                ("X-Forwarded-Host", ""),
+                ("X-Forwarded-Host", "attacker.test:8095"),
+            ):
+                assert await who(client, headers={**remote, name: value}) == (
+                    401,
+                    "authentication_required",
+                ), (name, value)
+            ipv6 = {**remote, "X-Forwarded-For": "fd7a:115c:a1e0::1"}
+            assert await who(client, headers=ipv6) == (200, ["tailnet-guest-job"])
             # An unlisted Host never reaches the owner, even with the owner's cookie (which a
             # browser would not send to that name anyway).
-            owner = {local_access.COOKIE: LOCAL_SECRET}
+            owner = owner_cookie(cfg)
             for path in ("/v1/projects", "/v1/conversations", "/v1/harness-agents"):
                 response = await client.get(path, cookies=owner, headers={"Host": "attacker.test"})
                 assert response.status_code == 401, path
@@ -345,7 +380,7 @@ def test_tailscale_login_requires_remote_host(tmp_path):
 
     async def without_remote_origin():
         async with loopback(unshared) as client:
-            remote = {**login, "Host": "machine.example.ts.net:8093"}
+            remote = {**login, **SERVE_HEADERS}
             assert await who(client, headers=remote) == (401, "authentication_required")
 
     try:
@@ -354,17 +389,42 @@ def test_tailscale_login_requires_remote_host(tmp_path):
         unshared.state.service.db.close()
 
 
+@pytest.mark.parametrize(
+    "browser_url", ["http://127.0.0.1:8095/", "http://localhost:8095/", "http://[::1]:8095/"]
+)
+def test_tailscale_login_never_maps_on_a_loopback_browser_url(tmp_path, browser_url):
+    import asyncio
+    from urllib.parse import urlsplit
+
+    host = urlsplit(browser_url).netloc
+    cfg = owner_config(tmp_path, browser_url=browser_url, origins=[browser_url.rstrip("/")])
+    app = seeded_owner_app(cfg)
+    forged = {
+        "Tailscale-User-Login": GUEST_LOGIN,
+        **SERVE_HEADERS,
+        "Host": host,
+        "X-Forwarded-Host": host,
+    }
+
+    async def scenario():
+        async with loopback(app) as client:
+            assert await who(client, headers=forged) == (401, "authentication_required")
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        app.state.service.db.close()
+
+
 def test_project_management_local_only(tmp_path):
     import asyncio
-
-    from control import local_access
 
     root = tmp_path / "host-folder"
     root.mkdir()
     (root / "keep.txt").write_text("fixture")
     cfg = owner_config(tmp_path, project_registration=True, shared_projects=True)
     app = create_app(cfg)
-    owner = {local_access.COOKIE: LOCAL_SECRET}
+    owner = owner_cookie(cfg)
     vpn = {"Authorization": "Bearer vpn"}
 
     async def scenario():
@@ -408,13 +468,11 @@ def test_project_management_local_only(tmp_path):
 def test_registered_projects_stay_with_the_owner_unless_shared(tmp_path):
     import asyncio
 
-    from control import local_access
-
     root = tmp_path / "owner-folder"
     root.mkdir()
     cfg = owner_config(tmp_path, project_registration=True)
     app = create_app(cfg)
-    owner = {local_access.COOKIE: LOCAL_SECRET}
+    owner = owner_cookie(cfg)
 
     async def scenario():
         async with loopback(app) as client:
@@ -444,8 +502,6 @@ def test_registered_projects_stay_with_the_owner_unless_shared(tmp_path):
 def test_non_local_views_redacted(tmp_path, monkeypatch):
     import asyncio
 
-    from control import local_access
-
     home = tmp_path / "home"
     skill = home / ".claude" / "skills" / "private-skill"
     skill.mkdir(parents=True)
@@ -471,7 +527,7 @@ def test_non_local_views_redacted(tmp_path, monkeypatch):
         personal_setup=True,
     )
     app = create_app(cfg)
-    owner = {local_access.COOKIE: LOCAL_SECRET}
+    owner = owner_cookie(cfg)
     persona = {
         "name": "release-checker",
         "purpose": "Checks releases",

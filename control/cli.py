@@ -55,8 +55,11 @@ def main(argv=None):
     enroll.add_argument(
         "--yes", action="store_true", help="Confirm enrollment without an interactive terminal"
     )
-    commands.add_parser(
+    sign_in = commands.add_parser(
         "open", help="Sign a browser on this computer in with a one-time link, and open it"
+    )
+    sign_in.add_argument(
+        "--revoke", action="store_true", help="Sign every browser on this computer out instead"
     )
     args = parser.parse_args(argv)
     os.umask(0o077)
@@ -100,6 +103,9 @@ def main(argv=None):
         print("Open this single-use link in the owner's browser within 10 minutes:")
         print(origin + "/approve-device?nonce=" + nonce)
         return
+    if args.command == "open" and args.revoke:
+        revoke_browsers(parser, Path(args.state))
+        return
     if args.command == "open":
         open_browser(parser, Path(args.state), args.port)
         return
@@ -109,8 +115,17 @@ def main(argv=None):
     serve(args, default_state)
 
 
+def revoke_browsers(parser, state):
+    """`keepharness open --revoke`: every browser signed in on this computer must open again."""
+    from .local_access import revoke_sessions
+
+    if not state.is_dir():
+        parser.error(f"No {PRODUCT.name} state at {state}; start {PRODUCT.slug} first.")
+    print(f"Signed out {revoke_sessions(state)} browser session(s).")
+
+
 def open_link(state, port):
-    """A one-time link that hands this computer's browser the per-install secret."""
+    """A one-time link that signs this computer's browser in; the secret only signs it."""
     from .local_access import OPEN_PATH, ensure_secret, open_ticket
 
     return f"http://127.0.0.1:{port}{OPEN_PATH}?ticket={open_ticket(ensure_secret(state))}"

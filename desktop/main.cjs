@@ -1,8 +1,8 @@
 // KeepHarness desktop client: starts the local admin when it is not running,
 // opens the harness (or the admin when no provider is set up yet) in its own
 // window, keeps navigation inside the two local origins and stops the admin it
-// started when the app quits. The window is the owner's: it carries the per-install
-// secret and enrolls itself for approvals (decisions D09 and D13).
+// started when the app quits. The window is the owner's: it signs itself in with a session
+// minted from the per-install secret and enrolls itself for approvals (decisions D09 and D13).
 const { app, BrowserWindow, dialog, session, shell } = require('electron');
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
@@ -20,7 +20,8 @@ const {
   processRunning,
   portOwnedByUser,
   localKeyPath,
-  localCookie,
+  openTicket,
+  sessionCookie,
   enrollmentLink,
 } = require('./policy.cjs');
 
@@ -95,16 +96,28 @@ function startAdmin() {
     stderr += '\n' + error.message;
   });
 }
-// Loopback is every account on this computer; the admin and the harness know the owner by the
-// secret in the admin's 0600 key file, which only this account can read.
-async function presentLocalSecret() {
+// Loopback is every account on this computer; the admin and the harness know the owner by a
+// session the admin issues for a ticket signed with the secret in its 0600 key file, which only
+// this account can read. The secret stays in this process; the window only gets the session.
+function openSession(ticket, timeout = 5000) {
+  return new Promise((resolve) => {
+    const request = http.get(`${adminUrl}open?ticket=${encodeURIComponent(ticket)}`, { timeout }, (response) => {
+      response.resume();
+      resolve(response.statusCode === 303 ? response.headers['set-cookie'] : null);
+    });
+    request.on('timeout', () => request.destroy());
+    request.on('error', () => resolve(null));
+  });
+}
+async function signInWindow() {
   let secret = '';
   try {
     secret = fs.readFileSync(localKeyPath(os.homedir()), 'utf8');
   } catch {
     return;
   }
-  const cookie = localCookie(secret, harnessPort);
+  const ticket = openTicket(secret);
+  const cookie = ticket && sessionCookie(await openSession(ticket), harnessPort);
   if (cookie) await session.defaultSession.cookies.set(cookie);
 }
 // Output of the owner CLI, or '' when it fails or takes too long.
@@ -191,7 +204,7 @@ async function start() {
     app.quit();
     return;
   }
-  await presentLocalSecret();
+  await signInWindow();
   win = new BrowserWindow(windowOptions(TITLE, icon));
   win.once('ready-to-show', () => {
     win.show();
