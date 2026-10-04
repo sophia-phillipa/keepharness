@@ -117,12 +117,12 @@ if __name__ == "__main__":
 
     from .log_config import configure_logging
 
-    configure_logging()
     os.umask(0o077)
     agent_config = env.read("AGENT_CONFIG")
     if agent_config is None:
         raise KeyError(env.PRODUCT.env_prefix + "_AGENT_CONFIG")
     config = json.loads(Path(agent_config).read_text())
+    configure_logging(config.get("control_state_dir", Path(config["state_dir"]).parent))
     uvicorn.run(
         create_app(config, Path(agent_config)),
         host=config.get("bind", "127.0.0.1"),

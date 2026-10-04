@@ -46,6 +46,8 @@ class FakeNetwork:
             raise httpx.ConnectError("refused", request=request)
         if isinstance(answer, Exception):
             raise answer
+        if request.url.path == "/v1/responses":
+            return httpx.Response(400, json={"error": {"message": "Missing required parameter: model"}})
         result = answer(request)
         return await result if inspect.isawaitable(result) else result
 
@@ -161,9 +163,12 @@ def test_add_probes_persists_and_returns_the_models(admin, network):
     response = add(client, URL + "/v1/", KEY)
     assert response.status_code == 200, response.text
     assert response.json() == {"url": URL, "models": ["qwen3:8b", "gemma-4"], "has_key": True}
-    (request,) = network.requests
+    request, capability = network.requests
     assert str(request.url) == URL + "/v1/models"
     assert request.headers["authorization"] == "Bearer " + KEY
+    assert str(capability.url) == URL + "/v1/responses"
+    assert capability.method == "POST" and json.loads(capability.content) == {}
+    assert capability.headers["authorization"] == "Bearer " + KEY
     probe_options = network.options[0]
     assert probe_options["trust_env"] is False and probe_options["follow_redirects"] is False
     assert json.loads((state / "settings.json").read_text())["remote_models"] == [{"url": URL}]

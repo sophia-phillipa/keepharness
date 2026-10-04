@@ -11,10 +11,14 @@ from agent_service.log_config import HANDLER_NAME, RedactingFilter, configure_lo
 
 
 @pytest.fixture
-def root_logger():
+def root_logger(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
     root = logging.getLogger()
     level, handlers = root.level, list(root.handlers)
     yield root
+    for handler in root.handlers:
+        if handler not in handlers:
+            handler.close()
     root.setLevel(level)
     root.handlers[:] = handlers
 

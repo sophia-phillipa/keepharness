@@ -235,7 +235,36 @@ async def probe(url: str, key: str = "") -> list[dict]:
         entries = None
     if not isinstance(entries, list):
         raise ValueError("The server did not return an OpenAI-style model list.")
+    await require_responses_api(url, key)
     return [model for model in map(parse_model, entries) if model][:MAX_MODELS]
+
+
+async def require_responses_api(url: str, key: str = "") -> None:
+    """An invalid, model-free request tests the route without starting inference."""
+    reason = (
+        "responses_api_unavailable: This server must support the Responses API (/v1/responses)."
+    )
+    headers = {"Authorization": "Bearer " + key} if key else {}
+    try:
+        async with (
+            asyncio.timeout(PROBE_SECONDS),
+            httpx.AsyncClient(
+                timeout=PROBE_SECONDS, trust_env=False, follow_redirects=False
+            ) as client,
+        ):
+            async with client.stream(
+                "POST", url + "/v1/responses", headers=headers, json={}
+            ) as response:
+                if response.status_code in (404, 405, 501):
+                    raise ValueError(reason)
+                body = bytearray()
+                async for chunk in response.aiter_bytes():
+                    body += chunk
+                    if len(body) > MAX_RESPONSE_BYTES:
+                        raise ValueError(reason)
+        json.loads(body)  # Any JSON validation/error dialect proves the route exists.
+    except (TimeoutError, httpx.HTTPError, ValueError, RecursionError):
+        raise ValueError(reason) from None
 
 
 async def check_server(server: dict) -> tuple[dict, list[dict]]:

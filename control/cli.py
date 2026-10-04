@@ -205,12 +205,13 @@ def serve(args, default_state):
 
     if busy := port_taken(args.port):
         raise SystemExit(busy)
-    configure_logging()
-    warn_legacy_names()
     # Only install.sh moves Tail Harness state (decision D24). Starting now would create an
     # empty new folder beside the old one, and the move would then never happen.
     if default_state and (waiting := legacy_waiting()):
         raise SystemExit(migration_refusal(Path.home()) or waiting)
+
+    configure_logging(args.state, filename="admin.log")
+    warn_legacy_names()
 
     app = create_app(args.state, args.port)
     print(f"Local management: http://127.0.0.1:{args.port}/", flush=True)
