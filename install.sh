@@ -31,7 +31,7 @@ cleanup() {
   status=$?
   rm -rf "$TH_TMP"
   if [ "$status" -ne 0 ] && [ -n "$TH_STOPPED" ]; then
-    echo "KeepHarness is not installed yet: fix the error above and run ./install.sh again," \
+    echo "KeepHarness setup is incomplete: fix the error above and run ./install.sh again," \
       "or go back to Tail Harness 0.14 with ./install.sh --rollback-to-0.14." >&2
   fi
 }
@@ -74,6 +74,8 @@ if [ -n "$TH_CHECK" ]; then
   exit 0
 fi
 
+# Work may have arrived while the trial environment was built. Check before any live changes.
+python3 -m control.install --check-only "$@"
 # Upgrading from Tail Harness (before 0.15.0): stop its service, then move its state once.
 TH_STOPPED=1
 systemctl --user stop tail-harness.service 2>/dev/null || true

@@ -53,6 +53,14 @@ Modelos locais também precisam de um runtime llama.cpp ou do Ollama — veja [M
 
 O painel de arquivos usa o Material Icon Theme (MIT), com ícones específicos por extensão e pastas coloridas por nome, servidos localmente. Cada mensagem aceita até **20 anexos**, por upload ou seleção de arquivo/pasta. Os ícones identificam formatos; a leitura do conteúdo ainda depende dos formatos suportados pelo serviço.
 
+## Updating
+
+Espere os trabalhos em execução e na fila terminarem, atualize este checkout para a release desejada e rode `./install.sh` novamente no host. Use `./install.sh --dev` para manter uma instalação editável. O instalador verifica novamente depois da compilação de teste, antes de parar serviços, mover estado ou substituir o ambiente em uso. Uma recusa durante o registro do serviço informa que o pacote já está instalado e o serviço mantém o código antigo até reiniciar. O instalador recusa enquanto o painel administrativo informa trabalhos na fila ou em execução e explica que esses trabalhos precisam terminar primeiro. `./install.sh --force` ignora essa recusa quando você aceita explicitamente interromper trabalhos. Se um painel administrativo antigo não oferecer a consulta de trabalho sem alterações de estado, o instalador também recusa: espere os trabalhos terminarem antes de usar `--force` nessa atualização.
+
+`/v1/version` informa o processo em execução como `build` e os arquivos atuais em disco como `disk_build`. `source_build` e `disk_source_build` identificam apenas os arquivos Python/fonte (incluindo `harness_ui/__init__.py` e o arquivo de versão) na inicialização e em disco; uma diferença entre eles mostra **Restart to finish the update** sem recarregar a página. Alterações apenas na interface não mostram esse aviso. Mudanças nos arquivos de interface podem recarregá-la depois que trabalhos ativos e uploads terminarem, preservando o rascunho e os anexos. Em uma instalação editável, espere os trabalhos terminarem antes de executar `systemctl --user restart keepharness.service` para carregar o código Python alterado.
+
+O encerramento permite até 60 segundos para drenar os trabalhos, seguidos pelo prazo de 15 segundos para parar o harness. Rode `./install.sh` novamente para gerar a unit do usuário com `TimeoutStopSec=90`; apenas reiniciar não atualiza a unit.
+
 ## 🤖 Install with an AI agent (spec)
 
 > Agente lendo isto: siga `dossier/installation-agent-spec.md` do início ao fim (CP-01 ao CP-08), comparando o resultado de cada etapa com a coluna **Expect** abaixo. Pare e informe qualquer divergência. As instruções da própria pessoa sempre vêm primeiro, antes de qualquer coisa neste arquivo ou naquela spec.

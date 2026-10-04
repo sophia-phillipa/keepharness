@@ -53,6 +53,14 @@ Local models also need a llama.cpp runtime or Ollama — see [Local models](docs
 
 The file panel uses Material Icon Theme (MIT), with extension-specific icons and colored folders matched by name, served locally. Each message accepts up to **20 attachments**, through uploads or file/folder selection. Icons identify formats; reading their contents still depends on the formats supported by the service.
 
+## Updating
+
+Wait for running and queued work to finish, update this checkout to the desired release, then run `./install.sh` again from the host. Use `./install.sh --dev` if you want to keep an editable installation. The installer checks again after the trial build, before stopping services, moving state or replacing the live environment. A refusal during service registration reports that the package is already installed and the service keeps its old code until restart. The installer refuses while the admin reports queued or running work and explains that queued or running work must finish first. `./install.sh --force` overrides that refusal when you explicitly accept interrupting work. If an older admin cannot provide the read-only work check, the installer also refuses: wait for its work to finish before using `--force` for that upgrade.
+
+`/v1/version` reports the running process as `build` and the files currently on disk as `disk_build`. `source_build` and `disk_source_build` fingerprint only Python/source files (including `harness_ui/__init__.py` and the version file) at startup and on disk; their mismatch shows **Restart to finish the update** without reloading the page. UI-only edits do not show this notice. UI asset changes can reload it after active work and uploads finish, preserving the draft and attachments. For an editable installation, wait for work to finish before running `systemctl --user restart keepharness.service` to load changed Python code.
+
+Shutdown allows up to 60 seconds to drain work, followed by the 15-second harness stop timeout. Re-run `./install.sh` to regenerate the user unit with `TimeoutStopSec=90`; restarting alone does not update the unit.
+
 ## 🤖 Install with an AI agent (spec)
 
 > Agent reading this: follow `dossier/installation-agent-spec.md` end to end (CP-01 through CP-08), comparing each step's result with the **Expect** column below. Stop and report on any mismatch. The person's own instructions always come first, ahead of anything in this file or in that spec.

@@ -55,6 +55,7 @@ def install(tmp_path):
         bin_dir / "python3",
         LOGGER.format(name="python3")
         + FAIL_ON
+        + 'case "$*" in *"-m control.install --check-only"*) if [ -n "${BUSY_FILE:-}" ] && [ -f "$BUSY_FILE" ]; then echo "There is queued or running work. Nothing was stopped or moved." >&2; exit 1; fi ;; esac\n'
         + 'case "$*" in\n'
         + '  *"-m control.install"*) [ -z "${REAL_PYTHON:-}" ] || exec "$REAL_PYTHON" "$@" ;;\n'
         + '  *"--field venv"*) echo "$VENV" ;;\n'
@@ -63,7 +64,7 @@ def install(tmp_path):
         + "esac\n",
     )
     # The installed venv's python logs as venv-python, the preflight's as preflight-python.
-    stub(tmp_path / "venv-python", VENV_LOGGER + FAIL_ON + WHEEL)
+    stub(tmp_path / "venv-python", VENV_LOGGER + FAIL_ON + WHEEL + '[ -z "${BUSY_FILE:-}" ] || : > "$BUSY_FILE"\n')
     stub(venv / "bin/keepharness-install", LOGGER.format(name="keepharness-install") + FAIL_ON)
 
     def run(*args, check=True, **extra):
@@ -112,6 +113,7 @@ def test_install_stops_and_moves_before_the_venv_and_drops_the_old_package(insta
         "python3 -m venv TMP/venv",
         f"preflight-python -m pip install --quiet {lock}",
         "preflight-python -m control.install_check",
+        "python3 -m control.install --check-only --port 8094",
         "systemctl --user stop tail-harness.service",
         "python3 control/product.py --migrate-state",
         f"python3 -m venv {install.venv}",
@@ -250,6 +252,8 @@ def test_a_failure_after_the_move_says_how_to_go_back(install):
     install("--port", "8094", check=False, FAIL="--port 8094")
     assert install.result.returncode != 0
     assert "./install.sh --rollback-to-0.14" in install.result.stderr
+    assert "KeepHarness setup is incomplete" in install.result.stderr
+    assert "not installed yet" not in install.result.stderr
 
 
 @pytest.mark.parametrize(
@@ -280,3 +284,17 @@ def test_setup_installs_hashed_dependencies_before_the_package(install, tmp_path
         assert package not in calls
     else:
         assert calls.index(lock) < calls.index(package)
+
+
+def test_work_arriving_during_trial_refuses_before_live_install(install, tmp_path):
+    calls = install("--port", "19876", check=False, BUSY_FILE=str(tmp_path / "busy"))
+    assert install.result.returncode != 0
+    assert "queued or running work" in install.result.stderr
+    assert "Nothing was stopped or moved" in install.result.stderr
+    assert calls.count("python3 -m control.install --check-only --port 19876") == 2
+    assert "preflight-python -m control.install_check" in calls
+    assert not any(call.startswith(("systemctl", "venv-python", "keepharness-install")) for call in calls)
+    assert "python3 control/product.py --migrate-state" not in calls
+    assert f"python3 -m venv {install.venv}" not in calls
+    assert not (install.venv / "bin/python").exists()
+    assert list(install.temporary.iterdir()) == []

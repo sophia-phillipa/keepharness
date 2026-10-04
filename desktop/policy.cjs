@@ -47,8 +47,8 @@ function windowOptions(title, icon) {
   return {
     width: 1440,
     height: 900,
-    minWidth: 720,
-    minHeight: 500,
+    minWidth: 960,
+    minHeight: 640,
     show: false,
     title,
     icon,
@@ -194,7 +194,59 @@ function enrollmentLink(output, harnessOrigin) {
     return null;
   }
 }
+// Runtime identity is explicit: a responding web server alone is not a harness.
+function productAllowed(body) {
+  try { return JSON.parse(body)?.product === 'keepharness'; } catch { return false; }
+}
+function runtimePort(override, body) {
+  let value = override;
+  if (value === undefined) {
+    try { value = JSON.parse(body)?.port; } catch { return 8095; }
+  }
+  if (!['number', 'string'].includes(typeof value) || !/^\d+$/.test(String(value))) return 8095;
+  const port = Number(value);
+  return Number.isInteger(port) && port > 0 && port <= 65535 ? port : 8095;
+}
+// Preserve partly visible bounds on their greatest-overlap display; removed displays use defaults.
+function clampBounds(state, areas) {
+  const valid = state && ['x', 'y', 'width', 'height'].every(key => Number.isFinite(state[key])) && state.width > 0 && state.height > 0;
+  let area = null, greatestOverlap = 0;
+  if (valid) for (const candidate of areas) {
+    const width = Math.max(0, Math.min(state.x + state.width, candidate.x + candidate.width) - Math.max(state.x, candidate.x));
+    const height = Math.max(0, Math.min(state.y + state.height, candidate.y + candidate.height) - Math.max(state.y, candidate.y));
+    const overlap = width * height;
+    if (overlap > greatestOverlap) { area = candidate; greatestOverlap = overlap; }
+  }
+  const target = area || areas[0] || {x:0, y:0, width:1440, height:900};
+  const width = Math.min(target.width, Math.max(960, area ? state.width : 1440));
+  const height = Math.min(target.height, Math.max(640, area ? state.height : 900));
+  return {
+    x: area ? Math.max(target.x, Math.min(state.x, target.x + target.width - width)) : target.x + Math.floor((target.width - width) / 2),
+    y: area ? Math.max(target.y, Math.min(state.y, target.y + target.height - height)) : target.y + Math.floor((target.height - height) / 2),
+    width, height, maximized: !!area && state.maximized === true,
+  };
+}
+function redact(value, secrets = []) {
+  let text = String(value);
+  for (const secret of secrets) if (secret) text = text.split(secret).join('[REDACTED]');
+  return text
+    .replace(/((?:set-cookie|cookie|authorization|x-api-key)["']?\s*:\s*)[^\r\n]+/gi, '$1[REDACTED]')
+    .replace(/(\badmin\s*=\s*)(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s&;,}]+)/gi, '$1[REDACTED]')
+    .replace(/((?:["']?)(?<![A-Za-z0-9])(?:secret|ticket|cookie|keepharness-local|harness_session|api[_-]key|token|password)(?:["']?)\s*[:=]\s*)(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s&;,}]+)/gi, '$1[REDACTED]');
+}
+const LOG_LIMIT = 1024 * 1024;
+// Return a bounded UTF-8 record and rotation decision; disk writes stay in the runtime.
+function logChunk(size, value, timestamp = new Date().toISOString()) {
+  const prefix = timestamp + ' ';
+  const buffer = Buffer.from(redact(value));
+  const budget = LOG_LIMIT - Buffer.byteLength(prefix) - 1;
+  let end = Math.min(buffer.length, budget);
+  while (end < buffer.length && end > 0 && (buffer[end] & 0xc0) === 0x80) end--;
+  const text = prefix + buffer.subarray(0, end).toString('utf8') + '\n';
+  return { text, rotate: size + Buffer.byteLength(text) > LOG_LIMIT };
+}
 module.exports = {
+  productAllowed, runtimePort, clampBounds, redact, logChunk, LOG_LIMIT,
   appOrigins,
   isAppUrl,
   permissionAllowed,

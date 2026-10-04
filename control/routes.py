@@ -80,7 +80,7 @@ def admin_guard(request, manager, port):
         request.headers.get("sec-fetch-site") == "cross-site" and not navigation
     ):
         return JSONResponse({"error": "Unauthorized origin."}, 403)
-    if path == local_access.OPEN_PATH:
+    if path in (local_access.OPEN_PATH, "/open-admin"):
         return open_link(request, manager)
     if path == "/":
         r = FileResponse(PANEL_DIR / "index.html")
@@ -115,6 +115,11 @@ def open_link(request, manager):
             403,
             headers={"Cache-Control": "no-store"},
         )
+    if request.url.path == "/open-admin":
+        # Installer checks need admin access without creating or evicting browser sessions.
+        response = JSONResponse({"authenticated": True}, headers={"Cache-Control": "no-store"})
+        response.set_cookie("admin", manager.cookie, httponly=True, samesite="strict")
+        return response
     try:
         token = local_access.issue_session(manager.state)
     except OSError:
@@ -738,6 +743,7 @@ async def endpoint(request: Request):
 ROUTES = [
     Route("/", endpoint),
     Route(local_access.OPEN_PATH, endpoint),
+    Route("/open-admin", endpoint),
     Route("/admin.js", endpoint),
     Route("/catalogs.js", endpoint),
     Route("/admin.css", endpoint),
