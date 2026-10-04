@@ -1,6 +1,12 @@
 """The pattern worker's deadline covers matching only, never interpreter startup."""
 
+import asyncio
+import json
+import signal
+import subprocess
+import threading
 import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -53,13 +59,220 @@ def test_catastrophic_pattern_is_cut_off_after_slow_startup(slow_startup, childr
     assert len(children) == 1 and children[0].returncode is not None
 
 
+# A worker that outlives the test would only finish after this long, so a missing kill shows
+# up as a failed assertion on elapsed time or exit status instead of a hung test run.
+STUCK_SECONDS = 3
+
+
 def test_worker_that_never_signals_ready_is_killed(monkeypatch, children):
     monkeypatch.setattr(work_items, "_STARTUP_SECONDS", 0.3)
-    monkeypatch.setattr(work_items, "_MATCH_REFERENCES", "import time\ntime.sleep(60)\n")
+    monkeypatch.setattr(work_items, "_MATCH_REFERENCES", f"import time\ntime.sleep({STUCK_SECONDS})\n")
     started = time.monotonic()
     with pytest.raises(APIError, match="invalid_work_item_pattern"):
         work_items.invocation_reference(
             {}, {"work_item_pattern": "x"}, {"invocations": [{"args": "x"}]}
         )
-    assert time.monotonic() - started < 5
-    assert len(children) == 1 and children[0].returncode is not None
+    assert time.monotonic() - started < STUCK_SECONDS - 1
+    assert len(children) == 1 and children[0].returncode == -signal.SIGKILL
+
+
+def test_worker_crash_fails_closed(monkeypatch, children):
+    monkeypatch.setattr(
+        work_items, "_MATCH_REFERENCES", 'import sys\nprint("ready", flush=True)\nsys.exit(3)\n'
+    )
+    with pytest.raises(APIError, match="invalid_work_item_pattern"):
+        work_items.invocation_reference(
+            {}, {"work_item_pattern": "x"}, {"invocations": [{"args": "x"}]}
+        )
+    assert len(children) == 1 and children[0].returncode == 3
+
+
+def test_interrupt_while_waiting_for_ready_still_reaps_the_worker(monkeypatch):
+    class Interrupted:
+        def __init__(self, stream):
+            self.stream = stream
+
+        def readline(self):
+            raise KeyboardInterrupt
+
+        def close(self):
+            self.stream.close()
+
+    children = []
+    original = work_items.subprocess.Popen
+
+    def start(*args, **kwargs):
+        child = original(*args, **kwargs)
+        child.stdout = Interrupted(child.stdout)
+        children.append(child)
+        return child
+
+    monkeypatch.setattr(work_items.subprocess, "Popen", start)
+    monkeypatch.setattr(work_items, "_MATCH_REFERENCES", f"import time\ntime.sleep({STUCK_SECONDS})\n")
+    started = time.monotonic()
+    with pytest.raises(KeyboardInterrupt):
+        work_items.invocation_reference(
+            {}, {"work_item_pattern": "x"}, {"invocations": [{"args": "x"}]}
+        )
+    assert time.monotonic() - started < STUCK_SECONDS - 1
+    assert children[0].returncode == -signal.SIGKILL
+
+
+# The match runs off the event loop and at most _MAX_WORKERS children run at once.
+
+PROJECT = {"work_item_pattern": r"TASK-\d+"}
+DATA = {"invocations": [{"args": "see TASK-7"}]}
+
+
+def record_worker(monkeypatch, *, delay=0.0, reply='["TASK-7"]'):
+    """Replace the child with a stub that records where and how concurrently it ran."""
+    seen = SimpleNamespace(calls=0, active=0, peak=0, on_loop=[], guard=threading.Lock())
+
+    def fake(payload):
+        try:
+            asyncio.get_running_loop()
+            seen.on_loop.append(True)
+        except RuntimeError:
+            seen.on_loop.append(False)
+        with seen.guard:
+            seen.calls += 1
+            seen.active += 1
+            seen.peak = max(seen.peak, seen.active)
+        time.sleep(delay)
+        with seen.guard:
+            seen.active -= 1
+        return reply
+
+    monkeypatch.setattr(work_items, "_run_worker", fake)
+    return seen
+
+
+def test_event_loop_keeps_running_while_a_slow_match_is_awaited(slow_startup):
+    async def scenario():
+        ticks = []
+
+        async def ticker():
+            while True:
+                ticks.append(time.monotonic())
+                await asyncio.sleep(0.02)
+
+        task = asyncio.create_task(ticker())
+        await work_items.prematch_reference({}, PROJECT, DATA)
+        task.cancel()
+        return len(ticks)
+
+    # Blocking the loop for the 0.6 s start-up would leave a single tick.
+    assert asyncio.run(scenario()) >= 8
+
+
+def test_prematched_outcome_is_used_once_by_the_synchronous_call(monkeypatch):
+    seen = record_worker(monkeypatch)
+
+    async def scenario():
+        await work_items.prematch_reference({}, PROJECT, DATA)
+        first = work_items.invocation_reference({}, PROJECT, DATA)
+        second = work_items.invocation_reference({}, PROJECT, DATA)
+        return first, second
+
+    assert asyncio.run(scenario()) == ("TASK-7", "TASK-7")
+    assert seen.calls == 2 and seen.on_loop == [False, True]  # only the second one matched inline
+
+
+def test_prematched_failure_is_raised_by_the_synchronous_call(monkeypatch):
+    def fail(payload):
+        raise subprocess.TimeoutExpired("worker", 0.5)
+
+    monkeypatch.setattr(work_items, "_run_worker", fail)
+
+    async def scenario():
+        await work_items.prematch_reference({}, PROJECT, DATA)
+        monkeypatch.setattr(work_items, "_run_worker", lambda payload: pytest.fail("matched twice"))
+        work_items.invocation_reference({}, PROJECT, DATA)
+
+    with pytest.raises(APIError, match="invalid_work_item_pattern"):
+        asyncio.run(scenario())
+
+
+def test_concurrent_matches_respect_the_worker_cap(monkeypatch):
+    seen = record_worker(monkeypatch, delay=0.05)
+
+    async def scenario():
+        await asyncio.gather(
+            *(work_items.prematch_reference({}, PROJECT, DATA) for _ in range(work_items._MAX_WORKERS * 3))
+        )
+
+    asyncio.run(scenario())
+    assert seen.calls == work_items._MAX_WORKERS * 3
+    assert 1 < seen.peak <= work_items._MAX_WORKERS
+
+
+def test_match_gives_up_when_no_worker_slot_frees_up(monkeypatch):
+    record_worker(monkeypatch)
+    monkeypatch.setattr(work_items, "_ADMISSION_SECONDS", 0.05)
+    held = [work_items._slots.acquire() for _ in range(work_items._MAX_WORKERS)]
+    try:
+        with pytest.raises(APIError, match="queue_full") as error:
+            work_items.invocation_reference({}, PROJECT, DATA)
+    finally:
+        for _ in held:
+            work_items._slots.release()
+    assert error.value.status == 429
+
+
+def test_submit_route_matches_off_the_event_loop(tmp_path, monkeypatch):
+    from test_invocation_normalization import invocation_service
+
+    from agent_service.routes import conversations
+
+    service, identity = invocation_service(tmp_path, monkeypatch)
+    service.config["projects"]["p"]["work_item_pattern"] = r"TASK-\d{4}"
+    item = next(
+        i
+        for i in service.resource_catalog(identity, "p", "codex", "gpt-6-astra")["items"]
+        if i["name"] == "reviewer"
+    )
+    request_body = dict(
+        project_id="p",
+        backend="codex",
+        model="gpt-6-astra",
+        effort="low",
+        prompt="Hello",
+        invocations=[
+            dict(
+                kind="agent",
+                resource_id=item["resource_id"],
+                args="Review TASK-1234",
+                order=0,
+                mode="delegated",
+            )
+        ],
+    )
+
+    async def stream():
+        yield json.dumps(request_body).encode()
+
+    seen = record_worker(monkeypatch, reply='["TASK-1234"]')
+    request = SimpleNamespace(stream=stream, state=SimpleNamespace(), headers={})
+    response = asyncio.run(conversations.submit_job(request, service, identity))
+    assert response.status_code == 202
+    assert seen.calls == 1 and seen.on_loop == [False]
+    job = json.loads(response.body)["job_id"]
+    assert service.job(identity, job)["work_item"] == "TASK-1234"
+    service.db.close()
+
+
+def test_scheduled_runs_never_reach_the_worker():
+    """A schedule submits no invocations; if that changes, its caller must prematch like the route."""
+    from agent_service import schedules
+
+    record = dict(
+        prompt="Daily",
+        project_id="p",
+        backend="codex",
+        model="m",
+        effort="low",
+        access_mode="ask",
+        agent=None,
+        page_ids=[],
+    )
+    assert work_items._match_payload({}, PROJECT, schedules.job_request({}, record)) is None

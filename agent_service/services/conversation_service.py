@@ -63,7 +63,7 @@ from ..persistence.repositories import (
     ProjectRepository,
 )
 from ..private_storage import validate_attachment_source
-from ..work_items import invocation_reference, validate_reference
+from ..work_items import invocation_reference, prematch_reference, validate_reference
 from . import capacity, queue_worker, retention
 from .activity_service import summarize_activity
 from .budgets import timeout_seconds
@@ -1227,6 +1227,16 @@ class ConversationService:
             return validate_reference(data["work_item"])
         reference = invocation_reference(self.config, project, data)
         return reference if reference is not None else parent["work_item"] if parent else None
+
+    async def prematch_work_item(self, identity, data):
+        """Await the work-item match off the event loop so ``submit`` finds it already done."""
+        if "work_item" in data:
+            return
+        try:
+            project = self.project(identity, data.get("project_id"))
+        except APIError:
+            return  # submit raises it in its own order
+        await prematch_reference(self.config, project, data)
 
     def tag_work_item(self, identity, job, value):
         row = self.job(identity, job)
