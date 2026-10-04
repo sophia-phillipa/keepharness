@@ -39,7 +39,7 @@ const models = [
                   : {};
       return route.fulfill({ json: data });
     });
-    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
+    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
     await page.goto(process.env.HARNESS_URL || "http://panel.test/");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
 

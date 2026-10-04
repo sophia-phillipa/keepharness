@@ -284,7 +284,7 @@ const assert = require("node:assert/strict"),
     });
     try {
       await touch.route(origin + "/**", routeFixture);
-      await touch.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
+      await touch.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
       const touchPage = await touch.newPage();
       await touchPage.goto(origin);
       await touchPage.locator("#startup-gate").waitFor({ state: "hidden" });
