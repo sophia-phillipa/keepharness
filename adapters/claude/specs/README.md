@@ -91,13 +91,13 @@ only, the failed result's text travels as `error_detail`: one line, redacted, at
 characters. Any other kind stays `claude_execution_failed` and its text is never shown.
 
 The administration dashboard and provider editor expose account login/renewal.
-An explicit successful Claude browser login persists a non-secret
-`claude-cli-login` preference in the control state directory and updates the
-runtime's `use_cli_login` flag. Login, later account checks and subsequent native
-Claude processes then omit inherited `CLAUDE_CODE_OAUTH_TOKEN`; the parent
-environment is unchanged. Failed/cancelled logins do not change this preference.
-The preference survives admin restarts. Credentials remain managed by the CLI.
-Native Claude account renewal does not block starting the rest of the Harness.
+Login, account checks and every Claude process use the harness-owned
+`CLAUDE_CONFIG_DIR` under the control state directory
+([docs/provider-homes.md](../../../docs/provider-homes.md)); the login KeepHarness
+signs in with lives there, never the terminal's `~/.claude` or an inherited
+`CLAUDE_CODE_OAUTH_TOKEN`. A successful browser login still records the non-secret
+`claude-cli-login` marker. Credentials remain managed by the CLI. Native Claude
+account renewal does not block starting the rest of the Harness.
 
 Validation: `tests/test_claude_errors.py`, `tests/test_provider_login.py`,
 `tests/account-renewal.spec.cjs`, and related native/session/runtime tests.
@@ -138,10 +138,12 @@ and model, while tool grants remain controlled by the Harness. This catalog
 materialization route is covered by synthetic adapter tests, not a paid live
 certification of `--agents` execution.
 
-Hooks use `--setting-sources project` by default. The explicit backend option
-`global_hooks: true` also requires the hooks grant and changes the emitted scope
-to `global_and_project`. This opt-in adds the `user` setting source. An unrelated
-global hook is not enabled by a project hook grant alone.
+Hooks use `--setting-sources project` by default. The owner's personal-setup
+opt-in (`personal_setup: true`, which replaced `global_hooks` in 0.15.0) also
+requires the hooks grant and changes the emitted scope to `global_and_project`:
+it adds the `user` setting source and passes the owner's own `hooks` from
+`~/.claude/settings.json` through `--settings`. Guests and scheduled runs never
+get it. An unrelated global hook is not enabled by a project hook grant alone.
 
 A leading native command is preserved only when the Harness can retain its
 native position and context. Other invocations use the inline fallback.

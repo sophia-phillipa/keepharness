@@ -24,26 +24,56 @@ _CREDENTIAL_HEADER = re.compile(
 )
 
 
+# Everything else on the host (session buses, agent sockets, tokens of the terminal CLIs,
+# relay URLs, the harness's own authority) stays out of provider children (SEC RC-09).
+ALLOWED_ENVIRONMENT = frozenset(
+    {
+        "PATH",
+        "HOME",
+        "USER",
+        "LOGNAME",
+        "SHELL",
+        "TMPDIR",
+        "TZ",
+        "LANG",
+        "LANGUAGE",
+        # The provider homes: harness-owned once ``provider_setup`` supplies them.
+        "CODEX_HOME",
+        "CLAUDE_CONFIG_DIR",
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "NO_PROXY",
+        "ALL_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "no_proxy",
+        "all_proxy",
+        "SSL_CERT_FILE",
+        "SSL_CERT_DIR",
+        "NODE_EXTRA_CA_CERTS",
+    }
+)
+
+
+def harness_authority(key):
+    """Names that carry the harness's own authority, never a provider's."""
+    return (
+        key.upper().startswith(
+            # TAIL_HARNESS_ is the prefix from before the KeepHarness rename (0.15.0).
+            ("KEEPHARNESS_", "TAIL_HARNESS_", "LOCAL_AGENT_", "HARNESS_", PRODUCT.env_prefix + "_")
+        )
+        or "COOKIE" in key.upper()
+        or key.upper() in {"ADMIN_TOKEN", "ADMIN_SECRET", "ADMIN_PASSWORD"}
+    )
+
+
 def child_environment(environment=None, *, provider=None):
-    """Provider authentication is retained; harness/session authority never is."""
+    """Only allow-listed variables of ``environment`` (the host's by default) reach a child."""
     source = os.environ if environment is None else environment
     clean = {
         key: value
         for key, value in source.items()
-        if not (
-            key.upper().startswith(
-                # TAIL_HARNESS_ is the prefix from before the KeepHarness rename (0.15.0).
-                (
-                    "KEEPHARNESS_",
-                    "TAIL_HARNESS_",
-                    "LOCAL_AGENT_",
-                    "HARNESS_",
-                    PRODUCT.env_prefix + "_",
-                )
-            )
-            or "COOKIE" in key.upper()
-            or key.upper() in {"ADMIN_TOKEN", "ADMIN_SECRET", "ADMIN_PASSWORD"}
-        )
+        if key in ALLOWED_ENVIRONMENT or key.startswith("LC_")
     }
     # DeepSeek supplies this inference credential explicitly from its key file.
     # A host variable with the same name is never enough to grant this exception.

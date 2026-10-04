@@ -17,6 +17,7 @@ from starlette.routing import Route
 
 from adapters.claude.auth import cli_login_environment
 from adapters.deepseek import account as deepseek
+from adapters.shared.provider_setup import login_environment
 from agent_service.errors import APIError
 from harness_ui import asset_response, static_response
 
@@ -331,13 +332,16 @@ async def login_provider(request, manager, data):
     if existing:
         result = existing
     else:
+        # Codex and Claude Code sign in once, into the harness-owned home (decision D02).
         options = (
             {
-                "env": cli_login_environment(),
+                "env": cli_login_environment(manager.state),
                 "on_success": manager.claude_login_completed,
                 "interactive": True,
             }
             if provider == "claude"
+            else {"env": login_environment(manager.state, "codex")}
+            if provider == "codex"
             else {}
         )
         # A person signs in in the browser and may paste a code back: allow 15 minutes.

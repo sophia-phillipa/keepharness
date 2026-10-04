@@ -148,7 +148,8 @@ def test_native_run_uses_the_selected_auth_source(tmp_path, monkeypatch, use_cli
             AsyncMock(),
         )
     )
-    assert result["answer"] == ("cli" if use_cli_login else "env")
+    # The terminal's login token never reaches a run: KeepHarness signs in to its own home (D02).
+    assert result["answer"] == "cli"
 
 
 def test_pending_claude_login_does_not_block_native_harness_startup(tmp_path):

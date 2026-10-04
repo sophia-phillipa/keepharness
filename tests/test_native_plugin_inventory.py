@@ -13,6 +13,7 @@ def test_plugin_inventory_is_authoritative_and_only_selects_integrations(tmp_pat
     config = {
         "plugin_inventory": ["plugin:installed@marketplace", "plugin:other@marketplace"],
         "integrations": ["plugin:other@marketplace"],
+        "personal_setup": True,
     }
 
     with (
@@ -65,7 +66,7 @@ def test_plugin_inventory_falls_back_to_legacy_catalog_when_absent():
         ),
     ):
         params = thread_parameters(
-            {"integrations": ["plugin:legacy@marketplace"]},
+            {"integrations": ["plugin:legacy@marketplace"], "personal_setup": True},
             {},
             "fixture",
             workspace,

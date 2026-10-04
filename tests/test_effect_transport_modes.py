@@ -104,7 +104,7 @@ def test_native_configs_use_owned_server_and_disable_host_impersonation(tmp_path
     )
     assert params["config"]["mcp_servers"]["harness_effects_fixture"] == {**owned, "enabled": True}
     params = thread_parameters(
-        {"plugin_inventory": [], "integrations": ["mcp:harness_effects"]},
+        {"plugin_inventory": [], "integrations": ["mcp:harness_effects"], "personal_setup": True},
         {},
         "fixture",
         workspace,

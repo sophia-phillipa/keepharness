@@ -12,6 +12,7 @@ import sqlite3
 from collections.abc import Sequence
 from typing import Any, NamedTuple
 
+from adapters.shared.provider_setup import CONFIG_FOLDERS
 from control.integrations import inventory
 
 from . import approval_policy, maestro
@@ -39,6 +40,10 @@ GEMINI_INTERNET = "Gemini connectors need the internet permission."
 ASKS = "Each connector call asks for your approval."
 UNATTENDED = "Connector calls run without asking (full access)."
 INVENTORY_UNREADABLE = "Could not read the connector and plugin inventory."
+PERSONAL_SETUP_OFF = (
+    "Your Codex and Claude Code connectors and plugins come with your personal setup,"
+    " which is off. Turn it on in Settings › System."
+)
 # Harness Codex runs set features.apps=false (adapters/codex/native.py); remote ChatGPT
 # plugins bring their tools as apps, so those plugins never load in a run.
 REMOTE_PLUGIN = "Remote ChatGPT plugins bring their tools as Codex apps, which harness runs turn off."
@@ -183,7 +188,11 @@ def attribute_usage(
 
 def build(config: Settings, route: Route, usage_rows: Sequence[sqlite3.Row]) -> Item:
     """The ``/v1/integrations`` response for one route; ``usage_rows`` come from the repository."""
-    items, warnings = read_inventory(config, route.backend)
+    # These run in a harness-owned home: host connectors only through the owner's opt-in (D01).
+    if route.backend in CONFIG_FOLDERS and config.get("personal_setup") is not True:
+        items, warnings = [], [PERSONAL_SETUP_OFF]
+    else:
+        items, warnings = read_inventory(config, route.backend)
     allowed = set(config.get("services", {}).get(route.backend, {}).get("integrations", []))
     limits = route_limits(config, route)
     used, other_tools = attribute_usage(items, usage_rows)

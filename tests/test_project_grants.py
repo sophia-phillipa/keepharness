@@ -156,8 +156,8 @@ def test_models_advertise_local_admin_link_on_vpn_hostname(tmp_path):
         app.state.service.db.close()
 
 
-def test_admin_accepts_project_only_delegate_and_explicit_global_hooks(tmp_path):
-    from control.runtime_config import build_cli_provider
+def test_admin_accepts_project_only_delegate_and_explicit_personal_setup(tmp_path):
+    from control.runtime_config import base_config
 
     manager = Manager(tmp_path / "state")
     root = tmp_path / "project"
@@ -166,22 +166,14 @@ def test_admin_accepts_project_only_delegate_and_explicit_global_hooks(tmp_path)
         **manager.settings,
         "projects": [{"id": "p", "root": str(root), "permissions": {"delegate": True}}],
     }
-    settings["services"]["claude"]["global_hooks"] = True
+    # The owner's personal-setup opt-in replaced the Claude-only global_hooks (decision D01).
+    settings["personal_setup"] = True
     checked = manager.validate(settings)
     assert checked["projects"][0]["permissions"] == {"delegate": True}
     assert "delegate" not in checked["services"]["claude"]["permissions"]
-    assert checked["services"]["claude"]["global_hooks"] is True
-    runtime = {}
-    with patch("control.runtime_config.native_binary", lambda path: path):
-        build_cli_provider(
-            runtime,
-            "claude",
-            checked["services"]["claude"],
-            {"authenticated": True, "models": {}},
-            {"binary": "/synthetic/claude", "auth_file": ""},
-            tmp_path,
-        )
-    assert runtime["claude"]["global_hooks"] is True
-    settings["services"]["claude"]["global_hooks"] = "true"
-    with pytest.raises(ValueError, match="Global hooks"):
+    assert checked["personal_setup"] is True
+    runtime = base_config(checked, tmp_path / "state", 8094, "http://127.0.0.1:8095/", {})
+    assert runtime["personal_setup"] is True
+    settings["personal_setup"] = "true"
+    with pytest.raises(ValueError, match="personal setup"):
         manager.validate(settings)

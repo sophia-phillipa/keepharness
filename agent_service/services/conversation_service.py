@@ -19,6 +19,7 @@ from pathlib import Path
 import adapters
 from adapters.claude import account as claude_account
 from adapters.codex import rpc as codex_rpc
+from adapters.shared.provider_setup import child_source, run_settings
 from control import remote_models
 
 from .. import (
@@ -910,9 +911,10 @@ class ConversationService:
             return result
         execution_mode = execution_mode or self.default_execution_mode(backend)
         self.validate_execution_mode(backend, execution_mode)
-        return resources.discover(
-            self.config, project_id, backend, model, execution_mode=execution_mode
-        )
+        # A guest never sees the owner's personal resources (decision D01).
+        owner = identity[0] == harness_agents.LOCAL_CLIENT
+        config = self.config if owner else {**self.config, "personal_setup": False}
+        return resources.discover(config, project_id, backend, model, execution_mode=execution_mode)
 
     def selected_resources(self, data, *, canonical=None):
         if data.get("backend") == "maestro":
@@ -1549,7 +1551,12 @@ class ConversationService:
             if cache and cache[0] == binary and time.monotonic() - cache[1] < 30:
                 return cache[2]
             try:
-                result = await asyncio.wait_for(codex_rpc.metadata(binary, "model/list"), 2)
+                result = await asyncio.wait_for(
+                    codex_rpc.metadata(
+                        binary, "model/list", env=child_source(self.config["codex"], "codex")
+                    ),
+                    2,
+                )
                 modalities = {
                     item["id"]: item["inputModalities"]
                     for item in result.get("data", [])
@@ -2299,6 +2306,10 @@ class ConversationService:
         if data.get("_planning_only"):
             project_config = {"permissions": {}}
             backend_config = {**backend_config, "integrations": [], "unrestricted": False}
+        backend_config = {
+            **backend_config,
+            **run_settings(self.config, backend, guest=guest, data=data),
+        }
         return project_config, backend_config, permissions
 
     def expire_approval(self, job_id, expiration_limit):
@@ -2549,7 +2560,9 @@ class ConversationService:
             return self.usage_cache
         try:
             value = await codex_rpc.metadata(
-                self.config["codex"]["binary"], "account/rateLimits/read"
+                self.config["codex"]["binary"],
+                "account/rateLimits/read",
+                env=child_source(self.config["codex"], "codex"),
             )
             self.usage_cache = {
                 "available": True,

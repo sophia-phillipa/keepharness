@@ -72,7 +72,7 @@ sys.stdin.readline()
     assert "useful final diagnostic" in json.dumps(events)
 
 
-def test_provider_environment_strips_harness_authority_and_preserves_provider_auth():
+def test_provider_environment_strips_harness_authority_and_host_logins():
     from adapters.shared.process import child_environment
 
     source = {
@@ -92,16 +92,8 @@ def test_provider_environment_strips_harness_authority_and_preserves_provider_au
         "TAIL_HARNESS_TOKEN": "authority-g",
     }
     clean = child_environment(source)
-    assert clean == {
-        key: source[key]
-        for key in (
-            "PATH",
-            "HOME",
-            "OPENAI_API_KEY",
-            "ANTHROPIC_API_KEY",
-            "CLAUDE_CODE_OAUTH_TOKEN",
-        )
-    }
+    # Provider logins live in the harness-owned homes, not in host variables (D02, SEC RC-09).
+    assert clean == {key: source[key] for key in ("PATH", "HOME")}
     assert len(source) == 13
 
 
@@ -128,7 +120,7 @@ def test_claude_spawn_scrubs_inheritance_and_reports_stderr(native, tmp_path, mo
 import json, os, sys
 assert 'HARNESS_SESSION' not in os.environ
 assert 'KEEPHARNESS_TOKEN' not in os.environ
-assert os.environ['CLAUDE_CODE_OAUTH_TOKEN'] == 'provider-oauth'
+assert 'CLAUDE_CODE_OAUTH_TOKEN' not in os.environ
 sys.stdin.readline()
 sys.stderr.write('harness_session=human-cookie\\n')
 sys.stderr.write('enrollment_nonce=enrollment-secret\\n')
