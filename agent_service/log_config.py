@@ -141,11 +141,16 @@ def log_tail(state, lines=LOG_TAIL_LINES):
         else LOG_TAIL_BYTES
     )
     structured = _file_tail(structured_path, lines, byte_limit)
-    # A restart moves the crashed run's output to harness.log.1; it fills what the new run leaves.
+    # A restart moves the crashed run's output to harness.log.1; it fills the byte budget the
+    # active log leaves, so both files together never exceed it.
     backup_path = process_path.with_name(process_path.name + ".1")
-    process = _file_tail(backup_path, lines, byte_limit) + _file_tail(
-        process_path, lines, byte_limit
-    )
+    process = _file_tail(process_path, lines, byte_limit)
+    try:
+        spare = byte_limit - min(process_path.stat().st_size, byte_limit)
+    except FileNotFoundError:
+        spare = byte_limit
+    if spare > 0:
+        process = _file_tail(backup_path, lines, spare) + process
     if not process:
         return structured
     # Reserve room for both sources when present; every process line is labelled.

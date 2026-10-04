@@ -232,3 +232,22 @@ def test_rotating_handler_isolates_formatter_failure(tmp_path, monkeypatch):
         error.assert_called_once_with(record)
     finally:
         handler.close()
+
+
+def test_log_tail_reads_the_active_log_and_its_backup_within_one_budget(tmp_path, monkeypatch):
+    budget = log_config.LOG_TAIL_BYTES
+    (tmp_path / "harness.log.1").write_bytes(b"".join(b"old %06d\n" % n for n in range(budget // 8)))
+    (tmp_path / "harness.log").write_bytes(b"".join(b"new %06d\n" % n for n in range(budget // 8)))
+    reads = []
+    real = log_config._file_tail
+
+    def spy(path, lines, byte_limit):
+        if path.exists():
+            reads.append(min(path.stat().st_size, byte_limit))
+        return real(path, lines, byte_limit)
+
+    monkeypatch.setattr(log_config, "_file_tail", spy)
+    lines = log_config.log_tail(tmp_path)
+    assert sum(reads) <= budget
+    assert lines[-1] == "[process output] new %06d" % (budget // 8 - 1)
+    assert not any("old" in line for line in lines)
