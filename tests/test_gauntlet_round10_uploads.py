@@ -211,3 +211,74 @@ def test_selected_upload_provider_is_revalidated(tmp_path, monkeypatch, media):
             service.db.close()
 
     asyncio.run(run())
+
+
+# Decision D33: identical uploads are stored and counted once; only kept uploads count.
+def dedupe_client(tmp_path):
+    from starlette.testclient import TestClient
+    from test_project_browser import config
+
+    app = create_app(config(tmp_path))
+    return TestClient(app, headers={"Authorization": "Bearer a"}), app.state.service
+
+
+def post_file(client, data, name="same.txt"):
+    return client.post(
+        "/v1/files?project_id=p&backend=codex&model=fixture",
+        content=data,
+        headers={"X-Filename": name},
+    )
+
+
+def source(service, file_id):
+    return service.root / "files" / "p" / file_id / "source"
+
+
+def test_identical_uploads_share_one_copy_and_count_once(tmp_path):
+    client, service = dedupe_client(tmp_path)
+    data = b"Identical upload bytes"
+    first = post_file(client, data, "first.txt").json()["file_id"]
+    second = post_file(client, data, "second.txt").json()["file_id"]
+    folder = tmp_path / "attach"
+    folder.mkdir()
+    (folder / "third.txt").write_bytes(data)
+    attached = client.post(
+        "/v1/project-files/attach?project_id=p",
+        json={
+            "root_id": "system",
+            "paths": [str(folder / "third.txt").lstrip("/")],
+            "backend": "codex",
+            "model": "fixture",
+        },
+    )
+    assert attached.status_code == 200, attached.text
+    third = attached.json()["attachments"][0]["file_id"]
+
+    inodes = {source(service, fid).stat().st_ino for fid in (first, second, third)}
+    assert len(inodes) == 1
+    assert source(service, first).stat().st_nlink == 3
+    assert service.message_repository.project_bytes("p") == len(data)
+    # Each upload keeps its own row and name; only the bytes are shared.
+    assert [service.file("p", fid, "a")["name"] for fid in (first, second)] == [
+        "first.txt",
+        "second.txt",
+    ]
+    client.close()
+    service.db.close()
+
+
+def test_upload_cap_counts_kept_content_once(tmp_path, monkeypatch):
+    from agent_service.services import retention
+
+    client, service = dedupe_client(tmp_path)
+    kept = b"Already kept upload"
+    post_file(client, kept)
+    monkeypatch.setattr(retention, "MAX_PROJECT_UPLOAD_BYTES", len(kept) + 4)
+
+    assert post_file(client, kept, "again.txt").status_code == 201
+    refused = post_file(client, b"New content past the cap")
+    assert refused.status_code == 413
+    assert refused.json()["code"] == "upload_limit"
+    assert service.db.execute("SELECT count(*) FROM files").fetchone()[0] == 2
+    client.close()
+    service.db.close()

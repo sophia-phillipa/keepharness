@@ -429,7 +429,7 @@ const path = require("node:path");
     );
     assert(
       await actions
-        .getByRole("button", { name: "Delete conversation" })
+        .getByRole("button", { name: "Delete permanently" })
         .isVisible(),
     );
     await actions.getByRole("button", { name: "Rename conversation" }).click();

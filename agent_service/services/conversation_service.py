@@ -46,6 +46,7 @@ from ..approval_sessions import (
 from ..config import (
     EXECUTION_MODES,
     KINDS,
+    MAX_PROJECT_RUNS,
     PREVIEW_MEDIA_TYPES,
     TERMINAL,
     VERSION_FILE,
@@ -63,7 +64,7 @@ from ..persistence.repositories import (
 )
 from ..private_storage import validate_attachment_source
 from ..work_items import invocation_reference, validate_reference
-from . import capacity, queue_worker
+from . import capacity, queue_worker, retention
 from .activity_service import summarize_activity
 from .budgets import timeout_seconds
 from .effect_service import EffectService
@@ -642,15 +643,18 @@ class ConversationService:
                             validate_attachment_source, self.config, self.root, source, input
                         )
                         size = os.fstat(input.fileno()).st_size
-                        if size > limit or used + size > 2 * 1024**3:
+                        if size > limit:
                             raise APIError("upload_limit", 413)
                         with dest.open("xb") as output:
                             while chunk := input.read(65536):
                                 copied += len(chunk)
-                                if copied > limit or used + copied > 2 * 1024**3:
+                                if copied > limit:
                                     raise APIError("upload_limit", 413)
                                 output.write(chunk)
                                 digest.update(chunk)
+                    added = retention.admit_upload(
+                        self, project, used, copied, digest.hexdigest(), dest
+                    )
                     if source.suffix.lower() == ".mp4":
                         choices = maestro.candidates(self.config, project, uploads=True)
                         if not any(
@@ -687,7 +691,7 @@ class ConversationService:
                             encoded(pages),
                             identity[0],
                         )
-                    used += copied
+                    used += added
                     attachments.append(
                         {
                             "file_id": fid,
@@ -729,17 +733,17 @@ class ConversationService:
                 raise APIError("invalid_parent_job")
             row = dict(previous)
 
+    def sessions_root(self):
+        configured = self.config.get("sessions_dir")
+        return Path(configured) if configured else self.root / "sessions"
+
     def session_folder(self, row, data):
         """The provider's run folder for this conversation (or Maestro stage).
 
         ``sessions_dir`` keeps run folders out of the state folder that holds the keys; without
         it (older runtime files, tests) they stay under ``state_dir``.
         """
-        sessions = (
-            Path(self.config["sessions_dir"])
-            if self.config.get("sessions_dir")
-            else self.root / "sessions"
-        )
+        sessions = self.sessions_root()
         sessions.mkdir(parents=True, exist_ok=True, mode=0o700)
         if data.get("_maestro_stage"):
             return sessions / row["id"] / ("maestro-" + data["_maestro_stage"])
@@ -814,11 +818,14 @@ class ConversationService:
         self.validate_execution_mode(data.get("backend", "codex"), data["execution_mode"])
         return data
 
-    def conversation(self, identity, cid):
+    def conversation(self, identity, cid, *, archived=False):
+        """The caller's turns of ``cid``; an archived conversation only when ``archived``."""
         root = self.job(identity, cid)
         if root["owner"] != identity[0]:
             raise APIError("conversation_not_found", 404)
-        if self.conversation_id(root) != cid or self.conversation_repository.is_deleted(cid):
+        if self.conversation_id(root) != cid or (
+            not archived and self.conversation_repository.is_archived(cid)
+        ):
             raise APIError("conversation_not_found", 404)
         return [r for r in self.conversation_rows(identity) if self.conversation_id(r) == cid]
 
@@ -1537,7 +1544,7 @@ class ConversationService:
                 legacy_root = (root_id, root_data)
         if self.conversation_repository.count_pending() >= 32:
             raise APIError("queue_full", 429, 5)
-        if self.conversation_repository.count_for_project(project) >= 1000:
+        if self.conversation_repository.count_for_project(project) >= MAX_PROJECT_RUNS:
             raise APIError("job_storage_limit", 429)
         if self.conversation_repository.count_pending_for_owner(identity[0]) >= 10:
             raise APIError("owner_queue_full", 429, 5)
@@ -2833,7 +2840,11 @@ class ConversationService:
             "streaming": "persisted SSE",
             "approvals": "native CLI requests, decided by the job owner",
             "uploads": self.config.get("uploads_enabled", False),
-            "retention": "local SQLite; conversations hidden on deletion; admin handles physical removal",
+            "retention": (
+                "local SQLite; Archive hides a conversation until Unarchive; Delete permanently "
+                "erases its turns, events, uploads no other conversation uses, session folders "
+                "and harness-owned provider sessions, keeping only ids, times, model and tokens"
+            ),
             "default_execution": "auto",
             "default_backend": self.config.get("default_backend"),
             "direct_fallback": "configured default or first eligible enabled executor",

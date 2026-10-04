@@ -1226,7 +1226,7 @@ const userErrors = {
   job_owner_denied: "This run belongs to another user.",
   result_not_ready: "The run has not finished yet. Wait for it to finish.",
   job_storage_limit:
-    "The server's run storage is full. Ask the administrator to free space, then try again.",
+    "This project's run storage is full. Use Delete permanently on conversations you no longer need (archived ones are in Settings › Archived chats), then try again.",
   // Conversations.
   conversation_busy:
     "This conversation is still running. Wait for it to finish or cancel it first.",
@@ -1243,6 +1243,7 @@ const userErrors = {
   execution_mode_unsupported:
     "This conversation uses an execution mode this model or server no longer offers. Choose another model or start a new conversation.",
   invalid_conversation_title: "Use a title between 1 and 100 characters.",
+  invalid_archived: "Archiving needs a yes or no answer. Refresh the page and try again.",
   service_restarted:
     "The harness restarted during this run. Send your message again.",
   model_removed:
@@ -2343,43 +2344,19 @@ function conversationRow(c) {
   trigger.title = "Conversation actions";
   const menu = document.createElement("div");
   menu.className = "conversation-actions-menu";
-  const rename = document.createElement("button");
-  rename.type = "button";
-  const renameIcon = document.createElementNS(
-    "http://www.w3.org/2000/svg",
-    "svg",
-  );
-  renameIcon.classList.add("th-icon", "menu-action-icon");
-  renameIcon.setAttribute("viewBox", "0 0 24 24");
-  renameIcon.setAttribute("aria-hidden", "true");
-  const renameUse = document.createElementNS(
-    "http://www.w3.org/2000/svg",
-    "use",
-  );
-  renameUse.setAttribute("href", "/assets/icons.svg#pencil");
-  renameIcon.append(renameUse);
-  rename.append(renameIcon, document.createTextNode("Rename conversation"));
+  const rename = menuAction("pencil", "Rename conversation");
   rename.onclick = () => {
     actions.open = false;
     if (busy || loading || uploads) return;
     openRenameConversation(c, trigger);
   };
-  const remove = document.createElement("button");
-  remove.type = "button";
-  const removeIcon = document.createElementNS(
-    "http://www.w3.org/2000/svg",
-    "svg",
-  );
-  removeIcon.classList.add("th-icon", "menu-action-icon");
-  removeIcon.setAttribute("viewBox", "0 0 24 24");
-  removeIcon.setAttribute("aria-hidden", "true");
-  const removeUse = document.createElementNS(
-    "http://www.w3.org/2000/svg",
-    "use",
-  );
-  removeUse.setAttribute("href", "/assets/icons.svg#trash");
-  removeIcon.append(removeUse);
-  remove.append(removeIcon, document.createTextNode("Delete conversation"));
+  const archive = menuAction("archive", "Archive conversation");
+  archive.onclick = () => {
+    actions.open = false;
+    if (busy || loading || uploads) return;
+    void archiveConversation(c, true);
+  };
+  const remove = menuAction("trash", "Delete permanently");
   remove.onclick = () => {
     actions.open = false;
     if (busy || loading || uploads) return;
@@ -2416,7 +2393,7 @@ function conversationRow(c) {
       trigger.focus();
     }
   });
-  menu.append(rename, remove);
+  menu.append(rename, archive, remove);
   actions.append(trigger, menu);
   const model = c.execution?.model;
   const icon = document.createElement("span");
@@ -2544,6 +2521,93 @@ function openRenameConversation(c, trigger) {
   input.focus();
   input.select();
 }
+function menuAction(icon, label) {
+  const button = document.createElement("button"),
+    svg = document.createElementNS("http://www.w3.org/2000/svg", "svg"),
+    use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+  button.type = "button";
+  svg.classList.add("th-icon", "menu-action-icon");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("aria-hidden", "true");
+  use.setAttribute("href", "/assets/icons.svg#" + icon);
+  svg.append(use);
+  button.append(svg, document.createTextNode(label));
+  return button;
+}
+// Archive hides a conversation until Unarchive (decision D31); nothing is erased.
+async function archiveConversation(c, archived) {
+  try {
+    await json("/v1/conversations/" + encodeURIComponent(c.id), {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ archived }),
+    });
+    if (archived && conversation === c.id) newConversation();
+    status(archived ? "Conversation archived. Find it in Settings › Archived chats." : "Conversation restored.");
+    await history();
+    if (!$("settings-archived").hidden) await loadArchived();
+  } catch (e) {
+    const message = (archived ? "Couldn't archive: " : "Couldn't unarchive: ") + e.message;
+    if ($("settings-archived").hidden) status(message);
+    else $("archived-error").textContent = message;
+  }
+}
+// Settings › Archived chats: the archived list and this project's use of its storage caps.
+function storageLine(data) {
+  const bytes = (n) =>
+    n >= 1024 ** 3 ? (n / 1024 ** 3).toFixed(1) + " GB" : Math.ceil(n / 1024 ** 2) + " MB";
+  return (
+    "Storage: " +
+    data.runs.used.toLocaleString("en") +
+    " of " +
+    data.runs.limit.toLocaleString("en") +
+    " runs · " +
+    bytes(data.bytes.used) +
+    " of " +
+    bytes(data.bytes.limit) +
+    " of files in this project" +
+    (data.warning
+      ? ". Almost full: archived chats still count, so delete the ones you no longer need permanently."
+      : ".")
+  );
+}
+async function loadArchived() {
+  const list = $("archived-list"),
+    usage = $("storage-usage");
+  $("archived-error").textContent = "";
+  try {
+    const [archived, storage] = await Promise.all([
+      json("/v1/conversations?archived=true"),
+      json("/v1/storage?" + new URLSearchParams({ project_id: $("project").value })),
+    ]);
+    usage.textContent = storageLine(storage);
+    usage.classList.toggle("storage-warning", !!storage.warning);
+    list.replaceChildren(
+      ...archived.conversations.map((c) => {
+        const row = document.createElement("li"),
+          title = document.createElement("span"),
+          restore = document.createElement("button"),
+          remove = document.createElement("button");
+        row.className = "archived-chat";
+        title.textContent = c.title || "Conversation";
+        title.dir = "auto";
+        restore.type = remove.type = "button";
+        restore.className = remove.className = "btn";
+        restore.textContent = "Unarchive";
+        remove.textContent = "Delete permanently";
+        restore.setAttribute("aria-label", "Unarchive " + title.textContent);
+        remove.setAttribute("aria-label", "Delete permanently " + title.textContent);
+        restore.onclick = () => void archiveConversation(c, false);
+        remove.onclick = () => openDeleteConversation(c, remove);
+        row.append(title, restore, remove);
+        return row;
+      }),
+    );
+    $("archived-empty").hidden = archived.conversations.length > 0;
+  } catch (e) {
+    $("archived-error").textContent = "Couldn't load archived chats: " + e.message;
+  }
+}
 function openDeleteConversation(c, trigger) {
   const dialog = $("delete-conversation-dialog"),
     confirm = $("delete-conversation-confirm"),
@@ -2575,13 +2639,14 @@ function openDeleteConversation(c, trigger) {
       dialog.close();
       if (conversation === c.id) newConversation();
       await history();
+      if (!$("settings-archived").hidden) await loadArchived();
     } catch (e) {
       error.textContent = "Couldn't delete: " + e.message;
     } finally {
       deleting = false;
       confirm.removeAttribute("aria-disabled");
       cancel.disabled = false;
-      confirm.textContent = "Delete conversation";
+      confirm.textContent = "Delete permanently";
     }
   };
   dialog.showModal();
@@ -7198,10 +7263,12 @@ function restoreSelection() {
 document.querySelectorAll("[data-settings]").forEach(
   (button) =>
     (button.onclick = () => {
-      for (const name of ["appearance", "agents", "skills", "system"])
+      for (const name of ["appearance", "agents", "skills", "archived", "system"])
         $("settings-" + name).hidden = name !== button.dataset.settings;
+      if (button.dataset.settings === "archived") void loadArchived();
       const system = button.dataset.settings === "system";
-      $("catalog-status").hidden = $("catalog-refresh").hidden = system;
+      $("catalog-status").hidden = $("catalog-refresh").hidden =
+        system || button.dataset.settings === "archived";
       $("settings-dialog").classList.toggle("system-open", system);
       if (system) showAdminSection(button.dataset.adminSection);
       document
@@ -8947,7 +9014,9 @@ for (const button of document.querySelectorAll("[data-settings]")) {
         ? "adjustments"
         : button.dataset.settings === "agents"
           ? "stack-2"
-          : button.dataset.settings === "system"
+          : button.dataset.settings === "archived"
+            ? "archive"
+            : button.dataset.settings === "system"
             ? { providers: "plug", home: "pulse", runs: "list", catalogs: "archive" }[
                 button.dataset.adminSection
               ]
@@ -9040,7 +9109,7 @@ function attachmentError(code) {
     invalid_filename:
       "The filename contains a path, control characters, or exceeds 160 characters.",
     upload_limit:
-      "The file or the project's storage exceeded the allowed limit.",
+      "The file or the project's storage exceeded the allowed limit. Settings › Archived chats shows the storage used.",
     audio_transcription_unavailable:
       "Local audio transcription is not installed on this server.",
     audio_duration_limit: "Upload audio of up to 4 hours.",

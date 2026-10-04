@@ -5575,6 +5575,11 @@ main > #run-console { order: 11; }
 .harness-agents-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
 .harness-agents-heading h4 { margin: 0; font-size: 14px; font-weight: 500; }
 #harness-agents-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+#archived-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+#archived-list .archived-chat { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--th-text) 12%, transparent); border-radius: 16px; }
+#archived-list .archived-chat > span { overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+#settings-archived #archived-error:empty { display: none; }
+#storage-usage.storage-warning { color: light-dark(#b42318, #ff8e8e); font-weight: 600; }
 #harness-agents-list .harness-agent { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--th-text) 12%, transparent); border-radius: 16px; }
 #harness-agents-list .harness-agent > .th-icon { width: 18px; height: 18px; color: var(--th-muted); }
 #harness-agents-list .harness-agent > div { min-width: 0; }
