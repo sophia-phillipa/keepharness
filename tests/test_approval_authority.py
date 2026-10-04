@@ -483,3 +483,84 @@ def test_non_owner_capability_ceiling(tmp_path, guest):
         if name != "harness_reader"
     )
     assert "features.shell_tool=false" in command and "features.hooks=false" in command
+
+
+SEVEN_DAYS = 7 * 24 * 60 * 60
+LEGACY_SESSIONS_SCHEMA = """
+    DROP TABLE sessions;
+    CREATE TABLE sessions(
+        digest TEXT PRIMARY KEY, owner TEXT NOT NULL, expires REAL NOT NULL,
+        approval_capable INTEGER NOT NULL
+    );
+"""
+
+
+def test_approval_session_expires_after_seven_days_absolute(approval_app, monkeypatch):
+    from types import SimpleNamespace
+
+    from agent_service import approval_sessions
+
+    now = 1_000_000.0
+    monkeypatch.setattr(approval_sessions.time, "time", lambda: now)
+    config = approval_app.state.service.config
+    token = approval_sessions.consume_enrollment(
+        config, approval_sessions.issue_enrollment(config, "local")
+    )
+    request = SimpleNamespace(cookies={approval_sessions.SESSION_COOKIE: token})
+    assert approval_sessions.SESSION_SECONDS == SEVEN_DAYS
+    now += SEVEN_DAYS - 1
+    assert approval_sessions.session_identity(request, config) == "local"
+    # Use never extends the session: the limit counts from creation, with no idle timeout.
+    now += 1
+    assert approval_sessions.session_identity(request, config) is None
+
+
+def test_legacy_thirty_day_session_clamped_at_startup(approval_app, monkeypatch):
+    from agent_service import approval_sessions
+
+    now = 1_000_000.0
+    monkeypatch.setattr(approval_sessions.time, "time", lambda: now)
+    config = approval_app.state.service.config
+    legacy = 30 * 24 * 60 * 60
+    with approval_sessions.session_database(config) as database:
+        database.executescript(LEGACY_SESSIONS_SCHEMA)
+        # Issued now, and issued 20 days ago: legacy rows only stored the 30-day expiry.
+        database.execute("INSERT INTO sessions VALUES('fresh','local',?,1)", (now + legacy,))
+        database.execute(
+            "INSERT INTO sessions VALUES('old','local',?,1)", (now - 20 * 86400 + legacy,)
+        )
+    approval_sessions.initialize_session_database(config)
+    approval_sessions.initialize_session_database(config)  # idempotent
+    with approval_sessions.session_database(config, readonly=True) as database:
+        expires = dict(database.execute("SELECT digest, expires FROM sessions"))
+    assert expires["fresh"] == now + SEVEN_DAYS
+    assert expires["old"] == now - 20 * 86400 + SEVEN_DAYS < now
+
+
+def test_expired_session_keeps_card_pending_with_expiry_message(approval_app, monkeypatch):
+    import re
+    from pathlib import Path
+
+    from agent_service import approval_sessions
+
+    now = approval_sessions.time.time()
+    monkeypatch.setattr(approval_sessions.time, "time", lambda: now)
+    config = approval_app.state.service.config
+    token = approval_sessions.consume_enrollment(
+        config, approval_sessions.issue_enrollment(config, "local")
+    )
+    now += SEVEN_DAYS
+
+    async def scenario():
+        pending = pending_approval(approval_app, "local")
+        async with client_for(approval_app, cookies={"harness_session": token}) as client:
+            response = await client.post("/v1/approvals/job", json={"approved": True})
+            assert response.status_code == 403
+            assert response.json()["code"] == "approval_session_expired"
+            assert response.json()["owner"] == "local"
+            assert not pending.done()
+
+    asyncio.run(scenario())
+    ui = (Path(approval_sessions.__file__).parent / "ui.js").read_text()
+    message = re.search(r'approval_session_expired:\s*"([^"]+)"', ui)
+    assert message and "expired" in message.group(1)
