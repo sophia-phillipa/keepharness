@@ -129,3 +129,10 @@ def test_weekly_schedule_runs_only_the_dependency_scan():
             assert "github.event_name != 'schedule'" not in job
         else:
             assert "if: github.event_name != 'schedule'" in job
+
+
+def test_ci_lock_generator_is_installed_by_hash():
+    job = jobs()["lock-freshness"]
+    assert not re.search(r"pip install uv==", job)
+    assert re.search(r"uv==\d+\.\d+\.\d+ --hash=sha256:[0-9a-f]{64}", job)
+    assert "pip install --require-hashes --no-deps" in job

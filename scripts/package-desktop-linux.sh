@@ -3,6 +3,11 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+# An export inside another work tree that ignores it would report that parent's status and commit.
+[ "$(git rev-parse --show-toplevel 2>/dev/null)" = "$(pwd -P)" ] || {
+  echo "Source tree refused: $ROOT is not the top of its own Git work tree." >&2
+  exit 1
+}
 s=$(git status --porcelain --untracked-files=normal) || exit 1
 if [ -n "$s" ]; then
   echo 'Dirty source tree refused; commit or export a clean snapshot before packaging.' >&2

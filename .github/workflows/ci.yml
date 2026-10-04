@@ -164,7 +164,9 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install lock generator
-        run: pip install uv==0.12.3
+        run: |
+          echo "uv==0.12.3 --hash=sha256:1482d1462b1aecd18ee33627363fe1c63d6a194f12d40d37efc446d9e0d800a1" > "$RUNNER_TEMP/uv-requirements.txt"
+          pip install --require-hashes --no-deps -r "$RUNNER_TEMP/uv-requirements.txt"
       - name: Regenerate locks using their header commands
         run: |
           uv pip compile pyproject.toml scripts/build-requirements.in --universal --python-version 3.11 --generate-hashes -o requirements.txt
