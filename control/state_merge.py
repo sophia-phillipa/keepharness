@@ -234,10 +234,14 @@ def merge(plan):
             shutil.copy2(source, target, follow_symlinks=False)
     if read_marker(plan.old / "runs") is None:
         write_private(plan.old / "runs/harness.identity.json", json.dumps(LEGACY_MARKER))
-    audit = b"".join(
-        (folder / "audit.jsonl").read_bytes() for folder in (plan.new, plan.old) if (folder / "audit.jsonl").is_file()
+    # A log cut off mid-write may lack its final newline; without one the next record would glue on.
+    audit = "".join(
+        text if text.endswith("\n") else text + "\n"
+        for folder in (plan.new, plan.old)
+        if (folder / "audit.jsonl").is_file()
+        if (text := (folder / "audit.jsonl").read_text("utf-8"))
     )
-    write_private(plan.old / "audit.jsonl", audit.decode("utf-8"))
+    write_private(plan.old / "audit.jsonl", audit)
 
 
 def main(argv=None, home=None):
