@@ -114,6 +114,7 @@ class Manager:
         self.started_at = time.monotonic()
         self.crashes = 0
         self.last_exit = None
+        self.exited = None
         self.lock = asyncio.Lock()
         self.settings = (
             json.loads(self.path.read_text())
@@ -811,20 +812,25 @@ class Manager:
 
     async def restart_after_exit(self):
         """Wait for the harness to exit, then restart it; False once it gave up."""
-        code = await self.proc.wait()
+        proc = self.proc
+        code = await proc.wait()
         lived = time.monotonic() - self.started_at
-        self.crashes = self.crashes + 1 if lived < STABLE_SECONDS else 1
-        self.last_exit = {"code": code, "at": time.time(), "uptime_seconds": round(lived, 1)}
-        self.audit(f"harness_exited:{code}")
+        # A long run is not a quick crash; the count starts again after it.
+        self.crashes = self.crashes + 1 if lived < STABLE_SECONDS else 0
+        if proc is not self.exited:  # a start that failed before spawning leaves this same process
+            self.exited = proc
+            self.last_exit = {"code": code, "at": time.time(), "uptime_seconds": round(lived, 1)}
+            self.audit(f"harness_exited:{code}")
         if self.crashes >= MAX_QUICK_CRASHES:
             self.startup_error = (
                 f"The service stopped {self.crashes} times in a row (last exit code {code}). "
                 "Check the local log, then start it again."
             )
             return False
-        await asyncio.sleep(min(RESTART_DELAY * 2 ** (self.crashes - 1), RESTART_DELAY_CAP))
+        await asyncio.sleep(min(RESTART_DELAY * 2 ** max(self.crashes - 1, 0), RESTART_DELAY_CAP))
         try:
-            await self.start(supervised=True)
+            async with self.lock:  # as an owner's Start, which holds this lock: never two at once
+                await self.start(supervised=True)
         except (ValueError, RuntimeError, OSError) as exc:
             self.startup_error = str(exc)
             self.started_at = time.monotonic()  # a start that fails counts as a quick crash

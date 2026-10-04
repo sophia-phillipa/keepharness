@@ -256,6 +256,12 @@ def test_the_unit_stops_retrying_and_waits_for_no_system_target(tmp_path):
     assert "StartLimitBurst=" in unit and "StartLimitIntervalSec=" in unit
 
 
+def test_the_unit_signals_only_the_admin_so_that_it_can_drain_its_harness(tmp_path):
+    # With the default control-group mode systemd also SIGTERMs the harness at once, which would
+    # kill the running work the admin is waiting for (decision D18).
+    assert "KillMode=mixed" in unit_text(tmp_path).splitlines()
+
+
 def test_only_a_dev_install_records_that_it_runs_the_checkout(tmp_path):
     checkout = str(install.CHECKOUT)
     assert checkout not in unit_text(tmp_path)
