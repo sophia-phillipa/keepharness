@@ -102,13 +102,13 @@ async function versionBody() {
       response.setEncoding('utf8');
       response.on('data', chunk => {
         body += chunk;
-        if (body.length > 65536) { resolve(''); request.destroy(); }
+        if (body.length > 65536) { resolve({status:0, body:''}); request.destroy(); }
       });
-      response.on('end', () => resolve(response.statusCode === 200 ? body : ''));
-      response.on('error', () => resolve(''));
+      response.on('end', () => resolve({status:response.statusCode, body:response.statusCode === 200 ? body : ''}));
+      response.on('error', () => resolve({status:0, body:''}));
     });
     request.on('timeout', () => request.destroy());
-    request.on('error', () => resolve(''));
+    request.on('error', () => resolve({status:0, body:''}));
   });
 }
 async function verifyProduct(target) {
@@ -116,7 +116,16 @@ async function verifyProduct(target) {
   if (quitting) return false;
   if (!productVerification) {
     productVerification = (async () => {
-      if (foreignPort([harnessPort]) === null && productAllowed(await versionBody())) { harnessVerified = true; return true; }
+      // A foreign-owned port is refused before the probe, so it never sees the owner cookie.
+      while (foreignPort([harnessPort]) === null) {
+        const probe = await versionBody();
+        if (productAllowed(probe.body)) { harnessVerified = true; return true; }
+        if (probe.status !== 401) break;
+        // 401 means our own sign-in failed, not that the service is foreign: offer a retry.
+        const {response} = await dialog.showMessageBox({type:'error', title:TITLE, message:'Could not sign in to the KeepHarness service.', detail:'The service did not accept this account\'s local session.', buttons:['Retry','Quit'], defaultId:0, cancelId:1});
+        if (response !== 0 || quitting) { quit(); return false; }
+        await signInWindow();
+      }
       await dialog.showMessageBox({type:'error', title:TITLE, message:'This is not a KeepHarness service.', detail:'The /v1/version product must be keepharness.'});
       quit();
       return false;
@@ -490,12 +499,12 @@ function confirmEnrollment(link, route) {
   const window = win;
   window.webContents.once('did-finish-load', () => {
     if (window.webContents.getURL() !== link) return;
+    // Single-use: the first load after the submit ends the restore, whatever its URL.
     const restore = () => {
       if (window.webContents.getURL() !== harnessUrl || quitting || window.isDestroyed()) return;
-      window.webContents.removeListener('did-finish-load', restore);
       void window.loadURL(route).catch(error => log(error.message));
     };
-    if (route) window.webContents.on('did-finish-load', restore);
+    if (route) window.webContents.once('did-finish-load', restore);
     window.webContents
       .executeJavaScript("document.querySelector('form[action^=\"/approve-device\"]')?.requestSubmit()")
       .catch(() => window.webContents.removeListener('did-finish-load', restore));

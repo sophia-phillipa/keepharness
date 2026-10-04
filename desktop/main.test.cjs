@@ -62,7 +62,7 @@ async function boot(options = {}) {
     requests.push(url); requestDetails.push({url, ...opts}); const req = new EventEmitter(); req.destroy = () => req.emit('error', new Error('timeout'));
     queueMicrotask(() => {
       if ((options.harnessOffline && url.includes('v1/version')) || (!adminReady && !url.includes('v1/version'))) { req.emit('error', new Error('offline')); return; }
-      const res = new EventEmitter(); res.statusCode = options.status || 200; res.headers = {}; if (url.includes('v1/version') && (options.rejectCredential || opts.headers?.cookie !== `keepharness-local=${ownerSession}`)) res.statusCode=401; if (url.includes('/open?')) { res.statusCode=303; res.headers['set-cookie']=['admin=abcdefghijklmnop; Path=/', `keepharness-local=${ownerSession}; Path=/`]; } res.resume = () => {}; res.setEncoding = () => {};
+      const res = new EventEmitter(); res.statusCode = options.status || 200; res.headers = {}; if (url.includes('v1/version') && (options.rejectCredential || opts.headers?.cookie !== `keepharness-local=${ownerSession}`)) res.statusCode=401; if (url.includes('/open?')) { res.statusCode=options.failOpen ? 500 : 303; res.headers['set-cookie']=['admin=abcdefghijklmnop; Path=/', `keepharness-local=${ownerSession}; Path=/`]; } res.resume = () => {}; res.setEncoding = () => {};
       callback(res);
       if (options.dieDuringVersion && url.includes('v1/version') && children.length) { children.at(-1).exitCode=1; children.at(-1).emit('exit',1,null); }
       res.emit('data', url.includes('v1/version') ? (options.version ?? '{"product":"keepharness"}') : url.endsWith('api/state') ? JSON.stringify({status:{busy:options.busy}}) : '{}'); res.emit('end');
@@ -71,8 +71,8 @@ async function boot(options = {}) {
   const childProcess = { spawnSync(executable) { probes.push(executable); return options.badPython ? {error:new Error('ENOENT'),status:null} : {status:0}; },
     spawn(_executable,args) { const child = new EventEmitter(); Object.assign(child, {stderr:new EventEmitter(),stdout:new EventEmitter(),exitCode:null,signalCode:null,kill() { this.signalCode='SIGTERM'; }}); children.push(child); adminReady=true; if (options.enrollment && args.includes('approve-device')) queueMicrotask(() => { child.stdout.emit('data',options.enrollment); child.exitCode=0; child.emit('close',0); }); return child; } };
   const fakeFs = new Proxy(fs, { get(target, key) {
-    if (key === 'readFileSync') return (file, ...args) => String(file).endsWith('build-manifest.json') ? (options.manifest ?? JSON.stringify({product:'keepharness',version:'0.16.0',commit:'a'.repeat(40),dirty:false,built_at:'2026-10-04T12:00:00Z'})) : String(file).endsWith('local.key') ? 'abcdefghijklmnop' : target.readFileSync(file,...args);
-    if (key === 'existsSync') return file => file === '/proc/net/tcp' ? false : options.badPython && String(file).includes('python') ? false : target.existsSync(file);
+    if (key === 'readFileSync') return (file, ...args) => options.tcp && file === '/proc/net/tcp' ? options.tcp : options.tcp && file === '/proc/net/tcp6' ? '' : String(file).endsWith('build-manifest.json') ? (options.manifest ?? JSON.stringify({product:'keepharness',version:'0.16.0',commit:'a'.repeat(40),dirty:false,built_at:'2026-10-04T12:00:00Z'})) : String(file).endsWith('local.key') ? 'abcdefghijklmnop' : target.readFileSync(file,...args);
+    if (key === 'existsSync') return file => file === '/proc/net/tcp' ? !!options.tcp : options.badPython && String(file).includes('python') ? false : target.existsSync(file);
     return target[key];
   } });
   const proc = new EventEmitter(); Object.assign(proc, { env:{ KEEPHARNESS_ADMIN_PORT:'18194', KEEPHARNESS_PYTHON:process.execPath, ...options.env }, platform:'linux', getuid: () => 1000 });
@@ -430,6 +430,45 @@ test('failed enrollment removes the pending route restore listener', async () =>
   const h = await boot({home: first.home, noSession: true, failEnrollment: true,
     enrollment: 'http://127.0.0.1:8095/approve-device?nonce=abcdefghijklmnop'});
   h.main.webContents.emit('did-finish-load'); await settle();
+  assert.equal(h.main.webContents.listenerCount('did-finish-load'), 0);
+  h.main.url = 'http://127.0.0.1:8095/'; h.main.webContents.emit('did-finish-load'); await settle();
+  assert.equal(h.main.url, 'http://127.0.0.1:8095/');
+});
+
+const listening = (port, uid) => `0: 0100007F:${port.toString(16).toUpperCase().padStart(4,'0')} 00000000:0000 0A 00000000:00000000 00:00000000 00000000 ${uid} 0 1`;
+const foreignHarnessTable = `header\n${listening(18194,1000)}\n${listening(8095,1001)}\n`;
+const ownerCookie = request => request.headers?.cookie?.includes('keepharness-local=');
+test('a harness port owned by another uid never receives the owner cookie on direct boot', async () => {
+  const h = await boot({tcp: foreignHarnessTable});
+  assert.ok(!h.requestDetails.some(ownerCookie));
+  assert.ok(h.dialogs.some(d => /127\.0\.0\.1:8095 is not yours/.test(d.message)));
+  assert.ok(h.app.quits); assert.equal(h.windows.filter(w => w.url).length, 0);
+});
+test('navigating to a harness port owned by another uid never sends the owner cookie', async () => {
+  const options = {harnessOffline: true, tcp: foreignHarnessTable}; const h = await boot(options);
+  assert.equal(h.main.url, 'http://127.0.0.1:18194/');
+  options.harnessOffline = false;
+  const e = h.event(); h.main.webContents.emit('will-navigate', e, 'http://127.0.0.1:8095/'); await settle();
+  assert.ok(e.prevented); assert.ok(h.app.quits);
+  assert.ok(!h.requestDetails.some(ownerCookie));
+  assert.equal(h.main.url, 'http://127.0.0.1:18194/');
+});
+test('a failed sign-in is reported as such, not as a foreign product, and can be retried', async () => {
+  const quitOptions = {failOpen: true}; const h = await boot(quitOptions);
+  assert.ok(h.dialogs.some(d => /Could not sign in to the KeepHarness service/.test(d.message)));
+  assert.ok(!h.dialogs.some(d => /not a KeepHarness service/.test(d.message)));
+  assert.ok(h.app.quits); assert.equal(h.windows.filter(w => w.url).length, 0);
+  const retry = {failOpen: true, onDialog: d => { retry.failOpen = false; return {response: 0}; }};
+  const r = await boot(retry);
+  assert.deepEqual(r.dialogs.map(d => d.buttons), [['Retry', 'Quit']]);
+  assert.equal(r.app.quits, 0); assert.equal(r.main.url, 'http://127.0.0.1:8095/');
+});
+test('the enrollment route restore is single-use even when enrollment is refused', async () => {
+  const first = await boot(); first.main.url += '?conversation=restored'; first.main.close();
+  const h = await boot({home: first.home, noSession: true,
+    enrollment: 'http://127.0.0.1:8095/approve-device?nonce=abcdefghijklmnop'});
+  h.main.webContents.emit('did-finish-load'); await settle();
+  h.main.url = 'http://127.0.0.1:8095/approve-device'; h.main.webContents.emit('did-finish-load'); await settle();
   assert.equal(h.main.webContents.listenerCount('did-finish-load'), 0);
   h.main.url = 'http://127.0.0.1:8095/'; h.main.webContents.emit('did-finish-load'); await settle();
   assert.equal(h.main.url, 'http://127.0.0.1:8095/');
