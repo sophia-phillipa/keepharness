@@ -23,8 +23,9 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[3]
 FAKE = Path(__file__).resolve().parent / "fake_provider.py"
-# The composer lists only Claude ids shaped like claude-<family>-<version>.
-CLAUDE_MODELS = ("claude-sonnet-5-5", "claude-opus-5-5")
+# The composer lists only Claude ids shaped like claude-<family>-<version>; the older
+# claude-sonnet-4-5 sits under "More models" in the picker.
+CLAUDE_MODELS = ("claude-sonnet-5-5", "claude-opus-5-5", "claude-sonnet-4-5")
 PROJECT_FILES = {
     "README.md": "# Alpha research\n\nFixture project for the operator suite.\n",
     "notes.md": "## Notes\n\n- first fixture note\n- second fixture note\n",
@@ -64,11 +65,14 @@ def seed(root, admin_port, harness_port):
     binaries.mkdir()
     claude = wrapper(binaries / "claude", sys.executable)
     gemini = wrapper(binaries / "gemini", sys.executable)
+    admin_state = root / "admin"
     projects = ["sem-projeto", "alpha"]
     permissions = {"read": True, "write": True, "shell": True, "delegate": True, "upload": True}
     service = {"enabled": True, "mode": "native", "projects": projects, "permissions": permissions}
     config = {
         "state_dir": str(root / "chat"),
+        # Runs use a harness-owned home unless the owner opts in (D01), as in a real install.
+        "control_state_dir": str(admin_state),
         "bind": "127.0.0.1",
         "port": harness_port,
         "local_access": True,
@@ -89,7 +93,6 @@ def seed(root, admin_port, harness_port):
         "config_revision": uuid.uuid4().hex,
     }
     (root / "chat.json").write_text(json.dumps(config))
-    admin_state = root / "admin"
     admin_state.mkdir(mode=0o700)
     # The admin lets only its harness port frame it (Settings > System); no provider is
     # enabled, so it never starts a harness of its own.

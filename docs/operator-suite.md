@@ -53,7 +53,9 @@ and 8095 are refused unless `--allow-default-ports` is passed on purpose.
 `fixture/serve_fixture.py` starts an admin and a harness on their own ports (18510/18511
 by default, `--fixture-ports` to change), with a private `HOME`, a temporary state folder,
 a fixture project (`Alpha research`) with files, an agent, a skill and a command, and one
-connector. Both provider CLIs are `fixture/fake_provider.py`: a Claude Code stand-in
+connector. The owner's personal setup is off, as in a real install; the plugins area turns it on by
+rewriting the harness config, and the admin area signs in with a one-time link minted from the
+fixture's secret. Both provider CLIs are `fixture/fake_provider.py`: a Claude Code stand-in
 (stream-json) and a Gemini stand-in (ACP). Nothing calls a cloud model. The newest marker
 in a prompt picks the behavior: `OP-SLOW`, `OP-TABLE`, `OP-IMAGE`, `OP-TOOLS`,
 `OP-APPROVAL`, `OP-QUESTION`, `OP-ERROR`; anything else gets a short streamed reply that

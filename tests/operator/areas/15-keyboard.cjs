@@ -39,7 +39,9 @@ module.exports = {
     await op.step("escape-panel", "Escape closes the files and activity panel", async () => {
       await op.click(page.locator("#panel-toggle"));
       await op.see(page.locator("#activity-panel"));
-      await page.locator("#conversation-title").click();
+      // Move focus off the panel button, to a field that stays visible (the desktop window is
+      // narrower than the browser page, and its open panel hides the conversation title).
+      await page.locator("#prompt").click();
       await op.press("Escape");
       await op.gone(page.locator("#activity-panel"));
     });

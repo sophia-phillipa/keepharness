@@ -8,25 +8,9 @@
       "id": "L48",
       "note": "Delete only hides; there is no Archive (D31)."
     },
-    "new-chat.access-header-readable": {
-      "id": "L43",
-      "note": "The header shows the raw access mode ('ask', 'auto', 'read_only')."
-    },
-    "composer.slash-user-skills": {
-      "id": "L06",
-      "note": "'/' offers user-scope Claude skills that runs never load."
-    },
     "composer.empty-file": {
       "id": "L74",
       "note": "Empty files are accepted as attachments (QA-R1-8)."
-    },
-    "conversation.table-headers-whole": {
-      "id": "L33",
-      "note": "V6: table headers split mid-word."
-    },
-    "conversation.copy-answer": {
-      "id": "L33",
-      "note": "No Copy on answers or code (D34)."
     },
     "conversation.image-thumbnail-whole": {
       "id": "L74",

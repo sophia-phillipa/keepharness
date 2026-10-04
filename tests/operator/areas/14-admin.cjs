@@ -1,7 +1,7 @@
 // The standalone admin pages, explored read-only: home, providers, runs, catalogs,
 // its settings dialog and the way back to the harness.
 "use strict";
-const { home } = require("../lib/app.cjs");
+const { home, adminOpenUrl } = require("../lib/app.cjs");
 
 module.exports = {
   id: "admin",
@@ -18,7 +18,8 @@ module.exports = {
           page = own;
           op.session.page = own;
         }
-        await page.goto(op.options.adminUrl + "/");
+        // The fixture admin answers only the owner: sign this browser in the way `keepharness open` does.
+        await page.goto(op.fixtureMode ? adminOpenUrl(op) : op.options.adminUrl + "/");
         await heading(/^(Home|AI Providers)$/);
         await op.see(page.getByRole("link", { name: "Providers", exact: true }));
       }, { critical: true });
@@ -50,8 +51,9 @@ module.exports = {
       await op.step("open-harness", "Open harness returns to the chat", async () => {
         const link = page.locator("#open-harness");
         if (!(await link.isVisible())) op.skip("no harness link on this admin");
-        const href = await link.getAttribute("href");
-        op.check(href && new URL(href, page.url()).port === new URL(op.session.base).port, `Open harness points to ${href}`);
+        // The page ships no address; the admin's status supplies the harness's real one.
+        const port = (href) => new URL(href, page.url()).port;
+        await op.until(async () => port(await link.getAttribute("href")) === port(op.session.base), `Open harness points to ${await link.getAttribute("href")}`);
       });
     } finally {
       if (own) {

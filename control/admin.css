@@ -1654,6 +1654,7 @@ body :is(.btn, .button) {
   min-height: 32px; padding: 0 14px; border: 0; border-radius: 9999px;
   background: color-mix(in srgb, var(--th-text) 8%, transparent); color: var(--th-text); font-size: 13px; font-weight: 500; box-shadow: none;
 }
+body .btn[aria-disabled="true"] { opacity: 0.5; cursor: not-allowed; }
 body :is(.btn, .button):hover { background: color-mix(in srgb, var(--th-text) 13%, transparent); }
 body :is(.btn.btn-primary, .button.primary) { background: var(--th-action); color: var(--th-on-action); }
 body :is(.btn.btn-primary, .button.primary):hover { background: color-mix(in srgb, var(--th-action) 86%, var(--th-bg)); }

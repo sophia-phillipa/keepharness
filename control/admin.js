@@ -1063,9 +1063,16 @@ function renderStatus() {
     ? "● Harness active"
     : "● Harness stopped";
   $("runtime-badge").classList.toggle("good", s.running);
-  $("open-harness").href = (s.shared ? s.remote_url : s.local_url) || "#";
+  // The link carries the real address as soon as the status gives it, and works only while the harness runs.
+  const open = $("open-harness");
+  open.href = (s.shared ? s.remote_url : s.local_url) || "#";
+  open.setAttribute("aria-disabled", String(!s.running));
+  open.title = s.running ? "Open the harness chat" : "The harness is stopped. Start it from Providers, then open it.";
   $("save").disabled = working;
 }
+$("open-harness").onclick = (event) => {
+  if (event.currentTarget.getAttribute("aria-disabled") === "true") event.preventDefault();
+};
 function render() {
   renderProviders();
   renderProjects();
