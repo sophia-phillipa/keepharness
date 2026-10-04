@@ -1,0 +1,8 @@
+# gitleaks findings in the history that are test fixtures, not credentials. One fingerprint per
+# line (commit:file:rule:line), each with the reason. Never add a real secret here: rotate it.
+# Made-up secret and token strings used as inputs by the desktop policy tests.
+b9a4841227a23965e5f0d7826fe40ebccb6a8c41:desktop/policy.test.cjs:generic-api-key:177
+be388ef5aa2000647009c050cd89dd6e6fbdd77f:desktop/policy.test.cjs:generic-api-key:127
+b4a82c839c95822af2b51b81cd97de84aa046474:desktop/policy.test.cjs:generic-api-key:111
+# A fake issue key ("PRIVATE-SYNTHETIC-12") in a security test.
+380860ab79fbee5909ae223245fd574a8cb7d212:tests/test_gauntlet_round12_security.py:generic-api-key:49

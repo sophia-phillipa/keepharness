@@ -4,6 +4,7 @@ import shutil  # noqa: F401  (tests patch control.server.shutil.which)
 from contextlib import asynccontextmanager
 
 from starlette.applications import Starlette
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from harness_ui import StaticGZipMiddleware
 
@@ -38,7 +39,6 @@ def create_app(state, port=8094):
 
     app = Starlette(routes=ROUTES, lifespan=lifespan)
 
-    @app.middleware("http")
     async def security(request, call_next):
         response = await call_next(request)
         # Static panel files set their own revalidation policy; everything else is no-store.
@@ -54,6 +54,7 @@ def create_app(state, port=8094):
         )
         return response
 
+    app.add_middleware(BaseHTTPMiddleware, dispatch=security)
     app.add_middleware(StaticGZipMiddleware, paths=("/", "/admin.js", "/catalogs.js", "/admin.css"))
 
     app.state.manager = manager

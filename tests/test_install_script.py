@@ -106,15 +106,17 @@ def test_check_only_neither_stops_tail_harness_nor_moves_its_state(install):
 def test_install_stops_and_moves_before_the_venv_and_drops_the_old_package(install):
     calls = install("--port", "8094")
     wheel = "TMP/wheel/keepharness-0.15.0-py3-none-any.whl"
+    lock = "--require-hashes -r TMP/source/requirements.txt"
     order = [
         "python3 -m control.install --check-only --port 8094",
         "python3 -m venv TMP/venv",
+        f"preflight-python -m pip install --quiet {lock}",
         "preflight-python -m control.install_check",
         "systemctl --user stop tail-harness.service",
         "python3 control/product.py --migrate-state",
         f"python3 -m venv {install.venv}",
         "venv-python -m pip uninstall --yes tail-harness",
-        f"venv-python -m pip install --quiet {wheel}",
+        f"venv-python -m pip install --quiet {lock}",
         f"venv-python -m pip install --quiet --force-reinstall --no-deps {wheel}",
         "keepharness-install --port 8094",
     ]
@@ -138,11 +140,12 @@ def test_a_venv_moved_with_the_state_folder_is_rebuilt(install, moved):
     "failing",
     [
         "*-m?venv?*/keepharness-install.*",  # no ensurepip (python3-venv missing)
+        "*--require-hashes*",  # a hash mismatch, or offline
         "*pip?wheel*",
-        "*pip?install?--quiet?*/keepharness-install.*",  # offline, or a dependency is missing
+        "*pip?install?--quiet?--no-deps?*/keepharness-install.*",  # the wheel itself
         "*-m?control.install_check*",
     ],
-    ids=["venv", "build", "install", "smoke-test"],
+    ids=["venv", "lock", "build", "install", "smoke-test"],
 )
 def test_a_failed_preflight_stops_and_moves_nothing(install, failing):
     calls = install("--port", "8094", check=False, FAIL=failing)
@@ -178,6 +181,8 @@ def test_install_sh_refuses_inside_a_container_before_any_move(install, tmp_path
 def test_dev_installs_the_checkout_editable_and_records_it(install):
     calls = install("--dev", "--port", "8094")
     assert "venv-python -m pip install --editable ." in calls
+    lock = "venv-python -m pip install --quiet --require-hashes -r TMP/source/requirements.txt"
+    assert calls.index(lock) < calls.index("venv-python -m pip install --editable .")
     assert not any("force-reinstall" in call for call in calls)
     assert calls[-1] == "keepharness-install --dev --port 8094"
 
@@ -186,6 +191,15 @@ def test_the_wheel_is_built_from_a_copy_of_the_tracked_files(install):
     calls = install("--port", "8094")
     (build,) = [call for call in calls if " -m pip wheel " in call]
     assert build.endswith(" TMP/source")  # never the checkout itself
+
+
+def test_the_build_uses_only_what_the_hashed_lock_installed(install):
+    calls = install("--port", "8094")
+    (build,) = [call for call in calls if " -m pip wheel " in call]
+    assert " --no-deps " in build and " --no-build-isolation " in build
+    preflight = [call for call in calls if call.startswith("preflight-python -m pip")]
+    assert preflight[0].startswith("preflight-python -m pip install --quiet --require-hashes -r ")
+    assert preflight[1] == build
 
 
 def source_tree(root, *, git):
@@ -249,3 +263,20 @@ def test_a_failure_after_the_move_says_how_to_go_back(install):
 def test_merge_and_rollback_run_alone(install, args, expected):
     calls = install(*args)
     assert significant(calls) == [expected]
+
+
+@pytest.mark.parametrize("fail_lock", [False, True])
+def test_setup_installs_hashed_dependencies_before_the_package(install, tmp_path, fail_lock):
+    checkout = tmp_path / "setup-checkout"
+    checkout.mkdir()
+    install.script = checkout / "setup.sh"
+    install.script.write_text((ROOT / "setup.sh").read_text())
+    calls = install(check=not fail_lock, FAIL="*--require-hashes*" if fail_lock else "__never__")
+    lock = "preflight-python -m pip install --require-hashes -r requirements.txt"
+    package = "preflight-python -m pip install --no-deps --no-build-isolation ."
+    assert lock in calls
+    if fail_lock:
+        assert install.result.returncode != 0
+        assert package not in calls
+    else:
+        assert calls.index(lock) < calls.index(package)

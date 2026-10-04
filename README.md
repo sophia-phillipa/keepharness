@@ -130,7 +130,7 @@ Authorized clients have separate histories and approvals, but this is not a stro
 
 ## 🌐 MCP on another computer
 
-Open **Connection / MCP** in the harness and download the installer. On Linux/macOS with Python 3.10+, curl and Claude Code installed, save the file under Downloads. On a Mac, open Terminal via Spotlight (⌘ + Space → Terminal). Run:
+Open **Connection / MCP** in the harness and download the installer. On Linux or native Apple Silicon macOS with Python 3.10+, curl and Claude Code installed, save the file under Downloads. Intel macOS (including an x86_64 terminal under Rosetta) is unsupported by the bridge installer: cryptography 49 removed Intel wheels, and the last Intel release, 48.0.1, has a [known OSV advisory](https://osv.dev/vulnerability/GHSA-g6cj-pr64-35w5). The bridge keeps cryptography 50.0.2 instead of downgrading. On a supported Mac, open Terminal via Spotlight (⌘ + Space → Terminal). Run:
 
 ```sh
 cd ~/Downloads

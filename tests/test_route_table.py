@@ -17,6 +17,7 @@ import asyncio
 import hashlib
 import re
 import time
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -575,6 +576,7 @@ STATIC_ROUTES = [
     "/vendor/markdown-it.min.js",
     "/mcp_bridge.py",
     "/setup-mcp.sh",
+    "/bridge-requirements.txt",
 ]
 
 
@@ -583,6 +585,16 @@ def test_agent_static_ui_routes_never_require_auth(client, path):
     client.headers.pop("Authorization", None)
     response = client.get(path)
     assert response.status_code == 200
+
+
+def test_agent_bridge_lock_is_served_as_plain_text_never_cached(client):
+    client.headers.pop("Authorization", None)
+    response = client.get("/bridge-requirements.txt")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/plain")
+    assert response.headers["cache-control"] == "no-store"
+    lock = Path(__file__).resolve().parents[1] / "agent_service/bridge-requirements.txt"
+    assert response.content == lock.read_bytes()
 
 
 def test_agent_public_asset_is_served_without_auth(client):
