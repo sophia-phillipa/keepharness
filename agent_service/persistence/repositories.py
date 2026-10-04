@@ -138,16 +138,37 @@ class ConversationRepository:
             (conversation, title),
         )
 
-    def is_deleted(self, conversation):
+    # ``deleted_conversations`` keeps its original name: it holds archived (hidden, restorable)
+    # conversations, exactly what a "deleted" one was, so older releases read it the same way.
+    def is_archived(self, conversation):
         return self.db.execute(
             "SELECT 1 FROM deleted_conversations WHERE id=?", (conversation,)
         ).fetchone()
 
-    def deleted(self):
+    def archived(self):
         return {r[0] for r in self.db.execute("SELECT id FROM deleted_conversations")}
 
-    def mark_deleted(self, conversation):
-        self.db.execute("INSERT INTO deleted_conversations VALUES(?)", (conversation,))
+    def archive(self, conversation):
+        self.db.execute("INSERT OR IGNORE INTO deleted_conversations VALUES(?)", (conversation,))
+
+    def unarchive(self, conversation):
+        self.db.execute("DELETE FROM deleted_conversations WHERE id=?", (conversation,))
+
+    def purge(self, owner, conversation, jobs):
+        """Remove a conversation's turns and everything keyed by them (decision D31)."""
+        marks = ",".join("?" for _ in jobs)
+        for statement in (
+            f"DELETE FROM events WHERE job IN ({marks})",
+            f"DELETE FROM gates WHERE job_id IN ({marks})",
+            f"DELETE FROM effects WHERE job_id IN ({marks})",
+            f"DELETE FROM jobs WHERE id IN ({marks})",
+        ):
+            self.db.execute(statement, jobs)
+        self.db.execute(
+            "DELETE FROM approval_rules WHERE owner=? AND conversation=?", (owner, conversation)
+        )
+        self.db.execute("DELETE FROM conversation_titles WHERE id=?", (conversation,))
+        self.unarchive(conversation)
 
     def has_approval_rule(self, scope):
         return self.db.execute(
@@ -255,9 +276,32 @@ class MessageRepository:
         ).fetchone()
 
     def project_bytes(self, project):
+        """Uploaded bytes kept for a project, each identical upload (sha256) counted once."""
         return self.db.execute(
-            "SELECT coalesce(sum(size),0) FROM files WHERE project=?", (project,)
+            "SELECT coalesce(sum(size),0) FROM "
+            "(SELECT max(size) AS size FROM files WHERE project=? GROUP BY coalesce(hash,id))",
+            (project,),
         ).fetchone()[0]
+
+    def same_content(self, project, digest):
+        """A kept upload of the project with this sha256, whose source can be shared."""
+        return self.db.execute(
+            "SELECT id FROM files WHERE project=? AND hash=? LIMIT 1", (project, digest)
+        ).fetchone()
+
+    def files_only_in(self, jobs):
+        """Uploads the given turns attach that no other turn attaches."""
+        marks = ",".join("?" for _ in jobs)
+        return self.db.execute(
+            "SELECT DISTINCT f.id,f.project FROM jobs j, json_each(j.payload,'$.file_ids') r "
+            f"JOIN files f ON f.id=r.value WHERE j.id IN ({marks}) AND NOT EXISTS ("
+            "SELECT 1 FROM jobs o, json_each(o.payload,'$.file_ids') s "
+            f"WHERE s.value=f.id AND o.id NOT IN ({marks}))",
+            [*jobs, *jobs],
+        ).fetchall()
+
+    def delete_files(self, file_ids):
+        self.db.executemany("DELETE FROM files WHERE id=?", [(fid,) for fid in file_ids])
 
     def add_file(self, file_id, project, name, size, digest, pages, owner):
         self.db.execute(

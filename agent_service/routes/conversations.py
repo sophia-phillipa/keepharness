@@ -15,6 +15,7 @@ from ..harness_agents import LOCAL_CLIENT
 from ..persistence.db import encoded
 from ..resources import conversation_title
 from ..secret_vault import redact_secrets
+from ..services import retention
 from . import LimitedStream, api_route, body
 
 
@@ -139,11 +140,13 @@ async def conversations(request, service, identity):
             (identity[0], "conversation_search"), SEARCHES_PER_MINUTE, "search_rate_limit"
         )
     groups, turns = {}, {}
-    deleted = service.conversation_repository.deleted()
+    # ``?archived=true`` lists the Archived chats instead of the live ones.
+    listing_archived = request.query_params.get("archived") == "true"
+    archived = service.conversation_repository.archived()
     titles = service.conversation_repository.titles()
     for r in service.conversation_rows(identity):
         cid = service.conversation_id(r)
-        if cid in deleted:
+        if (cid in archived) != listing_archived:
             continue
         if cid not in groups:
             root = json.loads(r["payload"])
@@ -194,9 +197,14 @@ def gate_records(service, job_id):
 
 async def conversation(request, service, identity):
     cid = request.path_params["conversation"]
-    rows = service.conversation(identity, cid)
+    if request.method == "DELETE":
+        return await purge_conversation(service, identity, cid)
     if request.method == "PATCH":
         data = await body(request)
+        if "archived" in data:
+            if type(data["archived"]) is not bool:
+                raise APIError("invalid_archived")
+            return JSONResponse(retention.set_archived(service, identity, cid, data["archived"]))
         service.conversation(identity, cid)
         title = data.get("title")
         if not isinstance(title, str) or not (title := title.strip()) or len(title) > 100:
@@ -204,12 +212,7 @@ async def conversation(request, service, identity):
         with service.db:
             service.conversation_repository.set_title(cid, title)
         return JSONResponse({"id": cid, "title": title})
-    if request.method == "DELETE":
-        if any(r["state"] not in TERMINAL for r in rows):
-            raise APIError("conversation_busy", 409)
-        with service.db:
-            service.conversation_repository.mark_deleted(cid)
-        return JSONResponse({"deleted": True, "retention": "hidden; execution records retained"})
+    rows = service.conversation(identity, cid)
     return JSONResponse(
         {
             "id": cid,
@@ -230,6 +233,21 @@ async def conversation(request, service, identity):
             ],
         }
     )
+
+
+async def purge_conversation(service, identity, cid):
+    """Delete permanently (decision D31): every turn's job routes answer 404 afterwards."""
+    rows, files = retention.begin_purge(service, identity, cid)
+    # Disk work runs off the event loop; the shared database connection stays on it.
+    paths = await asyncio.to_thread(retention.purge_paths, service, cid, rows, files)
+    await asyncio.to_thread(retention.remove_paths, paths)
+    turns = retention.finish_purge(service, identity, cid, files)
+    return JSONResponse({"id": cid, "deleted": True, "turns": turns})
+
+
+async def storage(request, service, identity):
+    project = request.query_params.get("project_id", "")
+    return JSONResponse(retention.storage(service, identity, project))
 
 
 async def history(request, service, identity):
@@ -444,6 +462,7 @@ ROUTES = [
     api_route("/v1/conversations", conversations),
     api_route("/v1/conversations/{conversation}", conversation, methods=["GET", "DELETE", "PATCH"]),
     api_route("/v1/history", history),
+    api_route("/v1/storage", storage),
     api_route("/v1/assess", assess, methods=["POST"]),
     api_route("/v1/jobs", submit_job, methods=["POST"]),
     api_route("/v1/jobs/{job}", job),

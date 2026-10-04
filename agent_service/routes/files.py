@@ -15,6 +15,7 @@ from starlette.responses import FileResponse, JSONResponse
 from .. import harness_agents, maestro, tools, workspaces
 from ..errors import APIError
 from ..persistence.db import encoded
+from ..services import retention
 from ..services.conversation_service import preview_metadata
 from . import api_route, body
 
@@ -386,10 +387,11 @@ async def upload_file(request, service, identity):
                 async with asyncio.timeout(600):
                     async for chunk in request.stream():
                         size += len(chunk)
-                        if size > file_limit or used + size > 2 * 1024**3:
+                        if size > file_limit:
                             raise APIError("upload_limit", 413)
                         out.write(chunk)
                         digest.update(chunk)
+            retention.admit_upload(service, project, used, size, digest.hexdigest(), dest)
             identity = require_current_upload(request, service, project)
             if Path(filename).suffix.lower() == ".mp4":
                 backend = request.query_params.get("backend")

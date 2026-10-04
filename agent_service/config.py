@@ -11,6 +11,11 @@ REPOSITORY_ROOT = PACKAGE_DIR.parent
 VERSION_FILE = PACKAGE_DIR / "VERSION"
 
 TERMINAL = frozenset({"completed", "failed", "cancelled", "interrupted"})
+# Per-project storage caps (decision D33): kept runs and uploaded bytes, each identical upload
+# counted once. Settings warns from STORAGE_WARNING_RATIO of either cap.
+MAX_PROJECT_RUNS = 1000
+MAX_PROJECT_UPLOAD_BYTES = 2 * 1024**3
+STORAGE_WARNING_RATIO = 0.8
 KINDS = frozenset(
     {
         "infer",

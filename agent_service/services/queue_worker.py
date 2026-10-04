@@ -534,7 +534,7 @@ def run_queued(service, identity, job):
         if not service.db.in_transaction:
             service.db.execute("BEGIN IMMEDIATE")
         row = service.job(identity, job)
-        if service.conversation_repository.is_deleted(service.conversation_id(row)):
+        if service.conversation_repository.is_archived(service.conversation_id(row)):
             raise APIError("job_not_found", 404)
         payload = json.loads(row["payload"])
         if row["state"] != "queued" or not payload.pop("_held_after_stop", None):
