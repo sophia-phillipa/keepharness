@@ -5,7 +5,7 @@
 - **Start**: `desktop/launch-linux.sh`. If the admin is not answering on `127.0.0.1:8094` (`KEEPHARNESS_ADMIN_PORT`), it starts `python -m control` with `KEEPHARNESS_PYTHON` (default: the environment `install.sh` created, found with `python3 control/product.py --field venv`, else `.venv/bin/python`) and stops it on quit; an admin that was already running is left alone.
 - **Window**: opens the harness (`127.0.0.1:8095`, `KEEPHARNESS_PORT`) when it answers within 15 s, otherwise the admin so a provider can be set up. The port comes from `~/.local/share/keepharness/runtime.json` (`port`); an explicit environment value wins, and missing or invalid values fall back to 8095. App-origin popups, including Admin, use one reusable second window, restoring it before focus when minimized.
 - **Navigation policy** (`policy.cjs`): only the admin and harness origins load in the window; navigation and redirects to any other `http` or `https` link opens in the system browser; other schemes and URLs with credentials are dropped. The renderer has no Node integration, context isolation and the Chromium sandbox are on, `<webview>` is off.
-- **Port trust** (Linux): before loading an admin or harness that is already running, the app reads `/proc/net/tcp` and `/proc/net/tcp6` and refuses to open a port whose loopback listener belongs to another user (or cannot be found), with a dialog. A responding harness must also identify `product: "keepharness"` in `/v1/version` before authentication or loading; foreign or malformed responses are refused. Concurrent navigations share one in-flight identity check and refusal dialog. Where `/proc/net/tcp` does not exist the check is skipped.
+- **Port trust** (Linux): before loading an admin or harness that is already running, the app reads `/proc/net/tcp` and `/proc/net/tcp6` and refuses to open a port whose loopback listener belongs to another user (or cannot be found), with a dialog. A responding harness must also identify `product: "keepharness"` in the authenticated `/v1/version` response before loading. The app first obtains its existing owner session from the admin and sends only the `keepharness-local` cookie on the version probe to the fixed loopback harness origin; it does not follow redirects. Unauthorized, foreign or malformed responses are refused. Concurrent navigations share one in-flight identity check and refusal dialog. Where `/proc/net/tcp` does not exist the check is skipped.
 - **Permissions**: only clipboard writes and notifications from app origins are allowed; all other permission requests and checks are denied.
 - **Single instance**: a second launch focuses the existing window.
 - **Bazzite**: the Python environment lives in the development container, so the menu entry runs `distrobox-enter -n <container> -- …/desktop/launch-linux.sh`.
@@ -19,6 +19,10 @@ Not yet: a frozen Python backend, AppImage, .deb, signing, or auto-update.
 - Python is checked with a bounded `--version` invocation before starting the service or owner CLI. Failure when starting the service shows “Run install.sh, or set KEEPHARNESS_PYTHON” and quits. Owner CLI failure is logged and returns no enrollment link; an attached harness still loads without Python or an enrollment cookie.
 - Renderer termination offers Reload / Quit. An unresponsive window offers Wait / Reload. A renderer crash during that dialog is remembered; choosing Wait then offers Reload / Quit. Unexpected exit of the service started by this client shows a redacted stderr tail and Restart service / Quit; attached services remain independently managed.
 - The KeepHarness menu contains About / Quit, Edit roles, zoom and full screen. Packaged builds expose neither Reload nor DevTools; development builds expose DevTools. Quit preserves the existing busy-work confirmation.
+- About KeepHarness shows the validated package version, short commit and UTC build date; source runs show “development build”. Older valid manifests without a date remain accepted and show “build date unavailable”.
+- App-origin HTTP and blob downloads (including Export settings) use a save dialog in Downloads with a sanitized filename. Data URLs, opaque blobs and foreign downloads are cancelled; only URLs allowed by the external-navigation policy open in the browser.
+- Queued or running work shows indeterminate taskbar progress and, on Linux where supported, a badge. The client polls the existing admin state endpoint while the main window exists, backs off on errors, and clears indicators when idle, when polling fails, when the owned backend exits, and when the window closes.
+- Conversation titles update the native title through `page-title-updated`, without preload IPC. The client strips Unicode control/format characters and line/paragraph separators, caps the title and falls back to KeepHarness for empty or foreign titles. Failed enrollment removes the pending route-restore listener. The last app-origin route is saved alongside window bounds; invalid or foreign routes use the default start page.
 - Main-window normal bounds and maximized state persist atomically through `userData/window-state.json.tmp` and rename. Restored bounds use the display work area with greatest positive overlap, preserving size and maximized state before clamping. Bounds with no overlap use centered defaults on the primary display. Minimum window size is 960 × 640.
 - All windows use one factory with identical renderer isolation and navigation policies. The splash rejects navigation and popups, and closes as soon as the admin answers. Content windows show on the first of `ready-to-show` and `did-finish-load`; saved maximization is applied immediately before showing, never during hidden enrollment.
 - Main-process diagnostics use `~/.config/KeepHarness/logs/main.log`, at most 1 MiB with one rotation (`main.log.1`), ISO timestamps and redaction of secret, ticket, cookie, Authorization, API-key, token and password values in headers, parameters and JSON-like diagnostics. `admin=` cookie values are redacted while ordinary admin log prose is preserved. Desktop profile data uses the layout described below.
@@ -39,6 +43,16 @@ can replace both files and checksums. Runtime startup refuses missing or invalid
 provenance. RunAsNode, NODE_OPTIONS and CLI inspect are disabled; OnlyLoadAppFromAsar
 and embedded ASAR integrity validation are enabled. Electron does not enforce ASAR
 integrity on Linux. ASAR and fuses use the exact npm versions in the desktop lockfile.
+
+For a packaged startup smoke, run `node scripts/smoke-desktop-package.mjs
+--executable /absolute/install/current/keepharness --scratch /absolute/scratch`.
+The script creates and removes a throwaway HOME below scratch, unsets the host
+display variables and launches only through `xvfb-run -a`. It compares the runtime's
+validated version and commit with the installed manifest, checks ASAR startup and
+disabled Node options, and uses an unavailable Python executable and port zero to
+avoid starting or attaching to services. This checks packaged startup, not backend
+inference. The package test builds a clean temporary snapshot of the working tree,
+installs it into a throwaway HOME, checks the fuses, then calls this same script.
 
 Run the package's `./install-desktop-linux.sh` as the target user. Python 3 and Linux
 `flock` semantics are required. Version directories are immutable:
@@ -72,9 +86,14 @@ All new Electron data and caches live in `~/.config/KeepHarness` (cache:
 `local.key`, and systemd units. The launcher prints the Ubuntu AppArmor user-namespace
 hint before launch when applicable; it never disables the Chromium sandbox.
 
-The browser shortcut is `keepharness-browser.desktop`. Installing the desktop removes
-only the exact owned browser shortcut; Python registration skips it while `current`
-points to a marked install. Python rollback never removes the desktop client's entry.
-Installation leaves a symlinked browser shortcut untouched and prints a note.
-Desktop uninstall always leaves the browser shortcut untouched.
-After desktop uninstall, run `./install.sh` to get the browser entry back.
+KeepHarness consists of the desktop app and its server. Install/register never creates
+`keepharness-browser.desktop`, whether the desktop app is installed or not. Python
+registration and rollback remove `keepharness-browser.desktop` and the pre-S3
+`keepharness.desktop` only when the file is exactly the browser entry this installer
+wrote: the exact owned `Exec="<home>/.local/bin/keepharness-open"` line (the only
+`Exec=`) and `Icon=utilities-terminal`. A `keepharness.desktop` that launches the
+desktop app, and any edited, foreign or symlinked entry, is preserved. Remaining installer files are written through a temporary file and
+`os.replace`. The server and explicit `keepharness-open` launcher remain available.
+The desktop installer also removes only the exact owned legacy browser entry and
+leaves symlinked browser entries untouched with a note. Desktop uninstall leaves
+browser entries untouched and does not offer to recreate them.

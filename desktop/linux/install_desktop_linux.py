@@ -253,7 +253,7 @@ def uninstall(home, spellings, opt, config, apps, container, args):
         subprocess.run(['rm', '-f', '--', str(link)], check=True)
     if container.exists() and not any(container.iterdir()):
         container.rmdir()
-    print('run ./install.sh to get the browser entry back')
+    print('The KeepHarness server and keepharness-open launcher are unchanged.')
 
 
 def main():

@@ -1,4 +1,5 @@
-// Regression: a restored local bookmark must use the canonical origin's panels.
+// Server routing regression used by the desktop client: restored local URLs use canonical panels.
+// This covers server compatibility, not a browser menu entry or a separate browser product.
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");

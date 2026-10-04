@@ -19,9 +19,9 @@ async function boot(options = {}) {
     fs.mkdirSync(path.join(home, '.local/share/keepharness'), { recursive: true });
     fs.writeFileSync(path.join(home, '.local/share/keepharness/runtime.json'), options.runtime);
   }
-  const windows = [], dialogs = [], external = [], requests = [], children = [], probes = [];
+  const windows = [], dialogs = [], external = [], requests = [], requestDetails = [], children = [], probes = [], timers = new Map(), badges = [];
   const app = new EventEmitter();
-  Object.assign(app, { isPackaged: options.packaged ?? true, setName() {}, getPath: () => userData,
+  Object.assign(app, { isPackaged: options.packaged ?? true, setName() {}, setBadgeCount: n => badges.push(n), getPath: name => name === 'downloads' ? path.join(home, 'Downloads') : userData,
     requestSingleInstanceLock: () => true, whenReady: async () => {}, quit: () => { app.quits++; app.emit('before-quit', event()); }, quits: 0 });
   let menu;
   const event = () => ({ prevented: false, preventDefault() { this.prevented = true; } });
@@ -30,11 +30,13 @@ async function boot(options = {}) {
       super(); this.options = opts; this.shows = 0; this.destroyed = false; this.bounds = {x:100,y:100,width:1200,height:800}; this.maximized = false;
       this.webContents = new EventEmitter();
       Object.assign(this.webContents, { setWindowOpenHandler: fn => { this.open = fn; }, getURL: () => this.url,
-        executeJavaScript: async () => {}, reload: () => { this.reloads = (this.reloads || 0) + 1; } });
+        executeJavaScript: async () => { if (options.failEnrollment) throw new Error("enrollment failed"); }, reload: () => { this.reloads = (this.reloads || 0) + 1; } });
       windows.push(this);
     }
     async loadURL(url) { this.url = url; if (options.dieOnRestartLoad && children.length === 2) { children[1].exitCode=1; children[1].emit('exit',1,null); children[1].emit('close',1,null); } }
     async loadFile(file) { this.file = file; }
+    setTitle(title) { this.title = title; }
+    setProgressBar(value) { this.progress = value; }
     show() { this.shows++; }
     isVisible() { return this.shows > 0 && !this.hidden; }
     hide() { this.hidden = true; }
@@ -48,38 +50,60 @@ async function boot(options = {}) {
     getNormalBounds() { return this.bounds; }
     close() { const e = event(); this.emit('close', e); if (!e.prevented) { this.destroyed = true; this.emit('closed'); if (windows.every(w => w.destroyed)) app.emit('window-all-closed'); } }
   }
+  const ownerSession = 'owner-session-abcdefghijklmnop';
+  const cookies = [];
   const electron = { app, BrowserWindow: Window, shell: { openExternal: async url => external.push(url) },
     screen: { getAllDisplays: () => [{workArea:{x:0,y:0,width:1920,height:1080}}], getPrimaryDisplay: () => ({workArea:{x:0,y:0,width:1920,height:1080}}) },
     Menu: { buildFromTemplate: template => template, setApplicationMenu: template => { menu = template; } },
     dialog: { showMessageBox: async (...args) => { const d = args.at(-1); dialogs.push(JSON.parse(JSON.stringify(d))); if (options.onDialog) return options.onDialog(d, app); return { response: options.response ?? 1 }; }, showAboutPanel() {} },
-    session: { defaultSession: { setPermissionRequestHandler(fn) { this.permission = fn; }, setPermissionCheckHandler(fn) { this.check = fn; }, cookies: { set: async () => {}, get: async () => options.noSession ? [] : [{}] } } } };
+    session: { defaultSession: Object.assign(new EventEmitter(), { setPermissionRequestHandler(fn) { this.permission = fn; }, setPermissionCheckHandler(fn) { this.check = fn; }, cookies: { set: async cookie => { cookies.push(cookie); }, get: async query => query.name === 'keepharness-local' ? cookies.filter(cookie => cookie.name === query.name && new URL(cookie.url).origin === new URL(query.url).origin) : options.noSession ? [] : [{}] } }) } };
   let adminReady = !options.startBackend;
   const http = { get(url, opts, callback) {
-    requests.push(url); const req = new EventEmitter(); req.destroy = () => req.emit('error', new Error('timeout'));
+    requests.push(url); requestDetails.push({url, ...opts}); const req = new EventEmitter(); req.destroy = () => req.emit('error', new Error('timeout'));
     queueMicrotask(() => {
       if ((options.harnessOffline && url.includes('v1/version')) || (!adminReady && !url.includes('v1/version'))) { req.emit('error', new Error('offline')); return; }
-      const res = new EventEmitter(); res.statusCode = options.status || 200; res.headers = {}; res.resume = () => {}; res.setEncoding = () => {};
+      const res = new EventEmitter(); res.statusCode = options.status || 200; res.headers = {}; if (url.includes('v1/version') && (options.rejectCredential || opts.headers?.cookie !== `keepharness-local=${ownerSession}`)) res.statusCode=401; if (url.includes('/open?')) { res.statusCode=options.failOpen ? 500 : 303; res.headers['set-cookie']=['admin=abcdefghijklmnop; Path=/', `keepharness-local=${ownerSession}; Path=/`]; } res.resume = () => {}; res.setEncoding = () => {};
       callback(res);
       if (options.dieDuringVersion && url.includes('v1/version') && children.length) { children.at(-1).exitCode=1; children.at(-1).emit('exit',1,null); }
-      res.emit('data', url.includes('v1/version') ? (options.version ?? '{"product":"keepharness"}') : '{}'); res.emit('end');
+      res.emit('data', url.includes('v1/version') ? (options.version ?? '{"product":"keepharness"}') : url.endsWith('api/state') ? JSON.stringify({status:{busy:options.busy}}) : '{}'); res.emit('end');
     }); return req;
   } };
   const childProcess = { spawnSync(executable) { probes.push(executable); return options.badPython ? {error:new Error('ENOENT'),status:null} : {status:0}; },
-    spawn() { const child = new EventEmitter(); Object.assign(child, {stderr:new EventEmitter(),stdout:new EventEmitter(),exitCode:null,signalCode:null,kill() { this.signalCode='SIGTERM'; }}); children.push(child); adminReady=true; return child; } };
+    spawn(_executable,args) { const child = new EventEmitter(); Object.assign(child, {stderr:new EventEmitter(),stdout:new EventEmitter(),exitCode:null,signalCode:null,kill() { this.signalCode='SIGTERM'; }}); children.push(child); adminReady=true; if (options.enrollment && args.includes('approve-device')) queueMicrotask(() => { child.stdout.emit('data',options.enrollment); child.exitCode=0; child.emit('close',0); }); return child; } };
   const fakeFs = new Proxy(fs, { get(target, key) {
-    if (key === 'readFileSync') return (file, ...args) => String(file).endsWith('build-manifest.json') ? (options.manifest ?? JSON.stringify({product:'keepharness',version:'0.16.0',commit:'a'.repeat(40),dirty:false})) : target.readFileSync(file,...args);
-    if (key === 'existsSync') return file => file === '/proc/net/tcp' ? false : options.badPython && String(file).includes('python') ? false : target.existsSync(file);
+    if (key === 'readFileSync') return (file, ...args) => options.tcp && file === '/proc/net/tcp' ? options.tcp : options.tcp && file === '/proc/net/tcp6' ? '' : String(file).endsWith('build-manifest.json') ? (options.manifest ?? JSON.stringify({product:'keepharness',version:'0.16.0',commit:'a'.repeat(40),dirty:false,built_at:'2026-10-04T12:00:00Z'})) : String(file).endsWith('local.key') ? 'abcdefghijklmnop' : target.readFileSync(file,...args);
+    if (key === 'existsSync') return file => file === '/proc/net/tcp' ? !!options.tcp : options.badPython && String(file).includes('python') ? false : target.existsSync(file);
     return target[key];
   } });
   const proc = new EventEmitter(); Object.assign(proc, { env:{ KEEPHARNESS_ADMIN_PORT:'18194', KEEPHARNESS_PYTHON:process.execPath, ...options.env }, platform:'linux', getuid: () => 1000 });
-  vm.runInNewContext(source, { require(name) { return ({electron, 'node:fs':fakeFs, 'node:os':{homedir:()=>home}, 'node:http':http, 'node:child_process':childProcess, './policy.cjs':require('./policy.cjs')})[name] || require(name); }, __dirname, process:proc, console, Buffer, URL, setTimeout:(fn,ms)=>setTimeout(fn,ms===250?0:ms), clearTimeout }, {filename:'main.cjs'});
+  vm.runInNewContext(source, { require(name) { return ({electron, 'node:fs':fakeFs, 'node:os':{homedir:()=>home}, 'node:http':http, 'node:child_process':childProcess, './policy.cjs':require('./policy.cjs')})[name] || require(name); }, __dirname, process:proc, console, Buffer, URL, setTimeout:(fn,ms)=> { if (ms >= 5000) { const timer={fn,ms,unref(){}}; timers.set(timer,timer); return timer; } return setTimeout(fn,ms===250?0:ms); }, clearTimeout:timer => { timers.delete(timer); clearTimeout(timer); } }, {filename:'main.cjs'});
   await settle();
-  return {home,userData,windows,dialogs,external,requests,children,probes,app,event,get menu(){return menu;},main:windows.find(w=>!w.options.frame && !w.file) || windows.find(w=>w.options.frame !== false)};
+  return {timers,badges,session:electron.session.defaultSession,home,userData,windows,dialogs,external,requests,requestDetails,children,probes,app,event,get menu(){return menu;},main:windows.find(w=>!w.options.frame && !w.file) || windows.find(w=>w.options.frame !== false)};
 }
 
+test('credential-requiring harness is accepted and opens the main window', async () => {
+  const h = await boot();
+  assert.equal(h.app.quits, 0);
+  assert.equal(h.dialogs.length, 0);
+  assert.equal(h.main.url, 'http://127.0.0.1:8095/');
+  const checks = h.requestDetails.filter(r => r.url.endsWith('/v1/version'));
+  assert.ok(checks.some(r => !r.headers?.cookie)); // Readiness may receive 401.
+  assert.ok(checks.some(r => r.headers?.cookie === 'keepharness-local=owner-session-abcdefghijklmnop'));
+  for (const request of h.requestDetails.filter(r => r.headers?.cookie?.includes('keepharness-local='))) {
+    assert.equal(request.url, 'http://127.0.0.1:8095/v1/version');
+  }
+});
+test('401 with the owner credential is refused before a page loads', async () => {
+  const h = await boot({rejectCredential:true});
+  assert.ok(h.requestDetails.some(r => r.headers?.cookie === 'keepharness-local=owner-session-abcdefghijklmnop'));
+  assert.ok(h.dialogs.some(d => /KeepHarness service/.test(d.message)));
+  assert.ok(h.app.quits);
+  assert.equal(h.windows.filter(w => w.url).length, 0);
+});
 test('foreign or malformed product is refused before a page loads', async () => {
   for (const version of ['{"product":"foreign"}', '{}', 'broken']) {
     const h = await boot({version});
+    assert.ok(h.requestDetails.some(r => r.headers?.cookie === 'keepharness-local=owner-session-abcdefghijklmnop'));
     assert.ok(h.dialogs.some(d => /product|KeepHarness service/i.test(d.message)));
     assert.ok(h.app.quits); assert.equal(h.windows.filter(w=>w.url).length, 0);
   }
@@ -280,4 +304,172 @@ test('Quit in the crash dialog does not re-prompt for a crash queued meanwhile',
   assert.equal(h.dialogs.length, 1);
   answers.shift()({response:1}); await settle();
   assert.equal(h.dialogs.length, 1); assert.equal(h.app.quits, 1);
+});
+
+
+test('About KeepHarness shows validated manifest build label and development build', async () => {
+  for (const packaged of [true,false]) {
+    const h=await boot({packaged,startBackend:true});
+    const about=h.menu[0].submenu.find(item=>item.label === 'About KeepHarness');
+    assert.ok(about); await about.click();
+    assert.match(h.dialogs.at(-1).detail, packaged ? /0\.16\.0.*aaaaaaa.*2026-10-04/ : /development build/);
+    if (packaged) assert.match(fs.readFileSync(path.join(h.userData,'logs/main.log'),'utf8'), /Build:.*"version":"0.16.0".*"commit":"a{40}"/);
+  }
+});
+test('app-origin downloads use a save dialog with sanitized name and foreign downloads cancel', async () => {
+  const h=await boot();
+  const item={getURL:()=>h.main.url+'file',getFilename:()=> '../bad\\name\n.txt',setSaveDialogOptions(value){this.save=value;}};
+  const e=h.event(); h.session.emit('will-download',e,item,h.main.webContents);
+  assert.ok(item.save); assert.equal(e.prevented,false);
+  assert.equal(path.dirname(item.save.defaultPath),path.join(h.home,'Downloads'));
+  assert.ok(!/[\\\n]/.test(path.basename(item.save.defaultPath)));
+  for (const url of ['https://example.com/file','file:///etc/passwd']) {
+    const foreign=h.event(); h.session.emit('will-download',foreign,{...item,getURL:()=>url},h.main.webContents); assert.ok(foreign.prevented);
+  }
+  assert.deepEqual(h.external,['https://example.com/file']);
+});
+test('busy polling sets progress, clears idle, backs off errors and stops on close', async () => {
+  const options={busy:true}; const h=await boot(options);
+  assert.equal(h.main.progress,2); assert.equal(h.badges.at(-1),1);
+  const tick=async () => { const timer=[...h.timers.values()][0]; assert.ok(timer); h.timers.delete(timer); timer.fn(); await settle(); };
+  assert.equal([...h.timers.values()][0].ms,5000);
+  options.busy=false; await tick(); assert.equal(h.main.progress,-1); assert.equal(h.badges.at(-1),0);
+  options.busy=null; await tick(); assert.equal([...h.timers.values()][0].ms,10000);
+  await tick(); assert.equal([...h.timers.values()][0].ms,20000);
+  options.busy=true; await tick(); assert.equal([...h.timers.values()][0].ms,5000);
+  h.main.close(); assert.equal(h.timers.size,0); assert.equal(h.badges.at(-1),0);
+});
+test('conversation window titles are capped sanitized and fall back for foreign or empty titles', async () => {
+  const h=await boot();
+  for (const [url,title,expected] of [[h.main.url,'Project\n review','Project review'],[h.main.url,'x'.repeat(300),'x'.repeat(160)],[h.main.url,'  ','KeepHarness'],['https://example.com/','Foreign','KeepHarness']]) {
+    h.main.url=url; const e=h.event(); h.main.webContents.emit('page-title-updated',e,title);
+    assert.equal(h.main.title,expected); assert.ok(e.prevented);
+  }
+});
+test('last app route survives restart and foreign or invalid stored routes are ignored', async () => {
+  const h=await boot(); h.main.url+='?conversation=chat-123'; h.main.close();
+  const saved=JSON.parse(fs.readFileSync(path.join(h.userData,'window-state.json')));
+  assert.equal(saved.route,'/?conversation=chat-123');
+  const next=await boot({home:h.home}); assert.equal(next.main.url,'http://127.0.0.1:8095/?conversation=chat-123');
+  for (const route of ['https://evil.test/','//evil.test/','/\\evil.test/','/open?ticket=secret',42]) {
+    fs.writeFileSync(path.join(h.userData,'window-state.json'),JSON.stringify({...saved,route}));
+    const invalid=await boot({home:h.home}); assert.equal(invalid.main.url,'http://127.0.0.1:8095/');
+  }
+});
+
+test('older manifests remain valid while malformed build dates are refused', async () => {
+  const base={product:'keepharness',version:'0.16.0',commit:'a'.repeat(40),dirty:false};
+  const old=await boot({manifest:JSON.stringify(base)});
+  assert.equal(old.app.quits,0);
+  await old.menu[0].submenu.find(item=>item.id==='about').click();
+  assert.match(old.dialogs.at(-1).detail,/build date unavailable/);
+  const invalid=await boot({manifest:JSON.stringify({...base,built_at:'untrusted date'})});
+  assert.ok(invalid.app.quits); assert.equal(invalid.requests.length,0);
+});
+
+test('saved conversation route resumes after device enrollment completes', async () => {
+  const first=await boot(); first.main.url+='?conversation=restored'; first.main.close();
+  const link='http://127.0.0.1:8095/approve-device?nonce=abcdefghijklmnop';
+  const h=await boot({home:first.home,noSession:true,enrollment:link});
+  assert.equal(h.main.url,link);
+  h.main.webContents.emit('did-finish-load');
+  h.main.url='http://127.0.0.1:8095/'; h.main.webContents.emit('did-finish-load'); await settle();
+  assert.equal(h.main.url,'http://127.0.0.1:8095/?conversation=restored');
+});
+
+
+test('app-origin blob downloads use the save dialog and unsafe schemes are refused', async () => {
+  const h = await boot();
+  for (const origin of ['http://127.0.0.1:18194', 'http://127.0.0.1:8095']) {
+    const item = {getURL: () => `blob:${origin}/export-id`, getFilename: () => 'settings.json',
+      setSaveDialogOptions(value) { this.save = value; }};
+    const event = h.event(); h.session.emit('will-download', event, item, h.main.webContents);
+    assert.equal(event.prevented, false);
+    assert.equal(item.save.defaultPath, path.join(h.home, 'Downloads', 'settings.json'));
+  }
+  for (const url of ['blob:https://foreign.test/id', 'blob:http://127.0.0.1:9999/id',
+    'blob:null/id', 'blob:file:///id', 'data:application/json,{}']) {
+    const event = h.event();
+    h.session.emit('will-download', event, {getURL: () => url}, h.main.webContents);
+    assert.equal(event.prevented, true, url);
+  }
+  h.main.url = 'https://foreign.test/';
+  const event = h.event();
+  h.session.emit('will-download', event, {getURL: () => 'blob:http://127.0.0.1:8095/id'}, h.main.webContents);
+  assert.equal(event.prevented, true);
+});
+
+test('busy indicators clear when polling fails', async () => {
+  const options = {busy: true}; const h = await boot(options);
+  assert.equal(h.main.progress, 2);
+  options.status = 503;
+  const timer = [...h.timers.values()][0]; h.timers.delete(timer); timer.fn(); await settle();
+  assert.equal(h.main.progress, -1); assert.equal(h.badges.at(-1), 0);
+  assert.equal([...h.timers.values()][0].ms, 10000);
+});
+
+test('busy indicators clear immediately when the backend exits', async () => {
+  const h = await boot({busy: true, startBackend: true});
+  assert.equal(h.main.progress, 2);
+  h.children[0].exitCode = 1; h.children[0].emit('exit', 1, null);
+  assert.equal(h.main.progress, -1); assert.equal(h.badges.at(-1), 0);
+  const timer = [...h.timers.values()][0]; h.timers.delete(timer); timer.fn(); await settle();
+  assert.equal(h.main.progress, -1); assert.equal(h.badges.at(-1), 0);
+});
+
+test('busy progress clears before the window is destroyed', async () => {
+  const h = await boot({busy: true});
+  assert.equal(h.main.progress, 2);
+  h.main.once('closed', () => assert.equal(h.main.progress, -1));
+  h.main.close();
+  assert.equal(h.timers.size, 0); assert.equal(h.badges.at(-1), 0);
+});
+
+test('failed enrollment removes the pending route restore listener', async () => {
+  const first = await boot(); first.main.url += '?conversation=restored'; first.main.close();
+  const h = await boot({home: first.home, noSession: true, failEnrollment: true,
+    enrollment: 'http://127.0.0.1:8095/approve-device?nonce=abcdefghijklmnop'});
+  h.main.webContents.emit('did-finish-load'); await settle();
+  assert.equal(h.main.webContents.listenerCount('did-finish-load'), 0);
+  h.main.url = 'http://127.0.0.1:8095/'; h.main.webContents.emit('did-finish-load'); await settle();
+  assert.equal(h.main.url, 'http://127.0.0.1:8095/');
+});
+
+const listening = (port, uid) => `0: 0100007F:${port.toString(16).toUpperCase().padStart(4,'0')} 00000000:0000 0A 00000000:00000000 00:00000000 00000000 ${uid} 0 1`;
+const foreignHarnessTable = `header\n${listening(18194,1000)}\n${listening(8095,1001)}\n`;
+const ownerCookie = request => request.headers?.cookie?.includes('keepharness-local=');
+test('a harness port owned by another uid never receives the owner cookie on direct boot', async () => {
+  const h = await boot({tcp: foreignHarnessTable});
+  assert.ok(!h.requestDetails.some(ownerCookie));
+  assert.ok(h.dialogs.some(d => /127\.0\.0\.1:8095 is not yours/.test(d.message)));
+  assert.ok(h.app.quits); assert.equal(h.windows.filter(w => w.url).length, 0);
+});
+test('navigating to a harness port owned by another uid never sends the owner cookie', async () => {
+  const options = {harnessOffline: true, tcp: foreignHarnessTable}; const h = await boot(options);
+  assert.equal(h.main.url, 'http://127.0.0.1:18194/');
+  options.harnessOffline = false;
+  const e = h.event(); h.main.webContents.emit('will-navigate', e, 'http://127.0.0.1:8095/'); await settle();
+  assert.ok(e.prevented); assert.ok(h.app.quits);
+  assert.ok(!h.requestDetails.some(ownerCookie));
+  assert.equal(h.main.url, 'http://127.0.0.1:18194/');
+});
+test('a failed sign-in is reported as such, not as a foreign product, and can be retried', async () => {
+  const quitOptions = {failOpen: true}; const h = await boot(quitOptions);
+  assert.ok(h.dialogs.some(d => /Could not sign in to the KeepHarness service/.test(d.message)));
+  assert.ok(!h.dialogs.some(d => /not a KeepHarness service/.test(d.message)));
+  assert.ok(h.app.quits); assert.equal(h.windows.filter(w => w.url).length, 0);
+  const retry = {failOpen: true, onDialog: d => { retry.failOpen = false; return {response: 0}; }};
+  const r = await boot(retry);
+  assert.deepEqual(r.dialogs.map(d => d.buttons), [['Retry', 'Quit']]);
+  assert.equal(r.app.quits, 0); assert.equal(r.main.url, 'http://127.0.0.1:8095/');
+});
+test('the enrollment route restore is single-use even when enrollment is refused', async () => {
+  const first = await boot(); first.main.url += '?conversation=restored'; first.main.close();
+  const h = await boot({home: first.home, noSession: true,
+    enrollment: 'http://127.0.0.1:8095/approve-device?nonce=abcdefghijklmnop'});
+  h.main.webContents.emit('did-finish-load'); await settle();
+  h.main.url = 'http://127.0.0.1:8095/approve-device'; h.main.webContents.emit('did-finish-load'); await settle();
+  assert.equal(h.main.webContents.listenerCount('did-finish-load'), 0);
+  h.main.url = 'http://127.0.0.1:8095/'; h.main.webContents.emit('did-finish-load'); await settle();
+  assert.equal(h.main.url, 'http://127.0.0.1:8095/');
 });
