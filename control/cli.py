@@ -6,6 +6,7 @@ import json
 import os
 import socket
 import sys
+import time
 from pathlib import Path
 
 from .discovery import scan
@@ -61,47 +62,35 @@ def main(argv=None):
     sign_in.add_argument(
         "--revoke", action="store_true", help="Sign every browser on this computer out instead"
     )
+    save = commands.add_parser(
+        "backup", help="Write a backup of the state (without provider logins and keys by default)"
+    )
+    save.add_argument("--output", help="Archive to create (default: keepharness-backup-<time>.tar.gz)")
+    save.add_argument(
+        "--with-secrets",
+        action="store_true",
+        help="Also include provider logins, keys and sessions, in clear in the archive",
+    )
+    put_back = commands.add_parser(
+        "restore", help="Show how a backup would be restored; --apply restores it"
+    )
+    put_back.add_argument("archive")
+    put_back.add_argument("--apply", action="store_true", help="Restore (default: print the plan)")
+    put_back.add_argument(
+        "--replace",
+        action="store_true",
+        help="Move the data already in the state folder aside (never deleted) before restoring",
+    )
     args = parser.parse_args(argv)
     os.umask(0o077)
     default_state = args.state == parser.get_default("state")
     if not 1024 <= args.port <= 65535:
         parser.error("Port must be between 1024 and 65535")
     if args.command == "approve-device":
-        from agent_service.approval_sessions import issue_enrollment, revoke_sessions
-        from agent_service.errors import APIError
-
-        if args.all and not args.revoke:
-            parser.error("--all requires --revoke")
-        # Creating the new folder here would make the pending move refuse to merge.
-        if default_state and (waiting := legacy_waiting()):
-            parser.error(waiting)
-        try:
-            ensure_lineage(Path(args.state), PRODUCT)
-            config = json.loads((Path(args.state) / "runtime.json").read_text())
-            ensure_lineage(Path(config["state_dir"]), PRODUCT)
-            owner = config.get("tailscale_logins", {}).get(args.owner, args.owner)
-            if args.revoke:
-                revoke_sessions(config, owner)
-                print("Revoked approval sessions and pending links for " + (owner or "all owners"))
-                return
-            if owner not in config["clients"]:
-                raise APIError("approval_owner_unknown", 403)
-            origin = (config.get("browser_url") or f"http://127.0.0.1:{config['port']}").rstrip("/")
-            if origin not in config.get("origins", []):
-                parser.error("The browser URL must be a configured harness origin")
-            if not args.yes:
-                if not sys.stdin.isatty():
-                    parser.error(
-                        "Enrollment requires terminal confirmation; use --yes for automation"
-                    )
-                answer = input(f"Enable browser approval authority for owner {owner!r}? [y/N] ")
-                if answer.strip().lower() not in ("y", "yes"):
-                    parser.error("Enrollment cancelled")
-            nonce = issue_enrollment(config, owner)
-        except (OSError, ValueError, KeyError, EOFError, APIError) as exc:
-            parser.error(f"Could not update approval authority: {exc}")
-        print("Open this single-use link in the owner's browser within 10 minutes:")
-        print(origin + "/approve-device?nonce=" + nonce)
+        approve_device(parser, args, default_state)
+        return
+    if args.command in ("backup", "restore"):
+        run_backup(args)
         return
     if args.command == "open" and args.revoke:
         revoke_browsers(parser, Path(args.state))
@@ -113,6 +102,68 @@ def main(argv=None):
         print(json.dumps(asyncio.run(scan()), indent=2, ensure_ascii=False))
         return
     serve(args, default_state)
+
+
+def approve_device(parser, args, default_state):
+    """`keepharness approve-device`: enroll a browser, or revoke human approval authority."""
+    from agent_service.approval_sessions import issue_enrollment, revoke_sessions
+    from agent_service.errors import APIError
+
+    if args.all and not args.revoke:
+        parser.error("--all requires --revoke")
+    # Creating the new folder here would make the pending move refuse to merge.
+    if default_state and (waiting := legacy_waiting()):
+        parser.error(waiting)
+    try:
+        ensure_lineage(Path(args.state), PRODUCT)
+        config = json.loads((Path(args.state) / "runtime.json").read_text())
+        ensure_lineage(Path(config["state_dir"]), PRODUCT)
+        owner = config.get("tailscale_logins", {}).get(args.owner, args.owner)
+        if args.revoke:
+            revoke_sessions(config, owner)
+            print("Revoked approval sessions and pending links for " + (owner or "all owners"))
+            return
+        if owner not in config["clients"]:
+            raise APIError("approval_owner_unknown", 403)
+        origin = (config.get("browser_url") or f"http://127.0.0.1:{config['port']}").rstrip("/")
+        if origin not in config.get("origins", []):
+            parser.error("The browser URL must be a configured harness origin")
+        if not args.yes:
+            if not sys.stdin.isatty():
+                parser.error(
+                    "Enrollment requires terminal confirmation; use --yes for automation"
+                )
+            answer = input(f"Enable browser approval authority for owner {owner!r}? [y/N] ")
+            if answer.strip().lower() not in ("y", "yes"):
+                parser.error("Enrollment cancelled")
+        nonce = issue_enrollment(config, owner)
+    except (OSError, ValueError, KeyError, EOFError, APIError) as exc:
+        parser.error(f"Could not update approval authority: {exc}")
+    print("Open this single-use link in the owner's browser within 10 minutes:")
+    print(origin + "/approve-device?nonce=" + nonce)
+
+
+def run_backup(args):
+    """`keepharness backup` and `keepharness restore`: a refusal or failure exits with its reason."""
+    import sqlite3
+
+    from . import backup
+
+    state = Path(args.state)
+    try:
+        if args.command == "restore":
+            print(backup.restore(Path(args.archive), state, apply=args.apply, replace=args.replace))
+            return
+        output = Path(args.output or f"{PRODUCT.slug}-backup-{time.strftime('%Y%m%d-%H%M%S')}.tar.gz")
+        manifest = backup.create(state, output, with_secrets=args.with_secrets)
+    except (backup.BackupRefused, OSError, sqlite3.Error) as exc:
+        raise SystemExit(f"{args.command.capitalize()} failed: {exc}") from None
+    print(f"Backed up {state} to {output}: {manifest['files']} files, {len(manifest['databases'])} databases.")
+    print(
+        "It includes provider logins and keys in clear: keep it private."
+        if args.with_secrets
+        else "It is without secrets: sign in to the providers again after a restore on another computer."
+    )
 
 
 def revoke_browsers(parser, state):
