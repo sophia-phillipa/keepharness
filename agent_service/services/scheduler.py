@@ -32,9 +32,9 @@ def run_key(record: dict) -> str:
     return f"schedule-{record['id']}-{record['next_run']}"
 
 
-def submit(service, identity: tuple, record: dict, idempotency_key: str | None = None) -> dict:
+async def submit(service, identity: tuple, record: dict, idempotency_key: str | None = None) -> dict:
     """The path of ``POST /v1/jobs``: a fresh conversation marked as started by the schedule."""
-    return service.submit(
+    return await service.submit_async(
         identity,
         schedules.job_request(service.config, record),
         idempotency_key,
@@ -113,7 +113,7 @@ async def run_due(service, record: dict, now: float) -> None:
     job_id = error = None
     key = run_key(record)
     try:
-        job_id = submit(service, (record["owner"], client), record, key)["job_id"]
+        job_id = (await submit(service, (record["owner"], client), record, key))["job_id"]
     except HarnessError as exc:
         if exc.code in TRANSIENT_CODES:
             logger.info("Scheduled run of %s deferred: %s", record["id"], exc.code)

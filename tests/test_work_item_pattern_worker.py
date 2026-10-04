@@ -219,7 +219,16 @@ def test_match_gives_up_when_no_worker_slot_frees_up(monkeypatch):
     assert error.value.status == 429
 
 
-def test_submit_route_matches_off_the_event_loop(tmp_path, monkeypatch):
+@pytest.mark.parametrize("source", ["explicit", "chips", "persona", "schedule"])
+@pytest.mark.parametrize(
+    "reply,error_code",
+    [
+        ('["TASK-1234"]', None),
+        ('["TASK-1234", "TASK-5678"]', "ambiguous_work_item"),
+        ("invalid json", "invalid_work_item_pattern"),
+    ],
+)
+def test_submit_route_matches_off_the_event_loop(tmp_path, monkeypatch, source, reply, error_code):
     from test_invocation_normalization import invocation_service
 
     from agent_service.routes import conversations
@@ -229,7 +238,7 @@ def test_submit_route_matches_off_the_event_loop(tmp_path, monkeypatch):
     item = next(
         i
         for i in service.resource_catalog(identity, "p", "codex", "gpt-6-astra")["items"]
-        if i["name"] == "reviewer"
+        if i["name"] == ("discussion" if source == "persona" else "reviewer")
     )
     request_body = dict(
         project_id="p",
@@ -243,26 +252,127 @@ def test_submit_route_matches_off_the_event_loop(tmp_path, monkeypatch):
                 resource_id=item["resource_id"],
                 args="Review TASK-1234",
                 order=0,
-                mode="delegated",
+                mode="conversational" if source == "persona" else "delegated",
             )
         ],
     )
 
+    selection = {"id": item["id"], "revision": item["revision"], "token": "/" + item["name"]}
+    route = conversations.submit_job
+    if source == "chips":
+        request_body.pop("invocations")
+        request_body.update(prompt="/reviewer Review TASK-1234", resource_selections=[selection])
+    elif source == "persona":
+        parent = service.submit(identity, {**request_body, "work_item": None})["job_id"]
+        service.db.execute("UPDATE jobs SET state='completed' WHERE id=?", (parent,))
+        service.db.commit()
+        request_body.pop("invocations")
+        request_body.update(parent_job_id=parent, prompt="Review TASK-1234")
+    elif source == "schedule":
+        from agent_service import schedules
+        from agent_service.routes import schedules as schedule_routes
+
+        record = dict(
+            project_id="p",
+            backend="codex",
+            model="gpt-6-astra",
+            effort="low",
+            prompt="Review TASK-1234",
+            access_mode="ask",
+            agent="reviewer",
+            page_ids=[],
+            id="scheduled-review",
+            title="Review",
+            allow_internet=False,
+        )
+        monkeypatch.setattr(schedules, "owned_record", lambda *args: record)
+        monkeypatch.setattr(schedules, "agent_selection", lambda *args: selection)
+        monkeypatch.setattr(schedules, "note_manual_run", lambda *args: None)
+        route = schedule_routes.run_now
+
     async def stream():
         yield json.dumps(request_body).encode()
 
-    seen = record_worker(monkeypatch, reply='["TASK-1234"]')
-    request = SimpleNamespace(stream=stream, state=SimpleNamespace(), headers={})
-    response = asyncio.run(conversations.submit_job(request, service, identity))
-    assert response.status_code == 202
-    assert seen.calls == 1 and seen.on_loop == [False]
-    job = json.loads(response.body)["job_id"]
-    assert service.job(identity, job)["work_item"] == "TASK-1234"
-    service.db.close()
+    seen = record_worker(monkeypatch, reply=reply)
+    request = SimpleNamespace(
+        stream=stream,
+        state=SimpleNamespace(),
+        headers={},
+        path_params={"schedule": "scheduled-review"},
+    )
+    try:
+        if error_code:
+            with pytest.raises(APIError, match=error_code) as error:
+                asyncio.run(route(request, service, identity))
+            assert error.value.status == 422
+        else:
+            response = asyncio.run(route(request, service, identity))
+            assert response.status_code == 202
+            job = json.loads(response.body)["job_id"]
+            assert service.job(identity, job)["work_item"] == "TASK-1234"
+        assert seen.calls == 1 and seen.on_loop == [False]
+    finally:
+        service.db.close()
 
 
-def test_scheduled_runs_never_reach_the_worker():
-    """A schedule submits no invocations; if that changes, its caller must prematch like the route."""
+def test_submit_rechecks_project_deletion_after_awaiting_match(tmp_path, monkeypatch):
+    from test_invocation_normalization import invocation_service
+
+    from agent_service.services import conversation_service
+
+    service, identity = invocation_service(tmp_path, monkeypatch)
+    service.config["projects"]["p"]["work_item_pattern"] = r"TASK-\d{4}"
+    item = next(
+        item
+        for item in service.resource_catalog(identity, "p", "codex", "gpt-6-astra")["items"]
+        if item["name"] == "reviewer"
+    )
+    data = dict(
+        project_id="p",
+        backend="codex",
+        model="gpt-6-astra",
+        effort="low",
+        prompt="/reviewer Review TASK-1234",
+        resource_selections=[
+            {"id": item["id"], "revision": item["revision"], "token": "/reviewer"}
+        ],
+    )
+    record_worker(monkeypatch, reply='["TASK-1234"]')
+
+    async def scenario():
+        matching = asyncio.Event()
+        resume = asyncio.Event()
+
+        async def paused_match(*args):
+            matching.set()
+            await resume.wait()
+            await work_items.prematch_reference(*args)
+
+        monkeypatch.setattr(conversation_service, "prematch_reference", paused_match)
+        submission = asyncio.create_task(service.submit_async(identity, data))
+        try:
+            await asyncio.wait_for(matching.wait(), timeout=2)
+            # Deletion can begin while there is still no queued job for this project.
+            assert service.conversation_repository.count_pending_for_owner(identity[0]) == 0
+            service.deleting_project_folders.add("p")
+            resume.set()
+            with pytest.raises(APIError, match="project_folder_busy") as error:
+                await submission
+            assert error.value.status == 409
+            assert service.conversation_repository.count_pending_for_owner(identity[0]) == 0
+        finally:
+            submission.cancel()
+            await asyncio.gather(submission, return_exceptions=True)
+            service.deleting_project_folders.discard("p")
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        service.db.close()
+
+
+def test_scheduled_runs_without_an_agent_never_reach_the_worker():
+    """Schedules without a selected agent do not produce invocation arguments."""
     from agent_service import schedules
 
     record = dict(
