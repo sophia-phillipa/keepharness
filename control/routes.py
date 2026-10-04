@@ -637,7 +637,14 @@ async def set_tailnet(request, manager, data):
     return result
 
 
+async def read_logs(request, manager):
+    from agent_service.log_config import LOG_TAIL_LINES, log_tail
+
+    return {"lines": log_tail(manager.state, request.query_params.get("lines", LOG_TAIL_LINES))}
+
+
 GET_ROUTES = {
+    "/api/logs": read_logs,
     "/api/catalogs": read_catalogs,
     "/api/vault": read_vault,
     "/api/folders": list_folders,

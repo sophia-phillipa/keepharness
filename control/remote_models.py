@@ -235,7 +235,52 @@ async def probe(url: str, key: str = "") -> list[dict]:
         entries = None
     if not isinstance(entries, list):
         raise ValueError("The server did not return an OpenAI-style model list.")
+    await require_responses_api(url, key)
     return [model for model in map(parse_model, entries) if model][:MAX_MODELS]
+
+
+async def require_responses_api(url: str, key: str = "") -> None:
+    """An invalid, model-free request tests the route without starting inference."""
+    reason = (
+        "responses_api_unavailable: This server must support the Responses API (/v1/responses)."
+    )
+    headers = {"Authorization": "Bearer " + key} if key else {}
+    try:
+        async with (
+            asyncio.timeout(PROBE_SECONDS),
+            httpx.AsyncClient(
+                timeout=PROBE_SECONDS, trust_env=False, follow_redirects=False
+            ) as client,
+        ):
+            async with client.stream(
+                "POST", url + "/v1/responses", headers=headers, json={}
+            ) as response:
+                if response.status_code not in (400, 422):
+                    raise ValueError(reason)
+                body = bytearray()
+                async for chunk in response.aiter_bytes():
+                    body += chunk
+                    if len(body) > MAX_RESPONSE_BYTES:
+                        raise ValueError(reason)
+        payload = json.loads(body)
+        # OpenAI-style errors and FastAPI/Pydantic missing-field validation.
+        error = payload.get("error", {}) if isinstance(payload, dict) else {}
+        message = error.get("message", "") if isinstance(error, dict) else ""
+        named = isinstance(message, str) and re.search(r"\b(model|input)\b", message, re.I)
+        required = isinstance(message, str) and re.search(
+            r"required|missing|must.*provide", message, re.I
+        )
+        details = payload.get("detail", []) if isinstance(payload, dict) else []
+        validated = isinstance(details, list) and any(
+            isinstance(item, dict)
+            and item.get("type") in ("missing", "value_error.missing")
+            and item.get("loc") in (["body", "model"], ["body", "input"])
+            for item in details
+        )
+        if not ((named and required) or validated):
+            raise ValueError(reason)
+    except (TimeoutError, httpx.HTTPError, ValueError, RecursionError):
+        raise ValueError(reason) from None
 
 
 async def check_server(server: dict) -> tuple[dict, list[dict]]:

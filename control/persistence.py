@@ -4,6 +4,7 @@ import json
 import os
 import sqlite3
 import time
+from collections import deque
 from pathlib import Path
 
 # Files a rejected or interrupted configuration update must restore.
@@ -14,6 +15,7 @@ CONFIGURATION_FILES = (
     "local-profiles.json",
     "autostart",
 )
+AUDIT_MAX_ENTRIES = 1000
 
 
 def private_file(path, flags):
@@ -53,8 +55,18 @@ class ControlStateRepository:
             tmp.unlink(missing_ok=True)
 
     def audit(self, action):
-        with open(self.state / "audit.jsonl", "a", opener=private_file) as out:
-            out.write(json.dumps({"time": time.time(), "action": action}) + "\n")
+        path = self.state / "audit.jsonl"
+        try:
+            with path.open() as source:
+                entries = deque(source, maxlen=AUDIT_MAX_ENTRIES - 1)
+        except FileNotFoundError:
+            entries = []
+        self._replace(
+            path,
+            "".join(line.rstrip("\n") + "\n" for line in entries)
+            + json.dumps({"time": time.time(), "action": action})
+            + "\n",
+        )
 
     def snapshot(self):
         paths = [self.state / name for name in CONFIGURATION_FILES]

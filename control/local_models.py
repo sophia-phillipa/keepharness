@@ -8,6 +8,8 @@ from pathlib import Path
 
 import httpx
 
+from .remote_models import require_responses_api
+
 # Total seconds per server probe; httpx timeouts apply per read, so a server that
 # trickles bytes could otherwise hold discovery forever.
 PROBE_SECONDS = 3
@@ -47,7 +49,7 @@ def processes():
     return found
 
 
-async def discover():
+async def discover(*, errors=None):
     results = []
     async with httpx.AsyncClient(timeout=3, trust_env=False) as client:
         for server in processes():
@@ -61,6 +63,9 @@ async def discover():
                     client.get(server["url"] + "/v1/models", headers=headers), PROBE_SECONDS
                 )
                 r.raise_for_status()
+                await require_responses_api(
+                    server["url"], headers.get("Authorization", "").removeprefix("Bearer ")
+                )
                 for model in r.json().get("data", []):
                     results.append(
                         {
@@ -70,7 +75,13 @@ async def discover():
                             "context": model.get("meta", {}).get("n_ctx"),
                         }
                     )
-            except (OSError, httpx.HTTPError, ValueError, KeyError):
+            except (OSError, httpx.HTTPError, ValueError, KeyError) as exc:
+                if (
+                    errors is not None
+                    and isinstance(exc, ValueError)
+                    and str(exc).startswith("responses_api_unavailable:")
+                ):
+                    errors.append({"url": server["url"], "error": str(exc)})
                 continue
     return results
 
