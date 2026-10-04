@@ -1,10 +1,10 @@
 """Scheduled tasks: recurring prompts that run unattended as new conversations.
 
-A schedule is a prompt, the route it runs on (provider, model, effort), an access mode and a
-cadence. It belongs to the client that created it. This module decides what a schedule may
-hold, when it is due and how a run is recorded; ``services/scheduler.py`` submits the due ones
-and ``docs/scheduled-tasks.md`` describes the whole feature. The files live in
-``JsonFileRepository``.
+A schedule is a prompt, the route it runs on (provider, model, effort), an access mode, whether
+it may use the internet and a cadence. It belongs to the client that created it. This module
+decides what a schedule may hold, when it is due and how a run is recorded;
+``services/scheduler.py`` submits the due ones and ``docs/scheduled-tasks.md`` describes the
+whole feature. The files live in ``JsonFileRepository``.
 """
 
 import itertools
@@ -21,15 +21,16 @@ from datetime import time as wall_time
 from pathlib import Path
 from types import MappingProxyType
 
-from . import harness_agents
+from . import harness_agents, pages
 from .errors import APIError
+from .persistence.harness_agent_repository import AGENT_ID
 from .persistence.json_file_repository import (
     JsonFileRepository,
     owner_folder_name,
     revision_of,
     timestamp,
 )
-from .resources import ENGINES
+from .resources import ENGINES, ResourceError, reserved_markers
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,7 @@ MAX_FILE_BYTES = 131072
 ACCESS_MODES = ("ask", "read_only")
 FAILURE_LIMIT = 3
 HOURS = (1, 168)
+MAX_PAGE_IDS = 5
 # "submitted": the run is queued or running; the scheduler then reads its outcome back (D15).
 # "failed" without a job is a refused submit.
 FAILED_OUTCOMES = ("failed", "cancelled", "interrupted")
@@ -55,8 +57,11 @@ EDITABLE = (
     "model",
     "effort",
     "access_mode",
+    "allow_internet",
     "cadence",
     "enabled",
+    "agent",
+    "page_ids",
 )
 ROUTE = ("project_id", "backend", "model", "effort")
 # Echoed by a listing, so a client may send them back; they never change what is stored.
@@ -202,6 +207,29 @@ def clean_name(value: object, field: str) -> str:
     return value
 
 
+def clean_agent(value: object) -> str | None:
+    """The name of the Harness agent a run adopts; resolved to its current revision at run time."""
+    if value in (None, ""):
+        return None
+    if not isinstance(value, str) or not AGENT_ID.fullmatch(value):
+        raise invalid("agent")
+    return value
+
+
+def clean_page_ids(value: object) -> list[str]:
+    """Space pages of the schedule's project whose current text every run carries (D41)."""
+    if value is None:
+        return []
+    if (
+        not isinstance(value, list)
+        or len(value) > MAX_PAGE_IDS
+        or len(set(map(str, value))) != len(value)
+        or not all(isinstance(item, str) and pages.PAGE_ID.fullmatch(item) for item in value)
+    ):
+        raise invalid("page_ids")
+    return list(value)
+
+
 def body_fields(body: dict) -> dict:
     return {key: body[key] for key in EDITABLE if key in body}
 
@@ -222,13 +250,19 @@ def normalize(body: dict) -> dict:
         "model": clean_name(body.get("model"), "model"),
         "effort": clean_name(body.get("effort"), "effort"),
         "access_mode": body.get("access_mode"),
+        # Unattended runs have no internet unless the task opts in (D03); older files lack it.
+        "allow_internet": body.get("allow_internet", False),
         "cadence": normalize_cadence(body.get("cadence")),
         "enabled": body.get("enabled"),
+        "agent": clean_agent(body.get("agent")),
+        "page_ids": clean_page_ids(body.get("page_ids")),
     }
     if fields["backend"] not in ENGINES:
         raise invalid("backend")
     if not isinstance(fields["access_mode"], str) or fields["access_mode"] not in ACCESS_MODES:
         raise invalid("access_mode")
+    if type(fields["allow_internet"]) is not bool:
+        raise invalid("allow_internet")
     if type(fields["enabled"]) is not bool:
         raise invalid("enabled")
     return fields
@@ -241,6 +275,19 @@ def require_available(config: dict, fields: dict) -> None:
     )
     if problem:
         raise invalid(problem[0])
+
+
+def require_agent(config: dict, fields: dict) -> None:
+    """The prompt names no ``@@`` agent that was not picked, and the picked agent exists (D41)."""
+    picked = {"@@" + fields["agent"]} if fields["agent"] else set()
+    try:
+        typed = reserved_markers(fields["prompt"], picked)
+    except ResourceError:
+        raise APIError("schedule_agent_unselected", 422, field="prompt") from None
+    if typed - picked:
+        raise APIError("schedule_agent_unselected", 422, field="prompt")
+    if picked and harness_agents.repository(config).read(fields["agent"]) is None:
+        raise invalid("agent")
 
 
 def serialize(record: dict) -> str:
@@ -367,6 +414,7 @@ def create_schedule(config: dict, owner: str, body: dict) -> dict:
     reject_unknown_fields(body)
     fields = normalize({"access_mode": "ask", "enabled": True, **body_fields(body)})
     require_available(config, fields)
+    require_agent(config, fields)
     now = clock()
     stamp = timestamp()
     record = {
@@ -416,6 +464,8 @@ def replace_schedule(config: dict, owner: str, schedule_id: str, body: dict) -> 
         # A paused schedule may keep a route that is gone, so it can still be renamed or deleted.
         if fields["enabled"] or any(fields[key] != current[key] for key in ROUTE):
             require_available(config, fields)
+        if fields["enabled"] or any(fields[key] != current[key] for key in ("prompt", "agent")):
+            require_agent(config, fields)
         record = {
             **current,
             **fields,
@@ -440,17 +490,59 @@ def delete_schedule(config: dict, owner: str, schedule_id: str, body: dict) -> d
 # ----------------------------------------------------------------------------- running
 
 
-def job_request(record: dict) -> dict:
-    """The body of the ``POST /v1/jobs`` a run submits: a fresh conversation, no parent."""
+def agent_selection(config: dict, name: str) -> dict:
+    """The selection of the agent's current revision: an edited agent follows on the next run."""
+    text = harness_agents.repository(config).read(name)
+    if text is None:
+        raise APIError("schedule_agent_missing", 422)
     return {
-        key: record[key]
-        for key in ("prompt", "project_id", "backend", "model", "effort", "access_mode")
+        "id": harness_agents.RESOURCE_PREFIX + name,
+        "revision": harness_agents.revision_of(text),
+        "token": "@@" + name,
     }
 
 
+def page_section(config: dict, record: dict, page_id: str) -> str:
+    """The page's text as of now, fenced so that its own ``@@`` or ``//`` words stay plain text."""
+    try:
+        page = pages.read_page(config, record["owner"], record["project_id"], page_id)
+    except APIError:
+        raise APIError("schedule_page_missing", 422) from None
+    fence = "`" * max([3, *(len(run) + 1 for run in re.findall(r"`+", page["body"]))])
+    return f"Page {json.dumps(page['title'])}:\n{fence}markdown\n{page['body']}\n{fence}"
+
+
+def job_request(config: dict, record: dict) -> dict:
+    """The body of the ``POST /v1/jobs`` a run submits: a fresh conversation, no parent.
+
+    The picked agent and the pages are read as they are at run time (D41).
+    """
+    request = {
+        key: record[key]
+        for key in ("prompt", "project_id", "backend", "model", "effort", "access_mode")
+    }
+    if record["agent"]:
+        selection = agent_selection(config, record["agent"])
+        request["resource_selections"] = [selection]
+        if not re.search(rf"(?<!\S){re.escape(selection['token'])}(?=\s|$)", record["prompt"]):
+            request["prompt"] = f"{selection['token']} {record['prompt']}"
+    if record["page_ids"]:
+        request["prompt"] = "\n\n".join(
+            [
+                request["prompt"],
+                *(page_section(config, record, item) for item in record["page_ids"]),
+            ]
+        )
+    return request
+
+
 def origin(record: dict) -> dict:
-    """What marks a conversation as started by this schedule."""
-    return {"schedule_id": record["id"], "schedule_title": record["title"]}
+    """What marks a conversation as started by this schedule, and whether it may go online."""
+    return {
+        "schedule_id": record["id"],
+        "schedule_title": record["title"],
+        "schedule_internet": record["allow_internet"],
+    }
 
 
 def due(config: dict, now: float) -> list[dict]:

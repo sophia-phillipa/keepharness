@@ -172,11 +172,15 @@ class AcpConnection:
                 "think": True,
                 "other": self.mcp_selected and self.permissions.get("internet", False),
             }.get(kind, False)
+            # Automatic stays inside the project: a shell command or connector asks the owner (D11).
+            owner_asked = self.access_mode == "ask" or (
+                self.access_mode == "auto" and kind in ("execute", "other")
+            )
             if self.access_mode == "read_only" and kind in ("read", "search", "fetch") and allowed:
                 approved = True
-            elif self.access_mode in ("auto", "full") and allowed:
+            elif not owner_asked and self.access_mode in ("auto", "full") and allowed:
                 approved = True
-            elif self.access_mode == "ask" and allowed and self.approve:
+            elif owner_asked and allowed and self.approve:
                 reply = await self.approve("gemini/" + str(call.get("title", "permission")), params)
                 approved = bool(reply.get("approved"))
             else:
@@ -263,7 +267,7 @@ async def run_acp(
                 "initialize",
                 {
                     "protocolVersion": 1,
-                    "clientInfo": {"name": PRODUCT.mcp_name, "version": "0.15.0"},
+                    "clientInfo": {"name": PRODUCT.mcp_name, "version": "0.16.0"},
                     # Files and terminals are intentionally not proxied in this revision;
                     # admin policy routes the enabled native tools through ACP approval.
                     "clientCapabilities": {

@@ -1089,6 +1089,7 @@ function render() {
     (x) => x.found,
   ).length;
   $("uploads").checked = settings.uploads_enabled;
+  $("full-access").checked = settings.full_access === true;
   $("uploads").closest(".panel-bottom").hidden = true;
   $("platform-note").textContent =
     "Detected platform: " +
@@ -1247,6 +1248,30 @@ $("save").onclick = () =>
       );
     }
   });
+// D11: Full access stays out of the chat's access menu until the owner turns it on here.
+$("full-access").onchange = () => {
+  const toggle = $("full-access"),
+    enabled = toggle.checked;
+  if (working) {
+    toggle.checked = !enabled;
+    return;
+  }
+  action(async () => {
+    toggle.disabled = true;
+    try {
+      await request("settings", { ...structuredClone(state.settings), full_access: enabled });
+      await load({ select: false });
+      say(
+        enabled
+          ? "Full access is now offered in the chat's access menu."
+          : "Full access is no longer offered in the chat's access menu.",
+      );
+    } finally {
+      toggle.checked = state.settings.full_access === true;
+      toggle.disabled = false;
+    }
+  });
+};
 $("uploads").onchange = () => {
   settings.uploads_enabled = $("uploads").checked;
   if (!settings.uploads_enabled)

@@ -186,7 +186,7 @@ def test_conversations_titles_deletions_and_files_survive_the_upgrade(old_worktr
     title = service.conversation_title(service.job(identity, ids["root_a"]))
     assert title == "Renamed conversation"
 
-    assert ids["legacy_b"] in service.conversation_repository.deleted()
+    assert ids["legacy_b"] in service.conversation_repository.archived()
 
     owner = service.db.execute("SELECT owner FROM files WHERE id=?", (ids["file_id"],)).fetchone()[
         0

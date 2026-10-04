@@ -4,10 +4,6 @@
       "id": "L34",
       "note": "Rows outside a project show the internal 'sem-projeto' id (internal ids show)."
     },
-    "sidebar.archive-offered": {
-      "id": "L48",
-      "note": "Delete only hides; there is no Archive (D31)."
-    },
     "composer.empty-file": {
       "id": "L74",
       "note": "Empty files are accepted as attachments (QA-R1-8)."

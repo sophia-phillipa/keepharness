@@ -77,7 +77,7 @@ const path = require("node:path");
       }
       return route.fulfill({ json: data });
     });
-    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
+    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
     await page.goto("http://panel.test/");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
 
@@ -113,8 +113,22 @@ const path = require("node:path");
     await page.keyboard.press("Escape");
     noAgents = false;
 
-    // Files opens the files panel; a selection offers attach and a new chat.
+    // OP-R1-22: Files opens a picker and leaves the conversation in Chat; browsing the project's
+    // files is one explicit item of that picker.
     await bar.getByRole("button", { name: "Files" }).click();
+    const filesMenu = page.locator("#files-menu");
+    await filesMenu.waitFor({ state: "visible" });
+    assert.equal(await page.locator("#activity-panel").isHidden(), true, "the chip does not open the panel");
+    assert.equal(await page.locator("#view-chat").getAttribute("aria-selected"), "true");
+    for (const name of ["Upload…", "Browse project files…"])
+      assert(await filesMenu.getByRole("button", { name }).isVisible(), name);
+    assert.match(await filesMenu.innerText(), /Recent uploads[\s\S]*Space pages/);
+    await page.keyboard.press("Escape");
+    assert.equal(await filesMenu.isHidden(), true);
+    assert(await page.locator("#files-chip").evaluate((el) => el === document.activeElement), "focus returns to the chip");
+    // A selection of project files offers attach and a new chat.
+    await bar.getByRole("button", { name: "Files" }).click();
+    await filesMenu.getByTestId("files-menu-browse").click();
     await page.locator("#activity-panel").waitFor({ state: "visible" });
     const brief = page.locator('#files-tree [data-path="brief.md"]'),
       photo = page.locator('#files-tree [data-path="photo.png"]');

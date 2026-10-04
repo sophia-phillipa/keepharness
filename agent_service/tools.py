@@ -1,11 +1,13 @@
 """Deterministic tools. Source content never grants permissions."""
 
 import asyncio
+import codecs
 import errno
 import hashlib
 import ipaddress
 import json
 import os
+import re
 import shutil
 import socket
 import stat
@@ -181,6 +183,44 @@ def read_contained(root, name, errors="strict"):
     return data.decode("utf-8", errors)
 
 
+CONTROL_BYTES = re.compile(rb"[\x00-\x08\x0e-\x1f]")
+WORD_PART = re.compile(r"word/(document|footnotes|endnotes|header\d*|footer\d*)\.xml")
+WORD_BREAKS = {"tab": "\t", "br": "\n", "cr": "\n"}
+
+
+def decode_text(data):
+    """Text of a plain-text upload: a UTF-16 or UTF-8 BOM, UTF-8, then Windows-1252.
+
+    Windows-1252 is Excel's ANSI default for CSV; bytes with control codes are binary, not text.
+    """
+    if data.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)):
+        return data.decode("utf-16")
+    try:
+        return data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        if CONTROL_BYTES.search(data):
+            raise
+        return data.decode("cp1252")
+
+
+def word_text(root):
+    """Text of a WordprocessingML part: runs joined as written, one line per paragraph."""
+    parts = []
+    stack = [("", iter([root]))]
+    while stack:
+        name, children = stack[-1]
+        child = next(children, None)
+        if child is None:
+            stack.pop()
+            if name == "p":
+                parts.append("\n")
+            continue
+        name = child.tag.rsplit("}", 1)[-1]
+        parts.append((child.text or "") if name == "t" else WORD_BREAKS.get(name, ""))
+        stack.append((name, iter(child)))
+    return "".join(parts)
+
+
 async def extract(path, filename):
     if Path(filename).suffix.lower() in AUDIO_EXTENSIONS:
         return await transcribe_audio(path)
@@ -248,7 +288,7 @@ async def extract(path, filename):
     }:
         return office_text(path)
     try:
-        text = data.decode("utf-8")
+        text = decode_text(data)
     except UnicodeError:
         raise ToolError("unsupported_binary_format")
     if "\x00" in text:
@@ -537,9 +577,8 @@ def office_text(path):
             for item in entries:
                 name = item.filename
                 if not (
-                    name == "word/document.xml"
+                    WORD_PART.fullmatch(name)
                     or name == "content.xml"
-                    or name == "xl/sharedStrings.xml"
                     or name.startswith(("ppt/slides/slide", "xl/worksheets/sheet"))
                 ):
                     continue
@@ -552,6 +591,8 @@ def office_text(path):
                     for node in root.iter()
                     if node.text and node.tag.rsplit("}", 1)[-1] in ("t", "v", "p", "h")
                 )
+                if WORD_PART.fullmatch(name):
+                    text = word_text(root)
                 if name == "content.xml":
                     text = "\n".join(
                         "".join(node.itertext())

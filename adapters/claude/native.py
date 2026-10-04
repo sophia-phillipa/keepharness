@@ -60,6 +60,11 @@ def build_command(config, model, home, permissions, selected, access_mode, addit
         # Ask rules win over any user "allow" rule and over "acceptEdits".
         settings["permissions"] = {"ask": ["Edit", "Write", "NotebookEdit", "Bash", "mcp__*"]}
         sandbox["autoAllowBashIfSandboxed"] = False
+    elif access_mode == "auto":
+        # Automatic (D11): "acceptEdits" accepts edits inside the working directories (the
+        # project and --add-dir roots) and asks for anything outside them. Claude Code has no
+        # folder sandbox for commands here, so every command and connector call asks.
+        settings["permissions"] = {"ask": ["Bash", "mcp__*"]}
     if sandbox:
         settings["sandbox"] = sandbox
     command = [
@@ -89,9 +94,11 @@ def build_command(config, model, home, permissions, selected, access_mode, addit
     ]
     if access_mode == "ask":
         command += ["--permission-mode", "default"]
-    elif config.get("unrestricted") and access_mode != "read_only" and permissions.get("shell"):
+    elif access_mode == "auto":
+        command += ["--permission-mode", "acceptEdits"]
+    elif config.get("unrestricted") and access_mode == "full" and permissions.get("shell"):
         command += ["--permission-mode", "bypassPermissions"]
-    elif access_mode in ("auto", "full", "read_only"):
+    elif access_mode in ("full", "read_only"):
         command += ["--permission-mode", "dontAsk"]
     if additional_roots:
         command += ["--add-dir", *additional_roots]

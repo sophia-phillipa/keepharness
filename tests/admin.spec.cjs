@@ -291,6 +291,15 @@ const assert = require("node:assert/strict");
       .evaluate((e) => e === document.activeElement),
     true,
   );
+  // D11: Full access stays out of the chat's access menu until the owner turns it on here.
+  const fullAccess = p.locator("#full-access");
+  assert.equal(await fullAccess.isChecked(), false);
+  await fullAccess.check();
+  await p.waitForFunction(
+    () => document.getElementById("full-access").checked && !document.getElementById("full-access").disabled,
+  );
+  assert.equal(actions.filter((x) => x[0] === "settings").at(-1)[1].full_access, true);
+  assert.equal(state.settings.full_access, true);
   await p.click("#manage-network");
   for (const width of [390, 768]) {
     await p.setViewportSize({ width, height: 844 });

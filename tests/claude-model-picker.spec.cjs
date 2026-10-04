@@ -74,7 +74,7 @@ const path = require("node:path");
               : "text/html",
       });
     });
-    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
+    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
     await page.goto("http://picker.test");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     const choices = () =>

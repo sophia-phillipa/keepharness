@@ -23,6 +23,31 @@ Nobody watches a scheduled run, so it never gets automatic or full access:
   items"). A run started with "Run now" follows the same rule.
 - Three runs in a row that fail, are cancelled or are interrupted pause the schedule (see
   "Failures").
+- A scheduled run is isolated from the owner's setup (no personal MCP servers, plugins, hooks or
+  instructions; see `docs/provider-homes.md`) and has **no internet unless the task opts in**
+  (`allow_internet`, default `false`, D03; see "Internet").
+
+## Internet
+
+`allow_internet` is a per-task boolean, off by default; the Scheduled editor shows it as
+**Allow internet**. When it is off, the run's effective `internet` permission is forced to
+`false` whatever the provider's grant (`ConversationService._project_config`), which each
+adapter enforces as follows:
+
+| Provider | Without internet |
+| --- | --- |
+| Codex, DeepSeek | `web_search="disabled"` and the turn's sandbox has `networkAccess:false`; a command that needs the network escalates and is denied (`unattended`) |
+| Claude Code | `WebFetch` and `WebSearch` are not in `--tools`; `Bash` asks in Ask mode, so it is denied (`unattended`), and Read only has no `Bash` |
+| Gemini | `google_web_search` and `web_fetch` are denied by the run policy; the run drops the selected connectors, which need the network, instead of failing with `gemini_integration_denied` |
+| Local models | no web research tool and no network in the sandbox |
+
+With `allow_internet: true` the run gets the provider's own internet grant, never more.
+
+Limits that this option cannot enforce: the provider is always reached over the internet (the
+prompt, the project text the run reads and the answer go to the provider's API); a connector
+that the harness itself runs (an effect such as a Jira publication) needs an approval, which an
+unattended run denies; Claude Code has no network sandbox of its own, so its limit is the tool
+list plus the denied approvals, not an OS boundary.
 
 ## Data
 
@@ -43,8 +68,11 @@ One JSON file per schedule:
   "model": "gpt-6-astra",
   "effort": "low",
   "access_mode": "ask",
+  "allow_internet": false,
   "cadence": {"kind": "daily", "time": "09:00"},
   "enabled": true,
+  "agent": null,
+  "page_ids": [],
   "created_at": "2026-10-03T12:00:00.000Z",
   "updated_at": "2026-10-03T12:00:00.000Z",
   "next_run": 1791104400,
@@ -66,8 +94,11 @@ The `revision` the API returns is the SHA-256 of the exact file text, so any cha
 | `project_id` | a project the caller may use |
 | `backend`, `model`, `effort` | must be offered for that project right now (see below) |
 | `access_mode` | `ask` (default) or `read_only` |
+| `allow_internet` | boolean, default `false`; a file saved before it existed reads as `false` |
 | `cadence` | see below |
 | `enabled` | boolean, default `true` |
+| `agent` | optional name of a KeepHarness agent (D41); the run adopts the agent as it is at that moment |
+| `page_ids` | optional list of up to 5 Space pages of the schedule's project (D41); every run carries the current text of each |
 | per owner | at most 50 schedules |
 
 A file is at most 128 KiB. A hand-edited file that breaks these rules (or is not JSON) is skipped
@@ -112,10 +143,10 @@ All routes need the same authentication as the other `/v1` routes and answer wit
 | Route | Success | Errors |
 | --- | --- | --- |
 | `GET /v1/schedules` | 200 `{"schedules": [...]}`, oldest first, the caller's only | `schedule_storage_unsafe` (500) |
-| `POST /v1/schedules` | 201 the schedule | `schedule_invalid` (422), `project_denied` (403), `schedule_limit` (409), `schedule_storage_unsafe` (500) |
-| `PUT /v1/schedules/{id}` | 200 the schedule | `schedule_invalid` (422), `project_denied` (403), `schedule_not_found` (404), `schedule_changed` (409), `schedule_storage_unsafe` (500) |
+| `POST /v1/schedules` | 201 the schedule | `schedule_invalid` (422), `schedule_agent_unselected` (422, `prompt`), `project_denied` (403), `schedule_limit` (409), `schedule_storage_unsafe` (500) |
+| `PUT /v1/schedules/{id}` | 200 the schedule | `schedule_invalid` (422), `schedule_agent_unselected` (422, `prompt`), `project_denied` (403), `schedule_not_found` (404), `schedule_changed` (409), `schedule_storage_unsafe` (500) |
 | `DELETE /v1/schedules/{id}` | 200 `{"deleted": true}` | `schedule_invalid` (422, `revision`), `schedule_not_found` (404), `schedule_changed` (409), `schedule_storage_unsafe` (500) |
-| `POST /v1/schedules/{id}/run` | 202 `{"job_id": "..."}` | `schedule_not_found` (404), `project_denied` (403), any error `POST /v1/jobs` would give (for example `model_denied`, `queue_full`), `schedule_storage_unsafe` (500) |
+| `POST /v1/schedules/{id}/run` | 202 `{"job_id": "..."}` | `schedule_not_found` (404), `project_denied` (403), any error `POST /v1/jobs` would give (for example `model_denied`, `queue_full`), `schedule_agent_missing` and `schedule_page_missing` (422), `schedule_storage_unsafe` (500) |
 
 A schedule in a response is the stored record without `owner`, plus `revision`:
 
@@ -129,8 +160,11 @@ A schedule in a response is the stored record without `owner`, plus `revision`:
   "model": "gpt-6-astra",
   "effort": "low",
   "access_mode": "ask",
+  "allow_internet": false,
   "cadence": {"kind": "daily", "time": "09:00"},
   "enabled": true,
+  "agent": null,
+  "page_ids": [],
   "created_at": "2026-10-03T12:00:00.000Z",
   "updated_at": "2026-10-03T12:00:00.000Z",
   "next_run": 1791104400,
@@ -159,7 +193,7 @@ POST /v1/schedules/0b8f.../run   (no body; an Idempotency-Key header is honoured
 ```
 
 - `POST` takes the editable fields. `title`, `prompt`, `project_id`, `backend`, `model`, `effort` and
-  `cadence` are required; `access_mode` and `enabled` default. `id`, `created_at`, `updated_at`,
+  `cadence` are required; `access_mode`, `allow_internet`, `enabled`, `agent` and `page_ids` default. `id`, `created_at`, `updated_at`,
   `revision`, `next_run`, `last_run`, `failures` and `paused_reason` are accepted and ignored, so a
   schedule that was read can be sent back; any other unknown key is `schedule_invalid` naming it.
 - `PUT` is a partial update: only the editable fields that are sent change, the rest keep their
@@ -186,12 +220,28 @@ Every 30 seconds a background task of the agent service loads the enabled schedu
 {"prompt": "...", "project_id": "...", "backend": "...", "model": "...", "effort": "...", "access_mode": "ask"}
 ```
 
-There is no parent job, so every run is a fresh conversation, and no text is added to the prompt.
-The job payload carries `schedule_id` and `schedule_title`; the conversation list
-(`GET /v1/conversations`) repeats them on the item of a conversation that a schedule started, so
-a UI can mark it. Follow-up turns of that conversation keep the mark. A client cannot send these two
-fields itself (`invalid_internal_field`), and recovering a workflow from a scheduled job starts an
-unmarked conversation.
+There is no parent job, so every run is a fresh conversation. The prompt is sent as written, with
+two exceptions that read their source at run time (D41):
+
+- **Agent.** With `agent` set, the run sends `resource_selections` for that agent's current
+  revision, and puts `@@<name>` in front of the prompt unless it already holds it. Editing the agent
+  therefore changes the next run; there is no stale revision. A deleted agent is a failed run with
+  `schedule_agent_missing`. Saving refuses (`schedule_agent_unselected`, `field: "prompt"`) a
+  prompt that holds an `@@name` (outside a code fence) other than the picked agent's, and a `//name`
+  line; `agent` must name an agent that exists (`schedule_invalid`, `field: "agent"`).
+- **Pages.** With `page_ids`, each page's text is read when the run starts and appended after the
+  prompt as `Page "<title>":` followed by a fenced Markdown block, long enough that the page's own
+  backticks, `@@` words and `//` lines stay plain text. Files are never attached. A deleted page is a
+  failed run with `schedule_page_missing`.
+
+A paused schedule can still be renamed or deleted after its agent is gone: the agent and prompt
+checks only run for an enabled schedule or when `prompt` or `agent` change.
+The job payload carries `schedule_id`, `schedule_title` and `schedule_internet` (the task's
+`allow_internet`); the conversation list (`GET /v1/conversations`) repeats the first two on the
+item of a conversation that a schedule started, so a UI can mark it. Follow-up turns of that
+conversation keep the mark; they are attended turns, so they get the provider's internet grant.
+A client cannot send these three fields itself (`invalid_internal_field`), and recovering a
+workflow from a scheduled job starts an unmarked conversation.
 
 - The first check comes 30 seconds after the service starts. The task starts and stops with the app
   (the same lifespan as the job worker) and is cancelled on shutdown.
@@ -277,4 +327,6 @@ an empty list.
   conversation from `last_run.job_id` (a scheduled run is the first turn of its conversation).
 - The conversation list item has `schedule_id` and `schedule_title` only for conversations a
   schedule started.
+- **Run now** moves the stored revision (it rewrites `last_run`): read the schedule again and keep
+  the form's unsaved fields, or the next Save or Delete is `schedule_changed`.
 - Error copy for every code above lives in `userErrors` in `agent_service/ui.js`.

@@ -83,6 +83,7 @@ const path = require("node:path");
           ],
           providers: { local: true, deepseek: true },
           uploads_enabled: true,
+          full_access: true, // the owner turned Full access on (D11)
         };
       else if (path === "/v1/conversations/restore-fixture") {
         await new Promise((resolve) => setTimeout(resolve, 150));
@@ -228,7 +229,7 @@ const path = require("node:path");
       }
       return route.fulfill({ json: data });
     });
-    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
+    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
     await page.goto(process.env.HARNESS_URL || "http://panel.test/");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     for (const [id, label] of [
@@ -279,13 +280,13 @@ const path = require("node:path");
         "auto",
         "↗",
         "Automatic",
-        "Owner only. Codex, DeepSeek and Claude run any command or edit on this computer without asking, with no sandbox. Local models stay in their sandbox.",
+        "Owner only. Edits inside the project folders without asking; anything outside them, and every connector call, asks first. Codex and DeepSeek run commands in a sandbox limited to those folders (network only with the provider's internet setting) and can still read any file your account can; Claude Code asks before every command. Local models stay in their sandbox.",
       ],
       [
         "full",
         "!",
         "Full access",
-        "Owner only. Runs everything without asking: no sandbox for Codex, DeepSeek and Claude; local models keep the permissions set in the admin.",
+        "Owner only, once turned on in the admin. Runs everything without asking: no sandbox for Codex, DeepSeek and Claude; local models keep the permissions set in the admin.",
       ],
       [
         "read_only",
@@ -363,6 +364,26 @@ const path = require("node:path");
       await page.locator("#files-help").textContent(),
       "Drag files or folders into the chat to use them",
     );
+    // UX-R1-6: the Files section takes the height the other sections leave, instead of a 160 px window.
+    const layout = await page.evaluate(() => {
+      const box = (selector) => document.querySelector(selector).getBoundingClientRect();
+      return {
+        files: box("#workspace-files").height,
+        panel: box("#activity-panel").height,
+        others: ["background-tasks", "resources", "activity"].reduce(
+          (sum, name) => sum + box('[data-workspace-section="' + name + '"]').height,
+          0,
+        ),
+        scrolls: document.querySelector("#activity-panel").scrollHeight > document.querySelector("#activity-panel").clientHeight,
+      };
+    });
+    assert(layout.files >= 168, "the Files body is at least 168 px: " + JSON.stringify(layout));
+    assert(layout.scrolls || layout.files > 160, "the Files body is not the old 160 px window");
+    // The folder chevrons are 24 px targets.
+    for (const chevron of await page.locator("#files-tree .file-chevron").all()) {
+      const size = await chevron.boundingBox();
+      assert(size.width >= 24 && size.height >= 24, "chevron " + JSON.stringify(size));
+    }
     assert.deepEqual(await page.locator(".file-root").allTextContents(), [
       "Local Folders",
       "External Folders",

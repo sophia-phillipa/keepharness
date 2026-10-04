@@ -110,7 +110,7 @@ const fs = require("node:fs/promises"),
               : "text/html",
       });
     });
-    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
+    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
     await page.goto("http://gemini-admin.test/#providers");
     assert.equal(
       await page.locator("[data-configured-provider=gemini]").count(),
@@ -178,7 +178,7 @@ const fs = require("node:fs/promises"),
               : "text/html",
       });
     });
-    await chat.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
+    await chat.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
     await chat.goto("http://gemini-chat.test");
     await chat.locator("#startup-gate").waitFor({ state: "hidden" });
     assert.equal(await chat.locator("#model-trigger-icon").innerText(), "✦");

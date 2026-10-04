@@ -324,7 +324,7 @@ runPersona("H38", [
       await audit(page, "new project", sink);
       await page.keyboard.press("Escape");
 
-      for (const action of ["Rename conversation", "Delete conversation"]) {
+      for (const action of ["Rename conversation", "Delete permanently"]) {
         await page
           .locator("#sidebar .conversation-actions summary")
           .first()

@@ -46,6 +46,7 @@ from ..approval_sessions import (
 from ..config import (
     EXECUTION_MODES,
     KINDS,
+    MAX_PROJECT_RUNS,
     PREVIEW_MEDIA_TYPES,
     TERMINAL,
     VERSION_FILE,
@@ -63,7 +64,7 @@ from ..persistence.repositories import (
 )
 from ..private_storage import validate_attachment_source
 from ..work_items import invocation_reference, validate_reference
-from . import capacity, queue_worker
+from . import capacity, queue_worker, retention
 from .activity_service import summarize_activity
 from .budgets import timeout_seconds
 from .effect_service import EffectService
@@ -129,6 +130,29 @@ class InferencePlan:
     catalog_runtime: dict | None = None
     # A retry after the provider lost its session: the turn's hooks and notices already ran.
     replay: bool = False
+
+
+EXCERPT_CHARS = 6000
+
+
+def text_length(pages):
+    return sum(len(page.get("text", "")) for page in pages)
+
+
+def excerpt_metadata(pages):
+    """Marks a file whose text is inlined only as its first ``EXCERPT_CHARS`` characters."""
+    return {"excerpt": True} if text_length(pages) > EXCERPT_CHARS else {}
+
+
+def noticed_before(turns, data, fid):
+    """True when an earlier turn on the same route already told the model ``fid`` was dropped."""
+    route = ("backend", "model", "execution_mode")
+    attached = set()
+    for payload, _ in turns:
+        attached.update(payload.get("file_ids", []))
+        if fid in attached and all(payload.get(key) == data.get(key) for key in route):
+            return True
+    return False
 
 
 def preview_metadata(file_id, pages):
@@ -542,11 +566,13 @@ class ConversationService:
         for fid in json.loads(row["payload"]).get("file_ids", []):
             record = self.message_repository.file(fid, row["project"], row["owner"])
             if record:
+                pages = json.loads(record["pages"])
                 attachments.append(
                     {
                         "id": fid,
                         "name": record["name"],
-                        **preview_metadata(fid, json.loads(record["pages"])),
+                        **preview_metadata(fid, pages),
+                        **excerpt_metadata(pages),
                     }
                 )
         return attachments
@@ -617,15 +643,18 @@ class ConversationService:
                             validate_attachment_source, self.config, self.root, source, input
                         )
                         size = os.fstat(input.fileno()).st_size
-                        if size > limit or used + size > 2 * 1024**3:
+                        if size > limit:
                             raise APIError("upload_limit", 413)
                         with dest.open("xb") as output:
                             while chunk := input.read(65536):
                                 copied += len(chunk)
-                                if copied > limit or used + copied > 2 * 1024**3:
+                                if copied > limit:
                                     raise APIError("upload_limit", 413)
                                 output.write(chunk)
                                 digest.update(chunk)
+                    added = retention.admit_upload(
+                        self, project, used, copied, digest.hexdigest(), dest
+                    )
                     if source.suffix.lower() == ".mp4":
                         choices = maestro.candidates(self.config, project, uploads=True)
                         if not any(
@@ -662,9 +691,14 @@ class ConversationService:
                             encoded(pages),
                             identity[0],
                         )
-                    used += copied
+                    used += added
                     attachments.append(
-                        {"file_id": fid, "name": name, **preview_metadata(fid, pages)}
+                        {
+                            "file_id": fid,
+                            "name": name,
+                            **preview_metadata(fid, pages),
+                            **excerpt_metadata(pages),
+                        }
                     )
                 except (APIError, tools.ToolError, OSError) as exc:
                     shutil.rmtree(folder)
@@ -699,17 +733,17 @@ class ConversationService:
                 raise APIError("invalid_parent_job")
             row = dict(previous)
 
+    def sessions_root(self):
+        configured = self.config.get("sessions_dir")
+        return Path(configured) if configured else self.root / "sessions"
+
     def session_folder(self, row, data):
         """The provider's run folder for this conversation (or Maestro stage).
 
         ``sessions_dir`` keeps run folders out of the state folder that holds the keys; without
         it (older runtime files, tests) they stay under ``state_dir``.
         """
-        sessions = (
-            Path(self.config["sessions_dir"])
-            if self.config.get("sessions_dir")
-            else self.root / "sessions"
-        )
+        sessions = self.sessions_root()
         sessions.mkdir(parents=True, exist_ok=True, mode=0o700)
         if data.get("_maestro_stage"):
             return sessions / row["id"] / ("maestro-" + data["_maestro_stage"])
@@ -784,11 +818,14 @@ class ConversationService:
         self.validate_execution_mode(data.get("backend", "codex"), data["execution_mode"])
         return data
 
-    def conversation(self, identity, cid):
+    def conversation(self, identity, cid, *, archived=False):
+        """The caller's turns of ``cid``; an archived conversation only when ``archived``."""
         root = self.job(identity, cid)
         if root["owner"] != identity[0]:
             raise APIError("conversation_not_found", 404)
-        if self.conversation_id(root) != cid or self.conversation_repository.is_deleted(cid):
+        if self.conversation_id(root) != cid or (
+            not archived and self.conversation_repository.is_archived(cid)
+        ):
             raise APIError("conversation_not_found", 404)
         return [r for r in self.conversation_rows(identity) if self.conversation_id(r) == cid]
 
@@ -1291,6 +1328,7 @@ class ConversationService:
                 "execution_parent_id",
                 "schedule_id",
                 "schedule_title",
+                "schedule_internet",
             ):
                 data.pop(key)
         source_invocations = data.pop("invocations", [])
@@ -1396,6 +1434,7 @@ class ConversationService:
                 "_held_after_stop",
                 "schedule_id",
                 "schedule_title",
+                "schedule_internet",
             )
         ):
             raise APIError("invalid_internal_field")
@@ -1419,6 +1458,8 @@ class ConversationService:
             and identity[0] != harness_agents.LOCAL_CLIENT
         ):
             raise APIError("access_mode_owner_only", 403)
+        if approval_policy.mode_disabled(self.config, data.get("access_mode", "ask")):
+            raise APIError("full_access_disabled", 403)
         if data.get("parent_job_id") and data.get("workspace_id") is None:
             data["workspace_id"] = json.loads(
                 self.job(identity, data["parent_job_id"])["payload"]
@@ -1503,7 +1544,7 @@ class ConversationService:
                 legacy_root = (root_id, root_data)
         if self.conversation_repository.count_pending() >= 32:
             raise APIError("queue_full", 429, 5)
-        if self.conversation_repository.count_for_project(project) >= 1000:
+        if self.conversation_repository.count_for_project(project) >= MAX_PROJECT_RUNS:
             raise APIError("job_storage_limit", 429)
         if self.conversation_repository.count_pending_for_owner(identity[0]) >= 10:
             raise APIError("owner_queue_full", 429, 5)
@@ -1774,7 +1815,7 @@ class ConversationService:
             file = self.file(row["project"], fid, row["owner"])
             pages = json.loads(file["pages"])
             source = {"file_id": fid, "filename": file["name"], "pages": pages}
-            if sum(len(page.get("text", "")) for page in pages) > 6000:
+            if text_length(pages) > EXCERPT_CHARS:
                 folder = native_session / "attachments"
                 folder.mkdir(parents=True, exist_ok=True, mode=0o700)
                 extracted = folder / (fid + ".txt")
@@ -1782,7 +1823,7 @@ class ConversationService:
                 extracted.chmod(0o600)
                 source.update(
                     pages=[
-                        {"page": None, "text": extracted.read_text()[:6000]},
+                        {"page": None, "text": extracted.read_text()[:EXCERPT_CHARS]},
                         *(page for page in pages if page.get("media_type")),
                     ],
                     excerpt=True,
@@ -1818,7 +1859,7 @@ class ConversationService:
                     raise
                 name = json.dumps(source["filename"], ensure_ascii=False)
                 if video:
-                    notices.append(
+                    notice = (
                         "Frames from file "
                         + name
                         + " ignored in this response because "
@@ -1826,13 +1867,18 @@ class ConversationService:
                         + ". The extracted text, when available, was preserved."
                     )
                 else:
-                    notices.append(
+                    notice = (
                         "File "
                         + name
                         + " ignored in this response because "
                         + reasons[exc.code]
                         + "."
                     )
+                # The first answer on a route says so; later turns carry that in the history.
+                if source["file_id"] in data.get("file_ids", []) or not noticed_before(
+                    turns, data, source["file_id"]
+                ):
+                    notices.append(notice)
                 image_sources.remove(source)
                 if video:
                     source["pages"] = [
@@ -1843,8 +1889,6 @@ class ConversationService:
         if notices:
             attachment_notice = "\n".join(notices) + "\n\n"
         context = encoded(sources)
-        if len(context) > 100000:
-            raise APIError("source_context_limit")
         native_commands = [item for item in selected_resources if item.get("native_command")]
         if native_commands and (
             turns
@@ -1915,6 +1959,9 @@ class ConversationService:
         } | set(data.get("file_ids", []))
         if persisted_session:
             context = encoded([source for source in sources if source["file_id"] in pending_files])
+        # Only what is sent counts: a session that already holds the files is not refed them.
+        if len(context) > 100000:
+            raise APIError("source_context_limit")
         history = conversation_context.portable_history(self.db, pending)
         history_folder = None
         if history:
@@ -2325,6 +2372,13 @@ class ConversationService:
             if mode in approval_policy.OWNER_ONLY_MODES:
                 raise APIError("access_mode_owner_only", 403)
             permissions = approval_policy.guest_permissions(permissions)
+        # Fails closed for a Full run queued before the owner turned Full access off (D11).
+        if approval_policy.mode_disabled(self.config, mode):
+            raise APIError("full_access_disabled", 403)
+        # Unattended runs have no internet unless their task opts in (D03).
+        offline_schedule = data.get("schedule_id") and data.get("schedule_internet") is not True
+        if offline_schedule:
+            permissions["internet"] = False
         if backend == "claude":
             permissions["delegate"] = project_config.get("permissions", {}).get("delegate") is True
         if backend == "claude" and permissions.get("read") and plan.execution_mode == "native":
@@ -2376,8 +2430,13 @@ class ConversationService:
             project_config["test_commands"] = {}
         backend_config = self.config[backend]
         # Host connectors run with the owner's account on this computer: never for guests (D04).
-        if guest or (backend == "local" and "model_permissions" in self.config["services"][backend]):
+        if guest or (
+            backend == "local" and "model_permissions" in self.config["services"][backend]
+        ):
             backend_config = {**backend_config, "integrations": [], "unrestricted": False}
+        # Gemini connectors need the network, so an offline schedule runs without them (D03).
+        if offline_schedule and backend == "gemini":
+            backend_config = {**backend_config, "integrations": []}
         if data.get("_planning_only"):
             project_config = {"permissions": {}}
             backend_config = {**backend_config, "integrations": [], "unrestricted": False}
@@ -2785,7 +2844,11 @@ class ConversationService:
             "streaming": "persisted SSE",
             "approvals": "native CLI requests, decided by the job owner",
             "uploads": self.config.get("uploads_enabled", False),
-            "retention": "local SQLite; conversations hidden on deletion; admin handles physical removal",
+            "retention": (
+                "local SQLite; Archive hides a conversation until Unarchive; Delete permanently "
+                "erases its turns, events, uploads no other conversation uses, session folders "
+                "and harness-owned provider sessions, keeping only ids, times, model and tokens"
+            ),
             "default_execution": "auto",
             "default_backend": self.config.get("default_backend"),
             "direct_fallback": "configured default or first eligible enabled executor",

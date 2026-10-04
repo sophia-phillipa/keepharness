@@ -47,7 +47,7 @@ const assert = require("node:assert/strict"),
                   },
                   { name: "hidden.txt", path: "hidden.txt", type: "file" },
                 ]
-              : ["Work A", "Work B"].map((name) => ({
+              : ["Work A", "Work B", ...Array.from({ length: 12 }, (_, i) => "Folder " + i)].map((name) => ({
                   name,
                   path: name,
                   absolute_path: "/home/test-user/" + name,
@@ -86,7 +86,7 @@ const assert = require("node:assert/strict"),
               : "text/html",
       });
     });
-    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
+    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
     await page.goto(origin);
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     if (!(await page.locator("#project-tree").evaluate((el) => el.open)))
@@ -111,12 +111,27 @@ const assert = require("node:assert/strict"),
     );
     await page.evaluate(() => HarnessTheme.apply("amethyst", false));
     await page.screenshot({ path: "/tmp/project-create-desktop.png" });
-    await page.fill("#project-name", "My project");
-    await page.click("#project-create");
+    // D39: a folder is optional; the dialog says what a project without one keeps.
     assert.match(
-      await page.locator("#project-create-note").innerText(),
-      /at least one folder/,
+      await page.locator("#project-folders-empty").innerText(),
+      /without a folder/,
     );
+    // UX-R4-2: the folder tree shows at least eight rows (32 px each) when it has them.
+    const tree = await page
+      .locator("#project-directory-list")
+      .evaluate((list) => ({
+        height: list.clientHeight,
+        row: list.querySelector(".project-file-row").getBoundingClientRect().height,
+        scroll: list.scrollHeight,
+      }));
+    assert(tree.scroll > tree.height, "the fixture has more folders than fit");
+    assert(tree.height >= 8 * tree.row, "the folder tree shows 8+ rows: " + JSON.stringify(tree));
+    // A chevron is a 24 px target.
+    const chevron = await page
+      .locator("#project-directory-list .file-chevron")
+      .first()
+      .boundingBox();
+    assert(chevron.width >= 24 && chevron.height >= 24);
 
     await page
       .locator("#project-directory-list .project-file-row")
@@ -210,9 +225,16 @@ const assert = require("node:assert/strict"),
       name: "New project",
       paths: ["/home/test-user/Work A", "/home/test-user/Work B"],
     });
+    // D39: a name alone creates a folder-less project (paths: []).
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.click("#add-project");
+    await page.fill("#project-name", "Notes only");
+    await page.click("#project-create");
+    await page.locator("#project-dialog").waitFor({ state: "hidden" });
+    assert.deepEqual(createdProject, { name: "Notes only", paths: [] });
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: compact project modal, accessible selection, removal, cancel/reset, validation, create payload, mobile and themes",
+      "PASS: compact project modal, accessible selection, removal, cancel/reset, validation, create payloads (with and without folders), mobile and themes",
     );
   } finally {
     await browser.close();

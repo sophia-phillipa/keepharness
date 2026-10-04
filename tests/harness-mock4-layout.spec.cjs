@@ -10,7 +10,7 @@ const path = require("node:path");
     let planPending = true;
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
     await page.addInitScript(() => {
-      localStorage.setItem("keepharness-tour-seen", "0.15.0");
+      localStorage.setItem("keepharness-tour-seen", "0.16.0");
       localStorage.setItem("activity-open", "1");
     });
     await page.route(origin + "/**", async (route) => {
@@ -44,7 +44,7 @@ const path = require("node:path");
                     : url.pathname === "/v1/project-files"
                       ? { roots: [], entries: [] }
                       : url.pathname === "/v1/version"
-                        ? { version: "0.15.0", build: "fixture" }
+                        ? { version: "0.16.0", build: "fixture" }
                         : url.pathname === "/v1/catalog"
                           ? { agents: [], skills: [], warnings: [] }
                           : url.pathname === "/v1/usage"

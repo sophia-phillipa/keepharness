@@ -212,8 +212,9 @@ def test_full_mode_auto_approves_native_requests_without_expanding_grants(tmp_pa
         "shell": True,
         "internet": False,
     }
-    # Full access belongs to the owner on this computer.
+    # Full access belongs to the owner on this computer, once turned on (D11).
     cfg["clients"]["local"] = cfg["clients"].pop("a")
+    cfg["full_access"] = True
     service = Service(cfg)
     identity = ("local", cfg["clients"]["local"])
     data = {

@@ -38,10 +38,10 @@ module.exports = {
       await row(title).hover();
       await op.click(sidebar.getByLabel("Actions for " + title));
       await op.see(sidebar.getByRole("button", { name: "Rename conversation" }));
-      await op.see(sidebar.getByRole("button", { name: "Delete conversation" }));
+      await op.see(sidebar.getByRole("button", { name: "Delete permanently" }));
     });
 
-    await op.step("archive-offered", "The row offers Archive next to Delete", async () => {
+    await op.step("archive-offered", "The row offers Archive next to Delete permanently", async () => {
       op.check(await sidebar.getByRole("button", { name: /Archive/ }).count() > 0, "no Archive action in the row menu");
     }, { recover: false });
 
@@ -91,11 +91,11 @@ module.exports = {
       await op.gone(page.locator("#conversation-search-dialog"));
     });
 
-    await op.step("delete", "Delete the conversation; its row disappears", async () => {
+    await op.step("delete", "Delete the conversation permanently; its row disappears", async () => {
       const name = (await row(renamed).count()) ? renamed : title;
       await row(name).hover();
       await op.click(sidebar.getByLabel("Actions for " + name));
-      await op.click(sidebar.getByRole("button", { name: "Delete conversation" }));
+      await op.click(sidebar.getByRole("button", { name: "Delete permanently" }));
       await op.see(page.locator("#delete-conversation-dialog"));
       await op.seeText(page.locator("#delete-conversation-name"), name);
       await op.click(page.locator("#delete-conversation-confirm"));

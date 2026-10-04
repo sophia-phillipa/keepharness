@@ -7,6 +7,8 @@ const assert = require("node:assert/strict"),
   try {
     let deletions = 0,
       failDelete = false;
+    const archived = [],
+      archiveRequests = [];
     let eventRequests = 0,
       cancelRequests = 0,
       createdProject = null;
@@ -48,10 +50,31 @@ const assert = require("node:assert/strict"),
               status: 500,
               json: { detail: "Test failure" },
             });
-          const i = conversations.findIndex((c) => p.endsWith("/" + c.id));
-          conversations.splice(i, 1);
+          for (const list of [conversations, archived]) {
+            const i = list.findIndex((c) => p.endsWith("/" + c.id));
+            if (i >= 0) list.splice(i, 1);
+          }
           return route.fulfill({ json: {} });
         }
+        if (route.request().method() === "PATCH") {
+          const body = route.request().postDataJSON(),
+            id = p.split("/").pop();
+          archiveRequests.push([id, body.archived]);
+          const [from, to] = body.archived
+            ? [conversations, archived]
+            : [archived, conversations];
+          to.unshift(...from.splice(from.findIndex((c) => c.id === id), 1));
+          return route.fulfill({ json: { id, archived: body.archived } });
+        }
+        if (p === "/v1/storage")
+          return route.fulfill({
+            json: {
+              project_id: url.searchParams.get("project_id"),
+              runs: { used: 900, limit: 1000 },
+              bytes: { used: 512 * 1024 ** 2, limit: 2 * 1024 ** 3 },
+              warning: true,
+            },
+          });
         if (p.endsWith("/cancel")) cancelRequests++;
         if (p.endsWith("/events")) {
           eventRequests++;
@@ -134,7 +157,13 @@ const assert = require("node:assert/strict"),
             ],
             admin_url: "http://localhost:8094/admin/",
           };
-        if (p === "/v1/conversations") data = { conversations };
+        if (p === "/v1/conversations")
+          data = {
+            conversations:
+              url.searchParams.get("archived") === "true"
+                ? archived
+                : conversations,
+          };
         if (p === "/v1/conversations/c34")
           data = {
             title: "Philosophical Review",
@@ -191,7 +220,7 @@ const assert = require("node:assert/strict"),
       });
     });
     await page.emulateMedia({ reducedMotion: "reduce" });
-    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
+    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
     await page.goto(origin);
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
 
@@ -206,7 +235,7 @@ const assert = require("node:assert/strict"),
         .click();
       await page
         .locator("#history .conversation-actions[open] button")
-        .filter({ hasText: "Delete conversation" })
+        .filter({ hasText: "Delete permanently" })
         .click();
       await modal.waitFor({ state: "visible" });
     }
@@ -300,9 +329,55 @@ const assert = require("node:assert/strict"),
     await modal.waitFor({ state: "hidden" });
     assert.equal(deletions, 2);
     assert.equal(conversations.length, 34);
+
+    // Archive is one reversible click; the Archived chats list restores or deletes.
+    await page.setViewportSize({ width: 1280, height: 900 });
+    const first = await page.locator("#history .conversation-row .conversation-title").first().innerText();
+    await page.locator("#history .conversation-actions summary").first().click();
+    const menu = page.locator("#history .conversation-actions[open] button");
+    assert.deepEqual(await menu.allInnerTexts(), [
+      "Rename conversation",
+      "Archive conversation",
+      "Delete permanently",
+    ]);
+    await menu.filter({ hasText: "Archive conversation" }).click();
+    const restoredRow = page
+      .locator("#history .conversation-row .conversation-title")
+      .filter({ hasText: /^Conversation 1$/ });
+    await restoredRow.waitFor({ state: "detached" });
+    assert.equal(await modal.isVisible(), false);
+    assert.deepEqual(archiveRequests, [["c1", true]]);
+    assert.equal(archived[0].title, first);
+    await page.click("#settings");
+    await page.click('[data-settings="archived"]');
+    const row = page.locator("#archived-list .archived-chat");
+    await row.first().waitFor();
+    assert.equal(await row.locator("span").innerText(), "Conversation 1");
+    const usage = page.locator("#storage-usage");
+    assert.match(await usage.innerText(), /^Storage: 900 of 1,000 runs · 512 MB of 2\.0 GB of files in this project\. Almost full/);
+    assert(await usage.evaluate((e) => e.classList.contains("storage-warning")));
+    await row.getByRole("button", { name: "Unarchive Conversation 1" }).click();
+    await page.locator("#archived-empty").waitFor({ state: "visible" });
+    assert.deepEqual(archiveRequests.at(-1), ["c1", false]);
+    await restoredRow.waitFor();
+
+    // Delete permanently from the list takes a second, explicit step in the dialog.
+    archived.push(...conversations.splice(conversations.findIndex((c) => c.id === "c2"), 1));
+    await page.click('[data-settings="appearance"]');
+    await page.click('[data-settings="archived"]');
+    await row.first().waitFor();
+    await row.getByRole("button", { name: "Delete permanently Conversation 2" }).click();
+    await modal.waitFor({ state: "visible" });
+    assert.equal(await page.locator("#delete-conversation-name").innerText(), "Conversation 2");
+    assert.equal(deletions, 2);
+    await page.click("#delete-conversation-confirm");
+    await modal.waitFor({ state: "hidden" });
+    await page.locator("#archived-empty").waitFor({ state: "visible" });
+    assert.equal(deletions, 3);
+    assert.deepEqual(archived, []);
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: themed deletion modal, cancel, Escape, mobile, API failure and successful deletion without browser prompts",
+      "PASS: themed permanent-delete modal, cancel, Escape, mobile, API failure, deletion, Archive, Archived chats with Unarchive, Storage line and two-step Delete permanently without browser prompts",
     );
   } finally {
     await browser.close();

@@ -13,9 +13,11 @@ from pathlib import Path
 from starlette.responses import FileResponse, JSONResponse
 
 from .. import harness_agents, maestro, tools, workspaces
+from ..config import MAX_PROJECT_UPLOAD_BYTES
 from ..errors import APIError
 from ..persistence.db import encoded
-from ..services.conversation_service import preview_metadata
+from ..services import retention
+from ..services.conversation_service import excerpt_metadata, preview_metadata
 from . import api_route, body
 
 # Bidirectional embedding, override and isolate controls: they can reorder how a name
@@ -73,7 +75,7 @@ async def upload_workspace(request, service, identity):
         base = service.root / "workspaces"
         base.mkdir(exist_ok=True, mode=0o700)
         used = sum(p.stat().st_size for p in base.rglob("*") if p.is_file() and not p.is_symlink())
-        if used > 2 * 1024**3 - workspaces.MAX_BYTES * 2:
+        if used > MAX_PROJECT_UPLOAD_BYTES - workspaces.MAX_BYTES * 2:
             raise APIError("workspace_storage_limit", 413)
         wid = uuid.uuid4().hex
         folder = base / wid
@@ -386,10 +388,11 @@ async def upload_file(request, service, identity):
                 async with asyncio.timeout(600):
                     async for chunk in request.stream():
                         size += len(chunk)
-                        if size > file_limit or used + size > 2 * 1024**3:
+                        if size > file_limit:
                             raise APIError("upload_limit", 413)
                         out.write(chunk)
                         digest.update(chunk)
+            retention.admit_upload(service, project, used, size, digest.hexdigest(), dest)
             identity = require_current_upload(request, service, project)
             if Path(filename).suffix.lower() == ".mp4":
                 backend = request.query_params.get("backend")
@@ -444,6 +447,7 @@ async def upload_file(request, service, identity):
             "bytes": size,
             "pages": len(pages),
             **preview_metadata(fid, pages),
+            **excerpt_metadata(pages),
         },
         status_code=201,
     )

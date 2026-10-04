@@ -13,6 +13,8 @@ const assert = require("node:assert/strict"),
       errors = [],
       sent = [],
       turns = [];
+    // D11: the owner turned Full access on; turned off, the menu hides it.
+    let fullAccess = true;
     page.setDefaultTimeout(5000);
     page.on("pageerror", (e) => errors.push(e.message));
     await page.addInitScript(() => localStorage.setItem("activity-open", "0"));
@@ -83,6 +85,7 @@ const assert = require("node:assert/strict"),
                 ],
                 providers: { claude: true },
                 uploads_enabled: false,
+                full_access: fullAccess,
               }
             : p === "/v1/conversations"
               ? { conversations }
@@ -105,7 +108,7 @@ const assert = require("node:assert/strict"),
     };
     const idle = () => page.waitForFunction(() => !busy && !submitting);
 
-    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
+    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
 
     await page.goto("http://panel.test/");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
@@ -204,14 +207,35 @@ const assert = require("node:assert/strict"),
       .allInnerTexts();
     assert.deepEqual(copy, [
       "Asks before edits, commands that change files and every connector call. On Codex and DeepSeek, commands that change nothing run without asking and can read any file your account can.",
-      "Owner only. Codex, DeepSeek and Claude run any command or edit on this computer without asking, with no sandbox. Local models stay in their sandbox.",
-      "Owner only. Runs everything without asking: no sandbox for Codex, DeepSeek and Claude; local models keep the permissions set in the admin.",
+      "Owner only. Edits inside the project folders without asking; anything outside them, and every connector call, asks first. Codex and DeepSeek run commands in a sandbox limited to those folders (network only with the provider's internet setting) and can still read any file your account can; Claude Code asks before every command. Local models stay in their sandbox.",
+      "Owner only, once turned on in the admin. Runs everything without asking: no sandbox for Codex, DeepSeek and Claude; local models keep the permissions set in the admin.",
       "Reads and searches the project folders; web search follows the provider's internet setting. Edits, commands, tests, connectors and plugins are off.",
     ]);
     await page.keyboard.press("Escape");
+
+    // D11: until the owner turns Full access on, the menu does not offer it, the keyboard
+    // skips it, and a restored "full" (a conversation last run with it) falls back to Ask.
+    fullAccess = false;
+    await page.reload();
+    await page.locator("#startup-gate").waitFor({ state: "hidden" });
+    await page.click("#access-trigger");
+    assert.equal(await page.locator('#access-menu [data-access="full"]').isVisible(), false);
+    const reachable = [];
+    for (let step = 0; step < 4; step++) {
+      await page.keyboard.press("ArrowDown");
+      reachable.push(await page.evaluate(() => document.activeElement.dataset.access));
+    }
+    assert.equal(reachable.includes("full"), false, reachable.join());
+    await page.keyboard.press("Escape");
+    await page.evaluate(() => {
+      document.getElementById("access-mode").value = "full";
+      syncAccessMode();
+    });
+    assert.equal(await page.locator("#access-mode").inputValue(), "ask");
+    assert.equal(await access.innerText(), "Access: Ask for approval");
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: session notices, fixed isolation after first message, per-conversation access, new conversation starts in Ask",
+      "PASS: session notices, fixed isolation after first message, per-conversation access, new conversation starts in Ask, Full access hidden until enabled",
     );
   } finally {
     await browser.close();

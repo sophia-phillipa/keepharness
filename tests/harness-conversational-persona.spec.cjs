@@ -132,7 +132,7 @@ const path = require("node:path");
       });
     });
 
-    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
+    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
 
     await page.goto("http://persona.test");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });

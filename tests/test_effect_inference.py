@@ -21,6 +21,7 @@ def test_inference_prepares_then_human_publishes(tmp_path, monkeypatch, jira_fix
     config = configure_effects(instance.config, jira_fixture.endpoint)
     # Full access belongs to the owner on this computer; the bearer "a" now names that owner.
     config["clients"]["local"] = config["clients"].pop("a")
+    config["full_access"] = True  # the owner turned Full access on (D11)
     identity = ("local", config["clients"]["local"])
     config["origins"] = [ORIGIN]
     config["codex"] = {"binary": "synthetic"}

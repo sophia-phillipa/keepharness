@@ -69,7 +69,7 @@ def test_discard_cancels_it_and_holds_the_next_one(stopped):
 def test_a_deleted_conversation_is_never_resumed(stopped):
     instance, identity, _ = stopped
     with instance.db:
-        instance.conversation_repository.mark_deleted("first")
+        instance.conversation_repository.archive("first")
     with pytest.raises(APIError, match="job_not_found"):
         instance.run_queued(identity, "second")
     assert ready(instance) == ["other"]

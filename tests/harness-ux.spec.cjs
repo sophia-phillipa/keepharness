@@ -122,7 +122,7 @@ const assert = require("node:assert/strict");
         };
       return route.fulfill({ json: data });
     });
-    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
+    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
     await page.goto(process.env.HARNESS_URL || "http://127.0.0.1:18196/");
     await page.waitForFunction(
       () =>

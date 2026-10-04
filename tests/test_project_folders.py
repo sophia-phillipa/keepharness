@@ -42,7 +42,7 @@ def test_named_multiple_roots_persist_and_names_are_unique(tmp_path):
                 ).status_code
                 == 422
             )
-        assert client.post("/v1/projects", json={"name": "Valid", "paths": []}).status_code == 422
+        assert client.post("/v1/projects", json={"paths": []}).status_code == 422
         assert (
             client.post(
                 "/v1/projects",
@@ -53,6 +53,43 @@ def test_named_multiple_roots_persist_and_names_are_unique(tmp_path):
     app.state.service.db.close()
     service = Service(copy.deepcopy(cfg))
     assert service.config["projects"][pid]["additional_roots"] == [str(roots[1])]
+    service.db.close()
+
+
+def test_folder_less_project_is_created_listed_and_keeps_its_name_rules(tmp_path):
+    cfg = config(tmp_path)
+    app = create_app(copy.deepcopy(cfg))
+    folder = tmp_path / "work"
+    folder.mkdir()
+    with TestClient(app, headers={"Authorization": "Bearer local"}) as client:
+        response = client.post("/v1/projects", json={"name": "Brand notes", "paths": []})
+        assert response.status_code == 201, response.text
+        pid = response.json()["project_id"]
+        detail = client.get("/v1/projects").json()["details"][pid]
+        assert detail["label"] == "Brand notes" and detail["root"] is None
+        assert detail["additional_roots"] == []
+        assert client.get("/v1/project-folder", params={"project_id": pid}).status_code == 422
+        again = client.post("/v1/projects", json={"name": "brand NOTES", "paths": []})
+        assert again.status_code == 409 and again.json()["code"] == "project_name_exists"
+        for body in (
+            {"name": "ab", "paths": []},
+            {"name": "Valid", "paths": [None]},
+            {"name": "Valid"},
+        ):
+            assert client.post("/v1/projects", json=body).status_code == 422
+        pinned = client.patch(
+            "/v1/projects", json={"project_id": pid, "name": "Brand notes", "paths": [str(folder)]}
+        )
+        assert pinned.status_code == 200, pinned.text
+        assert client.get("/v1/projects").json()["details"][pid]["root"] == str(folder)
+        cleared = client.patch(
+            "/v1/projects", json={"project_id": pid, "name": "Brand notes", "paths": []}
+        )
+        assert cleared.status_code == 200, cleared.text
+        assert client.get("/v1/projects").json()["details"][pid]["root"] is None
+    app.state.service.db.close()
+    service = Service(copy.deepcopy(cfg))
+    assert service.config["projects"][pid]["root"] is None
     service.db.close()
 
 

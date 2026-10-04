@@ -266,3 +266,161 @@ def test_supported_images_pass_through_and_probe_failures_remain_errors(tmp_path
             assert asyncio.run(service.infer(row, data))["answer"] == "Image description"
             assert run.call_args.args[3]["_images"][0]["media_type"] == "image/png"
     service.db.close()
+
+
+WORD = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+
+
+def word_part(body):
+    return f'<w:document xmlns:w="{WORD}"><w:body>{body}</w:body></w:document>'
+
+
+def test_docx_runs_are_joined_and_paragraphs_kept(tmp_path):
+    file = tmp_path / "source"
+    with zipfile.ZipFile(file, "w") as z:
+        z.writestr(
+            "word/document.xml",
+            word_part(
+                "<w:p><w:r><w:t>Contr</w:t></w:r><w:r><w:t>act value: R$ 1</w:t></w:r>"
+                "<w:r><w:t>.250,00</w:t></w:r></w:p>"
+                "<w:p><w:r><w:t>Second paragraph.</w:t></w:r></w:p>"
+                "<w:tbl><w:tr><w:tc><w:p><w:r><w:t>Cell A</w:t></w:r></w:p></w:tc></w:tr></w:tbl>"
+            ),
+        )
+        z.writestr("word/header1.xml", word_part("<w:p><w:r><w:t>Header text</w:t></w:r></w:p>"))
+        z.writestr(
+            "word/footnotes.xml", word_part("<w:p><w:r><w:t>Footnote text</w:t></w:r></w:p>")
+        )
+    text = "\n".join(page["text"] for page in asyncio.run(tools.extract(file, "contract.docx")))
+    assert "Contract value: R$ 1.250,00\nSecond paragraph.\nCell A\n" in text
+    assert "Header text" in text and "Footnote text" in text
+
+
+def test_xlsx_shared_strings_are_not_sent_as_their_own_page(tmp_path):
+    file = tmp_path / "source"
+    with zipfile.ZipFile(file, "w") as z:
+        z.writestr("xl/sharedStrings.xml", "<sst><si><t>Customer</t></si></sst>")
+        z.writestr(
+            "xl/worksheets/sheet1.xml",
+            '<worksheet><row><c r="A1" t="s"><v>0</v></c></row></worksheet>',
+        )
+    pages = asyncio.run(tools.extract(file, "sheet.xlsx"))
+    assert [page["text"].split("\n")[0] for page in pages] == ["xl/worksheets/sheet1.xml"]
+    assert "A1=Customer" in pages[0]["text"]
+
+
+CSV = "cliente;cidade;valor\nJoão;São Paulo;1.250,00\n"
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        CSV.encode("cp1252"),
+        CSV.encode("utf-8-sig"),
+        CSV.encode("utf-16"),
+        b"\xfe\xff" + CSV.encode("utf-16-be"),
+    ],
+    ids=["cp1252", "utf8-bom", "utf16-le-bom", "utf16-be-bom"],
+)
+def test_text_in_common_encodings_is_read(tmp_path, raw):
+    file = tmp_path / "source"
+    file.write_bytes(raw)
+    assert asyncio.run(tools.extract(file, "export.csv"))[0]["text"] == CSV
+
+
+@pytest.mark.parametrize("raw", [b"\x89HEIC\x00\x01", b"abc\x01\x02\xe9", b"caf\xe9\x81"])
+def test_non_text_bytes_are_still_refused(tmp_path, raw):
+    file = tmp_path / "source"
+    file.write_bytes(raw)
+    with pytest.raises(tools.ToolError):
+        asyncio.run(tools.extract(file, "photo.heic"))
+
+
+def prepared_plan(tmp_path, files, turns, *, persisted, backend="local", **overrides):
+    """The inference plan for a new turn over ``files`` (id -> pages) and earlier ``turns``."""
+    import json
+
+    cfg = config(tmp_path)
+    cfg["services"][backend] = {"mode": "native", "permissions": {"upload": True}}
+    cfg[backend] = {}
+    service = Service(cfg)
+    for fid, pages in files.items():
+        service.db.execute(
+            "INSERT INTO files(id,project,name,size,hash,pages,owner) VALUES(?,?,?,?,?,?,?)",
+            (fid, "p", fid + ".txt", 1, "hash", json.dumps(pages), "a"),
+        )
+    data = {
+        "project_id": "p",
+        "backend": backend,
+        "model": "fixture",
+        "prompt": "Continue",
+        "file_ids": [],
+        **overrides,
+    }
+    service.db.execute(
+        "INSERT INTO jobs(id,project,owner,state,created,payload) VALUES(?,?,?,?,?,?)",
+        ("j", "p", "a", "running", 1, json.dumps(data)),
+    )
+    row = dict(service.db.execute("SELECT * FROM jobs WHERE id='j'").fetchone())
+    pending = ([], True) if persisted else (turns, False)
+    with (
+        patch.object(service, "context_turns", return_value=turns),
+        patch.object(service, "validate_images", AsyncMock(side_effect=APIError(IMAGES_OFF))),
+        patch("agent_service.conversation_context.pending_turns", return_value=pending),
+    ):
+        try:
+            return asyncio.run(service._prepare_inference(row, data))
+        finally:
+            service.db.close()
+
+
+IMAGES_OFF = "model_images_unavailable"
+LONG = [{"page": None, "text": "x" * 7000}]
+
+
+def test_turn_that_adds_nothing_runs_on_the_session_holding_the_documents(tmp_path):
+    files = {f"doc{i}": LONG for i in range(20)}
+    turns = [
+        ({"_job_id": f"t{i}", "_state": "completed", "file_ids": [fid]}, {})
+        for i, fid in enumerate(files)
+    ]
+    plan = prepared_plan(tmp_path, files, turns, persisted=True)
+    assert plan.context == "[]"
+
+
+def test_documents_a_fresh_session_needs_are_still_bounded(tmp_path):
+    files = {f"doc{i}": LONG for i in range(20)}
+    turns = [
+        ({"_job_id": f"t{i}", "_state": "completed", "file_ids": [fid]}, {})
+        for i, fid in enumerate(files)
+    ]
+    with pytest.raises(APIError, match="source_context_limit"):
+        prepared_plan(tmp_path, files, turns, persisted=False)
+
+
+PICTURE = [{"media_type": "image/png", "text": ""}]
+
+
+def earlier_turn(**fields):
+    return ({"_job_id": "before", "_state": "completed", **fields}, {})
+
+
+def test_image_notice_appears_on_the_turn_that_attaches_the_image(tmp_path):
+    plan = prepared_plan(
+        tmp_path, {"pic": PICTURE}, [], persisted=False, file_ids=["pic"], backend="deepseek"
+    )
+    assert "pic.txt" in plan.attachment_notice and "ignored" in plan.attachment_notice
+
+
+def test_image_notice_is_not_repeated_on_later_turns_of_the_same_route(tmp_path):
+    route = {"backend": "deepseek", "model": "fixture"}
+    turns = [earlier_turn(file_ids=["pic"], **route)]
+    plan = prepared_plan(tmp_path, {"pic": PICTURE}, turns, persisted=False, backend="deepseek")
+    assert plan.attachment_notice == ""
+    assert "SYSTEM NOTICE" not in plan.prompt
+
+
+def test_image_notice_appears_once_when_the_route_changes_to_one_without_vision(tmp_path):
+    turns = [earlier_turn(file_ids=["pic"], backend="codex", model="vision")]
+    plan = prepared_plan(tmp_path, {"pic": PICTURE}, turns, persisted=False, backend="deepseek")
+    assert "pic.txt" in plan.attachment_notice

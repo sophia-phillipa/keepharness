@@ -244,6 +244,7 @@ def test_build_runtime_config_matches_golden_shape(tmp_path):
         "shared_projects": False,
         "control_state_dir": "<TMP>/control",
         "personal_setup": False,
+        "full_access": False,
         "admin_url": "http://127.0.0.1:8094/",
         "local_access": True,
         "bind": "127.0.0.1",

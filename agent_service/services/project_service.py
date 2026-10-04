@@ -46,11 +46,12 @@ class ProjectService:
             raise APIError("project_registration_disabled", 403)
         if not isinstance(data, dict):
             raise APIError("invalid_project")
+        # An empty "paths" list is a folder-less project: chats and Space pages only.
         raw_paths = data.get("paths", [data.get("root")])
         label = data.get("name", data.get("label", ""))
         if (
             not isinstance(raw_paths, list)
-            or not 1 <= len(raw_paths) <= 20
+            or len(raw_paths) > 20
             or not all(
                 isinstance(raw, str) and raw.strip() and not any(ord(c) < 32 for c in raw)
                 for raw in raw_paths
@@ -106,7 +107,7 @@ class ProjectService:
             if project_id
             else {"test_commands": {}, "node_binary": shutil.which("node") or "node"}
         )
-        spec.update(label=label, root=roots[0], additional_roots=roots[1:])
+        spec.update(label=label, root=roots[0] if roots else None, additional_roots=roots[1:])
         with self.db:
             self.project_repository.register(pid, encoded(spec))
         self.config["projects"][pid] = spec

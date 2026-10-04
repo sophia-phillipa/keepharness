@@ -107,6 +107,7 @@ const path = require("node:path");
             ],
             providers: { codex: true, local: true, claude: true },
             uploads_enabled: true,
+            full_access: true, // the owner turned Full access on (D11)
           };
         if (p === "/v1/conversations")
           data = {
@@ -163,7 +164,7 @@ const path = require("node:path");
       });
     };
     await page.route(origin + "/**", serve);
-    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
+    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
     await page.goto(origin);
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     assert.equal(await page.locator("#task-section,#task-label").count(), 0);
@@ -428,7 +429,7 @@ const path = require("node:path");
     );
     assert(
       await actions
-        .getByRole("button", { name: "Delete conversation" })
+        .getByRole("button", { name: "Delete permanently" })
         .isVisible(),
     );
     await actions.getByRole("button", { name: "Rename conversation" }).click();
@@ -657,7 +658,7 @@ const path = require("node:path");
       localStorage.setItem("activity-open", "0"),
     );
     await scaled.route(origin + "/**", serve);
-    await scaled.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.15.0"));
+    await scaled.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
     await scaled.goto(origin);
     await scaled.locator("#startup-gate").waitFor({ state: "hidden" });
     if (await scaled.locator("#th-toast").isVisible())

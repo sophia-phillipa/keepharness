@@ -316,7 +316,7 @@ runPersona("harness-runs-and-drafts", [
         .click();
       await page
         .locator("#sidebar .conversation-actions[open] button")
-        .filter({ hasText: "Delete conversation" })
+        .filter({ hasText: "Delete permanently" })
         .click();
       await page.click("#delete-conversation-confirm");
       await page

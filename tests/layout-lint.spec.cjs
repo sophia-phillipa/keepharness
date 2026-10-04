@@ -147,7 +147,7 @@ async function serve(route) {
   else if (pathname === "/v1/models") data = { models, providers: { codex: true, claude: true }, uploads_enabled: true };
   else if (pathname === "/v1/conversations") data = { conversations: conversationList };
   else if (detail) data = conversationDetails[detail[1]] || {};
-  else if (pathname === "/v1/version") data = { version: "0.15.0", build: "layout-lint" };
+  else if (pathname === "/v1/version") data = { version: "0.16.0", build: "layout-lint" };
   else if (pathname === "/v1/activity") data = activity;
   else if (pathname === "/v1/catalog") data = { agents: [], skills: [], warnings: [], scope: "test" };
   else if (pathname === "/v1/files") data = { file_id: "file-fixture", name: "photo.png" };
@@ -364,7 +364,7 @@ function lintProblems(report, keep = ["overlaps", "spills", "beyond", "fields"])
         page.on("pageerror", (error) => pageErrors.push(error.message));
         await page.route(origin + "/**", serve);
         await page.addInitScript((value) => {
-          localStorage.setItem("keepharness-tour-seen", "0.15.0");
+          localStorage.setItem("keepharness-tour-seen", "0.16.0");
           localStorage.setItem("keepharness:theme:harness", value);
         }, theme);
         await page.goto(origin);
