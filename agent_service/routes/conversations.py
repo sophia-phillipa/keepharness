@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 import time
+import unicodedata
 
 from starlette.responses import JSONResponse, Response
 
@@ -12,6 +13,7 @@ from ..config import TERMINAL
 from ..errors import APIError
 from ..harness_agents import LOCAL_CLIENT
 from ..persistence.db import encoded
+from ..resources import conversation_title
 from ..secret_vault import redact_secrets
 from . import LimitedStream, api_route, body
 
@@ -64,7 +66,49 @@ async def approval_rules(request, service, identity):
     return JSONResponse({"cleared": True})
 
 
+SEARCH_MIN = 2
+SNIPPET_BEFORE, SNIPPET_AFTER = 40, 60
+
+
+def fold(text):
+    """Lower-cased text without accents, and where each folded character came from."""
+    folded, origin = [], []
+    for index, char in enumerate(text):
+        for piece in unicodedata.normalize("NFD", char):
+            if unicodedata.combining(piece):
+                continue
+            for lowered in piece.casefold():
+                folded.append(lowered)
+                origin.append(index)
+    return "".join(folded), origin
+
+
+def snippet(text, needle):
+    """A short excerpt of ``text`` around the first accent- and case-insensitive match, or ''."""
+    folded, origin = fold(text)
+    at = folded.find(needle)
+    if at < 0:
+        return ""
+    start = max(0, origin[at] - SNIPPET_BEFORE)
+    end = min(len(text), origin[at + len(needle) - 1] + SNIPPET_AFTER)
+    excerpt = " ".join(text[start:end].split())
+    return ("…" if start else "") + excerpt + ("…" if end < len(text) else "")
+
+
+def turn_text(row):
+    """What a turn says: the prompt that was sent and the answer that came back."""
+    texts = [json.loads(row["payload"]).get("prompt")]
+    try:
+        texts.append(json.loads(row["result"] or "null").get("answer"))
+    except (AttributeError, ValueError):
+        pass
+    return [text for text in texts if isinstance(text, str)]
+
+
 async def conversations(request, service, identity):
+    """The owner's conversations; with ``?q=`` only those whose prompts or answers contain it."""
+    needle = fold(request.query_params.get("q", "").strip())[0]
+    searching = "q" in request.query_params
     groups = {}
     deleted = service.conversation_repository.deleted()
     titles = service.conversation_repository.titles()
@@ -77,7 +121,7 @@ async def conversations(request, service, identity):
             groups[cid] = {
                 "id": cid,
                 "project": r["project"],
-                "title": titles.get(cid, root.get("prompt", "Conversation")[:100]),
+                "title": titles.get(cid) or conversation_title(root.get("prompt", "")),
                 **{key: root[key] for key in ("schedule_id", "schedule_title") if key in root},
             }
         groups[cid].update(
@@ -86,9 +130,12 @@ async def conversations(request, service, identity):
             updated=r["created"],
             execution=service.execution(r),
         )
-    return JSONResponse(
-        {"conversations": sorted(groups.values(), key=lambda c: c["updated"], reverse=True)}
-    )
+        if searching and len(needle) >= SEARCH_MIN and "snippet" not in groups[cid]:
+            found = next((hit for text in turn_text(r) if (hit := snippet(text, needle))), "")
+            if found:
+                groups[cid]["snippet"] = found
+    found = [c for c in groups.values() if not searching or c.get("snippet")]
+    return JSONResponse({"conversations": sorted(found, key=lambda c: c["updated"], reverse=True)})
 
 
 def gate_records(service, job_id):
