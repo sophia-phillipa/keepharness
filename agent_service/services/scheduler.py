@@ -35,7 +35,10 @@ def run_key(record: dict) -> str:
 def submit(service, identity: tuple, record: dict, idempotency_key: str | None = None) -> dict:
     """The path of ``POST /v1/jobs``: a fresh conversation marked as started by the schedule."""
     return service.submit(
-        identity, schedules.job_request(record), idempotency_key, schedule=schedules.origin(record)
+        identity,
+        schedules.job_request(service.config, record),
+        idempotency_key,
+        schedule=schedules.origin(record),
     )
 
 

@@ -41,6 +41,8 @@ FIELDS = [
     "access_mode",
     "cadence",
     "enabled",
+    "agent",
+    "page_ids",
     "created_at",
     "updated_at",
     "next_run",

@@ -45,6 +45,8 @@ One JSON file per schedule:
   "access_mode": "ask",
   "cadence": {"kind": "daily", "time": "09:00"},
   "enabled": true,
+  "agent": null,
+  "page_ids": [],
   "created_at": "2026-10-03T12:00:00.000Z",
   "updated_at": "2026-10-03T12:00:00.000Z",
   "next_run": 1791104400,
@@ -68,6 +70,8 @@ The `revision` the API returns is the SHA-256 of the exact file text, so any cha
 | `access_mode` | `ask` (default) or `read_only` |
 | `cadence` | see below |
 | `enabled` | boolean, default `true` |
+| `agent` | optional name of a KeepHarness agent (D41); the run adopts the agent as it is at that moment |
+| `page_ids` | optional list of up to 5 Space pages of the schedule's project (D41); every run carries the current text of each |
 | per owner | at most 50 schedules |
 
 A file is at most 128 KiB. A hand-edited file that breaks these rules (or is not JSON) is skipped
@@ -112,10 +116,10 @@ All routes need the same authentication as the other `/v1` routes and answer wit
 | Route | Success | Errors |
 | --- | --- | --- |
 | `GET /v1/schedules` | 200 `{"schedules": [...]}`, oldest first, the caller's only | `schedule_storage_unsafe` (500) |
-| `POST /v1/schedules` | 201 the schedule | `schedule_invalid` (422), `project_denied` (403), `schedule_limit` (409), `schedule_storage_unsafe` (500) |
-| `PUT /v1/schedules/{id}` | 200 the schedule | `schedule_invalid` (422), `project_denied` (403), `schedule_not_found` (404), `schedule_changed` (409), `schedule_storage_unsafe` (500) |
+| `POST /v1/schedules` | 201 the schedule | `schedule_invalid` (422), `schedule_agent_unselected` (422, `prompt`), `project_denied` (403), `schedule_limit` (409), `schedule_storage_unsafe` (500) |
+| `PUT /v1/schedules/{id}` | 200 the schedule | `schedule_invalid` (422), `schedule_agent_unselected` (422, `prompt`), `project_denied` (403), `schedule_not_found` (404), `schedule_changed` (409), `schedule_storage_unsafe` (500) |
 | `DELETE /v1/schedules/{id}` | 200 `{"deleted": true}` | `schedule_invalid` (422, `revision`), `schedule_not_found` (404), `schedule_changed` (409), `schedule_storage_unsafe` (500) |
-| `POST /v1/schedules/{id}/run` | 202 `{"job_id": "..."}` | `schedule_not_found` (404), `project_denied` (403), any error `POST /v1/jobs` would give (for example `model_denied`, `queue_full`), `schedule_storage_unsafe` (500) |
+| `POST /v1/schedules/{id}/run` | 202 `{"job_id": "..."}` | `schedule_not_found` (404), `project_denied` (403), any error `POST /v1/jobs` would give (for example `model_denied`, `queue_full`), `schedule_agent_missing` and `schedule_page_missing` (422), `schedule_storage_unsafe` (500) |
 
 A schedule in a response is the stored record without `owner`, plus `revision`:
 
@@ -131,6 +135,8 @@ A schedule in a response is the stored record without `owner`, plus `revision`:
   "access_mode": "ask",
   "cadence": {"kind": "daily", "time": "09:00"},
   "enabled": true,
+  "agent": null,
+  "page_ids": [],
   "created_at": "2026-10-03T12:00:00.000Z",
   "updated_at": "2026-10-03T12:00:00.000Z",
   "next_run": 1791104400,
@@ -159,7 +165,7 @@ POST /v1/schedules/0b8f.../run   (no body; an Idempotency-Key header is honoured
 ```
 
 - `POST` takes the editable fields. `title`, `prompt`, `project_id`, `backend`, `model`, `effort` and
-  `cadence` are required; `access_mode` and `enabled` default. `id`, `created_at`, `updated_at`,
+  `cadence` are required; `access_mode`, `enabled`, `agent` and `page_ids` default. `id`, `created_at`, `updated_at`,
   `revision`, `next_run`, `last_run`, `failures` and `paused_reason` are accepted and ignored, so a
   schedule that was read can be sent back; any other unknown key is `schedule_invalid` naming it.
 - `PUT` is a partial update: only the editable fields that are sent change, the rest keep their
@@ -186,7 +192,22 @@ Every 30 seconds a background task of the agent service loads the enabled schedu
 {"prompt": "...", "project_id": "...", "backend": "...", "model": "...", "effort": "...", "access_mode": "ask"}
 ```
 
-There is no parent job, so every run is a fresh conversation, and no text is added to the prompt.
+There is no parent job, so every run is a fresh conversation. The prompt is sent as written, with
+two exceptions that read their source at run time (D41):
+
+- **Agent.** With `agent` set, the run sends `resource_selections` for that agent's current
+  revision, and puts `@@<name>` in front of the prompt unless it already holds it. Editing the agent
+  therefore changes the next run; there is no stale revision. A deleted agent is a failed run with
+  `schedule_agent_missing`. Saving refuses (`schedule_agent_unselected`, `field: "prompt"`) a
+  prompt that holds an `@@name` (outside a code fence) other than the picked agent's, and a `//name`
+  line; `agent` must name an agent that exists (`schedule_invalid`, `field: "agent"`).
+- **Pages.** With `page_ids`, each page's text is read when the run starts and appended after the
+  prompt as `Page "<title>":` followed by a fenced Markdown block, long enough that the page's own
+  backticks, `@@` words and `//` lines stay plain text. Files are never attached. A deleted page is a
+  failed run with `schedule_page_missing`.
+
+A paused schedule can still be renamed or deleted after its agent is gone: the agent and prompt
+checks only run for an enabled schedule or when `prompt` or `agent` change.
 The job payload carries `schedule_id` and `schedule_title`; the conversation list
 (`GET /v1/conversations`) repeats them on the item of a conversation that a schedule started, so
 a UI can mark it. Follow-up turns of that conversation keep the mark. A client cannot send these two
@@ -277,4 +298,6 @@ an empty list.
   conversation from `last_run.job_id` (a scheduled run is the first turn of its conversation).
 - The conversation list item has `schedule_id` and `schedule_title` only for conversations a
   schedule started.
+- **Run now** moves the stored revision (it rewrites `last_run`): read the schedule again and keep
+  the form's unsaved fields, or the next Save or Delete is `schedule_changed`.
 - Error copy for every code above lives in `userErrors` in `agent_service/ui.js`.
