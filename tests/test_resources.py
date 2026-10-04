@@ -693,3 +693,114 @@ def test_claude_hooks_follow_read_only_mode(tmp_path, monkeypatch):
     assert selectable(access_mode="ask")
     assert selectable()
     assert not selectable(access_mode="read_only")
+
+
+def owner_resource(service, backend, model, name):
+    owner = ("local", service.config["clients"]["local"])
+    catalog = service.resource_catalog(owner, "p", backend, model)
+    return next(i for i in catalog["items"] if i["name"] == name)
+
+
+def selection(item, token):
+    return [{"id": item["id"], "revision": item["revision"], "token": token}]
+
+
+def test_scheduled_run_does_not_resolve_prompts_behind_the_opt_in(tmp_path, monkeypatch):
+    from agent_service.app import create_app
+    from agent_service.errors import APIError
+
+    app = create_app(guest_and_owner_clients(tmp_path, monkeypatch))
+    service = app.state.service
+    try:
+        secret = owner_resource(service, "codex", "gpt-6-astra", "secret")
+        mine = owner_resource(service, "gemini", "fixture", "mine")
+        codex = {
+            "project_id": "p",
+            "backend": "codex",
+            "model": "gpt-6-astra",
+            "prompt": "/secret hi",
+            "resource_selections": selection(secret, "/secret"),
+        }
+        gemini = {
+            "project_id": "p",
+            "backend": "gemini",
+            "model": "fixture",
+            "prompt": "/mine hi",
+            "resource_selections": selection(mine, "/mine"),
+        }
+        scheduled = {"schedule_id": "f" * 32}
+        assert service.selected_resources(codex, owner=True)[0]["name"] == "secret"
+        with pytest.raises(APIError):
+            service.selected_resources({**codex, **scheduled}, owner=True)
+        # Gemini commands do not depend on the opt-in, so the owner's schedule keeps them.
+        assert service.selected_resources({**gemini, **scheduled}, owner=True)[0]["name"] == "mine"
+    finally:
+        service.db.close()
+
+
+def test_owner_workflow_resolves_the_owners_resource_and_a_guest_does_not(tmp_path, monkeypatch):
+    import json
+
+    from agent_service import workflows
+    from agent_service.app import create_app
+
+    conf = guest_and_owner_clients(tmp_path, monkeypatch)
+    conf["gemini_models"] = {"fixture": ["configured"]}
+    put(
+        tmp_path / "project",
+        "workflows/w.json",
+        json.dumps(
+            {
+                "id": "w",
+                "steps": [
+                    {
+                        "id": "s1",
+                        "kind": "command",
+                        "resource_id": "user/gemini/commands/mine.toml",
+                        "requested_backend": "gemini",
+                        "model": "fixture",
+                        "effort": "configured",
+                    }
+                ],
+            }
+        ),
+    )
+    app = create_app(conf)
+    service = app.state.service
+    try:
+        rid = "project/p/workflows/w.json"
+        scope, owner = service.resource_scope("local", {})
+        assert owner and workflows.resolve_workflow(scope, "p", rid, owner=True)["steps"]
+        scope, owner = service.resource_scope("a", {})
+        assert not owner
+        with pytest.raises(workflows.WorkflowError):
+            workflows.resolve_workflow(scope, "p", rid, owner=owner)
+    finally:
+        service.db.close()
+
+
+def test_maestro_step_resources_follow_the_row_owner(tmp_path, monkeypatch):
+    from agent_service import maestro
+    from agent_service.app import create_app
+    from agent_service.errors import APIError
+
+    app = create_app(guest_and_owner_clients(tmp_path, monkeypatch))
+    service = app.state.service
+    try:
+        mine = owner_resource(service, "gemini", "fixture", "mine")
+        data = {"project_id": "p", "backend": "gemini", "model": "fixture"}
+        step = {
+            "task": "/mine hi",
+            "backend": "gemini",
+            "model": "fixture",
+            "resource_selections": selection(mine, "/mine"),
+        }
+        plan = {"steps": [dict(step)]}
+        maestro.retain_resources(service, {"owner": "local"}, data, plan)
+        assert plan["steps"][0]["resource_snapshots"][0]["resource_id"] == mine["resource_id"]
+        assert maestro.resources_unchanged(service, {"owner": "local"}, data, plan)
+        assert not maestro.resources_unchanged(service, {"owner": "a"}, data, plan)
+        with pytest.raises(APIError):
+            maestro.retain_resources(service, {"owner": "a"}, data, {"steps": [dict(step)]})
+    finally:
+        service.db.close()

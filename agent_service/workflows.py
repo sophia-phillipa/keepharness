@@ -524,7 +524,7 @@ def evaluate_condition(condition, outputs):
     return json_equal(value, expected)
 
 
-def dependency_catalog(config, project_id, *, execution_mode=None):
+def dependency_catalog(config, project_id, *, execution_mode=None, owner=False):
     from . import maestro, resources
 
     available = maestro.candidates(config, project_id, execution_mode=execution_mode)
@@ -538,12 +538,15 @@ def dependency_catalog(config, project_id, *, execution_mode=None):
             private=True,
             execution_mode=execution_mode,
             include_workflows=False,
+            owner=owner,
         )["items"]
     ]
     return available, items
 
 
-def discover_workflows(config, project_id, backend, *, private=False, execution_mode=None):
+def discover_workflows(
+    config, project_id, backend, *, private=False, execution_mode=None, owner=False
+):
     from . import resources
     from .catalog_manifest import load_manifest, preflight
     from .catalog_pin import effective_catalogs, snapshot_catalogs
@@ -629,7 +632,7 @@ def discover_workflows(config, project_id, backend, *, private=False, execution_
                         raise WorkflowError("workflow_invalid_name")
                     if dependencies is None:
                         dependencies = dependency_catalog(
-                            config, project_id, execution_mode=execution_mode
+                            config, project_id, execution_mode=execution_mode, owner=owner
                         )
                     item_problems = list(problems)
                     try:
@@ -690,7 +693,9 @@ def discover_workflows(config, project_id, backend, *, private=False, execution_
     return result
 
 
-def resolve_workflow(config, project_id, resource_id, available=None, *, execution_mode=None):
+def resolve_workflow(
+    config, project_id, resource_id, available=None, *, execution_mode=None, owner=False
+):
     from . import maestro, resources
 
     if available is None:
@@ -698,7 +703,7 @@ def resolve_workflow(config, project_id, resource_id, available=None, *, executi
     found, selected = {}, None
     for backend in dict.fromkeys(choice["backend"] for choice in available):
         for item in resources.discover(
-            config, project_id, backend, private=True, execution_mode=execution_mode
+            config, project_id, backend, private=True, execution_mode=execution_mode, owner=owner
         )["items"]:
             found[(backend, item["resource_id"])] = item
             if item["resource_id"] == resource_id and item["kind"] == "workflow":

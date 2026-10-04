@@ -9,7 +9,7 @@ import tomllib
 from itertools import islice
 from pathlib import Path, PurePosixPath
 
-from adapters.shared.provider_setup import homes_root
+from adapters.shared.provider_setup import homes_root, personal_setup_on
 
 from .invocations import Invocation, InvocationError
 
@@ -245,9 +245,9 @@ def roots(backend, engine, config, owner):
     raise ValueError("unsupported_resource_engine")
 
 
-def owner_root(backend, engine, config, owner):
+def owner_root(backend, engine, config, personal):
     """The owner's own config folder, listed beside the harness home under the opt-in."""
-    if not owner or not config.get("control_state_dir") or config.get("personal_setup") is not True:
+    if not personal or not config.get("control_state_dir"):
         return None
     if backend == "deepseek" or engine not in ("codex", "claude"):
         return None
@@ -255,7 +255,7 @@ def owner_root(backend, engine, config, owner):
     return Path(os.environ.get(variable, Path.home() / ("." + engine)))
 
 
-def unloaded_user_resource(engine, kind, owner, config, hooks):
+def unloaded_user_resource(engine, kind, owned, personal, hooks):
     """Why the provider CLI will not read this user-scope resource itself, or an empty string.
 
     Only skills and Claude's native commands are loaded by the CLI; the harness expands the
@@ -264,9 +264,8 @@ def unloaded_user_resource(engine, kind, owner, config, hooks):
     """
     if kind != "skill" and not (engine == "claude" and kind == "command"):
         return ""
-    if owner:
+    if owned:
         return OWNER_UNLOADED
-    personal = config.get("personal_setup") is True
     return CLAUDE_UNLOADED[kind][0] if engine == "claude" and not (personal and hooks) else ""
 
 
@@ -339,7 +338,12 @@ def discover(
         "engine": engine,
         **(
             discover_workflows(
-                config, project_id, backend, private=private, execution_mode=execution_mode
+                config,
+                project_id,
+                backend,
+                private=private,
+                execution_mode=execution_mode,
+                owner=owner,
             )
             if include_workflows
             else {"items": [], "warnings": []}
@@ -360,6 +364,7 @@ def discover(
         model_permissions(config, backend, model, project_id), access_mode
     )
     root = Path(project["root"]).resolve() if project.get("root") else None
+    personal = personal_setup_on(config, owner=owner)
     global_base, shared = roots(backend, engine, config, owner)
     sources = []
 
@@ -546,7 +551,7 @@ def discover(
 
     if global_base is not None:
         add(global_base, "user", engine, None, "user/" + engine, global_base)
-    if owner_home := owner_root(backend, engine, config, owner):
+    if owner_home := owner_root(backend, engine, config, personal):
         add(owner_home, "user", engine, None, "owner/" + engine, owner_home)
     if engine == "codex":
         for prompts_base, identity in ((global_base, "user/codex"), (owner_home, "owner/codex")):
@@ -666,7 +671,7 @@ def discover(
                         reason = "This resource is not available in the isolated environment of this executor."
                     if scope == "user":
                         owned = source_spec["identity"].startswith("owner/")
-                        reason = unloaded_user_resource(engine, kind, owned, config, hooks) or reason
+                        reason = unloaded_user_resource(engine, kind, owned, personal, hooks) or reason
                     delegate_allowed = project.get("permissions", {}).get("delegate") is True
                     declared_mode = str(meta.get("mode", "")).strip()
                     if (
@@ -841,7 +846,14 @@ def reserved_markers(prompt, selections):
     return markers
 
 
+def run_config(config, data, *, owner):
+    """The config a run resolves resources with: its effective personal setup (decision D01)."""
+    personal = personal_setup_on(config, owner=owner, schedule_id=data.get("schedule_id"))
+    return {**config, "personal_setup": personal}
+
+
 def resolve(config, data, *, owner=False):
+    config = run_config(config, data, owner=owner)
     prompt = data.get("prompt", "")
     reserved = reserved_markers(prompt, data.get("resource_selections"))
     selections = data.get("resource_selections", [])

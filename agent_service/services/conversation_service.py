@@ -1039,20 +1039,20 @@ class ConversationService:
             return result
         execution_mode = execution_mode or self.default_execution_mode(backend)
         self.validate_execution_mode(backend, execution_mode)
-        owner = identity[0] == harness_agents.LOCAL_CLIENT
         return resources.discover(
-            self.resource_config(owner),
+            self.config,
             project_id,
             backend,
             model,
             execution_mode=execution_mode,
-            owner=owner,
+            owner=identity[0] == harness_agents.LOCAL_CLIENT,
             access_mode=access_mode,
         )
 
-    def resource_config(self, owner):
-        """A guest never gets the owner's personal setup or files (decision D01)."""
-        return self.config if owner else {**self.config, "personal_setup": False}
+    def resource_scope(self, client, data):
+        """The config and owner flag a run of ``client`` resolves resources with (decision D01)."""
+        owner = client == harness_agents.LOCAL_CLIENT
+        return resources.run_config(self.config, data, owner=owner), owner
 
     def selected_resources(self, data, *, canonical=None, owner=False):
         if data.get("backend") == "maestro":
@@ -1068,7 +1068,7 @@ class ConversationService:
         ).get("read"):
             raise APIError("resource_read_denied", 403)
         try:
-            selected = resources.resolve(self.resource_config(owner), data, owner=owner)
+            selected = resources.resolve(self.config, data, owner=owner)
             if canonical is None:
                 resources.prepare_prompt(
                     data.get("prompt", ""), selected, data.get("resource_selections")
@@ -1354,6 +1354,7 @@ class ConversationService:
                 row["project"],
                 source_invocations[0]["resource_id"],
                 execution_mode=data.get("execution_mode"),
+                owner=identity[0] == harness_agents.LOCAL_CLIENT,
             )
         elif plan.get("resource_id"):
             plan = workflows.resolve_workflow(
@@ -1361,6 +1362,7 @@ class ConversationService:
                 row["project"],
                 plan["resource_id"],
                 execution_mode=data.get("execution_mode"),
+                owner=identity[0] == harness_agents.LOCAL_CLIENT,
             )
         if type(from_step) is not int or not 1 <= from_step <= len(plan["steps"]):
             raise APIError("invalid_workflow_step")
@@ -1420,6 +1422,7 @@ class ConversationService:
                     self.config,
                     row["project"],
                     execution_mode=self.conversation_execution_mode(row),
+                    owner=identity[0] == harness_agents.LOCAL_CLIENT,
                 ),
             )
         finally:
@@ -1496,6 +1499,7 @@ class ConversationService:
                 data["project_id"],
                 workflow_invocations[0]["resource_id"],
                 execution_mode=data.get("execution_mode"),
+                owner=identity[0] == harness_agents.LOCAL_CLIENT,
             )
         if workflow_recovery is not None:
             data.update(workflow_recovery)
@@ -2602,6 +2606,7 @@ class ConversationService:
                         row["project"],
                         declared["resource_id"],
                         execution_mode=data.get("execution_mode"),
+                        owner=row["owner"] == harness_agents.LOCAL_CLIENT,
                     )
                 result = await maestro.execute_workflow(self, row, data, declared)
             elif len(invocation) == 1 and invocation[0]["kind"] == "workflow":
@@ -2610,6 +2615,7 @@ class ConversationService:
                     row["project"],
                     invocation[0]["resource_id"],
                     execution_mode=data.get("execution_mode"),
+                    owner=row["owner"] == harness_agents.LOCAL_CLIENT,
                 )
                 result = await maestro.execute_workflow(self, row, data, declared)
             elif len(invocation) > 1:

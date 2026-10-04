@@ -303,19 +303,13 @@ def ensure_recovery_safe(service, job_id):
             raise ToolError("workflow_effect_outcome_unknown")
 
 
-def row_is_owner(row):
-    """Whether the run belongs to the owner on this computer (decision D01)."""
-    from .harness_agents import LOCAL_CLIENT
-
-    return row["owner"] == LOCAL_CLIENT
-
-
 def retain_resources(service, row, data, plan):
     if plan.get("resource_id"):
         from . import resources
 
+        scope, owner = service.resource_scope(row["owner"], data)
         items = resources.discover(
-            service.config, data["project_id"], plan["steps"][0]["backend"], private=True
+            scope, data["project_id"], plan["steps"][0]["backend"], private=True, owner=owner
         )["items"]
         workflow = next(
             (item for item in items if item["resource_id"] == plan["resource_id"]), None
@@ -329,7 +323,7 @@ def retain_resources(service, row, data, plan):
         if not step.get("resource_selections"):
             continue
         selected = service.selected_resources(
-            {**data, **step, "prompt": step["task"]}, owner=row_is_owner(row)
+            {**data, **step, "prompt": step["task"]}, owner=service.resource_scope(row["owner"], data)[1]
         )
         step["resource_snapshots"] = [
             {
@@ -353,8 +347,9 @@ def resources_unchanged(service, row, data, plan):
         if plan.get("workflow_snapshot"):
             from . import resources
 
+            scope, owner = service.resource_scope(row["owner"], data)
             items = resources.discover(
-                service.config, data["project_id"], plan["steps"][0]["backend"], private=True
+                scope, data["project_id"], plan["steps"][0]["backend"], private=True, owner=owner
             )["items"]
             current = next(
                 (item for item in items if item["resource_id"] == plan["resource_id"]), {}
@@ -366,7 +361,8 @@ def resources_unchanged(service, row, data, plan):
         for step in plan["steps"]:
             if step.get("resource_selections"):
                 selected = service.selected_resources(
-                    {**data, **step, "prompt": step["task"]}, owner=row_is_owner(row)
+                    {**data, **step, "prompt": step["task"]},
+                    owner=service.resource_scope(row["owner"], data)[1],
                 )
                 current = [
                     {
@@ -583,6 +579,7 @@ async def execute_workflow(service, row, data, workflow):
         bool(data.get("file_ids") or data.get("workspace_id")),
         execution_mode=data.get("execution_mode"),
     )
+    scope, owner = service.resource_scope(row["owner"], data)
     selected = []
     for step in workflow.get("steps", []):
         invocation = step.get("invocation", step)
@@ -590,11 +587,12 @@ async def execute_workflow(service, row, data, workflow):
             continue
         selected.extend(
             resources.discover(
-                service.config,
+                scope,
                 row["project"],
                 step.get("backend") or invocation.get("requested_backend"),
                 step.get("model"),
                 private=True,
+                owner=owner,
                 execution_mode=data.get("execution_mode")
                 or service.default_execution_mode(
                     step.get("backend") or invocation.get("requested_backend")
