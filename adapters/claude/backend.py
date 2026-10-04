@@ -5,7 +5,7 @@ import tempfile
 from pathlib import Path
 
 from adapters.shared.resources import copy_resource
-from adapters.shared.workspace import prepare_workspace
+from adapters.shared.workspace import attachment_roots, prepare_workspace
 
 from . import native
 from .scoped import run as run_scoped
@@ -86,7 +86,7 @@ async def run_native(config, prompt, event, project, model, effort, session_dir,
             approve,
             workspace.images,
             project.get("access_mode", "ask"),
-            workspace.roots[1:],
+            workspace.roots[1:] + attachment_roots(workspace),
             project.get("_conversation_title"),
             effort=effort,
         )

@@ -5697,6 +5697,14 @@ main > #run-console { order: 11; }
   color: var(--th-muted);
   font-size: 11px;
 }
+.attachment-excerpt {
+  border: 1px solid var(--th-border);
+  border-radius: 999px;
+  padding: 0 6px;
+  color: var(--th-warning);
+  font-size: 11px;
+  white-space: nowrap;
+}
 /* Ask again belongs to the newest answer only, and only once it has text. */
 .message .ask-again {
   border: 0;

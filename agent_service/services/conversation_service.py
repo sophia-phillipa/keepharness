@@ -131,6 +131,29 @@ class InferencePlan:
     replay: bool = False
 
 
+EXCERPT_CHARS = 6000
+
+
+def text_length(pages):
+    return sum(len(page.get("text", "")) for page in pages)
+
+
+def excerpt_metadata(pages):
+    """Marks a file whose text is inlined only as its first ``EXCERPT_CHARS`` characters."""
+    return {"excerpt": True} if text_length(pages) > EXCERPT_CHARS else {}
+
+
+def noticed_before(turns, data, fid):
+    """True when an earlier turn on the same route already told the model ``fid`` was dropped."""
+    route = ("backend", "model", "execution_mode")
+    attached = set()
+    for payload, _ in turns:
+        attached.update(payload.get("file_ids", []))
+        if fid in attached and all(payload.get(key) == data.get(key) for key in route):
+            return True
+    return False
+
+
 def preview_metadata(file_id, pages):
     media_type = next(
         (
@@ -542,11 +565,13 @@ class ConversationService:
         for fid in json.loads(row["payload"]).get("file_ids", []):
             record = self.message_repository.file(fid, row["project"], row["owner"])
             if record:
+                pages = json.loads(record["pages"])
                 attachments.append(
                     {
                         "id": fid,
                         "name": record["name"],
-                        **preview_metadata(fid, json.loads(record["pages"])),
+                        **preview_metadata(fid, pages),
+                        **excerpt_metadata(pages),
                     }
                 )
         return attachments
@@ -664,7 +689,12 @@ class ConversationService:
                         )
                     used += copied
                     attachments.append(
-                        {"file_id": fid, "name": name, **preview_metadata(fid, pages)}
+                        {
+                            "file_id": fid,
+                            "name": name,
+                            **preview_metadata(fid, pages),
+                            **excerpt_metadata(pages),
+                        }
                     )
                 except (APIError, tools.ToolError, OSError) as exc:
                     shutil.rmtree(folder)
@@ -1774,7 +1804,7 @@ class ConversationService:
             file = self.file(row["project"], fid, row["owner"])
             pages = json.loads(file["pages"])
             source = {"file_id": fid, "filename": file["name"], "pages": pages}
-            if sum(len(page.get("text", "")) for page in pages) > 6000:
+            if text_length(pages) > EXCERPT_CHARS:
                 folder = native_session / "attachments"
                 folder.mkdir(parents=True, exist_ok=True, mode=0o700)
                 extracted = folder / (fid + ".txt")
@@ -1782,7 +1812,7 @@ class ConversationService:
                 extracted.chmod(0o600)
                 source.update(
                     pages=[
-                        {"page": None, "text": extracted.read_text()[:6000]},
+                        {"page": None, "text": extracted.read_text()[:EXCERPT_CHARS]},
                         *(page for page in pages if page.get("media_type")),
                     ],
                     excerpt=True,
@@ -1818,7 +1848,7 @@ class ConversationService:
                     raise
                 name = json.dumps(source["filename"], ensure_ascii=False)
                 if video:
-                    notices.append(
+                    notice = (
                         "Frames from file "
                         + name
                         + " ignored in this response because "
@@ -1826,13 +1856,18 @@ class ConversationService:
                         + ". The extracted text, when available, was preserved."
                     )
                 else:
-                    notices.append(
+                    notice = (
                         "File "
                         + name
                         + " ignored in this response because "
                         + reasons[exc.code]
                         + "."
                     )
+                # The first answer on a route says so; later turns carry that in the history.
+                if source["file_id"] in data.get("file_ids", []) or not noticed_before(
+                    turns, data, source["file_id"]
+                ):
+                    notices.append(notice)
                 image_sources.remove(source)
                 if video:
                     source["pages"] = [
@@ -1843,8 +1878,6 @@ class ConversationService:
         if notices:
             attachment_notice = "\n".join(notices) + "\n\n"
         context = encoded(sources)
-        if len(context) > 100000:
-            raise APIError("source_context_limit")
         native_commands = [item for item in selected_resources if item.get("native_command")]
         if native_commands and (
             turns
@@ -1915,6 +1948,9 @@ class ConversationService:
         } | set(data.get("file_ids", []))
         if persisted_session:
             context = encoded([source for source in sources if source["file_id"] in pending_files])
+        # Only what is sent counts: a session that already holds the files is not refed them.
+        if len(context) > 100000:
+            raise APIError("source_context_limit")
         history = conversation_context.portable_history(self.db, pending)
         history_folder = None
         if history:
@@ -2376,7 +2412,9 @@ class ConversationService:
             project_config["test_commands"] = {}
         backend_config = self.config[backend]
         # Host connectors run with the owner's account on this computer: never for guests (D04).
-        if guest or (backend == "local" and "model_permissions" in self.config["services"][backend]):
+        if guest or (
+            backend == "local" and "model_permissions" in self.config["services"][backend]
+        ):
             backend_config = {**backend_config, "integrations": [], "unrestricted": False}
         if data.get("_planning_only"):
             project_config = {"permissions": {}}

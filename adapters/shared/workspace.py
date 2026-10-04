@@ -59,8 +59,14 @@ def prepare_workspace(project, prompt, session_dir):
     return Workspace(home, cwd, prompt, permissions, roots, images)
 
 
+def attachment_roots(workspace):
+    """This conversation's extracted attachment text folder, once a long file created it."""
+    attachments = workspace.home / "attachments"
+    if not workspace.permissions.get("read") or not attachments.is_dir():
+        return []
+    return [str(attachments.resolve())]
+
+
 def readable_roots(workspace):
     """The authorized roots plus this conversation's extracted attachment text, if any."""
-    attachments = workspace.home / "attachments"
-    extra = [str(attachments.resolve())] if attachments.is_dir() else []
-    return list(dict.fromkeys([*workspace.roots, *extra]))
+    return list(dict.fromkeys([*workspace.roots, *attachment_roots(workspace)]))
