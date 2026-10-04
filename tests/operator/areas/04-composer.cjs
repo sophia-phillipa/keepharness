@@ -138,14 +138,16 @@ module.exports = {
         await page.locator("#prompt").fill("");
       });
 
-      await op.step("files-chip", "In a fresh chat, the Files chip opens the project files panel", async () => {
+      await op.step("files-chip", "In a fresh chat, the Files chip offers uploads and pages without opening the Code panel", async () => {
         await newChat(op);
         if (op.fixtureMode) await op.click(page.locator("#sidebar").getByRole("button", { name: "New Conversation in Alpha research" }));
         await chooseModel(op, "claude-sonnet-5-5");
         await op.click(page.locator("#files-chip"));
-        await op.see(page.locator("#files-view"));
-        await op.click(page.locator("#panel-toggle"));
+        const menu = page.locator("#files-menu");
+        await op.see(menu);
+        await op.see(menu.getByRole("button", { name: "Upload…" }));
         await op.gone(page.locator("#activity-panel"));
+        await op.press("Escape");
       });
 
       await op.step("agents-chip", "The Agents chip lists agents and offers Create agent", async () => {

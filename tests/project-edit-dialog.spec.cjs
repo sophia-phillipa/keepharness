@@ -16,6 +16,7 @@ const assert = require("node:assert/strict"),
         additional_roots: ["/home/user/second"],
       },
       writes = [],
+      posts = [],
       failure = null,
       hold = null;
     await page.route("http://panel.test/**", (route) => {
@@ -33,6 +34,10 @@ const assert = require("node:assert/strict"),
       const u = new URL(route.request().url());
       let data = {};
       if (u.pathname === "/v1/projects") {
+        if (route.request().method() === "POST") {
+          posts.push(route.request().postDataJSON());
+          return route.fulfill({ status: 201, json: { project_id: "alpha" } });
+        }
         if (route.request().method() === "PATCH") {
           const body = route.request().postDataJSON();
           writes.push(body);
@@ -233,7 +238,9 @@ const assert = require("node:assert/strict"),
     assert.equal(await page.locator("#project-selected-paths li").count(), 0);
     await page.locator("#project-name").fill("New");
     await page.locator("#project-create").click();
-    await page.getByText("Add at least one folder.", { exact: true }).waitFor();
+    // D39: a project may exist without a folder, so a name alone is enough.
+    await page.locator("#project-dialog").waitFor({ state: "hidden" });
+    assert.deepEqual(posts, [{ name: "New", paths: [] }]);
     assert.deepEqual(errors, []);
     console.log(
       "PASS P1-P7: project edit, primary/add, cancel, keyboard, duplicate submit, continuity, errors and mobile.",

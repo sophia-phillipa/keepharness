@@ -1185,7 +1185,7 @@ const userErrors = {
     "A project with that name already exists. Choose a different name.",
   invalid_project_name: "The name needs to be between 3 and 100 characters.",
   project_directory_required:
-    "Add at least one existing folder to the project.",
+    "One of the chosen folders no longer exists. Choose an available folder.",
   project_directory_forbidden:
     "One of the chosen folders is protected or not authorized.",
   // Requests (F-70): every code the server can return has a sentence.
@@ -1589,6 +1589,9 @@ const userErrors = {
   page_limit: "This project has reached the limit of 500 pages. Delete one to add another.",
   page_storage_unsafe: "The pages folder cannot be used safely. Check the harness state folder.",
   schedule_invalid: "The schedule is not valid. Check each field and try again.",
+  schedule_agent_unselected: "Pick the agent in the Agent field instead of typing @@name in the prompt.",
+  schedule_agent_missing: "The agent of this schedule no longer exists. Pick another agent or remove it.",
+  schedule_page_missing: "A page of this schedule no longer exists. Open the schedule and untick it.",
   schedule_not_found: "That schedule no longer exists.",
   schedule_changed: "This schedule was changed elsewhere. Reload it and try again.",
   schedule_limit: "You have reached the limit of 50 schedules. Delete one to add another.",
@@ -4492,6 +4495,24 @@ async function load(id, legacy = false, restoredView = null) {
     }
   }
 }
+// The Files chip offers the last uploads again; this tab's memory is enough for that.
+const RECENT_UPLOADS_KEY = "keepharness-recent-uploads";
+function recentUploads() {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(RECENT_UPLOADS_KEY) || "[]");
+    return Array.isArray(saved) ? saved : [];
+  } catch {
+    return [];
+  }
+}
+function rememberUpload(entry) {
+  try {
+    sessionStorage.setItem(
+      RECENT_UPLOADS_KEY,
+      JSON.stringify([entry, ...recentUploads().filter((item) => item.id !== entry.id)].slice(0, 8)),
+    );
+  } catch {}
+}
 async function upload(list) {
   if (!canUpload()) {
     status("Couldn't attach: attachments are disabled in the admin panel.");
@@ -4577,14 +4598,16 @@ async function upload(list) {
             ),
           },
         );
-        files.push({
+        const entry = {
           id: r.file_id,
           name: f.name,
           preview_url: r.preview_url,
           project: $("project").value,
           size: f.size,
           modified: f.lastModified,
-        });
+        };
+        files.push(entry);
+        rememberUpload(entry);
         renderFiles();
         saveView();
         status("File received.");
@@ -5620,14 +5643,19 @@ $("theme-toggle").onclick = () => {
 };
 // Codex-style "Choose project" under the composer: reuses the project select and its onchange.
 // Composer sub-bar shortcuts (Codex model): project files and agents.
-$("files-chip").onclick = () => {
+// OP-R1-22: the chip attaches (recent uploads, Space pages, Upload…); it never changes the mode.
+function browseProjectFiles() {
   togglePanelView("files");
   const target =
     $("files-tree").querySelector('[role="treeitem"][tabindex="0"]') ||
     $("files-tree").querySelector('[role="treeitem"]') ||
     document.querySelector('[data-workspace-section="files"] > summary');
   target?.focus({ preventScroll: true });
-};
+}
+$("files-chip").onclick = () => openChipMenu($("files-menu"), $("files-chip"), renderFilesMenu);
+$("files-menu").addEventListener("toggle", (event) =>
+  $("files-chip").setAttribute("aria-expanded", String(event.newState === "open")),
+);
 // OP-R1-14: the chip opens the agent list at the caret; the draft is not touched until one is chosen.
 $("agents-chip").onclick = () => {
   const input = $("prompt"),
@@ -5877,13 +5905,12 @@ async function renderPluginsMenu() {
     body.textContent = "Couldn't check connectors and plugins. " + error.message;
   }
 }
-$("plugins-chip").onclick = () => {
-  const menu = $("plugins-menu");
+function openChipMenu(menu, chip, render) {
   if (menu.matches(":popover-open")) return menu.hidePopover();
   menu.showPopover();
   // Anchored on the side with more room, so it grows away from the chip.
   const place = () => {
-    const r = $("plugins-chip").getBoundingClientRect(),
+    const r = chip.getBoundingClientRect(),
       above = r.top > innerHeight - r.bottom;
     menu.style.left = Math.max(12, Math.min(r.left, innerWidth - menu.offsetWidth - 12)) + "px";
     menu.style.top = above ? "auto" : r.bottom + 6 + "px";
@@ -5893,8 +5920,87 @@ $("plugins-chip").onclick = () => {
   place();
   menu.tabIndex = -1;
   menu.focus({ preventScroll: true });
-  void renderPluginsMenu().then(place);
-};
+  void render().then(place);
+}
+$("plugins-chip").onclick = () => openChipMenu($("plugins-menu"), $("plugins-chip"), renderPluginsMenu);
+// The Files chip (D40): what the next message can start from, without leaving the chat.
+function menuButton(label, onclick, { testid, icon, hint } = {}) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "files-menu-item";
+  if (testid) button.dataset.testid = testid;
+  if (icon) button.append(icon);
+  const text = document.createElement("span");
+  text.textContent = label;
+  button.append(text);
+  if (hint) {
+    const small = document.createElement("small");
+    small.textContent = hint;
+    button.append(small);
+  }
+  button.onclick = () => {
+    $("files-menu").hidePopover();
+    onclick();
+  };
+  return button;
+}
+function menuSection(title, items, empty) {
+  const section = document.createElement("section"),
+    heading = document.createElement("h3");
+  heading.textContent = title;
+  section.append(heading, ...(items.length ? items : [Object.assign(document.createElement("p"), { className: "plugins-empty", textContent: empty })]));
+  return section;
+}
+function attachRecentUpload(entry) {
+  if (files.some((item) => item.id === entry.id)) return;
+  if (files.length >= MAX_ATTACHMENTS) return void status("Limit of 20 attachments reached. Remove one before adding another.");
+  files.push(entry);
+  renderFiles();
+  saveView();
+  updateComposer();
+  status("File attached.");
+}
+async function attachSpacePage(pageId, project) {
+  try {
+    const page = await json("/v1/pages/" + encodeURIComponent(pageId) + "?" + new URLSearchParams({ project_id: project }));
+    await upload([pageFile(page.title, page.body)]);
+  } catch (error) {
+    status("Couldn't attach the page: " + error.message);
+  }
+}
+async function renderFilesMenu() {
+  const menu = $("files-menu"),
+    project = $("project").value,
+    heading = document.createElement("p"),
+    body = document.createElement("div"),
+    attachable = canUpload() && !busy && !loading && !uploads,
+    uploadButton = menuButton("Upload…", () => $("file").click(), { testid: "files-menu-upload", icon: HarnessUI.icon("paperclip") });
+  heading.className = "access-menu-heading";
+  heading.textContent = "Attach to this message";
+  body.className = "plugins-body files-body";
+  uploadButton.disabled = !attachable;
+  if (!attachable) uploadButton.title = "Attachments are not available for this model or project right now.";
+  const recent = recentUploads()
+    .filter((entry) => entry.project === project && !files.some((item) => item.id === entry.id))
+    .map((entry) => menuButton(entry.name, () => attachRecentUpload(entry), { testid: "files-menu-recent", icon: projectFileIcon(entry.name), hint: entry.size > 0 ? fileSizeLabel(entry.size) : "" }));
+  for (const button of recent) button.disabled = !attachable;
+  const pagesSection = menuSection("Space pages", [], "Checking…");
+  body.append(uploadButton, menuSection("Recent uploads", recent, "Nothing uploaded in this project yet."), pagesSection);
+  const detail = projectDetails[project];
+  if (!detail || detail.root)
+    body.append(menuButton("Browse project files…", browseProjectFiles, { testid: "files-menu-browse", icon: HarnessUI.icon("folder") }));
+  menu.replaceChildren(heading, body);
+  try {
+    const listed = (await json("/v1/pages?" + new URLSearchParams({ project_id: project }))).pages || [];
+    const buttons = listed.map((page) =>
+      menuButton(page.title, () => void attachSpacePage(page.id, project), { testid: "files-menu-page", icon: projectFileIcon(page.title + ".md"), hint: "Current version" }),
+    );
+    for (const button of buttons) button.disabled = !attachable;
+    pagesSection.replaceWith(menuSection("Space pages", buttons, "No pages in this project yet."));
+  } catch (error) {
+    pagesSection.replaceWith(menuSection("Space pages", [], "Couldn't load pages. " + error.message));
+  }
+}
 $("plugins-menu").addEventListener("toggle", (event) =>
   $("plugins-chip").setAttribute("aria-expanded", String(event.newState === "open")),
 );
@@ -7526,22 +7632,20 @@ async function leavePage() {
 async function closeSpace() {
   if (await leavePage()) $("space-dialog").close();
 }
-function pageFile() {
-  const title = $("page-title").value.trim() || "Untitled",
-    name = title.replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "page";
-  return new File([$("page-body").value], name + ".md", { type: "text/markdown" });
+function pageFile(title, body) {
+  const name = title.replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "page";
+  return new File([body], name + ".md", { type: "text/markdown" });
 }
+// A page is attached as its current text, into the composer's own project (QA-R2-2): the
+// composer never changes project just to take a page, and a new chat waits for its permissions.
 async function usePage(startChat) {
   if (!(await leavePage())) return;
   const project = $("space-project").value,
-    file = pageFile(),
-    title = $("page-title").value.trim() || "Untitled";
+    title = $("page-title").value.trim() || "Untitled",
+    file = pageFile(title, $("page-body").value);
   $("space-dialog").close();
   if (startChat) newConversation(title, project);
-  else if ($("project").value !== project && !conversation) {
-    $("project").value = project;
-    $("project").onchange?.();
-  }
+  await refreshProjectPermissions();
   await upload([file]);
   $("prompt").focus({ preventScroll: true });
 }
@@ -7568,6 +7672,7 @@ $("page-new").onclick = async () => {
   await loadPages(null);
   $("page-title").focus();
 };
+$("page-empty-new").onclick = () => $("page-new").click();
 $("page-attach").onclick = () => void usePage(false);
 $("page-chat").onclick = () => void usePage(true);
 $("page-delete").onclick = () =>
@@ -7678,6 +7783,7 @@ function showScheduleEditor(task) {
   $("schedule-title").value = task?.title || "";
   $("schedule-prompt").value = task?.prompt || "";
   projectChoices($("schedule-project"), task?.project_id || $("project").value);
+  void fillScheduleContext(task);
   fillRoute("schedule", task?.backend || current?.backend, task?.model || current?.id, task?.effort || $("effort").value);
   $("schedule-kind").value = cadence.kind;
   $("schedule-time").value = cadence.time || "09:00";
@@ -7693,6 +7799,68 @@ function showScheduleEditor(task) {
   delete $("schedule-delete").dataset.confirm;
   $("schedule-save").textContent = task?.id ? "Save task" : "Create task";
   showLastRun(task);
+}
+// D41: the agent and the pages are read at run time; the editor only picks them.
+const MAX_SCHEDULE_PAGES = 5;
+let scheduleContextLoad = 0;
+async function fillScheduleContext(task) {
+  const session = ++scheduleContextLoad,
+    picker = $("schedule-agent"),
+    agent = task?.agent || "";
+  // Until the list of this task's pages has loaded, a Save keeps the stored choice.
+  $("schedule-pages-list").dataset.loaded = "false";
+  picker.replaceChildren(new Option("No agent", ""));
+  if (agent) picker.append(new Option("@@" + agent, agent));
+  picker.value = agent;
+  try {
+    const data = await json("/v1/harness-agents");
+    if (session !== scheduleContextLoad) return;
+    const names = (Array.isArray(data.agents) ? data.agents : []).map((item) => item.name);
+    picker.replaceChildren(
+      new Option("No agent", ""),
+      ...[...new Set([...names, ...(agent ? [agent] : [])])].map((name) => new Option("@@" + name, name)),
+    );
+    picker.value = agent;
+  } catch {}
+  await renderSchedulePages($("schedule-project").value, task?.page_ids || []);
+}
+async function renderSchedulePages(project, chosen) {
+  const session = scheduleContextLoad,
+    box = $("schedule-pages-list");
+  let listed = null;
+  try {
+    listed = (await json("/v1/pages?" + new URLSearchParams({ project_id: project }))).pages;
+  } catch {}
+  if (session !== scheduleContextLoad) return;
+  // A list that did not load keeps the stored choice: saving must not drop pages it never showed.
+  box.dataset.loaded = String(Array.isArray(listed));
+  if (!Array.isArray(listed) || !listed.length) {
+    box.textContent = Array.isArray(listed) ? "No pages in this project yet." : "Couldn't load pages.";
+    return;
+  }
+  box.replaceChildren(
+    ...listed.map((page) => {
+      const label = document.createElement("label"),
+        check = document.createElement("input");
+      check.type = "checkbox";
+      check.value = page.id;
+      check.checked = chosen.includes(page.id);
+      label.append(check, document.createTextNode(" " + page.title));
+      return label;
+    }),
+  );
+  limitSchedulePages();
+}
+function limitSchedulePages() {
+  const boxes = [...$("schedule-pages-list").querySelectorAll("input")],
+    full = boxes.filter((box) => box.checked).length >= MAX_SCHEDULE_PAGES;
+  for (const box of boxes) box.disabled = full && !box.checked;
+}
+function schedulePageIds() {
+  const list = $("schedule-pages-list");
+  return list.dataset.loaded === "true"
+    ? [...list.querySelectorAll("input:checked")].map((box) => box.value)
+    : currentSchedule?.page_ids || [];
 }
 // The last run's real outcome (D15), with a link to its conversation.
 function showLastRun(task) {
@@ -7737,18 +7905,22 @@ function scheduleBody() {
           ? { kind, weekday: Number($("schedule-weekday").value), time: $("schedule-time").value }
           : { kind, time: $("schedule-time").value },
     enabled: $("schedule-enabled").checked,
+    agent: $("schedule-agent").value || null,
+    page_ids: schedulePageIds(),
   };
 }
 function showScheduleError(field, message) {
   $("schedule-error").textContent = message;
   const input = $(
-    { title: "schedule-title", prompt: "schedule-prompt", project_id: "schedule-project", backend: "schedule-backend", model: "schedule-model", effort: "schedule-effort", access_mode: "schedule-access", cadence: $("schedule-kind").value === "interval" ? "schedule-hours" : "schedule-time" }[field] || "",
+    { title: "schedule-title", prompt: "schedule-prompt", agent: "schedule-agent", page_ids: "schedule-pages-list", project_id: "schedule-project", backend: "schedule-backend", model: "schedule-model", effort: "schedule-effort", access_mode: "schedule-access", cadence: $("schedule-kind").value === "interval" ? "schedule-hours" : "schedule-time" }[field] || "",
   );
   if (!input) return;
   input.setAttribute("aria-invalid", "true");
   input.focus();
 }
 $("schedule-kind").onchange = syncCadenceFields;
+$("schedule-project").onchange = () => void renderSchedulePages($("schedule-project").value, []);
+$("schedule-pages-list").onchange = limitSchedulePages;
 $("schedule-editor").addEventListener("input", (event) => {
   if (event.target.getAttribute?.("aria-invalid") !== "true") return;
   event.target.removeAttribute("aria-invalid");
@@ -7760,6 +7932,11 @@ $("schedule-editor").onsubmit = async (event) => {
     task = currentSchedule;
   if (!body.title) return showScheduleError("title", "Give the task a title.");
   if (!body.prompt) return showScheduleError("prompt", "Write what the task should do.");
+  // D41: an @@name in the prompt must be the agent picked above, as in the composer.
+  const stray = [...unfencedPrompt(body.prompt).matchAll(/(?:^|\s)(@@[\w:-]+)(?=\s|$)/g)].find(
+    (match) => !body.agent || match[1] !== "@@" + body.agent,
+  );
+  if (stray) return showScheduleError("agent", "Pick " + stray[1] + " in the Agent field, or remove it from the prompt.");
   if (body.cadence.kind !== "interval" && !/^\d{2}:\d{2}$/.test(body.cadence.time))
     return showScheduleError("cadence", "Choose a time.");
   $("schedule-save").disabled = true;
@@ -7788,7 +7965,10 @@ $("schedule-run").onclick = async () => {
     $("schedule-last").textContent = "Started now. It appears in Chats.";
     appendOpenRun(started.job_id);
     void history();
-    await loadSchedules(task.id);
+    const fresh = (await loadSchedules(task.id)).find((item) => item.id === task.id);
+    // The run rewrote the stored task, so Save and Delete need its new revision (CDX-R1-4);
+    // the editor fields stay as typed.
+    if (fresh && currentSchedule?.id === task.id) currentSchedule = fresh;
   } catch (error) {
     showScheduleError("", error.message);
   }
@@ -7811,6 +7991,7 @@ $("schedule-new").onclick = () => {
   showScheduleEditor(null);
   $("schedule-title").focus();
 };
+$("schedule-empty-new").onclick = () => $("schedule-new").click();
 $("scheduled-close").onclick = () => $("scheduled-dialog").close();
 $("rail-space").onclick = () => void openSpace();
 $("rail-scheduled").onclick = () => void openScheduled();
@@ -9618,7 +9799,7 @@ function openProjectDialog(projectId = null) {
   );
   $("project-create").title = projectId
     ? "Save the name and folders while keeping the conversations"
-    : "Create the project with the selected folders";
+    : "Create the project; folders are optional";
   renderSelectedProjectDirectories();
   resetProjectFolderBrowser();
   $("project-create-note").textContent = "";
@@ -9668,10 +9849,6 @@ $("project-form").onsubmit = async (event) => {
     current = $("project").value;
   if (Array.from(name.matchAll(/\p{L}/gu)).length < 3) {
     note.textContent = "The name needs at least 3 letters.";
-    return;
-  }
-  if (!projectDirectory.selected.size) {
-    note.textContent = "Add at least one folder.";
     return;
   }
   if (projectDirectory.selected.size > 20) {
@@ -9803,7 +9980,7 @@ for (const section of document.querySelectorAll(".workspace-section")) {
     const saved = JSON.parse(localStorage.getItem(key) || "null");
     if (saved) {
       section.open = saved.open !== false;
-      if (Number.isFinite(saved.height)) content.style.height = Math.max(64, Math.min(600, saved.height)) + "px";
+      if (Number.isFinite(saved.height)) { content.style.height = Math.max(64, Math.min(600, saved.height)) + "px"; section.dataset.sized = ""; }
     }
   } catch {}
   const save = () => { try { localStorage.setItem(key, JSON.stringify({ open: section.open, height: parseFloat(content.style.height) || null })); } catch {} };
@@ -9819,7 +9996,7 @@ for (const section of document.querySelectorAll(".workspace-section")) {
   handle.setAttribute("aria-controls", content.id);
   handle.title = "Drag or use Up and Down arrow keys to resize";
   const size = height => {
-    const next = Math.max(64, Math.min(600, height)); content.style.height = next + "px";
+    const next = Math.max(64, Math.min(600, height)); content.style.height = next + "px"; section.dataset.sized = "";
     handle.setAttribute("aria-valuenow", String(Math.round(next))); save();
   };
   handle.setAttribute("aria-valuemin", "64"); handle.setAttribute("aria-valuemax", "600");
