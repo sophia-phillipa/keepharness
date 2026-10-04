@@ -97,10 +97,11 @@ runPersona("H29", [
       assert.equal(await page.locator("#send").isDisabled(), true);
       await page.fill("#prompt", "Hello");
       assert.equal(await page.locator("#send").isDisabled(), false);
-      // F-90: the fallback is announced, naming the model that is gone.
-      assert.match(
+      // F-90 + D42: the fallback is announced with the friendly names of the model
+      // that is gone and of the one picked, never the raw ids.
+      assert.equal(
         await page.locator("#status").textContent(),
-        /claude-opus-4-1 is no longer available; switched to .*Luna/i,
+        "Claude Opus 4.1 is no longer available; switched to GPT-5.6 Luna.",
       );
     },
   },
@@ -145,9 +146,9 @@ runPersona("H29", [
       );
       await page.fill("#prompt", "Draft written for Claude");
       assert.equal(
-        await fallbackNotice(page, "claude-sonnet-5"),
+        await fallbackNotice(page, "Claude Sonnet 5"),
         true,
-        "label names the model",
+        "label names the model (friendly name, D42)",
       );
       models = MODELS.filter((m) => m.backend !== "claude");
       // The periodic readiness probe also runs on visibilitychange.
