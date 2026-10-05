@@ -33,8 +33,9 @@ _ASSIGNMENT = re.compile(
     r"\b([A-Za-z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|PASSWD)[A-Za-z0-9_]*)=\S+", re.IGNORECASE
 )
 _ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*\Z")
-_NAME_PATTERN = re.compile(r"[A-Za-z0-9._:-]{1,64}")
-_SKILL_FILE = re.compile(r"/([A-Za-z0-9._:-]{1,64})/SKILL\.md(?![\w.-])")
+_NAME_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,63}")
+_SKILL_FILE = re.compile(r"/(%s)/SKILL\.md(?![\w.-])" % _NAME_PATTERN.pattern)
+_READERS = {"cat", "sed", "head", "tail", "less", "bat", "nl"}
 READ_TOOLS = {"Read", "read", "read_file"}
 AGENT_TOOLS = {"Task", "Agent"}
 _SHELL_SYNTAX = re.compile(r"[\n\r;|&<>`]|\$\(")
@@ -126,6 +127,12 @@ def _safe_name(value):
     return None
 
 
+def _skill_file_name(text):
+    """The ``<name>`` of the first ``<name>/SKILL.md`` in the redacted text, if any."""
+    found = _SKILL_FILE.search(_scrub(text)) if isinstance(text, str) else None
+    return found and found.group(1)
+
+
 def tool_markers(tool, args):
     """The skill or agent a tool event reveals: ``{"skill": name}``, ``{"agent": name}`` or ``{}``.
 
@@ -135,19 +142,18 @@ def tool_markers(tool, args):
     if not isinstance(tool, str) or not isinstance(args, dict):
         return {}
     name = tool.split("__")[-1]
+    native = not tool.startswith("mcp__")  # a third-party MCP tool may reuse these names
     skill = agent = None
     if name == "Skill":
         skill = _safe_name(args.get("skill"))
-    elif name in AGENT_TOOLS:
+    elif name in AGENT_TOOLS and native:
         agent = _safe_name(args.get("subagent_type"))
     elif name in SHELL_TOOLS:
         line = _command_line(args.get("command", args.get("cmd")))
-        found = _SKILL_FILE.search(line) if isinstance(line, str) else None
-        skill = _safe_name(found and found.group(1))
-    elif name in READ_TOOLS:
-        path = _path_value(name, args, None)
-        found = _SKILL_FILE.search(path) if isinstance(path, str) else None
-        skill = _safe_name(found and found.group(1))
+        if isinstance(line, str) and command_name(line) in _READERS:
+            skill = _skill_file_name(line)
+    elif name in READ_TOOLS and native:
+        skill = _skill_file_name(_path_value(name, args, None))
     return {key: value for key, value in (("skill", skill), ("agent", agent)) if value}
 
 

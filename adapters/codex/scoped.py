@@ -52,6 +52,7 @@ async def run(
         usage = {}
         token_usage = {}
         seen_answer = False
+        markers = {}  # skill/agent names from each tool start, kept for its end
         answer_item = None
         async with connection(command, event=event, config=config) as rpc:
             marker = "remote-thread.json"
@@ -155,10 +156,13 @@ async def run(
                     typ = content.get("type", "")
                     if typ == "mcpToolCall":
                         metadata = event_metadata(content)
-                        if kind.endswith("started") and (found := item_target(content)):
-                            metadata["target"] = found
                         if kind.endswith("started"):
-                            metadata.update(item_markers(content))
+                            markers[content.get("id")] = item_markers(content)
+                            if found := item_target(content):
+                                metadata["target"] = found
+                            metadata.update(markers[content.get("id")])
+                        else:
+                            metadata.update(markers.pop(content.get("id"), {}))
                         event(
                             "tool_start" if kind.endswith("started") else "tool_end",
                             {

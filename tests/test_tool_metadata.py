@@ -321,6 +321,18 @@ def test_portable_history_does_not_forward_the_display_target_to_the_next_provid
         ("Skill", None, {}),
         (None, {"skill": "x"}, {}),
         ("mcp__srv__Skill", {"skill": "viaMcp"}, {"skill": "viaMcp"}),
+        ("Bash", {"command": "tool --api-key /x/abc123def/SKILL.md"}, {}),
+        ("Read", {"file_path": "/x/token=abc123def/SKILL.md"}, {}),
+        ("Bash", {"command": "echo hi > ~/.claude/skills/foo/SKILL.md"}, {}),
+        ("Bash", {"command": "rm -rf /s/bar/SKILL.md"}, {}),
+        ("Bash", {"command": "cat /s/a/SKILL.md | tee /s/b/SKILL.md"}, {}),
+        ("Bash", {"command": "cat a/one/SKILL.md /b/two/SKILL.md"}, {"skill": "one"}),
+        ("Bash", {"command": "bash -lc 'sed -n 1,5p /h/skills/ponytail/SKILL.md'"}, {"skill": "ponytail"}),
+        ("Bash", {"command": "cat /x/../SKILL.md"}, {}),
+        ("Read", {"file_path": "/x/.hidden/SKILL.md"}, {}),
+        ("mcp__jira__Task", {"subagent_type": "Explore"}, {}),
+        ("mcp__jira__Agent", {"subagent_type": "Explore"}, {}),
+        ("mcp__jira__Read", {"file_path": "/h/skills/ponytail/SKILL.md"}, {}),
     ],
 )
 def test_tool_markers_name_skills_and_agents_only_with_safe_names(tool, args, expected):
@@ -422,3 +434,83 @@ def test_portable_history_does_not_forward_skill_and_agent_names():
         {"tool": "Skill", "status": "completed"},
         {"tool": "Task", "status": "completed"},
     ]
+
+
+def _skill_read(phase, command):
+    item = {"type": "commandExecution", "id": "c1", "command": command}
+    return {"method": f"item/{phase}", "params": {"item": item}}
+
+
+def _codex_tool_events(tmp_path, adapter, notifications):
+    """Run one Codex adapter against scripted notifications; return its tool events."""
+    import asyncio
+    from contextlib import asynccontextmanager, nullcontext
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, patch
+
+    rpc = AsyncMock()
+    rpc.call.return_value = {"thread": {"id": "t1"}}
+    rpc.receive.side_effect = [
+        *notifications,
+        {"method": "turn/completed", "params": {"turn": {"status": "completed"}}},
+    ]
+    rpc.process = SimpleNamespace(stdin=SimpleNamespace(write=lambda value: None, drain=AsyncMock()))
+
+    @asynccontextmanager
+    async def connection(*args, **kwargs):
+        yield rpc
+
+    events = []
+    record = lambda kind, data: events.append((kind, data))  # noqa: E731
+    if adapter == "scoped":
+        from adapters.codex.scoped import run
+
+        workspace = SimpleNamespace(command=[], home=tmp_path)
+        with (
+            patch("adapters.codex.scoped.prepare_scoped", return_value=nullcontext(workspace)),
+            patch("adapters.codex.scoped.connection", connection),
+            patch("adapters.codex.scoped.collect_changes", return_value={}),
+        ):
+            asyncio.run(run({}, "Prompt", record, project={}, session_dir=tmp_path))
+    else:
+        from adapters import run_native as run
+
+        with (
+            patch("adapters.codex.native.connection", connection),
+            patch("adapters.codex.native.configurations", return_value={"codex": {}}),
+            patch("adapters.codex.native.inventory", return_value={"codex": []}),
+        ):
+            asyncio.run(
+                run(
+                    {"binary": "fixture"},
+                    "fixture",
+                    record,
+                    {"permissions": {}},
+                    "fixture",
+                    "configured",
+                    tmp_path / "session",
+                    "codex",
+                    AsyncMock(return_value={"approved": False}),
+                )
+            )
+    return [(kind, data) for kind, data in events if kind in ("tool_start", "tool_end")]
+
+
+@pytest.mark.parametrize("adapter", ["native", "scoped"])
+def test_codex_skill_marker_rides_on_tool_start_and_the_matching_tool_end(tmp_path, adapter):
+    read = "cat /h/skills/ponytail/SKILL.md"
+    if adapter == "scoped":
+        # The scoped adapter reports MCP calls only, so the same read arrives as a Skill call.
+        def note(phase):
+            item = {"type": "mcpToolCall", "id": "c1", "tool": "Skill", "arguments": {"skill": "ponytail"}}
+            return {"method": f"item/{phase}", "params": {"item": item}}
+
+        notes = [note("started"), note("completed")]
+    else:
+        # The completed item carries no command; the marker comes from the matching start.
+        done = _skill_read("completed", "")
+        notes = [_skill_read("started", read), done]
+    events = _codex_tool_events(tmp_path, adapter, notes)
+    assert [kind for kind, _ in events] == ["tool_start", "tool_end"]
+    assert all(data["skill"] == "ponytail" for _, data in events)
+    assert events[1][1]["tool_id"] == "c1"
