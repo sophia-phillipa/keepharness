@@ -2395,6 +2395,12 @@ function conversationRow(c) {
     if (busy || loading || uploads) return;
     openRenameConversation(c, trigger);
   };
+  const handoff = menuAction("message-plus", "Continue in another app…");
+  handoff.onclick = () => {
+    actions.open = false;
+    if (busy || loading || uploads) return;
+    openContinuation(c, trigger);
+  };
   const archive = menuAction("archive", "Archive conversation");
   archive.onclick = () => {
     actions.open = false;
@@ -2438,7 +2444,7 @@ function conversationRow(c) {
       trigger.focus();
     }
   });
-  menu.append(rename, archive, remove);
+  menu.append(rename, handoff, archive, remove);
   actions.append(trigger, menu);
   const model = c.execution?.model;
   const icon = document.createElement("span");
@@ -2565,6 +2571,148 @@ function openRenameConversation(c, trigger) {
   dialog.showModal();
   input.focus();
   input.select();
+}
+const HANDOFF_APP_NAMES = { chatgpt: "ChatGPT", claude: "Claude" };
+// Codes of the desktop bridge (desktop/main.cjs). Not backend codes, so they stay out of userErrors.
+const handoffErrors = {
+  handoff_forbidden: () => "KeepHarness can only open other apps from its own window.",
+  handoff_invalid: () => "KeepHarness couldn't build a link from this handoff.",
+  handoff_app_missing: (app) => app + " isn't installed or isn't set up to open links.",
+  handoff_open_failed: (app) => "Couldn't open " + app + ".",
+};
+function continuationFilename(title, target) {
+  const name = String(title || "")
+    .replace(/[\\/:*?"<>|\u0000-\u001f]+/g, "-")
+    .replace(/-{2,}/g, "-")
+    .slice(0, 80)
+    .replace(/^[\s.-]+|[\s.-]+$/g, "");
+  return (name || "conversation") + "-continue-in-" + target + ".md";
+}
+function saveContinuation(text, filename) {
+  const url = URL.createObjectURL(new Blob([text], { type: "text/markdown" })),
+    link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+// The handoff text exists only in this closure and the read-only textarea; closing clears both.
+function openContinuation(c, trigger) {
+  const dialog = $("continuation-dialog"),
+    field = $("continuation-text"),
+    paths = $("continuation-paths"),
+    summary = $("continuation-summary"),
+    error = $("continuation-error"),
+    copy = $("continuation-copy"),
+    save = $("continuation-save"),
+    offer = $("continuation-open"),
+    openStatus = $("continuation-open-status");
+  let target = "chatgpt",
+    current = "",
+    controller = null;
+  const reset = () => {
+    current = "";
+    field.value = "";
+    summary.textContent = "";
+    error.textContent = "";
+    openStatus.textContent = "";
+    offer.hidden = true;
+    copy.disabled = save.disabled = true;
+  };
+  const load = async () => {
+    controller?.abort();
+    const mine = (controller = new AbortController());
+    reset();
+    summary.textContent = "Preparing the handoff…";
+    try {
+      const data = await json(
+        "/v1/conversations/" + encodeURIComponent(c.id) + "/continuation?target=" + target + "&include_paths=" + (paths.checked ? 1 : 0),
+        { signal: AbortSignal.any([mine.signal, AbortSignal.timeout(30000)]) },
+      );
+      if (mine !== controller) return;
+      current = field.value = data.text;
+      const turns = data.turns_included;
+      summary.textContent = turns + (turns === 1 ? " turn" : " turns") + " included." + (data.truncated ? " Older turns were left out to fit the size limit." : "");
+      copy.disabled = save.disabled = false;
+    } catch (e) {
+      if (mine !== controller) return;
+      summary.textContent = "";
+      error.textContent = "Couldn't prepare the handoff: " + e.message;
+    }
+  };
+  // Asked only after the user copied or saved, and only for an app the desktop bridge lists.
+  const offerOpen = async () => {
+    const bridge = window.keepharnessDesktop,
+      text = current;
+    if (!bridge || !text) return;
+    let apps = [];
+    try {
+      apps = (await bridge.handoffApps())?.apps || [];
+    } catch {}
+    if (text !== current || !apps.includes(target)) return;
+    const name = HANDOFF_APP_NAMES[target];
+    $("continuation-open-question").textContent = "Open " + name + " to continue there? Nothing is sent until you send it yourself.";
+    $("continuation-open-yes").textContent = "Open " + name;
+    $("continuation-open-yes").disabled = false;
+    offer.hidden = false;
+  };
+  $("continuation-open-yes").onclick = async () => {
+    const app = target,
+      text = current,
+      name = HANDOFF_APP_NAMES[app],
+      yes = $("continuation-open-yes");
+    if (yes.disabled || !text) return;
+    yes.disabled = true;
+    let message;
+    try {
+      await writeClipboard(text);
+      const result = await window.keepharnessDesktop.openHandoff(app, text);
+      message = result?.opened
+        ? result.mode === "full"
+          ? "Opened " + name + " with the handoff in a new chat. Review it and send it there."
+          : "Opened " + name + ". The handoff is too long for a link, so paste it from your clipboard (Ctrl+V)."
+        : (handoffErrors[result?.error] || handoffErrors.handoff_open_failed)(name) + " The handoff is on your clipboard.";
+    } catch {
+      message = "Couldn't copy the handoff, so " + name + " was not opened.";
+    }
+    if (text !== current) return;
+    offer.hidden = true;
+    openStatus.textContent = message;
+  };
+  $("continuation-open-no").onclick = () => {
+    offer.hidden = true;
+    copy.focus();
+  };
+  copy.onclick = async () => {
+    if (copy.disabled || !(await copyText(current, copy))) return;
+    void offerOpen();
+  };
+  save.onclick = () => {
+    if (save.disabled) return;
+    saveContinuation(current, continuationFilename(c.title, target));
+    void offerOpen();
+  };
+  $("continuation-close").onclick = () => dialog.close();
+  dialog.onchange = (event) => {
+    const input = event.target;
+    if (input.name === "continuation-target") target = input.value;
+    else if (input !== paths) return;
+    void load();
+  };
+  dialog.onclose = () => {
+    controller?.abort();
+    controller = null;
+    reset();
+    if (trigger.isConnected) trigger.focus();
+    else $("history").querySelector(".conversation-actions summary")?.focus();
+  };
+  document.querySelector('input[name="continuation-target"][value="chatgpt"]').checked = true;
+  paths.checked = fullAccessOffered;
+  void load();
+  dialog.showModal();
+  $("continuation-close").focus();
 }
 function menuAction(icon, label) {
   const button = document.createElement("button"),
@@ -3421,18 +3569,19 @@ async function writeClipboard(text) {
   if (!copied) throw new Error("copy failed");
 }
 async function copyText(text, label) {
-  if (!text) return;
+  if (!text) return false;
   try {
     await writeClipboard(text);
   } catch {
     status("Couldn't copy to the clipboard");
-    return;
+    return false;
   }
   const before = label.textContent;
   label.textContent = "Copied";
   status("Copied");
   clearTimeout(label.copiedTimer);
   label.copiedTimer = setTimeout(() => (label.textContent = before), COPIED_LABEL_MS);
+  return true;
 }
 $("messages").addEventListener("click", (event) => {
   const button = event.target.closest?.(".copy-code");
