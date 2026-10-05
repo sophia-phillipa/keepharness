@@ -209,11 +209,20 @@ def attribute_usage(
     return used, other[:OTHER_TOOLS_LIMIT]
 
 
+def bare_name(item: Item) -> str:
+    """The connector's name without kind prefix or marketplace."""
+    name = str(item.get("name") or item.get("id") or "")
+    return re.sub(r"^(?:mcp|plugin):", "", name, flags=re.I).split("@")[0]
+
+
 def family_key(item: Item) -> str:
-    """The connector's name without kind prefix or marketplace, so one tool matches across providers."""
-    name = str(item.get("name") or item.get("id") or "").lower()
-    name = re.sub(r"^(?:mcp|plugin):", "", name).split("@")[0]
-    return re.sub(r"[_ ]", "-", name)
+    """The bare name, normalised, so one tool matches across providers."""
+    return re.sub(r"[_ ]", "-", bare_name(item).lower())
+
+
+def family_label(key: str, names: list[str]) -> str:
+    """The name as the menu shows it when it carries its own casing ("GitHub"); a lowercase id is title-cased."""
+    return next((name for name in names if name != name.lower()), key.replace("-", " ").title())
 
 
 def connected_elsewhere(
@@ -225,9 +234,11 @@ def connected_elsewhere(
 ) -> list[Item]:
     """Tools another enabled provider has allowed that this route's provider lacks or has not allowed."""
     on_route: dict[str, bool] = {}  # family -> allowed on this route's provider
+    names: dict[str, list[str]] = {}  # family -> display names, this route's first
     for item in here:
         key = family_key(item)
         on_route[key] = on_route.get(key, False) or item["allowed"]
+        names.setdefault(key, []).append(bare_name(item))
     own_inventory = SHARED_INVENTORY.get(route.backend, route.backend)
     found: dict[str, list[Item]] = {}
     for backend in dict.fromkeys(providers):
@@ -239,7 +250,9 @@ def connected_elsewhere(
         seen: dict[str, list[bool]] = {}  # family -> [allowed, effective_capable]
         for item in load_items(config, backend, catalog)[0]:
             ok = item["id"] in allowed
-            flags = seen.setdefault(family_key(item), [False, False])
+            key = family_key(item)
+            names.setdefault(key, []).append(bare_name(item))
+            flags = seen.setdefault(key, [False, False])
             flags[0] |= ok
             flags[1] |= ok and not app_based(item, backend)
         for key, (ok, capable) in seen.items():
@@ -249,7 +262,7 @@ def connected_elsewhere(
     return [
         {
             "key": key,
-            "label": key.replace("-", " ").title(),
+            "label": family_label(key, names.get(key, [])),
             "here": "enable" if key in on_route else "absent",
             "providers": found[key],
         }

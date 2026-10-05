@@ -756,6 +756,23 @@ def test_elsewhere_is_capped(client, github_on_codex, settings, monkeypatch):
     assert integrations_view.ELSEWHERE_LIMIT == 50
 
 
+def test_elsewhere_label_keeps_the_name_as_the_menu_shows_it(client, github_on_codex, settings, monkeypatch):
+    fake = [
+        {"id": "mcp:GitHub", "name": "GitHub", "kind": "mcp"},
+        {"id": "plugin:PostgreSQL@market", "name": "PostgreSQL@market", "kind": "plugin"},
+        {"id": "mcp:linear_app", "name": "linear_app", "kind": "mcp"},
+    ]
+    monkeypatch.setattr(
+        integrations_view,
+        "inventory",
+        lambda: {"claude": [], "gemini": [], "local": fake, "deepseek": fake, "codex": fake},
+    )
+    settings["services"]["codex"]["integrations"] = [item["id"] for item in fake]
+    labels = {key: entry["label"] for key, entry in elsewhere(client, backend="claude").items()}
+    # Display casing wins; a lowercase id falls back to the title-cased key.
+    assert labels == {"github": "GitHub", "postgresql": "PostgreSQL", "linear-app": "Linear App"}
+
+
 def test_a_guest_learns_nothing_about_tools_elsewhere(client, github_on_codex):
     client.headers["Authorization"] = "Bearer b"
     assert view(client, backend="claude").json()["elsewhere"] == []
