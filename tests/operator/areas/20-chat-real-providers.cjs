@@ -8,7 +8,7 @@
 //     NODE_PATH=<node_modules with playwright> PLAYWRIGHT_MODULE=<same>/playwright \
 //     node tests/operator/areas/20-chat-real-providers.cjs
 //
-// Env: CHAT_SLICE (pilot|luna|deepseek|s1a|s1b|s2a|s2b|s3a|s3b), CHAT_SCENARIOS (comma list, overrides the slice),
+// Env: CHAT_SLICE (pilot|luna|deepseek|s1a|s1b|s2a|s2b|s3a|s3b|s4a), CHAT_SCENARIOS (comma list, overrides the slice),
 // CHAT_BUDGET (real prompts allowed), CHAT_DEEPSEEK_WAIT_MS, CHAT_APP (an inspect-enabled copy of the
 // packaged binary: Playwright cannot attach to the production package, whose inspect fuse is off).
 // Known limitation: the desktop attaches to the running admin, so closing the app does not stop
@@ -44,6 +44,7 @@ const SLICES = {
   s2a: ["s2-01", "s2-02", "s2-03", "s2-04", "s2-05"],
   s2b: ["s1-03r", "s2-06", "s2-07", "s2-08", "s2-09", "s2-10"],
   s3b: ["s3-04", "s3-05", "s3-06", "s3-07"],
+  s4a: ["s4-01"],
   s3a: ["s3-00", "s3-01", "s3-02", "s3-03", "s3-08", "s3-09", "s3-10"],
 };
 const PROJECT_LABEL = process.env.CHAT_PROJECT_LABEL || "Campaign notes"; // CHAT_PROJECT_LABEL: dry runs use a throwaway project
@@ -834,6 +835,51 @@ const SCENARIOS = {
       await askOn(op, "s3-03-codex1", "codex", "What code word did I give you earlier in this conversation? Also remember a second one: WREN-7745. One short sentence.", /OTTER-3302/);
       await askOn(op, "s3-03-codex2", "codex", "List both code words in the order I gave them, in one line.", /WREN-7745/);
       c.ok(/OTTER-3302[\s\S]*WREN-7745/.test(ctx.last.reply), "Codex did not list both words in order");
+      c.done();
+    }, { lint: false });
+  },
+  "s4-01": async (op) => {
+    await op.step("s4-01", "Now: S4-01, one conversation of 18 turns on Luna with four planted facts and recalls at turns 10, 15 and 18", async () => {
+      const c = soft();
+      await newChat(op);
+      await chooseModel(op, "gpt-5.6-luna");
+      await chooseEffort(op, "Medium");
+      const F = { a: "OSPREY-4821", b: "Lindqvist", c: "Tuesday-Marrakesh", d: "7 amber lanterns" };
+      const both = new RegExp(`(?=[\\s\\S]*${F.a})(?=[\\s\\S]*${F.b})`);
+      const all = new RegExp(`(?=[\\s\\S]*${F.a})(?=[\\s\\S]*${F.b})(?=[\\s\\S]*Marrakesh)(?=[\\s\\S]*amber)`, "i");
+      const recallAll = "Recall the four facts I gave you: the code word, the surname, the trip, and the lanterns. One line, comma separated.";
+      const filler = (n, word) => askOn(op, `s4-01-t${n}`, "codex", `Reply with only the word ${word}.`, new RegExp(word, "i"));
+      const words = ["PEAR", "CLOUD", "RIVER", "STONE", "MAPLE", "EMBER", "DELTA", "FROST", "QUILL", "HARBOR", "NORTH"];
+      const checkpoints = {};
+      const rss = (n) => { const l = ctx.lines.find((x) => x.scenario === `s4-01-t${n}`); checkpoints[n] = { electron: l?.electron_rss_mb ?? null, harness: l?.harness_rss_mb ?? null, paint_median: l?.paint_ms?.median ?? null, paint_p95: l?.paint_ms?.p95 ?? null }; };
+      await askOn(op, "s4-01-t1", "codex", `Remember two facts. Fact 1: my code word is ${F.a}. Fact 2: my surname is ${F.b}. Reply with one short sentence confirming both.`, both);
+      rss(1);
+      await askOn(op, "s4-01-t2", "codex", `Fact 3: my trip is ${F.c}. Confirm in one short sentence.`, /Marrakesh/i);
+      await askOn(op, "s4-01-t3", "codex", `Fact 4: I own ${F.d}. Confirm in one short sentence.`, /amber/i);
+      for (let n = 4; n <= 9; n++) await filler(n, words[n - 4]);
+      rss(9);
+      await askOn(op, "s4-01-t10", "codex", recallAll, all);
+      const r10 = ctx.last.reply;
+      for (let n = 11; n <= 14; n++) await filler(n, words[n - 5]);
+      await askOn(op, "s4-01-t15", "codex", "What is my code word and what is my surname? One short line.", both);
+      const r15 = ctx.last.reply;
+      await filler(16, words[9]);
+      await filler(17, words[10]);
+      await askOn(op, "s4-01-t18", "codex", recallAll, all);
+      const r18 = ctx.last.reply;
+      rss(18);
+      await sleep(2500); // the harness answers 429 to quick repeats on /v1/conversations/:id
+      const turns = await turnsApi(op).catch(async () => { await sleep(3000); return turnsApi(op).catch(() => []); });
+      const blob = JSON.stringify(turns) + (await op.page.locator("#messages").innerText().catch(() => ""));
+      const end = await runState(op);
+      const shot = path.join(ctx.out, "shots", "s4-01-end.png");
+      await op.page.screenshot({ path: shot, timeout: 15000 }).catch(() => {});
+      record({ scenario: "s4-01-summary", turns_api: turns.length, rss_checkpoints: checkpoints, recall: { t10: r10, t15: r15, t18: r18 }, source_context_limit: /source_context_limit/.test(blob), states: [...new Set(turns.map((t) => t.state))], shot });
+      c.ok(turns.length === 18 && end.turns === 18, `the conversation holds ${turns.length} turns on the server and ${end.turns} in the page, expected 18`);
+      c.ok(turns.every((t) => t.state === "completed"), `turn states: ${turns.map((t) => t.state).join(",")}`);
+      c.ok(!/source_context_limit/.test(blob), "source_context_limit appeared in the conversation");
+      const med = checkpoints[18].paint_median;
+      c.ok(med != null && med < 250, `input-to-paint median at turn 18 is ${med} ms`);
       c.done();
     }, { lint: false });
   },

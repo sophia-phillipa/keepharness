@@ -375,6 +375,40 @@ The three long numbered replies and the early-reload reply are not in the table 
 
 **Notes**: C-01, C-03 to C-06 were not re-filed. Operator lesson: poll `/v1/conversations/:id` no faster than every 2 s; the harness rate-limits tight polling with 429.
 
+### Round 7 (slice 4a), 2026-10-05
+
+- **Slice**: 4, part a, long conversation (S4-01)
+- **Provider, model, effort**: Codex `gpt-5.6-luna`, Medium
+- **Scenarios**: S4-01 (run visibly)
+- **Results**: S4-01 PASS (checks 2/2 including the scenario step); 18 of 18 prompts spent. No quota, credit or rate-limit text from the provider. No new bugs.
+- **Environment**: desktop 0.16.0, instance on 18640/18641, one conversation of 18 turns; polling of `/v1/conversations/:id` kept at 2 s or slower (no 429). Evidence: `~/.cache/kho/chat/runs/s4a/` (`metrics.jsonl`, `summary.md`, `shots/`).
+
+| Turn | Scenario | TTFT (ms) | Total (ms) | Input-to-paint median / p95 (ms) | Electron RSS (MB) | Harness RSS (MB) |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | plant code word and surname | 4873 | 6284 | 15.3 / 31.8 | 803.8 | 252.7 |
+| 9 | filler | 3863 | 5435 | 14.7 / 31.5 | 807.1 | 251.1 |
+| 10 | recall of all four facts | 4881 | 5913 | 19.0 / 32.0 | 829.5 | 256.4 |
+| 15 | recall of code word and surname | 4662 | 6012 | 17.3 / 30.6 | 848.4 | 260.0 |
+| 18 | recall of all four facts | 3649 | 5743 | 19.0 / 32.7 | 852.8 | 249.5 |
+
+Turns 2 to 8, 11 to 14, 16 and 17 (3 fact turns and short filler turns) are in `summary.md`.
+
+| Metric | Value | Note |
+| --- | --- | --- |
+| Median TTFT (s) | 3.6 | 18 short turns; range 3.6 to 6.6 |
+| Median total reply time (s) | 5.3 | same 18 turns; range 4.0 to 7.0 |
+| Input-to-paint latency (ms) | 14.1 to 20.8 median per turn | p95 29.1 to 36.5 across all turns |
+| Electron RSS / CPU | 798-853 MB, 25-34% | +49 MB from turn 1 to 18, most of it after turn 9 |
+| Harness RSS / CPU | 245-260 MB, 3-15% | flat |
+| App open / reopen (s) | open 1.5 | |
+| Window bounds before / after | not measured | no reopen in this slice |
+
+- **S4-01 long conversation**: PASS. Facts planted in turns 1 to 3 (code word `OSPREY-4821` and surname `Lindqvist` in turn 1, trip `Tuesday-Marrakesh`, `7 amber lanterns`). Recall at turn 10: all four correct (`OSPREY-4821, Lindqvist, Tuesday-Marrakesh, 7 amber lanterns`); turn 15: code word and surname correct; turn 18: all four correct. The server held 18 turns, all `completed`; the page held 18; `source_context_limit` appeared nowhere (turn data and page text). The UI stayed responsive (input-to-paint median at most 20.8 ms, p95 at most 36.5 ms, no growth with turn count). RSS at turns 1, 9 and 18: Electron 803.8, 807.1, 852.8 MB; harness 252.7, 251.1, 249.5 MB. Screenshot `~/.cache/kho/chat/runs/s4a/shots/s4-01-end.png`.
+
+**Bugs**: none.
+
+**Notes**: filler turns were one-word replies, so the conversation is long in turns but small in tokens; it does not exercise the context budget. A heavier variant (long filler replies) would be needed to reach `source_context_limit`.
+
 ## Bugs index
 
 | Id | Severity | Title | Status | Fix commit |
@@ -398,3 +432,4 @@ The three long numbered replies and the early-reload reply are not in the table 
 | 2b | Codex Sol Medium + Luna | 4.6 | 6.2 | Electron ~760-800, harness ~242-261 |
 | 3a | DeepSeek Flash (12 turns) vs Codex Sol Medium (6 turns) | 2.6 vs 4.7 | 2.7 vs 6.7 | Electron ~759-804, harness ~240-303 |
 | 3b | Codex Sol Medium (7 short turns) | 6.6 | 7.9 | Electron ~813-832, harness ~250-274 |
+| 4a | Codex Luna Medium (18 short turns) | 3.6 | 5.3 | Electron ~798-853, harness ~245-260 |
