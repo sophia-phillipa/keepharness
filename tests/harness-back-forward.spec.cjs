@@ -14,14 +14,29 @@ const turn = (id, prompt) => ({
 });
 const alphaTurns = Array.from({ length: 12 }, (_, i) => turn("a" + i, "Alpha question " + i));
 const bravoTurns = [turn("b0", "Bravo question")];
+// Gamma ends with a running turn: opening it makes load() watch the stream.
+const gammaTurns = [...Array.from({ length: 11 }, (_, i) => turn("g" + i, "Gamma question " + i)), turn("g11", "Gamma question 11")];
+const ORIGIN = "http://localhost:18990/";
 
 (async () => {
   const browser = await chromium.launch();
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 860 } });
     page.on("pageerror", (e) => console.error("PAGEERROR", e.message));
-    await page.route("http://nav.test/**", async (route) => {
+    // Mutable fixture state for the failure-mode cases below.
+    const deleted = new Set();
+    let gammaDone = false, gammaHold = Promise.resolve(), alphaHold = Promise.resolve();
+    const gamma = () => gammaTurns.map((t) => (t.id === "g11" && !gammaDone ? { ...t, state: "running", result: undefined } : t));
+    await page.route("http://localhost:18990/**", async (route) => {
       const pathname = new URL(route.request().url()).pathname;
+      if (pathname.startsWith("/admin")) return route.fulfill({ contentType: "text/html", body: "<!doctype html><title>admin</title>" });
+      if (pathname === "/v1/jobs/g11/events") {
+        await gammaHold;
+        return route.fulfill({ contentType: "text/event-stream", body: "" }).catch(() => {});
+      }
+      const id = pathname.match(/^\/v1\/conversations\/(\w+)$/)?.[1];
+      if (id === "alpha") await alphaHold;
+      if (deleted.has(id)) return route.fulfill({ status: 404, json: { code: "conversation_not_found" } });
       if (!pathname.startsWith("/v1/"))
         return route.fulfill({
           path: path.join(__dirname, "..", pathname.startsWith("/assets/") ? "harness_ui" : "agent_service", pathname === "/" ? "index.html" : pathname),
@@ -29,24 +44,26 @@ const bravoTurns = [turn("b0", "Bravo question")];
       let data = {};
       if (pathname === "/v1/projects") data = { projects: ["sem-projeto"] };
       else if (pathname === "/v1/models")
-        data = { models: [{ id: "gpt-6-astra", name: "GPT-6 Astra", backend: "codex", efforts: ["medium"] }], providers: { codex: true }, uploads_enabled: false };
+        data = { models: [{ id: "gpt-6-astra", name: "GPT-6 Astra", backend: "codex", efforts: ["medium"] }], providers: { codex: true }, uploads_enabled: false, admin_url: ORIGIN + "admin/" };
       else if (pathname === "/v1/conversations")
         data = {
           conversations: [
             { id: "alpha", title: "Alpha chat", project: "sem-projeto", state: "completed", last_job_id: "a11", updated_at: 2 },
             { id: "bravo", title: "Bravo chat", project: "sem-projeto", state: "completed", last_job_id: "b0", updated_at: 1 },
-          ],
+            { id: "gamma", title: "Gamma chat", project: "sem-projeto", state: "running", last_job_id: "g11", updated_at: 0 },
+          ].filter((c) => !deleted.has(c.id)),
         };
       else if (pathname === "/v1/conversations/alpha") data = { title: "Alpha chat", turns: alphaTurns };
       else if (pathname === "/v1/conversations/bravo") data = { title: "Bravo chat", turns: bravoTurns };
+      else if (pathname === "/v1/conversations/gamma") data = { title: "Gamma chat", turns: gamma() };
       else if (pathname === "/v1/version") data = { version: "fixture", build: "back-forward" };
       else if (pathname === "/v1/schedules") data = { schedules: [] };
       else if (pathname === "/v1/pages") data = { pages: [] };
-      else if (/^\/v1\/jobs\/[ab]\d+$/.test(pathname)) data = [...alphaTurns, ...bravoTurns].find((t) => "/v1/jobs/" + t.id === pathname);
+      else if (/^\/v1\/jobs\/[abg]\d+$/.test(pathname)) data = [...alphaTurns, ...bravoTurns, ...gamma()].find((t) => "/v1/jobs/" + t.id === pathname);
       return route.fulfill({ json: data });
     });
     await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
-    await page.goto("http://nav.test/");
+    await page.goto(ORIGIN);
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
 
     const back = page.getByTestId("nav-back"), forward = page.getByTestId("nav-forward");
@@ -139,6 +156,105 @@ const bravoTurns = [turn("b0", "Bravo question")];
     await page.waitForFunction(() => !document.querySelector("#settings-dialog").open);
     assert.match(await shown(), /Alpha/);
     console.log("PASS back and forward navigate views, shortcuts and scroll position");
+
+    // Review findings. Each case starts from a fresh page, so the in-memory history is empty.
+    const fresh = async () => {
+      // The saved view would reopen the last conversation; start from an empty history instead.
+      await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); });
+      await page.goto(ORIGIN);
+      await page.locator("#startup-gate").waitFor({ state: "hidden" });
+    };
+    const raf = () => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))));
+    const scrollNear = (top) => page.waitForFunction((t) => Math.abs(document.querySelector("#messages").scrollTop - t) <= 1, top, { timeout: 5000 });
+
+    // A conversation with a running turn: the scroll position is restored once its turns render,
+    // not when the stream ends, and it does not jump afterwards.
+    await fresh();
+    let release;
+    gammaHold = new Promise((resolve) => (release = resolve));
+    await open("Gamma chat");
+    await page.waitForFunction(() => document.querySelector("#messages").scrollHeight > document.querySelector("#messages").clientHeight + 400);
+    await page.evaluate(() => { document.querySelector("#messages").scrollTo({ top: 300, behavior: "instant" }); });
+    await raf();
+    await open("Bravo chat");
+    await back.click();
+    await page.waitForFunction(() => document.querySelector("#messages article.user")?.innerText.includes("Gamma"));
+    await scrollNear(300); // the stream is still held open here
+    gammaDone = true;
+    const finished = page.waitForResponse((r) => r.url().endsWith("/v1/jobs/g11"));
+    release();
+    await finished;
+    await raf();
+    await scrollNear(300);
+    console.log("PASS Back restores the scroll before a running turn's stream ends");
+
+    // System has five buttons that differ only by admin section: Back returns to the one left.
+    await fresh();
+    await page.click("#settings");
+    await page.locator('[data-settings="system"][data-admin-section="runs"]').click();
+    await page.locator('[data-settings="models"]').click();
+    await page.keyboard.press("Control+[");
+    await page.waitForFunction(() => !document.querySelector("#settings-system").hidden);
+    assert.equal(await page.locator('[data-settings][aria-pressed="true"]').getAttribute("data-admin-section"), "runs");
+    await page.keyboard.press("Control+]");
+    await page.waitForFunction(() => !document.querySelector("#settings-models").hidden);
+    console.log("PASS System admin sections are separate history entries");
+
+    // Back to a conversation deleted meanwhile: the dead entry leaves the history and the view stays.
+    await fresh();
+    await open("Alpha chat");
+    await open("Bravo chat");
+    deleted.add("alpha");
+    await back.click();
+    await page.waitForFunction(() => /Couldn't open the conversation/.test(document.body.innerText));
+    assert.match(await shown(), /Bravo/);
+    // Home is still behind Bravo; nothing is ahead, because the index went back to Bravo.
+    assert.equal(await back.isEnabled(), true);
+    assert.equal(await forward.isDisabled(), true);
+    await back.click();
+    await page.waitForFunction(() => document.querySelectorAll("#messages article.user").length === 0);
+    deleted.clear();
+    console.log("PASS Back to a deleted conversation leaves the history coherent");
+
+    // Back, then Settings while the conversation is still loading: Back returns to that conversation.
+    await fresh();
+    await open("Alpha chat");
+    await open("Bravo chat");
+    let releaseAlpha;
+    alphaHold = new Promise((resolve) => (releaseAlpha = resolve));
+    await back.click();
+    // Navigation toward a conversation is blocked while it loads, and the buttons say so.
+    await page.waitForFunction(() => document.querySelector("#nav-forward").disabled);
+    await page.click("#settings");
+    releaseAlpha();
+    alphaHold = Promise.resolve();
+    await page.waitForFunction(() => document.querySelector("#messages article.user")?.innerText.includes("Alpha"));
+    await page.keyboard.press("Control+[");
+    await page.waitForFunction(() => !document.querySelector("#settings-dialog").open);
+    await raf();
+    assert.match(await shown(), /Alpha/);
+    console.log("PASS Settings during a pending Back does not rewrite the entry");
+
+    // The nav buttons follow the blocked state once the load ends.
+    await fresh();
+    await open("Alpha chat");
+    await open("Bravo chat");
+    await back.click();
+    await page.waitForFunction(() => document.querySelector("#messages article.user")?.innerText.includes("Alpha"));
+    await page.waitForFunction(() => !document.querySelector("#nav-forward").disabled);
+    console.log("PASS Navigation buttons re-enable after the load");
+
+    // A modal dialog that is not a view (About) keeps Ctrl+[ and Ctrl+] to itself.
+    await fresh();
+    await open("Alpha chat");
+    await open("Bravo chat");
+    await page.evaluate(() => document.getElementById("about-dialog").showModal());
+    await page.keyboard.press("Control+[");
+    await raf();
+    assert.match(await shown(), /Bravo/);
+    assert.equal(await forward.isDisabled(), true);
+    await page.evaluate(() => document.getElementById("about-dialog").close());
+    console.log("PASS Shortcuts are ignored under a foreign modal dialog");
   } finally {
     await browser.close();
   }

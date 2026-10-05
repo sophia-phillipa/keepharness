@@ -1675,6 +1675,7 @@ function composerModels(catalog) {
 function setBusy(value) {
   value = value || streamDisconnected;
   busy = value;
+  syncNavButtons();
   $("prompt").readOnly = loading;
   $("add-project").disabled = value || loading;
   if (!value) paintMotion("");
@@ -4430,7 +4431,7 @@ async function watch(retries = 0) {
     }
   }
 }
-async function load(id, legacy = false, restoredView = null) {
+async function load(id, legacy = false, restoredView = null, scrollTop) {
   if (submitting || cancelling || uploads) return;
   if (!loading && !restoredView) saveView();
   let savedDraft = restoredView;
@@ -4602,6 +4603,8 @@ async function load(id, legacy = false, restoredView = null) {
         $("sidebar").querySelector('.conversation-row > button[aria-current="true"]');
       target?.focus({ preventScroll: true });
     }
+    // Back/forward: put the saved position back now; watch() below can run for the whole stream.
+    if (scrollTop !== undefined) restoreScroll(scrollTop);
     saveView();
     const latest = data.turns.find((turn) => turn.id === job);
     if (
@@ -7578,20 +7581,27 @@ const DIALOG_VIEWS = { settings: "settings-dialog", customize: "settings-dialog"
 let viewHistory = [],
   viewIndex = -1;
 const scrollByConversation = new Map();
-const sameView = (a, b) => a.kind === b.kind && (a.id || null) === (b.id || null) && (a.section || null) === (b.section || null);
+const sameView = (a, b) => a.kind === b.kind && (a.id || null) === (b.id || null) && (a.section || null) === (b.section || null) && (a.sub || null) === (b.sub || null);
 const currentBaseView = () => (conversation ? { kind: "conversation", id: conversation } : { kind: "home" });
-const currentSettingsSection = () => document.querySelector('[data-settings][aria-pressed="true"]')?.dataset.settings || "appearance";
-const settingsView = (section, button) => (section === "customize" ? { kind: "customize", button } : { kind: "settings", section, button });
+const pressedSettings = () => document.querySelector('[data-settings][aria-pressed="true"]');
+const currentSettingsSection = () => pressedSettings()?.dataset.settings || "appearance";
+// The five System buttons share data-settings="system"; `sub` (the admin section) tells them apart.
+const settingsView = (section, button) =>
+  section === "customize"
+    ? { kind: "customize", button }
+    : { kind: "settings", section, sub: section === "system" ? (button || pressedSettings())?.dataset.adminSection : undefined, button };
 const navigationBlocked = (view) => ["conversation", "home"].includes(view.kind) && (submitting || cancelling || loading || uploads > 0);
 function syncNavButtons() {
-  $("nav-back").disabled = viewIndex <= 0;
-  $("nav-forward").disabled = viewIndex >= viewHistory.length - 1;
+  const unavailable = (delta) => !viewHistory[viewIndex + delta] || navigationBlocked(viewHistory[viewIndex + delta]);
+  $("nav-back").disabled = unavailable(-1);
+  $("nav-forward").disabled = unavailable(1);
 }
 function recordView({ button, legacy, ...view }) {
   const base = currentBaseView();
   if (!viewHistory.length) [viewHistory, viewIndex] = [[base], 0];
-  // Entries made outside navigate() (a first send creates the conversation) are corrected here.
-  if (!(viewHistory[viewIndex].kind in DIALOG_VIEWS)) viewHistory[viewIndex] = base;
+  // The first send creates the conversation outside navigate(); only that Home entry is corrected here.
+  // Any other entry may be a Back target whose load is still pending, while `conversation` is stale.
+  if (viewHistory[viewIndex].kind === "home") viewHistory[viewIndex] = base;
   if (!sameView(viewHistory[viewIndex], view)) {
     viewHistory.splice(viewIndex + 1, Infinity, view);
     if (viewHistory.length > NAV_LIMIT) viewHistory.shift();
@@ -7607,17 +7617,20 @@ async function closeViewDialogs(keep) {
   }
   return true;
 }
+function restoreScroll(top) {
+  const box = $("messages");
+  // "instant": #messages scrolls smoothly, and a restored position must not animate or be re-pinned.
+  box.scrollTo({ top, behavior: "instant" });
+  followingStream = box.scrollHeight - top - box.clientHeight < 48;
+}
+// Resolves false when the view could not be shown (a dialog refused to close, a conversation failed to load).
 async function applyView(view, replay = false) {
-  if (!(await closeViewDialogs(DIALOG_VIEWS[view.kind]))) return;
+  if (!(await closeViewDialogs(DIALOG_VIEWS[view.kind]))) return false;
   if (view.kind === "conversation") {
-    if (view.id !== conversation) await load(view.id, view.legacy);
     const top = scrollByConversation.get(view.id);
-    if (top !== undefined) {
-      const box = $("messages");
-      // "instant": #messages scrolls smoothly, and a restored position must not animate or be re-pinned.
-      box.scrollTo({ top, behavior: "instant" });
-      followingStream = box.scrollHeight - top - box.clientHeight < 48;
-    }
+    if (view.id !== conversation) await load(view.id, view.legacy, null, top);
+    else if (top !== undefined) restoreScroll(top);
+    if (conversation !== view.id) return false;
   } else if (view.kind === "home") {
     // A click on New chat always starts a fresh one; a replayed Home only leaves the conversation.
     if (conversation || !replay) startNewConversation();
@@ -7630,8 +7643,9 @@ async function applyView(view, replay = false) {
       $("settings-dialog").showModal();
       refreshCatalog();
     }
-    const button = view.button || document.querySelector('[data-settings="' + section + '"]');
-    if (view.button || section !== currentSettingsSection()) showSettingsPage(button);
+    const button = view.button ||
+      document.querySelector('[data-settings="' + section + '"]' + (view.sub ? '[data-admin-section="' + view.sub + '"]' : ""));
+    if (view.button || button !== pressedSettings()) showSettingsPage(button);
   }
 }
 function navigate(view, { record = true } = {}) {
@@ -7640,13 +7654,25 @@ function navigate(view, { record = true } = {}) {
   if (record) recordView(view);
   return applyView(view, !record);
 }
-function stepHistory(delta) {
+async function stepHistory(delta) {
   const target = viewHistory[viewIndex + delta];
-  if (!target || navigationBlocked(target)) return;
+  if (!target || navigationBlocked(target) || foreignModalOpen()) return;
+  const from = viewIndex;
   viewIndex += delta;
   syncNavButtons();
-  void navigate(target, { record: false });
+  if ((await navigate(target, { record: false })) !== false || viewIndex !== from + delta) return;
+  // The view did not open: a dialog refused to close, or the conversation is gone. Keep the current view
+  // and drop a dead conversation entry so Back and Forward never point at it again.
+  viewIndex = from;
+  if (target.kind === "conversation" && !conversations.some((c) => c.id === target.id)) {
+    viewHistory.splice(from + delta, 1);
+    viewIndex = from + Math.min(delta, 0);
+  }
+  syncNavButtons();
 }
+// A modal dialog that is not a history view (About, search, ...) owns the keyboard shortcuts.
+const foreignModalOpen = () =>
+  [...document.querySelectorAll("dialog[open]")].some((d) => !Object.values(DIALOG_VIEWS).includes(d.id));
 const back = () => stepHistory(-1),
   forward = () => stepHistory(1);
 $("nav-back").onclick = back;
