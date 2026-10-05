@@ -182,6 +182,13 @@ def clip(value, limit):
     return text if len(text) <= limit else text[:limit].rstrip() + " [...]"
 
 
+def capped(items):
+    """The first LIST_LIMIT items, with a count of the rest."""
+    items = list(items)
+    extra = len(items) - LIST_LIMIT
+    return items[:LIST_LIMIT] + ([f"and {extra} more"] if extra > 0 else [])
+
+
 def tool_outcomes(record):
     """Tool names with their outcomes; arguments, targets and output never pass this filter."""
     counts = Counter(
@@ -190,8 +197,10 @@ def tool_outcomes(record):
         if item["type"] == "tool_end"
     )
     return ", ".join(
-        f"{name} {status or 'completed'}" + (f" x{n}" if n > 1 else "")
-        for (name, status), n in counts.items()
+        capped(
+            f"{name} {status or 'completed'}" + (f" x{n}" if n > 1 else "")
+            for (name, status), n in counts.items()
+        )
     )
 
 
@@ -232,7 +241,7 @@ def turn_digest(number, record):
     if tools := tool_outcomes(record):
         lines.append("Tools: " + tools)
     if record.get("attachments"):
-        lines.append("Attachments: " + ", ".join(clip(n, 200) for n in record["attachments"]))
+        lines.append("Attachments: " + ", ".join(capped(clip(n, 200) for n in record["attachments"])))
     return "\n".join(lines)
 
 
