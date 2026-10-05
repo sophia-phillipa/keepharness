@@ -3838,7 +3838,7 @@ function scroll() {
     box.scrollTop = box.scrollHeight;
   updateLatest();
 }
-// Read-only: a plan recorded by an earlier version; nothing here can be approved.
+// Read-only: workflow steps, or a plan recorded by an earlier version; nothing here can be approved.
 function renderPlanOutcome(card, runState = card.dataset.runState) {
   if (!card) return;
   if (runState) card.dataset.runState = runState;
@@ -3846,7 +3846,9 @@ function renderPlanOutcome(card, runState = card.dataset.runState) {
   const terminal = { completed: "Completed", failed: "Failed", cancelled: "Cancelled", interrupted: "Interrupted" }[runState];
   let label, note;
   if (choice === "deny") { label = "Discarded"; note = "Plan discarded."; }
-  else if (choice === "approve") {
+  else if (choice === "approve" && !card.id && (runState === "queued" || runState === "running")) {
+    label = "Running"; note = "The workflow is running these steps.";
+  } else if (choice === "approve") {
     label = "Approved · " + (terminal || "recorded");
     note = terminal ? "The approved run is " + terminal.toLowerCase() + "." : "This plan was approved earlier.";
   } else { label = "Not active"; note = "This plan can no longer be approved."; }
@@ -4399,7 +4401,7 @@ async function load(id, legacy = false, restoredView = null) {
     if (!data.turns?.length) throw Error("Empty conversation");
     streamDisconnected = false;
     $("resume-execution").hidden = true;
-      setActivePersona(null);
+    setActivePersona(null);
     queuedTurns = [];
     parent = null;
     job = "";
@@ -8436,7 +8438,7 @@ function renderConversationSearch() {
     ? total + " result(s) found"
     : query
       ? "No run or loaded file matched."
-      : "No runs, plans, or loaded files are available.";
+      : "No runs or loaded files are available.";
   const sections = [];
   const group = (name, items) => {
     if (!items.length) return;

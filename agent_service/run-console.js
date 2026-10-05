@@ -30,7 +30,7 @@
     for (const [value, label] of choices) node.add(new Option(label, value));
     return node;
   };
-  const state = { tab: 'Pipeline', run: '', spans: [], selectedSpan: '', content: false, attentionFilter: 'request', 
+  const state = { tab: 'Pipeline', run: '', spans: [], selectedSpan: '', content: false, attentionFilter: 'request',
     activity: { jobs: [], providers: [], needs_you: [], counts: {} }, logs: [], after: 0,
     more: true, logLoading: false, sequence: 0, activitySequence: 0, zoom: 1, detailTab: 'Metrics', filteredJobs: null, followLatest: true };
   const main = document.querySelector('main');
