@@ -7,22 +7,25 @@ Type: reference. Source: the ChatGPT desktop app, build `26.930.31730`, observed
 | Area | Status |
 | --- | --- |
 | Window chrome, application menu | Covered |
-| Navigation model | Partly: shortcuts and menu verified; live back/forward history walk not exercised |
-| Sidebar (shape, row anatomy, sections) | Covered; row, section and project context menus not opened (see Gaps) |
+| Navigation model | Covered (live back/forward walk done); project open and Settings page-to-page history not walked |
+| Sidebar (shape, row anatomy, sections) | Covered, including project and section menus (a thread row has no context menu) |
 | Settings (nav and most sections) | Covered except Personalization, Account, Profile, Usage and billing, Git, Worktrees, Code Review, Archived chats |
 | Tools association (Customize: Plugins, Skills) | Covered in detail |
-| Composer | Covered except the project picker, `@` and `/` popups |
-| Thread view (messages, steps, diffs, approvals) | Not covered |
+| Composer | Covered except the project picker, `@` and `/` popups (not reached in the second pass, see Gaps) |
+| Thread view (messages, steps, diffs, approvals) | Covered except approval cards (none pending in existing threads) |
 | Other sections (Space, Scheduled, Explore, command menu) | Covered |
 | Keyboard shortcuts | Covered (app's own list) |
 
-Gaps: the app process crashed (Skia `SkFontMgr_FontConfigInterface` "Not implemented" fatal) when the project picker, Settings > Git and Settings > Code Review were opened under the debug launch, and the Personalization page reloaded the renderer. Text also does not render in screenshots in this launch, so layout facts come from DOM geometry. A follow-up pass is needed for the thread view and the missing pages.
+Gaps remaining after the second pass (2026-10-05, same build, same read-only rules): Customize details (Manage destination, Personal tab, Create MCP App flow, Skills card menus, plugin grouping), the Settings pages Personalization, Account, Profile, Usage and billing, Git, Worktrees, Code Review, Archived chats and MCP servers, the composer project picker and the `@` and `/` popups (the `Choose project` control was not found on the new-chat screen in the scripted pass), approval cards, and preference-persistence behaviour beyond the file listing below. They were not reached because the pass hit its context budget; they are not known to be unreachable.
+
+Launch note: the earlier crashes (Skia `SkFontMgr_FontConfigInterface` "Not implemented") came from launching without the app's own fontconfig. Launching the build through `systemd-run --user` on the host with `FONTCONFIG_FILE=<app dir>/fonts.conf`, `ELECTRON_OZONE_PLATFORM_HINT=auto`, `--disable-gpu --ozone-platform=wayland` and `--remote-debugging-port=9339` (loopback only) rendered text in screenshots and did not crash on any page opened in the second pass.
 
 ## Navigation model
 
 - The app has one window with three modes selected from the sidebar header button `Switch mode`. The menu lists `ChatGPT` ("Create, learn, and explore") and `Codex` ("Build, debug, and ship"); the command menu also offers `Switch to Chat`, `Switch to Work`, `Switch to Codex`. The sidebar header shows the current mode name with a chevron.
 - Top-left controls, in order: `Back to ChatGPT` (hidden skip link), `Back` (28 px, left arrow), `Forward` (28 px, right arrow), `Hide sidebar` (panel icon), then the in-window application menu `File Edit View Help`.
 - `Back` and `Forward` are disabled at a fresh start. `Back` became enabled after a mode switch and after opening Settings, so the history includes mode switches and top-level screens; `Forward` stays disabled until a back step. Shortcuts: `Ctrl+[` back, `Ctrl+]` forward, plus mouse back/forward buttons.
+- History walk (live): each of these pushes one history entry: mode switch, `Space`, `Scheduled`, `Plugins` (Customize), switching Customize between `Plugins` and `Skills`, `Home`, and opening a thread from the sidebar. Back and Forward step through them one by one and restore the previous screen and selected sidebar row; opening a new place after a Back step discards the forward entries (`Ctrl+Tab` recently viewed also pushes). Back is disabled only at the very first entry (the start mode's home).
 - The URL never changes (`app://-/index.html`); routing is internal. Settings has a route per page (for example `/settings/git-settings`).
 - Settings opens directly (no submenu) from the profile menu, `File > Settings…` or `Ctrl+,`. The settings page replaces the left panel with a settings navigation and keeps the narrow icon rail.
 - Rail (36 px buttons, x=8): `Home`, `Space`, `Scheduled`, `Plugins` (opens the Customize screen), `Explore` (dots icon, opens a popover with Projects, Sites, Maps, GPTs, Code Review), then in Codex mode a divider and `Code Review` (git branch icon). Footer: avatar button `Open profile menu`.
@@ -54,6 +57,8 @@ Left panel, 468 px wide, beside the 52 px rail.
 | `Projects` section | Collapsible header with `Project sidebar options` (menu) and `Add new project` icon buttons. One row per project (folder icon, name, a `Project actions for <project>` button and a `Start new chat in <project>` button on hover; the latter is disabled for some). Scheduled tasks of a project appear as a nested list `Scheduled tasks in <project>` |
 | `Recents` section | Collapsible header with `Chat sidebar options` and `New chat`. Flat list of threads, newest first |
 | Thread row | 30 px tall, title truncated with an ellipsis, hover buttons `Pin chat` and `Archive chat` (20 px, right side); pinned rows show `Unpin chat`. In ChatGPT mode, rows also expose `Chat actions` |
+
+Menus (opened with the visible buttons, then Escape): `Project actions for <project>` lists `Pin`, `Edit`, `Section`, `Open in File Manager`, `Archive chats`, `Remove project`. `Project sidebar options` lists `Organize sidebar`, `Sort chats by`. `Chat sidebar options` lists `Organize sidebar`, `Sort chats by`, `Projects`, `New section`. Right-clicking a thread row or a project row opens nothing. A thread row's only controls are the hover buttons `Pin chat` and `Archive chat`; the full thread menu is in the thread toolbar (below).
 
 Sections are collapsible: clicking a section header toggles `data-app-action-sidebar-section-collapsed`. The list scrolls inside the panel. In ChatGPT mode the same panel shows pinned chats, a project list with colored folder icons and a "Chats in <project>" sublist.
 
@@ -162,6 +167,63 @@ Home (Codex mode) empty state: heading "What should we build?", a mark above it,
 | `Change permissions` | Menu "How should ChatGPT actions be approved?" with `Learn more`; items `Ask for approval` ("Always ask to edit external files and use the internet"), `Approve for me` ("Only ask for actions detected as potentially unsafe"), `Full access` ("Unrestricted access to the internet and any file on your computer") |
 | Model button | Popover: a model row (opens a radio list: Default "Recommended set of models", GPT-6.1 Sol, GPT-6 Astra, GPT-6 Sol, GPT-6 Luna, GPT-5.6 Sol, GPT-5.6 Terra, GPT-5.6 Luna, GPT-5.5); `Enable fast mode` checkbox ("More usage"); `Power` slider with 6 stops (Light, Medium, High, Extra High, Max, Ultra), adjusted with Left/Right arrows. The button label is `<model> <effort>` |
 | Shortcuts | `Ctrl+Shift+M` select effort, `Alt+M` open recent models, `Ctrl+Alt+Shift+O` project picker, `Ctrl+Enter` send in background |
+
+## Thread view
+
+Opening an existing thread from the sidebar replaces the home screen; the sidebar row is highlighted.
+
+| Region | Detail |
+| --- | --- |
+| Toolbar (`Chat toolbar`, top of the pane) | Project folder icon (accessible name `Project: <project name>`), thread title, `Chat actions` (`...`), `Toggle summary` (list icon), and at the far right `New tab` |
+| `Chat actions` menu | `Rename` `Ctrl+Alt+R`; `Pin` `Ctrl+Alt+P`; `New side chat` `Ctrl+Alt+S`; `Fork` (submenu); `Add scheduled task...`; `Share`; `Copy` (submenu); `Open in new window`; `Archive` `Ctrl+Shift+A` |
+| `Toggle summary` | A small popover `Outputs` ("Create a file or site") with a `+` button; it is the per-thread outputs summary |
+| Pane layout | Centered column, about 740 px wide, scrolled by `thread-scroll-container` (a column-reverse container: `scrollTop` is 0 at the bottom and negative when scrolled up). Older turns collapse behind a `N previous messages` row. A floating round `Scroll to bottom` arrow appears whenever the view is not at the bottom |
+| Time markers | Centered separators ("Saturday 6:52 PM", "Sep 6 at 2:55 PM") between turn groups; each message also carries a time under it |
+
+### Message anatomy
+
+- User message: a right-aligned rounded bubble (heading `You said:`), time under it, hover actions `Copy message` and `Edit message`. The first message of a project thread may include a system-style preamble naming the workspace.
+- Assistant message (heading `ChatGPT said:`): full-width markdown (paragraphs, lists, bold, inline code, tables, links). Inline file links render with a file icon (open in the right pane); inline citation chips render as small buttons (for example a decision id). Rich cards can follow the text (`Web preview` with `Open in` and `Choose where to open`). Footer actions: `Copy`, `Rate response`, `Fork chat from here`, then the time. The last message is labelled `Latest response`.
+- Working summary: a collapsed row `Worked for <duration>` with a chevron sits above the assistant text; expanding it shows the intermediate commentary in place.
+
+### Run steps
+
+Steps are one-line collapsed rows with a leading icon: `Ran <command>` (terminal icon, command truncated with an ellipsis), `Read files`, grouped rows such as `Read files, ran a command` or `Ran commands`, and a named step for a tool call (for example a short description of the call). Expanding a tool step shows a code block (language tag, here `json`) with the call result and a `Show raw tool call output` button. Subagent work appears as a group row ("<a>, <b> and N more finished") with coloured flower icons, and each named subagent is a button in the thread. No separate agent management screen was found in the surfaces covered.
+
+### Diffs and file changes
+
+An `Edited N files` card follows the assistant text: icon, `+<added> -<removed>` totals, `Undo` and `View changes` buttons, then up to three file rows (path with the file name emphasised and `+n -m`) and `Show N more files`. A single-file edit shows `Edited <file> +n -m` with `View changes`. `View changes` opens a `Changes` tab in the right-hand workspace pane: a `Review source` dropdown (default `Last Turn`) with totals, `Changes options`, `Jump to file`, `Show files`, and one row per file with `Open in`, `Open in editor` and `File actions`. `Undo` was not clicked. Approval cards were not found in the threads available (none pending).
+
+### Workspace pane (right)
+
+A project thread can show a right pane beside the thread, split by a draggable separator (`Resize workspace panes`): a tab strip (project tab, file tabs, the `Changes` tab, a `+` new tab button, expand and split-layout buttons), a path breadcrumb with a copy button and an `Open` button (VS Code, with a dropdown). The pane restores its tabs when the thread is reopened; a tab for a file that no longer exists shows the toast `Could not open file`. Other controls in this pane: `Toggle file tree`, `Open options`, `Close`.
+
+### Composer in a thread
+
+`Do anything` text box, `Add files and more`, `Change permissions` (current mode, for example `Full access`), a context-usage ring (`Context usage: 9%`), the model button (`<model> <effort>`), `Dictate` and `Start voice chat`. A resumable thread shows a `Resume` button in place of the voice button.
+
+### Scroll behaviour
+
+A thread opens at the bottom (latest response). The scroll position is kept per thread while the app runs: scrolling a thread up, opening another thread and coming back (by click or by `Back`) returned to the same offset. Whether it survives an app restart was not tested.
+
+## Preferences persistence and opening with text
+
+### Where UI state lives
+
+The app's Chromium profile is `~/.config/Codex/` (listing only, contents not read). Relevant names: `Local State`, `Default/Preferences`, `Default/Local Storage`, `Default/IndexedDB`, `Default/Session Storage`, `browser-sidebar-page-states.json` (the in-app browser sidebar page states), `Last Version`, `Singleton*` lock files (a stale lock remains after an unclean exit). Sidebar width and the last-open thread were not isolated to one file; observable behaviour is that per-thread scroll position and the right-pane tab set are restored when a thread is reopened. The thread catalog itself lives under the Codex home, outside this profile.
+
+### Opening the app with text (deep links)
+
+Read from the app's `package.json`, `.desktop` file and bundled code; no link was triggered.
+
+- Scheme: `codex://` (the `.desktop` file declares `MimeType=x-scheme-handler/codex;`; the app calls `setAsDefaultProtocolClient("codex")` on Linux; a development build uses `codex-dev://`). `x-scheme-handler/chatgpt` has no handler.
+- New thread with prefilled text: `codex://threads/new?prompt=<url-encoded text>`. Optional parameters on the same route: `mode=<mode>` (single value), `path=<absolute project path>`, `projectId`, `originUrl`, `browserUrl` (http or https only). The web redirect form `https://chatgpt.com/codex/open-app?q=<text>&mode=...&codex_thread_id=...` is converted to the same route. Whether the text is only prefilled or also sent was not verified, so treat it as untested.
+- Other routes: `codex://threads/<thread id>[?hostId=...]`, `codex://settings/<page>` (for example `codex://settings/connections`), `codex://plugins[/<plugin id>[/app/<app>]]`, `codex://space`, `codex://sites/edit`, `codex://launch`, `codex://dots`, `codex://review?pr=<url>&path=<file>&line=<n>&side=left|right`, `codex://shared-thread`. The app can also copy a thread's deep link (`Ctrl+Alt+L`) and open one from the clipboard (debug menu).
+- Command line: `--open-project <path>` opens a project; a bare absolute path argument and a `codex://` URL argument are also parsed. A second launch hands its arguments to the running instance.
+
+### Claude Desktop on this machine (for comparison)
+
+Claude Desktop is installed as a Debian package (`claude-desktop`, launcher `com.anthropic.Claude.desktop`, `MimeType=x-scheme-handler/claude;`). Its own desktop actions use `claude://claude.ai/new?surface=chat&source=desktop_action` and `claude://code/new?source=desktop_action`. Prefill: `claude://claude.ai/new?q=<text>` (a value starting with `/` is rejected; only the `q` parameter is allowed) and `claude://code/new?q=<text>` (or `prompt=`) with optional repeated `folder=` and `file=`. Also `claude://code/continue?session=last`. The Claude Code CLI separately registers `claude-cli://` through `claude --handle-uri`.
 
 ## Other top-level sections
 
