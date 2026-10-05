@@ -2279,8 +2279,13 @@ window.applyActivitySnapshot = function applyActivitySnapshot(data = {}) {
     (data.needs_you || []).map((item) => item.conversation_id).filter(Boolean),
   );
   const live = new Map();
+  // C-05: a running job outranks the queued follow-ups behind it, whatever the list order.
   for (const item of data.jobs || [])
-    if (item.conversation_id && !live.has(item.conversation_id))
+    if (
+      item.conversation_id &&
+      (!live.has(item.conversation_id) ||
+        (item.state === "running" && live.get(item.conversation_id).state !== "running"))
+    )
       live.set(item.conversation_id, item);
   let changed = false;
   for (const item of conversations) {
@@ -3573,8 +3578,13 @@ function eventToolName(data = {}) {
       webSearch: "web",
       Bash: "tool",
       commandExecution: "tool",
-    }[data.tool] || ""
+    }[data.tool] || safeToolId(data.tool)
   );
+}
+// C-03: a provider tool (an MCP read_file, say) is named by its last segment; anything odd stays generic.
+function safeToolId(tool) {
+  const name = typeof tool === "string" ? tool.split("__").pop() : "";
+  return /^[\w.-]{1,48}$/.test(name) ? name : "";
 }
 function activityTitle(e) {
   const data = e.data || {},
@@ -5777,7 +5787,11 @@ $("files-new-chat").onclick = async () => {
 function syncComposerProjectButton() {
   const option = $("project").selectedOptions[0];
   const chosen = option && option.value !== "sem-projeto";
-  $("project-button-label").textContent = chosen ? option.textContent : "Choose project";
+  $("project-button-label").textContent = chosen
+    ? option.textContent
+    : option
+      ? "No project"
+      : "Choose project";
   $("project-button").title = chosen
     ? "Project: " + option.textContent
     : "Choose the project for this conversation";

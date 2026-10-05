@@ -4920,6 +4920,8 @@ body.sidebar-collapsed { grid-template-columns: var(--th-rail-width) 0 minmax(0,
 #sidebar .conversation-row { border-radius: var(--th-row-radius); }
 #sidebar .conversation-row:hover { background: var(--th-hover); }
 #sidebar .conversation-row:has(button.active) { background: var(--th-hover); box-shadow: none; }
+/* C-04: the row paints the active background once; `nav button.active` must not repaint the title button over it. */
+#sidebar .conversation-row > button.active { background: transparent; }
 #sidebar .conversation-row > button:first-child { padding: 5px 8px; }
 .conversation-row .conversation-title { font-size: 14px; line-height: 20px; font-weight: 430; }
 #history-note { padding: 4px 8px; color: var(--th-quiet); font-size: 13px; }
