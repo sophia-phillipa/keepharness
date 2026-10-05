@@ -16,6 +16,7 @@ from adapters.shared.provider_setup import CONFIG_FOLDERS
 from control.integrations import inventory
 
 from . import approval_policy, maestro
+from .config import EXECUTION_MODES
 
 logger = logging.getLogger(__name__)
 
@@ -122,20 +123,31 @@ def with_plugin_catalog(config: Settings, backend: str, installed: list[Item]) -
     return [item for item in installed if item.get("kind") != "plugin"] + plugins
 
 
-def load_items(config: Settings, backend: str) -> tuple[list[Item], list[str]]:
+def read_catalog() -> dict[str, list[Item]] | None:
+    """Every provider's installed items, read once per view; ``None`` when unreadable."""
+    try:
+        return inventory()
+    except Exception as error:  # a hand-edited CLI profile must not fail the view
+        logger.warning("Connector inventory unreadable: %s", type(error).__name__)
+        return None
+
+
+def load_items(
+    config: Settings, backend: str, catalog: dict[str, list[Item]] | None
+) -> tuple[list[Item], list[str]]:
     """The backend's installed items; harness-owned homes see host connectors only by opt-in (D01)."""
     if backend in CONFIG_FOLDERS and config.get("personal_setup") is not True:
         return [], [PERSONAL_SETUP_OFF]
-    return read_inventory(config, backend)
+    return read_inventory(config, backend, catalog)
 
 
-def read_inventory(config: Settings, backend: str) -> tuple[list[Item], list[str]]:
+def read_inventory(
+    config: Settings, backend: str, catalog: dict[str, list[Item]] | None
+) -> tuple[list[Item], list[str]]:
     """The provider's installed connectors then plugins, as ``(items, warnings)``."""
-    try:
-        installed = inventory().get(backend, [])
-    except Exception as error:  # a hand-edited CLI profile must not fail the view
-        logger.warning("Connector inventory unreadable: %s", type(error).__name__)
+    if catalog is None:
         return [], [INVENTORY_UNREADABLE]
+    installed = catalog.get(backend, [])
     items = [
         {key: item.get(key) for key in PUBLIC_KEYS}
         for item in with_plugin_catalog(config, backend, installed)
@@ -205,7 +217,11 @@ def family_key(item: Item) -> str:
 
 
 def connected_elsewhere(
-    config: Settings, route: Route, here: list[Item], providers: Sequence[str]
+    config: Settings,
+    route: Route,
+    here: list[Item],
+    providers: Sequence[str],
+    catalog: dict[str, list[Item]] | None,
 ) -> list[Item]:
     """Tools another enabled provider has allowed that this route's provider lacks or has not allowed."""
     on_route: dict[str, bool] = {}  # family -> allowed on this route's provider
@@ -217,9 +233,11 @@ def connected_elsewhere(
     for backend in dict.fromkeys(providers):
         if SHARED_INVENTORY.get(backend, backend) == own_inventory:
             continue
+        if EXECUTION_MODES.get(backend) == ("scoped",):
+            continue  # scoped-only runs never use host connectors, whatever the inventory holds
         allowed = set(config.get("services", {}).get(backend, {}).get("integrations", []))
         seen: dict[str, list[bool]] = {}  # family -> [allowed, effective_capable]
-        for item in load_items(config, backend)[0]:
+        for item in load_items(config, backend, catalog)[0]:
             ok = item["id"] in allowed
             flags = seen.setdefault(family_key(item), [False, False])
             flags[0] |= ok
@@ -248,9 +266,10 @@ def build(
 ) -> Item:
     """The ``/v1/integrations`` response for one route; ``usage_rows`` come from the repository.
 
-    ``providers`` are the enabled backends, for the tools connected on a provider other than this one.
+    ``providers`` are the backends the owner may use for this project, for the tools connected on a provider other than this one.
     """
-    items, warnings = load_items(config, route.backend)
+    catalog = read_catalog()
+    items, warnings = load_items(config, route.backend, catalog)
     allowed = set(config.get("services", {}).get(route.backend, {}).get("integrations", []))
     limits = route_limits(config, route)
     used, other_tools = attribute_usage(items, usage_rows)
@@ -268,7 +287,7 @@ def build(
         "effective_note": limits.note,
         "items": items,
         "other_tools": other_tools,
-        "elsewhere": connected_elsewhere(config, route, items, providers),
+        "elsewhere": connected_elsewhere(config, route, items, providers, catalog),
         "window_days": WINDOW_DAYS,
         "warnings": warnings,
     }

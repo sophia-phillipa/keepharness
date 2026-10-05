@@ -691,10 +691,9 @@ def github_on_codex(home, settings):
 def test_a_tool_allowed_elsewhere_can_be_enabled_where_it_is_installed(client, github_on_codex):
     entry = elsewhere(client, backend="claude")["github"]
     assert (entry["key"], entry["label"], entry["here"]) == ("github", "Github", "enable")
-    # Codex, local and DeepSeek share one inventory; only Codex has allowed it.
+    # Codex and DeepSeek share one inventory; only Codex has allowed it.
     assert entry["providers"] == [
         {"backend": "codex", "allowed": True, "effective_capable": True},
-        {"backend": "local", "allowed": False, "effective_capable": False},
         {"backend": "deepseek", "allowed": False, "effective_capable": False},
     ]
 
@@ -755,3 +754,38 @@ def test_elsewhere_is_capped(client, github_on_codex, settings, monkeypatch):
     entries = view(client, backend="claude").json()["elsewhere"]
     assert [entry["key"] for entry in entries] == names[: integrations_view.ELSEWHERE_LIMIT]
     assert integrations_view.ELSEWHERE_LIMIT == 50
+
+
+def test_a_guest_learns_nothing_about_tools_elsewhere(client, github_on_codex):
+    client.headers["Authorization"] = "Bearer b"
+    assert view(client, backend="claude").json()["elsewhere"] == []
+
+
+def test_a_provider_not_allowed_for_the_project_is_not_counted(client, github_on_codex, settings):
+    settings["services"]["codex"]["projects"] = ["q"]
+    assert "github" not in elsewhere(client, backend="claude")
+
+
+def test_a_provider_without_allowed_models_is_not_counted(client, github_on_codex, settings):
+    settings["services"]["codex"]["models"] = []
+    assert "github" not in elsewhere(client, backend="claude")
+
+
+def test_the_scoped_only_local_backend_is_never_a_source(client, settings):
+    settings["personal_setup"] = False
+    settings["services"]["local"]["integrations"] = ["mcp:github"]
+    body = view(client, backend="claude").json()
+    assert all(
+        provider["backend"] != "local"
+        for entry in body["elsewhere"]
+        for provider in entry["providers"]
+    )
+    assert "github" not in {entry["key"] for entry in body["elsewhere"]}
+
+
+def test_the_inventory_is_read_once_per_view(client, github_on_codex, monkeypatch):
+    real = integrations_view.inventory
+    calls = []
+    monkeypatch.setattr(integrations_view, "inventory", lambda: calls.append(1) or real())
+    assert view(client, backend="claude").status_code == 200
+    assert len(calls) == 1
