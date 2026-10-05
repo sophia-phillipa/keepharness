@@ -1,5 +1,5 @@
 // WP7 visual markers (UI): run-step icons, catalog links and the Appearance toggle (part 1).
-// The prose-chip cases live in proseChipCases() and run once part 2 lands.
+// Part 2 (prose chips in assistant text) lives in proseChipCases().
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises"),
@@ -65,8 +65,7 @@ const contrast = (a, b) => {
 };
 const rgb = (css) => css.match(/\d+(\.\d+)?/g).slice(0, 3).map(Number);
 
-// Part 2 (prose chips in assistant text): not called yet. It needs refreshVisualMarkers() to
-// re-render prose and the globals applyProseMarkers(el) and renderAnswer(el, raw).
+// Part 2: prose chips in assistant text, via applyProseMarkers(el) and renderAnswer(el, raw).
 async function proseChipCases(page) {
     // Prose chips: only exact catalog names and known paths; code blocks untouched.
     const body = page.locator("#messages .chat-bubble").last();
@@ -104,8 +103,10 @@ async function proseChipCases(page) {
   }
   await page.evaluate(() => (document.documentElement.dataset.palette = "paper"));
   // Toggle off removes the pills; on brings them back (a real assertion, not `|| true`).
+  await page.evaluate(() => openSettings("appearance"));
   await page.getByTestId("visual-markers-toggle").uncheck();
   await page.waitForFunction(() => !document.querySelector(".prose-chip"));
+  assert.equal(await body.innerText(), prose, "unwrapping restores the same text");
   await page.getByTestId("visual-markers-toggle").check();
   await page.waitForFunction(() => document.querySelectorAll("#messages .prose-chip").length > 0);
 }
@@ -257,6 +258,9 @@ async function proseChipCases(page) {
     }
     console.log("CONTRAST", JSON.stringify(results));
     await page.evaluate(() => (document.documentElement.dataset.palette = "paper"));
+
+    // 3b. Prose chips in the assistant answer (part 2).
+    await proseChipCases(page);
 
     // 4. Appearance toggle: on by default, off removes every marker, persists in the store.
     await page.locator('[data-settings="appearance"]').first().evaluate((el) => el.click()).catch(() => {});

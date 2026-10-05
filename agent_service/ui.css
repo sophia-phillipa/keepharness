@@ -5748,6 +5748,16 @@ main > #run-console { order: 11; }
 a.step-chip, a.step-chip:hover { color: var(--th-text); }
 a.step-chip:hover { text-decoration: underline; }
 a.step-chip:focus-visible { outline: 2px solid var(--th-accent); outline-offset: 2px; }
+.prose-chip, .prose-chip code { color: var(--th-text); }
+.prose-chip {
+  padding: 0 6px;
+  border: 1px solid var(--th-border);
+  border-radius: 999px;
+  background: var(--th-soft);
+  text-decoration: none;
+}
+a.prose-chip:hover { text-decoration: underline; }
+a.prose-chip:focus-visible { outline: 2px solid var(--th-accent); outline-offset: 2px; }
 .step-chip .step-icon { flex: none; width: 14px; height: 14px; color: var(--th-accent); }
 .workspace-row[tabindex="-1"]:focus { outline: 2px solid var(--th-accent); outline-offset: -2px; }
 .visual-markers-option { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-weight: 500; }

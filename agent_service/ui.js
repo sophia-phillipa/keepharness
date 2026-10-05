@@ -3515,6 +3515,8 @@ function renderAnswer(body, value) {
     return source;
   }
   body.innerHTML = answerMarkdown.render(source);
+  // WP7: only chat bubbles (bubble() renders before it is appended); page previews stay plain.
+  if (body.classList.contains("chat-bubble") && visualMarkersOn()) applyProseMarkers(body);
   syncResponseMotion(body);
   return source;
 }
@@ -3913,8 +3915,75 @@ function setStepRow(row, text, marker = {}) {
   if (marker.name && !row.dataset.markerName) row.dataset.markerName = marker.name;
   renderStepRow(row);
 }
+// WP7 prose chips: only exact catalog names ("/name", or a bare name as a whole inline code)
+// and exact known file paths; text nodes only, never inside a code block, link or chip.
+const PROSE_EDGE = /^[([{"'`]+|[.,;:!?)\]}"'`]+$/g;
+function proseKnownPaths() {
+  const known = new Map();
+  for (const entries of fileTree.cache.values())
+    for (const entry of entries) if (entry.path) known.set(entry.path, entry.type === "dir" ? "folder" : "file");
+  return known;
+}
+function proseMatch(token, bare, paths) {
+  const name = token.startsWith("/") ? token.slice(1) : bare ? token : "";
+  for (const kind of name ? ["skill", "agent"] : []) {
+    const id = workspaceCatalog.get(kind + ":" + name);
+    if (id) return { kind, id };
+  }
+  return paths.has(token) ? { kind: paths.get(token) } : null;
+}
+function proseChip(match, ...content) {
+  const chip = document.createElement(match.id ? "a" : "span");
+  chip.className = "prose-chip";
+  chip.dataset.kind = match.kind;
+  if (match.id) {
+    chip.href = "#workspace-resources";
+    chip.dataset.resourceId = match.id;
+  }
+  chip.append(...content);
+  return chip;
+}
+function chipTextNode(node, paths) {
+  const text = node.nodeValue, parts = [];
+  let last = 0;
+  for (const word of text.matchAll(/\S+/g)) {
+    const token = word[0].replace(PROSE_EDGE, ""),
+      match = token && proseMatch(token, false, paths);
+    if (!match) continue;
+    const start = word.index + word[0].indexOf(token);
+    parts.push(text.slice(last, start), proseChip(match, token));
+    last = start + token.length;
+  }
+  if (parts.length) node.replaceWith(...parts, text.slice(last));
+}
+function applyProseMarkers(el) {
+  const paths = proseKnownPaths();
+  if (!workspaceCatalog.size && !paths.size) return;
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, {
+    acceptNode: (node) =>
+      node.parentElement.closest("pre, code, a, .prose-chip") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT,
+  });
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+  nodes.forEach((node) => chipTextNode(node, paths));
+  for (const code of el.querySelectorAll("code")) {
+    if (code.closest("pre, a, .prose-chip")) continue;
+    const match = proseMatch(code.textContent, true, paths);
+    if (match) code.replaceWith(proseChip(match, code.cloneNode(true)));
+  }
+}
+function removeProseMarkers(el) {
+  el.querySelectorAll(".prose-chip").forEach((chip) => chip.replaceWith(...chip.childNodes));
+  el.normalize();
+}
 function refreshVisualMarkers() {
   document.querySelectorAll("li[data-step-text]").forEach(renderStepRow);
+  // User bubbles carry no rawAnswer, so only assistant answers are touched.
+  document.querySelectorAll("#messages .chat-bubble").forEach((body) => {
+    if (body.rawAnswer === undefined) return;
+    if (visualMarkersOn()) applyProseMarkers(body);
+    else removeProseMarkers(body);
+  });
 }
 // Opening the panel reloads the resource rows, so a focus request outlives that reload.
 let pendingResourceFocus = "";
@@ -3925,7 +3994,7 @@ function focusResourceRow(id) {
   row?.focus();
 }
 document.addEventListener("click", (event) => {
-  const link = event.target.closest?.("a.step-chip[data-resource-id]");
+  const link = event.target.closest?.("a:is(.step-chip, .prose-chip)[data-resource-id]");
   if (!link) return;
   event.preventDefault();
   const id = link.dataset.resourceId;
