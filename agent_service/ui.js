@@ -1229,6 +1229,8 @@ const userErrors = {
     "This conversation uses an execution mode this model or server no longer offers. Choose another model or start a new conversation.",
   invalid_conversation_title: "Use a title between 1 and 100 characters.",
   invalid_archived: "Archiving needs a yes or no answer. Refresh the page and try again.",
+  invalid_continuation_target: "Choose Claude or ChatGPT as the app to continue in.",
+  invalid_include_paths: "The include paths option must be yes or no. Refresh the page and try again.",
   service_restarted:
     "The harness restarted during this run. Send your message again.",
   model_removed:
@@ -7661,7 +7663,9 @@ async function applyView(view, replay = false) {
   if (!(await closeViewDialogs(DIALOG_VIEWS[view.kind]))) return false;
   if (view.kind === "conversation") {
     const top = scrollByConversation.get(view.id);
-    if (view.id !== conversation) await load(view.id, view.legacy, null, top);
+    // A click on the open conversation reloads it (it may have advanced or been deleted elsewhere);
+    // Back or Forward onto it only restores the scroll.
+    if (view.id !== conversation || !replay) await load(view.id, view.legacy, null, top);
     else if (top !== undefined) restoreScroll(top);
     if (conversation !== view.id) return false;
   } else if (view.kind === "home") {
