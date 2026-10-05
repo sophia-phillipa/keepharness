@@ -1110,7 +1110,8 @@ class ConversationService:
             access_mode,
             owner=identity[0] == harness_agents.LOCAL_CLIENT,
         )
-        return integrations_view.build(self.config, route, usage)
+        enabled = [b for b, c in self.config.get("services", {}).items() if c.get("enabled")]
+        return integrations_view.build(self.config, route, usage, enabled)
 
     def resource_catalog(
         self, identity, project_id, backend, model, execution_mode=None, access_mode=None

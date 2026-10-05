@@ -220,6 +220,14 @@ def test_contract_shape_for_a_native_codex_route(client):
         "window_days": 30,
         "warnings": [],
         "other_tools": [],
+        "elsewhere": [
+            {
+                "key": "search",
+                "label": "Search",
+                "here": "absent",
+                "providers": [{"backend": "gemini", "allowed": True, "effective_capable": True}],
+            }
+        ],
         "items": [
             {
                 "id": "mcp:files",
@@ -642,3 +650,108 @@ def test_personal_connectors_do_not_appear_without_the_opt_in(client, settings, 
     body = view(client, backend=backend).json()
     assert body["items"] == []
     assert body["warnings"] == [integrations_view.PERSONAL_SETUP_OFF]
+
+
+# -- tools connected on another provider ---------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "item,key",
+    [
+        ({"id": "mcp:GitHub", "name": "GitHub"}, "github"),
+        ({"id": "plugin:github@openai-curated", "name": "github@openai-curated"}, "github"),
+        ({"id": "mcp:my_tool name", "name": "my_tool name"}, "my-tool-name"),
+        ({"id": "plugin:Docs@market@x", "name": None}, "docs"),
+        ({"id": "mcp:files"}, "files"),
+        ({"name": "mcp:search"}, "search"),
+        ({}, ""),
+    ],
+)
+def test_family_key_normalises_the_connector_name(item, key):
+    assert integrations_view.family_key(item) == key
+
+
+def elsewhere(client, **query):
+    response = view(client, **query)
+    assert response.status_code == 200, response.text
+    return {entry["key"]: entry for entry in response.json()["elsewhere"]}
+
+
+@pytest.fixture
+def github_on_codex(home, settings):
+    """GitHub is a plugin on Codex and an installed but not allowed MCP server on Claude Code."""
+    with (home / ".codex/config.toml").open("a") as profile:
+        profile.write('\n[plugins."github@openai-curated"]\nenabled = true\n')
+    settings["services"]["codex"]["integrations"] = ["plugin:github@openai-curated"]
+    settings["services"]["claude"]["integrations"] = []
+    settings["services"]["gemini"]["integrations"] = []
+    settings["services"]["deepseek"] = service_entry(["m"])
+
+
+def test_a_tool_allowed_elsewhere_can_be_enabled_where_it_is_installed(client, github_on_codex):
+    entry = elsewhere(client, backend="claude")["github"]
+    assert (entry["key"], entry["label"], entry["here"]) == ("github", "Github", "enable")
+    # Codex, local and DeepSeek share one inventory; only Codex has allowed it.
+    assert entry["providers"] == [
+        {"backend": "codex", "allowed": True, "effective_capable": True},
+        {"backend": "local", "allowed": False, "effective_capable": False},
+        {"backend": "deepseek", "allowed": False, "effective_capable": False},
+    ]
+
+
+def test_a_tool_allowed_elsewhere_is_absent_where_it_is_not_installed(client, github_on_codex):
+    entry = elsewhere(client, backend="gemini")["github"]
+    assert entry["here"] == "absent"
+    providers = {item["backend"]: item for item in entry["providers"]}
+    assert providers["codex"]["allowed"] is True
+    assert providers["claude"] == {"backend": "claude", "allowed": False, "effective_capable": False}
+
+
+def test_a_tool_already_allowed_on_this_provider_is_not_reported(client, github_on_codex, settings):
+    settings["services"]["claude"]["integrations"] = ["mcp:github"]
+    assert "github" not in elsewhere(client, backend="claude")
+
+
+def test_providers_sharing_one_inventory_are_not_elsewhere_for_each_other(
+    client, github_on_codex
+):
+    assert "github" not in elsewhere(client, backend="deepseek")
+    assert "github" not in elsewhere(client, backend="codex")
+
+
+def test_a_disabled_provider_does_not_count(client, github_on_codex, settings):
+    settings["services"]["codex"]["enabled"] = False
+    assert "github" not in elsewhere(client, backend="claude")
+
+
+def test_nothing_is_reported_without_the_personal_setup(client, github_on_codex, settings):
+    settings["personal_setup"] = False
+    assert view(client, backend="claude").json()["elsewhere"] == []
+
+
+def test_a_blocked_route_still_reports_what_is_connected_elsewhere(client, github_on_codex):
+    entry = elsewhere(client, backend="claude", access_mode="read_only")["github"]
+    assert entry["here"] == "enable"
+
+
+def test_a_remote_plugin_is_allowed_elsewhere_but_not_effective_capable(
+    client, github_on_codex, settings, home
+):
+    (home / ".codex/config.toml").write_text('[plugins."slack@openai-remote"]\nenabled = true\n')
+    settings["services"]["codex"]["integrations"] = ["plugin:slack@openai-remote"]
+    entry = elsewhere(client, backend="claude")["slack"]
+    assert entry["providers"][0] == {"backend": "codex", "allowed": True, "effective_capable": False}
+
+
+def test_elsewhere_is_capped(client, github_on_codex, settings, monkeypatch):
+    names = [f"tool-{number:03d}" for number in range(60)]
+    fake = {"codex": [{"id": "mcp:" + n, "name": n, "kind": "mcp"} for n in names]}
+    monkeypatch.setattr(
+        integrations_view,
+        "inventory",
+        lambda: {"claude": [], "gemini": [], "local": fake["codex"], "deepseek": fake["codex"], **fake},
+    )
+    settings["services"]["codex"]["integrations"] = ["mcp:" + n for n in names]
+    entries = view(client, backend="claude").json()["elsewhere"]
+    assert [entry["key"] for entry in entries] == names[: integrations_view.ELSEWHERE_LIMIT]
+    assert integrations_view.ELSEWHERE_LIMIT == 50
