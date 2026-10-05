@@ -6,6 +6,8 @@ from collections import Counter
 
 from adapters.local.sandbox import ISOLATION_VERSION
 
+from . import log_config
+
 MARKERS = ("native-thread.json", "remote-thread.json", "claude-session.json", "gemini-session.json")
 EVIDENCE_EVENTS = ("tool_start", "tool_end", "plan_updated", "changes_applied", "deployment_failed")
 
@@ -134,8 +136,45 @@ def portable_history(db, turns):
 
 CONTINUATION_LIMIT = 24000
 CONTINUATION_TARGETS = {"claude": "Claude", "chatgpt": "ChatGPT"}
-GOAL_LIMIT, FIELD_LIMIT, LIST_LIMIT = 2000, 1500, 50
+GOAL_LIMIT, FIELD_LIMIT, LIST_LIMIT = 2000, 1500, 20
+HEAD_LIMIT = CONTINUATION_LIMIT // 2
 ERROR_CLASS = re.compile(r"[a-z][a-z0-9_]{2,60}")
+# Handoff-only shapes, kept out of log_config.REDACTIONS so logs keep their fewer false positives.
+HANDOFF_REDACTIONS = (
+    (
+        re.compile(
+            r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|\Z)"
+        ),
+        "[redacted private key]",
+    ),
+    (
+        re.compile(
+            r"((?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|client[_-]?secret)"
+            r"[\"']?\s*[:=]\s*[\"']?)\S+",
+            re.IGNORECASE,
+        ),
+        r"\1[redacted]",
+    ),
+    (re.compile(r"\bAKIA[0-9A-Z]{16}\b"), "[redacted]"),
+    (re.compile(r"\bxox[abprs]-[\w-]+"), "[redacted]"),
+    (re.compile(r"\beyJ[\w-]+\.[\w-]+\.[\w-]+"), "[redacted]"),
+    (re.compile(r"(://)[A-Za-z0-9_\-]{20,}@"), r"\1[redacted]@"),
+)
+
+
+def redact_for_handoff(text):
+    """``log_config.redact`` plus the extra shapes a pasted handoff must never carry."""
+    text = log_config.redact(text)
+    for pattern, replacement in HANDOFF_REDACTIONS:
+        text = pattern.sub(replacement, text)
+    return text
+
+
+def fence(text):
+    """``text`` in a code fence longer than any backtick run inside, so it cannot fake headings."""
+    longest = max((len(run) for run in re.findall(r"`+", text)), default=0)
+    ticks = "`" * max(3, longest + 1)
+    return f"{ticks}\n{text}\n{ticks}"
 
 
 def clip(value, limit):
@@ -185,11 +224,10 @@ def turn_digest(number, record):
     lines = [
         f"### Turn {number} ({record['state']}; {record.get('backend') or '?'}"
         f" / {record.get('model') or '?'})",
-        "User: " + clip(record.get("user"), FIELD_LIMIT),
-        "Assistant"
-        + (" (partial)" if record.get("partial") else "")
-        + ": "
-        + clip(record.get("assistant"), FIELD_LIMIT),
+        "User:",
+        fence(clip(record.get("user"), FIELD_LIMIT)),
+        "Assistant" + (" (partial)" if record.get("partial") else "") + ":",
+        fence(clip(record.get("assistant"), FIELD_LIMIT)),
     ]
     if tools := tool_outcomes(record):
         lines.append("Tools: " + tools)
@@ -214,16 +252,17 @@ def continuation_prompt(history, project, target):
         *[f"Folder: {clip(path, 300)}" for path in project.get("paths", [])[:LIST_LIMIT]],
         "",
         "## Goal",
-        clip(history[0].get("user"), GOAL_LIMIT) if history else "(no turns)",
+        fence(clip(history[0].get("user"), GOAL_LIMIT)) if history else "(no turns)",
     ]
     for title, items in (
         ("Files changed", evidence_files(history)),
-        ("Attachments", [n for r in history for n in r.get("attachments", [])][:LIST_LIMIT]),
         ("Open items", open_items(history)),
     ):
         if items:
             head += ["", f"## {title}", *[f"- {item}" for item in items]]
-    head += ["", "## Turns (oldest first)"]
+    header = "\n".join(head)
+    head_cut = len(header) > HEAD_LIMIT
+    head = [clip(header, HEAD_LIMIT), "", "## Turns (oldest first)"]
     budget = CONTINUATION_LIMIT - len("\n".join(head)) - 120
     digests = [turn_digest(n, record) for n, record in enumerate(history, 1)]
     kept = []
@@ -242,5 +281,5 @@ def continuation_prompt(history, project, target):
         "target": target,
         "text": text,
         "turns_included": len(kept),
-        "truncated": bool(omitted) or cut,
+        "truncated": bool(omitted) or cut or head_cut,
     }

@@ -268,14 +268,20 @@ async def history(request, service, identity):
     )
 
 
+INCLUDE_PATHS = {"1": True, "true": True, "yes": True, "0": False, "false": False, "no": False}
+
+
 async def continuation(request, service, identity):
     """A handoff text to paste into another assistant: ``?target=claude|chatgpt``."""
+    include_paths = INCLUDE_PATHS.get(request.query_params.get("include_paths", "1").lower())
+    if include_paths is None:
+        raise APIError("invalid_include_paths", 400)
     return JSONResponse(
         service.continuation(
             identity,
             request.path_params["conversation"],
             request.query_params.get("target", ""),
-            include_paths=request.query_params.get("include_paths") != "0",
+            include_paths=include_paths,
         )
     )
 

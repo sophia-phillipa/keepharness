@@ -31,7 +31,6 @@ from .. import (
     harness_agents,
     integrations_view,
     invocations,
-    log_config,
     maestro,
     resources,
     tools,
@@ -89,9 +88,9 @@ def as_dict(value):
 
 
 def redact_strings(value):
-    """``value`` with ``log_config.redact`` applied to every string inside it."""
+    """``value`` with the handoff redaction applied to every string inside it."""
     if isinstance(value, str):
-        return log_config.redact(value)
+        return conversation_context.redact_for_handoff(value)
     if isinstance(value, dict):
         return {key: redact_strings(item) for key, item in value.items()}
     if isinstance(value, list):
@@ -945,9 +944,10 @@ class ConversationService:
 
     def continuation(self, identity, cid, target, include_paths=True):
         """A redacted handoff text for another assistant; reads only, calls no provider."""
-        rows = self.conversation(identity, cid)
         if target not in conversation_context.CONTINUATION_TARGETS:
             raise APIError("invalid_continuation_target", 400)
+        rows = self.conversation(identity, cid)
+        self.vault.status()  # re-registers every stored secret so redaction survives a restart
         turns = [
             (
                 {**json.loads(r["payload"]), "_job_id": r["id"], "_state": r["state"]},
@@ -959,7 +959,11 @@ class ConversationService:
         by_job = {r["id"]: r for r in rows}
         for record in history:
             row = by_job[record["job_id"]]
-            record["attachments"] = [a["name"] for a in self.message_attachments(row)]
+            record["attachments"] = [
+                found["name"]
+                for fid in json.loads(row["payload"]).get("file_ids", [])
+                if (found := self.message_repository.file(fid, row["project"], row["owner"]))
+            ]
             record["pending_approvals"] = sum(
                 gate["state"] == "pending" for gate in self.gates.repository.for_job(row["id"])
             )
