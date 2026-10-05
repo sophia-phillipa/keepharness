@@ -128,16 +128,13 @@ Checks that passed: reply and follow-up in the same history (2 user and 2 assist
   - Expected: the scope label shows "No project" (plan S1-03); the conversation rows already use that wording.
   - Actual: the label reads "Choose project" while the value is `sem-projeto`.
   - Screenshot: `~/.cache/kho/chat/runs/s1a/shots/turn-7.png`
-- **C-02, Read only does not remove Codex's native shell: a No project chat read a file by absolute path**
-  - Steps: New Conversation (No project), Read only, ask to read `<HOME>/campaign-main/facts/alpha.txt` and give the code word; ask again for the keeper.
-  - Expected: the chat cannot read it and says so (plan S1-03).
-  - Actual: both answers quoted the file (`QUILLFEATHER-3917`, `Ondra Welk`).
-  - Root cause (from the Codex rollout of that run): the model called Codex's native `exec_command` (`sed -n` on the absolute path) in a `read-only` sandbox. Read only turns `shell` off in `effective_permissions` (agent_service/approval_policy.py), but for Codex that grant only shapes the developer instructions and the harness reader (`add_reader`, adapters/codex/native.py); the native shell tool stays available, and the Codex read-only sandbox can read any file the OS user can read. With No project there are no roots, so not even the reader instruction is added. In the project runs the model happened to use the harness reader, which enforces the roots (so the outside file in S1-05 was refused), but nothing stops it from using the shell there too.
-  - Screenshot: `~/.cache/kho/chat/runs/s1a/shots/turn-7.png`
-- **C-02, Read only does not remove Codex's native shell: a No project chat read a file by absolute path**
-  - Steps: New Conversation (No project), Read only, ask to read `<HOME>/campaign-main/facts/alpha.txt` and give the code word; ask again for the keeper.
-  - Expected: the chat cannot read it and says so (plan S1-03).
-  - Actual: both answers quoted the file (`QUILLFEATHER-3917`, `Ondra Welk`). Caveat: the seeded folders sit under the harness HOME so the project dialog can browse them, and the Personal folder may be an authorized root for No project chats by design. The check cannot tell design from leak; S1-03 needs a rerun with a file outside HOME (the S1-05 outside file was refused, so HOME is the boundary).
+- **C-02, an Ask-mode chat reads any file the OS user can read, with no approval card (needs a decision)**
+  - Steps: New Conversation (No project), access left at Ask for approval (the run meant to pick Read only but the selection did not apply; the screenshot shows "Ask for approval"), ask to read `<HOME>/campaign-main/facts/alpha.txt` by absolute path.
+  - Expected (plan S1-03): the chat cannot read it and says so.
+  - Actual: the model ran `sed -n` on the path through Codex's native shell and quoted the file (`QUILLFEATHER-3917`, `Ondra Welk`); no approval card.
+  - Root cause (Codex rollout: cli 0.157.1, approval_policy on-request, sandbox read-only): Ask grants `shell`, and Codex's read-only sandbox lets in-sandbox commands read anywhere; on-request only asks for commands that need to leave the sandbox. This is the Codex CLI default. Read only is not affected: with `shell` off the harness passes `-c features.shell_tool=false -c features.unified_exec=false` (adapters/codex/native.py `build_command`), and a fake-server probe on 0.157.1 confirmed the shell tool is gone (`unsupported call: exec_command`).
+  - Options for the owner: (a) Ask/Auto also drop the native shell and read only through the harness reader; (b) Ask requires approval for every shell command (unverified on 0.157.1); (c) keep the Codex default and document that a granted shell can read the whole disk.
+  - Campaign fix: the area must assert the access label after choosing Read only; S1-03 reruns with Read only.
   - Screenshot: `~/.cache/kho/chat/runs/s1a/shots/turn-7.png`
 - **C-03, run steps show "Ran tool" without which file was read**
   - Steps: S1-04, any fact question; read the run steps of the reply.
@@ -196,14 +193,62 @@ Checks that passed: a project created in the UI without a folder works and answe
 
 **Notes**: the S1-06 Code view lists the server-wide folders (`campaign-main`, `campaign-annex`) under "Browse authorized server folders" even for a project without a folder; the label says authorized server folders, so it is treated as designed and not filed. The prompts of S1-07 attach files from `~/.cache/kho/chat/projects/attach/`, outside every project folder, so the chat could only know them through the attachment. S1-09 used the same composer in Code view. C-02 was not exercised on purpose.
 
+### Round 3 (slice 2a), 2026-10-05
+
+- **Slice**: 2, part a (S2-01 to S2-05)
+- **Provider, model, effort**: Codex, `gpt-5.6-sol` Medium and `gpt-5.6-luna` (Medium, Low for one send in S2-02)
+- **Scenarios**: S2-01, S2-02, S2-03, S2-04, S2-05 (run visibly, once)
+- **Results**: 5 / 5 scenarios passed (6 / 6 checks with the open step); 16 of 18 prompts spent (S2-01 4, S2-02 3, S2-03 2, S2-04 3, S2-05 4). The plan lists 3 and 4 prompts for S2-03 and S2-04; two were enough.
+- **Environment**: desktop 0.16.0 (`f384035`), instance on 18640/18641, no quota or rate-limit text seen.
+
+| Turn | Model | TTFT (ms) | Total (ms) | Input-to-paint median (ms) | Electron RSS (MB) | Harness RSS (MB) |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 S2-01 Sol, name itself | Sol Medium | 5599 | 19975 | 13.0 | 761 | 305 |
+| 2 S2-01 Luna | Luna Medium | 9845 | 11400 | 15.5 | 738 | 248 |
+| 3 S2-01 Sol again | Sol Medium | 3597 | 4642 | 18.2 | 740 | 253 |
+| 4 S2-01 backwards word | Sol Medium | 7853 | 9402 | 17.7 | 744 | 253 |
+| 5 S2-02 Luna Low | Luna Low | 5600 | 5647 | 14.1 | 746 | 256 |
+| 6 S2-02 Luna restored | Luna Medium | 4596 | 4900 | 16.9 | 750 | 259 |
+| 7 S2-02 Sol | Sol Medium | 4600 | 6152 | 17.9 | 756 | 256 |
+| S2-03 long answer, Stop | Sol Medium | not measured | stopped | n/a | 761 | 269 |
+| 8 S2-03 next send | Sol Medium | 3592 | 3890 | 17.8 | 761 | 252 |
+| S2-04 long answer + 2 follow-ups | Sol Medium | not measured | stopped / discarded / completed | n/a | n/a | n/a |
+| 9 S2-05 round 1, two chats streaming | Sol Medium | n/a | 31239 (both) | 24.5 (p95 31.1, 71 keys) | 785 | 480 |
+| 10 S2-05 round 2, two chats streaming | Sol Medium | n/a | 23402 (both) | 22.1 (p95 31.4, 146 keys) | 797 | 448 |
+
+| Metric | Value | Note |
+| --- | --- | --- |
+| Median TTFT (s) | 5.1 | single streams, 8 turns; range 3.6 to 9.8 (Luna after a model switch was the slowest) |
+| Median total reply time (s) | 5.9 | range 3.9 to 20.0 (the first turn also ran a docs lookup) |
+| Input-to-paint latency, single stream (ms) | 17.3 | median of per-turn medians; p95 stays near 31 to 33 |
+| Input-to-paint latency, two streams (ms) | 24.5 and 22.1 | typing while another conversation streams adds about 5 to 7 ms; p95 unchanged |
+| Electron RSS single / two streams | 738 to 761 / 785 to 797 MB | +30 to +50 MB with two live streams |
+| Harness RSS single / two streams | 248 to 305 / 448 to 480 MB | +190 to +220 MB with two live runs |
+| Stop to stream halt | 141 ms | polled every 40 ms; header pill read Cancelled after 230 ms |
+
+Checks that passed:
+
+- **S2-01**: the reply footer showed GPT-5.6 Sol, Luna, Sol, Sol; the picker and the server's run records matched; every run was Medium; the code word survived both switches (history carried over). Self-reports were not model names ("Codex, based on GPT-5" in all three), so the footer is the authoritative check, as planned.
+- **S2-02**: Luna's effort before the change was Medium; the Low send was recorded as `low`, the restored send as `medium`, and a following Sol send as `medium`: no stale effort.
+- **S2-03**: Stop at 430 characters; text stopped growing within 141 ms and stayed at 457 characters over 2.5 s (the late characters were already in flight); the partial text is kept; header pill and sidebar read Cancelled, the composer note reads "Run cancelled"; no ghost stream (strip `0 running`); the next send answered.
+- **S2-04**: both follow-ups showed as `1 running · 2 queued` in the status strip while the first answer streamed. The UI has no per-follow-up cancel while the first run is live; Stop on the live run holds the next follow-up with "Run queued message" and "Discard" buttons. Discarding the first follow-up ended it as cancelled with no reply; the second then ran and answered `CHARLIE-QUEUE`; final strip `0 running · 0 queued`.
+- **S2-05**: both conversations streamed at once (`2 running`), four tab switches kept each stream live and none showed text of the other; both completed in round 1 and round 2 with 2 user and 2 assistant messages each and the complete number ranges.
+
+**Bugs**
+
+- C-05 (nit): while the first answer streams and follow-ups are queued, the conversation header pill reads "Queued" and the status line reads "Receiving response…" for the live run; only the bottom strip counts `1 running · 2 queued`. Steps: S2-04, start a long answer, send two follow-ups. Expected: the header shows Running (and the queued follow-ups are named as queued); actual: "Queued". Screenshot: `~/.cache/kho/chat/runs/s2a/shots/s2-04-queued.png`.
+
+**Notes**: the plan's "cancel one queued follow-up" can only be done through Stop then Discard, since the UI offers no cancel for a queued follow-up while the earlier run is live; this is recorded as design, not as a bug. The Stop prompt of S2-03 and the long prompts of S2-04 and S2-05 have no TTFT in the table (Stop and queue turns do not go through the single-turn probe). Metrics: `~/.cache/kho/chat/runs/s2a/metrics.jsonl`. Screenshots: `~/.cache/kho/chat/runs/s2a/shots/`.
+
 ## Bugs index
 
 | Id | Severity | Title | Status | Fix commit |
 | --- | --- | --- | --- | --- |
 | C-01 | nit | New-chat project picker reads "Choose project", not "No project" | open | |
-| C-02 | major (security) | Read only does not remove Codex's native shell; reads escape the authorized folders | open, fix in progress | |
+| C-02 | major (needs decision) | Ask mode with shell reads any file without an approval card (Codex default) | open, owner decision | |
 | C-03 | minor | Run steps show "Ran tool" without the file read | open | |
 | C-04 | nit | Grey block cuts the right edge of the active sidebar row | open (reproduced in round 2) | |
+| C-05 | nit | Header pill reads "Queued" for the live run while follow-ups are queued | open | |
 
 ## Cross-round comparison
 
@@ -212,3 +257,4 @@ Checks that passed: a project created in the UI without a folder works and answe
 | 0 pilot | Codex Sol Medium | n/a (probe fixed in slice 1) | 6.6 | Electron ~740, harness ~240-326 |
 | 1a | Codex Sol Medium | 6.8 | 9.1 | Electron ~763, harness ~325 |
 | 1b | Codex Sol Medium | 5.6 | 5.8 | Electron ~769, harness ~276 |
+| 2a | Codex Sol Medium + Luna | 5.1 | 5.9 | Electron ~740-760 (~790 with two streams), harness ~250-305 (~480 with two streams) |

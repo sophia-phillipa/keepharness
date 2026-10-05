@@ -8,7 +8,7 @@
 //     NODE_PATH=<node_modules with playwright> PLAYWRIGHT_MODULE=<same>/playwright \
 //     node tests/operator/areas/20-chat-real-providers.cjs
 //
-// Env: CHAT_SLICE (pilot|luna|deepseek|s1a|s1b), CHAT_SCENARIOS (comma list, overrides the slice),
+// Env: CHAT_SLICE (pilot|luna|deepseek|s1a|s1b|s2a), CHAT_SCENARIOS (comma list, overrides the slice),
 // CHAT_BUDGET (real prompts allowed), CHAT_DEEPSEEK_WAIT_MS, CHAT_APP (an inspect-enabled copy of the
 // packaged binary: Playwright cannot attach to the production package, whose inspect fuse is off).
 // Known limitation: the desktop attaches to the running admin, so closing the app does not stop
@@ -19,7 +19,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const instance = require("../chat-campaign/instance.cjs");
-const { chooseModel, chooseAccess, newChat, submit, waitAnswer, dismissTour } = require("../lib/app.cjs");
+const { chooseModel, chooseAccess, newChat, submit, waitAnswer, dismissTour, row } = require("../lib/app.cjs");
 
 const { paths, FACTS, S1, S1B, seedSlice1b, PROJECT_NAME, adminApi, portOpen } = instance;
 const REPO = path.resolve(__dirname, "../../..");
@@ -41,6 +41,7 @@ const SLICES = {
   deepseek: ["await-deepseek-key"],
   s1a: ["s1-01", "s1-02", "s1-03", "s1-04", "s1-05"],
   s1b: ["s1-06", "s1-07", "s1-08", "s1-09", "s1-10"],
+  s2a: ["s2-01", "s2-02", "s2-03", "s2-04", "s2-05"],
 };
 const PROJECT_LABEL = process.env.CHAT_PROJECT_LABEL || "Campaign notes"; // CHAT_PROJECT_LABEL: dry runs use a throwaway project
 const MAIN_DIR = path.join(paths.home, S1.main);
@@ -395,6 +396,213 @@ const SCENARIOS = {
       c.done();
     }, { lint: false });
   },
+  "s2-01": async (op) => {
+    await op.step("s2-01", "Now: S2-01, Sol, then Luna, then Sol again in one conversation, each asked to name itself", async () => {
+      const c = soft();
+      await newChat(op);
+      const plan = [
+        ["gpt-5.6-sol", /sol/i, "Remember the code word PELICAN-7. Which model are you? Answer in one short sentence."],
+        ["gpt-5.6-luna", /luna/i, "What is the code word I gave you? Also, which model are you? Answer in one short sentence."],
+        ["gpt-5.6-sol", /sol/i, "Which model are you now, and what is the code word? Answer in one short sentence."],
+        ["gpt-5.6-sol", /sol/i, "Spell the code word backwards, letters and digits only."],
+      ];
+      for (const [i, [model, label, text]] of plan.entries()) {
+        if (i < 3) { await chooseModel(op, model); await chooseEffort(op, "Medium"); }
+        c.ok(label.test(await op.page.locator("#model-label").innerText()), `turn ${i + 1}: the picker shows "${await op.page.locator("#model-label").innerText()}", not ${model}`);
+        await ask(op, `s2-01-${i + 1}`, text, i === 0 ? /\S/ : i === 3 ? /7-?NACILEP/i : /PELICAN-?7/i);
+        const meta = await lastMeta(op);
+        c.ok(label.test(meta.meta), `turn ${i + 1}: the reply footer shows "${meta.meta}", expected ${model}`);
+        record({ scenario: "s2-01", step: i + 1, model, footer: meta.meta, self_report: meta.text.slice(0, 160) });
+      }
+      const turns = await turnsApi(op);
+      c.ok(JSON.stringify(turns.map((t) => t.model)) === JSON.stringify(plan.map((p) => p[0])), `the runs used ${JSON.stringify(turns.map((t) => t.model))}`);
+      c.ok(turns.every((t) => t.effort === "medium"), `efforts ${JSON.stringify(turns.map((t) => t.effort))}, expected all medium`);
+      c.done();
+    }, { lint: false });
+  },
+  "s2-02": async (op) => {
+    await op.step("s2-02", "Now: S2-02, Luna at Low for one send, then back to its previous effort, same conversation", async () => {
+      const c = soft();
+      await chooseModel(op, "gpt-5.6-luna");
+      const prev = (await op.page.locator("#effort-label").innerText()).trim().split(/\s+/)[0];
+      c.ok(/medium/i.test(prev), `Luna's effort before the change is "${prev}", expected Medium`);
+      await chooseEffort(op, "Low");
+      await ask(op, "s2-02-low", "Reply with just the word LOW-OK.", /LOW-OK/);
+      await chooseEffort(op, prev || "Medium");
+      c.ok(new RegExp(prev, "i").test(await op.page.locator("#effort-label").innerText()), "the picker did not return to the previous effort");
+      await ask(op, "s2-02-restored", "Reply with just the word BACK-OK.", /BACK-OK/);
+      await chooseModel(op, "gpt-5.6-sol");
+      await chooseEffort(op, "Medium");
+      await ask(op, "s2-02-sol", "Reply with just the word SOL-OK.", /SOL-OK/);
+      const t = (await turnsApi(op)).slice(-3);
+      c.ok(JSON.stringify(t.map((x) => [x.model, x.effort])) === JSON.stringify([["gpt-5.6-luna", "low"], ["gpt-5.6-luna", prev.toLowerCase()], ["gpt-5.6-sol", "medium"]]), `the last three runs used ${JSON.stringify(t.map((x) => [x.model, x.effort]))}`);
+      record({ scenario: "s2-02", runs: t.map((x) => [x.model, x.effort]), previous_effort: prev });
+      c.done();
+    }, { lint: false });
+  },
+  "s2-03": async (op) => {
+    await op.step("s2-03", "Now: S2-03, a very long answer stopped mid-reply, then a new question", async () => {
+      const c = soft();
+      await newChat(op);
+      await chooseModel(op, "gpt-5.6-sol");
+      await chooseEffort(op, "Medium");
+      const page = op.page;
+      await op.fill(page.locator("#prompt"), "Write the numbers from 1 to 600, one per line, each followed by a different English word. Do not stop early and add nothing else.");
+      const from = Date.now();
+      const before = await submit(op);
+      await op.until(async () => (await page.locator("#messages").getByRole("button", { name: "View run" }).count()) > before, "the run did not start", 30000);
+      await op.until(async () => (await streamLen(op)) > 400, "the long answer never started streaming", 90000);
+      await op.caption("Now: pressing Stop mid-reply");
+      const len0 = await streamLen(op);
+      const tStop = Date.now();
+      await page.locator("#cancel").click();
+      let last = len0, tLast = tStop, stableSince = Date.now(), tPill = null;
+      while (Date.now() - stableSince < 1500 && Date.now() - tStop < 30000) {
+        await sleep(40);
+        const n = await streamLen(op);
+        if (n !== last) { last = n; tLast = Date.now(); stableSince = tLast; }
+        if (tPill == null && /Cancelled/i.test(await page.locator("#conversation-state-pill").innerText())) tPill = Date.now() - tStop;
+      }
+      const haltMs = tLast - tStop;
+      await sleep(2500);
+      const after = await page.evaluate(() => ({ pill: document.getElementById("conversation-state-pill")?.innerText || "", state: document.getElementById("conversation-state-pill")?.dataset.state || "", cancelHidden: document.getElementById("cancel")?.hidden, article: ([...document.querySelectorAll("#messages article.assistant")].pop()?.innerText || "").replace(/\s+/g, " ").slice(0, 300) }));
+      const len1 = await streamLen(op);
+      const shot = path.join(ctx.out, "shots", "s2-03-stopped.png");
+      await page.screenshot({ path: shot, timeout: 15000 }).catch(() => {});
+      const win = ctx.samples.filter((s) => s.t >= from);
+      record({ scenario: "s2-03", stop_halt_ms: haltMs, pill_cancelled_ms: tPill, chars_at_stop: len0, chars_final: len1, pill: after.pill, article: after.article, electron_rss_mb: Math.max(...win.map((s) => s.electron_rss), 0), harness_rss_mb: Math.max(...win.map((s) => s.harness_rss), 0), shot });
+      c.ok(haltMs < 3000, `the stream took ${haltMs} ms to halt after Stop`);
+      c.ok(len1 >= len0 && len1 > 100, `the partial text was not kept (${len0} chars at Stop, ${len1} after)`);
+      c.ok(/Cancel|Stopp/i.test(after.pill) || /cancel|stopp/i.test(after.article), `the reply is not marked stopped: pill "${after.pill}"`);
+      c.ok(!["running", "queued"].includes(after.state), `the pill is still ${after.state} after Stop (ghost stream?)`);
+      c.ok(after.cancelHidden === true, "the Stop button is still shown after the stop");
+      await ask(op, "s2-03-next", "Reply with just the word NEXT-OK.", /NEXT-OK/);
+      c.ok(/NEXT-OK/.test((await lastMeta(op)).text), "the next send did not answer");
+      c.done();
+    }, { lint: false });
+  },
+  "s2-04": async (op) => {
+    await op.step("s2-04", "Now: S2-04, two follow-ups queued behind a streaming answer, one discarded", async () => {
+      const c = soft();
+      await newChat(op);
+      await chooseModel(op, "gpt-5.6-sol");
+      await chooseEffort(op, "Medium");
+      const page = op.page;
+      const toggle = () => page.locator("#run-status-toggle").innerText();
+      await op.fill(page.locator("#prompt"), "Write the numbers from 1 to 600, one per line, each followed by a different color word. Do not stop early and add nothing else.");
+      const before = await submit(op);
+      await op.until(async () => (await page.locator("#messages").getByRole("button", { name: "View run" }).count()) > before, "the run did not start", 30000);
+      await op.until(async () => (await streamLen(op)) > 300, "the long answer never started streaming", 90000);
+      const sent = [];
+      for (const [name, text] of [["BRAVO-QUEUE", "Reply with just the word BRAVO-QUEUE."], ["CHARLIE-QUEUE", "Reply with just the word CHARLIE-QUEUE."]]) {
+        await op.fill(page.locator("#prompt"), text);
+        await submit(op);
+        sent.push({ name, status: (await page.locator("#status").innerText()).trim() });
+        await sleep(800);
+      }
+      let counts = "";
+      try { await op.until(async () => /(\d+) queued/.test((counts = await toggle())) && Number(counts.match(/(\d+) queued/)[1]) >= 2, "the run status never showed 2 queued", 20000); } catch (e) { c.ok(false, `${e.message}; status strip "${counts}"`); }
+      const users = await page.evaluate(() => document.querySelectorAll("#messages article.user").length);
+      c.ok(users === 3, `${users} user messages are shown, expected 3`);
+      const queuedShot = path.join(ctx.out, "shots", "s2-04-queued.png");
+      await page.screenshot({ path: queuedShot, timeout: 15000 }).catch(() => {});
+      record({ scenario: "s2-04", phase: "queued", status_after_send: sent, strip: counts, shot: queuedShot });
+      await op.caption("Now: stopping the first answer; the queued follow-ups wait for my choice");
+      await page.locator("#cancel").click();
+      const held = page.locator(".held-turn-actions").filter({ visible: true });
+      let heldN = 0;
+      try { await op.until(async () => (heldN = await held.count()) >= 1, "no queued message waited for a choice after Stop", 30000); } catch (e) { c.ok(false, e.message); }
+      record({ scenario: "s2-04", phase: "held_after_stop", held: heldN, strip: await toggle() });
+      if (heldN) {
+        await op.caption("Now: discarding the first queued follow-up");
+        await op.click(held.first().getByRole("button", { name: "Discard" }));
+        await op.until(async () => /discarded/i.test(await page.locator("#status").innerText()) || (await held.count()) < heldN, "the discard did not register", 15000).catch((e) => c.ok(false, e.message));
+      }
+      // The remaining follow-up either runs by itself or also waits for a choice.
+      for (let i = 0; i < 40; i++) {
+        const body = await page.locator("#messages").innerText();
+        if (/CHARLIE-QUEUE/.test(body.split("Reply with just the word CHARLIE-QUEUE.").slice(1).join(""))) break;
+        if (await held.count()) { await op.caption("Now: releasing the remaining queued follow-up"); await op.click(held.first().getByRole("button", { name: /Run queued message/ })); }
+        await sleep(1500);
+      }
+      await op.until(async () => !["running", "queued"].includes(await page.locator("#conversation-state-pill").getAttribute("data-state")), "the conversation never went idle", 90000).catch((e) => c.ok(false, e.message));
+      await sleep(1500);
+      const turns = await turnsApi(op);
+      const by = (word) => turns.find((t) => t.prompt.includes(word));
+      c.ok(by("BRAVO-QUEUE") && !/BRAVO-QUEUE/.test(by("BRAVO-QUEUE").answer || "") && by("BRAVO-QUEUE").state === "cancelled", `the discarded follow-up ended as ${JSON.stringify(by("BRAVO-QUEUE"))}`);
+      c.ok(by("CHARLIE-QUEUE") && /CHARLIE-QUEUE/.test(by("CHARLIE-QUEUE").answer || ""), `the kept follow-up ended as ${JSON.stringify(by("CHARLIE-QUEUE"))}`);
+      const finalStrip = await toggle();
+      c.ok(/0 running · 0 queued/.test(finalStrip), `the final status strip reads "${finalStrip}"`);
+      const doneShot = path.join(ctx.out, "shots", "s2-04-final.png");
+      await page.screenshot({ path: doneShot, timeout: 15000 }).catch(() => {});
+      record({ scenario: "s2-04", phase: "final", turns: turns.map((t) => [t.state, (t.answer || "").slice(0, 40)]), strip: finalStrip, shot: doneShot });
+      c.done();
+    }, { lint: false });
+  },
+  "s2-05": async (op) => {
+    await op.step("s2-05", "Now: S2-05, two conversations streaming at once, switching between them", async () => {
+      const c = soft();
+      const page = op.page;
+      const toggle = () => page.locator("#run-status-toggle").innerText();
+      const conv = async (tag, text) => {
+        await newChat(op);
+        if (!/sol/i.test(await page.locator("#model-label").innerText())) await chooseModel(op, "gpt-5.6-sol");
+        if (!/medium/i.test(await page.locator("#effort-label").innerText())) await chooseEffort(op, "Medium");
+        await sendNoWait(op, text);
+      };
+      const seq = (tag, a, b) => `${tag} run: write ${tag}-${a} through ${tag}-${b}, one per line, nothing else.`;
+      const from = Date.now();
+      await conv("ALPHA", seq("ALPHA", 1, 80));
+      await op.until(async () => (await streamLen(op)) > 20, "ALPHA never started streaming", 90000);
+      await page.evaluate(() => (window.__kh.lat = []));
+      await conv("BRAVO", seq("BRAVO", 1, 80));
+      let strip = "";
+      try { await op.until(async () => /2 running/.test((strip = await toggle())), "the run status never showed 2 running", 40000); } catch (e) { c.ok(false, `${e.message}; strip "${strip}"`); }
+      const shotBoth = path.join(ctx.out, "shots", "s2-05-both-streaming.png");
+      await page.screenshot({ path: shotBoth, timeout: 15000 }).catch(() => {});
+      const grown = [];
+      for (const tag of ["ALPHA", "BRAVO", "ALPHA", "BRAVO"]) {
+        await op.click(row(op, `${tag} run`));
+        await op.seeText(page.locator("#messages"), new RegExp(`${tag} run`), 15000);
+        const n0 = await streamLen(op);
+        await sleep(2500);
+        const n1 = await streamLen(op);
+        const live = await page.locator("#conversation-state-pill").getAttribute("data-state");
+        grown.push([tag, n0, n1, live]);
+        const body = await page.locator("#messages").innerText();
+        c.ok(!new RegExp(tag === "ALPHA" ? "BRAVO" : "ALPHA").test(body), `cross-talk: the ${tag} conversation shows text of the other one`);
+      }
+      c.ok(grown.some((g) => g[2] > g[1]) , `no stream kept growing after a switch: ${JSON.stringify(grown)}`);
+      const idle = async (tag) => {
+        await op.click(row(op, `${tag} run`));
+        await op.until(async () => (await page.locator("#conversation-state-pill").getAttribute("data-state")) === "done" || /Failed|Cancelled|Interrupted/.test(await page.locator("#conversation-state-pill").innerText()), `${tag} did not finish`, 150000);
+      };
+      await idle("ALPHA"); await idle("BRAVO");
+      const lat1 = await page.evaluate(() => window.__kh.lat.slice());
+      recordPhase("s2-05-round1", from, Date.now(), lat1, shotBoth, { strip, grown });
+      const from2 = Date.now();
+      await page.evaluate(() => (window.__kh.lat = []));
+      for (const tag of ["ALPHA", "BRAVO"]) {
+        await op.click(row(op, `${tag} run`));
+        await sendNoWait(op, seq(tag, 81, 140));
+        await sleep(1500);
+      }
+      try { await op.until(async () => /2 running/.test((strip = await toggle())), "round 2: the run status never showed 2 running", 40000); } catch (e) { c.ok(false, `${e.message}; strip "${strip}"`); }
+      await idle("ALPHA"); await idle("BRAVO");
+      const shotEnd = path.join(ctx.out, "shots", "s2-05-final.png");
+      await page.screenshot({ path: shotEnd, timeout: 15000 }).catch(() => {});
+      recordPhase("s2-05-round2", from2, Date.now(), await page.evaluate(() => window.__kh.lat.slice()), shotEnd, { strip });
+      for (const [tag, other] of [["ALPHA", "BRAVO"], ["BRAVO", "ALPHA"]]) {
+        await op.click(row(op, `${tag} run`));
+        await sleep(1500);
+        const f = await page.evaluate(() => ({ users: document.querySelectorAll("#messages article.user").length, texts: [...document.querySelectorAll("#messages article.assistant > .text")].map((e) => e.innerText) }));
+        c.ok(f.users === 2 && f.texts.length === 2, `${tag}: ${f.users} user and ${f.texts.length} assistant messages, expected 2 and 2`);
+        c.ok(f.texts.every((t) => !t.includes(other)), `${tag}: an answer contains ${other} text`);
+        c.ok(f.texts[0]?.includes(`${tag}-80`) && f.texts[1]?.includes(`${tag}-140`), `${tag}: an answer is incomplete (${(f.texts[0] || "").slice(-30)} / ${(f.texts[1] || "").slice(-30)})`);
+      }
+      c.done();
+    }, { lint: false });
+  },
   "dom-probe": async (op) => {
     await op.step("dom-probe", "Now: reading the reply DOM of the last conversation", async () => {
       record({ scenario: "dom-probe", shape: await op.page.evaluate(() => {
@@ -445,6 +653,39 @@ async function chooseEffort(op, label) {
   if (!(await option.count())) throw new Error(`this model offers no ${label} effort`);
   await op.click(option.first());
   await op.seeText(op.page.locator("#effort-label"), new RegExp(label));
+}
+
+// Text length of the newest reply body (streams while the run is live).
+const streamLen = (op) => op.page.evaluate(() => ([...document.querySelectorAll("#messages article.assistant")].pop()?.querySelector(":scope > .text")?.textContent || "").length);
+
+// Newest reply: footer (model, timing) and body text.
+const lastMeta = (op) => op.page.evaluate(() => {
+  const a = [...document.querySelectorAll("#messages article.assistant")].pop();
+  return { meta: a?.querySelector(".run-meta")?.innerText || "", text: a?.querySelector(":scope > .text")?.innerText || "" };
+});
+
+// The open conversation as the server holds it: one entry per run, in order.
+const turnsApi = (op) => op.page.evaluate(async () => {
+  const d = await (await fetch("/v1/conversations/" + encodeURIComponent(conversation))).json();
+  return d.turns.map((t) => ({ prompt: t.request?.prompt || "", model: t.request?.model, effort: t.request?.effort, state: t.state, answer: t.result?.answer ?? t.result?.partial_answer ?? "" }));
+});
+
+// Types and sends a prompt, returns once the run exists (no wait for the answer).
+async function sendNoWait(op, text) {
+  await op.fill(op.page.locator("#prompt"), text);
+  const before = await submit(op);
+  await op.until(async () => (await op.page.locator("#messages").getByRole("button", { name: "View run" }).count()) > before, "the run did not start", 30000);
+}
+
+// A metrics line for a multi-stream phase, shaped like a turn line so the summary table lists it.
+function recordPhase(name, from, to, lat, shot, extra) {
+  const l = lat.slice().sort((a, b) => a - b);
+  const q = (p) => (l.length ? l[Math.min(l.length - 1, Math.floor(p * l.length))] : null);
+  const win = ctx.samples.filter((s) => s.t >= from && s.t <= to);
+  const max = (k) => (win.length ? Math.max(...win.map((s) => s[k])) : null);
+  const avg = (k) => (win.length ? +(win.reduce((a, s) => a + s[k], 0) / win.length).toFixed(1) : null);
+  ctx.turns += 1;
+  record({ scenario: name, turn: ctx.turns, ttft_ms: null, total_ms: to - from, paint_ms: { n: l.length, median: q(0.5), p95: q(0.95), max: l.length ? l[l.length - 1] : null }, electron_rss_mb: max("electron_rss"), harness_rss_mb: max("harness_rss"), electron_cpu_pct: avg("electron_cpu"), harness_cpu_pct: avg("harness_cpu"), samples: win.length, shot, ...extra });
 }
 
 // After "New chat": the project menu lists "No project" first, then the project labels.
@@ -656,6 +897,7 @@ const area = {
     const wanted = (process.env.CHAT_SCENARIOS ? process.env.CHAT_SCENARIOS.split(",") : SLICES[process.env.CHAT_SLICE]) || [];
     for (const id of wanted) {
       if (!SCENARIOS[id]) throw new Error("unknown scenario " + id);
+      if (op.area.halted) break;
       await SCENARIOS[id](op);
     }
   },
