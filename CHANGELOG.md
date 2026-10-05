@@ -6,6 +6,17 @@ The per-release notes in [`dossier/releases/`](dossier/releases/) hold the full 
 
 ## [Unreleased]
 
+### Added
+
+- Back and Forward at the top left, like the Codex app: an in-memory view history (conversations, Settings pages, Space, Scheduled, Customize, Home), Ctrl/Cmd+[ and Ctrl/Cmd+], mouse buttons 3 and 4, with each conversation's scroll position kept (WP1).
+- `GET /v1/conversations/{id}/continuation?target=claude|chatgpt` returns a redacted, size-capped, paste-ready prompt to continue a conversation in the Claude or ChatGPT desktop app; tool evidence is names and outcomes only (WP5 backend).
+- `/v1/integrations` gains an additive `elsewhere` list of tools connected on another provider the owner may use for the project, saying whether the current provider only needs to enable it (WP4 backend).
+
+### Security
+
+- Log and handoff redaction now masks GitHub tokens and credentials in URL userinfo; the continuation prompt also masks generic secret assignments, AWS keys, Slack tokens, PEM private keys and JWTs.
+- `elsewhere` is empty for non-owner and remote callers, counts only providers allowed for the project, and never lists the `local` backend.
+
 ### Fixed
 
 Chat campaign fixes (see [the campaign log](dossier/research/chat-campaign-2026-10.md) and the "Chat campaign fixes" section of [`dossier/releases/v0.16.0.md`](dossier/releases/v0.16.0.md)):
@@ -15,6 +26,8 @@ Chat campaign fixes (see [the campaign log](dossier/research/chat-campaign-2026-
 - The active or hovered conversation row in the sidebar no longer shows a grey block on its right edge (C-04).
 - The header pill shows "Running" while a reply streams behind queued follow-ups (C-05).
 - The view stays pinned to the bottom of a fast stream until the user scrolls up (C-06).
+- Reopening the app or a conversation restores its scroll position; one left at the bottom reopens at its latest message (C-07).
+- A chat that finishes in the background while another is open shows the unread dot (C-08).
 
 ## [0.16.0] - unreleased
 
