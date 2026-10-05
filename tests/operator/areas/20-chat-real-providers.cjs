@@ -8,7 +8,7 @@
 //     NODE_PATH=<node_modules with playwright> PLAYWRIGHT_MODULE=<same>/playwright \
 //     node tests/operator/areas/20-chat-real-providers.cjs
 //
-// Env: CHAT_SLICE (pilot|luna|deepseek|s1a|s1b|s2a|s2b|s3a), CHAT_SCENARIOS (comma list, overrides the slice),
+// Env: CHAT_SLICE (pilot|luna|deepseek|s1a|s1b|s2a|s2b|s3a|s3b), CHAT_SCENARIOS (comma list, overrides the slice),
 // CHAT_BUDGET (real prompts allowed), CHAT_DEEPSEEK_WAIT_MS, CHAT_APP (an inspect-enabled copy of the
 // packaged binary: Playwright cannot attach to the production package, whose inspect fuse is off).
 // Known limitation: the desktop attaches to the running admin, so closing the app does not stop
@@ -43,6 +43,7 @@ const SLICES = {
   s1b: ["s1-06", "s1-07", "s1-08", "s1-09", "s1-10"],
   s2a: ["s2-01", "s2-02", "s2-03", "s2-04", "s2-05"],
   s2b: ["s1-03r", "s2-06", "s2-07", "s2-08", "s2-09", "s2-10"],
+  s3b: ["s3-04", "s3-05", "s3-06", "s3-07"],
   s3a: ["s3-00", "s3-01", "s3-02", "s3-03", "s3-08", "s3-09", "s3-10"],
 };
 const PROJECT_LABEL = process.env.CHAT_PROJECT_LABEL || "Campaign notes"; // CHAT_PROJECT_LABEL: dry runs use a throwaway project
@@ -836,6 +837,179 @@ const SCENARIOS = {
       c.done();
     }, { lint: false });
   },
+  "s3-04": async (op) => {
+    await op.step("s3-04", "Now: S3-04, reloading the page in the middle of a long Sol reply", async () => {
+      const c = soft();
+      await newChat(op);
+      await chooseModel(op, "gpt-5.6-sol");
+      await chooseEffort(op, "Medium");
+      // Part A: reload while the text streams.
+      await startLong(op, 300);
+      const pre = await runState(op);
+      await op.caption("Now: reloading the page mid-reply");
+      const t0 = Date.now();
+      await op.page.reload({ waitUntil: "domcontentloaded" });
+      await op.page.evaluate(METRICS_JS);
+      await op.page.locator("#startup-gate").waitFor({ state: "hidden", timeout: 40000 });
+      const reloadMs = Date.now() - t0;
+      await dismissTourSoon(op);
+      const post = await runState(op);
+      const restored = post.id === pre.id && post.articles > 0;
+      const live = post.state;
+      await settle(op, 240000);
+      const fin = await runState(op);
+      const shotA = path.join(ctx.out, "shots", "s3-04-reload-a.png");
+      await op.page.screenshot({ path: shotA, timeout: 15000 }).catch(() => {});
+      record({ scenario: "s3-04-a", reload_ms: reloadMs, chars_at_reload: pre.chars, pill_after_reload: live, same_conversation: post.id === pre.id, articles_before: pre.articles, articles_after: post.articles, turns_before: pre.turns, turns_after: fin.turns, final_chars_ui: fin.chars, final_chars_api: fin.apiChars, final_state: fin.apiState, tail: fin.tail, shot: shotA });
+      c.ok(restored, `the conversation was not restored after the reload (id ${pre.id} -> ${post.id}, ${post.articles} messages)`);
+      c.ok(pre.chars > 100 && pre.state === "running", `the reload did not hit a live stream (${pre.chars} chars, ${pre.state})`);
+      c.ok(fin.turns === pre.turns && fin.users === pre.users, `a turn was duplicated or lost (${pre.turns}/${pre.users} -> ${fin.turns}/${fin.users})`);
+      c.ok(fin.apiState === "completed", `the run ended as ${fin.apiState}`);
+      c.ok(/(^|\D)300(\D|$)/.test(fin.tail) && fin.chars >= fin.apiChars - 5, `the final text is incomplete (UI ${fin.chars} chars, server ${fin.apiChars}, tail ${JSON.stringify(fin.tail)})`);
+      ctx.convs.s304 = (await snapshot(op.page)).title;
+      // Part B: reload right after the send, before the first token, and expect exactly one turn (this also proves send works after a reload).
+      const before = await runState(op);
+      await op.fill(op.page.locator("#prompt"), "Reply with just the word EARLY-OK.");
+      const seen = await submit(op);
+      await op.page.reload({ waitUntil: "domcontentloaded" });
+      await op.page.evaluate(METRICS_JS);
+      await op.page.locator("#startup-gate").waitFor({ state: "hidden", timeout: 40000 });
+      await dismissTourSoon(op);
+      await settle(op, 120000);
+      const early = await runState(op);
+      record({ scenario: "s3-04-b", turns_before: before.turns, turns_after: early.turns, state: early.apiState, tail: early.tail, seen });
+      c.ok(early.turns === before.turns + 1, `the early reload left ${early.turns} turns, expected ${before.turns + 1}`);
+      c.ok(/EARLY-OK/.test(early.tail) && early.apiState === "completed", `the early-reload answer is ${early.apiState}: ${JSON.stringify(early.tail)}`);
+      c.done();
+    }, { lint: false });
+  },
+  "s3-05": async (op) => {
+    await op.step("s3-05", "Now: S3-05, closing the app window in the middle of a long reply and opening it again", async () => {
+      const c = soft();
+      await newChat(op);
+      await chooseModel(op, "gpt-5.6-sol");
+      await chooseEffort(op, "Medium");
+      for (const round of (process.env.CHAT_S305_ROUNDS || "a,b").split(",")) { // CHAT_S305_ROUNDS=b reruns only the second round
+        await startLong(op, round === "a" ? 200 : 250);
+        const pre = await runState(op);
+        const title = (await snapshot(op.page)).title;
+        const before = await bounds(ctx.handle);
+        await op.caption("Now: closing the app mid-reply");
+        await quitApp(ctx.handle);
+        await sleep(1500);
+        const during = await instanceState();
+        const started = Date.now();
+        await openApp(op.session);
+        const ms = Date.now() - started;
+        await dismissTourSoon(op);
+        const after = await bounds(ctx.handle);
+        const snap = await snapshot(op.page);
+        const post = await runState(op);
+        await settle(op, 240000);
+        const fin = await runState(op);
+        const shot = path.join(ctx.out, "shots", `s3-05-${round}.png`);
+        await op.page.screenshot({ path: shot, timeout: 15000 }).catch(() => {});
+        record({ scenario: `s3-05-${round}`, reopen_ms: ms, bounds_before: before, bounds_after: after, harness_while_closed: during, chars_at_close: pre.chars, title_before: title, title_after: snap.title, same_conversation: post.id === pre.id, articles_after: post.articles, pill_after_reopen: post.state, turns_before: pre.turns, turns_after: fin.turns, final_state: fin.apiState, final_chars_ui: fin.chars, final_chars_api: fin.apiChars, tail: fin.tail, shot });
+        c.ok(pre.chars > 100 && pre.state === "running", `round ${round}: the close did not hit a live stream (${pre.chars} chars, ${pre.state})`);
+        c.ok(during.harness, `round ${round}: the harness stopped when the app closed`);
+        c.ok(JSON.stringify(before) === JSON.stringify(after), `round ${round}: window bounds changed ${JSON.stringify(before)} -> ${JSON.stringify(after)}`);
+        c.ok(post.id === pre.id && post.articles > 0, `round ${round}: the conversation was not restored (id ${pre.id} -> ${post.id})`);
+        c.ok(fin.turns === pre.turns && fin.apiState === "completed", `round ${round}: turns ${pre.turns} -> ${fin.turns}, run ${fin.apiState}`);
+        c.ok(new RegExp(`(^|\\D)${round === "a" ? 200 : 250}(\\D|$)`).test(fin.tail) && fin.chars >= fin.apiChars - 5, `round ${round}: the final text is incomplete (UI ${fin.chars}, server ${fin.apiChars}, tail ${JSON.stringify(fin.tail)})`);
+        ctx.convs.s305 = snap.title;
+        // A short prompt after each reopen: send must work.
+        await askOn(op, `s3-05-${round}-send`, "codex", `Reply with just the word REOPEN-${round.toUpperCase()}.`, new RegExp(`REOPEN-${round.toUpperCase()}`));
+      }
+      c.done();
+    }, { lint: false });
+  },
+  "s3-06": async (op) => {
+    await op.step("s3-06", "Now: S3-06, closing and opening the app three times with nothing running, then one prompt per conversation", async () => {
+      const c = soft();
+      const names = [ctx.convs.s304, ctx.convs.s305].filter(Boolean);
+      if (names.length < 2) throw new Error("S3-06 needs the conversations of S3-04 and S3-05 in the same run");
+      await op.click(row(op, names[0].slice(0, 30)));
+      await op.until(async () => (await snapshot(op.page)).title === names[0], "the first conversation did not open", 15000);
+      await op.page.evaluate(() => { const m = document.getElementById("messages"); let e = m; while (e && e.scrollHeight <= e.clientHeight + 2) e = e.parentElement; (e || m).scrollTop = Math.round(((e || m).scrollHeight - (e || m).clientHeight) / 2); });
+      await sleep(600);
+      const start = await scrollInfo(op.page);
+      record({ scenario: "s3-06-start", title: names[0], ...start });
+      const opens = [];
+      for (let i = 1; i <= 3; i++) {
+        const before = await bounds(ctx.handle);
+        await op.caption(`Now: closing the app (${i} of 3)`);
+        await quitApp(ctx.handle);
+        await sleep(1500);
+        const started = Date.now();
+        await openApp(op.session);
+        const ms = Date.now() - started;
+        await dismissTourSoon(op);
+        const after = await bounds(ctx.handle);
+        const snap = await snapshot(op.page);
+        const sc = await scrollInfo(op.page);
+        opens.push(ms);
+        record({ scenario: "s3-06-open", n: i, open_ms: ms, bounds_before: before, bounds_after: after, title: snap.title, ...sc });
+        c.ok(JSON.stringify(before) === JSON.stringify(after), `window bounds changed on reopen ${i}`);
+        c.ok(snap.title === names[0], `reopen ${i}: the selected conversation is "${snap.title}", expected "${names[0]}"`);
+        c.ok(Math.abs(sc.top - start.top) <= 40 || (sc.bottom && start.bottom), `reopen ${i}: scroll position ${sc.top} of ${sc.max}, was ${start.top} of ${start.max}`);
+        if (snap.title !== names[0]) {
+          await op.click(row(op, names[0].slice(0, 30))).catch(() => {});
+          await sleep(800);
+        }
+      }
+      const shot = path.join(ctx.out, "shots", "s3-06-last-open.png");
+      await op.page.screenshot({ path: shot, timeout: 15000 }).catch(() => {});
+      record({ scenario: "s3-06", open_ms: opens, shot });
+      await op.click(row(op, names[0].slice(0, 30)));
+      await ask(op, "s3-06-a", "Reply with just the word ALPHA-OK.", /ALPHA-OK/);
+      await op.click(row(op, names[1].slice(0, 30)));
+      await op.until(async () => (await snapshot(op.page)).title === names[1], "the second conversation did not open", 15000);
+      await ask(op, "s3-06-b", "Reply with just the word BETA-OK.", /BETA-OK/);
+      c.done();
+    }, { lint: false });
+  },
+  "s3-07": async (op) => {
+    await op.step("s3-07", "Now: S3-07, restarting the harness from the admin, then continuing the conversation", async () => {
+      const c = soft();
+      await newChat(op);
+      await chooseModel(op, "gpt-5.6-sol");
+      await chooseEffort(op, "Medium");
+      await askOn(op, "s3-07-plant", "codex", "Remember this code word: KESTREL-6613. Reply with one short sentence confirming it.", /KESTREL-6613/);
+      const before = await runState(op);
+      const title = (await snapshot(op.page)).title;
+      const pidBefore = harnessPid();
+      await op.caption("Now: restarting the harness from the admin");
+      const t0 = Date.now();
+      const stopped = await adminApi("POST", "/api/stop", {});
+      await op.until(async () => !(await portOpen(Number(HARNESS_PORT))), "the harness did not stop", 30000);
+      const started = await adminApi("POST", "/api/start", {});
+      await op.until(() => portOpen(Number(HARNESS_PORT)), "the harness did not come back", 60000);
+      const restartMs = Date.now() - t0;
+      const pidAfter = harnessPid();
+      // The open app should reconnect on its own; if it does not, record that and reload.
+      let recovered = false;
+      try { await op.until(async () => (await op.page.evaluate(() => !document.getElementById("startup-gate") || document.getElementById("startup-gate").hidden)) && (await runState(op)).turns === before.turns, "the app did not reconnect", 30000); recovered = true; } catch {}
+      if (!recovered) {
+        await op.page.reload({ waitUntil: "domcontentloaded" }).catch(() => {});
+        await op.page.evaluate(METRICS_JS).catch(() => {});
+        await op.page.locator("#startup-gate").waitFor({ state: "hidden", timeout: 40000 });
+      }
+      await dismissTourSoon(op);
+      const back = await runState(op);
+      const shot = path.join(ctx.out, "shots", "s3-07-restarted.png");
+      await op.page.screenshot({ path: shot, timeout: 15000 }).catch(() => {});
+      record({ scenario: "s3-07-restart", stop_status: stopped.status, start_status: started.status, restart_ms: restartMs, pid_before: pidBefore, pid_after: pidAfter, app_reconnected_alone: recovered, turns_before: before.turns, turns_after: back.turns, title_before: title, title_after: (await snapshot(op.page)).title, shot });
+      c.ok(pidAfter && pidAfter !== pidBefore, `the harness pid did not change (${pidBefore} -> ${pidAfter})`);
+      c.ok(back.turns === before.turns && back.articles >= before.articles, `history changed after the restart (${before.turns} -> ${back.turns} turns)`);
+      await askOn(op, "s3-07-recall", "codex", "What code word did I give you earlier in this conversation? One short sentence.", /KESTREL-6613/);
+      const resumed = ctx.last.evidence;
+      record({ scenario: "s3-07-resume", milestones: resumed });
+      await askOn(op, "s3-07-more", "codex", "Add a second code word: SWIFT-2047. Then list both code words in one line.", /(?=[\s\S]*KESTREL-6613)(?=[\s\S]*SWIFT-2047)/);
+      const end = await runState(op);
+      c.ok(end.turns === before.turns + 2 && end.apiState === "completed", `the continued turns are ${end.turns}, last ${end.apiState}`);
+      c.done();
+    }, { lint: false });
+  },
   "s3-09": async (op) => {
     await op.step("s3-09", "Now: S3-09, DeepSeek Markdown, a table, code blocks and copy buttons", async () => {
       const c = soft();
@@ -891,6 +1065,57 @@ const SCENARIOS = {
 };
 
 // ------------------------------------------------------------------ UI helpers
+
+// Starts a long numbered reply (the tag keeps the conversation title unique for the sidebar lookups) and returns once it has streamed some text (so a reload or close lands mid-reply).
+async function startLong(op, n) {
+  await op.fill(op.page.locator("#prompt"), `Run ${Date.now().toString(36).slice(-5)}: write the numbers from 1 to ${n}, one per line, each followed by a different English word. Do not stop early and add nothing else.`);
+  const before = await submit(op);
+  await op.until(async () => (await op.page.locator("#messages").getByRole("button", { name: "View run" }).count()) > before, "the run did not start", 30000);
+  await op.until(async () => (await streamLen(op)) > 120, "the long answer never started streaming", 90000);
+}
+
+// The open conversation as the page and the server hold it, for the reload and reopen checks.
+async function runState(op) {
+  return op.page.evaluate(async () => {
+    let d = await (await fetch("/v1/conversations/" + encodeURIComponent(conversation))).json();
+    if (!d.turns) { await new Promise((r) => setTimeout(r, 2500)); d = await (await fetch("/v1/conversations/" + encodeURIComponent(conversation))).json(); } // a 429 answer has no turns
+    const last = d.turns[d.turns.length - 1] || {};
+    const arts = [...document.querySelectorAll("#messages article.assistant")];
+    const text = arts.length ? arts[arts.length - 1].querySelector(":scope > .text")?.innerText || "" : "";
+    const api = last.result?.answer ?? last.result?.partial_answer ?? "";
+    return {
+      id: conversation, turns: d.turns.length, users: document.querySelectorAll("#messages article.user").length,
+      articles: document.querySelectorAll("#messages article").length, state: document.getElementById("conversation-state-pill")?.dataset.state || "",
+      apiState: last.state, chars: text.length, apiChars: api.length, tail: text.trim().slice(-40),
+    };
+  });
+}
+
+// Waits until the newest run has left running and queued, as the server and the pill both say.
+async function settle(op, timeout) {
+  const end = Date.now() + timeout;
+  for (;;) {
+    const s = await runState(op);
+    if (!["running", "queued"].includes(s.apiState || "") && !["running", "queued"].includes(s.state)) break;
+    if (Date.now() > end) throw new Error("the run did not settle in time");
+    await sleep(2000); // slow poll: the harness answers 429 to a tight loop on /v1/conversations/:id
+  }
+  await sleep(800);
+}
+
+// Scroll state of the messages area (the first scrollable ancestor of #messages).
+const scrollInfo = (page) => page.evaluate(() => {
+  let e = document.getElementById("messages");
+  while (e && e.scrollHeight <= e.clientHeight + 2) e = e.parentElement;
+  if (!e) return { top: 0, max: 0, bottom: true };
+  const max = e.scrollHeight - e.clientHeight;
+  return { top: Math.round(e.scrollTop), max, bottom: max - e.scrollTop < 4 };
+});
+
+// Whether the instance is alive while the app is closed (ports only; the harness answers on its port).
+async function instanceState() {
+  return { admin: await portOpen(Number(ADMIN_PORT)), harness: await portOpen(Number(HARNESS_PORT)) };
+}
 
 async function chooseEffort(op, label) {
   await op.click(op.page.locator("#effort-trigger"));
@@ -1473,7 +1698,7 @@ async function main() {
   const { Report } = require("../lib/report.cjs");
   const out = path.join(paths.runs, slice);
   fs.mkdirSync(path.join(out, "shots"), { recursive: true });
-  ctx = { home: paths.home, tmp: fs.mkdtempSync(path.join(os.tmpdir(), "claude-kh-")), out, samples: [], lines: [], turns: 0, electronPid: 0 };
+  ctx = { home: paths.home, tmp: fs.mkdtempSync(path.join(os.tmpdir(), "claude-kh-")), out, samples: [], lines: [], turns: 0, electronPid: 0, convs: {} };
   const stopSampler = startSampler();
   const session = { page: null, target: "desktop", base: harnessUrl, close: async () => ctx.handle && quitApp(ctx.handle) };
   let op = null;

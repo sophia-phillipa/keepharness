@@ -330,6 +330,51 @@ Checks that passed:
 
 **Notes**: no new defect was found, so the Bugs index is unchanged (C-01, C-03 to C-06 are known and were not re-filed). Metrics: `~/.cache/kho/chat/runs/s3a/metrics.jsonl`. Screenshots: `~/.cache/kho/chat/runs/s3a/shots/` (`s3-00-models.png` shows the model picker with the DeepSeek group and no key; the Settings > Providers screen was not captured).
 
+### Round 6 (slice 3b), 2026-10-05
+
+- **Slice**: 3, part b, reload, close and reopen, harness restart (S3-04 to S3-07)
+- **Provider, model, effort**: Codex `gpt-5.6-sol`, Medium
+- **Scenarios**: S3-04, S3-05, S3-06, S3-07 (run visibly)
+- **Results**: S3-04 PASS, S3-05 PASS, S3-06 FAIL (one check: scroll position, see C-07), S3-07 PASS; 12 of 12 prompts spent (S3-04 3, S3-05 4, S3-06 2, S3-07 3). No quota, credit or rate-limit text from the provider. One new bug: C-07.
+- **Environment**: desktop 0.16.0, instance on 18640/18641. The slice ran in two passes because the first one polled `/v1/conversations/:id` in a tight loop and the harness answered HTTP 429 to the operator (not a provider limit): S3-04 crashed on that answer after its first prompt (that prompt's result was lost, so S3-04 was rerun with 2 prompts and its "short follow-up after reload" prompt dropped; the early-reload prompt covers "send works after a reload"), S3-05 ran round a (2 prompts) and aborted on a check race, S3-07 passed in full. The second pass ran S3-04 (2), S3-05 round b (2, `CHAT_S305_ROUNDS=b`) and S3-06 (2) with a 2 s poll. Evidence of both passes: `~/.cache/kho/chat/runs/s3b/` (first pass copied to `run1/`).
+
+| Turn | Scenario | TTFT (ms) | Total (ms) | Input-to-paint median (ms) | Electron RSS (MB) | Harness RSS (MB) |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | S3-05 round a, send after reopen | 10595 | 11902 | 13.2 | 832 | 274 |
+| 2 | S3-07 plant KESTREL | 5442 | 7271 | 12.6 | 821 | 250 |
+| 3 | S3-07 recall after restart | 8619 | 9930 | 19.0 | 813 | 259 |
+| 4 | S3-07 second word | 3605 | 5421 | 14.6 | 815 | 253 |
+| 5 | S3-05 round b, send after reopen | 5615 | 6429 | 14.8 | 828 | 251 |
+| 6 | S3-06 prompt, conversation A | 7617 | 8937 | 19.2 | 829 | 274 |
+| 7 | S3-06 prompt, conversation B | 6612 | 7936 | 18.2 | 832 | 264 |
+
+The three long numbered replies and the early-reload reply are not in the table (they were not timed as turns).
+
+| Metric | Value | Note |
+| --- | --- | --- |
+| Median TTFT (s) | 6.6 | 7 short turns; range 3.6 to 10.6 |
+| Median total reply time (s) | 7.9 | same 7 turns |
+| Input-to-paint latency (ms) | 14.8 median | 12.6 to 19.2 |
+| Electron RSS / CPU | 813-832 MB, 23-46% | CPU is the average over the turn |
+| Harness RSS / CPU | 250-274 MB, 3-5% | |
+| App open / reopen (s) | open 1.2; reopen 1.0 (S3-05 a, b), 1.3, 1.1, 1.1 (S3-06) | reopen = relaunch to a usable window, backend already running |
+| Window bounds before / after | x 240, y 68, 1440x900 both before and after, on all 5 reopens | restored exactly |
+
+- **S3-04 reload mid-reply**: PASS. The page reloaded in 521 ms with the stream live (135 characters at the reload, pill "running"); the same conversation came back with its 2 messages, the stream continued to the end (3371 characters in the page and on the server, last line `300 nutshell`, run `completed`), and the server still held exactly 1 turn (no duplicate). Early reload (right after pressing send, before any text): exactly one more turn, run `completed`, answer `EARLY-OK`. Screenshot `~/.cache/kho/chat/runs/s3b/shots/s3-04-reload-a.png`.
+- **S3-05 close mid-reply**: PASS in both rounds. The app was closed with 129 and 139 characters streamed; while it was closed, the admin and the harness ports stayed open (attach mode); after the reopen (about 1.0 s) the same conversation was selected with its messages, the pill read "running" and the stream finished: 2186 characters (round a, last line `200 snowflake`) and 2863 characters (round b, last line `250 ...`), page equal to server, 1 turn each, `completed`. Window bounds identical before and after. A short prompt after each reopen answered (REOPEN-A, REOPEN-B). Note: in round a the stock wait helper saw the header pill "Completed" while the new reply still showed "Working..." and the partial text `REOPEN-` (the check then failed on a race); the same turn ended `Completed` with `REOPEN-A` a moment later and round b did not repeat it. Treated as a helper race, not filed.
+- **S3-06 idle close and reopen x3**: the three reopens took 1.34, 1.07 and 1.07 s; window bounds identical; the selected conversation (the 300-line one) was restored each time. FAIL on one check: the scroll position was not restored. The conversation was scrolled to the middle (3323 of 6547 px) before closing; after every reopen it sat at the top (0 of 6547), see C-07. Send worked in both conversations after the third reopen (ALPHA-OK in the first, BETA-OK in a second one picked from the sidebar). Screenshot `~/.cache/kho/chat/runs/s3b/shots/s3-06-last-open.png`.
+- **S3-07 harness restart from the admin**: PASS. `POST /api/stop` then `/api/start` on the admin: the harness came back with a new pid (1769112 to 1776872) in 1.9 s; the open app reconnected on its own (no reload needed), with the same conversation and the same 1 turn. The follow-up recalled `KESTREL-6613` and the next turn listed both words (`KESTREL-6613`, `SWIFT-2047`); the second run shows the milestones "Conversation context resumed | Preparing the run", so the Codex session resumed; the server held 3 completed turns. No error message appeared. Screenshot `~/.cache/kho/chat/runs/s3b/shots/s3-07-restarted.png`.
+
+**Bugs**
+
+- **C-07, scroll position is not restored on reopen (opens at the top)**
+  - Steps: open a long conversation (300 numbered lines, 6547 px of content), scroll to the middle (3323 px), close the app, open it again. Repeat three times.
+  - Expected: the same conversation is selected and its scroll position is kept (or it opens at the newest message).
+  - Actual: the conversation is selected but the view sits at the very top (scrollTop 0) every time, far from the newest message.
+  - Screenshot: `~/.cache/kho/chat/runs/s3b/shots/s3-06-last-open.png`; numbers in `~/.cache/kho/chat/runs/s3b/metrics.jsonl` (`s3-06-start`, `s3-06-open`).
+
+**Notes**: C-01, C-03 to C-06 were not re-filed. Operator lesson: poll `/v1/conversations/:id` no faster than every 2 s; the harness rate-limits tight polling with 429.
+
 ## Bugs index
 
 | Id | Severity | Title | Status | Fix commit |
@@ -340,6 +385,7 @@ Checks that passed:
 | C-04 | nit | Grey block cuts the right edge of the active sidebar row | open (reproduced in round 2) | |
 | C-05 | nit | Header pill reads "Queued" for the live run while follow-ups are queued | open (reproduced in round 4) | |
 | C-06 | minor | Auto-scroll detaches during a fast long stream and does not resume at the bottom | open | |
+| C-07 | minor | Scroll position is not restored on reopen: the selected conversation opens at the top | open | |
 
 ## Cross-round comparison
 
@@ -351,3 +397,4 @@ Checks that passed:
 | 2a | Codex Sol Medium + Luna | 5.1 | 5.9 | Electron ~740-760 (~790 with two streams), harness ~250-305 (~480 with two streams) |
 | 2b | Codex Sol Medium + Luna | 4.6 | 6.2 | Electron ~760-800, harness ~242-261 |
 | 3a | DeepSeek Flash (12 turns) vs Codex Sol Medium (6 turns) | 2.6 vs 4.7 | 2.7 vs 6.7 | Electron ~759-804, harness ~240-303 |
+| 3b | Codex Sol Medium (7 short turns) | 6.6 | 7.9 | Electron ~813-832, harness ~250-274 |
