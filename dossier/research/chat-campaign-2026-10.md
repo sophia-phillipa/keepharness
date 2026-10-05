@@ -409,6 +409,41 @@ Turns 2 to 8, 11 to 14, 16 and 17 (3 fact turns and short filler turns) are in `
 
 **Notes**: filler turns were one-word replies, so the conversation is long in turns but small in tokens; it does not exercise the context budget. A heavier variant (long filler replies) would be needed to reach `source_context_limit`.
 
+### Round 8 (slice 4b), 2026-10-05
+
+- **Slice**: 4, part b (S4-02 to S4-08): conversation management, provider offline, restart, keyboard, window sizes, themes, background streaming
+- **Provider, model, effort**: Codex `gpt-5.6-sol`, Medium (S4-03 also toggled the Codex service off and on, test instance only)
+- **Scenarios**: S4-02 to S4-08 (run visibly)
+- **Results**: S4-02 PASS, S4-03 PASS, S4-04 FAIL (check/design assumption, see below), S4-05 FAIL (harness check), S4-06 PASS, S4-07 FAIL (harness check), S4-08 FAIL (suspected app defect C-08). 11 prompts reached the provider (10 numbered turns plus the S4-04 stream before the restart attempt); the S4-03 send while Codex was off was refused locally; budget 12, so no scenario was rerun. No quota, credit or rate-limit text from the provider.
+- **Environment**: desktop 0.16.0, instance on 18640/18641, polling at 2 s or slower (no 429). Evidence: `~/.cache/kho/chat/runs/s4b/` (`metrics.jsonl`, `summary.md`, `shots/`).
+
+| Turn | Scenario | TTFT (ms) | Total (ms) | Input-to-paint median / p95 (ms) | Electron RSS (MB) | Harness RSS (MB) |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | s4-02 keep | 3862 | 5187 | 15.7 / 31.1 | 800.1 | 251.1 |
+| 2 | s4-02 drop | 5847 | 7422 | 13.2 / 24.2 | 804.7 | 240.6 |
+| 3 | s4-03 resend | 4625 | 7217 | 21.9 / 31.6 | 793.9 | 250.9 |
+| 4 | s4-04 retry (150 lines) | 4877 | 29214 | 15.0 / 32.8 | 810.8 | 271.6 |
+| 7 | s4-06 narrow (480 px request) | 7110 | 16553 | 14.6 / 31.6 | 875.4 | 284.0 |
+| 8 | s4-06 wide (1900 px) | 4872 | 15819 | 17.4 / 31.7 | 879.0 | 319.0 |
+| 9 | s4-08 BRAVO | n/a | 7537 | 25.6 / 32.4 | 821.3 | 487.9 |
+
+Turns 5, 6 (S4-05 send and Stop) and 10 (S4-08 ALPHA, 82.7 s, 150 lines streamed in the background) are in `metrics.jsonl`. Harness RSS reached about 488 MB with two conversations active.
+
+- **S4-02 rename, archive, unarchive, delete**: PASS. Rename showed in header, row and API; archive showed the note "Conversation archived. Find it in Settings > Archived chats." and the chat was listed there; unarchive restored it with its single turn intact; permanent delete asked for confirmation and then returned 404 for the conversation and its job.
+- **S4-03 provider offline**: PASS. With Codex disabled in the test admin the send was refused with "Couldn't run: This provider is not available right now. Choose another model." and no turn was added (parity gap: no Retry or "enable provider" action on that message; the header pill kept the previous "Completed", see Notes). After re-enabling, the resend ran and the history held exactly 2 turns. Settings were restored (Codex enabled, models sol and luna, verified through the test admin at the end).
+- **S4-04 restart during a stream**: FAIL on the first part. The scenario assumed the admin stop would end the harness mid-stream, but the admin harness stop (`control/manager.py`, `stop`) refuses while work is running ("There are tasks queued or running. Cancel or wait before stopping."); the harness kept its pid (1939221), the stream completed (1522 characters, server state `completed`) and the page showed "Running" until it finished. This is protective by design, not an app bug; the scenario needs a hard kill of the harness pid (or Cancel first) to simulate a crash. The retry part passed: the same prompt added exactly one turn (1 to 2, 2 users) and ended at line 150.
+- **S4-05 keyboard flow**: FAIL on one check (harness): the composer, Shift+Enter (no send), model trigger with visible focus, picker open/arrows/Escape back to the trigger, the slash palette (opens on "/", arrows move, Escape closes and keeps the composer) and Tab to "Cancel run" then Stop (stopped at 964 characters) all worked. Only "return to the conversation by keyboard" failed: the helper started from the row just opened instead of the composer. Fixed in the area file (focus the composer first); not rerun.
+- **S4-06 narrow and wide windows**: PASS. The window request of 480 px wide was clamped by the app minimum to 960 px; no horizontal page spill at either size, the composer and send button stayed visible, code blocks and tables scroll inside their own wrapper, the files panel opened and closed at both sizes, and the sidebar is hidden at 1900 px wide (width 0) and 300 px at 960 px. Window bounds restored to 1440x900 at (240, 68).
+- **S4-07 themes**: FAIL on one check, harness: the contrast probe read `color(srgb ...)` channels (0 to 1) as 0 to 255, so the light composer looked like 1.2:1. From the evidence the real values pass (text 17.4, heading 5.6, code 16.53, sidebar 16.53 in light; 13.84, 9.71, 14.35, 14.35 in dark, composer 16.34 in dark). The probe is fixed in the area file; not rerun (needs the S4-06 reply on screen). Dark theme persisted across reload; the original theme was restored.
+- **S4-08 background streaming**: FAIL (C-08). While ALPHA (150 lines) streamed, the other conversation answered BRAVO correctly with no text crossing; the ALPHA row showed "In progress" for 52 s; when ALPHA finished the row dot went blank and never showed "Unread response" (dots log in `metrics.jsonl`). ALPHA itself was complete (150 lines, 1 turn, `completed`).
+
+**Bugs**
+- **C-08, a chat that finishes in the background shows no "Unread response" dot**: steps: start a long reply in chat A, open another chat B and stay there until A finishes. Expected: A's row switches from "In progress" to "Unread response" until opened (`observeConversation` in `agent_service/ui.js`). Actual: the dot just disappears. Not reproduced twice; root cause not confirmed. Evidence: `~/.cache/kho/chat/runs/s4b/metrics.jsonl` (`s4-08-alpha`), `shots/s4-08-background-finished.png`.
+
+**Parity gaps**: no Retry button on the failed provider-offline message (S4-03); no way to stop the harness from the admin panel while a run is active other than cancelling it (by design).
+
+**Notes**: when Codex was off, the header pill stayed "Completed" next to the "Couldn't run" status (confusing but not filed; same family as C-05). S4-04 first part, S4-05 return step, S4-07 and S4-08 need a rerun with fresh budget (about 2 + 2 + 0 + 2 prompts; S4-07 also needs S4-06 first).
+
 ## Bugs index
 
 | Id | Severity | Title | Status | Fix commit |
@@ -420,6 +455,7 @@ Turns 2 to 8, 11 to 14, 16 and 17 (3 fact turns and short filler turns) are in `
 | C-05 | nit | Header pill reads "Queued" for the live run while follow-ups are queued | open (reproduced in round 4) | |
 | C-06 | minor | Auto-scroll detaches during a fast long stream and does not resume at the bottom | open | |
 | C-07 | minor | Scroll position is not restored on reopen: the selected conversation opens at the top | open | |
+| C-08 | minor | A chat that finishes in the background never shows the "Unread response" dot (the dot just disappears); not yet reproduced a second time | open | |
 
 ## Cross-round comparison
 
@@ -433,3 +469,4 @@ Turns 2 to 8, 11 to 14, 16 and 17 (3 fact turns and short filler turns) are in `
 | 3a | DeepSeek Flash (12 turns) vs Codex Sol Medium (6 turns) | 2.6 vs 4.7 | 2.7 vs 6.7 | Electron ~759-804, harness ~240-303 |
 | 3b | Codex Sol Medium (7 short turns) | 6.6 | 7.9 | Electron ~813-832, harness ~250-274 |
 | 4a | Codex Luna Medium (18 short turns) | 3.6 | 5.3 | Electron ~798-853, harness ~245-260 |
+| 4b | Codex Sol Medium (10 turns, mixed) | 4.9 | 7.4 | Electron ~794-879, harness ~241-488 (two active chats) |
