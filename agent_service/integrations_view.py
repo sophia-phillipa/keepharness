@@ -16,6 +16,7 @@ from adapters.shared.provider_setup import CONFIG_FOLDERS
 from control.integrations import inventory
 
 from . import approval_policy, maestro
+from .config import EXECUTION_MODES
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,9 @@ PERSONAL_SETUP_OFF = (
 # plugins bring their tools as apps, so those plugins never load in a run.
 REMOTE_PLUGIN = "Remote ChatGPT plugins bring their tools as Codex apps, which harness runs turn off."
 APPS_OFF_BACKENDS = frozenset({"codex", "deepseek"})
+# control.integrations.inventory() hands these backends the Codex lists: one inventory, not two.
+SHARED_INVENTORY = {"deepseek": "codex", "local": "codex"}
+ELSEWHERE_LIMIT = 50
 
 
 def app_based(item: Item, backend: str) -> bool:
@@ -119,13 +123,31 @@ def with_plugin_catalog(config: Settings, backend: str, installed: list[Item]) -
     return [item for item in installed if item.get("kind") != "plugin"] + plugins
 
 
-def read_inventory(config: Settings, backend: str) -> tuple[list[Item], list[str]]:
-    """The provider's installed connectors then plugins, as ``(items, warnings)``."""
+def read_catalog() -> dict[str, list[Item]] | None:
+    """Every provider's installed items, read once per view; ``None`` when unreadable."""
     try:
-        installed = inventory().get(backend, [])
+        return inventory()
     except Exception as error:  # a hand-edited CLI profile must not fail the view
         logger.warning("Connector inventory unreadable: %s", type(error).__name__)
+        return None
+
+
+def load_items(
+    config: Settings, backend: str, catalog: dict[str, list[Item]] | None
+) -> tuple[list[Item], list[str]]:
+    """The backend's installed items; harness-owned homes see host connectors only by opt-in (D01)."""
+    if backend in CONFIG_FOLDERS and config.get("personal_setup") is not True:
+        return [], [PERSONAL_SETUP_OFF]
+    return read_inventory(config, backend, catalog)
+
+
+def read_inventory(
+    config: Settings, backend: str, catalog: dict[str, list[Item]] | None
+) -> tuple[list[Item], list[str]]:
+    """The provider's installed connectors then plugins, as ``(items, warnings)``."""
+    if catalog is None:
         return [], [INVENTORY_UNREADABLE]
+    installed = catalog.get(backend, [])
     items = [
         {key: item.get(key) for key in PUBLIC_KEYS}
         for item in with_plugin_catalog(config, backend, installed)
@@ -187,13 +209,67 @@ def attribute_usage(
     return used, other[:OTHER_TOOLS_LIMIT]
 
 
-def build(config: Settings, route: Route, usage_rows: Sequence[sqlite3.Row]) -> Item:
-    """The ``/v1/integrations`` response for one route; ``usage_rows`` come from the repository."""
-    # These run in a harness-owned home: host connectors only through the owner's opt-in (D01).
-    if route.backend in CONFIG_FOLDERS and config.get("personal_setup") is not True:
-        items, warnings = [], [PERSONAL_SETUP_OFF]
-    else:
-        items, warnings = read_inventory(config, route.backend)
+def family_key(item: Item) -> str:
+    """The connector's name without kind prefix or marketplace, so one tool matches across providers."""
+    name = str(item.get("name") or item.get("id") or "").lower()
+    name = re.sub(r"^(?:mcp|plugin):", "", name).split("@")[0]
+    return re.sub(r"[_ ]", "-", name)
+
+
+def connected_elsewhere(
+    config: Settings,
+    route: Route,
+    here: list[Item],
+    providers: Sequence[str],
+    catalog: dict[str, list[Item]] | None,
+) -> list[Item]:
+    """Tools another enabled provider has allowed that this route's provider lacks or has not allowed."""
+    on_route: dict[str, bool] = {}  # family -> allowed on this route's provider
+    for item in here:
+        key = family_key(item)
+        on_route[key] = on_route.get(key, False) or item["allowed"]
+    own_inventory = SHARED_INVENTORY.get(route.backend, route.backend)
+    found: dict[str, list[Item]] = {}
+    for backend in dict.fromkeys(providers):
+        if SHARED_INVENTORY.get(backend, backend) == own_inventory:
+            continue
+        if EXECUTION_MODES.get(backend) == ("scoped",):
+            continue  # scoped-only runs never use host connectors, whatever the inventory holds
+        allowed = set(config.get("services", {}).get(backend, {}).get("integrations", []))
+        seen: dict[str, list[bool]] = {}  # family -> [allowed, effective_capable]
+        for item in load_items(config, backend, catalog)[0]:
+            ok = item["id"] in allowed
+            flags = seen.setdefault(family_key(item), [False, False])
+            flags[0] |= ok
+            flags[1] |= ok and not app_based(item, backend)
+        for key, (ok, capable) in seen.items():
+            found.setdefault(key, []).append(
+                {"backend": backend, "allowed": ok, "effective_capable": capable}
+            )
+    return [
+        {
+            "key": key,
+            "label": key.replace("-", " ").title(),
+            "here": "enable" if key in on_route else "absent",
+            "providers": found[key],
+        }
+        for key in sorted(found)
+        if not on_route.get(key) and any(p["allowed"] for p in found[key])
+    ][:ELSEWHERE_LIMIT]
+
+
+def build(
+    config: Settings,
+    route: Route,
+    usage_rows: Sequence[sqlite3.Row],
+    providers: Sequence[str] = (),
+) -> Item:
+    """The ``/v1/integrations`` response for one route; ``usage_rows`` come from the repository.
+
+    ``providers`` are the backends the owner may use for this project, for the tools connected on a provider other than this one.
+    """
+    catalog = read_catalog()
+    items, warnings = load_items(config, route.backend, catalog)
     allowed = set(config.get("services", {}).get(route.backend, {}).get("integrations", []))
     limits = route_limits(config, route)
     used, other_tools = attribute_usage(items, usage_rows)
@@ -211,6 +287,7 @@ def build(config: Settings, route: Route, usage_rows: Sequence[sqlite3.Row]) -> 
         "effective_note": limits.note,
         "items": items,
         "other_tools": other_tools,
+        "elsewhere": connected_elsewhere(config, route, items, providers, catalog),
         "window_days": WINDOW_DAYS,
         "warnings": warnings,
     }

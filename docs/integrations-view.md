@@ -39,6 +39,8 @@ validated the same way; `access_mode` is one of `ask` (default), `auto`, `full`,
     }
   ],
   "other_tools": [{"name": "exec_command", "count": 12, "last_used": 1791000000.0}],
+  "elsewhere": [{"key": "github", "label": "Github", "here": "enable",
+                 "providers": [{"backend": "codex", "allowed": true, "effective_capable": true}]}],
   "window_days": 30,
   "warnings": []
 }
@@ -67,6 +69,12 @@ validated the same way; `access_mode` is one of `ask` (default), `auto`, `full`,
   `auto` (project-bounded since D11) ask for every connector call; they run them without asking
   when the adapter is unrestricted, the access mode is `full` and the shell is granted; the
   isolated sentence for isolated routes; otherwise empty.
+- `elsewhere` lists tools (matched by `key`: name without `mcp:`/`plugin:` prefix and
+  `@marketplace`, lowercase, `_`/space as `-`) that another provider the project may use (enabled, project and models granted) has installed and
+  allowed while this provider has them installed but not allowed (`here: "enable"`) or not
+  installed (`here: "absent"`). Providers sharing one inventory (Codex, DeepSeek) are not
+  "elsewhere" for each other, and the scoped-only `local` provider is never a source. Only the
+  owner gets entries (guests get `[]`). Up to 50 entries; computed even when the route is blocked.
 - `used` and `other_tools` count `tool_start` events of this provider's runs by the
   caller in this project over the last `window_days`. Claude names tools
   `mcp__<server>__<tool>`, so those are attributed to `mcp:<server>` (count, latest

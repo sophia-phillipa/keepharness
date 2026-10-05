@@ -87,6 +87,17 @@ def as_dict(value):
     return value if isinstance(value, dict) else {}
 
 
+def redact_strings(value):
+    """``value`` with the handoff redaction applied to every string inside it."""
+    if isinstance(value, str):
+        return conversation_context.redact_for_handoff(value)
+    if isinstance(value, dict):
+        return {key: redact_strings(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [redact_strings(item) for item in value]
+    return value
+
+
 def with_sources(prompt, context):
     """Append the source block only when there are sources; models echo an empty one."""
     return prompt if context in ("", "[]") else prompt + "\nSOURCES:\n" + context
@@ -931,6 +942,43 @@ class ConversationService:
             for payload, result in history
         ]
 
+    def continuation(self, identity, cid, target, include_paths=True):
+        """A redacted handoff text for another assistant; reads only, calls no provider."""
+        if target not in conversation_context.CONTINUATION_TARGETS:
+            raise APIError("invalid_continuation_target", 400)
+        rows = self.conversation(identity, cid)
+        self.vault.status()  # re-registers every stored secret so redaction survives a restart
+        turns = [
+            (
+                {**json.loads(r["payload"]), "_job_id": r["id"], "_state": r["state"]},
+                json.loads(r["result"] or "{}"),
+            )
+            for r in rows
+        ]
+        history = conversation_context.portable_history(self.db, turns)
+        by_job = {r["id"]: r for r in rows}
+        for record in history:
+            row = by_job[record["job_id"]]
+            record["attachments"] = [
+                found["name"]
+                for fid in json.loads(row["payload"]).get("file_ids", [])
+                if (found := self.message_repository.file(fid, row["project"], row["owner"]))
+            ]
+            record["pending_approvals"] = sum(
+                gate["state"] == "pending" for gate in self.gates.repository.for_job(row["id"])
+            )
+        spec = self.project(identity, rows[-1]["project"])
+        project = {
+            "name": spec.get("label", rows[-1]["project"]),
+            "paths": [p for p in (spec.get("root"), *spec.get("additional_roots", [])) if p]
+            if include_paths
+            else [],
+        }
+        # Redact the inputs, not the capped text: a cut could otherwise leave a token fragment.
+        return conversation_context.continuation_prompt(
+            redact_strings(history), redact_strings(project), target
+        )
+
     def resolve_execution(self, data):
         data = dict(data)
         try:
@@ -1062,7 +1110,16 @@ class ConversationService:
             access_mode,
             owner=identity[0] == harness_agents.LOCAL_CLIENT,
         )
-        return integrations_view.build(self.config, route, usage)
+        # Only the owner may learn what other providers hold, and only those the project may use.
+        eligible = [
+            name
+            for name, policy in self.config.get("services", {}).items()
+            if route.owner
+            and policy.get("enabled")
+            and project_id in policy.get("projects", [])
+            and policy.get("models")
+        ]
+        return integrations_view.build(self.config, route, usage, eligible)
 
     def resource_catalog(
         self, identity, project_id, backend, model, execution_mode=None, access_mode=None

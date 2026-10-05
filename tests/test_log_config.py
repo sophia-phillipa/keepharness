@@ -65,6 +65,10 @@ def test_redact_masks_secrets(text, secret):
     assert "[redacted]" in masked
 
 
+def test_redact_masks_a_url_password_containing_an_at_sign():
+    assert redact("clone https://user:p@ss@host/x") == "clone https://[redacted]@host/x"
+
+
 def test_filter_masks_arguments_and_tracebacks():
     try:
         raise RuntimeError("Bearer leaked-token")
