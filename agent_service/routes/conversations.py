@@ -268,6 +268,18 @@ async def history(request, service, identity):
     )
 
 
+async def continuation(request, service, identity):
+    """A handoff text to paste into another assistant: ``?target=claude|chatgpt``."""
+    return JSONResponse(
+        service.continuation(
+            identity,
+            request.path_params["conversation"],
+            request.query_params.get("target", ""),
+            include_paths=request.query_params.get("include_paths") != "0",
+        )
+    )
+
+
 async def assess(request, service, identity):
     return JSONResponse(service.assess(identity, await body(request)))
 
@@ -459,6 +471,7 @@ ROUTES = [
     api_route("/v1/approvals/{approval}", approval, methods=["POST"]),
     api_route("/v1/approval-rules", approval_rules, methods=["POST"]),
     api_route("/v1/conversations", conversations),
+    api_route("/v1/conversations/{conversation}/continuation", continuation),
     api_route("/v1/conversations/{conversation}", conversation, methods=["GET", "DELETE", "PATCH"]),
     api_route("/v1/history", history),
     api_route("/v1/storage", storage),

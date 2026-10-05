@@ -31,6 +31,7 @@ from .. import (
     harness_agents,
     integrations_view,
     invocations,
+    log_config,
     maestro,
     resources,
     tools,
@@ -85,6 +86,17 @@ SERVE_REFUSAL_LOG_SECONDS = 60
 def as_dict(value):
     """``value`` when it is an object, else ``{}``: a server's JSON has the shape it chooses."""
     return value if isinstance(value, dict) else {}
+
+
+def redact_strings(value):
+    """``value`` with ``log_config.redact`` applied to every string inside it."""
+    if isinstance(value, str):
+        return log_config.redact(value)
+    if isinstance(value, dict):
+        return {key: redact_strings(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [redact_strings(item) for item in value]
+    return value
 
 
 def with_sources(prompt, context):
@@ -930,6 +942,38 @@ class ConversationService:
             )
             for payload, result in history
         ]
+
+    def continuation(self, identity, cid, target, include_paths=True):
+        """A redacted handoff text for another assistant; reads only, calls no provider."""
+        rows = self.conversation(identity, cid)
+        if target not in conversation_context.CONTINUATION_TARGETS:
+            raise APIError("invalid_continuation_target", 400)
+        turns = [
+            (
+                {**json.loads(r["payload"]), "_job_id": r["id"], "_state": r["state"]},
+                json.loads(r["result"] or "{}"),
+            )
+            for r in rows
+        ]
+        history = conversation_context.portable_history(self.db, turns)
+        by_job = {r["id"]: r for r in rows}
+        for record in history:
+            row = by_job[record["job_id"]]
+            record["attachments"] = [a["name"] for a in self.message_attachments(row)]
+            record["pending_approvals"] = sum(
+                gate["state"] == "pending" for gate in self.gates.repository.for_job(row["id"])
+            )
+        spec = self.project(identity, rows[-1]["project"])
+        project = {
+            "name": spec.get("label", rows[-1]["project"]),
+            "paths": [p for p in (spec.get("root"), *spec.get("additional_roots", [])) if p]
+            if include_paths
+            else [],
+        }
+        # Redact the inputs, not the capped text: a cut could otherwise leave a token fragment.
+        return conversation_context.continuation_prompt(
+            redact_strings(history), redact_strings(project), target
+        )
 
     def resolve_execution(self, data):
         data = dict(data)

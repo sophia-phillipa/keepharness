@@ -23,6 +23,8 @@ REDACTIONS = (
     (re.compile(r"\b(harness_token|admin)=[^\s;,\"']+"), r"\1=[redacted]"),
     (re.compile(r"(\"token\"\s*:\s*\")[^\"]*(\")"), r"\1[redacted]\2"),
     (re.compile(r"\bsk-[A-Za-z0-9_\-]+"), "sk-[redacted]"),
+    (re.compile(r"\b(?:gh[pousr]_|github_pat_)[A-Za-z0-9_]{16,}"), "gh-[redacted]"),
+    (re.compile(r"(://)[^\s/@:]+:[^\s/@]*@"), r"\1[redacted]@"),
 )
 
 
