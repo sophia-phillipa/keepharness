@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 
 from adapters.shared.process import process_diagnostics, provider_message
+from agent_service.tool_metadata import tool_target
 from agent_service.tools import ToolError
 from control.product import PRODUCT
 
@@ -83,8 +84,8 @@ async def run(
 class AcpStream:
     """Map ACP session/update notifications to the harness event stream."""
 
-    def __init__(self, event):
-        self.event, self.answer, self.thinking = event, "", ""
+    def __init__(self, event, root=None):
+        self.event, self.answer, self.thinking, self.root = event, "", "", root
         self.first, self.started = None, time.monotonic()
         self.suppressed = False
 
@@ -130,6 +131,14 @@ class AcpStream:
             }
             if isinstance(update.get("toolCallId"), str):
                 metadata["tool_id"] = update["toolCallId"]
+            raw, places = update.get("rawInput"), update.get("locations")
+            first = places[0] if isinstance(places, list) and places else None
+            args = {
+                "path": first.get("path") if isinstance(first, dict) else None,
+                **(raw if isinstance(raw, dict) else {}),
+            }
+            if found := tool_target(metadata["tool"], args, self.root):
+                metadata["target"] = found
             self.event(
                 "tool_start"
                 if kind == "tool_call" and update.get("status") == "in_progress"
@@ -257,7 +266,7 @@ async def run_acp(
         start_new_session=True,
         env=environment,
     )
-    state, marker = AcpStream(event), Path(home) / "gemini-session.json"
+    state, marker = AcpStream(event, cwd), Path(home) / "gemini-session.json"
     rpc = AcpConnection(proc, state, approve, permissions, access_mode)
     rpc.mcp_selected = bool(config.get("integrations")) and access_mode != "read_only"
     event("planning", {"backend": "gemini", "model": model, "effort": "configured"})

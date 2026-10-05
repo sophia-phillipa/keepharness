@@ -10,7 +10,7 @@ from adapters.shared.scoped import (
     scoped_home_read,
     scoped_home_write,
 )
-from agent_service.tool_metadata import event_metadata
+from agent_service.tool_metadata import event_metadata, item_target
 from agent_service.tools import ToolError
 
 from .rpc import connection, execution_failed, provider_message, sync_title, usage_delta
@@ -155,6 +155,8 @@ async def run(
                     typ = content.get("type", "")
                     if typ == "mcpToolCall":
                         metadata = event_metadata(content)
+                        if kind.endswith("started") and (found := item_target(content)):
+                            metadata["target"] = found
                         event(
                             "tool_start" if kind.endswith("started") else "tool_end",
                             {

@@ -11,7 +11,7 @@ from adapters.shared.process import (
     process_diagnostics,
     provider_message,
 )
-from agent_service.tool_metadata import command_name
+from agent_service.tool_metadata import command_name, tool_target
 from agent_service.tools import ToolError
 
 # The error kinds Claude Code puts on an assistant message, as the harness code the worker maps
@@ -88,7 +88,8 @@ def rate_limit_update(item):
 
 
 class Stream:
-    def __init__(self, event, config=None):
+    def __init__(self, event, config=None, root=None):
+        self.root = root
         self.watchdog = IdleWatchdog(config)
         self.parent_tool_use_id = None
 
@@ -118,6 +119,7 @@ class Stream:
             # Keep only known codes, never credential-bearing provider text.
             error = item.get("error")
             self.provider_error = PROVIDER_ERRORS.get(error) if isinstance(error, str) else None
+            self.add_targets(item.get("message", {}).get("content"))
         elif kind == "rate_limit_event":
             update = rate_limit_update(item)
             if update:
@@ -140,6 +142,8 @@ class Stream:
                     name = command_name(block["input"].get("command"))
                     if name:
                         metadata["command_name"] = name
+                if found := tool_target(tool, block.get("input"), self.root):
+                    metadata["target"] = found
                 self.tools[tool_id] = metadata
                 self.event("tool_start", metadata)
             delta = value.get("delta", {})
@@ -175,6 +179,16 @@ class Stream:
             self.result = item
         if len(self.answer) + len(self.thinking) > 500000:
             raise ToolError("claude_output_limit")
+
+    def add_targets(self, blocks):
+        """Streamed tool input arrives in fragments; the full message carries it for the tool end."""
+        for block in blocks if isinstance(blocks, list) else []:
+            tool_id = block.get("id") if isinstance(block, dict) else None
+            metadata = self.tools.get(tool_id)
+            if metadata is not None and "target" not in metadata:
+                found = tool_target(block.get("name"), block.get("input"), self.root)
+                if found:
+                    self.tools[tool_id] = {**metadata, "target": found}
 
     def track_usage(self, value):
         """Report usage from a ``message_start`` or ``message_delta`` stream event."""

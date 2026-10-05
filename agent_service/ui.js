@@ -3593,6 +3593,20 @@ function safeToolId(tool) {
   const name = typeof tool === "string" ? tool.split("__").pop() : "";
   return /^[\w.-]{1,48}$/.test(name) ? name : "";
 }
+// C-03: like the Codex and Claude CLIs, a shell step shows its command and a file step its path.
+const TARGET_VERBS = {
+  Running: "bash commandexecution exec_command execute",
+  Reading: "read read_file",
+  Editing: "edit write multiedit notebookedit filechange delete move",
+  Searching: "glob grep search search_files",
+  Listing: "list_directory list_dir",
+};
+function targetTitle(data) {
+  const target = typeof data.target === "string" ? data.target.trim().slice(0, 160) : "",
+    name = String(data.tool || "").split("__").pop().toLowerCase(),
+    verb = Object.keys(TARGET_VERBS).find((key) => TARGET_VERBS[key].split(" ").includes(name));
+  return target && verb ? verb + " " + target : "";
+}
 function activityTitle(e) {
   const data = e.data || {},
     type = e.type,
@@ -3629,6 +3643,7 @@ function activityTitle(e) {
       (route ? " · " + route : "")
     );
   }
+  if (type === "tool_start" && targetTitle(data)) return targetTitle(data);
   if (type === "tool_start")
     return data.command_name && tool
       ? "Running command " + tool
@@ -3688,11 +3703,14 @@ function appendActivityTitle(list, e) {
   if (e.type === "tool_end" && toolId && list.toolRows.has(toolId)) {
     const row = list.toolRows.get(toolId);
     row.dataset.state = toolFailed ? "failed" : "completed";
+    const text = targetTitle(data) || row.textContent;
     row.textContent = toolFailed
-      ? "Failed: " + row.textContent
-      : row.textContent
+      ? "Failed: " + text
+      : text
           .replace(/^Running/, "Ran")
           .replace(/^Reading/, "Read")
+          .replace(/^Editing/, "Edited")
+          .replace(/^Listing/, "Listed")
           .replace(/^Searching/, "Searched");
     return;
   }

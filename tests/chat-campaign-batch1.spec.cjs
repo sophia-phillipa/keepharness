@@ -31,8 +31,24 @@ const events = [
   // Protocol types, not tool names: Codex native sends the item type, Gemini the ACP kind.
   { id: 8, type: "tool_start", data: { tool: "fileChange", tool_id: "mcp-4" } },
   { id: 9, type: "tool_end", data: { tool: "x", tool_id: "mcp-4", status: "completed" } },
-  { id: 10, type: "answer_delta", data: { text: "Alpha." } },
-  { id: 11, type: "completed", data: {} },
+  // C-03: the tool's target (path or command) reads like the Codex and Claude CLIs.
+  { id: 10, type: "tool_start", data: { tool: "read_file", tool_id: "t-1", target: "facts/alpha.txt" } },
+  { id: 11, type: "tool_end", data: { tool: "read_file", tool_id: "t-1", status: "completed" } },
+  { id: 12, type: "tool_start", data: { tool: "commandExecution", tool_id: "t-2", target: "sed -n 1,5p notes.txt" } },
+  { id: 13, type: "tool_end", data: { tool: "commandExecution", tool_id: "t-2", status: "completed" } },
+  { id: 14, type: "tool_start", data: { tool: "Edit", tool_id: "t-3", target: "src/app.py" } },
+  { id: 15, type: "tool_end", data: { tool: "Edit", tool_id: "t-3", status: "completed" } },
+  { id: 16, type: "tool_start", data: { tool: "Grep", tool_id: "t-4", target: "TODO<img src=x onerror=alert(2)>" } },
+  { id: 17, type: "tool_end", data: { tool: "Grep", tool_id: "t-4", status: "completed" } },
+  { id: 18, type: "tool_start", data: { tool: "mcp__reader__list_dir", tool_id: "t-5", target: "docs" } },
+  { id: 19, type: "tool_end", data: { tool: "mcp__reader__list_dir", tool_id: "t-5", status: "completed" } },
+  // Claude streams the input in fragments: the target only arrives with the tool end.
+  { id: 20, type: "tool_start", data: { tool: "Bash", tool_id: "t-6" } },
+  { id: 21, type: "tool_end", data: { tool: "Bash", tool_id: "t-6", status: "completed", target: "git status --short" } },
+  { id: 22, type: "tool_start", data: { tool: "Bash", tool_id: "t-7", target: "false" } },
+  { id: 23, type: "tool_end", data: { tool: "Bash", tool_id: "t-7", status: "failed" } },
+  { id: 24, type: "answer_delta", data: { text: "Alpha." } },
+  { id: 25, type: "completed", data: {} },
 ];
 
 (async () => {
@@ -124,6 +140,13 @@ const events = [
     assert.match(text, /Ran list_dir/, "an MCP tool is named by its last segment");
     assert.equal(text.match(/Ran tool/g)?.length, 2, "an odd name and a protocol type (fileChange) read as the generic step");
     assert.doesNotMatch(text, /fileChange/);
+    assert.match(text, /^Read facts\/alpha\.txt$/m, "a file tool shows its path");
+    assert.match(text, /^Ran sed -n 1,5p notes\.txt$/m, "a shell tool shows its command");
+    assert.match(text, /^Edited src\/app\.py$/m);
+    assert.match(text, /^Searched TODO<img src=x onerror=alert\(2\)>$/m, "a hostile target stays text");
+    assert.match(text, /^Listed docs$/m);
+    assert.match(text, /^Ran git status --short$/m, "a target that arrives with the tool end still shows");
+    assert.match(text, /^Failed: Running false$/m);
     assert.equal(await steps.locator("img").count(), 0);
 
     // C-04: hovering a non-active row paints the row once; the title button stays transparent.
