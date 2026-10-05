@@ -1332,6 +1332,15 @@ const userErrors = {
     "The server can't isolate the local model's file access. Ask the administrator to install bubblewrap.",
   local_project_scope_invalid:
     "The local model can't reach this project's folders. Check the project folders.",
+  // Step engine (workflows and declared "/" chains); codes keep their persisted names.
+  maestro_model_or_effort_denied:
+    "A workflow step uses a model or effort that is not enabled. Ask the administrator or edit the workflow.",
+  maestro_step_not_allowed: "A workflow step is not allowed here. Edit the workflow.",
+  maestro_invalid_plan_json: "The workflow steps are invalid. Check the workflow.",
+  maestro_invalid_steps: "The workflow steps are invalid. Check the workflow.",
+  maestro_invalid_step: "The workflow steps are invalid. Check the workflow.",
+  maestro_invalid_step_description: "The workflow steps are invalid. Check the workflow.",
+  maestro_step_incomplete: "A workflow step did not finish. Try again.",
   // Invocations and human option gates.
   invalid_invocation: "This resource invocation is invalid. Select it again.",
   invalid_invocation_args:
@@ -3846,7 +3855,7 @@ function renderPlanOutcome(card, runState = card.dataset.runState) {
   const terminal = { completed: "Completed", failed: "Failed", cancelled: "Cancelled", interrupted: "Interrupted" }[runState];
   let label, note;
   if (choice === "deny") { label = "Discarded"; note = "Plan discarded."; }
-  else if (choice === "approve" && !card.id && (runState === "queued" || runState === "running")) {
+  else if (choice === "approve" && !card.id && !terminal) {
     label = "Running"; note = "The workflow is running these steps.";
   } else if (choice === "approve") {
     label = "Approved · " + (terminal || "recorded");

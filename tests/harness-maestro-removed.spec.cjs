@@ -76,6 +76,15 @@ const { spawn } = require('node:child_process');
       assert.doesNotMatch(await page.locator('#model-trigger').innerText(), /maestro|auto plan/i);
       assert.equal(await page.locator('.run-plan-actions').count(), 0);
     }
+    // A live declared workflow card (no gate) reads Running until the run ends.
+    await page.evaluate(() => showMaestroPlan({ steps: [{ role: 'Reviewer', backend: 'codex', model: 'gpt', task: 'Check the diff' }] }));
+    const live = page.locator('.maestro-plan-card:not([id])');
+    await live.waitFor();
+    assert.match(await live.locator('.state-pill').innerText(), /Running/);
+    assert.match(await live.locator('[role="status"]').innerText(), /The workflow is running these steps\./);
+    assert.equal(await live.locator('button').count(), 0);
+    await page.evaluate(() => renderPlanOutcome(document.querySelector('.maestro-plan-card:not([id])'), 'completed'));
+    assert.match(await live.locator('.state-pill').innerText(), /Approved · Completed/);
     assert.deepEqual(errors, []);
     console.log('PASS Maestro is absent from the picker, "/" commands and Settings; old plan conversations open read-only');
   } finally {

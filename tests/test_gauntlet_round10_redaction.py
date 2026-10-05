@@ -20,7 +20,7 @@ async def main():
     secret='SYNTHETIC-OLD-VAULT-SECRET-481'
     plan={'steps':[{'role':'reviewer','backend':'codex','model':'gpt-6-astra','effort':'low','task':'Original '+secret,'reason':secret}]} if sys.argv[3]=='plan' else None
     choice='approve' if plan else 'ok'
-    task=asyncio.create_task(s.gates.ask('job',{'question':'Review diagnostic SYNTHETIC-OLD-VAULT-SECRET-481','options':[{'id':choice,'label':'Continue '+secret,'description':secret}], 'evidence':[{'text':secret}]},lambda kind,data:s.event('job',kind,data), plan=plan))
+    task=asyncio.create_task(s.gates.ask('job',{'question':'Review diagnostic SYNTHETIC-OLD-VAULT-SECRET-481','options':[{'id':choice,'label':'Continue '+secret,'description':secret}], 'evidence':[{'text':secret}]},lambda kind,data:s.event('job',kind,data)))
     await asyncio.sleep(.01)
     gate=s.gates.repository.for_job('job')[0]
     if plan: plan['steps'][0]['task']='Edited '+secret
@@ -40,7 +40,7 @@ asyncio.run(main())
 """
 
 
-@pytest.mark.parametrize("kind", ["ordinary", "plan"])
+@pytest.mark.parametrize("kind", ["ordinary"])  # plan gates were removed with the Maestro planner
 @pytest.mark.parametrize("history", ["new", "legacy", "missing", "mismatched", "malformed"])
 def test_gate_replay_preserves_redaction_across_restart(tmp_path, history, kind):
     cfg = {
