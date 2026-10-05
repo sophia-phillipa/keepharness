@@ -1,5 +1,5 @@
 // Settings › System shows the local admin on the same screen (Sophia, 2026-10-03):
-// the rail's admin shortcut opens it, the admin hides its own navigation and
+// the Settings submenu opens it, the admin hides its own navigation and
 // follows the harness theme, and its CSP lets only the harness origin frame it.
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
 const assert = require("node:assert/strict");
@@ -58,7 +58,7 @@ const path = require("node:path");
 
     // D43: the rail has no Admin button; Settings › System opens the same admin.
     await page.click("#settings");
-    await page.getByRole("button", { name: "Providers" }).click();
+    await page.getByRole("menuitem", { name: "Providers" }).click();
     const dialog = page.locator("#settings-dialog");
     await dialog.waitFor({ state: "visible" });
     const providers = dialog.getByRole("button", { name: "Providers" });
@@ -99,6 +99,8 @@ const path = require("node:path");
     await other.goto(localhost + "/");
     await other.locator("#startup-gate").waitFor({ state: "hidden" });
     assert.equal(await other.locator("#settings-system-nav").isHidden(), true);
+    await other.click("#settings");
+    assert.equal(await other.getByRole("menuitem", { name: "Providers" }).count(), 0);
     console.log("PASS settings system shows the admin on the same screen");
   } finally {
     await browser.close();

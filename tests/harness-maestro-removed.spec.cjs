@@ -52,7 +52,7 @@ const { spawn } = require('node:child_process');
     await page.locator('#prompt').fill('');
 
     // (c) Settings no longer carries a plan-review policy.
-    await page.locator('#settings').click();
+    await page.keyboard.press("Control+,");
     for (const section of ['models', 'general']) {
       const tab = page.locator('[data-settings=' + section + ']');
       if (await tab.count()) await tab.click();

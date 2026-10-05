@@ -50,7 +50,7 @@ const models = [
     );
 
     // Settings › Models: cards say what runs the model once, and offer no Gemini setup.
-    await page.click("#settings");
+    await page.keyboard.press("Control+,");
     await page.click('[data-settings="models"]');
     const cards = page.locator("#catalog-models");
     await cards.getByText("DeepSeek model; runs through the Codex CLI.").waitFor();

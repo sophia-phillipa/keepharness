@@ -82,7 +82,7 @@ async function geometry(page) {
     await check('A2-F2 polling recovery restores Settings opener and console focus',async()=>{
       for(const width of [400,1440])for(const surface of ['settings','console']){
         const p=await browser.newPage({viewport:{width,height:812}});const f=await fixture(p);await p.locator('#prompt').fill('Preserved draft\nUnicode ✨');
-        if(surface==='settings'){await p.locator('#settings').focus();await p.keyboard.press('Enter');await p.locator('#settings-tour').focus();}
+        if(surface==='settings'){await p.locator('#settings').focus();await p.keyboard.press('Enter');await p.waitForFunction(()=>document.activeElement?.getAttribute('role')==='menuitem');await p.keyboard.press('Enter');await p.locator('#settings-tour').focus();}
         else {await f.open();await p.keyboard.press('Control+j');await p.locator('#run-tab-logs').click();}
         let outages=0;await p.route('**/v1/projects',route=>{outages++;return route.abort('connectionreset')});
         await p.locator('#startup-gate').waitFor({state:'visible',timeout:15000});await new Promise((resolve,reject)=>{const end=Date.now()+20000;const poll=setInterval(()=>{if(outages>=2){clearInterval(poll);resolve();}else if(Date.now()>end){clearInterval(poll);reject(Error('Second readiness failure did not occur'));}},100)});await p.unroute('**/v1/projects');await p.locator('#startup-gate').waitFor({state:'hidden',timeout:15000});

@@ -348,7 +348,7 @@ const assert = require("node:assert/strict"),
     assert.equal(await modal.isVisible(), false);
     assert.deepEqual(archiveRequests, [["c1", true]]);
     assert.equal(archived[0].title, first);
-    await page.click("#settings");
+    await page.keyboard.press("Control+,");
     await page.click('[data-settings="archived"]');
     const row = page.locator("#archived-list .archived-chat");
     await row.first().waitFor();

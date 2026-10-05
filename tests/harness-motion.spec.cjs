@@ -67,7 +67,7 @@ const path = require("node:path");
     );
     await page.click("#menu");
     await page.locator("#sidebar").waitFor();
-    await page.locator("#settings").click();
+    await page.keyboard.press("Control+,");
     const box = await page.locator("#settings-dialog").boundingBox();
     assert(
       box.x >= 0 &&
@@ -81,12 +81,14 @@ const path = require("node:path");
     await page.setViewportSize({ width: 1280, height: 860 });
     await page.locator("#settings").focus();
     await page.keyboard.press("Enter");
+    await page.waitForFunction(() => document.activeElement?.getAttribute("role") === "menuitem");
+    await page.keyboard.press("Enter"); // the Settings submenu opens first; its first item opens the dialog
     assert(await page.locator("#settings-dialog").isVisible());
     assert.match(
       await page.locator("#version").innerText(),
       /Release: fixture/,
     );
-    assert(await page.locator("#settings-dialog #admin-shortcut").count());
+    assert.equal(await page.locator("#admin-shortcut").count(), 0);
     await page.keyboard.press("Escape");
     assert.equal(await page.locator("#settings-dialog").isVisible(), false);
     assert(

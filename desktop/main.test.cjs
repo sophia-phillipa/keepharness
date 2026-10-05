@@ -30,10 +30,10 @@ async function boot(options = {}) {
       super(); this.options = opts; this.shows = 0; this.destroyed = false; this.bounds = {x:100,y:100,width:1200,height:800}; this.maximized = false;
       this.webContents = new EventEmitter();
       Object.assign(this.webContents, { setWindowOpenHandler: fn => { this.open = fn; }, getURL: () => this.url,
-        executeJavaScript: async () => { if (options.failEnrollment) throw new Error("enrollment failed"); }, reload: () => { this.reloads = (this.reloads || 0) + 1; } });
+        executeJavaScript: async code => { const hash = /^location\.hash = (".*")$/.exec(code); if (hash) { this.url = this.url.split('#')[0] + JSON.parse(hash[1]); return; } if (options.failEnrollment) throw new Error("enrollment failed"); }, reload: () => { this.reloads = (this.reloads || 0) + 1; } });
       windows.push(this);
     }
-    async loadURL(url) { this.url = url; if (options.dieOnRestartLoad && children.length === 2) { children[1].exitCode=1; children[1].emit('exit',1,null); children[1].emit('close',1,null); } }
+    async loadURL(url) { this.url = url; this.loads = (this.loads || 0) + 1; if (options.dieOnRestartLoad && children.length === 2) { children[1].exitCode=1; children[1].emit('exit',1,null); children[1].emit('close',1,null); } }
     async loadFile(file) { this.file = file; }
     setTitle(title) { this.title = title; }
     setProgressBar(value) { this.progress = value; }
@@ -160,14 +160,27 @@ test('normal bounds and maximized state survive restart atomically', async () =>
   next.main.emit('ready-to-show');
   assert.equal(next.main.options.x,120); assert.equal(next.main.options.width,1100); assert.equal(next.main.maximized,true);
 });
-test('Admin popup is one reusable second window with the same policies', async () => {
-  const h=await boot(); const original=h.main.url;
-  h.main.open({url:'http://127.0.0.1:18194/'}); await settle();
-  const admin=h.windows.at(-1); assert.notEqual(admin,h.main); assert.equal(admin.url,'http://127.0.0.1:18194/');
-  h.main.open({url:'http://127.0.0.1:18194/settings'}); await settle(); assert.equal(h.windows.length,3); assert.equal(h.main.url,original);
-  assert.deepEqual(admin.options.webPreferences,h.main.options.webPreferences);
-  const e=h.event(); admin.webContents.emit('will-redirect',e,'https://example.com/'); assert.ok(e.prevented);
-  const attach=h.event(); admin.webContents.emit('will-attach-webview',attach); assert.ok(attach.prevented);
+test('opening the admin from the harness focuses the main window at Settings, with no second window', async () => {
+  const h=await boot(); const harness=h.main.url; const count=h.windows.length; const loads=h.main.loads; h.main.minimized=true;
+  h.main.open({url:'http://127.0.0.1:18194/#runs'}); await settle();
+  assert.equal(h.windows.length,count); assert.equal(h.main.restored,true); assert.equal(h.main.focused,true);
+  assert.equal(h.main.minimizedAtFocus,false); // restored before it is focused
+  assert.equal(h.main.url,harness+'#open=settings/runs'); assert.equal(h.main.loads,loads); // hash set in the running page, no reload
+  h.main.open({url:'http://127.0.0.1:18194/settings'}); await settle();
+  assert.equal(h.windows.length,count); assert.equal(h.main.url,harness+'#open=settings/providers');
+  const e=h.event(); h.main.webContents.emit('will-redirect',e,'https://example.com/'); assert.ok(e.prevented);
+});
+test('harness URLs opened from a page never navigate the main window', async () => {
+  const h=await boot(); const harness=h.main.url; const count=h.windows.length; h.main.minimized=true;
+  h.main.open({url:harness}); await settle();
+  assert.equal(h.windows.length,count); assert.equal(h.main.url,harness); assert.equal(h.main.restored,true); assert.equal(h.main.minimizedAtFocus,false);
+  h.main.open({url:harness+'guide'}); await settle();
+  assert.equal(h.main.url,harness); assert.equal(h.windows.length,count+1);
+  const second=h.windows.at(-1); assert.notEqual(second,h.main); assert.equal(second.url,harness+'guide');
+  assert.deepEqual(second.options.webPreferences,h.main.options.webPreferences);
+  second.emit('ready-to-show'); second.minimized=true; h.main.open({url:harness+'api/files/x'}); await settle();
+  assert.equal(h.windows.length,count+1); assert.equal(second.url,harness+'api/files/x'); assert.equal(second.restored,true); assert.equal(second.minimizedAtFocus,false); assert.equal(h.main.url,harness);
+  const e=h.event(); second.webContents.emit('will-redirect',e,'https://example.com/'); assert.ok(e.prevented);
 });
 test('windows show once in either event order and the splash closes when the first window is shown', async () => {
   for (const reverse of [false,true]) {
@@ -212,10 +225,8 @@ test('main log rotates after two MiB and never stores sensitive values', async (
   for(const f of [file,file+'.1']) { const log=fs.readFileSync(f,'utf8'); assert.ok(!log.includes('private-ticket')); assert.match(log,/\d{4}-\d\d-\d\dT/); }
 });
 
-test('Admin waits for readiness and unresponsive cancellation defaults to Wait', async () => {
-  const h=await boot(); h.main.open({url:'http://127.0.0.1:18194/'}); await settle();
-  const admin=h.windows.at(-1); assert.equal(admin.shows,0);
-  admin.webContents.emit('did-finish-load'); admin.emit('ready-to-show'); assert.equal(admin.shows,1);
+test('unresponsive cancellation defaults to Wait', async () => {
+  const h=await boot();
   h.main.emit('unresponsive'); await settle(); assert.equal(h.dialogs.at(-1).cancelId,0);
 });
 test('stderr redaction survives split chunks and oversized lines', async () => {
@@ -308,12 +319,10 @@ test('concurrent foreign harness navigation shares one verification dialog', asy
   answer({response:0}); await settle(); assert.equal(h.app.quits,1);
   assert.equal(h.main.url,'http://127.0.0.1:18194/');
 });
-test('reused minimized Admin is restored before focus', async () => {
-  const h=await boot(); h.main.open({url:'http://127.0.0.1:18194/'}); await settle();
-  const admin=h.windows.at(-1); admin.emit('ready-to-show'); admin.minimized=true;
-  h.main.open({url:'http://127.0.0.1:18194/settings'}); await settle();
-  assert.equal(admin.restored,true); assert.equal(admin.minimizedAtFocus,false);
-  assert.equal(h.windows.length,3);
+test('with the harness down the main window itself shows the admin and no window is added', async () => {
+  const h=await boot({harnessOffline:true}); const count=h.windows.length;
+  h.main.open({url:'http://127.0.0.1:18194/#runs'}); await settle();
+  assert.equal(h.windows.length,count); assert.equal(h.main.url,'http://127.0.0.1:18194/#runs');
 });
 test('a foreign-port refusal leaves the splash to the quit, which closes it', async () => {
   const h = await boot({tcp: foreignHarnessTable});

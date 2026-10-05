@@ -22,6 +22,10 @@ const assert = require("node:assert/strict");
       localStorage.removeItem("sidebar-collapsed");
       localStorage.setItem("activity-open", "0");
     });
+    let emptyModels = false;
+    await page.route("http://127.0.0.1:8094/**", (route) =>
+      route.fulfill({ contentType: "text/html", body: "<title>admin</title>" }),
+    );
     await page.route("**/v1/**", async (route) => {
       const path = new URL(route.request().url()).pathname;
       if (path === "/v1/projects")
@@ -35,7 +39,7 @@ const assert = require("node:assert/strict");
           : path === "/v1/models"
             ? {
                 admin_url: "http://127.0.0.1:8094/",
-                models: [
+                models: emptyModels ? [] : [
                   {
                     id: "fixture",
                     name: "Fixture",
@@ -80,28 +84,30 @@ const assert = require("node:assert/strict");
     assert.equal(await page.locator("#sidebar .brand").count(), 0);
     // D43: the rail no longer carries an Admin button; Settings holds the shortcut.
     assert.equal(await page.locator("#admin-shortcut-top").count(), 0);
-    assert.equal(
-      await page.locator("#admin-shortcut").getAttribute("href"),
-      "http://127.0.0.1:8094/",
-    );
+    assert.equal(await page.locator("#admin-shortcut").count(), 0, "the Admin panel link is gone");
     await page.click("#new");
-    assert.equal(
-      await page.locator("#admin-shortcut").getAttribute("href"),
-      "http://127.0.0.1:8094/",
-      "administration remains available after a new conversation",
-    );
-    await page.click("#settings");
-    assert.equal(
-      await page.locator("#admin-shortcut").isVisible(),
-      true,
-      "settings retains the administrative shortcut",
-    );
-    assert.equal(
-      await page.locator("#admin-shortcut").getAttribute("href"),
-      "http://127.0.0.1:8094/",
-    );
+    // "Open admin panel" opens Settings > Providers on this page, not a window.
+    assert.equal(await page.locator("#admin-link").getAttribute("href"), "http://127.0.0.1:8094/");
+    await page.keyboard.press("Control+,");
+    assert.equal(await page.locator("#settings-dialog").isVisible(), true);
+    assert.equal(await page.locator("#admin-shortcut").count(), 0, "Settings holds sections, not an Admin link");
+    await page.keyboard.press("Escape");
+    // This page is a network host (panel.test), so Settings > System is hidden and the admin cannot
+    // be framed: "Open admin panel" must then fall back to its link instead of doing nothing.
+    emptyModels = true;
+    await page.click("#models-retry");
+    await page.locator("#model-availability").waitFor({ state: "visible" });
+    // Against a live harness at 127.0.0.1 System is available: the link opens Settings instead.
+    const systemHidden = await page.locator("#settings-system-nav").evaluate((el) => el.hidden);
+    assert.equal(systemHidden, !process.env.HARNESS_URL);
+    await page.click("#admin-link");
+    if (systemHidden) await page.waitForURL("http://127.0.0.1:8094/");
+    else {
+      await page.locator("#settings-dialog").waitFor({ state: "visible" });
+      assert.equal(page.url().startsWith("http://127.0.0.1:8094/"), false);
+    }
     console.log(
-      "PASS: administrative links survive a new conversation on network hostname",
+      "PASS: no Admin shortcut; the admin URL stays available to Settings",
     );
   } finally {
     await browser.close();

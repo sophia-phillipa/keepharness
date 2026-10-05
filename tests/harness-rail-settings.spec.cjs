@@ -64,9 +64,9 @@ const RAIL = ["menu", "search-conversations", "attention-bell", "panel-toggle", 
     );
 
     // Settings: the structure of D44, with Theme, About and the tour inside it.
-    await page.click("#settings");
-    const nav = (await page.locator("#settings-dialog .settings-nav > button").allInnerTexts()).map((text) => text.trim());
-    assert.deepEqual(nav, ["Appearance", "Customize", "Models", "Archived chats", "Usage", "Connect a client", "About", "Take the tour"]);
+    await page.keyboard.press("Control+,");
+    const nav = (await page.locator("#settings-dialog .settings-nav button:visible").allInnerTexts()).map((text) => text.trim());
+    assert.deepEqual(nav, ["Appearance", "Models", "Customize", "Archived chats", "Usage", "Connect a client", "About", "Take the tour"]);
     assert.equal(await page.locator("#settings-appearance #theme-toggle").count(), 1);
     assert.equal(await page.locator("#settings-quota use").getAttribute("href"), "/assets/icons.svg#gauge");
     await page.click('[data-settings="customize"]');

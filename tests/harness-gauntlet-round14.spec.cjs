@@ -61,11 +61,11 @@ async function fixture(browser,width=1440,height=900,empty=false){
   for(const width of [1440,400])for(const theme of ['porcelain','amethyst','petroleum']){const {page:p}=await fixture(browser,width,812);await p.evaluate(t=>HarnessTheme.apply(t),theme);if(await p.locator('#panel-toggle').getAttribute('aria-expanded')!=='true')await p.locator('#panel-toggle').click();const row=p.locator('.authorized-root-card li').first();await row.waitFor();const label=row.locator('span').first();assert.match(await label.getAttribute('title'),/Quarterly-release/);assert(await label.evaluate(n=>n.scrollWidth>n.clientWidth));assert.equal(await row.locator('svg use').count(),1);assert(await row.locator('svg').evaluate(n=>n.getBoundingClientRect().width>0));assert(await hit(row));assert.equal(await p.locator('.authorized-root-card li').nth(1).locator('svg use').count(),1);await p.close();}
  });
  await check('A1-F7 connection contrast',async()=>{
-  const {page:p}=await fixture(browser);await p.locator('#settings').click();await p.locator('#setup').click();
+  const {page:p}=await fixture(browser);await p.keyboard.press("Control+,");await p.locator('#setup').click();
   for(const theme of themes){await p.evaluate(t=>HarnessTheme.apply(t),theme);await p.waitForTimeout(300);const ratio=await p.locator('#setup-code').evaluate(n=>{const c=getComputedStyle(n);const lum=s=>{const v=s.match(/[\d.]+/g).slice(0,3).map(x=>{x=Number(x)/255;return x<=.04045?x/12.92:((x+.055)/1.055)**2.4;});return v[0]*.2126+v[1]*.7152+v[2]*.0722;};const a=lum(c.color),b=lum(c.backgroundColor);return(Math.max(a,b)+.05)/(Math.min(a,b)+.05);});assert(ratio>=4.5,theme+' contrast '+ratio);assert(await hit(p.locator('#setup-code')));}await p.close();
  });
  await check('A2-F1 short tour actions',async()=>{
-  const {page:p}=await fixture(browser,400,400);await p.locator('#settings').click();await p.locator('#settings-tour').click();
+  const {page:p}=await fixture(browser,400,400);await p.keyboard.press("Control+,");await p.locator('#settings-tour').click();
   for(let i=0;i<16&&await p.locator('#tour-next').count();i++){await p.waitForTimeout(350);assert(await hit(p.locator('#tour-next')),await p.locator('#tour-title').innerText());await p.keyboard.press('Enter');}await p.close();
  });
  await check('A2-F2 failed send restores keyboard focus',async()=>{

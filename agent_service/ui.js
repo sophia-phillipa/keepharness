@@ -5975,7 +5975,7 @@ function showIntegrationDetail(item) {
     manage.append(HarnessUI.icon("settings"), document.createTextNode("Manage connectors and plugins"));
     manage.onclick = () => {
       $("plugins-menu").hidePopover();
-      openAdminSettings("providers");
+      openSettings("providers");
     };
     parts.push(manage);
   }
@@ -6064,7 +6064,7 @@ async function renderPluginsMenu() {
       manage.append(HarnessUI.icon("settings"), document.createTextNode("Manage connectors and plugins"));
       manage.onclick = () => {
         menu.hidePopover();
-        openAdminSettings("providers");
+        openSettings("providers");
       };
       parts.push(manage);
     }
@@ -6371,15 +6371,15 @@ function modelAvailability(
       }
     } catch {}
   }
-  const shortcut = $("admin-shortcut");
-  shortcut.hidden = link.hidden;
   // The embedded admin is this computer's and only accepts its own host: a page
   // opened over the network, or as localhost for a 127.0.0.1 admin, cannot frame it.
   $("settings-system-nav").hidden =
     link.hidden || location.hostname !== new URL(link.href).hostname;
-  if (!link.hidden) {
-    shortcut.href = link.href;
-  }
+  // "Open admin panel" is Settings > Providers, not a second window.
+  // Where Settings > System is unavailable (localhost, network host) the link keeps its normal navigation.
+  link.onclick = (event) => {
+    if (openSettings("providers")) event.preventDefault();
+  };
   $("model").disabled =
     !models.length || submitting || loading || uploads > 0 || policyPending;
   $("effort").disabled = $("model").disabled;
@@ -7458,7 +7458,9 @@ function restoreSelection() {
   if (model.efforts.includes(preferredSelection.effort))
     $("effort").value = preferredSelection.effort;
 }
+let lastSection = "appearance";
 function showSettingsPage(button) {
+  lastSection = button.dataset.adminSection || button.dataset.settings;
   for (const name of ["appearance", "customize", "models", "archived", "system"])
     $("settings-" + name).hidden = name !== button.dataset.settings;
   if (button.dataset.settings === "archived") void loadArchived();
@@ -7497,13 +7499,14 @@ function showAdminSection(section = "providers") {
   const next = adminFrameUrl(section);
   if (frame.src !== next) frame.src = next;
 }
-function openAdminSettings(section = "providers") {
-  if ($("settings-system-nav").hidden) return false;
-  if (!$("settings-dialog").open) {
-    $("settings-dialog").showModal();
-    refreshCatalog();
-  }
-  document.querySelector('[data-admin-section="' + section + '"]').click();
+// `section` is a data-admin-section or a data-settings value; false when it is an admin section
+// on a host that cannot frame the admin, or unknown.
+function openSettings(section = lastSection) {
+  const button =
+    document.querySelector('[data-admin-section="' + section + '"]') ||
+    document.querySelector('[data-settings="' + section + '"]:not([data-admin-section])');
+  if (!button || (button.dataset.adminSection && $("settings-system-nav").hidden)) return false;
+  void navigate(settingsView(button.dataset.settings, button));
   return true;
 }
 let catalogRequest = 0;
@@ -7581,7 +7584,68 @@ async function refreshCatalog() {
     $("catalog-skills").textContent = "Couldn't check the available skills.";
   }
 }
-$("settings").onclick = () => void navigate(settingsView(currentSettingsSection()));
+// The Settings button opens a submenu of the visible Settings sections (same buttons as the
+// dialog's navigation); Ctrl+, opens the dialog directly at the last section.
+const settingsMenu = $("settings-menu");
+settingsMenu.addEventListener("beforetoggle", (event) => {
+  if (event.newState !== "open") return;
+  settingsMenu.replaceChildren(
+    ...[...document.querySelectorAll(".settings-nav-group:not([hidden])")].map((group) => {
+      const section = document.createElement("div");
+      section.className = "settings-menu-group";
+      section.setAttribute("role", "group");
+      section.setAttribute("aria-label", group.querySelector(".settings-nav-label").textContent);
+      const heading = Object.assign(document.createElement("p"), {
+        className: "access-menu-heading",
+        textContent: group.querySelector(".settings-nav-label").textContent,
+      });
+      heading.setAttribute("aria-hidden", "true");
+      section.append(heading);
+      for (const source of group.querySelectorAll("[data-settings]")) {
+        const item = document.createElement("button");
+        item.type = "button";
+        item.setAttribute("role", "menuitem");
+        item.tabIndex = -1;
+        const icon = source.querySelector("svg");
+        if (icon) item.append(icon.cloneNode(true));
+        item.append(document.createTextNode(source.textContent.trim()));
+        item.onclick = () => {
+          settingsMenu.hidePopover();
+          openSettings(source.dataset.adminSection || source.dataset.settings);
+        };
+        section.append(item);
+      }
+      return section;
+    }),
+  );
+});
+settingsMenu.addEventListener("toggle", (event) => {
+  const open = event.newState === "open";
+  $("settings").setAttribute("aria-expanded", String(open));
+  if (open) {
+    // Below the button when it fits, else above it (the button may sit near the bottom).
+    const rect = $("settings").getBoundingClientRect(),
+      height = settingsMenu.offsetHeight;
+    settingsMenu.style.top =
+      Math.max(8, rect.bottom + 6 + height <= innerHeight - 8 ? rect.bottom + 6 : rect.top - height - 6) + "px";
+    settingsMenu.style.left = Math.max(8, Math.min(rect.right - 240, innerWidth - 248)) + "px";
+    settingsMenu.dataset.placed = ""; // revealed only once positioned (see the stylesheet)
+    settingsMenu.querySelector('[role="menuitem"]')?.focus();
+  }
+  else {
+    delete settingsMenu.dataset.placed;
+    if (!document.activeElement || document.activeElement === document.body) $("settings").focus();
+  }
+});
+settingsMenu.addEventListener("keydown", (event) => {
+  const items = [...settingsMenu.querySelectorAll('[role="menuitem"]')];
+  const at = items.indexOf(document.activeElement);
+  const step = { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: items.length - 1 }[event.key];
+  if (step !== undefined) {
+    event.preventDefault();
+    items[(step + items.length) % items.length].focus();
+  } else if (event.key === "Tab") settingsMenu.hidePopover();
+});
 $("settings-close").onclick = () => $("settings-dialog").close();
 
 // Back / forward (Codex model): a short in-memory history of views. It never touches
@@ -7614,7 +7678,6 @@ document.addEventListener("visibilitychange", () => document.hidden && rememberS
 const sameView = (a, b) => a.kind === b.kind && (a.id || null) === (b.id || null) && (a.section || null) === (b.section || null) && (a.sub || null) === (b.sub || null);
 const currentBaseView = () => (conversation ? { kind: "conversation", id: conversation } : { kind: "home" });
 const pressedSettings = () => document.querySelector('[data-settings][aria-pressed="true"]');
-const currentSettingsSection = () => pressedSettings()?.dataset.settings || "appearance";
 // The five System buttons share data-settings="system"; `sub` (the admin section) tells them apart.
 const settingsView = (section, button) =>
   section === "customize"
@@ -7726,6 +7789,21 @@ document.addEventListener("keydown", (e) => {
   e.preventDefault();
   (e.key === "[" ? back : forward)();
 });
+document.addEventListener("keydown", (e) => {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || e.key !== "," || !interfaceReady || foreignModalOpen()) return;
+  e.preventDefault();
+  settingsMenu.matches(":popover-open") && settingsMenu.hidePopover();
+  openSettings() || openSettings("appearance");
+});
+// `#open=settings/<section>` (set by the desktop app) opens Settings at that section.
+function openFromHash() {
+  const section = /^#open=settings\/([a-z]+)$/.exec(location.hash)?.[1];
+  if (!section || !interfaceReady) return;
+  window.history.replaceState(null, "", location.pathname + location.search);
+  openSettings(section);
+}
+addEventListener("hashchange", openFromHash);
+document.addEventListener("harness:ready", openFromHash);
 // Mouse back / forward buttons; the default is cancelled so the browser never leaves the app.
 document.addEventListener("mouseup", (e) => {
   if (e.button !== 3 && e.button !== 4) return;
