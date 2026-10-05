@@ -5889,7 +5889,7 @@ let pluginsView = null;
 let elsewhereView = { key: "", list: [] },
   elsewherePending = "";
 function routeKey(m) {
-  return [$("project").value, m.backend, m.model, m.execution_mode, $("access-mode").value].join("|");
+  return m.backend ? integrationsUrl(m) : "";
 }
 function integrationsUrl(m) {
   return (
@@ -5903,8 +5903,9 @@ function integrationsUrl(m) {
     })
   );
 }
+// An answer for a route the composer has left is dropped; only refreshElsewhere tracks what is in flight.
 function setElsewhere(key, list) {
-  elsewherePending = key;
+  if (key !== routeKey(resourceEngine())) return;
   elsewhereView = { key, list: Array.isArray(list) ? list : [] };
   const chip = $("plugins-chip");
   if (elsewhereView.list.length) {
@@ -5917,9 +5918,14 @@ function setElsewhere(key, list) {
   syncRouteCarryover();
 }
 async function refreshElsewhere() {
-  const m = resourceEngine();
-  if (!m.backend) return;
-  const key = routeKey(m);
+  const m = resourceEngine(),
+    key = routeKey(m);
+  if (!key) {
+    // No model: nothing is connected elsewhere for it, and a late answer for the old route is stale.
+    elsewherePending = "";
+    if (elsewhereView.key) setElsewhere("", []);
+    return;
+  }
   if (key === elsewhereView.key || key === elsewherePending) return;
   elsewherePending = key;
   try {
@@ -5982,7 +5988,7 @@ function carryoverToolLines(from, next) {
     .map((entry) =>
       entry.here === "absent"
         ? entry.label + " is connected on " + was + " but not on " + to
-        : entry.label + " is installed on " + to + " but not enabled - enable it in Settings > Plugins",
+        : entry.label + " is installed on " + to + " but not enabled - enable it in Settings › System › Providers",
     );
 }
 function integrationRow(item, sharedReason = "") {
@@ -6090,7 +6096,8 @@ async function renderPluginsMenu() {
   try {
     const data = await json(integrationsUrl(m));
     setElsewhere(routeKey(m), data.elsewhere);
-    const items = Array.isArray(data.items) ? data.items : [],
+    const elsewhere = Array.isArray(data.elsewhere) ? data.elsewhere : [],
+      items = Array.isArray(data.items) ? data.items : [],
       effective = items.filter((item) => item.effective),
       others = items.filter((item) => !item.effective),
       parts = [];
@@ -6119,7 +6126,7 @@ async function renderPluginsMenu() {
       section("Available in this conversation", effective, "None for this project and model."),
     );
     if (others.length) parts.push(section("Installed, not available here", others, ""));
-    if (elsewhereView.list.length) parts.push(elsewhereSection(elsewhereView.list, m.backend, menu));
+    if (elsewhere.length) parts.push(elsewhereSection(elsewhere, m.backend, menu));
     const tools = Array.isArray(data.other_tools) ? data.other_tools : [];
     if (tools.length) {
       const details = document.createElement("details"),

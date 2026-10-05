@@ -23,11 +23,14 @@ const path = require("node:path");
         { key: "figma", label: "Figma", here: "absent", providers: [provider("deepseek")] },
       ],
     };
-    let noElsewhere = false;
+    let noElsewhere = false,
+      noModels = false,
+      gate = null; // holds the /v1/integrations answers of one backend until released
     const turn = { id: "t1", project: "sem-projeto", state: "completed", request: { backend: "claude", model: "claude-sonnet-5-5", prompt: "Hi", access_mode: "ask", effort: "configured" }, result: { answer: "Hello" } };
     const serve = async (route) => {
       const url = new URL(route.request().url()),
         pathname = url.pathname;
+      if (pathname.startsWith("/admin-fixture")) return route.fulfill({ contentType: "text/html", body: "<title>admin</title>" });
       if (!pathname.startsWith("/v1/"))
         return route.fulfill({
           path: path.join(__dirname, "..", pathname.startsWith("/assets/") ? "harness_ui" : "agent_service", pathname === "/" ? "index.html" : pathname),
@@ -36,9 +39,11 @@ const path = require("node:path");
       if (pathname === "/v1/projects") data = { projects: ["sem-projeto", "alpha"], details: { alpha: { label: "Alpha" } } };
       else if (pathname === "/v1/models")
         data = {
-          models: [
-            { id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5", backend: "claude", efforts: ["configured"] },
-            { id: "gpt-6-astra", name: "GPT-6 Astra", backend: "codex", efforts: ["configured"] },
+          // On a local host the admin is framed in Settings > System.
+          ...(url.hostname === "127.0.0.1" ? { admin_url: "http://127.0.0.1:18700/admin-fixture/" } : {}),
+          models: noModels ? [] : [
+            { id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5", backend: "claude", efforts: ["configured"], execution_modes: ["native"] },
+            { id: "gpt-6-astra", name: "GPT-6 Astra", backend: "codex", efforts: ["configured"], execution_modes: ["native"] },
           ],
           providers: { claude: true, codex: true },
           uploads_enabled: false,
@@ -51,6 +56,7 @@ const path = require("node:path");
       else if (pathname === "/v1/version") data = { version: "fixture", build: "plugins" };
       else if (pathname === "/v1/integrations") {
         queries.push(Object.fromEntries(url.searchParams));
+        if (gate && gate.backend === url.searchParams.get("backend")) await gate.promise;
         data = {
           backend: "claude",
           execution_mode: "native",
@@ -190,10 +196,74 @@ const path = require("node:path");
       await carryover.innerText(),
       "Next message goes to Codex · GPT-6 Astra. The conversation so far goes with it.\n" +
         "Linear is connected on Claude Code but not on Codex\n" +
-        "Slack is installed on Codex but not enabled - enable it in Settings > Plugins",
+        "Slack is installed on Codex but not enabled - enable it in Settings › System › Providers",
     );
     await page.locator("#model").selectOption("claude-sonnet-5-5");
     assert.equal(await carryover.isHidden(), true);
+
+    // A slow answer for the route left behind must not overwrite the route now shown.
+    const routeShown = () => page.waitForFunction(() => elsewhereView.key !== "" && elsewhereView.key === routeKey(resourceEngine()));
+    let release;
+    gate = { backend: "claude", promise: new Promise((resolve) => (release = resolve)) };
+    await chip.click(); // asks for Claude and waits at the gate
+    await page.keyboard.press("Escape");
+    await page.locator("#model").selectOption("gpt-6-astra");
+    await routeShown();
+    await page.waitForFunction(() => document.querySelectorAll("#route-carryover .route-carryover-tool").length === 2);
+    const late = page.waitForResponse((r) => r.url().includes("/v1/integrations") && r.url().includes("backend=claude"));
+    gate = null;
+    release();
+    await late;
+    await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 100)));
+    assert.equal(await page.evaluate(() => elsewhereView.key === routeKey(resourceEngine())), true, "the late Claude answer was dropped");
+    assert.equal(await page.locator("#route-carryover .route-carryover-tool").count(), 2);
+    assert.equal(await chip.getAttribute("data-elsewhere"), "true");
+
+    // N route switches ask for at most N lists.
+    const before = queries.length,
+      switches = ["claude-sonnet-5-5", "gpt-6-astra", "claude-sonnet-5-5", "gpt-6-astra"];
+    for (const id of switches) {
+      await page.locator("#model").selectOption(id);
+      await routeShown();
+    }
+    assert.ok(queries.length - before <= switches.length, "asked " + (queries.length - before) + " times for " + switches.length + " switches");
+
+    // No model: the dot and the accessible name go away instead of describing the old route.
+    noModels = true;
+    await page.click("#project-button");
+    await page.getByRole("option", { name: "Alpha" }).click();
+    await page.waitForFunction(() => !document.getElementById("plugins-chip").dataset.elsewhere);
+    assert.equal(await chip.getAttribute("aria-label"), null);
+    assert.equal(await page.evaluate(() => elsewhereView.key), "");
+    noModels = false;
+
+    // Enable with Settings > System reachable (a local host): it opens Providers, from the keyboard too.
+    const local = await (await browser.newContext({ viewport: { width: 1280, height: 860 } })).newPage();
+    await local.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
+    await local.route("http://127.0.0.1:18700/**", serve);
+    const localWrites = [];
+    local.on("request", (r) => r.method() !== "GET" && localWrites.push(r.method() + " " + r.url()));
+    await local.goto("http://127.0.0.1:18700/");
+    await local.locator("#startup-gate").waitFor({ state: "hidden" });
+    const localChip = local.locator("#execution-mode-choice").getByRole("button", { name: "Plugins" });
+    const localMenu = local.getByRole("dialog", { name: "Connectors and plugins" });
+    const providers = local.locator('button[data-admin-section="providers"][aria-pressed="true"]');
+    await local.waitForFunction(() => document.getElementById("plugins-chip").dataset.elsewhere === "true");
+    assert.equal(await local.locator("#settings-system-nav").evaluate((el) => el.hidden), false);
+    await localChip.click();
+    await localMenu.getByRole("button", { name: "Enable" }).click();
+    await providers.waitFor();
+    assert.equal(await localMenu.isVisible(), false);
+    await local.keyboard.press("Escape");
+    await localChip.click();
+    await localMenu.locator('[data-testid="elsewhere-row"]').first().waitFor();
+    for (let i = 0; i < 40 && (await local.evaluate(() => document.activeElement.textContent)) !== "Enable"; i++)
+      await local.keyboard.press("Tab");
+    assert.equal(await local.evaluate(() => document.activeElement.textContent), "Enable", "Enable is reachable with Tab");
+    await local.keyboard.press("Enter");
+    await providers.waitFor();
+    await local.waitForFunction(() => document.activeElement.closest("#settings-dialog"));
+    assert.deepEqual(localWrites, []);
 
     // No elsewhere (a guest, or nothing to connect): no dot, no section, no carry-over line.
     noElsewhere = true;
