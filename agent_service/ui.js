@@ -6458,7 +6458,7 @@ async function initialize() {
     if (!startupTimer) {
       try {
         if (saved.conversation)
-          resumeWatch = await load(saved.conversation, false, saved);
+          resumeWatch = await load(saved.conversation, false, saved, scrollByConversation.get(saved.conversation));
         restoreView(saved);
       } catch {}
       startupTimer = setInterval(() => {
@@ -7580,7 +7580,25 @@ const NAV_LIMIT = 50;
 const DIALOG_VIEWS = { settings: "settings-dialog", customize: "settings-dialog", space: "space-dialog", scheduled: "scheduled-dialog" };
 let viewHistory = [],
   viewIndex = -1;
+// Scroll positions survive a reload: the 50 most recent conversations are kept in localStorage.
+const SCROLL_KEY = "conversation-scroll";
 const scrollByConversation = new Map();
+try {
+  for (const [id, top] of JSON.parse(localStorage.getItem(SCROLL_KEY) || "[]"))
+    if (typeof id === "string" && Number.isFinite(top)) scrollByConversation.set(id, top);
+} catch {}
+function rememberScroll() {
+  // While a conversation loads, #messages is not its content yet.
+  if (!conversation || loading) return;
+  scrollByConversation.delete(conversation);
+  scrollByConversation.set(conversation, $("messages").scrollTop);
+  while (scrollByConversation.size > NAV_LIMIT) scrollByConversation.delete(scrollByConversation.keys().next().value);
+  try {
+    localStorage.setItem(SCROLL_KEY, JSON.stringify([...scrollByConversation]));
+  } catch {}
+}
+addEventListener("pagehide", rememberScroll);
+document.addEventListener("visibilitychange", () => document.hidden && rememberScroll());
 const sameView = (a, b) => a.kind === b.kind && (a.id || null) === (b.id || null) && (a.section || null) === (b.section || null) && (a.sub || null) === (b.sub || null);
 const currentBaseView = () => (conversation ? { kind: "conversation", id: conversation } : { kind: "home" });
 const pressedSettings = () => document.querySelector('[data-settings][aria-pressed="true"]');
@@ -7648,11 +7666,18 @@ async function applyView(view, replay = false) {
     if (view.button || button !== pressedSettings()) showSettingsPage(button);
   }
 }
-function navigate(view, { record = true } = {}) {
+async function navigate(view, { record = true } = {}) {
   if (navigationBlocked(view)) return;
-  if (conversation) scrollByConversation.set(conversation, $("messages").scrollTop);
+  rememberScroll();
   if (record) recordView(view);
-  return applyView(view, !record);
+  const shown = await applyView(view, !record);
+  // A recorded view that did not open must not stay in the history, or the first Back appears to do nothing.
+  if (record && shown === false && sameView(viewHistory[viewIndex], view)) {
+    viewHistory.splice(viewIndex, 1);
+    viewIndex--;
+    syncNavButtons();
+  }
+  return shown;
 }
 async function stepHistory(delta) {
   const target = viewHistory[viewIndex + delta];

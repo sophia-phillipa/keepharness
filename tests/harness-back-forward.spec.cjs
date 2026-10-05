@@ -216,6 +216,31 @@ const ORIGIN = "http://localhost:18990/";
     deleted.clear();
     console.log("PASS Back to a deleted conversation leaves the history coherent");
 
+    // A recorded navigation that fails (sidebar click on a conversation deleted meanwhile) leaves no dead
+    // entry: the first Back goes to the previous view instead of appearing to do nothing.
+    await fresh();
+    await open("Alpha chat");
+    deleted.add("bravo");
+    await page.locator("#history .conversation-row > button", { hasText: "Bravo chat" }).click();
+    await page.waitForFunction(() => /Couldn't open the conversation/.test(document.body.innerText));
+    assert.match(await shown(), /Alpha/);
+    await back.click();
+    await page.waitForFunction(() => document.querySelectorAll("#messages article.user").length === 0);
+    deleted.clear();
+    console.log("PASS A failed navigation leaves no dead history entry");
+
+    // Reopening the app restores the open conversation's scroll position, not the top.
+    await fresh();
+    await open("Alpha chat");
+    await page.waitForFunction(() => document.querySelector("#messages").scrollHeight > document.querySelector("#messages").clientHeight + 600);
+    await page.evaluate(() => { document.querySelector("#messages").scrollTo({ top: 500, behavior: "instant" }); });
+    await raf();
+    await page.reload();
+    await page.locator("#startup-gate").waitFor({ state: "hidden" });
+    await page.waitForFunction(() => document.querySelector("#messages article.user")?.innerText.includes("Alpha"));
+    await page.waitForFunction(() => Math.abs(document.querySelector("#messages").scrollTop - 500) <= 40, null, { timeout: 5000 });
+    console.log("PASS Reload restores the conversation scroll position");
+
     // Back, then Settings while the conversation is still loading: Back returns to that conversation.
     await fresh();
     await open("Alpha chat");
