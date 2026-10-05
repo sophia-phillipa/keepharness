@@ -1675,6 +1675,7 @@ function composerModels(catalog) {
 function setBusy(value) {
   value = value || streamDisconnected;
   busy = value;
+  syncNavButtons();
   $("prompt").readOnly = loading;
   $("add-project").disabled = value || loading;
   if (!value) paintMotion("");
@@ -2305,7 +2306,12 @@ window.applyActivitySnapshot = function applyActivitySnapshot(data = {}) {
       item.needs_you = nextNeeds;
       item.live_wait_reason = nextWait;
       item.live_activity = nextActivity;
-      if (job?.state) item.state = job.state;
+      if (job?.state && item.state !== job.state) {
+        item.state = job.state;
+        // C-08: record the live state so a later completion in the list reads as unread.
+        observeConversation(item);
+        saveConversationActivity();
+      }
       changed = true;
     }
   }
@@ -2376,7 +2382,7 @@ function conversationRow(c) {
   open.title = open.textContent;
   open.className = c.id === conversation ? "active" : "";
   open.dataset.conversationId = c.id;
-  open.onclick = () => load(c.id, c.legacy);
+  open.onclick = () => void navigate({ kind: "conversation", id: c.id, legacy: c.legacy });
   const actions = document.createElement("details");
   actions.className = "conversation-actions";
   actions.hidden = !!c.legacy;
@@ -2490,7 +2496,7 @@ function conversationRow(c) {
     peek.textContent = "Peek";
     peek.onclick = (event) => {
       event.stopPropagation();
-      load(c.id, c.legacy);
+      void navigate({ kind: "conversation", id: c.id, legacy: c.legacy });
     };
     row.append(open, peek, actions);
     return row;
@@ -4430,7 +4436,7 @@ async function watch(retries = 0) {
     }
   }
 }
-async function load(id, legacy = false, restoredView = null) {
+async function load(id, legacy = false, restoredView = null, scrollTop) {
   if (submitting || cancelling || uploads) return;
   if (!loading && !restoredView) saveView();
   let savedDraft = restoredView;
@@ -4602,13 +4608,18 @@ async function load(id, legacy = false, restoredView = null) {
         $("sidebar").querySelector('.conversation-row > button[aria-current="true"]');
       target?.focus({ preventScroll: true });
     }
+    // Back/forward: put the saved position back now; watch() below can run for the whole stream.
+    if (scrollTop !== undefined) restoreScroll(scrollTop);
     saveView();
     const latest = data.turns.find((turn) => turn.id === job);
     if (
       ["completed", "failed", "cancelled", "interrupted"].includes(latest.state)
     )
+    {
       await result(job, controller, latest);
-    else if (!restoredView) await watch();
+      // "The end" again once the final answer has rendered: it was not in the list above.
+      if (scrollTop < 0 && conversation === id) restoreScroll(scrollTop);
+    } else if (!restoredView) await watch();
     return ["queued", "running"].includes(latest.state);
   } catch (e) {
     if (request !== conversationLoad) return;
@@ -5612,8 +5623,8 @@ $("cancel").onclick = async () => {
     setBusy(busy);
   }
 };
-$("new").onclick = () => {
-  if (submitting || cancelling || loading || uploads) return;
+$("new").onclick = () => void navigate({ kind: "home" });
+function startNewConversation() {
   const loose = Array.from($("project").options).some(
     (o) => o.value === "sem-projeto",
   );
@@ -5627,7 +5638,7 @@ $("new").onclick = () => {
   renderProjects();
   history();
   closeSidebar();
-};
+}
 $("project").onchange = () => {
   const destination = $("project").value, draft = $("prompt").value,
     stale = [...invalidResourceTokens, ...resourceSelections.map(ref => ref.token)];
@@ -6455,7 +6466,7 @@ async function initialize() {
     if (!startupTimer) {
       try {
         if (saved.conversation)
-          resumeWatch = await load(saved.conversation, false, saved);
+          resumeWatch = await load(saved.conversation, false, saved, scrollByConversation.get(saved.conversation));
         restoreView(saved);
       } catch {}
       startupTimer = setInterval(() => {
@@ -7378,7 +7389,7 @@ function applyPanelOrder(value, persist = true) {
     panelOrder === "conversations-right",
   );
   const reversed = panelOrder === "conversations-right";
-  $("app-brand").after($(reversed ? "panel-toggle" : "menu"));
+  $("nav-forward").after($(reversed ? "panel-toggle" : "menu"));
   $("attention-popover").after($(reversed ? "menu" : "panel-toggle"));
   for (const button of document.querySelectorAll("[data-panel-order]"))
     button.setAttribute(
@@ -7445,21 +7456,22 @@ function restoreSelection() {
   if (model.efforts.includes(preferredSelection.effort))
     $("effort").value = preferredSelection.effort;
 }
+function showSettingsPage(button) {
+  for (const name of ["appearance", "customize", "models", "archived", "system"])
+    $("settings-" + name).hidden = name !== button.dataset.settings;
+  if (button.dataset.settings === "archived") void loadArchived();
+  const system = button.dataset.settings === "system";
+  $("catalog-status").hidden = $("catalog-refresh").hidden =
+    system || button.dataset.settings === "archived";
+  $("settings-dialog").classList.toggle("system-open", system);
+  if (system) showAdminSection(button.dataset.adminSection);
+  document
+    .querySelectorAll("[data-settings]")
+    .forEach((b) => b.setAttribute("aria-pressed", String(b === button)));
+}
 document.querySelectorAll("[data-settings]").forEach(
   (button) =>
-    (button.onclick = () => {
-      for (const name of ["appearance", "customize", "models", "archived", "system"])
-        $("settings-" + name).hidden = name !== button.dataset.settings;
-      if (button.dataset.settings === "archived") void loadArchived();
-      const system = button.dataset.settings === "system";
-      $("catalog-status").hidden = $("catalog-refresh").hidden =
-        system || button.dataset.settings === "archived";
-      $("settings-dialog").classList.toggle("system-open", system);
-      if (system) showAdminSection(button.dataset.adminSection);
-      document
-        .querySelectorAll("[data-settings]")
-        .forEach((b) => b.setAttribute("aria-pressed", String(b === button)));
-    }),
+    (button.onclick = () => void navigate(settingsView(button.dataset.settings, button))),
 );
 // Settings › System shows the local admin panel on the same screen.
 function adminFrameUrl(section) {
@@ -7567,12 +7579,162 @@ async function refreshCatalog() {
     $("catalog-skills").textContent = "Couldn't check the available skills.";
   }
 }
-$("settings").onclick = () => {
-  syncThemeToggle();
-  $("settings-dialog").showModal();
-  refreshCatalog();
-};
+$("settings").onclick = () => void navigate(settingsView(currentSettingsSection()));
 $("settings-close").onclick = () => $("settings-dialog").close();
+
+// Back / forward (Codex model): a short in-memory history of views. It never touches
+// window.history, so the saveView URL and the embedded admin iframe are unaffected.
+const NAV_LIMIT = 50;
+const DIALOG_VIEWS = { settings: "settings-dialog", customize: "settings-dialog", space: "space-dialog", scheduled: "scheduled-dialog" };
+let viewHistory = [],
+  viewIndex = -1;
+// Scroll positions survive a reload: the 50 most recent conversations are kept in localStorage.
+const SCROLL_KEY = "conversation-scroll";
+const scrollByConversation = new Map();
+try {
+  for (const [id, top] of JSON.parse(localStorage.getItem(SCROLL_KEY) || "[]"))
+    if (typeof id === "string" && Number.isFinite(top)) scrollByConversation.set(id, top);
+} catch {}
+function rememberScroll() {
+  // While a conversation loads, #messages is not its content yet.
+  if (!conversation || loading) return;
+  const box = $("messages");
+  scrollByConversation.delete(conversation);
+  // At the bottom, remember "the end" (-1), not a pixel offset: the reply may grow or the window shrink.
+  scrollByConversation.set(conversation, box.scrollHeight - box.scrollTop - box.clientHeight < 48 ? -1 : box.scrollTop);
+  while (scrollByConversation.size > NAV_LIMIT) scrollByConversation.delete(scrollByConversation.keys().next().value);
+  try {
+    localStorage.setItem(SCROLL_KEY, JSON.stringify([...scrollByConversation]));
+  } catch {}
+}
+addEventListener("pagehide", rememberScroll);
+document.addEventListener("visibilitychange", () => document.hidden && rememberScroll());
+const sameView = (a, b) => a.kind === b.kind && (a.id || null) === (b.id || null) && (a.section || null) === (b.section || null) && (a.sub || null) === (b.sub || null);
+const currentBaseView = () => (conversation ? { kind: "conversation", id: conversation } : { kind: "home" });
+const pressedSettings = () => document.querySelector('[data-settings][aria-pressed="true"]');
+const currentSettingsSection = () => pressedSettings()?.dataset.settings || "appearance";
+// The five System buttons share data-settings="system"; `sub` (the admin section) tells them apart.
+const settingsView = (section, button) =>
+  section === "customize"
+    ? { kind: "customize", button }
+    : { kind: "settings", section, sub: section === "system" ? (button || pressedSettings())?.dataset.adminSection : undefined, button };
+const navigationBlocked = (view) => ["conversation", "home"].includes(view.kind) && (submitting || cancelling || loading || uploads > 0);
+function syncNavButtons() {
+  const unavailable = (delta) => !viewHistory[viewIndex + delta] || navigationBlocked(viewHistory[viewIndex + delta]);
+  $("nav-back").disabled = unavailable(-1);
+  $("nav-forward").disabled = unavailable(1);
+}
+function recordView({ button, legacy, ...view }) {
+  const base = currentBaseView();
+  if (!viewHistory.length) [viewHistory, viewIndex] = [[base], 0];
+  // The first send creates the conversation outside navigate(); only that Home entry is corrected here.
+  // Any other entry may be a Back target whose load is still pending, while `conversation` is stale.
+  if (viewHistory[viewIndex].kind === "home") viewHistory[viewIndex] = base;
+  if (!sameView(viewHistory[viewIndex], view)) {
+    viewHistory.splice(viewIndex + 1, Infinity, view);
+    if (viewHistory.length > NAV_LIMIT) viewHistory.shift();
+    viewIndex = viewHistory.length - 1;
+  }
+  syncNavButtons();
+}
+async function closeViewDialogs(keep) {
+  for (const id of new Set(Object.values(DIALOG_VIEWS))) {
+    if (id === keep || !$(id).open) continue;
+    if (id === "space-dialog" && !(await leavePage())) return false;
+    $(id).close();
+  }
+  return true;
+}
+function restoreScroll(top) {
+  const box = $("messages");
+  // "instant": #messages scrolls smoothly, and a restored position must not animate or be re-pinned.
+  if (top < 0) {
+    // "The end": pin like a followed stream, so content that renders after this jump keeps it at the bottom.
+    followingStream = true;
+    return scroll();
+  }
+  box.scrollTo({ top, behavior: "instant" });
+  followingStream = box.scrollHeight - box.scrollTop - box.clientHeight < 48;
+}
+// Resolves false when the view could not be shown (a dialog refused to close, a conversation failed to load).
+async function applyView(view, replay = false) {
+  if (!(await closeViewDialogs(DIALOG_VIEWS[view.kind]))) return false;
+  if (view.kind === "conversation") {
+    const top = scrollByConversation.get(view.id);
+    if (view.id !== conversation) await load(view.id, view.legacy, null, top);
+    else if (top !== undefined) restoreScroll(top);
+    if (conversation !== view.id) return false;
+  } else if (view.kind === "home") {
+    // A click on New chat always starts a fresh one; a replayed Home only leaves the conversation.
+    if (conversation || !replay) startNewConversation();
+  } else if (view.kind === "space") await openSpace();
+  else if (view.kind === "scheduled") await openScheduled();
+  else {
+    const section = view.kind === "customize" ? "customize" : view.section;
+    if (!$("settings-dialog").open) {
+      syncThemeToggle();
+      $("settings-dialog").showModal();
+      refreshCatalog();
+    }
+    const button = view.button ||
+      document.querySelector('[data-settings="' + section + '"]' + (view.sub ? '[data-admin-section="' + view.sub + '"]' : ""));
+    if (view.button || button !== pressedSettings()) showSettingsPage(button);
+  }
+}
+async function navigate(view, { record = true } = {}) {
+  if (navigationBlocked(view)) return;
+  rememberScroll();
+  if (record) recordView(view);
+  const shown = await applyView(view, !record);
+  // A recorded view that did not open must not stay in the history, or the first Back appears to do nothing.
+  if (record && shown === false && sameView(viewHistory[viewIndex], view)) {
+    viewHistory.splice(viewIndex, 1);
+    viewIndex--;
+    syncNavButtons();
+  }
+  return shown;
+}
+async function stepHistory(delta) {
+  const target = viewHistory[viewIndex + delta];
+  if (!target || navigationBlocked(target) || foreignModalOpen()) return;
+  const from = viewIndex;
+  viewIndex += delta;
+  syncNavButtons();
+  if ((await navigate(target, { record: false })) !== false || viewIndex !== from + delta) return;
+  // The view did not open: a dialog refused to close, or the conversation is gone. Keep the current view
+  // and drop a dead conversation entry so Back and Forward never point at it again.
+  viewIndex = from;
+  if (target.kind === "conversation" && !conversations.some((c) => c.id === target.id)) {
+    viewHistory.splice(from + delta, 1);
+    viewIndex = from + Math.min(delta, 0);
+  }
+  syncNavButtons();
+}
+// A modal dialog that is not a history view (About, search, ...) owns the keyboard shortcuts.
+const foreignModalOpen = () =>
+  [...document.querySelectorAll("dialog[open]")].some((d) => !Object.values(DIALOG_VIEWS).includes(d.id));
+const back = () => stepHistory(-1),
+  forward = () => stepHistory(1);
+$("nav-back").onclick = back;
+$("nav-forward").onclick = forward;
+document.addEventListener("keydown", (e) => {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || !["[", "]"].includes(e.key)) return;
+  e.preventDefault();
+  (e.key === "[" ? back : forward)();
+});
+// Mouse back / forward buttons; the default is cancelled so the browser never leaves the app.
+document.addEventListener("mouseup", (e) => {
+  if (e.button !== 3 && e.button !== 4) return;
+  e.preventDefault();
+  (e.button === 3 ? back : forward)();
+});
+// Closing a view dialog is a navigation to the conversation underneath, unless the history already moved on.
+for (const id of new Set(Object.values(DIALOG_VIEWS)))
+  $(id).addEventListener("close", () => {
+    const current = viewHistory[viewIndex];
+    if (document.querySelector("dialog[open]") || (current && !(current.kind in DIALOG_VIEWS))) return;
+    recordView(currentBaseView());
+  });
 // Harness-owned agents: own instructions, purpose, tasks, target output and the
 // provider, model and effort they run on; called with @@name in any chat.
 let harnessAgents = [],
@@ -8044,7 +8206,7 @@ function appendOpenRun(jobId) {
   open.textContent = "Open run";
   open.onclick = () => {
     $("scheduled-dialog").close();
-    void load(jobId);
+    void navigate({ kind: "conversation", id: jobId });
   };
   $("schedule-last").append(" ", open);
 }
@@ -8155,8 +8317,8 @@ $("schedule-new").onclick = () => {
 $("schedule-empty-new").onclick = () => $("schedule-new").click();
 $("scheduled-close").onclick = () => $("scheduled-dialog").close();
 // The drawer repeats Space and Scheduled for the phone layout, where the rail hides them.
-for (const id of ["rail-space", "sidebar-space"]) $(id).onclick = () => void openSpace();
-for (const id of ["rail-scheduled", "sidebar-scheduled"]) $(id).onclick = () => void openScheduled();
+for (const id of ["rail-space", "sidebar-space"]) $(id).onclick = () => void navigate({ kind: "space" });
+for (const id of ["rail-scheduled", "sidebar-scheduled"]) $(id).onclick = () => void navigate({ kind: "scheduled" });
 function openAgentDialog(agent = null) {
   editingAgent = agent;
   $("agent-dialog-title").textContent = agent ? "Edit @@" + agent.name : "Create agent";
@@ -8344,13 +8506,7 @@ async function useHarnessAgent(agent) {
 }
 // Rail shortcuts (Codex model): the run pipeline and the agent and skill catalog.
 $("rail-runs").onclick = () => $("run-status-toggle")?.click();
-$("rail-agents").onclick = () => {
-  if (!$("settings-dialog").open) {
-    $("settings-dialog").showModal();
-    refreshCatalog();
-  }
-  document.querySelector('[data-settings="customize"]').click();
-};
+$("rail-agents").onclick = () => void navigate({ kind: "customize" });
 $("settings-tour").onclick = () => $("settings-dialog").close();
 let quotaReturnsToSettings = false;
 $("settings-quota").onclick = () => {
@@ -8555,7 +8711,7 @@ function renderConversationSearch() {
       button.onclick = async () => {
         if (submitting || cancelling || uploads) return;
         $("conversation-search-dialog").close();
-        await load(c.id, c.legacy);
+        await navigate({ kind: "conversation", id: c.id, legacy: c.legacy });
         if (c.runId) window.runConsole?.openRun(c.runId);
       };
       return button;
