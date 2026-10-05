@@ -67,11 +67,11 @@ module.exports = {
 
       await op.step("admin-navigate", "Admin opens the admin panel in the window", async () => {
         const page = desktop.page;
-        // D43: Settings holds the "Admin panel" link, which opens the full admin in the window.
+        // Admin is Settings > System > Providers: the admin is framed in the Settings dialog of the chat window.
         await op.click(page.locator("#settings"));
-        await op.click(page.locator("#admin-shortcut"));
-        await op.until(async () => page.url().startsWith(op.options.adminUrl), "the window did not open the admin; it shows " + page.url());
-        await op.see(page.getByRole("link", { name: "Providers", exact: true }));
+        await op.click(page.locator("#settings-menu").getByRole("menuitem", { name: "Providers", exact: true }));
+        await op.until(async () => page.frames().some((f) => f.url().startsWith(op.options.adminUrl)), "Settings did not show the admin; the frames are " + page.frames().map((f) => f.url()).join(", "));
+        await op.see(page.frameLocator("#admin-frame").getByRole("link", { name: "Providers", exact: true }));
       });
 
       await op.step("admin-back", "Open harness brings the chat back", async () => {

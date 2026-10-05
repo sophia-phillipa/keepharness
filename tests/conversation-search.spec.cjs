@@ -202,16 +202,12 @@ const assert = require("node:assert/strict"),
       "Search runs, plans, files",
     );
     assert.equal(
-      await page.locator("#admin-shortcut").getAttribute("href"),
+      await page.locator("#admin-link").getAttribute("href"),
       "http://localhost:8094/admin/",
-      "admin shortcut must use the URL configured by the service",
+      "the admin link must use the URL configured by the service",
     );
-    await page.click("#settings");
-    assert.equal(
-      await page.locator("#admin-shortcut").isVisible(),
-      true,
-      "configured admin shortcut must be available in Settings (D43)",
-    );
+    await page.keyboard.press("Control+,");
+    assert.equal(await page.locator("#admin-shortcut").count(), 0, "Admin is a Settings section, not a link");
     await page.click("#settings-close");
     assert.equal(
       await page.locator("#projects .conversation-model-icon use").getAttribute("href"),
@@ -293,7 +289,12 @@ const assert = require("node:assert/strict"),
       ["settings", "settings-dialog"],
       ["search-conversations", "conversation-search-dialog"],
     ]) {
-      await page.click("#" + trigger);
+      // Settings opens a submenu on click; Ctrl+, opens the dialog itself.
+      if (trigger === "settings") {
+        await page.locator("#settings").focus();
+        await page.keyboard.press("Control+,");
+      }
+      else await page.click("#" + trigger);
       const dialog = page.locator("#" + id);
       await dialog.waitFor({ state: "visible" });
       await dialog.locator("h2").click();

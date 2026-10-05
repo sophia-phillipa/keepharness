@@ -5497,12 +5497,13 @@ main > header #conversation-title { max-width: calc(50% - 250px); }
 @media (prefers-reduced-motion: reduce) { .project-indicator.status-running { animation: none; } }
 
 /* Settings › System: the local admin panel fills the settings content area. */
-#settings-dialog #settings-system-nav { display: flex; flex-direction: column; gap: 2px; margin-top: 14px; }
-#settings-dialog #settings-system-nav[hidden] { display: none; }
+#settings-dialog .settings-nav-group { display: flex; flex-direction: column; gap: 2px; margin-top: 14px; }
+#settings-dialog .settings-nav-group:first-child { margin-top: 0; }
+#settings-dialog .settings-nav-group[hidden] { display: none; }
 #settings-dialog .settings-nav-label { margin: 0; padding: 4px 8px; color: var(--th-quiet); font-size: 12px; font-weight: 500; }
-#settings-dialog #settings-system-nav > button { display: flex; align-items: center; gap: 10px; min-height: 30px; padding: 5px 8px; border: 0; border-radius: var(--th-row-radius); background: transparent; color: var(--th-text); font-size: 14px; text-align: left; }
-#settings-dialog #settings-system-nav > button:hover, #settings-dialog #settings-system-nav > button[aria-pressed="true"] { background: var(--th-hover); }
-#settings-dialog #settings-system-nav > button[aria-pressed="true"] { font-weight: 500; }
+#settings-dialog .settings-nav-group > button { display: flex; align-items: center; gap: 10px; min-height: 30px; padding: 5px 8px; border: 0; border-radius: var(--th-row-radius); background: transparent; color: var(--th-text); font-size: 14px; text-align: left; }
+#settings-dialog .settings-nav-group > button:hover, #settings-dialog .settings-nav-group > button[aria-pressed="true"] { background: var(--th-hover); }
+#settings-dialog .settings-nav-group > button[aria-pressed="true"] { font-weight: 500; }
 #settings-dialog.system-open .settings-content { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
 #settings-system:not([hidden]) { flex: 1; display: flex; min-height: 0; }
 #admin-frame { flex: 1; width: 100%; min-height: 0; border: 0; background: var(--th-bg); color-scheme: normal; }
@@ -5777,3 +5778,11 @@ body.panel-order-reversed #sidebar .sidebar-tree { margin: 0 0 0 12px; padding: 
 #schedule-pages-list { display: grid; gap: 2px; max-height: 160px; overflow: auto; font-size: 14px; }
 #schedule-pages-list label { display: flex; align-items: center; gap: 8px; min-height: 28px; }
 .agent-fields #schedule-pages-list input[type="checkbox"] { width: auto; padding: 0; }
+
+/* Settings submenu: the visible Settings sections, grouped like the dialog's navigation. */
+#settings-menu { position: fixed; inset: auto; margin: 0; width: 240px; max-height: calc(100vh - 24px); overflow: auto; }
+#settings-menu .settings-menu-group + .settings-menu-group { margin-top: 6px; }
+#settings-menu [role="menuitem"] { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 32px; padding: 4px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--th-text); font-size: 14px; text-align: left; }
+#settings-menu:not([data-placed]) { visibility: hidden; }
+#settings-menu [role="menuitem"]:is(:hover, :focus-visible) { background: var(--th-hover); }
+#settings-menu [role="menuitem"] .th-icon { width: 16px; height: 16px; color: var(--th-muted); }

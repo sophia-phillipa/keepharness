@@ -44,7 +44,6 @@ const origins = appOrigins([adminPort, harnessPort]);
 const python = process.env.KEEPHARNESS_PYTHON || path.join(project, '.venv', 'bin', 'python');
 let win = null,
   splash = null,
-  adminWindow = null,
   starting = true,
   quitting = false,
   backendReady = false,
@@ -158,6 +157,38 @@ function installMenu() {
     {label:'View', submenu:[{role:'resetZoom'}, {role:'zoomIn'}, {role:'zoomOut'}, {role:'togglefullscreen'}, ...(!app.isPackaged ? [{role:'toggleDevTools'}] : [])]},
   ]));
 }
+// The admin is a Settings section of the harness window, never a window of its own: for the admin
+// origin, a loaded harness gets the `#open=settings/<section>` hash (its UI opens Settings there on
+// `hashchange`). Other harness URLs (a /guide link, a model-reply link) keep the main window on the
+// app: the harness root only focuses it, anything else opens in one reusable secondary window.
+const ADMIN_SECTIONS = ['providers', 'home', 'runs', 'catalogs', 'connection'];
+let secondWindow = null;
+function surface(window) {
+  if (window.isMinimized()) window.restore();
+  window.show();
+  window.focus();
+}
+async function showInSecondWindow(url) {
+  if (!secondWindow || secondWindow.isDestroyed()) {
+    secondWindow = createWindow('second');
+    secondWindow.on('closed', () => { secondWindow = null; });
+  } else if (secondWindow.isMinimized()) secondWindow.restore();
+  if (secondWindow.isVisible()) secondWindow.focus();
+  await secondWindow.loadURL(url);
+}
+async function showInMain(url) {
+  if (!win || win.isDestroyed()) return;
+  const target = new URL(url), current = new URL(win.webContents.getURL());
+  if (target.origin === new URL(harnessUrl).origin) {
+    if (target.pathname !== '/' || target.search) return showInSecondWindow(url);
+    return surface(win);
+  }
+  surface(win);
+  if (target.origin !== new URL(adminUrl).origin || current.origin !== new URL(harnessUrl).origin) return win.loadURL(url);
+  const section = target.hash.slice(1);
+  // Only the hash changes: a same-URL loadURL may not load at all, so the running page gets it directly.
+  await win.webContents.executeJavaScript('location.hash = ' + JSON.stringify('#open=settings/' + (ADMIN_SECTIONS.includes(section) ? section : 'providers')));
+}
 // All BrowserWindows, including the splash, share security and lifecycle policies.
 function createWindow(kind) {
   const isSplash = kind === 'splash';
@@ -199,14 +230,7 @@ function createWindow(kind) {
     if (isAppUrl(url, origins)) {
       void (async () => {
         if (!(await verifyProduct(url)) || quitting) return;
-        if (!adminWindow || adminWindow.isDestroyed()) {
-          adminWindow = createWindow('admin');
-          adminWindow.on('closed', () => { adminWindow = null; });
-        } else {
-          if (adminWindow.isMinimized()) adminWindow.restore();
-          if (adminWindow.isVisible()) adminWindow.focus();
-        }
-        await adminWindow.loadURL(url);
+        await showInMain(url);
       })().catch(error => log(error.message));
     } else {
       const safe = externalUrl(url);
@@ -354,7 +378,7 @@ async function recoverBackend() {
     if (win && !win.isDestroyed()) await win.loadURL(target);
     if (quitting) return;
     requireBackendAlive();
-    if (adminWindow && !adminWindow.isDestroyed()) adminWindow.reload();
+    if (secondWindow && !secondWindow.isDestroyed()) secondWindow.reload();
   } catch (error) {
     log(error.message);
     await dialog.showMessageBox({type:'error', title:TITLE, message:safeText(error.message), detail:stderr.slice(-2000)});

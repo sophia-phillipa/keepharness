@@ -13,7 +13,7 @@ module.exports = {
     const nav = (name) => dialog.getByRole("button", { name, exact: true });
     const palette = () => page.evaluate(() => document.documentElement.dataset.palette);
     const open = async () => {
-      if (!(await dialog.isVisible())) await op.click(page.locator("#settings"));
+      if (!(await dialog.isVisible())) await page.keyboard.press("Control+,");
       await op.see(dialog);
     };
 

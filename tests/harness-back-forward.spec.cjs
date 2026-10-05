@@ -112,7 +112,7 @@ const ORIGIN = "http://localhost:18990/";
     assert.match(await shown(), /Alpha/);
 
     // Settings and a Settings page are entries; the shortcuts and mouse button 3 go back.
-    await page.click("#settings");
+    await page.keyboard.press("Control+,");
     await page.locator('[data-settings="models"]').click();
     await page.waitForFunction(() => !document.querySelector("#settings-models").hidden);
     await page.keyboard.press("Control+[");
@@ -190,7 +190,7 @@ const ORIGIN = "http://localhost:18990/";
 
     // System has five buttons that differ only by admin section: Back returns to the one left.
     await fresh();
-    await page.click("#settings");
+    await page.keyboard.press("Control+,");
     await page.locator('[data-settings="system"][data-admin-section="runs"]').click();
     await page.locator('[data-settings="models"]').click();
     await page.keyboard.press("Control+[");
@@ -268,7 +268,7 @@ const ORIGIN = "http://localhost:18990/";
     await back.click();
     // Navigation toward a conversation is blocked while it loads, and the buttons say so.
     await page.waitForFunction(() => document.querySelector("#nav-forward").disabled);
-    await page.click("#settings");
+    await page.keyboard.press("Control+,");
     releaseAlpha();
     alphaHold = Promise.resolve();
     await page.waitForFunction(() => document.querySelector("#messages article.user")?.innerText.includes("Alpha"));

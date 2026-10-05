@@ -90,7 +90,7 @@ runPersona("H30", [
       // F-92 fixed: renderQuotaIdentity() has a "gemini" entry, so the header
       // shows Gemini-specific wording and the panel names Gemini.
       assert.equal(await text(page, "#quota-short"), "Checking Gemini quota…");
-      await page.click("#settings");
+      await page.keyboard.press("Control+,");
       await page.click("#settings-quota");
       await visible(page, "#quota-panel");
       assert.match(
@@ -133,7 +133,7 @@ runPersona("H30", [
         await text(page, "#attachment-help"),
         /Attachments disabled for this model/,
       );
-      await page.click("#settings");
+      await page.keyboard.press("Control+,");
       await page.click("#settings-quota");
       assert.match(
         await text(page, "#quota-current"),

@@ -295,6 +295,9 @@ runPersona("H38", [
       await audit(page, "start", sink);
 
       await page.click("#settings");
+      await audit(page, "settings menu", sink);
+      await page.keyboard.press("Escape");
+      await page.keyboard.press("Control+,");
       for (const section of ["appearance", "customize", "models"]) {
         await page.click(`[data-settings=${section}]`);
         await audit(page, "settings " + section, sink);
@@ -359,7 +362,7 @@ runPersona("H38", [
         await audit(page, menu + " menu", sink);
         await page.keyboard.press("Escape");
       }
-      await page.click("#settings");
+      await page.keyboard.press("Control+,");
       await page.click("#settings-quota");
       await audit(page, "quota", sink);
       await page.keyboard.press("Escape");

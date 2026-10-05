@@ -102,7 +102,7 @@ const balance = {
     assert(await claudeMeter.evaluate(el => el === document.activeElement), "Escape restores focus to the provider meter");
 
     // Returning through Settings restores the selected Codex model's quota.
-    await page.click("#settings");
+    await page.keyboard.press("Control+,");
     await page.click("#settings-quota");
     await page.locator("#quota-panel").waitFor({ state: "visible" });
     assert.equal(await heading(), "ChatGPT account quota");
@@ -125,7 +125,7 @@ const balance = {
 
     // A DeepSeek model shows its balance and never a ChatGPT heading.
     await select("deepseek-flash");
-    await page.click("#settings");
+    await page.keyboard.press("Control+,");
     await page.click("#settings-quota");
     await page.locator("#quota-panel").waitFor({ state: "visible" });
     assert.equal(await heading(), "DeepSeek balance");

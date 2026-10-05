@@ -241,7 +241,7 @@ async function scanHarness(page, theme) {
   await scan("conversation");
   await page.locator(".skip-link").focus();
   await scan("skip link");
-  await page.click("#settings");
+  await page.keyboard.press("Control+,");
   await visible(page, "#settings-dialog");
   await scan("settings");
   await page.keyboard.press("Escape");
@@ -251,7 +251,7 @@ async function scanHarness(page, theme) {
     await scan(menu + " menu");
     await page.keyboard.press("Escape");
   }
-  await page.click("#settings");
+  await page.keyboard.press("Control+,");
       await page.click("#settings-quota");
   await scan("quota panel");
   await page.keyboard.press("Escape");
