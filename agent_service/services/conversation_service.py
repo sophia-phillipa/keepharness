@@ -959,8 +959,16 @@ class ConversationService:
             )
         return data
 
+    def _require_known_backend(self, data):
+        backend = data.get("backend", "auto")
+        if backend != "auto" and (
+            not isinstance(backend, str) or backend not in self.config.get("services", {})
+        ):
+            raise APIError("backend_unavailable", 422)
+
     def assess(self, identity, data):
         self.project(identity, data.get("project_id"))
+        self._require_known_backend(data)
         prompt = data.get("prompt", "")
         if not isinstance(prompt, str):
             raise APIError("invalid_prompt")
@@ -1502,11 +1510,7 @@ class ConversationService:
         ):
             raise APIError("invalid_internal_field")
         data.pop("maestro_plan_policy", None)
-        backend = data.get("backend", "auto")
-        if backend != "auto" and (
-            not isinstance(backend, str) or backend not in self.config.get("services", {})
-        ):
-            raise APIError("backend_unavailable", 422)
+        self._require_known_backend(data)
         if "workflow_inputs" in data:
             try:
                 if not isinstance(data["workflow_inputs"], dict):

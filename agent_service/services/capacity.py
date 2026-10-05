@@ -3,8 +3,8 @@
 Two counters limit one provider, and both read ``services.<provider>.max_concurrent``:
 
 - a dispatcher lane, taken when ``queue_worker.run`` starts a job (counted by the job's own
-  backend, ``maestro`` included) and freed when the job's task ends;
-- an inference slot, taken by every ``ConversationService.infer`` (Maestro planner and steps
+  backend) and freed when the job's task ends;
+- an inference slot, taken by every ``ConversationService.infer`` (workflow steps
   too) and freed when that inference ends.
 
 A run that waits for an approval or a gate holds neither (D14): ``parked`` frees both, and takes
@@ -19,7 +19,7 @@ from contextlib import asynccontextmanager, nullcontext
 from ..errors import APIError
 
 # D14: a cloud provider runs two conversations at once unless the admin sets another number.
-# A local model and the Maestro coordinator keep one.
+# A local model keeps one.
 CLOUD_PROVIDERS = frozenset({"codex", "claude", "gemini", "deepseek"})
 
 

@@ -1,17 +1,19 @@
 """The Maestro planner is gone; Workflows and declared chains keep running on the step engine."""
 
 import asyncio
+import copy
 import json
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from starlette.testclient import TestClient
 from test_workflow_api import submitted
 from test_workflow_resume_rerun import setup_run
 from test_workspaces import config
 
 from agent_service import maestro
-from agent_service.app import Service
-from agent_service.config import validate_runtime_config
+from agent_service.app import Service, create_app
+from agent_service.config import runtime_job_affected, validate_runtime_config
 from agent_service.errors import APIError
 
 
@@ -146,3 +148,57 @@ def test_capabilities_drop_maestro_planner(tmp_path):
         assert "maestro" not in service.capabilities()
     finally:
         service.db.close()
+
+
+@pytest.mark.parametrize(
+    "model", ["auto", "gpt-6-astra"], ids=["model_auto", "model_explicit"]
+)
+def test_assess_backend_maestro_is_backend_unavailable(tmp_path, model):
+    service, identity = make_service(tmp_path)
+    try:
+        with pytest.raises(APIError, match="backend_unavailable") as caught:
+            service.assess(
+                identity,
+                {"project_id": "p", "prompt": "x", "backend": "maestro", "model": model},
+            )
+        assert caught.value.status == 422
+    finally:
+        service.db.close()
+
+
+def test_assess_route_backend_maestro_is_backend_unavailable(tmp_path):
+    with TestClient(create_app(config(tmp_path)), headers={"Authorization": "Bearer a"}) as client:
+        for model in ("auto", "gpt-6-astra"):
+            response = client.post(
+                "/v1/assess",
+                json={"project_id": "p", "prompt": "x", "backend": "maestro", "model": model},
+            )
+            assert response.status_code == 422
+            assert "backend_unavailable" in response.text
+
+
+def test_models_route_has_no_maestro_field(tmp_path):
+    with TestClient(create_app(config(tmp_path)), headers={"Authorization": "Bearer a"}) as client:
+        body = client.get("/v1/models", params={"project_id": "p"}).json()
+        assert "maestro" not in body
+        assert "maestro" not in client.get("/.well-known/agent-capabilities.json").json()
+
+
+def test_running_declared_workflow_is_judged_by_its_active_step_provider(tmp_path):
+    current = config(tmp_path)
+    row = {
+        "id": "j",
+        "owner": "a",
+        "project": "p",
+        "state": "running",
+        "payload": json.dumps(
+            {"backend": "codex", "model": "gpt-6-astra", "_declared_workflow": True}
+        ),
+    }
+    executors = {"j": ("local", "installed-model")}
+    step_removed = copy.deepcopy(current)
+    step_removed["services"]["local"]["models"] = []
+    assert runtime_job_affected(current, executors, row, step_removed)
+    payload_provider_removed = copy.deepcopy(current)
+    payload_provider_removed["services"]["codex"]["models"] = []
+    assert not runtime_job_affected(current, executors, row, payload_provider_removed)
