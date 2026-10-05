@@ -44,6 +44,8 @@ async def models(request, service, identity):
             # The access menu offers Full access only to the owner, once enabled (D11).
             "full_access": identity[0] == LOCAL_CLIENT
             and not approval_policy.mode_disabled(config, "full"),
+            # Lets the UI default owner-only choices (project folders in a handoff) without Full mode.
+            "local_owner": identity[0] == LOCAL_CLIENT,
             "admin_url": config.get("admin_url"),
         }
     )
