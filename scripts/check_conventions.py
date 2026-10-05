@@ -32,7 +32,7 @@ TEXT_EXTENSIONS = set(".py .js .cjs .css .html .md .sh .toml .yml .yaml .json .t
 
 # Bare filenames matched against the basename anywhere in the tree.
 SILENT_NAME_BASENAMES = set(
-    "README.md README.pt-BR.md AGENTS.md CLAUDE.md LICENSE MANIFEST.in".split()  # noqa: SIM905
+    "README.md README.pt-BR.md AGENTS.md CHANGELOG.md CLAUDE.md LICENSE MANIFEST.in".split()  # noqa: SIM905
 )
 
 # Paths (or fnmatch globs, matched against the full relative path) that never count as errors.

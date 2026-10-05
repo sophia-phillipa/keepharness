@@ -1,0 +1,55 @@
+# Changelog
+
+All notable changes to KeepHarness are recorded here. The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+The per-release notes in [`dossier/releases/`](dossier/releases/) hold the full behavior, acceptance criteria, migration notes and actual validation; this file is the short index.
+
+## [Unreleased]
+
+### Fixed
+
+<!-- Chat campaign fixes (see dossier/research/chat-campaign-2026-10.md) -->
+
+## [0.16.0] - unreleased
+
+Detail: [`dossier/releases/v0.16.0.md`](dossier/releases/v0.16.0.md).
+
+### Added
+
+- Whole attachments: an "excerpt sent" chip (`excerpt: true`) when only part of a long file is sent, DOCX text from headers, footers, footnotes and endnotes, and decoding of UTF-16 or UTF-8 BOM and Windows-1252 text files.
+- Archive and Unarchive for conversations (`PATCH /v1/conversations/{id}` with `{"archived": bool}`), a Settings Archived chats screen and `GET /v1/storage` with run and byte caps counted on live content only.
+- `python -m agent_service.storage_migration` to link identical old uploads (dry run by default, `--apply` to change).
+- Projects without a folder (`"paths": []`) and a Files chip popover (recent uploads, Space pages, Upload, Browse project files).
+- Schedules can pick an agent and up to 5 pages, and carry an `allow_internet` flag.
+- `keepharness backup` and `keepharness restore` for the state folder, with owner-only archives and secrets left out by default.
+- Supervised harness restarts with backoff, a drain on shutdown, and a close confirmation in the desktop app when work is running.
+- Hashed dependency locks (`--require-hashes`) and supply-chain scans in CI.
+
+### Changed
+
+- Automatic mode is bounded to the project on Codex, DeepSeek and Claude Code; anything beyond it raises an approval card, and Gemini asks before shell or connector requests.
+- Full access is owner-only and off by default (admin setting `full_access`).
+- Scheduled runs are offline unless the task sets `allow_internet`.
+- `DELETE /v1/conversations/{id}` now purges the conversation for good; use the archive `PATCH` to hide one.
+- The "/" palette lists what each provider CLI really reads, and work-item pattern matching runs off the event loop with a startup guard.
+- Settings regrouped (Admin, Appearance, About), Chat and Code are views of one conversation, and the tour has five steps.
+
+### Removed
+
+- The Maestro planner: no multi-step plan mode, no "Maestro (auto plan)" model entry and no `maestro` backend (refused with 422 `backend_unavailable`). Old conversations reopen on the available provider; Workflows and declared `/` chains still run on the step engine.
+
+### Fixed
+
+- Document-heavy conversations of about 16 turns no longer fail with `source_context_limit`.
+- Valid work-item patterns are no longer rejected as `invalid_work_item_pattern` on a busy host.
+- Offline Gemini schedules with connectors configured run instead of failing.
+
+### Security
+
+- `POST /v1/login` checks `Origin` before counting the attempt, so a hostile page cannot lock real devices out.
+- `/v1` JSON answers carry `Cache-Control: no-store`, another owner's job answers 404 like a missing one, and the admin API no longer returns raw exception text.
+- Personal resources of the owner are hidden from guests in the palette, the catalog and run resolution.
+
+## Earlier versions
+
+Releases 0.15.x and before are described in the notes under [`dossier/releases/`](dossier/releases/).
