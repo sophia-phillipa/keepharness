@@ -19,7 +19,7 @@ async function boot(options = {}) {
     fs.mkdirSync(path.join(home, '.local/share/keepharness'), { recursive: true });
     fs.writeFileSync(path.join(home, '.local/share/keepharness/runtime.json'), options.runtime);
   }
-  const windows = [], dialogs = [], external = [], requests = [], requestDetails = [], children = [], probes = [], timers = new Map(), badges = [];
+  const windows = [], dialogs = [], external = [], handlers = new Map(), requests = [], requestDetails = [], children = [], probes = [], timers = new Map(), badges = [];
   const app = new EventEmitter();
   Object.assign(app, { isPackaged: options.packaged ?? true, setName() {}, setBadgeCount: n => badges.push(n), getPath: name => name === 'downloads' ? path.join(home, 'Downloads') : userData,
     requestSingleInstanceLock: () => true, whenReady: async () => {}, quit: () => { app.quits++; app.emit('before-quit', event()); }, quits: 0 });
@@ -52,7 +52,9 @@ async function boot(options = {}) {
   }
   const ownerSession = 'owner-session-abcdefghijklmnop';
   const cookies = [];
-  const electron = { app, BrowserWindow: Window, shell: { openExternal: async url => external.push(url) },
+  const protocolApps = options.protocolApps ?? {'codex://':'ChatGPT','claude://':'Claude'};
+  app.getApplicationNameForProtocol = scheme => protocolApps[scheme] ?? '';
+  const electron = { app, BrowserWindow: Window, ipcMain: { handle: (channel, fn) => handlers.set(channel, fn) }, shell: { openExternal: async url => { if (options.failOpenExternal) throw new Error('boom'); external.push(url); } },
     screen: { getAllDisplays: () => [{workArea:{x:0,y:0,width:1920,height:1080}}], getPrimaryDisplay: () => ({workArea:{x:0,y:0,width:1920,height:1080}}) },
     Menu: { buildFromTemplate: template => template, setApplicationMenu: template => { menu = template; } },
     dialog: { showMessageBox: async (...args) => { const d = args.at(-1); dialogs.push(JSON.parse(JSON.stringify(d))); if (options.onDialog) return options.onDialog(d, app); return { response: options.response ?? 1 }; }, showAboutPanel() {} },
@@ -81,7 +83,7 @@ async function boot(options = {}) {
   const proc = new EventEmitter(); Object.assign(proc, { env:{ KEEPHARNESS_ADMIN_PORT:'18194', KEEPHARNESS_PYTHON:process.execPath, ...options.env }, platform:'linux', getuid: () => 1000 });
   vm.runInNewContext(source, { require(name) { return ({electron, 'node:fs':fakeFs, 'node:os':{homedir:()=>home}, 'node:http':http, 'node:child_process':childProcess, './policy.cjs':require('./policy.cjs')})[name] || require(name); }, __dirname, process:proc, console, Buffer, URL, Date: {now: () => clock.t, parse: Date.parse}, setTimeout:(fn,ms)=> { if (ms >= 5000) { const timer={fn,ms,unref(){}}; timers.set(timer,timer); return timer; } if (ms === 250) clock.t += 250; return setTimeout(fn,ms===250?0:ms); }, clearTimeout:timer => { timers.delete(timer); clearTimeout(timer); } }, {filename:'main.cjs'});
   await settle();
-  return {timers,badges,session:electron.session.defaultSession,home,userData,windows,dialogs,external,requests,requestDetails,children,probes,app,event,get menu(){return menu;},main:windows.find(w=>!w.options.frame && !w.file) || windows.find(w=>w.options.frame !== false)};
+  return {handlers,timers,badges,session:electron.session.defaultSession,home,userData,windows,dialogs,external,requests,requestDetails,children,probes,app,event,get menu(){return menu;},main:windows.find(w=>!w.options.frame && !w.file) || windows.find(w=>w.options.frame !== false)};
 }
 
 test('credential-requiring harness is accepted and opens the main window', async () => {
@@ -177,7 +179,7 @@ test('harness URLs opened from a page never navigate the main window', async () 
   h.main.open({url:harness+'guide'}); await settle();
   assert.equal(h.main.url,harness); assert.equal(h.windows.length,count+1);
   const second=h.windows.at(-1); assert.notEqual(second,h.main); assert.equal(second.url,harness+'guide');
-  assert.deepEqual(second.options.webPreferences,h.main.options.webPreferences);
+  { const { preload, ...mainPrefs } = h.main.options.webPreferences; assert.ok(preload); assert.deepEqual(second.options.webPreferences, mainPrefs); } // same security prefs; only the main window has the hand-off preload
   second.emit('ready-to-show'); second.minimized=true; h.main.open({url:harness+'api/files/x'}); await settle();
   assert.equal(h.windows.length,count+1); assert.equal(second.url,harness+'api/files/x'); assert.equal(second.restored,true); assert.equal(second.minimizedAtFocus,false); assert.equal(h.main.url,harness);
   const e=h.event(); second.webContents.emit('will-redirect',e,'https://example.com/'); assert.ok(e.prevented);
@@ -515,4 +517,103 @@ test('the enrollment route restore is single-use even when enrollment is refused
   assert.equal(h.main.webContents.listenerCount('did-finish-load'), 0);
   h.main.url = 'http://127.0.0.1:8095/'; h.main.webContents.emit('did-finish-load'); await settle();
   assert.equal(h.main.url, 'http://127.0.0.1:8095/');
+});
+
+// WP5 continuation hand-off bridge: preload, the two IPC handlers and the packaged file list.
+const HARNESS = 'http://127.0.0.1:8095/';
+const fromFrame = url => ({ senderFrame: { url } });
+const APPS = 'keepharness:handoff-apps', OPEN = 'keepharness:handoff-open';
+// Results come from the vm realm: compare them by value.
+const plain = value => JSON.parse(JSON.stringify(value));
+
+test('only the main window gets the hand-off preload; splash and secondary windows stay bare', async () => {
+  const h = await boot();
+  h.main.open({ url: HARNESS + 'guide' });
+  await settle();
+  assert.equal(h.windows.length, 3);
+  const preload = path.join(__dirname, 'preload.cjs');
+  for (const w of h.windows) {
+    const prefs = w.options.webPreferences;
+    assert.equal(prefs.preload, w === h.main ? preload : undefined);
+    assert.deepEqual([prefs.sandbox, prefs.contextIsolation, prefs.nodeIntegration], [true, true, false]);
+  }
+  assert.ok(fs.existsSync(preload));
+});
+
+test('the preload exposes exactly two invoke wrappers and no raw ipcRenderer', () => {
+  const exposed = [], calls = [];
+  const electron = {
+    contextBridge: { exposeInMainWorld: (name, api) => exposed.push([name, api]) },
+    ipcRenderer: { invoke: async (...args) => { calls.push(args); return 'ok'; } },
+  };
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, 'preload.cjs'), 'utf8'), { require: name => name === 'electron' ? electron : require(name) });
+  assert.equal(exposed.length, 1);
+  const [name, api] = exposed[0];
+  assert.equal(name, 'keepharnessDesktop');
+  assert.deepEqual(Object.keys(api).sort(), ['handoffApps', 'openHandoff']);
+  return Promise.all([api.handoffApps(), api.openHandoff('claude', 'hello')]).then(() => {
+    assert.deepEqual(plain(calls), [[APPS], [OPEN, { target: 'claude', text: 'hello' }]]);
+  });
+});
+
+test('handoff-apps lists installed apps for the harness origin only', async () => {
+  const h = await boot();
+  assert.deepEqual(plain(await h.handlers.get(APPS)(fromFrame(HARNESS))), { apps: ['chatgpt', 'claude'] });
+  const claudeOnly = await boot({ protocolApps: { 'claude://': 'claude-desktop.desktop' } });
+  assert.deepEqual(plain(await claudeOnly.handlers.get(APPS)(fromFrame(HARNESS))), { apps: ['claude'] });
+  const none = await boot({ protocolApps: {} });
+  assert.deepEqual(plain(await none.handlers.get(APPS)(fromFrame(HARNESS))), { apps: [] });
+  for (const url of ['http://127.0.0.1:18194/', 'https://example.com/', 'file:///splash.html', 'junk']) {
+    assert.deepEqual(plain(await h.handlers.get(APPS)(fromFrame(url))), { apps: [], error: 'handoff_forbidden' });
+  }
+  assert.deepEqual(plain(await h.handlers.get(APPS)({})), { apps: [], error: 'handoff_forbidden' });
+  assert.deepEqual(plain(await h.handlers.get(APPS)({ senderFrame: null })), { apps: [], error: 'handoff_forbidden' });
+});
+
+test('handoff-open validates the sender and the payload before anything is opened', async () => {
+  const h = await boot();
+  const open = (url, payload) => h.handlers.get(OPEN)(fromFrame(url), payload);
+  const good = { target: 'claude', text: 'continue' };
+  for (const url of ['http://127.0.0.1:18194/', 'https://example.com/', 'file:///splash.html']) {
+    assert.deepEqual(plain(await open(url, good)), { opened: false, error: 'handoff_forbidden' });
+  }
+  assert.deepEqual(plain(await h.handlers.get(OPEN)({}, good)), { opened: false, error: 'handoff_forbidden' });
+  const bad = [undefined, null, 'x', {}, { target: 'gemini', text: 'x' }, { target: 'https://evil.example/', text: 'x' }, { target: 'claude' },
+    { target: 'claude', text: '' }, { target: 'claude', text: 42 }, { target: 'claude', text: ['x'] }, { target: 'claude', text: 'x'.repeat(30001) }];
+  for (const payload of bad) assert.deepEqual(plain(await open(HARNESS, payload)), { opened: false, error: 'handoff_invalid' }, JSON.stringify(payload)?.slice(0, 60));
+  assert.deepEqual(plain(h.external), []);
+  assert.deepEqual(plain(await open(HARNESS, { target: 'claude', text: 'x'.repeat(30000) })), { opened: true, mode: 'short' });
+  assert.equal(h.external.length, 1);
+});
+
+test('handoff-open re-checks the app and opens only the URL built in main', async () => {
+  const { handoffUrl } = require('./policy.cjs');
+  const h = await boot();
+  const open = payload => h.handlers.get(OPEN)(fromFrame(HARNESS), payload);
+  const text = 'Continue & finish #2\nthen stop';
+  assert.deepEqual(plain(await open({ target: 'claude', text, url: 'https://evil.example/', scheme: 'x://' })), { opened: true, mode: 'full' });
+  assert.deepEqual(plain(h.external), [handoffUrl('claude', text).url]);
+  assert.deepEqual(plain(await open({ target: 'chatgpt', text })), { opened: true, mode: 'short' });
+  assert.deepEqual(h.external.at(-1), 'codex://threads/new');
+  assert.equal(h.external.length, 2);
+  // The app is uninstalled after the list was read: the open re-checks and opens nothing.
+  const gone = await boot({ protocolApps: { 'claude://': 'Claude' } });
+  assert.deepEqual(plain(await gone.handlers.get(OPEN)(fromFrame(HARNESS), { target: 'chatgpt', text })), { opened: false, error: 'handoff_app_missing' });
+  assert.deepEqual(plain(gone.external), []);
+});
+
+test('handoff-open reports an open failure without leaking the prompt', async () => {
+  const h = await boot({ failOpenExternal: true });
+  const secret = 'prompt body that must not be logged';
+  assert.deepEqual(plain(await h.handlers.get(OPEN)(fromFrame(HARNESS), { target: 'claude', text: secret })), { opened: false, error: 'handoff_open_failed' });
+  const log = path.join(h.userData, 'logs', 'main.log');
+  assert.ok(!fs.existsSync(log) || !fs.readFileSync(log, 'utf8').includes(secret));
+});
+
+test('the Linux packager copies every local module main.cjs loads, preload included', () => {
+  const script = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'package-desktop-linux.sh'), 'utf8');
+  const copied = /^for file in (.+); do$/m.exec(script)[1].split(' ');
+  assert.ok(copied.includes('preload.cjs'));
+  for (const [, name] of source.matchAll(/require\('\.\/([\w.-]+)'\)/g)) assert.ok(copied.includes(name), name);
+  assert.ok(source.includes("path.join(__dirname, 'preload.cjs')"));
 });
