@@ -330,6 +330,120 @@ Checks that passed:
 
 **Notes**: no new defect was found, so the Bugs index is unchanged (C-01, C-03 to C-06 are known and were not re-filed). Metrics: `~/.cache/kho/chat/runs/s3a/metrics.jsonl`. Screenshots: `~/.cache/kho/chat/runs/s3a/shots/` (`s3-00-models.png` shows the model picker with the DeepSeek group and no key; the Settings > Providers screen was not captured).
 
+### Round 6 (slice 3b), 2026-10-05
+
+- **Slice**: 3, part b, reload, close and reopen, harness restart (S3-04 to S3-07)
+- **Provider, model, effort**: Codex `gpt-5.6-sol`, Medium
+- **Scenarios**: S3-04, S3-05, S3-06, S3-07 (run visibly)
+- **Results**: S3-04 PASS, S3-05 PASS, S3-06 FAIL (one check: scroll position, see C-07), S3-07 PASS; 12 of 12 prompts spent (S3-04 3, S3-05 4, S3-06 2, S3-07 3). No quota, credit or rate-limit text from the provider. One new bug: C-07.
+- **Environment**: desktop 0.16.0, instance on 18640/18641. The slice ran in two passes because the first one polled `/v1/conversations/:id` in a tight loop and the harness answered HTTP 429 to the operator (not a provider limit): S3-04 crashed on that answer after its first prompt (that prompt's result was lost, so S3-04 was rerun with 2 prompts and its "short follow-up after reload" prompt dropped; the early-reload prompt covers "send works after a reload"), S3-05 ran round a (2 prompts) and aborted on a check race, S3-07 passed in full. The second pass ran S3-04 (2), S3-05 round b (2, `CHAT_S305_ROUNDS=b`) and S3-06 (2) with a 2 s poll. Evidence of both passes: `~/.cache/kho/chat/runs/s3b/` (first pass copied to `run1/`).
+
+| Turn | Scenario | TTFT (ms) | Total (ms) | Input-to-paint median (ms) | Electron RSS (MB) | Harness RSS (MB) |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | S3-05 round a, send after reopen | 10595 | 11902 | 13.2 | 832 | 274 |
+| 2 | S3-07 plant KESTREL | 5442 | 7271 | 12.6 | 821 | 250 |
+| 3 | S3-07 recall after restart | 8619 | 9930 | 19.0 | 813 | 259 |
+| 4 | S3-07 second word | 3605 | 5421 | 14.6 | 815 | 253 |
+| 5 | S3-05 round b, send after reopen | 5615 | 6429 | 14.8 | 828 | 251 |
+| 6 | S3-06 prompt, conversation A | 7617 | 8937 | 19.2 | 829 | 274 |
+| 7 | S3-06 prompt, conversation B | 6612 | 7936 | 18.2 | 832 | 264 |
+
+The three long numbered replies and the early-reload reply are not in the table (they were not timed as turns).
+
+| Metric | Value | Note |
+| --- | --- | --- |
+| Median TTFT (s) | 6.6 | 7 short turns; range 3.6 to 10.6 |
+| Median total reply time (s) | 7.9 | same 7 turns |
+| Input-to-paint latency (ms) | 14.8 median | 12.6 to 19.2 |
+| Electron RSS / CPU | 813-832 MB, 23-46% | CPU is the average over the turn |
+| Harness RSS / CPU | 250-274 MB, 3-5% | |
+| App open / reopen (s) | open 1.2; reopen 1.0 (S3-05 a, b), 1.3, 1.1, 1.1 (S3-06) | reopen = relaunch to a usable window, backend already running |
+| Window bounds before / after | x 240, y 68, 1440x900 both before and after, on all 5 reopens | restored exactly |
+
+- **S3-04 reload mid-reply**: PASS. The page reloaded in 521 ms with the stream live (135 characters at the reload, pill "running"); the same conversation came back with its 2 messages, the stream continued to the end (3371 characters in the page and on the server, last line `300 nutshell`, run `completed`), and the server still held exactly 1 turn (no duplicate). Early reload (right after pressing send, before any text): exactly one more turn, run `completed`, answer `EARLY-OK`. Screenshot `~/.cache/kho/chat/runs/s3b/shots/s3-04-reload-a.png`.
+- **S3-05 close mid-reply**: PASS in both rounds. The app was closed with 129 and 139 characters streamed; while it was closed, the admin and the harness ports stayed open (attach mode); after the reopen (about 1.0 s) the same conversation was selected with its messages, the pill read "running" and the stream finished: 2186 characters (round a, last line `200 snowflake`) and 2863 characters (round b, last line `250 ...`), page equal to server, 1 turn each, `completed`. Window bounds identical before and after. A short prompt after each reopen answered (REOPEN-A, REOPEN-B). Note: in round a the stock wait helper saw the header pill "Completed" while the new reply still showed "Working..." and the partial text `REOPEN-` (the check then failed on a race); the same turn ended `Completed` with `REOPEN-A` a moment later and round b did not repeat it. Treated as a helper race, not filed.
+- **S3-06 idle close and reopen x3**: the three reopens took 1.34, 1.07 and 1.07 s; window bounds identical; the selected conversation (the 300-line one) was restored each time. FAIL on one check: the scroll position was not restored. The conversation was scrolled to the middle (3323 of 6547 px) before closing; after every reopen it sat at the top (0 of 6547), see C-07. Send worked in both conversations after the third reopen (ALPHA-OK in the first, BETA-OK in a second one picked from the sidebar). Screenshot `~/.cache/kho/chat/runs/s3b/shots/s3-06-last-open.png`.
+- **S3-07 harness restart from the admin**: PASS. `POST /api/stop` then `/api/start` on the admin: the harness came back with a new pid (1769112 to 1776872) in 1.9 s; the open app reconnected on its own (no reload needed), with the same conversation and the same 1 turn. The follow-up recalled `KESTREL-6613` and the next turn listed both words (`KESTREL-6613`, `SWIFT-2047`); the second run shows the milestones "Conversation context resumed | Preparing the run", so the Codex session resumed; the server held 3 completed turns. No error message appeared. Screenshot `~/.cache/kho/chat/runs/s3b/shots/s3-07-restarted.png`.
+
+**Bugs**
+
+- **C-07, scroll position is not restored on reopen (opens at the top)**
+  - Steps: open a long conversation (300 numbered lines, 6547 px of content), scroll to the middle (3323 px), close the app, open it again. Repeat three times.
+  - Expected: the same conversation is selected and its scroll position is kept (or it opens at the newest message).
+  - Actual: the conversation is selected but the view sits at the very top (scrollTop 0) every time, far from the newest message.
+  - Screenshot: `~/.cache/kho/chat/runs/s3b/shots/s3-06-last-open.png`; numbers in `~/.cache/kho/chat/runs/s3b/metrics.jsonl` (`s3-06-start`, `s3-06-open`).
+
+**Notes**: C-01, C-03 to C-06 were not re-filed. Operator lesson: poll `/v1/conversations/:id` no faster than every 2 s; the harness rate-limits tight polling with 429.
+
+### Round 7 (slice 4a), 2026-10-05
+
+- **Slice**: 4, part a, long conversation (S4-01)
+- **Provider, model, effort**: Codex `gpt-5.6-luna`, Medium
+- **Scenarios**: S4-01 (run visibly)
+- **Results**: S4-01 PASS (checks 2/2 including the scenario step); 18 of 18 prompts spent. No quota, credit or rate-limit text from the provider. No new bugs.
+- **Environment**: desktop 0.16.0, instance on 18640/18641, one conversation of 18 turns; polling of `/v1/conversations/:id` kept at 2 s or slower (no 429). Evidence: `~/.cache/kho/chat/runs/s4a/` (`metrics.jsonl`, `summary.md`, `shots/`).
+
+| Turn | Scenario | TTFT (ms) | Total (ms) | Input-to-paint median / p95 (ms) | Electron RSS (MB) | Harness RSS (MB) |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | plant code word and surname | 4873 | 6284 | 15.3 / 31.8 | 803.8 | 252.7 |
+| 9 | filler | 3863 | 5435 | 14.7 / 31.5 | 807.1 | 251.1 |
+| 10 | recall of all four facts | 4881 | 5913 | 19.0 / 32.0 | 829.5 | 256.4 |
+| 15 | recall of code word and surname | 4662 | 6012 | 17.3 / 30.6 | 848.4 | 260.0 |
+| 18 | recall of all four facts | 3649 | 5743 | 19.0 / 32.7 | 852.8 | 249.5 |
+
+Turns 2 to 8, 11 to 14, 16 and 17 (3 fact turns and short filler turns) are in `summary.md`.
+
+| Metric | Value | Note |
+| --- | --- | --- |
+| Median TTFT (s) | 3.6 | 18 short turns; range 3.6 to 6.6 |
+| Median total reply time (s) | 5.3 | same 18 turns; range 4.0 to 7.0 |
+| Input-to-paint latency (ms) | 14.1 to 20.8 median per turn | p95 29.1 to 36.5 across all turns |
+| Electron RSS / CPU | 798-853 MB, 25-34% | +49 MB from turn 1 to 18, most of it after turn 9 |
+| Harness RSS / CPU | 245-260 MB, 3-15% | flat |
+| App open / reopen (s) | open 1.5 | |
+| Window bounds before / after | not measured | no reopen in this slice |
+
+- **S4-01 long conversation**: PASS. Facts planted in turns 1 to 3 (code word `OSPREY-4821` and surname `Lindqvist` in turn 1, trip `Tuesday-Marrakesh`, `7 amber lanterns`). Recall at turn 10: all four correct (`OSPREY-4821, Lindqvist, Tuesday-Marrakesh, 7 amber lanterns`); turn 15: code word and surname correct; turn 18: all four correct. The server held 18 turns, all `completed`; the page held 18; `source_context_limit` appeared nowhere (turn data and page text). The UI stayed responsive (input-to-paint median at most 20.8 ms, p95 at most 36.5 ms, no growth with turn count). RSS at turns 1, 9 and 18: Electron 803.8, 807.1, 852.8 MB; harness 252.7, 251.1, 249.5 MB. Screenshot `~/.cache/kho/chat/runs/s4a/shots/s4-01-end.png`.
+
+**Bugs**: none.
+
+**Notes**: filler turns were one-word replies, so the conversation is long in turns but small in tokens; it does not exercise the context budget. A heavier variant (long filler replies) would be needed to reach `source_context_limit`.
+
+### Round 8 (slice 4b), 2026-10-05
+
+- **Slice**: 4, part b (S4-02 to S4-08): conversation management, provider offline, restart, keyboard, window sizes, themes, background streaming
+- **Provider, model, effort**: Codex `gpt-5.6-sol`, Medium (S4-03 also toggled the Codex service off and on, test instance only)
+- **Scenarios**: S4-02 to S4-08 (run visibly)
+- **Results**: S4-02 PASS, S4-03 PASS, S4-04 FAIL (check/design assumption, see below), S4-05 FAIL (harness check), S4-06 PASS, S4-07 FAIL (harness check), S4-08 FAIL (suspected app defect C-08). 11 prompts reached the provider (10 numbered turns plus the S4-04 stream before the restart attempt); the S4-03 send while Codex was off was refused locally; budget 12, so no scenario was rerun. No quota, credit or rate-limit text from the provider.
+- **Environment**: desktop 0.16.0, instance on 18640/18641, polling at 2 s or slower (no 429). Evidence: `~/.cache/kho/chat/runs/s4b/` (`metrics.jsonl`, `summary.md`, `shots/`).
+
+| Turn | Scenario | TTFT (ms) | Total (ms) | Input-to-paint median / p95 (ms) | Electron RSS (MB) | Harness RSS (MB) |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | s4-02 keep | 3862 | 5187 | 15.7 / 31.1 | 800.1 | 251.1 |
+| 2 | s4-02 drop | 5847 | 7422 | 13.2 / 24.2 | 804.7 | 240.6 |
+| 3 | s4-03 resend | 4625 | 7217 | 21.9 / 31.6 | 793.9 | 250.9 |
+| 4 | s4-04 retry (150 lines) | 4877 | 29214 | 15.0 / 32.8 | 810.8 | 271.6 |
+| 7 | s4-06 narrow (480 px request) | 7110 | 16553 | 14.6 / 31.6 | 875.4 | 284.0 |
+| 8 | s4-06 wide (1900 px) | 4872 | 15819 | 17.4 / 31.7 | 879.0 | 319.0 |
+| 9 | s4-08 BRAVO | n/a | 7537 | 25.6 / 32.4 | 821.3 | 487.9 |
+
+Turns 5, 6 (S4-05 send and Stop) and 10 (S4-08 ALPHA, 82.7 s, 150 lines streamed in the background) are in `metrics.jsonl`. Harness RSS reached about 488 MB with two conversations active.
+
+- **S4-02 rename, archive, unarchive, delete**: PASS. Rename showed in header, row and API; archive showed the note "Conversation archived. Find it in Settings > Archived chats." and the chat was listed there; unarchive restored it with its single turn intact; permanent delete asked for confirmation and then returned 404 for the conversation and its job.
+- **S4-03 provider offline**: PASS. With Codex disabled in the test admin the send was refused with "Couldn't run: This provider is not available right now. Choose another model." and no turn was added (parity gap: no Retry or "enable provider" action on that message; the header pill kept the previous "Completed", see Notes). After re-enabling, the resend ran and the history held exactly 2 turns. Settings were restored (Codex enabled, models sol and luna, verified through the test admin at the end).
+- **S4-04 restart during a stream**: FAIL on the first part. The scenario assumed the admin stop would end the harness mid-stream, but the admin harness stop (`control/manager.py`, `stop`) refuses while work is running ("There are tasks queued or running. Cancel or wait before stopping."); the harness kept its pid (1939221), the stream completed (1522 characters, server state `completed`) and the page showed "Running" until it finished. This is protective by design, not an app bug; the scenario needs a hard kill of the harness pid (or Cancel first) to simulate a crash. The retry part passed: the same prompt added exactly one turn (1 to 2, 2 users) and ended at line 150.
+- **S4-05 keyboard flow**: FAIL on one check (harness): the composer, Shift+Enter (no send), model trigger with visible focus, picker open/arrows/Escape back to the trigger, the slash palette (opens on "/", arrows move, Escape closes and keeps the composer) and Tab to "Cancel run" then Stop (stopped at 964 characters) all worked. Only "return to the conversation by keyboard" failed: the helper started from the row just opened instead of the composer. Fixed in the area file (focus the composer first); not rerun.
+- **S4-06 narrow and wide windows**: PASS. The window request of 480 px wide was clamped by the app minimum to 960 px; no horizontal page spill at either size, the composer and send button stayed visible, code blocks and tables scroll inside their own wrapper, the files panel opened and closed at both sizes, and the sidebar is hidden at 1900 px wide (width 0) and 300 px at 960 px. Window bounds restored to 1440x900 at (240, 68).
+- **S4-07 themes**: FAIL on one check, harness: the contrast probe read `color(srgb ...)` channels (0 to 1) as 0 to 255, so the light composer looked like 1.2:1. From the evidence the real values pass (text 17.4, heading 5.6, code 16.53, sidebar 16.53 in light; 13.84, 9.71, 14.35, 14.35 in dark, composer 16.34 in dark). The probe is fixed in the area file; not rerun (needs the S4-06 reply on screen). Dark theme persisted across reload; the original theme was restored.
+- **S4-08 background streaming**: FAIL (C-08). While ALPHA (150 lines) streamed, the other conversation answered BRAVO correctly with no text crossing; the ALPHA row showed "In progress" for 52 s; when ALPHA finished the row dot went blank and never showed "Unread response" (dots log in `metrics.jsonl`). ALPHA itself was complete (150 lines, 1 turn, `completed`).
+
+**Bugs**
+- **C-08, a chat that finishes in the background shows no "Unread response" dot**: steps: start a long reply in chat A, open another chat B and stay there until A finishes. Expected: A's row switches from "In progress" to "Unread response" until opened (`observeConversation` in `agent_service/ui.js`). Actual: the dot just disappears. Not reproduced twice; root cause not confirmed. Evidence: `~/.cache/kho/chat/runs/s4b/metrics.jsonl` (`s4-08-alpha`), `shots/s4-08-background-finished.png`.
+
+**Parity gaps**: no Retry button on the failed provider-offline message (S4-03); no way to stop the harness from the admin panel while a run is active other than cancelling it (by design).
+
+**Notes**: when Codex was off, the header pill stayed "Completed" next to the "Couldn't run" status (confusing but not filed; same family as C-05). S4-04 first part, S4-05 return step, S4-07 and S4-08 need a rerun with fresh budget (about 2 + 2 + 0 + 2 prompts; S4-07 also needs S4-06 first).
+
 ## Bugs index
 
 | Id | Severity | Title | Status | Fix commit |
@@ -340,6 +454,8 @@ Checks that passed:
 | C-04 | nit | Grey block cuts the right edge of the active sidebar row | open (reproduced in round 2) | |
 | C-05 | nit | Header pill reads "Queued" for the live run while follow-ups are queued | open (reproduced in round 4) | |
 | C-06 | minor | Auto-scroll detaches during a fast long stream and does not resume at the bottom | open | |
+| C-07 | minor | Scroll position is not restored on reopen: the selected conversation opens at the top | open | |
+| C-08 | minor | A chat that finishes in the background never shows the "Unread response" dot (the dot just disappears); not yet reproduced a second time | open | |
 
 ## Cross-round comparison
 
@@ -351,3 +467,6 @@ Checks that passed:
 | 2a | Codex Sol Medium + Luna | 5.1 | 5.9 | Electron ~740-760 (~790 with two streams), harness ~250-305 (~480 with two streams) |
 | 2b | Codex Sol Medium + Luna | 4.6 | 6.2 | Electron ~760-800, harness ~242-261 |
 | 3a | DeepSeek Flash (12 turns) vs Codex Sol Medium (6 turns) | 2.6 vs 4.7 | 2.7 vs 6.7 | Electron ~759-804, harness ~240-303 |
+| 3b | Codex Sol Medium (7 short turns) | 6.6 | 7.9 | Electron ~813-832, harness ~250-274 |
+| 4a | Codex Luna Medium (18 short turns) | 3.6 | 5.3 | Electron ~798-853, harness ~245-260 |
+| 4b | Codex Sol Medium (10 turns, mixed) | 4.9 | 7.4 | Electron ~794-879, harness ~241-488 (two active chats) |

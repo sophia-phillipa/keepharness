@@ -8,7 +8,7 @@
 //     NODE_PATH=<node_modules with playwright> PLAYWRIGHT_MODULE=<same>/playwright \
 //     node tests/operator/areas/20-chat-real-providers.cjs
 //
-// Env: CHAT_SLICE (pilot|luna|deepseek|s1a|s1b|s2a|s2b|s3a), CHAT_SCENARIOS (comma list, overrides the slice),
+// Env: CHAT_SLICE (pilot|luna|deepseek|s1a|s1b|s2a|s2b|s3a|s3b|s4a|s4b), CHAT_SCENARIOS (comma list, overrides the slice),
 // CHAT_BUDGET (real prompts allowed), CHAT_DEEPSEEK_WAIT_MS, CHAT_APP (an inspect-enabled copy of the
 // packaged binary: Playwright cannot attach to the production package, whose inspect fuse is off).
 // Known limitation: the desktop attaches to the running admin, so closing the app does not stop
@@ -43,6 +43,9 @@ const SLICES = {
   s1b: ["s1-06", "s1-07", "s1-08", "s1-09", "s1-10"],
   s2a: ["s2-01", "s2-02", "s2-03", "s2-04", "s2-05"],
   s2b: ["s1-03r", "s2-06", "s2-07", "s2-08", "s2-09", "s2-10"],
+  s3b: ["s3-04", "s3-05", "s3-06", "s3-07"],
+  s4a: ["s4-01"],
+  s4b: ["s4-02", "s4-03", "s4-04", "s4-05", "s4-06", "s4-07", "s4-08"],
   s3a: ["s3-00", "s3-01", "s3-02", "s3-03", "s3-08", "s3-09", "s3-10"],
 };
 const PROJECT_LABEL = process.env.CHAT_PROJECT_LABEL || "Campaign notes"; // CHAT_PROJECT_LABEL: dry runs use a throwaway project
@@ -836,6 +839,682 @@ const SCENARIOS = {
       c.done();
     }, { lint: false });
   },
+  "s4-01": async (op) => {
+    await op.step("s4-01", "Now: S4-01, one conversation of 18 turns on Luna with four planted facts and recalls at turns 10, 15 and 18", async () => {
+      const c = soft();
+      await newChat(op);
+      await chooseModel(op, "gpt-5.6-luna");
+      await chooseEffort(op, "Medium");
+      const F = { a: "OSPREY-4821", b: "Lindqvist", c: "Tuesday-Marrakesh", d: "7 amber lanterns" };
+      const both = new RegExp(`(?=[\\s\\S]*${F.a})(?=[\\s\\S]*${F.b})`);
+      const all = new RegExp(`(?=[\\s\\S]*${F.a})(?=[\\s\\S]*${F.b})(?=[\\s\\S]*Marrakesh)(?=[\\s\\S]*amber)`, "i");
+      const recallAll = "Recall the four facts I gave you: the code word, the surname, the trip, and the lanterns. One line, comma separated.";
+      const filler = (n, word) => askOn(op, `s4-01-t${n}`, "codex", `Reply with only the word ${word}.`, new RegExp(word, "i"));
+      const words = ["PEAR", "CLOUD", "RIVER", "STONE", "MAPLE", "EMBER", "DELTA", "FROST", "QUILL", "HARBOR", "NORTH"];
+      const checkpoints = {};
+      const rss = (n) => { const l = ctx.lines.find((x) => x.scenario === `s4-01-t${n}`); checkpoints[n] = { electron: l?.electron_rss_mb ?? null, harness: l?.harness_rss_mb ?? null, paint_median: l?.paint_ms?.median ?? null, paint_p95: l?.paint_ms?.p95 ?? null }; };
+      await askOn(op, "s4-01-t1", "codex", `Remember two facts. Fact 1: my code word is ${F.a}. Fact 2: my surname is ${F.b}. Reply with one short sentence confirming both.`, both);
+      rss(1);
+      await askOn(op, "s4-01-t2", "codex", `Fact 3: my trip is ${F.c}. Confirm in one short sentence.`, /Marrakesh/i);
+      await askOn(op, "s4-01-t3", "codex", `Fact 4: I own ${F.d}. Confirm in one short sentence.`, /amber/i);
+      for (let n = 4; n <= 9; n++) await filler(n, words[n - 4]);
+      rss(9);
+      await askOn(op, "s4-01-t10", "codex", recallAll, all);
+      const r10 = ctx.last.reply;
+      for (let n = 11; n <= 14; n++) await filler(n, words[n - 5]);
+      await askOn(op, "s4-01-t15", "codex", "What is my code word and what is my surname? One short line.", both);
+      const r15 = ctx.last.reply;
+      await filler(16, words[9]);
+      await filler(17, words[10]);
+      await askOn(op, "s4-01-t18", "codex", recallAll, all);
+      const r18 = ctx.last.reply;
+      rss(18);
+      await sleep(2500); // the harness answers 429 to quick repeats on /v1/conversations/:id
+      const turns = await turnsApi(op).catch(async () => { await sleep(3000); return turnsApi(op).catch(() => []); });
+      const blob = JSON.stringify(turns) + (await op.page.locator("#messages").innerText().catch(() => ""));
+      const end = await runState(op);
+      const shot = path.join(ctx.out, "shots", "s4-01-end.png");
+      await op.page.screenshot({ path: shot, timeout: 15000 }).catch(() => {});
+      record({ scenario: "s4-01-summary", turns_api: turns.length, rss_checkpoints: checkpoints, recall: { t10: r10, t15: r15, t18: r18 }, source_context_limit: /source_context_limit/.test(blob), states: [...new Set(turns.map((t) => t.state))], shot });
+      c.ok(turns.length === 18 && end.turns === 18, `the conversation holds ${turns.length} turns on the server and ${end.turns} in the page, expected 18`);
+      c.ok(turns.every((t) => t.state === "completed"), `turn states: ${turns.map((t) => t.state).join(",")}`);
+      c.ok(!/source_context_limit/.test(blob), "source_context_limit appeared in the conversation");
+      const med = checkpoints[18].paint_median;
+      c.ok(med != null && med < 250, `input-to-paint median at turn 18 is ${med} ms`);
+      c.done();
+    }, { lint: false });
+  },
+  "s4-02": async (op) => {
+    await op.step("s4-02", "Now: S4-02, renaming, archiving and unarchiving one conversation, then deleting another one permanently", async () => {
+      const c = soft();
+      const page = op.page;
+      const tag = Date.now().toString(36).slice(-4).toUpperCase();
+      const ids = {};
+      for (const k of ["keep", "drop"]) {
+        await newChat(op);
+        await sol(op);
+        await askOn(op, `s4-02-${k}`, "codex", `Reply with just the word ${k.toUpperCase()}-${tag}.`, new RegExp(`${k.toUpperCase()}-${tag}`));
+        ids[k] = await convId(op);
+        ctx.convs[`s402${k}`] = ids[k];
+      }
+      // Rename the first one from its row menu.
+      const title = `Renamed ${tag} café`;
+      await op.click(rowById(op, ids.keep).locator("button[data-conversation-id]"));
+      await op.seeText(page.locator("#messages"), new RegExp(`KEEP-${tag}`), 15000);
+      await rowMenu(op, ids.keep, "Rename conversation");
+      await op.fill(page.locator("#rename-conversation-name"), title);
+      await op.click(page.locator("#rename-conversation-save"));
+      c.ok(await waitFor(async () => !(await page.locator("#rename-conversation-dialog").evaluate((d) => d.open))), "the rename dialog did not close after Save");
+      const inHeader = await waitFor(async () => (await page.locator("#conversation-title").innerText()).includes(title));
+      const inRow = await waitFor(async () => (await rowById(op, ids.keep).innerText()).includes(title));
+      const inApi = (await listApi(op)).find((x) => x.id === ids.keep)?.title;
+      c.ok(inHeader, "the header did not show the new title");
+      c.ok(inRow, "the sidebar row did not show the new title");
+      c.ok(inApi === title, `the server holds the title ${JSON.stringify(inApi)}`);
+      const shotRename = await shotOf(op, "s4-02-renamed.png");
+      // Archive it: the row goes away, the server lists it as archived.
+      await rowMenu(op, ids.keep, "Archive conversation");
+      const gone = await waitFor(async () => (await rowById(op, ids.keep).count()) === 0);
+      const note = await page.locator("#status").innerText().catch(() => "");
+      const archivedApi = (await listApi(op, "?archived=true")).some((x) => x.id === ids.keep);
+      const liveApi = (await listApi(op)).some((x) => x.id === ids.keep);
+      c.ok(gone && !liveApi, "the archived conversation is still in the sidebar or the normal list");
+      c.ok(archivedApi, "the server does not list the conversation as archived");
+      c.ok(/archived/i.test(note), `no archive notice (status "${note}")`);
+      // Settings > Archived chats: find it by its new title, then Unarchive.
+      await op.click(page.locator("#settings"));
+      await op.click(page.locator('button[data-settings="archived"]'));
+      const item = page.locator("#archived-list li").filter({ hasText: title });
+      const found = await waitFor(async () => (await item.count()) === 1, 12000);
+      c.ok(found, "the renamed conversation is not listed in Settings > Archived chats");
+      const usage = await page.locator("#storage-usage").innerText().catch(() => "");
+      const shotArchived = await shotOf(op, "s4-02-archived-list.png");
+      if (found) await op.click(page.getByRole("button", { name: `Unarchive ${title}` }));
+      c.ok(await waitFor(async () => (await item.count()) === 0), "the conversation stayed in the archived list after Unarchive");
+      await op.click(page.locator("#settings-close"));
+      c.ok(await waitFor(async () => (await rowById(op, ids.keep).count()) === 1), "the unarchived conversation did not return to the sidebar");
+      await op.click(rowById(op, ids.keep).locator("button[data-conversation-id]"));
+      await op.seeText(page.locator("#messages"), new RegExp(`KEEP-${tag}`), 15000).catch(() => c.ok(false, "the unarchived conversation lost its reply"));
+      const back = await runState(op);
+      c.ok(back.turns === 1 && back.users === 1 && back.articles === 2, `history after unarchive: ${back.turns} turns, ${back.users} user, ${back.articles} messages`);
+      // Delete the second one permanently: the dialog is the explicit first step, the button the second.
+      await op.click(rowById(op, ids.drop).locator("button[data-conversation-id]"));
+      await op.seeText(page.locator("#messages"), new RegExp(`DROP-${tag}`), 15000);
+      const conv = (await apiStatus(op, `/v1/conversations/${ids.drop}`)).json || {};
+      const jobId = conv.turns?.[0]?.id || conv.turns?.[0]?.job_id || "";
+      await rowMenu(op, ids.drop, "Delete permanently");
+      const dialogOpen = await waitFor(async () => page.locator("#delete-conversation-dialog").evaluate((d) => d.open), 5000);
+      const dialogText = await page.locator("#delete-conversation-dialog").innerText().catch(() => "");
+      const shotDialog = await shotOf(op, "s4-02-delete-dialog.png");
+      const beforeConfirm = (await apiStatus(op, `/v1/conversations/${ids.drop}`)).status;
+      c.ok(dialogOpen && /Delete permanently\?/.test(dialogText) && dialogText.includes("can't be undone"), "no confirmation dialog before the delete");
+      c.ok(beforeConfirm === 200, `the conversation was already gone (${beforeConfirm}) before the confirm step`);
+      await op.click(page.locator("#delete-conversation-confirm"));
+      c.ok(await waitFor(async () => !(await page.locator("#delete-conversation-dialog").evaluate((d) => d.open))), "the delete dialog did not close");
+      c.ok(await waitFor(async () => (await rowById(op, ids.drop).count()) === 0), "the deleted conversation is still in the sidebar");
+      const afterConv = (await apiStatus(op, `/v1/conversations/${ids.drop}`)).status;
+      const afterJob = jobId ? (await apiStatus(op, `/v1/jobs/${jobId}`)).status : null;
+      const inArchive = (await listApi(op, "?archived=true")).some((x) => x.id === ids.drop);
+      c.ok(afterConv === 404, `the deleted conversation still answers ${afterConv}`);
+      c.ok(!jobId || afterJob === 404, `the deleted conversation's run still answers ${afterJob}`);
+      c.ok(!inArchive, "the deleted conversation appears in the archived list");
+      record({ scenario: "s4-02-summary", tag, title, in_header: inHeader, in_row: inRow, in_api: inApi, archive_note: note, archived_api: archivedApi, found_in_settings: found, storage_line: usage, back, dialog_open: dialogOpen, status_before_confirm: beforeConfirm, status_after: afterConv, job_status_after: afterJob, job_id: !!jobId, shots: [shotRename, shotArchived, shotDialog] });
+      c.done();
+    }, { lint: false });
+  },
+  "s4-03": async (op) => {
+    await op.step("s4-03", "Now: S4-03, taking the provider offline on the test instance, sending, restoring it and sending again", async () => {
+      const c = soft();
+      const page = op.page;
+      const tag = Date.now().toString(36).slice(-4).toUpperCase();
+      // The conversation from S4-02 (with history) when it ran, else a new one.
+      if (ctx.convs.s402keep && (await rowById(op, ctx.convs.s402keep).count())) await op.click(rowById(op, ctx.convs.s402keep).locator("button[data-conversation-id]"));
+      else { await newChat(op); await sol(op); }
+      await sleep(1500);
+      const before = await runState(op);
+      const original = (await adminApi("GET", "/api/state")).json?.settings; // test instance settings only, kept in memory
+      if (!original?.services?.codex) throw new Error("the test admin returned no Codex settings");
+      let restored = false;
+      const restore = async () => {
+        if (restored) return;
+        const saved = await adminApi("POST", "/api/settings", original);
+        if (!(await portOpen(Number(HARNESS_PORT)))) await adminApi("POST", "/api/start", {});
+        await op.until(() => portOpen(Number(HARNESS_PORT)), "the harness did not come back", 60000);
+        restored = saved.status === 200;
+      };
+      let offline = null, off = null, offState = null, sent = false, error = null;
+      try {
+        await op.caption("Now: switching Codex off on the test instance");
+        const copy = JSON.parse(JSON.stringify(original));
+        copy.services.codex.enabled = false;
+        off = await adminApi("POST", "/api/settings", copy);
+        await sleep(4000);
+        let harnessUp = await portOpen(Number(HARNESS_PORT));
+        if (!harnessUp) { await adminApi("POST", "/api/start", {}); await waitFor(() => portOpen(Number(HARNESS_PORT)), 30000); harnessUp = await portOpen(Number(HARNESS_PORT)); }
+        offline = { save_status: off.status, harness_up: harnessUp };
+        await op.fill(page.locator("#prompt"), `Reply with just the word OFFLINE-${tag}.`);
+        if (await page.locator("#send").isEnabled()) {
+          const seen = await submit(op);
+          sent = true;
+          await waitFor(async () => { const s = await visibleState(op); return s.state === "failed" || /Failed|Couldn't|unavailable|not available|error/i.test(`${s.pill} ${s.status} ${s.alerts}`); }, 45000);
+          await sleep(2500);
+          offState = await visibleState(op);
+        } else offState = { blocked: "the send button is disabled while the provider is off", ...(await visibleState(op)) };
+        offState.shot = await shotOf(op, "s4-03-offline.png");
+        offState.text = `${offState.pill} | ${offState.status} | ${offState.alerts} | ${offState.last}`;
+        offState.raw = RAW_TEXT.test(offState.text);
+        offState.limit = LIMIT.test(offState.text);
+      } catch (e) {
+        error = e;
+      } finally {
+        await restore();
+      }
+      record({ scenario: "s4-03-offline", offline, sent, ...offState, history_before: before, restored });
+      if (error) throw error;
+      c.ok(restored, "the test instance settings were not restored");
+      c.ok(sent, offState.blocked || "the offline prompt was not sent");
+      c.ok(!offState.raw, `raw error text is visible: ${offState.text.slice(0, 200)}`);
+      c.ok(/\w{4,}/.test(`${offState.status} ${offState.alerts}`) || /Failed/.test(offState.pill), "no readable failure was shown");
+      if (offState.limit) { op.area.halted = true; throw new Error("a provider limit text was seen, stopping"); }
+      // Restored: the app reconnects on its own (or needs a reload), then the resend must answer.
+      await sleep(3000);
+      await dismissTourSoon(op);
+      const mid = await runState(op).catch(() => null);
+      await ask(op, "s4-03-resend", `Reply with just the word BACK-${tag}.`, new RegExp(`BACK-${tag}`));
+      const after = await runState(op);
+      const turns = await turnsApi(op);
+      record({ scenario: "s4-03-resend", turns_before_offline: before.turns, turns_after_offline: mid?.turns, turns_after_resend: after.turns, states: turns.map((t) => t.state), users: after.users, articles: after.articles });
+      c.ok(/BACK-/.test((await lastMeta(op)).text) && after.apiState === "completed", `the resend ended ${after.apiState}`);
+      c.ok(turns.slice(0, before.turns).every((t) => t.state === "completed" && t.answer), "an earlier turn lost its answer");
+      c.ok(turns.filter((t) => t.prompt.includes(`BACK-${tag}`)).length === 1 && turns.filter((t) => t.prompt.includes(`OFFLINE-${tag}`)).length <= 1, "a turn was duplicated");
+      c.ok(after.users === after.turns, `the page shows ${after.users} user messages for ${after.turns} turns`);
+      c.done();
+    }, { lint: false });
+  },
+  "s4-04": async (op) => {
+    await op.step("s4-04", "Now: S4-04, restarting the test harness during a stream, then retrying", async () => {
+      const c = soft();
+      const page = op.page;
+      const tag = Date.now().toString(36).slice(-4).toUpperCase();
+      await newChat(op);
+      await sol(op);
+      const prompt = `Run ${tag}: write the numbers from 1 to 150, one per line, each followed by a different English word. Do not stop early and add nothing else.`;
+      await sendNoWait(op, prompt);
+      await op.until(async () => (await streamLen(op)) > 120, "the answer never started streaming", 90000);
+      const pre = await runState(op);
+      const pidBefore = harnessPid();
+      await op.caption("Now: stopping the harness in the middle of the stream");
+      const t0 = Date.now();
+      await adminApi("POST", "/api/stop", {});
+      const seen = [];
+      for (let i = 0; i < 8; i++) { const s = await visibleState(op).catch(() => ({})); seen.push({ t: Date.now() - t0, pill: s.pill, state: s.state, status: (s.status || "").slice(0, 80), alerts: (s.alerts || "").slice(0, 80), resume: s.resume }); await sleep(1000); }
+      const shotDown = await shotOf(op, "s4-04-harness-down.png");
+      c.ok(!(await portOpen(Number(HARNESS_PORT))), "the harness port stayed open after the admin stop");
+      await adminApi("POST", "/api/start", {});
+      await op.until(() => portOpen(Number(HARNESS_PORT)), "the harness did not come back", 60000);
+      const restartMs = Date.now() - t0;
+      // A person would press "Resume tracking" if the app offers it; record whether it was needed.
+      let resumed = false;
+      await waitFor(async () => (await page.locator("#startup-gate").evaluate((g) => g.hidden).catch(() => true)), 30000);
+      if (await page.locator("#resume-execution").isVisible().catch(() => false)) { await page.locator("#resume-execution").click().catch(() => {}); resumed = true; }
+      await sleep(4000);
+      const after = await visibleState(op);
+      let mid = await runState(op).catch(() => null);
+      for (let i = 0; i < 10 && mid && ["running", "queued"].includes(mid.apiState || ""); i++) { await sleep(2500); mid = await runState(op).catch(() => mid); }
+      const shotBack = await shotOf(op, "s4-04-harness-back.png");
+      const shown = seen.some((s) => /Interrupted|Failed|Connection|lost|Couldn't|Resume/i.test(`${s.pill} ${s.status} ${s.alerts}`) || s.resume) || /Interrupted|Failed|Connection|lost|Couldn't/i.test(`${after.pill} ${after.status} ${after.alerts}`) || ["interrupted", "failed"].includes(mid?.apiState);
+      record({ scenario: "s4-04-failure", pid_before: pidBefore, pid_after: harnessPid(), restart_ms: restartMs, chars_at_kill: pre.chars, turns_before: pre.turns, seen, resume_pressed: resumed, after_state: { pill: after.pill, status: after.status, alerts: after.alerts }, server_state: mid?.apiState, server_turns: mid?.turns, server_chars: mid?.apiChars, shots: [shotDown, shotBack] });
+      c.ok(shown, `no failure was shown to the person (pill "${after.pill}", server state ${mid?.apiState})`);
+      c.ok(pre.state === "running" && pre.chars > 100, `the harness was not stopped mid-stream (${pre.chars} chars, ${pre.state})`);
+      // Retry: the same prompt again; the history must gain exactly one turn.
+      const turnsBefore = mid?.turns ?? pre.turns, usersBefore = mid?.users ?? pre.users;
+      await ask(op, "s4-04-retry", prompt, /(^|\D)150(\D|$)/);
+      await settle(op, 120000);
+      const fin = await runState(op);
+      record({ scenario: "s4-04-retry", turns_before_retry: turnsBefore, turns_after_retry: fin.turns, users_before: usersBefore, users_after: fin.users, state: fin.apiState, tail: fin.tail });
+      c.ok(fin.turns === turnsBefore + 1 && fin.users === usersBefore + 1, `the retry left ${fin.turns} turns and ${fin.users} user messages, expected ${turnsBefore + 1} and ${usersBefore + 1}`);
+      c.ok(fin.apiState === "completed" && /(^|\D)150(\D|$)/.test(fin.tail), `the retry ended ${fin.apiState}: ${JSON.stringify(fin.tail)}`);
+      c.done();
+    }, { lint: false });
+  },
+  "s4-05": async (op) => {
+    await op.step("s4-05", "Now: S4-05, the whole flow from the keyboard: send, model picker, switch conversation, slash palette, Stop", async () => {
+      const c = soft();
+      const page = op.page;
+      const tag = Date.now().toString(36).slice(-4).toUpperCase();
+      const log = {};
+      await newChat(op);
+      await sol(op);
+      const keys = await convId(op);
+      await op.caption("Now: keyboard only, no mouse");
+      // 1. Focus the composer with the documented shortcut.
+      await page.evaluate(() => document.activeElement?.blur());
+      await page.keyboard.press("Control+/");
+      log.composer = await focusState(op);
+      c.ok(log.composer.id === "prompt", `Ctrl+/ focused ${log.composer.id || log.composer.tag}, not the composer`);
+      c.ok(log.composer.ring, "the composer shows no visible focus");
+      // 2. Shift+Enter writes a new line and does not send; Enter sends.
+      const runs0 = await page.locator("#messages").getByRole("button", { name: "View run" }).count();
+      await op.type("line one");
+      await page.keyboard.press("Shift+Enter");
+      await op.type("line two");
+      log.shiftEnter = { value: await page.locator("#prompt").inputValue(), sent: (await page.locator("#messages").getByRole("button", { name: "View run" }).count()) > runs0 };
+      c.ok(log.shiftEnter.value === "line one\nline two" && !log.shiftEnter.sent, `Shift+Enter: ${JSON.stringify(log.shiftEnter)}`);
+      await page.keyboard.press("Control+A");
+      await page.keyboard.press("Backspace");
+      await op.type(`Reply with just the word KEYS-${tag}.`);
+      op.spendPrompt();
+      await op.paceSubmission();
+      const from = Date.now();
+      await page.keyboard.press("Enter");
+      await waitAnswer(op, runs0, new RegExp(`KEYS-${tag}`), 120000);
+      recordPhase("s4-05-send", from, Date.now(), [], await shotOf(op, "s4-05-sent.png"), { sent_with: "Enter" });
+      c.ok(!/\n/.test(await page.locator("#prompt").inputValue()) && (await page.locator("#prompt").inputValue()) === "", "the composer was not cleared after Enter");
+      // 3. Model picker: reach the trigger with Tab, open with Enter, move with the arrows, Escape closes.
+      await page.keyboard.press("Control+/");
+      log.modelReach = await reachKey(op, () => document.activeElement?.id === "model-trigger");
+      log.modelFocus = await focusState(op);
+      c.ok(log.modelReach.steps > 0, "the model picker trigger is not reachable with Tab");
+      if (log.modelReach.steps > 0) {
+        await page.keyboard.press("Enter");
+        log.modelOpen = await waitFor(() => page.evaluate(() => document.getElementById("model-menu").matches(":popover-open")), 4000);
+        await page.keyboard.press("ArrowDown");
+        await sleep(300);
+        log.modelInside = await focusState(op);
+        log.modelShot = await shotOf(op, "s4-05-model-open.png");
+        await page.keyboard.press("Escape");
+        await sleep(400);
+        log.modelClosed = !(await page.evaluate(() => document.getElementById("model-menu").matches(":popover-open")));
+        log.modelAfter = await focusState(op);
+        c.ok(log.modelFocus.ring, "the model trigger shows no visible focus");
+        c.ok(log.modelOpen, "Enter on the model trigger did not open the picker");
+        c.ok(log.modelInside.inModelMenu, `the arrows left the focus outside the picker (${log.modelInside.id || log.modelInside.tag})`);
+        c.ok(log.modelClosed, "Escape did not close the model picker");
+        c.ok(log.modelAfter.id === "model-trigger", `after Escape the focus is on ${log.modelAfter.id || log.modelAfter.tag}, not the trigger`);
+      }
+      // 4. Switch to another conversation from the sidebar by keyboard, then come back.
+      log.switchOut = await reachKey(op, (keep) => { const e = document.activeElement; return !!e?.matches?.("#sidebar button[data-conversation-id]") && e.dataset.conversationId !== keep; }, keys);
+      log.switchOutFocus = await focusState(op);
+      c.ok(log.switchOut.steps > 0, "no other conversation row is reachable with Tab");
+      if (log.switchOut.steps > 0) {
+        const other = await page.evaluate(() => document.activeElement.dataset.conversationId);
+        await page.keyboard.press("Enter");
+        log.switchedOut = await waitFor(async () => (await convId(op)) === other, 8000);
+        c.ok(log.switchOutFocus.ring, "the sidebar row shows no visible focus");
+        c.ok(log.switchedOut, "Enter on a sidebar row did not open that conversation");
+        await page.keyboard.press("Control+/"); // start from the composer, as for the way out
+        await sleep(300);
+        log.switchBack = await reachKey(op, (keep) => document.activeElement?.dataset?.conversationId === keep, keys);
+        if (log.switchBack.steps > 0) {
+          await page.keyboard.press("Enter");
+          log.switchedBack = await waitFor(async () => (await convId(op)) === keys, 8000);
+        }
+        c.ok(log.switchedBack, "could not return to the conversation by keyboard");
+      }
+      // 5. The "/" palette: opens on "/", the arrows move, Escape closes and keeps the composer.
+      await page.keyboard.press("Control+/");
+      await op.type("/");
+      log.paletteOpen = await waitFor(() => page.evaluate(() => document.getElementById("resource-menu").matches(":popover-open")), 6000);
+      await page.keyboard.press("ArrowDown");
+      await sleep(300);
+      log.paletteFocus = await focusState(op);
+      log.paletteShot = await shotOf(op, "s4-05-palette.png");
+      await page.keyboard.press("Escape");
+      await sleep(400);
+      log.paletteClosed = !(await page.evaluate(() => document.getElementById("resource-menu").matches(":popover-open")));
+      log.paletteAfter = await focusState(op);
+      c.ok(log.paletteOpen, "typing / did not open the palette");
+      c.ok(log.paletteFocus.inResourceMenu, `the arrows left the focus outside the palette (${log.paletteFocus.id || log.paletteFocus.tag})`);
+      c.ok(log.paletteClosed, "Escape did not close the palette");
+      c.ok(log.paletteAfter.id === "prompt", `after Escape the focus is on ${log.paletteAfter.id || log.paletteAfter.tag}, not the composer`);
+      await page.keyboard.press("Control+A");
+      await page.keyboard.press("Backspace");
+      // 6. A long reply, then Stop from the keyboard.
+      const runs1 = await page.locator("#messages").getByRole("button", { name: "View run" }).count();
+      await page.keyboard.press("Control+/");
+      await page.keyboard.insertText("Write the numbers from 1 to 400, one per line, each followed by a different English word. Do not stop early and add nothing else.");
+      op.spendPrompt();
+      await op.paceSubmission();
+      const from2 = Date.now();
+      await page.keyboard.press("Enter");
+      await op.until(async () => (await page.locator("#messages").getByRole("button", { name: "View run" }).count()) > runs1, "the long run did not start", 30000);
+      await op.until(async () => (await streamLen(op)) > 200, "the long answer never started streaming", 90000);
+      log.stopReach = await reachKey(op, () => document.activeElement?.id === "cancel");
+      log.stopFocus = await focusState(op);
+      c.ok(log.stopReach.steps > 0, "the Stop button is not reachable with Tab");
+      c.ok(log.stopFocus.ring, "the Stop button shows no visible focus");
+      if (log.stopReach.steps > 0) await page.keyboard.press("Enter");
+      else await page.locator("#cancel").click(); // mouse fallback only so the run does not keep going
+      log.stopped = await waitFor(async () => /Cancel|Stopp/i.test(await page.locator("#conversation-state-pill").innerText()), 15000);
+      c.ok(log.stopped, "Stop from the keyboard did not cancel the run");
+      await sleep(1500);
+      log.stopLen = await streamLen(op);
+      recordPhase("s4-05-stop", from2, Date.now(), [], await shotOf(op, "s4-05-stopped.png"), { chars_at_stop: log.stopLen });
+      record({ scenario: "s4-05-summary", ...log });
+      c.done();
+    }, { lint: false });
+  },
+  "s4-06": async (op) => {
+    await op.step("s4-06", "Now: S4-06, a narrow and a wide window with one Markdown and code prompt at each size", async () => {
+      const c = soft();
+      const page = op.page;
+      await newChat(op);
+      await sol(op);
+      const original = (await setWindow(null)).bounds;
+      const ask1 = "Reply in Markdown only: a level-2 heading, a bullet list of 2 items, a table with 4 columns (Island, Harbor, Lanterns, Notes) and 2 rows whose Notes cells are invented sentences of about 60 characters, and one python code block of 6 lines where one line is at least 150 characters long. No other text.";
+      const ask2 = "Now the same structure again with different invented data.";
+      const sizes = {};
+      try {
+        for (const [name, want, text] of [["narrow", { width: 480, height: 860 }, ask1], ["wide", null, ask2]]) {
+          await op.caption(`Now: the ${name} window`);
+          const area = (await setWindow(null)).area;
+          const rect = want ? { x: original.x, y: original.y, ...want } : { x: area.x, y: area.y, width: Math.min(area.width, 1900), height: Math.min(area.height, 1000) };
+          const got = await setWindow(rect);
+          await sleep(1500);
+          await ask(op, `s4-06-${name}`, text, /\S/);
+          const probe = await layoutProbe(op);
+          const shot = await shotOf(op, `s4-06-${name}.png`);
+          // The side panel and the conversation list stay usable at this size.
+          const panel = {};
+          await op.click(page.locator("#panel-toggle"));
+          await sleep(600);
+          panel.files = await page.evaluate(() => { const p = document.getElementById("activity-panel"), r = p.getBoundingClientRect(); return { open: !p.hidden, left: Math.round(r.left), right: Math.round(r.right), inner: innerWidth, docScroll: document.documentElement.scrollWidth }; });
+          panel.shot = await shotOf(op, `s4-06-${name}-panel.png`);
+          await page.keyboard.press("Escape");
+          await sleep(500);
+          panel.closed = await page.evaluate(() => document.getElementById("activity-panel").hidden);
+          const side = await page.evaluate(() => { const s = document.getElementById("sidebar"), r = s.getBoundingClientRect(); return { visible: r.width > 0 && r.right > 0 && getComputedStyle(s).visibility !== "hidden", width: Math.round(r.width) }; });
+          if (!side.visible || name === "narrow") { await op.click(page.locator("#menu")); await sleep(500); panel.rows = await page.locator("#sidebar button[data-conversation-id]").filter({ visible: true }).count(); await page.keyboard.press("Escape"); await sleep(400); }
+          sizes[name] = { requested: rect, bounds: got.bounds, probe, panel, side, shot };
+          c.ok(probe.docScroll <= probe.inner[0] + 1 && probe.bodyScroll <= probe.inner[0] + 1, `${name}: the page scrolls horizontally (${probe.docScroll}/${probe.bodyScroll} px in ${probe.inner[0]})`);
+          c.ok(probe.spill.length === 0, `${name}: elements spill past the right edge: ${probe.spill.join(", ")}`);
+          c.ok(probe.prompt?.visible && probe.send?.visible && probe.prompt.left >= 0 && probe.prompt.right <= probe.inner[0] + 1 && probe.send.right <= probe.inner[0] + 1, `${name}: the composer or the send button is clipped (${JSON.stringify([probe.prompt, probe.send])})`);
+          c.ok(probe.code.length >= 1 && probe.code.every((b) => b.scrollW <= b.clientW + 1 || /auto|scroll/.test(b.overflowX)), `${name}: a code block neither fits nor scrolls (${JSON.stringify(probe.code)})`);
+          c.ok(probe.tables.every((t) => t.right <= probe.inner[0] + 1 || t.wrapScrolls), `${name}: a table spills and does not scroll (${JSON.stringify(probe.tables)})`);
+          c.ok(panel.files.open && panel.files.right <= panel.files.inner + 1 && panel.files.docScroll <= panel.files.inner + 1, `${name}: the files panel is clipped (${JSON.stringify(panel.files)})`);
+          c.ok(panel.closed, `${name}: Escape did not close the files panel`);
+        }
+      } finally {
+        await setWindow({ x: original.x, y: original.y, width: original.width, height: original.height });
+        await sleep(1200);
+      }
+      const end = (await setWindow(null)).bounds;
+      record({ scenario: "s4-06-summary", original, end, sizes });
+      c.ok(JSON.stringify(end) === JSON.stringify(original), `the window was not restored: ${JSON.stringify(original)} -> ${JSON.stringify(end)}`);
+      c.done();
+    }, { lint: false });
+  },
+  "s4-07": async (op) => {
+    await op.step("s4-07", "Now: S4-07, the light and dark themes with the Markdown and code reply from S4-06", async () => {
+      const c = soft();
+      const page = op.page;
+      const hasReply = (await page.locator("#messages article.assistant .code-block").count()) > 0;
+      if (!hasReply) throw new Error("no Markdown and code reply is on screen (run S4-06 first, or open that conversation)");
+      const toggle = async () => {
+        await op.click(page.locator("#settings"));
+        await op.click(page.locator('button[data-settings="appearance"]'));
+        await op.click(page.locator("#theme-toggle"));
+        await sleep(600);
+        await op.click(page.locator("#settings-close"));
+        await sleep(600);
+      };
+      const first = await themeProbe(op);
+      const shotA = await shotOf(op, `s4-07-${first.theme}.png`);
+      await toggle();
+      const second = await themeProbe(op);
+      const shotB = await shotOf(op, `s4-07-${second.theme}.png`);
+      c.ok(first.theme !== second.theme, `the theme toggle did not change the theme (${first.theme} -> ${second.theme})`);
+      const reasons = [];
+      for (const [name, p] of [[first.theme, first], [second.theme, second]]) {
+        for (const k of ["text", "heading", "code", "th", "td", "sidebar", "composer"]) {
+          if (!p[k]) reasons.push(`${name}: ${k} not found`);
+          else if (p[k].ratio < 4.5) reasons.push(`${name}: ${k} contrast ${p[k].ratio}`);
+        }
+      }
+      c.ok(reasons.length === 0, `contrast: ${reasons.join("; ")}`);
+      c.ok(JSON.stringify(first.codeBg) !== JSON.stringify(second.codeBg) || JSON.stringify(first.code?.fg) !== JSON.stringify(second.code?.fg), "the code block colors are the same in both themes (not themed)");
+      c.ok(first.tableBorder !== second.tableBorder || JSON.stringify(first.td?.fg) !== JSON.stringify(second.td?.fg), "the table colors are the same in both themes (not themed)");
+      // The choice survives a reload.
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await page.evaluate(METRICS_JS);
+      await page.locator("#startup-gate").waitFor({ state: "hidden", timeout: 40000 });
+      await dismissTourSoon(op);
+      const reloaded = await page.evaluate(() => ({ theme: document.documentElement.dataset.theme, palette: document.documentElement.dataset.palette, stored: localStorage.getItem("keepharness:theme:harness") }));
+      c.ok(reloaded.theme === second.theme && reloaded.palette === second.palette, `the theme after reload is ${reloaded.theme}/${reloaded.palette}, expected ${second.theme}/${second.palette}`);
+      await toggle(); // back to the starting theme
+      const restored = await page.evaluate(() => document.documentElement.dataset.theme);
+      c.ok(restored === first.theme, `the starting theme was not restored (${restored})`);
+      record({ scenario: "s4-07-summary", first, second, reloaded, restored, shots: [shotA, shotB] });
+      c.done();
+    }, { lint: false });
+  },
+  "s4-08": async (op) => {
+    await op.step("s4-08", "Now: S4-08, one conversation streaming in the background while another one is open", async () => {
+      const c = soft();
+      const page = op.page;
+      const tag = Date.now().toString(36).slice(-4).toUpperCase();
+      await newChat(op);
+      await sol(op);
+      const from = Date.now();
+      await sendNoWait(op, `Run ${tag}: write ALPHA-${tag}-1 through ALPHA-${tag}-150, one per line, nothing else.`);
+      await op.until(async () => (await streamLen(op)) > 20, "ALPHA never started streaming", 90000);
+      const idA = await convId(op);
+      const own = await visibleState(op);
+      c.ok(own.state === "running", `the open streaming chat shows "${own.pill}" (${own.state})`);
+      await op.caption("Now: opening another conversation while ALPHA streams");
+      await newChat(op);
+      await sol(op);
+      const dots = [];
+      const dot = async (when) => { const s = { when, t: Date.now() - from, alpha: await rowDot(op, idA), bravo: await rowDot(op, await convId(op)) }; dots.push(s); return s; };
+      await ask(op, "s4-08-bravo", `Reply with just the word BRAVO-${tag}.`, new RegExp(`BRAVO-${tag}`));
+      const idB = await convId(op);
+      const afterB = await dot("after BRAVO answered");
+      const bText = await page.locator("#messages").innerText();
+      c.ok(!bText.includes(`ALPHA-${tag}`), "text of the background chat landed in the open one");
+      c.ok(/progress/i.test(afterB.alpha) || afterB.alpha === "Unread response", `the background chat row shows "${afterB.alpha}" while it streams`);
+      const shotMid = await shotOf(op, "s4-08-background.png");
+      // Stay on BRAVO until ALPHA finishes in the background; watch its row.
+      let unread = /Unread/.test(afterB.alpha);
+      const end = Date.now() + 180000;
+      while (Date.now() < end && !unread) {
+        await sleep(2000);
+        const s = await dot("waiting");
+        if (/Unread/.test(s.alpha)) unread = true;
+        else if (s.alpha === "") break;
+        c.ok(!(await page.locator("#messages").innerText()).includes(`ALPHA-${tag}`), "text of the background chat landed in the open one");
+      }
+      const shotDone = await shotOf(op, "s4-08-background-finished.png");
+      c.ok(unread, `the finished background chat never showed "Unread response" (last dot "${dots[dots.length - 1].alpha}")`);
+      await op.click(rowById(op, idA).locator("button[data-conversation-id]"));
+      await op.seeText(page.locator("#messages"), new RegExp(`ALPHA-${tag}-1\\b`), 15000);
+      await sleep(2500);
+      const opened = await dot("ALPHA opened");
+      const aText = await page.locator("#messages").innerText();
+      const fin = await runState(op);
+      c.ok(opened.alpha === "", `the unread dot stayed on the chat after it was opened ("${opened.alpha}")`);
+      c.ok(new RegExp(`ALPHA-${tag}-150\\b`).test(aText) && !aText.includes(`BRAVO-${tag}`), "ALPHA is incomplete or contains BRAVO text");
+      c.ok(fin.apiState === "completed" && fin.turns === 1, `ALPHA ended ${fin.apiState} with ${fin.turns} turns`);
+      await op.click(rowById(op, idB).locator("button[data-conversation-id]"));
+      await sleep(1500);
+      const bFinal = await page.locator("#messages").innerText();
+      c.ok(bFinal.includes(`BRAVO-${tag}`) && !bFinal.includes(`ALPHA-${tag}`), "BRAVO lost its answer or contains ALPHA text");
+      recordPhase("s4-08-alpha", from, Date.now(), [], shotDone, { dots, own_pill: own.pill, alpha_chars: aText.length, shots: [shotMid, shotDone] });
+      c.done();
+    }, { lint: false });
+  },
+  "s3-04": async (op) => {
+    await op.step("s3-04", "Now: S3-04, reloading the page in the middle of a long Sol reply", async () => {
+      const c = soft();
+      await newChat(op);
+      await chooseModel(op, "gpt-5.6-sol");
+      await chooseEffort(op, "Medium");
+      // Part A: reload while the text streams.
+      await startLong(op, 300);
+      const pre = await runState(op);
+      await op.caption("Now: reloading the page mid-reply");
+      const t0 = Date.now();
+      await op.page.reload({ waitUntil: "domcontentloaded" });
+      await op.page.evaluate(METRICS_JS);
+      await op.page.locator("#startup-gate").waitFor({ state: "hidden", timeout: 40000 });
+      const reloadMs = Date.now() - t0;
+      await dismissTourSoon(op);
+      const post = await runState(op);
+      const restored = post.id === pre.id && post.articles > 0;
+      const live = post.state;
+      await settle(op, 240000);
+      const fin = await runState(op);
+      const shotA = path.join(ctx.out, "shots", "s3-04-reload-a.png");
+      await op.page.screenshot({ path: shotA, timeout: 15000 }).catch(() => {});
+      record({ scenario: "s3-04-a", reload_ms: reloadMs, chars_at_reload: pre.chars, pill_after_reload: live, same_conversation: post.id === pre.id, articles_before: pre.articles, articles_after: post.articles, turns_before: pre.turns, turns_after: fin.turns, final_chars_ui: fin.chars, final_chars_api: fin.apiChars, final_state: fin.apiState, tail: fin.tail, shot: shotA });
+      c.ok(restored, `the conversation was not restored after the reload (id ${pre.id} -> ${post.id}, ${post.articles} messages)`);
+      c.ok(pre.chars > 100 && pre.state === "running", `the reload did not hit a live stream (${pre.chars} chars, ${pre.state})`);
+      c.ok(fin.turns === pre.turns && fin.users === pre.users, `a turn was duplicated or lost (${pre.turns}/${pre.users} -> ${fin.turns}/${fin.users})`);
+      c.ok(fin.apiState === "completed", `the run ended as ${fin.apiState}`);
+      c.ok(/(^|\D)300(\D|$)/.test(fin.tail) && fin.chars >= fin.apiChars - 5, `the final text is incomplete (UI ${fin.chars} chars, server ${fin.apiChars}, tail ${JSON.stringify(fin.tail)})`);
+      ctx.convs.s304 = (await snapshot(op.page)).title;
+      // Part B: reload right after the send, before the first token, and expect exactly one turn (this also proves send works after a reload).
+      const before = await runState(op);
+      await op.fill(op.page.locator("#prompt"), "Reply with just the word EARLY-OK.");
+      const seen = await submit(op);
+      await op.page.reload({ waitUntil: "domcontentloaded" });
+      await op.page.evaluate(METRICS_JS);
+      await op.page.locator("#startup-gate").waitFor({ state: "hidden", timeout: 40000 });
+      await dismissTourSoon(op);
+      await settle(op, 120000);
+      const early = await runState(op);
+      record({ scenario: "s3-04-b", turns_before: before.turns, turns_after: early.turns, state: early.apiState, tail: early.tail, seen });
+      c.ok(early.turns === before.turns + 1, `the early reload left ${early.turns} turns, expected ${before.turns + 1}`);
+      c.ok(/EARLY-OK/.test(early.tail) && early.apiState === "completed", `the early-reload answer is ${early.apiState}: ${JSON.stringify(early.tail)}`);
+      c.done();
+    }, { lint: false });
+  },
+  "s3-05": async (op) => {
+    await op.step("s3-05", "Now: S3-05, closing the app window in the middle of a long reply and opening it again", async () => {
+      const c = soft();
+      await newChat(op);
+      await chooseModel(op, "gpt-5.6-sol");
+      await chooseEffort(op, "Medium");
+      for (const round of (process.env.CHAT_S305_ROUNDS || "a,b").split(",")) { // CHAT_S305_ROUNDS=b reruns only the second round
+        await startLong(op, round === "a" ? 200 : 250);
+        const pre = await runState(op);
+        const title = (await snapshot(op.page)).title;
+        const before = await bounds(ctx.handle);
+        await op.caption("Now: closing the app mid-reply");
+        await quitApp(ctx.handle);
+        await sleep(1500);
+        const during = await instanceState();
+        const started = Date.now();
+        await openApp(op.session);
+        const ms = Date.now() - started;
+        await dismissTourSoon(op);
+        const after = await bounds(ctx.handle);
+        const snap = await snapshot(op.page);
+        const post = await runState(op);
+        await settle(op, 240000);
+        const fin = await runState(op);
+        const shot = path.join(ctx.out, "shots", `s3-05-${round}.png`);
+        await op.page.screenshot({ path: shot, timeout: 15000 }).catch(() => {});
+        record({ scenario: `s3-05-${round}`, reopen_ms: ms, bounds_before: before, bounds_after: after, harness_while_closed: during, chars_at_close: pre.chars, title_before: title, title_after: snap.title, same_conversation: post.id === pre.id, articles_after: post.articles, pill_after_reopen: post.state, turns_before: pre.turns, turns_after: fin.turns, final_state: fin.apiState, final_chars_ui: fin.chars, final_chars_api: fin.apiChars, tail: fin.tail, shot });
+        c.ok(pre.chars > 100 && pre.state === "running", `round ${round}: the close did not hit a live stream (${pre.chars} chars, ${pre.state})`);
+        c.ok(during.harness, `round ${round}: the harness stopped when the app closed`);
+        c.ok(JSON.stringify(before) === JSON.stringify(after), `round ${round}: window bounds changed ${JSON.stringify(before)} -> ${JSON.stringify(after)}`);
+        c.ok(post.id === pre.id && post.articles > 0, `round ${round}: the conversation was not restored (id ${pre.id} -> ${post.id})`);
+        c.ok(fin.turns === pre.turns && fin.apiState === "completed", `round ${round}: turns ${pre.turns} -> ${fin.turns}, run ${fin.apiState}`);
+        c.ok(new RegExp(`(^|\\D)${round === "a" ? 200 : 250}(\\D|$)`).test(fin.tail) && fin.chars >= fin.apiChars - 5, `round ${round}: the final text is incomplete (UI ${fin.chars}, server ${fin.apiChars}, tail ${JSON.stringify(fin.tail)})`);
+        ctx.convs.s305 = snap.title;
+        // A short prompt after each reopen: send must work.
+        await askOn(op, `s3-05-${round}-send`, "codex", `Reply with just the word REOPEN-${round.toUpperCase()}.`, new RegExp(`REOPEN-${round.toUpperCase()}`));
+      }
+      c.done();
+    }, { lint: false });
+  },
+  "s3-06": async (op) => {
+    await op.step("s3-06", "Now: S3-06, closing and opening the app three times with nothing running, then one prompt per conversation", async () => {
+      const c = soft();
+      const names = [ctx.convs.s304, ctx.convs.s305].filter(Boolean);
+      if (names.length < 2) throw new Error("S3-06 needs the conversations of S3-04 and S3-05 in the same run");
+      await op.click(row(op, names[0].slice(0, 30)));
+      await op.until(async () => (await snapshot(op.page)).title === names[0], "the first conversation did not open", 15000);
+      await op.page.evaluate(() => { const m = document.getElementById("messages"); let e = m; while (e && e.scrollHeight <= e.clientHeight + 2) e = e.parentElement; (e || m).scrollTop = Math.round(((e || m).scrollHeight - (e || m).clientHeight) / 2); });
+      await sleep(600);
+      const start = await scrollInfo(op.page);
+      record({ scenario: "s3-06-start", title: names[0], ...start });
+      const opens = [];
+      for (let i = 1; i <= 3; i++) {
+        const before = await bounds(ctx.handle);
+        await op.caption(`Now: closing the app (${i} of 3)`);
+        await quitApp(ctx.handle);
+        await sleep(1500);
+        const started = Date.now();
+        await openApp(op.session);
+        const ms = Date.now() - started;
+        await dismissTourSoon(op);
+        const after = await bounds(ctx.handle);
+        const snap = await snapshot(op.page);
+        const sc = await scrollInfo(op.page);
+        opens.push(ms);
+        record({ scenario: "s3-06-open", n: i, open_ms: ms, bounds_before: before, bounds_after: after, title: snap.title, ...sc });
+        c.ok(JSON.stringify(before) === JSON.stringify(after), `window bounds changed on reopen ${i}`);
+        c.ok(snap.title === names[0], `reopen ${i}: the selected conversation is "${snap.title}", expected "${names[0]}"`);
+        c.ok(Math.abs(sc.top - start.top) <= 40 || (sc.bottom && start.bottom), `reopen ${i}: scroll position ${sc.top} of ${sc.max}, was ${start.top} of ${start.max}`);
+        if (snap.title !== names[0]) {
+          await op.click(row(op, names[0].slice(0, 30))).catch(() => {});
+          await sleep(800);
+        }
+      }
+      const shot = path.join(ctx.out, "shots", "s3-06-last-open.png");
+      await op.page.screenshot({ path: shot, timeout: 15000 }).catch(() => {});
+      record({ scenario: "s3-06", open_ms: opens, shot });
+      await op.click(row(op, names[0].slice(0, 30)));
+      await ask(op, "s3-06-a", "Reply with just the word ALPHA-OK.", /ALPHA-OK/);
+      await op.click(row(op, names[1].slice(0, 30)));
+      await op.until(async () => (await snapshot(op.page)).title === names[1], "the second conversation did not open", 15000);
+      await ask(op, "s3-06-b", "Reply with just the word BETA-OK.", /BETA-OK/);
+      c.done();
+    }, { lint: false });
+  },
+  "s3-07": async (op) => {
+    await op.step("s3-07", "Now: S3-07, restarting the harness from the admin, then continuing the conversation", async () => {
+      const c = soft();
+      await newChat(op);
+      await chooseModel(op, "gpt-5.6-sol");
+      await chooseEffort(op, "Medium");
+      await askOn(op, "s3-07-plant", "codex", "Remember this code word: KESTREL-6613. Reply with one short sentence confirming it.", /KESTREL-6613/);
+      const before = await runState(op);
+      const title = (await snapshot(op.page)).title;
+      const pidBefore = harnessPid();
+      await op.caption("Now: restarting the harness from the admin");
+      const t0 = Date.now();
+      const stopped = await adminApi("POST", "/api/stop", {});
+      await op.until(async () => !(await portOpen(Number(HARNESS_PORT))), "the harness did not stop", 30000);
+      const started = await adminApi("POST", "/api/start", {});
+      await op.until(() => portOpen(Number(HARNESS_PORT)), "the harness did not come back", 60000);
+      const restartMs = Date.now() - t0;
+      const pidAfter = harnessPid();
+      // The open app should reconnect on its own; if it does not, record that and reload.
+      let recovered = false;
+      try { await op.until(async () => (await op.page.evaluate(() => !document.getElementById("startup-gate") || document.getElementById("startup-gate").hidden)) && (await runState(op)).turns === before.turns, "the app did not reconnect", 30000); recovered = true; } catch {}
+      if (!recovered) {
+        await op.page.reload({ waitUntil: "domcontentloaded" }).catch(() => {});
+        await op.page.evaluate(METRICS_JS).catch(() => {});
+        await op.page.locator("#startup-gate").waitFor({ state: "hidden", timeout: 40000 });
+      }
+      await dismissTourSoon(op);
+      const back = await runState(op);
+      const shot = path.join(ctx.out, "shots", "s3-07-restarted.png");
+      await op.page.screenshot({ path: shot, timeout: 15000 }).catch(() => {});
+      record({ scenario: "s3-07-restart", stop_status: stopped.status, start_status: started.status, restart_ms: restartMs, pid_before: pidBefore, pid_after: pidAfter, app_reconnected_alone: recovered, turns_before: before.turns, turns_after: back.turns, title_before: title, title_after: (await snapshot(op.page)).title, shot });
+      c.ok(pidAfter && pidAfter !== pidBefore, `the harness pid did not change (${pidBefore} -> ${pidAfter})`);
+      c.ok(back.turns === before.turns && back.articles >= before.articles, `history changed after the restart (${before.turns} -> ${back.turns} turns)`);
+      await askOn(op, "s3-07-recall", "codex", "What code word did I give you earlier in this conversation? One short sentence.", /KESTREL-6613/);
+      const resumed = ctx.last.evidence;
+      record({ scenario: "s3-07-resume", milestones: resumed });
+      await askOn(op, "s3-07-more", "codex", "Add a second code word: SWIFT-2047. Then list both code words in one line.", /(?=[\s\S]*KESTREL-6613)(?=[\s\S]*SWIFT-2047)/);
+      const end = await runState(op);
+      c.ok(end.turns === before.turns + 2 && end.apiState === "completed", `the continued turns are ${end.turns}, last ${end.apiState}`);
+      c.done();
+    }, { lint: false });
+  },
   "s3-09": async (op) => {
     await op.step("s3-09", "Now: S3-09, DeepSeek Markdown, a table, code blocks and copy buttons", async () => {
       const c = soft();
@@ -891,6 +1570,57 @@ const SCENARIOS = {
 };
 
 // ------------------------------------------------------------------ UI helpers
+
+// Starts a long numbered reply (the tag keeps the conversation title unique for the sidebar lookups) and returns once it has streamed some text (so a reload or close lands mid-reply).
+async function startLong(op, n) {
+  await op.fill(op.page.locator("#prompt"), `Run ${Date.now().toString(36).slice(-5)}: write the numbers from 1 to ${n}, one per line, each followed by a different English word. Do not stop early and add nothing else.`);
+  const before = await submit(op);
+  await op.until(async () => (await op.page.locator("#messages").getByRole("button", { name: "View run" }).count()) > before, "the run did not start", 30000);
+  await op.until(async () => (await streamLen(op)) > 120, "the long answer never started streaming", 90000);
+}
+
+// The open conversation as the page and the server hold it, for the reload and reopen checks.
+async function runState(op) {
+  return op.page.evaluate(async () => {
+    let d = await (await fetch("/v1/conversations/" + encodeURIComponent(conversation))).json();
+    if (!d.turns) { await new Promise((r) => setTimeout(r, 2500)); d = await (await fetch("/v1/conversations/" + encodeURIComponent(conversation))).json(); } // a 429 answer has no turns
+    const last = d.turns[d.turns.length - 1] || {};
+    const arts = [...document.querySelectorAll("#messages article.assistant")];
+    const text = arts.length ? arts[arts.length - 1].querySelector(":scope > .text")?.innerText || "" : "";
+    const api = last.result?.answer ?? last.result?.partial_answer ?? "";
+    return {
+      id: conversation, turns: d.turns.length, users: document.querySelectorAll("#messages article.user").length,
+      articles: document.querySelectorAll("#messages article").length, state: document.getElementById("conversation-state-pill")?.dataset.state || "",
+      apiState: last.state, chars: text.length, apiChars: api.length, tail: text.trim().slice(-40),
+    };
+  });
+}
+
+// Waits until the newest run has left running and queued, as the server and the pill both say.
+async function settle(op, timeout) {
+  const end = Date.now() + timeout;
+  for (;;) {
+    const s = await runState(op);
+    if (!["running", "queued"].includes(s.apiState || "") && !["running", "queued"].includes(s.state)) break;
+    if (Date.now() > end) throw new Error("the run did not settle in time");
+    await sleep(2000); // slow poll: the harness answers 429 to a tight loop on /v1/conversations/:id
+  }
+  await sleep(800);
+}
+
+// Scroll state of the messages area (the first scrollable ancestor of #messages).
+const scrollInfo = (page) => page.evaluate(() => {
+  let e = document.getElementById("messages");
+  while (e && e.scrollHeight <= e.clientHeight + 2) e = e.parentElement;
+  if (!e) return { top: 0, max: 0, bottom: true };
+  const max = e.scrollHeight - e.clientHeight;
+  return { top: Math.round(e.scrollTop), max, bottom: max - e.scrollTop < 4 };
+});
+
+// Whether the instance is alive while the app is closed (ports only; the harness answers on its port).
+async function instanceState() {
+  return { admin: await portOpen(Number(ADMIN_PORT)), harness: await portOpen(Number(HARNESS_PORT)) };
+}
 
 async function chooseEffort(op, label) {
   await op.click(op.page.locator("#effort-trigger"));
@@ -1011,6 +1741,118 @@ async function chooseProject(op, label) {
 }
 
 const page = (op) => op.page;
+
+// ---- slice 4b helpers (S4-02 to S4-08)
+
+const sol = async (op) => {
+  if (!/sol/i.test(await op.page.locator("#model-label").innerText())) await chooseModel(op, "gpt-5.6-sol");
+  if (!/medium/i.test(await op.page.locator("#effort-label").innerText())) await chooseEffort(op, "Medium");
+};
+const convId = (op) => op.page.evaluate(() => conversation);
+// A bounded wait that answers true or false instead of throwing, so a soft check can report it.
+async function waitFor(fn, ms = 8000) {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    if (await Promise.resolve(fn()).catch(() => false)) return true;
+    await sleep(300);
+  }
+  return false;
+}
+const rowById = (op, id) => op.page.locator("#sidebar .conversation-row").filter({ has: op.page.locator(`button[data-conversation-id="${id}"]`) }).first();
+async function rowMenu(op, id, label) {
+  const r = rowById(op, id);
+  await r.hover();
+  await op.click(r.locator("summary"));
+  await op.click(r.getByRole("button", { name: label }));
+}
+// Status dot label of a sidebar row ("In progress", "Unread response", ... or "" when there is none).
+const rowDot = (op, id) => op.page.evaluate((x) => document.querySelector(`#sidebar button[data-conversation-id="${x}"]`)?.querySelector(".conversation-indicator")?.getAttribute("aria-label") || "", id);
+const apiStatus = (op, route) => op.page.evaluate(async (r) => { const x = await fetch(r); return { status: x.status, json: x.ok ? await x.json().catch(() => null) : null }; }, route);
+const listApi = (op, query = "") => op.page.evaluate(async (q) => ((await (await fetch("/v1/conversations" + q)).json()).conversations || []).map((x) => ({ id: x.id, title: x.title })), query);
+const shotOf = async (op, name) => {
+  const file = path.join(ctx.out, "shots", name);
+  await op.page.screenshot({ path: file, timeout: 15000 }).catch(() => {});
+  return file;
+};
+// What a person sees after a send: header pill, status line, alerts and the newest message.
+const visibleState = (op) => op.page.evaluate(() => ({
+  pill: document.getElementById("conversation-state-pill")?.innerText || "",
+  state: document.getElementById("conversation-state-pill")?.dataset.state || "",
+  status: document.getElementById("status")?.innerText || "",
+  alerts: [...document.querySelectorAll('[role="alert"]')].map((e) => e.innerText.trim()).filter(Boolean).join(" | "),
+  last: ([...document.querySelectorAll("#messages article")].pop()?.innerText || "").replace(/\s+/g, " ").slice(0, 400),
+  users: document.querySelectorAll("#messages article.user").length,
+  articles: document.querySelectorAll("#messages article").length,
+  resume: !!document.querySelector("#resume-execution:not([hidden])"),
+}));
+const RAW_TEXT = /Traceback|File ".*", line \d+|\bat [\w.$<>]+ \(|\.py:\d+|\.js:\d+|node_modules|\[object Object\]|\bundefined\b|\bNaN\b|"detail"|^\s*[{[]/m;
+
+// Keyboard helpers: the focused element with its focus ring, and Tab (then Shift+Tab) until a test matches.
+const focusState = (op) => op.page.evaluate(() => {
+  const e = document.activeElement || document.body;
+  let ring = false;
+  for (let n = e, i = 0; n && i < 3 && !ring; n = n.parentElement, i++) {
+    const s = getComputedStyle(n);
+    ring = (s.outlineStyle !== "none" && parseFloat(s.outlineWidth) > 0) || s.boxShadow !== "none";
+  }
+  return { id: e.id, tag: e.tagName.toLowerCase(), name: (e.getAttribute("aria-label") || e.innerText || e.title || "").trim().replace(/\s+/g, " ").slice(0, 50), ring, inModelMenu: !!e.closest("#model-menu"), inResourceMenu: !!e.closest("#resource-menu") };
+});
+async function reachKey(op, test, arg, max = 45) {
+  for (const key of ["Tab", "Shift+Tab"]) {
+    for (let i = 1; i <= max; i++) {
+      await op.page.keyboard.press(key);
+      await sleep(70);
+      if (await op.page.evaluate(test, arg)) return { steps: i, key };
+    }
+    await op.page.keyboard.press("Control+/"); // back to the composer, then try the other direction
+    await sleep(200);
+  }
+  return { steps: -1, key: "" };
+}
+
+// Window size through Electron, with the display work area for the wide size.
+const setWindow = (rect) => ctx.handle.app.evaluate(({ BrowserWindow, screen }, [base, r]) => {
+  const w = BrowserWindow.getAllWindows().find((x) => x.webContents.getURL().startsWith(base));
+  const area = screen.getPrimaryDisplay().workArea;
+  if (r) w.setBounds(r);
+  return { bounds: w.getBounds(), area };
+}, [harnessUrl, rect]);
+// Horizontal overflow, the composer, and the code blocks and tables of the newest reply.
+const layoutProbe = (op) => op.page.evaluate(() => {
+  const de = document.documentElement;
+  const clipped = (e) => { for (let p = e.parentElement; p && p !== document.body; p = p.parentElement) { if (/auto|scroll|hidden/.test(getComputedStyle(p).overflowX) && p.getBoundingClientRect().right <= innerWidth + 1) return true; } return false; };
+  const spill = [...document.querySelectorAll("body *")].filter((e) => {
+    const r = e.getBoundingClientRect(), s = getComputedStyle(e);
+    return r.width > 0 && r.height > 0 && r.right > innerWidth + 1 && s.visibility !== "hidden" && s.position !== "fixed" && !e.closest("[popover]:not(:popover-open), dialog:not([open]), [hidden], #operator-caption") && !clipped(e);
+  }).slice(0, 6).map((e) => `${e.tagName.toLowerCase()}#${e.id}.${String(e.className).slice(0, 30)}`);
+  const box = (s) => { const e = document.querySelector(s), r = e?.getBoundingClientRect(); return r ? { left: Math.round(r.left), right: Math.round(r.right), top: Math.round(r.top), bottom: Math.round(r.bottom), visible: r.width > 0 && r.height > 0 } : null; };
+  const a = [...document.querySelectorAll("#messages article.assistant")].pop();
+  return {
+    inner: [innerWidth, innerHeight], docScroll: de.scrollWidth, bodyScroll: document.body.scrollWidth, spill,
+    prompt: box("#prompt"), send: box("#send"),
+    code: [...(a?.querySelectorAll(".code-block pre") || [])].map((p) => ({ scrollW: p.scrollWidth, clientW: p.clientWidth, overflowX: getComputedStyle(p).overflowX, right: Math.round(p.getBoundingClientRect().right) })),
+    tables: [...(a?.querySelectorAll("table") || [])].map((t) => ({ right: Math.round(t.getBoundingClientRect().right), wrapScrolls: [t.parentElement, t.parentElement?.parentElement].some((p) => p && /auto|scroll/.test(getComputedStyle(p).overflowX)) })),
+  };
+});
+// Colors of the visible reply and its code and table, with WCAG contrast against the first opaque background.
+const themeProbe = (op) => op.page.evaluate(() => {
+  // color(srgb r g b / a) carries 0..1 channels; rgb() carries 0..255.
+  const nums = (s) => { const n = (s.match(/[\d.]+/g) || []).map(Number); return /^color\(srgb/.test(s) ? n.map((v, i) => (i < 3 ? v * 255 : v)) : n; };
+  const dark = document.documentElement.dataset.theme === "dark";
+  const bgOf = (el) => { for (let e = el; e; e = e.parentElement) { const [r, g, b, a = 1] = nums(getComputedStyle(e).backgroundColor); if (a > 0.9) return [r, g, b]; } return dark ? [0, 0, 0] : [255, 255, 255]; };
+  const lum = ([r, g, b]) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
+  const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((m, n) => n - m); return +((x + 0.05) / (y + 0.05)).toFixed(2); };
+  const art = [...document.querySelectorAll("#messages article.assistant")].pop();
+  const item = (el) => { if (!el) return null; const fg = nums(getComputedStyle(el).color).slice(0, 3), bg = bgOf(el); return { fg, bg, ratio: ratio(fg, bg) }; };
+  const pick = (sel) => art?.querySelector(sel) || null;
+  return {
+    theme: document.documentElement.dataset.theme, palette: document.documentElement.dataset.palette, stored: localStorage.getItem("keepharness:theme:harness"),
+    text: item(pick(":scope > .text p") || pick(":scope > .text")), heading: item(pick("h2, h3")), code: item(pick(".code-block pre code") || pick("pre code")),
+    codeBg: pick(".code-block pre") ? bgOf(pick(".code-block pre")) : null, th: item(pick("th")), td: item(pick("td")),
+    tableBorder: pick("td") ? getComputedStyle(pick("td")).borderBottomColor : null, pageBg: bgOf(document.getElementById("messages") || document.body),
+    sidebar: item(document.querySelector("#sidebar button[data-conversation-id]")), composer: item(document.getElementById("prompt")),
+  };
+});
 
 // Long answer, Stop mid-reply, then a new question (S2-03 on Codex, S3-08 on DeepSeek).
 async function stopScenario(op, id, model, effort) {
@@ -1473,7 +2315,7 @@ async function main() {
   const { Report } = require("../lib/report.cjs");
   const out = path.join(paths.runs, slice);
   fs.mkdirSync(path.join(out, "shots"), { recursive: true });
-  ctx = { home: paths.home, tmp: fs.mkdtempSync(path.join(os.tmpdir(), "claude-kh-")), out, samples: [], lines: [], turns: 0, electronPid: 0 };
+  ctx = { home: paths.home, tmp: fs.mkdtempSync(path.join(os.tmpdir(), "claude-kh-")), out, samples: [], lines: [], turns: 0, electronPid: 0, convs: {} };
   const stopSampler = startSampler();
   const session = { page: null, target: "desktop", base: harnessUrl, close: async () => ctx.handle && quitApp(ctx.handle) };
   let op = null;
