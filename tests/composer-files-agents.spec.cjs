@@ -81,10 +81,10 @@ const path = require("node:path");
     await page.goto("http://panel.test/");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
 
-    // The sub-bar of a new conversation offers Files and Agents beside Choose project.
+    // The sub-bar of a new conversation offers Files and Agents beside the project button.
     const bar = page.locator("#execution-mode-choice");
     await bar.waitFor({ state: "visible" });
-    for (const name of [/Choose project/, /^Files$/, /^Agents$/])
+    for (const name of [/No project/, /^Files$/, /^Agents$/])
       assert(await bar.getByRole("button", { name }).isVisible(), String(name));
 
     // OP-R1-14: Agents opens the agent list and leaves the draft exactly as it was.

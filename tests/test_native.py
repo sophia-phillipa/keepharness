@@ -475,6 +475,8 @@ for line in sys.stdin:
         self.assertEqual(start["tool_id"], "cmd-1")
         self.assertEqual(start["tool_call_id"], "cmd-1")
         self.assertEqual(start["command_name"], "ls")
+        self.assertEqual(start["target"], "TOKEN=[redacted] /usr/bin/ls -la /private")
+        self.assertNotIn("target", end)
         self.assertEqual(end["tool_id"], "cmd-1")
         self.assertEqual(end["tool_call_id"], "cmd-1")
         self.assertNotIn("command_name", end)

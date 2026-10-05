@@ -227,7 +227,7 @@ async def run(
         start_new_session=True,
         limit=2 * 1024 * 1024,
     )
-    state = Stream(event, config)
+    state = Stream(event, config, root=cwd)
     session = None
 
     async def send(value):

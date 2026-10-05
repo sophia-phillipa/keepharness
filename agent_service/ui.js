@@ -2279,8 +2279,13 @@ window.applyActivitySnapshot = function applyActivitySnapshot(data = {}) {
     (data.needs_you || []).map((item) => item.conversation_id).filter(Boolean),
   );
   const live = new Map();
+  // C-05: a running job outranks the queued follow-ups behind it, whatever the list order.
   for (const item of data.jobs || [])
-    if (item.conversation_id && !live.has(item.conversation_id))
+    if (
+      item.conversation_id &&
+      (!live.has(item.conversation_id) ||
+        (item.state === "running" && live.get(item.conversation_id).state !== "running"))
+    )
       live.set(item.conversation_id, item);
   let changed = false;
   for (const item of conversations) {
@@ -2813,6 +2818,7 @@ function newConversation(title = "New Conversation", projectId = $("project").va
   files = kept;
   renderFiles();
   $("messages").replaceChildren(welcomeTemplate.cloneNode(true));
+  followingStream = true;
   lastRoute = null;
   bindSuggestions();
   modelAvailability();
@@ -3573,8 +3579,33 @@ function eventToolName(data = {}) {
       webSearch: "web",
       Bash: "tool",
       commandExecution: "tool",
-    }[data.tool] || ""
+      // Protocol item types and kinds (Codex native, Gemini ACP) are not tool names.
+      ...Object.fromEntries(
+        "fileChange dynamicToolCall mcpToolCall other think execute read edit delete move search fetch"
+          .split(" ")
+          .map((type) => [type, "tool"]),
+      ),
+    }[data.tool] || safeToolId(data.tool)
   );
+}
+// C-03: a provider tool (an MCP read_file, say) is named by its last segment; anything odd stays generic.
+function safeToolId(tool) {
+  const name = typeof tool === "string" ? tool.split("__").pop() : "";
+  return /^[\w.-]{1,48}$/.test(name) ? name : "";
+}
+// C-03: like the Codex and Claude CLIs, a shell step shows its command and a file step its path.
+const TARGET_VERBS = {
+  Running: "bash commandexecution exec_command execute",
+  Reading: "read read_file",
+  Editing: "edit write multiedit notebookedit filechange delete move",
+  Searching: "glob grep search search_files",
+  Listing: "list_directory list_dir",
+};
+function targetTitle(data) {
+  const target = typeof data.target === "string" ? Array.from(data.target.trim()).slice(0, 160).join("") : "",
+    name = String(data.tool || "").split("__").pop().toLowerCase(),
+    verb = Object.keys(TARGET_VERBS).find((key) => TARGET_VERBS[key].split(" ").includes(name));
+  return target && verb ? verb + " " + target : "";
 }
 function activityTitle(e) {
   const data = e.data || {},
@@ -3612,6 +3643,7 @@ function activityTitle(e) {
       (route ? " · " + route : "")
     );
   }
+  if (type === "tool_start" && targetTitle(data)) return targetTitle(data);
   if (type === "tool_start")
     return data.command_name && tool
       ? "Running command " + tool
@@ -3671,11 +3703,14 @@ function appendActivityTitle(list, e) {
   if (e.type === "tool_end" && toolId && list.toolRows.has(toolId)) {
     const row = list.toolRows.get(toolId);
     row.dataset.state = toolFailed ? "failed" : "completed";
+    const text = targetTitle(data) || row.textContent;
     row.textContent = toolFailed
-      ? "Failed: " + row.textContent
-      : row.textContent
+      ? "Failed: " + text
+      : text
           .replace(/^Running/, "Ran")
           .replace(/^Reading/, "Read")
+          .replace(/^Editing/, "Edited")
+          .replace(/^Listing/, "Listed")
           .replace(/^Searching/, "Searched");
     return;
   }
@@ -3841,10 +3876,26 @@ function updateMotion(type) {
   )
     paintMotion("working");
 }
+// C-06: follow the stream while the user is at the bottom. The state changes only on a scroll event
+// (user or our own jump), never from the distance after a render, which a fast stream outgrows.
+let followingStream = true,
+  ownScroll = false;
+$("messages").addEventListener(
+  "scroll",
+  () => {
+    if (ownScroll) return; // our own jump: content that grew after it must not unpin the view
+    const box = $("messages");
+    followingStream = box.scrollHeight - box.scrollTop - box.clientHeight < 48;
+  },
+  { passive: true },
+);
 function scroll() {
-  const box = $("messages");
-  if (box.scrollHeight - box.scrollTop - box.clientHeight < 250)
-    box.scrollTop = box.scrollHeight;
+  // "instant": #messages is scroll-behavior smooth, and an animated jump lags a fast stream.
+  if (followingStream) {
+    ownScroll = true;
+    requestAnimationFrame(() => (ownScroll = false)); // scroll events fire before the next frame callbacks
+    $("messages").scrollTo({ top: $("messages").scrollHeight, behavior: "instant" });
+  }
   updateLatest();
 }
 // Read-only: workflow steps, or a plan recorded by an earlier version; nothing here can be approved.
@@ -4434,6 +4485,7 @@ async function load(id, legacy = false, restoredView = null) {
     invalidResourceTokens = new Set();
     renderFiles();
     $("messages").replaceChildren();
+    followingStream = true;
     lastRoute = null;
     $("prompt").value = "";
     for (const r of data.turns) {
@@ -5777,7 +5829,11 @@ $("files-new-chat").onclick = async () => {
 function syncComposerProjectButton() {
   const option = $("project").selectedOptions[0];
   const chosen = option && option.value !== "sem-projeto";
-  $("project-button-label").textContent = chosen ? option.textContent : "Choose project";
+  $("project-button-label").textContent = chosen
+    ? option.textContent
+    : option
+      ? "No project"
+      : "Choose project";
   $("project-button").title = chosen
     ? "Project: " + option.textContent
     : "Choose the project for this conversation";
@@ -8661,6 +8717,7 @@ function jumpToLatest() {
   // Focus must not undo the jump; instant scrolling cannot be interrupted by streaming updates.
   box.focus({ preventScroll: true });
   box.scrollTo({ top: box.scrollHeight, behavior: "instant" });
+  followingStream = true;
   updateLatest();
 }
 $("latest-message").onclick = jumpToLatest;
