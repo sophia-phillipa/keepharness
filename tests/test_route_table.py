@@ -98,6 +98,7 @@ AGENT_VALID_TABLE = [
                 "providers": {},
                 "uploads_enabled": False,
                 "full_access": False,
+                "local_owner": False,
                 "admin_url": None,
             }
         ),

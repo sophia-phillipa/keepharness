@@ -28,6 +28,7 @@ let policyProject = null,
   policySequence = 0;
 let uploadsAllowed = false,
   fullAccessOffered = false,
+  localOwner = false,
   streamDisconnected = false,
   submitting = false,
   cancelling = false,
@@ -1711,6 +1712,7 @@ async function refreshProjectPermissions(timeout = 30000) {
     models = composerModels(data);
     uploadsAllowed = data.uploads_enabled === true;
     offerFullAccess(data.full_access === true);
+    localOwner = data.local_owner === true;
     $("model").replaceChildren(
       ...models.map((m) => new Option(modelLabel(m), m.id)),
     );
@@ -2581,11 +2583,11 @@ const handoffErrors = {
   handoff_open_failed: (app) => "Couldn't open " + app + ".",
 };
 function continuationFilename(title, target) {
-  const name = String(title || "")
+  const clean = String(title || "")
+    .replace(/[\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, "")
     .replace(/[\\/:*?"<>|\u0000-\u001f]+/g, "-")
-    .replace(/-{2,}/g, "-")
-    .slice(0, 80)
-    .replace(/^[\s.-]+|[\s.-]+$/g, "");
+    .replace(/-{2,}/g, "-");
+  const name = Array.from(clean).slice(0, 80).join("").replace(/^[\s.-]+|[\s.-]+$/g, "");
   return (name || "conversation") + "-continue-in-" + target + ".md";
 }
 function saveContinuation(text, filename) {
@@ -2643,16 +2645,16 @@ function openContinuation(c, trigger) {
     }
   };
   // Asked only after the user copied or saved, and only for an app the desktop bridge lists.
-  const offerOpen = async () => {
-    const bridge = window.keepharnessDesktop,
-      text = current;
+  // text and app are what was copied or saved, captured before any await.
+  const offerOpen = async (text, app) => {
+    const bridge = window.keepharnessDesktop;
     if (!bridge || !text) return;
     let apps = [];
     try {
       apps = (await bridge.handoffApps())?.apps || [];
     } catch {}
-    if (text !== current || !apps.includes(target)) return;
-    const name = HANDOFF_APP_NAMES[target];
+    if (text !== current || app !== target || !apps.includes(app)) return;
+    const name = HANDOFF_APP_NAMES[app];
     $("continuation-open-question").textContent = "Open " + name + " to continue there? Nothing is sent until you send it yourself.";
     $("continuation-open-yes").textContent = "Open " + name;
     $("continuation-open-yes").disabled = false;
@@ -2665,34 +2667,45 @@ function openContinuation(c, trigger) {
       yes = $("continuation-open-yes");
     if (yes.disabled || !text) return;
     yes.disabled = true;
+    const onClipboard = " The handoff is on your clipboard.";
     let message;
     try {
       await writeClipboard(text);
-      const result = await window.keepharnessDesktop.openHandoff(app, text);
-      message = result?.opened
-        ? result.mode === "full"
-          ? "Opened " + name + " with the handoff in a new chat. Review it and send it there."
-          : "Opened " + name + ". The handoff is too long for a link, so paste it from your clipboard (Ctrl+V)."
-        : (handoffErrors[result?.error] || handoffErrors.handoff_open_failed)(name) + " The handoff is on your clipboard.";
     } catch {
       message = "Couldn't copy the handoff, so " + name + " was not opened.";
     }
-    if (text !== current) return;
+    if (!message)
+      try {
+        const result = await window.keepharnessDesktop.openHandoff(app, text);
+        message = result?.opened
+          ? result.mode === "full"
+            ? "Opened " + name + " with the handoff in a new chat. Review it and send it there."
+            : "Opened " + name + ". The handoff is too long for a link, so paste it from your clipboard (Ctrl+V)."
+          : (handoffErrors[result?.error] || handoffErrors.handoff_open_failed)(name) + onClipboard;
+      } catch {
+        message = handoffErrors.handoff_open_failed(name) + onClipboard;
+      }
+    // Even if the target changed meanwhile, say which app was actually opened.
     offer.hidden = true;
     openStatus.textContent = message;
+    copy.focus();
   };
   $("continuation-open-no").onclick = () => {
     offer.hidden = true;
     copy.focus();
   };
   copy.onclick = async () => {
-    if (copy.disabled || !(await copyText(current, copy))) return;
-    void offerOpen();
+    const text = current,
+      app = target;
+    if (copy.disabled || !(await copyText(text, copy))) return;
+    void offerOpen(text, app);
   };
   save.onclick = () => {
     if (save.disabled) return;
-    saveContinuation(current, continuationFilename(c.title, target));
-    void offerOpen();
+    const text = current,
+      app = target;
+    saveContinuation(text, continuationFilename(c.title, app));
+    void offerOpen(text, app);
   };
   $("continuation-close").onclick = () => dialog.close();
   dialog.onchange = (event) => {
@@ -2709,7 +2722,7 @@ function openContinuation(c, trigger) {
     else $("history").querySelector(".conversation-actions summary")?.focus();
   };
   document.querySelector('input[name="continuation-target"][value="chatgpt"]').checked = true;
-  paths.checked = fullAccessOffered;
+  paths.checked = localOwner;
   void load();
   dialog.showModal();
   $("continuation-close").focus();
@@ -3562,7 +3575,9 @@ async function writeClipboard(text) {
   area.value = text;
   area.readOnly = true;
   area.className = "visually-hidden";
-  document.body.append(area);
+  // Outside the open modal the textarea is inert: select() and copy would silently do nothing.
+  const host = document.querySelector("dialog:modal") || document.body;
+  host.append(area);
   area.select();
   const copied = document.execCommand("copy");
   area.remove();
@@ -3576,11 +3591,11 @@ async function copyText(text, label) {
     status("Couldn't copy to the clipboard");
     return false;
   }
-  const before = label.textContent;
+  label.dataset.label ??= label.textContent; // a second click must not capture "Copied"
   label.textContent = "Copied";
   status("Copied");
   clearTimeout(label.copiedTimer);
-  label.copiedTimer = setTimeout(() => (label.textContent = before), COPIED_LABEL_MS);
+  label.copiedTimer = setTimeout(() => (label.textContent = label.dataset.label), COPIED_LABEL_MS);
   return true;
 }
 $("messages").addEventListener("click", (event) => {
@@ -6683,6 +6698,7 @@ async function initialize() {
     models = composerModels(m);
     uploadsAllowed = m.uploads_enabled === true;
     offerFullAccess(m.full_access === true);
+    localOwner = m.local_owner === true;
     policyProject = null;
     policyPending = false;
     $("model").replaceChildren(

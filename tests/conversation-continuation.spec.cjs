@@ -19,7 +19,7 @@ const luminance = (rgb) =>
   }).reduce((a, v, i) => a + v * [0.2126, 0.7152, 0.0722][i], 0);
 const ratio = (a, b) => (Math.max(luminance(a), luminance(b)) + 0.05) / (Math.min(luminance(a), luminance(b)) + 0.05);
 
-async function scenario(browser, { fullAccess = true, bridge = null } = {}) {
+async function scenario(browser, { fullAccess = true, localOwner = fullAccess, bridge = null, clipboard = null } = {}) {
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, acceptDownloads: true });
   await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin });
   const page = await context.newPage();
@@ -27,12 +27,35 @@ async function scenario(browser, { fullAccess = true, bridge = null } = {}) {
   const state = { requests: [], gates: {}, truncated: false, failWith: null, errors: [] };
   page.on("pageerror", (e) => state.errors.push(e.message));
   await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
+  // clipboard: "none" = insecure origin (no API), "slow" = writes wait for __clipRelease(),
+  // "second-fails" = the first write works, later ones reject.
+  if (clipboard)
+    await page.addInitScript((mode) => {
+      if (mode === "none") return delete Navigator.prototype.clipboard;
+      let writes = 0;
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: {
+          writeText: (text) => {
+            writes++;
+            if (mode === "second-fails" && writes > 1) return Promise.reject(new Error("denied"));
+            if (mode !== "slow") return Promise.resolve();
+            return new Promise((resolve) => (window.__clipRelease = () => resolve()));
+          },
+        },
+      });
+    }, clipboard);
   if (bridge)
     await page.addInitScript((b) => {
       window.__calls = { apps: 0, open: [] };
       window.keepharnessDesktop = {
         handoffApps: async () => (window.__calls.apps++, { apps: b.apps }),
-        openHandoff: async (target, text) => (window.__calls.open.push([target, text]), b.result),
+        openHandoff: async (target, text) => {
+          window.__calls.open.push([target, text]);
+          if (b.slow) await new Promise((resolve) => (window.__openRelease = resolve));
+          if (b.reject) throw new Error("ipc down");
+          return b.result;
+        },
       };
     }, bridge);
   await page.route(origin + "/**", async (route) => {
@@ -50,7 +73,7 @@ async function scenario(browser, { fullAccess = true, bridge = null } = {}) {
       }
       if (p === "/v1/projects") data = { projects: ["sem-projeto"], details: {} };
       if (p === "/v1/models")
-        data = { models: [{ id: "fixture", backend: "local", efforts: ["configured"] }], full_access: fullAccess, admin_url: origin + "/admin/" };
+        data = { models: [{ id: "fixture", backend: "local", efforts: ["configured"] }], full_access: fullAccess, local_owner: localOwner, admin_url: origin + "/admin/" };
       if (p === "/v1/conversations") data = { conversations };
       if (p === "/v1/version") data = { version: "test", build: "continuation-test" };
       if (p === "/v1/catalog") data = { agents: [], skills: [], warnings: [] };
@@ -223,6 +246,110 @@ async function openDialog(page) {
       await page.locator("#continuation-copy").click();
       await page.waitForTimeout(200);
       assert.equal(await page.locator("#continuation-open").isHidden(), true);
+    }
+    // 11. The owner's default does not depend on Full mode; guests never get it.
+    for (const [fullAccess, localOwner, checked] of [[false, true, true], [false, false, false]]) {
+      const { context, page, state } = await scenario(browser, { fullAccess, localOwner });
+      opened.push(context);
+      await openDialog(page);
+      assert.equal(await page.locator("#continuation-paths").isChecked(), checked, `local_owner=${localOwner}`);
+      assert.equal(state.requests[0].paths, checked ? "1" : "0");
+    }
+    // 12. Endpoint 404: the message is shown and nothing can be copied or saved.
+    {
+      const { context, page, state } = await scenario(browser);
+      opened.push(context);
+      state.failWith = { status: 404, code: "conversation_not_found" };
+      await rowTrigger(page).click();
+      await page.getByRole("button", { name: "Continue in another app…" }).click();
+      await page.locator("#continuation-error").filter({ hasText: /Couldn't prepare the handoff: \S/ }).waitFor();
+      assert.equal(await page.locator("#continuation-copy").isDisabled(), true);
+    }
+    // 13. B1: no navigator.clipboard (plain-http client). The fallback must copy from inside the modal.
+    {
+      const { context, page } = await scenario(browser, { clipboard: "none", bridge: { apps: ["chatgpt"], result: { opened: true, mode: "full" } } });
+      opened.push(context);
+      await openDialog(page);
+      assert.equal(await page.evaluate(() => navigator.clipboard), undefined);
+      const text = await page.locator("#continuation-text").inputValue();
+      const reader = await context.newPage();
+      await reader.goto(origin + "/v1/version");
+      await reader.bringToFront();
+      await reader.evaluate(() => navigator.clipboard.writeText("sentinel"));
+      await page.bringToFront();
+      await page.locator("#continuation-copy").click();
+      await page.waitForFunction(() => document.getElementById("continuation-copy").textContent.trim() === "Copied");
+      await reader.bringToFront();
+      assert.equal(await reader.evaluate(() => navigator.clipboard.readText()), text, "the page clipboard really holds the prompt");
+      await reader.close();
+    }
+    // 14. W2/W4: an IPC rejection while opening is not a copy failure; focus returns to Copy after Open.
+    {
+      const { context, page } = await scenario(browser, { bridge: { apps: ["chatgpt"], reject: true } });
+      opened.push(context);
+      await openDialog(page);
+      await page.locator("#continuation-copy").click();
+      await page.locator("#continuation-open-question").waitFor();
+      assert.equal(await page.locator("#continuation-open-question").getAttribute("role"), "status");
+      await page.locator("#continuation-open-yes").click();
+      await page.locator("#continuation-open-status").filter({ hasText: "Couldn't open ChatGPT. The handoff is on your clipboard." }).waitFor();
+      assert.doesNotMatch(await page.locator("#continuation-open-status").innerText(), /Couldn't copy/);
+      assert(await page.locator("#continuation-copy").evaluate((e) => e === document.activeElement), "focus moves to Copy after Open");
+    }
+    {
+      const { context, page } = await scenario(browser, { clipboard: "second-fails", bridge: { apps: ["chatgpt"], result: { opened: true, mode: "full" } } });
+      opened.push(context);
+      await openDialog(page);
+      await page.locator("#continuation-copy").click();
+      await page.locator("#continuation-open-question").waitFor();
+      await page.locator("#continuation-open-yes").click();
+      await page.locator("#continuation-open-status").filter({ hasText: "Couldn't copy the handoff, so ChatGPT was not opened." }).waitFor();
+      assert.equal(await page.evaluate(() => window.__calls.open.length), 0);
+    }
+    // 15. W3: switching the target while Copy is pending never asks about the uncopied target.
+    {
+      const { context, page } = await scenario(browser, { clipboard: "slow", bridge: { apps: ["chatgpt", "claude"], result: { opened: true, mode: "full" } } });
+      opened.push(context);
+      await openDialog(page);
+      await page.locator("#continuation-copy").click();
+      await page.locator('input[name="continuation-target"][value="claude"]').check();
+      await page.waitForFunction(() => document.getElementById("continuation-text").value.includes("for claude"));
+      await page.evaluate(() => window.__clipRelease());
+      await page.waitForTimeout(300);
+      assert.equal(await page.locator("#continuation-open").isHidden(), true, "no question for the target that was not copied");
+    }
+    // 15b. W3: switching the target while the app opens still names the app that was opened.
+    {
+      const { context, page } = await scenario(browser, { bridge: { apps: ["chatgpt", "claude"], result: { opened: true, mode: "full" }, slow: true } });
+      opened.push(context);
+      await openDialog(page);
+      await page.locator("#continuation-copy").click();
+      await page.locator("#continuation-open-yes").click();
+      await page.waitForFunction(() => window.__calls.open.length === 1);
+      await page.locator('input[name="continuation-target"][value="claude"]').check();
+      await page.waitForFunction(() => document.getElementById("continuation-text").value.includes("for claude"));
+      await page.evaluate(() => window.__openRelease());
+      await page.locator("#continuation-open-status").filter({ hasText: "Opened ChatGPT with the handoff" }).waitFor();
+    }
+    // 16. Filename: whole code points, no control or bidi characters.
+    {
+      const { context, page } = await scenario(browser);
+      opened.push(context);
+      const names = await page.evaluate(() => [
+        continuationFilename("a".repeat(79) + "\u{1F600}tail", "claude"),
+        continuationFilename("ab\u007fcd\u0085e\u202ef\u2066g\u2069h", "chatgpt"),
+      ]);
+      assert.equal(names[0], "a".repeat(79) + "\u{1F600}-continue-in-claude.md");
+      assert.equal(names[1], "abcdefgh-continue-in-chatgpt.md");
+    }
+    // 17. A double click never leaves "Copied" stuck on the button.
+    {
+      const { context, page } = await scenario(browser);
+      opened.push(context);
+      await openDialog(page);
+      await page.locator("#continuation-copy").dblclick();
+      await page.waitForFunction(() => document.getElementById("continuation-copy").textContent.trim() === "Copied");
+      await page.waitForFunction(() => document.getElementById("continuation-copy").textContent.trim() === "Copy", null, { timeout: 4000 });
     }
     console.log("PASS: continuation dialog, refetch, stale drop, copy, save, bridge question and statuses, legacy rows, focus and contrast");
   } finally {
