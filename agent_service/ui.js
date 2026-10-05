@@ -3757,18 +3757,41 @@ function safeToolId(tool) {
   return /^[\w.-]{1,48}$/.test(name) ? name : "";
 }
 // C-03: like the Codex and Claude CLIs, a shell step shows its command and a file step its path.
-const TARGET_VERBS = {
-  Running: "bash commandexecution exec_command execute",
-  Reading: "read read_file",
-  Editing: "edit write multiedit notebookedit filechange delete move",
-  Searching: "glob grep search search_files",
-  Listing: "list_directory list_dir",
+// WP7: one table of step categories; the icon and verb of a run step come from here.
+const TOOL_MARKERS = {
+  read: { icon: "file-text", verb: "Reading", tools: "read read_file" },
+  edit: { icon: "pencil", verb: "Editing", tools: "edit write multiedit notebookedit filechange delete move" },
+  run: { icon: "terminal-2", verb: "Running", tools: "bash commandexecution exec_command execute" },
+  search: { icon: "search", verb: "Searching", tools: "glob grep search search_files" },
+  list: { icon: "folder", verb: "Listing", tools: "list_directory list_dir" },
+  web: { icon: "world", verb: "Browsing", tools: "websearch webfetch web_search web_fetch fetch" },
+  skill: { icon: "cube", verb: "Using skill", tools: "skill" },
+  agent: { icon: "robot", verb: "Delegating to", tools: "task agent" },
+  plan: { icon: "list-check", verb: "Updating", tools: "todowrite update_plan" },
+  mcp: { icon: "plug", verb: "Running", tools: "" },
 };
+const PAST_TENSE = {
+  Running: "Ran", Reading: "Read", Editing: "Edited", Listing: "Listed", Searching: "Searched",
+  Browsing: "Browsed", Updating: "Updated", Delegating: "Delegated",
+};
+const MARKER_NAME = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
+// Skill and agent names are display-only: a name that does not match is never shown.
+const markerName = (value) => (typeof value === "string" && MARKER_NAME.test(value) ? value : "");
+function toolCategory(data) {
+  if (markerName(data.skill)) return "skill";
+  if (markerName(data.agent)) return "agent";
+  const name = String(data.tool || "").split("__").pop().toLowerCase();
+  const key = name && Object.keys(TOOL_MARKERS).find((k) => TOOL_MARKERS[k].tools.split(" ").includes(name));
+  if (key) return key;
+  return String(data.tool || "").startsWith("mcp__") ? "mcp" : "";
+}
 function targetTitle(data) {
-  const target = typeof data.target === "string" ? Array.from(data.target.trim()).slice(0, 160).join("") : "",
-    name = String(data.tool || "").split("__").pop().toLowerCase(),
-    verb = Object.keys(TARGET_VERBS).find((key) => TARGET_VERBS[key].split(" ").includes(name));
-  return target && verb ? verb + " " + target : "";
+  const key = toolCategory(data),
+    entry = TOOL_MARKERS[key],
+    subject = key === "skill" || key === "agent"
+      ? markerName(data[key])
+      : typeof data.target === "string" ? Array.from(data.target.trim()).slice(0, 160).join("") : "";
+  return subject && entry?.tools ? entry.verb + " " + subject : "";
 }
 function activityTitle(e) {
   const data = e.data || {},
@@ -3815,6 +3838,7 @@ function activityTitle(e) {
           Glob: "Searching files",
           Grep: "Searching text",
           webSearch: "Searching the web",
+          WebSearch: "Searching the web",
         }[data.tool] || "Running " + (tool || "tool");
   if (type === "tool_end")
     return data.status === "failed" ? "Tool failed" : "Tool finished";
@@ -3852,6 +3876,69 @@ function activityTitle(e) {
     }[type] || ""
   );
 }
+// WP7: catalog entries by "kind:name" so a skill or agent chip can link to its catalog row.
+const workspaceCatalog = new Map();
+const visualMarkersOn = () => prefs.get("visual_markers", true) !== false;
+// One renderer for a run step: plain text when markers are off or the step has no category.
+function renderStepRow(row) {
+  const text = row.dataset.stepText || "",
+    category = row.dataset.markerCategory,
+    entry = TOOL_MARKERS[category];
+  if (!entry || !visualMarkersOn()) {
+    row.textContent = text;
+    row.removeAttribute("aria-label");
+    return;
+  }
+  const resourceId = workspaceCatalog.get(category + ":" + row.dataset.markerName),
+    chip = document.createElement(resourceId ? "a" : "span"),
+    label = document.createElement("span"),
+    icon = HarnessUI.icon(entry.icon);
+  chip.className = "step-chip";
+  chip.dataset.testid = "step-marker";
+  chip.dataset.category = category;
+  if (resourceId) {
+    chip.href = "#workspace-resources";
+    chip.dataset.resourceId = resourceId;
+  }
+  icon.classList.add("step-icon");
+  label.textContent = text;
+  chip.append(icon, label);
+  row.replaceChildren(chip);
+  row.setAttribute("aria-label", text);
+}
+// The marker may arrive on tool_start or tool_end: the first one seen for a tool id is kept.
+function setStepRow(row, text, marker = {}) {
+  row.dataset.stepText = text;
+  if (marker.category && !row.dataset.markerCategory) row.dataset.markerCategory = marker.category;
+  if (marker.name && !row.dataset.markerName) row.dataset.markerName = marker.name;
+  renderStepRow(row);
+}
+function refreshVisualMarkers() {
+  document.querySelectorAll("li[data-step-text]").forEach(renderStepRow);
+}
+// Opening the panel reloads the resource rows, so a focus request outlives that reload.
+let pendingResourceFocus = "";
+function focusResourceRow(id) {
+  const row = [...document.querySelectorAll("#workspace-resources [data-resource-id]")].find(
+    (item) => item.dataset.resourceId === id,
+  );
+  row?.focus();
+}
+document.addEventListener("click", (event) => {
+  const link = event.target.closest?.("a.step-chip[data-resource-id]");
+  if (!link) return;
+  event.preventDefault();
+  const id = link.dataset.resourceId;
+  pendingResourceFocus = $("activity-panel").hidden ? id : "";
+  setPanelOpen(true);
+  const section = document.querySelector('[data-workspace-section="resources"]');
+  if (section) section.open = true;
+  focusResourceRow(id);
+});
+function stepMarker(data) {
+  const category = toolCategory(data);
+  return { category, name: category === "skill" || category === "agent" ? markerName(data[category]) : "" };
+}
 function appendActivityTitle(list, e) {
   list.eventIds ??= new Set();
   list.toolRows ??= new Map();
@@ -3866,23 +3953,22 @@ function appendActivityTitle(list, e) {
   if (e.type === "tool_end" && toolId && list.toolRows.has(toolId)) {
     const row = list.toolRows.get(toolId);
     row.dataset.state = toolFailed ? "failed" : "completed";
-    const text = targetTitle(data) || row.textContent;
-    row.textContent = toolFailed
-      ? "Failed: " + text
-      : text
-          .replace(/^Running/, "Ran")
-          .replace(/^Reading/, "Read")
-          .replace(/^Editing/, "Edited")
-          .replace(/^Listing/, "Listed")
-          .replace(/^Searching/, "Searched");
+    const text = targetTitle(data) || row.dataset.stepText;
+    setStepRow(
+      row,
+      toolFailed
+        ? "Failed: " + text
+        : text.replace(/^(Running|Reading|Editing|Listing|Searching|Browsing|Updating|Delegating)/, (verb) => PAST_TENSE[verb]),
+      stepMarker(data),
+    );
     return;
   }
   const title = activityTitle(e);
   if (!title) return;
-  if (title === "Thinking" && list.lastElementChild?.textContent === title)
+  if (title === "Thinking" && list.lastElementChild?.dataset.stepText === title)
     return;
   const row = document.createElement("li");
-  row.textContent = title;
+  setStepRow(row, title, e.type === "tool_start" || e.type === "tool_end" ? stepMarker(data) : {});
   row.dataset.state = toolFailed ? "failed" : e.type;
   if (eventId) row.dataset.eventId = eventId;
   list.append(row);
@@ -9303,6 +9389,11 @@ function applyReadingSize(value) {
 }
 applyReadingSize(prefs.get("reading_size", "15"));
 $("reading-size").onchange = () => applyReadingSize($("reading-size").value);
+$("visual-markers-toggle").checked = visualMarkersOn();
+$("visual-markers-toggle").onchange = (event) => {
+  prefs.set("visual_markers", event.target.checked);
+  refreshVisualMarkers();
+};
 function updateHeaderToastOffset() {
   const header = $("conversation-title").closest("header");
   if (header)
@@ -10543,10 +10634,14 @@ async function refreshWorkspaceResources() {
     if (request !== workspaceResourceRequest) return;
     const items = Array.isArray(data.items) ? data.items : [];
     target.replaceChildren();
+    workspaceCatalog.clear();
     $("workspace-resources-count").textContent = String(items.length);
     for (const item of items) {
+      const key = item.kind + ":" + item.name;
+      if (!workspaceCatalog.has(key)) workspaceCatalog.set(key, item.id);
       const row = document.createElement("div"), name = document.createElement("span"), badge = document.createElement("span");
       row.className = "workspace-row";
+      row.tabIndex = -1;
       row.dataset.resourceId = item.id;
       row.dataset.resourceRevision = item.revision;
       name.textContent = item.name; name.className = "workspace-item-name";
@@ -10556,6 +10651,9 @@ async function refreshWorkspaceResources() {
       badge.textContent = [item.scope, item.origin, catalog?.short].filter(Boolean).join(" · ");
       row.append(name, badge); target.append(row);
     }
+    refreshVisualMarkers();
+    if (pendingResourceFocus) focusResourceRow(pendingResourceFocus);
+    pendingResourceFocus = "";
     if (!items.length) target.textContent = "No resources for this project and model.";
     for (const warning of data.warnings || []) {
       const note = document.createElement("p"); note.textContent = warning; target.append(note);
