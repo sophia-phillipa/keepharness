@@ -292,6 +292,44 @@ Checks that passed:
 
 **Notes**: in S2-09 the run's own checks wrongly expected the run state `done` (the server says `completed`) and compared user messages cut at 30 characters (the word ONE/TWO fell outside); both are fixed in the script after the run and are not app failures. The area was not rerun (prompt budget), so the S2-09 line in this round stays failed on C-06. The picture seed is a generated 1000 x 300 PNG (red, white 5x7-pixel "HOLM 73"). Metrics: `~/.cache/kho/chat/runs/s2b/metrics.jsonl`. Screenshots: `~/.cache/kho/chat/runs/s2b/shots/`.
 
+### Round 5 (slice 3a), 2026-10-05
+
+- **Slice**: 3, part a, the DeepSeek block (S3-00, S3-01, S3-02, S3-03, S3-08, S3-09, S3-10)
+- **Provider, model, effort**: DeepSeek `deepseek-flash` (the DeepSeek V4.1 Flash chat model, effort `configured`) and Codex `gpt-5.6-sol` Medium
+- **Scenarios**: S3-00, S3-01, S3-02, S3-03, S3-08, S3-09, S3-10 (run visibly, once)
+- **Results**: 8 / 8 checks passed (open step plus 7 scenarios); 18 of 18 prompts spent: DeepSeek 12 (S3-01 2, S3-02 2, S3-03 1, S3-08 2, S3-09 2, S3-10 3), Codex 6 (S3-02 4, S3-03 2). No quota, credit, balance or rate-limit text seen. No new bug.
+- **Environment**: desktop 0.16.0, instance on 18640/18641. S3-00 changed: the key was already in the instance state (placed by the owner), so the instance provisioning enables DeepSeek (`deepseek-flash`, projects `sem-projeto` and `chat-facts`) after the admin's own provider check succeeds; the run asserted the admin reports DeepSeek authenticated with credentials, and the model picker offers it. The key was never read or shown.
+
+| Turn | Provider / model | TTFT (ms) | Total (ms) | Input-to-paint median (ms) | Electron RSS (MB) | Harness RSS (MB) |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 S3-01 capital | DeepSeek Flash | 2578 | 2618 | 13.9 | 765 | 264 |
+| 2 S3-01 follow-up | DeepSeek Flash | 1884 | 1935 | 15.2 | 768 | 271 |
+| 3 S3-02 plant HERON | Sol Medium | 3597 | 5225 | 17.2 | 761 | 243 |
+| 4 S3-02 second word | Sol Medium | 4607 | 5819 | 18.2 | 763 | 261 |
+| 5 S3-02 recall on DeepSeek | DeepSeek Flash | 2617 | 2676 | 18.4 | 759 | 269 |
+| 6 S3-02 third word on DeepSeek | DeepSeek Flash | 2041 | 2214 | 19.5 | 760 | 273 |
+| 7 S3-02 list on Codex again | Sol Medium | 6636 | 8582 | 15.6 | 761 | 258 |
+| 8 S3-02 first question | Sol Medium | 7878 | 9452 | 16.4 | 762 | 258 |
+| 9 S3-03 plant OTTER | DeepSeek Flash | 2596 | 2637 | 18.8 | 771 | 268 |
+| 10 S3-03 recall on Codex | Sol Medium | 4866 | 6437 | 16.8 | 771 | 251 |
+| 11 S3-03 list both | Sol Medium | 4617 | 7014 | 15.1 | 775 | 246 |
+| S3-08 numbers 1 to 600, Stop | DeepSeek Flash | not measured | Stop halted the text in 193 ms | n/a | n/a | n/a |
+| 12 S3-08 NEXT-OK | DeepSeek Flash | 2792 | 2851 | 14.8 | 800 | 240 |
+| 13 S3-09 Markdown + table | DeepSeek Flash | 3166 | 3967 | 11.4 | 800 | 241 |
+| 14 S3-09 two code blocks | DeepSeek Flash | 2405 | 2493 | 14.5 | 803 | 243 |
+| 15 S3-10 harbor | DeepSeek Flash | 2604 | 6331 | 13.9 | 803 | 301 |
+| 16 S3-10 lanterns | DeepSeek Flash | 2666 | 2712 | 12.8 | 802 | 303 |
+| 17 S3-10 door code | DeepSeek Flash | 2880 | 2918 | 15.8 | 804 | 302 |
+
+- **DeepSeek vs Codex**: median TTFT 2.6 s (11 turns) against 4.7 s (6 turns); median total 2.7 s against 6.7 s. DeepSeek answers in about 2 to 3 s whatever the follow-up; Codex Sol Medium grew to 8 to 9 s on the recall turns. Resources are the same on both (Electron 759-804 MB, harness 240-303 MB).
+- **S3-01**: both replies streamed and finished without error; the reply footer shows the model and the time ("DeepSeek V4.1 Flash · 2.0 s") but no usage or balance figure anywhere in the chat; there is nothing to check beyond "no error". The history shows 2 user and 2 assistant messages.
+- **S3-02 / S3-03 provider switch**: the picker allows switching provider inside an open conversation, in both directions, with no lock message and no 409 (`conversation_execution_mode_locked` only rejects an explicit `execution_mode` on a continuation; the model is free to change). History is carried: DeepSeek named both Codex-planted words (HERON-5521, LARK-8830) and added PLOVER-1204; Codex, two switches later, listed HERON-5521, LARK-8830, PLOVER-1204 in order and recalled the very first request; in S3-03 Codex named OTTER-3302 planted on DeepSeek and then both words. The server holds the six runs of S3-02 as `gpt-5.6-sol`, `gpt-5.6-sol`, `deepseek-flash`, `deepseek-flash`, `gpt-5.6-sol`, `gpt-5.6-sol`, all `completed`, and each footer names the model that answered. The first reply after a switch shows the milestone "Preparing the run" instead of "Conversation context resumed", so the new provider gets a fresh session with the history passed in. The mode stayed "Native conversation" throughout (no silent mode change); the isolated mode was not tried. `dossier/conversation-execution-mode.md` only forbids changing the execution mode of an existing conversation, which agrees; it does not say anything about switching the model or provider, so this behavior is undocumented there.
+- **S3-08 Stop on DeepSeek**: the text stopped changing 193 ms after Stop (pill "Cancelled" after 269 ms); 450 characters at Stop, 679 kept (the last chunk arrived after the click), no ghost stream, the Stop button hidden, and the next send answered NEXT-OK in 2.9 s. Screenshot `~/.cache/kho/chat/runs/s3a/shots/s3-08-stopped.png`.
+- **S3-09**: headings, lists, the 3 by 3 table and its fit, two code blocks in two languages with 4-space indentation, and both copy buttons (clipboard equal to the block) pass on DeepSeek, same as on Codex.
+- **S3-10**: DeepSeek in the project read FACTS.md with tool steps (first answer "I'll read the file now", the three facts quoted exactly: Port Quillon, 7 brass lanterns, ZEBRA-4471). The access picker took "Read only" without error.
+
+**Notes**: no new defect was found, so the Bugs index is unchanged (C-01, C-03 to C-06 are known and were not re-filed). Metrics: `~/.cache/kho/chat/runs/s3a/metrics.jsonl`. Screenshots: `~/.cache/kho/chat/runs/s3a/shots/` (`s3-00-models.png` shows the model picker with the DeepSeek group and no key; the Settings > Providers screen was not captured).
+
 ## Bugs index
 
 | Id | Severity | Title | Status | Fix commit |
@@ -312,3 +350,4 @@ Checks that passed:
 | 1b | Codex Sol Medium | 5.6 | 5.8 | Electron ~769, harness ~276 |
 | 2a | Codex Sol Medium + Luna | 5.1 | 5.9 | Electron ~740-760 (~790 with two streams), harness ~250-305 (~480 with two streams) |
 | 2b | Codex Sol Medium + Luna | 4.6 | 6.2 | Electron ~760-800, harness ~242-261 |
+| 3a | DeepSeek Flash (12 turns) vs Codex Sol Medium (6 turns) | 2.6 vs 4.7 | 2.7 vs 6.7 | Electron ~759-804, harness ~240-303 |

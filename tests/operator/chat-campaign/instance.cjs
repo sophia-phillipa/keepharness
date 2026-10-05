@@ -264,8 +264,27 @@ async function provision() {
     projects: ["sem-projeto", PROJECT_NAME],
     permissions: { read: true, write: false, upload: true, tests: false, internet: false, shell: false, hooks: false },
   };
+  await provisionDeepseek(settings);
   const saved = await adminApi("POST", "/api/settings", settings);
   if (saved.status !== 200) throw new Error("saving settings failed: " + saved.status + " " + saved.text.slice(0, 300));
+}
+
+// DeepSeek is enabled only when the owner already placed deepseek.key in the state folder; the key
+// itself is never read here. The admin's own provider check verifies it and lists the models.
+async function provisionDeepseek(settings) {
+  if (!fs.existsSync(path.join(paths.state, "deepseek.key"))) return;
+  const checked = await adminApi("POST", "/api/check", { provider: "deepseek" });
+  if (checked.status !== 200 || checked.json?.authenticated !== true) throw new Error("DeepSeek is not ready: " + checked.status + " " + String(checked.json?.error || checked.json?.message || "").slice(0, 200));
+  const ids = Object.keys(checked.json.models || {});
+  const model = ids.find((id) => /flash/.test(id));
+  if (!model) throw new Error("no flash model in the DeepSeek account list: " + ids.join(", "));
+  settings.services.deepseek = {
+    ...(settings.services.deepseek || {}),
+    enabled: true,
+    models: [model],
+    projects: ["sem-projeto", PROJECT_NAME],
+    permissions: { read: true, write: false, upload: true, tests: false, internet: false, shell: false, hooks: false },
+  };
 }
 
 // A registered project is {id, label, root}; the root must be an existing absolute folder.

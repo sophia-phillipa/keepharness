@@ -8,7 +8,7 @@
 //     NODE_PATH=<node_modules with playwright> PLAYWRIGHT_MODULE=<same>/playwright \
 //     node tests/operator/areas/20-chat-real-providers.cjs
 //
-// Env: CHAT_SLICE (pilot|luna|deepseek|s1a|s1b|s2a|s2b), CHAT_SCENARIOS (comma list, overrides the slice),
+// Env: CHAT_SLICE (pilot|luna|deepseek|s1a|s1b|s2a|s2b|s3a), CHAT_SCENARIOS (comma list, overrides the slice),
 // CHAT_BUDGET (real prompts allowed), CHAT_DEEPSEEK_WAIT_MS, CHAT_APP (an inspect-enabled copy of the
 // packaged binary: Playwright cannot attach to the production package, whose inspect fuse is off).
 // Known limitation: the desktop attaches to the running admin, so closing the app does not stop
@@ -43,6 +43,7 @@ const SLICES = {
   s1b: ["s1-06", "s1-07", "s1-08", "s1-09", "s1-10"],
   s2a: ["s2-01", "s2-02", "s2-03", "s2-04", "s2-05"],
   s2b: ["s1-03r", "s2-06", "s2-07", "s2-08", "s2-09", "s2-10"],
+  s3a: ["s3-00", "s3-01", "s3-02", "s3-03", "s3-08", "s3-09", "s3-10"],
 };
 const PROJECT_LABEL = process.env.CHAT_PROJECT_LABEL || "Campaign notes"; // CHAT_PROJECT_LABEL: dry runs use a throwaway project
 const MAIN_DIR = path.join(paths.home, S1.main);
@@ -131,25 +132,7 @@ const SCENARIOS = {
       await newChat(op);
       await chooseModel(op, "gpt-5.6-sol");
       await chooseEffort(op, "Medium");
-      await ask(op, "s1-02-md", "Reply in Markdown with exactly: a level-2 heading, a level-3 heading, a bullet list of 3 items, a numbered list of 3 items and a table of 3 columns (Island, Harbor, Lanterns) with 3 rows of invented data. No code blocks, no other text.", /\S/);
-      const md = await page(op).evaluate(() => {
-        const a = [...document.querySelectorAll("#messages article.assistant")].pop();
-        const body = a.querySelector(":scope > .text");
-        const t = body.querySelector("table");
-        const wrap = t && (t.closest(".table-wrap, .table-scroll") || t.parentElement);
-        const ar = a.getBoundingClientRect();
-        return { h: body.querySelectorAll("h1,h2,h3,h4").length, ul: body.querySelectorAll("ul li").length, ol: body.querySelectorAll("ol li").length, rows: t ? t.querySelectorAll("tr").length : 0, cols: t ? t.rows[0].cells.length : 0, tableFits: !!t && wrap.getBoundingClientRect().right <= ar.right + 1, articleOverflow: a.scrollWidth > a.clientWidth + 1 };
-      });
-      c.ok(md.h >= 2 && md.ul >= 3 && md.ol >= 3, `headings/lists not rendered: ${JSON.stringify(md)}`);
-      c.ok(md.rows >= 4 && md.cols === 3, `table not rendered as 3 columns, 4 rows: ${JSON.stringify(md)}`);
-      c.ok(md.tableFits && !md.articleOverflow, `the table does not fit the message: ${JSON.stringify(md)}`);
-      record({ scenario: "s1-02-md", md });
-      await ask(op, "s1-02-two-langs", "Give two short code blocks, one Python and one JavaScript, each a function with a loop and an if inside it, indented with 4 spaces. Only the two code blocks, no other text.", /\S/);
-      const two = await codeBlocks(op);
-      c.ok(two.length >= 2 && new Set(two.map((b) => b.lang)).size >= 2, `expected 2 languages, got ${JSON.stringify(two.map((b) => b.lang))}`);
-      c.ok(two.every((b) => /\n {4}\S/.test(b.text)), "a code block lost its indentation");
-      await copyCheck(op, c, 0, "first code block");
-      await copyCheck(op, c, 1, "second code block");
+      await markdownChecks(op, c, "s1-02");
       await ask(op, "s1-02-listing", "Write one Python code block of exactly 120 lines: a module of small functions with docstrings, indented with 4 spaces. Output only that code block.", /\S/);
       const big = await codeBlocks(op);
       const lines = big[0] ? big[0].text.replace(/\n$/, "").split("\n").length : 0;
@@ -441,47 +424,8 @@ const SCENARIOS = {
       c.done();
     }, { lint: false });
   },
-  "s2-03": async (op) => {
-    await op.step("s2-03", "Now: S2-03, a very long answer stopped mid-reply, then a new question", async () => {
-      const c = soft();
-      await newChat(op);
-      await chooseModel(op, "gpt-5.6-sol");
-      await chooseEffort(op, "Medium");
-      const page = op.page;
-      await op.fill(page.locator("#prompt"), "Write the numbers from 1 to 600, one per line, each followed by a different English word. Do not stop early and add nothing else.");
-      const from = Date.now();
-      const before = await submit(op);
-      await op.until(async () => (await page.locator("#messages").getByRole("button", { name: "View run" }).count()) > before, "the run did not start", 30000);
-      await op.until(async () => (await streamLen(op)) > 400, "the long answer never started streaming", 90000);
-      await op.caption("Now: pressing Stop mid-reply");
-      const len0 = await streamLen(op);
-      const tStop = Date.now();
-      await page.locator("#cancel").click();
-      let last = len0, tLast = tStop, stableSince = Date.now(), tPill = null;
-      while (Date.now() - stableSince < 1500 && Date.now() - tStop < 30000) {
-        await sleep(40);
-        const n = await streamLen(op);
-        if (n !== last) { last = n; tLast = Date.now(); stableSince = tLast; }
-        if (tPill == null && /Cancelled/i.test(await page.locator("#conversation-state-pill").innerText())) tPill = Date.now() - tStop;
-      }
-      const haltMs = tLast - tStop;
-      await sleep(2500);
-      const after = await page.evaluate(() => ({ pill: document.getElementById("conversation-state-pill")?.innerText || "", state: document.getElementById("conversation-state-pill")?.dataset.state || "", cancelHidden: document.getElementById("cancel")?.hidden, article: ([...document.querySelectorAll("#messages article.assistant")].pop()?.innerText || "").replace(/\s+/g, " ").slice(0, 300) }));
-      const len1 = await streamLen(op);
-      const shot = path.join(ctx.out, "shots", "s2-03-stopped.png");
-      await page.screenshot({ path: shot, timeout: 15000 }).catch(() => {});
-      const win = ctx.samples.filter((s) => s.t >= from);
-      record({ scenario: "s2-03", stop_halt_ms: haltMs, pill_cancelled_ms: tPill, chars_at_stop: len0, chars_final: len1, pill: after.pill, article: after.article, electron_rss_mb: Math.max(...win.map((s) => s.electron_rss), 0), harness_rss_mb: Math.max(...win.map((s) => s.harness_rss), 0), shot });
-      c.ok(haltMs < 3000, `the stream took ${haltMs} ms to halt after Stop`);
-      c.ok(len1 >= len0 && len1 > 100, `the partial text was not kept (${len0} chars at Stop, ${len1} after)`);
-      c.ok(/Cancel|Stopp/i.test(after.pill) || /cancel|stopp/i.test(after.article), `the reply is not marked stopped: pill "${after.pill}"`);
-      c.ok(!["running", "queued"].includes(after.state), `the pill is still ${after.state} after Stop (ghost stream?)`);
-      c.ok(after.cancelHidden === true, "the Stop button is still shown after the stop");
-      await ask(op, "s2-03-next", "Reply with just the word NEXT-OK.", /NEXT-OK/);
-      c.ok(/NEXT-OK/.test((await lastMeta(op)).text), "the next send did not answer");
-      c.done();
-    }, { lint: false });
-  },
+  "s2-03": (op) => stopScenario(op, "s2-03", "gpt-5.6-sol", "Medium"),
+  "s3-08": (op) => stopScenario(op, "s3-08", "deepseek-flash", null),
   "s2-04": async (op) => {
     await op.step("s2-04", "Now: S2-04, two follow-ups queued behind a streaming answer, one discarded", async () => {
       const c = soft();
@@ -811,6 +755,122 @@ const SCENARIOS = {
       await addFolder(op, PROJECT_LABEL, S1.second);
     }, { lint: false });
   },
+  "s3-00": async (op) => {
+    await op.step("s3-00", "Now: S3-00, checking that DeepSeek is configured and ready", async () => {
+      const c = soft();
+      const state = (await adminApi("GET", "/api/state")).json || {};
+      c.ok(state.authentication?.deepseek === true && state.credentials?.deepseek === true, `the admin does not report DeepSeek as configured: auth=${state.authentication?.deepseek} credentials=${state.credentials?.deepseek}`);
+      const svc = state.settings?.services?.deepseek || {};
+      c.ok(svc.enabled === true && (svc.models || []).includes("deepseek-flash"), `DeepSeek is not enabled with deepseek-flash: ${JSON.stringify({ enabled: svc.enabled, models: svc.models })}`);
+      c.ok((svc.projects || []).includes("sem-projeto") && (svc.projects || []).includes(PROJECT_NAME), `DeepSeek projects: ${JSON.stringify(svc.projects)}`);
+      await newChat(op);
+      const listed = await op.page.evaluate(() => fetch("/v1/models").then((r) => r.json()));
+      c.ok((listed.models || []).some((m) => m.id === "deepseek-flash"), "the app's model list does not offer deepseek-flash");
+      await op.click(op.page.locator("#model-trigger"));
+      await sleep(800);
+      const shot = path.join(ctx.out, "shots", "s3-00-models.png");
+      await op.page.screenshot({ path: shot, timeout: 15000 }).catch(() => {});
+      await op.page.keyboard.press("Escape");
+      record({ scenario: "s3-00", authenticated: state.authentication?.deepseek, credentials: state.credentials?.deepseek, enabled: svc.enabled, models: svc.models, offered: (listed.models || []).map((m) => m.id), shot });
+      c.done();
+    }, { lint: false });
+  },
+  "s3-01": async (op) => {
+    await op.step("s3-01", "Now: S3-01, a new DeepSeek chat with a question and a follow-up", async () => {
+      const c = soft();
+      await newChat(op);
+      await chooseModel(op, "deepseek-flash");
+      await askOn(op, "s3-01-q", "deepseek", "What is the capital of Australia? Answer in one short sentence.", /Canberra/);
+      const q = ctx.last;
+      c.ok(q.ttft_ms != null && q.ttft_ms > 0, "no TTFT was measured on the reply body");
+      c.ok(!/Failed|error/i.test(q.pill) && !LIMIT.test(q.reply), `the first reply shows a problem: ${q.pill} ${q.reply.slice(0, 120)}`);
+      await askOn(op, "s3-01-follow", "deepseek", "About how many people live there? Answer in one short sentence.", /\d|thousand|million/i);
+      c.ok(!/Failed|error/i.test(ctx.last.pill), `the follow-up shows a problem: ${ctx.last.pill}`);
+      const h = await op.page.evaluate(() => ({ user: document.querySelectorAll("#messages article.user").length, assistant: document.querySelectorAll("#messages article.assistant").length }));
+      c.ok(h.user === 2 && h.assistant === 2, `the history shows ${h.user} user and ${h.assistant} assistant messages, expected 2 and 2`);
+      const meta = (await lastMeta(op)).meta;
+      c.ok(/deepseek/i.test(meta), `the reply footer does not name the DeepSeek model: "${meta}"`);
+      record({ scenario: "s3-01", history: h, footer: meta });
+      c.done();
+    }, { lint: false });
+  },
+  "s3-02": async (op) => {
+    await op.step("s3-02", "Now: S3-02, one conversation across Codex Sol, DeepSeek and Codex Sol, recalling earlier words", async () => {
+      const c = soft();
+      await newChat(op);
+      await chooseModel(op, "gpt-5.6-sol");
+      await chooseEffort(op, "Medium");
+      await askOn(op, "s3-02-codex1", "codex", "Remember this code word: HERON-5521. Reply with one short sentence confirming it.", /HERON/);
+      await askOn(op, "s3-02-codex2", "codex", "Also remember a second code word: LARK-8830. Which was the first one I gave you? One short sentence.", /HERON-5521/);
+      const sw1 = await switchModel(op, "deepseek-flash");
+      record({ scenario: "s3-02-switch-to-deepseek", ...sw1 });
+      if (!sw1.allowed) { c.ok(sw1.clear, `the switch to DeepSeek is refused without a clear message: ${JSON.stringify(sw1)}`); return c.done(); }
+      await askOn(op, "s3-02-ds1", "deepseek", "What are the two code words I gave you earlier in this conversation? One short sentence.", /(?=[\s\S]*HERON-5521)(?=[\s\S]*LARK-8830)/);
+      c.ok(/HERON-5521/.test(ctx.last.reply) && /LARK-8830/.test(ctx.last.reply), "DeepSeek did not recall both words planted on Codex");
+      await askOn(op, "s3-02-ds2", "deepseek", "Add a third code word: PLOVER-1204. Then list all three words in the order I gave them, in one line.", /PLOVER-1204/);
+      const sw2 = await switchModel(op, "gpt-5.6-sol");
+      record({ scenario: "s3-02-switch-to-codex", ...sw2 });
+      if (!sw2.allowed) { c.ok(sw2.clear, `the switch back to Codex is refused without a clear message: ${JSON.stringify(sw2)}`); return c.done(); }
+      await askOn(op, "s3-02-codex3", "codex", "List all three code words I gave you so far, in the order I gave them, in one line.", /PLOVER-1204/);
+      c.ok(/HERON-5521[\s\S]*LARK-8830[\s\S]*PLOVER-1204/.test(ctx.last.reply), "Codex did not recall all three words in order after the round trip");
+      await askOn(op, "s3-02-codex4", "codex", "What was the very first thing I asked you in this conversation? One short sentence.", /HERON|code word|remember/i);
+      const turns = await turnsApi(op);
+      record({ scenario: "s3-02-turns", turns: turns.map((t) => ({ model: t.model, state: t.state })) });
+      c.ok(turns.length === 6 && turns.every((t) => t.state === "done" || t.state === "completed"), `the server holds ${turns.length} runs: ${JSON.stringify(turns.map((t) => [t.model, t.state]))}`);
+      c.done();
+    }, { lint: false });
+  },
+  "s3-03": async (op) => {
+    await op.step("s3-03", "Now: S3-03, a conversation that starts on DeepSeek and switches to Codex Sol", async () => {
+      const c = soft();
+      await newChat(op);
+      await chooseModel(op, "deepseek-flash");
+      await askOn(op, "s3-03-ds1", "deepseek", "Remember this code word: OTTER-3302. Reply with one short sentence confirming it.", /OTTER/);
+      const sw = await switchModel(op, "gpt-5.6-sol");
+      record({ scenario: "s3-03-switch-to-codex", ...sw });
+      if (!sw.allowed) { c.ok(sw.clear, `the switch to Codex is refused without a clear message: ${JSON.stringify(sw)}`); return c.done(); }
+      try { await chooseEffort(op, "Medium"); } catch (e) { record({ scenario: "s3-03-effort", note: e.message }); }
+      await askOn(op, "s3-03-codex1", "codex", "What code word did I give you earlier in this conversation? Also remember a second one: WREN-7745. One short sentence.", /OTTER-3302/);
+      await askOn(op, "s3-03-codex2", "codex", "List both code words in the order I gave them, in one line.", /WREN-7745/);
+      c.ok(/OTTER-3302[\s\S]*WREN-7745/.test(ctx.last.reply), "Codex did not list both words in order");
+      c.done();
+    }, { lint: false });
+  },
+  "s3-09": async (op) => {
+    await op.step("s3-09", "Now: S3-09, DeepSeek Markdown, a table, code blocks and copy buttons", async () => {
+      const c = soft();
+      await newChat(op);
+      await chooseModel(op, "deepseek-flash");
+      await markdownChecks(op, c, "s3-09");
+      c.done();
+    }, { lint: false });
+  },
+  "s3-10": async (op) => {
+    await op.step("s3-10", `Now: S3-10, DeepSeek in the project ${PROJECT_NAME}, three fact questions`, async () => {
+      const c = soft();
+      await newChat(op);
+      await chooseProject(op, "Chat facts");
+      await chooseModel(op, "deepseek-flash");
+      try { await chooseAccessChecked(op, "Read only"); } catch (e) { record({ scenario: "s3-10-access", note: e.message }); }
+      const cannot = /can't|cannot|can not|unable|not able|don't have|do not have|no access|not available|couldn't|could not|no file|not able to read|without access/i;
+      const qs = [
+        ["harbor", FACTS.harbor, "Read FACTS.md in this project and quote exactly the harbor name. If you cannot read files, say so plainly and do not guess."],
+        ["lamp", FACTS.lamp, "What does FACTS.md say about the lanterns? Quote the count with its wording. If you cannot read files, say so plainly and do not guess."],
+        ["code", FACTS.code, "What is the door code in FACTS.md? If you cannot read files, say so plainly and do not guess."],
+      ];
+      const outcome = [];
+      for (const [key, fact, text] of qs) {
+        await askOn(op, `s3-10-${key}`, "deepseek", text, /\S/);
+        const reply = (await lastMeta(op)).text;
+        const hit = reply.includes(fact);
+        const says = cannot.test(reply);
+        outcome.push({ key, hit, says });
+        c.ok(hit || says, `the ${key} reply neither gives the fact nor says it cannot read it (invented?): ${reply.slice(0, 160)}`);
+      }
+      record({ scenario: "s3-10", outcome });
+      c.done();
+    }, { lint: false });
+  },
   "await-deepseek-key": async (op) => {
     await op.step("await-deepseek-key", "Now: waiting for Sophia to enter the DeepSeek key in Settings > Providers", async () => {
       const limit = Date.now() + Number(process.env.CHAT_DEEPSEEK_WAIT_MS || 900000);
@@ -838,6 +898,32 @@ async function chooseEffort(op, label) {
   if (!(await option.count())) throw new Error(`this model offers no ${label} effort`);
   await op.click(option.first());
   await op.seeText(op.page.locator("#effort-label"), new RegExp(label));
+}
+
+// Ask on a known provider and record which model the footer and the server say answered.
+async function askOn(op, name, provider, text, pattern) {
+  const answer = await ask(op, name, text, pattern);
+  if (op.area.halted) throw new Error("a provider limit text was seen, stopping");
+  const meta = await lastMeta(op);
+  const turns = await turnsApi(op).catch(() => []);
+  const last = turns[turns.length - 1] || {};
+  record({ scenario: `${name}-meta`, provider, footer: meta.meta, request_model: last.model, request_effort: last.effort, state: last.state });
+  return answer;
+}
+
+// Switches the model picker inside an open conversation and reports whether that is allowed,
+// and, when it is not, whether the app says why in plain words.
+async function switchModel(op, id) {
+  const trigger = op.page.locator("#model-trigger");
+  const before = await op.page.evaluate(() => ({ disabled: document.getElementById("model-trigger")?.disabled, title: document.getElementById("model-trigger")?.title || "", model: document.getElementById("model")?.value }));
+  let error = null;
+  if (!before.disabled) await chooseModel(op, id).catch((e) => (error = e.message));
+  const after = await op.page.evaluate(() => ({ model: document.getElementById("model")?.value, notice: [...document.querySelectorAll('[role="alert"], .toast, #composer-notice, .notice')].map((n) => n.innerText).join(" | ").slice(0, 300), disabled: document.getElementById("model-trigger")?.disabled }));
+  const shot = path.join(ctx.out, "shots", `switch-to-${id}.png`);
+  await op.page.screenshot({ path: shot, timeout: 15000 }).catch(() => {});
+  const allowed = after.model === id;
+  const words = `${before.title} ${after.notice} ${error || ""}`;
+  return { allowed, from: before.model, to: id, disabled: before.disabled, title: before.title, notice: after.notice, error, clear: allowed || /conversation|new chat|start|locked|cannot|can't|switch|same/i.test(words), shot };
 }
 
 // Text length of the newest reply body (streams while the run is live).
@@ -925,6 +1011,73 @@ async function chooseProject(op, label) {
 }
 
 const page = (op) => op.page;
+
+// Long answer, Stop mid-reply, then a new question (S2-03 on Codex, S3-08 on DeepSeek).
+async function stopScenario(op, id, model, effort) {
+  await op.step(id, `Now: ${id}, a very long answer stopped mid-reply on ${model}, then a new question`, async () => {
+    const c = soft();
+    await newChat(op);
+    await chooseModel(op, model);
+    if (effort) await chooseEffort(op, effort);
+    const page = op.page;
+    await op.fill(page.locator("#prompt"), "Write the numbers from 1 to 600, one per line, each followed by a different English word. Do not stop early and add nothing else.");
+    const from = Date.now();
+    const before = await submit(op);
+    await op.until(async () => (await page.locator("#messages").getByRole("button", { name: "View run" }).count()) > before, "the run did not start", 30000);
+    await op.until(async () => (await streamLen(op)) > 400, "the long answer never started streaming", 90000);
+    await op.caption("Now: pressing Stop mid-reply");
+    const len0 = await streamLen(op);
+    const tStop = Date.now();
+    await page.locator("#cancel").click();
+    let last = len0, tLast = tStop, stableSince = Date.now(), tPill = null;
+    while (Date.now() - stableSince < 1500 && Date.now() - tStop < 30000) {
+      await sleep(40);
+      const n = await streamLen(op);
+      if (n !== last) { last = n; tLast = Date.now(); stableSince = tLast; }
+      if (tPill == null && /Cancelled/i.test(await page.locator("#conversation-state-pill").innerText())) tPill = Date.now() - tStop;
+    }
+    const haltMs = tLast - tStop;
+    await sleep(2500);
+    const after = await page.evaluate(() => ({ pill: document.getElementById("conversation-state-pill")?.innerText || "", state: document.getElementById("conversation-state-pill")?.dataset.state || "", cancelHidden: document.getElementById("cancel")?.hidden, article: ([...document.querySelectorAll("#messages article.assistant")].pop()?.innerText || "").replace(/\s+/g, " ").slice(0, 300) }));
+    const len1 = await streamLen(op);
+    const shot = path.join(ctx.out, "shots", `${id}-stopped.png`);
+    await page.screenshot({ path: shot, timeout: 15000 }).catch(() => {});
+    const win = ctx.samples.filter((s) => s.t >= from);
+    record({ scenario: id, model, stop_halt_ms: haltMs, pill_cancelled_ms: tPill, chars_at_stop: len0, chars_final: len1, pill: after.pill, article: after.article, electron_rss_mb: Math.max(...win.map((s) => s.electron_rss), 0), harness_rss_mb: Math.max(...win.map((s) => s.harness_rss), 0), shot });
+    c.ok(haltMs < 3000, `the stream took ${haltMs} ms to halt after Stop`);
+    c.ok(len1 >= len0 && len1 > 100, `the partial text was not kept (${len0} chars at Stop, ${len1} after)`);
+    c.ok(/Cancel|Stopp/i.test(after.pill) || /cancel|stopp/i.test(after.article), `the reply is not marked stopped: pill "${after.pill}"`);
+    c.ok(!["running", "queued"].includes(after.state), `the pill is still ${after.state} after Stop (ghost stream?)`);
+    c.ok(after.cancelHidden === true, "the Stop button is still shown after the stop");
+    await ask(op, `${id}-next`, "Reply with just the word NEXT-OK.", /NEXT-OK/);
+    c.ok(/NEXT-OK/.test((await lastMeta(op)).text), "the next send did not answer");
+    c.done();
+  }, { lint: false });
+}
+
+// Markdown, a table, two code blocks and their copy buttons (S1-02 on Codex, S3-09 on DeepSeek).
+async function markdownChecks(op, c, id) {
+  await ask(op, `${id}-md`, "Reply in Markdown with exactly: a level-2 heading, a level-3 heading, a bullet list of 3 items, a numbered list of 3 items and a table of 3 columns (Island, Harbor, Lanterns) with 3 rows of invented data. No code blocks, no other text.", /\S/);
+  const md = await page(op).evaluate(() => {
+    const a = [...document.querySelectorAll("#messages article.assistant")].pop();
+    const body = a.querySelector(":scope > .text");
+    const t = body.querySelector("table");
+    const wrap = t && (t.closest(".table-wrap, .table-scroll") || t.parentElement);
+    const ar = a.getBoundingClientRect();
+    return { h: body.querySelectorAll("h1,h2,h3,h4").length, ul: body.querySelectorAll("ul li").length, ol: body.querySelectorAll("ol li").length, rows: t ? t.querySelectorAll("tr").length : 0, cols: t ? t.rows[0].cells.length : 0, tableFits: !!t && wrap.getBoundingClientRect().right <= ar.right + 1, articleOverflow: a.scrollWidth > a.clientWidth + 1 };
+  });
+  c.ok(md.h >= 2 && md.ul >= 3 && md.ol >= 3, `headings/lists not rendered: ${JSON.stringify(md)}`);
+  c.ok(md.rows >= 4 && md.cols === 3, `table not rendered as 3 columns, 4 rows: ${JSON.stringify(md)}`);
+  c.ok(md.tableFits && !md.articleOverflow, `the table does not fit the message: ${JSON.stringify(md)}`);
+  record({ scenario: `${id}-md`, md });
+  await ask(op, `${id}-two-langs`, "Give two short code blocks, one Python and one JavaScript, each a function with a loop and an if inside it, indented with 4 spaces. Only the two code blocks, no other text.", /\S/);
+  const two = await codeBlocks(op);
+  c.ok(two.length >= 2 && new Set(two.map((b) => b.lang)).size >= 2, `expected 2 languages, got ${JSON.stringify(two.map((b) => b.lang))}`);
+  c.ok(two.every((b) => /\n {4}\S/.test(b.text)), "a code block lost its indentation");
+  await copyCheck(op, c, 0, "first code block");
+  await copyCheck(op, c, 1, "second code block");
+}
+
 
 // Code blocks of the newest assistant message: language, exact text, and whether the block clips it.
 const codeBlocks = (op) =>
