@@ -1,4 +1,7 @@
-"""Temporary real HTTP harness with deterministic planning; no provider is invoked."""
+"""Temporary real HTTP harness with deterministic inference; no provider is invoked.
+
+The ``legacy`` mode also stores conversations as an older build left them: backend
+``maestro`` with a recorded ``maestro_plan`` gate. Nothing in the harness can run those."""
 
 import json
 import socket
@@ -36,7 +39,6 @@ config = {
         }
     },
     "codex_models": {"gpt-6-astra": ["low"]},
-    "maestro_plan_policy": "review",
 }
 if len(sys.argv) > 2 and sys.argv[2] == "local":
     config["services"]["local"] = {
@@ -45,7 +47,6 @@ if len(sys.argv) > 2 and sys.argv[2] == "local":
         "projects": ["sem-projeto"],
         "permissions": {"read": True},
     }
-    config["maestro_coordinator"] = {"backend": "local", "model": "installed-model"}
     workflows = project / "workflows"
     workflows.mkdir()
     (workflows / "local-review.json").write_text(
@@ -70,6 +71,39 @@ service = app.state.service
 inference_stages = []
 retry_attempts = {}
 round9 = len(sys.argv) > 2 and sys.argv[2] == "round9"
+LEGACY_PLAN = {
+    "steps": [
+        {
+            "role": "reviewer",
+            "backend": "codex",
+            "model": "gpt-6-astra",
+            "effort": "low",
+            "task": "Review synthetic facts",
+            "reason": "Check evidence",
+        }
+    ]
+}
+
+
+def store_legacy_conversation(prompt, gate_state, choice=None):
+    """Seed a finished job whose stored backend is the removed ``maestro`` and its plan gate."""
+    identity = ("local", service.config["clients"]["local"])
+    job = service.submit(identity, {"project_id": "sem-projeto", "backend": "codex", "model": "gpt-6-astra", "effort": "low", "prompt": prompt})["job_id"]
+    row = service.job(identity, job)
+    with service.db:
+        service.conversation_repository.set_payload(job, json.dumps({**json.loads(row["payload"]), "backend": "maestro", "model": "auto", "effort": "auto"}))
+        service.conversation_repository.set_result(job, "completed", json.dumps({"answer": "Synthetic review complete"}))
+        service.gates.repository.create("legacy-" + job, job, {"gate_id": "legacy-" + job, "kind": "maestro_plan", "plan": LEGACY_PLAN, "question": "Approve plan?", "options": []})
+        if choice:
+            service.gates.repository.resolve("legacy-" + job, choice, "local", 1.0)
+        else:
+            service.gates.repository.close("legacy-" + job, gate_state)
+    (root / "legacy.json").write_text(json.dumps({**(json.loads((root / "legacy.json").read_text()) if (root / "legacy.json").exists() else {}), gate_state: job}))
+
+
+if len(sys.argv) > 2 and sys.argv[2] == "legacy":
+    store_legacy_conversation("A planned review that is no longer active", "invalidated")
+    store_legacy_conversation("A planned review that was approved earlier", "resolved", "approve")
 if round9:
     skill = project / ".agents/skills/check/SKILL.md"
     skill.parent.mkdir(parents=True)
@@ -90,23 +124,6 @@ async def infer(row, data):
             ]}, lambda kind, value: service.event(row["id"], kind, value))
     inference_stages.append(data.get("_maestro_stage", "direct"))
     (root / "inference.json").write_text(json.dumps(inference_stages))
-    if data.get("_maestro_stage") == "plan":
-        return {
-            "answer": json.dumps(
-                {
-                    "steps": [
-                        {
-                            "role": "reviewer",
-                            "backend": "codex",
-                            "model": "gpt-6-astra",
-                            "effort": "low",
-                            "task": "Review synthetic facts",
-                            "reason": "Check evidence",
-                        }
-                    ]
-                }
-            )
-        }
     return {"answer": "Synthetic review complete"}
 
 

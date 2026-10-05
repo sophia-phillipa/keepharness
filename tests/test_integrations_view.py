@@ -207,20 +207,6 @@ def test_response_is_not_cached_and_read_only(client):
     assert client.post("/v1/integrations").status_code == 405
 
 
-def test_maestro_resolves_to_its_coordinator(client, settings):
-    settings["maestro_coordinator"] = {"backend": "claude", "model": "m"}
-    body = view(client, backend="maestro", model="auto", access_mode="ask").json()
-    assert (body["backend"], body["execution_mode"]) == ("claude", "native")
-    assert body["effective_note"] == ASKS
-
-
-def test_maestro_with_a_local_coordinator_is_isolated(client, settings):
-    settings["maestro_coordinator"] = {"backend": "local", "model": "m"}
-    body = view(client, backend="maestro", model="auto").json()
-    assert (body["backend"], body["execution_mode"]) == ("local", "scoped")
-    assert body["effective_note"] == ISOLATED
-
-
 # -- inventory exposure -------------------------------------------------------------------------
 
 

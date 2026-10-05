@@ -76,22 +76,6 @@ async function publication(page){await page.evaluate(()=>showGate({gate_id:'publ
  await check('A2-F3 Directory redraw retains focus through success and failure',async()=>{
   for(const w of [400,1440])for(const fail of [false,true]){const f=await fixture(browser,w,844);if(await f.page.locator('#activity-panel').isHidden())await f.page.locator('#panel-toggle').click();const alpha=f.page.locator('#files-tree [data-path="alpha"]').first();await alpha.waitFor();let release;f.state.fileDelay=new Promise(r=>release=r);f.state.fail=fail;await f.page.getByRole('button',{name:'Expand alpha',exact:true}).focus();await f.page.keyboard.press('Enter');assert(await f.page.evaluate(()=>document.activeElement.closest('[data-path="alpha"]')!==null));release();await f.page.waitForTimeout(150);assert(await f.page.evaluate(()=>document.activeElement.closest('[data-path="alpha"]')!==null));assert(await hit(f.page.locator(':focus')));await f.page.keyboard.press('Tab');assert(await f.page.evaluate(()=>document.activeElement.tagName!=='BODY'));if(w===400)assert(await f.page.locator('#activity-panel').evaluate(n=>n.contains(document.activeElement)));await f.page.close();}
  });
- await check('A5-F1 Malformed legacy drafts have a visible recovery path',async()=>{
-  for(const draft of ['{','{}','{"steps":null}','{"steps":[null]}','{"steps":[{"task":12}]}']){
-   const f=await fixture(browser,1440,900,true);const errors=[];f.page.on('pageerror',error=>errors.push(error.message));
-   await f.page.evaluate(value=>sessionStorage.setItem('plan-draft:plan',value),draft);await f.consoleOpen();await f.page.locator('#run-plan-edit').click();
-   assert.match(await f.page.locator('.run-plan-approval [role=status]').innerText(),/could not be loaded/);
-   await f.page.getByRole('button',{name:'Reset edits',exact:true}).click();
-   const task=f.page.getByLabel('Task for step 1',{exact:true});assert.equal(await task.inputValue(),'Research synthetic text');await task.fill('Immediate plain text edit');
-   assert(await f.page.getByRole('button',{name:'Run with edits (1)',exact:true}).isVisible());assert.deepEqual(errors,[]);await f.page.close();
-  }
- });
- await check('A5-F1 Plan edits use ordinary text and per-step controls',async()=>{
-  const f=await fixture(browser,1440,900,true);await f.consoleOpen();await f.page.locator('#run-plan-edit').click();const task=f.page.getByRole('textbox',{name:'Task for step 1',exact:true});const prose='Review the "public" report, Sophia\'s notes\nand Unicode 🐈';await task.fill(prose);await f.page.getByLabel('Model for step 1',{exact:true}).selectOption('codex/other');await f.page.getByLabel('Effort for step 1',{exact:true}).selectOption('high');
-  await f.page.getByRole('button',{name:'Move step 1 down',exact:true}).click();assert.equal(await f.page.getByLabel('Task for step 2',{exact:true}).inputValue(),prose);await f.page.getByRole('button',{name:'Remove step 1',exact:true}).click();assert.equal(await task.inputValue(),prose);await f.page.getByRole('button',{name:'Reset edits',exact:true}).click();assert.equal(await task.inputValue(),'Research synthetic text');assert.equal(await f.page.getByLabel('Task for step 2',{exact:true}).inputValue(),'Review synthetic text');
-  await task.fill(prose);await f.page.getByLabel('Model for step 1',{exact:true}).selectOption('codex/other');await f.page.getByLabel('Effort for step 1',{exact:true}).selectOption('high');await f.page.reload();await f.page.locator('.maestro-plan-actions button').last().click();assert.equal(await task.inputValue(),prose);
-  await capture(f.page,'plan-editor');let release;f.state.delay=new Promise(r=>release=r);const approve=f.page.locator('.run-plan-actions button').filter({hasText:'Run with edits'});await approve.click();await f.page.waitForTimeout(100);assert.equal(f.state.posts.length,1);assert.equal(f.state.posts[0].data.plan.steps[0].task,prose);assert.equal(f.state.posts[0].data.plan.steps[0].model,'other');assert.equal(f.state.posts[0].data.plan.steps[0].effort,'high');release();await f.page.close();
- });
  }finally{if(process.env.EVAL_OUTPUT){await fs.mkdir(process.env.EVAL_OUTPUT,{recursive:true});for(const [i,page] of browser.contexts().flatMap(c=>c.pages()).entries())await page.screenshot({path:path.join(process.env.EVAL_OUTPUT,'round11-failure-'+i+'.png')}).catch(()=>{});}await browser.close();}
  if(failures.length){console.error(failures.join('\n'));process.exitCode=1;}
 })();

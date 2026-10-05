@@ -647,7 +647,7 @@ function providerCard(info) {
           settings.default_backend = yes ? id : "";
           renderProviders();
         },
-        "Used in automatic selection when no coordination is available. An explicit model choice takes priority.",
+        "Used for automatic selection (backend auto). An explicit model choice takes priority.",
       ),
     );
   const advanced = element("details", undefined, "advanced");
@@ -3075,7 +3075,6 @@ function describeExecutionData(value) {
     effort: "Effort",
     role: "Role",
     steps: "Steps",
-    coordinator: "Maestro",
     metrics: "Metrics",
     text: "Message",
     tool: "Tool",

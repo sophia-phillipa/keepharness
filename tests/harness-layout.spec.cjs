@@ -170,7 +170,7 @@ const path = require("node:path");
     assert.equal(await page.locator("#task-section,#task-label").count(), 0);
     assert.equal(
       await page.locator("#conversation-search").getAttribute("placeholder"),
-      "Type a run, plan step, or loaded file…",
+      "Type a run or loaded file…",
     );
     assert.equal(
       Math.round((await page.locator("#sidebar").boundingBox()).width),

@@ -101,7 +101,7 @@ class GateService:
                     raise
                 await asyncio.sleep(0.05)
 
-    async def ask(self, job_id, request, progress, *, plan=None):
+    async def ask(self, job_id, request, progress):
         validate_options(request)
         row = self.service.conversation_repository.payload(job_id)
         if row is not None and json.loads(row["payload"]).get("schedule_id"):
@@ -124,8 +124,6 @@ class GateService:
             "evidence": request.get("evidence", []),
             "enforcement": "advisory",
         }
-        if plan is not None:
-            spec.update(kind="maestro_plan", plan=plan)
         future = asyncio.get_running_loop().create_future()
         with self.service.db:
             self.repository.create(gate_id, job_id, spec)
@@ -153,7 +151,7 @@ class GateService:
 
     def resolve(self, gate_id, identity, data):
         row = self.repository.get(gate_id)
-        job = self.service.job(identity, row["job_id"])
+        self.service.job(identity, row["job_id"])
         if row["state"] != "pending":
             raise APIError(
                 "gate_already_resolved" if row["state"] == "resolved" else "gate_" + row["state"],
@@ -171,36 +169,6 @@ class GateService:
             "resolved_by": identity[0],
             "at": time.time(),
         }
-        if spec.get("kind") == "maestro_plan" and choice == "approve":
-            from ..maestro import candidates, validate_plan
-
-            payload = json.loads(job["payload"])
-            available = candidates(
-                self.service.config,
-                job["project"],
-                bool(payload.get("file_ids") or payload.get("workspace_id")),
-                execution_mode=payload.get("execution_mode"),
-            )
-            if payload.get("workspace_id"):
-                available = [model for model in available if model["permissions"].get("read")]
-            edited_plan = data.get("plan", spec["plan"])
-            if isinstance(edited_plan, dict) and isinstance(edited_plan.get("steps"), list):
-                edited_plan = {
-                    **edited_plan,
-                    "steps": [
-                        {key: value for key, value in step.items() if key != "invocation"}
-                        if isinstance(step, dict)
-                        else step
-                        for step in edited_plan["steps"]
-                    ],
-                }
-            approved_plan = validate_plan(json.dumps(edited_plan), available)
-            from ..maestro import declaration
-            from ..workflows import validate_workflow
-
-            validate_workflow(declaration(approved_plan), retained=True)
-            spec["plan"] = approved_plan
-            resolution["plan"] = approved_plan
         with self.service.db:
             if not self.repository.resolve(
                 gate_id, choice, identity[0], resolution["at"], spec=spec

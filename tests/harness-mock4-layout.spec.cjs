@@ -103,19 +103,20 @@ const path = require("node:path");
     await page.keyboard.press("Control+j");
     const plan = page.locator(".maestro-plan-card");
     assert(await plan.isVisible());
-    await plan.getByRole("button", { name: "Edit plan in Run console" }).click();
-    assert(await page.locator(".run-plan-approval textarea").isVisible());
+    // The plan card is read-only now: no Approve/Edit/Discard buttons, and nothing is ever posted.
+    assert.equal(await plan.getByRole("button").count(), 0);
+    assert.equal(await page.locator(".run-plan-approval").count(), 0);
+    assert.match(await plan.locator(".state-pill").innerText(), /Not active/);
     await page.keyboard.press("Control+j");
-    await plan.getByRole("button", { name: "Approve plan & run" }).click();
-    assert.deepEqual(approvedPayload, { choice: "approve", plan: { steps: [{ role: "reviewer", backend: "codex", model: "fixture", effort: "medium", task: "Review" }] } });
-    await page.waitForFunction(() => document.querySelector(".maestro-plan-card")?.dataset.state === "running");
     await page.evaluate(() => finishGate("plan-gate", "resolved", { choice: "approve" }));
     await page.waitForFunction(() => document.querySelector(".maestro-plan-card")?.dataset.state === "resolved");
     assert.equal(await plan.getAttribute("data-state"), "resolved");
+    assert.match(await plan.locator(".state-pill").innerText(), /Approved/);
+    assert.equal(approvedPayload, null, "the read-only plan never posts an approval");
     await page.evaluate(() => runConsole.refresh?.());
     await page.waitForFunction(() => /needs you · running$/.test(document.getElementById("run-status-toggle").textContent), null, { timeout: 15000 });
     assert.doesNotMatch(await page.locator("#run-status-toggle").innerText(), /SECRET-TITLE/);
-    assert.equal(await plan.getByRole("button", { name: "Approve plan & run" }).isDisabled(), true);
+    assert.equal(await plan.getByRole("button").count(), 0);
 
     for (const theme of ["violet-bordeaux", "porcelain", "mineral-rose", "amethyst", "petroleum", "arizona"]) {
       await page.evaluate((value) => window.HarnessTheme.apply(value), theme);

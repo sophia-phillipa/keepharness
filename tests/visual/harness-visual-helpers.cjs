@@ -13,18 +13,16 @@ const STATES = [
   "console-closed",
   "console-open",
   "tour-step",
-  "plan-card-review",
-  "plan-card-auto",
+  "plan-card-readonly",
   "publish-gate",
   "slash-palette",
   "workflow-palette",
-  "plan-review-selector",
 ];
 
 const PLAN_GATE = {
   gate_id: "plan-gate",
   kind: "maestro_plan",
-  state: "pending",
+  state: "invalidated",
   plan: {
     steps: [
       { role: "planner", backend: "codex", model: "fixture", effort: "medium", task: "Inspect the compact workspace and preserve the draft." },
@@ -91,7 +89,7 @@ async function routeVisual(route, options = {}) {
     providers: [{ backend: "codex", model: "fixture", state: "ready", running: 1, queued: 1 }],
     needs_you: [],
   };
-  else if (url.pathname === "/v1/jobs/run-a") data = { id: "run-a", project: "sem-projeto", state: "running", request: { backend: "codex", model: "fixture" }, result: {}, gates: options.autoPlan ? [PUBLISH_GATE] : [PLAN_GATE, PUBLISH_GATE] };
+  else if (url.pathname === "/v1/jobs/run-a") data = { id: "run-a", project: "sem-projeto", state: "running", request: { backend: "codex", model: "fixture" }, result: {}, gates: [PLAN_GATE, PUBLISH_GATE] };
   else if (url.pathname === "/v1/jobs/run-a/spans") data = { spans: [{ span_id: "span-a", trace_id: "run-a", parent_id: null, kind: "invoke_agent", name: "Visual verifier", start_ts: Date.now() / 1000 - 4, end_ts: null, status: "unset", attrs: { "gen_ai.request.model": "fixture", "gen_ai.usage.input_tokens": 23, "harness.outcome": "pending" }, events: [] }] };
   else if (url.pathname === "/v1/resources") data = { items: [
     { id: "agent-reviewer", revision: "1", kind: "agent", name: "reviewer", description: "Review accessibility and geometry", scope: "project", origin: "Codex", selectable: true },
@@ -151,7 +149,7 @@ async function resetState(page) {
 
 async function selectState(page, state) {
   await page.unroute("http://visual.test/v1/jobs/run-a");
-  await page.route("http://visual.test/v1/jobs/run-a", route => routeVisual(route, { autoPlan: state === "plan-card-auto" }));
+  await page.route("http://visual.test/v1/jobs/run-a", route => routeVisual(route, {}));
   await resetState(page);
   if (state === "console-open") {
     await page.keyboard.press("Control+j");
@@ -161,11 +159,8 @@ async function selectState(page, state) {
   } else if (state === "tour-step") {
     await page.evaluate(() => window.keepHarnessTour.start());
     await page.locator("#tour-card").waitFor({ state: "visible" });
-  } else if (state === "plan-card-review") {
+  } else if (state === "plan-card-readonly") {
     await page.locator(".maestro-plan-card").evaluate(node => { node.hidden = false; node.scrollIntoView({ block: "center", behavior: "instant" }); });
-  } else if (state === "plan-card-auto") {
-    await page.evaluate(steps => showMaestroPlan({ steps, state: "running" }), PLAN_GATE.plan.steps);
-    await page.locator(".maestro-plan-card").evaluate(node => node.scrollIntoView({ block: "center", behavior: "instant" }));
   } else if (state === "publish-gate") {
     await page.locator(".publish-gate-card").evaluate(node => { node.hidden = false; node.scrollIntoView({ block: "center", behavior: "instant" }); });
   } else if (state === "slash-palette") {
@@ -174,10 +169,6 @@ async function selectState(page, state) {
   } else if (state === "workflow-palette") {
     await page.locator("#prompt").fill("/release");
     await page.locator('#resource-menu [data-resource-kind="workflow"]').waitFor({ state: "visible" });
-  } else if (state === "plan-review-selector") {
-    await page.locator("#settings").click();
-    await page.locator('[data-settings="models"]').click();
-    await page.locator("#maestro-plan-policy").waitFor({ state: "visible" });
   }
   await page.waitForTimeout(20);
 }
@@ -199,14 +190,12 @@ async function geometry(page, state) {
     };
     const selectors = currentState === "tour-step"
       ? ["#tour-card", "#tour-skip", "#tour-next"]
-      : ["plan-card-review", "plan-card-auto"].includes(currentState)
-        ? [".maestro-plan-card", '.maestro-plan-card button']
+      : currentState === "plan-card-readonly"
+        ? [".maestro-plan-card", ".maestro-plan-card .state-pill"]
         : currentState === "publish-gate"
           ? [".publish-gate-card", ".publish-gate-card button"]
           : ["slash-palette", "workflow-palette"].includes(currentState)
             ? ["#prompt", "#resource-menu", '#resource-menu [role="option"]']
-            : currentState === "plan-review-selector"
-              ? ["#settings-dialog", '[data-settings="models"]', "#maestro-plan-policy", "#maestro-plan-policy-help"]
             : currentState === "console-open"
               ? ["#run-console", "#run-tab-pipeline", ".run-console-close", ".run-pipeline-summary", ".run-pipeline-actions button"].concat(innerWidth > 700 ? ["#run-console-resize", "#run-console-maximize", "#prompt", ".composer-submit button:not([hidden])"] : [])
               : ["#menu", "#panel-toggle", "#model-trigger", "#run-status-toggle"];

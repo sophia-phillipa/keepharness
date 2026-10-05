@@ -29,7 +29,7 @@ include-package-data = false
 adapters = ["README.md", "*/specs/*.md", "*/specs/**/*.md", "*/specs/*.json"]
 harness_ui = ["assets/*"]
 control = ["*.html", "*.css", "*.js"]
-agent_service = ["*.html", "*.css", "*.js", "*.sh", "*.txt", "VERSION", "vendor/*", "prompts/*.md"]
+agent_service = ["*.html", "*.css", "*.js", "*.sh", "*.txt", "VERSION", "vendor/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

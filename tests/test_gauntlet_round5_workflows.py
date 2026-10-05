@@ -44,24 +44,18 @@ def test_workflow_inputs_reach_adapter(tmp_path):
         {"mode": "sdk"},
     ],
 )
-def test_generated_plan_requires_enforced(tmp_path, requires):
+def test_declared_plan_requires_enforced(tmp_path, requires):
     service, identity, row, data, plan = setup_run(tmp_path)
     plan["steps"] = [plan["steps"][0]]
     plan["steps"][0]["requires"] = requires
     # The same candidate must reject this declaration as a workflow.
     with pytest.raises(ToolError, match="workflow_requirement_denied"):
         workflows.validate_workflow(plan, maestro.candidates(service.config, "p"), [])
-    data["maestro_plan_policy"] = "auto"
     try:
-        with patch.object(
-            service,
-            "infer",
-            AsyncMock(side_effect=[{"answer": json.dumps(plan)}, {"answer": "executed"}]),
-        ) as infer:
+        with patch.object(service, "infer", AsyncMock(return_value={"answer": "executed"})) as infer:
             with pytest.raises(ToolError, match="workflow_requirement_denied"):
-                asyncio.run(maestro.run(service, row, data))
-        print("INFER CALLS:", infer.await_count)
-        assert infer.await_count == 1, "step executed despite unsatisfied declared requires.write"
+                asyncio.run(maestro.execute_plan(service, row, data, plan))
+        assert infer.await_count == 0, "step executed despite unsatisfied declared requires"
     finally:
         service.db.close()
 
@@ -219,45 +213,6 @@ def test_missing_workspace_source_is_actionable_before_work(tmp_path, after_admi
             assert infer.await_count == 0
     finally:
         service.db.close()
-
-
-@pytest.mark.parametrize(
-    "requires",
-    [
-        {"permissions": ["write"]},
-        {"integrations": ["missing"]},
-        {"operations": ["missing.operation"]},
-        {"mode": "sdk"},
-    ],
-)
-def test_manual_plan_requirements_preserve_pending_gate(tmp_path, requires):
-    async def scenario():
-        service, identity, row, data, plan = setup_run(tmp_path)
-        task = None
-        try:
-            with patch.object(
-                service, "infer", AsyncMock(return_value={"answer": json.dumps(plan)})
-            ) as infer:
-                task = asyncio.create_task(maestro.run(service, row, data))
-                for _ in range(30):
-                    if service.approvals or task.done():
-                        break
-                    await asyncio.sleep(0)
-                gate_id = next(iter(service.approvals))
-                plan["steps"][0]["requires"] = requires
-                with pytest.raises(ToolError, match="workflow_requirement_denied"):
-                    service.gates.resolve(gate_id, identity, {"choice": "approve", "plan": plan})
-                assert service.gates.repository.get(gate_id)["state"] == "pending"
-                assert infer.await_count == 1
-                service.gates.resolve(gate_id, identity, {"choice": "deny"})
-                await task
-        finally:
-            if task and not task.done():
-                task.cancel()
-                await asyncio.gather(task, return_exceptions=True)
-            service.db.close()
-
-    asyncio.run(scenario())
 
 
 def test_resource_step_inputs_reach_adapter_and_changed_resume(tmp_path, monkeypatch):

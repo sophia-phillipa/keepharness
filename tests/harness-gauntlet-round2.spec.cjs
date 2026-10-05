@@ -154,8 +154,8 @@ const settle = page => page.evaluate(() => Promise.all(document.getAnimations().
       await page.getByRole('button', { name: 'Resume workflow', exact: true }).click(); await page.waitForFunction(() => document.querySelector('#conversation-title').textContent === 'CHILD report');
       assert(keys[0]); assert.equal(keys[0], keys[1]); assert.equal(children.size, 1); await page.close();
     });
-    await check('A5-F3 search states current plan and loaded-file scope before searching', async () => {
-      const { page } = await fixture(browser); await page.locator('#search-conversations').click(); assert.match(await page.locator('#conversation-search-dialog').innerText(), /current plan/i); assert.match(await page.locator('#conversation-search-dialog').innerText(), /loaded files/i); await page.close();
+    await check('A5-F3 search states its loaded-file scope and no plan scope before searching', async () => {
+      const { page } = await fixture(browser); await page.locator('#search-conversations').click(); assert.doesNotMatch(await page.locator('#conversation-search-dialog').innerText(), /current plan/i); assert.match(await page.locator('#conversation-search-dialog').innerText(), /loaded files/i); await page.close();
     });
     await check('A5-F4 cancel remains reachable with a follow-up draft', async () => {
       const { page, open, state } = await fixture(browser); state.running = true; await open('a'); await page.fill('#prompt', 'Keep this unsent follow-up');

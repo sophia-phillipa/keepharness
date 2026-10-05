@@ -46,7 +46,7 @@ def test_declared_chain_executes_without_planner_and_keeps_order(tmp_path):
     assert [call.args[1]["_maestro_stage"] for call in infer.call_args_list] == ["1", "2"]
     assert "evidence" in infer.call_args_list[1].args[1]["prompt"]
     assert result["answer"] == "reviewed"
-    assert result["orchestration"]["coordinator"] is None
+    assert "coordinator" not in result["orchestration"]
     events = list(service.db.execute("SELECT type,data FROM events WHERE job=?", (row["id"],)))
     assert "maestro_planning" not in [event["type"] for event in events]
     assert [
@@ -207,17 +207,15 @@ def test_work_item_retag_during_execution_reaches_next_step(tmp_path):
     service.db.close()
 
 
-def test_declared_workflow_bypasses_planner_and_plan_review(tmp_path):
+def test_declared_workflow_runs_without_a_plan_gate(tmp_path):
     from test_workflow_resume_rerun import setup_run
 
     service, identity, row, data, plan = setup_run(tmp_path)
     with (
-        patch.object(maestro, "plan", AsyncMock()) as planner,
         patch.object(service, "infer", AsyncMock(return_value={"answer": "done"})) as infer,
         patch.object(service.gates, "ask", AsyncMock()) as gate,
     ):
         asyncio.run(maestro.execute_workflow(service, row, data, plan))
     assert infer.await_count == 2
-    planner.assert_not_called()
     gate.assert_not_called()
     service.db.close()

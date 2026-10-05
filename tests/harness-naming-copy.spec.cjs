@@ -9,7 +9,6 @@ const models = [
   ["local-model", "local"],
   ["claude-sonnet-4-5", "claude"],
   ["deepseek-flash", "deepseek"],
-  ["auto", "maestro"],
 ].map(([id, backend]) => ({ id, name: id, backend, efforts: ["low"] }));
 
 (async () => {
@@ -27,7 +26,7 @@ const models = [
       const pathname = new URL(route.request().url()).pathname;
       const data =
         pathname === "/v1/models"
-          ? { models, providers: { codex: true, local: true, deepseek: true, maestro: true }, uploads_enabled: false }
+          ? { models, providers: { codex: true, local: true, deepseek: true }, uploads_enabled: false }
           : pathname === "/v1/projects"
             ? { projects: ["sem-projeto"], details: {} }
             : pathname === "/v1/conversations"
@@ -47,7 +46,7 @@ const models = [
     const names = await page.evaluate(() => HarnessUI.providerNames);
     assert.deepEqual(
       ["codex", "claude", "deepseek", "local", "maestro"].map((id) => names[id]),
-      ["Codex", "Claude Code", "DeepSeek", "Local models", "Maestro"],
+      ["Codex", "Claude Code", "DeepSeek", "Local models", undefined],
     );
 
     // Settings › Models: cards say what runs the model once, and offer no Gemini setup.

@@ -119,7 +119,7 @@ test(0, "Search for a conversation with no result", async (p) => {
   await p.fill("#conversation-search", "nonexistent");
   assert.match(
     await p.locator("#search-results").innerText(),
-    /No run, plan step, or loaded file matched/,
+    /No run or loaded file matched/,
   );
 });
 test(0, "Understand the lack of models", async (p, s) => {

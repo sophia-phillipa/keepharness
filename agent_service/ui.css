@@ -4503,10 +4503,6 @@ body.panel-order-reversed #app-topbar #menu .th-icon {
   .run-console-tabs { order:initial; flex-basis:auto; min-width:0; overflow-x:auto; flex-wrap:nowrap; }
   .run-console-tabs [role="tab"] { flex:none; }
   .run-console-close { margin-left:0; }
-  .run-plan-approval { grid-template-columns:minmax(0,1fr); }
-  .run-plan-approval > * { min-width:0; }
-  .run-plan-actions { grid-column:1; justify-content:flex-start; overflow-x:auto; }
-  .run-plan-actions button { flex:none; white-space:nowrap; }
   .run-pipeline-summary { display:grid; grid-template-columns:minmax(0,1fr); }
   .run-pipeline-actions { margin-left:0; overflow-x:auto; }
   .run-pipeline-actions > * { flex:none; }
@@ -4647,11 +4643,6 @@ main { padding-bottom:28px; }
 .run-span-row > strong > .th-icon { display:inline-block; width:14px; height:14px; vertical-align:middle; margin-right:6px; }
 .run-span-row[aria-pressed=true] { box-shadow:0 0 0 2px color-mix(in srgb,var(--th-accent) 25%,transparent); }
 .run-span-detail { border:1px solid var(--th-border); border-radius:8px; padding:10px; }
-.run-plan-approval { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:5px 10px; padding:8px; margin-bottom:8px; border:1px solid #b26a00; border-radius:8px; }
-.run-plan-approval p { margin:0; font-size:11px; }
-.run-plan-approval textarea { grid-column:1/-1; min-height:100px; border:1px solid var(--th-border); border-radius:6px; font:11px/1.4 ui-monospace,monospace; }
-.run-plan-actions { display:flex; gap:6px; justify-content:flex-end; grid-column:1/-1; }
-.run-plan-actions button { padding:4px 9px!important; border:1px solid var(--th-border)!important; border-radius:7px!important; }
 
 .maestro-plan-card { margin:6px 0 12px; padding:10px 12px; border:1px solid #b26a00; border-radius:12px; background:var(--th-panel); }
 .maestro-plan-heading { display:flex; align-items:center; gap:8px; margin-bottom:7px; font-size:11px; }
@@ -4664,8 +4655,6 @@ main { padding-bottom:28px; }
 .maestro-plan-card li > span:last-of-type { white-space:nowrap; }
 .maestro-plan-card li p { flex-basis:100%; display:block; margin:0!important; color:var(--th-muted); font-size:11px; line-height:1.25; letter-spacing:normal; }
 .plan-role { display:inline-flex; min-width:70px; padding:1px 7px; border:1px solid var(--th-border); border-radius:10px; }
-.maestro-plan-actions { display:flex; gap:7px; margin-top:8px; }
-.maestro-plan-actions button { padding:5px 10px; border:1px solid var(--th-border); border-radius:7px; }
 
 #authorized-project-roots { display:grid; gap:8px; margin:4px 0 8px; color:var(--th-muted); font-size:11px; }
 .authorized-root-card { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:6px; padding:10px; border:1px solid var(--th-border); border-radius:10px; background:var(--th-panel); color:var(--th-text); }
@@ -4714,15 +4703,6 @@ main { padding-bottom:28px; }
   #activity-panel { top:0!important; bottom:28px!important; width:min(390px,calc(100vw - 24px))!important; max-height:calc(100dvh - var(--th-app-topbar-height) - 28px)!important; padding-bottom:12px; }
 }
 @media (max-width:600px) {
-  .run-plan-approval { grid-template-columns:minmax(0,1fr); }
-  .run-plan-approval > strong,
-  .run-plan-approval > p,
-  .run-plan-approval > textarea,
-  .run-plan-approval > .run-plan-actions { grid-column:1; min-width:0; }
-  .run-plan-approval > strong,
-  .run-plan-approval > p { white-space:normal; overflow-wrap:anywhere; }
-  .run-plan-actions { justify-content:flex-start; overflow-x:auto; }
-  .run-plan-actions button { flex:none; white-space:nowrap; }
   .run-pipeline-summary { display:grid; grid-template-columns:minmax(0,1fr); }
   .run-pipeline-actions { margin-left:0; overflow-x:auto; }
 }
@@ -4787,8 +4767,6 @@ main { padding-bottom:28px; }
 .run-console-body { container:run-console / inline-size; }
 @container run-console (max-width:650px) {
   .run-pipeline-summary { display:grid; grid-template-columns:auto minmax(0,1fr); gap:4px 8px; }
-  .run-plan-approval { grid-template-columns:minmax(0,1fr); }
-  .run-plan-approval > * { min-width:0; }
   .run-pipeline-actions { grid-column:1/-1; margin-left:0; flex-wrap:nowrap; overflow-x:auto; }
   .run-pipeline-actions > * { flex:none; }
   .run-pipeline-actions button { white-space:nowrap; }
@@ -4799,8 +4777,6 @@ main > header { flex-wrap:nowrap; overflow-x:auto; }
 #workspace-files #files-help { margin-top:0; }
 
 /* Narrow chat columns keep action labels and active-run controls in their own targets. */
-.maestro-plan-actions { flex-wrap:wrap; }
-.maestro-plan-actions > button { flex:0 1 auto; max-width:100%; white-space:normal; }
 @container composer (max-width:650px) {
   .composer-toolbar:has(#send:not([hidden])):has(#cancel:not([hidden])) { grid-template-columns:minmax(0,1fr); }
   .composer-toolbar:has(#send:not([hidden])):has(#cancel:not([hidden])) .composer-actions { grid-column:1; grid-row:1; flex-wrap:wrap; }
@@ -4842,14 +4818,6 @@ main > header { flex-wrap:nowrap; overflow-x:auto; }
 .run-span-list:has(.run-waterfall-track) .run-span-row > .run-span-enforcement { grid-row:5; }
 .run-span-list:has(.run-waterfall-track) .run-span-row > .run-waterfall-track { grid-row:6; }
 
-.run-plan-steps { grid-column:1/-1; list-style:none; padding:0; margin:0; display:grid; gap:10px; }
-.run-plan-step { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px; border-top:1px solid var(--th-border); padding-top:8px; }
-.run-plan-step-fields { min-width:0; }
-.run-plan-step-heading { display:flex; align-items:center; flex-wrap:wrap; gap:6px; margin-bottom:6px; }
-.run-plan-step-heading select { max-width:100%; min-width:0; }
-.run-plan-step-controls { display:flex; flex-direction:column; gap:4px; }
-.run-plan-step-controls button { min-width:28px; min-height:28px; }
-.run-plan-step textarea { width:100%; min-height:64px; font:inherit; resize:vertical; }
 .has-publication-evidence .run-pipeline-summary { padding-bottom:4px; }
 .has-publication-evidence .run-span-list { padding-block:6px; }
 
@@ -5194,7 +5162,7 @@ main:not(:has(#messages > #welcome:only-child)) #dropzone #access-trigger-icon {
 #messages .maestro-plan-card li > span:last-of-type { color: var(--th-quiet); font-size: 12px; }
 #messages .maestro-plan-card li p { grid-column: 2 / -1; margin: 2px 0 0; color: var(--th-quiet); font-size: 13px; }
 #messages .maestro-plan-card .backend-chip { border: 0; background: transparent; padding: 0; color: var(--th-quiet); font-size: 12px; }
-#messages :is(.maestro-plan-actions, .approval-card .approval-actions, .approval-card > div:last-child) { display: flex; flex-wrap: wrap; gap: 8px; }
+#messages :is(.approval-card .approval-actions, .approval-card > div:last-child) { display: flex; flex-wrap: wrap; gap: 8px; }
 #messages :is(.maestro-plan-card, .approval-card) .btn {
   display: inline-flex; align-items: center; gap: 6px; height: 32px; min-height: 0; padding: 0 14px; border: 0; border-radius: 9999px;
   background: color-mix(in srgb, var(--th-text) 8%, transparent); color: var(--th-text); font-size: 13px; font-weight: 500; box-shadow: none;
@@ -5232,16 +5200,14 @@ body #dropzone #cancel:not([hidden]), body .composer-submit .send { flex: 0 0 32
 .run-console-tabs [role="tab"]:hover { background: var(--th-hover); color: var(--th-text); }
 .run-console [role="tab"][aria-selected="true"] { background: color-mix(in srgb, var(--th-text) 8%, transparent); color: var(--th-text); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--th-text) 10%, transparent)!important; }
 .run-tab-count { border: 0; background: color-mix(in srgb, var(--th-text) 9%, transparent); color: var(--th-quiet); }
-.run-console .btn:not(.run-span-row):not([role="tab"]), .run-pipeline-actions button, .run-plan-actions button { height: 30px; padding: 0 12px!important; border: 0!important; border-radius: 9999px!important; background: color-mix(in srgb, var(--th-text) 8%, transparent); color: var(--th-text); font-size: 13px; }
-.run-console .btn:not(.run-span-row):not([role="tab"]):hover, .run-pipeline-actions button:hover, .run-plan-actions button:hover { background: color-mix(in srgb, var(--th-text) 13%, transparent); }
-.run-console .btn.btn-primary:not(.run-span-row), .run-plan-actions .btn-primary { background: var(--th-action); color: var(--th-on-action); }
+.run-console .btn:not(.run-span-row):not([role="tab"]), .run-pipeline-actions button { height: 30px; padding: 0 12px!important; border: 0!important; border-radius: 9999px!important; background: color-mix(in srgb, var(--th-text) 8%, transparent); color: var(--th-text); font-size: 13px; }
+.run-console .btn:not(.run-span-row):not([role="tab"]):hover, .run-pipeline-actions button:hover { background: color-mix(in srgb, var(--th-text) 13%, transparent); }
+.run-console .btn.btn-primary:not(.run-span-row) { background: var(--th-action); color: var(--th-on-action); }
 .run-pipeline-summary { border-bottom: 1px solid color-mix(in srgb, var(--th-text) 8%, transparent); }
 .run-span-row { border: 1px solid color-mix(in srgb, var(--th-text) 10%, transparent)!important; border-top: 1px solid color-mix(in srgb, var(--th-text) 10%, transparent)!important; border-radius: 14px!important; background: color-mix(in srgb, var(--th-panel) 45%, transparent); }
 .run-span-row:hover { background: color-mix(in srgb, var(--th-panel) 70%, transparent); }
 .run-span-row[aria-pressed=true] { border-color: color-mix(in srgb, var(--th-accent) 55%, transparent)!important; box-shadow: none; }
 .run-span-detail { border: 1px solid color-mix(in srgb, var(--th-text) 10%, transparent); border-radius: 14px; }
-.run-plan-approval { padding: 12px 14px; border: 1px solid color-mix(in srgb, light-dark(#c2410c, #ff8549) 35%, transparent); border-radius: 16px; background: color-mix(in srgb, var(--th-panel) 45%, transparent); }
-.run-plan-approval p { font-size: 13px; }
 .run-table th { color: var(--th-quiet); font-weight: 500; }
 .run-table th, .run-table td, .run-agent-row, .run-log-row { border-color: color-mix(in srgb, var(--th-text) 8%, transparent); }
 .run-field input, .run-field select { border-radius: 10px; border-color: color-mix(in srgb, var(--th-text) 12%, transparent); background: var(--th-soft); }

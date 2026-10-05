@@ -1,7 +1,7 @@
 """The single-worker job queue: fair dispatch, execution deadlines and cancellation.
 
 Queue state (``active``, ``task``, ``wake``, ``last_served``) stays on the service,
-following the ``maestro.run(service, ...)`` pattern.
+following the step-engine pattern.
 """
 
 import asyncio
@@ -192,8 +192,7 @@ def ownership_roots(service, row):
             service.config.get("local", {}).get("model_roots", {}).get(data.get("model"), [])
         )
     if (
-        data.get("backend") in ("maestro", "auto")
-        or data.get("_declared_workflow")
+        data.get("_declared_workflow")
         or len(data.get("invocations", [])) > 1
         or any(item.get("kind") == "workflow" for item in data.get("invocations", []))
     ):
@@ -339,11 +338,7 @@ async def run_job(service, row):
         maximum = (
             None
             if native_codex
-            else timeout_seconds(
-                service.config,
-                "active_timeout_seconds",
-                3600 if request_data.get("backend") == "maestro" else 600,
-            )
+            else timeout_seconds(service.config, "active_timeout_seconds", 600)
         )
         async with budget.limit(maximum):
             task = asyncio.create_task(service.execute(row))

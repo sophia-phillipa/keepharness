@@ -74,7 +74,8 @@ const RAIL = ["menu", "search-conversations", "attention-bell", "panel-toggle", 
     await page.locator("#catalog-skills").waitFor({ state: "attached" });
     assert.equal(await page.locator("#settings-customize #catalog-skills").count(), 1, "Skills live under Customize");
     await page.click('[data-settings="models"]');
-    await page.locator("#maestro-plan-policy").waitFor({ state: "visible" });
+    await page.locator("#settings-models").waitFor({ state: "visible" });
+    assert.equal(await page.locator("#maestro-plan-policy").count(), 0, "Settings has no plan-review policy");
     await page.click('[data-settings="appearance"]');
     assert(await page.locator("#panel-order-options i").evaluateAll(nodes =>
       nodes.every(node => parseFloat(getComputedStyle(node).fontSize) >= 11)), "visible panel-position text is at least 11px");

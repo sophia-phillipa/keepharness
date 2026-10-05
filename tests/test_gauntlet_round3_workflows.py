@@ -5,104 +5,15 @@ import json
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from test_effect_executor import configure_effects, request
+from test_effect_executor import request
 from test_invocation_normalization import invocation_service
-from test_maestro_plan_approval import proposed_plan
 from test_workflow_resume_rerun import setup_run
 from test_workspaces import config
 
 from agent_service import maestro
 from agent_service.app import Service
-from agent_service.effect_mcp import prepare_request
 from agent_service.spans import events_to_spans
 from agent_service.tools import ToolError
-
-
-def test_planner_must_not_prepare_a_publication_surviving_plan_discard(tmp_path):
-    async def scenario():
-        cfg = configure_effects(config(tmp_path))
-        cfg["codex"] = {"binary": "unused-synthetic"}
-        service = Service(cfg)
-        identity = ("a", cfg["clients"]["a"])
-        service.effects.credentials.set(
-            "synthetic", {"email": "fixture@example.invalid", "token": "synthetic-only"}
-        )
-        jid = service.submit(
-            identity,
-            {
-                "project_id": "p",
-                "backend": "maestro",
-                "model": "auto",
-                "effort": "auto",
-                "prompt": "Plan a synthetic report",
-            },
-        )["job_id"]
-        service.conversation_repository.set_running(jid)
-        row = service.job(identity, jid)
-        prepared = []
-
-        async def provider(
-            backend_config, prompt, progress, project, model, effort, session, backend, approve
-        ):
-            assert project == {"permissions": {}}, project
-            capability = backend_config.get("_effect_capability")
-            print("PLANNER_PERMISSIONS", project, "HAS_EFFECT_CAPABILITY", bool(capability))
-            if capability:
-                prepared.append(await prepare_request(capability, request()))
-            return {"answer": json.dumps(proposed_plan())}
-
-        with (
-            patch("adapters.run_native", side_effect=provider),
-            patch.object(service, "quota", AsyncMock(return_value=None)),
-            patch.object(
-                service.effects.driver,
-                "create",
-                AsyncMock(return_value=("done", {"issue_key": "TEST-SYNTHETIC"})),
-            ) as publish,
-        ):
-            task = asyncio.create_task(service.execute(row))
-            try:
-                async with asyncio.timeout(3):
-                    while True:
-                        review = [
-                            g
-                            for g in service.gates.repository.for_job(jid)
-                            if json.loads(g["spec"]).get("kind") == "maestro_plan"
-                        ]
-                        if review or task.done():
-                            break
-                        await asyncio.sleep(0.001)
-                assert review, task.exception() if task.done() else "no review"
-                service.gates.resolve(review[0]["gate_id"], identity, {"choice": "deny"})
-                result = await task
-                service.finish(jid, "completed", result)
-                print("PLAN_RESULT", result["answer"])
-                print(
-                    "PREPARED",
-                    len(prepared),
-                    "EFFECT_STATES",
-                    [e["status"] for e in service.effects.for_job(jid)],
-                )
-                if prepared:
-                    effect = service.effects.for_job(jid)[0]
-                    service.gates.resolve(effect["gate_id"], identity, {"choice": "approve"})
-                    await service.effects.tasks[effect["effect_id"]]
-                    print(
-                        "AFTER_DISCARD_DRIVER_CALLS",
-                        publish.await_count,
-                        "STATUS",
-                        service.effects.get(effect["effect_id"])["status"],
-                    )
-                assert not prepared, (
-                    "Planning-only provider received a usable publication capability; effect survives Discard plan"
-                )
-            finally:
-                task.cancel()
-                await asyncio.gather(task, return_exceptions=True)
-                await service.effects.close()
-                service.db.close()
-
-    asyncio.run(scenario())
 
 
 def test_gate_required_event_failure_cleans_pending_gate(tmp_path):
@@ -371,45 +282,6 @@ def test_recovery_api_reports_valid_completed_prefix(tmp_path, completed):
             assert result["workflow_checkpoint"] is True
             assert result["workflow_completed_steps"] == completed
         assert service.recover_workflow(identity, row["id"], {})["job_id"]
-    finally:
-        service.db.close()
-
-
-def test_planning_does_not_enter_catalog_runtime_or_hooks(tmp_path):
-    from types import SimpleNamespace
-
-    from test_catalog_hooks import executable
-
-    from agent_service.secret_vault import injected_environment
-
-    service = Service(config(tmp_path / "state"))
-    service.config["services"]["codex"]["permissions"]["hooks"] = True
-    hook = executable(tmp_path / "hook", "touch planning-hook-ran\n")
-    runtime = {
-        "environment": {"SYNTHETIC_TOKEN": "planning-private"},
-        "allowed_hooks": [hook],
-        "cwd": str(tmp_path),
-        "catalogs": [],
-    }
-    plan = SimpleNamespace(
-        row={"id": "planning", "project": "p"},
-        data={"_planning_only": True, "model": "gpt-6-astra"},
-        backend="codex",
-        execution_mode="native",
-        selected_resources=[],
-    )
-
-    async def transport(*_):
-        assert not injected_environment()
-        assert not (tmp_path / "planning-hook-ran").exists()
-        return {"answer": "synthetic plan"}
-
-    try:
-        with (
-            patch("agent_service.catalog_manifest.runtime_for_project", return_value=runtime),
-            patch.object(service, "_run_transport_inference", side_effect=transport),
-        ):
-            asyncio.run(service._run_inference(plan))
     finally:
         service.db.close()
 

@@ -50,7 +50,7 @@ async function fixture(browser,width=1280,kind='plan'){
   const f=await fixture(browser,400),p=f.page;await f.open();
   for(const theme of ['porcelain','amethyst','petroleum'])for(const pending of [true,false]){
    f.state.plan=pending;await p.evaluate(theme=>{document.documentElement.dataset.theme=theme;document.dispatchEvent(new Event('harness:history'));},theme);
-   await p.waitForFunction(pending=>document.querySelector('#run-status-toggle').textContent.includes(pending?'awaiting approval':'Completed synthetic'),pending);
+   await p.waitForFunction(pending=>document.querySelector('#run-status-toggle').textContent.includes(pending?'1 needs you':'Completed synthetic'),pending);
    const label=p.locator('#run-status-toggle');assert(await label.evaluate(n=>n.scrollWidth>n.clientWidth));assert(await hit(label));
    assert((await label.getAttribute('title')).includes(await label.innerText()));
    await p.keyboard.press('Control+j');assert((await label.getAttribute('title')).includes(await label.innerText()));await p.keyboard.press('Control+j');
@@ -82,23 +82,6 @@ async function fixture(browser,width=1280,kind='plan'){
   assert.match(await p.locator('.workflow-recovery [role=status]').innerText(),/resumed/i);assert.equal(await p.locator('#prompt').inputValue(),'Preserved synthetic draft');
   f.state.childFailure=false;await retry.click();await p.waitForFunction(()=>document.querySelector('#conversation-title').textContent==='Resumed synthetic run');assert.equal(f.state.posts.filter(x=>x.path.endsWith('/resume')).length,1);
   if(process.env.EVAL_OUTPUT){await fs.mkdir(process.env.EVAL_OUTPUT,{recursive:true});await p.screenshot({path:path.join(process.env.EVAL_OUTPUT,'resume-child.png')});}await p.close();
- });
- await check('Automatic plan view remains available',async()=>{
-  const f=await fixture(browser,1280,'empty'),p=f.page;await f.open();
-  await p.evaluate(()=>showMaestroPlan({steps:[{role:'Reviewer',backend:'codex',model:'fixture',effort:'low',task:'Automatic synthetic plan'}]}));
-  const view=p.getByRole('button',{name:'View plan in Run console',exact:true});assert.equal(await view.isDisabled(),false);await view.click();assert(await p.locator('#run-console').isVisible());await p.close();
- });
- await check('A5-F2 cross-surface pending and retry',async()=>{
-  for(const from of ['console','chat']){
-   const f=await fixture(browser),p=f.page;await f.open();await p.evaluate(()=>runConsole.openRun('source-job'));await p.locator('#run-plan-approve-plan').waitFor();
-   let release;f.state.delay=new Promise(r=>release=r);f.state.fail=true;
-   if(from==='console')await p.locator('#run-plan-approve-plan').click();else{await p.keyboard.press('Control+j');await p.locator('.maestro-plan-actions button').first().click();}
-   await p.waitForFunction(()=>document.querySelector('.maestro-plan-actions button').disabled);
-   if(from==='console')await p.keyboard.press('Control+j');else await p.keyboard.press('Control+j');
-   assert.equal(await p.locator('#run-plan-approve-plan').isDisabled(),true);assert.equal(await p.locator('#run-plan-discard-plan').isDisabled(),true);assert.equal(f.state.posts.length,1);
-   release();await p.waitForFunction(()=>!document.querySelector('.maestro-plan-actions button').disabled&&!document.querySelector('#run-plan-approve-plan').disabled);
-   f.state.fail=false;f.state.delay=null;if(await p.locator('#run-console').isVisible())await p.keyboard.press('Control+j');await p.locator('.maestro-plan-actions button').first().click();await p.waitForFunction(()=>document.querySelector('.maestro-plan-card .state-pill').textContent.includes('Approved'));assert.equal(f.state.posts.length,2);await p.close();
-  }
  });
  }finally{await browser.close();}
  if(failures.length){console.error(failures.join('\n'));process.exitCode=1;}

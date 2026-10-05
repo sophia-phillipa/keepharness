@@ -74,6 +74,6 @@ Queue leases cover project/workspace/model roots, mutable catalog roots, catalog
 runtime directories and project-scoped work-item keys. They coordinate jobs in one
 harness process; unrelated applications or a second harness process are outside
 this ownership boundary. Provider lanes default to capacity one; the inference
-capacity guard also remains around every Maestro planner and step. Conversation
+capacity guard also remains around every workflow step. Conversation
 turns stay serial, and each queued wait records its reason. Changing a running
 job's work-item tag is rejected until its write lease is released.

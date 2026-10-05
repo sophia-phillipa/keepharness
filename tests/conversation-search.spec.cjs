@@ -336,7 +336,7 @@ const assert = require("node:assert/strict"),
     assert.equal(await page.locator(".conversation-search-result").count(), 0);
     assert.match(
       await page.locator("#search-results").innerText(),
-      /No run, plan step, or loaded file matched/,
+      /No run or loaded file matched/,
     );
     await page.click("#search-clear");
     assert.equal(await page.locator(".conversation-search-result").count(), 35);

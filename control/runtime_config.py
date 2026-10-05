@@ -50,9 +50,6 @@ def base_config(settings, state, admin_port, browser_url, provider_revisions):
         "uploads_enabled": settings["uploads_enabled"],
         "mcp_defaults": settings.get("mcp_defaults", {}),
         "default_backend": settings.get("default_backend", ""),
-        "maestro_enabled": settings.get("maestro_enabled", True),
-        "maestro_instructions": settings.get("maestro_instructions", ""),
-        "maestro_coordinator": settings.get("maestro_coordinator", {}),
         # The owner registers project folders; other clients receive them only when shared.
         "project_registration": True,
         "shared_projects": settings.get("shared_projects") is True,

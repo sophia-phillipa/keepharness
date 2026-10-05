@@ -13,8 +13,7 @@ from test_invocation_normalization import invocation_service
 from test_workspaces import config
 
 from agent_service import maestro
-from agent_service.app import APIError, Service, create_app
-from agent_service.tools import ToolError
+from agent_service.app import APIError, create_app
 
 
 def test_running_event_failure_settles_job_and_releases_followup(tmp_path):
@@ -145,73 +144,6 @@ def test_native_approval_open_failure_removes_pending_waiter(tmp_path):
             s.db.close()
 
     asyncio.run(scenario())
-
-
-@pytest.mark.parametrize(
-    "read,upload", [(False, False), (False, True), (True, False), (True, True)]
-)
-def test_coordinator_workspace_permissions(tmp_path, read, upload):
-    cfg = config(tmp_path)
-    cfg["maestro_coordinator"] = {"backend": "local", "model": "installed-model"}
-    cfg["services"]["local"]["permissions"] = {"read": True, "upload": True}
-    service = Service(cfg)
-    identity = ("a", cfg["clients"]["a"])
-    workspace_root = service.root / "workspaces" / "workspace-a" / "work"
-    workspace_root.mkdir(parents=True)
-    marker = "synthetic-private-workspace-name.txt"
-    (workspace_root / marker).write_text("synthetic")
-    with service.db:
-        service.project_repository.add_workspace(
-            "workspace-a", "p", "a", "synthetic", 1, json.dumps([{"path": marker}])
-        )
-    submitted = service.submit(
-        identity,
-        {
-            "project_id": "p",
-            "backend": "maestro",
-            "model": "auto",
-            "effort": "auto",
-            "prompt": "Plan from synthetic workspace",
-            "workspace_id": "workspace-a",
-            "maestro_plan_policy": "auto",
-        },
-    )
-    row = service.job(identity, submitted["job_id"])
-    cfg["services"]["local"]["permissions"] = {"read": read, "upload": upload}
-    generated = {
-        "steps": [
-            {
-                "role": "reviewer",
-                "backend": "codex",
-                "model": "gpt-6-astra",
-                "effort": "low",
-                "task": "Review",
-                "reason": "Synthetic",
-            }
-        ]
-    }
-    prepared = []
-
-    async def transport(inference_plan):
-        prepared.append(inference_plan)
-        if inference_plan.data.get("_maestro_stage") == "plan":
-            return {"answer": json.dumps(generated)}
-        return {"answer": "done"}
-
-    try:
-        with patch.object(service, "_run_inference", side_effect=transport):
-            if read and upload:
-                result = asyncio.run(service.execute(row))
-                assert result["orchestration"]["coordinator"]["backend"] == "local"
-                assert marker in prepared[0].prompt
-            else:
-                with pytest.raises(ToolError, match="maestro_coordinator_workspace_denied"):
-                    service.assess(identity, json.loads(row["payload"]))
-                with pytest.raises(ToolError, match="maestro_coordinator_workspace_denied"):
-                    asyncio.run(service.execute(row))
-                assert not prepared
-    finally:
-        service.db.close()
 
 
 def test_missing_workspace_source_degrades_completed_prefix_to_zero(tmp_path):

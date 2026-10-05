@@ -346,12 +346,6 @@ class ConversationService:
             backend, model = self.active_executors.get(
                 row["id"], (payload.get("backend"), payload.get("model"))
             )
-            if backend in ("maestro", "auto"):
-                try:
-                    selected = maestro.coordinator(self.config, row["project"])
-                    backend, model = selected["backend"], selected["model"]
-                except tools.ToolError:
-                    pass
             provider = self.config.get("services", {}).get(backend, {})
             removed = not provider.get("enabled") or model not in provider.get("models", [])
             reason = "model_removed" if removed else "configuration_changed"
@@ -946,32 +940,36 @@ class ConversationService:
         if resolved is not None:
             return resolved
         if data.get("backend", "auto") == "auto":
-            try:
-                maestro.coordinator(self.config, data.get("project_id"))
-                data.update(backend="maestro", model="auto", effort="auto")
-            except tools.ToolError:
-                choices = maestro.candidates(
-                    self.config,
-                    data.get("project_id"),
-                    bool(data.get("file_ids") or data.get("workspace_id")),
-                )
-                if data.get("workspace_id"):
-                    choices = [m for m in choices if m["permissions"].get("read")]
-                if not choices:
-                    raise APIError("no_enabled_executor_for_task", 422)
-                choice = next(
-                    (m for m in choices if m["backend"] == self.config.get("default_backend")),
-                    choices[0],
-                )
-                data.update(
-                    backend=choice["backend"],
-                    model=choice["model"],
-                    effort="low" if "low" in choice["efforts"] else choice["efforts"][0],
-                )
+            choices = maestro.candidates(
+                self.config,
+                data.get("project_id"),
+                bool(data.get("file_ids") or data.get("workspace_id")),
+            )
+            if data.get("workspace_id"):
+                choices = [m for m in choices if m["permissions"].get("read")]
+            if not choices:
+                raise APIError("no_enabled_executor_for_task", 422)
+            choice = next(
+                (m for m in choices if m["backend"] == self.config.get("default_backend")),
+                choices[0],
+            )
+            data.update(
+                backend=choice["backend"],
+                model=choice["model"],
+                effort="low" if "low" in choice["efforts"] else choice["efforts"][0],
+            )
         return data
+
+    def _require_known_backend(self, data):
+        backend = data.get("backend", "auto")
+        if backend != "auto" and (
+            not isinstance(backend, str) or backend not in self.config.get("services", {})
+        ):
+            raise APIError("backend_unavailable", 422)
 
     def assess(self, identity, data):
         self.project(identity, data.get("project_id"))
+        self._require_known_backend(data)
         prompt = data.get("prompt", "")
         if not isinstance(prompt, str):
             raise APIError("invalid_prompt")
@@ -981,23 +979,6 @@ class ConversationService:
             self.validate_execution_mode(
                 backend, data["execution_mode"], bool(data.get("_maestro_stage"))
             )
-        if backend == "maestro":
-            maestro.coordinator(
-                self.config, data.get("project_id"), workspace=bool(data.get("workspace_id"))
-            )
-            available = maestro.candidates(
-                self.config,
-                data.get("project_id"),
-                bool(data.get("file_ids") or data.get("workspace_id")),
-            )
-            if data.get("workspace_id"):
-                self.workspace(identity, data["workspace_id"], data.get("project_id"))
-                available = [m for m in available if m["permissions"].get("read")]
-            if data.get("kind", "infer") != "infer":
-                raise APIError("use_scoped_inference_tools", 403)
-            if not available:
-                raise APIError("maestro_no_eligible_agents", 403)
-            return {"decision": "accept", "orchestrator": "maestro", "agents": available}
         if backend not in self.config.get("services", {}) or not self.config["services"][
             backend
         ].get("enabled"):
@@ -1045,15 +1026,8 @@ class ConversationService:
         return {"decision": "accept", "kind": kind, "quality": "experimental; verify evidence"}
 
     def _resolve_route(self, identity, project_id, backend, model, execution_mode):
-        """Maestro becomes its coordinator; the project, service and model must all be allowed."""
+        """The project, service and model must all be allowed."""
         self.project(identity, project_id)
-        if backend == "maestro":
-            if execution_mode is not None:
-                self.validate_execution_mode(backend, execution_mode)
-            lead = maestro.coordinator(self.config, project_id)
-            backend, model = lead["backend"], lead["model"]
-            if backend == "local":
-                execution_mode = "scoped"
         policy = self.config.get("services", {}).get(backend, {})
         if not policy.get("enabled") or project_id not in policy.get("projects", []):
             raise APIError("service_project_denied", 403)
@@ -1123,11 +1097,6 @@ class ConversationService:
         return resources.run_config(self.config, data, owner=owner), owner
 
     def selected_resources(self, data, *, canonical=None, owner=False):
-        if data.get("backend") == "maestro":
-            lead = maestro.coordinator(self.config, data["project_id"])
-            data = {**data, "backend": lead["backend"], "model": lead["model"]}
-            if lead["backend"] == "local":
-                data["execution_mode"] = "scoped"
         # "read" guards project and catalog files; a Harness agent's persona is harness-kept text.
         # Anything that is not a list of Harness agent selections is judged by ``resources.resolve``.
         needs_read = not harness_agents.only_harness_agents(data.get("resource_selections"))
@@ -1160,15 +1129,6 @@ class ConversationService:
     def normalize_invocations(self, identity, data):
         """Resolve every resource before admitting a portable invocation."""
         try:
-            if data.get("backend") == "maestro" and (
-                data.get("invocations") or data.get("resource_selections")
-            ):
-                lead = maestro.coordinator(self.config, data["project_id"])
-                if lead["backend"] == "local":
-                    if data.get("parent_job_id") and data.get("execution_mode") != "scoped":
-                        raise APIError("conversation_execution_mode_locked", 409)
-                    data["execution_mode"] = "scoped"
-                data.update(backend=lead["backend"], model=lead["model"], effort=lead["effort"])
             explicit = data.get("invocations")
             supplied_selections = bool(data.get("resource_selections"))
             if (
@@ -1328,8 +1288,14 @@ class ConversationService:
     def activity(self, identity, project_id=None, work_item=None):
         return summarize_activity(self, identity, project_id, work_item)
 
+    @staticmethod
+    def _is_legacy_planner(row):
+        """A job an older build ran through the removed Maestro planner."""
+        data = json.loads(row["payload"])
+        return data.get("backend") == "maestro" and "_declared_workflow" not in data
+
     def has_workflow_checkpoint(self, row):
-        if row["state"] not in TERMINAL:
+        if row["state"] not in TERMINAL or self._is_legacy_planner(row):
             return False
         try:
             return bool(maestro.saved_plan(self, row["id"]).get("steps"))
@@ -1364,8 +1330,10 @@ class ConversationService:
         row = self.job(identity, job_id)
         if row["state"] not in TERMINAL:
             raise APIError("workflow_source_busy", 409)
-        if set(changes) - {"workflow_inputs", "from_step", "maestro_plan_policy"}:
+        if set(changes) - {"workflow_inputs", "from_step"}:
             raise APIError("invalid_workflow_recovery")
+        if self._is_legacy_planner(row):
+            raise APIError("backend_unavailable", 409)
         if idem is not None and (not isinstance(idem, str) or not 1 <= len(idem) <= 128):
             raise APIError("invalid_idempotency_key")
         try:
@@ -1524,7 +1492,6 @@ class ConversationService:
             key in data
             for key in (
                 "_maestro_stage",
-                "_planning_only",
                 "_invocation_context",
                 "execution_parent_id",
                 "_execution_id",
@@ -1543,8 +1510,8 @@ class ConversationService:
             )
         ):
             raise APIError("invalid_internal_field")
-        if "maestro_plan_policy" in data and data["maestro_plan_policy"] not in ("review", "auto"):
-            raise APIError("invalid_maestro_plan_policy")
+        data.pop("maestro_plan_policy", None)
+        self._require_known_backend(data)
         if "workflow_inputs" in data:
             try:
                 if not isinstance(data["workflow_inputs"], dict):
@@ -1921,7 +1888,7 @@ class ConversationService:
             owner=row["owner"] == harness_agents.LOCAL_CLIENT,
         )
         sources = []
-        turns = [] if data.get("_planning_only") else self.context_turns(row, data)
+        turns = self.context_turns(row, data)
         file_ids = list(
             dict.fromkeys(
                 [fid for payload, _ in turns for fid in payload.get("file_ids", [])]
@@ -2097,7 +2064,6 @@ class ConversationService:
                 and execution_mode == "native"
                 and permissions.get("read")
                 and permissions.get("shell")
-                and not data.get("_planning_only")
             ):
                 history_folder = native_session / "conversation-history"
                 history_folder.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -2157,8 +2123,6 @@ class ConversationService:
         from ..integrations import integration_environment
         from ..secret_vault import execution_environment, redact_secrets
 
-        if plan.data.get("_planning_only"):
-            return redact_secrets(await self._run_transport_inference(plan, None))
         project_id = plan.row["project"]
         selected_config = runtime_config(
             self.config, project_id, getattr(plan, "selected_resources", [])
@@ -2561,9 +2525,6 @@ class ConversationService:
         # Gemini connectors need the network, so an offline schedule runs without them (D03).
         if offline_schedule and backend == "gemini":
             backend_config = {**backend_config, "integrations": []}
-        if data.get("_planning_only"):
-            project_config = {"permissions": {}}
-            backend_config = {**backend_config, "integrations": [], "unrestricted": False}
         backend_config = {
             **backend_config,
             **run_settings(self.config, backend, guest=guest, data=data),
@@ -2733,8 +2694,8 @@ class ConversationService:
                     ),
                 )
                 result = await maestro.execute_plan(self, row, data, declared)
-            elif data.get("backend", "auto") == "maestro":
-                result = await maestro.run(self, row, data)
+            elif data.get("backend") == "maestro":
+                raise APIError("backend_unavailable", 422)
             else:
                 result = await self.infer(row, data)
             if data.get("workspace_id"):
@@ -2981,14 +2942,6 @@ class ConversationService:
         ]
 
     def capabilities(self):
-        maestro_available = False
-        for project in self.config.get("projects", {}):
-            try:
-                maestro.coordinator(self.config, project)
-                maestro_available = True
-                break
-            except tools.ToolError:
-                continue
         return {
             "schema_version": "1.0",
             "service": "keepharness",
@@ -3012,14 +2965,6 @@ class ConversationService:
             "default_execution": "auto",
             "default_backend": self.config.get("default_backend"),
             "direct_fallback": "configured default or first eligible enabled executor",
-            "maestro": {
-                "enabled": maestro_available,
-                "planner": self.config.get("maestro_coordinator", {}).get("backend", "codex"),
-                "selection": "model-generated plan from enabled agents and efforts",
-                "max_steps": 12,
-                "plan_policy": "review",
-                "sequential": True,
-            },
             "service_control": {
                 "manager": "systemd --user" if shutil.which("systemctl") else None,
                 "registered_units_only": True,

@@ -108,40 +108,6 @@ def candidates(config, project, uploads=False, execution_mode=None):
     return result
 
 
-def coordinator(config, project, *, workspace=False):
-    if config.get("maestro_enabled", True) is not True:
-        raise ToolError("maestro_disabled")
-    configured = (
-        config.get("projects", {})
-        .get(project, {})
-        .get("maestro_coordinator", config.get("maestro_coordinator"))
-    )
-    if configured is not None and not isinstance(configured, dict):
-        raise ToolError("maestro_coordinator_unavailable")
-    choice = configured or {"backend": "codex"}
-    models = [
-        m
-        for m in candidates(config, project)
-        if m["backend"] == choice.get("backend", "codex")
-        and (not choice.get("model") or m["model"] == choice["model"])
-    ]
-    if not models:
-        raise ToolError(
-            "maestro_coordinator_unavailable"
-            if configured
-            else "maestro_requires_enabled_codex_for_project"
-        )
-    selected = models[0]
-    effort = choice.get("effort") or (
-        "low" if "low" in selected["efforts"] else selected["efforts"][0]
-    )
-    if effort not in selected["efforts"]:
-        raise ToolError("maestro_coordinator_unavailable")
-    if workspace and not all(selected["permissions"].get(key) for key in ("read", "upload")):
-        raise ToolError("maestro_coordinator_workspace_denied")
-    return {**selected, "effort": effort}
-
-
 def validate_plan(raw, available, *, declared=False):
     text = raw.strip()
     if text.startswith("```"):
@@ -188,81 +154,6 @@ def validate_plan(raw, available, *, declared=False):
     for step, invocation in zip(plan["steps"], invocations):
         step["invocation"] = invocation.to_dict()
     return plan
-
-
-async def plan(service, row, data):
-    available = candidates(
-        service.config,
-        row["project"],
-        bool(data.get("file_ids") or data.get("workspace_id")),
-        execution_mode=data.get("execution_mode"),
-    )
-    if data.get("workspace_id"):
-        available = [m for m in available if m["permissions"].get("read")]
-    if not available:
-        raise ToolError("maestro_no_eligible_agents")
-    lead = coordinator(service.config, row["project"], workspace=bool(data.get("workspace_id")))
-    manifest = []
-    if data.get("workspace_id"):
-        record = service.workspace(
-            (row["owner"], service.config["clients"][row["owner"]]),
-            data["workspace_id"],
-            row["project"],
-        )
-        manifest = json.loads(record["manifest"])[:200]
-    history = [
-        {"request": p.get("prompt", "")[:3000], "answer": r.get("answer", "")[:6000]}
-        for p, r in service.context_turns(row, data)[-3:]
-    ]
-    planner_text = (Path(__file__).parent / "prompts" / "maestro-planner.md").read_text()
-    planner_revision = hashlib.sha256(planner_text.encode()).hexdigest()
-    planner = (
-        planner_text
-        + "\nPOLICY OF THIS INSTALLATION:\n"
-        + service.config.get("maestro_instructions", "")
-        + "\n"
-        + json.dumps(
-            {
-                "request": data.get("prompt", ""),
-                "available_agents": available,
-                "files": manifest,
-                "history": history,
-            },
-            ensure_ascii=False,
-        )
-    )
-    with execution(
-        service,
-        row,
-        "maestro_planning",
-        {
-            "backend": lead["backend"],
-            "model": lead["model"],
-            "effort": lead["effort"],
-            "work_item": data.get("work_item"),
-        },
-    ) as metadata:
-        planning = await service.infer(
-            row,
-            {
-                **data,
-                **execution_payload(metadata),
-                "backend": lead["backend"],
-                "model": lead["model"],
-                "effort": lead["effort"],
-                "prompt": planner,
-                "file_ids": [],
-                "workspace_id": None,
-                "parent_job_id": None,
-                "_maestro_stage": "plan",
-                "_planning_only": True,
-            },
-        )
-        if planning.get("incomplete"):
-            raise ToolError("maestro_incomplete_plan")
-        plan = validate_plan(planning.get("answer", ""), available)
-        plan["planner_revision"] = planner_revision
-    return {"plan": plan, "planning_result": planning, "coordinator": lead}
 
 
 def saved_plan(service, job_id):
@@ -618,20 +509,17 @@ def sum_usage(parts):
     return {"usage_scope": "turn", **totals, "by_provider": by_provider} if totals else None
 
 
-def run_usage(coordinator, planning_result, results, reused):
-    """The run's own usage: the planner plus every step it executed, split by provider.
+def run_usage(results, reused):
+    """The run's own usage: every step it executed, split by provider.
 
     Steps restored from a checkpoint (``reused`` indexes) were not spent by this run. ``None``
     when no part reported a figure.
     """
-    parts = [
+    return sum_usage(
         (r["result"].get("backend", r["backend"]), r["result"].get("metrics"))
         for r in results
         if r["index"] not in reused
-    ]
-    if coordinator:
-        parts.insert(0, (coordinator["backend"], (planning_result or {}).get("metrics")))
-    return sum_usage(parts)
+    )
 
 
 def run_result(final, usage):
@@ -641,7 +529,7 @@ def run_result(final, usage):
     return {**result, "metrics": usage} if usage else result
 
 
-async def execute_plan(service, row, data, declared, *, planning_result=None, coordinator=None):
+async def execute_plan(service, row, data, declared):
     if "_workflow_context_parent_id" in data:
         data = {**data, "parent_job_id": data["_workflow_context_parent_id"]}
     available = candidates(
@@ -662,7 +550,7 @@ async def execute_plan(service, row, data, declared, *, planning_result=None, co
     service.event(row["id"], "maestro_plan", plan)
     folder = service.root / "maestro" / row["id"]
     folder.mkdir(parents=True, exist_ok=True, mode=0o700)
-    write_json(folder / "plan.json", {"plan": plan, "planning_result": planning_result})
+    write_json(folder / "plan.json", {"plan": plan})
     checkpoints = Checkpoints(service.root, row["id"], plan, data)
     input_binding = digest(checkpoints.inputs)
     source_id = data.get("_workflow_parent_job_id")
@@ -885,17 +773,9 @@ async def execute_plan(service, row, data, declared, *, planning_result=None, co
             checkpoints.save(index, record, checkpoint_prior)
     final = results[-1]["result"]
     return {
-        **run_result(final, run_usage(coordinator, planning_result, results, reused)),
+        **run_result(final, run_usage(results, reused)),
         "backend": "maestro",
         "orchestration": {
-            "coordinator": {
-                "backend": coordinator["backend"],
-                "model": coordinator["model"],
-                "effort": coordinator["effort"],
-                "metrics": (planning_result or {}).get("metrics"),
-            }
-            if coordinator
-            else None,
             "plan": plan,
             "steps": [
                 {
@@ -917,50 +797,6 @@ async def execute_plan(service, row, data, declared, *, planning_result=None, co
         "workspace_id": data.get("workspace_id"),
         "token_savings": "not_measured",
     }
-
-
-async def run(service, row, data):
-    policy = data.get(
-        "maestro_plan_policy",
-        service.config.get("projects", {})
-        .get(row["project"], {})
-        .get("maestro_plan_policy", "review"),
-    )
-    if policy not in ("auto", "review") or service.config.get(
-        "maestro_plan_policy", "review"
-    ) not in ("auto", "review"):
-        raise ToolError("invalid_maestro_plan_policy")
-    planned = await plan(service, row, data)
-    if policy == "auto":
-        resolution = {"approved": True, "choice": "approve", "plan": planned["plan"]}
-        service.event(row["id"], "maestro_plan_auto", {"policy": "auto"})
-    else:
-        resolution = await service.gates.ask(
-            row["id"],
-            {
-                "question": "Approve the Maestro plan before any steps run?",
-                "options": [
-                    {"id": "approve", "label": "Approve plan & run"},
-                    {"id": "deny", "label": "Discard plan"},
-                ],
-            },
-            lambda kind, value: service.event(row["id"], kind, value),
-            plan=planned["plan"],
-        )
-    if not resolution.get("approved") or resolution.get("choice") != "approve":
-        return {
-            "backend": "maestro",
-            "answer": "The Maestro plan was not approved. No steps were run.",
-            "orchestration": {"plan": planned["plan"], "steps": [], "approved": False},
-        }
-    return await execute_plan(
-        service,
-        row,
-        data,
-        {**resolution["plan"], "planner_revision": planned["plan"]["planner_revision"]},
-        planning_result=planned["planning_result"],
-        coordinator=planned["coordinator"],
-    )
 
 
 def declared_plan(config, data, items):

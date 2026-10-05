@@ -2,8 +2,7 @@
 
 from starlette.responses import JSONResponse
 
-from .. import approval_policy, maestro
-from ..errors import ToolError
+from .. import approval_policy
 from ..harness_agents import LOCAL_CLIENT
 from . import api_route
 
@@ -34,14 +33,8 @@ async def models(request, service, identity):
     service.project(identity, project_id)
     models = await service.models_with_context(project_id)
     service.project(service.identity(request, revalidate=True), project_id)
-    try:
-        maestro.coordinator(config, project_id)
-        planning_available = True
-    except ToolError:
-        planning_available = False
     return JSONResponse(
         {
-            "maestro": planning_available,
             "models": models,
             "project_id": project_id,
             "providers": {

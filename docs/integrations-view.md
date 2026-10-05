@@ -11,8 +11,8 @@ It backs a Plugins chip in the composer (the chip itself is not part of this cha
 `GET /v1/integrations?project_id=&backend=&model=&execution_mode=&access_mode=`
 
 Access and validation match `GET /v1/resources`: the caller needs the project, the
-provider service must be enabled for it, and the model must be allowed. `maestro`
-resolves to its coordinator. `execution_mode` defaults to the provider's default and is
+provider service must be enabled for it, and the model must be allowed. The removed
+`maestro` backend is refused with `backend_unavailable`. `execution_mode` defaults to the provider's default and is
 validated the same way; `access_mode` is one of `ask` (default), `auto`, `full`,
 `read_only`, otherwise `invalid_access_mode`. The response is sent with
 `Cache-Control: no-store`.

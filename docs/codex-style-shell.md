@@ -19,7 +19,7 @@ The harness UI follows the layout of the ChatGPT/Codex desktop app, measured on 
 
 ## Our capabilities, adapted rather than removed
 
-- Maestro plan, approvals, questions and publish gates use one 20 px card style with pill actions; the pending state keeps an orange status pill (WCAG AA in light and dark palettes).
+- Approvals, questions and publish gates use one 20 px card style with pill actions; the pending state keeps an orange status pill (WCAG AA in light and dark palettes).
 - Run console (Pipeline, Timeline, Logs, Runs, Agents) is a quiet bottom panel; on narrow or short windows it opens beside the rail.
 - Provider quotas are compact meters in the rail, which modal panels keep operable through `aria-owns`.
 - Status counts stay in the status strip under the chat and in the rail bell; the sidebar shows each conversation's state as a dot instead of status groups.

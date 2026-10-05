@@ -45,17 +45,6 @@ def test_clients_cannot_forge_workflow_recovery(tmp_path, field):
         service.db.close()
 
 
-@pytest.mark.parametrize("policy", [True, "automatic", None, {}, 1])
-def test_plan_policy_requires_explicit_review_or_auto(tmp_path, policy):
-    service = Service(config(tmp_path))
-    try:
-        identity = ("a", service.config["clients"]["a"])
-        with pytest.raises(APIError, match="invalid_maestro_plan_policy"):
-            submitted(service, identity, maestro_plan_policy=policy)
-    finally:
-        service.db.close()
-
-
 def test_recovery_checks_owner_and_requires_terminal_source(tmp_path):
     service = Service(config(tmp_path))
     try:
@@ -65,20 +54,6 @@ def test_recovery_checks_owner_and_requires_terminal_source(tmp_path):
             service.recover_workflow(("b", service.config["clients"]["b"]), job, {})
         with pytest.raises(APIError, match="workflow_source_busy"):
             service.recover_workflow(identity, job, {})
-    finally:
-        service.db.close()
-
-
-def test_capabilities_support_non_codex_coordinator(tmp_path):
-    settings = config(tmp_path)
-    settings["services"]["codex"]["enabled"] = False
-    settings["maestro_coordinator"] = {"backend": "local"}
-    service = Service(settings)
-    try:
-        capabilities = service.capabilities()
-        assert capabilities["maestro"]["enabled"] is True
-        assert capabilities["maestro"]["max_steps"] == 12
-        assert capabilities["maestro"]["plan_policy"] == "review"
     finally:
         service.db.close()
 
@@ -150,35 +125,15 @@ def test_workflow_palette_dispatch_recovery_and_save_roundtrip(tmp_path, monkeyp
         service.db.close()
 
 
-def test_mcp_auto_policy_is_explicit_and_recovery_is_available(monkeypatch):
+def test_mcp_recovery_is_available(monkeypatch):
     from agent_service import mcp_bridge
 
     call = AsyncMock(return_value={"job_id": "synthetic"})
     monkeypatch.setattr(mcp_bridge, "call", call)
-    asyncio.run(mcp_bridge.submit_job("p"))
-    assert "maestro_plan_policy" not in call.call_args.args[2]
-    asyncio.run(mcp_bridge.submit_job("p", maestro_plan_policy="auto", workflow_inputs={"x": 1}))
-    assert call.call_args.args[2]["maestro_plan_policy"] == "auto"
+    asyncio.run(mcp_bridge.submit_job("p", workflow_inputs={"x": 1}))
+    assert call.call_args.args[2]["workflow_inputs"] == {"x": 1}
     asyncio.run(mcp_bridge.rerun_workflow("synthetic", 2))
     assert call.call_args.args == ("POST", "/v1/jobs/synthetic/rerun", {"from_step": 2})
-
-
-def test_control_preserves_coordinator_and_project_plan_policy(tmp_path):
-    from control.server import Manager
-
-    manager = Manager(tmp_path / "control")
-    settings = dict(manager.settings)
-    settings["maestro_coordinator"] = {"backend": "local", "model": "fixture"}
-    (tmp_path / "project").mkdir()
-    settings["projects"] = [
-        {"id": "p", "root": str(tmp_path / "project"), "maestro_plan_policy": "auto"}
-    ]
-    validated = manager.validate(settings)
-    assert validated["maestro_coordinator"] == settings["maestro_coordinator"]
-    assert validated["projects"][0]["maestro_plan_policy"] == "auto"
-    settings["projects"][0]["maestro_plan_policy"] = "silent"
-    with pytest.raises(ValueError, match="plan policy"):
-        manager.validate(settings)
 
 
 def test_denied_plan_cannot_be_saved_as_successful_workflow(tmp_path):

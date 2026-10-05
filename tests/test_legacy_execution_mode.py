@@ -25,7 +25,6 @@ def legacy_root(service, backend):
 @pytest.mark.parametrize(
     ("backend", "service_spec", "expected"),
     [
-        ("maestro", None, "native"),
         ("gemini", {"enabled": True, "models": ["auto"], "projects": ["p"]}, "native"),
         (
             "codex",

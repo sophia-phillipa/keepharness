@@ -19,7 +19,7 @@ While the window is not focused, a run that needs the user, fails or finishes ra
 
 ## Names (D42) and the model picker
 
-Provider names: Codex, Claude Code, DeepSeek, Local models, Maestro. Model names are derived from the identifier when the server has no name (`claude-opus-4-7` is "Claude Opus 4.7", `gpt-6-astra` is "GPT-6 Astra"). In the Claude Code group only the newest model of each family is on top; older ones sit under "More models". Before a message goes to another provider than the last turn's, a one-line note says the conversation goes along. A fresh model choice starts on the provider's default effort, or Medium. `tests/claude-model-picker.spec.cjs`, `tests/model-provider-groups.spec.cjs`, `tests/conversation-route-divider.spec.cjs`.
+Provider names: Codex, Claude Code, DeepSeek, Local models. Model names are derived from the identifier when the server has no name (`claude-opus-4-7` is "Claude Opus 4.7", `gpt-6-astra` is "GPT-6 Astra"). In the Claude Code group only the newest model of each family is on top; older ones sit under "More models". Before a message goes to another provider than the last turn's, a one-line note says the conversation goes along. A fresh model choice starts on the provider's default effort, or Medium. `tests/claude-model-picker.spec.cjs`, `tests/model-provider-groups.spec.cjs`, `tests/conversation-route-divider.spec.cjs`.
 
 ## Plain words
 

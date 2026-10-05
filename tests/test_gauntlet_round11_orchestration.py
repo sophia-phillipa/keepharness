@@ -20,9 +20,8 @@ from agent_service.tools import ToolError
 
 
 @pytest.mark.parametrize("mode", ["expire", "cancel", "expire_cancel"])
-@pytest.mark.parametrize("plan_gate", [False, True])
 @pytest.mark.parametrize("busy_timeout", [1, 5000])
-def test_gate_terminal_write_survives_contention(tmp_path, mode, plan_gate, busy_timeout):
+def test_gate_terminal_write_survives_contention(tmp_path, mode, busy_timeout):
     async def run():
         instance, identity = execution_service(tmp_path)
         instance.config["approval_timeout_seconds"] = 0.05 if mode != "cancel" else 30
@@ -45,7 +44,6 @@ def test_gate_terminal_write_survives_contention(tmp_path, mode, plan_gate, busy
                 "job",
                 {"question": "Continue?", "options": [{"id": "yes", "label": "Yes"}]},
                 lambda kind, data: instance.event("job", kind, data),
-                plan={"steps": []} if plan_gate else None,
             )
             return {"answer": str(reply)}
 
