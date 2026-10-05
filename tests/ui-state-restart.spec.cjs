@@ -117,6 +117,14 @@ async function openPage(browser, server, { route, items } = {}) {
   await page.waitForFunction(() => window.HarnessPrefs && document.querySelector("#menu"));
   return page;
 }
+async function waitUntil(check, timeout = 4000) {
+  const end = Date.now() + timeout;
+  for (;;) {
+    try { if (check()) return; } catch {}
+    if (Date.now() > end) throw new Error("condition not met within " + timeout + " ms: " + check);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
 const flush = (page) => page.evaluate(() => window.HarnessPrefs.flush());
 const lsItem = (page, key) => page.evaluate((name) => localStorage.getItem(name), key);
 const setReadingSize = (page, size) =>
@@ -290,7 +298,15 @@ async function step(name, work) {
       const page = await openPage(browser, locked);
       assert.equal(await page.evaluate(() => window.HarnessPrefs.server), true);
       await shown(page, READ_ONLY_NOTICE);
-      await page.click("#menu");
+      // initialize() ends with "Ready to chat." or "Set up a model": the notice must survive it and stay visible.
+      await page.waitForFunction(() => typeof interfaceReady !== "undefined" && interfaceReady);
+      await page.waitForTimeout(300);
+      const bar = await page.locator("#status").evaluate((node) => ({ text: node.textContent, className: node.className, hidden: node.hidden }));
+      assert.equal(bar.text, READ_ONLY_NOTICE, "the notice is what #status shows after init");
+      assert.notEqual(bar.className, "visually-hidden", "the notice must not be visually hidden");
+      assert.equal(bar.hidden, false);
+      // The first-run tour (tour_seen cannot be stored here) covers the page once ready: click through the DOM.
+      await page.evaluate(() => document.getElementById("menu").click());
       await setReadingSize(page, "17");
       await page.waitForTimeout(1200); // well past the 400 ms debounce
       await flush(page);
@@ -321,6 +337,130 @@ async function step(name, work) {
       } finally {
         fs.chmodSync(owner, 0o700);
       }
+      await page.context().close();
+    });
+
+    await step("a change made just before the page goes away is kept (pitfall 8)", async () => {
+      await reset(fresh);
+      const page = await openPage(browser, fresh);
+      await setReadingSize(page, "19");
+      await page.goto("about:blank"); // well inside the 400 ms debounce
+      await waitUntil(() => onDisk(fresh).reading_size === "19");
+      await page.context().close();
+    });
+
+    await step("leaving the page sends each change once, not once per exit event", async () => {
+      await reset(fresh);
+      const page = await openPage(browser, fresh);
+      await page.evaluate(() => {
+        window.HarnessPrefs.set("reading_size", "17");
+        Object.defineProperty(document, "visibilityState", { get: () => "hidden", configurable: true });
+        Object.defineProperty(document, "hidden", { get: () => true, configurable: true });
+        document.dispatchEvent(new Event("visibilitychange"));
+        dispatchEvent(new Event("pagehide"));
+        document.dispatchEvent(new Event("visibilitychange"));
+        dispatchEvent(new Event("pagehide"));
+      });
+      await waitUntil(() => onDisk(fresh).reading_size === "17");
+      await page.waitForTimeout(500);
+      const sends = page.patches.filter((request) => "reading_size" in request.postDataJSON().values);
+      assert.equal(sends.length, 1, "one keepalive PATCH per change: " + sends.length);
+      await page.context().close();
+    });
+
+    await step("a keepalive batch over the in-flight quota is sent per key (values here exceed the server's caps; only the request sizes matter)", async () => {
+      await reset(fresh);
+      const page = await openPage(browser, fresh);
+      await page.evaluate(() => {
+        const prefs = window.HarnessPrefs;
+        const state = (n) => Object.fromEntries(Array.from({ length: 100 }, (_, i) => [n + String(i).padStart(3, "0") + "x".repeat(100), { token: "t".repeat(60), state: "completed", unread: false }]));
+        prefs.set("conversation_activity", state("a"));
+        prefs.set("project_list_preferences", Object.fromEntries(Array.from({ length: 200 }, (_, i) => ["p" + i + "x".repeat(100), { favorite: true, hidden: false, hide_icon: true }])));
+        prefs.set("project_expanded", Object.fromEntries(Array.from({ length: 200 }, (_, i) => ["p" + i + "x".repeat(100), true])));
+        prefs.set("conversation_scroll", Array.from({ length: 100 }, (_, i) => ["s" + i + "x".repeat(50), 120000 + i]));
+        void prefs.flush({ keepalive: true });
+      });
+      await page.waitForTimeout(2500);
+      const sizes = page.patches.map((request) => request.postData().length);
+      assert(sizes.length > 1, "the oversized batch is split: " + JSON.stringify(sizes));
+      assert(Math.max(...sizes) < 60 * 1024, "no keepalive body over 60 KB: " + JSON.stringify(sizes));
+      await page.context().close();
+    });
+
+    await step("a 5xx on a PATCH is retried and the final stored value is the latest (pitfall 5)", async () => {
+      await reset(fresh);
+      let failed = 0;
+      const once = (route) => {
+        if (route.request().method() === "PATCH" && failed++ === 0)
+          return route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ code: "unavailable" }) });
+        return route.continue();
+      };
+      const page = await openPage(browser, fresh, { route: once });
+      await page.evaluate(() => window.HarnessPrefs.set("reading_size", "17"));
+      await waitUntil(() => failed >= 1);
+      await page.evaluate(() => window.HarnessPrefs.set("reading_size", "19"));
+      await waitUntil(() => onDisk(fresh).reading_size === "19", 8000);
+      await page.waitForTimeout(500);
+      assert.equal(onDisk(fresh).reading_size, "19", "the older value must not land after the newer one");
+      await page.context().close();
+    });
+
+    await step("a conversation_activity map at its cap fits the 16 KB value cap (pitfall 2)", async () => {
+      await reset(fresh);
+      const page = await openPage(browser, fresh);
+      const hex = (n, i) => (n + i.toString(16)).padStart(32, "0").slice(-32); // uuid4().hex, the harness's real ids
+      const map = Object.fromEntries(Array.from({ length: 100 }, (_, i) => [hex("c", i), { token: hex("j", i), state: "completed", unread: true }]));
+      const bytes = JSON.stringify(map).length;
+      await page.evaluate((value) => window.HarnessPrefs.set("conversation_activity", value), map);
+      await flush(page);
+      assert.equal(Object.keys(onDisk(fresh).conversation_activity).length, 100, "bytes=" + bytes);
+      assert(page.warnings.every((text) => !text.includes("dropped")), JSON.stringify(page.warnings));
+      console.log("conversation_activity at 100 realistic entries: " + bytes + " bytes of 16384");
+      await page.context().close();
+    });
+
+    await step("conversation_activity keeps the 100 most recent conversations of a longer list (W1)", async () => {
+      await reset(fresh);
+      const page = await openPage(browser, fresh);
+      await page.waitForFunction(() => typeof interfaceReady !== "undefined" && interfaceReady);
+      await page.evaluate(async () => {
+        // The history answers newest first; 120 conversations, c119 the newest.
+        conversations = Array.from({ length: 120 }, (_, i) => 119 - i).map((i) => ({ id: "c" + String(i).padStart(3, "0"), state: "completed", last_job_id: "j" + i, updated: 1000 + i }));
+        conversationActivity = {};
+        conversations.forEach(observeConversation);
+        saveConversationActivity();
+        await window.HarnessPrefs.flush(); // before a history poll can replace the list
+      });
+      const stored = Object.keys(onDisk(fresh).conversation_activity).sort();
+      assert.equal(stored.length, 100);
+      assert.equal(stored[0], "c020");
+      assert.equal(stored.at(-1), "c119");
+      await page.context().close();
+    });
+
+    await step("hide_icon, panel_widths, chat_selection, conversation_scroll and run_console_height round-trip a restart (pitfall 1)", async () => {
+      const dir = path.join(tmp, "roundtrip");
+      const wanted = {
+        project_list_preferences: { "sem-projeto": { favorite: false, hidden: false, hide_icon: true } },
+        panel_widths: { sidebar: 311, activity_panel: 402 },
+        chat_selection: { model: "gpt-5.6-sol", effort: "medium" },
+        conversation_scroll: [["abc123", 640], ["def456", -1]],
+        run_console_height: 275,
+      };
+      let server = await startServer(PORTS.a, dir);
+      let page = await openPage(browser, server);
+      await page.evaluate((values) => { for (const [key, value] of Object.entries(values)) window.HarnessPrefs.set(key, value); }, wanted);
+      await flush(page);
+      assert.deepEqual(Object.fromEntries(Object.keys(wanted).map((key) => [key, onDisk(server)[key]])), wanted);
+      await page.context().close();
+      await server.stop();
+
+      server = await startServer(PORTS.a, dir);
+      page = await openPage(browser, server);
+      const read = await page.evaluate((keys) => Object.fromEntries(keys.map((key) => [key, window.HarnessPrefs.get(key)])), Object.keys(wanted));
+      assert.deepEqual(read, wanted);
+      for (const old of ["sidebar-width", "activity-panel-width", "chat-selection", "conversation-scroll", "run-console-height", "project-list-preferences"])
+        assert.equal(await lsItem(page, old), null, old);
       await page.context().close();
     });
 

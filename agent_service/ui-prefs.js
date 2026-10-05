@@ -8,6 +8,7 @@
   const BACKOFF_MIN_MS = 2000;
   const BACKOFF_MAX_MS = 30000;
   const ENDPOINT = "/v1/ui-state";
+  const KEEPALIVE_BYTES = 60 * 1024; // browsers allow 64 KB of keepalive requests in flight
 
   const store = {
     get(key) { try { return localStorage.getItem(key); } catch { return null; } },
@@ -149,6 +150,7 @@
   const memory = {}; // local mode: keys with no old localStorage key (last_section)
   const pending = {}; // latest value per key not yet confirmed (null clears)
   const baseline = {}; // JSON of the last delivery the server confirmed, per key
+  const inflight = {}; // JSON of the keepalive delivery still on its way, per key: exit events send only the delta
   const migrating = new Set();
   let timer = 0;
   let sending = null;
@@ -180,7 +182,7 @@
   }
 
   const encoded = (key) => JSON.stringify(pending[key] ?? null);
-  const dirty = () => Object.keys(pending).filter((key) => encoded(key) !== (baseline[key] ?? "null"));
+  const dirty = () => Object.keys(pending).filter((key) => encoded(key) !== (baseline[key] ?? "null") && encoded(key) !== inflight[key]);
 
   function drop(key, why) {
     console.warn("ui-state: dropped " + key + " (" + why + ")");
@@ -193,19 +195,27 @@
     if (migrating.delete(key) && !CONVERSIONS[key].keep) for (const old of CONVERSIONS[key].old()) store.set(old, null);
   }
 
+  async function deliverEach(keys, keepalive) {
+    for (const key of keys) {
+      const result = await deliver([key], keepalive);
+      if (result !== "ok") return result;
+    }
+    return "ok";
+  }
+
   // Sends one batch. "ok": nothing more to retry for it; "retry": transient failure; "stop": the store is closed.
   async function deliver(keys, keepalive) {
     const sent = {};
     for (const key of keys) sent[key] = prune(key, pending[key] ?? null);
+    const payload = JSON.stringify({ values: sent });
+    if (keepalive && keys.length > 1 && new TextEncoder().encode(payload).length > KEEPALIVE_BYTES) return deliverEach(keys, keepalive);
+    if (keepalive) for (const key of keys) inflight[key] = JSON.stringify(sent[key]);
     let response;
     try {
-      response = await fetch(ENDPOINT, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ values: sent }),
-        keepalive,
-      });
-    } catch { return "retry"; }
+      response = await fetch(ENDPOINT, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: payload, keepalive });
+    } catch { return "retry"; } finally {
+      if (keepalive) for (const key of keys) delete inflight[key];
+    }
     if (response.ok) {
       backoff = 0;
       for (const key of keys) accepted(key, JSON.stringify(sent[key]));
@@ -230,13 +240,7 @@
         announce(code);
         return "ok";
       }
-      if (keys.length > 1) {
-        for (const key of keys) {
-          const result = await deliver([key], keepalive);
-          if (result !== "ok") return result;
-        }
-        return "ok";
-      }
+      if (keys.length > 1) return deliverEach(keys, keepalive);
       drop(keys[0], code || "payload_limit");
       if (response.status === 422) announce(code);
       return "ok";

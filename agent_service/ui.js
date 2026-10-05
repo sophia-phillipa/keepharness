@@ -75,6 +75,12 @@ let conversationActivity = {};
     conversationActivity = saved;
 }
 function saveConversationActivity() {
+  // The store keeps the last entries of the map it is given: put the most recently updated conversations
+  // last and drop the ones the list no longer has, so the saved set follows recency, not insertion order.
+  const recent = {};
+  for (const c of [...conversations].sort((a, b) => conversationUpdated(a) - conversationUpdated(b)))
+    if (conversationActivity[c.id]) recent[c.id] = conversationActivity[c.id];
+  conversationActivity = recent;
   prefs.set("conversation_activity", conversationActivity);
 }
 function observeConversation(c) {
@@ -1570,7 +1576,6 @@ const userErrors = {
   schedule_limit: "You have reached the limit of 50 schedules. Delete one to add another.",
   schedule_storage_unsafe: "The schedules folder cannot be used safely. Check the harness state folder.",
 };
-prefs.onNotice((code) => status(userErrors[code]));
 // The 403 body names the caller's owner id, and a guest's Tailscale login. Name one in the
 // command only when it is safe to paste into a shell; otherwise keep the generic text, which
 // names no owner. Only the owner on this computer can run the command; a guest asks the owner
@@ -6252,12 +6257,10 @@ document.addEventListener("pointerdown", (event) => {
     $("attention-bell").setAttribute("aria-expanded", "false");
   }
 });
-try {
-  document.body.classList.toggle(
-    "sidebar-collapsed",
-    prefs.get("sidebar_collapsed", false) === true,
-  );
-} catch {}
+document.body.classList.toggle(
+  "sidebar-collapsed",
+  prefs.get("sidebar_collapsed", false) === true,
+);
 $("menu").setAttribute(
   "aria-expanded",
   String(
@@ -7392,6 +7395,13 @@ function rememberSelection() {
   prefs.set("chat_selection", preferredSelection);
 }
 let pendingSelectionNotice = "";
+// Registered here, after interfaceReady and pendingSelectionNotice exist: queued notices fire at once, and
+// initialize() would otherwise overwrite the status line with "Ready to chat."
+prefs.onNotice((code) => {
+  const text = userErrors[code];
+  if (interfaceReady) setTimeout(() => status(text));
+  else pendingSelectionNotice = pendingSelectionNotice ? pendingSelectionNotice + " " + text : text;
+});
 function selectionNotice(gone) {
   const text =
     gone +
