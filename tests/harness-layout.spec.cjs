@@ -333,9 +333,9 @@ const path = require("node:path");
     assert.equal(await page.locator("#settings").innerText(), "Settings");
     assert.equal(
       await page.locator("#settings").getAttribute("aria-haspopup"),
-      "dialog",
+      "menu",
     );
-    await page.click("#settings");
+    await page.keyboard.press("Control+,");
     assert(await page.locator("#settings-dialog").isVisible());
     assert.match(await page.locator("#version").innerText(), /^Release: test$/);
     assert.equal(
@@ -447,7 +447,7 @@ const path = require("node:path");
     await page.setViewportSize({ width: 390, height: 844 });
     await page.click("#menu");
     await page.locator("#sidebar").waitFor();
-    await page.click("#settings");
+    await page.keyboard.press("Control+,");
     const accountBox = await page.locator("#settings-dialog").boundingBox();
     assert(
       accountBox.x >= 0 &&

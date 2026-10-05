@@ -388,6 +388,7 @@ module.exports = {
     };
     const focus = (page) => (shim.page = page);
     const win = (match) => listWindows(h).then((all) => all.find((w) => match(w.url)));
+    const chatNow = () => h.app.windows().find((w) => !w.isClosed() && w.url().startsWith(harnessUrl()));
     const shoot = async (page, name) => {
       const file = path.join(shotsDir, name + ".png");
       await page.screenshot({ path: file, timeout: 15000 }).catch(() => {});
@@ -408,6 +409,7 @@ module.exports = {
       if ((await themeOf(page)) === (dark ? "dark" : "light")) return;
       if (kind === "chat") {
         await op.click(page.locator("#settings"));
+        await op.click(page.locator("#settings-menu").getByRole("menuitem", { name: "Appearance", exact: true }));
         await op.click(page.locator("#theme-toggle"));
         await op.click(page.locator("#settings-close"));
       } else {
@@ -653,34 +655,36 @@ module.exports = {
         await shoot(page, "s2-chat-home");
       }, { critical: true });
 
-      await S("s2", "s2.admin-second-window", "Admin opens in one reusable second window, and the chat window stays on the chat", async () => {
+      // Admin is Settings > System > Providers of the chat window: its frame is returned.
+      const openAdminWindow = async (page) => {
+        await op.click(page.locator("#settings"));
+        await op.click(page.locator("#settings-menu").getByRole("menuitem", { name: "Providers", exact: true }));
+        await untilTrue(async () => page.frames().some((f) => f.url().startsWith(adminUrl())), "Settings did not show the admin", 20000);
+        const frame = page.frames().find((f) => f.url().startsWith(adminUrl()));
+        await frame.getByRole("link", { name: "Providers", exact: true }).waitFor({ timeout: 20000 });
+        return frame;
+      };
+
+      await S("s2", "s2.admin-second-window", "Admin opens inside Settings > Providers of the chat window, with no second window", async () => {
         const page = focus(h.app.windows().find((w) => w.url().startsWith(harnessUrl())));
         for (let round = 0; round < 2; round++) {
-          await op.click(page.locator("#settings"));
-          await op.click(page.locator("#admin-shortcut"));
-          await untilTrue(async () => (await listWindows(h)).some((w) => w.url.startsWith(adminUrl())), "no window showed the admin", 20000);
+          await openAdminWindow(page);
           await op.click(page.locator("#settings-close"));
           await sleep(800);
         }
         const all = await listWindows(h);
-        op.check(all.length === 2, "windows: " + all.map((w) => w.url).join(", "));
-        const chat = all.find((w) => w.url.startsWith(harnessUrl()));
-        const admin = all.find((w) => w.url.startsWith(adminUrl()));
-        op.check(chat && admin && admin.visible, "the chat window or the admin window is missing");
-        const adminPage = await waitPage(h, adminUrl(), 20000);
-        await adminPage.getByRole("link", { name: "Providers", exact: true }).waitFor({ timeout: 20000 });
-        focus(adminPage);
-        await shoot(adminPage, "s2-admin-second-window");
+        op.check(all.length === 1, "windows: " + all.map((w) => w.url).join(", "));
+        op.check(all[0].url.startsWith(harnessUrl()) && all[0].visible, "the chat window is missing");
+        const frame = await openAdminWindow(page);
+        await frame.getByRole("link", { name: "Providers", exact: true }).waitFor({ timeout: 20000 });
+        await shoot(page, "s2-admin-in-settings");
       });
 
-      await S("s2", "s2.admin-window-close-reopen", "Closing the Admin window leaves the chat running; Admin can be opened again", async () => {
-        await h.app.evaluate(({ BrowserWindow }, url) => BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().startsWith(url)).close(), adminUrl());
-        await untilTrue(async () => (await listWindows(h)).length === 1, "the admin window did not close", 8000);
+      await S("s2", "s2.admin-window-close-reopen", "Closing Settings leaves the chat running; Admin can be opened again", async () => {
         const page = focus(h.app.windows().find((w) => w.url().startsWith(harnessUrl())));
-        op.check((await listWindows(h))[0].visible, "the chat window went away");
-        await op.click(page.locator("#settings"));
-        await op.click(page.locator("#admin-shortcut"));
-        await untilTrue(async () => (await listWindows(h)).length === 2, "the admin did not open again", 20000);
+        await op.click(page.locator("#settings-close"));
+        op.check((await listWindows(h)).length === 1 && (await listWindows(h))[0].visible, "the chat window went away");
+        await openAdminWindow(page);
         await op.click(page.locator("#settings-close"));
       });
 
@@ -801,15 +805,6 @@ module.exports = {
           await quit();
         }, { lint: false, recover: false, critical: true });
       };
-      const openAdminWindow = async (page) => {
-        await op.click(page.locator("#settings"));
-        await op.click(page.locator("#admin-shortcut"));
-        await untilTrue(async () => (await listWindows(h)).some((w) => w.url.startsWith(adminUrl())), "no window showed the admin", 20000);
-        await op.click(page.locator("#settings-close"));
-        const adminPage = await waitPage(h, adminUrl(), 20000);
-        await adminPage.getByRole("link", { name: "Providers", exact: true }).waitFor({ timeout: 20000 });
-        return adminPage;
-      };
       const rowOf = (page, title) => page.locator("#sidebar").getByRole("button").filter({ hasText: title }).filter({ visible: true }).first();
       const conversationTitle = (page) => page.locator("#conversation-title").innerText();
       const windowTitleOf = async (match) => (await listWindows(h)).find((w) => match(w.url)).title;
@@ -883,7 +878,6 @@ module.exports = {
       await S("s5", "s5.download-app-origin", "Admin 'Export saved configuration' (a blob: URL) is accepted with a save dialog", async () => {
         const page = h.app.windows().find((w) => !w.isClosed() && w.url().startsWith(harnessUrl()));
         const adminPage = await openAdminWindow(page);
-        focus(adminPage);
         await op.click(adminPage.getByRole("link", { name: "Providers", exact: true }));
         await op.click(adminPage.locator("#manage-network"));
         // First with a chosen path: the file arrives and is the export.
@@ -900,7 +894,7 @@ module.exports = {
         await h.app.evaluate(() => ((globalThis.__op.autoSave = null), (globalThis.__op.downloads = [])));
         await op.click(adminPage.locator("#export-settings"));
         const id = await closeNativeDialog(h.app, 10000);
-        await shoot(adminPage, "s5-export-save-dialog-page");
+        await shoot(page, "s5-export-save-dialog-page");
         h.saveDialogSeen = !!id;
         op.check(id, "the save dialog never appeared as a native window");
         await h.app.evaluate((_e, dir) => (globalThis.__op.autoSave = dir), downloads);
@@ -961,12 +955,11 @@ module.exports = {
 
       // ================================================================ S4: observability in the Admin
       let adminPage4 = null;
-      await S("s4", "s4.launch", "Launch the configured app and open Admin in its own window", async () => {
+      await S("s4", "s4.launch", "Launch the configured app and open Admin in Settings", async () => {
         h = await launchApp(box, options);
         h.label = "H";
         const page = await chatReady();
         adminPage4 = await openAdminWindow(page);
-        focus(adminPage4);
         await h.app.evaluate(({ app: a }) => void a);
         await op.click(adminPage4.locator("#environment-diagnostics > summary"));
       }, { critical: true });
@@ -1014,19 +1007,32 @@ module.exports = {
             await sleep(1000);
           }
         }
-        await adminPage4.reload();
+        await adminPage4.evaluate(() => location.reload());
         await adminPage4.locator("#runtime-diagnostics").waitFor({ state: "visible", timeout: 30000 });
         await untilTrue(async () => /Startup error: .*3 times/.test(await diagnostics.innerText()) && /Last exit: -9/.test(await diagnostics.innerText()), "diagnostics: " + (await diagnostics.innerText()), 30000);
         const text = await diagnostics.innerText();
         op.check(text.indexOf("Startup error") < text.indexOf("Last exit"), "order: " + text);
-        await shoot(adminPage4, "s4-startup-error-last-exit");
+        await shoot(chatNow(), "s4-startup-error-last-exit");
         h.diagnostics = text;
       }, { lint: true });
 
-      await S("s4", "s4.admin-visual", "Admin diagnostics at 960x640 and 1280x800, light and dark", async () => {
-        const measured = await matrix(adminPage4, "admin", adminUrl(), "s4-admin-diagnostics");
-        const spill = await adminPage4.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-        op.check(spill <= 0, `the page scrolls sideways by ${spill}px (${measured.join(" ")})`);
+      await S("s4", "s4.admin-visual", "Admin diagnostics in Settings at 960x640 and 1280x800, light and dark", async () => {
+        const page = chatNow();
+        const measured = [];
+        let spill = 0;
+        for (const dark of [false, true]) {
+          await op.click(page.locator("#settings-close"));
+          await setTheme(page, "chat", dark);
+          const frame = await openAdminWindow(page);
+          for (const [width, height] of SIZES) {
+            const inner = await resizeTo(page, harnessUrl(), width, height);
+            await sleep(300);
+            await shoot(page, `s4-admin-diagnostics-${width}x${height}-${dark ? "dark" : "light"}`);
+            spill = Math.max(spill, await frame.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth));
+            measured.push(`${width}x${height}:${inner.join("x")}${dark ? "d" : "l"}`);
+          }
+        }
+        op.check(spill <= 0, `the admin scrolls sideways by ${spill}px (${measured.join(" ")})`);
       });
 
       await S("s4", "s4.restart-harness", "Start the harness again from the admin (back to a healthy state)", async () => {
@@ -1064,7 +1070,7 @@ module.exports = {
         const page = chat1();
         fs.appendFileSync(path.join(box.backend, "agent_service/errors.py"), "\n# operator: python edit\n");
         await untilTrue(async () => /Restart to finish the update/.test(await versionText(chat1())), "no restart notice after a Python change: " + (await versionText(chat1())), 120000, 1000);
-        await op.click(page.locator("#settings"));
+        await page.keyboard.press("Control+,");
         await sleep(600);
         await shoot(chat1(), "s1-restart-notice");
         await op.click(page.locator("#settings-close"));

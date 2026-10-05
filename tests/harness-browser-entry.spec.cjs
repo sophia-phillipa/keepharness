@@ -98,7 +98,7 @@ const { spawn } = require("node:child_process");
     );
     await page.goto(canonical);
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
-    await page.click("#settings");
+    await page.keyboard.press("Control+,");
     await page.locator("[data-panel-order=conversations-right]").click();
     await page.click("#settings-close");
     const saved = await context.storageState();

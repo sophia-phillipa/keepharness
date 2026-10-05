@@ -82,7 +82,7 @@ module.exports = {
     });
 
     await op.step("about", "Open About from Settings: it describes the app and offers the tour", async () => {
-      await op.click(page.locator("#settings"));
+      await page.keyboard.press("Control+,");
       await op.click(page.locator("#about"));
       await op.see(page.locator("#about-dialog"));
       await op.seeText(page.locator("#about-dialog"), /About KeepHarness/);
@@ -91,7 +91,7 @@ module.exports = {
 
     await op.step("about-tour", "Restart the tour from About, then skip it", async () => {
       if (!(await page.locator("#about-dialog").isVisible())) {
-        if (!(await page.locator("#settings-dialog").isVisible())) await op.click(page.locator("#settings"));
+        if (!(await page.locator("#settings-dialog").isVisible())) await page.keyboard.press("Control+,");
         await op.click(page.locator("#about"));
       }
       await op.click(page.locator("#take-tour"));

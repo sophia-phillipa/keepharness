@@ -46,7 +46,8 @@ async function fits(p, s) {
   );
 }
 async function settings(p) {
-  await p.click("#settings");
+  await p.locator("#settings").focus();
+  await p.keyboard.press("Control+,");
   await visible(p, "#settings-dialog");
 }
 async function sidebar(p) {

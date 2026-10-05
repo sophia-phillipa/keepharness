@@ -165,7 +165,7 @@ async function unobscured(locator) {
     await check('A2-F5 tour restores focus after its desktop opener becomes hidden', async () => {
       for (const exit of ['Escape', 'Skip']) {
         const page = await fixture(browser, 1000);
-        await page.locator('#settings').click();await page.locator('#about').click();
+        await page.keyboard.press("Control+,");await page.locator('#about').click();
         await page.locator('#about-dialog [data-tour-action=start]').click();
         await page.setViewportSize({ width: 400, height: 844 });
         await page.waitForFunction(() => document.getElementById('activity-panel').hidden && !document.getElementById('about').checkVisibility());

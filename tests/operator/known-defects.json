@@ -146,7 +146,7 @@
       "kinds": [
         "overlaps"
       ],
-      "match": "\"b\":\"(#settings-|#setup|#admin-shortcut|#space-|#page-|#pages-|#schedule|#agent-|#project-(name|dialog|directory|create|selected)|#rename-|#delete-|#conversation-search|#about|#take-tour)",
+      "match": "\"b\":\"(#settings-|#setup|#space-|#page-|#pages-|#schedule|#agent-|#project-(name|dialog|directory|create|selected)|#rename-|#delete-|#conversation-search|#about|#take-tour)",
       "note": "A page control under an open modal dialog: the shared lint hit-test keeps pairs where the dialog side is on top."
     }
   ]

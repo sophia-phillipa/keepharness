@@ -139,7 +139,7 @@ async function actualContext(browser) {
     await actual.page.locator("#tour-card").waitFor();
     assert.match(await actual.page.locator("#tour-title").innerText(), /Write and route/);
     await actual.page.keyboard.press("Escape");
-    await actual.page.locator('#settings').click();await actual.page.locator('#about').click();
+    await actual.page.keyboard.press("Control+,");await actual.page.locator('#about').click();
     assert.equal(await actual.page.locator("#about-dialog").isVisible(), true);
     await actual.page.locator("#take-tour").click();
     assert.equal(await actual.page.locator("#about-dialog").isVisible(), false, "replay closes About before spotlighting the app");
@@ -176,7 +176,7 @@ async function actualContext(browser) {
     assert.equal(await actual.page.locator("#tour-card").count(), 0);
     assert.equal(await actual.page.locator("#run-console").isVisible(), true, "tour Escape is not handled again by the console");
     assert.equal(await actual.page.evaluate(() => document.activeElement?.id), "prompt", "replay returns to the composer: its opener, About, now lives in the closed Settings (D43)");
-    await actual.page.locator('#settings').click();await actual.page.locator('#about').click();
+    await actual.page.keyboard.press("Control+,");await actual.page.locator('#about').click();
     await actual.page.locator("#take-tour").click();
     await actual.page.locator("#tour-card").waitFor();
     await actual.page.evaluate(() => setReadiness(false, "Connection interrupted"));

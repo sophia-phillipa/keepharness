@@ -88,6 +88,12 @@ const path = require("node:path");
     async function openWithKeyboardAndEscape(openerId, dialogId) {
       await page.locator("#" + openerId).focus();
       await page.keyboard.press("Enter");
+      if (openerId === "settings") {
+        // The Settings button opens a submenu; its first item opens the dialog.
+        await page.waitForFunction(() => document.activeElement?.getAttribute("role") === "menuitem");
+        await page.keyboard.press("Enter");
+        await page.locator("#" + dialogId).waitFor({ state: "visible" });
+      }
       const opened = await page.locator("#" + dialogId).isVisible();
       await page.keyboard.press("Escape");
       const closed = !(await page.locator("#" + dialogId).isVisible());
@@ -120,6 +126,8 @@ const path = require("node:path");
     // setup-dialog is reached from inside settings-dialog.
     await page.locator("#settings").focus();
     await page.keyboard.press("Enter");
+    await page.waitForFunction(() => document.activeElement?.getAttribute("role") === "menuitem");
+    await page.keyboard.press("Enter"); // the Settings submenu opens first; its first item opens the dialog
     await page.locator("#setup").focus();
     await page.keyboard.press("Enter");
     const setupOpened = await page.locator("#setup-dialog").isVisible();
@@ -155,6 +163,8 @@ const path = require("node:path");
     // focusable control wraps to the first, and Shift+Tab on the first wraps to the last.
     await page.locator("#settings").focus();
     await page.keyboard.press("Enter");
+    await page.waitForFunction(() => document.activeElement?.getAttribute("role") === "menuitem");
+    await page.keyboard.press("Enter"); // the Settings submenu opens first; its first item opens the dialog
     let escapes = 0;
     let escapee = null;
     for (let i = 0; i < 20; i++) {
@@ -326,7 +336,7 @@ const path = require("node:path");
       }],
       ["settings", async () => {
         await page.keyboard.press("Escape");
-        await page.click("#settings");
+        await page.keyboard.press("Control+,");
       }],
     ];
     const lowContrast = [];
