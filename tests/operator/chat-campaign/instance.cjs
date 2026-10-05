@@ -135,9 +135,20 @@ function prepareFolders() {
   seedAll();
 }
 
+const S1B = { boat: "Marlin Dusk", departure: "06:40", beaconOld: "BEACON-2210", beaconNew: "BEACON-8843" };
+
 function seedAll() {
   seedProject();
   seedSlice1();
+  seedSlice1b();
+}
+
+// Slice 1b seeds: two small attachments (outside every project folder) and a file the run edits between two asks.
+function seedSlice1b() {
+  const dir = path.join(paths.projects, "attach");
+  put(path.join(dir, "harbor-memo.txt"), `Harbor memo: the pilot boat is named ${S1B.boat}. It leaves the quay at ${S1B.departure} with a crew of 5 and carries 12 crates of salted herring.\n`);
+  put(path.join(dir, "average.py"), 'def average(values):\n    """Return the mean of a non-empty list."""\n    return sum(values) / (len(values) + 1)\n');
+  put(path.join(paths.home, S1.main, "facts/gamma.txt"), `The gamma beacon code is ${S1B.beaconOld}.\n`);
 }
 
 function put(file, text) {
@@ -284,7 +295,7 @@ async function stop() {
   console.log(`ports ${HARNESS_PORT}/${ADMIN_PORT} free`);
 }
 
-module.exports = { paths, ROOT, HARNESS_PORT, ADMIN_PORT, MODELS, EFFORT, PROJECT_NAME, FACTS, S1, FACTS_FILE, adminApi, adminLogin, httpRequest, portOpen, until, summary, sleep, readJson };
+module.exports = { paths, ROOT, HARNESS_PORT, ADMIN_PORT, MODELS, EFFORT, PROJECT_NAME, FACTS, S1, S1B, seedSlice1b, FACTS_FILE, adminApi, adminLogin, httpRequest, portOpen, until, summary, sleep, readJson };
 
 if (require.main === module) {
   const command = process.argv[2];

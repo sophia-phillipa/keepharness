@@ -8,7 +8,7 @@
 //     NODE_PATH=<node_modules with playwright> PLAYWRIGHT_MODULE=<same>/playwright \
 //     node tests/operator/areas/20-chat-real-providers.cjs
 //
-// Env: CHAT_SLICE (pilot|luna|deepseek|s1a), CHAT_SCENARIOS (comma list, overrides the slice),
+// Env: CHAT_SLICE (pilot|luna|deepseek|s1a|s1b), CHAT_SCENARIOS (comma list, overrides the slice),
 // CHAT_BUDGET (real prompts allowed), CHAT_DEEPSEEK_WAIT_MS, CHAT_APP (an inspect-enabled copy of the
 // packaged binary: Playwright cannot attach to the production package, whose inspect fuse is off).
 // Known limitation: the desktop attaches to the running admin, so closing the app does not stop
@@ -21,7 +21,7 @@ const path = require("node:path");
 const instance = require("../chat-campaign/instance.cjs");
 const { chooseModel, chooseAccess, newChat, submit, waitAnswer, dismissTour } = require("../lib/app.cjs");
 
-const { paths, FACTS, S1, PROJECT_NAME, adminApi, portOpen } = instance;
+const { paths, FACTS, S1, S1B, seedSlice1b, PROJECT_NAME, adminApi, portOpen } = instance;
 const REPO = path.resolve(__dirname, "../../..");
 const ADMIN_PORT = "18641";
 const HARNESS_PORT = "18640";
@@ -40,6 +40,7 @@ const SLICES = {
   luna: ["luna-short"],
   deepseek: ["await-deepseek-key"],
   s1a: ["s1-01", "s1-02", "s1-03", "s1-04", "s1-05"],
+  s1b: ["s1-06", "s1-07", "s1-08", "s1-09", "s1-10"],
 };
 const PROJECT_LABEL = process.env.CHAT_PROJECT_LABEL || "Campaign notes"; // CHAT_PROJECT_LABEL: dry runs use a throwaway project
 const MAIN_DIR = path.join(paths.home, S1.main);
@@ -243,6 +244,157 @@ const SCENARIOS = {
       c.done();
     }, { lint: false });
   },
+  "s1-06": async (op) => {
+    await op.step("s1-06", "Now: S1-06, a project without a folder: a general question, then a file request", async () => {
+      const c = soft();
+      const label = "Campaign loose";
+      await op.click(op.page.locator("#add-project"));
+      await op.page.locator("#project-dialog").waitFor({ state: "visible", timeout: 10000 });
+      await op.fill(op.page.locator("#project-name"), label);
+      const create = op.page.locator("#project-create");
+      if (await create.isDisabled()) {
+        c.ok(false, "the Add project dialog does not allow creating a project without a folder (create button disabled)");
+        await op.page.keyboard.press("Escape");
+        c.done();
+      }
+      await op.click(create);
+      await op.page.locator("#project-dialog").waitFor({ state: "hidden", timeout: 20000 });
+      await op.seeText(op.page.locator("#sidebar"), new RegExp(label));
+      await ensureCodexProject(label);
+      await newChat(op);
+      await chooseProject(op, label);
+      await chooseModel(op, "gpt-5.6-sol");
+      await chooseEffort(op, "Medium");
+      await chooseAccess(op, "Read only");
+      await ask(op, "s1-06-general", "What is the tallest animal on land? Answer in one short sentence.", /giraffe/i);
+      await ask(op, "s1-06-file", "Read the file facts/alpha.txt in this project and tell me what it says. If this project has no files, say so plainly.", /\S/);
+      c.ok(!/Failed|Interrupted/.test(ctx.last.pill), `the file request ended as ${ctx.last.pill}`);
+      c.ok(await op.page.locator("#messages article.assistant").count() === 2, "the history does not show 2 assistant messages");
+      await op.click(op.page.locator("#view-code"));
+      await sleep(1200);
+      // The Files panel of a folder-less project says no root is authorized; the "Browse authorized server folders" tree below it is a server-wide browser, not the project's tree.
+      const noRoot = await op.page.getByText(/No project root is authorized/).filter({ visible: true }).count();
+      await op.page.screenshot({ path: path.join(ctx.out, "shots", "s1-06-code-view.png"), timeout: 15000 }).catch(() => {});
+      record({ scenario: "s1-06", no_root_notice: noRoot });
+      c.ok(noRoot > 0, "the Files panel of the folder-less project does not say that no project root is authorized");
+      await op.click(op.page.locator("#view-chat"));
+      c.done();
+    }, { lint: false });
+  },
+  "s1-07": async (op) => {
+    await op.step("s1-07", "Now: S1-07, attaching a text file and a code file, then a summary and a bug review", async () => {
+      const c = soft();
+      seedSlice1b();
+      await ensureProject(op, "Campaign edits");
+      await newChat(op);
+      await chooseProject(op, "Campaign edits");
+      await chooseModel(op, "gpt-5.6-sol");
+      await chooseEffort(op, "Medium");
+      await chooseAccess(op, "Read only");
+      const dir = path.join(paths.projects, "attach");
+      const [chooser] = await Promise.all([op.page.waitForEvent("filechooser", { timeout: 10000 }), op.click(op.page.locator("#attach"))]);
+      await chooser.setFiles([path.join(dir, "harbor-memo.txt"), path.join(dir, "average.py")]);
+      await op.until(async () => (await op.page.locator("#attachments .attachment").count()) >= 2, "the two attachment chips did not appear", 20000);
+      const chips = await op.page.locator("#attachments .attachment .attachment-name").allInnerTexts();
+      c.ok(chips.includes("harbor-memo.txt") && chips.includes("average.py"), `chips: ${JSON.stringify(chips)}`);
+      await op.page.screenshot({ path: path.join(ctx.out, "shots", "s1-07-chips.png"), timeout: 15000 }).catch(() => {});
+      await ask(op, "s1-07-summary", "Summarize the attached harbor-memo.txt in one sentence, including the boat's name.", /\S/);
+      const t1 = await op.page.locator("#messages article.assistant").last().innerText();
+      c.ok(new RegExp(S1B.boat, "i").test(t1), "the summary does not cite the boat name from the text attachment");
+      await ask(op, "s1-07-bug", "Review the attached average.py for a bug. Name the faulty expression.", /\S/);
+      const t2 = await op.page.locator("#messages article.assistant").last().innerText();
+      c.ok(/len\(values\)\s*\+\s*1|\+\s*1/.test(t2), "the bug review does not name the planted `len(values) + 1` expression");
+      await ask(op, "s1-07-time", "Which time does the boat in harbor-memo.txt leave the quay? Reply with just the time.", new RegExp(S1B.departure));
+      const sent = await op.page.locator("#messages .attachment").count();
+      record({ scenario: "s1-07", chips, sent_attachments_in_history: sent });
+      c.ok(sent >= 2, `the sent message shows ${sent} attachment items, expected 2`);
+      c.done();
+    }, { lint: false });
+  },
+  "s1-08": async (op) => {
+    await op.step("s1-08", "Now: S1-08, editing a seeded file on disk between two asks", async () => {
+      const c = soft();
+      seedSlice1b();
+      const file = path.join(MAIN_DIR, "facts/gamma.txt");
+      await ensureProject(op, "Campaign edits");
+      await newChat(op);
+      await chooseProject(op, "Campaign edits");
+      await chooseModel(op, "gpt-5.6-sol");
+      await chooseEffort(op, "Medium");
+      await chooseAccess(op, "Read only");
+      await ask(op, "s1-08-before", "What is the gamma beacon code in facts/gamma.txt? Reply with just the code.", new RegExp(S1B.beaconOld));
+      await op.caption("Now: editing facts/gamma.txt on disk");
+      fs.writeFileSync(file, `The gamma beacon code is ${S1B.beaconNew}.\n`);
+      await ask(op, "s1-08-after", "Read facts/gamma.txt again. What is the gamma beacon code now? Reply with just the code.", /\S/);
+      const t2 = await op.page.locator("#messages article.assistant").last().innerText();
+      c.ok(t2.includes(S1B.beaconNew) && !t2.includes(S1B.beaconOld), `the second answer is not the new value: ${t2.slice(0, 120)}`);
+      await ask(op, "s1-08-quote", "Quote the full content of facts/gamma.txt exactly.", /\S/);
+      const t3 = await op.page.locator("#messages article.assistant").last().innerText();
+      c.ok(t3.includes(S1B.beaconNew) && !t3.includes(S1B.beaconOld), `the quoted content is not the new value: ${t3.slice(0, 120)}`);
+      await sidebarNit(op);
+      c.done();
+    }, { lint: false });
+  },
+  "s1-09": async (op) => {
+    await op.step("s1-09", "Now: S1-09, one conversation across Chat, Code and Chat again", async () => {
+      const c = soft();
+      await newChat(op);
+      await chooseModel(op, "gpt-5.6-sol");
+      await chooseEffort(op, "Medium");
+      const counts = () => op.page.evaluate(() => ({ user: document.querySelectorAll("#messages article.user").length, assistant: document.querySelectorAll("#messages article.assistant").length, userTexts: [...document.querySelectorAll("#messages article.user")].map((a) => a.innerText.trim().slice(0, 60)) }));
+      await ask(op, "s1-09-chat", "Name one primary color. Reply with one word.", /\S/);
+      await op.click(op.page.locator("#view-code"));
+      await sleep(1000);
+      const title = await op.page.locator("#conversation-title").innerText();
+      await ask(op, "s1-09-code", "Name one planet of the solar system. Reply with one word.", /\S/);
+      const inCode = await counts();
+      await op.click(op.page.locator("#view-chat"));
+      await sleep(1000);
+      const back = await counts();
+      c.ok((await op.page.locator("#conversation-title").innerText()) === title, "the conversation title changed between Code and Chat");
+      await ask(op, "s1-09-back", "Name one ocean. Reply with one word.", /\S/);
+      const end = await counts();
+      record({ scenario: "s1-09", in_code: inCode, back, end });
+      c.ok(inCode.user === 2 && inCode.assistant === 2, `in Code view: ${JSON.stringify(inCode)}`);
+      c.ok(back.user === 2 && back.assistant === 2, `back in Chat: ${JSON.stringify(back)}`);
+      c.ok(end.user === 3 && end.assistant === 3 && new Set(end.userTexts).size === 3, `after the third turn: ${JSON.stringify(end)}`);
+      c.done();
+    }, { lint: false });
+  },
+  "s1-10": async (op) => {
+    await op.step("s1-10", "Now: S1-10, closing and opening the app three times, then two short prompts", async () => {
+      const c = soft();
+      const opens = [];
+      for (let i = 1; i <= 3; i++) {
+        const before = await bounds(ctx.handle);
+        await op.caption(`Now: closing the app (${i} of 3)`);
+        await quitApp(ctx.handle);
+        await sleep(1500);
+        const started = Date.now();
+        await openApp(op.session);
+        const ms = Date.now() - started;
+        await dismissTourSoon(op);
+        const after = await bounds(ctx.handle);
+        opens.push({ ms, before, after });
+        record({ scenario: "s1-10-open", n: i, open_ms: ms, bounds_before: before, bounds_after: after });
+        c.ok(JSON.stringify(before) === JSON.stringify(after), `window bounds changed on reopen ${i}: ${JSON.stringify(before)} -> ${JSON.stringify(after)}`);
+      }
+      await newChat(op);
+      await chooseModel(op, "gpt-5.6-sol");
+      await chooseEffort(op, "Medium");
+      const ttft = [];
+      const total = [];
+      for (const [name, text, pattern] of [["a", "What is the capital of France? Answer in one short sentence.", /Paris/], ["b", "What is the capital of Japan? Answer in one short sentence.", /Tokyo/]]) {
+        await ask(op, "s1-10-" + name, text, pattern);
+        ttft.push(ctx.last.ttft_ms);
+        total.push(ctx.last.total_ms);
+      }
+      const med = (a) => { const v = a.filter((x) => x != null).sort((x, y) => x - y); return v.length ? (v[Math.floor((v.length - 1) / 2)] + v[Math.ceil((v.length - 1) / 2)]) / 2 : null; };
+      record({ scenario: "s1-10", open_ms: opens.map((o) => o.ms), ttft_median_ms: med(ttft), total_median_ms: med(total) });
+      c.ok(med(ttft) != null, "no TTFT was measured for the baseline prompts");
+      c.done();
+    }, { lint: false });
+  },
   "dom-probe": async (op) => {
     await op.step("dom-probe", "Now: reading the reply DOM of the last conversation", async () => {
       record({ scenario: "dom-probe", shape: await op.page.evaluate(() => {
@@ -347,6 +499,12 @@ async function createProject(op, label, folder) {
   await op.page.locator("#project-dialog").waitFor({ state: "hidden", timeout: 20000 });
   await op.seeText(op.page.locator("#sidebar"), new RegExp(label));
   await ensureCodexProject(label);
+}
+
+// Create the project with the main seeded folder unless the sidebar already lists it.
+async function ensureProject(op, label) {
+  if ((await op.page.locator("#sidebar").innerText()).includes(label)) return;
+  await createProject(op, label, S1.main);
 }
 
 async function openProjectMenu(op, label) {

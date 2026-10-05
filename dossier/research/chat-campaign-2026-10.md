@@ -152,6 +152,50 @@ Checks that passed: reply and follow-up in the same history (2 user and 2 assist
 
 **Notes**: UI project creation works, but projects created in the UI do not appear in the admin settings (`projects`, Codex `projects` stay `chat-facts` only) and chats in them still work. A throwaway dry-run project was created and removed from the list before the run, so the sidebar shows "Removed projects (1)". S1-05 used a new conversation after adding the folder. The send button turns disabled while running and has no Stop state. The TTFT probe and seeds live in the area script and `instance.cjs` (folders `campaign-main`, `campaign-annex` under the harness HOME, outside file under `projects/outside/`).
 
+### Round 2 (slice 1b), 2026-10-05
+
+- **Slice**: 1, part b (S1-06 to S1-10)
+- **Provider, model, effort**: Codex, `gpt-5.6-sol`, Medium
+- **Scenarios**: S1-06, S1-07, S1-08, S1-09, S1-10 (run visibly, once)
+- **Results**: 5 / 6 checks passed as recorded by the run (13 / 13 prompts spent). The one failure is a bug in the run's own S1-06 check: it counted `#files-tree` items, but that tree is the server-wide "Browse authorized server folders" browser (Local Folders: `campaign-annex`, `campaign-main`), not the project's tree. The Files panel of the folder-less project correctly reads "No project root is authorized." The check was corrected afterwards to look for that notice; no prompt was resent. S1-06 counts as passed on the evidence in `shots/s1-06-code-view.png`.
+- **Environment**: desktop 0.16.0 (`f384035`), instance on 18640/18641, no quota or rate-limit text seen.
+
+| Turn | TTFT (ms) | Total (ms) | Input-to-paint median (ms) | Electron RSS (MB) | Harness RSS (MB) |
+| --- | --- | --- | --- | --- | --- |
+| 1 S1-06 general question | 4482 | 5782 | 13.3 | 764 | 250 |
+| 2 S1-06 file request | 7595 | 12390 | 19.5 | 760 | 276 |
+| 3 S1-07 summary | 3861 | 5654 | 11.4 | 766 | 301 |
+| 4 S1-07 bug review | 4598 | 6145 | 15.2 | 769 | 311 |
+| 5 S1-07 departure time | 5599 | 5720 | 18.9 | 772 | 313 |
+| 6 S1-08 before edit | 7078 | 12883 | 15.2 | 781 | 312 |
+| 7 S1-08 after edit | 10096 | 10224 | 13.8 | 782 | 352 |
+| 8 S1-08 quote | 10118 | 11402 | 23.2 | 764 | 351 |
+| 9 S1-09 Chat | 4845 | 4887 | 12.0 | 769 | 248 |
+| 10 S1-09 Code view | 5595 | 5877 | 20.2 | 774 | 262 |
+| 11 S1-09 back in Chat | 3596 | 5135 | 23.6 | 774 | 252 |
+| 12 S1-10 baseline a | 4080 | 5641 | 15.4 | 759 | 250 |
+| 13 S1-10 baseline b | 5596 | 5714 | 17.6 | 762 | 257 |
+
+| Metric | Value | Note |
+| --- | --- | --- |
+| Median TTFT (s) | 5.6 | range 3.6 to 10.1; the two file-reading turns after the edit (S1-08) were the slowest |
+| Median total reply time (s) | 5.8 | range 4.9 to 12.9 |
+| Input-to-paint latency (ms) | 15.4 | median of per-turn medians; p95 stays near 31 to 32 |
+| Electron RSS / CPU | 769 MB / 23 % | range 759 to 782 MB |
+| Harness RSS / CPU | 276 MB / 4 % | range 248 to 352 MB |
+| App open (s) | 1.07 | first open |
+| Reopen (s) | 1.14, 1.01, 1.07 | three close and open cycles |
+| Window bounds before / after | identical, 3 of 3 | `x 240, y 68, 1440 x 900` each time |
+| Baseline TTFT / total, two short prompts | 4.8 s / 5.7 s | S1-10 fresh conversation (medians of 2) |
+
+Checks that passed: a project created in the UI without a folder works and answers a general question; asked to read `facts/alpha.txt` it said it cannot (no filesystem tool in that session) without a crash, and its Files panel states that no project root is authorized; both attachment chips (`harbor-memo.txt`, `average.py`) appeared in the composer and in the sent message, the summary cited the boat name `Marlin Dusk`, the review named `len(values) + 1`, and a later turn still answered `06:40` from the attachment; after editing `facts/gamma.txt` on disk the next ask returned `BEACON-8843` and the exact quote contained no trace of `BEACON-2210`; Chat, Code and Chat again kept one conversation (2 user and 2 assistant messages in Code and after returning, 3 and 3 after the third turn, no duplicates, same title); the conversation was restored on all three reopens; the window kept its bounds.
+
+**Bugs**
+
+- No new bug. C-04 (grey block on the active row) reproduces: the active row of the `Campaign edits` project conversation shows the grey rounded block on its right end. Screenshot: `~/.cache/kho/chat/runs/s1b/shots/sidebar-project-active.png`.
+
+**Notes**: the S1-06 Code view lists the server-wide folders (`campaign-main`, `campaign-annex`) under "Browse authorized server folders" even for a project without a folder; the label says authorized server folders, so it is treated as designed and not filed. The prompts of S1-07 attach files from `~/.cache/kho/chat/projects/attach/`, outside every project folder, so the chat could only know them through the attachment. S1-09 used the same composer in Code view. C-02 was not exercised on purpose.
+
 ## Bugs index
 
 | Id | Severity | Title | Status | Fix commit |
@@ -159,7 +203,7 @@ Checks that passed: reply and follow-up in the same history (2 user and 2 assist
 | C-01 | nit | New-chat project picker reads "Choose project", not "No project" | open | |
 | C-02 | major (security) | Read only does not remove Codex's native shell; reads escape the authorized folders | open, fix in progress | |
 | C-03 | minor | Run steps show "Ran tool" without the file read | open | |
-| C-04 | nit | Grey block cuts the right edge of the active sidebar row | open | |
+| C-04 | nit | Grey block cuts the right edge of the active sidebar row | open (reproduced in round 2) | |
 
 ## Cross-round comparison
 
@@ -167,3 +211,4 @@ Checks that passed: reply and follow-up in the same history (2 user and 2 assist
 | --- | --- | --- | --- | --- |
 | 0 pilot | Codex Sol Medium | n/a (probe fixed in slice 1) | 6.6 | Electron ~740, harness ~240-326 |
 | 1a | Codex Sol Medium | 6.8 | 9.1 | Electron ~763, harness ~325 |
+| 1b | Codex Sol Medium | 5.6 | 5.8 | Electron ~769, harness ~276 |
