@@ -287,3 +287,83 @@ def test_unauthenticated_and_foreign_origin_are_refused(cfg):
         assert anonymous.get("/v1/ui-state").status_code == 401
     with TestClient(create_app(cfg), headers={"Authorization": "Bearer local", "Origin": "http://evil.example"}) as client:
         assert client.patch("/v1/ui-state", json={"values": {}}).json()["code"] == "origin_denied"
+
+
+def stored_values(cfg) -> dict:
+    return json.loads(stored_file(cfg).read_text())["values"]
+
+
+def test_a_patch_keeps_stored_values_this_build_rejects_or_truncates(api, cfg):
+    patch(api, theme="paper")
+    document = json.loads(stored_file(cfg).read_text())
+    oversize = {f"p{i}": True for i in range(250)}
+    document["values"].update(
+        {"reading_size": "21", "project_expanded": oversize, "panel_widths": {"sidebar": 5, "future": 1}}
+    )
+    stored_file(cfg).write_text(json.dumps(document))
+    body = patch(api, theme="graphite").json()["values"]
+    assert body["theme"] == "graphite"
+    assert "reading_size" not in body
+    assert len(body["project_expanded"]) == 200
+    assert body["panel_widths"] == {"sidebar": 5}
+    stored = stored_values(cfg)
+    assert stored["reading_size"] == "21"
+    assert stored["project_expanded"] == oversize
+    assert stored["panel_widths"] == {"sidebar": 5, "future": 1}
+
+
+def test_a_patch_on_a_key_replaces_or_clears_its_rejected_stored_value(api, cfg):
+    patch(api, theme="paper")
+    document = json.loads(stored_file(cfg).read_text())
+    document["values"].update({"reading_size": "21", "panel_order": "up"})
+    stored_file(cfg).write_text(json.dumps(document))
+    patch(api, reading_size="17", panel_order=None)
+    stored = stored_values(cfg)
+    assert stored["reading_size"] == "17"
+    assert "panel_order" not in stored
+
+
+def test_a_single_value_over_its_cap_is_422_not_413(api):
+    big = {("k" * 120) + str(i): True for i in range(200)}
+    size = len(json.dumps({"values": {"project_expanded": big}}))
+    assert ui_state.VALUE_BYTES < size < ui_state.BODY_BYTES
+    response = patch(api, project_expanded=big)
+    assert (response.status_code, response.json()["code"]) == (422, "ui_state_invalid_value")
+
+
+def test_a_patch_that_changes_nothing_does_not_touch_the_file(api, cfg):
+    patch(api, theme="paper")
+    path = stored_file(cfg)
+    before = path.stat()
+    for values in ({}, {"theme": "paper"}, {"reading_size": None}):
+        response = patch(api, **values)
+        assert response.status_code == 200
+        assert response.json()["values"] == {"theme": "paper"}
+    after = path.stat()
+    assert (after.st_ino, after.st_mtime_ns) == (before.st_ino, before.st_mtime_ns)
+
+
+@pytest.mark.parametrize(
+    "selection",
+    [
+        {"model": "gpt-6-astra", "effort": "xhigh"},  # Codex
+        {"model": "gpt-5.6-sol", "effort": "medium"},
+        {"model": "claude-opus-4-6[1m]", "effort": "max"},  # Claude, with its context suffix
+        {"model": "sonnet", "effort": "configured"},
+        {"model": "deepseek-v4-pro", "effort": "high"},  # DeepSeek
+        {"model": "auto", "effort": "configured"},  # Gemini
+        {"model": "qwen36-35b-a3b-ud-q3-k-m", "effort": "configured"},  # local profile
+        {"model": "org/model:tag", "effort": "low"},
+    ],
+)
+def test_chat_selection_accepts_real_model_and_effort_ids(api, selection):
+    assert patch(api, chat_selection=selection).json()["values"]["chat_selection"] == selection
+
+
+@pytest.mark.parametrize(
+    "selection",
+    [{"model": "gpt 6"}, {"effort": "high\n"}, {"model": "a" * 129}, {"model": "<b>x</b>"}],
+)
+def test_chat_selection_rejects_free_text(api, selection):
+    response = patch(api, chat_selection=selection)
+    assert (response.status_code, response.json()["field"]) == (422, "chat_selection")

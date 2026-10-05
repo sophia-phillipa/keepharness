@@ -4,8 +4,8 @@ The browser used to keep these in ``localStorage``, which belongs to one origin 
 port) and is lost with the port, the Electron profile or the runtime file. Only the local owner has
 a store. Nothing here is conversation content, a draft, a secret or a file path.
 
-Reads are tolerant, writes are strict. A stored key that is unknown or invalid is dropped and the
-rest loads; a file that cannot be parsed is moved aside as a timestamped ``.bak`` and the defaults
+Reads are tolerant, writes are strict. A stored key that is unknown or invalid is not served and the
+rest loads (a write keeps its raw value, so a downgrade never erases it); a file that cannot be parsed is moved aside as a timestamped ``.bak`` and the defaults
 load. A write names only allow-listed keys with valid values, or nothing is written.
 """
 
@@ -148,6 +148,9 @@ _identifier = text(pattern=IDENTIFIER)
 _token = text(pattern=re.compile(r"(?:%s)?" % IDENTIFIER.pattern))  # "" is a writer sentinel
 _project_id = text(pattern=PROJECT_ID)
 _width = number(0, 20000)
+# Model ids and efforts come from the provider catalogs (``gpt-5.6-sol``, ``claude-opus-4-6[1m]``,
+# ``qwen36-35b-a3b-ud-q3-k-m``); "" is a writer sentinel.
+_catalog_id = text(pattern=re.compile(r"[A-Za-z0-9._:/\[\]-]{0,128}"))
 # Each key is one preference the UI persists; ``dossier/releases/v0.16.0.md`` lists its writer.
 SCHEMA: dict[str, Check] = {
     "theme": text(pattern=re.compile(r"[a-z0-9-]{1,40}")),
@@ -155,7 +158,7 @@ SCHEMA: dict[str, Check] = {
     "panel_order": text(choices=("conversations-left", "conversations-right")),
     "panel_widths": record({"sidebar": _width, "activity_panel": _width}),
     "reading_size": text(choices=("15", "17", "19")),
-    "chat_selection": record({"model": text(), "effort": text()}),
+    "chat_selection": record({"model": _catalog_id, "effort": _catalog_id}),
     "project_list_preferences": mapping(
         _project_id,
         record({"favorite": flag, "hidden": flag, "hide_icon": flag}),
@@ -235,10 +238,11 @@ def quarantine(store: JsonFileRepository) -> bool:
     return True
 
 
-def load(store: JsonFileRepository, unknown: dict | None = None) -> tuple[dict, bool]:
+def load(store: JsonFileRepository, passthrough: dict | None = None) -> tuple[dict, bool]:
     """The valid stored values and whether the store is read-only.
 
-    Keys this build does not know (written by a newer one) go to ``unknown`` so a write keeps them.
+    A stored key this build does not know (written by a newer one), rejects or truncates (a stricter
+    or smaller schema) goes to ``passthrough`` with its raw value so a write keeps it unchanged.
     """
     read_only = not writable(store.folder)
     try:
@@ -254,12 +258,15 @@ def load(store: JsonFileRepository, unknown: dict | None = None) -> tuple[dict, 
     values = {}
     for key, value in stored.items():
         try:
-            if key in SCHEMA:
-                values[key] = validate(key, value, strict=False)
-            elif unknown is not None:
-                unknown[key] = value
+            if key not in SCHEMA:
+                raise Invalid
+            values[key] = validate(key, value, strict=False)
+            if values[key] == value:
+                continue
         except Invalid:
-            continue
+            pass
+        if passthrough is not None:
+            passthrough[key] = value
     return values, read_only
 
 
@@ -283,20 +290,25 @@ def update(config: dict, owner: str, changes: dict) -> dict:
             raise APIError("ui_state_invalid_value", 422, field=key) from None
     store = repository(config, owner)
     with _lock:
-        unknown: dict = {}
-        values, read_only = load(store, unknown)
+        passthrough: dict = {}
+        values, read_only = load(store, passthrough)
         if read_only:
-            raise APIError("ui_state_read_only", 409)
+            raise unsafe()
+        before = {**values, **passthrough}
         for key, value in checked.items():
+            passthrough.pop(key, None)
             if value is None:
                 values.pop(key, None)
             else:
                 values[key] = value
-        document = json.dumps({"version": VERSION, "values": {**unknown, **values}}, ensure_ascii=False)
+        merged = {**values, **passthrough}  # a kept raw value wins over its tolerant reading
+        if merged == before:
+            return view(values, False)
+        document = json.dumps({"version": VERSION, "values": merged}, ensure_ascii=False)
         try:
             store.replace(ENTRY, document)
         except OSError:
-            raise APIError("ui_state_read_only", 409) from None
+            raise unsafe() from None
     return view(values, False)
 
 
