@@ -24,6 +24,7 @@ SAMPLES = {
     "project_expanded": [{"p": False, "q": True}, {}],
     "right_panel_view": ["files", "activity"],
     "activity_open": [True, False],
+    "visual_markers": [True, False],
     "conversation_activity": [
         {"a" * 32: {"token": "b" * 32, "state": "completed", "unread": True}},
         {"c": {"token": "", "state": "running", "unread": False}},
@@ -40,6 +41,7 @@ OVER = {
     "reading_size": "16",
     "panel_order": "up",
     "sidebar_collapsed": 1,
+    "visual_markers": "on",
     "chat_selection": {"model": "m" * 201},
     "project_expanded": {f"p{i}": True for i in range(201)},
     "project_list_preferences": {f"p{i}": {} for i in range(201)},

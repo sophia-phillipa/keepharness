@@ -10,7 +10,7 @@ from adapters.shared.scoped import (
     scoped_home_read,
     scoped_home_write,
 )
-from agent_service.tool_metadata import event_metadata, item_target
+from agent_service.tool_metadata import event_metadata, item_markers, item_target
 from agent_service.tools import ToolError
 
 from .rpc import connection, execution_failed, provider_message, sync_title, usage_delta
@@ -157,6 +157,8 @@ async def run(
                         metadata = event_metadata(content)
                         if kind.endswith("started") and (found := item_target(content)):
                             metadata["target"] = found
+                        if kind.endswith("started"):
+                            metadata.update(item_markers(content))
                         event(
                             "tool_start" if kind.endswith("started") else "tool_end",
                             {

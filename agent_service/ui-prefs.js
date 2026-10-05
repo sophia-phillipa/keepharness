@@ -140,6 +140,7 @@
       },
     },
     last_section: { old: () => [], read: () => undefined, write: () => [] },
+    visual_markers: { old: () => [], read: () => undefined, write: () => [] },
   };
 
   const clone = (value) => (value !== null && typeof value === "object" ? JSON.parse(JSON.stringify(value)) : value);
@@ -147,7 +148,7 @@
   let server = false;
   let limits = {};
   let values = {}; // server mode: the confirmed-or-pending value of every key
-  const memory = {}; // local mode: keys with no old localStorage key (last_section)
+  const memory = {}; // local mode: keys with no old localStorage key (last_section, visual_markers)
   const pending = {}; // latest value per key not yet confirmed (null clears)
   const baseline = {}; // JSON of the last delivery the server confirmed, per key
   const inflight = {}; // JSON of the keepalive delivery still on its way, per key: exit events send only the delta

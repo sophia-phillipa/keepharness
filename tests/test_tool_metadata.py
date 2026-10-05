@@ -6,7 +6,9 @@ from agent_service.tool_metadata import (
     TARGET_LIMIT,
     command_name,
     event_metadata,
+    item_markers,
     item_target,
+    tool_markers,
     tool_target,
 )
 
@@ -295,3 +297,128 @@ def test_portable_history_does_not_forward_the_display_target_to_the_next_provid
     payload = {"_job_id": "j", "_state": "completed", "prompt": "hi"}
     evidence = portable_history(db, [(payload, {"answer": "ok"})])[0]["evidence"]
     assert evidence == [{"type": "tool_start", "data": {"tool": "Bash", "command_name": "ls"}}]
+
+
+@pytest.mark.parametrize(
+    ("tool", "args", "expected"),
+    [
+        ("Skill", {"skill": "code-review", "args": "x"}, {"skill": "code-review"}),
+        ("Skill", {"skill": "plugin:deploy"}, {"skill": "plugin:deploy"}),
+        ("Task", {"subagent_type": "python-code-engineer", "prompt": "p"}, {"agent": "python-code-engineer"}),
+        ("Agent", {"subagent_type": "Explore"}, {"agent": "Explore"}),
+        ("Read", {"file_path": "/h/.claude/skills/ponytail/SKILL.md"}, {"skill": "ponytail"}),
+        ("read_file", {"path": "/h/.agents/skills/graphify/SKILL.md"}, {"skill": "graphify"}),
+        ("Bash", {"command": "cat /h/.codex/skills/ponytail/SKILL.md"}, {"skill": "ponytail"}),
+        ("Read", {"file_path": "/w/facts/alpha.txt"}, {}),
+        ("Read", {"file_path": "SKILL.md"}, {}),
+        ("Edit", {"file_path": "/h/skills/x/SKILL.md"}, {}),
+        ("Bash", {"command": "ls -la"}, {}),
+        ("Skill", {"skill": "bad name!"}, {}),
+        ("Skill", {"skill": "x" * 65}, {}),
+        ("Skill", {"skill": 5}, {}),
+        ("Task", {"subagent_type": "../etc"}, {}),
+        ("Task", {"subagent_type": "ghp_abcdefghijklmnop"}, {}),
+        ("Skill", None, {}),
+        (None, {"skill": "x"}, {}),
+        ("mcp__srv__Skill", {"skill": "viaMcp"}, {"skill": "viaMcp"}),
+    ],
+)
+def test_tool_markers_name_skills_and_agents_only_with_safe_names(tool, args, expected):
+    assert tool_markers(tool, args) == expected
+
+
+def test_item_markers_cover_codex_commands_and_mcp_calls():
+    command = {"type": "commandExecution", "command": "sed -n 1,40p /h/skills/graphify/SKILL.md"}
+    assert item_markers(command) == {"skill": "graphify"}
+    assert item_markers({"type": "commandExecution", "command": "pwd"}) == {}
+    mcp = {"type": "mcpToolCall", "tool": "Skill", "arguments": {"skill": "ponytail"}}
+    assert item_markers(mcp) == {"skill": "ponytail"}
+    assert item_markers({"type": "fileChange", "changes": [{"path": "/h/s/SKILL.md"}]}) == {}
+    assert item_markers({"type": "webSearch"}) == {}
+
+
+def test_claude_skill_and_agent_names_arrive_with_the_full_message_and_the_tool_end():
+    events = []
+    state = Stream(lambda kind, data: events.append((kind, data)), root="/w")
+    for tool_id, name in (("s1", "Skill"), ("t1", "Task")):
+        state.consume(
+            {
+                "type": "stream_event",
+                "event": {
+                    "type": "content_block_start",
+                    "content_block": {"type": "tool_use", "id": tool_id, "name": name, "input": {}},
+                },
+            }
+        )
+    state.consume(
+        {
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {"type": "tool_use", "id": "s1", "name": "Skill", "input": {"skill": "ponytail"}},
+                    {"type": "tool_use", "id": "t1", "name": "Task", "input": {"subagent_type": "Explore"}},
+                ]
+            },
+        }
+    )
+    for tool_id in ("s1", "t1"):
+        state.consume(
+            {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": tool_id}]}}
+        )
+    assert "skill" not in events[0][1] and "agent" not in events[1][1]
+    assert events[2][1]["skill"] == "ponytail"
+    assert events[3][1]["agent"] == "Explore"
+
+
+def test_claude_full_start_input_carries_the_skill_name_and_gemini_skill_reads():
+    events = []
+    Stream(lambda kind, data: events.append(data)).consume(
+        {
+            "type": "stream_event",
+            "event": {
+                "type": "content_block_start",
+                "content_block": {
+                    "type": "tool_use",
+                    "id": "b1",
+                    "name": "Skill",
+                    "input": {"skill": "graphify"},
+                },
+            },
+        }
+    )
+    assert events[0]["skill"] == "graphify"
+    gemini = []
+    AcpStream(lambda kind, data: gemini.append(data), root="/w").consume(
+        {
+            "update": {
+                "sessionUpdate": "tool_call",
+                "toolCallId": "g1",
+                "kind": "read",
+                "status": "in_progress",
+                "locations": [{"path": "/h/skills/ponytail/SKILL.md"}],
+            }
+        }
+    )
+    assert gemini[0]["skill"] == "ponytail"
+
+
+def test_portable_history_does_not_forward_skill_and_agent_names():
+    import json
+    import sqlite3
+
+    from agent_service.conversation_context import portable_history
+
+    db = sqlite3.connect(":memory:")
+    db.row_factory = sqlite3.Row
+    db.execute("CREATE TABLE events(id INTEGER PRIMARY KEY, job TEXT, type TEXT, data TEXT)")
+    for data in (
+        {"tool": "Skill", "status": "completed", "skill": "ponytail"},
+        {"tool": "Task", "status": "completed", "agent": "Explore"},
+    ):
+        db.execute("INSERT INTO events(job,type,data) VALUES('j','tool_end',?)", (json.dumps(data),))
+    payload = {"_job_id": "j", "_state": "completed", "prompt": "hi"}
+    evidence = portable_history(db, [(payload, {"answer": "ok"})])[0]["evidence"]
+    assert [item["data"] for item in evidence] == [
+        {"tool": "Skill", "status": "completed"},
+        {"tool": "Task", "status": "completed"},
+    ]

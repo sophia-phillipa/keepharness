@@ -13,7 +13,7 @@ from adapters.shared.provider_setup import instructions
 from adapters.shared.workspace import readable_roots
 from agent_service.reader_mcp import SERVER_NAME as READER
 from agent_service.reader_mcp import server_spec as reader_spec
-from agent_service.tool_metadata import event_metadata, item_target
+from agent_service.tool_metadata import event_metadata, item_markers, item_target
 from agent_service.tools import ToolError
 from control.integrations import configurations, inventory
 
@@ -473,6 +473,8 @@ async def run_turn(
                     started = kind.endswith("started")
                     found = item_target(content, cwd) if started else None
                     target = {"target": found} if found else {}
+                    if started:
+                        target.update(item_markers(content))
                     event(
                         "tool_start" if started else "tool_end",
                         {
