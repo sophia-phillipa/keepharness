@@ -205,10 +205,11 @@ function handoffApps(event) {
 async function handoffOpen(event, payload) {
   if (!fromHarness(event)) return {opened: false, error: 'handoff_forbidden'};
   const {target, text} = payload ?? {};
-  if (!Object.hasOwn(HANDOFF_APPS, target) || typeof text !== 'string' || !text || text.length > HANDOFF_TEXT_MAX) return {opened: false, error: 'handoff_invalid'};
+  if (!Object.hasOwn(HANDOFF_APPS, target) || typeof text !== 'string' || !text || !text.isWellFormed() || text.length > HANDOFF_TEXT_MAX) return {opened: false, error: 'handoff_invalid'};
   if (!handoffInstalled(target)) return {opened: false, error: 'handoff_app_missing'};
   const {url, mode} = handoffUrl(target, text);
-  try { await shell.openExternal(url); } catch (error) { log(error.message); return {opened: false, error: 'handoff_open_failed'}; }
+  // A fixed line: the error message may carry the URL, and with it the prompt.
+  try { await shell.openExternal(url); } catch { log('handoff open failed'); return {opened: false, error: 'handoff_open_failed'}; }
   return {opened: true, mode};
 }
 function registerHandoff() {

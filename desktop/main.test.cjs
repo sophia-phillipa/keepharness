@@ -579,7 +579,7 @@ test('handoff-open validates the sender and the payload before anything is opene
   }
   assert.deepEqual(plain(await h.handlers.get(OPEN)({}, good)), { opened: false, error: 'handoff_forbidden' });
   const bad = [undefined, null, 'x', {}, { target: 'gemini', text: 'x' }, { target: 'https://evil.example/', text: 'x' }, { target: 'claude' },
-    { target: 'claude', text: '' }, { target: 'claude', text: 42 }, { target: 'claude', text: ['x'] }, { target: 'claude', text: 'x'.repeat(30001) }];
+    { target: 'claude', text: '' }, { target: 'claude', text: 42 }, { target: 'claude', text: ['x'] }, { target: 'claude', text: 'x'.repeat(30001) }, { target: 'claude', text: 'a\uD800b' }];
   for (const payload of bad) assert.deepEqual(plain(await open(HARNESS, payload)), { opened: false, error: 'handoff_invalid' }, JSON.stringify(payload)?.slice(0, 60));
   assert.deepEqual(plain(h.external), []);
   assert.deepEqual(plain(await open(HARNESS, { target: 'claude', text: 'x'.repeat(30000) })), { opened: true, mode: 'short' });
