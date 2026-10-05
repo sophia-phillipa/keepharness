@@ -241,6 +241,24 @@ const ORIGIN = "http://localhost:18990/";
     await page.waitForFunction(() => Math.abs(document.querySelector("#messages").scrollTop - 500) <= 40, null, { timeout: 5000 });
     console.log("PASS Reload restores the conversation scroll position");
 
+    // At the bottom, the record is "the end" (-1), so a longer reply or a shorter window still opens at the bottom.
+    await page.evaluate(() => { const box = document.querySelector("#messages"); box.scrollTo({ top: box.scrollHeight, behavior: "instant" }); });
+    await raf();
+    await page.evaluate(() => dispatchEvent(new Event("pagehide")));
+    assert.ok((await page.evaluate(() => JSON.parse(localStorage.getItem("conversation-scroll")))).some(([, top]) => top === -1));
+    await page.reload();
+    await page.locator("#startup-gate").waitFor({ state: "hidden" });
+    await page.waitForFunction(() => document.querySelector("#messages article.user")?.innerText.includes("Alpha"));
+    await page.waitForFunction(() => { const box = document.querySelector("#messages"); return box.scrollHeight - box.scrollTop - box.clientHeight < 48; }, null, { timeout: 5000 });
+    console.log("PASS A conversation left at the bottom reopens at the bottom");
+
+    // A corrupted stored value is ignored.
+    await page.evaluate(() => localStorage.setItem("conversation-scroll", "{"));
+    await page.reload();
+    await page.locator("#startup-gate").waitFor({ state: "hidden" });
+    await page.waitForFunction(() => document.querySelector("#messages article.user")?.innerText.includes("Alpha"));
+    console.log("PASS A corrupted scroll record is ignored");
+
     // Back, then Settings while the conversation is still loading: Back returns to that conversation.
     await fresh();
     await open("Alpha chat");

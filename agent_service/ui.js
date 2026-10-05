@@ -4615,8 +4615,11 @@ async function load(id, legacy = false, restoredView = null, scrollTop) {
     if (
       ["completed", "failed", "cancelled", "interrupted"].includes(latest.state)
     )
+    {
       await result(job, controller, latest);
-    else if (!restoredView) await watch();
+      // "The end" again once the final answer has rendered: it was not in the list above.
+      if (scrollTop < 0 && conversation === id) restoreScroll(scrollTop);
+    } else if (!restoredView) await watch();
     return ["queued", "running"].includes(latest.state);
   } catch (e) {
     if (request !== conversationLoad) return;
@@ -7595,8 +7598,10 @@ try {
 function rememberScroll() {
   // While a conversation loads, #messages is not its content yet.
   if (!conversation || loading) return;
+  const box = $("messages");
   scrollByConversation.delete(conversation);
-  scrollByConversation.set(conversation, $("messages").scrollTop);
+  // At the bottom, remember "the end" (-1), not a pixel offset: the reply may grow or the window shrink.
+  scrollByConversation.set(conversation, box.scrollHeight - box.scrollTop - box.clientHeight < 48 ? -1 : box.scrollTop);
   while (scrollByConversation.size > NAV_LIMIT) scrollByConversation.delete(scrollByConversation.keys().next().value);
   try {
     localStorage.setItem(SCROLL_KEY, JSON.stringify([...scrollByConversation]));
@@ -7643,8 +7648,13 @@ async function closeViewDialogs(keep) {
 function restoreScroll(top) {
   const box = $("messages");
   // "instant": #messages scrolls smoothly, and a restored position must not animate or be re-pinned.
+  if (top < 0) {
+    // "The end": pin like a followed stream, so content that renders after this jump keeps it at the bottom.
+    followingStream = true;
+    return scroll();
+  }
   box.scrollTo({ top, behavior: "instant" });
-  followingStream = box.scrollHeight - top - box.clientHeight < 48;
+  followingStream = box.scrollHeight - box.scrollTop - box.clientHeight < 48;
 }
 // Resolves false when the view could not be shown (a dialog refused to close, a conversation failed to load).
 async function applyView(view, replay = false) {
