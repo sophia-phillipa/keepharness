@@ -2306,7 +2306,12 @@ window.applyActivitySnapshot = function applyActivitySnapshot(data = {}) {
       item.needs_you = nextNeeds;
       item.live_wait_reason = nextWait;
       item.live_activity = nextActivity;
-      if (job?.state) item.state = job.state;
+      if (job?.state && item.state !== job.state) {
+        item.state = job.state;
+        // C-08: record the live state so a later completion in the list reads as unread.
+        observeConversation(item);
+        saveConversationActivity();
+      }
       changed = true;
     }
   }
