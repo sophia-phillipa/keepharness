@@ -2376,7 +2376,7 @@ function conversationRow(c) {
   open.title = open.textContent;
   open.className = c.id === conversation ? "active" : "";
   open.dataset.conversationId = c.id;
-  open.onclick = () => load(c.id, c.legacy);
+  open.onclick = () => void navigate({ kind: "conversation", id: c.id, legacy: c.legacy });
   const actions = document.createElement("details");
   actions.className = "conversation-actions";
   actions.hidden = !!c.legacy;
@@ -2490,7 +2490,7 @@ function conversationRow(c) {
     peek.textContent = "Peek";
     peek.onclick = (event) => {
       event.stopPropagation();
-      load(c.id, c.legacy);
+      void navigate({ kind: "conversation", id: c.id, legacy: c.legacy });
     };
     row.append(open, peek, actions);
     return row;
@@ -5612,8 +5612,8 @@ $("cancel").onclick = async () => {
     setBusy(busy);
   }
 };
-$("new").onclick = () => {
-  if (submitting || cancelling || loading || uploads) return;
+$("new").onclick = () => void navigate({ kind: "home" });
+function startNewConversation() {
   const loose = Array.from($("project").options).some(
     (o) => o.value === "sem-projeto",
   );
@@ -5627,7 +5627,7 @@ $("new").onclick = () => {
   renderProjects();
   history();
   closeSidebar();
-};
+}
 $("project").onchange = () => {
   const destination = $("project").value, draft = $("prompt").value,
     stale = [...invalidResourceTokens, ...resourceSelections.map(ref => ref.token)];
@@ -7378,7 +7378,7 @@ function applyPanelOrder(value, persist = true) {
     panelOrder === "conversations-right",
   );
   const reversed = panelOrder === "conversations-right";
-  $("app-brand").after($(reversed ? "panel-toggle" : "menu"));
+  $("nav-forward").after($(reversed ? "panel-toggle" : "menu"));
   $("attention-popover").after($(reversed ? "menu" : "panel-toggle"));
   for (const button of document.querySelectorAll("[data-panel-order]"))
     button.setAttribute(
@@ -7445,21 +7445,22 @@ function restoreSelection() {
   if (model.efforts.includes(preferredSelection.effort))
     $("effort").value = preferredSelection.effort;
 }
+function showSettingsPage(button) {
+  for (const name of ["appearance", "customize", "models", "archived", "system"])
+    $("settings-" + name).hidden = name !== button.dataset.settings;
+  if (button.dataset.settings === "archived") void loadArchived();
+  const system = button.dataset.settings === "system";
+  $("catalog-status").hidden = $("catalog-refresh").hidden =
+    system || button.dataset.settings === "archived";
+  $("settings-dialog").classList.toggle("system-open", system);
+  if (system) showAdminSection(button.dataset.adminSection);
+  document
+    .querySelectorAll("[data-settings]")
+    .forEach((b) => b.setAttribute("aria-pressed", String(b === button)));
+}
 document.querySelectorAll("[data-settings]").forEach(
   (button) =>
-    (button.onclick = () => {
-      for (const name of ["appearance", "customize", "models", "archived", "system"])
-        $("settings-" + name).hidden = name !== button.dataset.settings;
-      if (button.dataset.settings === "archived") void loadArchived();
-      const system = button.dataset.settings === "system";
-      $("catalog-status").hidden = $("catalog-refresh").hidden =
-        system || button.dataset.settings === "archived";
-      $("settings-dialog").classList.toggle("system-open", system);
-      if (system) showAdminSection(button.dataset.adminSection);
-      document
-        .querySelectorAll("[data-settings]")
-        .forEach((b) => b.setAttribute("aria-pressed", String(b === button)));
-    }),
+    (button.onclick = () => void navigate(settingsView(button.dataset.settings, button))),
 );
 // Settings › System shows the local admin panel on the same screen.
 function adminFrameUrl(section) {
@@ -7567,12 +7568,107 @@ async function refreshCatalog() {
     $("catalog-skills").textContent = "Couldn't check the available skills.";
   }
 }
-$("settings").onclick = () => {
-  syncThemeToggle();
-  $("settings-dialog").showModal();
-  refreshCatalog();
-};
+$("settings").onclick = () => void navigate(settingsView(currentSettingsSection()));
 $("settings-close").onclick = () => $("settings-dialog").close();
+
+// Back / forward (Codex model): a short in-memory history of views. It never touches
+// window.history, so the saveView URL and the embedded admin iframe are unaffected.
+const NAV_LIMIT = 50;
+const DIALOG_VIEWS = { settings: "settings-dialog", customize: "settings-dialog", space: "space-dialog", scheduled: "scheduled-dialog" };
+let viewHistory = [],
+  viewIndex = -1;
+const scrollByConversation = new Map();
+const sameView = (a, b) => a.kind === b.kind && (a.id || null) === (b.id || null) && (a.section || null) === (b.section || null);
+const currentBaseView = () => (conversation ? { kind: "conversation", id: conversation } : { kind: "home" });
+const currentSettingsSection = () => document.querySelector('[data-settings][aria-pressed="true"]')?.dataset.settings || "appearance";
+const settingsView = (section, button) => (section === "customize" ? { kind: "customize", button } : { kind: "settings", section, button });
+const navigationBlocked = (view) => ["conversation", "home"].includes(view.kind) && (submitting || cancelling || loading || uploads > 0);
+function syncNavButtons() {
+  $("nav-back").disabled = viewIndex <= 0;
+  $("nav-forward").disabled = viewIndex >= viewHistory.length - 1;
+}
+function recordView({ button, legacy, ...view }) {
+  const base = currentBaseView();
+  if (!viewHistory.length) [viewHistory, viewIndex] = [[base], 0];
+  // Entries made outside navigate() (a first send creates the conversation) are corrected here.
+  if (!(viewHistory[viewIndex].kind in DIALOG_VIEWS)) viewHistory[viewIndex] = base;
+  if (!sameView(viewHistory[viewIndex], view)) {
+    viewHistory.splice(viewIndex + 1, Infinity, view);
+    if (viewHistory.length > NAV_LIMIT) viewHistory.shift();
+    viewIndex = viewHistory.length - 1;
+  }
+  syncNavButtons();
+}
+async function closeViewDialogs(keep) {
+  for (const id of new Set(Object.values(DIALOG_VIEWS))) {
+    if (id === keep || !$(id).open) continue;
+    if (id === "space-dialog" && !(await leavePage())) return false;
+    $(id).close();
+  }
+  return true;
+}
+async function applyView(view, replay = false) {
+  if (!(await closeViewDialogs(DIALOG_VIEWS[view.kind]))) return;
+  if (view.kind === "conversation") {
+    if (view.id !== conversation) await load(view.id, view.legacy);
+    const top = scrollByConversation.get(view.id);
+    if (top !== undefined) {
+      const box = $("messages");
+      // "instant": #messages scrolls smoothly, and a restored position must not animate or be re-pinned.
+      box.scrollTo({ top, behavior: "instant" });
+      followingStream = box.scrollHeight - top - box.clientHeight < 48;
+    }
+  } else if (view.kind === "home") {
+    // A click on New chat always starts a fresh one; a replayed Home only leaves the conversation.
+    if (conversation || !replay) startNewConversation();
+  } else if (view.kind === "space") await openSpace();
+  else if (view.kind === "scheduled") await openScheduled();
+  else {
+    const section = view.kind === "customize" ? "customize" : view.section;
+    if (!$("settings-dialog").open) {
+      syncThemeToggle();
+      $("settings-dialog").showModal();
+      refreshCatalog();
+    }
+    const button = view.button || document.querySelector('[data-settings="' + section + '"]');
+    if (view.button || section !== currentSettingsSection()) showSettingsPage(button);
+  }
+}
+function navigate(view, { record = true } = {}) {
+  if (navigationBlocked(view)) return;
+  if (conversation) scrollByConversation.set(conversation, $("messages").scrollTop);
+  if (record) recordView(view);
+  return applyView(view, !record);
+}
+function stepHistory(delta) {
+  const target = viewHistory[viewIndex + delta];
+  if (!target || navigationBlocked(target)) return;
+  viewIndex += delta;
+  syncNavButtons();
+  void navigate(target, { record: false });
+}
+const back = () => stepHistory(-1),
+  forward = () => stepHistory(1);
+$("nav-back").onclick = back;
+$("nav-forward").onclick = forward;
+document.addEventListener("keydown", (e) => {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || !["[", "]"].includes(e.key)) return;
+  e.preventDefault();
+  (e.key === "[" ? back : forward)();
+});
+// Mouse back / forward buttons; the default is cancelled so the browser never leaves the app.
+document.addEventListener("mouseup", (e) => {
+  if (e.button !== 3 && e.button !== 4) return;
+  e.preventDefault();
+  (e.button === 3 ? back : forward)();
+});
+// Closing a view dialog is a navigation to the conversation underneath, unless the history already moved on.
+for (const id of new Set(Object.values(DIALOG_VIEWS)))
+  $(id).addEventListener("close", () => {
+    const current = viewHistory[viewIndex];
+    if (document.querySelector("dialog[open]") || (current && !(current.kind in DIALOG_VIEWS))) return;
+    recordView(currentBaseView());
+  });
 // Harness-owned agents: own instructions, purpose, tasks, target output and the
 // provider, model and effort they run on; called with @@name in any chat.
 let harnessAgents = [],
@@ -8044,7 +8140,7 @@ function appendOpenRun(jobId) {
   open.textContent = "Open run";
   open.onclick = () => {
     $("scheduled-dialog").close();
-    void load(jobId);
+    void navigate({ kind: "conversation", id: jobId });
   };
   $("schedule-last").append(" ", open);
 }
@@ -8155,8 +8251,8 @@ $("schedule-new").onclick = () => {
 $("schedule-empty-new").onclick = () => $("schedule-new").click();
 $("scheduled-close").onclick = () => $("scheduled-dialog").close();
 // The drawer repeats Space and Scheduled for the phone layout, where the rail hides them.
-for (const id of ["rail-space", "sidebar-space"]) $(id).onclick = () => void openSpace();
-for (const id of ["rail-scheduled", "sidebar-scheduled"]) $(id).onclick = () => void openScheduled();
+for (const id of ["rail-space", "sidebar-space"]) $(id).onclick = () => void navigate({ kind: "space" });
+for (const id of ["rail-scheduled", "sidebar-scheduled"]) $(id).onclick = () => void navigate({ kind: "scheduled" });
 function openAgentDialog(agent = null) {
   editingAgent = agent;
   $("agent-dialog-title").textContent = agent ? "Edit @@" + agent.name : "Create agent";
@@ -8344,13 +8440,7 @@ async function useHarnessAgent(agent) {
 }
 // Rail shortcuts (Codex model): the run pipeline and the agent and skill catalog.
 $("rail-runs").onclick = () => $("run-status-toggle")?.click();
-$("rail-agents").onclick = () => {
-  if (!$("settings-dialog").open) {
-    $("settings-dialog").showModal();
-    refreshCatalog();
-  }
-  document.querySelector('[data-settings="customize"]').click();
-};
+$("rail-agents").onclick = () => void navigate({ kind: "customize" });
 $("settings-tour").onclick = () => $("settings-dialog").close();
 let quotaReturnsToSettings = false;
 $("settings-quota").onclick = () => {
@@ -8555,7 +8645,7 @@ function renderConversationSearch() {
       button.onclick = async () => {
         if (submitting || cancelling || uploads) return;
         $("conversation-search-dialog").close();
-        await load(c.id, c.legacy);
+        await navigate({ kind: "conversation", id: c.id, legacy: c.legacy });
         if (c.runId) window.runConsole?.openRun(c.runId);
       };
       return button;
