@@ -2818,6 +2818,7 @@ function newConversation(title = "New Conversation", projectId = $("project").va
   files = kept;
   renderFiles();
   $("messages").replaceChildren(welcomeTemplate.cloneNode(true));
+  followingStream = true;
   lastRoute = null;
   bindSuggestions();
   modelAvailability();
@@ -3578,6 +3579,12 @@ function eventToolName(data = {}) {
       webSearch: "web",
       Bash: "tool",
       commandExecution: "tool",
+      // Protocol item types and kinds (Codex native, Gemini ACP) are not tool names.
+      ...Object.fromEntries(
+        "fileChange dynamicToolCall mcpToolCall other think execute read edit delete move search fetch"
+          .split(" ")
+          .map((type) => [type, "tool"]),
+      ),
     }[data.tool] || safeToolId(data.tool)
   );
 }
@@ -3851,10 +3858,21 @@ function updateMotion(type) {
   )
     paintMotion("working");
 }
+// C-06: follow the stream while the user is at the bottom. The state changes only on a scroll event
+// (user or our own jump), never from the distance after a render, which a fast stream outgrows.
+let followingStream = true;
+$("messages").addEventListener(
+  "scroll",
+  () => {
+    const box = $("messages");
+    followingStream = box.scrollHeight - box.scrollTop - box.clientHeight < 48;
+  },
+  { passive: true },
+);
 function scroll() {
-  const box = $("messages");
-  if (box.scrollHeight - box.scrollTop - box.clientHeight < 250)
-    box.scrollTop = box.scrollHeight;
+  // "instant": #messages is scroll-behavior smooth, and an animated jump lags a fast stream.
+  if (followingStream)
+    $("messages").scrollTo({ top: $("messages").scrollHeight, behavior: "instant" });
   updateLatest();
 }
 // Read-only: workflow steps, or a plan recorded by an earlier version; nothing here can be approved.
@@ -4444,6 +4462,7 @@ async function load(id, legacy = false, restoredView = null) {
     invalidResourceTokens = new Set();
     renderFiles();
     $("messages").replaceChildren();
+    followingStream = true;
     lastRoute = null;
     $("prompt").value = "";
     for (const r of data.turns) {
@@ -8675,6 +8694,7 @@ function jumpToLatest() {
   // Focus must not undo the jump; instant scrolling cannot be interrupted by streaming updates.
   box.focus({ preventScroll: true });
   box.scrollTo({ top: box.scrollHeight, behavior: "instant" });
+  followingStream = true;
   updateLatest();
 }
 $("latest-message").onclick = jumpToLatest;

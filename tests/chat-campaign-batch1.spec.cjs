@@ -1,4 +1,4 @@
-// Chat campaign batch 1 (C-01 project label, C-03 tool step names, C-04 active row, C-05 header pill).
+// Chat campaign batch 1 (C-01 project label, C-03 tool step names, C-04 active row, C-05 header pill, C-06 auto-scroll).
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises"),
@@ -26,8 +26,13 @@ const events = [
     data: { tool: "mcp__harness_reader__list_dir<img src=x onerror=alert(1)>", tool_id: "mcp-2" },
   },
   { id: 5, type: "tool_end", data: { tool: "x", tool_id: "mcp-2", status: "completed" } },
-  { id: 6, type: "answer_delta", data: { text: "Alpha." } },
-  { id: 7, type: "completed", data: {} },
+  { id: 6, type: "tool_start", data: { tool: "mcp__harness_reader__list_dir", tool_id: "mcp-3" } },
+  { id: 7, type: "tool_end", data: { tool: "x", tool_id: "mcp-3", status: "completed" } },
+  // Protocol types, not tool names: Codex native sends the item type, Gemini the ACP kind.
+  { id: 8, type: "tool_start", data: { tool: "fileChange", tool_id: "mcp-4" } },
+  { id: 9, type: "tool_end", data: { tool: "x", tool_id: "mcp-4", status: "completed" } },
+  { id: 10, type: "answer_delta", data: { text: "Alpha." } },
+  { id: 11, type: "completed", data: {} },
 ];
 
 (async () => {
@@ -116,8 +121,21 @@ const events = [
     await steps.locator("li").first().waitFor();
     const text = await steps.innerText();
     assert.match(text, /Ran read_file/);
-    assert.match(text, /Ran tool/, "an odd tool name falls back to the generic step");
+    assert.match(text, /Ran list_dir/, "an MCP tool is named by its last segment");
+    assert.equal(text.match(/Ran tool/g)?.length, 2, "an odd name and a protocol type (fileChange) read as the generic step");
+    assert.doesNotMatch(text, /fileChange/);
     assert.equal(await steps.locator("img").count(), 0);
+
+    // C-04: hovering a non-active row paints the row once; the title button stays transparent.
+    const idleRow = page.locator(".conversation-row", { hasText: "Plain chat" });
+    await idleRow.locator("button").first().hover();
+    const hoverPaint = await idleRow.evaluate((el) => ({
+      row: getComputedStyle(el).backgroundColor,
+      button: getComputedStyle(el.querySelector(":scope > button")).backgroundColor,
+    }));
+    assert.notEqual(hoverPaint.row, TRANSPARENT, "the hovered row is painted");
+    assert.equal(hoverPaint.button, TRANSPARENT, "the hovered row's title button must not repaint it");
+    await page.mouse.move(700, 500);
 
     // C-05: while a run streams behind queued follow-ups the header pill says Running.
     await page.evaluate(() =>
@@ -133,8 +151,45 @@ const events = [
     );
     assert.equal(await page.locator("#conversation-state-pill").innerText(), "Running");
 
+    // C-06: the list stays pinned to the bottom while large chunks arrive, and stops once the user scrolls up.
+    const gap = () =>
+      page.evaluate(() => {
+        const box = document.getElementById("messages");
+        return Math.round(box.scrollHeight - box.scrollTop - box.clientHeight);
+      });
+    const grow = (chunks) =>
+      page.evaluate((n) => {
+        // Synchronous chunks bigger than the old 250 px follow window, like a fast stream.
+        for (let i = 0; i < n; i++) {
+          const block = document.createElement("div");
+          block.style.cssText = "height:600px;flex:none";
+          document.getElementById("messages").append(block);
+          scroll();
+        }
+      }, chunks);
+    await grow(2);
+    await page.evaluate(() => jumpToLatest());
+    await page.waitForFunction(() => document.getElementById("latest-message").hidden);
+    await grow(4);
+    await page.waitForTimeout(400);
+    assert.ok((await gap()) <= 2, "pinned view follows chunks larger than 250 px, gap " + (await gap()));
+    await page.locator("#messages").hover();
+    await page.mouse.wheel(0, -900);
+    await page.waitForFunction(() => {
+      const box = document.getElementById("messages");
+      return box.scrollHeight - box.scrollTop - box.clientHeight > 400;
+    });
+    const top = await page.evaluate(() => document.getElementById("messages").scrollTop);
+    await grow(2);
+    await page.waitForTimeout(400);
+    assert.equal(await page.evaluate(() => document.getElementById("messages").scrollTop), top, "scrolled-up view stays put");
+    await page.locator("#latest-message").click();
+    await grow(3);
+    await page.waitForTimeout(400);
+    assert.ok((await gap()) <= 2, "returning to the bottom pins again, gap " + (await gap()));
+
     assert.deepEqual(errors, []);
-    console.log("PASS: chat campaign batch 1 (C-01 label, C-03 tool names, C-04 active row, C-05 pill).");
+    console.log("PASS: chat campaign batch 1 (C-01 label, C-03 tool names, C-04 active row, C-05 pill, C-06 auto-scroll).");
   } finally {
     await browser.close();
   }
