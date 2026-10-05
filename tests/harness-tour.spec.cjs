@@ -13,7 +13,7 @@ const markup = `<!doctype html><html><head><meta name="viewport" content="width=
   <section id="run-console" hidden><div data-tour="run-console-tabs">Pipeline Timeline Logs Runs Agents</div><div data-tour="span-detail">Show content</div></section>
   <button id="panel-toggle">Open files</button><aside id="activity-panel" hidden data-tour="right-pane">Files Activity</aside>
   <script>document.querySelector('#run-status-toggle').onclick=()=>document.querySelector('#run-console').hidden=false;document.querySelector('#panel-toggle').onclick=()=>document.querySelector('#activity-panel').hidden=false;</script>
-  <script src="/tour.js" defer></script>
+  <script src="/ui-prefs.js"></script><script src="/tour.js" defer></script>
 </body></html>`;
 
 async function context(browser, options = {}) {
@@ -22,6 +22,7 @@ async function context(browser, options = {}) {
   await page.route("http://tour.test/**", async (route) => {
     const pathname = new URL(route.request().url()).pathname;
     if (pathname === "/") return route.fulfill({ body: markup, contentType: "text/html" });
+    if (pathname.startsWith("/v1/")) return route.fulfill({ json: {} });
     const name = pathname.slice(1);
     return route.fulfill({
       body: await fs.readFile(path.join(root, name)),

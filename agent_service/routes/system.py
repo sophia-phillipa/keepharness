@@ -130,7 +130,7 @@ class BuildVersions:
         ui_files = [
             PACKAGE_DIR / name
             for name in (
-                "ui.js", "run-console.js", "tour.js", "ui.css", "tour.css",
+                "ui.js", "ui-prefs.js", "run-console.js", "tour.js", "ui.css", "tour.css",
                 "vendor/markdown-it.min.js", "index.html",
             )
         ]
@@ -216,6 +216,7 @@ async def ui(request):
     name = {
         "/vendor/markdown-it.min.js": "vendor/markdown-it.min.js",
         "/ui.js": "ui.js",
+        "/ui-prefs.js": "ui-prefs.js",
         "/run-console.js": "run-console.js",
         "/tour.js": "tour.js",
         "/ui.css": "ui.css",
@@ -257,6 +258,7 @@ ROUTES = [
     Route("/", ui),
     Route("/vendor/markdown-it.min.js", ui),
     Route("/ui.js", ui),
+    Route("/ui-prefs.js", ui),
     Route("/run-console.js", ui),
     Route("/tour.js", ui),
     Route("/ui.css", ui),

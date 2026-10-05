@@ -31,7 +31,7 @@
  function apply(id,persist=true){
   const t=themes.find(t=>t.id===id)||themes[0];
   root.dataset.palette=t.id;root.dataset.bsTheme=t.mode;root.dataset.theme=t.mode;root.style.colorScheme=t.mode;
-  if(persist)try{localStorage.setItem(key,t.id);}catch{}
+  if(persist){try{localStorage.setItem(key,t.id);}catch{}if(surface==='harness')window.HarnessPrefs?.set('theme',t.id);}
   document.querySelectorAll('[data-theme-choice]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.themeChoice===t.id)));
   const select=document.getElementById('theme-select');if(select)select.value=t.id;
  }

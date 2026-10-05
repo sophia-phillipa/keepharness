@@ -79,7 +79,7 @@
   close.classList.add('run-console-close');
   close.prepend(HarnessUI.icon('chevron-down'));
   let consoleHeight = Math.max(340, innerHeight * .45), restoreHeight = consoleHeight, maximized = false, manuallyResized = false;
-  try { const saved = Number(localStorage.getItem('run-console-height')); if (saved >= 190) consoleHeight = saved; } catch {}
+  { const saved = Number(HarnessPrefs.get('run_console_height', 0)); if (saved >= 190) consoleHeight = saved; }
   const maximize = button('Maximize', () => {
     if (!maximized) restoreHeight = consoleHeight;
     maximized = !maximized;
@@ -251,7 +251,7 @@
     resizer.setAttribute('aria-valuemax', String(Math.round(max)));
     revealFocusedControl();
     if (!maximized) consoleHeight = next;
-    if (persist && !maximized) try { localStorage.setItem('run-console-height', String(next)); } catch {}
+    if (persist && !maximized) HarnessPrefs.set('run_console_height', next);
   }
   const fitConsole = () => { syncConsoleModal(); if (!drawer.hidden) resize(maximized ? consoleLimit() : consoleHeight, false); };
   window.addEventListener('resize', fitConsole);

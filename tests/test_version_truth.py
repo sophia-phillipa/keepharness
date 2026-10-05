@@ -17,7 +17,7 @@ from agent_service.routes import system
 def version_client(tmp_path, monkeypatch):
     package = tmp_path / "package"
     package.mkdir()
-    for name in ("ui.js", "run-console.js", "tour.js", "ui.css", "tour.css", "index.html",
+    for name in ("ui.js", "ui-prefs.js", "run-console.js", "tour.js", "ui.css", "tour.css", "index.html",
                  "app.py", "config.py", "maestro.py", "spans.py", "work_items.py",
                  "workspaces.py", "mcp_bridge.py", "VERSION", "vendor/markdown-it.min.js",
                  "services/worker.py"):

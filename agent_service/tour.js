@@ -21,13 +21,11 @@
   let backgroundState = [];
 
   function storedSeen() {
-    try { return localStorage.getItem(STORAGE_KEY) === RELEASE; }
-    catch (_) { return false; }
+    return HarnessPrefs.get('tour_seen', '') === RELEASE;
   }
 
   function rememberSeen() {
-    try { localStorage.setItem(STORAGE_KEY, RELEASE); }
-    catch (_) { /* Storage can be unavailable in restricted browsers. */ }
+    HarnessPrefs.set('tour_seen', RELEASE);
   }
 
   function visible(node) {
