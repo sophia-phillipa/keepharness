@@ -1043,16 +1043,20 @@ const SCENARIOS = {
       await op.until(async () => (await streamLen(op)) > 120, "the answer never started streaming", 90000);
       const pre = await runState(op);
       const pidBefore = harnessPid();
-      await op.caption("Now: stopping the harness in the middle of the stream");
+      await op.caption("Now: killing the harness process in the middle of the stream");
+      // The admin refuses to stop the harness while a run is active, so kill the process like a crash would.
+      if (!pidBefore || !/kho\/chat/.test(fs.readFileSync(`/proc/${pidBefore}/environ`, "utf8").replace(/\0/g, "\n") + fs.readFileSync(`/proc/${pidBefore}/cmdline`, "utf8"))) throw new Error(`pid ${pidBefore} on port ${HARNESS_PORT} is not the chat-campaign harness`);
       const t0 = Date.now();
-      await adminApi("POST", "/api/stop", {});
+      process.kill(pidBefore, "SIGKILL");
       const seen = [];
       for (let i = 0; i < 8; i++) { const s = await visibleState(op).catch(() => ({})); seen.push({ t: Date.now() - t0, pill: s.pill, state: s.state, status: (s.status || "").slice(0, 80), alerts: (s.alerts || "").slice(0, 80), resume: s.resume }); await sleep(1000); }
       const shotDown = await shotOf(op, "s4-04-harness-down.png");
-      c.ok(!(await portOpen(Number(HARNESS_PORT))), "the harness port stayed open after the admin stop");
-      await adminApi("POST", "/api/start", {});
+      // The admin supervisor may restart it by itself; otherwise start it, as the owner would.
+      await sleep(8000);
+      if (!(await portOpen(Number(HARNESS_PORT)))) await adminApi("POST", "/api/start", {});
       await op.until(() => portOpen(Number(HARNESS_PORT)), "the harness did not come back", 60000);
       const restartMs = Date.now() - t0;
+      c.ok(harnessPid() !== pidBefore, "the killed harness pid is still the one listening");
       // A person would press "Resume tracking" if the app offers it; record whether it was needed.
       let resumed = false;
       await waitFor(async () => (await page.locator("#startup-gate").evaluate((g) => g.hidden).catch(() => true)), 30000);
@@ -1085,7 +1089,7 @@ const SCENARIOS = {
       const log = {};
       await newChat(op);
       await sol(op);
-      const keys = await convId(op);
+      let keys = ""; // a new chat has no id until its first message is sent
       await op.caption("Now: keyboard only, no mouse");
       // 1. Focus the composer with the documented shortcut.
       await page.evaluate(() => document.activeElement?.blur());
@@ -1109,6 +1113,7 @@ const SCENARIOS = {
       await page.keyboard.press("Enter");
       await waitAnswer(op, runs0, new RegExp(`KEYS-${tag}`), 120000);
       recordPhase("s4-05-send", from, Date.now(), [], await shotOf(op, "s4-05-sent.png"), { sent_with: "Enter" });
+      keys = await convId(op);
       c.ok(!/\n/.test(await page.locator("#prompt").inputValue()) && (await page.locator("#prompt").inputValue()) === "", "the composer was not cleared after Enter");
       // 3. Model picker: reach the trigger with Tab, open with Enter, move with the arrows, Escape closes.
       await page.keyboard.press("Control+/");
@@ -1144,7 +1149,7 @@ const SCENARIOS = {
         c.ok(log.switchedOut, "Enter on a sidebar row did not open that conversation");
         await page.keyboard.press("Control+/"); // start from the composer, as for the way out
         await sleep(300);
-        log.switchBack = await reachKey(op, (keep) => document.activeElement?.dataset?.conversationId === keep, keys);
+        log.switchBack = await reachKey(op, (keep) => document.activeElement?.dataset?.conversationId === keep, keys, 150);
         if (log.switchBack.steps > 0) {
           await page.keyboard.press("Enter");
           log.switchedBack = await waitFor(async () => (await convId(op)) === keys, 8000);
@@ -1191,6 +1196,30 @@ const SCENARIOS = {
       log.stopLen = await streamLen(op);
       recordPhase("s4-05-stop", from2, Date.now(), [], await shotOf(op, "s4-05-stopped.png"), { chars_at_stop: log.stopLen });
       record({ scenario: "s4-05-summary", ...log });
+      c.done();
+    }, { lint: false });
+  },
+  "s4-05-return": async (op) => {
+    await op.step("s4-05-return", "Now: S4-05 follow-up, keyboard round trip through the conversation list (no prompt)", async () => {
+      const c = soft();
+      const page = op.page;
+      const rows = page.locator("#sidebar button[data-conversation-id]");
+      const ids = await rows.evaluateAll((els) => els.map((e) => e.dataset.conversationId));
+      c.ok(ids.length >= 2, `only ${ids.length} conversation rows`);
+      const start = ids[0];
+      await op.click(rows.first());
+      await op.until(async () => (await convId(op)) === start, "the first conversation did not open", 15000);
+      await page.keyboard.press("Control+/");
+      const out = await reachKey(op, (keep) => { const e = document.activeElement; return !!e?.matches?.("#sidebar button[data-conversation-id]") && e.dataset.conversationId !== keep; }, start, 150);
+      c.ok(out.steps > 0, "no other row is reachable by keyboard");
+      await page.keyboard.press("Enter");
+      const other = await page.evaluate(() => conversation);
+      await page.keyboard.press("Control+/");
+      const back = await reachKey(op, (keep) => document.activeElement?.dataset?.conversationId === keep, start, 150);
+      const opened = back.steps > 0 && (await page.keyboard.press("Enter"), await waitFor(async () => (await convId(op)) === start, 8000));
+      record({ scenario: "s4-05-return", rows: ids.length, start, other, out, back, returned: !!opened, shot: await shotOf(op, "s4-05-return.png") });
+      c.ok(back.steps > 0, `the first conversation is not reachable by keyboard from the composer (rows ${ids.length}, out ${JSON.stringify(out)})`);
+      c.ok(opened, "Enter on the focused row did not reopen the conversation");
       c.done();
     }, { lint: false });
   },
@@ -1248,8 +1277,12 @@ const SCENARIOS = {
     await op.step("s4-07", "Now: S4-07, the light and dark themes with the Markdown and code reply from S4-06", async () => {
       const c = soft();
       const page = op.page;
-      const hasReply = (await page.locator("#messages article.assistant .code-block").count()) > 0;
-      if (!hasReply) throw new Error("no Markdown and code reply is on screen (run S4-06 first, or open that conversation)");
+      if (!((await page.locator("#messages article.assistant .code-block").count()) > 0)) {
+        // S4-06 was not run in this session: one prompt makes the heading, list, table and code block.
+        await newChat(op);
+        await sol(op);
+        await ask(op, "s4-07-seed", "Reply in Markdown only: a level-2 heading, a bullet list of 2 items, a table with 3 columns and 2 rows of invented data, and one python code block of 5 lines. No other text.", /\S/);
+      }
       const toggle = async () => {
         await op.click(page.locator("#settings"));
         await op.click(page.locator('button[data-settings="appearance"]'));
