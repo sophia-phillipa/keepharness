@@ -8,7 +8,13 @@ The per-release notes in [`dossier/releases/`](dossier/releases/) hold the full 
 
 ### Fixed
 
-<!-- Chat campaign fixes (see dossier/research/chat-campaign-2026-10.md) -->
+Chat campaign fixes (see [the campaign log](dossier/research/chat-campaign-2026-10.md) and the "Chat campaign fixes" section of [`dossier/releases/v0.16.0.md`](dossier/releases/v0.16.0.md)):
+
+- New Conversation's project button reads "No project" instead of "Choose project" (C-01).
+- A reply's inline tool steps show what each tool acted on, like the Codex and Claude CLIs ("Ran sed -n 1,5p notes.txt", "Read facts/alpha.txt"); the target is redacted, at most 160 characters, and is not forwarded to another provider (C-03).
+- The active or hovered conversation row in the sidebar no longer shows a grey block on its right edge (C-04).
+- The header pill shows "Running" while a reply streams behind queued follow-ups (C-05).
+- The view stays pinned to the bottom of a fast stream until the user scrolls up (C-06).
 
 ## [0.16.0] - unreleased
 
