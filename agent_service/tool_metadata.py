@@ -16,7 +16,20 @@ FILE_TOOLS = {
 }  # fmt: skip
 SEARCH_TOOLS = {"Glob", "Grep", "search_files", "search"}
 _SHELLS = {"sh", "bash", "zsh"}
-_SECRET_ASSIGNMENT = re.compile(
+_NAME = r"(?<![\w-])(?:[A-Za-z0-9]+_)*(?:TOKEN|SECRET|KEY|PASSWORD|PASSWD)(?:_[A-Za-z0-9]+)*"
+_TARGET_REDACTIONS = tuple(
+    (re.compile(pattern, re.IGNORECASE), repl)
+    for pattern, repl in (
+        (_NAME + r"=(?:([\'\"]).*?\1|\S+)", lambda m: m.group(0).split("=", 1)[0] + "=[redacted]"),
+        (r"(://[^/\s:@]+:)[^@\s]+@", r"\1[redacted]@"),
+        (r"((?<![\w-])--?(?:token|password|passwd|secret|api[-_]?key)[= ])\S+", r"\1[redacted]"),
+        (r"(\b(?:mysql|mariadb)\b[^|;&]*?\s-p)\S+", r"\1[redacted]"),
+        (r"(Authorization:\s*(?:Bearer|token|Basic)\s+)[^\s\'\",;]+", r"\1[redacted]"),
+        (r"\b(?:ghp_\w+|github_pat_\w+|xox[bp]-[\w-]+|AKIA[0-9A-Z]{16})", "[redacted]"),
+        (r"(aws_secret_access_key\s+)\S+", r"\1[redacted]"),
+    )
+)
+_ASSIGNMENT = re.compile(
     r"\b([A-Za-z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|PASSWD)[A-Za-z0-9_]*)=\S+", re.IGNORECASE
 )
 _ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*\Z")
@@ -112,7 +125,9 @@ def tool_target(tool, args, root=None):
         return None
     if not isinstance(value, str):
         return None
-    line = " ".join(redact(_SECRET_ASSIGNMENT.sub(r"\1=[redacted]", value)).split())
+    for pattern, repl in _TARGET_REDACTIONS:
+        value = pattern.sub(repl, value)
+    line = " ".join(redact(value).split())
     if not line:
         return None
     return line if len(line) <= TARGET_LIMIT else line[: TARGET_LIMIT - 1] + "…"

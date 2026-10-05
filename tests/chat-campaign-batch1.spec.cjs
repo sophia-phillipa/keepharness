@@ -47,6 +47,9 @@ const events = [
   { id: 21, type: "tool_end", data: { tool: "Bash", tool_id: "t-6", status: "completed", target: "git status --short" } },
   { id: 22, type: "tool_start", data: { tool: "Bash", tool_id: "t-7", target: "false" } },
   { id: 23, type: "tool_end", data: { tool: "Bash", tool_id: "t-7", status: "failed" } },
+  // The server caps a target at 160 code points; the title must not cut an emoji in half.
+  { id: 25, type: "tool_start", data: { tool: "Grep", tool_id: "t-8", target: "\u{1F642}".repeat(160) } },
+  { id: 26, type: "tool_end", data: { tool: "Grep", tool_id: "t-8", status: "completed" } },
   { id: 24, type: "answer_delta", data: { text: "Alpha." } },
   { id: 25, type: "completed", data: {} },
 ];
@@ -148,6 +151,8 @@ const events = [
     assert.match(text, /^Ran git status --short$/m, "a target that arrives with the tool end still shows");
     assert.match(text, /^Failed: Running false$/m);
     assert.equal(await steps.locator("img").count(), 0);
+    assert.ok(text.includes("Searched " + "\u{1F642}".repeat(160)), "an emoji-heavy target keeps all 160 code points");
+    assert.doesNotMatch(text, /\uFFFD|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/);
 
     // C-04: hovering a non-active row paints the row once; the title button stays transparent.
     const idleRow = page.locator(".conversation-row", { hasText: "Plain chat" });
@@ -158,6 +163,21 @@ const events = [
     }));
     assert.notEqual(hoverPaint.row, TRANSPARENT, "the hovered row is painted");
     assert.equal(hoverPaint.button, TRANSPARENT, "the hovered row's title button must not repaint it");
+    // Only the title button is made transparent: another direct child button (Peek) keeps its own hover paint.
+    await idleRow.evaluate((el) => {
+      const peek = document.createElement("button");
+      peek.type = "button";
+      peek.className = "conversation-peek";
+      peek.textContent = "Peek";
+      el.append(peek);
+    });
+    await idleRow.locator(".conversation-peek").hover();
+    assert.notEqual(
+      await idleRow.locator(".conversation-peek").evaluate((el) => getComputedStyle(el).backgroundColor),
+      TRANSPARENT,
+      "a hovered Peek button is not forced transparent",
+    );
+    await idleRow.locator(".conversation-peek").evaluate((el) => el.remove());
     await page.mouse.move(700, 500);
 
     // C-05: while a run streams behind queued follow-ups the header pill says Running.
@@ -210,6 +230,21 @@ const events = [
     await grow(3);
     await page.waitForTimeout(400);
     assert.ok((await gap()) <= 2, "returning to the bottom pins again, gap " + (await gap()));
+
+    // Our own jump must not count as the user leaving the bottom, even when content grows after it.
+    await page.evaluate(() => {
+      const box = document.getElementById("messages");
+      for (const n of [1, 2]) {
+        const block = document.createElement("div");
+        block.style.cssText = "height:600px;flex:none";
+        box.append(block);
+        if (n === 1) scroll();
+      }
+    });
+    await page.waitForTimeout(400);
+    await grow(1);
+    await page.waitForTimeout(400);
+    assert.ok((await gap()) <= 2, "a programmatic jump keeps following, gap " + (await gap()));
 
     assert.deepEqual(errors, []);
     console.log("PASS: chat campaign batch 1 (C-01 label, C-03 tool names, C-04 active row, C-05 pill, C-06 auto-scroll).");

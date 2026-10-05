@@ -3602,7 +3602,7 @@ const TARGET_VERBS = {
   Listing: "list_directory list_dir",
 };
 function targetTitle(data) {
-  const target = typeof data.target === "string" ? data.target.trim().slice(0, 160) : "",
+  const target = typeof data.target === "string" ? Array.from(data.target.trim()).slice(0, 160).join("") : "",
     name = String(data.tool || "").split("__").pop().toLowerCase(),
     verb = Object.keys(TARGET_VERBS).find((key) => TARGET_VERBS[key].split(" ").includes(name));
   return target && verb ? verb + " " + target : "";
@@ -3878,10 +3878,12 @@ function updateMotion(type) {
 }
 // C-06: follow the stream while the user is at the bottom. The state changes only on a scroll event
 // (user or our own jump), never from the distance after a render, which a fast stream outgrows.
-let followingStream = true;
+let followingStream = true,
+  ownScroll = false;
 $("messages").addEventListener(
   "scroll",
   () => {
+    if (ownScroll) return; // our own jump: content that grew after it must not unpin the view
     const box = $("messages");
     followingStream = box.scrollHeight - box.scrollTop - box.clientHeight < 48;
   },
@@ -3889,8 +3891,11 @@ $("messages").addEventListener(
 );
 function scroll() {
   // "instant": #messages is scroll-behavior smooth, and an animated jump lags a fast stream.
-  if (followingStream)
+  if (followingStream) {
+    ownScroll = true;
+    requestAnimationFrame(() => (ownScroll = false)); // scroll events fire before the next frame callbacks
     $("messages").scrollTo({ top: $("messages").scrollHeight, behavior: "instant" });
+  }
   updateLatest();
 }
 // Read-only: workflow steps, or a plan recorded by an earlier version; nothing here can be approved.

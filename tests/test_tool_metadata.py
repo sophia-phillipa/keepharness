@@ -1,3 +1,5 @@
+import pytest
+
 from adapters.claude.stream import Stream
 from adapters.gemini.native import AcpStream
 from agent_service.tool_metadata import (
@@ -239,3 +241,57 @@ def test_gemini_tool_target_uses_raw_input_and_locations_never_the_title():
     )
     assert events[0]["target"] == "facts/alpha.txt"
     assert events[1]["target"] == "ls -la"
+
+
+@pytest.mark.parametrize(
+    ("command", "secret"),
+    [
+        ("git clone https://user:hunter2@example.test/r.git", "hunter2"),
+        ("cli --token abc123 run", "abc123"),
+        ("cli --password=abc123 run", "abc123"),
+        ("cli --api-key abc123", "abc123"),
+        ("mysql -u root -pabc123 db", "abc123"),
+        ("curl -H 'Authorization: Basic YWJjOjEyMw==' u", "YWJjOjEyMw"),
+        ("curl -H 'Authorization: token abc123' u", "abc123"),
+        ("GITHUB_TOKEN='ghp abc' make", "abc"),
+        ('DB_PASSWORD="two words" make', "words"),
+        ("echo ghp_abcDEF123", "abcDEF123"),
+        ("echo github_pat_11AAA_bbb", "11AAA"),
+        ("echo xoxb-123-abc-DEF", "123-abc"),
+        ("echo AKIAABCDEFGHIJKLMNOP", "ABCDEFGHIJKLMNOP"),
+        ("aws configure set aws_secret_access_key abc123", "abc123"),
+        ("AWS_SECRET_ACCESS_KEY=abc123 aws s3 ls", "abc123"),
+        ("api_key=abc123 run", "abc123"),
+    ],
+)
+def test_tool_target_masks_common_secret_shapes(command, secret):
+    target = tool_target("Bash", {"command": command})
+    assert secret not in target and "[redacted]" in target
+
+
+def test_tool_target_masks_a_whole_quoted_value():
+    assert tool_target("Bash", {"command": "GITHUB_TOKEN='ghp abc' make"}) == "GITHUB_TOKEN=[redacted] make"
+
+
+@pytest.mark.parametrize(
+    "command",
+    ["MONKEY=banana run", "ls --sort-key=name", "KEYBOARD=us run", "TOKENIZERS_PARALLELISM=false run", "mysql -u root db"],
+)
+def test_tool_target_keeps_lookalike_names_visible(command):
+    assert tool_target("Bash", {"command": command}) == command
+
+
+def test_portable_history_does_not_forward_the_display_target_to_the_next_provider():
+    import json
+    import sqlite3
+
+    from agent_service.conversation_context import portable_history
+
+    db = sqlite3.connect(":memory:")
+    db.row_factory = sqlite3.Row
+    db.execute("CREATE TABLE events(id INTEGER PRIMARY KEY, job TEXT, type TEXT, data TEXT)")
+    start = {"tool": "Bash", "command_name": "ls", "target": "ls /secret/path"}
+    db.execute("INSERT INTO events(job,type,data) VALUES('j','tool_start',?)", (json.dumps(start),))
+    payload = {"_job_id": "j", "_state": "completed", "prompt": "hi"}
+    evidence = portable_history(db, [(payload, {"answer": "ok"})])[0]["evidence"]
+    assert evidence == [{"type": "tool_start", "data": {"tool": "Bash", "command_name": "ls"}}]
