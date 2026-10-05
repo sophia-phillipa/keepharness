@@ -4,6 +4,7 @@ const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024;
 const AUDIO_ATTACHMENT_TIMEOUT_MS = 8200000;
 ("use strict");
 const $ = (id) => document.getElementById(id);
+const prefs = window.HarnessPrefs;
 let providers = {},
   models = [],
   files = [],
@@ -68,20 +69,13 @@ let conversations = [],
   conversationLoad = 0,
   uploads = 0;
 let conversationActivity = {};
-try {
-  const saved = JSON.parse(
-    localStorage.getItem("conversation-activity") || "{}",
-  );
+{
+  const saved = prefs.get("conversation_activity", {});
   if (saved && typeof saved === "object" && !Array.isArray(saved))
     conversationActivity = saved;
-} catch {}
+}
 function saveConversationActivity() {
-  try {
-    localStorage.setItem(
-      "conversation-activity",
-      JSON.stringify(conversationActivity),
-    );
-  } catch {}
+  prefs.set("conversation_activity", conversationActivity);
 }
 function observeConversation(c) {
   const previous = conversationActivity[c.id],
@@ -912,25 +906,11 @@ const welcomeTemplate = $("welcome").cloneNode(true);
 // Project folders start expanded, like the Codex sidebar; a folder the user
 // collapses stays collapsed across reloads.
 const expandedProjects = new Map();
-try {
-  for (const [id, open] of Object.entries(
-    JSON.parse(localStorage.getItem("project-expanded") || "{}") || {},
-  ))
-    expandedProjects.set(id, open === true);
-} catch {}
-const rememberExpandedProjects = () => {
-  try {
-    localStorage.setItem(
-      "project-expanded",
-      JSON.stringify(Object.fromEntries(expandedProjects)),
-    );
-  } catch {}
-};
-let preferredSelection = {};
-try {
-  preferredSelection =
-    JSON.parse(localStorage.getItem("chat-selection") || "{}") || {};
-} catch {}
+for (const [id, open] of Object.entries(prefs.get("project_expanded", {})))
+  expandedProjects.set(id, open === true);
+const rememberExpandedProjects = () =>
+  prefs.set("project_expanded", Object.fromEntries(expandedProjects));
+let preferredSelection = prefs.get("chat_selection", {});
 const labels = {
   maestro_planning: "Planning",
   maestro_planning_completed: "Plan ready",
@@ -1175,6 +1155,15 @@ const userErrors = {
     "One of the chosen folders no longer exists. Choose an available folder.",
   project_directory_forbidden:
     "One of the chosen folders is protected or not authorized.",
+  // Interface preferences (ui-prefs.js).
+  ui_state_local_only:
+    "Interface preferences are saved only on the computer that runs the harness.",
+  ui_state_unknown_key:
+    "A saved interface preference was not recognized and was skipped.",
+  ui_state_invalid_value:
+    "An interface preference had an invalid value and was not saved.",
+  ui_state_read_only:
+    "Interface preferences can't be saved right now, so changes last until you reload. Check the harness state folder.",
   // Requests (F-70): every code the server can return has a sentence.
   payload_limit:
     "This message is too large to send. Shorten it or attach it as a file.",
@@ -1581,6 +1570,7 @@ const userErrors = {
   schedule_limit: "You have reached the limit of 50 schedules. Delete one to add another.",
   schedule_storage_unsafe: "The schedules folder cannot be used safely. Check the harness state folder.",
 };
+prefs.onNotice((code) => status(userErrors[code]));
 // The 403 body names the caller's owner id, and a guest's Tailscale login. Name one in the
 // command only when it is safe to paste into a shell; otherwise keep the generic text, which
 // names no owner. Only the owner on this computer can run the command; a guest asks the owner
@@ -2865,21 +2855,17 @@ function updateProjectMetadata(details = {}) {
   );
 }
 let projectPreferences = {};
-try {
-  const saved = JSON.parse(
-    localStorage.getItem("project-list-preferences") || "{}",
-  );
+{
+  const saved = prefs.get("project_list_preferences", {});
   if (saved && typeof saved === "object" && !Array.isArray(saved))
     projectPreferences = saved;
-} catch {}
+}
 function setProjectPreference(id, key, value) {
   const next = {
     ...projectPreferences,
     [id]: { ...projectPreferences[id], [key]: value },
   };
-  try {
-    localStorage.setItem("project-list-preferences", JSON.stringify(next));
-  } catch {
+  if (!prefs.set("project_list_preferences", next)) {
     status("Couldn't save the project list in this browser. Try again.");
     return;
   }
@@ -2893,7 +2879,7 @@ function setProjectPreference(id, key, value) {
     $("removed-projects")?.querySelector("summary") ||
     $("add-project")
   ).focus();
-  if (key === "hideIcon") return;
+  if (key === "hide_icon") return;
   status(
     key === "hidden"
       ? value
@@ -3064,7 +3050,7 @@ function renderProjects() {
           button.setAttribute("aria-label", o.textContent + " · Favorite");
         }
         const projectIcon = projectIcons[o.value],
-          showIcon = !!projectIcon && !projectPreferences[o.value]?.hideIcon;
+          showIcon = !!projectIcon && !projectPreferences[o.value]?.hide_icon;
         if (showIcon) {
           const img = document.createElement("img");
           img.className = "project-logo";
@@ -3179,7 +3165,7 @@ function renderProjects() {
           : "No icon found in the project";
         iconToggle.onclick = () => {
           menu.hidePopover();
-          setProjectPreference(o.value, "hideIcon", showIcon);
+          setProjectPreference(o.value, "hide_icon", showIcon);
         };
         const edit = document.createElement("button");
         edit.type = "button";
@@ -5716,12 +5702,10 @@ function toggleSidebar() {
     $("sidebar").classList.toggle("open");
   } else {
     document.body.classList.toggle("sidebar-collapsed");
-    try {
-      localStorage.setItem(
-        "sidebar-collapsed",
-        document.body.classList.contains("sidebar-collapsed") ? "1" : "0",
-      );
-    } catch {}
+    prefs.set(
+      "sidebar_collapsed",
+      document.body.classList.contains("sidebar-collapsed"),
+    );
   }
   syncSidebarFocus();
   $("menu").setAttribute(
@@ -6271,7 +6255,7 @@ document.addEventListener("pointerdown", (event) => {
 try {
   document.body.classList.toggle(
     "sidebar-collapsed",
-    localStorage.getItem("sidebar-collapsed") === "1",
+    prefs.get("sidebar_collapsed", false) === true,
   );
 } catch {}
 $("menu").setAttribute(
@@ -6905,10 +6889,7 @@ function setPanelView(view, persist = true) {
     "aria-expanded",
     String(!$("activity-panel").hidden && document.querySelector('[data-workspace-section="activity"]').open),
   );
-  if (persist)
-    try {
-      localStorage.setItem("right-panel-view", view);
-    } catch {}
+  if (persist) prefs.set("right_panel_view", view);
 }
 const quotaHome = document.createComment("quota-indicator-home");
 $("quota-toggle").before(quotaHome);
@@ -6955,10 +6936,7 @@ function setPanelOpen(open, persist = true) {
     loadAuthorizedProjectRoots();
     loadProjectFileRoots();
   }
-  if (persist)
-    try {
-      localStorage.setItem("activity-open", open ? "1" : "0");
-    } catch {}
+  if (persist) prefs.set("activity_open", !!open);
 }
 document.addEventListener("keydown", event => {
   if (event.defaultPrevented || event.key !== "Tab" || document.querySelector("dialog[open], #tour-root, [popover]:popover-open")) return;
@@ -7190,14 +7168,14 @@ $("panel-toggle").onclick = () => {
 $("files-toggle").onclick = () => togglePanelView("files");
 $("activity-toggle").onclick = () => togglePanelView("activity");
 try {
-  const preference = localStorage.getItem("activity-open"),
-    savedView = localStorage.getItem("right-panel-view");
-  rightPanelView = savedView || (preference === "1" ? "activity" : "files");
+  const preference = prefs.get("activity_open", false) === true,
+    savedView = prefs.get("right_panel_view", null);
+  rightPanelView = savedView || (preference ? "activity" : "files");
   setPanelView(rightPanelView, false);
   setPanelOpen(
     matchMedia("(max-width:700px)").matches
       ? false
-      : preference === "1",
+      : preference,
     false,
   );
 } catch {
@@ -7211,11 +7189,7 @@ matchMedia("(max-width:999px)").addEventListener("change", () => {
 matchMedia("(max-width:700px)").addEventListener("change", (event) => {
   if (event.matches) setPanelOpen(false, false);
   else {
-    let preference = null;
-    try {
-      preference = localStorage.getItem("activity-open");
-    } catch {}
-    if (preference === "1") setPanelOpen(true, false);
+    if (prefs.get("activity_open", false) === true) setPanelOpen(true, false);
   }
 });
 
@@ -7275,10 +7249,9 @@ async function replayActivity(id) {
   }
 }
 let panelOrder = "conversations-left";
-try {
-  if (localStorage.getItem("panel-order") === "conversations-right")
-    panelOrder = "conversations-right";
-} catch {}
+if (prefs.get("panel_order", null) === "conversations-right")
+  panelOrder = "conversations-right";
+const panelField = (id) => id.replace("-", "_");
 const panelWidths = { sidebar: 300, "activity-panel": 390 };
 const customizedPanels = new Set();
 const panelIsLeft = (id) =>
@@ -7321,16 +7294,12 @@ function sizePanel(id, width, persist = true) {
   if (persist) {
     panelWidths[id] = value;
     customizedPanels.add(id);
-    try {
-      localStorage.setItem(id + "-width", String(value));
-    } catch {}
+    prefs.set("panel_widths", { ...prefs.get("panel_widths", {}), [panelField(id)]: value });
   }
 }
 for (const id of Object.keys(panelWidths)) {
-  try {
-    const saved = Number(localStorage.getItem(id + "-width"));
-    if (saved >= 220 && saved <= 720) { panelWidths[id] = saved; customizedPanels.add(id); }
-  } catch {}
+  const saved = Number(prefs.get("panel_widths", {})[panelField(id)]);
+  if (saved >= 220 && saved <= 720) { panelWidths[id] = saved; customizedPanels.add(id); }
   const handle = $(id + "-resize");
   let drag = null;
   handle.addEventListener("pointerdown", (e) => {
@@ -7398,10 +7367,7 @@ function applyPanelOrder(value, persist = true) {
       "aria-pressed",
       String(button.dataset.panelOrder === panelOrder),
     );
-  if (persist)
-    try {
-      localStorage.setItem("panel-order", panelOrder);
-    } catch {}
+  if (persist) prefs.set("panel_order", panelOrder);
   fitPanels();
 }
 applyPanelOrder(panelOrder, false);
@@ -7410,10 +7376,7 @@ for (const button of document.querySelectorAll("[data-panel-order]"))
 $("panel-order-reset").onclick = () => {
   panelWidths.sidebar = 300;
   panelWidths["activity-panel"] = 390;
-  try {
-    localStorage.removeItem("sidebar-width");
-    localStorage.removeItem("activity-panel-width");
-  } catch {}
+  prefs.set("panel_widths", null);
   applyPanelOrder("conversations-left");
   fitPanels();
 };
@@ -7426,9 +7389,7 @@ $("activity-toggle").onclick = () => {
 
 function rememberSelection() {
   preferredSelection = { model: $("model").value, effort: $("effort").value };
-  try {
-    localStorage.setItem("chat-selection", JSON.stringify(preferredSelection));
-  } catch {}
+  prefs.set("chat_selection", preferredSelection);
 }
 let pendingSelectionNotice = "";
 function selectionNotice(gone) {
@@ -7458,9 +7419,10 @@ function restoreSelection() {
   if (model.efforts.includes(preferredSelection.effort))
     $("effort").value = preferredSelection.effort;
 }
-let lastSection = "appearance";
+let lastSection = prefs.get("last_section", "appearance");
 function showSettingsPage(button) {
   lastSection = button.dataset.adminSection || button.dataset.settings;
+  prefs.set("last_section", lastSection);
   for (const name of ["appearance", "customize", "models", "archived", "system"])
     $("settings-" + name).hidden = name !== button.dataset.settings;
   if (button.dataset.settings === "archived") void loadArchived();
@@ -7501,11 +7463,16 @@ function showAdminSection(section = "providers") {
 }
 // `section` is a data-admin-section or a data-settings value; false when it is an admin section
 // on a host that cannot frame the admin, or unknown.
-function openSettings(section = lastSection) {
-  const button =
-    document.querySelector('[data-admin-section="' + section + '"]') ||
-    document.querySelector('[data-settings="' + section + '"]:not([data-admin-section])');
-  if (!button || (button.dataset.adminSection && $("settings-system-nav").hidden)) return false;
+function openSettings(section) {
+  const remembered = section === undefined;
+  const find = (name) =>
+    document.querySelector('[data-admin-section="' + name + '"]') ||
+    document.querySelector('[data-settings="' + name + '"]:not([data-admin-section])');
+  const usable = (item) => item && !(item.dataset.adminSection && $("settings-system-nav").hidden);
+  let button = find(remembered ? lastSection : section);
+  // A remembered section that no longer exists (or is hidden here) opens Appearance.
+  if (remembered && !usable(button)) button = find("appearance");
+  if (!usable(button)) return false;
   void navigate(settingsView(button.dataset.settings, button));
   return true;
 }
@@ -7654,13 +7621,10 @@ const NAV_LIMIT = 50;
 const DIALOG_VIEWS = { settings: "settings-dialog", customize: "settings-dialog", space: "space-dialog", scheduled: "scheduled-dialog" };
 let viewHistory = [],
   viewIndex = -1;
-// Scroll positions survive a reload: the 50 most recent conversations are kept in localStorage.
-const SCROLL_KEY = "conversation-scroll";
+// Scroll positions survive a reload: the 50 most recent conversations are kept in the UI state store.
 const scrollByConversation = new Map();
-try {
-  for (const [id, top] of JSON.parse(localStorage.getItem(SCROLL_KEY) || "[]"))
-    if (typeof id === "string" && Number.isFinite(top)) scrollByConversation.set(id, top);
-} catch {}
+for (const [id, top] of prefs.get("conversation_scroll", []))
+  if (typeof id === "string" && Number.isFinite(top)) scrollByConversation.set(id, top);
 function rememberScroll() {
   // While a conversation loads, #messages is not its content yet.
   if (!conversation || loading) return;
@@ -7669,12 +7633,12 @@ function rememberScroll() {
   // At the bottom, remember "the end" (-1), not a pixel offset: the reply may grow or the window shrink.
   scrollByConversation.set(conversation, box.scrollHeight - box.scrollTop - box.clientHeight < 48 ? -1 : box.scrollTop);
   while (scrollByConversation.size > NAV_LIMIT) scrollByConversation.delete(scrollByConversation.keys().next().value);
-  try {
-    localStorage.setItem(SCROLL_KEY, JSON.stringify([...scrollByConversation]));
-  } catch {}
+  prefs.set("conversation_scroll", [...scrollByConversation]);
 }
-addEventListener("pagehide", rememberScroll);
-document.addEventListener("visibilitychange", () => document.hidden && rememberScroll());
+// ui-prefs.js sends on pagehide too, but before this runs; flush again so the last scroll goes out.
+const rememberScrollAndFlush = () => { rememberScroll(); void prefs.flush({ keepalive: true }); };
+addEventListener("pagehide", rememberScrollAndFlush);
+document.addEventListener("visibilitychange", () => document.hidden && rememberScrollAndFlush());
 const sameView = (a, b) => a.kind === b.kind && (a.id || null) === (b.id || null) && (a.section || null) === (b.section || null) && (a.sub || null) === (b.sub || null);
 const currentBaseView = () => (conversation ? { kind: "conversation", id: conversation } : { kind: "home" });
 const pressedSettings = () => document.querySelector('[data-settings][aria-pressed="true"]');
@@ -9054,15 +9018,9 @@ function applyReadingSize(value) {
   const size = ["15", "17", "19"].includes(value) ? value : "15";
   document.documentElement.style.setProperty("--th-reading-size", size + "px");
   $("reading-size").value = size;
-  try {
-    localStorage.setItem("reading-size", size);
-  } catch {}
+  prefs.set("reading_size", size);
 }
-let readingSize = "15";
-try {
-  readingSize = localStorage.getItem("reading-size") || "15";
-} catch {}
-applyReadingSize(readingSize);
+applyReadingSize(prefs.get("reading_size", "15"));
 $("reading-size").onchange = () => applyReadingSize($("reading-size").value);
 function updateHeaderToastOffset() {
   const header = $("conversation-title").closest("header");
@@ -10348,15 +10306,12 @@ function renderWorkspaceTasks(jobs) {
 }
 for (const section of document.querySelectorAll(".workspace-section")) {
   const name = section.dataset.workspaceSection, content = $("workspace-" + name);
-  const key = "workspace-section-" + name;
-  try {
-    const saved = JSON.parse(localStorage.getItem(key) || "null");
-    if (saved) {
-      section.open = saved.open !== false;
-      if (Number.isFinite(saved.height)) { content.style.height = Math.max(64, Math.min(600, saved.height)) + "px"; section.dataset.sized = ""; }
-    }
-  } catch {}
-  const save = () => { try { localStorage.setItem(key, JSON.stringify({ open: section.open, height: parseFloat(content.style.height) || null })); } catch {} };
+  const saved = prefs.get("workspace_sections", {})[name];
+  if (saved && typeof saved === "object") {
+    section.open = saved.open !== false;
+    if (Number.isFinite(saved.height)) { content.style.height = Math.max(64, Math.min(600, saved.height)) + "px"; section.dataset.sized = ""; }
+  }
+  const save = () => prefs.set("workspace_sections", { ...prefs.get("workspace_sections", {}), [name]: { open: section.open, height: parseFloat(content.style.height) || null } });
   section.addEventListener("toggle", () => { save();
     const shortcut = $(name + "-toggle");
     if (shortcut) shortcut.setAttribute("aria-expanded", String(section.open && !$("activity-panel").hidden));

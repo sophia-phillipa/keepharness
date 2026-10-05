@@ -56,6 +56,11 @@ ui_failures=0
 if [ "$#" -gt 0 ]; then set -- "$@"; else set -- tests/*.spec.cjs tests/personas/*.spec.cjs; fi
 for test_file in "$@"; do
   [ -e "$test_file" ] || continue
+  # The harness keeps UI preferences in its state store, shared by every browser context of a run:
+  # each spec starts from an empty store, as it used to start from empty localStorage.
+  "${PYTHON:-python3}" -c 'import json,sys,urllib.request
+from agent_service import ui_state
+urllib.request.urlopen(urllib.request.Request(sys.argv[1]+"/v1/ui-state",data=json.dumps({"values":dict.fromkeys(ui_state.SCHEMA)}).encode(),method="PATCH",headers={"Content-Type":"application/json"}),timeout=5)' "$TH_CHAT_URL"
   echo "RUN $test_file"
   if ADMIN_URL="$TH_ADMIN_URL" HARNESS_URL="$TH_CHAT_URL" node "$test_file"; then
     echo "PASS FILE $test_file"

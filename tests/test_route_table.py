@@ -586,6 +586,7 @@ STATIC_ROUTES = [
     "/",
     "/guide",
     "/ui.js",
+    "/ui-prefs.js",
     "/run-console.js",
     "/tour.js",
     "/ui.css",
