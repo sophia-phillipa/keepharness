@@ -5619,6 +5619,13 @@ main > #run-console { order: 11; }
 #plugins-menu .plugins-manage .th-icon { width: 16px; height: 16px; color: var(--th-muted); }
 #plugins-menu { background: var(--th-panel); backdrop-filter: none; }
 
+/* WP4: tools connected on another provider. */
+#plugins-menu .plugins-action { flex: none; margin-left: auto; min-height: 28px; padding: 2px 10px; border: 1px solid var(--th-border); border-radius: 8px; background: transparent; color: var(--th-text); font-size: 12px; }
+#plugins-menu .plugins-action:hover, #plugins-menu .plugins-action:focus-visible { background: var(--th-hover, color-mix(in srgb, var(--th-text) 7%, transparent)); }
+#execution-mode-choice .composer-chip { position: relative; }
+#execution-mode-choice .composer-chip[data-elsewhere]::after { content: ""; position: absolute; top: 3px; right: 3px; width: 7px; height: 7px; border-radius: 50%; background: var(--th-accent); }
+.route-carryover-tool { display: block; }
+
 /* Connector or plugin detail inside the Plugins panel. */
 #plugins-menu button.integration-row { width: 100%; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 #plugins-menu button.integration-row:hover, #plugins-menu button.integration-row:focus-visible { background: var(--th-hover, color-mix(in srgb, var(--th-text) 7%, transparent)); }
