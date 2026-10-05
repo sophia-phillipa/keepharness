@@ -444,6 +444,39 @@ Turns 5, 6 (S4-05 send and Stop) and 10 (S4-08 ALPHA, 82.7 s, 150 lines streamed
 
 **Notes**: when Codex was off, the header pill stayed "Completed" next to the "Couldn't run" status (confusing but not filed; same family as C-05). S4-04 first part, S4-05 return step, S4-07 and S4-08 need a rerun with fresh budget (about 2 + 2 + 0 + 2 prompts; S4-07 also needs S4-06 first).
 
+### Round 9 (slice 4b rerun), 2026-10-05
+
+- **Slice**: 4, part b rerun (S4-04, S4-05, S4-07, S4-08) on a desktop package rebuilt from `f452505`, plus a zero-prompt keyboard follow-up
+- **Provider, model, effort**: Codex `gpt-5.6-sol`, Medium (no setting was changed in this round)
+- **Scenarios**: S4-07 (first, so its Markdown reply exists), S4-04, S4-05, S4-08, then `s4-05-return` (no prompt); run visibly
+- **Results**: S4-07 PASS, S4-08 PASS (C-08 closed), S4-04 behavior PASS but the run reported FAIL on a wrong check (fixed, see below), S4-05 FAIL on the same stale-id check bug (fixed; the return trip was then verified with the zero-prompt follow-up, PASS). 7 prompts reached the provider (cap 8): S4-07 seed 1, S4-04 stream and retry 2, S4-05 send and long reply 2, S4-08 BRAVO and ALPHA 2. No quota, credit or rate-limit text from the provider. S4-04 and S4-05 were not rerun after the check fixes because 2 + 2 more prompts would pass the cap.
+- **Environment**: desktop 0.16.0 from `f452505` (`build-manifest.json` commit, not dirty; `EnableNodeCliInspectArguments` fuse flipped in the copy only), instance on 18640/18641, polling at 2 s or slower (no 429). Evidence: `~/.cache/kho/chat/runs/s4b-r9/` and `~/.cache/kho/chat/runs/s4b-r9-nav/` (`metrics.jsonl`, `summary.md`, `shots/`).
+
+| Turn | Scenario | TTFT (ms) | Total (ms) | Input-to-paint median / p95 (ms) | Electron RSS (MB) | Harness RSS (MB) |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | s4-07 seed (Markdown and code) | 3863 | 8530 | 18.5 / 31.0 | 894.4 | 257.2 |
+| 2 | s4-04 retry (150 lines) | n/a | 31982 | 13.8 / 31.5 | 920.5 | 324.8 |
+| 3 | s4-05 send | n/a | 6289 | n/a | 922.2 | 251.4 |
+| 4 | s4-05 long reply, stopped | n/a | 21507 | n/a | 979.8 | 434.3 |
+| 5 | s4-08 BRAVO | n/a | 6096 | 27.2 / 32.5 | 981.0 | 518.8 |
+| 6 | s4-08 ALPHA (150 lines, background) | n/a | 77468 | n/a | 982.2 | 518.8 |
+
+The S4-04 stream that was killed mid-reply is the seventh prompt and has no completed turn line.
+
+- **S4-07 themes**: PASS. A fresh Markdown reply (heading, list, table, python block) was used. Contrast: light text 17.4, heading 5.6, code 16.53, table 16.53 / 17.4, sidebar 16.53, composer 17.4; dark 13.84, 9.71, 14.35, 14.35 / 13.84, 14.35, 10.43; all at least 4.5, and code and table colors differ between themes. The dark theme (`graphite`) survived a reload and the starting light theme was restored. Shots: `shots/s4-07-light.png`, `shots/s4-07-dark.png`.
+- **S4-04 harness killed during a stream, then retry**: behavior PASS. The test harness (pid 2158826, confirmed as the chat-campaign instance) was killed with SIGKILL after 132 characters had streamed. The page showed "Running" with the banner "Couldn't load conversations: Couldn't connect to the server", a "Resume tracking" button, and after about 4 s the pill "Interrupted"; the admin supervisor restarted the harness on its own (new pid 2170791, back after about 16 s including the 8 s watch), and after "Resume tracking" the turn read "Run interrupted" (server state `interrupted`, 0 stored characters, so the 132 streamed characters are not kept). The same prompt sent again ran to line 150 and the history went from 1 to 2 turns and from 1 to 2 user messages (the interrupted turn plus the retry; nothing doubled). The run reported FAIL only because of the check "the harness port stayed open after the admin stop", written for the round 8 admin-stop plan; the supervisor restart made it invalid. Replaced by a check that the listening pid changed. What a person must do today: there is no Retry button on the interrupted turn (known parity gap, wave 2), so they retype or copy the prompt and send it again; the failed turn stays in the history. Shots: `shots/s4-04-harness-down.png`, `shots/s4-04-harness-back.png`.
+- **S4-05 keyboard flow**: the run FAILED one check ("could not return to the conversation by keyboard"). Cause: the check compared rows with the conversation id read before the first message, but a new chat has `conversation = ""` until its first send (`agent_service/ui.js`), so no row could match. Fixed in the area file (read the id after the send; up to 150 presses on the way back). All other checks passed: Ctrl+/ focuses the composer with a visible ring, Shift+Enter writes a new line without sending, Enter sends, the model trigger is reachable with Tab (3 presses) and the picker opens, moves with the arrows and closes with Escape back to the trigger, a sidebar row is reachable (25 Tab presses) and opens with Enter, the "/" palette opens, moves and closes with Escape keeping the composer, and Tab then Enter on "Cancel run" stopped the long reply (2642 characters). Follow-up `s4-05-return` (no prompt, 46 rows): from the composer, Tab reached another row in 29 presses and the first row again in 27 presses, and Enter reopened it. PASS. Note for users: with a long list the way to the sidebar from the composer is about 25 to 30 Tab presses; there is no shortcut to the list. Shots: `shots/s4-05-model-open.png`, `shots/s4-05-palette.png`, `shots/s4-05-stopped.png`, `~/.cache/kho/chat/runs/s4b-r9-nav/shots/s4-05-return.png`.
+- **S4-08 background streaming**: PASS. ALPHA (150 lines) streamed while BRAVO answered in the other chat with no text crossing; the ALPHA row read "In progress" until it finished, then "Unread response", and opening it cleared the dot; ALPHA was complete (line 150, 1 turn, `completed`) and BRAVO kept its answer. This confirms the C-08 fix (`ba75a1a`) live. Shots: `shots/s4-08-background.png`, `shots/s4-08-background-finished.png`.
+
+**Bugs**
+- C-08 closed (see S4-08). No new bugs.
+
+**New code seen**: Back and Forward (WP1) and scroll restore on reopen (C-07) were not exercised by these scenarios; nothing odd was noticed on screen while switching and reopening chats in S4-05 and S4-08. C-07 stays open until a scenario checks it.
+
+**Parity gaps**: no Retry button on an interrupted turn after the harness died (S4-04, planned for wave 2). While the harness was down the pill kept "Running" for about 4 s before "Interrupted".
+
+**Notes**: a reply interrupted by a harness crash loses the characters already shown (0 stored); the person sees "Run interrupted" with no partial text. Not filed as a bug (the stream is not persisted until the turn ends by design, to confirm).
+
 ## Bugs index
 
 | Id | Severity | Title | Status | Fix commit |
@@ -455,7 +488,7 @@ Turns 5, 6 (S4-05 send and Stop) and 10 (S4-08 ALPHA, 82.7 s, 150 lines streamed
 | C-05 | nit | Header pill reads "Queued" for the live run while follow-ups are queued | open (reproduced in round 4) | |
 | C-06 | minor | Auto-scroll detaches during a fast long stream and does not resume at the bottom | open | |
 | C-07 | minor | Scroll position is not restored on reopen: the selected conversation opens at the top | open | |
-| C-08 | minor | A chat that finishes in the background never shows the "Unread response" dot (the dot just disappears); not yet reproduced a second time | open | |
+| C-08 | minor | A chat that finishes in the background never shows the "Unread response" dot (the dot just disappears); not yet reproduced a second time | closed: confirmed live in round 9 ("In progress", then "Unread response", cleared on open) | ba75a1a |
 
 ## Cross-round comparison
 
@@ -470,3 +503,4 @@ Turns 5, 6 (S4-05 send and Stop) and 10 (S4-08 ALPHA, 82.7 s, 150 lines streamed
 | 3b | Codex Sol Medium (7 short turns) | 6.6 | 7.9 | Electron ~813-832, harness ~250-274 |
 | 4a | Codex Luna Medium (18 short turns) | 3.6 | 5.3 | Electron ~798-853, harness ~245-260 |
 | 4b | Codex Sol Medium (10 turns, mixed) | 4.9 | 7.4 | Electron ~794-879, harness ~241-488 (two active chats) |
+| 4b rerun (round 9) | Codex Sol Medium (6 turns, mixed) | 3.9 (one sample) | 15.0 | Electron ~894-982, harness ~251-519 (two active chats) |
