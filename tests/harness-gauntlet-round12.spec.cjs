@@ -69,35 +69,6 @@ async function publication(page){await page.evaluate(()=>showGate({gate_id:'publ
    assert(await hit(p.locator(':focus')));await capture(p,'tree-selection-'+width);await p.close();
   }
  });
- await check('A5-F1 Invalid task stays local and focuses its field',async()=>{
-  const f=await fixture(browser,1440,900,true),p=f.page;await f.consoleOpen();await p.locator('#run-plan-edit').click();
-  const task=p.getByLabel('Task for step 1',{exact:true});await task.fill('   ');
-  await p.getByRole('button',{name:'Run with edits (1)',exact:true}).click();
-  assert.equal(f.state.posts.length,0);assert(await task.evaluate(n=>n===document.activeElement));
-  assert.equal(await task.getAttribute('aria-invalid'),'true');
-  assert.match(await p.locator('.run-plan-approval [role=status]').innerText(),/Enter.*task.*step 1/i);
-  assert(await hit(task));await capture(p,'invalid-task');
-  await task.fill('Restored task');await p.getByRole('button',{name:'Run with edits (1)',exact:true}).click();
-  await p.waitForTimeout(100);assert.equal(f.state.posts.length,1);assert.equal(f.state.posts[0].data.plan.steps[0].task,'Restored task');await p.close();
- });
- await check('A5-F1 Storage warnings survive field validation',async()=>{
-  const f=await fixture(browser,1440,900,true),p=f.page;await f.consoleOpen();await p.locator('#run-plan-edit').click();
-  await p.evaluate(()=>{const original=Storage.prototype.setItem;Storage.prototype.setItem=function(key,value){if(key.startsWith('plan-draft:'))throw Error('synthetic storage unavailable');return original.call(this,key,value);};});
-  await p.getByLabel('Task for step 1',{exact:true}).fill('');
-  const feedback=await p.locator('.run-plan-approval [role=status]').innerText();assert.match(feedback,/not saved/);assert.match(feedback,/Enter a task for step 1/);assert.equal(f.state.posts.length,0);
-  await p.getByRole('button',{name:'Hide editor',exact:true}).click();await p.getByRole('button',{name:'Run with edits (1)',exact:true}).click();
-  const restored=await p.locator('.run-plan-approval [role=status]').innerText();assert.match(restored,/not saved/);assert.match(restored,/Enter a task for step 1/);assert.equal(f.state.posts.length,0);assert(await p.getByLabel('Task for step 1',{exact:true}).evaluate(n=>n===document.activeElement));await p.close();
- });
- await check('A5-F1 Unavailable model and effort stay local',async()=>{
-  for(const field of ['model','effort']){
-   const f=await fixture(browser,1440,900,true),p=f.page;
-   await p.evaluate(field=>sessionStorage.setItem('plan-draft:plan',JSON.stringify({steps:[{role:'Research',backend:'codex',model:field==='model'?'missing':'fixture',effort:field==='effort'?'missing':'low',task:'Synthetic task',reason:'Check facts'}]})),field);
-   await f.consoleOpen();await p.locator('#run-plan-edit').click();await p.locator('.run-plan-actions button').filter({hasText:'Run with edits'}).click();
-   assert.equal(f.state.posts.length,0);assert.match(await p.locator('.run-plan-approval [role=status]').innerText(),/available.*step 1/i);
-   const input=p.getByLabel((field==='model'?'Model':'Effort')+' for step 1',{exact:true});assert(await input.evaluate(n=>n===document.activeElement));
-   await input.selectOption(field==='model'?'codex/fixture':'low');await p.locator('.run-plan-actions button').filter({hasText:'Run with edits'}).click();await p.waitForTimeout(100);assert.equal(f.state.posts.length,1);await p.close();
-  }
- });
  await check('A1-F1 Complete default cards across publication and completed states',async()=>{
   for(const [width,height] of [[1440,900],[1280,720],[1024,768],[400,812]])for(const theme of ['porcelain','amethyst','petroleum'])for(const published of [false,true]){
    const f=await fixture(browser,width,height),p=f.page;f.state.completed=!published;await f.open();if(published)await publication(p);

@@ -55,10 +55,9 @@ module.exports = {
       await op.see(page.locator("#catalog-skills"));
     });
 
-    await op.step("models", "Models lists the plan review policy and the model catalog", async () => {
+    await op.step("models", "Models lists the model catalog", async () => {
       await op.click(nav("Models"));
       await op.see(page.locator("#settings-models"));
-      await op.see(page.locator("#maestro-plan-policy"));
       await op.see(page.locator("#catalog-models"));
     });
 

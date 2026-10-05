@@ -42,7 +42,7 @@ async function chooseModel(op, wanted) {
   let id = wanted;
   if (!id || !op.fixtureMode) {
     const { models } = await catalog(op);
-    const usable = models.filter((m) => m.backend !== "maestro");
+    const usable = models;
     const pick =
       usable.find((m) => m.backend === "claude" && /sonnet|haiku/.test(m.id)) ||
       usable.find((m) => m.backend === "claude") ||

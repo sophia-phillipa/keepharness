@@ -61,7 +61,7 @@ const settle = page => page.evaluate(() => Promise.all(document.getAnimations().
    });
    await capture(p,`timeline-${width}-${theme}`); assert.equal(geometry.scroll,0); assert(geometry.targets.length>=3);
    for(const t of geometry.targets) {assert(t.top>=geometry.port.top && t.bottom<=geometry.port.bottom,JSON.stringify({width,theme,geometry}));if(t.text.includes('Approve plan')||t.text==='Discard'||t.text==='Edit plan') assert(t.hits.every(Boolean),JSON.stringify(t));}
-   const approve=p.locator('#run-plan-approve-plan'), box=await approve.boundingBox(); await p.mouse.click(box.x+box.width/2,box.y+box.height/2); await p.waitForTimeout(50); assert.equal(f.state.posts.length,1); assert(await p.locator('#run-console').isVisible()); await p.close();
+   assert.equal(await p.locator('#run-plan-approve-plan, #run-plan-edit').count(),0); assert.equal(f.state.posts.length,0); assert(await p.locator('#run-console').isVisible()); await p.close();
   }
  });
  await check('A2-F2 short single and multi choices provide 24px actual targets',async()=>{
