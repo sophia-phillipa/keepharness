@@ -5884,6 +5884,107 @@ function usageAge(seconds) {
       : Math.round(age / 86400) + " d ago";
 }
 let pluginsView = null;
+// WP4: tools another provider has connected, per route. Drives the Plugins chip dot,
+// the "On other providers" menu section and the provider-switch note.
+let elsewhereView = { key: "", list: [] },
+  elsewherePending = "";
+function routeKey(m) {
+  return [$("project").value, m.backend, m.model, m.execution_mode, $("access-mode").value].join("|");
+}
+function integrationsUrl(m) {
+  return (
+    "/v1/integrations?" +
+    new URLSearchParams({
+      project_id: $("project").value,
+      backend: m.backend,
+      model: m.model,
+      execution_mode: m.execution_mode,
+      access_mode: $("access-mode").value,
+    })
+  );
+}
+function setElsewhere(key, list) {
+  elsewherePending = key;
+  elsewhereView = { key, list: Array.isArray(list) ? list : [] };
+  const chip = $("plugins-chip");
+  if (elsewhereView.list.length) {
+    chip.dataset.elsewhere = "true";
+    chip.setAttribute("aria-label", "Plugins, tools available on other providers");
+  } else {
+    delete chip.dataset.elsewhere;
+    chip.removeAttribute("aria-label");
+  }
+  syncRouteCarryover();
+}
+async function refreshElsewhere() {
+  const m = resourceEngine();
+  if (!m.backend) return;
+  const key = routeKey(m);
+  if (key === elsewhereView.key || key === elsewherePending) return;
+  elsewherePending = key;
+  try {
+    const data = await json(integrationsUrl(m));
+    if (elsewherePending === key) setElsewhere(key, data.elsewhere);
+  } catch {
+    // Only a hint is lost; the menu reports the real error when it is opened.
+    if (elsewherePending === key) setElsewhere(key, []);
+  }
+}
+function elsewhereSection(list, backend, menu) {
+  const wrap = document.createElement("section"),
+    heading = document.createElement("h3"),
+    ul = document.createElement("ul"),
+    here = providerNames[backend] || backend;
+  wrap.dataset.testid = "elsewhere-section";
+  heading.textContent = "On other providers";
+  for (const entry of list) {
+    const row = document.createElement("li"),
+      box = document.createElement("div"),
+      text = document.createElement("div"),
+      name = document.createElement("strong"),
+      meta = document.createElement("small"),
+      on = entry.providers
+        .filter((p) => p.allowed)
+        .map((p) => providerNames[p.backend] || p.backend)
+        .join(", ");
+    box.className = "integration-row";
+    box.dataset.testid = "elsewhere-row";
+    name.textContent = entry.label;
+    meta.textContent =
+      entry.here === "enable"
+        ? "Installed on " + here + ", turned off for KeepHarness"
+        : "Not connected on " + here + " (connected on " + on + ")";
+    text.append(name, meta);
+    box.append(HarnessUI.icon("plug"), text);
+    // The allow list lives in Settings (the harness API has no enable endpoint): System > Providers
+    // where the admin is reachable, Customize otherwise.
+    const action = document.createElement("button");
+    action.type = "button";
+    action.className = "plugins-action";
+    action.textContent = entry.here === "enable" ? "Enable" : "Open Plugins";
+    action.onclick = () => {
+      menu.hidePopover();
+      openSettings("providers") || openSettings("customize");
+    };
+    box.append(action);
+    row.append(box);
+    ul.append(row);
+  }
+  wrap.append(heading, ul);
+  return wrap;
+}
+function carryoverToolLines(from, next) {
+  if (elsewhereView.key !== routeKey(resourceEngine())) return [];
+  const to = providerNames[next.backend] || next.backend,
+    was = providerNames[from] || from;
+  return elsewhereView.list
+    .filter((entry) => entry.providers.some((p) => p.backend === from && p.allowed))
+    .map((entry) =>
+      entry.here === "absent"
+        ? entry.label + " is connected on " + was + " but not on " + to
+        : entry.label + " is installed on " + to + " but not enabled - enable it in Settings > Plugins",
+    );
+}
 function integrationRow(item, sharedReason = "") {
   const row = document.createElement("li"),
     open = document.createElement("button"),
@@ -5987,16 +6088,8 @@ async function renderPluginsMenu() {
     return;
   }
   try {
-    const data = await json(
-      "/v1/integrations?" +
-        new URLSearchParams({
-          project_id: $("project").value,
-          backend: m.backend,
-          model: m.model,
-          execution_mode: m.execution_mode,
-          access_mode: $("access-mode").value,
-        }),
-    );
+    const data = await json(integrationsUrl(m));
+    setElsewhere(routeKey(m), data.elsewhere);
     const items = Array.isArray(data.items) ? data.items : [],
       effective = items.filter((item) => item.effective),
       others = items.filter((item) => !item.effective),
@@ -6026,6 +6119,7 @@ async function renderPluginsMenu() {
       section("Available in this conversation", effective, "None for this project and model."),
     );
     if (others.length) parts.push(section("Installed, not available here", others, ""));
+    if (elsewhereView.list.length) parts.push(elsewhereSection(elsewhereView.list, m.backend, menu));
     const tools = Array.isArray(data.other_tools) ? data.other_tools : [];
     if (tools.length) {
       const details = document.createElement("details"),
@@ -8866,16 +8960,21 @@ function syncRouteCarryover() {
     next = selected(),
     switching = lastRoute?.backend && next?.backend && lastRoute.backend !== next.backend;
   note.hidden = !switching;
-  note.textContent = switching
-    ? "Next message goes to " + (providerNames[next.backend] || next.backend) + " · " + modelName(next.id) +
-      ". The conversation so far goes with it."
-    : "";
+  note.replaceChildren();
+  if (!switching) return;
+  note.append(
+    "Next message goes to " + (providerNames[next.backend] || next.backend) + " · " + modelName(next.id) +
+      ". The conversation so far goes with it.",
+  );
+  for (const line of carryoverToolLines(lastRoute.backend, next))
+    note.append(Object.assign(document.createElement("span"), { className: "route-carryover-tool", textContent: line }));
 }
 function updateComposer() {
   syncComposerProjectButton();
   syncViewSwitch();
   syncComposerPickers();
   syncRouteCarryover();
+  void refreshElsewhere();
   syncExecutionMode();
   updateModelPermissions();
   const blocked = syncComposerAvailability();

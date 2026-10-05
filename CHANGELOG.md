@@ -13,6 +13,7 @@ The per-release notes in [`dossier/releases/`](dossier/releases/) hold the full 
 - `GET /v1/conversations/{id}/continuation?target=claude|chatgpt` returns a redacted, size-capped, paste-ready prompt to continue a conversation in the Claude or ChatGPT desktop app; tool evidence is names and outcomes only (WP5 backend).
 - `/v1/integrations` gains an additive `elsewhere` list of tools connected on another provider the owner may use for the project, saying whether the current provider only needs to enable it (WP4 backend).
 - Durable UI preferences in a backend store: `GET`/`PATCH /v1/ui-state` keep the owner's theme, panel, sidebar, reading size, model choice, project list, scroll and tour state in an allow-listed, size-capped file in the harness state folder instead of browser `localStorage`, so a port change or profile reset no longer wipes them (WP6 backend). The UI now reads and writes them through `window.HarnessPrefs`: old `localStorage` keys migrate into the store and are erased only once accepted, a read-only store shows a notice and stops writing, and a 413 is split per key (WP6 frontend).
+- Cross-provider tool warnings: the Plugins menu lists tools connected on another provider ("On other providers", with Enable / Open Plugins), the Plugins chip shows a dot, and the provider-switch note names tools that do not follow the conversation (WP4 UI).
 
 ### Changed
 
