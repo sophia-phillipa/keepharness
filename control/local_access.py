@@ -23,6 +23,8 @@ from collections.abc import Callable, Iterable, Mapping, MutableMapping
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from agent_service.errors import UserMessageError
+
 from .product import PRODUCT
 
 KEY_FILE = "local.key"
@@ -78,7 +80,7 @@ def read_secret(path: Path) -> str:
     with open(os.open(path, os.O_RDONLY | os.O_NOFOLLOW), encoding="utf-8") as stream:
         secret = stream.read().strip()
     if not secret:
-        raise ValueError(f"{path} is empty; delete it and start {PRODUCT.name} again.")
+        raise UserMessageError(f"{path} is empty; delete it and start {PRODUCT.name} again.")
     return secret
 
 

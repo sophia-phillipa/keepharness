@@ -22,6 +22,7 @@ from adapters.deepseek import account as deepseek
 from adapters.gemini import account as gemini
 from adapters.shared.provider_setup import child_source, homes_root, login_environment
 from agent_service.config import VERSION_FILE
+from agent_service.errors import UserMessageError
 from agent_service.work_items import validate_pattern
 
 from . import (
@@ -67,7 +68,7 @@ def kept_setting(posted, stored, key, allowed, message):
     """``posted[key]``, else ``stored[key]``; an int within ``allowed`` or a ``ValueError``."""
     value = posted.get(key, stored.get(key))
     if value is not None and (type(value) is not int or value not in allowed):
-        raise ValueError(message)
+        raise UserMessageError(message)
     return {} if value is None else {key: value}
 
 
@@ -219,24 +220,27 @@ class Manager:
 
     def validate(self, data):
         if not isinstance(data, dict):
-            raise ValueError("Invalid configuration.")
+            raise UserMessageError("Invalid configuration.")
         out = {}
         for key in ("port", "tailnet_port"):
             value = data.get(key, 8095)
             if type(value) is not int or not 1024 <= value <= 65535 or value == self.admin_port:
-                raise ValueError("Invalid port, or reserved by the management panel.")
+                raise UserMessageError("Invalid port, or reserved by the management panel.")
             out[key] = value
         bind = data.get("vpn_bind", "127.0.0.1")
         if not isinstance(bind, str):
-            raise ValueError("Provide the private IP as text.")
-        address = ipaddress.ip_address(bind)
+            raise UserMessageError("Provide the private IP as text.")
+        try:
+            address = ipaddress.ip_address(bind)
+        except ValueError:
+            raise UserMessageError("Provide the private IP as a valid IPv4 address.") from None
         if (
             address.version != 4
             or not (address.is_loopback or address.is_private)
             or address.is_unspecified
             or address.is_multicast
         ):
-            raise ValueError(
+            raise UserMessageError(
                 "Use only the private IP specific to the VPN interface, never 0.0.0.0."
             )
         out["vpn_bind"] = bind
@@ -246,19 +250,19 @@ class Manager:
         )
         # The owner's own Codex and Claude Code setup in their conversations (decision D01).
         if type(data.get("personal_setup", False)) is not bool:
-            raise ValueError("Use my personal setup must be an explicit boolean.")
+            raise UserMessageError("Use my personal setup must be an explicit boolean.")
         out["personal_setup"] = data.get("personal_setup", False)
         # Full access in the chat's access menu: off until the owner turns it on (decision D11).
         if type(data.get("full_access", False)) is not bool:
-            raise ValueError("Allow Full access must be an explicit boolean.")
+            raise UserMessageError("Allow Full access must be an explicit boolean.")
         out["full_access"] = data.get("full_access", False)
         # Registered projects reach guests and the VPN key only when the owner shares them.
         if type(data.get("shared_projects", False)) is not bool:
-            raise ValueError("Share projects with guests must be an explicit boolean.")
+            raise UserMessageError("Share projects with guests must be an explicit boolean.")
         out["shared_projects"] = data.get("shared_projects", False)
         default = data.get("default_backend", "")
         if default not in ("", "codex", "claude", "gemini", "local", "deepseek"):
-            raise ValueError("Invalid default executor.")
+            raise UserMessageError("Invalid default executor.")
         out["default_backend"] = default
         catalogs = []
         catalog_ids = set()
@@ -268,10 +272,10 @@ class Manager:
 
         raw_catalogs = data.get("catalogs", [])
         if not isinstance(raw_catalogs, list) or len(raw_catalogs) > 50:
-            raise ValueError("Invalid catalog configuration.")
+            raise UserMessageError("Invalid catalog configuration.")
         for catalog in raw_catalogs:
             if not isinstance(catalog, dict):
-                raise ValueError("Invalid catalog configuration.")
+                raise UserMessageError("Invalid catalog configuration.")
             catalog_id = catalog.get("id", "")
             namespace = catalog.get("namespace", "")
             kind = catalog.get("kind", "folder")
@@ -286,11 +290,11 @@ class Manager:
                 or kind not in ("folder", "git")
                 or type(catalog.get("trusted", False)) is not bool
             ):
-                raise ValueError("Invalid catalog configuration.")
+                raise UserMessageError("Invalid catalog configuration.")
             raw = Path(catalog_root_value).expanduser()
             saved_missing = not raw.exists() and saved_catalog_roots.get(catalog_id) == str(raw)
             if not raw.is_absolute() or (not raw.is_dir() and not saved_missing):
-                raise ValueError("Choose an existing, absolute catalog folder.")
+                raise UserMessageError("Choose an existing, absolute catalog folder.")
             catalog_root = raw.resolve()
             home = Path.home().resolve()
             forbidden = (
@@ -307,10 +311,10 @@ class Manager:
                 catalog_root.is_relative_to(path) or path.is_relative_to(catalog_root)
                 for path in forbidden[2:]
             ):
-                raise ValueError("A broad or credentials folder cannot be a catalog.")
+                raise UserMessageError("A broad or credentials folder cannot be a catalog.")
             pin = catalog.get("pin", "")
             if not isinstance(pin, str) or len(pin) > 160:
-                raise ValueError("Invalid catalog pin.")
+                raise UserMessageError("Invalid catalog pin.")
             catalogs.append(
                 {
                     "id": catalog_id,
@@ -339,11 +343,11 @@ class Manager:
             label = project.get("label", "")
             raw = Path(project.get("root", "")).expanduser()
             if not re.fullmatch("[a-z0-9_-]{1,64}", pid) or pid == "sem-projeto" or pid in ids:
-                raise ValueError("Invalid or repeated project identifier.")
+                raise UserMessageError("Invalid or repeated project identifier.")
             # A removed, previously registered folder must not stop unrelated projects.
             saved_missing = not raw.exists() and saved_roots.get(pid) == str(raw)
             if not raw.is_absolute() or (not raw.is_dir() and not saved_missing):
-                raise ValueError("Choose an existing, absolute folder.")
+                raise UserMessageError("Choose an existing, absolute folder.")
             root = raw.resolve()
             home = Path.home().resolve()
             forbidden = [
@@ -359,9 +363,9 @@ class Manager:
             if root in forbidden or any(
                 root.is_relative_to(x) or x.is_relative_to(root) for x in forbidden[2:]
             ):
-                raise ValueError("A broad or credentials folder cannot be shared.")
+                raise UserMessageError("A broad or credentials folder cannot be shared.")
             if len(label) > 100:
-                raise ValueError("Project name too long.")
+                raise UserMessageError("Project name too long.")
             units = project.get("service_units", [])
             if (
                 not isinstance(units, list)
@@ -372,14 +376,14 @@ class Manager:
                     for u in units
                 )
             ):
-                raise ValueError("Services must be user .service unit names.")
+                raise UserMessageError("Services must be user .service unit names.")
             overrides = project.get("permissions", {})
             if (
                 not isinstance(overrides, dict)
                 or set(overrides) - {*PERMISSIONS, "delegate"}
                 or any(type(value) is not bool for value in overrides.values())
             ):
-                raise ValueError(
+                raise UserMessageError(
                     "Project permissions must be known boolean values; omit to inherit."
                 )
             project_catalogs = project.get("catalogs", [])
@@ -391,7 +395,7 @@ class Manager:
                     for value in project_catalogs
                 )
             ):
-                raise ValueError("Catalog not registered.")
+                raise UserMessageError("Catalog not registered.")
             from .catalog_admin import validate_pins
 
             catalog_pins = validate_pins(project, catalogs, self.state)
@@ -431,7 +435,7 @@ class Manager:
                 or len(models) > 50
                 or any(not isinstance(x, str) or not re.fullmatch(model_pattern, x) for x in models)
             ):
-                raise ValueError("Invalid model list.")
+                raise UserMessageError("Invalid model list.")
             # Same rule as HarnessUI.selectableModel, which hides other ids from both UIs;
             # ids stored by an older version stay accepted so saving never locks up.
             stored = self.settings["services"].get(provider, {}).get("models", [])
@@ -443,35 +447,35 @@ class Manager:
                 and not re.fullmatch(r"claude-[a-z]+-\d{1,3}(?:-\d{1,3})?", x)
             ]
             if hidden:
-                raise ValueError(
+                raise UserMessageError(
                     f"Use a versioned Claude model id such as claude-sonnet-4-6, not {hidden[0]}."
                 )
             if not isinstance(allowed_projects, list) or any(
                 p not in ids | {"sem-projeto"} for p in allowed_projects
             ):
-                raise ValueError("Project not registered.")
+                raise UserMessageError("Project not registered.")
             if not isinstance(spec.get("permissions", {}), dict):
-                raise ValueError("Invalid permissions.")
+                raise UserMessageError("Invalid permissions.")
             perms = {
                 k: (provider != "local" or spec.get("permissions", {}).get(k) is True)
                 for k in PERMISSIONS
             }
             if perms["write"] and not perms["read"]:
-                raise ValueError("To allow changes, also enable read access.")
+                raise UserMessageError("To allow changes, also enable read access.")
             if provider == "local" and perms["upload"] and not out["uploads_enabled"]:
-                raise ValueError(
+                raise UserMessageError(
                     "Enable global uploads before allowing attachments on the service."
                 )
             selected = spec.get("integrations", [])
             available = {x["id"] for x in self.integrations().get(provider, [])}
             if not isinstance(selected, list) or any(x not in available for x in selected):
-                raise ValueError("Integration not found. Refresh the inventory.")
+                raise UserMessageError("Integration not found. Refresh the inventory.")
             if selected and not perms["internet"]:
-                raise ValueError("Connectors require internet access in this version.")
+                raise UserMessageError("Connectors require internet access in this version.")
             enabled = spec.get("enabled") is True
             allowed_projects = ["sem-projeto", *[p["id"] for p in projects]]
             if enabled and not models:
-                raise ValueError("Select models for the enabled service.")
+                raise UserMessageError("Select models for the enabled service.")
             out["services"][provider] = {
                 "added": spec.get("added") is True or enabled or bool(models),
                 # Providers are native-only; isolation is chosen per conversation.
@@ -498,19 +502,19 @@ class Manager:
                 for x in logins
             )
         ):
-            raise ValueError("Invalid Tailscale identities.")
+            raise UserMessageError("Invalid Tailscale identities.")
         defaults = data.get("mcp_defaults") or {}
         if not isinstance(defaults, dict) or set(defaults) - {"backend", "model", "effort"}:
-            raise ValueError("Invalid MCP defaults.")
+            raise UserMessageError("Invalid MCP defaults.")
         if defaults:
             backend = defaults.get("backend")
             model = defaults.get("model")
             effort = defaults.get("effort", "")
             if not isinstance(backend, str) or backend not in out["services"]:
-                raise ValueError("Choose a valid MCP provider.")
+                raise UserMessageError("Choose a valid MCP provider.")
             spec = out["services"][backend]
             if not spec["enabled"] or model not in spec["models"]:
-                raise ValueError("The default MCP model must be enabled.")
+                raise UserMessageError("The default MCP model must be enabled.")
             if effort not in (
                 "",
                 "configured",
@@ -523,10 +527,10 @@ class Manager:
                 "max",
                 "ultra",
             ):
-                raise ValueError("Invalid default MCP effort.")
+                raise UserMessageError("Invalid default MCP effort.")
             supported = self.provider_models.get(backend, {}).get(model)
             if supported and effort and effort not in supported:
-                raise ValueError("Effort not available for the default model.")
+                raise UserMessageError("Effort not available for the default model.")
             defaults = {"backend": backend, "model": model, "effort": effort}
         out["mcp_defaults"] = defaults
         out["logins"] = list(dict.fromkeys(logins))
@@ -545,7 +549,7 @@ class Manager:
         if (self.state / "tailnet.json").exists() and any(
             settings.get(k) != self.settings.get(k) for k in ("port", "tailnet_port", "vpn_bind")
         ):
-            raise ValueError("Remove the Tailscale route before changing the ports or the IP.")
+            raise UserMessageError("Remove the Tailscale route before changing the ports or the IP.")
         self.state_repository.save_settings(settings)
         self.settings = settings
         self.audit("settings_saved")
@@ -600,7 +604,7 @@ class Manager:
             build = runtime_config.BUILDERS.get(provider, runtime_config.build_cli_provider)
             build(cfg, provider, spec, checked, info, self.state)
         if not enabled and not allow_empty:
-            raise ValueError("Enable at least one service.")
+            raise UserMessageError("Enable at least one service.")
         runtime_config.check_mcp_defaults(cfg)
         runtime_config.mark_unrestricted(cfg, self.integrations)
         runtime_config.build_clients(cfg, settings, self.state, self._previous_runtime())
@@ -626,7 +630,7 @@ class Manager:
         if self.running() and any(
             settings.get(key) != current.get(key) for key in ("port", "vpn_bind")
         ):
-            raise ValueError("To change the address or port, restart the harness.")
+            raise UserMessageError("To change the address or port, restart the harness.")
         previous_proc, previous_applied, previous_error = (
             self.proc,
             self.applied,
@@ -654,12 +658,12 @@ class Manager:
 
     async def check(self, provider):
         if provider not in ("codex", "claude", "gemini", "local", "deepseek"):
-            raise ValueError("Unknown service.")
+            raise UserMessageError("Unknown service.")
         if self.inventory is None:
             await self.refresh()
         info = next(s for s in self.inventory["services"] if s["id"] == provider)
         if not info["found"]:
-            raise ValueError("CLI not found. Install it and sign in with the official tool.")
+            raise UserMessageError("CLI not found. Install it and sign in with the official tool.")
         if provider == "deepseek":
             self.auth[provider] = False
             result = await deepseek.check(self.state)
@@ -724,8 +728,14 @@ class Manager:
         }
 
     async def start(self, supervised=False):
+        """Start the harness and wait until it answers.
+
+        A supervised start returns the spawned process as soon as it exists: the watcher waits
+        for readiness with ``await_ready`` outside ``self.lock``, so a slow restart does not turn
+        every admin mutation away. Meanwhile ``running()`` is true, so no second start can spawn.
+        """
         if self.running():
-            return
+            return None
         if not supervised:
             self.crashes = 0  # the owner starts it again: a fresh count
         await self.refresh()
@@ -738,7 +748,7 @@ class Manager:
             try:
                 check.bind((bind, port))
             except OSError:
-                raise ValueError("Port in use. Choose another; no existing service was stopped.")
+                raise UserMessageError("Port in use. Choose another; no existing service was stopped.")
         path = self.state / "runtime.json"
         self._write_runtime(cfg)
         from agent_service.log_config import open_process_log
@@ -756,10 +766,20 @@ class Manager:
             )
         finally:
             log.close()
+        if supervised:
+            return self.proc
+        await self.await_ready(self.proc)
+        self.finish_start(self.proc)
+        return None
+
+    async def await_ready(self, proc):
+        """Poll until the spawned harness answers; raise if it exits or never becomes ready."""
+        bind = self.settings.get("vpn_bind", "127.0.0.1")
+        port = self.settings["port"]
         async with httpx.AsyncClient(trust_env=False, timeout=1) as client:
             for _ in range(40):
-                if self.proc.returncode is not None:
-                    raise ValueError("The service exited while starting. Check the local log.")
+                if proc.returncode is not None:
+                    raise UserMessageError("The service exited while starting. Check the local log.")
                 try:
                     # The browser entry may redirect to Tailscale; readiness is local.
                     if (await client.get(f"http://{bind}:{port}/ui.css")).status_code == 200:
@@ -769,7 +789,12 @@ class Manager:
                 await asyncio.sleep(0.25)
             else:
                 await self.stop(force=True)
-                raise ValueError("The service did not become ready in time.")
+                raise UserMessageError("The service did not become ready in time.")
+
+    def finish_start(self, proc):
+        """Record a ready harness, unless a stop already took this process away."""
+        if self.proc is not proc or not self.running():
+            return
         self.applied = time.time()
         self.started_at = time.monotonic()
         (self.state / "autostart").touch(mode=0o600)
@@ -816,12 +841,20 @@ class Manager:
             )
             return False
         await asyncio.sleep(min(RESTART_DELAY * 2 ** max(self.crashes - 1, 0), RESTART_DELAY_CAP))
+        spawned = None
         try:
             async with self.lock:  # as an owner's Start, which holds this lock: never two at once
-                await self.start(supervised=True)
+                spawned = await self.start(supervised=True)
+            if spawned is not None:  # the wait for readiness runs outside the lock
+                await self.await_ready(spawned)
+                async with self.lock:
+                    self.finish_start(spawned)
         except (ValueError, RuntimeError, OSError) as exc:
-            self.startup_error = str(exc)
-            self.started_at = time.monotonic()  # a start that fails counts as a quick crash
+            async with self.lock:
+                # An owner's Start may have replaced the process while this one was awaited.
+                if spawned is None or self.proc is spawned:
+                    self.startup_error = str(exc)
+                    self.started_at = time.monotonic()  # a start that fails counts as a quick crash
         return True
 
     async def drain(self):
@@ -833,7 +866,7 @@ class Manager:
 
     async def stop(self, force=False):
         if not force and self.busy():
-            raise ValueError("There are tasks queued or running. Cancel or wait before stopping.")
+            raise UserMessageError("There are tasks queued or running. Cancel or wait before stopping.")
         self.unwatch()
         if self.running():
             self.proc.terminate()
@@ -852,24 +885,24 @@ class Manager:
         binary = self.inventory["binaries"]["tailscale"]
         port = self.settings["tailnet_port"]
         if not binary or not self.inventory["network"]["online"]:
-            raise ValueError("Connect Tailscale first.")
+            raise UserMessageError("Connect Tailscale first.")
         receipt = self.state / "tailnet.json"
         if enabled:
             if self.settings.get("vpn_bind", "127.0.0.1") != "127.0.0.1":
-                raise ValueError(
+                raise UserMessageError(
                     "For Tailscale Serve, use the local address 127.0.0.1; for another VPN, use the configured IP directly."
                 )
             if not self.running() or not self.settings["logins"]:
-                raise ValueError(
+                raise UserMessageError(
                     "Start the harness and register allowed identities before sharing."
                 )
             code, out = await discovery.command(binary, "serve", "status", "--json")
             if code:
-                raise ValueError("Could not check the existing routes.")
+                raise UserMessageError("Could not check the existing routes.")
             # Never overwrite a pre-existing route; only a route recorded as ours can be updated.
             status = json.loads(out or "{}")
             if str(port) in status.get("TCP", {}) and not receipt.exists():
-                raise ValueError(
+                raise UserMessageError(
                     "That Tailscale port already belongs to another route. Choose another."
                 )
             code, _ = await discovery.command(
@@ -880,18 +913,18 @@ class Manager:
                 "http://127.0.0.1:" + str(self.settings["port"]),
             )
             if code:
-                raise ValueError(
+                raise UserMessageError(
                     "Tailscale refused the configuration. Check the operator permissions in the terminal; we do not run sudo."
                 )
             receipt.write_text(json.dumps({"port": port}))
             self.audit("tailnet_enabled")
         else:
             if not receipt.exists():
-                raise ValueError("No route for this project to remove.")
+                raise UserMessageError("No route for this project to remove.")
             port = json.loads(receipt.read_text())["port"]
             code, _ = await discovery.command(binary, "serve", "--http=" + str(port), "off")
             if code:
-                raise ValueError("Could not remove the route.")
+                raise UserMessageError("Could not remove the route.")
             receipt.unlink()
             self.audit("tailnet_disabled")
         runtime = self._previous_runtime()

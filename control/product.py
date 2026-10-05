@@ -23,6 +23,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from agent_service.errors import UserMessageError
+
 
 @dataclass(frozen=True)
 class ProductIdentity:
@@ -41,15 +43,15 @@ class ProductIdentity:
     def __post_init__(self):
         for value in (self.slug, self.mcp_name, self.icon, self.desktop_icon, self.theme_light, self.theme_dark, self.lineage):
             if not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", value):
-                raise ValueError("Invalid product identifier")
+                raise UserMessageError("Invalid product identifier")
         if not re.fullmatch(r"[A-Z][A-Z0-9_]{0,63}", self.env_prefix):
-            raise ValueError("Invalid product environment prefix")
+            raise UserMessageError("Invalid product environment prefix")
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 .-]{0,79}", self.name):
-            raise ValueError("Invalid product name")
+            raise UserMessageError("Invalid product name")
         for value in (self.state_dir, self.config_dir):
             path = Path(value)
             if path.is_absolute() or ".." in path.parts or not path.parts or not re.fullmatch(r"[a-zA-Z0-9._/-]+", value):
-                raise ValueError("Product directories must be relative to home")
+                raise UserMessageError("Product directories must be relative to home")
 
     def state_path(self, home=None):
         return Path(home if home is not None else Path.home()) / self.state_dir
@@ -132,7 +134,7 @@ def ensure_lineage(state, product=PRODUCT):
     except FileNotFoundError:
         old_state = any((state / name).exists() for name in ("settings.json", "runtime.json", "jobs.sqlite3", "runs", "approval_sessions.sqlite3"))
         if old_state and not is_original(product):
-            raise ValueError("Refusing unmarked state from another product identity")
+            raise UserMessageError("Refusing unmarked state from another product identity")
         try:
             descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
         except FileExistsError:
@@ -141,16 +143,16 @@ def ensure_lineage(state, product=PRODUCT):
             json.dump(expected, stream)
         return
     except OSError as exc:
-        raise ValueError("Cannot verify product identity") from exc
+        raise UserMessageError("Cannot verify product identity") from exc
     with os.fdopen(descriptor) as stream:
         try:
             actual = json.load(stream)
         except ValueError as exc:
-            raise ValueError("Invalid product identity marker") from exc
+            raise UserMessageError("Invalid product identity marker") from exc
     # The original identity opens Tail Harness state as is: rewriting its marker would stop
     # 0.14.0 from opening it after a rollback.
     if actual != expected and not (actual == LEGACY_MARKER and is_original(product)):
-        raise ValueError("State belongs to another product identity")
+        raise UserMessageError("State belongs to another product identity")
 
 
 def legacy_folders(home=None, product=PRODUCT):
@@ -448,9 +450,9 @@ def rollback_state(home, product=PRODUCT):
     new, old = product.state_path(home), home / LEGACY_FOLDERS[0]
     with migration_lock(home) as lock:
         if refusal := rollback_refusal(home, product):
-            raise ValueError(refusal)
+            raise UserMessageError(refusal)
         if busy := state_in_use(new):
-            raise ValueError(f"{new} is still in use: {busy}. Stop {product.name} first.")
+            raise UserMessageError(f"{new} is still in use: {busy}. Stop {product.name} first.")
         # 0.15's environment: 0.14's install.sh would reuse it, console scripts included.
         shutil.rmtree(new / "venv", ignore_errors=True)
         agents = new / "runs/harness-agents"

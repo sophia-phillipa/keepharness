@@ -6,6 +6,7 @@ import sqlite3
 import time
 from pathlib import Path
 
+from agent_service.errors import UserMessageError
 from agent_service.spans import events_to_spans
 
 
@@ -192,7 +193,7 @@ def _execution(state, job):
         payload = json.loads(row["payload"] or "{}")
         result = json.loads(row["result"] or "{}")
         if not isinstance(payload, dict) or not isinstance(result, dict):
-            raise ValueError("invalid_execution_record")
+            raise UserMessageError("invalid_execution_record")
         history = db.execute(
             "SELECT id,time,type,data FROM events WHERE job=? ORDER BY id", (job,)
         ).fetchall()

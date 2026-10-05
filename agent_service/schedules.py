@@ -23,6 +23,7 @@ from types import MappingProxyType
 
 from . import harness_agents, pages
 from .errors import APIError
+from .json_depth import too_deep
 from .persistence.harness_agent_repository import AGENT_ID
 from .persistence.json_file_repository import (
     JsonFileRepository,
@@ -337,6 +338,8 @@ def load(schedule_id: str, text: str, folder: str) -> dict:
     """
     try:
         data = json.loads(text)
+        if too_deep(data):
+            raise ValueError("invalid_schedule")
         if not isinstance(data, dict) or data.get("id") != schedule_id:
             raise ValueError("invalid_schedule")
         owner = data.get("owner")

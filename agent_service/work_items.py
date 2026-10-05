@@ -8,18 +8,18 @@ import subprocess
 import sys
 import threading
 
-from .errors import APIError
+from .errors import APIError, UserMessageError
 
 
 def validate_pattern(pattern):
     if pattern is None:
         return None
     if not isinstance(pattern, str) or not pattern or len(pattern) > 512:
-        raise ValueError("Invalid work-item pattern.")
+        raise UserMessageError("Invalid work-item pattern.")
     try:
         re.compile(pattern)
     except re.error:
-        raise ValueError("Invalid work-item pattern.") from None
+        raise UserMessageError("Invalid work-item pattern.") from None
     return pattern
 
 

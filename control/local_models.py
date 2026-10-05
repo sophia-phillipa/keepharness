@@ -8,6 +8,8 @@ from pathlib import Path
 
 import httpx
 
+from agent_service.errors import UserMessageError
+
 from .remote_models import require_responses_api
 
 # Total seconds per server probe; httpx timeouts apply per read, so a server that
@@ -148,7 +150,7 @@ def save_profile(state, server):
         if k in server
     }
     if not profile.get("model_file"):
-        raise ValueError("Select the weights file for this profile.")
+        raise UserMessageError("Select the weights file for this profile.")
     profile["model_file"] = str(Path(profile["model_file"]).expanduser().resolve())
     profiles = load_profiles(state)
     previous = profiles.get(profile["model_file"], {})
@@ -173,11 +175,11 @@ def load_profiles(state):
     except FileNotFoundError:
         stored = {}
     if not isinstance(stored, dict):
-        raise ValueError("Invalid local profile catalog.")
+        raise UserMessageError("Invalid local profile catalog.")
     profiles = {}
     for value in stored.values():
         if not isinstance(value, dict) or not value.get("model_file"):
-            raise ValueError("Invalid local profile.")
+            raise UserMessageError("Invalid local profile.")
         key = str(Path(value["model_file"]).expanduser().resolve())
         profiles[key] = {**value, "model_file": key}
     try:
@@ -185,7 +187,7 @@ def load_profiles(state):
     except FileNotFoundError:
         legacy = {}
     if not isinstance(legacy, dict):
-        raise ValueError("Invalid legacy local profile.")
+        raise UserMessageError("Invalid legacy local profile.")
     if legacy.get("model_file"):
         key = str(Path(legacy["model_file"]).expanduser().resolve())
         profiles.setdefault(key, {**legacy, "model_file": key})
@@ -237,12 +239,12 @@ def launch_command(profile, *, key_file, port=8096, alias=MANAGED_ALIAS):
     """Build the fixed local-only llama.cpp invocation from a validated profile."""
     profile = validate_profile(profile)
     if type(port) is not int or not 1024 <= port <= 65535:
-        raise ValueError("Invalid port.")
+        raise UserMessageError("Invalid port.")
     if not isinstance(alias, str) or not re.fullmatch(r"[A-Za-z0-9_.-]{1,160}", alias):
-        raise ValueError("Invalid alias.")
+        raise UserMessageError("Invalid alias.")
     key = Path(key_file).expanduser()
     if not key.is_absolute():
-        raise ValueError("Key file must use an absolute path.")
+        raise UserMessageError("Key file must use an absolute path.")
     command = [
         profile["binary"],
         "--model",
@@ -277,16 +279,16 @@ def validate_profile(profile, *, state_dir=None):
         "capabilities",
         "allowed_roots",
     }:
-        raise ValueError("Local profile contains fields that are not allowed.")
+        raise UserMessageError("Local profile contains fields that are not allowed.")
     binary = Path(profile.get("binary", ""))
     model = Path(profile.get("model_file", ""))
     if not binary.is_absolute() or binary.name != "llama-server" or not binary.is_file():
-        raise ValueError("Profile executable not found on this machine.")
+        raise UserMessageError("Profile executable not found on this machine.")
     if not model.is_absolute() or model.suffix != ".gguf" or not model.is_file():
-        raise ValueError("Profile model not found on this machine.")
+        raise UserMessageError("Profile model not found on this machine.")
     values = profile.get("performance", {})
     if not isinstance(values, dict) or set(values) - set(PERFORMANCE_FLAGS):
-        raise ValueError("Performance options not allowed.")
+        raise UserMessageError("Performance options not allowed.")
     if any(
         not isinstance(v, str)
         or not v
@@ -295,7 +297,7 @@ def validate_profile(profile, *, state_dir=None):
         or any(ord(c) < 32 for c in v)
         for v in values.values()
     ):
-        raise ValueError("Invalid performance value.")
+        raise UserMessageError("Invalid performance value.")
     integer_ranges = {
         "n-gpu-layers": (0, 999),
         "ctx-size": (0, 10000000),
@@ -318,31 +320,31 @@ def validate_profile(profile, *, state_dir=None):
         try:
             value = int(values[name]) if name in integer_ranges else float(values[name])
         except ValueError:
-            raise ValueError("Invalid numeric value for " + name + ".") from None
+            raise UserMessageError("Invalid numeric value for " + name + ".") from None
         if not math.isfinite(value) or not minimum <= value <= maximum:
-            raise ValueError("Value out of the allowed range for " + name + ".")
+            raise UserMessageError("Value out of the allowed range for " + name + ".")
     for name in ("cpu-range", "cpu-range-batch"):
         if name not in values:
             continue
         if not re.fullmatch(r"\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*", values[name]):
-            raise ValueError("Provide CPUs like 0-7 or 0-3,8-11.")
+            raise UserMessageError("Provide CPUs like 0-7 or 0-3,8-11.")
         for part in values[name].split(","):
             bounds = [int(value) for value in part.split("-")]
             if bounds[0] > bounds[-1] or bounds[-1] > 4095:
-                raise ValueError("Invalid CPU range.")
+                raise UserMessageError("Invalid CPU range.")
     if "split-mode" in values and values["split-mode"] not in ("none", "layer", "row"):
-        raise ValueError("Invalid GPU split mode.")
+        raise UserMessageError("Invalid GPU split mode.")
     if "tensor-split" in values:
         try:
             ratios = [float(part) for part in values["tensor-split"].split(",")]
         except ValueError:
-            raise ValueError("Provide GPU ratios separated by commas.") from None
+            raise UserMessageError("Provide GPU ratios separated by commas.") from None
         if (
             not 1 <= len(ratios) <= 256
             or any(not math.isfinite(value) or value < 0 for value in ratios)
             or sum(ratios) <= 0
         ):
-            raise ValueError("Invalid GPU ratios.")
+            raise UserMessageError("Invalid GPU ratios.")
     result = {
         "binary": str(binary.resolve()),
         "model_file": str(model.resolve()),
@@ -351,12 +353,12 @@ def validate_profile(profile, *, state_dir=None):
     if "description" in profile:
         description = profile["description"]
         if not isinstance(description, str) or len(description) > 2000:
-            raise ValueError("Invalid profile description.")
+            raise UserMessageError("Invalid profile description.")
         result["description"] = description
     if "mmproj_file" in profile:
         mmproj = Path(profile["mmproj_file"]).expanduser()
         if not mmproj.is_absolute() or mmproj.suffix != ".gguf" or not mmproj.is_file():
-            raise ValueError("Multimodal projector not found on this machine.")
+            raise UserMessageError("Multimodal projector not found on this machine.")
         result["mmproj_file"] = str(mmproj.resolve())
     if "flags" in profile:
         flags = profile["flags"]
@@ -365,7 +367,7 @@ def validate_profile(profile, *, state_dir=None):
             or len(flags) > len(PROFILE_FLAGS)
             or any(flag not in PROFILE_FLAGS for flag in flags)
         ):
-            raise ValueError("Profile-specific flags not allowed.")
+            raise UserMessageError("Profile-specific flags not allowed.")
         result["flags"] = list(dict.fromkeys(flags))
     for key, allowed in [("permissions", MODEL_PERMISSIONS), ("capabilities", ("tools",))]:
         if key not in profile:
@@ -376,7 +378,7 @@ def validate_profile(profile, *, state_dir=None):
             or set(items) - set(allowed)
             or any(type(value) is not bool for value in items.values())
         ):
-            raise ValueError("Permissions and capabilities must use allowed boolean values.")
+            raise UserMessageError("Permissions and capabilities must use allowed boolean values.")
         result[key] = {name: items.get(name, False) for name in allowed}
     if "allowed_roots" in profile:
         roots = profile["allowed_roots"]
@@ -385,7 +387,7 @@ def validate_profile(profile, *, state_dir=None):
             or len(roots) > 20
             or any(not isinstance(value, str) for value in roots)
         ):
-            raise ValueError("Provide up to 20 local folders per model.")
+            raise UserMessageError("Provide up to 20 local folders per model.")
         home = Path.home().resolve()
         sensitive = [
             home / name
@@ -407,12 +409,12 @@ def validate_profile(profile, *, state_dir=None):
         for value in roots:
             root = Path(value).expanduser()
             if not root.is_absolute() or not root.is_dir():
-                raise ValueError("Choose existing, absolute folders.")
+                raise UserMessageError("Choose existing, absolute folders.")
             root = root.resolve()
             if root in (Path("/"), home) or any(
                 root.is_relative_to(path) or path.is_relative_to(root) for path in sensitive
             ):
-                raise ValueError("A broad or credentials folder cannot be shared.")
+                raise UserMessageError("A broad or credentials folder cannot be shared.")
             checked.append(str(root))
         result["allowed_roots"] = list(dict.fromkeys(checked))
     return result
@@ -453,7 +455,7 @@ async def runtime_details(binary):
     """Inspect fixed informational flags only, without loading weights or starting a server."""
     path = Path(binary).expanduser()
     if not path.is_absolute() or path.name != "llama-server" or not path.is_file():
-        raise ValueError("Provide an existing llama-server executable.")
+        raise UserMessageError("Provide an existing llama-server executable.")
 
     async def inspect(flag):
         proc = await asyncio.create_subprocess_exec(
@@ -465,11 +467,11 @@ async def runtime_details(binary):
                 while chunk := await proc.stdout.read(min(8192, 65537 - len(output))):
                     output += chunk
                     if len(output) > 65536:
-                        raise ValueError("The runtime response exceeded the discovery limit.")
+                        raise UserMessageError("The runtime response exceeded the discovery limit.")
                 await proc.wait()
             return proc.returncode, output.decode(errors="replace")
         except TimeoutError:
-            raise ValueError("The runtime took too long to respond to device discovery.") from None
+            raise UserMessageError("The runtime took too long to respond to device discovery.") from None
         finally:
             if proc.returncode is None:
                 proc.kill()
@@ -477,7 +479,7 @@ async def runtime_details(binary):
 
     code, output = await inspect("--list-devices")
     if code:
-        raise ValueError("Could not list this runtime's devices.")
+        raise UserMessageError("Could not list this runtime's devices.")
     help_code, help_text = await inspect("--help")
     devices = []
     for line in output.splitlines():

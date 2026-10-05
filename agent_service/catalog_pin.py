@@ -6,8 +6,10 @@ import re
 import subprocess
 from pathlib import Path
 
+from .errors import UserMessageError
 
-class CatalogPinError(ValueError):
+
+class CatalogPinError(UserMessageError):
     pass
 
 

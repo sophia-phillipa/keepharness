@@ -56,6 +56,7 @@ from ..config import (
 )
 from ..conversation_context import context_overflow
 from ..errors import APIError
+from ..json_depth import too_deep
 from ..execution_defaults import resolve as resolve_defaults
 from ..persistence.db import connect, encoded, migrate
 from ..persistence.repositories import (
@@ -1722,6 +1723,8 @@ class ConversationService:
         body = await remote_models.fetch_body(url.rstrip("/"), key, "/props")
         try:
             properties = json.loads(body)
+            if too_deep(properties):
+                raise ValueError("json_too_deep")
         except (ValueError, RecursionError):  # RecursionError: deeply nested JSON
             properties = None
         if not isinstance(properties, dict):

@@ -9,6 +9,7 @@ import uuid
 from pathlib import Path
 
 from .invocations import Invocation, InvocationError, normalize_legacy_step, validate_chain
+from .json_depth import too_deep
 from .tools import ToolError
 
 MAX_DOCUMENT_BYTES = 262144
@@ -505,6 +506,8 @@ def parse_result(text):
         return None
     try:
         value = json.loads(blocks[0])
+        if too_deep(value):
+            return None
         _json(value)
         return value if isinstance(value, dict) else None
     except (ValueError, TypeError, RecursionError):

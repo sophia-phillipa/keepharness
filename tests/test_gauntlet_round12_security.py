@@ -135,3 +135,24 @@ def test_deep_json_is_controlled(tmp_path, route):
         assert response.json()["code"] == "invalid_json"
     finally:
         instance.db.close()
+
+
+def test_body_depth_limit_does_not_depend_on_the_json_parser():
+    import asyncio
+
+    from agent_service.errors import APIError
+    from agent_service.routes import body
+
+    class Request:
+        def __init__(self, content):
+            self.content = content
+            self.state = type("State", (), {})()
+
+        async def stream(self):
+            yield self.content
+
+    deep = b'{"x":' + b"[" * 200 + b"0" + b"]" * 200 + b"}"
+    with pytest.raises(APIError) as caught:
+        asyncio.run(body(Request(deep)))
+    assert str(caught.value) == "invalid_json"
+    assert asyncio.run(body(Request(b'{"x":[[1]]}'))) == {"x": [[1]]}
