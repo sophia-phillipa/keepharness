@@ -26,6 +26,7 @@ from .routes import projects as project_routes
 from .routes import schedules as schedule_routes
 from .routes import spans as span_routes
 from .routes import system as system_routes
+from .routes import ui_state as ui_state_routes
 from .routes.projects import project_git  # noqa: F401  (re-exported)
 from .services import scheduler
 from .services.conversation_service import ConversationService
@@ -100,6 +101,7 @@ def create_app(config, runtime_path=None):
             *span_routes.ROUTES,
             *harness_agent_routes.ROUTES,
             *effect_routes.ROUTES,
+            *ui_state_routes.ROUTES,
         ],
         lifespan=lifespan,
     )
