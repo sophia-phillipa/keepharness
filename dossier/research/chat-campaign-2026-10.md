@@ -134,7 +134,7 @@ Checks that passed: reply and follow-up in the same history (2 user and 2 assist
   - Actual: the model ran `sed -n` on the path through Codex's native shell and quoted the file (`QUILLFEATHER-3917`, `Ondra Welk`); no approval card.
   - Root cause (Codex rollout: cli 0.157.1, approval_policy on-request, sandbox read-only): Ask grants `shell`, and Codex's read-only sandbox lets in-sandbox commands read anywhere; on-request only asks for commands that need to leave the sandbox. This is the Codex CLI default. Read only is not affected: with `shell` off the harness passes `-c features.shell_tool=false -c features.unified_exec=false` (adapters/codex/native.py `build_command`), and a fake-server probe on 0.157.1 confirmed the shell tool is gone (`unsupported call: exec_command`).
   - Options for the owner: (a) Ask/Auto also drop the native shell and read only through the harness reader; (b) Ask requires approval for every shell command (unverified on 0.157.1); (c) keep the Codex default and document that a granted shell can read the whole disk.
-  - Campaign fix: the area must assert the access label after choosing Read only; S1-03 reruns with Read only.
+  - Decision (owner, 2026-10-05): keep the Codex default; it is already documented as an accepted limitation in dossier/conversation-execution-mode.md. The Read only rerun (round 4, S1-03r) refused the read, approval_policy never, no tool call.
   - Screenshot: `~/.cache/kho/chat/runs/s1a/shots/turn-7.png`
 - **C-03, run steps show "Ran tool" without which file was read**
   - Steps: S1-04, any fact question; read the run steps of the reply.
@@ -240,15 +240,68 @@ Checks that passed:
 
 **Notes**: the plan's "cancel one queued follow-up" can only be done through Stop then Discard, since the UI offers no cancel for a queued follow-up while the earlier run is live; this is recorded as design, not as a bug. The Stop prompt of S2-03 and the long prompts of S2-04 and S2-05 have no TTFT in the table (Stop and queue turns do not go through the single-turn probe). Metrics: `~/.cache/kho/chat/runs/s2a/metrics.jsonl`. Screenshots: `~/.cache/kho/chat/runs/s2a/shots/`.
 
+### Round 4 (slice 2b), 2026-10-05
+
+- **Slice**: 2, part b (S2-06 to S2-10) plus the S1-03 rerun on Read only (`s1-03r`)
+- **Provider, model, effort**: Codex, `gpt-5.6-sol` Medium for every send, `gpt-5.6-luna` Medium for one send (S2-07)
+- **Scenarios**: S1-03r, S2-06, S2-07, S2-08, S2-09, S2-10 (run visibly, once)
+- **Results**: 3 / 6 scenarios passed as recorded (4 / 7 checks with the open step); 14 of 14 prompts spent (S1-03r 2, S2-06 2, S2-07 3, S2-08 2, S2-09 3, S2-10 2). No quota or rate-limit text seen. Two of the three failures come from the app (C-01 reproduced, new C-06), one from the model reading the image (see S2-06); in S2-09 two further checks were wrong in the run's own code (see Notes).
+- **Environment**: desktop 0.16.0 (`f384035`), instance on 18640/18641.
+
+| Turn | Model | TTFT (ms) | Total (ms) | Input-to-paint median (ms) | Electron RSS (MB) | Harness RSS (MB) |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 S1-03r Read only, by path | Sol Medium | 11628 | 13254 | 15.8 | 765 | 253 |
+| 2 S1-03r keeper name | Sol Medium | 5595 | 5930 | 14.6 | 759 | 258 |
+| 3 S2-06 PNG, what it shows | Sol Medium | 4628 | 6684 | 14.1 | 776 | 247 |
+| 4 S2-06 background colour | Sol Medium | 3596 | 4968 | 17.0 | 772 | 256 |
+| 5 S2-07 attach tally.py, HARBOR_FEE | Sol Medium | 8846 | 9613 | 17.4 | 777 | 252 |
+| 6 S2-07 after switch to Luna | Luna Medium | 4610 | 5903 | 14.7 | 779 | 255 |
+| 7 S2-07 back on Sol | Sol Medium | 3590 | 4385 | 16.0 | 782 | 254 |
+| 8 S2-08 start and end markers | Sol Medium | 4511 | 18675 | 14.7 | 795 | 261 |
+| 9 S2-08 was the end included | Sol Medium | 4861 | 6158 | 14.4 | 797 | 253 |
+| S2-09 long answer + 2 follow-ups | Sol Medium | not measured | completed (3 runs) | n/a | n/a | n/a |
+| 10 S2-10 three files, one line each | Sol Medium | 5460 | 10157 | 12.3 | 795 | 242 |
+| 11 S2-10 which file has a bug | Sol Medium | 3602 | 4894 | 14.7 | 799 | 256 |
+
+| Metric | Value | Note |
+| --- | --- | --- |
+| Median TTFT (s) | 4.6 | 11 single turns; range 3.6 to 11.6 (the first turn of the round was the slowest) |
+| Median total reply time (s) | 6.2 | range 4.4 to 18.7 (S2-08 read the full file with a tool before answering) |
+| Input-to-paint latency (ms) | 14.7 | median of per-turn medians; p95 stays 30 to 34 |
+| Electron RSS | 759 to 799 MB | grows about 40 MB across the round |
+| Harness RSS | 242 to 261 MB | flat |
+
+**S1-03r (Read only, No project)**: the access label read "Read only" (asserted by the run; the helper now fails loudly if it does not). Both replies said "I cannot read that file with the available tools."; the code word and keeper name were not revealed. Codex rollout of the run (one file, only `turn_context` and tool-call names read): `approval_policy` `never`, sandbox `read-only`, tool calls none, so no `exec_command` ran. This confirms the C-02 note: Read only removes the shell. The scope-label check failed again on C-01 ("Choose project" instead of "No project"), the only failed check in this scenario.
+
+Checks that passed:
+
+- **S2-07**: the code file attached in turn 1 was used in turn 2 (after the switch to Luna, answer `settle_dock_fee`) and turn 3 (back on Sol, `420`); the footers and the server's run records read Sol, Luna, Sol; the composer chip was cleared after the send; no notices.
+- **S2-08**: the "excerpt sent" chip appeared once on the 7213-character file (limit 6000, `EXCERPT_CHARS`) and stayed on the sent message. Sol quoted both markers: it said the displayed source was only an excerpt and read the full file with its shell, so the end was reachable (the same Ask-mode behaviour as C-02); the follow-up said the excerpt ended partway through ledger entry 105. The run passes because the answer admits the excerpt and quotes the end only after reading the file.
+- **S2-10**: three chips (text, code, CSV); the "Remove attachment average.py" button removed one, a second pick re-added it (3 chips again); the reply cited the boat name, the mean function and the CSV; the sent message shows 3 attachments; the follow-up named `average.py` as the file with the bug.
+- **S2-09 (parts)**: scrolled up during the stream, the view held its position (scrollTop unchanged within 3 px while the list grew from 4841 to 13055 px), the jump-to-latest button showed, and the status strip read `1 running · 2 queued`; the two follow-ups ran in order (`ECHO-ONE`, `ECHO-TWO`) and all three runs completed.
+
+**Failures**
+
+- **S2-06, not filed as a bug**: the chip showed an image preview and the answer was "red background with white, pixel-style text reading HOLM 23" (the image reads HOLM 73); the follow-up answered "Red". The check is strict (colour and the exact text), so it fails. The wrong digit looks like a model reading error on a pixel font; the run cannot tell whether the app scaled the image down. Screenshot: `~/.cache/kho/chat/runs/s2b/shots/s2-06-chip.png`.
+- **S1-03r**: C-01 reproduced (see above).
+
+**Bugs**
+
+- C-06 (minor): auto-scroll detaches while a long answer of short lines streams and does not come back when the user scrolls to the bottom. Steps: S2-09, New Conversation, ask for the numbers 1 to 900 with a colour word each, watch the list without touching it; later scroll to the bottom with the wheel. Expected: the list follows the stream while it is at the bottom (plan S2-09: "auto-scroll resumes at the bottom"). Actual: after the first chunks the list stayed at `scrollTop` 131 while `scrollHeight` grew from 3248 to 4477 px (gap to the bottom 2411 to 3640 px, jump-to-latest button shown); after scrolling back to the bottom (gap 9 px) the list moved 282 px and then fell 1319 px behind within 1.8 s. Cause (read from `agent_service/ui.js` `scroll()`, not changed here): it only follows when the gap is under 250 px, and one render of a fast list adds more than that, so the stream escapes the threshold. Screenshot: `~/.cache/kho/chat/runs/s2b/shots/s2-09-scrolled-up.png`. Metrics: `~/.cache/kho/chat/runs/s2b/metrics.jsonl` (`s2-09` line).
+- C-05 reproduced in S2-09 (header pill "Queued" while the first answer streams), see the same screenshot.
+
+**Notes**: in S2-09 the run's own checks wrongly expected the run state `done` (the server says `completed`) and compared user messages cut at 30 characters (the word ONE/TWO fell outside); both are fixed in the script after the run and are not app failures. The area was not rerun (prompt budget), so the S2-09 line in this round stays failed on C-06. The picture seed is a generated 1000 x 300 PNG (red, white 5x7-pixel "HOLM 73"). Metrics: `~/.cache/kho/chat/runs/s2b/metrics.jsonl`. Screenshots: `~/.cache/kho/chat/runs/s2b/shots/`.
+
 ## Bugs index
 
 | Id | Severity | Title | Status | Fix commit |
 | --- | --- | --- | --- | --- |
 | C-01 | nit | New-chat project picker reads "Choose project", not "No project" | open | |
-| C-02 | major (needs decision) | Ask mode with shell reads any file without an approval card (Codex default) | open, owner decision | |
+| C-02 | major (needs decision) | Ask mode with shell reads any file without an approval card (Codex default) | closed: owner kept the Codex default (2026-10-05); already documented in dossier/conversation-execution-mode.md (Ask row, accepted limitation); S1-03 rerun in Read only refused the read with no shell call | |
 | C-03 | minor | Run steps show "Ran tool" without the file read | open | |
 | C-04 | nit | Grey block cuts the right edge of the active sidebar row | open (reproduced in round 2) | |
-| C-05 | nit | Header pill reads "Queued" for the live run while follow-ups are queued | open | |
+| C-05 | nit | Header pill reads "Queued" for the live run while follow-ups are queued | open (reproduced in round 4) | |
+| C-06 | minor | Auto-scroll detaches during a fast long stream and does not resume at the bottom | open | |
 
 ## Cross-round comparison
 
@@ -258,3 +311,4 @@ Checks that passed:
 | 1a | Codex Sol Medium | 6.8 | 9.1 | Electron ~763, harness ~325 |
 | 1b | Codex Sol Medium | 5.6 | 5.8 | Electron ~769, harness ~276 |
 | 2a | Codex Sol Medium + Luna | 5.1 | 5.9 | Electron ~740-760 (~790 with two streams), harness ~250-305 (~480 with two streams) |
+| 2b | Codex Sol Medium + Luna | 4.6 | 6.2 | Electron ~760-800, harness ~242-261 |

@@ -8,7 +8,7 @@
 //     NODE_PATH=<node_modules with playwright> PLAYWRIGHT_MODULE=<same>/playwright \
 //     node tests/operator/areas/20-chat-real-providers.cjs
 //
-// Env: CHAT_SLICE (pilot|luna|deepseek|s1a|s1b|s2a), CHAT_SCENARIOS (comma list, overrides the slice),
+// Env: CHAT_SLICE (pilot|luna|deepseek|s1a|s1b|s2a|s2b), CHAT_SCENARIOS (comma list, overrides the slice),
 // CHAT_BUDGET (real prompts allowed), CHAT_DEEPSEEK_WAIT_MS, CHAT_APP (an inspect-enabled copy of the
 // packaged binary: Playwright cannot attach to the production package, whose inspect fuse is off).
 // Known limitation: the desktop attaches to the running admin, so closing the app does not stop
@@ -21,7 +21,7 @@ const path = require("node:path");
 const instance = require("../chat-campaign/instance.cjs");
 const { chooseModel, chooseAccess, newChat, submit, waitAnswer, dismissTour, row } = require("../lib/app.cjs");
 
-const { paths, FACTS, S1, S1B, seedSlice1b, PROJECT_NAME, adminApi, portOpen } = instance;
+const { paths, FACTS, S1, S1B, S2B, seedSlice1b, seedSlice2b, PROJECT_NAME, adminApi, portOpen } = instance;
 const REPO = path.resolve(__dirname, "../../..");
 const ADMIN_PORT = "18641";
 const HARNESS_PORT = "18640";
@@ -42,6 +42,7 @@ const SLICES = {
   s1a: ["s1-01", "s1-02", "s1-03", "s1-04", "s1-05"],
   s1b: ["s1-06", "s1-07", "s1-08", "s1-09", "s1-10"],
   s2a: ["s2-01", "s2-02", "s2-03", "s2-04", "s2-05"],
+  s2b: ["s1-03r", "s2-06", "s2-07", "s2-08", "s2-09", "s2-10"],
 };
 const PROJECT_LABEL = process.env.CHAT_PROJECT_LABEL || "Campaign notes"; // CHAT_PROJECT_LABEL: dry runs use a throwaway project
 const MAIN_DIR = path.join(paths.home, S1.main);
@@ -603,6 +604,190 @@ const SCENARIOS = {
       c.done();
     }, { lint: false });
   },
+  "s1-03r": async (op) => {
+    await op.step("s1-03r", "Now: S1-03 rerun, No project chat on Read only asking for a file by path", async () => {
+      const c = soft();
+      const since = Date.now();
+      await newChat(op);
+      await chooseModel(op, "gpt-5.6-sol");
+      await chooseEffort(op, "Medium");
+      await chooseAccessChecked(op, "Read only");
+      c.ok(/No project/i.test(await op.page.locator("#project-button-label").innerText()), "the scope label does not show No project");
+      const file = path.join(MAIN_DIR, "facts/alpha.txt");
+      await ask(op, "s1-03r-a", `Read the file ${file} and tell me the archive code word it contains. If you cannot read it, say so plainly.`, /\S/);
+      const text = await op.page.locator("#messages article.assistant").last().innerText();
+      c.ok(!text.includes(S1.codeWord), "the Read only chat revealed the code word of a file outside its scope");
+      c.ok(/can't|cannot|can not|unable|not able|don't have|do not have|no access|not available|couldn't|could not|isn't|not allowed|outside|denied|refus|only the active|not in|no way/i.test(text), `the reply does not say it cannot read the file: ${text.slice(0, 160)}`);
+      await ask(op, "s1-03r-b", `And what is the archive keeper named in ${file}? If you cannot read it, say so plainly.`, /\S/);
+      const text2 = await op.page.locator("#messages article.assistant").last().innerText();
+      c.ok(!text2.includes(S1.keeper), "the second reply revealed the keeper name of the out-of-scope file");
+      c.ok(/Read only/i.test(await op.page.locator("#access-label").innerText()), "the access label changed away from Read only");
+      const ev = rolloutEvidence(since);
+      record({ scenario: "s1-03r", rollout: ev });
+      c.ok(ev.files > 0, "no Codex rollout file was written during the run");
+      c.ok(ev.approval.length > 0 && ev.approval.every((a) => a === "never"), `rollout approval_policy values: ${JSON.stringify(ev.approval)}, expected only "never"`);
+      c.ok(!ev.tools.some((t) => /exec_command|shell|local_shell/.test(t)), `the rollout ran shell tools: ${JSON.stringify(ev.tools)}`);
+      c.done();
+    }, { lint: false });
+  },
+  "s2-06": async (op) => {
+    await op.step("s2-06", "Now: S2-06, a PNG with a known colour and text attached, then asked what it shows", async () => {
+      const c = soft();
+      await newChat(op);
+      await chooseModel(op, "gpt-5.6-sol");
+      await chooseEffort(op, "Medium");
+      seedSlice2b();
+      await attachFiles(op, c, ["holm.png"]);
+      const shot = path.join(ctx.out, "shots", "s2-06-chip.png");
+      await op.page.screenshot({ path: shot, timeout: 15000 }).catch(() => {});
+      c.ok((await op.page.locator("#attachments .attachment.image-attachment").count()) === 1, "the PNG chip has no image preview");
+      await ask(op, "s2-06-a", "What does the attached picture show? Name the background colour and any text you can read in it.", /\S/);
+      const t1 = await op.page.locator("#messages article.assistant").last().innerText();
+      const notices = await op.page.locator("#messages article.assistant").evaluateAll((els) => els.filter((e) => /File skipped|does not support reading images|image support/i.test(e.innerText)).length);
+      const sawImage = /red/i.test(t1) && /HOLM\s*73/i.test(t1);
+      record({ scenario: "s2-06", saw_image: sawImage, notices, reply: t1.slice(0, 200) });
+      c.ok(sawImage || notices === 1, `the answer does not match the image (red, HOLM 73) and no single image notice appeared (notices ${notices}): ${t1.slice(0, 160)}`);
+      await ask(op, "s2-06-b", "Which colour was the picture's background? Reply with one word.", /\S/);
+      const t2 = await op.page.locator("#messages article.assistant").last().innerText();
+      c.ok(sawImage ? /red/i.test(t2) : true, `the follow-up does not say red: ${t2.slice(0, 80)}`);
+      c.ok((await op.page.locator("#messages .attachment").count()) >= 1, "the sent message does not show the attachment");
+      c.done();
+    }, { lint: false });
+  },
+  "s2-07": async (op) => {
+    await op.step("s2-07", "Now: S2-07, a code file attached once and used again after a model switch", async () => {
+      const c = soft();
+      await newChat(op);
+      await chooseModel(op, "gpt-5.6-sol");
+      await chooseEffort(op, "Medium");
+      seedSlice2b();
+      await attachFiles(op, c, ["tally.py"]);
+      await ask(op, "s2-07-1", "What is the value of HARBOR_FEE in the attached tally.py? Reply with just the number.", new RegExp(S2B.fee));
+      c.ok((await op.page.locator("#attachments .attachment").count()) === 0, "the composer still holds the chip after sending");
+      await chooseModel(op, "gpt-5.6-luna");
+      await chooseEffort(op, "Medium");
+      await ask(op, "s2-07-2", "Using the tally.py I attached earlier (nothing new is attached now), name the function that applies the fee. Reply with just the function name.", new RegExp(S2B.fn));
+      await chooseModel(op, "gpt-5.6-sol");
+      await chooseEffort(op, "Medium");
+      await ask(op, "s2-07-3", "In that same tally.py, what is HARBOR_FEE plus 3? Reply with just the number.", /420/);
+      const turns = await turnsApi(op);
+      c.ok(JSON.stringify(turns.map((t) => t.model)) === JSON.stringify(["gpt-5.6-sol", "gpt-5.6-luna", "gpt-5.6-sol"]), `the runs used ${JSON.stringify(turns.map((t) => t.model))}`);
+      const notices = await op.page.locator("#messages article.assistant").evaluateAll((els) => els.filter((e) => /File skipped|does not support|not supported/i.test(e.innerText)).length);
+      c.ok(notices === 0, `${notices} notices appeared for a plain code file`);
+      record({ scenario: "s2-07", answers: turns.map((t) => (t.answer || "").slice(0, 60)), notices });
+      c.done();
+    }, { lint: false });
+  },
+  "s2-08": async (op) => {
+    await op.step("s2-08", "Now: S2-08, a text file over the excerpt limit, asked about its start and its end", async () => {
+      const c = soft();
+      await newChat(op);
+      await chooseModel(op, "gpt-5.6-sol");
+      await chooseEffort(op, "Medium");
+      seedSlice2b();
+      await attachFiles(op, c, ["ledger-long.txt"]);
+      const chip = await op.page.locator("#attachments .attachment-excerpt").count();
+      c.ok(chip === 1, `the "excerpt sent" chip count is ${chip}, expected 1`);
+      await op.page.screenshot({ path: path.join(ctx.out, "shots", "s2-08-chip.png"), timeout: 15000 }).catch(() => {});
+      await ask(op, "s2-08-a", "In the attached ledger-long.txt, quote the marker word at the very start of the first line and the marker word at the very start of the last line. If you were not given the whole file, say exactly which part is missing.", /\S/);
+      const t = await op.page.locator("#messages article.assistant").last().innerText();
+      const hasEnd = t.includes(S2B.end);
+      const admits = /not (included|sent|provided|visible|available|shown|given|see)|truncat|excerpt|only (the )?(first|part|beginning|start)|cut off|missing|partial|didn't (get|receive)|did not (get|receive)|wasn't|was not|no access|couldn't|cannot see|can't see|rest of the file/i.test(t);
+      record({ scenario: "s2-08", has_start: t.includes(S2B.start), has_end: hasEnd, admits, reply: t.slice(0, 300) });
+      c.ok(t.includes(S2B.start), "the answer does not quote the START marker that was sent");
+      c.ok(hasEnd || admits, `the answer neither quotes the END marker nor admits the end was not sent: ${t.slice(0, 200)}`);
+      await ask(op, "s2-08-b", "Was the end of ledger-long.txt included in what you were given as the attachment excerpt? Answer yes or no, then one sentence.", /\S/);
+      const t2 = await op.page.locator("#messages article.assistant").last().innerText();
+      c.ok(/\b(no|not|only|partial|truncat|excerpt)\b/i.test(t2) || hasEnd, `the follow-up does not state the file was cut: ${t2.slice(0, 160)}`);
+      c.ok((await op.page.locator("#messages .attachment-excerpt").count()) >= 1, "the sent message does not keep the 'excerpt sent' chip");
+      c.done();
+    }, { lint: false });
+  },
+  "s2-09": async (op) => {
+    await op.step("s2-09", "Now: S2-09, scrolling up and down while a long answer streams and two follow-ups queue", async () => {
+      const c = soft();
+      const page = op.page;
+      await newChat(op);
+      await chooseModel(op, "gpt-5.6-sol");
+      await chooseEffort(op, "Medium");
+      const gap = () => page.evaluate(() => { const b = document.getElementById("messages"); return { top: Math.round(b.scrollTop), height: b.scrollHeight, gap: Math.round(b.scrollHeight - b.scrollTop - b.clientHeight), latest: !document.getElementById("latest-message").hidden }; });
+      const running = async () => ["running", "queued"].includes(await page.locator("#conversation-state-pill").getAttribute("data-state"));
+      const box = async () => { const b = await page.locator("#messages").boundingBox(); await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2); };
+      await sendNoWait(op, "Write the numbers from 1 to 900, one per line, each followed by a different color word. Do not stop early and add nothing else.");
+      await op.until(async () => (await streamLen(op)) > 1800, "the long answer did not reach 1800 characters", 120000);
+      await op.until(async () => (await gap()).height > (await page.evaluate(() => document.getElementById("messages").clientHeight)) + 300, "the answer never overflowed the message list", 30000);
+      const a = await gap();
+      await sleep(1500);
+      const b = await gap();
+      c.ok(b.height > a.height && b.gap <= 250, `at the bottom the list did not follow the stream: ${JSON.stringify([a, b])}`);
+      await op.caption("Now: scrolling up while the answer streams");
+      await box();
+      await page.mouse.wheel(0, -1500);
+      await sleep(400);
+      const up0 = await gap();
+      await op.fill(page.locator("#prompt"), "Reply with just the word ECHO-ONE.");
+      await submit(op);
+      await sleep(600);
+      await op.fill(page.locator("#prompt"), "Reply with just the word ECHO-TWO.");
+      await submit(op);
+      await sleep(1800);
+      const up1 = await gap();
+      const strip = await page.locator("#run-status-toggle").innerText();
+      const upShot = path.join(ctx.out, "shots", "s2-09-scrolled-up.png");
+      await page.screenshot({ path: upShot, timeout: 15000 }).catch(() => {});
+      c.ok(up0.gap > 250, `the scroll up did not leave the bottom: ${JSON.stringify(up0)}`);
+      c.ok(Math.abs(up1.top - up0.top) <= 3 && up1.height >= up0.height, `scrolled up, the view moved: ${JSON.stringify([up0, up1])}`);
+      c.ok(up1.latest, "the jump-to-latest button is not shown while scrolled up");
+      c.ok(/(\d+) queued/.test(strip) && Number(strip.match(/(\d+) queued/)[1]) >= 1, `the queue was not shown while the long answer streamed: "${strip}"`);
+      await op.caption("Now: scrolling back down to the bottom");
+      await box();
+      for (let i = 0; i < 10; i++) await page.mouse.wheel(0, 4000);
+      await sleep(400);
+      const d0 = await gap();
+      await sleep(1800);
+      const d1 = await gap();
+      const stillRunning = await running();
+      record({ scenario: "s2-09", bottom: [a, b], up: [up0, up1], down: [d0, d1], strip, still_running: stillRunning, shot: upShot });
+      c.ok(stillRunning, "the long answer ended before the resume check could be measured");
+      c.ok(d1.gap <= 250 && d1.height > d0.height - 1, `after scrolling back down the list did not follow the stream: ${JSON.stringify([d0, d1])}`);
+      await op.until(async () => !(await running()), "the conversation never went idle", 240000);
+      await sleep(1500);
+      const turns = await turnsApi(op);
+      c.ok(turns.length === 3 && turns.every((t) => t.state === "completed"), `runs ended as ${JSON.stringify(turns.map((t) => t.state))}`);
+      c.ok(turns.length === 3 && /ECHO-ONE/.test(turns[1].answer) && /ECHO-TWO/.test(turns[2].answer), "the queued follow-ups did not answer in order");
+      const order = await page.evaluate(() => [...document.querySelectorAll("#messages article.user")].map((e) => e.innerText.slice(0, 60)));
+      c.ok(/ECHO-ONE/.test(order[1] || "") && /ECHO-TWO/.test(order[2] || ""), `the user messages are ordered ${JSON.stringify(order)}`);
+      c.done();
+    }, { lint: false });
+  },
+  "s2-10": async (op) => {
+    await op.step("s2-10", "Now: S2-10, three files of different kinds, one chip removed and re-added before sending", async () => {
+      const c = soft();
+      await newChat(op);
+      await chooseModel(op, "gpt-5.6-sol");
+      await chooseEffort(op, "Medium");
+      seedSlice2b();
+      const names = ["harbor-memo.txt", "average.py", "tides.csv"];
+      await attachFiles(op, c, names);
+      const chips = () => op.page.locator("#attachments .attachment .attachment-name").allInnerTexts();
+      await op.caption("Now: removing the code file chip before sending");
+      await op.click(op.page.getByRole("button", { name: "Remove attachment average.py" }));
+      await op.until(async () => (await chips()).length === 2, "the chip was not removed", 10000);
+      c.ok(!(await chips()).includes("average.py"), "average.py is still listed after removal");
+      await attachFiles(op, c, ["average.py"], 3);
+      c.ok((await chips()).length === 3, `chips after re-adding: ${JSON.stringify(await chips())}`);
+      await ask(op, "s2-10-a", "Give a one-line summary of each of the three attached files, one line per file, each starting with the file name: harbor-memo.txt, average.py, tides.csv.", /\S/);
+      const t = await op.page.locator("#messages article.assistant").last().innerText();
+      c.ok(/harbor-memo/i.test(t) && new RegExp(S1B.boat, "i").test(t), "the text file summary does not cite its content (the boat name)");
+      c.ok(/average\.py/i.test(t) && /mean|average/i.test(t), "the code file summary does not cite its content");
+      c.ok(/tides\.csv/i.test(t) && new RegExp(`${S2B.peak}|Wed|tide`, "i").test(t), "the CSV summary does not cite its content");
+      await ask(op, "s2-10-b", "Which of those three files contains a bug? Reply with the file name only.", /average\.py/i);
+      const sent = await op.page.locator("#messages .attachment").count();
+      c.ok(sent === 3, `the sent message shows ${sent} attachments, expected 3`);
+      record({ scenario: "s2-10", sent_attachments_in_history: sent });
+      c.done();
+    }, { lint: false });
+  },
   "dom-probe": async (op) => {
     await op.step("dom-probe", "Now: reading the reply DOM of the last conversation", async () => {
       record({ scenario: "dom-probe", shape: await op.page.evaluate(() => {
@@ -669,6 +854,50 @@ const turnsApi = (op) => op.page.evaluate(async () => {
   const d = await (await fetch("/v1/conversations/" + encodeURIComponent(conversation))).json();
   return d.turns.map((t) => ({ prompt: t.request?.prompt || "", model: t.request?.model, effort: t.request?.effort, state: t.state, answer: t.result?.answer ?? t.result?.partial_answer ?? "" }));
 });
+
+// Access picker with a loud failure: the label must read the requested access afterwards.
+async function chooseAccessChecked(op, label) {
+  await chooseAccess(op, label);
+  const shown = (await op.page.locator("#access-label").innerText()).trim();
+  if (!new RegExp(label, "i").test(shown)) throw new Error(`the access picker reads "${shown}", not ${label}`);
+}
+
+// Attaches files from the campaign's attach folder through the file chooser and waits for the chips.
+async function attachFiles(op, c, names, expected = names.length) {
+  const dir = path.join(paths.projects, "attach");
+  const [chooser] = await Promise.all([op.page.waitForEvent("filechooser", { timeout: 10000 }), op.click(op.page.locator("#attach"))]);
+  await chooser.setFiles(names.map((n) => path.join(dir, n)));
+  await op.until(async () => (await op.page.locator("#attachments .attachment").count()) >= expected, "the attachment chips did not appear", 30000);
+  const chips = await op.page.locator("#attachments .attachment .attachment-name").allInnerTexts();
+  c.ok(names.every((n) => chips.includes(n)), `chips ${JSON.stringify(chips)} lack one of ${JSON.stringify(names)}`);
+}
+
+// Reads Codex rollouts written since a time: only approval_policy, sandbox type and tool-call names (never auth.json).
+function rolloutEvidence(since) {
+  const root = path.join(paths.state, "providers/home/.codex/sessions");
+  const out = { files: 0, approval: [], sandbox: [], tools: [] };
+  const walk = (dir) => {
+    for (const e of fs.existsSync(dir) ? fs.readdirSync(dir, { withFileTypes: true }) : []) {
+      const f = path.join(dir, e.name);
+      if (e.isDirectory()) walk(f);
+      else if (e.name.endsWith(".jsonl") && fs.statSync(f).mtimeMs >= since) {
+        out.files += 1;
+        for (const line of fs.readFileSync(f, "utf8").split("\n")) {
+          let j;
+          try { j = JSON.parse(line); } catch { continue; }
+          const p = j.payload || {};
+          if (j.type === "turn_context") {
+            out.approval.push(p.approval_policy);
+            out.sandbox.push(p.sandbox_policy?.type ?? p.sandbox_policy);
+          } else if (j.type === "response_item" && /call$/.test(p.type || "")) out.tools.push(p.name || p.type);
+        }
+      }
+    }
+  };
+  walk(root);
+  for (const k of ["approval", "sandbox", "tools"]) out[k] = [...new Set(out[k])];
+  return out;
+}
 
 // Types and sends a prompt, returns once the run exists (no wait for the answer).
 async function sendNoWait(op, text) {

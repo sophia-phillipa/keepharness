@@ -141,6 +141,7 @@ function seedAll() {
   seedProject();
   seedSlice1();
   seedSlice1b();
+  seedSlice2b();
 }
 
 // Slice 1b seeds: two small attachments (outside every project folder) and a file the run edits between two asks.
@@ -149,6 +150,56 @@ function seedSlice1b() {
   put(path.join(dir, "harbor-memo.txt"), `Harbor memo: the pilot boat is named ${S1B.boat}. It leaves the quay at ${S1B.departure} with a crew of 5 and carries 12 crates of salted herring.\n`);
   put(path.join(dir, "average.py"), 'def average(values):\n    """Return the mean of a non-empty list."""\n    return sum(values) / (len(values) + 1)\n');
   put(path.join(paths.home, S1.main, "facts/gamma.txt"), `The gamma beacon code is ${S1B.beaconOld}.\n`);
+}
+
+// Slice 2b seeds: a red PNG with white "HOLM 73" (5x7 pixel font, no image library), a code file, a CSV and a text file over the excerpt limit (6000 characters).
+const S2B = { color: "red", text: "HOLM 73", fee: "417", fn: "settle_dock_fee", peak: "342", start: "START-MARK-QUARTZ-41", end: "END-MARK-HERON-88" };
+const GLYPHS = {
+  H: "10001 10001 10001 11111 10001 10001 10001", O: "01110 10001 10001 10001 10001 10001 01110", L: "10000 10000 10000 10000 10000 10000 11111",
+  M: "10001 11011 10101 10101 10001 10001 10001", 7: "11111 00001 00010 00100 01000 01000 01000", 3: "11110 00001 00001 01110 00001 00001 11110",
+};
+
+function holmPng() {
+  const zlib = require("node:zlib");
+  const [w, h, scale, x0, y0] = [1000, 300, 20, 80, 80];
+  const raw = Buffer.alloc(h * (1 + w * 3));
+  for (let y = 0; y < h; y++) {
+    const row = y * (1 + w * 3);
+    for (let x = 0; x < w; x++) raw.set([210, 35, 35], row + 1 + x * 3);
+  }
+  [...S2B.text].forEach((ch, i) => {
+    const rows = GLYPHS[ch]?.split(" ");
+    if (!rows) return;
+    rows.forEach((bits, gy) => [...bits].forEach((bit, gx) => {
+      if (bit !== "1") return;
+      for (let dy = 0; dy < scale; dy++) for (let dx = 0; dx < scale; dx++) raw.set([255, 255, 255], (y0 + gy * scale + dy) * (1 + w * 3) + 1 + (x0 + (i * 6 + gx) * scale + dx) * 3);
+    }));
+  });
+  const crcTable = Array.from({ length: 256 }, (_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; });
+  const crc = (buf) => { let c = 0xffffffff; for (const b of buf) c = crcTable[(c ^ b) & 255] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
+  const chunk = (type, data) => {
+    const body = Buffer.concat([Buffer.from(type), data]);
+    const out = Buffer.alloc(8 + data.length + 4);
+    out.writeUInt32BE(data.length, 0);
+    body.copy(out, 4);
+    out.writeUInt32BE(crc(body), 8 + data.length);
+    return out;
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(w, 0);
+  ihdr.writeUInt32BE(h, 4);
+  ihdr.set([8, 2, 0, 0, 0], 8);
+  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", ihdr), chunk("IDAT", zlib.deflateSync(raw)), chunk("IEND", Buffer.alloc(0))]);
+}
+
+function seedSlice2b() {
+  const dir = path.join(paths.projects, "attach");
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, "holm.png"), holmPng());
+  put(path.join(dir, "tally.py"), `HARBOR_FEE = ${S2B.fee}\n\n\ndef ${S2B.fn}(crates):\n    """Return the dock fee for a number of crates."""\n    return crates * HARBOR_FEE\n`);
+  put(path.join(dir, "tides.csv"), `day,high_tide_cm\nMon,310\nTue,295\nWed,${S2B.peak}\n`);
+  const filler = Array.from({ length: 125 }, (_, i) => `ledger entry ${String(i + 1).padStart(3, "0")}: crates logged and checked at the quay.`);
+  put(path.join(dir, "ledger-long.txt"), [`${S2B.start}: the ledger opens here.`, ...filler, `${S2B.end}: the ledger closes here.`].join("\n") + "\n");
 }
 
 function put(file, text) {
@@ -295,7 +346,7 @@ async function stop() {
   console.log(`ports ${HARNESS_PORT}/${ADMIN_PORT} free`);
 }
 
-module.exports = { paths, ROOT, HARNESS_PORT, ADMIN_PORT, MODELS, EFFORT, PROJECT_NAME, FACTS, S1, S1B, seedSlice1b, FACTS_FILE, adminApi, adminLogin, httpRequest, portOpen, until, summary, sleep, readJson };
+module.exports = { paths, ROOT, HARNESS_PORT, ADMIN_PORT, MODELS, EFFORT, PROJECT_NAME, FACTS, S1, S1B, S2B, seedSlice1b, seedSlice2b, FACTS_FILE, adminApi, adminLogin, httpRequest, portOpen, until, summary, sleep, readJson };
 
 if (require.main === module) {
   const command = process.argv[2];
