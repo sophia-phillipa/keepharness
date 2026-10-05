@@ -34,6 +34,20 @@ const PROJECT_NAME = "chat-facts";
 const FACTS_FILE = "FACTS.md";
 // Distinctive facts the pilot asks about; the model cannot know them without reading the file.
 const FACTS = { harbor: "Port Quillon", lamp: "7 brass lanterns", code: "ZEBRA-4471" };
+// Slice 1 seeds: two folders under the harness HOME (so the project dialog can browse them) and one
+// file outside both (and outside HOME). Invented values only.
+const S1 = {
+  main: "campaign-main",
+  second: "campaign-annex",
+  codeWord: "QUILLFEATHER-3917",
+  keeper: "Ondra Welk",
+  csvTotal: 4017,
+  csvTop: "lamps",
+  fn: "reconcile_tide_ledger",
+  srcLines: 41,
+  secondWord: "OSPREY-5208",
+  outsideWord: "KESTREL-6602",
+};
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const readJson = (file) => {
@@ -114,11 +128,33 @@ function prepareFolders() {
   const link = path.join(paths.home, ".local/share/keepharness/local.key");
   fs.mkdirSync(path.dirname(link), { recursive: true });
   try {
-    if (fs.readlinkSync(link) === path.join(paths.state, "local.key")) return seedProject();
+    if (fs.readlinkSync(link) === path.join(paths.state, "local.key")) return seedAll();
     fs.unlinkSync(link);
   } catch {}
   if (fs.existsSync(path.join(paths.state, "local.key"))) fs.symlinkSync(path.join(paths.state, "local.key"), link);
+  seedAll();
+}
+
+function seedAll() {
   seedProject();
+  seedSlice1();
+}
+
+function put(file, text) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, text);
+}
+
+function seedSlice1() {
+  const main = path.join(paths.home, S1.main);
+  const second = path.join(paths.home, S1.second);
+  put(path.join(main, "facts/alpha.txt"), `The archive code word is ${S1.codeWord}.\nThe archive keeper is ${S1.keeper}.\n`);
+  put(path.join(main, "facts/budget.csv"), "item,cost\nlamps,1250\nrope,480\npaint,735\nnets,1190\ntar,362\n");
+  const head = `def _fold_offsets(values):\n    """Sum the tide offsets."""\n    return sum(values)\n\n\ndef ${S1.fn}(entries):\n    """Reconcile the tide ledger."""\n    return _fold_offsets(entries)\n`;
+  const pad = Array.from({ length: S1.srcLines - head.split("\n").length + 1 }, (_, i) => `# ledger note ${i + 1}`).join("\n");
+  put(path.join(main, "src/tide.py"), head + pad + "\n");
+  put(path.join(second, "notes/beta.txt"), `The annex code word is ${S1.secondWord}.\n`);
+  put(path.join(paths.projects, "outside/vault.txt"), `The outside vault word is ${S1.outsideWord}.\n`);
 }
 
 function seedProject() {
@@ -248,7 +284,7 @@ async function stop() {
   console.log(`ports ${HARNESS_PORT}/${ADMIN_PORT} free`);
 }
 
-module.exports = { paths, ROOT, HARNESS_PORT, ADMIN_PORT, MODELS, EFFORT, PROJECT_NAME, FACTS, FACTS_FILE, adminApi, adminLogin, httpRequest, portOpen, until, summary, sleep, readJson };
+module.exports = { paths, ROOT, HARNESS_PORT, ADMIN_PORT, MODELS, EFFORT, PROJECT_NAME, FACTS, S1, FACTS_FILE, adminApi, adminLogin, httpRequest, portOpen, until, summary, sleep, readJson };
 
 if (require.main === module) {
   const command = process.argv[2];

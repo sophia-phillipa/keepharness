@@ -8,7 +8,7 @@
 //     NODE_PATH=<node_modules with playwright> PLAYWRIGHT_MODULE=<same>/playwright \
 //     node tests/operator/areas/20-chat-real-providers.cjs
 //
-// Env: CHAT_SLICE (pilot|luna|deepseek), CHAT_SCENARIOS (comma list, overrides the slice),
+// Env: CHAT_SLICE (pilot|luna|deepseek|s1a), CHAT_SCENARIOS (comma list, overrides the slice),
 // CHAT_BUDGET (real prompts allowed), CHAT_DEEPSEEK_WAIT_MS, CHAT_APP (an inspect-enabled copy of the
 // packaged binary: Playwright cannot attach to the production package, whose inspect fuse is off).
 // Known limitation: the desktop attaches to the running admin, so closing the app does not stop
@@ -21,7 +21,7 @@ const path = require("node:path");
 const instance = require("../chat-campaign/instance.cjs");
 const { chooseModel, chooseAccess, newChat, submit, waitAnswer, dismissTour } = require("../lib/app.cjs");
 
-const { paths, FACTS, PROJECT_NAME, adminApi, portOpen } = instance;
+const { paths, FACTS, S1, PROJECT_NAME, adminApi, portOpen } = instance;
 const REPO = path.resolve(__dirname, "../../..");
 const ADMIN_PORT = "18641";
 const HARNESS_PORT = "18640";
@@ -39,9 +39,19 @@ const SLICES = {
   pilot: ["new-chat-short", "follow-up", "project-facts", "reopen"],
   luna: ["luna-short"],
   deepseek: ["await-deepseek-key"],
+  s1a: ["s1-01", "s1-02", "s1-03", "s1-04", "s1-05"],
 };
+const PROJECT_LABEL = process.env.CHAT_PROJECT_LABEL || "Campaign notes"; // CHAT_PROJECT_LABEL: dry runs use a throwaway project
+const MAIN_DIR = path.join(paths.home, S1.main);
+const OUTSIDE_FILE = path.join(paths.projects, "outside/vault.txt");
 
-const ask = async (op, name, text, pattern) => turn(op, name, text, pattern);
+const ask = async (op, name, text, pattern, opts) => turn(op, name, text, pattern, opts);
+
+// Soft checks: every failed check is collected so the remaining prompts of a scenario still run.
+function soft() {
+  const failed = [];
+  return { ok: (condition, message) => condition || failed.push(message), done() { if (failed.length) throw new Error(failed.join("; ")); } };
+}
 
 const SCENARIOS = {
   "new-chat-short": async (op) => {
@@ -95,6 +105,167 @@ const SCENARIOS = {
       await ask(op, "luna-short", "What is the highest mountain on Earth? Answer in one short sentence.", /Everest/);
     }, { lint: false });
   },
+  "s1-01": async (op) => {
+    await op.step("s1-01", "Now: S1-01, a new chat with a short question and a follow-up", async () => {
+      const c = soft();
+      await newChat(op);
+      await chooseModel(op, "gpt-5.6-sol");
+      await chooseEffort(op, "Medium");
+      await ask(op, "s1-01-q", "What is the capital of Australia? Answer in one short sentence.", /Canberra/);
+      const q = ctx.last;
+      c.ok(q.ttft_ms != null && q.ttft_ms > 0, "no TTFT was measured on the reply body");
+      c.ok(JSON.stringify(q.send.busy) !== JSON.stringify(q.send.before) || JSON.stringify(q.send.busy) !== JSON.stringify(q.send.done), `the send button never changed state: ${JSON.stringify(q.send)}`);
+      await ask(op, "s1-01-follow", "About how many people live there? Answer in one short sentence.", /\d|thousand|million/i);
+      const h = await page(op).evaluate(() => ({ user: document.querySelectorAll("#messages article.user").length, assistant: document.querySelectorAll("#messages article.assistant").length }));
+      c.ok(h.user === 2 && h.assistant === 2, `the history shows ${h.user} user and ${h.assistant} assistant messages, expected 2 and 2`);
+      record({ scenario: "s1-01", history: h, send: q.send, first_text: q.first_text, dom: q.dom });
+      c.done();
+    }, { lint: false });
+  },
+  "s1-02": async (op) => {
+    await op.step("s1-02", "Now: S1-02, Markdown, a table, code blocks in two languages and a 120-line listing", async () => {
+      const c = soft();
+      await newChat(op);
+      await chooseModel(op, "gpt-5.6-sol");
+      await chooseEffort(op, "Medium");
+      await ask(op, "s1-02-md", "Reply in Markdown with exactly: a level-2 heading, a level-3 heading, a bullet list of 3 items, a numbered list of 3 items and a table of 3 columns (Island, Harbor, Lanterns) with 3 rows of invented data. No code blocks, no other text.", /\S/);
+      const md = await page(op).evaluate(() => {
+        const a = [...document.querySelectorAll("#messages article.assistant")].pop();
+        const body = a.querySelector(":scope > .text");
+        const t = body.querySelector("table");
+        const wrap = t && (t.closest(".table-wrap, .table-scroll") || t.parentElement);
+        const ar = a.getBoundingClientRect();
+        return { h: body.querySelectorAll("h1,h2,h3,h4").length, ul: body.querySelectorAll("ul li").length, ol: body.querySelectorAll("ol li").length, rows: t ? t.querySelectorAll("tr").length : 0, cols: t ? t.rows[0].cells.length : 0, tableFits: !!t && wrap.getBoundingClientRect().right <= ar.right + 1, articleOverflow: a.scrollWidth > a.clientWidth + 1 };
+      });
+      c.ok(md.h >= 2 && md.ul >= 3 && md.ol >= 3, `headings/lists not rendered: ${JSON.stringify(md)}`);
+      c.ok(md.rows >= 4 && md.cols === 3, `table not rendered as 3 columns, 4 rows: ${JSON.stringify(md)}`);
+      c.ok(md.tableFits && !md.articleOverflow, `the table does not fit the message: ${JSON.stringify(md)}`);
+      record({ scenario: "s1-02-md", md });
+      await ask(op, "s1-02-two-langs", "Give two short code blocks, one Python and one JavaScript, each a function with a loop and an if inside it, indented with 4 spaces. Only the two code blocks, no other text.", /\S/);
+      const two = await codeBlocks(op);
+      c.ok(two.length >= 2 && new Set(two.map((b) => b.lang)).size >= 2, `expected 2 languages, got ${JSON.stringify(two.map((b) => b.lang))}`);
+      c.ok(two.every((b) => /\n {4}\S/.test(b.text)), "a code block lost its indentation");
+      await copyCheck(op, c, 0, "first code block");
+      await copyCheck(op, c, 1, "second code block");
+      await ask(op, "s1-02-listing", "Write one Python code block of exactly 120 lines: a module of small functions with docstrings, indented with 4 spaces. Output only that code block.", /\S/);
+      const big = await codeBlocks(op);
+      const lines = big[0] ? big[0].text.replace(/\n$/, "").split("\n").length : 0;
+      c.ok(lines >= 100 && lines <= 140, `the listing has ${lines} lines, expected about 120`);
+      c.ok(big[0] && !big[0].clipped, `the code block clips its content: ${JSON.stringify(big[0] && { clipped: big[0].clipped, internal: big[0].scrolls })}`);
+      c.ok(big[0] && /\n {4}\S/.test(big[0].text), "the listing lost its indentation");
+      record({ scenario: "s1-02-listing", lines, scrolls_internally: big[0]?.scrolls, clipped: big[0]?.clipped });
+      await copyCheck(op, c, 0, "120-line listing");
+      await ask(op, "s1-02-wide-table", "Reply with only a Markdown table of 8 columns with long header names (for example HarborRegistrationNumber) and 3 rows of invented data.", /\S/);
+      const wide = await page(op).evaluate(() => {
+        const a = [...document.querySelectorAll("#messages article.assistant")].pop();
+        const t = a.querySelector(":scope > .text table");
+        const wrap = t && (t.closest(".table-wrap, .table-scroll") || t.parentElement);
+        const ar = a.getBoundingClientRect();
+        return { cols: t ? t.rows[0].cells.length : 0, fits: !!t && wrap.getBoundingClientRect().right <= ar.right + 1, scrollsInside: !!t && wrap.scrollWidth > wrap.clientWidth + 1, articleOverflow: a.scrollWidth > a.clientWidth + 1 };
+      });
+      c.ok(wide.cols >= 8 && wide.fits && !wide.articleOverflow, `the wide table breaks the message layout: ${JSON.stringify(wide)}`);
+      record({ scenario: "s1-02-wide-table", wide });
+      c.done();
+    }, { lint: false });
+  },
+  "s1-03": async (op) => {
+    await op.step("s1-03", "Now: S1-03, a No project chat asking about a file by path", async () => {
+      const c = soft();
+      await newChat(op);
+      await chooseModel(op, "gpt-5.6-sol");
+      await chooseEffort(op, "Medium");
+      c.ok(/No project/i.test(await op.page.locator("#project-button-label").innerText()), "the scope label does not show No project");
+      const file = path.join(MAIN_DIR, "facts/alpha.txt");
+      const reply = await ask(op, "s1-03-a", `Read the file ${file} and tell me the archive code word it contains. If you cannot read it, say so plainly.`, /\S/);
+      const text = typeof reply === "string" ? reply : (await op.page.locator("#messages article.assistant").last().innerText());
+      c.ok(!text.includes(S1.codeWord), "the No project chat revealed the code word of a file outside its scope");
+      c.ok(/can't|cannot|can not|unable|not able|don't have|do not have|no access|not available|couldn't|could not|isn't|not allowed|outside|denied|refus|only the active|not in/i.test(text), `the reply does not say it cannot read the file: ${text.slice(0, 160)}`);
+      await ask(op, "s1-03-b", `And what is the archive keeper named in ${file}? If you cannot read it, say so plainly.`, /\S/);
+      const text2 = await op.page.locator("#messages article.assistant").last().innerText();
+      c.ok(!text2.includes(S1.keeper), "the second reply revealed the keeper name of the out-of-scope file");
+      c.ok(/No project/i.test(await op.page.locator("#project-button-label").innerText()), "the scope label changed away from No project");
+      c.done();
+    }, { lint: false });
+  },
+  "s1-04": async (op) => {
+    await op.step("s1-04", `Now: S1-04, creating the project ${PROJECT_LABEL} with the seeded folder, then six fact questions`, async () => {
+      const c = soft();
+      await createProject(op, PROJECT_LABEL, S1.main);
+      await newChat(op);
+      await chooseProject(op, PROJECT_LABEL);
+      await chooseModel(op, "gpt-5.6-sol");
+      await chooseEffort(op, "Medium");
+      await chooseAccess(op, "Read only");
+      const qs = [
+        ["code word", "In facts/alpha.txt, what is the archive code word? Reply with just the word.", new RegExp(S1.codeWord)],
+        ["csv total", "Add up the cost column in facts/budget.csv. What is the total? Reply with just the number.", /4[,. ]?017/],
+        ["function", "In src/tide.py, what is the name of the public function (the one not starting with an underscore)? Reply with just the name.", new RegExp(S1.fn)],
+        ["line count", "How many lines does src/tide.py have, counted like wc -l? Reply with just the number.", new RegExp("\\b" + S1.srcLines + "\\b")],
+        ["top item", "Which item in facts/budget.csv costs the most? Reply with just the item name.", /lamps/i],
+        ["keeper", "Who is the archive keeper named in facts/alpha.txt? Reply with just the name.", new RegExp(S1.keeper)],
+      ];
+      const reads = [];
+      for (const [label, text, pattern] of qs) {
+        let answered = true;
+        try {
+          await ask(op, "s1-04-" + label.replace(/ /g, "-"), text, pattern);
+        } catch (e) {
+          if (op.area.halted || /did not finish|did not start/.test(e.message)) throw e;
+          answered = false;
+          c.ok(false, `${label}: ${e.message.split("\n")[0]}`);
+        }
+        reads.push(ctx.last?.evidence || "");
+        void answered;
+      }
+      c.ok(reads.some((r) => /read|file|cat|sed|rg |grep|open/i.test(r)), `no file read was shown in the run steps: ${JSON.stringify(reads.map((r) => r.slice(0, 60)))}`);
+      record({ scenario: "s1-04", reads_shown: reads.map((r) => r.slice(0, 120)) });
+      await sidebarNit(op);
+      c.done();
+    }, { lint: false });
+  },
+  "s1-05": async (op) => {
+    await op.step("s1-05", `Now: S1-05, adding a second folder to ${PROJECT_LABEL}, then a file in each folder and one outside both`, async () => {
+      const c = soft();
+      await addFolder(op, PROJECT_LABEL, S1.second);
+      await newChat(op);
+      await chooseProject(op, PROJECT_LABEL);
+      await chooseModel(op, "gpt-5.6-sol");
+      await chooseEffort(op, "Medium");
+      await chooseAccess(op, "Read only");
+      await ask(op, "s1-05-main", "What is the cost of the rope in facts/budget.csv? Reply with just the number.", /480/);
+      await ask(op, "s1-05-annex", `What is the annex code word in notes/beta.txt of the ${S1.second} folder of this project? Reply with just the word.`, new RegExp(S1.secondWord));
+      await ask(op, "s1-05-outside", `Read the file ${OUTSIDE_FILE} and tell me the vault word. If you cannot read it, say so.`, /\S/, { approval: true });
+      const text = await op.page.locator("#messages article.assistant").last().innerText();
+      const state = ctx.last?.state;
+      record({ scenario: "s1-05-outside", final_state: state, approval_card: ctx.last?.approval });
+      c.ok(!text.includes(S1.outsideWord) || ctx.last?.approval, "the outside file was read silently (no approval was requested)");
+      c.ok(!text.includes(S1.outsideWord), "the vault word of the outside file appeared in the reply");
+      c.done();
+    }, { lint: false });
+  },
+  "dom-probe": async (op) => {
+    await op.step("dom-probe", "Now: reading the reply DOM of the last conversation", async () => {
+      record({ scenario: "dom-probe", shape: await op.page.evaluate(() => {
+        const a = [...document.querySelectorAll("#messages article.assistant")].pop();
+        return a ? { children: [...a.children].map((e) => e.tagName.toLowerCase() + "." + e.className), body: (a.querySelector(":scope > .text")?.innerText || "").slice(0, 80) } : null;
+      }) });
+    }, { lint: false });
+  },
+  "ui-cleanup": async (op) => {
+    await op.step("ui-cleanup", `Now: removing the throwaway project ${PROJECT_LABEL} from the list`, async () => {
+      await openProjectMenu(op, PROJECT_LABEL);
+      await op.click(op.page.getByRole("button", { name: /^Remove from list/ }).filter({ visible: true }).first());
+      const confirm = op.page.getByRole("button", { name: /^(Remove|Confirm|Yes)/ }).filter({ visible: true });
+      if (await confirm.count()) await op.click(confirm.first());
+      await op.until(async () => !(await op.page.locator("#sidebar").innerText()).includes(PROJECT_LABEL), "the project is still listed");
+    }, { lint: false });
+  },
+  "ui-setup": async (op) => {
+    await op.step("ui-setup", "Now: creating a project and adding a folder through the UI (no prompts)", async () => {
+      await createProject(op, PROJECT_LABEL, S1.main);
+      await addFolder(op, PROJECT_LABEL, S1.second);
+    }, { lint: false });
+  },
   "await-deepseek-key": async (op) => {
     await op.step("await-deepseek-key", "Now: waiting for Sophia to enter the DeepSeek key in Settings > Providers", async () => {
       const limit = Date.now() + Number(process.env.CHAT_DEEPSEEK_WAIT_MS || 900000);
@@ -131,6 +302,99 @@ async function chooseProject(op, label) {
   await op.seeText(op.page.locator("#project-button-label"), new RegExp(label));
 }
 
+const page = (op) => op.page;
+
+// Code blocks of the newest assistant message: language, exact text, and whether the block clips it.
+const codeBlocks = (op) =>
+  op.page.evaluate(() => {
+    const a = [...document.querySelectorAll("#messages article.assistant")].pop();
+    return [...a.querySelectorAll(".code-block")].map((b) => {
+      const pre = b.querySelector("pre");
+      const code = b.querySelector("code");
+      const el = [pre, b].find((e) => e && e.scrollHeight > e.clientHeight + 2);
+      const overflow = el ? getComputedStyle(el).overflowY : "";
+      return { lang: b.querySelector(".code-lang")?.textContent || "", text: code.textContent, scrolls: !!el && /auto|scroll/.test(overflow), clipped: !!el && /hidden/.test(overflow) };
+    });
+  });
+
+// Click the Copy button of the nth code block in the newest reply and compare the system clipboard to the code text.
+async function copyCheck(op, c, index, label) {
+  const blocks = await codeBlocks(op);
+  const button = op.page.locator("#messages article.assistant").last().locator(".copy-code").nth(index);
+  await ctx.handle.app.evaluate(({ clipboard }) => clipboard.writeText(""));
+  await button.scrollIntoViewIfNeeded();
+  await op.click(button);
+  await sleep(400);
+  const copied = await ctx.handle.app.evaluate(({ clipboard }) => clipboard.readText());
+  c.ok(blocks[index] && copied === blocks[index].text, `copy button (${label}) put ${copied.length} chars on the clipboard, the block has ${blocks[index]?.text.length}`);
+  record({ scenario: "copy-check", label, copied_chars: copied.length, block_chars: blocks[index]?.text.length, exact: blocks[index]?.text === copied });
+}
+
+// Project creation through the UI: the Add project dialog, one folder from the Personal folder tree.
+async function pickFolder(op, folder) {
+  const row = op.page.locator(`#project-directory-list [role=treeitem][data-path="${folder}"] > .project-file-row`).first();
+  await op.click(row);
+  await op.click(op.page.locator("#project-directory-add-current"));
+  await op.seeText(op.page.locator("#project-selected-paths"), new RegExp(folder));
+}
+
+async function createProject(op, label, folder) {
+  await op.click(op.page.locator("#add-project"));
+  await op.page.locator("#project-dialog").waitFor({ state: "visible", timeout: 10000 });
+  await op.fill(op.page.locator("#project-name"), label);
+  await pickFolder(op, folder);
+  await op.click(op.page.locator("#project-create"));
+  await op.page.locator("#project-dialog").waitFor({ state: "hidden", timeout: 20000 });
+  await op.seeText(op.page.locator("#sidebar"), new RegExp(label));
+  await ensureCodexProject(label);
+}
+
+async function openProjectMenu(op, label) {
+  const found = await op.page.evaluate((name) => {
+    document.querySelectorAll("[data-kh-actions]").forEach((e) => delete e.dataset.khActions);
+    const btn = [...document.querySelectorAll("#sidebar button")].find((b) => b.textContent.trim() === name);
+    for (let n = btn; n && n.id !== "sidebar"; n = n.parentElement) {
+      const a = n.querySelector('button[title*="roject actions"], button[aria-label*="roject actions"]');
+      if (a) return (a.dataset.khActions = "1"), true;
+    }
+    return false;
+  }, label);
+  if (!found) throw new Error(`no project actions button found for ${label}`);
+  await op.click(op.page.locator("[data-kh-actions]"));
+}
+
+async function addFolder(op, label, folder) {
+  await openProjectMenu(op, label);
+  await op.click(op.page.getByRole("button", { name: /^Edit project/ }).filter({ visible: true }).first());
+  await op.page.locator("#project-dialog").waitFor({ state: "visible", timeout: 10000 });
+  await pickFolder(op, folder);
+  await op.click(op.page.locator("#project-create"));
+  await op.page.locator("#project-dialog").waitFor({ state: "hidden", timeout: 20000 });
+  await ensureCodexProject(label);
+}
+
+// UI-created projects live in the harness, not in the admin settings; record what the admin sees.
+async function ensureCodexProject(label) {
+  const settings = (await adminApi("GET", "/api/state")).json?.settings;
+  const project = (settings?.projects || []).find((p) => p.label === label);
+  record({ scenario: "project-registry", label, in_admin_settings: !!project, codex_projects: settings?.services?.codex?.projects });
+}
+
+// The pilot showed a grey block cutting the right edge of the active project conversation row.
+async function sidebarNit(op) {
+  const info = await op.page.evaluate(() => {
+    const row = document.querySelector("#sidebar button.active, #sidebar [aria-current=true], #sidebar .active");
+    if (!row) return null;
+    const r = row.getBoundingClientRect();
+    const at = [r.right - 4, r.right - 14, r.right - 24].flatMap((x) => document.elementsFromPoint(x, r.top + r.height / 2).slice(0, 3).map((e) => `${e.tagName.toLowerCase()}.${String(e.className).slice(0, 40)}[${getComputedStyle(e).backgroundColor}]`));
+    const sidebar = document.getElementById("sidebar").getBoundingClientRect();
+    return { row: `${row.tagName.toLowerCase()}.${row.className}`, rect: [r.left, r.top, r.right, r.bottom].map(Math.round), sidebarRight: Math.round(sidebar.right), rowBg: getComputedStyle(row).backgroundColor, at: [...new Set(at)] };
+  });
+  const shot = path.join(ctx.out, "shots", "sidebar-project-active.png");
+  await op.page.locator("#sidebar").screenshot({ path: shot, timeout: 15000 }).catch(() => {});
+  record({ scenario: "sidebar-nit", info, shot });
+}
+
 async function dismissTourSoon(op) {
   await sleep(1500);
   await dismissTour(op);
@@ -146,7 +410,7 @@ async function snapshot(page) {
 
 // ------------------------------------------------------------------ one real turn
 
-async function turn(op, name, text, pattern) {
+async function turn(op, name, text, pattern, opts = {}) {
   const page = op.page;
   await page.evaluate(() => (window.__kh.lat = []));
   await op.fill(page.locator("#prompt"), text);
@@ -154,8 +418,20 @@ async function turn(op, name, text, pattern) {
   const before = await submit(op);
   let answer = null;
   let error = null;
+  let approval = false;
   try {
-    answer = await waitAnswer(op, before, pattern, 180000);
+    if (opts.approval) {
+      // A run that needs an approval never reaches "done": settle on done, needs-you or a failure, and never approve.
+      const runs = page.locator("#messages").getByRole("button", { name: "View run" });
+      await op.until(async () => (await runs.count()) > before, "the run did not start", 30000);
+      const pill = page.locator("#conversation-state-pill");
+      await op.until(async () => ["done", "needs-you"].includes(await pill.getAttribute("data-state")) || /Failed|Cancelled|Interrupted/.test(await pill.innerText()), "the answer did not finish in time", 180000);
+      approval = (await pill.getAttribute("data-state")) === "needs-you";
+      if (approval) {
+        await page.screenshot({ path: path.join(ctx.out, "shots", `approval-${ctx.turns + 1}.png`), timeout: 15000 }).catch(() => {});
+        await op.click(page.locator("#cancel")).catch(() => {});
+      }
+    } else answer = await waitAnswer(op, before, pattern, 180000);
   } catch (e) {
     error = e;
   }
@@ -172,9 +448,13 @@ async function turn(op, name, text, pattern) {
       failed: t.failed || null,
       paint: { n: lat.length, median: q(0.5), p95: q(0.95), max: lat.length ? lat[lat.length - 1] : null },
       pill: document.getElementById("conversation-state-pill")?.innerText || "",
+      state: document.getElementById("conversation-state-pill")?.dataset.state || "",
       reply: (last?.innerText || "").slice(0, 400),
+      send: t.send || null, first_text: t.firstText || "", dom: t.dom || "",
+      evidence: [last?.querySelector(".run-highlight")?.textContent, ...[...(last?.querySelectorAll(".activity-milestones li") || [])].map((li) => li.textContent)].filter(Boolean).join(" | "),
     };
   });
+  ctx.last = { ...m, approval };
   ctx.turns += 1;
   const shot = path.join(ctx.out, "shots", `turn-${ctx.turns}.png`);
   await page.screenshot({ path: shot, timeout: 15000 }).catch(() => {});
@@ -185,7 +465,7 @@ async function turn(op, name, text, pattern) {
     scenario: name, turn: ctx.turns, ttft_ms: m.ttft_ms, total_ms: m.total_ms ?? to - from,
     paint_ms: m.paint, electron_rss_mb: max("electron_rss"), harness_rss_mb: max("harness_rss"),
     electron_cpu_pct: avg("electron_cpu"), harness_cpu_pct: avg("harness_cpu"), samples: win.length,
-    pill: m.pill, reply: m.reply, shot,
+    pill: m.pill, reply: m.reply, first_text: m.first_text, evidence: m.evidence.slice(0, 200), shot,
   };
   record(line);
   if (error || m.failed || /Failed/.test(m.pill)) {
@@ -252,19 +532,35 @@ const METRICS_JS = `(() => {
   }, true);
   document.addEventListener("click", (e) => {
     if (!(e.target && e.target.closest && e.target.closest("#send"))) return;
-    kh.turn = { t0: performance.now(), n: document.querySelectorAll("#messages article.assistant").length, first: null, done: null, busy: false, failed: null };
+    kh.turn = { t0: performance.now(), n: document.querySelectorAll("#messages article.assistant").length, first: null, done: null, busy: false, failed: null, send: { before: sendState(), busy: null, done: null }, firstText: "", dom: "" };
   }, true);
+  const sendState = () => {
+    const s = document.getElementById("send");
+    return s ? { text: (s.innerText || "").trim(), label: s.getAttribute("aria-label") || "", disabled: s.disabled, state: s.dataset.state || "" } : null;
+  };
   const check = () => {
     const t = kh.turn;
     if (!t) return;
     const now = performance.now() - t.t0;
     const articles = [...document.querySelectorAll("#messages article.assistant")];
     const last = articles[articles.length - 1];
-    if (t.first == null && articles.length > t.n && last && last.textContent.trim()) t.first = now;
+    // TTFT: the first non-empty text of the reply body (article > .text), not the run card header.
+    const body = last && last.querySelector(":scope > .text");
+    if (t.first == null && articles.length > t.n && body && body.textContent.trim()) {
+      t.first = now;
+      t.firstText = body.textContent.trim().slice(0, 80);
+      t.dom = [...last.children].map((e) => e.tagName.toLowerCase() + "." + String(e.className).split(" ")[0]).join(" > ");
+    }
     const pill = document.getElementById("conversation-state-pill");
     const state = pill && pill.dataset.state;
-    if (state && state !== "done") t.busy = true;
-    if (t.busy && state === "done" && t.done == null) t.done = now;
+    if (state && state !== "done") {
+      t.busy = true;
+      if (!t.send.busy) t.send.busy = sendState();
+    }
+    if (t.busy && state === "done" && t.done == null) {
+      t.done = now;
+      t.send.done = sendState();
+    }
     if (pill && /Failed/.test(pill.innerText) && !t.failed) t.failed = pill.innerText;
   };
   new MutationObserver(check).observe(document.documentElement, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ["data-state"] });
