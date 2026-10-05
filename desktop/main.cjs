@@ -3,7 +3,7 @@
 // window, keeps navigation inside the two local origins and stops the admin it
 // started when the app quits. The window is the owner's: it signs itself in with a session
 // minted from the per-install secret and enrolls itself for approvals (decisions D09 and D13).
-const { app, BrowserWindow, dialog, session, shell, Menu, screen } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, session, shell, Menu, screen } = require('electron');
 const { spawn, spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const http = require('node:http');
@@ -16,6 +16,7 @@ const {
   isAppUrl,
   permissionAllowed,
   externalUrl,
+  HANDOFF_APPS, HANDOFF_TEXT_MAX, handoffUrl,
   windowOptions,
   splashOptions,
   backendEnv,
@@ -189,11 +190,40 @@ async function showInMain(url) {
   // Only the hash changes: a same-URL loadURL may not load at all, so the running page gets it directly.
   await win.webContents.executeJavaScript('location.hash = ' + JSON.stringify('#open=settings/' + (ADMIN_SECTIONS.includes(section) ? section : 'providers')));
 }
+// Continuation hand-off bridge (WP5): two IPC handlers behind the preload. They answer only the
+// harness origin, take no URL or scheme from the page, and never log or store the prompt text.
+const fromHarness = event => {
+  try { return new URL(event.senderFrame.url).origin === new URL(harnessUrl).origin; } catch { return false; }
+};
+const handoffInstalled = target => {
+  try { return !!app.getApplicationNameForProtocol(HANDOFF_APPS[target]); } catch { return false; }
+};
+function handoffApps(event) {
+  if (!fromHarness(event)) return {apps: [], error: 'handoff_forbidden'};
+  return {apps: Object.keys(HANDOFF_APPS).filter(handoffInstalled)};
+}
+async function handoffOpen(event, payload) {
+  if (!fromHarness(event)) return {opened: false, error: 'handoff_forbidden'};
+  const {target, text} = payload ?? {};
+  if (!Object.hasOwn(HANDOFF_APPS, target) || typeof text !== 'string' || !text || !text.isWellFormed() || text.length > HANDOFF_TEXT_MAX) return {opened: false, error: 'handoff_invalid'};
+  if (!handoffInstalled(target)) return {opened: false, error: 'handoff_app_missing'};
+  const {url, mode} = handoffUrl(target, text);
+  // A fixed line: the error message may carry the URL, and with it the prompt.
+  try { await shell.openExternal(url); } catch { log('handoff open failed'); return {opened: false, error: 'handoff_open_failed'}; }
+  return {opened: true, mode};
+}
+function registerHandoff() {
+  ipcMain.handle('keepharness:handoff-apps', handoffApps);
+  ipcMain.handle('keepharness:handoff-open', handoffOpen);
+}
 // All BrowserWindows, including the splash, share security and lifecycle policies.
 function createWindow(kind) {
   const isSplash = kind === 'splash';
   const state = kind === 'main' ? restoredBounds() : null;
-  const window = new BrowserWindow(isSplash ? splashOptions(TITLE, icon) : {...windowOptions(TITLE, icon), ...state});
+  const options = isSplash ? splashOptions(TITLE, icon) : {...windowOptions(TITLE, icon), ...state};
+  // The hand-off bridge exists only in the main harness window (see registerHandoff).
+  if (kind === 'main') options.webPreferences = {...options.webPreferences, preload: path.join(__dirname, 'preload.cjs')};
+  const window = new BrowserWindow(options);
   const show = () => {
     window.removeListener('ready-to-show', show);
     window.webContents.removeListener('did-finish-load', show);
@@ -584,6 +614,7 @@ async function start() {
     }
   }
   installMenu();
+  registerHandoff();
   limitPermissions();
   limitDownloads();
   showSplash();

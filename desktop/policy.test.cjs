@@ -318,3 +318,35 @@ test('running is read from the admin state, and unknown when the answer cannot s
   assert.equal(runningFromState('{"status":{"running":false}}'), false);
   for (const body of ['', 'not json', '{}', '{"status":{}}', '{"status":{"running":"no"}}', 'null']) assert.equal(runningFromState(body), null);
 });
+
+test('handoffUrl opens Claude with the full prompt while the URL fits, else with the short line', () => {
+  const { handoffUrl, HANDOFF_URL_LIMIT, HANDOFF_SHORT_TEXT } = require('./policy.cjs');
+  assert.equal(HANDOFF_URL_LIMIT, 16000);
+  assert.deepEqual(handoffUrl('claude', 'Continue the work'), {url: 'claude://claude.ai/new?q=Continue%20the%20work', mode: 'full'});
+  const text = 'a&b #1 ?x=/y\nline 2 ç\u{1F600}';
+  const full = handoffUrl('claude', text);
+  assert.equal(full.mode, 'full');
+  assert.equal(full.url, 'claude://claude.ai/new?q=' + encodeURIComponent(text));
+  for (const raw of ['&', '#', '\n', ' ', 'ç']) assert.ok(!full.url.slice('claude://claude.ai/new?q='.length).includes(raw));
+  // The limit counts the whole URL: the exact fit is full, one more character is short.
+  const prefix = 'claude://claude.ai/new?q='.length;
+  assert.equal(handoffUrl('claude', 'x'.repeat(16000 - prefix)).mode, 'full');
+  const over = handoffUrl('claude', 'x'.repeat(16000 - prefix + 1));
+  assert.deepEqual(over, {url: 'claude://claude.ai/new?q=' + encodeURIComponent(HANDOFF_SHORT_TEXT), mode: 'short'});
+  assert.equal(handoffUrl('claude', 'x'.repeat(100), 50).mode, 'short');
+  assert.ok(!over.url.includes('xxxx'));
+});
+
+test('handoffUrl never passes a prompt to ChatGPT and refuses unknown targets', () => {
+  const { handoffUrl } = require('./policy.cjs');
+  // codex://threads/new?prompt= is not verified to only prefill, and auto-send is forbidden.
+  for (const text of ['hi', 'x'.repeat(100000)]) assert.deepEqual(handoffUrl('chatgpt', text), {url: 'codex://threads/new', mode: 'short'});
+  for (const target of ['gemini', '', undefined, null, 'constructor', 'https://evil.example/', 'codex://x']) {
+    assert.throws(() => handoffUrl(target, 'hi'), /target/i);
+  }
+});
+
+test('the handoff schemes stay out of the external URL policy', () => {
+  assert.equal(externalUrl('claude://claude.ai/new?q=x'), null);
+  assert.equal(externalUrl('codex://threads/new'), null);
+});

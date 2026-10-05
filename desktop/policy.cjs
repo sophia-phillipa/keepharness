@@ -59,6 +59,23 @@ function externalUrl(url) {
     return null;
   }
 }
+// Continuation hand-off to a desktop app (WP5). Separate from externalUrl: only these two fixed
+// schemes leave the app this way, and only through handoffUrl, which main calls with a validated target.
+const HANDOFF_APPS = Object.freeze({ chatgpt: 'codex://', claude: 'claude://' });
+const HANDOFF_URL_LIMIT = 16000;
+const HANDOFF_TEXT_MAX = 30000;
+const HANDOFF_SHORT_TEXT = 'Paste the continuation prompt from my clipboard and continue the work it describes.';
+const CLAUDE_NEW = 'claude://claude.ai/new?q=';
+// Returns {url, mode}: "full" carries the whole prompt, "short" leaves it on the clipboard.
+function handoffUrl(target, text, limit = HANDOFF_URL_LIMIT) {
+  // PENDING MANUAL VERIFICATION: it is unknown whether codex://threads/new?prompt= only prefills or
+  // also sends. Auto-send is forbidden, so ChatGPT always opens a blank thread and the prompt stays on the clipboard.
+  if (target === 'chatgpt') return { url: 'codex://threads/new', mode: 'short' };
+  if (target !== 'claude') throw new Error('Unknown handoff target');
+  const full = CLAUDE_NEW + encodeURIComponent(text);
+  if (full.length <= limit) return { url: full, mode: 'full' };
+  return { url: CLAUDE_NEW + encodeURIComponent(HANDOFF_SHORT_TEXT), mode: 'short' };
+}
 // Every window of the app: sandboxed, no Node in the page.
 const PAGE_PREFERENCES = {
   nodeIntegration: false,
@@ -288,6 +305,7 @@ module.exports = {
   isAppUrl,
   permissionAllowed,
   externalUrl,
+  HANDOFF_APPS, HANDOFF_URL_LIMIT, HANDOFF_TEXT_MAX, HANDOFF_SHORT_TEXT, handoffUrl,
   windowOptions,
   splashOptions,
   backendEnv,

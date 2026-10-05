@@ -337,6 +337,7 @@ const assert = require("node:assert/strict"),
     const menu = page.locator("#history .conversation-actions[open] button");
     assert.deepEqual(await menu.allInnerTexts(), [
       "Rename conversation",
+      "Continue in another app…",
       "Archive conversation",
       "Delete permanently",
     ]);

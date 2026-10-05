@@ -31,7 +31,7 @@ install -Dm644 LICENSE "$OUT/LICENSE"
 printf '%s\n' "$VERSION" > "$OUT/VERSION"
 APP="$(mktemp -d "${TMPDIR:-/tmp}/keepharness-asar-XXXXXX")"
 trap 'chmod -R u+w "$APP"; rm -rf -- "$APP"' EXIT
-for file in main.cjs policy.cjs splash.html build/icon.png build/splash.jpg; do
+for file in main.cjs policy.cjs preload.cjs splash.html build/icon.png build/splash.jpg; do
   install -Dm644 "desktop/$file" "$APP/$file"
 done
 printf '{"name":"keepharness","version":"%s","main":"main.cjs"}\n' "$VERSION" > "$APP/package.json"

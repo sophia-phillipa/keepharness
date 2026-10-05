@@ -170,6 +170,8 @@ def test_the_model_catalog_tells_the_access_menu_whether_to_offer_full(
             response = asyncio.run(scenario())
         assert response.status_code == 200, response.text
         assert response.json()["full_access"] is offered
+        # The owner is the owner whether or not Full mode is enabled; remote clients never are.
+        assert response.json()["local_owner"] is (token == "local-token")
     finally:
         app.state.service.db.close()
 
