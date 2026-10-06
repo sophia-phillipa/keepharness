@@ -1768,6 +1768,7 @@ const panelCopy = {
   catalogs: ["Catalogs and vault", "Manage pinned resources, prerequisites and private integration bindings."],
   connection: ["Connection / MCP", "Choose the model and effort that connected MCP clients use when they do not name one."],
   home: ["Home", "Track operations and server usage in real time."],
+  plugins: ["Plugins", "Manage plugins, skills, and MCPs"],
   providers: [
     "AI Providers",
     "Connect your AI accounts, choose the models available in conversations, and configure access to files, tools, and services.",
@@ -1780,6 +1781,7 @@ function renderPanel() {
     : "home";
   $("dashboard").hidden = section !== "providers";
   $("catalog-panel").hidden = section !== "catalogs";
+  $("plugins-panel").hidden = section !== "plugins";
   $("config-mcp").hidden = section !== "connection";
   emptyInspector.hidden = section !== "home";
   executionPage.hidden = section !== "runs";
@@ -1806,6 +1808,7 @@ for (const [section, name] of [
   ["home", "home"],
   ["providers", "plug"],
   ["runs", "list"],
+  ["plugins", "cube"],
   ["catalogs", "list"],
   ["connection", "server"],
 ])
@@ -2774,7 +2777,11 @@ $("save-mcp").onclick = () =>
 
 let dashboardLoading = false;
 async function refreshDashboard() {
-  if (document.hidden || location.hash === "#providers" || dashboardLoading)
+  if (
+    document.hidden ||
+    ["#providers", "#plugins"].includes(location.hash) ||
+    dashboardLoading
+  )
     return;
   dashboardLoading = true;
   try {
@@ -3252,6 +3259,15 @@ $("provider-options").addEventListener(
 
 const integrationCatalogs = new Map(),
   catalogPending = new Set();
+// The admin answers 429 to a second operation, so every catalog read (Providers and Plugins pages) goes through this one chain.
+let catalogQueue = Promise.resolve();
+function requestCatalog(provider) {
+  const run = catalogQueue.then(() =>
+    request("integration-catalog", { provider }),
+  );
+  catalogQueue = run.catch(() => {});
+  return run;
+}
 let catalogVisibleCount = 40,
   catalogViewKey = "";
 function renderCatalog() {
@@ -3367,7 +3383,7 @@ async function loadCatalog() {
   try {
     integrationCatalogs.set(
       provider,
-      await request("integration-catalog", { provider }),
+      await requestCatalog(provider),
     );
   } catch (error) {
     integrationCatalogs.set(provider, {
