@@ -8,6 +8,7 @@ The per-release notes in [`dossier/releases/`](dossier/releases/) hold the full 
 
 ### Added
 
+- Retry on the latest failed or interrupted turn (`POST /v1/jobs/{job}/retry`), and a composer warning that names a model which cannot read images and offers another model (`capabilities.images` in `/v1/models`).
 - The Settings button opens a submenu of the Settings sections (Personal: Appearance, Models; Integrations: Customize; Archived: Archived chats; System, local host only: Providers, Operations, Run history, Catalogs and vault, Connection / MCP), each jumping straight to its page; Ctrl/Cmd+, opens Settings at the last section. The desktop app handles an admin-origin open by focusing the main window and opening Settings there (`#open=settings/<section>`) (WP2).
 - Back and Forward at the top left, like the Codex app: an in-memory view history (conversations, Settings pages, Space, Scheduled, Customize, Home), Ctrl/Cmd+[ and Ctrl/Cmd+], mouse buttons 3 and 4, with each conversation's scroll position kept (WP1).
 - `GET /v1/conversations/{id}/continuation?target=claude|chatgpt` returns a redacted, size-capped, paste-ready prompt to continue a conversation in the Claude or ChatGPT desktop app; tool evidence is names and outcomes only (WP5 backend).
