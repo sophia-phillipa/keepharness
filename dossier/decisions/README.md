@@ -22,3 +22,4 @@ Spec: [Codex-app parity design](../codex-parity-design.md).
 | [D-027](d-027-wp7-deterministic-visual-markers.md) | WP7 visual markers are deterministic and display-only | accepted |
 | [D-028](d-028-wp8-quota-meters-every-provider.md) | WP8 quota meters for every connected provider | accepted (not started) |
 | [D-029](d-029-visible-pass-before-merge.md) | Every parity WP gets a visible pass before merge | accepted |
+| [D-030](d-030-wp5-host-hand-off-in-containers.md) | WP5 hand-off on the host inside distrobox | accepted |

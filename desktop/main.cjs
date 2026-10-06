@@ -4,7 +4,7 @@
 // started when the app quits. The window is the owner's: it signs itself in with a session
 // minted from the per-install secret and enrolls itself for approvals (decisions D09 and D13).
 const { app, BrowserWindow, dialog, ipcMain, session, shell, Menu, screen } = require('electron');
-const { spawn, spawnSync } = require('node:child_process');
+const { execFile, spawn, spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const http = require('node:http');
 const os = require('node:os');
@@ -16,7 +16,7 @@ const {
   isAppUrl,
   permissionAllowed,
   externalUrl,
-  HANDOFF_APPS, HANDOFF_TEXT_MAX, handoffUrl,
+  HANDOFF_APPS, HANDOFF_TEXT_MAX, handoffUrl, handoffShortUrl,
   windowOptions,
   splashOptions,
   backendEnv,
@@ -195,21 +195,80 @@ async function showInMain(url) {
 const fromHarness = event => {
   try { return new URL(event.senderFrame.url).origin === new URL(harnessUrl).origin; } catch { return false; }
 };
-const handoffInstalled = target => {
-  try { return !!app.getApplicationNameForProtocol(HANDOFF_APPS[target]); } catch { return false; }
-};
-function handoffApps(event) {
+// Inside a distrobox container the link opens on the host, so the host is asked (D-030): host-spawn
+// runs xdg-mime/xdg-open there with constant arguments only; no prompt text ever reaches a host command.
+const HOST_SPAWN = '/usr/bin/host-spawn';
+const HOST_EXEC = '/usr/bin/distrobox-host-exec';
+const DESKTOP_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,250}\.desktop$/;
+const DBUS_USER_BUS = /^unix:path=(\/run\/host)?\/run\/user\/\d+\/bus$/;
+const HOST_URLS = Object.freeze(Object.keys(HANDOFF_APPS).map(handoffShortUrl));
+let hostMode;
+// A heuristic, not a security control: the container marker, host-spawn and the distrobox xdg-open shim.
+function hostHandoff() {
+  if (hostMode !== undefined) return hostMode;
+  try {
+    const shim = (process.env.PATH ?? '').split(':').filter(dir => path.isAbsolute(dir)).map(dir => path.join(dir, 'xdg-open')).find(file => fs.existsSync(file));
+    hostMode = fs.existsSync('/run/.containerenv') && fs.existsSync(HOST_SPAWN) && !!shim && fs.realpathSync(shim) === HOST_EXEC;
+  } catch { hostMode = false; }
+  return hostMode;
+}
+function hostEnv() {
+  const bus = process.env.DBUS_SESSION_BUS_ADDRESS;
+  const env = {PATH: '/usr/bin:/bin', HOME: os.homedir()};
+  if (process.env.XDG_RUNTIME_DIR) env.XDG_RUNTIME_DIR = process.env.XDG_RUNTIME_DIR;
+  if (DBUS_USER_BUS.test(bus ?? '')) env.DBUS_SESSION_BUS_ADDRESS = bus;
+  return env;
+}
+// Runs one host query and resolves its stdout, or null on any error, timeout or oversized output.
+function hostQuery(args) {
+  const options = {timeout: 3000, killSignal: 'SIGTERM', maxBuffer: 1024, cwd: os.homedir(), env: hostEnv()};
+  return new Promise(resolve => {
+    try { execFile(HOST_SPAWN, ['--no-pty', ...args], options, (error, stdout) => resolve(error ? null : String(stdout)))?.stdin?.end(); } catch { resolve(null); }
+  });
+}
+// Opens a constant URL on the host. stdio is ignored so the opened app never holds our pipes, and
+// the answer is host-spawn's exit code, so a long-lived app is never killed by the deadline.
+function hostOpen(url) {
+  return new Promise(resolve => {
+    let child;
+    try { child = spawn(HOST_SPAWN, ['--no-pty', 'xdg-open', url], {cwd: os.homedir(), env: hostEnv(), stdio: 'ignore'}); } catch { resolve(false); return; }
+    child.unref?.();
+    // Generous: a slow host still opens the app; a late success after the deadline is reported as a failure.
+    const timer = setTimeout(() => resolve(false), 8000);
+    timer.unref?.();
+    const done = ok => { clearTimeout(timer); resolve(ok); };
+    child.once('error', () => done(false));
+    child.once('exit', code => done(code === 0));
+  });
+}
+async function handoffInstalled(target) {
+  if (!Object.hasOwn(HANDOFF_APPS, target)) return false;
+  if (!hostHandoff()) {
+    try { return !!app.getApplicationNameForProtocol(HANDOFF_APPS[target]); } catch { return false; }
+  }
+  const out = await hostQuery(['xdg-mime', 'query', 'default', 'x-scheme-handler/' + HANDOFF_APPS[target].replace('://', '')]);
+  return out !== null && DESKTOP_ID.test(out.trim());
+}
+async function handoffApps(event) {
   if (!fromHarness(event)) return {apps: [], error: 'handoff_forbidden'};
-  return {apps: Object.keys(HANDOFF_APPS).filter(handoffInstalled)};
+  const targets = Object.keys(HANDOFF_APPS);
+  const found = await Promise.all(targets.map(handoffInstalled));
+  return {apps: targets.filter((_, i) => found[i])};
 }
 async function handoffOpen(event, payload) {
   if (!fromHarness(event)) return {opened: false, error: 'handoff_forbidden'};
   const {target, text} = payload ?? {};
   if (!Object.hasOwn(HANDOFF_APPS, target) || typeof text !== 'string' || !text || !text.isWellFormed() || text.length > HANDOFF_TEXT_MAX) return {opened: false, error: 'handoff_invalid'};
-  if (!handoffInstalled(target)) return {opened: false, error: 'handoff_app_missing'};
-  const {url, mode} = handoffUrl(target, text);
+  if (!await handoffInstalled(target)) return {opened: false, error: 'handoff_app_missing'};
+  const onHost = hostHandoff();
+  // On the host the URL is one of the constants, never built from the text; the clipboard flow carries the prompt.
+  const {url, mode} = onHost ? {url: handoffShortUrl(target), mode: 'short'} : handoffUrl(target, text);
+  if (onHost && !HOST_URLS.includes(url)) return {opened: false, error: 'handoff_invalid'};
   // A fixed line: the error message may carry the URL, and with it the prompt.
-  try { await shell.openExternal(url); } catch { log('handoff open failed'); return {opened: false, error: 'handoff_open_failed'}; }
+  try {
+    if (onHost) { if (!await hostOpen(url)) throw new Error('host open failed'); }
+    else await shell.openExternal(url);
+  } catch { log('handoff open failed'); return {opened: false, error: 'handoff_open_failed'}; }
   return {opened: true, mode};
 }
 function registerHandoff() {

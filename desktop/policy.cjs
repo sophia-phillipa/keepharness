@@ -66,15 +66,22 @@ const HANDOFF_URL_LIMIT = 16000;
 const HANDOFF_TEXT_MAX = 30000;
 const HANDOFF_SHORT_TEXT = 'Paste the continuation prompt from my clipboard and continue the work it describes.';
 const CLAUDE_NEW = 'claude://claude.ai/new?q=';
-// Returns {url, mode}: "full" carries the whole prompt, "short" leaves it on the clipboard.
-function handoffUrl(target, text, limit = HANDOFF_URL_LIMIT) {
+// The constant URL that opens a blank thread and leaves the prompt on the clipboard: it never carries
+// the conversation, so it is also the only URL sent to the host from inside a container (D-030).
+function handoffShortUrl(target) {
   // PENDING MANUAL VERIFICATION: it is unknown whether codex://threads/new?prompt= only prefills or
   // also sends. Auto-send is forbidden, so ChatGPT always opens a blank thread and the prompt stays on the clipboard.
-  if (target === 'chatgpt') return { url: 'codex://threads/new', mode: 'short' };
+  if (target === 'chatgpt') return 'codex://threads/new';
   if (target !== 'claude') throw new Error('Unknown handoff target');
-  const full = CLAUDE_NEW + encodeURIComponent(text);
-  if (full.length <= limit) return { url: full, mode: 'full' };
-  return { url: CLAUDE_NEW + encodeURIComponent(HANDOFF_SHORT_TEXT), mode: 'short' };
+  return CLAUDE_NEW + encodeURIComponent(HANDOFF_SHORT_TEXT);
+}
+// Returns {url, mode}: "full" carries the whole prompt, "short" leaves it on the clipboard.
+function handoffUrl(target, text, limit = HANDOFF_URL_LIMIT) {
+  if (target === 'claude') {
+    const full = CLAUDE_NEW + encodeURIComponent(text);
+    if (full.length <= limit) return { url: full, mode: 'full' };
+  }
+  return { url: handoffShortUrl(target), mode: 'short' };
 }
 // Every window of the app: sandboxed, no Node in the page.
 const PAGE_PREFERENCES = {
@@ -305,7 +312,7 @@ module.exports = {
   isAppUrl,
   permissionAllowed,
   externalUrl,
-  HANDOFF_APPS, HANDOFF_URL_LIMIT, HANDOFF_TEXT_MAX, HANDOFF_SHORT_TEXT, handoffUrl,
+  HANDOFF_APPS, HANDOFF_URL_LIMIT, HANDOFF_TEXT_MAX, HANDOFF_SHORT_TEXT, handoffUrl, handoffShortUrl,
   windowOptions,
   splashOptions,
   backendEnv,
