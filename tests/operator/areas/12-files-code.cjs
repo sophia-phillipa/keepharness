@@ -33,7 +33,7 @@ module.exports = {
       await op.see(page.locator("#workspace-" + name));
     };
 
-    await op.step("project-files", "The project's files are listed", async () => {
+    await op.step("system-tree-files", "The project folder's files are listed in System Files", async () => {
       await showFilesSection("system-files");
       await op.see(page.locator("#workspace-system-files").getByRole("button", { name: "README.md" }), 15000);
       await op.see(page.locator("#workspace-system-files").getByRole("button", { name: "notes.md" }));

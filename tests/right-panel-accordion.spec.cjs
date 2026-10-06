@@ -432,7 +432,7 @@ const AA_TARGETS = {
     },
   },
 };
-for (const palette of ["paper", "graphite"]) for (const [kind, target] of Object.entries(AA_TARGETS)) {
+for (const palette of ["paper", "graphite", "violet-bordeaux", "porcelain", "mineral-rose", "amethyst", "petroleum", "arizona"]) for (const [kind, target] of Object.entries(AA_TARGETS)) {
   scenario(kind + " text meets WCAG AA contrast in " + palette, async (browser) => {
     const { context, page } = await openPage(browser, { palette, ...target.open });
     await target.prepare(page);

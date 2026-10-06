@@ -9406,6 +9406,7 @@ function renderConversationSearch() {
       button.onclick = () => {
         $("conversation-search-dialog").close();
         setPanelView("files");
+        selectAccordionSection("project-files");
         setPanelOpen(true);
       };
       return button;
