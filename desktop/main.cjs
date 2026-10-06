@@ -227,12 +227,15 @@ function hostQuery(args) {
   });
 }
 // Opens a constant URL on the host. stdio is ignored so the opened app never holds our pipes, and
-// the answer is host-spawn's exit code, so a long-lived app is never killed by the timeout.
+// the answer is host-spawn's exit code, so a long-lived app is never killed by the deadline.
 function hostOpen(url) {
   return new Promise(resolve => {
     let child;
     try { child = spawn(HOST_SPAWN, ['--no-pty', 'xdg-open', url], {cwd: os.homedir(), env: hostEnv(), stdio: 'ignore'}); } catch { resolve(false); return; }
-    const timer = setTimeout(() => resolve(false), 3000);
+    child.unref?.();
+    // Generous: a slow host still opens the app; a late success after the deadline is reported as a failure.
+    const timer = setTimeout(() => resolve(false), 8000);
+    timer.unref?.();
     const done = ok => { clearTimeout(timer); resolve(ok); };
     child.once('error', () => done(false));
     child.once('exit', code => done(code === 0));

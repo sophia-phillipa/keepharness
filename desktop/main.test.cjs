@@ -81,7 +81,7 @@ async function boot(options = {}) {
       const r = hostExec(args);
       queueMicrotask(() => r.error ? callback(Object.assign(new Error('fail'), r.error), '', '') : callback(null, r.stdout ?? '', ''));
     }, spawnSync(executable) { probes.push(executable); return options.badPython ? {error:new Error('ENOENT'),status:null} : {status:0}; },
-    spawn(_executable,args,opts) { if (_executable === '/usr/bin/host-spawn') { hostCalls.push({ file:_executable, args, opts }); const r = hostExec(args); const child = new EventEmitter(); if (!r.hang) queueMicrotask(() => r.error ? child.emit('exit', r.error.code ?? 1, null) : child.emit('exit', 0, null)); return child; } const child = new EventEmitter(); Object.assign(child, {stderr:new EventEmitter(),stdout:new EventEmitter(),exitCode:null,signalCode:null,kill() { this.signalCode='SIGTERM'; }}); children.push(child); adminReady=true; if (options.enrollment && args.includes('approve-device')) queueMicrotask(() => { child.stdout.emit('data',options.enrollment); child.exitCode=0; child.emit('close',0); }); return child; } };
+    spawn(_executable,args,opts) { if (_executable === '/usr/bin/host-spawn') { hostCalls.push({ file:_executable, args, opts }); const r = hostExec(args); const child = new EventEmitter(); if (r.spawnError) queueMicrotask(() => child.emit('error', Object.assign(new Error('spawn'), {code: 'ENOENT'}))); else if (!r.hang) queueMicrotask(() => r.error ? child.emit('exit', r.error.code ?? 1, null) : child.emit('exit', 0, null)); return child; } const child = new EventEmitter(); Object.assign(child, {stderr:new EventEmitter(),stdout:new EventEmitter(),exitCode:null,signalCode:null,kill() { this.signalCode='SIGTERM'; }}); children.push(child); adminReady=true; if (options.enrollment && args.includes('approve-device')) queueMicrotask(() => { child.stdout.emit('data',options.enrollment); child.exitCode=0; child.emit('close',0); }); return child; } };
   const fakeFs = new Proxy(fs, { get(target, key) {
     if (key === 'readFileSync') return (file, ...args) => options.tcp && file === '/proc/net/tcp' ? options.tcp : options.tcp && file === '/proc/net/tcp6' ? '' : String(file).endsWith('build-manifest.json') ? (options.manifest ?? JSON.stringify({product:'keepharness',version:'0.16.0',commit:'a'.repeat(40),dirty:false,built_at:'2026-10-04T12:00:00Z'})) : String(file).endsWith('local.key') ? 'abcdefghijklmnop' : target.readFileSync(file,...args);
     if (key === 'existsSync') return file => file === '/run/.containerenv' || file === '/usr/bin/host-spawn' ? !!options.host : options.host && options.xdgOpen?.[file] ? true : file === '/proc/net/tcp' ? !!options.tcp : options.badPython && String(file).includes('python') ? false : target.existsSync(file);
@@ -618,11 +618,16 @@ test('handoff-open reports an open failure without leaking the prompt', async ()
   assert.ok(!fs.existsSync(log) || !fs.readFileSync(log, 'utf8').includes(secret));
 });
 
-test('host-mode open answers from host-spawn exit and gives up after 3 s without killing the opened app', async () => {
+test('host-mode open answers from host-spawn exit and gives up after 8 s without killing the opened app', async () => {
   const hung = await hostBoot({ host: { exec: args => args.includes('xdg-open') ? { hang: true } : { stdout: 'claude.desktop' } } });
-  const started = Date.now();
-  assert.deepEqual(plain(await hung.handlers.get(OPEN)(fromFrame(HARNESS), { target: 'claude', text: 'x' })), { opened: false, error: 'handoff_open_failed' });
-  assert.ok(Date.now() - started >= 2900);
+  const pending = hung.handlers.get(OPEN)(fromFrame(HARNESS), { target: 'claude', text: 'x' });
+  await new Promise(resolve => setTimeout(resolve, 50));
+  const deadline = [...hung.timers.values()].find(t => t.ms === 8000);
+  assert.ok(deadline, 'an 8 s deadline is armed');
+  deadline.fn();
+  assert.deepEqual(plain(await pending), { opened: false, error: 'handoff_open_failed' });
+  const enoent = await hostBoot({ host: { exec: args => args.includes('xdg-open') ? { spawnError: true } : { stdout: 'claude.desktop' } } });
+  assert.deepEqual(plain(await enoent.handlers.get(OPEN)(fromFrame(HARNESS), { target: 'claude', text: 'x' })), { opened: false, error: 'handoff_open_failed' });
   const opens = hung.hostCalls.filter(c => c.args.includes('xdg-open'));
   assert.equal(opens.length, 1);
   assert.equal(opens[0].opts.stdio, 'ignore');
