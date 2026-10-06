@@ -128,6 +128,10 @@ const path = require("node:path");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     // Chat-first shell: the workspace panel starts closed; this check reads its resources list.
     if (await page.locator("#activity-panel").isHidden()) await page.click("#panel-toggle");
+    // D-033: Resources lives in the collapsed Activities accordion.
+    if ((await page.locator("#activity-toggle").getAttribute("aria-expanded")) !== "true")
+      await page.click("#activity-toggle");
+    await page.click("#workspace-resources-head");
     const promptBox = page.locator("#prompt");
     assert.equal(await promptBox.getAttribute("role"), "combobox");
     assert.equal(await page.getByRole("combobox", { name: "Message" }).count(), 1);

@@ -7559,12 +7559,13 @@ document.addEventListener("keydown", event => {
     : (innerWidth <= 700 || innerHeight <= 500) && document.querySelector("#run-console:not([hidden])") ? $("run-console")
     : innerWidth <= 620 && $("sidebar").classList.contains("open") ? $("sidebar")
     : innerWidth < 1000 && !$("activity-panel").hidden ? $("activity-panel") : null;
-  if (!panel) return;
-  const surfaces = [panel, ...(panel.getAttribute("aria-owns") || "").split(/\s+/).map(id => $(id)).filter(Boolean)];
+  // With no overlay, only the page edges wrap, so Tab never drops focus out of the window onto <body>.
+  const surfaces = panel ? [panel, ...(panel.getAttribute("aria-owns") || "").split(/\s+/).map(id => $(id)).filter(Boolean)] : [document.body];
   const controls = [...new Set(surfaces.flatMap(surface => [...surface.querySelectorAll("a[href],button,input,select,textarea,summary,[tabindex]")]))]
     .filter(node => node.tabIndex >= 0 && !node.disabled && node.checkVisibility());
   if (!controls.length) return;
   const index = controls.indexOf(document.activeElement);
+  if (!panel && !controls.at(event.shiftKey ? 0 : -1).contains(document.activeElement)) return;
   event.preventDefault();
   const next = index < 0 ? (event.shiftKey ? controls.length - 1 : 0) : (index + (event.shiftKey ? -1 : 1) + controls.length) % controls.length;
   controls[next].focus();

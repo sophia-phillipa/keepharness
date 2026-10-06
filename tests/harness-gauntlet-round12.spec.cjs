@@ -6,6 +6,7 @@ const fs=require('node:fs/promises');
 const path=require('node:path');
 const settle=p=>p.evaluate(()=>Promise.all(document.getAnimations().filter(a=>a.effect?.getTiming().iterations!==Infinity).map(a=>a.finished.catch(()=>{}))));
 async function capture(page,name){if(process.env.EVAL_OUTPUT){await fs.mkdir(process.env.EVAL_OUTPUT,{recursive:true});await page.screenshot({path:path.join(process.env.EVAL_OUTPUT,name+'.png')});}}
+const openSection=async(p,toggle,name)=>{const t=p.locator('#'+toggle);if(await t.getAttribute('aria-expanded')!=='true')await t.click();const h=p.locator('#workspace-'+name+'-head');if(await h.getAttribute('aria-expanded')!=='true')await h.click();};
 const hit=locator=>locator.evaluate(n=>{const r=n.getBoundingClientRect();return n.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));});
 async function fixture(browser,width=1280,height=720,plan=false){
  const page=await browser.newPage({viewport:{width,height}});page.setDefaultTimeout(3000);
@@ -44,7 +45,7 @@ async function publication(page){await page.evaluate(()=>showGate({gate_id:'publ
  await check('A2-F1 Pointer to keyboard tree navigation',async()=>{
   for(const width of [400,1440]){
    const f=await fixture(browser,width,844),p=f.page;
-   if(await p.locator('#activity-panel').isHidden())await p.locator('#panel-toggle').click();
+   if(await p.locator('#activity-panel').isHidden())await p.locator('#panel-toggle').click();await openSection(p,'files-toggle','system-files');
    await p.getByRole('button',{name:'Expand alpha',exact:true}).click();
    await p.locator('#files-tree [data-path="alpha/nested"]').first().waitFor();
    await p.keyboard.press('ArrowDown');assert.equal(await p.locator(':focus').getAttribute('data-path'),'alpha/nested');
@@ -58,7 +59,7 @@ async function publication(page){await page.evaluate(()=>showGate({gate_id:'publ
  await check('A2-F2 Files exposes multiple selection',async()=>{
   for(const width of [400,1440]){
    const f=await fixture(browser,width,844),p=f.page;
-   if(await p.locator('#activity-panel').isHidden())await p.locator('#panel-toggle').click();
+   if(await p.locator('#activity-panel').isHidden())await p.locator('#panel-toggle').click();await openSection(p,'files-toggle','system-files');
    const tree=p.locator('#files-tree');await tree.locator('[role=treeitem]').first().focus();
    await p.keyboard.press('Space');await p.keyboard.press('ArrowDown');await p.keyboard.press('Space');
    assert.equal(await tree.locator('[aria-selected=true]').count(),2);
