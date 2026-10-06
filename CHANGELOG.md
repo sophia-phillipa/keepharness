@@ -18,6 +18,7 @@ The per-release notes in [`dossier/releases/`](dossier/releases/) hold the full 
 
 ### Changed
 
+- Continue in another app: a segmented ChatGPT/Claude control, cleaner spacing, and inside a distrobox container the apps are detected and opened on the host with constant arguments; the prompt goes through the clipboard there.
 - The "Admin panel" link in Settings is gone and the admin no longer opens in a second window: "Open admin panel" and the desktop app open Settings > Providers (or the matching section) in the main window; the Settings nav is grouped like the Codex Settings navigation (WP2).
 
 ### Security
