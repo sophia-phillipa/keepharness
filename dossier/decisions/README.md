@@ -26,3 +26,5 @@ Spec: [Codex-app parity design](../codex-parity-design.md).
 | [D-031](d-031-retry-failed-turns.md) | Retry failed or interrupted turns, and image-capability guidance | accepted |
 | [D-032](d-032-wp8-quota-meter-contract.md) | WP8 quota meter contract: passive activity, non-null quota, DeepSeek balance | accepted |
 | [D-033](d-033-right-panel-accordion.md) | Right panel: Activities first, accordions, Project and System files | accepted |
+| [D-034](d-034-wp3-customize-product-answers.md) | WP3 Customize: allow-list switches, provider-only Add actions, "Plugins" label, marketplace grouping | accepted |
+| [D-035](d-035-rail-meters-provider-logos.md) | Rail quota meters show provider logos instead of names | accepted |
