@@ -31,6 +31,12 @@ const fs = require("node:fs");
       models.forEach((m) => $("model").add(new Option(m.id, m.id)));
       eval(
         source.slice(
+          source.indexOf("function providerModelIcon("),
+          source.indexOf("let composerCondition"),
+        ),
+      );
+      eval(
+        source.slice(
           source.indexOf("function renderPicker("),
           source.indexOf("function openComposerPicker("),
         ),
