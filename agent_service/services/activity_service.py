@@ -4,7 +4,7 @@ import json
 import math
 import time
 
-from .. import schedules
+from .. import harness_agents, schedules
 from ..errors import APIError
 from ..resources import conversation_title
 from ..spans import queue_wait_reason
@@ -15,13 +15,42 @@ from ..work_items import validate_reference
 QUOTA_KEYS = frozenset(
     {
         "available", "reason", "kind", "balance", "checked_at", "source", "shared_account",
-        "provider", "rateLimits", "rateLimitsByLimitId",
+        "rateLimits", "rateLimitsByLimitId",
     }
 )  # fmt: skip
+# The same rule one level down: only what the meter reads from a bucket and its windows.
+BUCKET_KEYS = ("limitId", "limitName", "name")
+WINDOW_KEYS = ("usedPercent", "windowDurationMins", "resetsAt")
+
+
+def public_bucket(bucket):
+    if not isinstance(bucket, dict):
+        return None
+    result = {key: bucket[key] for key in BUCKET_KEYS if key in bucket}
+    for name in ("primary", "secondary"):
+        window = bucket.get(name)
+        if isinstance(window, dict):
+            result[name] = {key: window[key] for key in WINDOW_KEYS if key in window}
+    return result
+
+
+def public_quota(quota):
+    result = {key: value for key, value in quota.items() if key in QUOTA_KEYS}
+    if "rateLimits" in result:
+        result["rateLimits"] = public_bucket(result["rateLimits"])
+    buckets = result.get("rateLimitsByLimitId")
+    if isinstance(buckets, dict):
+        result["rateLimitsByLimitId"] = {key: public_bucket(item) for key, item in buckets.items()}
+    elif "rateLimitsByLimitId" in result:
+        result["rateLimitsByLimitId"] = None
+    return result
 
 
 def provider_quota(service, backend, owner):
     """A non-null quota entry for the rail, built from cached reads only (never a fetch)."""
+    if owner != harness_agents.LOCAL_CLIENT:
+        # Plan usage and prepaid balance are the owner's account, never a guest's to see (D-032).
+        return {"available": False, "reason": "owner_only"}
     if backend == "claude":
         quota = service.observed_claude_quota(owner)
     elif backend == "codex":
@@ -32,7 +61,7 @@ def provider_quota(service, backend, owner):
         # Providers that never report a quota say why instead of leaving the entry out.
         reason = "local_no_quota" if backend == "local" else "quota_not_reported"
         quota = {"available": False, "reason": reason}
-    return {key: value for key, value in quota.items() if key in QUOTA_KEYS}
+    return public_quota(quota)
 
 
 def summarize_activity(service, identity, project_id=None, work_item=None):

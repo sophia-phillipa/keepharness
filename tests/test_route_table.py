@@ -663,6 +663,14 @@ def test_agent_capabilities_etag_304(client):
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture(autouse=True)
+def owner_for_usage_rows(request, monkeypatch):
+    """/v1/usage is owner-only (D-032); only its rows treat the table's client "a" as the owner."""
+    callspec = getattr(request.node, "callspec", None)
+    if callspec and str(callspec.id).startswith("usage"):
+        monkeypatch.setattr("agent_service.harness_agents.LOCAL_CLIENT", "a")
+
+
 @pytest.fixture
 def login_client(tmp_path):
     cfg = {

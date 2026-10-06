@@ -13,6 +13,9 @@ The Claude meter was missing because `/v1/activity` read only the stream observa
 - Claude uses the usage cache while it is at most 300 s old (and belongs to the current login), else the stream observation; an older reading is `quota_stale`.
 - DeepSeek exposes its cached balance as `{available: true, kind: "balance", balance: {amount, currency}}` while the read is at most 300 s old. The balance read already exists (`/user/balance`, an account API, not inference) behind `/v1/usage?backend=deepseek`; no adapter change.
 - The UI primes `/v1/usage?backend=<codex|claude|deepseek>` at most once per 300 s per backend, only while the tab is visible, when the entry says `quota_not_read`, `quota_stale` or `balance_not_read`.
+- Quota and balance are owner-only (OWASP A01): for any identity other than the owner (`harness_agents.LOCAL_CLIENT`) every provider's quota is `{available: false, reason: "owner_only"}`, and `/v1/usage` answers 403 `quota_owner_only` without starting a CLI or a balance read.
+- The allow-list also applies one level down: a bucket keeps only `limitId`, `limitName`, `name`, `primary`, `secondary`, and a window only `usedPercent`, `windowDurationMins`, `resetsAt` (no `planType`, `credits` or account fields). `provider` is not part of the quota object; the provider entry carries `backend`.
+- The caches are keyed by account identity: Claude by its config plus `provider_revisions.claude`, DeepSeek by the key file plus `provider_revisions.deepseek`. A completed Claude login bumps `provider_revisions.claude` in the runtime config (as a saved DeepSeek key already did), so a changed account never shows the old numbers. Side effect, same as for DeepSeek: a revision change cancels queued and running jobs of that provider with `configuration_changed`.
 - The rail order is fixed: codex, claude, gemini, deepseek, local. A provider without a reading shows an "n/a" meter with the reason; DeepSeek shows the balance text.
 
 ## Rationale

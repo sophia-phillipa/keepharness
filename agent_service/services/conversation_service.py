@@ -2984,9 +2984,9 @@ class ConversationService:
         if not self.deepseek_key_file():
             return {"available": False, "reason": "quota_not_reported"}
         cached = self.deepseek_usage_cache
-        if not cached or not cached[1]["available"]:
+        if not cached or cached[0] != self.deepseek_cache_key() or not cached[2]["available"]:
             return {"available": False, "reason": "balance_not_read"}
-        read_at, result = cached
+        _, read_at, result = cached
         if time.monotonic() - read_at > DEEPSEEK_BALANCE_SECONDS:
             return {"available": False, "reason": "quota_stale", "checked_at": result["checked_at"]}
         first = result["balances"][0]
@@ -3001,6 +3001,10 @@ class ConversationService:
     def deepseek_key_file(self):
         return ((self.config.get("deepseek") or {}).get("api_provider") or {}).get("key_file")
 
+    def deepseek_cache_key(self):
+        """A balance belongs to one key: a new key file or a saved key changes this."""
+        return (self.deepseek_key_file(), self.config.get("provider_revisions", {}).get("deepseek"))
+
     async def deepseek_quota(self):
         """DeepSeek's prepaid balance, read with the harness key and kept for a few minutes."""
         from adapters.deepseek import account
@@ -3008,17 +3012,18 @@ class ConversationService:
         key_file = self.deepseek_key_file()
         if not key_file:
             return {"provider": "deepseek", "available": False, "reason": "quota_not_reported"}
+        cache_key = self.deepseek_cache_key()
         cached = self.deepseek_usage_cache
-        if cached:
-            fresh = DEEPSEEK_BALANCE_SECONDS if cached[1]["available"] else DEEPSEEK_FAILURE_SECONDS
-            if time.monotonic() - cached[0] < fresh:
-                return cached[1]
+        if cached and cached[0] == cache_key:
+            fresh = DEEPSEEK_BALANCE_SECONDS if cached[2]["available"] else DEEPSEEK_FAILURE_SECONDS
+            if time.monotonic() - cached[1] < fresh:
+                return cached[2]
         summary = account.balance_summary(await account.fetch_balance(key_file))
         if summary is None:
             result = {"provider": "deepseek", "available": False, "reason": "balance_unavailable"}
         else:
             result = {"provider": "deepseek", "available": True, "checked_at": time.time(), **summary}
-        self.deepseek_usage_cache = (time.monotonic(), result)
+        self.deepseek_usage_cache = (cache_key, time.monotonic(), result)
         return result
 
     async def quota(self, refresh=False):

@@ -10,6 +10,7 @@ import secrets
 import socket
 import sys
 import time
+import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -211,9 +212,12 @@ class Manager:
         # No token is copied or stored here. Claude owns the renewed credential.
         marker = self.state / "claude-cli-login"
         marker.touch(mode=0o600)
+        # A new login may be another account: the harness drops what it cached for the old one.
+        self.provider_revisions["claude"] = str(uuid.uuid4())
         runtime = self._previous_runtime()
         if "claude" in runtime:
             runtime["claude"]["use_cli_login"] = True
+            runtime["provider_revisions"] = dict(self.provider_revisions)
             self._write_runtime(runtime)
         self.auth["claude"] = True
         self.audit("claude_login_completed")

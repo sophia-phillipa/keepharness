@@ -2,12 +2,14 @@
 
 from starlette.responses import JSONResponse
 
-from .. import approval_policy
+from .. import approval_policy, harness_agents
 from ..harness_agents import LOCAL_CLIENT
 from . import api_route
 
 
 async def usage(request, service, identity):
+    # Plan usage and prepaid balance are the owner's; a guest never starts a provider read (D-032).
+    harness_agents.require_local_client(identity, "quota_owner_only")
     backend = request.query_params.get("backend", "codex")
     if backend == "claude":
         result = await service.claude_quota(identity[0])

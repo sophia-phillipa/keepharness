@@ -13,7 +13,8 @@ from agent_service.app import APIError, Service, create_app
 
 
 @pytest.fixture
-def api(tmp_path):
+def api(tmp_path, monkeypatch):
+    monkeypatch.setattr("agent_service.harness_agents.LOCAL_CLIENT", "alice")  # usage is owner-only (D-032)
     cfg = {
         "state_dir": str(tmp_path),
         "origins": ["http://testserver"],
