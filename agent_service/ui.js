@@ -1911,6 +1911,8 @@ function quotaText(q) {
     ? windows.map((w) => `${w.label}: ${w.percent}% remaining`).join(" · ")
     : "Percentage unavailable";
 }
+const quotaPrimedAt = new Map(); // backend -> last /v1/usage read, in memory only
+const railQuotaSummaries = new Map(); // backend -> why its rail meter reads n/a, for the panel
 let quotaIdentityBackend = "",
   quotaView = "",
   quotaFocus = null; // the provider whose meter was activated; null follows the selected model
@@ -1981,6 +1983,11 @@ function renderQuotaIdentity() {
     const detail = document.createElement("p");
     detail.textContent = quotaDetailText(view);
     $("quota-current").replaceChildren(detail);
+    if (quotaFocus && railQuotaSummaries.has(view)) {
+      const reason = document.createElement("p");
+      reason.textContent = railQuotaSummaries.get(view);
+      $("quota-current").append(reason);
+    }
   }
   const description = model
     ? modelName(model.id) +
@@ -2106,7 +2113,8 @@ async function quota() {
     backend = quotaViewBackend();
   renderQuotaIdentity();
   if (!quotaUrls[backend]) {
-    setQuotaOpen(false);
+    // A meter without a reading opens the panel with its reason; only a model switch closes it.
+    if (!quotaFocus) setQuotaOpen(false);
     return;
   }
   // A prepaid balance changes only when money moves: read it when the panel opens, not on every run.
@@ -2114,6 +2122,7 @@ async function quota() {
   const paint = (value) =>
     backend === "deepseek" ? paintBalance(value) : paintQuota(value, backend);
   try {
+    quotaPrimedAt.set(backend, Date.now());
     const value = await json(quotaUrls[backend]);
     if (request === quotaRequest && quotaViewBackend() === backend) paint(value);
   } catch {
@@ -2190,35 +2199,102 @@ function renderConversationHeader(c = null) {
   $("header-execution-mode").textContent = executionMode === "scoped" ? "Isolated conversation" : "Native conversation";
   $("header-access").textContent = accessLabel();
 }
+// WP8 (D-032): one meter per provider in a fixed order. A reading shows a bar, DeepSeek shows its
+// prepaid balance and a provider without a reading shows "n/a" with the reason.
+const QUOTA_RAIL_ORDER = ["codex", "claude", "gemini", "deepseek", "local"];
+const railNames = { codex: "Codex", claude: "Claude", gemini: "Gemini", deepseek: "DeepSeek", local: "Local" };
+const quotaReasonTexts = {
+  quota_not_read: "not read yet",
+  quota_stale: "last reading is older than 5 minutes",
+  usage_unavailable: "could not be read",
+  quota_not_reported: "provider reports no quota",
+  local_no_quota: "local models have no quota",
+  balance_not_read: "balance not read yet",
+};
+const QUOTA_PRIME_REASONS = new Set(["quota_not_read", "quota_stale", "balance_not_read", "usage_unavailable"]);
+const QUOTA_PRIME_MS = 300 * 1000;
+// The activity feed is passive: this asks the server to read a missing quota, at most once per
+// 300 s per backend and only for a visible tab, then asks the run console for fresh activity.
+function primeProviderQuota(backend) {
+  if (!quotaUrls[backend] || document.visibilityState !== "visible") return;
+  if (Date.now() - (quotaPrimedAt.get(backend) ?? -Infinity) < QUOTA_PRIME_MS) return;
+  quotaPrimedAt.set(backend, Date.now());
+  json(quotaUrls[backend])
+    .then(() => document.dispatchEvent(new CustomEvent("harness:quota-primed")))
+    .catch(() => {});
+}
+function providerQuotaReading(item) {
+  const q = item.quota;
+  const windows = q ? quotaWindows(q, item.backend) : [];
+  if (windows.length) return { backend: item.backend, state: "ok", remaining: Math.min(...windows.map((window) => window.remaining)) };
+  const amount = Number(q?.balance?.amount);
+  if (q?.available && q.kind === "balance" && Number.isFinite(amount))
+    return { backend: item.backend, state: "balance", amount, currency: q.balance.currency };
+  return { backend: item.backend, state: "na", reason: q?.reason || "quota_not_read" };
+}
+// One meter per backend: a reading beats none, and the lowest remaining quota wins.
+function preferredReading(previous, next) {
+  if (!previous) return next;
+  if (previous.state !== "ok" || next.state !== "ok") return previous.state === "na" ? next : previous;
+  return next.remaining < previous.remaining ? next : previous;
+}
+function formatBalance(reading, compact) {
+  const { amount, currency } = reading;
+  try {
+    return new Intl.NumberFormat(undefined, compact
+      ? { style: "currency", currency, notation: "compact", maximumFractionDigits: 0 }
+      : { style: "currency", currency }).format(compact ? Math.floor(amount) : amount);
+  } catch {
+    return `${compact ? Math.floor(amount) : amount} ${currency || ""}`.trim();
+  }
+}
+function providerQuotaMeter(reading) {
+  const { backend, state } = reading;
+  const meter = document.createElement("button");
+  meter.type = "button";
+  meter.className = "provider-quota-meter";
+  meter.dataset.provider = backend;
+  meter.dataset.state = state;
+  meter.dataset.testid = "quota-meter";
+  const label = document.createElement("span");
+  // The rail has room for a short word; the full canonical name (D42) is the accessible one.
+  label.textContent = railNames[backend] || backend;
+  const value = document.createElement("b");
+  const bar = document.createElement("i");
+  let description;
+  if (state === "balance") {
+    value.textContent = formatBalance(reading, true);
+    description = `${railNames[backend]} balance ${formatBalance(reading, false)}.`;
+  } else if (state === "ok") {
+    bar.style.setProperty("--quota", reading.remaining + "%");
+    value.textContent = Math.round(reading.remaining) + "%";
+    description = `${providerNames[backend] || backend} quota, ${Math.round(reading.remaining)}% remaining.`;
+  } else {
+    bar.style.setProperty("--quota", "0%");
+    value.textContent = "n/a";
+    description = `${railNames[backend] || backend} quota not available: ${quotaReasonTexts[reading.reason] || "not available"}.`;
+    railQuotaSummaries.set(backend, description);
+  }
+  meter.setAttribute("aria-label", description + " Open details.");
+  meter.title = meter.getAttribute("aria-label");
+  meter.append(...(state === "balance" ? [label, value] : [label, bar, value]));
+  return meter;
+}
 window.updateProviderQuotas = function updateProviderQuotas(items = []) {
   const container = $("provider-quotas");
-  const meters = [];
   const perProvider = new Map();
   for (const item of items) {
-    const windows = item.quota ? quotaWindows(item.quota, item.backend) : [];
-    if (!windows.length) continue;
-    const remaining = Math.min(...windows.map((window) => window.remaining));
-    const previous = perProvider.get(item.backend);
-    if (!previous || remaining < previous.remaining)
-      perProvider.set(item.backend, { item, remaining });
+    const reading = providerQuotaReading(item);
+    perProvider.set(item.backend, preferredReading(perProvider.get(item.backend), reading));
   }
-  for (const { item, remaining } of perProvider.values()) {
-    const meter = document.createElement("button");
-    meter.type = "button";
-    meter.className = "provider-quota-meter";
-    meter.dataset.backend = item.backend;
-    const label = document.createElement("span");
-    // The rail has room for a short word; the full canonical name (D42) is the accessible one.
-    label.textContent = ({ codex: "Codex", claude: "Claude", gemini: "Gemini", deepseek: "DeepSeek" })[item.backend] || item.backend;
-    meter.setAttribute("aria-label", `${providerNames[item.backend] || item.backend} quota, ${Math.round(remaining)}% remaining. Open details.`);
-    meter.title = meter.getAttribute("aria-label");
-    const bar = document.createElement("i");
-    bar.style.setProperty("--quota", remaining + "%");
-    const value = document.createElement("b");
-    value.textContent = Math.round(remaining) + "%";
-    meter.append(label, bar, value);
-    meters.push(meter);
-  }
+  const readings = [...perProvider.values()].sort((a, b) => {
+    const rank = (reading) => (QUOTA_RAIL_ORDER.includes(reading.backend) ? QUOTA_RAIL_ORDER.indexOf(reading.backend) : QUOTA_RAIL_ORDER.length);
+    return rank(a) - rank(b);
+  });
+  railQuotaSummaries.clear();
+  const meters = readings.map(providerQuotaMeter);
+  for (const reading of readings)
+    if (reading.state === "na" && QUOTA_PRIME_REASONS.has(reading.reason)) primeProviderQuota(reading.backend);
   container.replaceChildren(...meters);
   container.hidden = !meters.length;
 };
@@ -2326,7 +2402,7 @@ window.applyActivitySnapshot = function applyActivitySnapshot(data = {}) {
 $('provider-quotas').onclick = (event) => {
   const meter = event.target.closest(".provider-quota-meter");
   if (!meter) return;
-  quotaFocus = meter.dataset.backend;
+  quotaFocus = meter.dataset.provider;
   void quota();
   setQuotaOpen(true);
 };
@@ -9521,7 +9597,7 @@ document.addEventListener("keydown", (e) => {
     if (!$("quota-panel").hidden) {
       e.preventDefault();
       const meter = [...$("provider-quotas").querySelectorAll(".provider-quota-meter")]
-        .find((node) => node.dataset.backend === quotaFocus);
+        .find((node) => node.dataset.provider === quotaFocus);
       setQuotaOpen(false);
       if (quotaReturnsToSettings) {
         quotaReturnsToSettings = false;

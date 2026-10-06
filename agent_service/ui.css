@@ -5488,6 +5488,12 @@ body .composer-submit .send { min-height: 0; height: 32px; }
 #app-topbar #provider-quotas { flex: none; }
 #app-topbar .provider-quota-meter { grid-template-columns: 1fr; }
 #app-topbar .provider-quota-meter > i { border: 0; }
+/* WP8: no reading yet is an empty bar and a muted "n/a"; DeepSeek shows its balance instead of a bar. */
+#app-topbar .provider-quota-meter[data-state="na"] > i { background: var(--th-soft); box-shadow: inset 0 0 0 1px var(--th-border); }
+#app-topbar .provider-quota-meter[data-state="na"] > b { color: var(--th-muted); }
+#app-topbar .provider-quota-meter[data-state="balance"] > b { max-width: 34px; overflow: hidden; text-overflow: ellipsis; }
+/* Five meters need about 190 px: a short window drops them rather than push the rail past its bottom edge. */
+@media (max-height: 640px) { #app-topbar #provider-quotas:not([hidden]) { display: none; } }
 /* The writing area never collapses: minimum prompt column, truncating labels, two rows when narrow. */
 main:not(:has(#messages > #welcome:only-child)) #dropzone.composer.card { grid-template-columns: auto minmax(180px, 1fr) auto auto minmax(0, auto); }
 main:not(:has(#messages > #welcome:only-child)) #dropzone .composer-right { min-width: 0; }
