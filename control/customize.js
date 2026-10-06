@@ -4,11 +4,12 @@
    integrationCatalogs, action, say, providerName, connectorIcon, connectorLabel). */
 (() => {
   const CLIS = ["codex", "claude"]; // the only providers /api/integration-catalog answers for
+  // Like every admin button, each chip leads with its own icon on the label's line.
   const CHIPS = [
-    ["plugins", "Plugins", "plugin"],
-    ["apps", "Apps", "account-app"],
-    ["mcps", "MCPs", "mcp"],
-    ["skills", "Skills"], // no count until the Skills content lands
+    ["plugins", "Plugins", "plugin", "cube"],
+    ["apps", "Apps", "account-app", "world"],
+    ["mcps", "MCPs", "mcp", "plug"],
+    ["skills", "Skills", undefined, "list-check"], // no count until the Skills content lands
   ];
   const view = { chip: "plugins", query: "", loading: false, built: false, clis: [] };
   const panel = $("plugins-panel");
@@ -145,11 +146,13 @@
 
   function render() {
     closeMenu();
-    for (const [id, label, kind] of CHIPS) {
+    for (const [id, label, kind, glyph] of CHIPS) {
       const chip = chipButtons.get(id);
       chip.setAttribute("aria-pressed", String(id === view.chip));
-      chip.replaceChildren(label);
-      if (kind && !view.loading) chip.append(" ", node("span", String(installed(kind).length), "plugins-count"));
+      // The label and its count share one text box so they read "Plugins 3" beside the icon.
+      const text = node("span", label);
+      if (kind && !view.loading) text.append(" ", node("span", String(installed(kind).length), "plugins-count"));
+      chip.replaceChildren(icon(glyph), text);
     }
     renderNote();
     renderList();
@@ -206,21 +209,20 @@
     try {
       const inventory = (state || (await request("state"))).inventory;
       view.clis = inventory.services.filter((info) => info.found && CLIS.includes(info.id));
-      await Promise.all(
-        view.clis.map(async ({ id }) => {
-          const cached = integrationCatalogs.get(id);
-          // catalogPending is shared with the Providers page so one CLI scan runs at a time.
-          if ((!force && cached && !cached.error) || catalogPending.has(id)) return;
-          catalogPending.add(id);
-          try {
-            integrationCatalogs.set(id, await request("integration-catalog", { provider: id }));
-          } catch (error) {
-            integrationCatalogs.set(id, { ...(cached || { items: [] }), error: error.message });
-          } finally {
-            catalogPending.delete(id);
-          }
-        }),
-      );
+      // One CLI at a time: the admin runs one operation at once and answers 429 to a second.
+      for (const { id } of view.clis) {
+        const cached = integrationCatalogs.get(id);
+        // catalogPending is shared with the Providers page so one CLI scan runs at a time.
+        if ((!force && cached && !cached.error) || catalogPending.has(id)) continue;
+        catalogPending.add(id);
+        try {
+          integrationCatalogs.set(id, await request("integration-catalog", { provider: id }));
+        } catch (error) {
+          integrationCatalogs.set(id, { ...(cached || { items: [] }), error: error.message });
+        } finally {
+          catalogPending.delete(id);
+        }
+      }
     } catch (error) {
       say(error.message, true);
     } finally {

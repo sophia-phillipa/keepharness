@@ -70,6 +70,7 @@ const contrast = (a, b) => {
     };
     const apiCalls = [];
     const posts = [];
+    let catalogInFlight = 0, maxCatalogInFlight = 0;
     let catalogCalls = 0,
       releaseCatalog = null;
     await page.route("**/api/**", async (route) => {
@@ -82,7 +83,10 @@ const contrast = (a, b) => {
       }
       if (name === "integration-catalog") {
         catalogCalls++;
+        catalogInFlight++;
+        maxCatalogInFlight = Math.max(maxCatalogInFlight, catalogInFlight);
         if (releaseCatalog) await releaseCatalog;
+        catalogInFlight--;
         return route.fulfill({ json: CATALOGS[route.request().postDataJSON().provider] });
       }
       return route.fulfill({ json: name === "state" ? state : {} });
@@ -109,6 +113,14 @@ const contrast = (a, b) => {
     assert.equal(await page.locator('[data-panel="plugins"]').getAttribute("aria-current"), "page");
     assert.deepEqual(await panel.locator('[data-testid^="plugins-chip-"]').allInnerTexts(), ["Plugins 3", "Apps 1", "MCPs 1", "Skills"]);
     assert.equal(await panel.locator('[data-testid="plugins-chip-plugins"]').getAttribute("aria-pressed"), "true");
+    // Each chip leads with one icon on the label's line, like the other admin buttons.
+    for (const chip of await panel.locator('[data-testid^="plugins-chip-"]').all()) {
+      assert.equal(await chip.locator("svg").count(), 1, "one icon per chip");
+      const [box, glyph] = [await chip.boundingBox(), await chip.locator("svg").boundingBox()];
+      assert(box.height <= 36, "chip stays one line: " + box.height);
+      assert(glyph.x - box.x < 24 && Math.abs(glyph.y + glyph.height / 2 - (box.y + box.height / 2)) <= 2, "icon sits before the label on its line");
+    }
+    assert.equal(maxCatalogInFlight, 1, "catalogs are read one CLI at a time (the admin answers 429 to a second operation)");
     assert.equal(await panel.locator('[data-testid="plugins-add"], [aria-label*="Add"]').count(), 0, "no Add menu yet (D-034)");
     assert.equal(await panel.locator('input[type="checkbox"], [role="switch"]').count(), 0, "no enable switch yet (#21)");
 

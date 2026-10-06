@@ -1678,11 +1678,13 @@ html[data-embedded] #main { max-width: none; margin: 0; padding-inline: 24px; }
 .plugins-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 12px; }
 .plugins-chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .plugins-chip {
+  display: inline-flex; align-items: center; gap: 6px;
   min-height: 32px; padding: 0 14px; border: 0; border-radius: 9999px; cursor: pointer;
   background: color-mix(in srgb, var(--th-text) 8%, transparent); color: var(--th-text); font-size: 13px; font-weight: 500;
 }
 .plugins-chip:hover { background: color-mix(in srgb, var(--th-text) 13%, transparent); }
 .plugins-chip[aria-pressed="true"] { background: var(--th-action); color: var(--th-on-action); }
+.plugins-chip .th-icon { flex: none; width: 16px; height: 16px; }
 .plugins-count { margin-inline-start: 2px; font-weight: 600; }
 .plugins-search { flex: 1 1 200px; min-width: 0; max-width: 360px; min-height: 32px; padding: 0 12px; margin-inline-start: auto; font-size: 13px; }
 .plugins-toolbar .button { display: inline-flex; align-items: center; gap: 6px; }
