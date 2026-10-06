@@ -16,6 +16,7 @@ The per-release notes in [`dossier/releases/`](dossier/releases/) hold the full 
 - `/v1/integrations` gains an additive `elsewhere` list of tools connected on another provider the owner may use for the project, saying whether the current provider only needs to enable it (WP4 backend).
 - Durable UI preferences in a backend store: `GET`/`PATCH /v1/ui-state` keep the owner's theme, panel, sidebar, reading size, model choice, project list, scroll and tour state in an allow-listed, size-capped file in the harness state folder instead of browser `localStorage`, so a port change or profile reset no longer wipes them (WP6 backend). The UI now reads and writes them through `window.HarnessPrefs`: old `localStorage` keys migrate into the store and are erased only once accepted, a read-only store shows a notice and stops writing, and a 413 is split per key (WP6 frontend).
 - Cross-provider tool warnings: the Plugins menu lists tools connected on another provider ("On other providers", with Enable / Open Plugins), the Plugins chip shows a dot, and the provider-switch note names tools that do not follow the conversation (WP4 UI).
+- A quota meter for every connected provider in the rail (Codex, Claude, Gemini, DeepSeek, local): an "n/a" meter with the reason when there is no reading, DeepSeek's prepaid balance, and the Claude meter fed by the usage cache; the UI reads `/v1/usage` at most once per 5 minutes per provider while visible (WP8, D-032).
 
 ### Changed
 
@@ -24,6 +25,7 @@ The per-release notes in [`dossier/releases/`](dossier/releases/) hold the full 
 
 ### Security
 
+- Provider quota and balance are owner-only: guests get an "owner only" n/a meter, `/v1/usage` answers 403 `quota_owner_only`, and a guest's own job events no longer carry the owner's rate limits. A new Claude login drops the previous account's numbers without cancelling running Claude jobs (WP8).
 - Log and handoff redaction now masks GitHub tokens and credentials in URL userinfo; the continuation prompt also masks generic secret assignments, AWS keys, Slack tokens, PEM private keys and JWTs.
 - `elsewhere` is empty for non-owner and remote callers, counts only providers allowed for the project, and never lists the `local` backend.
 
