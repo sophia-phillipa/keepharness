@@ -25,6 +25,7 @@ from harness_ui import asset_response, static_response
 
 from . import env, local_access
 from .catalog_admin import change_pin, read_catalogs
+from .customize_skills import read_customize_skills
 from .dashboard import execution as dashboard_execution
 from .integration_catalog import catalog as integration_catalog
 from .integrations import inventory
@@ -653,6 +654,7 @@ async def read_logs(request, manager):
 GET_ROUTES = {
     "/api/logs": read_logs,
     "/api/catalogs": read_catalogs,
+    "/api/customize-skills": read_customize_skills,
     "/api/vault": read_vault,
     "/api/folders": list_folders,
     "/api/dashboard": read_dashboard,
