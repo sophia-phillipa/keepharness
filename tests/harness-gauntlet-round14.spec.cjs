@@ -4,7 +4,7 @@ const assert=require('node:assert/strict');
 const {mount,run,span}=require('./run-console-fixture.cjs');
 const themes=['porcelain','amethyst','petroleum','violet-bordeaux','mineral-rose','arizona'];
 const providers=['codex','claude','gemini','deepseek','local'];
-const icons=['brand-openai','brand-claude','brand-gemini','stack-2','stack-2'];
+const icons=['brand-openai','brand-claude','brand-gemini','brand-deepseek','stack-2'];
 const hit=loc=>loc.evaluate(n=>{const r=n.getBoundingClientRect();return n.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));});
 async function fixture(browser,width=1440,height=900,empty=false){
  const page=await browser.newPage({viewport:{width,height}});page.setDefaultTimeout(4000);
