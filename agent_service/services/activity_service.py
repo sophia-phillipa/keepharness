@@ -11,6 +11,30 @@ from ..spans import queue_wait_reason
 from ..work_items import validate_reference
 
 
+# What the rail may carry per provider; anything else a source adds never leaves the server.
+QUOTA_KEYS = frozenset(
+    {
+        "available", "reason", "kind", "balance", "checked_at", "source", "shared_account",
+        "provider", "rateLimits", "rateLimitsByLimitId",
+    }
+)  # fmt: skip
+
+
+def provider_quota(service, backend, owner):
+    """A non-null quota entry for the rail, built from cached reads only (never a fetch)."""
+    if backend == "claude":
+        quota = service.observed_claude_quota(owner)
+    elif backend == "codex":
+        quota = service.observed_codex_quota() or service.codex_quota_gap()
+    elif backend == "deepseek":
+        quota = service.observed_deepseek_quota()
+    else:
+        # Providers that never report a quota say why instead of leaving the entry out.
+        reason = "local_no_quota" if backend == "local" else "quota_not_reported"
+        quota = {"available": False, "reason": reason}
+    return {key: value for key, value in quota.items() if key in QUOTA_KEYS}
+
+
 def summarize_activity(service, identity, project_id=None, work_item=None):
     if work_item is not None:
         validate_reference(work_item)
@@ -119,12 +143,7 @@ def summarize_activity(service, identity, project_id=None, work_item=None):
         provider["state"] = (
             "busy" if provider["running"] else "queued" if provider["queued"] else "idle"
         )
-        if provider["backend"] == "claude":
-            provider["quota"] = service.observed_claude_quota(identity[0])
-        elif provider["backend"] == "codex":
-            provider["quota"] = service.observed_codex_quota()
-        else:
-            provider["quota"] = None
+        provider["quota"] = provider_quota(service, provider["backend"], identity[0])
     return dict(
         project_id=project_id,
         work_item=work_item,

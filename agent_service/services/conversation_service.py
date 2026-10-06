@@ -154,6 +154,7 @@ class InferencePlan:
 EXCERPT_CHARS = 6000
 MAX_CONCURRENT_EXTRACTIONS = 4
 CODEX_QUOTA_FRESH_SECONDS = 300  # the rail must not show an older Codex percentage as current
+CLAUDE_QUOTA_FRESH_SECONDS = 300
 DEEPSEEK_BALANCE_SECONDS = 300
 # A failed read is remembered only briefly, so a recovered provider shows up soon.
 DEEPSEEK_FAILURE_SECONDS = 60
@@ -281,6 +282,7 @@ class ConversationService:
         self.claude_usage_lock = asyncio.Lock()
         self.usage_cache = None
         self.usage_at = 0
+        self.usage_failed_at = None
         self.deepseek_usage_cache = None
         self.codex_modalities_cache = None
         self.codex_modalities_lock = asyncio.Lock()
@@ -2896,18 +2898,41 @@ class ConversationService:
         self.event(row["id"], "tool_end", {"tool": kind})
         return {"tool_result": result, "metrics": None}
 
+    def claude_cache_key(self):
+        revision = self.config.get("provider_revisions", {}).get("claude")
+        return (self.config.get("claude", {}), revision)
+
     def observed_claude_quota(self, owner):
+        """The newest Claude reading the rail may trust: the usage cache, else the stream."""
+        cached = self.claude_usage_cache
+        if cached and cached[0] != self.claude_cache_key():
+            cached = None
+        if (
+            cached
+            and cached[2].get("available")
+            and time.monotonic() - cached[1] <= CLAUDE_QUOTA_FRESH_SECONDS
+        ):
+            return {**cached[2], "reason": None}
         now = time.time()
-        buckets = {}
-        for key, bucket in self.provider_usage.get(owner, {}).items():
-            window = bucket["primary"]
-            reset = window.get("resetsAt")
-            if now - bucket["checked_at"] <= 300 and (reset is None or reset > now):
-                buckets[key] = bucket
+        usage = self.provider_usage.get(owner, {})
+        buckets = {
+            key: bucket
+            for key, bucket in usage.items()
+            if now - bucket["checked_at"] <= CLAUDE_QUOTA_FRESH_SECONDS
+            and (bucket["primary"].get("resetsAt") is None or bucket["primary"]["resetsAt"] > now)
+        }
         available = any(
             type(bucket["primary"].get("usedPercent")) in (int, float)
             for bucket in buckets.values()
         )
+        if available:
+            reason = None
+        elif (cached and cached[2].get("available")) or (usage and not buckets):
+            reason = "quota_stale"
+        elif buckets or (cached and cached[2].get("source") == "cli_usage"):
+            reason = "quota_not_reported"  # a reading arrived and carried no usable window
+        else:
+            reason = "quota_not_read"
         return {
             "provider": "claude",
             "available": available,
@@ -2915,7 +2940,7 @@ class ConversationService:
             "shared_account": True,
             "checked_at": max((b["checked_at"] for b in buckets.values()), default=None),
             "rateLimitsByLimitId": buckets,
-            "reason": None if available else "quota_not_reported",
+            "reason": reason,
         }
 
     async def claude_quota(self, owner):
@@ -2925,7 +2950,7 @@ class ConversationService:
         if not config.get("binary"):
             return self.observed_claude_quota(owner)
         async with self.claude_usage_lock:
-            cache_key = (config, self.config.get("provider_revisions", {}).get("claude"))
+            cache_key = self.claude_cache_key()
             cached = self.claude_usage_cache
             if not cached or cached[0] != cache_key or time.monotonic() - cached[1] >= 30:
                 try:
@@ -2948,11 +2973,39 @@ class ConversationService:
             "reason": "quota_stale",
         }
 
+    def codex_quota_gap(self):
+        """Why the rail has no Codex reading: the last read failed, or none was ever taken."""
+        failed = self.usage_failed_at
+        recent = failed is not None and time.monotonic() - failed <= CODEX_QUOTA_FRESH_SECONDS
+        return {"available": False, "reason": "usage_unavailable" if recent else "quota_not_read"}
+
+    def observed_deepseek_quota(self):
+        """The cached prepaid balance as the rail shows it; never fetches."""
+        if not self.deepseek_key_file():
+            return {"available": False, "reason": "quota_not_reported"}
+        cached = self.deepseek_usage_cache
+        if not cached or not cached[1]["available"]:
+            return {"available": False, "reason": "balance_not_read"}
+        read_at, result = cached
+        if time.monotonic() - read_at > DEEPSEEK_BALANCE_SECONDS:
+            return {"available": False, "reason": "quota_stale", "checked_at": result["checked_at"]}
+        first = result["balances"][0]
+        return {
+            "available": True,
+            "reason": None,
+            "kind": "balance",
+            "checked_at": result["checked_at"],
+            "balance": {"amount": first["total"], "currency": first["currency"]},
+        }
+
+    def deepseek_key_file(self):
+        return ((self.config.get("deepseek") or {}).get("api_provider") or {}).get("key_file")
+
     async def deepseek_quota(self):
         """DeepSeek's prepaid balance, read with the harness key and kept for a few minutes."""
         from adapters.deepseek import account
 
-        key_file = ((self.config.get("deepseek") or {}).get("api_provider") or {}).get("key_file")
+        key_file = self.deepseek_key_file()
         if not key_file:
             return {"provider": "deepseek", "available": False, "reason": "quota_not_reported"}
         cached = self.deepseek_usage_cache
@@ -2979,6 +3032,7 @@ class ConversationService:
             )
             self.usage_cache = {
                 "available": True,
+                "reason": None,
                 "checked_at": time.time(),
                 "rateLimits": value.get("rateLimits"),
                 "rateLimitsByLimitId": value.get("rateLimitsByLimitId"),
@@ -2988,6 +3042,7 @@ class ConversationService:
             return self.usage_cache
         except Exception:
             logger.info("Codex quota unavailable", exc_info=True)
+            self.usage_failed_at = time.monotonic()
             return {"available": False, "checked_at": time.time(), "reason": "usage_unavailable"}
 
     def execution(self, row):
