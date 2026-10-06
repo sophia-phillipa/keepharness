@@ -1009,7 +1009,7 @@ const modelIcon = (id) => {
 const providerNames = HarnessUI.providerNames; // D42: shared with the admin
 function providerModelIcon(backend, model) {
   backend ||= models.find(item => item.id === model)?.backend;
-  return HarnessUI.icon({codex: "brand-openai", claude: "brand-claude", gemini: "brand-gemini"}[backend] || "stack-2");
+  return HarnessUI.icon({codex: "brand-openai", claude: "brand-claude", gemini: "brand-gemini", deepseek: "brand-deepseek"}[backend] || "stack-2");
 }
 let composerCondition = null, modelAvailabilityError = "";
 function syncComposerAvailability() {
@@ -2204,7 +2204,6 @@ function renderConversationHeader(c = null) {
 // WP8 (D-032): one meter per provider in a fixed order. A reading shows a bar, DeepSeek shows its
 // prepaid balance and a provider without a reading shows "n/a" with the reason.
 const QUOTA_RAIL_ORDER = ["codex", "claude", "gemini", "deepseek", "local"];
-const railNames = { codex: "Codex", claude: "Claude", gemini: "Gemini", deepseek: "DeepSeek", local: "Local" };
 const quotaReasonTexts = {
   quota_not_read: "not read yet",
   quota_stale: "last reading is older than 5 minutes",
@@ -2266,15 +2265,14 @@ function providerQuotaMeter(reading) {
   meter.dataset.provider = backend;
   meter.dataset.state = state;
   meter.dataset.testid = "quota-meter";
-  const label = document.createElement("span");
-  // The rail has room for a short word; the full canonical name (D42) is the accessible one.
-  label.textContent = railNames[backend] || backend;
+  // D-035: the provider's logo labels the meter; the full canonical name (D42) is the accessible one.
+  const logo = providerModelIcon(backend);
   const value = document.createElement("b");
   const bar = document.createElement("i");
   let description;
   if (state === "balance") {
     value.textContent = formatBalance(reading, true);
-    description = `${railNames[backend]} balance ${formatBalance(reading, false)}.`;
+    description = `${providerNames[backend] || backend} balance ${formatBalance(reading, false)}.`;
   } else if (state === "ok") {
     bar.style.setProperty("--quota", reading.remaining + "%");
     value.textContent = Math.round(reading.remaining) + "%";
@@ -2282,12 +2280,12 @@ function providerQuotaMeter(reading) {
   } else {
     bar.style.setProperty("--quota", "0%");
     value.textContent = "n/a";
-    description = `${railNames[backend] || backend} quota not available: ${quotaReasonTexts[reading.reason] || "not available"}.`;
+    description = `${providerNames[backend] || backend} quota not available: ${quotaReasonTexts[reading.reason] || "not available"}.`;
     railQuotaSummaries.set(backend, description);
   }
   meter.setAttribute("aria-label", description + " Open details.");
   meter.title = meter.getAttribute("aria-label");
-  meter.append(...(state === "balance" ? [label, value] : [label, bar, value]));
+  meter.append(...(state === "balance" ? [logo, value] : [logo, bar, value]));
   return meter;
 }
 window.updateProviderQuotas = function updateProviderQuotas(items = []) {
@@ -10436,17 +10434,7 @@ function renderPicker(id) {
           list.id = "model-provider-" + backend;
           list.setAttribute("role", "listbox");
           heading.setAttribute("aria-controls", list.id);
-          heading.append(
-            HarnessUI.icon(
-              {
-                codex: "brand-openai",
-                claude: "brand-claude",
-                gemini: "brand-gemini",
-                local: "stack-2",
-                deepseek: "stack-2",
-              }[backend] || "stack-2",
-            ),
-          );
+          heading.append(providerModelIcon(backend));
           const label =
             HarnessUI.providerNames[backend] ||
             model?.backend ||

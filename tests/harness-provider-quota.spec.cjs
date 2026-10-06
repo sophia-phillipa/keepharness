@@ -95,6 +95,11 @@ const meterRows = (page) =>
       role: node.getAttribute("role"),
       tag: node.tagName,
       width: node.getBoundingClientRect().width,
+      overflow: node.scrollWidth - node.clientWidth,
+      icons: [...node.querySelectorAll("svg use")].map((use) => use.getAttribute("href")),
+      childTags: [...node.children].map((child) => child.tagName.toLowerCase()),
+      iconHidden: node.querySelector("svg")?.getAttribute("aria-hidden"),
+      iconWidth: node.querySelector("svg")?.getBoundingClientRect().width,
     })),
   );
 
@@ -232,13 +237,29 @@ const meterRows = (page) =>
       assert(row.label && row.title === row.label, `${row.provider}: title equals aria-label`);
     }
     const byProvider = Object.fromEntries(rows.map((row) => [row.provider, row]));
-    assert.equal(byProvider.gemini.label, "Gemini quota not available: provider reports no quota. Open details.");
+    assert.equal(byProvider.gemini.label, "Gemini CLI quota not available: provider reports no quota. Open details.");
     assert.match(byProvider.gemini.text, /n\/a/);
     assert.match(byProvider.claude.label, /^Claude Code quota, 70% remaining\. Open details\.$/);
     assert.match(byProvider.deepseek.text, /\$12/);
     assert.doesNotMatch(byProvider.deepseek.text, /%|n\/a/);
     assert.equal(byProvider.deepseek.label, "DeepSeek balance $12.40. Open details.");
     assert.equal(await rail.page.locator('[data-provider="deepseek"] > i').count(), 0, "a balance replaces the bar");
+
+    // D-035: the provider's logo replaces its short name; the full name stays in the accessible name and tooltip.
+    const logos = { codex: "brand-openai", claude: "brand-claude", gemini: "brand-gemini", deepseek: "brand-deepseek", local: "stack-2" };
+    const fullNames = { codex: "Codex", claude: "Claude Code", gemini: "Gemini CLI", deepseek: "DeepSeek", local: "Local models" };
+    for (const row of rows) {
+      assert.equal(row.icons.length, 1, `${row.provider}: exactly one logo`);
+      assert(row.icons[0].endsWith("#" + logos[row.provider]), `${row.provider} logo: ${row.icons[0]}`);
+      assert.equal(row.iconHidden, "true", `${row.provider}: the logo is decorative`);
+      assert(row.iconWidth >= 14 && row.iconWidth <= 18, `${row.provider}: logo is about 16 px (${row.iconWidth})`);
+      assert.equal(row.childTags[0], "svg", `${row.provider}: the logo leads the meter`);
+      assert(!row.childTags.includes("span"), `${row.provider}: no visible provider name`);
+      assert(!row.text.includes(fullNames[row.provider]) && !row.text.includes(row.provider), `${row.provider}: no provider text in the meter`);
+      assert(row.label.startsWith(fullNames[row.provider]), `${row.provider}: accessible name starts with the full name: ${row.label}`);
+      assert(row.overflow <= 0, `${row.provider}: nothing overflows the 34 px column (${row.overflow})`);
+    }
+    assert(await rail.page.evaluate(() => railQuotaSummaries.get("codex")?.startsWith("Codex")), "the n/a summary keeps the full name");
 
     // Each reason code gets a short human sentence.
     const reasons = {
@@ -269,7 +290,7 @@ const meterRows = (page) =>
     assert.equal(await rail.page.locator("#provider-quotas").isHidden(), true, "no providers hides the group");
     assert.equal(await rail.page.locator("#provider-quotas .provider-quota-meter").count(), 0);
 
-    // The meter text is readable on all eight palettes.
+    // The meter logo and text are readable on all eight palettes.
     await feed(rail, allProviders);
     const palettes = await rail.page.evaluate(() => HarnessTheme.themes.map((theme) => theme.id));
     assert.equal(palettes.length, 8);
@@ -288,7 +309,7 @@ const meterRows = (page) =>
           const f = (x) => ((x /= 255) <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4);
           return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2]);
         };
-        return [...document.querySelectorAll("#provider-quotas .provider-quota-meter > :is(span, b)")].map((el) => {
+        return [...document.querySelectorAll("#provider-quotas .provider-quota-meter > :is(svg, b)")].map((el) => {
           let bg = over(parse(getComputedStyle(document.documentElement).backgroundColor), [255, 255, 255, 1]);
           const chain = [];
           for (let e = el; e; e = e.parentElement) chain.unshift(e);
@@ -312,13 +333,13 @@ const meterRows = (page) =>
     await rail.page.locator('[data-provider="gemini"]').click();
     await rail.page.locator("#quota-panel").waitFor({ state: "visible" });
     assert.equal(await rail.page.locator("#quota-panel .quota-heading strong").innerText(), "Gemini subscription quota");
-    assert.match(await rail.page.locator("#quota-current").innerText(), /Gemini quota not available: provider reports no quota\./);
+    assert.match(await rail.page.locator("#quota-current").innerText(), /Gemini CLI quota not available: provider reports no quota\./);
     await rail.page.keyboard.press("Escape");
     await rail.page.locator("#quota-panel").waitFor({ state: "hidden" });
     assert(await rail.page.locator('[data-provider="gemini"]').evaluate((el) => el === document.activeElement), "Escape restores focus to the n/a meter");
     await rail.page.locator('[data-provider="local"]').click();
     await rail.page.locator("#quota-panel").waitFor({ state: "visible" });
-    assert.match(await rail.page.locator("#quota-current").innerText(), /Local quota not available: local models have no quota\./);
+    assert.match(await rail.page.locator("#quota-current").innerText(), /Local models quota not available: local models have no quota\./);
     await rail.page.keyboard.press("Escape");
 
     // Narrow and short windows. The rail is a vertical column down to 621 px wide and needs 670 px of
@@ -397,7 +418,7 @@ const meterRows = (page) =>
     for (const row of rows) {
       assert.equal(row.state, "na", `${row.provider} is n/a for a guest`);
       assert.match(row.text, /n\/a/);
-      assert.match(row.label, /^\w+ quota not available: visible to the owner only\. Open details\.$/, row.label);
+      assert.match(row.label, /^[\w ]+ quota not available: visible to the owner only\. Open details\.$/, row.label);
       assert.equal(row.title, row.label);
       assert.doesNotMatch(row.label + row.text, /%|\$/, "a guest never sees a quota or a balance");
     }

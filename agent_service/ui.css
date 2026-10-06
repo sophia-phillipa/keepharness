@@ -5456,7 +5456,7 @@ body .composer-submit .send { min-height: 0; height: 32px; }
 #app-topbar #provider-quotas:not([hidden]) { display: flex; flex-direction: column; align-items: center; gap: 8px; width: 40px; margin: 0 0 6px; padding: 6px 0; border-radius: 12px; -webkit-app-region: no-drag; }
 #app-topbar .provider-quota-meter:hover { background: var(--th-hover); border-radius: 8px; }
 #app-topbar .provider-quota-meter { display: grid; justify-items: center; gap: 2px; width: 34px; }
-#app-topbar .provider-quota-meter > span { max-width: 34px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--th-quiet); font-size: 11px; line-height: 11px; }
+#app-topbar .provider-quota-meter > svg { width: 16px; height: 16px; color: var(--th-quiet); }
 #app-topbar .provider-quota-meter > i { position: relative; display: block; width: 28px; height: 3px; border-radius: 2px; background: color-mix(in srgb, var(--th-text) 12%, transparent); overflow: hidden; }
 #app-topbar .provider-quota-meter > i::after { content: ""; position: absolute; inset: 0 auto 0 0; width: var(--quota); background: var(--th-accent); }
 #app-topbar .provider-quota-meter > b { color: var(--th-text); font-size: 11px; line-height: 12px; font-weight: 500; }
