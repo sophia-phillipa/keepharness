@@ -293,13 +293,21 @@ def test_a_new_claude_login_drops_the_cached_account_reading(rail, tmp_path, mon
     manager._write_runtime({"claude": {"binary": "/fixture"}, "provider_revisions": {}})
     asyncio.run(manager.claude_login_completed())
     runtime = manager._previous_runtime()
-    assert runtime["provider_revisions"]["claude"]
+    assert runtime["account_revisions"]["claude"]
     candidate = copy.deepcopy(service.config)
     candidate["config_revision"] = "after-login"
-    candidate["provider_revisions"] = runtime["provider_revisions"]
+    candidate["account_revisions"] = runtime["account_revisions"]
     asyncio.run(service.apply_runtime_config(candidate))
     assert quotas(service, identity)["claude"]["reason"] == "quota_not_read"
     asyncio.run(manager.claude_login_completed())
-    assert manager._previous_runtime()["provider_revisions"]["claude"] != (
-        runtime["provider_revisions"]["claude"]
+    assert manager._previous_runtime()["account_revisions"]["claude"] != (
+        runtime["account_revisions"]["claude"]
     )
+
+
+def test_an_account_revision_alone_makes_the_old_usage_cache_stale(rail):
+    service, identity = rail
+    cache_claude(service, claude_account.quota_snapshot(usage(30)))
+    assert quotas(service, identity)["claude"]["available"] is True
+    service.config["account_revisions"] = {"claude": "second-login"}
+    assert quotas(service, identity)["claude"]["reason"] == "quota_not_read"

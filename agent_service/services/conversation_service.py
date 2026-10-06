@@ -2900,7 +2900,10 @@ class ConversationService:
 
     def claude_cache_key(self):
         revision = self.config.get("provider_revisions", {}).get("claude")
-        return (self.config.get("claude", {}), revision)
+        # Cache-only: a new login must drop the usage cache without cancelling jobs, so this
+        # revision is deliberately absent from apply_runtime_config and runtime_job_affected.
+        account = self.config.get("account_revisions", {}).get("claude")
+        return (self.config.get("claude", {}), revision, account)
 
     def observed_claude_quota(self, owner):
         """The newest Claude reading the rail may trust: the usage cache, else the stream."""
