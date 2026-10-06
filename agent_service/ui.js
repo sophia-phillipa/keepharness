@@ -4102,8 +4102,8 @@ document.addEventListener("click", (event) => {
   const id = link.dataset.resourceId;
   pendingResourceFocus = $("activity-panel").hidden ? id : "";
   setPanelOpen(true);
-  const section = document.querySelector('[data-workspace-section="resources"]');
-  if (section) section.open = true;
+  setPanelView("activity");
+  selectActivitySection("resources");
   focusResourceRow(id);
 });
 function stepMarker(data) {
@@ -7468,21 +7468,40 @@ const activityIcons = {
   context_compacting: "⟳",
   context_compacted: "✓",
 };
+// D-033: the panel shows one view at a time, Activities (a one-open accordion) or Files.
+let rightPanelView = "files";
+const ACTIVITY_SECTIONS = ["activity", "background-tasks", "resources"];
+function syncPanelToggles() {
+  const open = !$("activity-panel").hidden;
+  $("files-toggle").setAttribute("aria-expanded", String(open && rightPanelView === "files"));
+  $("activity-toggle").setAttribute("aria-expanded", String(open && rightPanelView === "activity"));
+}
 function setPanelView(view, persist = true) {
-  rightPanelView = view;
-  const section = document.querySelector('[data-workspace-section="' + view + '"]');
-  if (section && persist) section.open = true;
+  rightPanelView = view === "files" ? "files" : "activity";
+  const files = rightPanelView === "files", filesSection = document.querySelector('[data-workspace-section="files"]');
+  $("activities-view").hidden = files;
+  filesSection.hidden = !files;
+  if (files && persist) filesSection.open = true;
   $("files-title").textContent = "Files";
   $("activity-title").textContent = "Activity";
-  $("files-toggle").setAttribute(
-    "aria-expanded",
-    String(!$("activity-panel").hidden && document.querySelector('[data-workspace-section="files"]').open),
-  );
-  $("activity-toggle").setAttribute(
-    "aria-expanded",
-    String(!$("activity-panel").hidden && document.querySelector('[data-workspace-section="activity"]').open),
-  );
-  if (persist) prefs.set("right_panel_view", view);
+  syncPanelToggles();
+  if (persist) prefs.set("right_panel_view", rightPanelView);
+}
+// Exactly one Activities section is open; it is remembered in the workspace_sections preference.
+function selectActivitySection(name, { persist = true, focus = false } = {}) {
+  for (const section of ACTIVITY_SECTIONS) {
+    const on = section === name, head = $("workspace-" + section + "-head");
+    document.querySelector('[data-workspace-section="' + section + '"]').dataset.open = String(on);
+    head.setAttribute("aria-expanded", String(on));
+    head.setAttribute("aria-disabled", String(on));
+    $("workspace-" + section).hidden = !on;
+  }
+  if (focus) $("workspace-" + name + "-head").focus();
+  if (persist)
+    prefs.set("workspace_sections", {
+      ...prefs.get("workspace_sections", {}),
+      ...Object.fromEntries(ACTIVITY_SECTIONS.map((section) => [section, { open: section === name, height: null }])),
+    });
 }
 const quotaHome = document.createComment("quota-indicator-home");
 $("quota-toggle").before(quotaHome);
@@ -7515,14 +7534,7 @@ function setPanelOpen(open, persist = true) {
   $("panel-toggle").setAttribute("aria-expanded", String(open));
   if (!open && $("activity-panel").contains(document.activeElement))
     $("panel-toggle").focus();
-  $("files-toggle").setAttribute(
-    "aria-expanded",
-    String(open && document.querySelector('[data-workspace-section="files"]').open),
-  );
-  $("activity-toggle").setAttribute(
-    "aria-expanded",
-    String(open && document.querySelector('[data-workspace-section="activity"]').open),
-  );
+  syncPanelToggles();
   syncWorkspaceModal();
   if (open && interfaceReady) {
     void refreshWorkspaceResources();
@@ -7671,9 +7683,7 @@ $("authorize-project-root").onclick = () => {
 function togglePanelView(view) {
   setPanelView(view);
   if ($("activity-panel").hidden) setPanelOpen(true);
-  document.querySelector('[data-workspace-section="' + view + '"]')?.scrollIntoView({ block: "nearest" });
 }
-let rightPanelView = "files";
 function resetActivity(clearHistory = true) {
   paintMotion("");
   if (clearHistory) {
@@ -10948,37 +10958,29 @@ function renderWorkspaceTasks(jobs) {
   }
   if (!active.length) target.textContent = "No background tasks.";
 }
+// D-033: Files fills its view, so it keeps only its open state (no row handle, no stored height).
 for (const section of document.querySelectorAll(".workspace-section")) {
-  const name = section.dataset.workspaceSection, content = $("workspace-" + name);
+  const name = section.dataset.workspaceSection;
   const saved = prefs.get("workspace_sections", {})[name];
-  if (saved && typeof saved === "object") {
-    section.open = saved.open !== false;
-    if (Number.isFinite(saved.height)) { content.style.height = Math.max(64, Math.min(600, saved.height)) + "px"; section.dataset.sized = ""; }
-  }
-  const save = () => prefs.set("workspace_sections", { ...prefs.get("workspace_sections", {}), [name]: { open: section.open, height: parseFloat(content.style.height) || null } });
-  section.addEventListener("toggle", () => { save();
-    const shortcut = $(name + "-toggle");
-    if (shortcut) shortcut.setAttribute("aria-expanded", String(section.open && !$("activity-panel").hidden));
+  if (saved && typeof saved === "object") section.open = saved.open !== false;
+  section.addEventListener("toggle", () => prefs.set("workspace_sections", { ...prefs.get("workspace_sections", {}), [name]: { open: section.open, height: null } }));
+}
+const activityHeads = ACTIVITY_SECTIONS.map((name) => $("workspace-" + name + "-head"));
+activityHeads.forEach((head, index) => {
+  head.addEventListener("click", () => {
+    if (head.getAttribute("aria-disabled") === "true") return;
+    selectActivitySection(ACTIVITY_SECTIONS[index], { focus: true });
   });
-  const handle = document.createElement("div");
-  handle.id = "workspace-" + name + "-resize"; handle.className = "workspace-resize";
-  handle.tabIndex = 0; handle.setAttribute("role", "separator");
-  handle.setAttribute("aria-orientation", "horizontal");
-  handle.setAttribute("aria-label", "Resize " + name.replaceAll("-", " "));
-  handle.setAttribute("aria-controls", content.id);
-  handle.title = "Drag or use Up and Down arrow keys to resize";
-  const size = height => {
-    const next = Math.max(64, Math.min(600, height)); content.style.height = next + "px"; section.dataset.sized = "";
-    handle.setAttribute("aria-valuenow", String(Math.round(next))); save();
-  };
-  handle.setAttribute("aria-valuemin", "64"); handle.setAttribute("aria-valuemax", "600");
-  handle.setAttribute("aria-valuenow", String(parseFloat(content.style.height) || (name === "files" ? 160 : name === "background-tasks" ? 64 : 80)));
-  let drag;
-  handle.onpointerdown = event => { if (event.button !== 0) return; event.preventDefault(); drag = { y: event.clientY, height: content.getBoundingClientRect().height }; handle.setPointerCapture(event.pointerId); };
-  handle.onpointermove = event => { if (drag) size(drag.height + event.clientY - drag.y); };
-  handle.onpointerup = handle.onpointercancel = handle.onlostpointercapture = () => { drag = null; };
-  handle.onkeydown = event => { if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return; event.preventDefault(); size(event.key === "Home" ? 64 : event.key === "End" ? 600 : content.getBoundingClientRect().height + (event.key === "ArrowDown" ? 24 : -24)); };
-  section.append(handle);
+  head.addEventListener("keydown", (event) => {
+    const target = { ArrowDown: index + 1, ArrowUp: index - 1, Home: 0, End: activityHeads.length - 1 }[event.key];
+    if (target === undefined) return;
+    event.preventDefault();
+    activityHeads[(target + activityHeads.length) % activityHeads.length].focus();
+  });
+});
+{
+  const sections = prefs.get("workspace_sections", {});
+  selectActivitySection(ACTIVITY_SECTIONS.find((name) => sections[name]?.open === true) || "activity", { persist: false });
 }
 function updateWorkspaceCounts() {
   $("workspace-files-count").textContent = String($("files-view").querySelectorAll('[role="treeitem"], .authorized-root-card li:has(button, span)').length);

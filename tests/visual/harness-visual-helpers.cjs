@@ -222,7 +222,7 @@ async function geometry(page, state) {
           failures.push(`#${node.id || node.tagName.toLowerCase()} leaves the conversation header (${Math.round(rect.top)}..${Math.round(rect.bottom)} outside ${Math.round(bounds.top)}..${Math.round(bounds.bottom)})`);
       }
     }
-    for (const body of document.querySelectorAll(".workspace-section[open] > .workspace-section-body")) {
+    for (const body of document.querySelectorAll(".workspace-section[open] > .workspace-section-body, .accordion-body")) {
       if (!visible(body) || body.scrollTop > 1) continue;
       const bounds = body.getBoundingClientRect();
       const escaped = [...body.querySelectorAll("*")].find(node => {
@@ -242,7 +242,7 @@ async function geometry(page, state) {
       if (r.width < 24 || r.height < 24) targetFailures.push((node.id ? "#" + node.id : node.textContent.trim().slice(0, 24)) + ` ${r.width.toFixed(0)}x${r.height.toFixed(0)}`);
     }
     const overflow = [];
-    for (const node of document.querySelectorAll("#conversation-title,.state-pill,.backend-chip,.header-chip,.workspace-section summary,.workspace-item-name")) {
+    for (const node of document.querySelectorAll("#conversation-title,.state-pill,.backend-chip,.header-chip,.workspace-section summary,.accordion-head,.workspace-item-name")) {
       if (!visible(node)) continue;
       const style = getComputedStyle(node);
       const uncontained = node.scrollWidth > node.clientWidth + 1 && style.overflowX === "visible" && !["normal", "pre-wrap"].includes(style.whiteSpace);

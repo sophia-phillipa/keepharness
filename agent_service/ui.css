@@ -4857,13 +4857,10 @@ main { padding-bottom:28px; }
 .workspace-count { margin-left:auto; color:var(--th-muted); font-size:11px; font-weight:400; }
 .workspace-section-body { height:80px; min-height:64px; overflow:auto; }
 #workspace-files { height:112px; }
-#workspace-background-tasks { height:64px; }
-#workspace-activity { height:80px; }
-.workspace-section-body p { margin:4px 0; }
-.workspace-section-body #files-view,.workspace-section-body #activity-view { overflow:visible; height:auto; max-height:none; }
-.workspace-section-body .activity-scroll { overflow:visible; }
-.workspace-resize { position:relative; height:24px; z-index:1; cursor:row-resize; touch-action:none; }
-.workspace-resize::after,.run-console-resizer::after { content:''; position:absolute; width:32px; height:2px; left:calc(50% - 16px); top:11px; background:var(--th-muted); border-radius:2px; }
+.workspace-section-body p,.accordion-body p { margin:4px 0; }
+.workspace-section-body #files-view,.accordion-body #activity-view { overflow:visible; height:auto; max-height:none; }
+.accordion-body .activity-scroll { overflow:visible; }
+.run-console-resizer::after { content:''; position:absolute; width:32px; height:2px; left:calc(50% - 16px); top:11px; background:var(--th-muted); border-radius:2px; }
 .workspace-section:not([open]) > :not(summary) { display:none; }
 .workspace-row { display:flex; align-items:center; gap:6px; width:100%; min-height:32px; padding:4px 8px; text-align:left; background:transparent; }
 .workspace-item-name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -4878,7 +4875,7 @@ main { padding-bottom:28px; }
 .run-console-tabs [role="tab"] { height:26px; padding:2px 12px; flex:none; min-height:24px; }
 #run-console-maximize { min-width:80px; min-height:24px; padding:2px 8px; font-size:12px; }
 #run-console .run-console-close { min-width:24px; min-height:24px; height:26px; padding:2px 8px; }
-.workspace-resize:focus-visible,.run-console-resizer:focus-visible { outline:2px solid var(--th-accent); outline-offset:-2px; }
+.run-console-resizer:focus-visible { outline:2px solid var(--th-accent); outline-offset:-2px; }
 @media (max-width:700px) {
   body,body.sidebar-collapsed { grid-template-columns:minmax(0,1fr); }
   #app-topbar .brand { width:auto; }
@@ -5432,7 +5429,6 @@ body dialog:not(#settings-dialog) .btn.btn-danger { background: color-mix(in srg
 #projects .project-conversations .conversation-row > button:first-child { padding-left: 8px; }
 #projects .project-conversations .conversation-title { font-size: 14px; }
 #workspace-files { height: 160px; }
-#workspace-resources, #workspace-activity { height: 80px; }
 #activity-panel .authorized-root-card > strong { flex-direction: row-reverse; justify-content: flex-end; }
 /* QA-R1-4: a long summary shortens with an ellipsis; the project label always keeps a visible part. */
 #sidebar .conversation-row .conversation-row-meta .conversation-summary { flex: 0 1 auto; min-width: 4ch; overflow: hidden; text-overflow: ellipsis; }
@@ -5903,9 +5899,31 @@ body.panel-order-reversed #sidebar .sidebar-tree { margin: 0 0 0 12px; padding: 
 }
 
 /* UX-R1-6: the Files section takes the height the other sections leave; a height the user dragged wins. */
-#activity-panel .workspace-section[data-workspace-section="files"][open]:not([data-sized]) { display: flex; flex: 1 1 0; flex-direction: column; min-height: 224px; }
-#activity-panel .workspace-section[data-workspace-section="files"][open]:not([data-sized])::details-content { display: flex; flex: 1 1 0; flex-direction: column; min-height: 0; }
+#activity-panel .workspace-section[data-workspace-section="files"][open]:not([data-sized]):not([hidden]) { display: flex; flex: 1 1 0; flex-direction: column; min-height: 224px; }
+#activity-panel .workspace-section[data-workspace-section="files"][open]:not([data-sized]):not([hidden])::details-content { display: flex; flex: 1 1 0; flex-direction: column; min-height: 0; }
 #activity-panel .workspace-section[data-workspace-section="files"]:not([data-sized]) > #workspace-files { flex: 1 1 0; height: auto; min-height: 168px; }
+
+/* D-033: Activities is a one-open-at-a-time accordion; the open section fills the height the headers leave and scrolls inside. */
+#activity-panel #activities-view { flex: 1 1 0; display: flex; flex-direction: column; min-height: 0; overflow: hidden; border: 1px solid var(--th-border); border-radius: 10px; background: var(--th-panel); }
+#activity-panel #activities-view[hidden], #activity-panel .workspace-section[hidden] { display: none; }
+/* Tabler also styles .accordion-item and .accordion-body (raw grey text, its own borders and radii): restate colour, border and radius with theme tokens at a higher specificity. */
+#activity-panel .accordion-item { display: flex; flex-direction: column; min-height: 0; border: 0; border-top: 1px solid var(--th-border); border-radius: 0; color: var(--th-text); }
+#activity-panel .accordion-item:first-child { border-top: 0; }
+.accordion-item[data-open="true"] { flex: 1 1 0; }
+.accordion-item > h3 { flex: none; margin: 0; }
+.accordion-head { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 42px; padding: 6px 12px; border: 0; border-radius: 0; background: var(--th-soft); color: var(--th-text); font-size: 13px; font-weight: 600; text-align: left; cursor: pointer; }
+.accordion-head:hover { background: var(--th-panel); }
+.accordion-head:focus-visible, .accordion-body:focus-visible { outline: 2px solid var(--th-accent); outline-offset: -2px; }
+.accordion-head[aria-expanded="true"] { background: var(--th-panel); box-shadow: inset 3px 0 var(--th-accent); cursor: default; }
+.accordion-head .th-icon { flex: none; width: 16px; height: 16px; color: var(--th-muted); }
+.accordion-head[aria-expanded="true"] .th-icon:first-child { color: var(--th-accent); }
+.accordion-head .workspace-count { margin-left: 0; min-width: 22px; padding: 1px 7px; border: 1px solid var(--th-border); border-radius: 999px; background: var(--th-bg); color: var(--th-text); font-weight: 600; text-align: center; }
+.accordion-head .accordion-label { flex: 1; min-width: 0; }
+.accordion-chevron { fill: none; stroke: currentColor; stroke-width: 2; transition: transform .15s; }
+.accordion-head[aria-expanded="true"] .accordion-chevron { transform: rotate(180deg); }
+.accordion-body { flex: 1 1 0; min-height: 0; overflow: auto; padding: 10px 12px; color: var(--th-text); font-size: 12px; }
+.accordion-body[hidden] { display: none; }
+@media (prefers-reduced-motion: reduce) { .accordion-chevron { transition: none; } }
 
 /* The status strip is fixed over the bottom 28 px of the window: the last section stays above it. */
 @media (min-width: 701px) { #activity-panel { padding-bottom: 38px; } }

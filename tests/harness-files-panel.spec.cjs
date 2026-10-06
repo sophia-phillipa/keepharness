@@ -332,6 +332,10 @@ const path = require("node:path");
       modes[3][3],
     );
     await page.locator("#activity-panel").waitFor({ state: "visible" });
+    // D-033: the seeded view is Activities; the file tree appears once Files is chosen.
+    assert.equal(await page.locator("#activities-view").isVisible(), true, "the seeded Activities view is shown");
+    assert.equal(await page.locator("#files-view").isVisible(), false, "the file tree waits for the Files view");
+    await page.click("#files-toggle");
     await page
       .locator("#files-tree [role=treeitem]")
       .first()
@@ -342,7 +346,7 @@ const path = require("node:path");
       await page
         .locator("#activity-panel .panel-view-controls button")
         .allTextContents(),
-      ["Files", "Activity"],
+      ["Activities", "Files"],
     );
     assert.equal(
       await page
@@ -350,7 +354,7 @@ const path = require("node:path");
         .count(),
       0,
     );
-    assert.equal(await page.locator("#activity-view").isVisible(), true, "stacked workspace shows activity alongside files");
+    assert.equal(await page.locator("#activities-view").isVisible(), false, "the Activities and Files views are exclusive");
     assert.equal(
       await page.locator("#files-toggle").getAttribute("aria-expanded"),
       "true",
@@ -364,21 +368,27 @@ const path = require("node:path");
       await page.locator("#files-help").textContent(),
       "Drag files or folders into the chat to use them",
     );
-    // UX-R1-6: the Files section takes the height the other sections leave, instead of a 160 px window.
+    // UX-R1-6 / D-033: the Files view fills the panel (the Activities accordion is hidden), instead of a 160 px window.
     const layout = await page.evaluate(() => {
       const box = (selector) => document.querySelector(selector).getBoundingClientRect();
+      const panel = document.querySelector("#activity-panel");
       return {
         files: box("#workspace-files").height,
         panel: box("#activity-panel").height,
-        others: ["background-tasks", "resources", "activity"].reduce(
-          (sum, name) => sum + box('[data-workspace-section="' + name + '"]').height,
-          0,
-        ),
-        scrolls: document.querySelector("#activity-panel").scrollHeight > document.querySelector("#activity-panel").clientHeight,
+        activities: box("#activities-view").height,
+        controlsBottom: box("#activity-panel .panel-view-controls").bottom,
+        filesBottom: box("#workspace-files").bottom,
+        panelBottom: box("#activity-panel").bottom,
+        scrolls: panel.scrollHeight > panel.clientHeight,
       };
     });
     assert(layout.files >= 168, "the Files body is at least 168 px: " + JSON.stringify(layout));
     assert(layout.scrolls || layout.files > 160, "the Files body is not the old 160 px window");
+    assert.equal(layout.activities, 0, "the hidden Activities accordion takes no height: " + JSON.stringify(layout));
+    assert(
+      layout.files >= layout.panelBottom - layout.controlsBottom - 120,
+      "the Files view fills the panel under the switch: " + JSON.stringify(layout),
+    );
     // The folder chevrons are 24 px targets.
     for (const chevron of await page.locator("#files-tree .file-chevron").all()) {
       const size = await chevron.boundingBox();
@@ -866,9 +876,9 @@ const path = require("node:path");
     }
     await page.click("#activity-toggle");
     assert.equal(
-      await page.locator("#activity-view").isVisible(),
+      await page.locator("#activities-view").isVisible(),
       true,
-      "activity shortcut expands its section without closing the workspace",
+      "the Activities shortcut shows its accordion without closing the workspace",
     );
     assert.equal(await page.locator("#activity-panel").isVisible(), true);
     await page.click("#files-toggle");
@@ -912,8 +922,8 @@ const path = require("node:path");
     const filesButton = await page.locator("#files-toggle").boundingBox(),
       activityButton = await page.locator("#activity-toggle").boundingBox();
     assert(
-      filesButton.x < activityButton.x,
-      "files control sits immediately left of activity control",
+      activityButton.x < filesButton.x,
+      "the Activities control sits immediately left of the Files control",
     );
     await page.screenshot({ path: "/tmp/keepharness-files-panel-mobile.png" });
     await page.locator("#activity-toggle").focus();

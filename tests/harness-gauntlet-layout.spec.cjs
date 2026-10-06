@@ -139,17 +139,25 @@ async function unobscured(locator) {
       for (const width of [1440, 400]) {
         const page = await fixture(browser, width);
         if (!(await page.locator('#activity-panel').isVisible())) await page.locator('#panel-toggle').click();
+        // D-033: the accordion headers of the Activities view own their whole hit area (no resize handle shares it).
+        await page.locator('#activity-toggle').click();
+        for (const head of await page.locator('#activity-panel .accordion-head').all()) {
+          await head.scrollIntoViewIfNeeded();
+          assert(await head.evaluate(node => { const r = node.getBoundingClientRect(); return [2, r.height - 2].every(y => node.contains(document.elementFromPoint(r.x + r.width / 2, r.y + y))); }), 'accordion headers do not share resize hit areas');
+        }
+        // The Files section and its row handle live in the Files view.
+        await page.locator('#files-toggle').click();
         // The column handle is drawn as a 6 px strip (WP-16 L64) but keeps a 24 px hit area in free space (WCAG 2.5.8).
-        assertHitAreas(await handleHitZones(page, '#activity-panel .workspace-resize, #activity-panel-resize'));
-        for (const handle of await page.locator('#activity-panel .workspace-resize, #activity-panel-resize').all()) assert(await unobscured(handle));
+        assertHitAreas(await handleHitZones(page, '#activity-panel-resize'));
+        for (const handle of await page.locator('#activity-panel-resize').all()) assert(await unobscured(handle));
         for (const summary of await page.locator('#activity-panel .workspace-section > summary').all()) {
           await summary.scrollIntoViewIfNeeded();
           assert(await summary.evaluate(node => { const r = node.getBoundingClientRect(); return [2, r.height - 2].every(y => node.contains(document.elementFromPoint(r.x + r.width / 2, r.y + y))); }), 'section summaries do not share resize hit areas');
         }
-        const height = (await page.locator('#workspace-files').boundingBox()).height;
-        await page.locator('#workspace-files + .workspace-resize').focus();
-        await page.keyboard.press('ArrowDown');
-        assert((await page.locator('#workspace-files').boundingBox()).height > height);
+        // D-033: Files fills its view instead of carrying a row resize handle.
+        assert.equal(await page.locator('#workspace-files-resize').count(), 0);
+        const gap = await page.evaluate(() => { const panel = document.getElementById('activity-panel'); return panel.getBoundingClientRect().bottom - parseFloat(getComputedStyle(panel).paddingBottom) - document.getElementById('workspace-files').getBoundingClientRect().bottom; });
+        assert(gap >= -1 && gap <= 24, 'Files reaches the bottom of the panel: ' + gap);
         await page.close();
       }
     });
