@@ -19,6 +19,7 @@ async function boot(options = {}) {
     fs.mkdirSync(path.join(home, '.local/share/keepharness'), { recursive: true });
     fs.writeFileSync(path.join(home, '.local/share/keepharness/runtime.json'), options.runtime);
   }
+  const hostCalls = [];
   const windows = [], dialogs = [], external = [], handlers = new Map(), requests = [], requestDetails = [], children = [], probes = [], timers = new Map(), badges = [];
   const app = new EventEmitter();
   Object.assign(app, { isPackaged: options.packaged ?? true, setName() {}, setBadgeCount: n => badges.push(n), getPath: name => name === 'downloads' ? path.join(home, 'Downloads') : userData,
@@ -73,17 +74,24 @@ async function boot(options = {}) {
       res.emit('data', url.includes('v1/version') ? (options.version ?? '{"product":"keepharness"}') : url.endsWith('api/state') ? JSON.stringify({status:{busy:options.busy,running:options.running}}) : '{}'); res.emit('end');
     }); return req;
   } };
-  const childProcess = { spawnSync(executable) { probes.push(executable); return options.badPython ? {error:new Error('ENOENT'),status:null} : {status:0}; },
+  // Hand-off host mode (D-030): options.host is {answers: {codex, claude}} or {exec: (args) => ({code, stdout, error})}.
+  const hostExec = args => options.host.exec ? options.host.exec(args) : { stdout: (options.host.answers ?? {})[/x-scheme-handler\/(\w+)/.exec(args.at(-1))?.[1]] ?? '' };
+  const childProcess = { execFile(file, args, opts, callback) {
+      hostCalls.push({ file, args, opts });
+      const r = hostExec(args);
+      queueMicrotask(() => r.error ? callback(Object.assign(new Error('fail'), r.error), '', '') : callback(null, r.stdout ?? '', ''));
+    }, spawnSync(executable) { probes.push(executable); return options.badPython ? {error:new Error('ENOENT'),status:null} : {status:0}; },
     spawn(_executable,args) { const child = new EventEmitter(); Object.assign(child, {stderr:new EventEmitter(),stdout:new EventEmitter(),exitCode:null,signalCode:null,kill() { this.signalCode='SIGTERM'; }}); children.push(child); adminReady=true; if (options.enrollment && args.includes('approve-device')) queueMicrotask(() => { child.stdout.emit('data',options.enrollment); child.exitCode=0; child.emit('close',0); }); return child; } };
   const fakeFs = new Proxy(fs, { get(target, key) {
     if (key === 'readFileSync') return (file, ...args) => options.tcp && file === '/proc/net/tcp' ? options.tcp : options.tcp && file === '/proc/net/tcp6' ? '' : String(file).endsWith('build-manifest.json') ? (options.manifest ?? JSON.stringify({product:'keepharness',version:'0.16.0',commit:'a'.repeat(40),dirty:false,built_at:'2026-10-04T12:00:00Z'})) : String(file).endsWith('local.key') ? 'abcdefghijklmnop' : target.readFileSync(file,...args);
-    if (key === 'existsSync') return file => file === '/proc/net/tcp' ? !!options.tcp : options.badPython && String(file).includes('python') ? false : target.existsSync(file);
+    if (key === 'existsSync') return file => file === '/run/.containerenv' || file === '/usr/bin/host-spawn' ? !!options.host : options.host && options.xdgOpen?.[file] ? true : file === '/proc/net/tcp' ? !!options.tcp : options.badPython && String(file).includes('python') ? false : target.existsSync(file);
+    if (key === 'realpathSync') return file => options.xdgOpen?.[file] ?? target.realpathSync(file);
     return target[key];
   } });
   const proc = new EventEmitter(); Object.assign(proc, { env:{ KEEPHARNESS_ADMIN_PORT:'18194', KEEPHARNESS_PYTHON:process.execPath, ...options.env }, platform:'linux', getuid: () => 1000 });
   vm.runInNewContext(source, { require(name) { return ({electron, 'node:fs':fakeFs, 'node:os':{homedir:()=>home}, 'node:http':http, 'node:child_process':childProcess, './policy.cjs':require('./policy.cjs')})[name] || require(name); }, __dirname, process:proc, console, Buffer, URL, Date: {now: () => clock.t, parse: Date.parse}, setTimeout:(fn,ms)=> { if (ms >= 5000) { const timer={fn,ms,unref(){}}; timers.set(timer,timer); return timer; } if (ms === 250) clock.t += 250; return setTimeout(fn,ms===250?0:ms); }, clearTimeout:timer => { timers.delete(timer); clearTimeout(timer); } }, {filename:'main.cjs'});
   await settle();
-  return {handlers,timers,badges,session:electron.session.defaultSession,home,userData,windows,dialogs,external,requests,requestDetails,children,probes,app,event,get menu(){return menu;},main:windows.find(w=>!w.options.frame && !w.file) || windows.find(w=>w.options.frame !== false)};
+  return {hostCalls,handlers,timers,badges,session:electron.session.defaultSession,home,userData,windows,dialogs,external,requests,requestDetails,children,probes,app,event,get menu(){return menu;},main:windows.find(w=>!w.options.frame && !w.file) || windows.find(w=>w.options.frame !== false)};
 }
 
 test('credential-requiring harness is accepted and opens the main window', async () => {
@@ -607,6 +615,102 @@ test('handoff-open reports an open failure without leaking the prompt', async ()
   const secret = 'prompt body that must not be logged';
   assert.deepEqual(plain(await h.handlers.get(OPEN)(fromFrame(HARNESS), { target: 'claude', text: secret })), { opened: false, error: 'handoff_open_failed' });
   const log = path.join(h.userData, 'logs', 'main.log');
+  assert.ok(!fs.existsSync(log) || !fs.readFileSync(log, 'utf8').includes(secret));
+});
+
+// D-030: inside distrobox the host is asked, and only constant arguments reach it.
+const SHIM = { '/usr/local/bin/xdg-open': '/usr/bin/distrobox-host-exec', '/usr/bin/xdg-open': '/usr/bin/xdg-open' };
+const hostEnv = { PATH: '/usr/local/bin:/usr/bin:/bin', XDG_RUNTIME_DIR: '/run/user/1000', DBUS_SESSION_BUS_ADDRESS: 'unix:path=/run/user/1000/bus' };
+const hostBoot = (extra = {}) => boot({ host: { answers: { codex: 'codex-desktop.desktop', claude: 'claude.desktop' } }, xdgOpen: SHIM, env: hostEnv, protocolApps: {}, ...extra });
+const queryCalls = h => h.hostCalls.filter(c => c.args.includes('xdg-mime'));
+
+test('host mode lists both apps and runs host-spawn with exactly the contract argv and options', async () => {
+  const h = await hostBoot();
+  assert.deepEqual(plain(await h.handlers.get(APPS)(fromFrame(HARNESS))), { apps: ['chatgpt', 'claude'] });
+  assert.equal(h.hostCalls.length, 2);
+  const claude = h.hostCalls.find(c => c.args.at(-1) === 'x-scheme-handler/claude');
+  assert.equal(claude.file, '/usr/bin/host-spawn');
+  assert.deepEqual(plain(claude.args), ['--no-pty', 'xdg-mime', 'query', 'default', 'x-scheme-handler/claude']);
+  assert.deepEqual(h.hostCalls.map(c => c.args.at(-1)).sort(), ['x-scheme-handler/claude', 'x-scheme-handler/codex']);
+  assert.deepEqual(plain(claude.opts), { timeout: 3000, killSignal: 'SIGTERM', maxBuffer: 1024, windowsHide: true, cwd: h.home, stdio: ['ignore', 'pipe', 'ignore'],
+    env: { PATH: '/usr/bin:/bin', HOME: h.home, XDG_RUNTIME_DIR: '/run/user/1000', DBUS_SESSION_BUS_ADDRESS: 'unix:path=/run/user/1000/bus' } });
+});
+
+test('host mode keeps a DBUS address only when it is a user-bus socket path', async () => {
+  for (const [address, kept] of [['unix:path=/run/host/run/user/1000/bus', true], ['unix:path=/tmp/evil/bus', false], ['unix:path=/run/user/1000/bus,guid=x', false], ['tcp:host=evil', false], ['', false]]) {
+    const h = await hostBoot({ env: { ...hostEnv, DBUS_SESSION_BUS_ADDRESS: address } });
+    await h.handlers.get(APPS)(fromFrame(HARNESS));
+    const env = plain(h.hostCalls[0].opts.env);
+    assert.equal('DBUS_SESSION_BUS_ADDRESS' in env, kept, address);
+    if (kept) assert.equal(env.DBUS_SESSION_BUS_ADDRESS, address);
+  }
+});
+
+test('the host answer wins over Electron in both directions', async () => {
+  const hostOnly = await hostBoot({ protocolApps: {} });
+  assert.deepEqual(plain(await hostOnly.handlers.get(APPS)(fromFrame(HARNESS))), { apps: ['chatgpt', 'claude'] });
+  const electronOnly = await hostBoot({ host: { answers: {} }, protocolApps: { 'codex://': 'ChatGPT', 'claude://': 'Claude' } });
+  assert.deepEqual(plain(await electronOnly.handlers.get(APPS)(fromFrame(HARNESS))), { apps: [] });
+  const one = await hostBoot({ host: { answers: { claude: 'claude.desktop' } }, protocolApps: { 'codex://': 'ChatGPT' } });
+  assert.deepEqual(plain(await one.handlers.get(APPS)(fromFrame(HARNESS))), { apps: ['claude'] });
+});
+
+test('a host answer that is not a single desktop id, or fails in any way, means not installed', async () => {
+  const bad = [{ stdout: '' }, { stdout: '\n' }, { stdout: 'x.desktop\nevil' }, { stdout: 'x.desktop\nevil.desktop\n' }, { stdout: 'a'.repeat(2048) + '.desktop' }, { stdout: 'no-suffix' }, { stdout: '-x.desktop' }, { stdout: 'a b.desktop' },
+    { error: { killed: true, signal: 'SIGTERM' } }, { stdout: 'x.desktop', error: { code: 'ENOENT' } }, { stdout: 'x.desktop', error: { code: 1 } }, { stdout: 'x.desktop', error: { code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' } }];
+  for (const r of bad) {
+    const h = await hostBoot({ host: { exec: () => r } });
+    assert.deepEqual(plain(await h.handlers.get(APPS)(fromFrame(HARNESS))), { apps: [] }, JSON.stringify(r).slice(0, 50));
+  }
+  const throwing = await hostBoot({ host: { exec: () => { throw new Error('sync'); } } });
+  assert.deepEqual(plain(await throwing.handlers.get(APPS)(fromFrame(HARNESS))), { apps: [] });
+  const ok = await hostBoot({ host: { answers: { codex: 'codex-desktop.desktop\n' } } });
+  assert.deepEqual(plain(await ok.handlers.get(APPS)(fromFrame(HARNESS))), { apps: ['chatgpt'] });
+});
+
+test('without the distrobox xdg-open shim the host is not asked and Electron answers', async () => {
+  const noShim = await hostBoot({ env: { ...hostEnv, PATH: '/usr/bin:/bin' }, protocolApps: { 'claude://': 'Claude' } });
+  assert.deepEqual(plain(await noShim.handlers.get(APPS)(fromFrame(HARNESS))), { apps: ['claude'] });
+  const relative = await hostBoot({ env: { ...hostEnv, PATH: 'bin:/usr/bin' }, xdgOpen: { 'bin/xdg-open': '/usr/bin/distrobox-host-exec' }, protocolApps: {} });
+  assert.deepEqual(plain(await relative.handlers.get(APPS)(fromFrame(HARNESS))), { apps: [] });
+  const noContainer = await boot({ xdgOpen: SHIM, env: hostEnv });
+  assert.deepEqual(plain(await noContainer.handlers.get(APPS)(fromFrame(HARNESS))), { apps: ['chatgpt', 'claude'] });
+  for (const h of [noShim, relative, noContainer]) assert.deepEqual(h.hostCalls, []);
+});
+
+test('an invalid target never reaches the host', async () => {
+  const h = await hostBoot();
+  for (const target of ['constructor', '', '__proto__', 'toString', undefined]) {
+    assert.deepEqual(plain(await h.handlers.get(OPEN)(fromFrame(HARNESS), { target, text: 'x' })), { opened: false, error: 'handoff_invalid' });
+  }
+  assert.deepEqual(h.hostCalls, []);
+});
+
+test('host-mode open sends only the constant URL, never the prompt, through host-spawn xdg-open', async () => {
+  const h = await hostBoot();
+  const hostile = ('"\'$(rm -rf ~)`id` ; & | \\ \n').repeat(4000).slice(0, 29999) + 'z';
+  assert.ok(hostile.length > 20000 && hostile.length <= 30000);
+  const huge = await h.handlers.get(OPEN)(fromFrame(HARNESS), { target: 'claude', text: hostile });
+  assert.deepEqual(plain(huge), { opened: true, mode: 'short' });
+  assert.deepEqual(plain(await h.handlers.get(OPEN)(fromFrame(HARNESS), { target: 'chatgpt', text: hostile })), { opened: true, mode: 'short' });
+  const { handoffShortUrl } = require('./policy.cjs');
+  const opens = h.hostCalls.filter(c => c.args.includes('xdg-open'));
+  assert.equal(opens.length, 2);
+  assert.deepEqual(plain(opens.map(c => c.args)), [['--no-pty', 'xdg-open', handoffShortUrl('claude')], ['--no-pty', 'xdg-open', 'codex://threads/new']]);
+  for (const c of opens) { assert.equal(c.file, '/usr/bin/host-spawn'); assert.equal(c.opts.timeout, 3000); assert.equal(c.opts.maxBuffer, 1024); }
+  assert.ok(h.hostCalls.every(c => c.args.every(a => a.length < 200 && !a.includes('rm -rf'))));
+  assert.ok(h.hostCalls.every(c => JSON.stringify(c).length < 2000));
+  assert.deepEqual(plain(h.external), []); // never shell.openExternal in host mode
+});
+
+test('host-mode open refuses when the host lacks the app and reports a failed host open without the prompt', async () => {
+  const gone = await hostBoot({ host: { answers: { claude: 'claude.desktop' } } });
+  assert.deepEqual(plain(await gone.handlers.get(OPEN)(fromFrame(HARNESS), { target: 'chatgpt', text: 'x' })), { opened: false, error: 'handoff_app_missing' });
+  assert.deepEqual(gone.hostCalls.filter(c => c.args.includes('xdg-open')), []);
+  const secret = 'prompt body that must not be logged';
+  const failing = await hostBoot({ host: { exec: args => args.includes('xdg-open') ? { error: { code: 1 } } : { stdout: 'claude.desktop' } } });
+  assert.deepEqual(plain(await failing.handlers.get(OPEN)(fromFrame(HARNESS), { target: 'claude', text: secret })), { opened: false, error: 'handoff_open_failed' });
+  const log = path.join(failing.userData, 'logs', 'main.log');
   assert.ok(!fs.existsSync(log) || !fs.readFileSync(log, 'utf8').includes(secret));
 });
 

@@ -346,6 +346,14 @@ test('handoffUrl never passes a prompt to ChatGPT and refuses unknown targets', 
   }
 });
 
+test('handoffShortUrl is a constant per target, equal to the short mode of handoffUrl, and refuses unknown targets', () => {
+  const { handoffShortUrl, handoffUrl, HANDOFF_SHORT_TEXT } = require('./policy.cjs');
+  assert.equal(handoffShortUrl('chatgpt'), 'codex://threads/new');
+  assert.equal(handoffShortUrl('claude'), 'claude://claude.ai/new?q=' + encodeURIComponent(HANDOFF_SHORT_TEXT));
+  for (const target of ['chatgpt', 'claude']) assert.equal(handoffShortUrl(target), handoffUrl(target, 'x'.repeat(100000)).url);
+  for (const target of ['gemini', '', undefined, 'constructor', '__proto__']) assert.throws(() => handoffShortUrl(target), /target/i);
+});
+
 test('the handoff schemes stay out of the external URL policy', () => {
   assert.equal(externalUrl('claude://claude.ai/new?q=x'), null);
   assert.equal(externalUrl('codex://threads/new'), null);
