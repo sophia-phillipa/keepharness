@@ -94,3 +94,7 @@ Multi-provider routing (Codex, Claude Code, DeepSeek, Gemini, local models) with
 3. The Electron session: the desktop reference keeps it ephemeral; KeepHarness uses the persistent default session. Revisit only after every preference lives in the WP6 store.
 4. WP3 survey gaps (see WP3) and WP8 wave placement.
 5. Other Codex gaps outside this set (command menu `Ctrl+K` for commands and settings, thread row Pin, shortcuts dialog, composer `+` menu, Settings search, model popover) are unscheduled.
+
+## Backlog (requested, not scheduled)
+
+- Always on top (Sophia, 2026-10-06): a checkable "Always on top" item in the app menu that keeps the KeepHarness window above every other open window. Desktop only: `BrowserWindow.setAlwaysOnTop(true/false)` from the main process, state saved as a preference through the WP6 store (`window.HarnessPrefs`, D-023) and restored at launch. To check before building: whether Wayland (KDE) honours the request for a non-focused window, and whether Codex has an equivalent to copy (D-021: no KeepHarness feature is dropped either way).
