@@ -2953,6 +2953,7 @@ function newConversation(title = "New Conversation", projectId = $("project").va
   $("project").value = projectId;
   const carriedDraft = readDraft("conversation-draft:" + (conversation || "new:" + (changedProject ? draftProject : projectId)));
   const newDraft = readDraft("conversation-draft:new:" + projectId);
+  imageRefusedModel = "";
   resourceSelections = [];
   invalidResourceTokens.clear();
   setActivePersona(null);
@@ -4307,7 +4308,7 @@ function showTurnRetry(run) {
   button.type = "button";
   button.className = "btn";
   const unreadable = (run.attachments || []).some((file) => file.preview_url) &&
-    models.find((m) => m.id === req.model)?.capabilities?.images === false;
+    models.find((m) => m.id === (req.backend === "qwen" ? "qwen-local" : req.model))?.capabilities?.images === false;
   if (unreadable) {
     note.textContent = modelName(req.model) + " can't read the image of this turn, so Retry would drop it again.";
     button.dataset.testid = "turn-choose-model";
@@ -4318,6 +4319,7 @@ function showTurnRetry(run) {
     button.append(HarnessUI.icon("refresh"), document.createTextNode("Retry"));
     button.onclick = async () => {
       if (button.disabled) return;
+      const turnConversation = conversation;
       button.disabled = true;
       button.setAttribute("aria-busy", "true");
       let failure = "";
@@ -4333,10 +4335,17 @@ function showTurnRetry(run) {
       } catch (e) {
         failure = userErrors[e.code] || e.message;
       }
-      await load(conversation);
+      if (conversation !== turnConversation) return;
+      await load(turnConversation);
       const fresh = $("messages").querySelector(".turn-retry-actions [role=status]");
-      if (failure && fresh) fresh.textContent = failure;
-      else if (failure) status(failure);
+      if (failure && fresh) {
+        fresh.textContent = failure;
+        fresh.tabIndex = -1;
+        fresh.focus();
+        return;
+      }
+      if (failure) status(failure);
+      $("prompt").focus();
     };
   }
   section.append(note, button);
@@ -5188,6 +5197,10 @@ async function send() {
     $("prompt").disabled
   )
     return;
+  if (syncImageWarning()) {
+    $("image-capability-choose").focus();
+    return;
+  }
   const following = busy && !!job;
   const draft = $("prompt").value,
     prompt = draft;
@@ -9373,11 +9386,13 @@ const imageUnreadableCopy = () =>
   modelName(selected()?.id) + " can't read images. Choose a model that reads images, or remove the image.";
 function syncImageWarning() {
   const m = selected(), hasImage = files.some((f) => f.preview_url);
-  const blocked = !!m && ((hasImage && m.capabilities?.images === false) || imageRefusedModel === m.id);
-  $("image-capability-warning").hidden = !blocked;
+  const refused = !!m && imageRefusedModel === m.id;
+  const shown = !!m && ((hasImage && m.capabilities?.images === false) || refused);
+  $("image-capability-warning").hidden = !shown;
   $("image-capability-remove").hidden = !hasImage;
-  if (blocked) $("image-capability-text").textContent = imageUnreadableCopy();
-  return blocked;
+  if (shown) $("image-capability-text").textContent = imageUnreadableCopy();
+  // A refusal alone is information: only an attached image blocks sending.
+  return shown && hasImage;
 }
 $("image-capability-choose").onclick = () => $("model-trigger").click();
 $("image-capability-remove").onclick = () => {

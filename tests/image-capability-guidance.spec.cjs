@@ -11,6 +11,7 @@ const MODELS = [
 async function fixture(browser, uploadReply) {
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
   page.setDefaultTimeout(5000);
+  page.jobPosts = [];
   await page.route("http://panel.test/**", (route) => {
     const pathname = new URL(route.request().url()).pathname;
     return route.fulfill({
@@ -20,6 +21,7 @@ async function fixture(browser, uploadReply) {
   await page.route("**/v1/**", (route) => {
     const p = new URL(route.request().url()).pathname;
     if (p === "/v1/files") return route.fulfill(uploadReply);
+    if (p === "/v1/jobs" && route.request().method() === "POST") page.jobPosts.push(p);
     const data = p === "/v1/projects" ? { projects: ["sem-projeto"], details: {} }
       : p === "/v1/models" ? { models: MODELS, uploads_enabled: true }
       : p === "/v1/conversations" ? { conversations: [] }
@@ -46,6 +48,20 @@ const attachImage = (page) => page.evaluate(() => upload([new File(["x"], "photo
     assert.equal(await warning.getAttribute("role"), "alert");
     assert.match(await warning.innerText(), /DeepSeek.* can't read images\. Choose a model that reads images, or remove the image\./);
     assert(await page.locator("#send").isDisabled(), "send disabled while the warning stands");
+
+    // Enter and Ask again honour the block too: no job is posted while the warning stands.
+    await page.focus("#prompt");
+    await page.keyboard.press("Enter");
+    await page.evaluate(() => {
+      $("prompt").value = "";
+      const q = Object.assign(document.createElement("article"), { className: "message user", textContent: "Describe this" });
+      const a = Object.assign(document.createElement("article"), { className: "message assistant" });
+      $("messages").append(q, a);
+      askAgainButton(a).onclick();
+    });
+    await page.waitForTimeout(300);
+    assert.equal(page.jobPosts.length, 0, "no POST /v1/jobs while the image warning stands");
+    assert.equal(await page.evaluate(() => document.activeElement.id), "image-capability-choose");
 
     // Switching to a model that reads images clears the warning; switching back brings it back.
     await page.evaluate(() => { $("model").value = "gpt-6-astra"; $("model").dispatchEvent(new Event("change")); });
@@ -81,6 +97,12 @@ const attachImage = (page) => page.evaluate(() => upload([new File(["x"], "photo
       assert.match(await w.innerText(), /DeepSeek/);
       assert.match(await w.innerText(), /Choose another model/);
       assert.doesNotMatch(await page.locator("#status").innerText(), /does not offer image reading/);
+      // The refusal is information only: a text-only message to the same model still sends.
+      await page.fill("#prompt", "Just text");
+      assert(await page.locator("#send").isEnabled(), "send enabled with no image attached after " + code);
+      await page.locator("#send").click();
+      await page.waitForTimeout(300);
+      assert.equal(page.jobPosts.length, 1, "text-only message sends after " + code);
       await page.close();
     }
     const copy = await (async () => {

@@ -17,7 +17,7 @@ const turn = (id, state, extra = {}) => ({
 async function fixture(browser, turns) {
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
   page.setDefaultTimeout(5000);
-  const state = { turns, retries: 0, loads: 0, retryReply: { status: 202, json: { job_id: "t2", reused: false } } };
+  const state = { turns, retries: 0, loads: 0, gets: [], retryReply: { status: 202, json: { job_id: "t2", reused: false } } };
   await page.route("http://panel.test/**", (route) => {
     const pathname = new URL(route.request().url()).pathname;
     return route.fulfill({
@@ -30,6 +30,7 @@ async function fixture(browser, turns) {
       state.retries++;
       return new Promise((resolve) => setTimeout(resolve, 150)).then(() => route.fulfill(state.retryReply));
     }
+    if (p.startsWith("/v1/conversations/")) state.gets.push(p);
     if (p === "/v1/conversations/c1") { state.loads++; return route.fulfill({ json: { id: "c1", title: "Chat", turns: state.turns } }); }
     const data = p === "/v1/projects" ? { projects: ["sem-projeto"], details: {} }
       : p === "/v1/models" ? { models: MODELS, uploads_enabled: true }
@@ -95,7 +96,19 @@ async function fixture(browser, turns) {
     await retry(f.page).click();
     await f.page.waitForFunction(() => /newer turn/i.test(document.querySelector(".turn-retry-actions [role=status]")?.textContent || ""));
     assert.equal(await f.page.getByTestId("turn-retry").getAttribute("aria-busy"), null);
+    assert.notEqual(await f.page.evaluate(() => document.activeElement.tagName), "BODY", "focus survives the reload");
     assert(f.state.loads > loads, "conversation refreshed after 409");
+    await f.page.close();
+
+    // The user switched conversations during the Retry POST: the old one is not reloaded over the new view.
+    f = await fixture(browser, [turn("t1", "failed")]);
+    await f.open();
+    const before = f.state.gets.length;
+    await retry(f.page).click();
+    await f.page.evaluate(() => { conversation = "other"; });
+    await f.page.waitForTimeout(500);
+    assert.equal(f.state.retries, 1);
+    assert.equal(f.state.gets.length, before, "no conversation reload after switching away");
     await f.page.close();
 
     // Failed turn with an image on a model that cannot read images: choose another model, no Retry.
