@@ -22,3 +22,4 @@ Spec: [Codex-app parity design](../codex-parity-design.md).
 | [D-027](d-027-wp7-deterministic-visual-markers.md) | WP7 visual markers are deterministic and display-only | accepted |
 | [D-028](d-028-wp8-quota-meters-every-provider.md) | WP8 quota meters for every connected provider | accepted (not started) |
 | [D-029](d-029-visible-pass-before-merge.md) | Every parity WP gets a visible pass before merge | accepted |
+| [D-031](d-031-retry-failed-turns.md) | Retry failed or interrupted turns, and image-capability guidance | accepted |
