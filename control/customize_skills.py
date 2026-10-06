@@ -22,10 +22,13 @@ def list_skills(config, project_id):
     for provider, service in config.get("services", {}).items():
         if not service.get("enabled") or project_id not in service.get("projects", []):
             continue
-        if service.get("mode", "native") != "native":  # only native executions load skill files
+        mode = service.get("mode", "native")
+        if mode != "native":  # only native executions load skill files
             continue
         try:
-            discovered = discover(config, project_id, provider, include_workflows=False, owner=True)
+            discovered = discover(
+                config, project_id, provider, execution_mode=mode, include_workflows=False, owner=True
+            )
         except Exception:  # one broken provider must not hide the others; details stay in the log
             logger.exception("Skill discovery failed for %s", provider)
             warnings.append(f"Could not list the skills of {provider}.")
