@@ -31,7 +31,8 @@ def test_event_envelope_retains_explicit_execution_identity(make_harness_config)
     service.db.close()
 
 
-def test_maestro_progress_keeps_unavailable_quota_null(tmp_path):
+def test_maestro_progress_keeps_unavailable_quota_null(tmp_path, monkeypatch):
+    monkeypatch.setattr("agent_service.harness_agents.LOCAL_CLIENT", "a")  # quota events are owner-only
     import asyncio
     from unittest.mock import AsyncMock, patch
 

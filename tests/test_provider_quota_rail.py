@@ -114,6 +114,7 @@ def test_claude_stream_observation_still_feeds_the_rail(rail):
     service, identity = rail
     bucket = {"primary": {"usedPercent": 40, "resetsAt": None}, "checked_at": time.time()}
     service.provider_usage = {identity[0]: {"five_hour": bucket}}
+    service.claude_reading_keys[(identity[0], "five_hour")] = service.claude_cache_key()
     claude = quotas(service, identity)["claude"]
     assert claude["available"] is True and claude["source"] == "cli_observation"
     service.provider_usage[identity[0]]["five_hour"]["checked_at"] = time.time() - FRESH - 1
@@ -311,3 +312,55 @@ def test_an_account_revision_alone_makes_the_old_usage_cache_stale(rail):
     assert quotas(service, identity)["claude"]["available"] is True
     service.config["account_revisions"] = {"claude": "second-login"}
     assert quotas(service, identity)["claude"]["reason"] == "quota_not_read"
+
+
+def claude_update(percent):
+    window = {"usedPercent": percent, "windowDurationMins": 300, "resetsAt": None}
+    return {
+        "provider": "claude", "checked_at": time.time(),
+        "rateLimitsByLimitId": {"five_hour": {"primary": window}},
+    }  # fmt: skip
+
+
+def start_claude_job(service, identity, job):
+    service.conversation_repository.insert(
+        job, "p", identity[0], "running", 1, json.dumps({"backend": "claude"}), None, None, None
+    )
+    service.db.commit()
+    service.claude_job_keys[job] = service.claude_cache_key()  # what the job records when it starts
+
+
+def test_claude_reading_does_not_survive_a_new_login(rail):
+    service, identity = rail
+    start_claude_job(service, identity, "old")
+    service.event("old", "quota_update", claude_update(40))
+    assert quotas(service, identity)["claude"]["available"] is True
+    service.config["account_revisions"] = {"claude": "login-b"}
+    claude = quotas(service, identity)["claude"]
+    assert claude["available"] is False and claude["reason"] == "quota_not_read"
+    assert not claude.get("rateLimitsByLimitId")
+    service.event("old", "quota_update", claude_update(55))  # the old job keeps streaming
+    assert quotas(service, identity)["claude"]["reason"] == "quota_not_read"
+    start_claude_job(service, identity, "new")
+    service.event("new", "quota_update", claude_update(12))
+    claude = quotas(service, identity)["claude"]
+    assert claude["available"] is True
+    assert claude["rateLimitsByLimitId"]["five_hour"]["primary"]["usedPercent"] == 12
+
+
+def test_guest_claude_stream_is_not_saved_to_the_job_but_still_feeds_the_cache(rail):
+    service, identity = rail
+    service.conversation_repository.insert(
+        "guest-job", "p", "b", "running", 1, json.dumps({"backend": "claude"}), None, None, None
+    )
+    service.db.commit()
+    service.event("guest-job", "quota_update", claude_update(40))
+    assert service.message_repository.all_events("guest-job") == []
+    assert service.provider_usage["b"]["five_hour"]["primary"]["usedPercent"] == 40
+
+
+def test_owner_claude_stream_is_saved_to_the_job(rail):
+    service, identity = rail
+    start_claude_job(service, identity, "mine")
+    service.event("mine", "quota_update", claude_update(40))
+    assert [e["type"] for e in service.message_repository.all_events("mine")] == ["quota_update"]

@@ -155,6 +155,7 @@ EXCERPT_CHARS = 6000
 MAX_CONCURRENT_EXTRACTIONS = 4
 CODEX_QUOTA_FRESH_SECONDS = 300  # the rail must not show an older Codex percentage as current
 CLAUDE_QUOTA_FRESH_SECONDS = 300
+QUOTA_EVENTS = frozenset({"quota_before", "quota_after", "quota_update"})
 DEEPSEEK_BALANCE_SECONDS = 300
 # A failed read is remembered only briefly, so a recovered provider shows up soon.
 DEEPSEEK_FAILURE_SECONDS = 60
@@ -278,6 +279,8 @@ class ConversationService:
         self.extract_slots = asyncio.Semaphore(MAX_CONCURRENT_EXTRACTIONS)
         self.workspace_uploads_pending = 0
         self.provider_usage = {}
+        self.claude_reading_keys = {}  # (owner, limit id) -> claude_cache_key() of the reading
+        self.claude_job_keys = {}  # job -> claude_cache_key() captured when it started
         self.claude_usage_cache = None
         self.claude_usage_lock = asyncio.Lock()
         self.usage_cache = None
@@ -418,12 +421,17 @@ class ConversationService:
                 "parent_execution_id": None,
                 **data,
             }
-        if kind == "quota_update" and data.get("provider") == "claude":
+        if kind in QUOTA_EVENTS:
             row = self.conversation_repository.owner(job)
-            if row:
+            if kind == "quota_update" and row and data.get("provider") == "claude":
                 buckets = self.provider_usage.setdefault(row["owner"], {})
+                # Tagged with the login the job started under, so a new login drops old readings.
+                tag = self.claude_job_keys.get(job, self.claude_cache_key())
                 for key, bucket in data.get("rateLimitsByLimitId", {}).items():
                     buckets[key] = {**bucket, "checked_at": data["checked_at"]}
+                    self.claude_reading_keys[(row["owner"], key)] = tag
+            if row and row["owner"] != harness_agents.LOCAL_CLIENT:
+                return  # the account's limits are the owner's, never a guest job's events (D-032)
         with self.db:
             self.message_repository.add_event(job, time.time(), kind, encoded(data))
 
@@ -437,6 +445,7 @@ class ConversationService:
             if state == "cancelled" and job in self.stop_requests:
                 queue_worker.hold_followups(self, job)
         self.stop_requests.discard(job)
+        self.claude_job_keys.pop(job, None)
 
     def identity(self, request, *, revalidate=False):
         def identified(name, client):
@@ -2408,9 +2417,12 @@ class ConversationService:
                         "reason": "command_with_context",
                     },
                 )
+        if backend == "claude":
+            self.claude_job_keys[row["id"]] = self.claude_cache_key()
         before = await self.quota(True) if backend == "codex" else None
         if before is not None:
             self.event(row["id"], "quota_before", before)
+        owner_job = row["owner"] == harness_agents.LOCAL_CLIENT
         live = {"answer": "", "thinking": "", "at": 0}
         from agent_service.secret_vault import SecretStream
 
@@ -2498,7 +2510,8 @@ class ConversationService:
             if backend == "codex":
                 after = await self.quota(True)
                 progress("quota_after", after)
-                result.update(quota_before=before, quota_after=after)
+                if owner_job:
+                    result.update(quota_before=before, quota_after=after)
             return result
         baseline = (
             deployment.snapshot(project_config["root"])
@@ -2550,8 +2563,9 @@ class ConversationService:
         if backend == "codex":
             after = await self.quota(True)
             self.event(row["id"], "quota_after", after)
-            result["quota_before"] = before
-            result["quota_after"] = after
+            if owner_job:
+                result["quota_before"] = before
+                result["quota_after"] = after
         return result
 
     def _finalize_inference(self, plan, result):
@@ -2917,7 +2931,12 @@ class ConversationService:
         ):
             return {**cached[2], "reason": None}
         now = time.time()
-        usage = self.provider_usage.get(owner, {})
+        current = self.claude_cache_key()
+        usage = {
+            key: bucket
+            for key, bucket in self.provider_usage.get(owner, {}).items()
+            if self.claude_reading_keys.get((owner, key)) == current
+        }
         buckets = {
             key: bucket
             for key, bucket in usage.items()
