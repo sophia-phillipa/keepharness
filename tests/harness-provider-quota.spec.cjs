@@ -33,9 +33,9 @@ const railModels = [
   { id: "gemini-model", name: "Gemini model", backend: "gemini", efforts: ["low"] },
   { id: "local-model", name: "Local model", backend: "local", efforts: ["low"] },
 ];
-async function openRail(browser, { providers, width = 1280, visibility = "visible" }) {
+async function openRail(browser, { providers, width = 1280, height = 860, visibility = "visible", usageDenied = false }) {
   const fixture = { providers };
-  const context = await browser.newContext({ locale: "en-US", viewport: { width, height: 860 } });
+  const context = await browser.newContext({ locale: "en-US", viewport: { width, height } });
   const page = await context.newPage();
   const usageCalls = [];
   const errors = [];
@@ -54,6 +54,10 @@ async function openRail(browser, { providers, width = 1280, visibility = "visibl
     });
   await page.route("**/v1/**", (route) => {
     const url = new URL(route.request().url());
+    if (usageDenied && url.pathname === "/v1/usage") {
+      usageCalls.push(url.searchParams.get("backend") || "codex");
+      return route.fulfill({ status: 403, json: { code: "quota_owner_only", retryable: false } }); // the harness error shape
+    }
     const data =
       url.pathname === "/v1/usage"
         ? (usageCalls.push(url.searchParams.get("backend") || "codex"), { available: false, reason: "quota_not_read" })
@@ -317,13 +321,48 @@ const meterRows = (page) =>
     assert.match(await rail.page.locator("#quota-current").innerText(), /Local quota not available: local models have no quota\./);
     await rail.page.keyboard.press("Escape");
 
-    // Narrow windows: the 1199 px media rule loses to the rail's #id rule, so the meters stay (that is
-    // today's behavior); the five of them must stay inside the smallest desktop window (720x500).
-    for (const [width, height] of [[1000, 860], [720, 500]]) {
+    // Narrow and short windows. The rail is a vertical column down to 621 px wide and needs 670 px of
+    // height without the meters plus about 200 px with them: the meters show only where all of that fits
+    // (inside the rail, below its last icon, above Settings) and are dropped at 680 px of height or less
+    // and at 620 px of width or less, where the rail is a 52 px top bar.
+    const railFit = () =>
+      rail.page.evaluate(() => {
+        const rect = (selector) => document.querySelector(selector).getBoundingClientRect();
+        const group = document.getElementById("provider-quotas");
+        const bar = document.getElementById("app-topbar");
+        return {
+          shown: getComputedStyle(group).display !== "none",
+          overflow: bar.scrollHeight - bar.clientHeight,
+          top: rect("#provider-quotas").top,
+          bottom: rect("#provider-quotas").bottom,
+          above: rect("#rail-agents").bottom,
+          settings: rect("#settings").top,
+          width: innerWidth,
+          height: innerHeight,
+        };
+      });
+    for (const [width, height, shown] of [
+      [1280, 860, true],
+      [1000, 860, true],
+      [800, 700, true],
+      [621, 700, true],
+      [900, 681, true],
+      [900, 680, false],
+      [900, 600, false],
+      [720, 500, false],
+      [620, 860, false],
+      [390, 844, false],
+    ]) {
       await rail.page.setViewportSize({ width, height });
-      const box = await rail.page.locator("#provider-quotas").boundingBox();
-      assert(box === null || (box.x >= 0 && box.x + box.width <= width && box.y >= 0 && box.y + box.height <= height), `meters stay inside ${width}x${height}: ${JSON.stringify(box)}`);
+      const fit = await railFit();
+      assert.equal(fit.shown, shown, `meters ${shown ? "show" : "are dropped"} at ${width}x${height}`);
+      assert.equal(fit.overflow, 0, `the rail does not overflow at ${width}x${height}`);
+      if (shown) {
+        assert(fit.top >= fit.above && fit.bottom <= fit.settings, `meters sit between the rail icons and Settings at ${width}x${height}: ${JSON.stringify(fit)}`);
+        assert.equal(await rail.page.locator("#provider-quotas .provider-quota-meter").count(), 5);
+      }
     }
+    await rail.page.setViewportSize({ width: 1280, height: 860 });
     assert.deepEqual(rail.errors, []);
 
     // The rail primes the usage caches once per backend, only while the tab is visible, never for
@@ -346,6 +385,40 @@ const meterRows = (page) =>
     assert.deepEqual([...primed.usageCalls].sort(), ["claude", "codex", "deepseek"], "one call per backend across several polls, none for Gemini or local");
     assert.deepEqual(primed.errors, []);
     await primed.context.close();
+
+    // A guest sees every meter as n/a, owner only, and nothing is ever primed for it.
+    const ownerOnly = Object.fromEntries(["codex", "claude", "gemini", "deepseek", "local"].map((backend) => [backend, { backend, model: backend, quota: missing("owner_only") }]));
+    const guest = await openRail(browser, { providers: Object.values(ownerOnly) });
+    await guest.page.locator('[data-testid="quota-meter"]').first().waitFor();
+    for (let poll = 0; poll < 4; poll += 1) await feed(guest, Object.values(ownerOnly));
+    await guest.page.waitForTimeout(300);
+    rows = await meterRows(guest.page);
+    assert.deepEqual(rows.map((row) => row.provider), ["codex", "claude", "gemini", "deepseek", "local"], "a guest keeps all five meters");
+    for (const row of rows) {
+      assert.equal(row.state, "na", `${row.provider} is n/a for a guest`);
+      assert.match(row.text, /n\/a/);
+      assert.match(row.label, /^\w+ quota not available: visible to the owner only\. Open details\.$/, row.label);
+      assert.equal(row.title, row.label);
+      assert.doesNotMatch(row.label + row.text, /%|\$/, "a guest never sees a quota or a balance");
+    }
+    assert.deepEqual(guest.usageCalls, [], "owner_only never triggers /v1/usage");
+    assert.deepEqual(guest.errors, []);
+    await guest.context.close();
+
+    // Ownership changed between polls: the activity feed still says "not read", /v1/usage answers 403
+    // quota_owner_only. Each backend is asked once, ends owner-only n/a and is not asked again this session.
+    const changed = await openRail(browser, { providers: stale, usageDenied: true });
+    await changed.page.locator('[data-testid="quota-meter"]').first().waitFor();
+    await changed.page.waitForFunction(() => document.querySelectorAll('#provider-quotas [data-state="na"]').length === 5);
+    for (let poll = 0; poll < 4; poll += 1) await feed(changed, stale);
+    await changed.page.waitForTimeout(300);
+    assert.deepEqual([...changed.usageCalls].sort(), ["claude", "codex", "deepseek"], "one denied call per backend, none repeated");
+    const labels = Object.fromEntries((await meterRows(changed.page)).map((row) => [row.provider, row.label]));
+    for (const backend of ["codex", "claude", "deepseek"]) assert.match(labels[backend], /: visible to the owner only\. Open details\.$/, `${backend}: ${labels[backend]}`);
+    assert.match(labels.gemini, /provider reports no quota/, "providers that were never primed keep their own reason");
+    assert.match(labels.local, /local models have no quota/);
+    assert.deepEqual(changed.errors, []);
+    await changed.context.close();
     await rail.context.close();
     assert.deepEqual(errors, []);
     console.log("PASS: quota panel per provider, meter opens its own provider, DeepSeek balance");
