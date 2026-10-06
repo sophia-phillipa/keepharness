@@ -17,9 +17,11 @@ The per-release notes in [`dossier/releases/`](dossier/releases/) hold the full 
 - Durable UI preferences in a backend store: `GET`/`PATCH /v1/ui-state` keep the owner's theme, panel, sidebar, reading size, model choice, project list, scroll and tour state in an allow-listed, size-capped file in the harness state folder instead of browser `localStorage`, so a port change or profile reset no longer wipes them (WP6 backend). The UI now reads and writes them through `window.HarnessPrefs`: old `localStorage` keys migrate into the store and are erased only once accepted, a read-only store shows a notice and stops writing, and a 413 is split per key (WP6 frontend).
 - Cross-provider tool warnings: the Plugins menu lists tools connected on another provider ("On other providers", with Enable / Open Plugins), the Plugins chip shows a dot, and the provider-switch note names tools that do not follow the conversation (WP4 UI).
 - A quota meter for every connected provider in the rail (Codex, Claude, Gemini, DeepSeek, local): an "n/a" meter with the reason when there is no reading, DeepSeek's prepaid balance, and the Claude meter fed by the usage cache; the UI reads `/v1/usage` at most once per 5 minutes per provider while visible (WP8, D-032).
+- `GET /api/customize-skills?project_id=` (admin, owner and local only): the skills each provider really loads, as name, description, scope and providers, with no path, command or environment value (#19).
 
 ### Changed
 
+- The right panel is an exclusive **Activities | Files** switch; each view is an accordion with one open section that fills the panel, and Files splits into Project Files and System Files. Section resize handles are gone and stored heights are ignored (D-033).
 - Continue in another app: a segmented ChatGPT/Claude control, cleaner spacing, and inside a distrobox container the apps are detected and opened on the host with constant arguments; the prompt goes through the clipboard there.
 - The "Admin panel" link in Settings is gone and the admin no longer opens in a second window: "Open admin panel" and the desktop app open Settings > Providers (or the matching section) in the main window; the Settings nav is grouped like the Codex Settings navigation (WP2).
 
