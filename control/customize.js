@@ -216,7 +216,7 @@
         if ((!force && cached && !cached.error) || catalogPending.has(id)) continue;
         catalogPending.add(id);
         try {
-          integrationCatalogs.set(id, await request("integration-catalog", { provider: id }));
+          integrationCatalogs.set(id, await requestCatalog(id));
         } catch (error) {
           integrationCatalogs.set(id, { ...(cached || { items: [] }), error: error.message });
         } finally {

@@ -3259,6 +3259,15 @@ $("provider-options").addEventListener(
 
 const integrationCatalogs = new Map(),
   catalogPending = new Set();
+// The admin answers 429 to a second operation, so every catalog read (Providers and Plugins pages) goes through this one chain.
+let catalogQueue = Promise.resolve();
+function requestCatalog(provider) {
+  const run = catalogQueue.then(() =>
+    request("integration-catalog", { provider }),
+  );
+  catalogQueue = run.catch(() => {});
+  return run;
+}
 let catalogVisibleCount = 40,
   catalogViewKey = "";
 function renderCatalog() {
@@ -3374,7 +3383,7 @@ async function loadCatalog() {
   try {
     integrationCatalogs.set(
       provider,
-      await request("integration-catalog", { provider }),
+      await requestCatalog(provider),
     );
   } catch (error) {
     integrationCatalogs.set(provider, {

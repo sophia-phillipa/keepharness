@@ -117,7 +117,8 @@ const contrast = (a, b) => {
     for (const chip of await panel.locator('[data-testid^="plugins-chip-"]').all()) {
       assert.equal(await chip.locator("svg").count(), 1, "one icon per chip");
       const [box, glyph] = [await chip.boundingBox(), await chip.locator("svg").boundingBox()];
-      assert(box.height <= 36, "chip stays one line: " + box.height);
+      const label = await chip.locator("span").first().evaluate((el) => ({ height: el.getBoundingClientRect().height, lineHeight: parseFloat(getComputedStyle(el).lineHeight) }));
+      assert(label.height < 1.5 * label.lineHeight, "chip label stays one line: " + label.height + " vs line-height " + label.lineHeight);
       assert(glyph.x - box.x < 24 && Math.abs(glyph.y + glyph.height / 2 - (box.y + box.height / 2)) <= 2, "icon sits before the label on its line");
     }
     assert.equal(maxCatalogInFlight, 1, "catalogs are read one CLI at a time (the admin answers 429 to a second operation)");
@@ -198,6 +199,25 @@ const contrast = (a, b) => {
     await page.locator("[data-panel=home]").click();
     await page.locator("[data-panel=plugins]").click();
     assert.equal(await page.locator('[data-testid="plugin-menu"]').count(), 0);
+
+    // A Providers-page catalog read in flight holds back the Plugins page loads (one operation at a time).
+    maxCatalogInFlight = 0;
+    await page.evaluate(() => integrationCatalogs.clear());
+    await page.locator("[data-panel=providers]").click();
+    releaseCatalog = new Promise((resolve) => (release = resolve));
+    await page.evaluate(() => {
+      $("integration-provider").value = "codex";
+      loadCatalog();
+    });
+    await page.waitForFunction(() => catalogPending.has("codex"));
+    await page.locator("[data-panel=plugins]").click();
+    await page.waitForTimeout(500);
+    assert.equal(catalogInFlight, 1, "Plugins waits for the Providers catalog read");
+    release();
+    releaseCatalog = null;
+    await page.waitForFunction(() => document.querySelector('[data-testid="plugins-list"]')?.getAttribute("aria-busy") === "false");
+    assert.equal(maxCatalogInFlight, 1, "Providers and Plugins never have two catalog requests in flight");
+    assert.equal(await page.evaluate(() => integrationCatalogs.has("claude")), true, "Plugins still loaded the Claude catalog");
 
     // Contrast >= 4.5 on a light (paper) and a dark (graphite) palette.
     const ratios = {};
