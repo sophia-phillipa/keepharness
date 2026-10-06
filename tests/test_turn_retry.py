@@ -194,3 +194,33 @@ def test_route_returns_202_and_replays(tmp_path):
     assert refused.status_code == 409
     assert refused.json()["code"] == "retry_source_not_failed"
     service.db.close()
+
+
+def test_clients_cannot_set_retry_of(tmp_path):
+    service, identity = make_service(tmp_path)
+    source = settle(service, identity, "failed")
+    with pytest.raises(APIError) as caught:
+        service.submit(identity, {**PROMPT, "retry_of": source})
+    assert caught.value.code == "invalid_internal_field"
+
+
+def test_clients_cannot_use_the_retry_key_prefix(tmp_path):
+    service, identity = make_service(tmp_path)
+    source = settle(service, identity, "failed")
+    with pytest.raises(APIError) as caught:
+        service.submit(identity, PROMPT, "retry:" + source)
+    assert caught.value.code == "invalid_idempotency_key"
+    assert retry(service, identity, source)["reused"] is False
+
+
+def test_retry_of_deleted_attachment_reports_file_not_found(tmp_path):
+    service, identity = make_service(tmp_path)
+    source = settle(service, identity, "failed")
+    payload = json.loads(service.job(identity, source)["payload"])
+    payload["file_ids"] = ["gone-file"]
+    with service.db:
+        service.db.execute(
+            "UPDATE jobs SET payload=? WHERE id=?", (json.dumps(payload), source)
+        )
+    code, _status = code_of(service, identity, source)
+    assert code == "file_not_found"

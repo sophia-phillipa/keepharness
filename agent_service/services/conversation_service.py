@@ -1522,14 +1522,22 @@ class ConversationService:
         child = self.conversation_repository.by_idempotency_key(identity[0], row["project"], key)
         if child is not None:
             data = json.loads(self.job(identity, child["id"])["payload"])
+            if data.get("retry_of") != job_id:
+                raise APIError("idempotency_conflict", 409)
             return {"job_id": child["id"], "reused": True, **self._retry_route(data)}
         turns = self.conversation(identity, self.conversation_id(row))
         if turns[-1]["id"] != job_id:
             raise APIError("retry_source_superseded", 409)
         retry = {name: data[name] for name in RETRY_FIELDS if name in data}
-        result = await self.submit_async(
-            identity, {**retry, "parent_job_id": job_id, "retry_of": job_id}, key
-        )
+        try:
+            result = await self.submit_async(
+                identity, {**retry, "parent_job_id": job_id}, key, retry_of=job_id
+            )
+        except APIError as exc:
+            # A turn that arrived after the check above supersedes the source the same way.
+            if exc.code == "conversation_has_newer_turn":
+                raise APIError("retry_source_superseded", 409) from None
+            raise
         return {
             "job_id": result["job_id"],
             "reused": result.get("reused", False),
@@ -1586,14 +1594,31 @@ class ConversationService:
             self.write_ownership.release(lease)
         return {"id": workflow_id, "path": "workflows/" + target.name, "project_id": row["project"]}
 
-    def submit(self, identity, data, idem=None, *, workflow_recovery=None, schedule=None):
+    def submit(
+        self, identity, data, idem=None, *, workflow_recovery=None, schedule=None, retry_of=None
+    ):
+        self._require_client_key(idem, retry_of)
         data = self._prepare_submission(identity, data)
         return self._submit_prepared(
-            identity, data, idem, workflow_recovery=workflow_recovery, schedule=schedule
+            identity,
+            data,
+            idem,
+            workflow_recovery=workflow_recovery,
+            schedule=schedule,
+            retry_of=retry_of,
         )
 
-    async def submit_async(self, identity, data, idem=None, *, workflow_recovery=None, schedule=None):
+    @staticmethod
+    def _require_client_key(idem, retry_of):
+        # "retry:<job>" keys belong to retry_turn; a client key with that prefix could pose as one.
+        if retry_of is None and isinstance(idem, str) and idem.startswith("retry:"):
+            raise APIError("invalid_idempotency_key")
+
+    async def submit_async(
+        self, identity, data, idem=None, *, workflow_recovery=None, schedule=None, retry_of=None
+    ):
         """Normalize first so chips and inherited personas also match off the event loop."""
+        self._require_client_key(idem, retry_of)
         data = self._prepare_submission(identity, data)
         # A replayed key returns the job it already made, so it needs no pattern worker.
         replayed = idem and self.conversation_repository.by_idempotency_key(
@@ -1604,7 +1629,12 @@ class ConversationService:
                 project = self.project(identity, data.get("project_id"))
                 await prematch_reference(self.config, project, data)
             return self._submit_prepared(
-                identity, data, idem, workflow_recovery=workflow_recovery, schedule=schedule
+                identity,
+                data,
+                idem,
+                workflow_recovery=workflow_recovery,
+                schedule=schedule,
+                retry_of=retry_of,
             )
         finally:
             clear_prematch()
@@ -1632,6 +1662,7 @@ class ConversationService:
                 "schedule_id",
                 "schedule_title",
                 "schedule_internet",
+                "retry_of",
             )
         ):
             raise APIError("invalid_internal_field")
@@ -1669,7 +1700,9 @@ class ConversationService:
         self.normalize_invocations(identity, data)
         return data
 
-    def _submit_prepared(self, identity, data, idem, *, workflow_recovery=None, schedule=None):
+    def _submit_prepared(
+        self, identity, data, idem, *, workflow_recovery=None, schedule=None, retry_of=None
+    ):
         # Folder deletion may have begun while async admission awaited the matcher.
         if data.get("project_id") in self.deleting_project_folders:
             raise APIError("project_folder_busy", 409)
@@ -1696,6 +1729,8 @@ class ConversationService:
             data.update(workflow_recovery)
         if schedule is not None:
             data.update(schedule)
+        if retry_of is not None:
+            data["retry_of"] = retry_of
         project = data["project_id"]
         if len(encoded(data).encode()) > 150000:
             raise APIError("payload_limit", 413)

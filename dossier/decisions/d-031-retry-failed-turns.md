@@ -15,6 +15,9 @@ Codex shows no observable failed-turn Retry ([inventory](../research/codex-app-i
 - The history shows a "Retried" marker on the source instead of a repeated prompt.
 - Images: `capabilities.images` in `/v1/models` follows the rules of `validate_images`. The composer prevents sending an image to a model with `images: false` (a warning naming the model, with "Choose another model" and "Remove image"), and a turn that still fails for image capability shows "Choose another model" instead of Retry. The misleading `select_model_for_image` copy is fixed.
 
+- `retry_of` is server-only: a client that sends it gets `invalid_internal_field`, and a client `Idempotency-Key` that starts with `retry:` gets `invalid_idempotency_key`; a replayed retry key is honoured only when the stored turn's `retry_of` is the source (otherwise `idempotency_conflict`).
+- A retry re-validates the stored attachments: a deleted one returns `file_not_found` (404); a turn that arrives between the check and the submit returns `retry_source_superseded`, like a turn that arrived before it.
+
 ## Rationale
 
 `submit_async` already owns admission and idempotency, so Retry adds no new state or storage. A failure caused by a model that cannot read images is deterministic: retrying would fail again, so the user is guided to another model rather than offered a button that cannot work.
