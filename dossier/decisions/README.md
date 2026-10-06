@@ -28,3 +28,4 @@ Spec: [Codex-app parity design](../codex-parity-design.md).
 | [D-033](d-033-right-panel-accordion.md) | Right panel: Activities first, accordions, Project and System files | accepted |
 | [D-034](d-034-wp3-customize-product-answers.md) | WP3 Customize: allow-list switches, provider-only Add actions, "Plugins" label, marketplace grouping | accepted |
 | [D-035](d-035-rail-meters-provider-logos.md) | Rail quota meters show provider logos instead of names | accepted |
+| [D-036](d-036-wp9-interface-language.md) | WP9 interface language: per-locale JSON catalogs and a DOM-attribute runtime | proposed |
