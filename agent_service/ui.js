@@ -1055,6 +1055,9 @@ const efforts = {
   ultra: "Ultra",
 };
 const userErrors = {
+  retry_source_not_failed: "This turn is not failed anymore, so it can't be retried. The conversation was refreshed.",
+  retry_source_superseded: "A newer turn exists in this conversation, so this one can't be retried. The conversation was refreshed.",
+  retry_not_supported: "Retry isn't available for workflow or scheduled turns. Use Resume workflow or run it again.",
   catalog_cwd_conflict: "Selected catalogs require different working folders. Run them separately.",
   catalog_environment_conflict: "Selected catalogs require incompatible environments. Run them separately.",
   catalog_hook_filter_unsupported: "This execution mode cannot enforce the catalog hook list. Choose a supported native provider.",
@@ -3699,6 +3702,14 @@ function messageResourceChips(message, selections = []) {
 // Aggregator: a conversation may change model or provider between turns; a
 // quiet divider says so, and that the conversation so far goes along.
 let lastRoute = null;
+function turnRetriedMarker() {
+  const marker = document.createElement("p");
+  marker.className = "turn-retried";
+  marker.dataset.testid = "turn-retried";
+  marker.setAttribute("role", "note");
+  marker.append(HarnessUI.icon("refresh"), document.createTextNode("Retried"));
+  $("messages").append(marker);
+}
 function routeDivider(route) {
   const previous = lastRoute;
   lastRoute = route.model ? route : previous;
@@ -4284,6 +4295,53 @@ function showWorkflowRecovery(run) {
   section.append(note, resume);
   target.append(section);
 }
+// D-031: Retry only on the latest failed or interrupted turn. The server owns the exclusions
+// (cancelled, workflow, schedule, superseded); the UI hides what it can already tell.
+function showTurnRetry(run) {
+  const target = active?.el, req = run.request || {};
+  if (!target || !["failed", "interrupted"].includes(run.state) || target.querySelector(".turn-retry-actions")) return;
+  if (run.workflow_checkpoint || req.schedule_id || req.backend === "maestro" || req.invocations?.some?.((item) => item.kind === "workflow")) return;
+  const section = document.createElement("p"), note = document.createElement("span"), button = document.createElement("button");
+  section.className = "turn-retry-actions";
+  note.setAttribute("role", "status");
+  button.type = "button";
+  button.className = "btn";
+  const unreadable = (run.attachments || []).some((file) => file.preview_url) &&
+    models.find((m) => m.id === req.model)?.capabilities?.images === false;
+  if (unreadable) {
+    note.textContent = modelName(req.model) + " can't read the image of this turn, so Retry would drop it again.";
+    button.dataset.testid = "turn-choose-model";
+    button.textContent = "Choose another model";
+    button.onclick = () => $("model-trigger").click();
+  } else {
+    button.dataset.testid = "turn-retry";
+    button.append(HarnessUI.icon("refresh"), document.createTextNode("Retry"));
+    button.onclick = async () => {
+      if (button.disabled) return;
+      button.disabled = true;
+      button.setAttribute("aria-busy", "true");
+      let failure = "";
+      try {
+        await post("/v1/jobs/" + encodeURIComponent(run.id) + "/retry", {});
+        if (req.prompt && $("prompt").value === req.prompt) {
+          $("prompt").value = "";
+          resourceSelections = [];
+          syncResourceSelections();
+          renderResourceChips();
+          saveView();
+        }
+      } catch (e) {
+        failure = userErrors[e.code] || e.message;
+      }
+      await load(conversation);
+      const fresh = $("messages").querySelector(".turn-retry-actions [role=status]");
+      if (failure && fresh) fresh.textContent = failure;
+      else if (failure) status(failure);
+    };
+  }
+  section.append(note, button);
+  target.append(section);
+}
 function showMaestroPlan(data = {}) {
   if (!active || !Array.isArray(data.steps)) return;
   active.el.querySelector(".maestro-plan-card")?.remove();
@@ -4530,6 +4588,7 @@ async function result(
   const planCard = active?.el.querySelector(".maestro-plan-card");
   if (planCard) renderPlanOutcome(planCard, r.state);
   showWorkflowRecovery(r);
+  showTurnRetry(r);
   const terminal = {
     completed: "Completed",
     failed: "Failed run",
@@ -4803,6 +4862,7 @@ async function load(id, legacy = false, restoredView = null, scrollTop) {
     conversation = id;
     renderConversationHeader(conversations.find((item) => item.id === id));
     files = [];
+    imageRefusedModel = "";
     resourceSelections = [];
     invalidResourceTokens = new Set();
     renderFiles();
@@ -4839,9 +4899,12 @@ async function load(id, legacy = false, restoredView = null, scrollTop) {
         $("effort").value = r.request?.effort || $("effort").value;
       }
       routeDivider({ backend: r.request?.backend, model });
-      const userMessage = bubble("user", r.request?.prompt || "Previous run");
-      messageAttachments(userMessage, r.attachments);
-      messageResourceChips(userMessage, r.request?.resource_selections);
+      if (r.request?.retry_of) turnRetriedMarker();
+      else {
+        const userMessage = bubble("user", r.request?.prompt || "Previous run");
+        messageAttachments(userMessage, r.attachments);
+        messageResourceChips(userMessage, r.request?.resource_selections);
+      }
       active = assistant(r.id, model, !["queued", "running"].includes(r.state));
       restoreGates(r.gates);
       const planCard = active.el.querySelector(".maestro-plan-card");
@@ -5081,6 +5144,7 @@ async function upload(list) {
         saveView();
         status("File received.");
       } catch (e) {
+        if (imageRefusalCodes.has(e.code)) imageRefusedModel = selected()?.id || "";
         attachmentNotice(f.name, e.code);
         status("Couldn't upload: " + (attachmentError(e.code) || e.message));
       }
@@ -5969,6 +6033,7 @@ $("project").onchange = () => {
   saveView();
 };
 $("model").onchange = () => {
+  imageRefusedModel = "";
   invalidateResources();
   updateEfforts();
   rememberSelection();
@@ -9301,6 +9366,29 @@ function syncRouteCarryover() {
   for (const line of carryoverToolLines(lastRoute.backend, next))
     note.append(Object.assign(document.createElement("span"), { className: "route-carryover-tool", textContent: line }));
 }
+// D-031: a model that cannot read images never receives one; the composer says so before sending.
+let imageRefusedModel = "";
+const imageRefusalCodes = new Set(["model_images_unavailable", "images_require_native_service", "local_vision_not_enabled"]);
+const imageUnreadableCopy = () =>
+  modelName(selected()?.id) + " can't read images. Choose a model that reads images, or remove the image.";
+function syncImageWarning() {
+  const m = selected(), hasImage = files.some((f) => f.preview_url);
+  const blocked = !!m && ((hasImage && m.capabilities?.images === false) || imageRefusedModel === m.id);
+  $("image-capability-warning").hidden = !blocked;
+  $("image-capability-remove").hidden = !hasImage;
+  if (blocked) $("image-capability-text").textContent = imageUnreadableCopy();
+  return blocked;
+}
+$("image-capability-choose").onclick = () => $("model-trigger").click();
+$("image-capability-remove").onclick = () => {
+  files = files.filter((f) => !f.preview_url);
+  imageRefusedModel = "";
+  renderFiles();
+  saveView();
+  renderProjectFileTree();
+  updateComposer();
+  $("prompt").focus();
+};
 function updateComposer() {
   syncComposerProjectButton();
   syncViewSwitch();
@@ -9310,6 +9398,7 @@ function updateComposer() {
   syncExecutionMode();
   updateModelPermissions();
   const blocked = syncComposerAvailability();
+  const imagesBlocked = syncImageWarning();
   const prompt = $("prompt");
   prompt.style.height = "auto";
   prompt.style.height = Math.min(prompt.scrollHeight, 170) + "px";
@@ -9339,6 +9428,7 @@ function updateComposer() {
     !selected() ||
     !prompt.value.trim() ||
     overLimit ||
+    imagesBlocked ||
     !supportedExecutionModes().includes(executionMode) ||
     cooldown > 0;
 }
@@ -9964,6 +10054,7 @@ function attachmentNotice(filename, code) {
   $("messages").scrollTop = $("messages").scrollHeight;
 }
 function attachmentError(code) {
+  if (imageRefusalCodes.has(code)) return imageUnreadableCopy() + " The image was not attached.";
   return {
     video_capability_unavailable:
       "Couldn't check the model's MP4 support. Try again once the integration is available.",
@@ -9992,16 +10083,9 @@ function attachmentError(code) {
       "Couldn't recognize the audio. Try WAV, MP3, M4A, OGG, or FLAC.",
     audio_transcription_failed:
       "Local transcription failed; the audio was not attached.",
-    local_vision_not_enabled:
-      "This local server doesn't have vision enabled. You need to configure the model's visual projector (mmproj) and restart the server. The file was not attached.",
     image_capability_unavailable:
       "Couldn't check this server's vision support. Try again once it's available.",
-    model_images_unavailable:
-      "The selected service does not offer image reading.",
-    images_require_native_service:
-      "Reading images requires the native execution of the service.",
-    select_model_for_image:
-      "Select a model with attachment permission before sending the image.",
+    select_model_for_image: "Choose a model that reads images before attaching one.",
     image_size_limit: "Images can be up to 100 MiB.",
     unsupported_binary_format:
       "This binary format doesn't have a reader available yet. Upload a compatible image, a PDF with text, an Office/OpenDocument document, or a text file.",
