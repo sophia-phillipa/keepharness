@@ -29,6 +29,7 @@ The per-release notes in [`dossier/releases/`](dossier/releases/) hold the full 
 
 ### Fixed
 
+- Menus are opaque on every palette; conversation rows no longer show through the Settings menu on Paper.
 Chat campaign fixes (see [the campaign log](dossier/research/chat-campaign-2026-10.md) and the "Chat campaign fixes" section of [`dossier/releases/v0.16.0.md`](dossier/releases/v0.16.0.md)):
 
 - New Conversation's project button reads "No project" instead of "Choose project" (C-01).
