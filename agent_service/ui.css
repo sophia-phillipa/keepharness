@@ -2800,10 +2800,6 @@ main > header > #project {
   flex-direction: column;
   gap: 8px;
 }
-#files-view h2 {
-  font-size: 16px;
-  margin: 0 0 4px;
-}
 #files-help {
   margin: -7px 0 2px;
   font-size: 11px;
@@ -4746,7 +4742,7 @@ body .composer-submit .send { width:auto; min-width:78px; height:32px; padding:5
 .panel-view-controls { height:44px; margin:0 -12px 10px; border-bottom:1px solid var(--th-border); }
 .panel-view-controls button { height:44px; border-radius:0; font-size:13px; }
 .panel-view-controls button[aria-expanded="true"] { box-shadow:inset 0 -2px var(--th-accent); }
-#files-view h2,#activity-view h2 { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); }
+#activity-view h2 { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); }
 #files-roots { border:1px solid var(--th-border); border-radius:10px; padding:8px; }
 
 .run-status-strip { height:28px; min-height:28px; padding:0 12px; align-items:center; background:var(--th-soft); font-size:11px; }
@@ -4808,8 +4804,6 @@ main { padding-bottom:28px; }
 .authorized-root-card li button { padding:2px 3px; text-align:left; }
 .file-status-badge { display:grid; place-items:center; min-width:18px; height:18px; border:1px solid var(--th-border); border-radius:4px; color:var(--th-accent); font-size:11px; }
 #authorize-project-root { width:max-content; margin:2px 0 8px; padding:5px 8px; border:1px solid var(--th-border); border-radius:7px; }
-#server-folder-browser { margin-top:4px; border-top:1px solid var(--th-border); padding-top:7px; }
-#server-folder-browser > summary { color:var(--th-muted); font-size:11px; }
 .search-result-group { display:grid; gap:4px; margin-top:10px; }
 .search-result-group h3 { margin:0; padding:4px 8px; color:var(--th-muted); font-size:11px; letter-spacing:.08em; text-transform:uppercase; }
 
@@ -4851,20 +4845,11 @@ main { padding-bottom:28px; }
 /* Stacked workspace sections preserve the established application scale. */
 #project-switcher strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 #activity-panel { overflow-y:auto; overflow-x:hidden; }
-.workspace-section { flex:none; min-width:0; border-bottom:1px solid var(--th-border); }
-.workspace-section > summary { display:flex; align-items:center; gap:6px; min-height:32px; padding:4px 8px; cursor:pointer; color:var(--th-text); font-size:13px; font-weight:600; }
-.workspace-section > summary::-webkit-details-marker { display:none; }
 .workspace-count { margin-left:auto; color:var(--th-muted); font-size:11px; font-weight:400; }
-.workspace-section-body { height:80px; min-height:64px; overflow:auto; }
-#workspace-files { height:112px; }
-#workspace-background-tasks { height:64px; }
-#workspace-activity { height:80px; }
-.workspace-section-body p { margin:4px 0; }
-.workspace-section-body #files-view,.workspace-section-body #activity-view { overflow:visible; height:auto; max-height:none; }
-.workspace-section-body .activity-scroll { overflow:visible; }
-.workspace-resize { position:relative; height:24px; z-index:1; cursor:row-resize; touch-action:none; }
-.workspace-resize::after,.run-console-resizer::after { content:''; position:absolute; width:32px; height:2px; left:calc(50% - 16px); top:11px; background:var(--th-muted); border-radius:2px; }
-.workspace-section:not([open]) > :not(summary) { display:none; }
+.accordion-body p { margin:4px 0; }
+.accordion-body #activity-view { overflow:visible; height:auto; max-height:none; }
+.accordion-body .activity-scroll { overflow:visible; }
+.run-console-resizer::after { content:''; position:absolute; width:32px; height:2px; left:calc(50% - 16px); top:11px; background:var(--th-muted); border-radius:2px; }
 .workspace-row { display:flex; align-items:center; gap:6px; width:100%; min-height:32px; padding:4px 8px; text-align:left; background:transparent; }
 .workspace-item-name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .workspace-source { max-width:54%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11px; color:var(--th-muted); border:1px solid var(--th-border); border-radius:4px; padding:1px 4px; }
@@ -4878,7 +4863,7 @@ main { padding-bottom:28px; }
 .run-console-tabs [role="tab"] { height:26px; padding:2px 12px; flex:none; min-height:24px; }
 #run-console-maximize { min-width:80px; min-height:24px; padding:2px 8px; font-size:12px; }
 #run-console .run-console-close { min-width:24px; min-height:24px; height:26px; padding:2px 8px; }
-.workspace-resize:focus-visible,.run-console-resizer:focus-visible { outline:2px solid var(--th-accent); outline-offset:-2px; }
+.run-console-resizer:focus-visible { outline:2px solid var(--th-accent); outline-offset:-2px; }
 @media (max-width:700px) {
   body,body.sidebar-collapsed { grid-template-columns:minmax(0,1fr); }
   #app-topbar .brand { width:auto; }
@@ -4889,7 +4874,6 @@ main { padding-bottom:28px; }
 }
 
 .message-activity > summary { min-height:24px; display:flex; align-items:center; }
-#activity-panel .workspace-section { padding:0; }
 @media (max-width:1199px) {
   #app-topbar .brand { width:auto; }
   #app-topbar #quota-toggle { display:none; }
@@ -4915,7 +4899,6 @@ main { padding-bottom:28px; }
   .run-span-row > strong,.run-span-row > span:not(.run-span-effort):not(.run-span-duration) { grid-column:1/-1; }
 }
 main > header { flex-wrap:nowrap; overflow-x:auto; }
-#workspace-files #files-help { margin-top:0; }
 
 /* Narrow chat columns keep action labels and active-run controls in their own targets. */
 @container composer (max-width:650px) {
@@ -5204,9 +5187,6 @@ main > header h1 { max-width: calc(50% - 150px); }
 #activity-panel .panel-view-controls { height: 34px; margin: 0 0 10px; padding: 0; border-radius: 9999px; background: color-mix(in srgb, var(--th-text) 5%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--th-text) 7%, transparent); }
 #activity-panel .panel-view-controls button { height: 34px; border: 0!important; border-radius: 9999px; background: transparent; color: var(--th-quiet); font-size: 13px; font-weight: 500; box-shadow: none!important; }
 #activity-panel .panel-view-controls button[aria-expanded="true"] { background: color-mix(in srgb, var(--th-text) 10%, var(--th-bg)); color: var(--th-text); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--th-text) 12%, transparent)!important; }
-#activity-panel .workspace-section { border: 0; }
-#activity-panel .workspace-section > summary { font-size: 13px; font-weight: 500; color: var(--th-text); }
-#activity-panel .workspace-section + .workspace-section { border-top: 1px solid color-mix(in srgb, var(--th-border) 70%, transparent); }
 main > header h1 { max-width: calc(50% - 240px); }
 .composer-area .composer-context { background: transparent; border: 0; box-shadow: none; padding: 0 12px 4px; }
 .composer-area .composer-context #context-meter { background: transparent; border: 0; color: var(--th-quiet); }
@@ -5413,7 +5393,6 @@ body dialog:not(#settings-dialog) .btn.btn-danger { background: color-mix(in srg
 #conversation-search-dialog #conversation-search-list :is(button, a):hover { background: var(--th-hover); }
 
 /* Files panel like the reference sources panel: quiet heading, simple rows, readable path tail. */
-#activity-panel #files-view h2 { margin: 0 0 2px; font-size: 14px; font-weight: 500; }
 #activity-panel #files-help { margin: 0 0 10px; color: var(--th-quiet); font-size: 12px; }
 #activity-panel .authorized-root-card { padding: 8px; border: 1px solid color-mix(in srgb, var(--th-text) 9%, transparent); border-radius: 14px; background: color-mix(in srgb, var(--th-panel) 40%, transparent); }
 #activity-panel .authorized-root-card > strong { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 2px 4px 6px; font-size: 13px; font-weight: 500; }
@@ -5427,12 +5406,9 @@ body dialog:not(#settings-dialog) .btn.btn-danger { background: color-mix(in srg
 #activity-panel :is(.authorized-root-card, #files-tree) :is(.th-icon, svg) { flex: none; width: 16px; height: 16px; }
 #activity-panel .root-access-badge { border: 0; background: color-mix(in srgb, var(--th-text) 8%, transparent); color: var(--th-quiet); border-radius: 9999px; font-size: 11px; }
 #activity-panel #authorize-project-root { display: inline-flex; align-items: center; gap: 6px; margin: 8px 0; min-height: 30px; padding: 0 12px; border: 0; border-radius: 9999px; background: color-mix(in srgb, var(--th-text) 8%, transparent); color: var(--th-text); font-size: 13px; }
-#activity-panel #server-folder-browser > summary { color: var(--th-quiet); font-size: 13px; }
 /* Nested project chats: text only, aligned like the reference. */
 #projects .project-conversations .conversation-row > button:first-child { padding-left: 8px; }
 #projects .project-conversations .conversation-title { font-size: 14px; }
-#workspace-files { height: 160px; }
-#workspace-resources, #workspace-activity { height: 80px; }
 #activity-panel .authorized-root-card > strong { flex-direction: row-reverse; justify-content: flex-end; }
 /* QA-R1-4: a long summary shortens with an ellipsis; the project label always keeps a visible part. */
 #sidebar .conversation-row .conversation-row-meta .conversation-summary { flex: 0 1 auto; min-width: 4ch; overflow: hidden; text-overflow: ellipsis; }
@@ -5902,10 +5878,27 @@ body.panel-order-reversed #sidebar .sidebar-tree { margin: 0 0 0 12px; padding: 
   body.panel-order-reversed #sidebar-resize { --hit-left: 6px; }
 }
 
-/* UX-R1-6: the Files section takes the height the other sections leave; a height the user dragged wins. */
-#activity-panel .workspace-section[data-workspace-section="files"][open]:not([data-sized]) { display: flex; flex: 1 1 0; flex-direction: column; min-height: 224px; }
-#activity-panel .workspace-section[data-workspace-section="files"][open]:not([data-sized])::details-content { display: flex; flex: 1 1 0; flex-direction: column; min-height: 0; }
-#activity-panel .workspace-section[data-workspace-section="files"]:not([data-sized]) > #workspace-files { flex: 1 1 0; height: auto; min-height: 168px; }
+/* D-033: Activities and Files are one-open-at-a-time accordions; the open section fills the height the headers leave and scrolls inside. */
+#activity-panel .accordion-group { flex: 1 1 0; display: flex; flex-direction: column; min-height: 0; overflow: hidden; border: 1px solid var(--th-border); border-radius: 10px; background: var(--th-panel); }
+#activity-panel :is(#activities-view, #files-view)[hidden] { display: none; }
+/* Tabler also styles .accordion-item and .accordion-body (raw grey text, its own borders and radii): restate colour, border and radius with theme tokens at a higher specificity. */
+#activity-panel .accordion-item { display: flex; flex-direction: column; min-height: 0; border: 0; border-top: 1px solid var(--th-border); border-radius: 0; color: var(--th-text); }
+#activity-panel .accordion-item:first-child { border-top: 0; }
+.accordion-item[data-open="true"] { flex: 1 1 0; }
+.accordion-item > h3 { flex: none; margin: 0; }
+.accordion-head { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 42px; padding: 6px 12px; border: 0; border-radius: 0; background: var(--th-soft); color: var(--th-text); font-size: 13px; font-weight: 600; text-align: left; cursor: pointer; }
+.accordion-head:hover { background: var(--th-panel); }
+.accordion-head:focus-visible, .accordion-body:focus-visible { outline: 2px solid var(--th-accent); outline-offset: -2px; }
+.accordion-head[aria-expanded="true"] { background: var(--th-panel); box-shadow: inset 3px 0 var(--th-accent); cursor: default; }
+.accordion-head .th-icon { flex: none; width: 16px; height: 16px; color: var(--th-muted); }
+.accordion-head[aria-expanded="true"] .th-icon:first-child { color: var(--th-accent); }
+.accordion-head .workspace-count { margin-left: 0; min-width: 22px; padding: 1px 7px; border: 1px solid var(--th-border); border-radius: 999px; background: var(--th-bg); color: var(--th-text); font-weight: 600; text-align: center; }
+.accordion-head .accordion-label { flex: 1; min-width: 0; }
+.accordion-chevron { fill: none; stroke: currentColor; stroke-width: 2; transition: transform .15s; }
+.accordion-head[aria-expanded="true"] .accordion-chevron { transform: rotate(180deg); }
+.accordion-body { flex: 1 1 0; min-height: 0; overflow: auto; padding: 10px 12px; color: var(--th-text); font-size: 12px; }
+.accordion-body[hidden] { display: none; }
+@media (prefers-reduced-motion: reduce) { .accordion-chevron { transition: none; } }
 
 /* The status strip is fixed over the bottom 28 px of the window: the last section stays above it. */
 @media (min-width: 701px) { #activity-panel { padding-bottom: 38px; } }

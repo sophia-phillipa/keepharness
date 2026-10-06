@@ -185,18 +185,18 @@ async function runProfileMatrix(browser, summary) {
         const box = await title.boundingBox();
         assert(box.x + box.width <= 1440);
       });
-      await runScenario(summary, { id: "P3-R1", profile: "Domain professional", familiarity: "uses long projects and names", goal: "continue after reopening", expected: "section open state and size persist across reload" }, async () => {
-        const section = page.locator('[data-workspace-section="resources"]');
-        const handle = page.locator("#workspace-resources-resize");
-        await handle.focus();
-        await page.keyboard.press("ArrowDown");
-        const height = await page.locator("#workspace-resources").evaluate(node => node.getBoundingClientRect().height);
-        await section.locator("summary").click();
-        await page.waitForFunction(() => JSON.parse(localStorage.getItem("workspace-section-resources") || "null")?.open === false);
+      await runScenario(summary, { id: "P3-R1", profile: "Domain professional", familiarity: "uses long projects and names", goal: "continue after reopening", expected: "the open Activities section and its size persist across reload" }, async () => {
+        const head = page.locator("#workspace-resources-head"), body = page.locator("#workspace-resources");
+        await head.click();
+        assert.equal(await head.getAttribute("aria-expanded"), "true");
+        const height = await body.evaluate(node => node.getBoundingClientRect().height);
+        assert(height > 64, `the open Resources section fills the panel: ${height}`);
+        await page.waitForFunction(() => window.HarnessPrefs.get("workspace_sections", {}).resources?.open === true);
         await page.reload();
         await page.locator("#startup-gate").waitFor({ state: "hidden" });
-        assert.equal(await section.getAttribute("open"), null);
-        assert.equal(await page.locator("#workspace-resources").evaluate(node => node.style.height), `${height}px`);
+        assert.equal(await head.getAttribute("aria-expanded"), "true");
+        assert.equal(await page.locator("#workspace-activity-head").getAttribute("aria-expanded"), "false");
+        assert(Math.abs((await body.evaluate(node => node.getBoundingClientRect().height)) - height) <= 1, "the open section keeps its height after reload");
       });
     } finally { await context.close(); }
   }
@@ -259,11 +259,14 @@ async function runProfileMatrix(browser, summary) {
     const page = await context.newPage();
     try {
       await mountVisual(page, { emptyFiles: true });
-      await runScenario(summary, { id: "P5-E1", profile: "Mobile user", familiarity: "narrow screen", goal: "understand an empty authorized-folder state", expected: "the empty state is explicit and the four workspace sections remain reachable" }, async () => {
+      await runScenario(summary, { id: "P5-E1", profile: "Mobile user", familiarity: "narrow screen", goal: "understand an empty authorized-folder state", expected: "the empty state is explicit and the five workspace sections (Project Files, System Files and the three Activities) remain reachable" }, async () => {
+        await page.locator("#files-toggle").click();
         const empty = page.locator("#authorized-project-roots");
         assert(await empty.isVisible());
         assert.match(await empty.innerText(), /No project root is authorized/i);
-        assert.equal(await page.locator(".workspace-section > summary").count(), 4);
+        // D-033: Files is an accordion of two heads (Project Files, System Files) next to the three Activities heads; the empty state sits in Project Files.
+        assert.equal(await page.locator(".accordion-head").count(), 5);
+        assert(await page.locator("#workspace-project-files #authorized-project-roots").isVisible());
         assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
       });
     } finally { await context.close(); }
@@ -272,13 +275,17 @@ async function runProfileMatrix(browser, summary) {
     const { context, page } = await newVisualPage(browser, { width: 1280, height: 720 });
     try {
       await page.keyboard.press("Control+j");
-      await runScenario(summary, { id: "P6-S1", profile: "Software and harness engineer", familiarity: "contracts and persistence", goal: "inspect workspace sources", expected: "four sections expose stable IDs, counts, resources, tasks, and isolated scrolling" }, async () => {
-        for (const name of ["files", "background-tasks", "resources", "activity"]) {
+      await runScenario(summary, { id: "P6-S1", profile: "Software and harness engineer", familiarity: "contracts and persistence", goal: "inspect workspace sources", expected: "five sections expose stable IDs, counts, resources, tasks, and isolated scrolling" }, async () => {
+        for (const name of ["project-files", "system-files", "background-tasks", "resources", "activity"]) {
           assert.equal(await page.locator(`[data-workspace-section="${name}"]`).count(), 1);
           assert.equal(await page.locator(`#workspace-${name}`).count(), 1);
-          assert.equal(await page.locator(`#workspace-${name}-count`).count(), 1);
-          assert.equal(await page.locator(`#workspace-${name}-resize`).getAttribute("aria-controls"), `workspace-${name}`);
+          // System Files is the tree itself and carries no count.
+          assert.equal(await page.locator(`#workspace-${name}-count`).count(), name === "system-files" ? 0 : 1);
+          // D-033: every section is an accordion header controlling its body; Files fills its view (no row resize handle).
+          assert.equal(await page.locator(`#workspace-${name}-head`).getAttribute("aria-controls"), `workspace-${name}`);
+          assert.equal(await page.locator(`#workspace-${name}-resize`).count(), 0);
         }
+        await page.locator("#workspace-resources-head").click();
         assert.equal(await page.locator("#workspace-resources .workspace-row").count(), 4);
         const pinned = page.locator('#workspace-resources [data-resource-id="catalog/demo/commands/build.md"]');
         assert.match(await pinned.innerText(), /catalog · demo[\s\S]*Pinned · 0123456789ab/i);
@@ -286,8 +293,12 @@ async function runProfileMatrix(browser, summary) {
         const pane = await page.locator("#activity-panel").evaluate(node => ({ overflow: getComputedStyle(node).overflowY, scrollHeight: node.scrollHeight, clientHeight: node.clientHeight }));
         assert.equal(pane.overflow, "auto");
         assert(pane.scrollHeight <= pane.clientHeight + 1, `outer pane must not add a second scrollbar: ${JSON.stringify(pane)}`);
-        for (const summaryNode of await page.locator(".workspace-section > summary").all()) {
-          const box = await summaryNode.boundingBox(); assert(box && box.y >= 0 && box.y + box.height <= 720);
+        for (const headNode of await page.locator("#activities-view .accordion-head").all()) {
+          const box = await headNode.boundingBox(); assert(box && box.y >= 0 && box.y + box.height <= 720);
+        }
+        await page.locator("#files-toggle").click();
+        for (const headNode of await page.locator("#files-view .accordion-head").all()) {
+          const filesBox = await headNode.boundingBox(); assert(filesBox && filesBox.y >= 0 && filesBox.y + filesBox.height <= 720);
         }
       });
       await runScenario(summary, { id: "P6-R1", profile: "Software and harness engineer", familiarity: "contracts and persistence", goal: "recover from stale stored geometry", expected: "an excessive persisted console height is clamped to available space" }, async () => {

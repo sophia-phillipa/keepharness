@@ -72,30 +72,30 @@ async function routeVisual(route, options = {}) {
     });
   }
   let data = {};
-  if (url.pathname === "/v1/projects") data = { projects: ["sem-projeto"], details: { "sem-projeto": { label: "Compact workspace" } } };
+  if (url.pathname === "/v1/projects") data = { projects: ["compact-project"], details: { "compact-project": { label: "Compact workspace" } } };
   else if (url.pathname === "/v1/models") data = { models: [{ id: "fixture", name: "Fixture", backend: "codex", efforts: ["medium", "high"], execution_modes: ["native", "scoped"] }], providers: { codex: true }, uploads_enabled: true };
-  else if (url.pathname === "/v1/conversations") data = { conversations: [{ id: "conversation-a", title: "Compact workspace review with a deliberately long title", project: "sem-projeto", state: "running", last_job_id: "run-a", execution: { backend: "codex", model: "fixture" }, updated_at: 1 }] };
+  else if (url.pathname === "/v1/conversations") data = { conversations: [{ id: "conversation-a", title: "Compact workspace review with a deliberately long title", project: "compact-project", state: "running", last_job_id: "run-a", execution: { backend: "codex", model: "fixture" }, updated_at: 1 }] };
   else if (url.pathname === "/v1/conversations/conversation-a") data = {
     title: "Compact workspace review with a deliberately long title",
     execution_mode: "scoped",
-    turns: [{ id: "run-a", project: "sem-projeto", state: "running", request: { backend: "codex", model: "fixture", prompt: "Review the compact workspace", access_mode: "ask", effort: "medium" }, result: { answer: "The compact workspace is ready for review." }, gates: [PLAN_GATE, PUBLISH_GATE] }],
+    turns: [{ id: "run-a", project: "compact-project", state: "running", request: { backend: "codex", model: "fixture", prompt: "Review the compact workspace", access_mode: "ask", effort: "medium" }, result: { answer: "The compact workspace is ready for review." }, gates: [PLAN_GATE, PUBLISH_GATE] }],
   };
   else if (url.pathname === "/v1/activity") data = {
     counts: { running: 1, queued: 1, needs_you: 0 },
     jobs: [
-      { job_id: "run-a", conversation_id: "conversation-a", project_id: "sem-projeto", state: "running", title: "Compact visual verification", backend: "codex", model: "fixture" },
-      { job_id: "run-b", conversation_id: "conversation-a", project_id: "sem-projeto", state: "queued", title: "Queued contrast audit", wait_reason: "Provider busy", backend: "codex", model: "fixture" },
+      { job_id: "run-a", conversation_id: "conversation-a", project_id: "compact-project", state: "running", title: "Compact visual verification", backend: "codex", model: "fixture" },
+      { job_id: "run-b", conversation_id: "conversation-a", project_id: "compact-project", state: "queued", title: "Queued contrast audit", wait_reason: "Provider busy", backend: "codex", model: "fixture" },
     ],
     providers: [{ backend: "codex", model: "fixture", state: "ready", running: 1, queued: 1 }],
     needs_you: [],
   };
-  else if (url.pathname === "/v1/jobs/run-a") data = { id: "run-a", project: "sem-projeto", state: "running", request: { backend: "codex", model: "fixture" }, result: {}, gates: [PLAN_GATE, PUBLISH_GATE] };
+  else if (url.pathname === "/v1/jobs/run-a") data = { id: "run-a", project: "compact-project", state: "running", request: { backend: "codex", model: "fixture" }, result: {}, gates: [PLAN_GATE, PUBLISH_GATE] };
   else if (url.pathname === "/v1/jobs/run-a/spans") data = { spans: [{ span_id: "span-a", trace_id: "run-a", parent_id: null, kind: "invoke_agent", name: "Visual verifier", start_ts: Date.now() / 1000 - 4, end_ts: null, status: "unset", attrs: { "gen_ai.request.model": "fixture", "gen_ai.usage.input_tokens": 23, "harness.outcome": "pending" }, events: [] }] };
   else if (url.pathname === "/v1/resources") data = { items: [
     { id: "agent-reviewer", revision: "1", kind: "agent", name: "reviewer", description: "Review accessibility and geometry", scope: "project", origin: "Codex", selectable: true },
     { id: "skill-ponytail", revision: "1", kind: "skill", name: "ponytail", description: "Prefer the smallest complete implementation", scope: "project", origin: "Codex", selectable: true },
     { id: "catalog/demo/commands/build.md", revision: "1", kind: "command", name: "build", description: "Build the project", scope: "catalog", origin: "demo", catalog_commit: "0123456789abcdef0123456789abcdef01234567", catalog_pinned: true, catalog_dirty: false, selectable: true },
-    { id: "project/sem-projeto/workflows/release-review.json", revision: "1", kind: "workflow", name: "release-review", description: "Review a release in two sequential steps", group: "Workflows", scope: "project", origin: "project", selectable: true },
+    { id: "project/compact-project/workflows/release-review.json", revision: "1", kind: "workflow", name: "release-review", description: "Review a release in two sequential steps", group: "Workflows", scope: "project", origin: "project", selectable: true },
   ], warnings: [] };
   else if (url.pathname === "/v1/project-files") {
     const view = url.searchParams.get("view"), rootId = url.searchParams.get("root_id");
@@ -222,7 +222,7 @@ async function geometry(page, state) {
           failures.push(`#${node.id || node.tagName.toLowerCase()} leaves the conversation header (${Math.round(rect.top)}..${Math.round(rect.bottom)} outside ${Math.round(bounds.top)}..${Math.round(bounds.bottom)})`);
       }
     }
-    for (const body of document.querySelectorAll(".workspace-section[open] > .workspace-section-body")) {
+    for (const body of document.querySelectorAll(".accordion-body")) {
       if (!visible(body) || body.scrollTop > 1) continue;
       const bounds = body.getBoundingClientRect();
       const escaped = [...body.querySelectorAll("*")].find(node => {
@@ -242,7 +242,7 @@ async function geometry(page, state) {
       if (r.width < 24 || r.height < 24) targetFailures.push((node.id ? "#" + node.id : node.textContent.trim().slice(0, 24)) + ` ${r.width.toFixed(0)}x${r.height.toFixed(0)}`);
     }
     const overflow = [];
-    for (const node of document.querySelectorAll("#conversation-title,.state-pill,.backend-chip,.header-chip,.workspace-section summary,.workspace-item-name")) {
+    for (const node of document.querySelectorAll("#conversation-title,.state-pill,.backend-chip,.header-chip,.accordion-head,.workspace-item-name")) {
       if (!visible(node)) continue;
       const style = getComputedStyle(node);
       const uncontained = node.scrollWidth > node.clientWidth + 1 && style.overflowX === "visible" && !["normal", "pre-wrap"].includes(style.whiteSpace);

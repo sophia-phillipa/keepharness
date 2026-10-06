@@ -39,6 +39,7 @@ async function fixture(browser,width=1440,height=900){
   for(const theme of ['porcelain','amethyst','petroleum']){
    await p.evaluate(t=>HarnessTheme.apply(t),theme);if(await p.locator('#activity-panel').isHidden())await p.locator('#panel-toggle').click();
    await p.locator('#header-execution-mode').click();
+   /* D-033: Resources is one section of the Activities accordion */if(await p.locator('#activities-view').isHidden())await p.locator('#activity-toggle').click();await p.locator('#workspace-resources-head').click({force:true});
    const geometry=await p.locator('#workspace-resources').evaluate(n=>{const walker=document.createTreeWalker(n,NodeFilter.SHOW_TEXT);let t;while(t=walker.nextNode())if(t.textContent.trim()){const range=document.createRange();range.selectNodeContents(t);const r=range.getBoundingClientRect();if(r.width&&r.height){const h=document.elementFromPoint(r.x+1,r.y+r.height/2);return{owns:n.contains(h),left:r.left,hit:h?.id};}}});assert(geometry?.owns,JSON.stringify(geometry));assertHitAreas(await handleHitZones(p,'#activity-panel-resize')); /* WP-16 L64: drawn as a 6 px strip, grabbed through a 24 px zone clear of controls (WCAG 2.5.8) */assert(await p.locator('#activity-panel-resize').evaluate(n=>{const r=n.getBoundingClientRect();return [r.left+1,r.right-1].every(x=>document.elementFromPoint(x,r.y+r.height*.45)===n);}), 'entire resize target owns hit area');
    await p.locator('#header-execution-mode').click();
   }await p.close();

@@ -58,9 +58,16 @@ for test_file in "$@"; do
   [ -e "$test_file" ] || continue
   # The harness keeps UI preferences in its state store, shared by every browser context of a run:
   # each spec starts from an empty store, as it used to start from empty localStorage.
-  "${PYTHON:-python3}" -c 'import json,sys,urllib.request
+  # The harness allows 60 writes a minute per identity, so a 429 waits out its Retry-After.
+  "${PYTHON:-python3}" -c 'import json,sys,time,urllib.error,urllib.request
 from agent_service import ui_state
-urllib.request.urlopen(urllib.request.Request(sys.argv[1]+"/v1/ui-state",data=json.dumps({"values":dict.fromkeys(ui_state.SCHEMA)}).encode(),method="PATCH",headers={"Content-Type":"application/json"}),timeout=5)' "$TH_CHAT_URL"
+request=urllib.request.Request(sys.argv[1]+"/v1/ui-state",data=json.dumps({"values":dict.fromkeys(ui_state.SCHEMA)}).encode(),method="PATCH",headers={"Content-Type":"application/json"})
+for attempt in range(3):
+    try:
+        urllib.request.urlopen(request,timeout=5); break
+    except urllib.error.HTTPError as error:
+        if error.code!=429 or attempt==2: raise
+        time.sleep(int(error.headers.get("Retry-After") or 5))' "$TH_CHAT_URL"
   echo "RUN $test_file"
   if ADMIN_URL="$TH_ADMIN_URL" HARNESS_URL="$TH_CHAT_URL" node "$test_file"; then
     echo "PASS FILE $test_file"

@@ -3086,7 +3086,7 @@ function newConversation(title = "New Conversation", projectId = $("project").va
   status("");
   $("prompt").focus({ preventScroll: true });
   refreshProjectPermissions();
-  if (changedProject) { clearResourceItems(); void refreshWorkspaceResources(); }
+  if (changedProject) { clearResourceItems(); void refreshWorkspaceResources(); void loadAuthorizedProjectRoots(); }
 }
 function chooseProject(id) {
   if (busy || loading || uploads) return;
@@ -4102,8 +4102,8 @@ document.addEventListener("click", (event) => {
   const id = link.dataset.resourceId;
   pendingResourceFocus = $("activity-panel").hidden ? id : "";
   setPanelOpen(true);
-  const section = document.querySelector('[data-workspace-section="resources"]');
-  if (section) section.open = true;
+  setPanelView("activity");
+  selectAccordionSection("resources");
   focusResourceRow(id);
 });
 function stepMarker(data) {
@@ -5770,6 +5770,7 @@ async function navigateProjectFolder(project) {
     if (!folder) throw new Error("This project has no associated folder.");
     // Keep the active conversation and its draft independent of file navigation.
     setPanelView("files");
+    selectAccordionSection("system-files");
     setPanelOpen(true);
     await loadProjectFileRoots(true);
     const destination = await json(
@@ -5813,6 +5814,7 @@ async function loadProjectFileRoots(force = false) {
   fileTree.ready = false;
   $("files-loading").hidden = false;
   $("files-error").hidden = true;
+  $("files-error").setAttribute("role", "alert");
   $("files-retry").hidden = true;
   $("files-no-roots").hidden = true;
   try {
@@ -5864,9 +5866,14 @@ async function loadProjectFileRoots(force = false) {
     if (request !== fileTree.request) return;
     $("files-loading").hidden = true;
     $("files-error").hidden = false;
-    $("files-error").textContent =
-      "Couldn't load the authorized folders: " + error.message;
-    $("files-retry").hidden = false;
+    // A guest cannot browse the system's folders: say so quietly, with nothing to retry.
+    const ownerOnly = error.code === "host_files_owner_only";
+    $("files-error").className = ownerOnly ? "file-tree-note" : "";
+    $("files-error").setAttribute("role", ownerOnly ? "note" : "alert");
+    $("files-error").textContent = ownerOnly
+      ? "System files are visible to the owner only."
+      : "Couldn't load the authorized folders: " + error.message;
+    $("files-retry").hidden = ownerOnly;
   }
 }
 async function selectProjectFileRoot(root) {
@@ -6288,10 +6295,12 @@ $("take-tour").addEventListener("click", () => $("settings-dialog").close());
 // OP-R1-22: the chip attaches (recent uploads, Space pages, Upload…); it never changes the mode.
 function browseProjectFiles() {
   togglePanelView("files");
+  // D-033: the browsable tree (and its attach actions) lives in System Files, like navigateProjectFolder.
+  selectAccordionSection("system-files");
   const target =
     $("files-tree").querySelector('[role="treeitem"][tabindex="0"]') ||
     $("files-tree").querySelector('[role="treeitem"]') ||
-    document.querySelector('[data-workspace-section="files"] > summary');
+    $("workspace-system-files-head");
   target?.focus({ preventScroll: true });
 }
 $("files-chip").onclick = () => openChipMenu($("files-menu"), $("files-chip"), renderFilesMenu);
@@ -7468,21 +7477,41 @@ const activityIcons = {
   context_compacting: "⟳",
   context_compacted: "✓",
 };
+// D-033: the panel shows one view at a time, Activities (a one-open accordion) or Files.
+let rightPanelView = "files";
+const ACTIVITY_SECTIONS = ["activity", "background-tasks", "resources"];
+const FILES_SECTIONS = ["project-files", "system-files"];
+const ACCORDION_GROUPS = [ACTIVITY_SECTIONS, FILES_SECTIONS];
+function syncPanelToggles() {
+  const open = !$("activity-panel").hidden;
+  $("files-toggle").setAttribute("aria-expanded", String(open && rightPanelView === "files"));
+  $("activity-toggle").setAttribute("aria-expanded", String(open && rightPanelView === "activity"));
+}
 function setPanelView(view, persist = true) {
-  rightPanelView = view;
-  const section = document.querySelector('[data-workspace-section="' + view + '"]');
-  if (section && persist) section.open = true;
-  $("files-title").textContent = "Files";
+  rightPanelView = view === "files" ? "files" : "activity";
+  const files = rightPanelView === "files";
+  $("activities-view").hidden = files;
+  $("files-view").hidden = !files;
   $("activity-title").textContent = "Activity";
-  $("files-toggle").setAttribute(
-    "aria-expanded",
-    String(!$("activity-panel").hidden && document.querySelector('[data-workspace-section="files"]').open),
-  );
-  $("activity-toggle").setAttribute(
-    "aria-expanded",
-    String(!$("activity-panel").hidden && document.querySelector('[data-workspace-section="activity"]').open),
-  );
-  if (persist) prefs.set("right_panel_view", view);
+  syncPanelToggles();
+  if (persist) prefs.set("right_panel_view", rightPanelView);
+}
+// Exactly one section per accordion (Activities, Files) is open; it is remembered in the workspace_sections preference.
+function selectAccordionSection(name, { persist = true, focus = false } = {}) {
+  const group = ACCORDION_GROUPS.find((names) => names.includes(name));
+  for (const section of group) {
+    const on = section === name, head = $("workspace-" + section + "-head");
+    document.querySelector('[data-workspace-section="' + section + '"]').dataset.open = String(on);
+    head.setAttribute("aria-expanded", String(on));
+    head.setAttribute("aria-disabled", String(on));
+    $("workspace-" + section).hidden = !on;
+  }
+  if (focus) $("workspace-" + name + "-head").focus();
+  if (persist)
+    prefs.set("workspace_sections", {
+      ...prefs.get("workspace_sections", {}),
+      ...Object.fromEntries(group.map((section) => [section, { open: section === name, height: null }])),
+    });
 }
 const quotaHome = document.createComment("quota-indicator-home");
 $("quota-toggle").before(quotaHome);
@@ -7515,14 +7544,7 @@ function setPanelOpen(open, persist = true) {
   $("panel-toggle").setAttribute("aria-expanded", String(open));
   if (!open && $("activity-panel").contains(document.activeElement))
     $("panel-toggle").focus();
-  $("files-toggle").setAttribute(
-    "aria-expanded",
-    String(open && document.querySelector('[data-workspace-section="files"]').open),
-  );
-  $("activity-toggle").setAttribute(
-    "aria-expanded",
-    String(open && document.querySelector('[data-workspace-section="activity"]').open),
-  );
+  syncPanelToggles();
   syncWorkspaceModal();
   if (open && interfaceReady) {
     void refreshWorkspaceResources();
@@ -7553,7 +7575,16 @@ async function loadAuthorizedProjectRoots() {
   const holder = $("authorized-project-roots"),
     authorize = $("authorize-project-root"),
     project = $("project").value,
-    request = ++authorizedRootsRequest;
+    request = ++authorizedRootsRequest,
+    noProject = project === "sem-projeto";
+  $("project-files-empty").hidden = !noProject;
+  authorize.hidden = noProject;
+  holder.hidden = noProject;
+  if (noProject) {
+    holder.replaceChildren();
+    authorize.disabled = true;
+    return;
+  }
   holder.textContent = "Loading project roots…";
   authorize.disabled = true;
   authorize.title = "Checking project permissions";
@@ -7671,9 +7702,7 @@ $("authorize-project-root").onclick = () => {
 function togglePanelView(view) {
   setPanelView(view);
   if ($("activity-panel").hidden) setPanelOpen(true);
-  document.querySelector('[data-workspace-section="' + view + '"]')?.scrollIntoView({ block: "nearest" });
 }
-let rightPanelView = "files";
 function resetActivity(clearHistory = true) {
   paintMotion("");
   if (clearHistory) {
@@ -9377,6 +9406,7 @@ function renderConversationSearch() {
       button.onclick = () => {
         $("conversation-search-dialog").close();
         setPanelView("files");
+        selectAccordionSection("project-files");
         setPanelOpen(true);
       };
       return button;
@@ -10948,42 +10978,27 @@ function renderWorkspaceTasks(jobs) {
   }
   if (!active.length) target.textContent = "No background tasks.";
 }
-for (const section of document.querySelectorAll(".workspace-section")) {
-  const name = section.dataset.workspaceSection, content = $("workspace-" + name);
-  const saved = prefs.get("workspace_sections", {})[name];
-  if (saved && typeof saved === "object") {
-    section.open = saved.open !== false;
-    if (Number.isFinite(saved.height)) { content.style.height = Math.max(64, Math.min(600, saved.height)) + "px"; section.dataset.sized = ""; }
-  }
-  const save = () => prefs.set("workspace_sections", { ...prefs.get("workspace_sections", {}), [name]: { open: section.open, height: parseFloat(content.style.height) || null } });
-  section.addEventListener("toggle", () => { save();
-    const shortcut = $(name + "-toggle");
-    if (shortcut) shortcut.setAttribute("aria-expanded", String(section.open && !$("activity-panel").hidden));
+for (const names of ACCORDION_GROUPS) {
+  const heads = names.map((name) => $("workspace-" + name + "-head"));
+  heads.forEach((head, index) => {
+    head.addEventListener("click", () => {
+      if (head.getAttribute("aria-disabled") === "true") return;
+      selectAccordionSection(names[index], { focus: true });
+    });
+    head.addEventListener("keydown", (event) => {
+      const target = { ArrowDown: index + 1, ArrowUp: index - 1, Home: 0, End: heads.length - 1 }[event.key];
+      if (target === undefined) return;
+      event.preventDefault();
+      heads[(target + heads.length) % heads.length].focus();
+    });
   });
-  const handle = document.createElement("div");
-  handle.id = "workspace-" + name + "-resize"; handle.className = "workspace-resize";
-  handle.tabIndex = 0; handle.setAttribute("role", "separator");
-  handle.setAttribute("aria-orientation", "horizontal");
-  handle.setAttribute("aria-label", "Resize " + name.replaceAll("-", " "));
-  handle.setAttribute("aria-controls", content.id);
-  handle.title = "Drag or use Up and Down arrow keys to resize";
-  const size = height => {
-    const next = Math.max(64, Math.min(600, height)); content.style.height = next + "px"; section.dataset.sized = "";
-    handle.setAttribute("aria-valuenow", String(Math.round(next))); save();
-  };
-  handle.setAttribute("aria-valuemin", "64"); handle.setAttribute("aria-valuemax", "600");
-  handle.setAttribute("aria-valuenow", String(parseFloat(content.style.height) || (name === "files" ? 160 : name === "background-tasks" ? 64 : 80)));
-  let drag;
-  handle.onpointerdown = event => { if (event.button !== 0) return; event.preventDefault(); drag = { y: event.clientY, height: content.getBoundingClientRect().height }; handle.setPointerCapture(event.pointerId); };
-  handle.onpointermove = event => { if (drag) size(drag.height + event.clientY - drag.y); };
-  handle.onpointerup = handle.onpointercancel = handle.onlostpointercapture = () => { drag = null; };
-  handle.onkeydown = event => { if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return; event.preventDefault(); size(event.key === "Home" ? 64 : event.key === "End" ? 600 : content.getBoundingClientRect().height + (event.key === "ArrowDown" ? 24 : -24)); };
-  section.append(handle);
+  const sections = prefs.get("workspace_sections", {});
+  selectAccordionSection(names.find((name) => sections[name]?.open === true) || names[0], { persist: false });
 }
 function updateWorkspaceCounts() {
-  $("workspace-files-count").textContent = String($("files-view").querySelectorAll('[role="treeitem"], .authorized-root-card li:has(button, span)').length);
+  $("workspace-project-files-count").textContent = String($("authorized-project-roots").querySelectorAll(".authorized-root-card").length);
   $("workspace-activity-count").textContent = String($("activity-events").querySelectorAll("li[data-state]").length);
 }
-for (const id of ["files-view", "activity-events"])
+for (const id of ["authorized-project-roots", "activity-events"])
   new MutationObserver(updateWorkspaceCounts).observe($(id), { childList: true, subtree: true });
 document.addEventListener("harness:ready", refreshWorkspaceResources);
