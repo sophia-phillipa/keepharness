@@ -38,5 +38,5 @@ Planned sub-issues, in order: 9.1 runtime, catalogs, serving, `language` pref, s
 
 1. On first run, follow the OS language, or stay in English until chosen?
 2. Selector under Appearance, or its own Language section in Settings?
-3. pt-BR register ("você", informal) and who signs off the translation (assumed: Sophia).
+3. pt-BR register (informal second person) and who signs off the translation (assumed: Sophia).
 4. Is reloading the embedded admin iframe on a language switch acceptable?
