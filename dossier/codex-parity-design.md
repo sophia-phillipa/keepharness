@@ -72,6 +72,13 @@ Sizes: M = 1–2 days of agent work, L = more. Status is as of main `9bff3f8`.
 - Scope: one meter per connected or enabled provider in the rail; a provider that reports no quota shows a neutral "n/a" meter with the reason in its tooltip instead of disappearing; check that Claude's quota reaches the rail when Claude is connected.
 - Decision: [D-028](decisions/d-028-wp8-quota-meters-every-provider.md).
 
+### WP9 Interface language: English and Brazilian Portuguese (L, frontend + desktop + small Python)
+
+- Requested by Sophia on 2026-10-06. A language selector in Settings translates the whole interface, including every message the app shows: errors, notices, toasts, dialogs, empty states, the admin panel and the desktop menus. English stays the default and the fallback for any missing string. The first extra language is `pt-BR`, and the design must make adding another language a data-only change: one catalog file per locale, keys instead of literal strings, plural and number/date formatting through `Intl`, and no layout that assumes English text length.
+- The language is a preference in the WP6 store (`window.HarnessPrefs`, D-023), applied without a reload and also by the desktop main process (native menus and dialogs).
+- Out of scope: the models' replies and the text sent to providers (prompts, system notices, continuation handoff), which follow the conversation, not the UI language. The repository rule "everything in English" still holds for code, identifiers and docs; translations live only in the locale catalogs.
+- Needs a design (catalog format, string extraction from `agent_service/ui.js`, the admin panel and `desktop/`, a test that fails on an untranslated key) and a decision record before any code.
+
 ## Waves
 
 - Wave 1: WP4 and WP5 backends (Python) in parallel with WP1 (frontend).
