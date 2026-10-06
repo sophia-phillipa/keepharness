@@ -16,6 +16,11 @@ All specifications, use cases, design decisions, and research notes in this dire
 
 - [UC-003 — Additive project and model access](UC-003-additive-project-access.md)
 - [Harness implementation research](harness-implementation-research.md)
+- [Codex-app parity design (0.16.0)](codex-parity-design.md): why, contracts and status of WP1–WP8.
+
+## Decision records
+
+Immutable, supersede-never-delete records; see the [decision index](decisions/README.md) (D-018 to D-029 cover Codex-app parity).
 
 ## Version specifications
 
