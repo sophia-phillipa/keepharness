@@ -3776,6 +3776,7 @@ const PAST_TENSE = {
   Running: "Ran", Reading: "Read", Editing: "Edited", Listing: "Listed", Searching: "Searched",
   Browsing: "Browsed", Updating: "Updated", Delegating: "Delegated",
 };
+const STEP_VERB = new RegExp("^(" + Object.keys(PAST_TENSE).join("|") + ")");
 const MARKER_NAME = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
 // Skill and agent names are display-only: a name that does not match is never shown.
 const markerName = (value) => (typeof value === "string" && MARKER_NAME.test(value) ? value : "");
@@ -3908,10 +3909,11 @@ function renderStepRow(row) {
   row.replaceChildren(chip);
   row.setAttribute("aria-label", text);
 }
-// The marker may arrive on tool_start or tool_end: the first one seen for a tool id is kept.
+// The marker may arrive on tool_start or tool_end. A tool_start category comes from the tool
+// name only; a named one (skill, agent) is more specific and wins over it.
 function setStepRow(row, text, marker = {}) {
   row.dataset.stepText = text;
-  if (marker.category && !row.dataset.markerCategory) row.dataset.markerCategory = marker.category;
+  if (marker.category && (marker.name || !row.dataset.markerCategory)) row.dataset.markerCategory = marker.category;
   if (marker.name && !row.dataset.markerName) row.dataset.markerName = marker.name;
   renderStepRow(row);
 }
@@ -3921,16 +3923,18 @@ const PROSE_EDGE = /^[([{"'`]+|[.,;:!?)\]}"'`]+$/g;
 function proseKnownPaths() {
   const known = new Map();
   for (const entries of fileTree.cache.values())
-    for (const entry of entries) if (entry.path) known.set(entry.path, entry.type === "dir" ? "folder" : "file");
+    for (const entry of entries) if (entry.path) known.set(entry.path, entry.type === "directory" ? "folder" : "file");
   return known;
 }
+// A path counts in prose only with a "/" or "." ("tests" or "docs" alone are common words);
+// a bare name must be a whole inline code element.
 function proseMatch(token, bare, paths) {
   const name = token.startsWith("/") ? token.slice(1) : bare ? token : "";
   for (const kind of name ? ["skill", "agent"] : []) {
     const id = workspaceCatalog.get(kind + ":" + name);
     if (id) return { kind, id };
   }
-  return paths.has(token) ? { kind: paths.get(token) } : null;
+  return paths.has(token) && (bare || /[/.]/.test(token)) ? { kind: paths.get(token) } : null;
 }
 function proseChip(match, ...content) {
   const chip = document.createElement(match.id ? "a" : "span");
@@ -3981,8 +3985,8 @@ function refreshVisualMarkers() {
   // User bubbles carry no rawAnswer, so only assistant answers are touched.
   document.querySelectorAll("#messages .chat-bubble").forEach((body) => {
     if (body.rawAnswer === undefined) return;
+    removeProseMarkers(body);
     if (visualMarkersOn()) applyProseMarkers(body);
-    else removeProseMarkers(body);
   });
 }
 // Opening the panel reloads the resource rows, so a focus request outlives that reload.
@@ -4027,7 +4031,7 @@ function appendActivityTitle(list, e) {
       row,
       toolFailed
         ? "Failed: " + text
-        : text.replace(/^(Running|Reading|Editing|Listing|Searching|Browsing|Updating|Delegating)/, (verb) => PAST_TENSE[verb]),
+        : text.replace(STEP_VERB, (verb) => PAST_TENSE[verb]),
       stepMarker(data),
     );
     return;
@@ -5738,6 +5742,7 @@ async function loadProjectFileDirectory(rootId, path) {
     );
     if (version !== fileTree.request || rootId !== fileTree.rootId) return;
     fileTree.cache.set(key, data.entries || []);
+    refreshVisualMarkers();
     $("files-error").hidden = true;
     $("files-retry").hidden = true;
     if (path === "") $("files-no-roots").hidden = true;
@@ -10695,7 +10700,12 @@ async function refreshWorkspaceResources() {
   const project = $("project").value;
   target.textContent = "Loading resources…";
   $("workspace-resources-count").textContent = "0";
-  if (!engine.backend) { target.textContent = "Select a model to see resources."; return; }
+  workspaceCatalog.clear();
+  if (!engine.backend) {
+    target.textContent = "Select a model to see resources.";
+    refreshVisualMarkers();
+    return;
+  }
   try {
     const query = new URLSearchParams({ project_id: project, backend: engine.backend,
       model: engine.model, execution_mode: engine.execution_mode });
@@ -10703,7 +10713,6 @@ async function refreshWorkspaceResources() {
     if (request !== workspaceResourceRequest) return;
     const items = Array.isArray(data.items) ? data.items : [];
     target.replaceChildren();
-    workspaceCatalog.clear();
     $("workspace-resources-count").textContent = String(items.length);
     for (const item of items) {
       const key = item.kind + ":" + item.name;
@@ -10728,7 +10737,9 @@ async function refreshWorkspaceResources() {
       const note = document.createElement("p"); note.textContent = warning; target.append(note);
     }
   } catch {
-    if (request === workspaceResourceRequest) target.textContent = "Couldn't load resources. Change the model or reopen the panel to retry.";
+    if (request !== workspaceResourceRequest) return;
+    target.textContent = "Couldn't load resources. Change the model or reopen the panel to retry.";
+    refreshVisualMarkers();
   }
 }
 function renderWorkspaceTasks(jobs) {

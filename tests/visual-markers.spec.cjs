@@ -5,6 +5,17 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs/promises"),
   path = require("node:path");
 
+const PALETTES = ["paper", "graphite", "violet-bordeaux", "porcelain", "mineral-rose", "amethyst", "petroleum", "arizona"];
+const DARK = ["graphite", "amethyst", "petroleum", "arizona"];
+const setPalette = (page, name, dark) =>
+  page.evaluate(
+    ([palette, isDark]) => {
+      document.documentElement.dataset.palette = palette;
+      document.documentElement.dataset.bsTheme = isDark ? "dark" : "light";
+    },
+    [name, dark],
+  );
+
 const step = (id, data, end = {}) => [
   { type: "tool_start", data: { tool_id: id, ...data } },
   { type: "tool_end", data: { tool_id: id, status: "completed", ...data, ...end } },
@@ -29,6 +40,9 @@ const events = [
   ...step("m1", { tool: "mcp__github__create_issue", server: "github" }),
   ...step("m2", { tool: "mcp__reader__list_dir", target: "docs" }),
   // Hostile names stay text and never become a link or a chip name.
+  // Claude streams the input: the skill name only arrives on tool_end, after a plain Read start.
+  { type: "tool_start", data: { tool_id: "late1", tool: "Read", target: "SKILL.md" } },
+  { type: "tool_end", data: { tool_id: "late1", status: "completed", tool: "Read", target: "SKILL.md", skill: "late-skill" } },
   ...step("h1", { tool: "Skill", skill: "<img src=x onerror=alert(1)>" }),
   { type: "answer_delta", data: { text: "Done." } },
   { type: "completed", data: {} },
@@ -53,6 +67,7 @@ const turn = {
 const RESOURCES = [
   { id: "skill-review-pr", name: "review-pr", kind: "skill", scope: "project", origin: "claude", revision: "1", selectable: true },
   { id: "skill-deploy", name: "deploy", kind: "skill", scope: "project", origin: "codex", revision: "1", selectable: true },
+  { id: "skill-late-skill", name: "late-skill", kind: "skill", scope: "project", origin: "claude", revision: "1", selectable: true },
   { id: "agent-code-reviewer", name: "code-reviewer", kind: "agent", scope: "project", origin: "claude", revision: "1", selectable: true },
 ];
 
@@ -92,16 +107,16 @@ async function proseChipCases(page) {
     assert.equal(await body.evaluate((el) => el.rawAnswer), rawBefore);
     assert.equal(await body.innerText(), prose, "chips never change the text");
 
-  // Contrast of the prose pill in every palette.
-  for (const palette of ["paper", "graphite"]) {
-    const [fg, bg] = await page.evaluate((name) => {
-      document.documentElement.dataset.palette = name;
+  // Contrast of the prose pill in every palette, dark ones with the dark Bootstrap theme.
+  for (const palette of PALETTES) {
+    await setPalette(page, palette, DARK.includes(palette));
+    const [fg, bg] = await page.evaluate(() => {
       const pill = document.querySelector("#messages .chat-bubble a.prose-chip");
       return [getComputedStyle(pill).color, getComputedStyle(pill).backgroundColor];
-    }, palette);
+    });
     assert.ok(contrast(rgb(fg), rgb(bg)) >= 4.5, palette + " prose pill contrast");
   }
-  await page.evaluate(() => (document.documentElement.dataset.palette = "paper"));
+  await setPalette(page, "paper", false);
   // Toggle off removes the pills; on brings them back (a real assertion, not `|| true`).
   await page.evaluate(() => openSettings("appearance"));
   await page.getByTestId("visual-markers-toggle").uncheck();
@@ -111,6 +126,50 @@ async function proseChipCases(page) {
   await page.waitForFunction(() => document.querySelectorAll("#messages .prose-chip").length > 0);
 }
 
+// Guards of the prose chips, through the real bubble() and renderAnswer() paths.
+async function proseGuardCases(page) {
+  const out = await page.evaluate((answer) => {
+    fileTree.cache.set("extra", [
+      { path: "src/lib", name: "lib", type: "directory" },
+      { path: "tests", name: "tests", type: "directory" },
+      { path: "LICENSE", name: "LICENSE", type: "file" },
+    ]);
+    const made = [];
+    const bubble_ = (role, text) => {
+      const made_ = bubble(role, text);
+      made.push(made_.el);
+      return made_;
+    };
+    const chips = (el) => [...el.querySelectorAll(".prose-chip")].map((c) => [c.textContent, c.dataset.kind]);
+    const result = {};
+    result.folder = chips(bubble_("assistant", "Open src/lib now.").body);
+    result.common = chips(bubble_("assistant", "Run the tests, read the LICENSE; docs and tests.").body);
+    result.code = chips(bubble_("assistant", "Use `tests` and `LICENSE`.").body);
+    const user = bubble_("user", "/review-pr src/app.py src/lib").body;
+    const preview = document.getElementById("page-preview");
+    renderAnswer(preview, "/review-pr src/app.py src/lib");
+    refreshVisualMarkers();
+    result.user = chips(user);
+    result.preview = chips(preview);
+    // A streamed answer ends with the same chips as the same answer rendered at once.
+    const live = bubble_("assistant", "").body;
+    for (let n = 1; n <= answer.length; n += 7) live.rawAnswer = renderAnswer(live, answer.slice(0, n));
+    live.rawAnswer = renderAnswer(live, answer);
+    result.streamed = chips(live);
+    result.whole = chips(bubble_("assistant", answer).body);
+    fileTree.cache.delete("extra");
+    made.forEach((el) => el.remove());
+    return result;
+  }, ANSWER);
+  assert.deepEqual(out.folder, [["src/lib", "folder"]], "a folder path is a folder chip");
+  assert.deepEqual(out.common, [], "a common word equal to a root entry is never chipped");
+  assert.deepEqual(out.code, [["tests", "folder"], ["LICENSE", "file"]], "a bare name as whole inline code is chipped");
+  assert.deepEqual(out.user, [], "a user bubble gets no chips");
+  assert.deepEqual(out.preview, [], "the page preview gets no chips");
+  assert.ok(out.whole.length >= 5);
+  assert.deepEqual(out.streamed, out.whole, "streaming ends with the same chips");
+}
+
 (async () => {
   const browser = await chromium.launch();
   try {
@@ -118,6 +177,7 @@ async function proseChipCases(page) {
     const errors = [];
     const patches = [];
     let stored = {};
+    let resourcesFail = false;
     page.on("pageerror", (e) => errors.push(e.message));
     page.on("dialog", (d) => {
       errors.push("dialog " + d.message());
@@ -146,6 +206,7 @@ async function proseChipCases(page) {
             uploads_enabled: false,
           };
         else if (p === "/v1/version") data = { version: "test", build: "markers" };
+        else if (p === "/v1/resources" && resourcesFail) return route.fulfill({ status: 500, json: { error: "down" } });
         else if (p === "/v1/resources") data = { items: RESOURCES, warnings: [] };
         else if (p === "/v1/conversations")
           data = { conversations: [{ id: "c-project", title: "In a project", project: "project-a", state: "completed" }] };
@@ -226,6 +287,10 @@ async function proseChipCases(page) {
     const hostile = steps.locator("li", { hasText: "<img src=x" });
     assert.equal(await hostile.count(), 0, "a hostile skill name is refused, never displayed as a skill");
 
+    // The skill name arrived only on tool_end: the row is a skill step, not the Read it started as.
+    const late = await expectRow("Using skill late-skill", "cube", "skill");
+    assert.equal(await late.locator("a.step-chip").getAttribute("data-resource-id"), "skill-late-skill");
+
     // The link opens the side panel on the catalog entry.
     await knownLink.click();
     await page.waitForFunction(() => !document.getElementById("activity-panel").hidden);
@@ -237,10 +302,9 @@ async function proseChipCases(page) {
 
     // 3. Contrast in every palette, text and icon.
     const results = {};
-    for (const palette of ["paper", "graphite", "violet-bordeaux", "porcelain", "mineral-rose", "amethyst", "petroleum", "arizona"]) {
-      const colors = await page.evaluate((name) => {
-        document.documentElement.dataset.palette = name;
-        document.documentElement.dataset.bsTheme = ["graphite", "amethyst", "petroleum", "arizona"].includes(name) ? "dark" : "light";
+    for (const palette of PALETTES) {
+      await setPalette(page, palette, DARK.includes(palette));
+      const colors = await page.evaluate(() => {
         const read = (el, prop) => getComputedStyle(el)[prop];
         const chip = document.querySelector("#messages .message-activity a.step-chip"),
           plain = document.querySelector('#messages .message-activity span.step-chip[data-category="run"]');
@@ -249,7 +313,7 @@ async function proseChipCases(page) {
           link: [read(chip, "color"), read(chip, "backgroundColor")],
           icon: [read(plain.querySelector("svg"), "color"), read(plain, "backgroundColor")],
         };
-      }, palette);
+      });
       for (const [name, [fg, bg]] of Object.entries(colors)) {
         const ratio = contrast(rgb(fg), rgb(bg));
         results[palette + "/" + name] = Math.round(ratio * 100) / 100;
@@ -257,13 +321,24 @@ async function proseChipCases(page) {
       }
     }
     console.log("CONTRAST", JSON.stringify(results));
-    await page.evaluate(() => (document.documentElement.dataset.palette = "paper"));
+    await setPalette(page, "paper", false);
 
     // 3b. Prose chips in the assistant answer (part 2).
     await proseChipCases(page);
+    await proseGuardCases(page);
+
+    // 3c. A failed or switched catalog drops every link; a reload brings them back.
+    const links = 'a.step-chip, a.prose-chip';
+    assert.ok((await page.locator(links).count()) > 0);
+    resourcesFail = true;
+    await page.evaluate(() => refreshWorkspaceResources());
+    await page.waitForFunction((sel) => !document.querySelector(sel), links);
+    assert.ok((await page.locator('[data-testid="step-marker"]').count()) > 5, "plain pills stay");
+    resourcesFail = false;
+    await page.evaluate(() => refreshWorkspaceResources());
+    await page.waitForFunction((sel) => document.querySelector(sel), links);
 
     // 4. Appearance toggle: on by default, off removes every marker, persists in the store.
-    await page.locator('[data-settings="appearance"]').first().evaluate((el) => el.click()).catch(() => {});
     await page.evaluate(() => openSettings("appearance"));
     const toggle = page.getByTestId("visual-markers-toggle");
     await toggle.waitFor();
@@ -291,7 +366,7 @@ async function proseChipCases(page) {
     await page.getByTestId("visual-markers-toggle").check();
     await page.waitForFunction(() => document.querySelectorAll('[data-testid="step-marker"]').length > 5);
     await page.waitForTimeout(1500);
-    assert.ok(patches.some((values) => values.visual_markers === true || values.visual_markers === null), "turning it on is stored");
+    assert.ok(patches.some((values) => values.visual_markers === true), "turning it on is stored");
 
     assert.deepEqual(errors, []);
     console.log("PASS visual-markers");
