@@ -93,7 +93,7 @@ def admin_guard(request, manager, port):
         return r
     if path.startswith("/assets/"):
         return asset_response(path, request.headers)
-    if path in ("/admin.js", "/catalogs.js", "/admin.css"):
+    if path in ("/admin.js", "/catalogs.js", "/customize.js", "/admin.css"):
         return static_response(PANEL_DIR / path[1:], request.headers)
     if not secrets.compare_digest(
         request.cookies.get("admin", "").encode("utf-8"), manager.cookie.encode("utf-8")
@@ -773,6 +773,7 @@ ROUTES = [
     Route("/open-admin", endpoint),
     Route("/admin.js", endpoint),
     Route("/catalogs.js", endpoint),
+    Route("/customize.js", endpoint),
     Route("/admin.css", endpoint),
     Route("/assets/{path:path}", endpoint),
     Route("/api/{path:path}", endpoint, methods=["GET", "POST"]),
