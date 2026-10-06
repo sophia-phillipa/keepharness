@@ -351,6 +351,53 @@ async function openDialog(page) {
       await page.waitForFunction(() => document.getElementById("continuation-copy").textContent.trim() === "Copied");
       await page.waitForFunction(() => document.getElementById("continuation-copy").textContent.trim() === "Copy", null, { timeout: 4000 });
     }
+    // 18. Polish: the target control shows its checked state, labels keep apart, the legend is a normal label.
+    {
+      const { context, page } = await scenario(browser);
+      opened.push(context);
+      await openDialog(page);
+      for (const theme of ["paper", "graphite"]) {
+        await page.evaluate((value) => window.HarnessTheme.apply(value), theme);
+        const seg = (value) => page.locator(`.continuation-targets label:has(input[value="${value}"])`);
+        const look = (value) =>
+          seg(value).evaluate((e) => {
+            const c = getComputedStyle(e);
+            return { background: c.backgroundColor, border: c.borderTopColor, color: c.color };
+          });
+        const checked = await look("chatgpt"),
+          unchecked = await look("claude");
+        assert.notEqual(checked.background, unchecked.background, `${theme}: checked segment background differs`);
+        assert.notEqual(checked.border, unchecked.border, `${theme}: checked segment border differs`);
+        assert(ratio(checked.color, checked.background) >= 4.5, `${theme}: checked text contrast ${ratio(checked.color, checked.background)}`);
+        assert(ratio(unchecked.color, unchecked.background) >= 4.5, `${theme}: unchecked text contrast`);
+        await page.locator('input[name="continuation-target"][value="claude"]').check();
+        await page.waitForFunction(() => document.getElementById("continuation-text").value.includes("for claude"));
+        assert.deepEqual(await look("claude"), checked, `${theme}: the checked look follows the selection`);
+        assert.deepEqual(await look("chatgpt"), unchecked);
+        await page.locator('input[name="continuation-target"][value="chatgpt"]').check();
+        await page.waitForFunction(() => document.getElementById("continuation-text").value.includes("for chatgpt"));
+      }
+      // Still native radios: the arrow keys move the selection, and the focused segment shows a ring.
+      await page.locator('input[name="continuation-target"][value="chatgpt"]').focus();
+      await page.keyboard.press("ArrowRight");
+      assert(await page.locator('input[name="continuation-target"][value="claude"]').isChecked(), "arrow keys move the radio selection");
+      await page.keyboard.press("Tab");
+      await page.keyboard.press("Shift+Tab");
+      assert.notEqual(await page.locator('.continuation-targets label:has(input[value="claude"])').evaluate((e) => getComputedStyle(e).outlineStyle), "none", "focus is visible");
+      const box = (selector) => page.locator(selector).evaluate((e) => { const r = e.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, left: r.left, right: r.right }; });
+      const paths = await box("#continuation-paths-label"),
+        handoff = await box('#continuation-dialog label[for="continuation-text"]'),
+        field = await box("#continuation-text"),
+        summary = await box("#continuation-summary");
+      assert(handoff.top - paths.bottom >= 6, `labels do not run together: ${handoff.top - paths.bottom}`);
+      assert(summary.top - field.bottom >= 8, `summary keeps off the textarea: ${summary.top - field.bottom}`);
+      const fonts = await page.evaluate(() => {
+        const f = (e) => { const c = getComputedStyle(e); return [c.fontSize, c.fontWeight]; };
+        return { legend: f(document.querySelector(".continuation-targets legend")), label: f(document.querySelector('#continuation-dialog label[for="continuation-text"]')), other: f(document.querySelector("#rename-conversation-dialog label")) };
+      });
+      assert.deepEqual(fonts.legend, fonts.label, "the legend matches a normal field label");
+      assert.deepEqual(fonts.legend, fonts.other, "the legend matches other dialog field labels");
+    }
     console.log("PASS: continuation dialog, refetch, stale drop, copy, save, bridge question and statuses, legacy rows, focus and contrast");
   } finally {
     await browser.close();

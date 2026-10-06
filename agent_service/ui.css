@@ -4073,28 +4073,88 @@ body.panel-order-reversed #app-topbar #menu .th-icon {
 #continuation-open-status:empty {
   display: none;
 }
+/* The legend and the Handoff label read like every other field label in a dialog. */
+.continuation-targets legend,
+#continuation-dialog label[for="continuation-text"] {
+  display: block;
+  float: none;
+  width: auto;
+  padding: 0;
+  margin: 0 0 6px;
+  color: var(--th-text);
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+}
+/* Segmented control over native radios: the input stays in the label (arrow keys, name and value
+   unchanged) and is only hidden; the checked segment takes the action colors. */
 .continuation-targets {
   display: flex;
   flex-wrap: wrap;
-  gap: 16px;
-  margin: 0 0 12px;
+  margin: 0 0 16px;
   padding: 0;
   border: 0;
 }
 .continuation-targets legend {
-  padding: 0;
-  margin-bottom: 6px;
-  color: var(--th-text);
+  flex: 0 0 100%;
 }
-.continuation-targets label,
-.continuation-paths {
+.continuation-targets label {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  justify-content: center;
+  min-width: 112px;
+  min-height: 36px;
+  padding: 6px 16px;
+  margin: 0;
+  border: 1px solid var(--th-border);
+  background: var(--th-panel);
   color: var(--th-text);
+  cursor: pointer;
+}
+.continuation-targets label:first-of-type {
+  border-radius: var(--th-radius) 0 0 var(--th-radius);
+}
+.continuation-targets label:last-of-type {
+  border-radius: 0 var(--th-radius) var(--th-radius) 0;
+}
+.continuation-targets label + label {
+  margin-left: -1px;
+}
+.continuation-targets label:hover {
+  border-color: var(--th-accent);
+  background: var(--th-soft);
+  z-index: 1;
+}
+.continuation-targets label:has(input:checked) {
+  border-color: var(--th-action);
+  background: var(--th-action);
+  color: var(--th-on-action);
+  z-index: 1;
+}
+.continuation-targets label:has(input:focus-visible) {
+  outline: 2px solid var(--th-accent);
+  outline-offset: 2px;
+  z-index: 2;
+}
+.continuation-targets input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
 }
 .continuation-paths {
-  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 16px;
+  color: var(--th-text);
+}
+#continuation-summary {
+  margin-top: 12px;
 }
 #continuation-text {
   box-sizing: border-box;
