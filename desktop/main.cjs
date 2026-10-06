@@ -212,16 +212,30 @@ function hostHandoff() {
   } catch { hostMode = false; }
   return hostMode;
 }
-// Runs one host command and resolves its stdout, or null on any error, timeout or oversized output.
-function hostRun(args) {
-  const home = os.homedir();
+function hostEnv() {
   const bus = process.env.DBUS_SESSION_BUS_ADDRESS;
-  const env = {PATH: '/usr/bin:/bin', HOME: home};
+  const env = {PATH: '/usr/bin:/bin', HOME: os.homedir()};
   if (process.env.XDG_RUNTIME_DIR) env.XDG_RUNTIME_DIR = process.env.XDG_RUNTIME_DIR;
   if (DBUS_USER_BUS.test(bus ?? '')) env.DBUS_SESSION_BUS_ADDRESS = bus;
-  const options = {timeout: 3000, killSignal: 'SIGTERM', maxBuffer: 1024, windowsHide: true, cwd: home, stdio: ['ignore', 'pipe', 'ignore'], env};
+  return env;
+}
+// Runs one host query and resolves its stdout, or null on any error, timeout or oversized output.
+function hostQuery(args) {
+  const options = {timeout: 3000, killSignal: 'SIGTERM', maxBuffer: 1024, cwd: os.homedir(), env: hostEnv()};
   return new Promise(resolve => {
-    try { execFile(HOST_SPAWN, ['--no-pty', ...args], options, (error, stdout) => resolve(error ? null : String(stdout))); } catch { resolve(null); }
+    try { execFile(HOST_SPAWN, ['--no-pty', ...args], options, (error, stdout) => resolve(error ? null : String(stdout)))?.stdin?.end(); } catch { resolve(null); }
+  });
+}
+// Opens a constant URL on the host. stdio is ignored so the opened app never holds our pipes, and
+// the answer is host-spawn's exit code, so a long-lived app is never killed by the timeout.
+function hostOpen(url) {
+  return new Promise(resolve => {
+    let child;
+    try { child = spawn(HOST_SPAWN, ['--no-pty', 'xdg-open', url], {cwd: os.homedir(), env: hostEnv(), stdio: 'ignore'}); } catch { resolve(false); return; }
+    const timer = setTimeout(() => resolve(false), 3000);
+    const done = ok => { clearTimeout(timer); resolve(ok); };
+    child.once('error', () => done(false));
+    child.once('exit', code => done(code === 0));
   });
 }
 async function handoffInstalled(target) {
@@ -229,7 +243,7 @@ async function handoffInstalled(target) {
   if (!hostHandoff()) {
     try { return !!app.getApplicationNameForProtocol(HANDOFF_APPS[target]); } catch { return false; }
   }
-  const out = await hostRun(['xdg-mime', 'query', 'default', 'x-scheme-handler/' + HANDOFF_APPS[target].replace('://', '')]);
+  const out = await hostQuery(['xdg-mime', 'query', 'default', 'x-scheme-handler/' + HANDOFF_APPS[target].replace('://', '')]);
   return out !== null && DESKTOP_ID.test(out.trim());
 }
 async function handoffApps(event) {
@@ -249,7 +263,7 @@ async function handoffOpen(event, payload) {
   if (onHost && !HOST_URLS.includes(url)) return {opened: false, error: 'handoff_invalid'};
   // A fixed line: the error message may carry the URL, and with it the prompt.
   try {
-    if (onHost) { if (await hostRun(['xdg-open', url]) === null) throw new Error('host open failed'); }
+    if (onHost) { if (!await hostOpen(url)) throw new Error('host open failed'); }
     else await shell.openExternal(url);
   } catch { log('handoff open failed'); return {opened: false, error: 'handoff_open_failed'}; }
   return {opened: true, mode};

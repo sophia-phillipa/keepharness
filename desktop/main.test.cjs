@@ -81,7 +81,7 @@ async function boot(options = {}) {
       const r = hostExec(args);
       queueMicrotask(() => r.error ? callback(Object.assign(new Error('fail'), r.error), '', '') : callback(null, r.stdout ?? '', ''));
     }, spawnSync(executable) { probes.push(executable); return options.badPython ? {error:new Error('ENOENT'),status:null} : {status:0}; },
-    spawn(_executable,args) { const child = new EventEmitter(); Object.assign(child, {stderr:new EventEmitter(),stdout:new EventEmitter(),exitCode:null,signalCode:null,kill() { this.signalCode='SIGTERM'; }}); children.push(child); adminReady=true; if (options.enrollment && args.includes('approve-device')) queueMicrotask(() => { child.stdout.emit('data',options.enrollment); child.exitCode=0; child.emit('close',0); }); return child; } };
+    spawn(_executable,args,opts) { if (_executable === '/usr/bin/host-spawn') { hostCalls.push({ file:_executable, args, opts }); const r = hostExec(args); const child = new EventEmitter(); if (!r.hang) queueMicrotask(() => r.error ? child.emit('exit', r.error.code ?? 1, null) : child.emit('exit', 0, null)); return child; } const child = new EventEmitter(); Object.assign(child, {stderr:new EventEmitter(),stdout:new EventEmitter(),exitCode:null,signalCode:null,kill() { this.signalCode='SIGTERM'; }}); children.push(child); adminReady=true; if (options.enrollment && args.includes('approve-device')) queueMicrotask(() => { child.stdout.emit('data',options.enrollment); child.exitCode=0; child.emit('close',0); }); return child; } };
   const fakeFs = new Proxy(fs, { get(target, key) {
     if (key === 'readFileSync') return (file, ...args) => options.tcp && file === '/proc/net/tcp' ? options.tcp : options.tcp && file === '/proc/net/tcp6' ? '' : String(file).endsWith('build-manifest.json') ? (options.manifest ?? JSON.stringify({product:'keepharness',version:'0.16.0',commit:'a'.repeat(40),dirty:false,built_at:'2026-10-04T12:00:00Z'})) : String(file).endsWith('local.key') ? 'abcdefghijklmnop' : target.readFileSync(file,...args);
     if (key === 'existsSync') return file => file === '/run/.containerenv' || file === '/usr/bin/host-spawn' ? !!options.host : options.host && options.xdgOpen?.[file] ? true : file === '/proc/net/tcp' ? !!options.tcp : options.badPython && String(file).includes('python') ? false : target.existsSync(file);
@@ -618,6 +618,17 @@ test('handoff-open reports an open failure without leaking the prompt', async ()
   assert.ok(!fs.existsSync(log) || !fs.readFileSync(log, 'utf8').includes(secret));
 });
 
+test('host-mode open answers from host-spawn exit and gives up after 3 s without killing the opened app', async () => {
+  const hung = await hostBoot({ host: { exec: args => args.includes('xdg-open') ? { hang: true } : { stdout: 'claude.desktop' } } });
+  const started = Date.now();
+  assert.deepEqual(plain(await hung.handlers.get(OPEN)(fromFrame(HARNESS), { target: 'claude', text: 'x' })), { opened: false, error: 'handoff_open_failed' });
+  assert.ok(Date.now() - started >= 2900);
+  const opens = hung.hostCalls.filter(c => c.args.includes('xdg-open'));
+  assert.equal(opens.length, 1);
+  assert.equal(opens[0].opts.stdio, 'ignore');
+  assert.equal(opens[0].opts.timeout, undefined);
+});
+
 // D-030: inside distrobox the host is asked, and only constant arguments reach it.
 const SHIM = { '/usr/local/bin/xdg-open': '/usr/bin/distrobox-host-exec', '/usr/bin/xdg-open': '/usr/bin/xdg-open' };
 const hostEnv = { PATH: '/usr/local/bin:/usr/bin:/bin', XDG_RUNTIME_DIR: '/run/user/1000', DBUS_SESSION_BUS_ADDRESS: 'unix:path=/run/user/1000/bus' };
@@ -632,7 +643,7 @@ test('host mode lists both apps and runs host-spawn with exactly the contract ar
   assert.equal(claude.file, '/usr/bin/host-spawn');
   assert.deepEqual(plain(claude.args), ['--no-pty', 'xdg-mime', 'query', 'default', 'x-scheme-handler/claude']);
   assert.deepEqual(h.hostCalls.map(c => c.args.at(-1)).sort(), ['x-scheme-handler/claude', 'x-scheme-handler/codex']);
-  assert.deepEqual(plain(claude.opts), { timeout: 3000, killSignal: 'SIGTERM', maxBuffer: 1024, windowsHide: true, cwd: h.home, stdio: ['ignore', 'pipe', 'ignore'],
+  assert.deepEqual(plain(claude.opts), { timeout: 3000, killSignal: 'SIGTERM', maxBuffer: 1024, cwd: h.home,
     env: { PATH: '/usr/bin:/bin', HOME: h.home, XDG_RUNTIME_DIR: '/run/user/1000', DBUS_SESSION_BUS_ADDRESS: 'unix:path=/run/user/1000/bus' } });
 });
 
@@ -697,7 +708,7 @@ test('host-mode open sends only the constant URL, never the prompt, through host
   const opens = h.hostCalls.filter(c => c.args.includes('xdg-open'));
   assert.equal(opens.length, 2);
   assert.deepEqual(plain(opens.map(c => c.args)), [['--no-pty', 'xdg-open', handoffShortUrl('claude')], ['--no-pty', 'xdg-open', 'codex://threads/new']]);
-  for (const c of opens) { assert.equal(c.file, '/usr/bin/host-spawn'); assert.equal(c.opts.timeout, 3000); assert.equal(c.opts.maxBuffer, 1024); }
+  for (const c of opens) { assert.equal(c.file, '/usr/bin/host-spawn'); assert.equal(c.opts.stdio, 'ignore'); assert.equal(c.opts.cwd, h.home); assert.equal(c.opts.env.PATH, '/usr/bin:/bin'); }
   assert.ok(h.hostCalls.every(c => c.args.every(a => a.length < 200 && !a.includes('rm -rf'))));
   assert.ok(h.hostCalls.every(c => JSON.stringify(c).length < 2000));
   assert.deepEqual(plain(h.external), []); // never shell.openExternal in host mode
