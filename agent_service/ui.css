@@ -5214,7 +5214,7 @@ main:not(:has(#messages > #welcome:only-child)) .composer-area .composer-context
 
 /* Menus like the reference: 20 px cards, 32 px rows. */
 body .composer-menu, body .resource-menu, body .conversation-actions-menu, body .attention-popover {
-  border: 0; border-radius: 20px; background: color-mix(in srgb, var(--th-panel) 96%, transparent); padding: 6px;
+  border: 0; border-radius: 20px; background: var(--th-panel); padding: 6px;
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--th-text) 8%, transparent), 0 12px 32px rgba(0, 0, 0, .28);
 }
 body .composer-menu [role="option"], body .conversation-actions-menu > button { min-height: 32px; padding: 4px 10px; border-radius: 8px; font-size: 14px; }

@@ -83,6 +83,26 @@ const path = require("node:path");
     await menu.waitFor({ state: "hidden" });
     assert.equal(await page.evaluate(() => document.activeElement.id), "settings");
 
+    // On every palette the open menu is a solid surface: nothing behind it shows through.
+    for (const palette of ["graphite", "paper", "violet-bordeaux", "porcelain", "mineral-rose", "amethyst", "petroleum", "arizona"]) {
+      await page.evaluate((name) => { document.documentElement.dataset.palette = name; }, palette);
+      await page.click("#settings");
+      await menu.waitFor({ state: "visible" });
+      const solid = await menu.evaluate((m) => {
+        const style = getComputedStyle(m);
+        const alpha = style.backgroundColor.match(/\/\s*([\d.]+)\s*\)|^rgba\(.*,\s*([\d.]+)\)$/);
+        const box = m.getBoundingClientRect();
+        const topmost = [[10, 10], [box.width / 2, box.height / 2], [box.width - 10, box.height - 10]].map(([dx, dy]) => {
+          const hit = document.elementsFromPoint(box.left + dx, box.top + dy)[0];
+          return m.contains(hit);
+        });
+        return { alpha: alpha ? Number(alpha[1] ?? alpha[2]) : 1, opacity: Number(style.opacity), topmost };
+      });
+      assert.deepEqual(solid, { alpha: 1, opacity: 1, topmost: [true, true, true] }, "settings menu is opaque on " + palette);
+      await page.keyboard.press("Escape");
+      await menu.waitFor({ state: "hidden" });
+    }
+
     // Pick "Run history": dialog open at that section, admin framed at #runs.
     await page.click("#settings");
     await menu.getByRole("menuitem", { name: "Run history" }).click();
