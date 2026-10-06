@@ -159,6 +159,38 @@ DEEPSEEK_BALANCE_SECONDS = 300
 DEEPSEEK_FAILURE_SECONDS = 60
 
 
+NATIVE_IMAGE_BACKENDS = ("codex", "claude", "gemini")
+# Fields of a failed turn that a retry carries over; everything else is rebuilt by admission.
+# The execution mode is inherited from the parent turn: a continuation never sets it.
+RETRY_FIELDS = (
+    "project_id",
+    "prompt",
+    "file_ids",
+    "backend",
+    "model",
+    "effort",
+    "access_mode",
+    "resource_selections",
+    "invocations",
+    "task_label",
+)
+
+
+def image_refusal(backend, execution_mode, vision=False):
+    """The error code when a model cannot read images, else None.
+
+    One rule for sending (``validate_images``) and for the model list (``capabilities.images``).
+    ``vision`` is what a local server reports; other providers ignore it.
+    """
+    if execution_mode != "native" and backend != "local":
+        return "images_require_native_service"
+    if backend in NATIVE_IMAGE_BACKENDS:
+        return None
+    if backend != "local":
+        return "model_images_unavailable"
+    return None if vision else "local_vision_not_enabled"
+
+
 def text_length(pages):
     return sum(len(page.get("text", "")) for page in pages)
 
@@ -1472,6 +1504,42 @@ class ConversationService:
             recovery["_workflow_from_step"] = from_step
         return self.submit(identity, data, idem, workflow_recovery=recovery)
 
+    async def retry_turn(self, identity, job_id):
+        """Run the latest failed or interrupted turn again, once, on the model that failed."""
+        row = self.job(identity, job_id)
+        data = json.loads(row["payload"])
+        if row["state"] not in ("failed", "interrupted"):
+            raise APIError("retry_source_not_failed", 409)
+        if (
+            data.get("schedule_id")
+            or "_declared_workflow" in data
+            or "_maestro_stage" in data
+            or data.get("backend") == "maestro"
+            or any(value.get("kind") == "workflow" for value in data.get("invocations", []))
+        ):
+            raise APIError("retry_not_supported", 409)
+        key = "retry:" + job_id
+        child = self.conversation_repository.by_idempotency_key(identity[0], row["project"], key)
+        if child is not None:
+            data = json.loads(self.job(identity, child["id"])["payload"])
+            return {"job_id": child["id"], "reused": True, **self._retry_route(data)}
+        turns = self.conversation(identity, self.conversation_id(row))
+        if turns[-1]["id"] != job_id:
+            raise APIError("retry_source_superseded", 409)
+        retry = {name: data[name] for name in RETRY_FIELDS if name in data}
+        result = await self.submit_async(
+            identity, {**retry, "parent_job_id": job_id, "retry_of": job_id}, key
+        )
+        return {
+            "job_id": result["job_id"],
+            "reused": result.get("reused", False),
+            **self._retry_route(result),
+        }
+
+    @staticmethod
+    def _retry_route(data):
+        return {name: data.get(name) for name in ("backend", "model", "effort", "execution_mode")}
+
     def save_workflow(self, identity, job_id, workflow_id):
         row = self.job(identity, job_id)
         result = json.loads(row["result"]) if row["result"] else {}
@@ -1754,19 +1822,16 @@ class ConversationService:
     async def validate_images(self, backend, model, execution_mode=None):
         if execution_mode is None:
             execution_mode = self.config.get("services", {}).get(backend, {}).get("mode", "native")
-        if execution_mode != "native" and backend != "local":
-            raise APIError("images_require_native_service")
-        if backend in ("codex", "claude", "gemini"):
-            return
-        if backend != "local":
-            raise APIError("model_images_unavailable")
-        try:
-            properties = await self.local_properties(model)
-        except (ValueError, OSError):
-            raise APIError("image_capability_unavailable") from None
-        if as_dict(properties.get("modalities")).get("vision") is True:
-            return
-        raise APIError("local_vision_not_enabled")
+        vision = False
+        if backend == "local":
+            try:
+                properties = await self.local_properties(model)
+            except (ValueError, OSError):
+                raise APIError("image_capability_unavailable") from None
+            vision = as_dict(properties.get("modalities")).get("vision") is True
+        refusal = image_refusal(backend, execution_mode, vision)
+        if refusal:
+            raise APIError(refusal)
 
     async def local_properties(self, model):
         """The ``/props`` object of the server behind a local model.
@@ -2951,10 +3016,10 @@ class ConversationService:
             window = as_dict(properties.get("default_generation_settings")).get("n_ctx")
             if type(window) is int and window > 0:
                 model["context_window"] = window
-            if (
-                as_dict(properties.get("modalities")).get("vision") is True
-                and tools.video_tools_available()
-            ):
+            vision = as_dict(properties.get("modalities")).get("vision") is True
+            mode = self.config["services"]["local"].get("mode", "native")
+            model["capabilities"]["images"] = image_refusal("local", mode, vision) is None
+            if vision and tools.video_tools_available():
                 model["capabilities"]["video"] = True
                 model["capabilities"]["video_transcription"] = tools.transcription_available()
                 model["capabilities"]["video_execution_modes"] = ["scoped"]
@@ -2985,6 +3050,7 @@ class ConversationService:
                         ).items()
                         if key != "upload"
                     ),
+                    "images": image_refusal(provider, service.get("mode", "native")) is None,
                     "video": False,
                     "video_transcription": False,
                     "video_execution_modes": [],

@@ -311,6 +311,12 @@ async def recover_workflow(request, service, identity):
     )
 
 
+async def retry_turn(request, service, identity):
+    return JSONResponse(
+        await service.retry_turn(identity, request.path_params["job"]), status_code=202
+    )
+
+
 async def save_workflow(request, service, identity):
     # A saved workflow appears in every client's "/" for the project; only the owner here adds one.
     if identity[0] != LOCAL_CLIENT:
@@ -343,6 +349,7 @@ async def job(request, service, identity):
             "kind",
             "access_mode",
             "execution_mode",
+            "retry_of",
         )
     }
     return JSONResponse(
@@ -486,6 +493,7 @@ ROUTES = [
     api_route("/v1/jobs/{job}", job),
     api_route("/v1/jobs/{job}/resume", recover_workflow, methods=["POST"]),
     api_route("/v1/jobs/{job}/rerun", recover_workflow, methods=["POST"]),
+    api_route("/v1/jobs/{job}/retry", retry_turn, methods=["POST"]),
     api_route("/v1/jobs/{job}/save-workflow", save_workflow, methods=["POST"]),
     api_route("/v1/jobs/{job}/events", job_events),
     api_route("/v1/jobs/{job}/cancel", cancel_job, methods=["POST"]),
