@@ -33,6 +33,11 @@ _ASSIGNMENT = re.compile(
     r"\b([A-Za-z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|PASSWD)[A-Za-z0-9_]*)=\S+", re.IGNORECASE
 )
 _ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*\Z")
+_NAME_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,63}")
+_SKILL_FILE = re.compile(r"/(%s)/SKILL\.md(?![\w.-])" % _NAME_PATTERN.pattern)
+_READERS = {"cat", "sed", "head", "tail", "less", "bat", "nl"}
+READ_TOOLS = {"Read", "read", "read_file"}
+AGENT_TOOLS = {"Task", "Agent"}
 _SHELL_SYNTAX = re.compile(r"[\n\r;|&<>`]|\$\(")
 _EXECUTABLE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]*\Z")
 
@@ -108,6 +113,50 @@ def _path_value(tool, args, root):
     return None
 
 
+def _scrub(value):
+    """Redact a display value and fold it onto one line."""
+    for pattern, repl in _TARGET_REDACTIONS:
+        value = pattern.sub(repl, value)
+    return " ".join(redact(value).split())
+
+
+def _safe_name(value):
+    """A skill or agent name, only when it is a plain identifier that redaction leaves intact."""
+    if isinstance(value, str) and _NAME_PATTERN.fullmatch(value) and _scrub(value) == value:
+        return value
+    return None
+
+
+def _skill_file_name(text):
+    """The ``<name>`` of the first ``<name>/SKILL.md`` in the redacted text, if any."""
+    found = _SKILL_FILE.search(_scrub(text)) if isinstance(text, str) else None
+    return found and found.group(1)
+
+
+def tool_markers(tool, args):
+    """The skill or agent a tool event reveals: ``{"skill": name}``, ``{"agent": name}`` or ``{}``.
+
+    A skill comes from the ``Skill`` tool or from reading a ``<name>/SKILL.md`` file (by a file tool
+    or a shell command); an agent comes from the ``Task``/``Agent`` tool. Display-only, like the target.
+    """
+    if not isinstance(tool, str) or not isinstance(args, dict):
+        return {}
+    name = tool.split("__")[-1]
+    native = not tool.startswith("mcp__")  # a third-party MCP tool may reuse these names
+    skill = agent = None
+    if name == "Skill":
+        skill = _safe_name(args.get("skill"))
+    elif name in AGENT_TOOLS and native:
+        agent = _safe_name(args.get("subagent_type"))
+    elif name in SHELL_TOOLS:
+        line = _command_line(args.get("command", args.get("cmd")))
+        if isinstance(line, str) and command_name(line) in _READERS:
+            skill = _skill_file_name(line)
+    elif name in READ_TOOLS and native:
+        skill = _skill_file_name(_path_value(name, args, None))
+    return {key: value for key, value in (("skill", skill), ("agent", agent)) if value}
+
+
 def tool_target(tool, args, root=None):
     """A short display line for what a tool acts on: the command, or the file path or pattern.
 
@@ -125,9 +174,7 @@ def tool_target(tool, args, root=None):
         return None
     if not isinstance(value, str):
         return None
-    for pattern, repl in _TARGET_REDACTIONS:
-        value = pattern.sub(repl, value)
-    line = " ".join(redact(value).split())
+    line = _scrub(value)
     if not line:
         return None
     return line if len(line) <= TARGET_LIMIT else line[: TARGET_LIMIT - 1] + "…"
@@ -143,3 +190,13 @@ def item_target(item, root=None):
     if kind == "fileChange":
         return tool_target(kind, {"changes": item.get("changes")}, root)
     return None
+
+
+def item_markers(item):
+    """The skill or agent of a Codex ``item/started`` payload (same shape as ``tool_markers``)."""
+    kind = item.get("type")
+    if kind == "mcpToolCall":
+        return tool_markers(item.get("tool"), item.get("arguments"))
+    if kind == "commandExecution":
+        return tool_markers(kind, {"command": item.get("command")})
+    return {}

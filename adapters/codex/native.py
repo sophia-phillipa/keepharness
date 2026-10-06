@@ -13,7 +13,7 @@ from adapters.shared.provider_setup import instructions
 from adapters.shared.workspace import readable_roots
 from agent_service.reader_mcp import SERVER_NAME as READER
 from agent_service.reader_mcp import server_spec as reader_spec
-from agent_service.tool_metadata import event_metadata, item_target
+from agent_service.tool_metadata import event_metadata, item_markers, item_target
 from agent_service.tools import ToolError
 from control.integrations import configurations, inventory
 
@@ -326,6 +326,7 @@ async def run_turn(
     seen_answer = False
     answer_item = None
     file_changes = {}
+    markers = {}  # skill/agent names from each tool start, kept for its end
     async with connection(
         command,
         env=environment,
@@ -471,8 +472,13 @@ async def run_turn(
                         command=(content.get("command") if typ == "commandExecution" else None),
                     )
                     started = kind.endswith("started")
-                    found = item_target(content, cwd) if started else None
-                    target = {"target": found} if found else {}
+                    tool_id = content.get("id")
+                    if started:
+                        markers[tool_id] = item_markers(content)
+                        found = item_target(content, cwd)
+                        extra = {**({"target": found} if found else {}), **markers[tool_id]}
+                    else:
+                        extra = markers.pop(tool_id, {})
                     event(
                         "tool_start" if started else "tool_end",
                         {
@@ -480,7 +486,7 @@ async def run_turn(
                             "status": content.get("status"),
                             "result": content.get("result"),
                             **metadata,
-                            **target,
+                            **extra,
                         },
                     )
                 elif typ == "contextCompaction":

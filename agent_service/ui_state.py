@@ -167,6 +167,7 @@ SCHEMA: dict[str, Check] = {
     "project_expanded": mapping(_project_id, flag, ITEM_CAPS["project_expanded"]),
     "right_panel_view": text(choices=("files", "activity")),
     "activity_open": flag,
+    "visual_markers": flag,
     "conversation_activity": mapping(
         _identifier,
         record({"token": _token, "state": text(pattern=WORD), "unread": flag}),

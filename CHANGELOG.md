@@ -48,6 +48,7 @@ Detail: [`dossier/releases/v0.16.0.md`](dossier/releases/v0.16.0.md).
 - `python -m agent_service.storage_migration` to link identical old uploads (dry run by default, `--apply` to change).
 - Projects without a folder (`"paths": []`) and a Files chip popover (recent uploads, Space pages, Upload, Browse project files).
 - Schedules can pick an agent and up to 5 pages, and carry an `allow_internet` flag.
+- Visual markers: icons on run steps, skill and agent chips that link to the catalog, chips for catalog names and known file paths in answers, and a Settings Appearance toggle.
 - `keepharness backup` and `keepharness restore` for the state folder, with owner-only archives and secrets left out by default.
 - Supervised harness restarts with backoff, a drain on shutdown, and a close confirmation in the desktop app when work is running.
 - Hashed dependency locks (`--require-hashes`) and supply-chain scans in CI.

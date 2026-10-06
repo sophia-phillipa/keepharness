@@ -10,7 +10,7 @@ from adapters.shared.scoped import (
     scoped_home_read,
     scoped_home_write,
 )
-from agent_service.tool_metadata import event_metadata, item_target
+from agent_service.tool_metadata import event_metadata, item_markers, item_target
 from agent_service.tools import ToolError
 
 from .rpc import connection, execution_failed, provider_message, sync_title, usage_delta
@@ -52,6 +52,7 @@ async def run(
         usage = {}
         token_usage = {}
         seen_answer = False
+        markers = {}  # skill/agent names from each tool start, kept for its end
         answer_item = None
         async with connection(command, event=event, config=config) as rpc:
             marker = "remote-thread.json"
@@ -155,8 +156,13 @@ async def run(
                     typ = content.get("type", "")
                     if typ == "mcpToolCall":
                         metadata = event_metadata(content)
-                        if kind.endswith("started") and (found := item_target(content)):
-                            metadata["target"] = found
+                        if kind.endswith("started"):
+                            markers[content.get("id")] = item_markers(content)
+                            if found := item_target(content):
+                                metadata["target"] = found
+                            metadata.update(markers[content.get("id")])
+                        else:
+                            metadata.update(markers.pop(content.get("id"), {}))
                         event(
                             "tool_start" if kind.endswith("started") else "tool_end",
                             {

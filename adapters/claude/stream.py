@@ -11,7 +11,7 @@ from adapters.shared.process import (
     process_diagnostics,
     provider_message,
 )
-from agent_service.tool_metadata import command_name, tool_target
+from agent_service.tool_metadata import command_name, tool_markers, tool_target
 from agent_service.tools import ToolError
 
 # The error kinds Claude Code puts on an assistant message, as the harness code the worker maps
@@ -144,6 +144,7 @@ class Stream:
                         metadata["command_name"] = name
                 if found := tool_target(tool, block.get("input"), self.root):
                     metadata["target"] = found
+                metadata.update(tool_markers(tool, block.get("input")))
                 self.tools[tool_id] = metadata
                 self.event("tool_start", metadata)
             delta = value.get("delta", {})
@@ -187,8 +188,10 @@ class Stream:
             metadata = self.tools.get(tool_id)
             if metadata is not None and "target" not in metadata:
                 found = tool_target(block.get("name"), block.get("input"), self.root)
-                if found:
-                    self.tools[tool_id] = {**metadata, "target": found}
+                extra = {"target": found} if found else {}
+                extra.update(tool_markers(block.get("name"), block.get("input")))
+                if extra:
+                    self.tools[tool_id] = {**metadata, **extra}
 
     def track_usage(self, value):
         """Report usage from a ``message_start`` or ``message_delta`` stream event."""

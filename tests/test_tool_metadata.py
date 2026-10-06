@@ -6,7 +6,9 @@ from agent_service.tool_metadata import (
     TARGET_LIMIT,
     command_name,
     event_metadata,
+    item_markers,
     item_target,
+    tool_markers,
     tool_target,
 )
 
@@ -295,3 +297,220 @@ def test_portable_history_does_not_forward_the_display_target_to_the_next_provid
     payload = {"_job_id": "j", "_state": "completed", "prompt": "hi"}
     evidence = portable_history(db, [(payload, {"answer": "ok"})])[0]["evidence"]
     assert evidence == [{"type": "tool_start", "data": {"tool": "Bash", "command_name": "ls"}}]
+
+
+@pytest.mark.parametrize(
+    ("tool", "args", "expected"),
+    [
+        ("Skill", {"skill": "code-review", "args": "x"}, {"skill": "code-review"}),
+        ("Skill", {"skill": "plugin:deploy"}, {"skill": "plugin:deploy"}),
+        ("Task", {"subagent_type": "python-code-engineer", "prompt": "p"}, {"agent": "python-code-engineer"}),
+        ("Agent", {"subagent_type": "Explore"}, {"agent": "Explore"}),
+        ("Read", {"file_path": "/h/.claude/skills/ponytail/SKILL.md"}, {"skill": "ponytail"}),
+        ("read_file", {"path": "/h/.agents/skills/graphify/SKILL.md"}, {"skill": "graphify"}),
+        ("Bash", {"command": "cat /h/.codex/skills/ponytail/SKILL.md"}, {"skill": "ponytail"}),
+        ("Read", {"file_path": "/w/facts/alpha.txt"}, {}),
+        ("Read", {"file_path": "SKILL.md"}, {}),
+        ("Edit", {"file_path": "/h/skills/x/SKILL.md"}, {}),
+        ("Bash", {"command": "ls -la"}, {}),
+        ("Skill", {"skill": "bad name!"}, {}),
+        ("Skill", {"skill": "x" * 65}, {}),
+        ("Skill", {"skill": 5}, {}),
+        ("Task", {"subagent_type": "../etc"}, {}),
+        ("Task", {"subagent_type": "ghp_abcdefghijklmnop"}, {}),
+        ("Skill", None, {}),
+        (None, {"skill": "x"}, {}),
+        ("mcp__srv__Skill", {"skill": "viaMcp"}, {"skill": "viaMcp"}),
+        ("Bash", {"command": "tool --api-key /x/abc123def/SKILL.md"}, {}),
+        ("Read", {"file_path": "/x/token=abc123def/SKILL.md"}, {}),
+        ("Bash", {"command": "echo hi > ~/.claude/skills/foo/SKILL.md"}, {}),
+        ("Bash", {"command": "rm -rf /s/bar/SKILL.md"}, {}),
+        ("Bash", {"command": "cat /s/a/SKILL.md | tee /s/b/SKILL.md"}, {}),
+        ("Bash", {"command": "cat a/one/SKILL.md /b/two/SKILL.md"}, {"skill": "one"}),
+        ("Bash", {"command": "bash -lc 'sed -n 1,5p /h/skills/ponytail/SKILL.md'"}, {"skill": "ponytail"}),
+        ("Bash", {"command": "cat /x/../SKILL.md"}, {}),
+        ("Read", {"file_path": "/x/.hidden/SKILL.md"}, {}),
+        ("mcp__jira__Task", {"subagent_type": "Explore"}, {}),
+        ("mcp__jira__Agent", {"subagent_type": "Explore"}, {}),
+        ("mcp__jira__Read", {"file_path": "/h/skills/ponytail/SKILL.md"}, {}),
+    ],
+)
+def test_tool_markers_name_skills_and_agents_only_with_safe_names(tool, args, expected):
+    assert tool_markers(tool, args) == expected
+
+
+def test_item_markers_cover_codex_commands_and_mcp_calls():
+    command = {"type": "commandExecution", "command": "sed -n 1,40p /h/skills/graphify/SKILL.md"}
+    assert item_markers(command) == {"skill": "graphify"}
+    assert item_markers({"type": "commandExecution", "command": "pwd"}) == {}
+    mcp = {"type": "mcpToolCall", "tool": "Skill", "arguments": {"skill": "ponytail"}}
+    assert item_markers(mcp) == {"skill": "ponytail"}
+    assert item_markers({"type": "fileChange", "changes": [{"path": "/h/s/SKILL.md"}]}) == {}
+    assert item_markers({"type": "webSearch"}) == {}
+
+
+def test_claude_skill_and_agent_names_arrive_with_the_full_message_and_the_tool_end():
+    events = []
+    state = Stream(lambda kind, data: events.append((kind, data)), root="/w")
+    for tool_id, name in (("s1", "Skill"), ("t1", "Task")):
+        state.consume(
+            {
+                "type": "stream_event",
+                "event": {
+                    "type": "content_block_start",
+                    "content_block": {"type": "tool_use", "id": tool_id, "name": name, "input": {}},
+                },
+            }
+        )
+    state.consume(
+        {
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {"type": "tool_use", "id": "s1", "name": "Skill", "input": {"skill": "ponytail"}},
+                    {"type": "tool_use", "id": "t1", "name": "Task", "input": {"subagent_type": "Explore"}},
+                ]
+            },
+        }
+    )
+    for tool_id in ("s1", "t1"):
+        state.consume(
+            {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": tool_id}]}}
+        )
+    assert "skill" not in events[0][1] and "agent" not in events[1][1]
+    assert events[2][1]["skill"] == "ponytail"
+    assert events[3][1]["agent"] == "Explore"
+
+
+def test_claude_full_start_input_carries_the_skill_name_and_gemini_skill_reads():
+    events = []
+    Stream(lambda kind, data: events.append(data)).consume(
+        {
+            "type": "stream_event",
+            "event": {
+                "type": "content_block_start",
+                "content_block": {
+                    "type": "tool_use",
+                    "id": "b1",
+                    "name": "Skill",
+                    "input": {"skill": "graphify"},
+                },
+            },
+        }
+    )
+    assert events[0]["skill"] == "graphify"
+    gemini = []
+    AcpStream(lambda kind, data: gemini.append(data), root="/w").consume(
+        {
+            "update": {
+                "sessionUpdate": "tool_call",
+                "toolCallId": "g1",
+                "kind": "read",
+                "status": "in_progress",
+                "locations": [{"path": "/h/skills/ponytail/SKILL.md"}],
+            }
+        }
+    )
+    assert gemini[0]["skill"] == "ponytail"
+
+
+def test_portable_history_does_not_forward_skill_and_agent_names():
+    import json
+    import sqlite3
+
+    from agent_service.conversation_context import portable_history
+
+    db = sqlite3.connect(":memory:")
+    db.row_factory = sqlite3.Row
+    db.execute("CREATE TABLE events(id INTEGER PRIMARY KEY, job TEXT, type TEXT, data TEXT)")
+    for data in (
+        {"tool": "Skill", "status": "completed", "skill": "ponytail"},
+        {"tool": "Task", "status": "completed", "agent": "Explore"},
+    ):
+        db.execute("INSERT INTO events(job,type,data) VALUES('j','tool_end',?)", (json.dumps(data),))
+    payload = {"_job_id": "j", "_state": "completed", "prompt": "hi"}
+    evidence = portable_history(db, [(payload, {"answer": "ok"})])[0]["evidence"]
+    assert [item["data"] for item in evidence] == [
+        {"tool": "Skill", "status": "completed"},
+        {"tool": "Task", "status": "completed"},
+    ]
+
+
+def _skill_read(phase, command):
+    item = {"type": "commandExecution", "id": "c1", "command": command}
+    return {"method": f"item/{phase}", "params": {"item": item}}
+
+
+def _codex_tool_events(tmp_path, adapter, notifications):
+    """Run one Codex adapter against scripted notifications; return its tool events."""
+    import asyncio
+    from contextlib import asynccontextmanager, nullcontext
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, patch
+
+    rpc = AsyncMock()
+    rpc.call.return_value = {"thread": {"id": "t1"}}
+    rpc.receive.side_effect = [
+        *notifications,
+        {"method": "turn/completed", "params": {"turn": {"status": "completed"}}},
+    ]
+    rpc.process = SimpleNamespace(stdin=SimpleNamespace(write=lambda value: None, drain=AsyncMock()))
+
+    @asynccontextmanager
+    async def connection(*args, **kwargs):
+        yield rpc
+
+    events = []
+    record = lambda kind, data: events.append((kind, data))  # noqa: E731
+    if adapter == "scoped":
+        from adapters.codex.scoped import run
+
+        workspace = SimpleNamespace(command=[], home=tmp_path)
+        with (
+            patch("adapters.codex.scoped.prepare_scoped", return_value=nullcontext(workspace)),
+            patch("adapters.codex.scoped.connection", connection),
+            patch("adapters.codex.scoped.collect_changes", return_value={}),
+        ):
+            asyncio.run(run({}, "Prompt", record, project={}, session_dir=tmp_path))
+    else:
+        from adapters import run_native as run
+
+        with (
+            patch("adapters.codex.native.connection", connection),
+            patch("adapters.codex.native.configurations", return_value={"codex": {}}),
+            patch("adapters.codex.native.inventory", return_value={"codex": []}),
+        ):
+            asyncio.run(
+                run(
+                    {"binary": "fixture"},
+                    "fixture",
+                    record,
+                    {"permissions": {}},
+                    "fixture",
+                    "configured",
+                    tmp_path / "session",
+                    "codex",
+                    AsyncMock(return_value={"approved": False}),
+                )
+            )
+    return [(kind, data) for kind, data in events if kind in ("tool_start", "tool_end")]
+
+
+@pytest.mark.parametrize("adapter", ["native", "scoped"])
+def test_codex_skill_marker_rides_on_tool_start_and_the_matching_tool_end(tmp_path, adapter):
+    read = "cat /h/skills/ponytail/SKILL.md"
+    if adapter == "scoped":
+        # The scoped adapter reports MCP calls only, so the same read arrives as a Skill call.
+        def note(phase):
+            item = {"type": "mcpToolCall", "id": "c1", "tool": "Skill", "arguments": {"skill": "ponytail"}}
+            return {"method": f"item/{phase}", "params": {"item": item}}
+
+        notes = [note("started"), note("completed")]
+    else:
+        # The completed item carries no command; the marker comes from the matching start.
+        done = _skill_read("completed", "")
+        notes = [_skill_read("started", read), done]
+    events = _codex_tool_events(tmp_path, adapter, notes)
+    assert [kind for kind, _ in events] == ["tool_start", "tool_end"]
+    assert all(data["skill"] == "ponytail" for _, data in events)
+    assert events[1][1]["tool_id"] == "c1"

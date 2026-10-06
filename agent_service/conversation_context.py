@@ -120,8 +120,10 @@ def portable_history(db, turns):
                 if not record["assistant"] and not data.get("parent_tool_use_id"):
                     partial.append(data.get("text", ""))
             else:
-                # `target` is display-only; the next provider gets the command name, not the line.
-                data.pop("target", None)
+                # `target`, `skill` and `agent` are display-only; the next provider gets the
+                # command name, not the line.
+                for display_only in ("target", "skill", "agent"):
+                    data.pop(display_only, None)
                 evidence.append({"type": event["type"], "data": data})
         if partial:
             record["assistant"] = "".join(partial)

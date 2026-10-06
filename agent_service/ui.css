@@ -5731,6 +5731,36 @@ main > #run-console { order: 11; }
 .page-preview { padding: 4px 2px; font-size: 15px; line-height: 1.6; }
 #schedule-editor { max-width: 640px; }
 #schedule-editor .agent-route { align-items: start; }
+/* WP7 visual markers: a run step is an icon plus a chip; links go to the catalog entry. */
+.step-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 1px 8px;
+  border: 1px solid var(--th-border);
+  border-radius: 999px;
+  background: var(--th-soft);
+  color: var(--th-text);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+a.step-chip, a.step-chip:hover { color: var(--th-text); }
+a.step-chip:hover { text-decoration: underline; }
+a.step-chip:focus-visible { outline: 2px solid var(--th-accent); outline-offset: 2px; }
+.prose-chip, .prose-chip code { color: var(--th-text); }
+.prose-chip {
+  padding: 0 6px;
+  border: 1px solid var(--th-border);
+  border-radius: 999px;
+  background: var(--th-soft);
+  text-decoration: none;
+}
+a.prose-chip:hover { text-decoration: underline; }
+a.prose-chip:focus-visible { outline: 2px solid var(--th-accent); outline-offset: 2px; }
+.step-chip .step-icon { flex: none; width: 14px; height: 14px; color: var(--th-accent); }
+.workspace-row[tabindex="-1"]:focus { outline: 2px solid var(--th-accent); outline-offset: -2px; }
+.visual-markers-option { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-weight: 500; }
 #schedule-editor .schedule-enabled { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-weight: 500; }
 #schedule-editor .schedule-enabled input { width: auto; }
 #schedule-editor label[hidden] { display: none; }

@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 
 from adapters.shared.process import process_diagnostics, provider_message
-from agent_service.tool_metadata import tool_target
+from agent_service.tool_metadata import tool_markers, tool_target
 from agent_service.tools import ToolError
 from control.product import PRODUCT
 
@@ -139,6 +139,7 @@ class AcpStream:
             }
             if found := tool_target(metadata["tool"], args, self.root):
                 metadata["target"] = found
+            metadata.update(tool_markers(metadata["tool"], args))
             self.event(
                 "tool_start"
                 if kind == "tool_call" and update.get("status") == "in_progress"
