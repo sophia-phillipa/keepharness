@@ -97,8 +97,9 @@ const path = require("node:path");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     await page.locator("#model").selectOption("gpt-6-astra");
 
-    // The rail's Agents shortcut lands on "Your agents", empty at first.
+    // The rail opens Plugins; Settings > Agents holds "Your agents", empty at first.
     await page.click("#rail-agents");
+    await page.click('[data-settings="agents"]');
     const settings = page.locator("#settings-dialog");
     await settings.getByText("No agents yet.", { exact: false }).waitFor();
     await settings.getByRole("button", { name: "Create agent" }).click();
@@ -190,6 +191,7 @@ const path = require("node:path");
 
     // Edit sends the revision; delete asks once more, then removes it.
     await page.click("#rail-agents");
+    await page.click('[data-settings="agents"]');
     await row.getByRole("button", { name: "Edit @@photo-describer" }).click();
     const edit = page.getByRole("dialog", { name: "Edit @@photo-describer" });
     await edit.waitFor();

@@ -6458,14 +6458,14 @@ function elsewhereSection(list, backend, menu) {
     text.append(name, meta);
     box.append(HarnessUI.icon("plug"), text);
     // The allow list lives in Settings (the harness API has no enable endpoint): System > Providers
-    // where the admin is reachable, Customize otherwise.
+    // where the admin is reachable, Plugins otherwise.
     const action = document.createElement("button");
     action.type = "button";
     action.className = "plugins-action";
     action.textContent = entry.here === "enable" ? "Enable" : "Open Plugins";
     action.onclick = () => {
       menu.hidePopover();
-      openSettings("providers") || openSettings("customize");
+      openSettings("providers") || openSettings("plugins");
     };
     box.append(action);
     row.append(box);
@@ -8047,11 +8047,13 @@ function restoreSelection() {
   if (model.efforts.includes(preferredSelection.effort))
     $("effort").value = preferredSelection.effort;
 }
-let lastSection = prefs.get("last_section", "appearance");
+// "customize" is the pre-rename key of the Plugins section.
+const savedSection = prefs.get("last_section", "appearance");
+let lastSection = savedSection === "customize" ? "plugins" : savedSection;
 function showSettingsPage(button) {
   lastSection = button.dataset.adminSection || button.dataset.settings;
   prefs.set("last_section", lastSection);
-  for (const name of ["appearance", "customize", "models", "archived", "system"])
+  for (const name of ["appearance", "plugins", "agents", "models", "archived", "system"])
     $("settings-" + name).hidden = name !== button.dataset.settings;
   if (button.dataset.settings === "archived") void loadArchived();
   const system = button.dataset.settings === "system";
@@ -8246,7 +8248,7 @@ $("settings-close").onclick = () => $("settings-dialog").close();
 // Back / forward (Codex model): a short in-memory history of views. It never touches
 // window.history, so the saveView URL and the embedded admin iframe are unaffected.
 const NAV_LIMIT = 50;
-const DIALOG_VIEWS = { settings: "settings-dialog", customize: "settings-dialog", space: "space-dialog", scheduled: "scheduled-dialog" };
+const DIALOG_VIEWS = { settings: "settings-dialog", plugins: "settings-dialog", space: "space-dialog", scheduled: "scheduled-dialog" };
 let viewHistory = [],
   viewIndex = -1;
 // Scroll positions survive a reload: the 50 most recent conversations are kept in the UI state store.
@@ -8272,8 +8274,8 @@ const currentBaseView = () => (conversation ? { kind: "conversation", id: conver
 const pressedSettings = () => document.querySelector('[data-settings][aria-pressed="true"]');
 // The five System buttons share data-settings="system"; `sub` (the admin section) tells them apart.
 const settingsView = (section, button) =>
-  section === "customize"
-    ? { kind: "customize", button }
+  section === "plugins"
+    ? { kind: "plugins", button }
     : { kind: "settings", section, sub: section === "system" ? (button || pressedSettings())?.dataset.adminSection : undefined, button };
 const navigationBlocked = (view) => ["conversation", "home"].includes(view.kind) && (submitting || cancelling || loading || uploads > 0);
 function syncNavButtons() {
@@ -8329,7 +8331,7 @@ async function applyView(view, replay = false) {
   } else if (view.kind === "space") await openSpace();
   else if (view.kind === "scheduled") await openScheduled();
   else {
-    const section = view.kind === "customize" ? "customize" : view.section;
+    const section = view.kind === "plugins" ? "plugins" : view.section;
     if (!$("settings-dialog").open) {
       syncThemeToggle();
       $("settings-dialog").showModal();
@@ -9180,7 +9182,7 @@ async function useHarnessAgent(agent) {
 }
 // Rail shortcuts (Codex model): the run pipeline and the agent and skill catalog.
 $("rail-runs").onclick = () => $("run-status-toggle")?.click();
-$("rail-agents").onclick = () => void navigate({ kind: "customize" });
+$("rail-agents").onclick = () => void navigate({ kind: "plugins" });
 $("settings-tour").onclick = () => $("settings-dialog").close();
 let quotaReturnsToSettings = false;
 $("settings-quota").onclick = () => {
@@ -10104,7 +10106,7 @@ for (const button of document.querySelectorAll("[data-settings]")) {
     HarnessUI.icon(
       button.dataset.settings === "appearance"
         ? "adjustments"
-        : button.dataset.settings === "customize"
+        : button.dataset.settings === "plugins" || button.dataset.settings === "agents"
           ? "stack-2"
           : button.dataset.settings === "models"
             ? "server"

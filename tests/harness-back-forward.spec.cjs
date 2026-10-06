@@ -1,5 +1,5 @@
 // Back / forward navigation at the top, like the Codex desktop app: a short in-memory history of
-// views (conversations, Settings pages, Space, Scheduled, Customize, Home), Ctrl+[ / Ctrl+], the
+// views (conversations, Settings pages, Space, Scheduled, Plugins, Agents, Home), Ctrl+[ / Ctrl+], the
 // mouse back and forward buttons, and a per-conversation scroll position restored on return.
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
 const assert = require("node:assert/strict");
@@ -140,7 +140,7 @@ const ORIGIN = "http://localhost:18990/";
     await page.waitForFunction(() => document.querySelector("#settings-dialog").open);
     await page.click("#settings-close");
 
-    // Space, Scheduled and Customize are entries too.
+    // Space, Scheduled, Plugins and Agents are entries too.
     await page.click("#rail-space");
     await page.waitForFunction(() => document.querySelector("#space-dialog").open);
     await page.click("#space-close");
@@ -150,7 +150,16 @@ const ORIGIN = "http://localhost:18990/";
     await page.keyboard.press("Control+[");
     await page.waitForFunction(() => !document.querySelector("#scheduled-dialog").open);
     await page.click("#rail-agents");
-    await page.waitForFunction(() => !document.querySelector("#settings-customize").hidden);
+    await page.waitForFunction(() => !document.querySelector("#settings-plugins").hidden);
+    // Agents is its own Settings entry: Back returns to Plugins, Forward to Agents.
+    await page.click('[data-settings="agents"]');
+    await page.waitForFunction(() => !document.querySelector("#settings-agents").hidden && document.querySelector("#settings-plugins").hidden);
+    await page.keyboard.press("Control+[");
+    await page.waitForFunction(() => !document.querySelector("#settings-plugins").hidden && document.querySelector("#settings-agents").hidden);
+    await page.keyboard.press("Control+]");
+    await page.waitForFunction(() => !document.querySelector("#settings-agents").hidden && document.querySelector("#settings-plugins").hidden);
+    await page.keyboard.press("Control+[");
+    await page.waitForFunction(() => !document.querySelector("#settings-plugins").hidden);
     // The dialog is modal, so the top-bar button is out of reach; the shortcut works.
     await page.keyboard.press("Control+[");
     await page.waitForFunction(() => !document.querySelector("#settings-dialog").open);

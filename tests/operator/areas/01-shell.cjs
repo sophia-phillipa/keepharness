@@ -57,7 +57,7 @@ module.exports = {
       for (const [id, name] of [
         ["menu", /conversations panel/i], ["search-conversations", /Search/], ["attention-bell", /Attention/],
         ["panel-toggle", /files and activity/i], ["rail-space", /Space/], ["rail-scheduled", /Scheduled/],
-        ["rail-runs", /Runs/], ["rail-agents", /Customize/], ["settings", /Settings/],
+        ["rail-runs", /Runs/], ["rail-agents", /Plugins/], ["settings", /Settings/],
       ]) {
         const button = page.locator("#" + id);
         await op.see(button);

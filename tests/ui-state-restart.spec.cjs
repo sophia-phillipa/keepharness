@@ -262,14 +262,21 @@ async function step(name, work) {
       assert.deepEqual(await pressedSection(page), ["models"]);
       await page.context().close();
 
+      // "customize" is the pre-rename key of the Plugins section: it still opens Plugins.
+      assert.equal((await api(fresh, "PATCH", { values: { last_section: "customize" } })).status, 200);
+      page = await openPage(browser, fresh);
+      await openSettingsAtLastSection(page);
+      assert.deepEqual(await pressedSection(page), ["plugins"]);
+      await page.context().close();
+
       assert.equal((await api(fresh, "PATCH", { values: { last_section: "gone-section" } })).status, 200);
       page = await openPage(browser, fresh);
       await openSettingsAtLastSection(page);
       assert.deepEqual(await pressedSection(page), ["appearance"]);
       // Picking a section stores it.
-      await page.locator("[data-settings='customize']").click();
+      await page.locator("[data-settings='plugins']").click();
       await flush(page);
-      assert.equal(onDisk(fresh).last_section, "customize");
+      assert.equal(onDisk(fresh).last_section, "plugins");
       await page.context().close();
     });
 

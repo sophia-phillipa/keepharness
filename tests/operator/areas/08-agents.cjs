@@ -15,11 +15,11 @@ module.exports = {
     const persona = page.locator("#persona-control");
     const openAgents = async () => {
       if (!(await page.locator("#settings-dialog").isVisible())) await op.click(page.locator("#settings"));
-      await op.click(page.locator("#settings-dialog").getByRole("button", { name: "Customize", exact: true }));
-      await op.see(page.locator("#settings-customize"));
+      await op.click(page.locator("#settings-dialog").getByRole("button", { name: "Agents", exact: true }));
+      await op.see(page.locator("#settings-agents"));
     };
 
-    await op.step("home", "Open Settings › Customize", async () => {
+    await op.step("home", "Open Settings › Agents", async () => {
       await home(op);
       await openAgents();
       await op.see(page.locator("#agent-create"));

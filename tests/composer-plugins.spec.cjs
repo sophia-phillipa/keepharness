@@ -146,18 +146,18 @@ const path = require("node:path");
       (await menu.innerText()).indexOf("Installed, not available here") < (await menu.innerText()).indexOf("On other providers"),
       "the route reason comes first",
     );
-    // No enable endpoint exists on the harness API: the button opens Settings (Customize here: the admin nav is hidden on this host).
+    // No enable endpoint exists on the harness API: the button opens Settings (Plugins here: the admin nav is hidden on this host).
     const apiCalls = [];
     page.on("request", (r) => r.method() !== "GET" && apiCalls.push(r.method() + " " + r.url()));
     await rows.nth(0).getByRole("button", { name: "Enable" }).click();
-    await page.locator('button[data-settings="customize"][aria-pressed="true"]').waitFor();
+    await page.locator('button[data-settings="plugins"][aria-pressed="true"]').waitFor();
     assert.equal(await menu.isVisible(), false);
     assert.deepEqual(apiCalls, []);
     await page.reload();
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     await chip.click();
     await menu.locator('[data-testid="elsewhere-row"]').nth(1).getByRole("button", { name: "Open Plugins" }).click();
-    await page.locator('button[data-settings="customize"][aria-pressed="true"]').waitFor();
+    await page.locator('button[data-settings="plugins"][aria-pressed="true"]').waitFor();
 
     // Text contrast of the new rows: >= 4.5 on one light (paper) and one dark (graphite) palette.
     await page.reload();
