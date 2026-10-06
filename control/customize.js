@@ -54,6 +54,8 @@
         action: "plugin_remove",
         name: group.item.id.replace(/^plugin:/, ""),
       });
+      // The cached catalog still lists the plugin; the next visit or Refresh reads it again.
+      integrationCatalogs.delete(info.id);
       say(label + " is being uninstalled from " + where + ". Refresh the list when the operation finishes.");
     });
   }
@@ -207,11 +209,15 @@
       await Promise.all(
         view.clis.map(async ({ id }) => {
           const cached = integrationCatalogs.get(id);
-          if (!force && cached && !cached.error) return;
+          // catalogPending is shared with the Providers page so one CLI scan runs at a time.
+          if ((!force && cached && !cached.error) || catalogPending.has(id)) return;
+          catalogPending.add(id);
           try {
             integrationCatalogs.set(id, await request("integration-catalog", { provider: id }));
           } catch (error) {
             integrationCatalogs.set(id, { ...(cached || { items: [] }), error: error.message });
+          } finally {
+            catalogPending.delete(id);
           }
         }),
       );
@@ -225,7 +231,10 @@
   }
 
   function enter() {
-    if (location.hash !== "#plugins") return;
+    if (location.hash !== "#plugins") {
+      if (menu) closeMenu();
+      return;
+    }
     if (!view.built) build();
     loadCatalogs(false);
   }

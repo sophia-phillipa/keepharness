@@ -173,7 +173,19 @@ const contrast = (a, b) => {
     await slack.getByRole("menuitem", { name: "Uninstall", exact: true }).click();
     await page.waitForFunction(() => document.querySelector("#operation-dialog")?.open);
     assert.deepEqual(posts, [{ provider: "codex", action: "plugin_remove", name: "slack@openai" }]);
+    await page.waitForFunction(() => !integrationCatalogs.has("codex"), null, { timeout: 5000 });
     await page.evaluate(() => document.querySelector("#operation-dialog").close());
+    await page.locator("[data-panel=home]").click();
+    await page.locator("[data-panel=plugins]").click();
+    for (let tries = 0; tries < 50 && catalogCalls < 5; tries++) await page.waitForTimeout(100);
+    await page.waitForFunction(() => document.querySelector('[data-testid="plugins-list"]')?.getAttribute("aria-busy") === "false");
+    assert.equal(catalogCalls, 5, "after an uninstall only that provider catalog is read again, got " + catalogCalls);
+
+    // Leaving the page closes an open row menu.
+    await github.locator('[data-testid="plugin-menu-button"]').click();
+    await page.locator("[data-panel=home]").click();
+    await page.locator("[data-panel=plugins]").click();
+    assert.equal(await page.locator('[data-testid="plugin-menu"]').count(), 0);
 
     // Contrast >= 4.5 on a light (paper) and a dark (graphite) palette.
     const ratios = {};

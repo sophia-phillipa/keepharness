@@ -1700,7 +1700,7 @@ html[data-embedded] #main { max-width: none; margin: 0; padding-inline: 24px; }
 .plugins-more:hover { background: color-mix(in srgb, var(--th-text) 13%, transparent); }
 .plugins-menu {
   position: absolute; inset-block-start: 100%; inset-inline-end: 0; z-index: 5; display: grid; min-width: 200px; margin-top: 4px; padding: 4px;
-  border: 1px solid var(--th-line); border-radius: 12px; background: var(--th-panel); box-shadow: 0 0 0 1px var(--th-line);
+  border-radius: 12px; background: var(--th-panel); box-shadow: 0 0 0 1px var(--th-line);
 }
 .plugins-menu-item { padding: 8px 12px; border: 0; border-radius: 8px; background: transparent; color: var(--th-text); font-size: 13px; text-align: start; cursor: pointer; white-space: nowrap; }
 .plugins-menu-item:hover { background: var(--th-soft); }
