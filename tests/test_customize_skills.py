@@ -28,7 +28,9 @@ def put_skill(base: Path, name: str, description: str) -> None:
 
 
 @pytest.fixture
-def setup(tmp_path):
+def setup(tmp_path, monkeypatch):
+    for variable in ("HOME", "GEMINI_CLI_HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR"):
+        monkeypatch.setenv(variable, str(tmp_path / "real-home"))
     project = tmp_path / "project"
     project.mkdir()
     catalog = tmp_path / "catalog"
@@ -47,7 +49,7 @@ def setup(tmp_path):
         git(catalog, "init", "-q")
         git(catalog, "add", ".")
         git(catalog, "-c", "user.email=f@example.invalid", "-c", "user.name=F", "commit", "-qm", "x")
-        put_skill(manager.state / "providers/home/.claude/skills", "mine", "Personal skill")
+        put_skill(manager.state / "providers/home/.codex/skills", "mine", "Personal skill")
         with TestClient(app, base_url="http://127.0.0.1:8094") as client:
             sign_in(client).get("/")
             yield client, tmp_path
@@ -69,7 +71,8 @@ def test_items_are_whitelisted_deduplicated_and_pathless(setup):
         "name": "shared",
         "description": "Offered to codex and gemini",
         "scope": "project",
-        "providers": ["codex", "gemini"],
+        # Gemini discovers the file but its adapter does not load skills, so it is not offered.
+        "providers": ["codex"],
     }
     assert by_name["only-claude"]["providers"] == ["claude"]
     assert by_name["mine"]["scope"] == "user"
@@ -158,3 +161,32 @@ def test_non_owner_requests_are_refused(setup):
             return await guest.get("/api/customize-skills", params={"project_id": "p"})
 
     assert asyncio.run(ask()).status_code == 403
+
+
+def test_same_name_in_two_files_stays_two_items(setup):
+    client, tmp_path = setup
+    put_skill(tmp_path / "project/.claude/skills", "shared", "Claude's own copy")
+    body = listing(client, project_id="p")
+    shared = sorted((item["description"], item["providers"]) for item in body["items"] if item["name"] == "shared")
+    assert shared == [("Claude's own copy", ["claude"]), ("Offered to codex and gemini", ["codex"])]
+
+
+def test_skill_without_front_matter_is_named_after_its_folder(setup):
+    client, tmp_path = setup
+    folder = tmp_path / "project/.claude/skills/bare-skill"
+    folder.mkdir(parents=True)
+    (folder / "SKILL.md").write_text("Does one thing well. More text.")
+    item = next(item for item in listing(client, project_id="p")["items"] if item["name"] == "bare-skill")
+    assert item["providers"] == ["claude"]
+    assert str(tmp_path) not in json.dumps(item) and "SKILL.md" not in json.dumps(item)
+
+
+def test_unloadable_skills_and_non_native_providers_are_not_offered(setup):
+    client, tmp_path = setup
+    folder = tmp_path / "project/.claude/skills/hidden"
+    folder.mkdir(parents=True)
+    (folder / "SKILL.md").write_text("---\nname: hidden\ndescription: x\nuser-invocable: false\n---\nBody")
+    client.app.state.manager.settings["services"]["codex"]["mode"] = "api"
+    names = {item["name"]: item["providers"] for item in listing(client, project_id="p")["items"]}
+    assert "hidden" not in names
+    assert "shared" not in names  # only Codex could load it, and Codex is not native now

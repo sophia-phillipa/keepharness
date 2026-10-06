@@ -1,6 +1,7 @@
 """Read-only skills listing for Customize > Skills: whitelisted fields, never a path."""
 import asyncio
 import logging
+from pathlib import Path
 
 from agent_service.resources import discover
 
@@ -21,6 +22,8 @@ def list_skills(config, project_id):
     for provider, service in config.get("services", {}).items():
         if not service.get("enabled") or project_id not in service.get("projects", []):
             continue
+        if service.get("mode", "native") != "native":  # only native executions load skill files
+            continue
         try:
             discovered = discover(config, project_id, provider, include_workflows=False, owner=True)
         except Exception:  # one broken provider must not hide the others; details stay in the log
@@ -30,10 +33,11 @@ def list_skills(config, project_id):
         if discovered["warnings"]:  # discovery warnings name host paths, so only the fact is shown
             warnings.append(f"Some {provider} resources could not be read.")
         for item in discovered["items"]:
-            if item["kind"] != "skill" or item["scope"] not in SCOPES:
+            if item["kind"] != "skill" or item["scope"] not in SCOPES or not item["selectable"]:
                 continue
+            # One entry per skill file; the path is only a key and is never returned.
             entry = found.setdefault(
-                (item["scope"], item["name"]),
+                (item["scope"], str(Path(item["source"]).resolve())),
                 {
                     "name": item["name"],
                     "description": item["description"],
