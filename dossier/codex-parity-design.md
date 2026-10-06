@@ -85,6 +85,7 @@ Sizes: M = 1–2 days of agent work, L = more. Status is as of main `9bff3f8`.
 - Wave 2: WP2, then WP4 and WP5 UI, then WP7, one frontend implementer at a time (`agent_service/ui.js` is a single large file).
 - Wave 3: WP6 after WP2; WP3 after WP2 and WP4's family key.
 - WP8 was added in window 7 (2026-10-05); it is not yet placed in a wave.
+- WP9 comes after WP3 (Sophia, 2026-10-06), so the Customize screens are built first and translated with the rest.
 
 ## Theme rule
 
