@@ -120,6 +120,46 @@ def test_renewed_account_check_ignores_inherited_token(tmp_path, monkeypatch):
         assert "CLAUDE_CODE_OAUTH_TOKEN" not in command.call_args.kwargs["env"]
 
 
+def test_claude_login_bumps_only_the_cache_only_account_revision(tmp_path):
+    manager = Manager(tmp_path / "control")
+    manager.provider_revisions["deepseek"] = "key-one"
+    manager._write_runtime(
+        {"claude": {"binary": "/fixture"}, "provider_revisions": {"deepseek": "key-one"}}
+    )
+    asyncio.run(manager.claude_login_completed())
+    first = manager._previous_runtime()
+    assert first["account_revisions"]["claude"]
+    assert first["provider_revisions"] == {"deepseek": "key-one"}
+    assert manager.provider_revisions == {"deepseek": "key-one"}
+    asyncio.run(manager.claude_login_completed())
+    assert manager._previous_runtime()["account_revisions"]["claude"] != (
+        first["account_revisions"]["claude"]
+    )
+
+
+def test_account_revision_survives_a_later_runtime_rebuild(tmp_path):
+    manager = Manager(tmp_path / "control")
+    manager.inventory = {
+        "network": {},
+        "services": [
+            {"id": "claude", "found": True, "binary": sys.executable, "auth_file": "/missing"}
+        ],
+    }
+    manager.settings["services"]["claude"].update(enabled=True, models=["haiku"])
+    asyncio.run(manager.claude_login_completed())
+    revision = manager.account_revisions["claude"]
+    with (
+        patch("control.discovery.command", AsyncMock(return_value=(0, '{"loggedIn":true}'))),
+        patch(
+            "adapters.claude.account.metadata",
+            AsyncMock(return_value={"models": [{"value": "haiku"}]}),
+        ),
+    ):
+        runtime = asyncio.run(manager.build_runtime_config(manager.settings))
+    assert runtime["account_revisions"] == {"claude": revision}
+    assert "claude" not in runtime["provider_revisions"]
+
+
 @pytest.mark.parametrize("use_cli_login", [False, True])
 def test_native_run_uses_the_selected_auth_source(tmp_path, monkeypatch, use_cli_login):
     from adapters.claude import native

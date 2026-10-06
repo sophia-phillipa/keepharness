@@ -10,6 +10,7 @@ import secrets
 import socket
 import sys
 import time
+import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -171,6 +172,7 @@ class Manager:
         self.operations = Operations()
         self.startup_error = None
         self.provider_revisions = {}
+        self.account_revisions = {}
         self.unavailable_models = {}
 
     def audit(self, action):
@@ -211,9 +213,13 @@ class Manager:
         # No token is copied or stored here. Claude owns the renewed credential.
         marker = self.state / "claude-cli-login"
         marker.touch(mode=0o600)
+        # A new login may be another account: the harness drops what it cached for the old one.
+        # Cache-only: unlike provider_revisions, it never cancels the provider's running jobs.
+        self.account_revisions["claude"] = str(uuid.uuid4())
         runtime = self._previous_runtime()
         if "claude" in runtime:
             runtime["claude"]["use_cli_login"] = True
+            runtime["account_revisions"] = dict(self.account_revisions)
             self._write_runtime(runtime)
         self.auth["claude"] = True
         self.audit("claude_login_completed")
@@ -591,6 +597,8 @@ class Manager:
             self.browser_url(settings),
             getattr(self, "provider_revisions", {}),
         )
+        if getattr(self, "account_revisions", None):
+            cfg["account_revisions"] = dict(self.account_revisions)
         enabled = 0
         for provider, spec in settings["services"].items():
             if not spec["enabled"]:

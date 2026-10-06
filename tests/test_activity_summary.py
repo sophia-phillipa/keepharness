@@ -174,6 +174,7 @@ def test_reference_filter_has_no_cross_project_or_history_limit(tmp_path, monkey
 
 
 def test_provider_state_follows_live_executor_and_preserves_idle_models(tmp_path, monkeypatch):
+    monkeypatch.setattr("agent_service.harness_agents.LOCAL_CLIENT", "a")  # quota is owner-only (D-032)
     service, identity = invocation_service(tmp_path, monkeypatch)
     job = submit(service, identity)
     service.conversation_repository.set_running(job)
@@ -182,7 +183,8 @@ def test_provider_state_follows_live_executor_and_preserves_idle_models(tmp_path
     providers = {p["backend"]: p for p in activity["providers"]}
     assert providers["local"]["state"] == "busy"
     assert providers["codex"]["state"] == "idle"
-    assert providers["local"]["quota"] is None
+    # Purposeful D-032 change: a provider without quota says why instead of None.
+    assert providers["local"]["quota"] == {"available": False, "reason": "local_no_quota"}
     service.db.close()
 
 
@@ -211,6 +213,7 @@ def test_gate_requires_both_live_waiter_and_pending_durable_state(tmp_path, monk
 
 
 def test_activity_reuses_reported_codex_quota_without_fetching(tmp_path, monkeypatch):
+    monkeypatch.setattr("agent_service.harness_agents.LOCAL_CLIENT", "a")  # quota is owner-only (D-032)
     from unittest.mock import AsyncMock
 
     service, identity = invocation_service(tmp_path, monkeypatch)
@@ -242,5 +245,7 @@ def test_activity_reuses_reported_codex_quota_without_fetching(tmp_path, monkeyp
         for provider in service.activity(identity, "p")["providers"]
         if provider["backend"] == "codex"
     )
-    assert provider["quota"] is None
+    # Purposeful D-032 change: an unread quota is an explicit n/a, no longer None.
+    assert provider["quota"]["available"] is False
+    assert provider["quota"]["reason"] == "quota_not_read"
     service.db.close()

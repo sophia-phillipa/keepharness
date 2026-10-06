@@ -911,6 +911,7 @@
   };
   let idleTicks = 0;
   document.addEventListener('harness:ready', refresh);
+  document.addEventListener('harness:quota-primed', refresh);
   // The timer's own history poll only refreshes a tab that is following runs; anything else (a send, a rename) always does.
   document.addEventListener('harness:history', event => { if (!event.detail?.background || following()) void refresh(); });
   setInterval(() => {

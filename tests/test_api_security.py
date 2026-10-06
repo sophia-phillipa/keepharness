@@ -13,7 +13,7 @@ from agent_service.app import APIError, Service, create_app
 
 
 @pytest.fixture
-def api(tmp_path):
+def api(tmp_path, monkeypatch):
     cfg = {
         "state_dir": str(tmp_path),
         "origins": ["http://testserver"],
@@ -749,7 +749,8 @@ def test_cross_site_login_refused_before_limit(api):
     assert ok.status_code == 200, ok.text
 
 
-def test_v1_no_store_and_foreign_404(api):
+def test_v1_no_store_and_foreign_404(api, monkeypatch):
+    monkeypatch.setattr("agent_service.harness_agents.LOCAL_CLIENT", "alice")  # usage is owner-only (D-032)
     client, service, _ = api
     job = seed_job(service)
     for path in ("/v1/projects", "/v1/conversations", "/v1/models", "/v1/usage"):

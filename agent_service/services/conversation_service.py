@@ -154,6 +154,8 @@ class InferencePlan:
 EXCERPT_CHARS = 6000
 MAX_CONCURRENT_EXTRACTIONS = 4
 CODEX_QUOTA_FRESH_SECONDS = 300  # the rail must not show an older Codex percentage as current
+CLAUDE_QUOTA_FRESH_SECONDS = 300
+QUOTA_EVENTS = frozenset({"quota_before", "quota_after", "quota_update"})
 DEEPSEEK_BALANCE_SECONDS = 300
 # A failed read is remembered only briefly, so a recovered provider shows up soon.
 DEEPSEEK_FAILURE_SECONDS = 60
@@ -277,10 +279,13 @@ class ConversationService:
         self.extract_slots = asyncio.Semaphore(MAX_CONCURRENT_EXTRACTIONS)
         self.workspace_uploads_pending = 0
         self.provider_usage = {}
+        self.claude_reading_keys = {}  # (owner, limit id) -> claude_cache_key() of the reading
+        self.claude_job_keys = {}  # job -> claude_cache_key() captured when it started
         self.claude_usage_cache = None
         self.claude_usage_lock = asyncio.Lock()
         self.usage_cache = None
         self.usage_at = 0
+        self.usage_failed_at = None
         self.deepseek_usage_cache = None
         self.codex_modalities_cache = None
         self.codex_modalities_lock = asyncio.Lock()
@@ -416,12 +421,17 @@ class ConversationService:
                 "parent_execution_id": None,
                 **data,
             }
-        if kind == "quota_update" and data.get("provider") == "claude":
+        if kind in QUOTA_EVENTS:
             row = self.conversation_repository.owner(job)
-            if row:
+            if kind == "quota_update" and row and data.get("provider") == "claude":
                 buckets = self.provider_usage.setdefault(row["owner"], {})
+                # Tagged with the login the job started under, so a new login drops old readings.
+                tag = self.claude_job_keys.get(job, self.claude_cache_key())
                 for key, bucket in data.get("rateLimitsByLimitId", {}).items():
                     buckets[key] = {**bucket, "checked_at": data["checked_at"]}
+                    self.claude_reading_keys[(row["owner"], key)] = tag
+            if row and row["owner"] != harness_agents.LOCAL_CLIENT:
+                return  # the account's limits are the owner's, never a guest job's events (D-032)
         with self.db:
             self.message_repository.add_event(job, time.time(), kind, encoded(data))
 
@@ -435,6 +445,7 @@ class ConversationService:
             if state == "cancelled" and job in self.stop_requests:
                 queue_worker.hold_followups(self, job)
         self.stop_requests.discard(job)
+        self.claude_job_keys.pop(job, None)
 
     def identity(self, request, *, revalidate=False):
         def identified(name, client):
@@ -2406,9 +2417,12 @@ class ConversationService:
                         "reason": "command_with_context",
                     },
                 )
+        if backend == "claude":
+            self.claude_job_keys[row["id"]] = self.claude_cache_key()
         before = await self.quota(True) if backend == "codex" else None
         if before is not None:
             self.event(row["id"], "quota_before", before)
+        owner_job = row["owner"] == harness_agents.LOCAL_CLIENT
         live = {"answer": "", "thinking": "", "at": 0}
         from agent_service.secret_vault import SecretStream
 
@@ -2496,7 +2510,8 @@ class ConversationService:
             if backend == "codex":
                 after = await self.quota(True)
                 progress("quota_after", after)
-                result.update(quota_before=before, quota_after=after)
+                if owner_job:
+                    result.update(quota_before=before, quota_after=after)
             return result
         baseline = (
             deployment.snapshot(project_config["root"])
@@ -2548,8 +2563,9 @@ class ConversationService:
         if backend == "codex":
             after = await self.quota(True)
             self.event(row["id"], "quota_after", after)
-            result["quota_before"] = before
-            result["quota_after"] = after
+            if owner_job:
+                result["quota_before"] = before
+                result["quota_after"] = after
         return result
 
     def _finalize_inference(self, plan, result):
@@ -2896,18 +2912,49 @@ class ConversationService:
         self.event(row["id"], "tool_end", {"tool": kind})
         return {"tool_result": result, "metrics": None}
 
+    def claude_cache_key(self):
+        revision = self.config.get("provider_revisions", {}).get("claude")
+        # Cache-only: a new login must drop the usage cache without cancelling jobs, so this
+        # revision is deliberately absent from apply_runtime_config and runtime_job_affected.
+        account = self.config.get("account_revisions", {}).get("claude")
+        return (self.config.get("claude", {}), revision, account)
+
     def observed_claude_quota(self, owner):
+        """The newest Claude reading the rail may trust: the usage cache, else the stream."""
+        cached = self.claude_usage_cache
+        if cached and cached[0] != self.claude_cache_key():
+            cached = None
+        if (
+            cached
+            and cached[2].get("available")
+            and time.monotonic() - cached[1] <= CLAUDE_QUOTA_FRESH_SECONDS
+        ):
+            return {**cached[2], "reason": None}
         now = time.time()
-        buckets = {}
-        for key, bucket in self.provider_usage.get(owner, {}).items():
-            window = bucket["primary"]
-            reset = window.get("resetsAt")
-            if now - bucket["checked_at"] <= 300 and (reset is None or reset > now):
-                buckets[key] = bucket
+        current = self.claude_cache_key()
+        usage = {
+            key: bucket
+            for key, bucket in self.provider_usage.get(owner, {}).items()
+            if self.claude_reading_keys.get((owner, key)) == current
+        }
+        buckets = {
+            key: bucket
+            for key, bucket in usage.items()
+            if now - bucket["checked_at"] <= CLAUDE_QUOTA_FRESH_SECONDS
+            and (bucket["primary"].get("resetsAt") is None or bucket["primary"]["resetsAt"] > now)
+        }
         available = any(
             type(bucket["primary"].get("usedPercent")) in (int, float)
             for bucket in buckets.values()
         )
+        if available:
+            reason = None
+        elif (cached and cached[2].get("available")) or (usage and not buckets):
+            reason = "quota_stale"
+        elif buckets or (cached and cached[2].get("source") == "cli_usage"):
+            reason = "quota_not_reported"  # a reading arrived and carried no usable window
+        else:
+            reason = "quota_not_read"
         return {
             "provider": "claude",
             "available": available,
@@ -2915,7 +2962,7 @@ class ConversationService:
             "shared_account": True,
             "checked_at": max((b["checked_at"] for b in buckets.values()), default=None),
             "rateLimitsByLimitId": buckets,
-            "reason": None if available else "quota_not_reported",
+            "reason": reason,
         }
 
     async def claude_quota(self, owner):
@@ -2925,7 +2972,7 @@ class ConversationService:
         if not config.get("binary"):
             return self.observed_claude_quota(owner)
         async with self.claude_usage_lock:
-            cache_key = (config, self.config.get("provider_revisions", {}).get("claude"))
+            cache_key = self.claude_cache_key()
             cached = self.claude_usage_cache
             if not cached or cached[0] != cache_key or time.monotonic() - cached[1] >= 30:
                 try:
@@ -2948,24 +2995,57 @@ class ConversationService:
             "reason": "quota_stale",
         }
 
+    def codex_quota_gap(self):
+        """Why the rail has no Codex reading: the last read failed, or none was ever taken."""
+        failed = self.usage_failed_at
+        recent = failed is not None and time.monotonic() - failed <= CODEX_QUOTA_FRESH_SECONDS
+        return {"available": False, "reason": "usage_unavailable" if recent else "quota_not_read"}
+
+    def observed_deepseek_quota(self):
+        """The cached prepaid balance as the rail shows it; never fetches."""
+        if not self.deepseek_key_file():
+            return {"available": False, "reason": "quota_not_reported"}
+        cached = self.deepseek_usage_cache
+        if not cached or cached[0] != self.deepseek_cache_key() or not cached[2]["available"]:
+            return {"available": False, "reason": "balance_not_read"}
+        _, read_at, result = cached
+        if time.monotonic() - read_at > DEEPSEEK_BALANCE_SECONDS:
+            return {"available": False, "reason": "quota_stale", "checked_at": result["checked_at"]}
+        first = result["balances"][0]
+        return {
+            "available": True,
+            "reason": None,
+            "kind": "balance",
+            "checked_at": result["checked_at"],
+            "balance": {"amount": first["total"], "currency": first["currency"]},
+        }
+
+    def deepseek_key_file(self):
+        return ((self.config.get("deepseek") or {}).get("api_provider") or {}).get("key_file")
+
+    def deepseek_cache_key(self):
+        """A balance belongs to one key: a new key file or a saved key changes this."""
+        return (self.deepseek_key_file(), self.config.get("provider_revisions", {}).get("deepseek"))
+
     async def deepseek_quota(self):
         """DeepSeek's prepaid balance, read with the harness key and kept for a few minutes."""
         from adapters.deepseek import account
 
-        key_file = ((self.config.get("deepseek") or {}).get("api_provider") or {}).get("key_file")
+        key_file = self.deepseek_key_file()
         if not key_file:
             return {"provider": "deepseek", "available": False, "reason": "quota_not_reported"}
+        cache_key = self.deepseek_cache_key()
         cached = self.deepseek_usage_cache
-        if cached:
-            fresh = DEEPSEEK_BALANCE_SECONDS if cached[1]["available"] else DEEPSEEK_FAILURE_SECONDS
-            if time.monotonic() - cached[0] < fresh:
-                return cached[1]
+        if cached and cached[0] == cache_key:
+            fresh = DEEPSEEK_BALANCE_SECONDS if cached[2]["available"] else DEEPSEEK_FAILURE_SECONDS
+            if time.monotonic() - cached[1] < fresh:
+                return cached[2]
         summary = account.balance_summary(await account.fetch_balance(key_file))
         if summary is None:
             result = {"provider": "deepseek", "available": False, "reason": "balance_unavailable"}
         else:
             result = {"provider": "deepseek", "available": True, "checked_at": time.time(), **summary}
-        self.deepseek_usage_cache = (time.monotonic(), result)
+        self.deepseek_usage_cache = (cache_key, time.monotonic(), result)
         return result
 
     async def quota(self, refresh=False):
@@ -2979,6 +3059,7 @@ class ConversationService:
             )
             self.usage_cache = {
                 "available": True,
+                "reason": None,
                 "checked_at": time.time(),
                 "rateLimits": value.get("rateLimits"),
                 "rateLimitsByLimitId": value.get("rateLimitsByLimitId"),
@@ -2988,6 +3069,7 @@ class ConversationService:
             return self.usage_cache
         except Exception:
             logger.info("Codex quota unavailable", exc_info=True)
+            self.usage_failed_at = time.monotonic()
             return {"available": False, "checked_at": time.time(), "reason": "usage_unavailable"}
 
     def execution(self, row):

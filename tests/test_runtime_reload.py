@@ -7,6 +7,7 @@ from starlette.testclient import TestClient
 from test_workspaces import config
 
 from agent_service.app import APIError, Service, create_app
+from control.manager import Manager
 
 
 def payload(backend="codex", model="codex-test"):
@@ -242,3 +243,47 @@ def test_watcher_applies_atomic_runtime_file_and_reports_invalid_config(tmp_path
             time.sleep(0.03)
         assert client.get("/v1/version").json()["config_reload_error"]
         assert app.state.service.config["config_revision"] == "watched-revision"
+
+
+def test_claude_login_revision_keeps_queued_and_running_claude_jobs(tmp_path):
+    cfg = config(tmp_path)
+    cfg["services"]["claude"] = {
+        "enabled": True,
+        "models": ["claude-test"],
+        "projects": ["p"],
+        "permissions": {"read": True},
+    }
+    cfg["claude"] = {"binary": "/fixture", "use_cli_login": True}
+    service = Service(copy.deepcopy(cfg))
+
+    async def scenario():
+        queued(service, "running-claude", payload("claude", "claude-test"))
+        queued(service, "queued-claude", payload("claude", "claude-test"))
+        with service.db:
+            service.db.execute("UPDATE jobs SET state='running' WHERE id='running-claude'")
+        service.active = "running-claude"
+        service.task = asyncio.create_task(asyncio.sleep(10))
+        # What the admin panel writes when a Claude login completes.
+        manager = Manager(tmp_path / "control")
+        manager._write_runtime({"claude": {"binary": "/fixture"}, "provider_revisions": {}})
+        await manager.claude_login_completed()
+        runtime = manager._previous_runtime()
+        candidate = copy.deepcopy(cfg)
+        candidate["config_revision"] = "after-login"
+        candidate["provider_revisions"] = runtime["provider_revisions"]
+        candidate["account_revisions"] = runtime["account_revisions"]
+        await service.apply_runtime_config(candidate)
+        assert not service.task.done()
+        service.task.cancel()
+        assert service.config["account_revisions"] == runtime["account_revisions"]
+        assert service.cancellation_reasons == {}
+        rows = service.db.execute("SELECT id,state FROM jobs")
+        states = {row["id"]: row["state"] for row in rows}
+        assert states == {"running-claude": "running", "queued-claude": "queued"}
+        events = service.db.execute("SELECT type FROM events WHERE type='configuration_changed'")
+        assert events.fetchall() == []
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        service.db.close()

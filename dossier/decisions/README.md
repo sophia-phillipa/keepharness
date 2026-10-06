@@ -24,4 +24,5 @@ Spec: [Codex-app parity design](../codex-parity-design.md).
 | [D-029](d-029-visible-pass-before-merge.md) | Every parity WP gets a visible pass before merge | accepted |
 | [D-030](d-030-wp5-host-hand-off-in-containers.md) | WP5 hand-off on the host inside distrobox | accepted |
 | [D-031](d-031-retry-failed-turns.md) | Retry failed or interrupted turns, and image-capability guidance | accepted |
+| [D-032](d-032-wp8-quota-meter-contract.md) | WP8 quota meter contract: passive activity, non-null quota, DeepSeek balance | accepted |
 | [D-033](d-033-right-panel-accordion.md) | Right panel: Activities first, accordions, Project and System files | accepted |
