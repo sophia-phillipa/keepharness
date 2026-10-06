@@ -336,6 +336,8 @@ const path = require("node:path");
     assert.equal(await page.locator("#activities-view").isVisible(), true, "the seeded Activities view is shown");
     assert.equal(await page.locator("#files-view").isVisible(), false, "the file tree waits for the Files view");
     await page.click("#files-toggle");
+    // D-033: the tree lives in System Files; Project Files is the default open section.
+    await page.click("#workspace-system-files-head");
     await page
       .locator("#files-tree [role=treeitem]")
       .first()
@@ -373,21 +375,22 @@ const path = require("node:path");
       const box = (selector) => document.querySelector(selector).getBoundingClientRect();
       const panel = document.querySelector("#activity-panel");
       return {
-        files: box("#workspace-files").height,
+        files: box("#workspace-system-files").height,
+        view: box("#files-view").height,
         panel: box("#activity-panel").height,
         activities: box("#activities-view").height,
         controlsBottom: box("#activity-panel .panel-view-controls").bottom,
-        filesBottom: box("#workspace-files").bottom,
+        filesBottom: box("#files-view").bottom,
         panelBottom: box("#activity-panel").bottom,
         scrolls: panel.scrollHeight > panel.clientHeight,
       };
     });
-    assert(layout.files >= 168, "the Files body is at least 168 px: " + JSON.stringify(layout));
+    assert(layout.files >= 168, "the System Files body is at least 168 px: " + JSON.stringify(layout));
     assert(layout.scrolls || layout.files > 160, "the Files body is not the old 160 px window");
     assert.equal(layout.activities, 0, "the hidden Activities accordion takes no height: " + JSON.stringify(layout));
     assert(
-      layout.files >= layout.panelBottom - layout.controlsBottom - 120,
-      "the Files view fills the panel under the switch: " + JSON.stringify(layout),
+      layout.view >= layout.panelBottom - layout.controlsBottom - 120,
+      "the Files view (both accordion sections) fills the panel under the switch: " + JSON.stringify(layout),
     );
     // The folder chevrons are 24 px targets.
     for (const chevron of await page.locator("#files-tree .file-chevron").all()) {

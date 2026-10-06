@@ -141,22 +141,22 @@ async function unobscured(locator) {
         if (!(await page.locator('#activity-panel').isVisible())) await page.locator('#panel-toggle').click();
         // D-033: the accordion headers of the Activities view own their whole hit area (no resize handle shares it).
         await page.locator('#activity-toggle').click();
-        for (const head of await page.locator('#activity-panel .accordion-head').all()) {
+        for (const head of await page.locator('#activities-view .accordion-head').all()) {
           await head.scrollIntoViewIfNeeded();
           assert(await head.evaluate(node => { const r = node.getBoundingClientRect(); return [2, r.height - 2].every(y => node.contains(document.elementFromPoint(r.x + r.width / 2, r.y + y))); }), 'accordion headers do not share resize hit areas');
         }
-        // The Files section and its row handle live in the Files view.
+        // The Files accordion headers (Project Files, System Files) live in the Files view.
         await page.locator('#files-toggle').click();
         // The column handle is drawn as a 6 px strip (WP-16 L64) but keeps a 24 px hit area in free space (WCAG 2.5.8).
         assertHitAreas(await handleHitZones(page, '#activity-panel-resize'));
         for (const handle of await page.locator('#activity-panel-resize').all()) assert(await unobscured(handle));
-        for (const summary of await page.locator('#activity-panel .workspace-section > summary').all()) {
+        for (const summary of await page.locator('#activity-panel #files-view .accordion-head').all()) {
           await summary.scrollIntoViewIfNeeded();
-          assert(await summary.evaluate(node => { const r = node.getBoundingClientRect(); return [2, r.height - 2].every(y => node.contains(document.elementFromPoint(r.x + r.width / 2, r.y + y))); }), 'section summaries do not share resize hit areas');
+          assert(await summary.evaluate(node => { const r = node.getBoundingClientRect(); return [2, r.height - 2].every(y => node.contains(document.elementFromPoint(r.x + r.width / 2, r.y + y))); }), 'Files accordion headers do not share resize hit areas');
         }
         // D-033: Files fills its view instead of carrying a row resize handle.
-        assert.equal(await page.locator('#workspace-files-resize').count(), 0);
-        const gap = await page.evaluate(() => { const panel = document.getElementById('activity-panel'); return panel.getBoundingClientRect().bottom - parseFloat(getComputedStyle(panel).paddingBottom) - document.getElementById('workspace-files').getBoundingClientRect().bottom; });
+        assert.equal(await page.locator('#workspace-project-files-resize, #workspace-system-files-resize').count(), 0);
+        const gap = await page.evaluate(() => { const panel = document.getElementById('activity-panel'); return panel.getBoundingClientRect().bottom - parseFloat(getComputedStyle(panel).paddingBottom) - document.getElementById('files-view').getBoundingClientRect().bottom; });
         assert(gap >= -1 && gap <= 24, 'Files reaches the bottom of the panel: ' + gap);
         await page.close();
       }

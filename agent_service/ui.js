@@ -3086,7 +3086,7 @@ function newConversation(title = "New Conversation", projectId = $("project").va
   status("");
   $("prompt").focus({ preventScroll: true });
   refreshProjectPermissions();
-  if (changedProject) { clearResourceItems(); void refreshWorkspaceResources(); }
+  if (changedProject) { clearResourceItems(); void refreshWorkspaceResources(); void loadAuthorizedProjectRoots(); }
 }
 function chooseProject(id) {
   if (busy || loading || uploads) return;
@@ -4103,7 +4103,7 @@ document.addEventListener("click", (event) => {
   pendingResourceFocus = $("activity-panel").hidden ? id : "";
   setPanelOpen(true);
   setPanelView("activity");
-  selectActivitySection("resources");
+  selectAccordionSection("resources");
   focusResourceRow(id);
 });
 function stepMarker(data) {
@@ -5770,6 +5770,7 @@ async function navigateProjectFolder(project) {
     if (!folder) throw new Error("This project has no associated folder.");
     // Keep the active conversation and its draft independent of file navigation.
     setPanelView("files");
+    selectAccordionSection("system-files");
     setPanelOpen(true);
     await loadProjectFileRoots(true);
     const destination = await json(
@@ -5813,6 +5814,7 @@ async function loadProjectFileRoots(force = false) {
   fileTree.ready = false;
   $("files-loading").hidden = false;
   $("files-error").hidden = true;
+  $("files-error").setAttribute("role", "alert");
   $("files-retry").hidden = true;
   $("files-no-roots").hidden = true;
   try {
@@ -5864,9 +5866,14 @@ async function loadProjectFileRoots(force = false) {
     if (request !== fileTree.request) return;
     $("files-loading").hidden = true;
     $("files-error").hidden = false;
-    $("files-error").textContent =
-      "Couldn't load the authorized folders: " + error.message;
-    $("files-retry").hidden = false;
+    // A guest cannot browse the system's folders: say so quietly, with nothing to retry.
+    const ownerOnly = error.code === "host_files_owner_only";
+    $("files-error").className = ownerOnly ? "file-tree-note" : "";
+    $("files-error").setAttribute("role", ownerOnly ? "note" : "alert");
+    $("files-error").textContent = ownerOnly
+      ? "System files are visible to the owner only."
+      : "Couldn't load the authorized folders: " + error.message;
+    $("files-retry").hidden = ownerOnly;
   }
 }
 async function selectProjectFileRoot(root) {
@@ -6288,10 +6295,12 @@ $("take-tour").addEventListener("click", () => $("settings-dialog").close());
 // OP-R1-22: the chip attaches (recent uploads, Space pages, Upload…); it never changes the mode.
 function browseProjectFiles() {
   togglePanelView("files");
+  // D-033: the browsable tree (and its attach actions) lives in System Files, like navigateProjectFolder.
+  selectAccordionSection("system-files");
   const target =
     $("files-tree").querySelector('[role="treeitem"][tabindex="0"]') ||
     $("files-tree").querySelector('[role="treeitem"]') ||
-    document.querySelector('[data-workspace-section="files"] > summary');
+    $("workspace-system-files-head");
   target?.focus({ preventScroll: true });
 }
 $("files-chip").onclick = () => openChipMenu($("files-menu"), $("files-chip"), renderFilesMenu);
@@ -7471,6 +7480,8 @@ const activityIcons = {
 // D-033: the panel shows one view at a time, Activities (a one-open accordion) or Files.
 let rightPanelView = "files";
 const ACTIVITY_SECTIONS = ["activity", "background-tasks", "resources"];
+const FILES_SECTIONS = ["project-files", "system-files"];
+const ACCORDION_GROUPS = [ACTIVITY_SECTIONS, FILES_SECTIONS];
 function syncPanelToggles() {
   const open = !$("activity-panel").hidden;
   $("files-toggle").setAttribute("aria-expanded", String(open && rightPanelView === "files"));
@@ -7478,18 +7489,17 @@ function syncPanelToggles() {
 }
 function setPanelView(view, persist = true) {
   rightPanelView = view === "files" ? "files" : "activity";
-  const files = rightPanelView === "files", filesSection = document.querySelector('[data-workspace-section="files"]');
+  const files = rightPanelView === "files";
   $("activities-view").hidden = files;
-  filesSection.hidden = !files;
-  if (files && persist) filesSection.open = true;
-  $("files-title").textContent = "Files";
+  $("files-view").hidden = !files;
   $("activity-title").textContent = "Activity";
   syncPanelToggles();
   if (persist) prefs.set("right_panel_view", rightPanelView);
 }
-// Exactly one Activities section is open; it is remembered in the workspace_sections preference.
-function selectActivitySection(name, { persist = true, focus = false } = {}) {
-  for (const section of ACTIVITY_SECTIONS) {
+// Exactly one section per accordion (Activities, Files) is open; it is remembered in the workspace_sections preference.
+function selectAccordionSection(name, { persist = true, focus = false } = {}) {
+  const group = ACCORDION_GROUPS.find((names) => names.includes(name));
+  for (const section of group) {
     const on = section === name, head = $("workspace-" + section + "-head");
     document.querySelector('[data-workspace-section="' + section + '"]').dataset.open = String(on);
     head.setAttribute("aria-expanded", String(on));
@@ -7500,7 +7510,7 @@ function selectActivitySection(name, { persist = true, focus = false } = {}) {
   if (persist)
     prefs.set("workspace_sections", {
       ...prefs.get("workspace_sections", {}),
-      ...Object.fromEntries(ACTIVITY_SECTIONS.map((section) => [section, { open: section === name, height: null }])),
+      ...Object.fromEntries(group.map((section) => [section, { open: section === name, height: null }])),
     });
 }
 const quotaHome = document.createComment("quota-indicator-home");
@@ -7565,7 +7575,16 @@ async function loadAuthorizedProjectRoots() {
   const holder = $("authorized-project-roots"),
     authorize = $("authorize-project-root"),
     project = $("project").value,
-    request = ++authorizedRootsRequest;
+    request = ++authorizedRootsRequest,
+    noProject = project === "sem-projeto";
+  $("project-files-empty").hidden = !noProject;
+  authorize.hidden = noProject;
+  holder.hidden = noProject;
+  if (noProject) {
+    holder.replaceChildren();
+    authorize.disabled = true;
+    return;
+  }
   holder.textContent = "Loading project roots…";
   authorize.disabled = true;
   authorize.title = "Checking project permissions";
@@ -10958,34 +10977,27 @@ function renderWorkspaceTasks(jobs) {
   }
   if (!active.length) target.textContent = "No background tasks.";
 }
-// D-033: Files fills its view, so it keeps only its open state (no row handle, no stored height).
-for (const section of document.querySelectorAll(".workspace-section")) {
-  const name = section.dataset.workspaceSection;
-  const saved = prefs.get("workspace_sections", {})[name];
-  if (saved && typeof saved === "object") section.open = saved.open !== false;
-  section.addEventListener("toggle", () => prefs.set("workspace_sections", { ...prefs.get("workspace_sections", {}), [name]: { open: section.open, height: null } }));
-}
-const activityHeads = ACTIVITY_SECTIONS.map((name) => $("workspace-" + name + "-head"));
-activityHeads.forEach((head, index) => {
-  head.addEventListener("click", () => {
-    if (head.getAttribute("aria-disabled") === "true") return;
-    selectActivitySection(ACTIVITY_SECTIONS[index], { focus: true });
+for (const names of ACCORDION_GROUPS) {
+  const heads = names.map((name) => $("workspace-" + name + "-head"));
+  heads.forEach((head, index) => {
+    head.addEventListener("click", () => {
+      if (head.getAttribute("aria-disabled") === "true") return;
+      selectAccordionSection(names[index], { focus: true });
+    });
+    head.addEventListener("keydown", (event) => {
+      const target = { ArrowDown: index + 1, ArrowUp: index - 1, Home: 0, End: heads.length - 1 }[event.key];
+      if (target === undefined) return;
+      event.preventDefault();
+      heads[(target + heads.length) % heads.length].focus();
+    });
   });
-  head.addEventListener("keydown", (event) => {
-    const target = { ArrowDown: index + 1, ArrowUp: index - 1, Home: 0, End: activityHeads.length - 1 }[event.key];
-    if (target === undefined) return;
-    event.preventDefault();
-    activityHeads[(target + activityHeads.length) % activityHeads.length].focus();
-  });
-});
-{
   const sections = prefs.get("workspace_sections", {});
-  selectActivitySection(ACTIVITY_SECTIONS.find((name) => sections[name]?.open === true) || "activity", { persist: false });
+  selectAccordionSection(names.find((name) => sections[name]?.open === true) || names[0], { persist: false });
 }
 function updateWorkspaceCounts() {
-  $("workspace-files-count").textContent = String($("files-view").querySelectorAll('[role="treeitem"], .authorized-root-card li:has(button, span)').length);
+  $("workspace-project-files-count").textContent = String($("authorized-project-roots").querySelectorAll(".authorized-root-card").length);
   $("workspace-activity-count").textContent = String($("activity-events").querySelectorAll("li[data-state]").length);
 }
-for (const id of ["files-view", "activity-events"])
+for (const id of ["authorized-project-roots", "activity-events"])
   new MutationObserver(updateWorkspaceCounts).observe($(id), { childList: true, subtree: true });
 document.addEventListener("harness:ready", refreshWorkspaceResources);

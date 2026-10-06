@@ -22,19 +22,23 @@ const JOBS = ["alpha", "beta"].map((name, index) => ({
   backend: "local", model: "fixture", created: index + 1, title: "Background " + name,
 }));
 
-async function resetPreferences() {
+// The harness allows 60 writes a minute per identity: each scenario replaces the stored
+// preferences with ONE patch (old keys cleared, seed applied) and waits out a 429.
+async function replacePreferences(seed) {
   const url = BASE + "/v1/ui-state", headers = { "Content-Type": "application/json" };
   const { values } = await (await fetch(url)).json();
-  const keys = Object.keys(values);
-  if (keys.length) await fetch(url, { method: "PATCH", headers, body: JSON.stringify({ values: Object.fromEntries(keys.map((key) => [key, null])) }) });
+  const body = JSON.stringify({ values: { ...Object.fromEntries(Object.keys(values).map((key) => [key, null])), ...seed } });
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const response = await fetch(url, { method: "PATCH", headers, body });
+    if (response.status !== 429) { assert(response.ok, "seed preferences: " + response.status); return; }
+    await new Promise((resolve) => setTimeout(resolve, 1000 * (Number(response.headers.get("retry-after")) || 5)));
+  }
+  throw new Error("seed preferences: still rate limited");
 }
 const storedPreference = async (key) => (await (await fetch(BASE + "/v1/ui-state")).json()).values[key];
-const seedPreferences = (values) =>
-  fetch(BASE + "/v1/ui-state", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ values }) });
 
-async function openPage(browser, { view = "activity", palette = "paper", seed = {} } = {}) {
-  await resetPreferences();
-  await seedPreferences({ activity_open: true, right_panel_view: view, ...seed });
+async function openPage(browser, { view = "activity", palette = "paper", seed = {}, extra = null } = {}) {
+  await replacePreferences({ activity_open: true, right_panel_view: view, ...seed });
   const context = await browser.newContext({ viewport: { width: 1280, height: 860 } });
   const page = await context.newPage();
   page.setDefaultTimeout(5000);
@@ -45,7 +49,8 @@ async function openPage(browser, { view = "activity", palette = "paper", seed = 
   });
   await page.route("**/v1/**", (route) => {
     const { pathname } = new URL(route.request().url());
-    if (pathname === "/v1/models") return route.fulfill({ json: { models: [{ id: "fixture", backend: "local", efforts: ["configured"] }], providers: { local: true } } });
+    if (extra) { const handled = extra(route, pathname, new URL(route.request().url())); if (handled) return handled; }
+    if (pathname === "/v1/models") return route.fulfill({ json: { models: [{ id: "fixture", backend: "local", efforts: ["configured"], permissions: { upload: true } }], providers: { local: true }, uploads_enabled: true } });
     if (pathname === "/v1/resources") return route.fulfill({ json: { items: RESOURCES, warnings: [] } });
     if (pathname === "/v1/activity") return route.fulfill({ json: { jobs: JOBS, needs_you: [], counts: {}, providers: [] } });
     return route.continue();
@@ -102,12 +107,12 @@ scenario("Activities and Files are exclusive views and Files takes the whole pan
   const geometry = await page.evaluate(() => {
     const panel = document.getElementById("activity-panel"), style = getComputedStyle(panel);
     const floor = panel.getBoundingClientRect().bottom - parseFloat(style.paddingBottom);
-    const files = document.getElementById("workspace-files").getBoundingClientRect();
+    const files = document.querySelector("#files-view .accordion-group").getBoundingClientRect();
     return { display: style.display, direction: style.flexDirection, gap: floor - files.bottom, files: files.height, overflow: panel.scrollHeight - panel.clientHeight };
   });
   assert.equal(geometry.display, "flex");
   assert.equal(geometry.direction, "column");
-  assert(geometry.files >= 168, "the Files body is at least 168 px: " + JSON.stringify(geometry));
+  assert(geometry.files >= 168, "the Files accordion is at least 168 px: " + JSON.stringify(geometry));
   assert(geometry.gap >= -1 && geometry.gap <= 24, "Files reaches the bottom of the panel (resize handle only): " + JSON.stringify(geometry));
   assert(geometry.overflow <= 1, "no outer scrollbar: " + JSON.stringify(geometry));
   await page.locator("#activity-toggle").click();
@@ -184,7 +189,7 @@ scenario("the open section fills the height, scrolls inside and the panel never 
     const panel = document.getElementById("activity-panel"), view = document.getElementById("activities-view").getBoundingClientRect();
     const floor = panel.getBoundingClientRect().bottom - parseFloat(getComputedStyle(panel).paddingBottom);
     const open = names.map((name) => document.getElementById("workspace-" + name)).find((node) => node.checkVisibility());
-    const body = open.getBoundingClientRect(), item = open.closest(".accordion-item").getBoundingClientRect(), last = [...document.querySelectorAll(".accordion-item")].at(-1).getBoundingClientRect(), heads = [...document.querySelectorAll(".accordion-head")].map((node) => node.getBoundingClientRect());
+    const body = open.getBoundingClientRect(), item = open.closest(".accordion-item").getBoundingClientRect(), last = [...document.querySelectorAll("#activities-view .accordion-item")].at(-1).getBoundingClientRect(), heads = [...document.querySelectorAll("#activities-view .accordion-head")].map((node) => node.getBoundingClientRect());
     return {
       open: open.id, viewGap: floor - view.bottom, bodyGap: item.bottom - body.bottom, itemsGap: view.bottom - last.bottom, body: body.height,
       outerOverflow: panel.scrollHeight - panel.clientHeight, headsInside: heads.every((box) => box.top >= view.top - 1 && box.bottom <= view.bottom + 1),
@@ -264,12 +269,174 @@ scenario("the open section is remembered in workspace_sections across a reload",
   await context.close();
 });
 
-for (const palette of ["paper", "graphite"]) {
-  scenario("accordion text meets WCAG AA contrast in " + palette, async (browser) => {
-    const { context, page } = await openPage(browser, { palette });
-    await head(page, "resources").click();
-    await page.waitForFunction(() => document.getElementById("workspace-resources-count").textContent === "3");
-    const failures = await page.evaluate(() => {
+const filesFixture = (state = { guest: false }) => (route, pathname, url) => {
+  if (pathname === "/v1/projects") return route.fulfill({ json: { projects: ["sem-projeto", "project-a"], details: { "project-a": { label: "Project Alpha", root: "/work/a" } } } });
+  if (pathname === "/v1/project-files/attach") {
+    state.attached = (state.attached || []).concat([route.request().postDataJSON()]);
+    const [name] = state.attached.at(-1).paths;
+    return route.fulfill({ json: { attachments: [{ file_id: "selected-" + state.attached.length, name }], skipped: [] } });
+  }
+  if (pathname !== "/v1/project-files") return null;
+  const view = url.searchParams.get("view"), rootId = url.searchParams.get("root_id"), roots = [{ id: "home", label: "Home" }, { id: "media-user", label: "User media" }];
+  if (view === "tree") {
+    state.treeRequests = (state.treeRequests || 0) + 1;
+    if (state.guest) return route.fulfill({ status: 403, json: { code: "host_files_owner_only", error: "owner only" } });
+    return route.fulfill({ json: { state: "ready", roots, root_id: rootId || undefined, path: "", entries: rootId ? [{ path: "photo.png", name: "photo.png", type: "file" }] : [], limited: false } });
+  }
+  const authorized = [{ id: "proj-root", path: "/work/a", label: "a" }, { id: "extra-root", path: "/work/extra", label: "extra" }];
+  return route.fulfill({ json: { state: "ready", roots: authorized, root_id: "proj-root", can_authorize: true, entries: rootId ? [{ path: "main.py", name: "main.py", type: "file" }] : [] } });
+};
+const filesPage = async (browser, options = {}) => {
+  const state = options.state || { guest: false };
+  const opened = await openPage(browser, { view: "files", extra: filesFixture(state), ...options });
+  opened.state = state;
+  return opened;
+};
+const selectProject = (page, name) => page.selectOption("#project", name, { force: true });
+const FILES = ["project-files", "system-files"];
+const filesOpenState = (page) =>
+  page.evaluate((names) => names.map((name) => ({
+    name,
+    expanded: document.getElementById("workspace-" + name + "-head").getAttribute("aria-expanded"),
+    disabled: document.getElementById("workspace-" + name + "-head").getAttribute("aria-disabled"),
+    shown: document.getElementById("workspace-" + name).checkVisibility(),
+  })), FILES);
+async function assertFilesOpen(page, name, message) {
+  const state = await filesOpenState(page);
+  assert.deepEqual(state.filter((item) => item.expanded === "true").map((item) => item.name), [name], message + " " + JSON.stringify(state));
+  assert.deepEqual(state.filter((item) => item.shown).map((item) => item.name), [name], message + ": one visible body " + JSON.stringify(state));
+  for (const item of state) assert.equal(item.disabled, String(item.name === name), message + ": only the open header is aria-disabled");
+}
+
+scenario("Files is an accordion: Project Files then System Files, one open, Project Files by default", async (browser) => {
+  const { context, page } = await filesPage(browser);
+  assert.deepEqual(await page.locator("#files-view .accordion-head .accordion-label").allTextContents(), ["Project Files", "System Files"]);
+  assert.deepEqual(
+    await page.locator("#files-view .accordion-head").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("aria-controls"))),
+    FILES.map((name) => "workspace-" + name),
+  );
+  assert.equal(await page.locator("#files-view details").count(), 0, "no disclosure summaries are left in Files");
+  assert(await page.locator("#files-help").isVisible(), "the drag hint stays visible in the Files view");
+  await assertFilesOpen(page, "project-files", "default");
+  await head(page, "system-files").click();
+  await assertFilesOpen(page, "system-files", "after System Files click");
+  await head(page, "project-files").click();
+  await assertFilesOpen(page, "project-files", "back to Project Files");
+  await head(page, "system-files").click();
+  await head(page, "system-files").click({ force: true }); // already open and aria-disabled
+  await assertFilesOpen(page, "system-files", "clicking the open header keeps it open");
+  await context.close();
+});
+
+scenario("Files keyboard: Down/Up/Home/End move focus and wrap, Enter and Space open", async (browser) => {
+  const { context, page } = await filesPage(browser);
+  await head(page, "project-files").focus();
+  await page.keyboard.press("ArrowDown");
+  assert.equal(await page.evaluate(() => document.activeElement.id), "workspace-system-files-head");
+  await page.keyboard.press("ArrowDown");
+  assert.equal(await page.evaluate(() => document.activeElement.id), "workspace-project-files-head", "Down wraps");
+  await page.keyboard.press("ArrowUp");
+  assert.equal(await page.evaluate(() => document.activeElement.id), "workspace-system-files-head", "Up wraps");
+  await page.keyboard.press("Home");
+  assert.equal(await page.evaluate(() => document.activeElement.id), "workspace-project-files-head");
+  await page.keyboard.press("End");
+  assert.equal(await page.evaluate(() => document.activeElement.id), "workspace-system-files-head");
+  await assertFilesOpen(page, "project-files", "moving focus does not open");
+  await page.keyboard.press("Enter");
+  await assertFilesOpen(page, "system-files", "Enter opens");
+  await head(page, "project-files").focus();
+  await page.keyboard.press("Space");
+  await assertFilesOpen(page, "project-files", "Space opens");
+  await context.close();
+});
+
+scenario("Project Files lists only the project's roots and shows an empty state for No project", async (browser) => {
+  const { context, page } = await filesPage(browser);
+  assert(await page.locator("#project-files-empty").isVisible(), "No project: empty state");
+  assert.equal((await page.locator("#project-files-empty").textContent()).trim(), "No project selected. Choose a project to see its files.");
+  assert.equal(await page.locator("#authorized-project-roots .authorized-root-card").count(), 0);
+  assert.equal(await page.locator("#authorize-project-root").isVisible(), false);
+  assert.equal(await page.locator("#workspace-project-files-count").textContent(), "0");
+  await selectProject(page, "project-a");
+  await page.waitForFunction(() => document.querySelectorAll("#authorized-project-roots .authorized-root-card").length === 2);
+  assert.equal(await page.locator("#project-files-empty").isVisible(), false);
+  assert.deepEqual(await page.locator("#authorized-project-roots .authorized-root-card > strong").allTextContents(), ["/work/a", "/work/extra"]);
+  assert.equal(await page.locator("#workspace-project-files-count").textContent(), "2");
+  assert.equal(await page.locator("#project-files-empty").isVisible(), false);
+  assert(await page.locator("#authorize-project-root").isVisible());
+  assert.equal(await page.locator("#workspace-project-files #files-tree").count(), 0, "the system tree is not in Project Files");
+  await selectProject(page, "sem-projeto");
+  assert(await page.locator("#project-files-empty").isVisible(), "back to No project: empty state again");
+  await context.close();
+});
+
+scenario("System Files shows the home and media roots and attaches a file to a project conversation", async (browser) => {
+  const { context, page, state } = await filesPage(browser);
+  await selectProject(page, "project-a");
+  await head(page, "system-files").click();
+  await page.locator("#files-roots .file-root").first().waitFor();
+  assert.deepEqual(await page.locator("#files-roots .file-root").allTextContents(), ["Local Folders", "External Folders"]);
+  const file = page.locator("#files-tree [role=treeitem]", { hasText: "photo.png" });
+  await file.waitFor();
+  await file.press("Enter");
+  await page.waitForFunction(() => document.querySelectorAll(".attachment").length === 1);
+  assert.equal(state.attached.length, 1);
+  assert.equal(state.attached[0].root_id, "home", "the system tree attaches by root_id");
+  assert.equal(state.attached[0].project_root_id, undefined);
+  assert.deepEqual(state.attached[0].paths, ["photo.png"]);
+  await context.close();
+});
+
+scenario("a guest sees an owner-only note in System Files, not an error alert", async (browser) => {
+  const { context, page, state } = await filesPage(browser, { state: { guest: true } });
+  await head(page, "system-files").click();
+  await page.waitForFunction(() => /owner only/.test(document.getElementById("files-error").textContent));
+  const note = page.locator("#files-error");
+  assert(await note.isVisible());
+  assert.equal((await note.textContent()).trim(), "System files are visible to the owner only.");
+  assert.equal(await note.getAttribute("role"), "note");
+  assert.equal(await page.locator("#files-retry").isVisible(), false, "nothing to retry");
+  assert.doesNotMatch(await page.locator("#files-view").innerText(), /Couldn't load/);
+  assert(state.treeRequests >= 1);
+  await context.close();
+});
+
+scenario("the open Files section is remembered in workspace_sections across a reload", async (browser) => {
+  const { context, page } = await filesPage(browser);
+  await head(page, "system-files").click();
+  await page.evaluate(() => window.HarnessPrefs.flush());
+  const stored = await storedPreference("workspace_sections");
+  assert.equal(stored["system-files"].open, true);
+  assert.equal(stored["project-files"].open, false);
+  await page.reload();
+  await page.locator("#startup-gate").waitFor({ state: "hidden" });
+  await assertFilesOpen(page, "system-files", "after reload");
+  assert.equal(await page.evaluate(() => Object.keys(localStorage).filter((key) => /workspace|accordion|files-section/.test(key)).length), 0, "no new localStorage key");
+  await context.close();
+});
+
+const AA_TARGETS = {
+  accordion: {
+    selector: ".accordion-head .accordion-label, .accordion-head .workspace-count, #workspace-resources .workspace-item-name, #workspace-resources .workspace-source, #activity-state",
+    prepare: async (page) => {
+      await head(page, "resources").click();
+      await page.waitForFunction(() => document.getElementById("workspace-resources-count").textContent === "3");
+    },
+  },
+  files: {
+    selector: "#files-view .accordion-head .accordion-label, #files-view .accordion-head .workspace-count, #files-help, #project-files-empty, #authorized-project-roots .authorized-root-card, #authorized-project-roots li > *, #authorize-project-root",
+    open: { view: "files", extra: filesFixture() },
+    prepare: async (page) => {
+      await selectProject(page, "project-a");
+      await page.waitForFunction(() => document.querySelectorAll("#authorized-project-roots .authorized-root-card li").length >= 2);
+    },
+  },
+};
+for (const palette of ["paper", "graphite"]) for (const [kind, target] of Object.entries(AA_TARGETS)) {
+  scenario(kind + " text meets WCAG AA contrast in " + palette, async (browser) => {
+    const { context, page } = await openPage(browser, { palette, ...target.open });
+    await target.prepare(page);
+    const failures = await page.evaluate((selector) => {
       const probe = document.createElement("canvas").getContext("2d", { willReadFrequently: true });
       const rgba = (css) => { probe.clearRect(0, 0, 1, 1); probe.fillStyle = "#000"; probe.fillStyle = css; probe.fillRect(0, 0, 1, 1); const [r, g, b, a] = probe.getImageData(0, 0, 1, 1).data; return [r, g, b, a / 255]; };
       const background = (node) => {
@@ -281,7 +448,7 @@ for (const palette of ["paper", "graphite"]) {
       };
       const luminance = ([r, g, b]) => { const [x, y, z] = [r, g, b].map((v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * x + 0.7152 * y + 0.0722 * z; };
       const bad = [];
-      const nodes = [...document.querySelectorAll(".accordion-head .accordion-label, .accordion-head .workspace-count, #workspace-resources .workspace-item-name, #workspace-resources .workspace-source, #activity-state")];
+      const nodes = [...document.querySelectorAll(selector)];
       for (const node of nodes) {
         if (!node.checkVisibility()) continue;
         const a = luminance(rgba(getComputedStyle(node).color)), b = luminance(background(node));
@@ -289,7 +456,7 @@ for (const palette of ["paper", "graphite"]) {
         if (ratio < 4.5) bad.push((node.id || node.className) + " " + ratio.toFixed(2));
       }
       return bad;
-    });
+    }, target.selector);
     assert.deepEqual(failures, []);
     await context.close();
   });

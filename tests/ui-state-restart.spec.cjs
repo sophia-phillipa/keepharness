@@ -226,7 +226,10 @@ async function step(name, work) {
       const expanded = (name) => page.locator("#workspace-" + name + "-head").getAttribute("aria-expanded");
       assert.equal(await expanded("resources"), "false", "no stored section is open: Resources stays collapsed");
       assert.equal(await expanded("activity"), "true", "the Activities accordion falls back to Activity");
-      assert.equal(await page.locator("#workspace-files").evaluate((n) => n.style.height), "", "D-033: Files fills its view; a stored height is not applied");
+      for (const name of ["project-files", "system-files"])
+        assert.equal(await page.locator("#workspace-" + name).evaluate((n) => n.style.height), "", "D-033: Files fills its view; a stored height is not applied to " + name);
+      assert.equal(await expanded("project-files"), "true", "the legacy files key names no accordion section: Project Files is the default open one");
+      assert.equal(await expanded("system-files"), "false");
       // D-033: a section opened through the accordion lands in the store (exactly one open) and is restored after a reload.
       await page.locator("#workspace-resources-head").evaluate((head) => head.click());
       await page.waitForFunction(() => window.HarnessPrefs.get("workspace_sections", {}).resources?.open === true);
@@ -237,7 +240,17 @@ async function step(name, work) {
       await page.waitForFunction(() => window.HarnessPrefs && document.querySelector("#menu"));
       assert.equal(await expanded("resources"), "true");
       assert.equal(await expanded("activity"), "false");
-      assert.equal(await page.locator('[data-workspace-section="files"]').evaluate((d) => d.open), true);
+      // D-033: the Files accordion round-trips too (it replaces the old Files disclosure state).
+      assert.equal(await expanded("project-files"), "true");
+      await page.locator("#workspace-system-files-head").evaluate((head) => head.click());
+      await page.waitForFunction(() => window.HarnessPrefs.get("workspace_sections", {})["system-files"]?.open === true);
+      await flush(page);
+      assert.equal(onDisk(fresh).workspace_sections["system-files"].open, true);
+      assert.equal(onDisk(fresh).workspace_sections["project-files"].open, false);
+      await page.reload();
+      await page.waitForFunction(() => window.HarnessPrefs && document.querySelector("#menu"));
+      assert.equal(await expanded("system-files"), "true");
+      assert.equal(await expanded("project-files"), "false");
       await page.context().close();
     });
 

@@ -24,49 +24,57 @@ module.exports = {
       await op.see(page.locator("#activity-toggle"));
     }, { critical: true });
 
-    await op.step("project-files", "The project's files are listed", async () => {
+    // D-033: Files is an accordion; the folder tree lives in System Files, the authorized project roots in Project Files.
+    const showFilesSection = async (name) => {
       await ensurePanel();
-      await op.see(page.locator("#workspace-files").getByRole("button", { name: "README.md" }), 15000);
-      await op.see(page.locator("#workspace-files").getByRole("button", { name: "notes.md" }));
+      await op.click(page.locator("#files-toggle"));
+      const head = page.locator("#workspace-" + name + "-head");
+      if ((await head.getAttribute("aria-disabled")) !== "true") await op.click(head);
+      await op.see(page.locator("#workspace-" + name));
+    };
+
+    await op.step("project-files", "The project's files are listed", async () => {
+      await showFilesSection("system-files");
+      await op.see(page.locator("#workspace-system-files").getByRole("button", { name: "README.md" }), 15000);
+      await op.see(page.locator("#workspace-system-files").getByRole("button", { name: "notes.md" }));
     }, { fixtureOnly: true });
 
     await op.step("folder-opens", "A folder in the project list opens", async () => {
-      await ensurePanel();
-      const folder = page.locator("#workspace-files").getByText("src", { exact: true });
+      await showFilesSection("system-files");
+      const folder = page.locator("#workspace-system-files").getByText("src", { exact: true });
       await op.click(folder);
-      await op.see(page.locator("#workspace-files").getByText("app.py"), 8000);
+      await op.see(page.locator("#workspace-system-files").getByText("app.py"), 8000);
     }, { fixtureOnly: true, recover: false });
 
     await op.step("attach-file", "Clicking a file attaches it to the message", async () => {
-      await ensurePanel();
-      await op.click(page.locator("#workspace-files").getByRole("button", { name: "README.md" }));
+      await showFilesSection("system-files");
+      await op.click(page.locator("#workspace-system-files").getByRole("button", { name: "README.md" }));
       await op.until(async () => (await page.locator("#attachments").innerText()).includes("README.md"), "README.md was not attached", 15000);
       await op.click(page.locator("#attachments").getByRole("button", { name: "Remove attachment README.md" }));
     }, { fixtureOnly: true });
 
     await op.step("sections", "Background tasks, Resources and Activity sections are present", async () => {
       await ensurePanel();
-      for (const name of [/Background tasks/, /Resources/, /Activity/]) await op.see(panel.locator("summary").filter({ hasText: name }).first());
+      await op.click(page.locator("#activity-toggle"));
+      for (const name of [/Background tasks/, /Resources/, /Activity/]) await op.see(panel.locator("#activities-view .accordion-head").filter({ hasText: name }).first());
     });
 
-    await op.step("server-folders", "Collapse and reopen Browse authorized server folders", async () => {
-      await ensurePanel();
-      const browse = panel.locator("summary").filter({ hasText: "Browse authorized server folders" });
-      const isOpen = async () => (await page.locator("#server-folder-browser").getAttribute("open")) !== null;
-      if (!(await isOpen())) await op.click(browse);
+    await op.step("server-folders", "Switch between Project Files and System Files", async () => {
+      await showFilesSection("system-files");
       await op.see(page.locator("#files-roots, #files-no-roots, #files-tree, #files-error").filter({ visible: true }).first(), 15000);
-      await op.click(browse);
-      await op.until(async () => !(await isOpen()), "the folder browser did not collapse");
-      await op.click(browse);
-      await op.until(isOpen, "the folder browser did not reopen");
+      const isOpen = async (name) => (await page.locator("#workspace-" + name + "-head").getAttribute("aria-expanded")) === "true";
+      await op.click(page.locator("#workspace-project-files-head"));
+      await op.until(async () => (await isOpen("project-files")) && !(await isOpen("system-files")), "Project Files did not replace System Files");
+      await op.click(page.locator("#workspace-system-files-head"));
+      await op.until(async () => (await isOpen("system-files")) && !(await isOpen("project-files")), "System Files did not reopen");
     });
 
     await op.step("activity-tab", "Switch the panel to Activity", async () => {
       await ensurePanel();
       await op.click(page.locator("#activity-toggle"));
-      await op.see(page.locator("#activity-view"));
+      await op.see(page.locator("#activities-view"));
       await op.click(page.locator("#files-toggle"));
-      await op.see(page.locator("#files-view, #workspace-files").first());
+      await op.see(page.locator("#files-view"));
     });
 
     await op.step("code-mode", "Code view keeps the greeting and shows the files panel", async () => {

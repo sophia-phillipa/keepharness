@@ -8,9 +8,10 @@ const icons=['brand-openai','brand-claude','brand-gemini','stack-2','stack-2'];
 const hit=loc=>loc.evaluate(n=>{const r=n.getBoundingClientRect();return n.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));});
 async function fixture(browser,width=1440,height=900,empty=false){
  const page=await browser.newPage({viewport:{width,height}});page.setDefaultTimeout(4000);
- const state={empty,count:602,failSend:false,posts:[],resources:[],conversations:[]};
+ const state={empty,count:602,failSend:false,posts:[],resources:[],conversations:[],projects:null};
  await mount(page,async(url,request)=>{
   if(request.method()==='POST')state.posts.push(request.postDataJSON());
+  if(state.projects&&url.pathname==='/v1/projects')return{json:{projects:state.projects}};
   if(url.pathname==='/v1/resources')return{json:{items:state.resources,warnings:[]}};
   if(url.pathname==='/v1/conversations')return{json:{conversations:state.conversations}};
   if(request.method()==='POST'&&state.failSend)return{status:503,json:{code:'synthetic_offline'}};
@@ -58,7 +59,7 @@ async function fixture(browser,width=1440,height=900,empty=false){
   await p.keyboard.press('Control+j');if(await p.locator('#panel-toggle').getAttribute('aria-expanded')!=='true')await p.locator('#panel-toggle').click();for(let i=0;i<providers.length;i++)assert.equal(await p.locator('#workspace-background-tasks button').filter({hasText:'fixture-'+providers[i]}).locator('svg use').getAttribute('href'),'/assets/icons.svg#'+icons[i]);await p.close();
  });
  await check('A1-F5 F6 file disclosure and icons',async()=>{
-  for(const width of [1440,400])for(const theme of ['porcelain','amethyst','petroleum']){const {page:p}=await fixture(browser,width,812);await p.evaluate(t=>HarnessTheme.apply(t),theme);if(await p.locator('#panel-toggle').getAttribute('aria-expanded')!=='true')await p.locator('#panel-toggle').click();const row=p.locator('.authorized-root-card li').first();await row.waitFor();const label=row.locator('span').first();assert.match(await label.getAttribute('title'),/Quarterly-release/);assert(await label.evaluate(n=>n.scrollWidth>n.clientWidth));assert.equal(await row.locator('svg use').count(),1);assert(await row.locator('svg').evaluate(n=>n.getBoundingClientRect().width>0));assert(await hit(row));assert.equal(await p.locator('.authorized-root-card li').nth(1).locator('svg use').count(),1);await p.close();}
+  for(const width of [1440,400])for(const theme of ['porcelain','amethyst','petroleum']){const {page:p,state}=await fixture(browser,width,812);await p.evaluate(t=>HarnessTheme.apply(t),theme);/* D-033: project roots belong to Project Files and exist only for a real project, not for No project */state.projects=['sem-projeto','synthetic-project'];await p.evaluate(()=>probeReadiness());await p.evaluate(()=>chooseProject('synthetic-project'));if(await p.locator('#panel-toggle').getAttribute('aria-expanded')!=='true')await p.locator('#panel-toggle').click();await p.evaluate(()=>setPanelView('files',false));await p.locator('#workspace-project-files-head').waitFor({state:'visible'});const row=p.locator('.authorized-root-card li').first();await row.waitFor();const label=row.locator('span').first();assert.match(await label.getAttribute('title'),/Quarterly-release/);assert(await label.evaluate(n=>n.scrollWidth>n.clientWidth));assert.equal(await row.locator('svg use').count(),1);assert(await row.locator('svg').evaluate(n=>n.getBoundingClientRect().width>0));assert(await hit(row));assert.equal(await p.locator('.authorized-root-card li').nth(1).locator('svg use').count(),1);await p.close();}
  });
  await check('A1-F7 connection contrast',async()=>{
   const {page:p}=await fixture(browser);await p.keyboard.press("Control+,");await p.locator('#setup').click();
