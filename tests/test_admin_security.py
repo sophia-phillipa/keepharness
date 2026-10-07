@@ -38,6 +38,8 @@ class AdminSecurityTest(unittest.IsolatedAsyncioTestCase):
             {"Origin": "https://evil.test"},
             {"Sec-Fetch-Site": "cross-site"},
             {"Tailscale-User-Login": "person@example.test"},
+            {"Tailscale-Foo": "anything"},
+            {"X-Forwarded-For": "100.101.102.103"},
         ):
             response = await self.client.post(
                 "/api/settings-export", json={}, headers={**self.headers, **headers}
@@ -64,6 +66,10 @@ class AdminSecurityTest(unittest.IsolatedAsyncioTestCase):
         remote = httpx.ASGITransport(app=self.app, client=("10.0.0.2", 1234))
         async with httpx.AsyncClient(transport=remote, base_url="http://127.0.0.1:8094") as client:
             self.assertEqual((await client.get("/")).status_code, 403)
+
+    async def test_admin_and_harness_share_the_direct_loopback_helper(self):
+        with patch.object(local_access, "direct_loopback", lambda request: False):
+            self.assertEqual((await self.client.get("/")).status_code, 403)
 
     async def test_admin_errors_are_codes(self):
         leak = "/home/leaky/.secret/token.json"

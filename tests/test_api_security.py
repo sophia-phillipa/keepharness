@@ -741,6 +741,41 @@ def test_login_accepts_a_token_only_from_a_direct_loopback_peer(tmp_path):
         app.state.service.db.close()
 
 
+def test_direct_loopback_is_one_helper_for_the_harness_and_the_admin(tmp_path, monkeypatch):
+    import asyncio
+    from types import SimpleNamespace
+
+    from starlette.datastructures import Headers
+
+    from control import local_access
+
+    def request(host, **headers):
+        return SimpleNamespace(client=SimpleNamespace(host=host), headers=Headers(headers))
+
+    assert local_access.direct_loopback(request("127.0.0.1"))
+    assert local_access.direct_loopback(request("::1", Accept="*/*"))
+    assert not local_access.direct_loopback(SimpleNamespace(client=None, headers=Headers({})))
+    assert not local_access.direct_loopback(request("100.101.102.103"))
+    for name in ("X-Forwarded-For", "Forwarded", "X-Real-IP", "Tailscale-Foo", "TAILSCALE-APP"):
+        assert not local_access.direct_loopback(request("127.0.0.1", **{name: "x"})), name
+
+    app = seeded_owner_app(owner_config(tmp_path))
+    origin = {"Origin": "http://127.0.0.1:8095"}
+
+    async def scenario():
+        async with loopback(app) as client:
+            monkeypatch.setattr(local_access, "direct_loopback", lambda request: False)
+            response = await client.post(
+                "/v1/login", json={"token": "tailnet-guest"}, headers=origin
+            )
+            assert response.status_code == 401
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        app.state.service.db.close()
+
+
 def test_remote_gate_is_owner_only_and_fails_closed(tmp_path):
     import asyncio
 
