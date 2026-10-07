@@ -596,6 +596,27 @@ def test_a_plugin_command_that_cannot_run_or_times_out_is_a_command_error(
             adapter._set_plugin("x@y", "user", True, project)
 
 
+def test_a_stronger_layer_that_still_decides_is_explained_in_a_warning(
+    adapter, config_dir, project
+):  # R40-7
+    write_json(config_dir / "settings.json", {"enabledPlugins": {"a@m": True}})
+    write_json(project / ".claude" / "settings.json", {"enabledPlugins": {"a@m": True}})
+    snapshot = toggle(adapter, project, "plugin:a@m", "user", False)
+    assert json.loads((config_dir / "settings.json").read_text()) == {
+        "enabledPlugins": {"a@m": False}
+    }
+    item = by_id(snapshot)["plugin:a@m"]
+    assert (item.enabled, item.scope) == (True, "project")
+    assert "a@m stays enabled: the project setting in .claude/settings.json decides" in (
+        snapshot.warnings
+    )
+
+
+def test_no_override_warning_when_the_written_value_wins(adapter, config_dir, project):  # R40-7
+    write_json(config_dir / "settings.json", {"enabledPlugins": {"a@m": True}})
+    assert toggle(adapter, project, "plugin:a@m", "user", False).warnings == ()
+
+
 def test_plugin_switch_is_allowed_outside_the_tested_versions(adapter, config_dir, project):
     (config_dir / "fake-claude-version").write_text("2.2.0")
     snapshot = toggle(adapter, project, "plugin:x@y", "user", True)

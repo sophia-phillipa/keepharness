@@ -33,7 +33,7 @@ import os
 import re
 import subprocess
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from jsonschema import Draft7Validator
@@ -563,6 +563,9 @@ class ClaudeStateAdapter:
         too; the window is a few milliseconds (the slow version check runs before any file is
         read) and the caller can read again and retry.
 
+        When the value was written but a stronger layer still decides another one, the returned
+        snapshot says so in a warning (deciding scope and file, never content); it is no error.
+
         Synchronous and blocking (files, ``claude --version``, the plugin command, 10 s limits):
         async callers use ``asyncio.to_thread``.
         """
@@ -593,7 +596,17 @@ class ClaudeStateAdapter:
                 self._set_skill(name, scope, enabled, root, reading.digests)
             else:
                 self._set_mcp(name, enabled, root, reading.digests)
-        return self.read_state(root)
+        return self._explain_override(self.read_state(root), item_id, enabled)
+
+    @staticmethod
+    def _explain_override(snapshot: StateSnapshot, item_id: str, enabled: bool) -> StateSnapshot:
+        """Add a warning when the write stuck but a stronger layer still decides another value."""
+        item = next((found for found in snapshot.items if found.id == item_id), None)
+        if item is None or item.enabled == enabled:
+            return snapshot
+        state = "enabled" if item.enabled else "disabled"
+        note = f"{item.name} stays {state}: the {item.scope} setting in {item.source} decides"
+        return replace(snapshot, warnings=(*snapshot.warnings, note))
 
     def _settings_path(self, scope: Scope, root: Path | None) -> Path:
         if scope == "user":
