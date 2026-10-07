@@ -31,3 +31,4 @@ Spec: [Codex-app parity design](../codex-parity-design.md).
 | [D-036](d-036-wp9-interface-language.md) | WP9 interface language: per-locale JSON catalogs and a DOM-attribute runtime | proposed |
 | [D-037](d-037-chat-code-views-of-one-conversation.md) | Chat and Code are two views of one conversation (records ledger D45) | accepted |
 | [D-038](d-038-keepharness-facade-over-provider-state.md) | KeepHarness is a facade over the providers' real state (supersedes D-034 §1 and the 0.15 provider homes) | accepted |
+| [D-039](d-039-single-owner-facade-policies.md) | Single-owner facade: no guests or run classes, trust like the CLIs, `~/.claude.json` safeguards, no 0.15 migration (supersedes UC-001 multi-identity and the D03/D04/D12/D15 clamps) | accepted |
