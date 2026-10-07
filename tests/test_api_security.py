@@ -545,6 +545,7 @@ def test_non_local_views_redacted(tmp_path, monkeypatch):
     (skill / "SKILL.md").write_text("---\nname: private-skill\ndescription: Fixture\n---\nBody\n")
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.delenv("CODEX_HOME", raising=False)
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
     control = tmp_path / "control"
     control.mkdir()
     service = {

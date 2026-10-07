@@ -165,6 +165,7 @@ def test_global_symlink_dedup_and_project_escape(tmp_path, monkeypatch):
     root = tmp_path / "project"
     root.mkdir()
     monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("CODEX_HOME")
     skill = put(home, ".codex/skills/one/SKILL.md", "---\nname: one\n---\nDo it")
     alias = home / ".agents/skills/one"
     alias.parent.mkdir(parents=True)
@@ -385,6 +386,8 @@ def test_execution_rechecks_selection_and_preserves_stored_prompt(tmp_path, monk
 
 def test_malformed_reference_and_disabled_skill(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("CODEX_HOME")
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR")
     root = tmp_path / "project"
     config = cfg(root)
     path = put(root, ".agents/skills/a/SKILL.md", "---\nname: a\n---\nDo")

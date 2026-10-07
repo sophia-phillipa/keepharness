@@ -5,6 +5,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+from pathlib import Path
 
 import pytest
 
@@ -62,6 +63,30 @@ def loopback_test_client_peer(monkeypatch):
         original(self, *args, **kwargs)
 
     monkeypatch.setattr(TestClient, "__init__", init)
+
+
+# Resolved once at import, before any test can move HOME.
+REAL_HOME = Path.home().resolve()
+
+
+@pytest.fixture(autouse=True)
+def isolated_provider_homes(tmp_path_factory, monkeypatch):
+    """Point HOME, CODEX_HOME and CLAUDE_CONFIG_DIR at a fresh fake home for every test.
+
+    The check runs at setup only: some tests patch ``os`` internals that ``Path.home()``
+    relies on, and those patches are still active when this fixture tears down.
+    """
+    home = tmp_path_factory.mktemp("home")
+    codex_home = home / ".codex"
+    claude_dir = home / ".claude"
+    codex_home.mkdir()
+    claude_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(claude_dir))
+    if Path.home().resolve() == REAL_HOME:
+        pytest.fail(f"test reached the real home {REAL_HOME}; provider state must use fake homes")
+    return home
 
 
 def _media_sandbox_unavailable_reason():
