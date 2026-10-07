@@ -7,6 +7,7 @@ Fake homes only (the autouse ``isolated_provider_homes`` fixture); the fake CLI 
 import json
 import os
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -282,41 +283,111 @@ def test_is_project_trusted_reads_the_trust_level(adapter, codex_home, tmp_path)
     ] * 2
 
 
+def test_is_project_trusted_follows_the_cli_project_layer(adapter, codex_home, tmp_path):
+    """The CLI's project layer without ``disabledReason`` means trusted, whatever key trusted it."""
+    seed(codex_home)
+    real = tmp_path / "real"
+    (real / ".codex").mkdir(parents=True)
+    alias = tmp_path / "alias"
+    alias.symlink_to(real)
+    with (codex_home / "config.toml").open("a") as stream:
+        stream.write(f'\n[projects."{alias}"]\ntrust_level = "trusted"\n')
+    assert adapter.is_project_trusted(real) is True  # the key names the alias, not this path
+
+
 def test_is_project_trusted_is_false_when_the_app_server_is_down(adapter, codex_home, tmp_path):
     configure(codex_home, fail_start=True)
     assert adapter.is_project_trusted(tmp_path) is False
 
 
-def test_profile_and_system_layers_are_read_only(adapter, codex_home):
+def test_the_fake_reports_the_pinned_layers(codex_home):
+    """0.157.1: the user layer has profile null and a system layer follows; no profile layer."""
     seed(codex_home)
-    configure(
-        codex_home,
-        plugins=[{"id": "p@m"}],
-        profile_layers=[
+    (answer,) = talk(codex_home, ("config/read", {"includeLayers": True}))
+    layers = answer["result"]["layers"]
+    assert [layer["name"]["type"] for layer in layers] == ["user", "system"]
+    assert layers[1]["name"] == {"type": "system", "file": "/etc/codex/config.toml"}
+    assert layers[0]["name"] == {
+        "type": "user",
+        "file": str(codex_home / "config.toml"),
+        "profile": None,
+    }
+    assert layers[0]["version"].startswith("sha256:")
+
+
+def test_a_legacy_profile_key_makes_the_real_config_read_fail(adapter, codex_home):
+    """0.157.1 refuses a top-level ``profile = ...`` in config/read: the rows stay read-only."""
+    seed(codex_home)
+    (codex_home / "config.toml").write_text('profile = "work"\n' + USER_CONFIG)
+    (answer,) = talk(codex_home, ("config/read", {"includeLayers": True}))
+    assert answer["error"]["code"] == -32603
+    assert 'legacy `profile = "work"` config is no longer supported' in answer["error"]["message"]
+    snapshot = adapter.read_state(None)
+    assert any("config/read" in warning for warning in snapshot.warnings)
+    assert snapshot.items and not any(item.writable for item in snapshot.items)
+
+
+def test_a_profile_overlay_is_read_only_and_the_user_config_stays_writable(adapter, codex_home):
+    seed(codex_home)
+    configure_more = {
+        "plugins": [{"id": "p@m"}],
+        "profile_layers": [
             {
                 "profile": "work",
                 "config": {
                     "plugins": {
                         "p@m": {"enabled": False},
-                        "github@openai-curated": {"enabled": True},
+                        "docs@openai-curated": {"enabled": False},
                     }
                 },
             }
         ],
+    }
+    reconfigure(codex_home, **configure_more)
+    found = rows(adapter.read_state(None))
+    overlay = found["plugin:p@m"]
+    assert (overlay.scope, overlay.enabled, overlay.writable) == ("profile", False, False)
+    assert "'work'" in overlay.reason and overlay.source.endswith("/work.config.toml")
+    assert (
+        found["plugin:docs@openai-curated"].scope == "profile"
+    )  # the overlay beats the user layer
+    calendar = found["app:calendar"]  # decided by the owner's config.toml
+    assert (calendar.scope, calendar.writable, calendar.reason) == ("user", True, "")
+    assert calendar.source == str(codex_home / "config.toml")
+
+
+def test_a_lone_user_layer_is_the_base_config_even_with_a_profile_label(adapter, codex_home):
+    seed(codex_home)
+    reconfigure(codex_home, user_profile="work")
+    found = rows(adapter.read_state(None))
+    assert all(item.writable for item in found.values() if item.scope == "user")
+    assert found[MAIL].scope == "user" and found[MAIL].writable
+    switch(adapter, MAIL, False)
+    assert rows(adapter.read_state(None))[MAIL].enabled is False
+
+
+def test_a_lone_labelled_user_layer_is_the_user_layer():
+    entry = {
+        "name": {"type": "user", "file": "/h/config.toml", "profile": "work"},
+        "version": "sha256:1",
+        "config": {},
+    }
+    (only,) = codex_state._layers([entry])
+    assert (only.scope, only.reason) == ("user", "")
+    base = {**entry, "name": {**entry["name"], "profile": None}}
+    assert [layer.scope for layer in codex_state._layers([entry, base])] == ["profile", "user"]
+
+
+def test_system_layers_are_read_only(adapter, codex_home):
+    seed(codex_home)
+    reconfigure(
+        codex_home,
         system={
             "file": "/etc/codex/config.toml",
             "config": {"mcp_servers": {"corp": {"command": "c", "enabled": False}}},
         },
     )
-    found = rows(adapter.read_state(None))
-    assert (
-        found["plugin:p@m"].scope,
-        found["plugin:p@m"].enabled,
-        found["plugin:p@m"].writable,
-    ) == ("profile", False, False)
-    assert "work" in found["plugin:p@m"].reason
-    assert found["plugin:github@openai-curated"].enabled is True  # the profile beats the user layer
-    corp = found["mcp:corp"]
+    corp = rows(adapter.read_state(None))["mcp:corp"]
     assert (corp.scope, corp.enabled, corp.writable, corp.source) == (
         "managed",
         False,
@@ -324,6 +395,11 @@ def test_profile_and_system_layers_are_read_only(adapter, codex_home):
         "/etc/codex/config.toml",
     )
     assert corp.reason
+
+
+def test_a_layer_does_not_print_its_config():
+    layer = codex_state._Layer("user", "/h/config.toml", "v", {"mcp_servers": "lin_secret"}, "")
+    assert "lin_secret" not in repr(layer)
 
 
 # --- degraded app-server -----------------------------------------------------------------------
@@ -596,8 +672,12 @@ def test_the_fake_has_a_version_and_unknown_methods(codex_home):
         check=True,
     )
     assert done.stdout.strip() == "codex-cli 0.157.1"
-    (answer,) = talk(codex_home, ("nope/never", {}))
-    assert answer["error"]["code"] == -32601
+    (answer,) = talk(codex_home, ("skills/doesNotExist", {}))
+    assert answer["error"]["code"] == -32600  # pinned on 0.157.1, not -32601
+    assert answer["error"]["message"].startswith(
+        "Invalid request: unknown variant `skills/doesNotExist`, expected one of `initialize`"
+    )
+    assert "data" not in answer["error"]
 
 
 # --- the write side ----------------------------------------------------------------------------
@@ -874,6 +954,67 @@ def test_a_missing_write_method_is_unsupported(adapter, codex_home):
     for item_id in (MAIL, f"skill:{USER_SKILL}"):
         with pytest.raises(ProviderStateUnsupportedError, match="/(batchWrite|write)"):
             switch(adapter, item_id, True)
+
+
+def test_a_missing_cli_makes_a_switch_unsupported(adapter, codex_home, monkeypatch):
+    seed(codex_home)
+    monkeypatch.setenv("PATH", str(codex_home))  # no codex anywhere on it
+    with pytest.raises(ProviderStateUnsupportedError, match="not on PATH"):
+        adapter.set_enabled(MAIL, "user", False, "any")
+
+
+def test_the_pinned_unknown_method_answer_is_unsupported(adapter, codex_home):
+    """0.157.1 answers a method it lacks with -32600 "unknown variant", not -32601."""
+    seed(codex_home)
+    pinned = {
+        "code": -32600,
+        "message": "Invalid request: unknown variant `config/batchWrite`, expected one of `initialize`",
+    }
+    reconfigure(codex_home, errors={"config/batchWrite": pinned})
+    with pytest.raises(ProviderStateUnsupportedError, match="does not support config/batchWrite"):
+        switch(adapter, MAIL, False)
+
+
+def test_a_failed_reread_before_a_skill_write_has_its_own_message(adapter, codex_home, monkeypatch):
+    seed(codex_home)
+    held = adapter.read_state(None).fingerprint
+    original = CodexStateAdapter._read
+
+    def read_then_break_config_read(self, project_root):
+        done = original(self, project_root)
+        reconfigure(codex_home, errors={"config/read": {"code": -32603, "message": "disk gone"}})
+        return done
+
+    monkeypatch.setattr(CodexStateAdapter, "_read", read_then_break_config_read)
+    with pytest.raises(ProviderCommandError, match="re-read its config before the skill write"):
+        adapter.set_enabled(f"skill:{REPO_SKILL}", "user", False, held)
+    assert writes(codex_home) == []
+
+
+def test_a_chatty_server_cannot_hold_a_read_past_the_session_bound(
+    adapter, codex_home, monkeypatch
+):
+    seed(codex_home)
+    reconfigure(codex_home, dribble=["skills/list"])
+    monkeypatch.setattr(codex_state, "CALL_SECONDS", 0.4)  # the session is bounded at 2.0 s
+    started = time.monotonic()
+    snapshot = adapter.read_state(None)
+    assert time.monotonic() - started < 4.5  # the fake would keep talking for 5 s
+    assert any("skills/list" in warning for warning in snapshot.warnings)
+    assert GITHUB in rows(snapshot) and not any(item.writable for item in snapshot.items)
+
+
+def test_a_chatty_server_cannot_hold_a_write_past_the_session_bound(
+    adapter, codex_home, monkeypatch
+):
+    seed(codex_home)
+    fingerprint_ = adapter.read_state(None).fingerprint
+    reconfigure(codex_home, dribble=["config/batchWrite"])
+    monkeypatch.setattr(codex_state, "CALL_SECONDS", 0.4)  # the write session is bounded at 1.2 s
+    started = time.monotonic()
+    with pytest.raises(ProviderCommandError, match="did not complete config/batchWrite"):
+        adapter.set_enabled(MAIL, "user", False, fingerprint_)
+    assert time.monotonic() - started < 4.5
 
 
 def test_a_readonly_layer_answer_is_unsupported(adapter, codex_home):

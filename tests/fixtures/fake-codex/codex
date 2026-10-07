@@ -12,10 +12,15 @@ else comes from ``$CODEX_HOME/fake-app-server.json`` (all keys optional):
 
   version          string  reported by ``--version`` and ``initialize`` (default "0.157.1")
   fail_start       bool    ``app-server`` exits 1 before answering anything
-  missing_methods  list    methods answered with "Method not found" (-32601)
+  missing_methods  list    methods answered like a method the CLI does not have (-32600, "unknown variant")
   errors           object  method -> JSON-RPC error object returned instead of the result
-  system           object  {"file": str, "config": {...}} adds a system layer
-  profile_layers   list    [{"profile": str, "config": {...}}] user-file layers above the user layer
+  system           object  {"file": str, "config": {...}} replaces the (empty) system layer
+  user_profile     string  labels the user layer with a profile name (the schema allows it)
+  profile_layers   list    [{"profile": str, "config": {...}}] user-file layers above the user
+                           layer, in <home>/<profile>.config.toml. Schema shape only: the 0.157.1
+                           app-server cannot be started with a profile, so real layers never
+                           carry one (see dossier pinned facts); the user layer has profile null.
+  dribble          list    methods that answer only after 5 s of notifications (a chatty server)
   skills           list    [{"name", "path", "scope": user|repo|system|admin, "enabled", "pluginId"}]
   plugins          list    [{"id", "name", "marketplace", "installed", "enabled"}]
   apps             list    [{"id", "name", "isEnabled"}]
@@ -29,6 +34,7 @@ import json
 import os
 import re
 import sys
+import time
 import tomllib
 from pathlib import Path
 
@@ -42,7 +48,19 @@ READONLY = {
     "message": "Only writes to the user config are allowed",
     "data": {"config_write_error_code": "configLayerReadonly"},
 }
-NOT_FOUND = {"code": -32601, "message": "Method not found"}
+LEGACY_PROFILE = (
+    "legacy `profile = \"{}\"` config is no longer supported; "
+    "use `--profile {}` with `{}.config.toml` instead"
+)
+
+
+def unknown_method(method):
+    """The 0.157.1 answer for a method it does not have (the real list is much longer)."""
+    known = "`initialize`, `config/read`, `skills/list`, `plugin/list`, `app/list`"
+    return {
+        "code": -32600,
+        "message": f"Invalid request: unknown variant `{method}`, expected one of {known}",
+    }
 
 
 def home():
@@ -73,9 +91,16 @@ def read_user():
     path = user_path()
     data = path.read_bytes() if path.exists() else b""
     try:
-        return data, tomllib.loads(data.decode())
+        config = tomllib.loads(data.decode())
     except (ValueError, UnicodeDecodeError):
         raise Failure({"code": -32600, "message": "Invalid configuration"}) from None
+    if isinstance(config.get("profile"), str):  # refused by the real app-server since 0.157
+        name = config["profile"]
+        message = "failed to resolve feature override precedence: " + LEGACY_PROFILE.format(
+            name, name, name
+        )
+        raise Failure({"code": -32603, "message": message})
+    return data, config
 
 
 def merge(base, over):
@@ -125,15 +150,15 @@ def config_read(params):
                 )
     for entry in cfg.get("profile_layers", []):
         blob = json.dumps(entry["config"], sort_keys=True).encode()
-        name = {"type": "user", "file": str(user_path()), "profile": entry["profile"]}
+        file = home() / f"{entry['profile']}.config.toml"
+        name = {"type": "user", "file": str(file), "profile": entry["profile"]}
         layers.append({"name": name, "version": version_of(blob), "config": entry["config"]})
-    name = {"type": "user", "file": str(user_path()), "profile": None}
+    name = {"type": "user", "file": str(user_path()), "profile": cfg.get("user_profile")}
     layers.append({"name": name, "version": version_of(data), "config": user})
-    if cfg.get("system"):
-        system = cfg["system"]
-        blob = json.dumps(system["config"], sort_keys=True).encode()
-        name = {"type": "system", "file": system["file"]}
-        layers.append({"name": name, "version": version_of(blob), "config": system["config"]})
+    system = cfg.get("system") or {"file": "/etc/codex/config.toml", "config": {}}  # always there
+    blob = json.dumps(system["config"], sort_keys=True).encode()
+    name = {"type": "system", "file": system["file"]}
+    layers.append({"name": name, "version": version_of(blob), "config": system["config"]})
     merged = {}
     for layer in reversed(layers):
         if "disabledReason" not in layer:
@@ -310,9 +335,13 @@ def answer(method, params):
             "platformOs": "linux",
         }
     if method in cfg.get("missing_methods", []) or method not in HANDLERS:
-        raise Failure(NOT_FOUND)
+        raise Failure(unknown_method(method))
     if method in cfg.get("errors", {}):
         raise Failure(cfg["errors"][method])
+    if method in cfg.get("dribble", []):
+        for _ in range(100):
+            print(json.dumps({"method": "fake/notification", "params": {}}), flush=True)
+            time.sleep(0.05)
     return HANDLERS[method](params)
 
 
@@ -320,6 +349,13 @@ def serve():
     if settings().get("fail_start"):
         print("fake codex: cannot start", file=sys.stderr)
         return 1
+    try:
+        return serve_requests()
+    except BrokenPipeError:  # the client gave up (a test of the session bound)
+        return 0
+
+
+def serve_requests():
     for line in sys.stdin:
         message = json.loads(line)
         method, params = message.get("method"), message.get("params") or {}

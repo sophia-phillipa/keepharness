@@ -21,7 +21,8 @@ and the CLI's own write cannot be closed. A write is confirmed by reading the st
   already hashes each file's bytes) plus the ids and flags the three lists returned, not over
   the file bytes themselves: this adapter must not read ``config.toml`` on its own.
 * The adapter is synchronous and runs the async RPC client with ``asyncio.run``; async callers
-  must use ``asyncio.to_thread``. Each CLI call is bounded by ``CALL_SECONDS``.
+  must use ``asyncio.to_thread``. A session is bounded by ``CALL_SECONDS`` for the start plus one
+  for each request, however many notifications the server sends.
 * Degraded app-server (cannot start, a method missing or failing): what could be read still shows,
   every row is read-only with a reason and a warning names the method. Only when nothing could be
   read is ``ProviderStateSchemaError`` raised.
@@ -36,7 +37,7 @@ import re
 import shutil
 import subprocess
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from adapters.codex.rpc import RPCError, connection, provider_message
@@ -73,6 +74,7 @@ _SKILL_SCOPES = {
     "system": ("managed", "Bundled with Codex."),
     "admin": ("managed", "Installed by an administrator."),
 }
+_UNKNOWN_METHOD = "Invalid request: unknown variant"  # what 0.157.1 answers for a method it lacks
 _ORDER = {"plugin": 0, "skill": 1, "mcp": 2, "app": 3}
 _KEYS = {"plugin": "plugins", "mcp": "mcp_servers", "app": "apps"}
 _ADDRESSABLE = re.compile(r"[\w@+-]+")  # a keyPath splits on dots, so ids with dots cannot be named
@@ -83,7 +85,7 @@ class _Layer:
     scope: Scope
     source: str
     version: str
-    config: dict
+    config: dict = field(repr=False)  # holds MCP env and headers in clear: never printed
     reason: str  # why it is not writable; empty for the user layer
 
 
@@ -91,11 +93,26 @@ def _codex_home() -> Path:
     return Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
 
 
-def _layer(entry: dict) -> _Layer:
-    name = entry.get("name") if isinstance(entry.get("name"), dict) else {}
+def _name(entry: dict) -> dict:
+    return entry.get("name") if isinstance(entry.get("name"), dict) else {}
+
+
+def _layers(entries: list[dict]) -> list[_Layer]:
+    """The layers that apply, strongest first; a project layer the CLI disabled is dropped.
+
+    The 0.157.1 app-server cannot be started with a profile, so its user layer always has
+    ``profile: null``. The schema allows a profile name, though: when one user-file layer is all
+    there is, it is the owner's base ``config.toml``, however it is labelled.
+    """
+    lone = sum(_name(entry).get("type") == "user" for entry in entries) == 1
+    return [_layer(entry, lone) for entry in entries if not entry.get("disabledReason")]
+
+
+def _layer(entry: dict, lone_user_file: bool) -> _Layer:
+    name = _name(entry)
     config = entry.get("config") if isinstance(entry.get("config"), dict) else {}
     version, kind = str(entry.get("version", "")), name.get("type")
-    if kind == "user" and not name.get("profile"):
+    if kind == "user" and (lone_user_file or not name.get("profile")):
         return _Layer("user", str(name.get("file", "")), version, config, "")
     if kind == "user":
         reason = f"Set by the profile '{name['profile']}'; Codex writes only the base user config."
@@ -178,18 +195,27 @@ def _tested(version: str) -> bool:
     return bool(found) and (int(found.group(1)), int(found.group(2))) == _TESTED
 
 
+def _session_seconds(calls: int) -> float:
+    """The whole app-server session: ``CALL_SECONDS`` for the start and for each request.
+
+    The idle watchdog alone is reset by every notification, so a chatty server could outlast it.
+    """
+    return CALL_SECONDS * (calls + 1)
+
+
 async def _ask(binary: str, requests: list[tuple[str, str, dict]]) -> tuple[dict, dict]:
     """One app-server session: ``({key: result}, {key: why})`` for the requests in order."""
     results: dict[str, dict] = {}
     failures: dict[str, str] = {}
     command = [binary, "app-server", "--listen", "stdio://"]
     try:
-        async with connection(command, config={"idle_timeout_seconds": CALL_SECONDS}) as rpc:
-            for key, method, params in requests:
-                try:
-                    results[key] = await rpc.call(method, params)
-                except RPCError:
-                    failures[key] = f"{method} was refused"
+        async with asyncio.timeout(_session_seconds(len(requests))):
+            async with connection(command, config={"idle_timeout_seconds": CALL_SECONDS}) as rpc:
+                for key, method, params in requests:
+                    try:
+                        results[key] = await rpc.call(method, params)
+                    except RPCError:
+                        failures[key] = f"{method} was refused"
     except Exception as exc:  # start, framing or timeout: the rest of the session is unreadable
         logger.debug("codex app-server session ended: %s", type(exc).__name__)
         for key, method, _ in requests:
@@ -207,16 +233,23 @@ async def _write(binary: str, method: str, params: dict, user_version: str | Non
     """
     command = [binary, "app-server", "--listen", "stdio://"]
     try:
-        async with connection(command, config={"idle_timeout_seconds": CALL_SECONDS}) as rpc:
-            if user_version is not None:
-                result = await rpc.call("config/read", {"includeLayers": True})
-                layers = (_layer(entry) for entry in _listed(result, "layers"))
-                if next((layer.version for layer in layers if layer.scope == "user"), "") != (
-                    user_version
-                ):
-                    raise ProviderStateConflictError("The Codex config changed since it was read.")
-            await rpc.call(method, params)
-    except ProviderStateConflictError:
+        async with asyncio.timeout(_session_seconds(1 if user_version is None else 2)):
+            async with connection(command, config={"idle_timeout_seconds": CALL_SECONDS}) as rpc:
+                if user_version is not None:
+                    try:
+                        result = await rpc.call("config/read", {"includeLayers": True})
+                    except RPCError as exc:
+                        raise ProviderCommandError(
+                            "Codex could not re-read its config before the skill write: "
+                            + provider_message(exc.error)
+                        ) from None
+                    layers = _layers(_listed(result, "layers"))
+                    if next((x.version for x in layers if x.scope == "user"), "") != user_version:
+                        raise ProviderStateConflictError(
+                            "The Codex config changed since it was read."
+                        )
+                await rpc.call(method, params)
+    except (ProviderStateConflictError, ProviderCommandError):
         raise
     except RPCError as exc:
         raise _write_failure(method, exc.error) from None
@@ -230,8 +263,10 @@ def _write_failure(method: str, error: dict) -> Exception:
     code = data.get("config_write_error_code")
     if code == "configVersionConflict":
         return ProviderStateConflictError("The Codex config changed since it was read.")
-    if code == "configLayerReadonly" or error.get("code") == -32601:
+    if code == "configLayerReadonly":
         return ProviderStateUnsupportedError(f"Codex refused {method}: {provider_message(error)}")
+    if error.get("code") == -32600 and str(error.get("message", "")).startswith(_UNKNOWN_METHOD):
+        return ProviderStateUnsupportedError(f"This Codex does not support {method}.")
     return ProviderCommandError(provider_message(error))
 
 
@@ -273,12 +308,9 @@ class CodexStateAdapter:
             failures["config"] = "config/read answered in an unexpected shape"
             warnings.append(f"Codex: {failures['config']}; its rows are read-only.")
         raw_layers = _listed(results.get("config"), "layers")
-        layers = []
-        for entry in raw_layers:
-            if entry.get("disabledReason"):
-                warnings.append("Project config skipped: the project is not trusted by Codex.")
-            else:
-                layers.append(_layer(entry))
+        layers = _layers(raw_layers)
+        if any(entry.get("disabledReason") for entry in raw_layers):
+            warnings.append("Project config skipped: the project is not trusted by Codex.")
         locked = (
             "Codex app-server did not answer every request; switches are read-only until it does."
             if failures
@@ -368,12 +400,12 @@ class CodexStateAdapter:
     ) -> StateSnapshot:
         """Switch one plugin, skill, MCP server or app in the user config; return the fresh state.
 
-        Synchronous (about three app-server sessions, each call bounded by ``CALL_SECONDS``): async
+        Synchronous (about three app-server sessions, each bounded as described above): async
         callers use ``asyncio.to_thread``. Allowed outside the tested versions, because the CLI
         validates its own config.
         """
-        binary = self._binary()
         try:
+            binary = self._binary()
             snapshot, user_version = self._read(project_root)
         except ProviderStateSchemaError as exc:
             raise ProviderStateUnsupportedError(f"Codex switches are unavailable: {exc}") from None
@@ -429,6 +461,9 @@ class CodexStateAdapter:
         params = {"includeLayers": True, "cwd": str(project_root)}
         results, _ = asyncio.run(_ask(binary, [("config", "config/read", params)]))
         result = results.get("config") or {}
+        for layer in _listed(result, "layers"):  # the CLI's own verdict, when it gives one
+            if _name(layer).get("type") == "project":
+                return not layer.get("disabledReason")
         sources = [
             result.get("config"),
             *(layer.get("config") for layer in _listed(result, "layers")),
