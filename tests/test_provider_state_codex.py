@@ -11,9 +11,12 @@ from pathlib import Path
 
 import pytest
 
+import adapters.codex.state as codex_state
 from adapters.codex.state import CodexStateAdapter
 from adapters.shared.provider_state import (
+    ProviderCommandError,
     ProviderStateAdapter,
+    ProviderStateConflictError,
     ProviderStateSchemaError,
     ProviderStateUnsupportedError,
     SecretStr,
@@ -66,6 +69,12 @@ def adapter():
 
 def configure(home, **settings):
     (home / "fake-app-server.json").write_text(json.dumps(settings))
+
+
+def reconfigure(home, **settings):
+    """Add fake-CLI settings to what ``seed`` already wrote."""
+    current = json.loads((home / "fake-app-server.json").read_text())
+    configure(home, **{**current, **settings})
 
 
 def seed(home):
@@ -475,9 +484,7 @@ def test_a_patch_release_inside_the_range_does_not_warn(adapter, codex_home):
 # --- what is not part of #39 -------------------------------------------------------------------
 
 
-def test_the_write_side_and_later_issues_are_unsupported(adapter, tmp_path):
-    with pytest.raises(ProviderStateUnsupportedError, match="next package"):
-        adapter.set_enabled("plugin:x@y", "user", True, "fp")
+def test_later_issues_are_unsupported(adapter, tmp_path):
     with pytest.raises(ProviderStateUnsupportedError, match="#44"):
         adapter.trust_project(tmp_path)
     for call in (
@@ -591,3 +598,327 @@ def test_the_fake_has_a_version_and_unknown_methods(codex_home):
     assert done.stdout.strip() == "codex-cli 0.157.1"
     (answer,) = talk(codex_home, ("nope/never", {}))
     assert answer["error"]["code"] == -32601
+
+
+# --- the write side ----------------------------------------------------------------------------
+
+GITHUB = "plugin:github@openai-curated"
+DOCS = "plugin:docs@openai-curated"
+LINEAR = "mcp:linear"
+PAUSED = "mcp:paused"
+MAIL, CALENDAR = "app:mail", "app:calendar"
+
+
+def switch(adapter, item_id, enabled, project=None, scope="user"):
+    """``set_enabled`` with the fingerprint a UI would hold: the fresh read."""
+    return adapter.set_enabled(
+        item_id,
+        scope,
+        enabled,
+        adapter.read_state(project).fingerprint,
+        project_root=project,
+    )
+
+
+def writes(home):
+    return [c for c in calls(home) if c["method"] in ("config/batchWrite", "skills/config/write")]
+
+
+@pytest.mark.parametrize(
+    ("item_id", "key_path", "enabled", "line_before", "line_after"),
+    [
+        (
+            GITHUB,
+            "plugins.github@openai-curated.enabled",
+            True,
+            "enabled = false  # turned off in the terminal",
+            "enabled = true",
+        ),
+        (
+            DOCS,
+            "plugins.docs@openai-curated.enabled",
+            False,
+            None,
+            '[plugins."docs@openai-curated"]\nenabled = false\n',
+        ),
+        (
+            LINEAR,
+            "mcp_servers.linear.enabled",
+            False,
+            'command = "npx"',
+            'enabled = false\ncommand = "npx"',
+        ),
+        (
+            PAUSED,
+            "mcp_servers.paused.enabled",
+            True,
+            "enabled = false\n\n[apps",
+            "enabled = true\n\n[apps",
+        ),
+        (MAIL, "apps.mail.enabled", False, None, "[apps.mail]\nenabled = false\n"),
+        (
+            CALENDAR,
+            "apps.calendar.enabled",
+            True,
+            "[apps.calendar]\nenabled = false",
+            "[apps.calendar]\nenabled = true",
+        ),
+    ],
+)
+def test_a_switch_goes_through_batch_write_and_changes_one_line(
+    adapter, codex_home, item_id, key_path, enabled, line_before, line_after
+):
+    seed(codex_home)
+    before = codex_home.joinpath("config.toml").read_text()
+    version = talk(codex_home, ("config/read", {"includeLayers": True}))[0]["result"]["layers"][0][
+        "version"
+    ]
+    snapshot = switch(adapter, item_id, enabled)
+    (write,) = writes(codex_home)
+    assert write["method"] == "config/batchWrite"
+    assert write["params"]["edits"] == [
+        {"keyPath": key_path, "value": enabled, "mergeStrategy": "upsert"}
+    ]
+    assert write["params"]["expectedVersion"] == version
+    assert "filePath" not in write["params"]
+    after = codex_home.joinpath("config.toml").read_text()
+    if line_before:  # one changed line; comments, the skills array and unknown tables stay
+        assert after == before.replace(line_before, line_after, 1)
+    else:
+        assert after.startswith(before.rstrip("\n")) and after.endswith(line_after)
+    assert "# Owner's Codex config (this comment must survive)" in after
+    assert "[[skills.config]]" in after and "[experimental_unknown]\nflag = true" in after
+    assert rows(snapshot)[item_id].enabled is enabled
+    assert rows(adapter.read_state(None))[item_id].enabled is enabled
+    assert snapshot.fingerprint != "" and snapshot == adapter.read_state(None)
+
+
+def test_a_skill_switch_goes_through_skills_config_write_with_a_listed_path(adapter, codex_home):
+    seed(codex_home)
+    off = switch(adapter, f"skill:{REPO_SKILL}", False)
+    (write,) = writes(codex_home)
+    assert write == {
+        "method": "skills/config/write",
+        "params": {"path": REPO_SKILL, "enabled": False},
+    }
+    assert rows(off)[f"skill:{REPO_SKILL}"].enabled is False
+    on = switch(adapter, f"skill:{USER_SKILL}", True)
+    assert rows(on)[f"skill:{USER_SKILL}"].enabled is True
+    assert writes(codex_home)[-1]["params"] == {"path": USER_SKILL, "enabled": True}
+    after = codex_home.joinpath("config.toml").read_text()
+    assert f'path = "{REPO_SKILL}"' in after and f'path = "{USER_SKILL}"' not in after
+    assert "# Owner's Codex config (this comment must survive)" in after
+
+
+def test_a_skill_switch_rereads_the_user_layer_right_before_writing(adapter, codex_home):
+    seed(codex_home)
+    switch(adapter, f"skill:{REPO_SKILL}", False)
+    methods = [c["method"] for c in calls(codex_home)]
+    assert methods[methods.index("skills/config/write") - 1] == "config/read"
+
+
+def test_an_unlisted_skill_path_is_refused_and_nothing_is_sent(adapter, codex_home):
+    seed(codex_home)
+    with pytest.raises(ProviderStateUnsupportedError):
+        switch(adapter, "skill:/home/evil/SKILL.md", False)
+    assert writes(codex_home) == []
+    assert codex_home.joinpath("config.toml").read_text() == USER_CONFIG
+
+
+def test_a_stale_fingerprint_is_a_conflict_and_nothing_is_written(adapter, codex_home):
+    seed(codex_home)
+    stale = adapter.read_state(None).fingerprint
+    switch(adapter, DOCS, False)  # somebody else switched something meanwhile
+    writes_before = len(writes(codex_home))
+    with pytest.raises(ProviderStateConflictError):
+        adapter.set_enabled(GITHUB, "user", True, stale)
+    with pytest.raises(ProviderStateConflictError):
+        adapter.set_enabled(f"skill:{USER_SKILL}", "user", True, stale)
+    assert len(writes(codex_home)) == writes_before
+    assert rows(adapter.read_state(None))[GITHUB].enabled is False
+
+
+def stale_user_version(monkeypatch):
+    """The user config changes between the read and the write: the read hands out an old version."""
+    original = CodexStateAdapter._read
+
+    def read(self, project_root):
+        snapshot, _ = original(self, project_root)
+        return snapshot, "sha256:deadbeef"
+
+    monkeypatch.setattr(CodexStateAdapter, "_read", read)
+
+
+def test_the_cli_version_conflict_becomes_a_state_conflict(adapter, codex_home, monkeypatch):
+    seed(codex_home)
+    stale_user_version(monkeypatch)
+    with pytest.raises(ProviderStateConflictError):
+        switch(adapter, GITHUB, True)
+    assert codex_home.joinpath("config.toml").read_text() == USER_CONFIG
+
+
+def test_the_pinned_conflict_error_shape_is_recognised(adapter, codex_home):
+    seed(codex_home)
+    conflict = {
+        "code": -32600,
+        "message": "Configuration was modified since last read. Fetch latest version and retry.",
+        "data": {"config_write_error_code": "configVersionConflict"},
+    }
+    reconfigure(codex_home, errors={"config/batchWrite": conflict})
+    with pytest.raises(ProviderStateConflictError):
+        switch(adapter, MAIL, False)
+
+
+def test_a_skill_switch_refuses_when_the_user_layer_changed_since_the_read(
+    adapter, codex_home, monkeypatch
+):
+    seed(codex_home)
+    stale_user_version(monkeypatch)
+    with pytest.raises(ProviderStateConflictError):
+        switch(adapter, f"skill:{REPO_SKILL}", False)
+    assert [c["method"] for c in writes(codex_home)] == []  # the write was never sent
+
+
+def test_a_confirm_read_with_another_value_is_a_conflict(adapter, codex_home, monkeypatch):
+    seed(codex_home)
+
+    async def nothing_happens(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(codex_state, "_write", nothing_happens)
+    with pytest.raises(ProviderStateConflictError):
+        switch(adapter, GITHUB, True)
+
+
+def test_project_layer_rows_are_unsupported_and_nothing_is_written(adapter, codex_home, tmp_path):
+    seed(codex_home)
+    project = project_with(
+        tmp_path,
+        codex_home,
+        '[plugins."github@openai-curated"]\nenabled = true\n[mcp_servers.linear]\nenabled = false\n',
+        trust="trusted",
+    )
+    for item_id, scope in ((GITHUB, "user"), (GITHUB, "project"), (LINEAR, "user")):
+        with pytest.raises(ProviderStateUnsupportedError, match="project config"):
+            switch(adapter, item_id, True, project, scope)
+    assert writes(codex_home) == []
+
+
+def test_profile_and_managed_rows_are_unsupported(adapter, codex_home):
+    seed(codex_home)
+    reconfigure(
+        codex_home,
+        profile_layers=[{"profile": "work", "config": {"apps": {"mail": {"enabled": False}}}}],
+        system={
+            "file": "/etc/codex/config.toml",
+            "config": {"plugins": {"s@m": {"enabled": True}}},
+        },
+    )
+    for item_id in (
+        MAIL,
+        "plugin:s@m",
+        "skill:/sys/imagegen/SKILL.md",
+        "skill:/etc/audit/SKILL.md",
+    ):
+        with pytest.raises(ProviderStateUnsupportedError):
+            switch(adapter, item_id, False)
+    assert writes(codex_home) == []
+
+
+def test_a_scope_that_does_not_match_the_row_is_refused(adapter, codex_home):
+    seed(codex_home)
+    for bad in ("local", "managed", "profile", "project"):
+        with pytest.raises(ProviderStateUnsupportedError, match="scope"):
+            switch(adapter, GITHUB, True, scope=bad)
+    switch(adapter, f"skill:{REPO_SKILL}", False, scope="project")  # the row's own scope
+    assert len(writes(codex_home)) == 1
+
+
+def test_unknown_kinds_ids_and_unaddressable_ids_are_refused(adapter, codex_home):
+    seed(codex_home)
+    with (codex_home / "config.toml").open("a") as stream:
+        stream.write('\n[mcp_servers."dotted.name"]\ncommand = "x"\n')
+    for item_id in ("hook:x", "plugin:never@listed", "nonsense", LINEAR + "x", "mcp:dotted.name"):
+        with pytest.raises(ProviderStateUnsupportedError):
+            switch(adapter, item_id, False)
+    assert writes(codex_home) == []
+
+
+def test_an_app_server_that_cannot_start_makes_switches_unsupported(adapter, codex_home):
+    seed(codex_home)
+    reconfigure(codex_home, fail_start=True)
+    with pytest.raises(ProviderStateUnsupportedError):
+        adapter.set_enabled(GITHUB, "user", True, "fp")
+    assert writes(codex_home) == []
+
+
+def test_an_app_server_without_config_read_makes_switches_unsupported(adapter, codex_home):
+    seed(codex_home)
+    reconfigure(codex_home, missing_methods=["config/read"])
+    with pytest.raises(ProviderStateUnsupportedError, match="read-only"):
+        switch(adapter, MAIL, False)
+    assert writes(codex_home) == []
+
+
+def test_a_degraded_app_server_keeps_rows_read_only_for_writes(adapter, codex_home):
+    seed(codex_home)
+    reconfigure(codex_home, missing_methods=["plugin/list"])
+    with pytest.raises(ProviderStateUnsupportedError, match="read-only"):
+        switch(adapter, MAIL, False)
+    assert writes(codex_home) == []
+
+
+def test_a_missing_write_method_is_unsupported(adapter, codex_home):
+    seed(codex_home)
+    reconfigure(codex_home, missing_methods=["config/batchWrite", "skills/config/write"])
+    for item_id in (MAIL, f"skill:{USER_SKILL}"):
+        with pytest.raises(ProviderStateUnsupportedError, match="/(batchWrite|write)"):
+            switch(adapter, item_id, True)
+
+
+def test_a_readonly_layer_answer_is_unsupported(adapter, codex_home):
+    seed(codex_home)
+    readonly = {
+        "code": -32600,
+        "message": "Only writes to the user config are allowed",
+        "data": {"config_write_error_code": "configLayerReadonly"},
+    }
+    reconfigure(codex_home, errors={"config/batchWrite": readonly})
+    with pytest.raises(ProviderStateUnsupportedError, match="user config"):
+        switch(adapter, MAIL, False)
+
+
+def test_another_rpc_error_is_a_redacted_command_error(adapter, codex_home):
+    seed(codex_home)
+    leak = "denied Authorization: Bearer hdr_secret_value sk-live_abcdefgh " + "x" * 800
+    reconfigure(codex_home, errors={"config/batchWrite": {"code": -32000, "message": leak}})
+    with pytest.raises(ProviderCommandError) as caught:
+        switch(adapter, MAIL, False)
+    message = str(caught.value)
+    assert "hdr_secret_value" not in message and "sk-live_abcdefgh" not in message
+    assert "denied" in message and len(message) <= 500
+    assert "lin_secret_value" not in message and str(codex_home) not in message
+
+
+def test_switching_is_allowed_outside_the_tested_versions(adapter, codex_home):
+    seed(codex_home)
+    reconfigure(codex_home, version="0.160.0")
+    snapshot = switch(adapter, MAIL, False)
+    assert rows(snapshot)[MAIL].enabled is False and snapshot.warnings
+
+
+def test_a_home_reached_through_a_symlink_keeps_the_link_after_a_write(
+    adapter, isolated_provider_homes, monkeypatch, tmp_path
+):
+    # Only the folder link is asserted: the fake replaces config.toml itself with os.replace, so a
+    # symlinked config.toml file is not something this fake can vouch for (the CLI is the writer).
+    real = tmp_path / "dotfiles" / "codex"
+    real.mkdir(parents=True)
+    link = isolated_provider_homes / "linked-codex"
+    link.symlink_to(real)
+    monkeypatch.setenv("CODEX_HOME", str(link))
+    monkeypatch.setenv("PATH", f"{FAKE_DIR}{os.pathsep}{os.environ['PATH']}")
+    seed(link)
+    switch(adapter, MAIL, False)
+    assert link.is_symlink() and link.resolve() == real.resolve()
+    assert "[apps.mail]\nenabled = false" in (real / "config.toml").read_text()

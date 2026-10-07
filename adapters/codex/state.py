@@ -1,8 +1,13 @@
 """Codex provider state, read side: the effective plugins, skills, MCP servers and apps.
 
 Everything is read through ``codex app-server`` (``config/read`` with layers, ``skills/list``,
-``plugin/list``, ``app/list``), so no TOML library is involved and nothing is ever written here.
-Writes are a later package; ``set_enabled`` is a stub until then.
+``plugin/list``, ``app/list``), so no TOML library is involved and no file is touched here.
+``set_enabled`` writes through the same app-server, in the user layer only (the one layer the CLI
+writes): plugins, MCP servers and apps with ``config/batchWrite`` (``expectedVersion`` is the user
+layer ``version`` that ``config/read`` returned), skills with ``skills/config/write`` on a path
+that ``skills/list`` just returned. ``skills/config/write`` has no ``expectedVersion``, so the
+user layer version is read again right before it and compared; the milliseconds between that read
+and the CLI's own write cannot be closed. A write is confirmed by reading the state again.
 
 * Layers come strongest first (project, profile, user, system). The effective value of an item is
   the first layer that sets ``<kind>.<id>.enabled``, and that layer is the deciding one; when none
@@ -34,11 +39,13 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from adapters.codex.rpc import RPCError, connection
+from adapters.codex.rpc import RPCError, connection, provider_message
 from adapters.shared.process import child_environment
 from adapters.shared.provider_state import (
     CredentialRule,
     LoginStatus,
+    ProviderCommandError,
+    ProviderStateConflictError,
     ProviderStateSchemaError,
     ProviderStateUnsupportedError,
     RunSetup,
@@ -67,6 +74,8 @@ _SKILL_SCOPES = {
     "admin": ("managed", "Installed by an administrator."),
 }
 _ORDER = {"plugin": 0, "skill": 1, "mcp": 2, "app": 3}
+_KEYS = {"plugin": "plugins", "mcp": "mcp_servers", "app": "apps"}
+_ADDRESSABLE = re.compile(r"[\w@+-]+")  # a keyPath splits on dots, so ids with dots cannot be named
 
 
 @dataclass(frozen=True)
@@ -189,6 +198,43 @@ async def _ask(binary: str, requests: list[tuple[str, str, dict]]) -> tuple[dict
     return results, failures
 
 
+async def _write(binary: str, method: str, params: dict, user_version: str | None) -> None:
+    """One write in its own app-server session.
+
+    ``user_version`` is given for ``skills/config/write`` only (it has no ``expectedVersion``): the
+    user layer is read again first and the write is refused when it is no longer the one the
+    caller saw.
+    """
+    command = [binary, "app-server", "--listen", "stdio://"]
+    try:
+        async with connection(command, config={"idle_timeout_seconds": CALL_SECONDS}) as rpc:
+            if user_version is not None:
+                result = await rpc.call("config/read", {"includeLayers": True})
+                layers = (_layer(entry) for entry in _listed(result, "layers"))
+                if next((layer.version for layer in layers if layer.scope == "user"), "") != (
+                    user_version
+                ):
+                    raise ProviderStateConflictError("The Codex config changed since it was read.")
+            await rpc.call(method, params)
+    except ProviderStateConflictError:
+        raise
+    except RPCError as exc:
+        raise _write_failure(method, exc.error) from None
+    except Exception as exc:  # start, framing or timeout
+        logger.debug("codex %s failed: %s", method, type(exc).__name__)
+        raise ProviderCommandError(f"Codex did not complete {method}.") from None
+
+
+def _write_failure(method: str, error: dict) -> Exception:
+    data = error.get("data") if isinstance(error.get("data"), dict) else {}
+    code = data.get("config_write_error_code")
+    if code == "configVersionConflict":
+        return ProviderStateConflictError("The Codex config changed since it was read.")
+    if code == "configLayerReadonly" or error.get("code") == -32601:
+        return ProviderStateUnsupportedError(f"Codex refused {method}: {provider_message(error)}")
+    return ProviderCommandError(provider_message(error))
+
+
 class CodexStateAdapter:
     """The Codex view of the CLI's real state. Synchronous: async callers use ``to_thread``."""
 
@@ -199,6 +245,10 @@ class CodexStateAdapter:
         return binary
 
     def read_state(self, project_root: Path | None) -> StateSnapshot:
+        return self._read(project_root)[0]
+
+    def _read(self, project_root: Path | None) -> tuple[StateSnapshot, str]:
+        """The snapshot and the user layer version (``""`` when the user layer was not read)."""
         binary = self._binary()
         cwd = str(project_root) if project_root else str(Path.home())
         config_params = {"includeLayers": True, **({"cwd": cwd} if project_root else {})}
@@ -296,7 +346,7 @@ class CodexStateAdapter:
                 f"Codex {version} is outside the tested range {TESTED_VERSIONS}; "
                 "reads may be incomplete."
             )
-        return StateSnapshot(
+        snapshot = StateSnapshot(
             provider=PROVIDER,
             engine=ENGINE,
             project_root=str(project_root) if project_root else None,
@@ -305,6 +355,7 @@ class CodexStateAdapter:
             cli_version=version or "unknown",
             warnings=tuple(dict.fromkeys(warnings)),
         )
+        return snapshot, user.version if user else ""
 
     def set_enabled(
         self,
@@ -315,7 +366,53 @@ class CodexStateAdapter:
         *,
         project_root: Path | None = None,
     ) -> StateSnapshot:
-        raise ProviderStateUnsupportedError("writes land in the next package")
+        """Switch one plugin, skill, MCP server or app in the user config; return the fresh state.
+
+        Synchronous (about three app-server sessions, each call bounded by ``CALL_SECONDS``): async
+        callers use ``asyncio.to_thread``. Allowed outside the tested versions, because the CLI
+        validates its own config.
+        """
+        binary = self._binary()
+        try:
+            snapshot, user_version = self._read(project_root)
+        except ProviderStateSchemaError as exc:
+            raise ProviderStateUnsupportedError(f"Codex switches are unavailable: {exc}") from None
+        if snapshot.fingerprint != expected_fingerprint:
+            raise ProviderStateConflictError("The Codex state changed since it was read.")
+        item = next((entry for entry in snapshot.items if entry.id == item_id), None)
+        if item is None:
+            raise ProviderStateUnsupportedError(f"Codex has no switchable item {item_id}.")
+        if not item.writable or not user_version:
+            raise ProviderStateUnsupportedError(item.reason or "The Codex config was not read.")
+        if scope not in ("user", item.scope):
+            raise ProviderStateUnsupportedError(
+                f"Codex writes the user config, not the {scope} scope."
+            )
+        ident = item_id.partition(":")[2]
+        if item.kind == "skill":  # the id came from skills/list a moment ago
+            method, params, guard = (
+                "skills/config/write",
+                {"path": ident, "enabled": enabled},
+                user_version,
+            )
+        elif _ADDRESSABLE.fullmatch(ident):
+            edit = {
+                "keyPath": f"{_KEYS[item.kind]}.{ident}.enabled",
+                "value": enabled,
+                "mergeStrategy": "upsert",
+            }
+            method, guard = "config/batchWrite", None
+            params = {"edits": [edit], "expectedVersion": user_version}
+        else:
+            raise ProviderStateUnsupportedError(
+                f"Codex cannot address {ident!r} by key path; edit config.toml by hand."
+            )
+        asyncio.run(_write(binary, method, params, guard))
+        fresh = self.read_state(project_root)
+        confirmed = next((entry for entry in fresh.items if entry.id == item_id), None)
+        if confirmed is None or confirmed.enabled is not enabled:
+            raise ProviderStateConflictError("Codex does not show the requested value.")
+        return fresh
 
     def watch_paths(self, project_root: Path | None) -> tuple[Path, ...]:
         home = _codex_home()
