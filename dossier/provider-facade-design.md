@@ -222,6 +222,8 @@ class StateSnapshot:
     warnings: tuple[str, ...] = ()
 ```
 
+Note (2026-10-07, #39): the Codex adapter reads no file itself, so its `fingerprint` is a sha256 over the app-server layer `version` strings (each one already a sha256 of that layer file's content) plus the ids and flags of the skills, plugin and app lists the app-server returned.
+
 Errors (derive from `HarnessError`, codes snake_case): `ProviderStateConflictError` (`provider_state_conflict`), `ProviderStateUnsupportedError` (`provider_state_write_unsupported`), `ProviderStateSchemaError` (`provider_state_unreadable`), `ProviderStateVersionError` (`provider_state_version_untested`), `ProviderStateValidationError` (`provider_state_validation_failed`), `ProviderVersionUnsupportedError` (`provider_version_unsupported`, run start), `ProviderCommandError` (`provider_command_failed`, carries exit code and a redacted message, never the command's environment).
 
 **`def write_json_atomic(path: Path, change: Callable[[dict], dict], expected_sha256: str, *, backup_dir: Path | None = None, validate: Callable[[bytes], Sequence[str]] | None = None) -> str`**
