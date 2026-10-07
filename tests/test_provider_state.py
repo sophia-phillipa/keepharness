@@ -4,12 +4,12 @@ Fake homes only: every file lives under ``tmp_path``; nothing reads the owner's 
 ``~/.claude.json``, ``~/.claude`` or ``~/.codex``.
 """
 
-import asyncio
 import hashlib
 import json
 import logging
 import os
 import stat
+import threading
 from pathlib import Path
 
 import pytest
@@ -35,10 +35,6 @@ SESSION_SECRET = "oauth-session-token-do-not-log"
 
 def sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
-
-
-def run(coroutine):
-    return asyncio.run(coroutine)
 
 
 def set_key(key: str, value):
@@ -73,7 +69,7 @@ def claude_json(home: Path, text: str | None = None) -> Path:
 
 def write(path: Path, change=None, *, expected: bytes | None = None, **options) -> str:
     expected = path.read_bytes() if expected is None else expected
-    return run(write_json_atomic(path, change or set_key("added", 1), sha(expected), **options))
+    return write_json_atomic(path, change or set_key("added", 1), sha(expected), **options)
 
 
 # --- errors and protocol ---------------------------------------------------------------------
@@ -185,6 +181,33 @@ def test_fingerprint_of_a_directory_follows_its_children(tmp_path):
     assert fingerprint([skills]) != before
 
 
+def test_fingerprint_of_a_directory_notices_its_own_mtime(tmp_path):
+    skills = tmp_path / "skills"
+    skills.mkdir()
+    (skills / "one").mkdir()
+    os.utime(skills, ns=(1, 1))
+    before = fingerprint([skills])
+
+    os.utime(skills, ns=(2, 2))  # the directory itself changed, its children did not
+
+    assert fingerprint([skills]) != before
+
+
+def test_fingerprint_of_a_directory_follows_a_symlinked_child(tmp_path):
+    skills = tmp_path / "skills"
+    skills.mkdir()
+    target = tmp_path / "elsewhere"
+    target.write_text("x")
+    (skills / "linked").symlink_to(target)
+    os.utime(skills, ns=(1, 1))
+    os.utime(target, ns=(1, 1))
+    before = fingerprint([skills])
+
+    os.utime(target, ns=(5, 5))
+
+    assert fingerprint([skills]) != before
+
+
 def test_fingerprint_follows_a_symlink_to_the_real_file(tmp_path):
     real = tmp_path / "dotfiles" / "settings.json"
     real.parent.mkdir()
@@ -242,7 +265,7 @@ def test_a_second_write_chains_on_the_returned_hash(tmp_path):
     path = claude_json(tmp_path)
 
     first = write(path, set_key("one", 1))
-    second = run(write_json_atomic(path, set_key("two", 2), first))
+    second = write_json_atomic(path, set_key("two", 2), first)
 
     assert json.loads(path.read_text())["one"] == 1
     assert second == sha(path.read_bytes())
@@ -258,7 +281,7 @@ def test_a_symlinked_target_stays_a_symlink_and_the_real_file_is_replaced(tmp_pa
     link.symlink_to(real)
     inode = real.stat().st_ino
 
-    run(write_json_atomic(link, set_key("added", 1), sha(real.read_bytes())))
+    write_json_atomic(link, set_key("added", 1), sha(real.read_bytes()))
 
     assert link.is_symlink()
     assert os.readlink(link) == str(real)
@@ -282,7 +305,7 @@ def test_the_temp_file_is_created_beside_the_real_target(tmp_path, monkeypatch):
 
     monkeypatch.setattr(os, "replace", recording_replace)
 
-    run(write_json_atomic(link, set_key("added", 1), sha(real.read_bytes())))
+    write_json_atomic(link, set_key("added", 1), sha(real.read_bytes()))
 
     assert seen == [(real.parent, real)]
 
@@ -320,24 +343,25 @@ def test_a_refused_chown_does_not_block_the_write(tmp_path, monkeypatch):
     assert json.loads(path.read_text())["added"] == 1
 
 
-def test_a_missing_file_is_never_created(tmp_path):
+def test_a_missing_file_is_a_conflict_and_is_never_created(tmp_path):
     path = tmp_path / ".claude.json"
 
-    with pytest.raises(ProviderStateSchemaError):
-        run(write_json_atomic(path, set_key("a", 1), sha(b"")))
+    with pytest.raises(ProviderStateConflictError):
+        write_json_atomic(path, set_key("a", 1), sha(b""))
 
     assert not path.exists()
     assert list(tmp_path.iterdir()) == []
 
 
-@pytest.mark.parametrize("text", ["{not json", "[1, 2]", "\xff"])
-def test_a_file_that_is_not_a_json_object_is_refused_untouched(tmp_path, text):
-    path = claude_json(tmp_path, text)
+@pytest.mark.parametrize("raw", [b"{not json", b"[1, 2]", b"\xff"])
+def test_a_file_that_is_not_a_json_object_is_refused_untouched(tmp_path, raw):
+    path = claude_json(tmp_path)
+    path.write_bytes(raw)  # b"\xff" is not UTF-8 at all
 
     with pytest.raises(ProviderStateSchemaError):
         write(path)
 
-    assert path.read_text() == text
+    assert path.read_bytes() == raw
     assert [p.name for p in tmp_path.iterdir()] == [".claude.json"]
 
 
@@ -359,7 +383,7 @@ def test_a_stale_expected_hash_writes_nothing(tmp_path):
     before = path.read_bytes()
 
     with pytest.raises(ProviderStateConflictError):
-        run(write_json_atomic(path, set_key("a", 1), sha(b"something else")))
+        write_json_atomic(path, set_key("a", 1), sha(b"something else"))
 
     assert path.read_bytes() == before
     assert [p.name for p in tmp_path.iterdir()] == [".claude.json"]
@@ -393,63 +417,96 @@ def test_a_file_removed_before_the_replace_is_a_conflict_and_is_not_recreated(tm
     assert list(tmp_path.iterdir()) == []
 
 
+def race(first_path: Path, second_path: Path, expected: str) -> tuple[dict, dict]:
+    """Start the first writer, hold it inside its change, then start the second; both outcomes."""
+    entered, release = threading.Event(), threading.Event()
+    outcomes: dict[str, object] = {}
+
+    def holding(document: dict) -> dict:
+        entered.set()
+        assert release.wait(5)
+        return {**document, "first": 1}
+
+    def attempt(name: str, path: Path, change) -> None:
+        try:
+            outcomes[name] = write_json_atomic(path, change, expected)
+        except Exception as error:  # noqa: BLE001 - the test reads the outcome
+            outcomes[name] = error
+
+    first = threading.Thread(target=attempt, args=("first", first_path, holding))
+    second = threading.Thread(target=attempt, args=("second", second_path, set_key("second", 2)))
+    first.start()
+    assert entered.wait(5)
+    second.start()
+    second.join(0.2)
+    blocked = second.is_alive()  # without the lock it would already be done
+    release.set()
+    first.join(5)
+    second.join(5)
+    assert blocked, "the second writer ran while the first held the file"
+    return outcomes["first"], outcomes["second"]
+
+
 def test_two_writers_with_the_same_expected_hash_cannot_both_win(tmp_path):
     path = claude_json(tmp_path)
     expected = sha(path.read_bytes())
 
-    async def scenario():
-        return await asyncio.gather(
-            write_json_atomic(path, set_key("first", 1), expected),
-            write_json_atomic(path, set_key("second", 2), expected),
-            return_exceptions=True,
-        )
+    first, second = race(path, path, expected)
 
-    results = run(scenario())
-
-    assert sum(isinstance(r, ProviderStateConflictError) for r in results) == 1
+    assert first == sha(path.read_bytes())
+    assert isinstance(second, ProviderStateConflictError)
     document = json.loads(path.read_text())
-    assert ("first" in document) != ("second" in document)
+    assert "first" in document and "second" not in document
 
 
-def test_the_lock_is_one_per_real_path_and_serializes_writers(tmp_path):
+def test_two_threads_through_two_symlinks_serialize_and_the_stale_one_conflicts(tmp_path):
+    real = claude_json(tmp_path / "dotfiles")
+    one, two = tmp_path / "one.json", tmp_path / "two.json"
+    one.symlink_to(real)
+    two.symlink_to(real)
+
+    first, second = race(one, two, sha(real.read_bytes()))
+
+    assert first == sha(real.read_bytes())
+    assert isinstance(second, ProviderStateConflictError)
+    assert "second" not in json.loads(real.read_text())
+    assert [p.name for p in real.parent.iterdir()] == [".claude.json"]
+
+
+def test_the_lock_is_one_per_real_path(tmp_path):
     real = claude_json(tmp_path / "dotfiles")
     link = tmp_path / "link.json"
     link.symlink_to(real)
 
-    async def scenario():
-        lock = provider_state._lock_for(real.resolve())
-        assert lock is provider_state._lock_for(Path(os.path.realpath(link)))
-        assert lock is not provider_state._lock_for(tmp_path / "other.json")
-        async with lock:
-            writer = asyncio.create_task(
-                write_json_atomic(link, set_key("added", 1), sha(real.read_bytes()))
-            )
-            await asyncio.sleep(0.05)
-            assert not writer.done()
-            assert "added" not in json.loads(real.read_text())
-        await writer
-        return json.loads(real.read_text())
+    lock = provider_state._lock_for(real.resolve())
 
-    assert run(scenario())["added"] == 1
+    assert lock is provider_state._lock_for(Path(os.path.realpath(link)))
+    assert lock is not provider_state._lock_for(tmp_path / "other.json")
 
 
-def test_a_cancelled_writer_releases_the_lock(tmp_path):
+def test_a_failing_change_releases_the_lock(tmp_path):
     path = claude_json(tmp_path)
     expected = sha(path.read_bytes())
 
-    async def scenario():
-        lock = provider_state._lock_for(path.resolve())
-        async with lock:
-            writer = asyncio.create_task(write_json_atomic(path, set_key("a", 1), expected))
-            await asyncio.sleep(0.01)
-            writer.cancel()
-            with pytest.raises(asyncio.CancelledError):
-                await writer
-        await write_json_atomic(path, set_key("b", 2), expected)
+    def boom(document: dict) -> dict:
+        raise RuntimeError("boom")
 
-    run(scenario())
+    with pytest.raises(RuntimeError):
+        write_json_atomic(path, boom, expected)
 
+    write_json_atomic(path, set_key("b", 2), expected)
     assert json.loads(path.read_text())["b"] == 2
+
+
+def test_a_lone_surrogate_is_written_back_as_an_escape(tmp_path):
+    path = claude_json(tmp_path, '{\n  "label": "\\ud83d broken",\n  "ok": "caf\u00e9"\n}\n')
+
+    write(path)
+
+    raw = path.read_bytes()
+    assert b"\\ud83d broken" in raw
+    assert "café".encode() in raw
+    assert json.loads(raw)["label"] == "\ud83d broken"
 
 
 # --- write_json_atomic: failures leave nothing behind ----------------------------------------
@@ -487,7 +544,7 @@ def test_a_failing_change_leaves_the_file_and_the_folder_untouched(tmp_path):
     assert [p.name for p in tmp_path.iterdir()] == [".claude.json"]
 
 
-# --- write_json_atomic: backup, validation and restore ---------------------------------------
+# --- write_json_atomic: backup and validation -----------------------------------------------
 
 
 def test_without_a_backup_folder_nothing_is_copied(tmp_path):
@@ -536,6 +593,23 @@ def test_only_the_newest_three_backups_are_kept(tmp_path):
     assert all(stat.S_IMODE(p.stat().st_mode) == 0o600 for p in kept)
 
 
+def test_a_clock_that_went_backwards_never_deletes_the_copy_just_taken(tmp_path):
+    path = claude_json(tmp_path / "home")
+    folder = claude_json_backup_dir(tmp_path / "state")
+    folder.mkdir(parents=True)
+    future = [folder / f"{99999999999999999990 + n:020d}.json" for n in range(3)]
+    for old in future:
+        old.write_bytes(b"{}")
+    before = path.read_bytes()
+
+    write(path, backup_dir=folder)
+
+    kept = sorted(folder.iterdir())
+    assert len(kept) == 3
+    assert kept[-1].read_bytes() == before  # the new copy is the newest by name
+    assert future[0] not in kept  # the oldest of the future-dated copies went instead
+
+
 def test_rotation_leaves_files_it_did_not_write_alone(tmp_path):
     path = claude_json(tmp_path / "home")
     folder = claude_json_backup_dir(tmp_path / "state")
@@ -566,7 +640,7 @@ def broken_when_marked(data: bytes) -> list[str]:
     return ["marked"] if b'"broken"' in data else []
 
 
-def test_a_new_validation_error_restores_the_previous_bytes(tmp_path):
+def test_a_new_validation_error_refuses_the_write_and_changes_nothing(tmp_path):
     path = claude_json(tmp_path / "home")
     before = path.read_bytes()
     folder = claude_json_backup_dir(tmp_path / "state")
@@ -576,18 +650,19 @@ def test_a_new_validation_error_restores_the_previous_bytes(tmp_path):
 
     assert caught.value.errors == ("marked",)
     assert path.read_bytes() == before
-    assert [p.name for p in path.parent.iterdir()] == [".claude.json"]
-    assert len(list(folder.iterdir())) == 1  # the backup stays as evidence
+    assert [p.name for p in path.parent.iterdir()] == [".claude.json"]  # no temp left
+    assert not folder.exists()  # nothing was written, so nothing was copied
 
 
-def test_the_previous_bytes_are_restored_even_without_a_backup_folder(tmp_path):
+def test_validation_runs_before_the_replace(tmp_path, monkeypatch):
     path = claude_json(tmp_path)
-    before = path.read_bytes()
+    replaced = []
+    monkeypatch.setattr(os, "replace", lambda *args: replaced.append(args))
 
     with pytest.raises(ProviderStateValidationError):
         write(path, set_key("broken", True), validate=broken_when_marked)
 
-    assert path.read_bytes() == before
+    assert replaced == []
 
 
 def test_an_error_the_file_already_had_does_not_block_the_write(tmp_path):
@@ -616,23 +691,6 @@ def test_validation_sees_the_new_bytes_and_the_old_bytes(tmp_path):
     assert seen == [before, path.read_bytes()]
 
 
-def test_no_restore_when_someone_else_wrote_after_us(tmp_path):
-    path = claude_json(tmp_path)
-    theirs = b'{"claude code": "rewrote the file"}\n'
-
-    def validate(data: bytes) -> list[str]:
-        if b'"broken"' not in data:
-            return []
-        path.write_bytes(theirs)  # the CLI writes between our replace and our validation
-        return ["marked"]
-
-    with pytest.raises(ProviderStateConflictError):
-        write(path, set_key("broken", True), validate=validate)
-
-    assert path.read_bytes() == theirs
-    assert [p.name for p in tmp_path.iterdir()] == [".claude.json"]
-
-
 # --- credential safety -----------------------------------------------------------------------
 
 
@@ -644,7 +702,7 @@ def test_logs_and_errors_never_carry_file_content(tmp_path, caplog):
 
     write(path, set_key("ok", 1), backup_dir=folder, validate=lambda data: [])
     for attempt in (
-        lambda: run(write_json_atomic(path, set_key("a", 1), sha(b"stale"))),
+        lambda: write_json_atomic(path, set_key("a", 1), sha(b"stale")),
         lambda: write(path, set_key("broken", True), validate=broken_when_marked),
         lambda: write(claude_json(tmp_path / "bad", "{" + SESSION_SECRET), set_key("a", 1)),
     ):

@@ -141,6 +141,21 @@ def test_apply_merges_into_tail_harness_and_retires_the_split_folder(split, caps
     assert json.loads((moved / "harness.identity.json").read_text()) == LEGACY_MARKER
 
 
+def test_the_rollback_archive_leaves_the_claude_json_copies_out(split):
+    home, old, new = split
+    for folder in (old, new):
+        write(folder / "backups/claude-json/00000000000000000001.json", '{"oauthAccount": {}}')
+        write(folder / "backups/other.txt", "not a copy of ~/.claude.json")
+
+    state_merge.main(["--apply"], home=home)
+
+    (backup,) = (home / ".local/share").glob("keepharness-merge-*.tar")
+    with tarfile.open(backup) as archive:
+        names = archive.getnames()
+    assert "tail-harness/backups/other.txt" in names and "keepharness/backups/other.txt" in names
+    assert not any("claude-json" in name for name in names)
+
+
 def test_a_conversation_present_in_both_folders_refuses_the_merge(split):
     home, old, new = split
     write(old / "runs/sessions/c3/claude/claude-session.json", "{}")

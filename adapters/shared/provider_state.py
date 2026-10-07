@@ -8,7 +8,6 @@ the shared contract only; the Codex, Claude and DeepSeek adapters implement it e
 owner-only backup folder) or puts file content in an error message.
 """
 
-import asyncio
 import hashlib
 import json
 import logging
@@ -16,6 +15,7 @@ import os
 import re
 import stat
 import tempfile
+import threading
 import time
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
@@ -30,7 +30,9 @@ Kind = Literal["plugin", "app", "mcp", "skill", "hook", "instructions"]
 Scope = Literal["user", "project", "local", "managed", "profile"]
 
 # Where the pre-write copies of ~/.claude.json live, relative to the state folder. The copies hold
-# the sign-in session, so exports and rollback snapshots leave this folder out (control/backup.py).
+# the sign-in session, so exports (control/backup.py) and the rollback archive of the state merge
+# (control/state_merge.py) leave this folder out. No diagnostics bundle exists yet; when one does,
+# it must leave it out too.
 CLAUDE_JSON_BACKUP_PARTS = ("backups", "claude-json")
 KEPT_BACKUPS = 3
 BACKUP_FOLDER_MODE = 0o700
@@ -202,11 +204,11 @@ def _stat_marker(path: Path) -> str:
         with os.scandir(path) as entries:
             for entry in entries:
                 try:
-                    newest = max(newest, entry.stat(follow_symlinks=False).st_mtime_ns)
+                    newest = max(newest, entry.stat().st_mtime_ns)
                 except FileNotFoundError:
                     continue  # removed while we looked
                 count += 1
-        return f"dir:{newest}:{count}"
+        return f"dir:{info.st_mtime_ns}:{newest}:{count}"
     except (FileNotFoundError, NotADirectoryError):
         return "missing"
 
@@ -214,9 +216,9 @@ def _stat_marker(path: Path) -> str:
 def fingerprint(paths: Iterable[Path]) -> str:
     """The cheap "did anything move" check: one sha256 over a stat tuple per path.
 
-    A file contributes ``(st_mtime_ns, st_size, st_ino)``, a directory the newest mtime and the
-    number of its direct children (so removing an older child shows too), a missing path a
-    marker. Symlinks are followed, as the CLIs do. This is not the write-side conflict hash.
+    A file contributes ``(st_mtime_ns, st_size, st_ino)``, a directory its own mtime, the newest
+    mtime among its direct children and their number (so removing an older child shows too), a
+    missing path a marker. Symlinks are followed, as the CLIs do; a dangling child is not counted. This is not the write-side conflict hash.
     """
     digest = hashlib.sha256()
     for path in paths:
@@ -226,12 +228,14 @@ def fingerprint(paths: Iterable[Path]) -> str:
 
 # --- write_json_atomic -----------------------------------------------------------------------
 
-_LOCKS: dict[str, asyncio.Lock] = {}
+_LOCKS: dict[str, threading.Lock] = {}
+_LOCKS_GUARD = threading.Lock()
 
 
-def _lock_for(real: Path) -> asyncio.Lock:
+def _lock_for(real: Path) -> threading.Lock:
     """One lock per real path: a symlink and its target share it. Cooperates with ourselves only."""
-    return _LOCKS.setdefault(str(real), asyncio.Lock())
+    with _LOCKS_GUARD:
+        return _LOCKS.setdefault(str(real), threading.Lock())
 
 
 def _sha256(data: bytes) -> str:
@@ -284,7 +288,10 @@ def _backup(folder: Path, data: bytes) -> None:
     """Copy ``data`` into ``folder`` (0700, files 0600), durably, and keep the newest three."""
     folder.mkdir(mode=BACKUP_FOLDER_MODE, parents=True, exist_ok=True)
     folder.chmod(BACKUP_FOLDER_MODE)
-    target = folder / f"{time.time_ns():020d}.json"
+    ours = sorted(p for p in folder.iterdir() if _BACKUP_NAME.fullmatch(p.name))
+    # Names sort in creation order even when the clock went backwards: the new copy is always last.
+    newest = int(ours[-1].stem) + 1 if ours else 0
+    target = folder / f"{max(time.time_ns(), newest):020d}.json"
     descriptor = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, BACKUP_FILE_MODE)
     try:
         with os.fdopen(descriptor, "wb") as stream:
@@ -295,8 +302,7 @@ def _backup(folder: Path, data: bytes) -> None:
     except BaseException:
         target.unlink(missing_ok=True)
         raise
-    ours = sorted(p for p in folder.iterdir() if _BACKUP_NAME.fullmatch(p.name))
-    for old in ours[:-KEPT_BACKUPS]:
+    for old in [*ours, target][:-KEPT_BACKUPS]:
         old.unlink()
 
 
@@ -320,28 +326,20 @@ def _render(document: dict, original: str) -> bytes:
     elif '": ' not in original:
         options["separators"] = (",", ":")
     text = json.dumps(document, **options) + ("\n" if original.endswith("\n") else "")
-    return text.encode("utf-8")
+    return text.encode("utf-8", errors="backslashreplace")  # a lone surrogate becomes \uXXXX
 
 
-def _check(
-    real: Path, before: bytes, written: bytes, known: set[str], validate: Callable
-) -> None:
-    """Restore ``before`` over our own ``written`` bytes if validation found a new error."""
+def _refuse_new_errors(real: Path, before: bytes, written: bytes, validate: Callable) -> None:
+    """Raise when ``written`` has a validation error that ``before`` did not have."""
+    known = set(validate(before))
     introduced = [error for error in validate(written) if error not in known]
-    if not introduced:
-        return
-    try:
-        _swap(real, before, _sha256(written), real.stat())
-    except (ProviderStateConflictError, FileNotFoundError):
-        raise ProviderStateConflictError(
-            f"{real.name} was changed by someone else, so the previous bytes were not restored"
-        ) from None
-    raise ProviderStateValidationError(
-        f"{real.name} failed validation after the write and was restored", errors=introduced
-    )
+    if introduced:
+        raise ProviderStateValidationError(
+            f"{real.name} would fail validation, so nothing was written", errors=introduced
+        )
 
 
-async def write_json_atomic(
+def write_json_atomic(
     path: Path,
     change: Callable[[dict], dict],
     expected_sha256: str,
@@ -352,21 +350,21 @@ async def write_json_atomic(
     """Apply ``change`` to the JSON object in ``path`` atomically; the sha256 of the new bytes.
 
     ``path`` is resolved first, so a symlink stays a symlink and its target is replaced. The file
-    is never created. Raises ``ProviderStateConflictError`` when the bytes are not the ones with
-    ``expected_sha256`` (now, or right before the replace), ``ProviderStateSchemaError`` when the
-    file is not a JSON object and ``ProviderStateValidationError`` when ``validate`` reports an
-    error the previous bytes did not have (the previous bytes are then restored, unless someone
-    else wrote in the meantime: that is a conflict and their bytes stay).
+    is never created. Raises ``ProviderStateConflictError`` when the file is gone or its bytes are
+    not the ones with ``expected_sha256`` (now, or right before the replace),
+    ``ProviderStateSchemaError`` when it is not a JSON object and ``ProviderStateValidationError``
+    when ``validate`` reports an error on the new bytes that the previous bytes did not have;
+    nothing is written then.
 
-    The file work runs inline under the lock: a cancelled caller can then never release the lock
-    while a write is still in flight, and the files are a few kilobytes.
+    This is a plain blocking function, serialized by one thread lock per real path. A real
+    ``~/.claude.json`` is often hundreds of KB, so async callers run it with ``asyncio.to_thread``.
     """
     real = Path(os.path.realpath(path))
-    async with _lock_for(real):
+    with _lock_for(real):
         try:
             before, info = real.read_bytes(), real.stat()
         except FileNotFoundError:
-            raise ProviderStateSchemaError(f"{real.name} does not exist") from None
+            raise ProviderStateConflictError(f"{real.name} is gone since it was read") from None
         if _sha256(before) != expected_sha256:
             raise ProviderStateConflictError(f"{real.name} changed since it was read")
         document, original = _parse(real, before)
@@ -374,11 +372,10 @@ async def write_json_atomic(
         if not isinstance(updated, dict):
             raise ProviderStateSchemaError("the change did not return a JSON object")
         written = _render(updated, original)
-        known = set(validate(before)) if validate else set()
+        if validate:
+            _refuse_new_errors(real, before, written, validate)
         if backup_dir is not None:
             _backup(Path(backup_dir), before)  # no copy, no write
         _swap(real, written, _sha256(before), info)
-        if validate:
-            _check(real, before, written, known, validate)
         logger.debug("provider state written: %s", real.name)
         return _sha256(written)
