@@ -37,7 +37,7 @@ from .local_models import (
     save_profile,
     validate_profile,
 )
-from .manager import PERMISSIONS
+from .manager import PERMISSIONS, clamp_legacy_bind
 from .operations import operation
 from .product import LEGACY_MARKER, PRODUCT, is_original
 from .remote_models import add_remote_model, remove_remote_model
@@ -299,6 +299,7 @@ async def import_settings(request, manager, data):
         or bundle.get("version") != 1
     ):
         raise UserMessageError("Incompatible configuration format.")
+    clamp_legacy_bind(bundle.get("settings"))  # an export from the VPN key era
     imported = manager.validate(bundle.get("settings"))
     profile = validate_profile(bundle.get("local_profile", {}), state_dir=manager.state)
     profiles = bundle.get("local_profiles", {})

@@ -1319,3 +1319,22 @@ def test_admin_imports_settings_exported_before_the_rename(admin_pair):
     assert imported.status_code == 200, imported.text
     assert refused.status_code == 400
     assert refused.json() == {"error": "Incompatible configuration format."}
+
+
+def test_admin_imports_a_vpn_key_era_bind_as_loopback(admin_pair):
+    # An export from before #38 may carry a tailnet vpn_bind; import loads it like the disk does.
+    app, manager = admin_pair
+
+    async def scenario():
+        client = await _admin_client(app)
+        try:
+            headers = {"X-Harness-Admin": "1"}
+            bundle = (await client.post("/api/settings-export", json={}, headers=headers)).json()
+            bundle["settings"]["vpn_bind"] = "10.44.0.2"
+            return await client.post("/api/settings-import", json={"bundle": bundle}, headers=headers)
+        finally:
+            await client.aclose()
+
+    imported = asyncio.run(scenario())
+    assert imported.status_code == 200, imported.text
+    assert manager.settings.get("vpn_bind", "127.0.0.1") == "127.0.0.1"  # 400 before the clamp

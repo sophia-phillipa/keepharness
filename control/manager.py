@@ -1,7 +1,6 @@
 """Admin-panel state: settings, provider checks and the agent-service process."""
 
 import asyncio
-import ipaddress
 import json
 import logging
 import os
@@ -94,6 +93,13 @@ def migrate_local_ai_directory(root: Path, state: Path) -> None:
         target.write_text(text.replace("local-ai/", "local_ai/"))
 
 
+def clamp_legacy_bind(settings):
+    """Load a saved or imported non-loopback ``vpn_bind`` (VPN key era) as 127.0.0.1 (D-039)."""
+    if isinstance(settings, dict) and settings.get("vpn_bind", "127.0.0.1") != "127.0.0.1":
+        logger.warning("Ignoring a saved non-loopback vpn_bind; the harness listens on 127.0.0.1.")
+        settings["vpn_bind"] = "127.0.0.1"
+
+
 class Manager:
     def __init__(self, state):
         self.state = Path(state)
@@ -142,9 +148,7 @@ class Manager:
                 "logins": [],
             }
         )
-        if self.settings.get("vpn_bind", "127.0.0.1") != "127.0.0.1":
-            logger.warning("Ignoring a saved non-loopback vpn_bind; the harness listens on 127.0.0.1.")
-            self.settings["vpn_bind"] = "127.0.0.1"
+        clamp_legacy_bind(self.settings)
         self.settings["services"].setdefault(
             "deepseek",
             {
@@ -239,10 +243,6 @@ class Manager:
         bind = data.get("vpn_bind", "127.0.0.1")
         if not isinstance(bind, str):
             raise UserMessageError("Provide the private IP as text.")
-        try:
-            ipaddress.ip_address(bind)
-        except ValueError:
-            raise UserMessageError("Provide the private IP as a valid IPv4 address.") from None
         if bind != "127.0.0.1":
             raise UserMessageError(
                 "The harness listens only on the private loopback address 127.0.0.1; "
