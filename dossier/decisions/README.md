@@ -30,3 +30,4 @@ Spec: [Codex-app parity design](../codex-parity-design.md).
 | [D-035](d-035-rail-meters-provider-logos.md) | Rail quota meters show provider logos instead of names | accepted |
 | [D-036](d-036-wp9-interface-language.md) | WP9 interface language: per-locale JSON catalogs and a DOM-attribute runtime | proposed |
 | [D-037](d-037-chat-code-views-of-one-conversation.md) | Chat and Code are two views of one conversation (records ledger D45) | accepted |
+| [D-038](d-038-keepharness-facade-over-provider-state.md) | KeepHarness is a facade over the providers' real state (supersedes D-034 §1 and the 0.15 provider homes) | accepted |
