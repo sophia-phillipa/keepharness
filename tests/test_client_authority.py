@@ -41,11 +41,13 @@ def test_service_state_changes_need_an_enrolled_session(tmp_path):
             ) as process,
         ):
             # A key-holding client (or the model behind the MCP bridge) asserting the request.
-            denied = request(app, "POST", "/v1/services", headers=bearer, json=start)
+            denied = request(app, "POST", "/v1/services", headers=bearer, json=start, local=True)
             assert denied.status_code == 403
             assert denied.json()["code"] == "approval_session_required"
             process.assert_not_awaited()
-            listed = request(app, "POST", "/v1/services", headers=bearer, json={"project_id": "p"})
+            listed = request(
+                app, "POST", "/v1/services", headers=bearer, json={"project_id": "p"}, local=True
+            )
             assert listed.status_code == 200, listed.text
             # Host services are machine-wide: a guest's enrolled session still cannot change them.
             for action in ("start", "stop", "restart"):
@@ -93,6 +95,7 @@ def test_only_the_local_owner_saves_project_workflows(tmp_path):
             "/v1/jobs/j1/save-workflow",
             headers={"Authorization": "Bearer a"},
             json={"id": "planted"},
+            local=True,
         )
         assert remote.status_code == 403
         assert remote.json()["code"] == "workflow_save_local_only"

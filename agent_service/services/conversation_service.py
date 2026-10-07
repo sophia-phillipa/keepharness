@@ -518,11 +518,8 @@ class ConversationService:
         if (
             not auth
             and not cross_site
-            and request.client
-            and request.client.host in ("127.0.0.1", "::1")
+            and self.direct_loopback(request)
             and local_access.host_allowed(host, local_access.LOOPBACK_NAMES)
-            and not request.headers.get("x-forwarded-for")
-            and not request.headers.get("tailscale-user-login")
             and self.config.get("local_access")
             and self.holds_local_session(request)
         ):
@@ -541,11 +538,23 @@ class ConversationService:
             client_name = self.config.get("tailscale_logins", {}).get(login)
             if client_name in self.config["clients"]:
                 return identified(client_name, self.config["clients"][client_name])
-        digest = hashlib.sha256(token.encode()).hexdigest()
-        for name, client in self.config["clients"].items():
-            if token and hmac.compare_digest(digest, client["sha256"]):
-                return identified(name, client)
+        # A token never stands in for a tailnet identity: it identifies only a direct local peer.
+        if token and self.direct_loopback(request):
+            digest = hashlib.sha256(token.encode()).hexdigest()
+            for name, client in self.config["clients"].items():
+                if hmac.compare_digest(digest, client["sha256"]):
+                    return identified(name, client)
         raise APIError("authentication_required", 401)
+
+    @staticmethod
+    def direct_loopback(request):
+        """A loopback peer that is not a Tailscale Serve forward (no tailscale-* or XFF header)."""
+        return (
+            bool(request.client)
+            and request.client.host in ("127.0.0.1", "::1")
+            and not request.headers.get("x-forwarded-for")
+            and not any(name.startswith("tailscale-") for name in request.headers)
+        )
 
     def refuse_rebinding(self, request, host):
         """DNS rebinding: a page whose name now resolves to 127.0.0.1 can set Tailscale's header

@@ -80,8 +80,10 @@ async def login(request, service, identity):
     if not isinstance(token, str):
         raise APIError("invalid_token")
     digest = hashlib.sha256(token.encode()).hexdigest()
-    if not token or not any(
-        hmac.compare_digest(digest, c["sha256"]) for c in config["clients"].values()
+    if (
+        not token
+        or not service.direct_loopback(request)
+        or not any(hmac.compare_digest(digest, c["sha256"]) for c in config["clients"].values())
     ):
         raise APIError("authentication_required", 401)
     response = JSONResponse({"authenticated": True})

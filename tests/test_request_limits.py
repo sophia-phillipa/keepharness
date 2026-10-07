@@ -32,7 +32,6 @@ def test_same_identity_burst_keeps_control_and_other_identity_available(tmp_path
                         headers={
                             "Authorization": "Bearer a",
                             "Idempotency-Key": str(i),
-                            "X-Forwarded-For": f"192.0.2.{i % 255}",
                         },
                     )
                     for i in range(500)
