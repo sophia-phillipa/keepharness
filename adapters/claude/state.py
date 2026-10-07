@@ -484,9 +484,7 @@ class ClaudeStateAdapter:
                 enabled=root is None or name not in disabled,
                 source=where,
                 writable=known,
-                reason=""
-                if known
-                else (no_entry if root is not None else CHOOSE_PROJECT_REASON),
+                reason="" if known else (no_entry if root is not None else CHOOSE_PROJECT_REASON),
             )
             for name, (scope, where) in defined.items()
         ]
@@ -598,7 +596,7 @@ class ClaudeStateAdapter:
                     f"{TESTED_VERSIONS}; {kind} switches are not written"
                 )
             if kind == "skill":
-                self._set_skill(name, scope, enabled, root, reading.digests)
+                self._set_skill(name, scope, enabled, item.enabled, root, reading.digests)
             else:
                 self._set_mcp(name, enabled, root, reading.digests)
         return self._explain_override(self.read_state(root), item_id, enabled)
@@ -657,7 +655,13 @@ class ClaudeStateAdapter:
         self._confirm(plugins.get(plugin_id) if isinstance(plugins, dict) else None, enabled)
 
     def _set_skill(
-        self, name: str, scope: Scope, enabled: bool, root: Path | None, digests: dict
+        self,
+        name: str,
+        scope: Scope,
+        enabled: bool,
+        effective: bool,
+        root: Path | None,
+        digests: dict,
     ) -> None:
         path = self._settings_path(scope, root)
         value = "on" if enabled else "off"
@@ -666,8 +670,11 @@ class ClaudeStateAdapter:
             overrides = document.setdefault("skillOverrides", {})
             if not isinstance(overrides, dict):
                 raise ProviderStateSchemaError(f"skillOverrides in {path.name} is not an object")
-            if enabled and overrides.get(name, "off") != "off":
-                raise _Unchanged  # "on" is there already, or a restricted override that stays
+            current = overrides.get(name)
+            if enabled and (current not in (None, "off") or (current is None and effective)):
+                raise _Unchanged  # already on here or through another layer; restricted stays
+            if not enabled and current == "off":
+                raise _Unchanged
             overrides[name] = value
             return document
 

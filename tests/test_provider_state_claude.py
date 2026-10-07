@@ -929,9 +929,10 @@ def test_claude_json_changed_after_the_read_is_a_conflict_even_in_a_session_fiel
     change_before(adapter, monkeypatch, "_set_mcp", bump_session_field)
     with pytest.raises(ProviderStateConflictError):
         toggle(adapter, project, "mcp:local-srv", "local", False)
-    assert "local-srv" not in json.loads(path.read_text())["projects"][str(project)][
-        "disabledMcpServers"
-    ]
+    assert (
+        "local-srv"
+        not in json.loads(path.read_text())["projects"][str(project)]["disabledMcpServers"]
+    )
     assert not (tmp_path / "state").exists()
 
 
@@ -1002,3 +1003,31 @@ def test_unknown_items_kinds_and_scopes_without_a_project_are_unsupported(
             adapter.set_enabled(
                 item_id, scope, True, fingerprint_of(adapter, root), project_root=root
             )
+
+
+def test_enabling_a_skill_that_is_already_on_creates_nothing(adapter, config_dir, project):  # R40-9
+    make_skill(config_dir / "skills", "deploy")
+    (project / ".claude").mkdir()
+    snapshot = toggle(adapter, project, "skill:deploy", "local", True)
+    assert list((project / ".claude").iterdir()) == []
+    assert by_id(snapshot)["skill:deploy"].enabled is True
+
+
+def test_disabling_a_skill_that_is_already_off_writes_nothing(
+    adapter, config_dir, project
+):  # R40-10
+    make_skill(config_dir / "skills", "deploy")
+    path = write_json(config_dir / "settings.json", {"skillOverrides": {"deploy": "off"}})
+    before = path.stat().st_ino, path.read_bytes()
+    toggle(adapter, project, "skill:deploy", "user", False)
+    assert (path.stat().st_ino, path.read_bytes()) == before
+
+
+def test_enabling_in_a_stronger_scope_still_overrides_a_weaker_off(adapter, config_dir, project):
+    make_skill(config_dir / "skills", "deploy")
+    write_json(config_dir / "settings.json", {"skillOverrides": {"deploy": "off"}})
+    (project / ".claude").mkdir()
+    snapshot = toggle(adapter, project, "skill:deploy", "local", True)
+    local = json.loads((project / ".claude" / "settings.local.json").read_text())
+    assert local == {"skillOverrides": {"deploy": "on"}}
+    assert by_id(snapshot)["skill:deploy"].enabled is True
