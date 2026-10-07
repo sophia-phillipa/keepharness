@@ -156,13 +156,13 @@ Instale Python e as dependências do projeto no outro computador, copie o projet
     "keepharness": {
       "command": "/caminho/keepharness/.venv/bin/python",
       "args": ["/caminho/keepharness/agent_service/mcp_bridge.py"],
-      "env": {"KEEPHARNESS_AGENT_URL": "http://SEU-SERVIDOR:8095"}
+      "env": {"KEEPHARNESS_AGENT_URL": "https://SEU-SERVIDOR-TAILSCALE"}
     }
   }
 }
 ```
 
-O acesso remoto é somente do dono, pela Tailscale Serve, que encaminha a identidade do dono. Não existe chave compartilhada: um token bearer ou cookie só vale em uma conexão local direta, então um cliente MCP em outro computador não consegue se autenticar com um.
+O acesso remoto é somente do dono, pela Tailscale Serve, que encaminha a identidade do dono. Não existe chave compartilhada: um token bearer ou cookie só vale em uma conexão local direta, então um cliente MCP em outro computador não consegue se autenticar com um. O bridge só funciona a partir de outro computador pela Tailscale Serve (a URL `https://SEU-SERVIDOR-TAILSCALE` acima), com o login Tailscale desse computador na lista de permitidos; o `client.json` dele não precisa de `key_file`.
 
 O bridge oferece descoberta de modelos/projetos, transferência de arquivos e workspaces, tarefas, progresso compacto, artefatos, cancelamento e aprovações. Continue uma sessão usando o último `job_id` como `parent_job_id`. A execução automática escolhe o executor padrão configurado ou o primeiro serviço elegível habilitado. Unidades systemd de projetos cadastrados só podem ser controladas pelas permissões correspondentes e por pedidos explícitos.
 
@@ -253,7 +253,7 @@ O acesso tem quatro modos: Somente leitura, Pedir aprovação, Automático e Ace
 
 ## 🧙 Setup wizard and portable configuration
 
-O dashboard mostra somente os provedores cadastrados, com ações de edição e exclusão. **Adicionar provedor** abre um assistente de três etapas: **Serviço e modelos → Permissões e projetos → Revisão**. Permissões detalhadas, conectores, instalação de modelos, portas e outras VPNs ficam em opções expansíveis. O botão **Usar configuração atual** captura os parâmetros de desempenho do llama.cpp em execução sem reiniciá-lo e grava `local-profile.json` no diretório privado de estado (modo 0600). Esse perfil preserva GPU, MoE na CPU, threads e afinidade para futuras inicializações do mesmo modelo pelo painel; não copia chaves nem argumentos arbitrários.
+O dashboard mostra somente os provedores cadastrados, com ações de edição e exclusão. **Adicionar provedor** abre um assistente de três etapas: **Serviço e modelos → Permissões e projetos → Revisão**. Permissões detalhadas, conectores, instalação de modelos, portas e a Tailscale Serve ficam em opções expansíveis. O botão **Usar configuração atual** captura os parâmetros de desempenho do llama.cpp em execução sem reiniciá-lo e grava `local-profile.json` no diretório privado de estado (modo 0600). Esse perfil preserva GPU, MoE na CPU, threads e afinidade para futuras inicializações do mesmo modelo pelo painel; não copia chaves nem argumentos arbitrários.
 
 No dashboard, em **Acesso remoto e configuração → Exportar ou importar configuração**, exporte as escolhas salvas ou selecione um arquivo JSON para pré-visualizar e aplicar. Credenciais e tokens são excluídos. O arquivo ainda contém caminhos locais e identidades autorizadas: trate-o como privado. A importação valida caminhos e integrações existentes, não inicia serviços e não pode substituir escolhas durante uma execução ativa. Sem um perfil no arquivo, o perfil local atual é preservado.
 

@@ -156,13 +156,13 @@ Install Python and the project's dependencies on the other computer, copy the cl
     "keepharness": {
       "command": "/path/keepharness/.venv/bin/python",
       "args": ["/path/keepharness/agent_service/mcp_bridge.py"],
-      "env": {"KEEPHARNESS_AGENT_URL": "http://YOUR-SERVER:8095"}
+      "env": {"KEEPHARNESS_AGENT_URL": "https://YOUR-TAILSCALE-SERVER"}
     }
   }
 }
 ```
 
-Remote access is only the owner through Tailscale Serve, which forwards the owner's identity. There is no shared key: a bearer token or cookie is honored only from a direct local connection, so an MCP client on another computer cannot authenticate with one.
+Remote access is only the owner through Tailscale Serve, which forwards the owner's identity. There is no shared key: a bearer token or cookie is honored only from a direct local connection, so an MCP client on another computer cannot authenticate with one. The bridge works from another computer only through Tailscale Serve (the `https://YOUR-TAILSCALE-SERVER` URL above), with that computer's Tailscale login on the allow list; its `client.json` needs no `key_file`.
 
 The bridge supports model/project discovery, file and workspace transfer, tasks, compact progress, artifacts, cancellation and approvals. Continue a session with the latest `job_id` as `parent_job_id`. Automatic execution chooses the configured default executor or the first eligible enabled service. Registered project systemd units can be controlled only through the corresponding permissions and explicit requests.
 
@@ -253,7 +253,7 @@ Access has four modes: Read only, Ask for approval, Automatic and Full access. E
 
 ## 🧙 Setup wizard and portable configuration
 
-The dashboard shows only registered providers, with edit and delete actions. **Add provider** opens a three-step wizard: **Service and models → Permissions and projects → Review**. Detailed permissions, connectors, model installation, ports and other VPNs live in expandable options. The **Use current configuration** button captures the running llama.cpp's performance parameters without restarting it and writes `local-profile.json` into the private state directory (mode 0600). This profile preserves GPU, MoE-on-CPU, threads and affinity for future startups of the same model from the panel; it does not copy keys or arbitrary arguments.
+The dashboard shows only registered providers, with edit and delete actions. **Add provider** opens a three-step wizard: **Service and models → Permissions and projects → Review**. Detailed permissions, connectors, model installation, ports and Tailscale Serve live in expandable options. The **Use current configuration** button captures the running llama.cpp's performance parameters without restarting it and writes `local-profile.json` into the private state directory (mode 0600). This profile preserves GPU, MoE-on-CPU, threads and affinity for future startups of the same model from the panel; it does not copy keys or arbitrary arguments.
 
 In the dashboard, under **Remote access and configuration → Export or import configuration**, export the saved choices or select a JSON file to preview and apply. Credentials and tokens are excluded. The file still contains local paths and authorized identities: treat it as private. Import validates existing paths and integrations, does not start services, and cannot replace choices during an active execution. Without a profile in the file, the current local profile is preserved.
 
