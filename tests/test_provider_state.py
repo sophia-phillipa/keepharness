@@ -208,6 +208,21 @@ def test_fingerprint_of_a_directory_follows_a_symlinked_child(tmp_path):
     assert fingerprint([skills]) != before
 
 
+def test_fingerprint_survives_a_symlink_loop(tmp_path):
+    skills = tmp_path / "skills"
+    skills.mkdir()
+    (skills / "loop").symlink_to(skills / "loop")
+    (skills / "real").write_text("x")
+    looped = tmp_path / "self"
+    looped.symlink_to(looped)
+
+    before = fingerprint([skills, looped])
+    (skills / "real").write_text("changed")
+    os.utime(skills / "real", ns=(9, 9))
+
+    assert fingerprint([skills, looped]) != before
+
+
 def test_fingerprint_follows_a_symlink_to_the_real_file(tmp_path):
     real = tmp_path / "dotfiles" / "settings.json"
     real.parent.mkdir()

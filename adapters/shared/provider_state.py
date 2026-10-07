@@ -205,11 +205,11 @@ def _stat_marker(path: Path) -> str:
             for entry in entries:
                 try:
                     newest = max(newest, entry.stat().st_mtime_ns)
-                except FileNotFoundError:
-                    continue  # removed while we looked
+                except OSError:
+                    continue  # removed while we looked, a symlink loop or no permission
                 count += 1
         return f"dir:{info.st_mtime_ns}:{newest}:{count}"
-    except (FileNotFoundError, NotADirectoryError):
+    except OSError:  # missing, not a directory, a symlink loop or no permission
         return "missing"
 
 
@@ -218,7 +218,9 @@ def fingerprint(paths: Iterable[Path]) -> str:
 
     A file contributes ``(st_mtime_ns, st_size, st_ino)``, a directory its own mtime, the newest
     mtime among its direct children and their number (so removing an older child shows too), a
-    missing path a marker. Symlinks are followed, as the CLIs do; a dangling child is not counted. This is not the write-side conflict hash.
+    missing path a marker. Symlinks are followed, as the CLIs do; a child that cannot be stat'ed
+    (dangling, a loop, no permission) is not counted, and such a path counts as missing. This is
+    not the write-side conflict hash.
     """
     digest = hashlib.sha256()
     for path in paths:
@@ -348,6 +350,8 @@ def write_json_atomic(
     validate: Callable[[bytes], Sequence[str]] | None = None,
 ) -> str:
     """Apply ``change`` to the JSON object in ``path`` atomically; the sha256 of the new bytes.
+
+    The per-path lock is not reentrant: ``change`` and ``validate`` must not write files.
 
     ``path`` is resolved first, so a symlink stays a symlink and its target is replaced. The file
     is never created. Raises ``ProviderStateConflictError`` when the file is gone or its bytes are
