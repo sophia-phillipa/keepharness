@@ -298,7 +298,7 @@ runPersona("H38", [
       await audit(page, "settings menu", sink);
       await page.keyboard.press("Escape");
       await page.keyboard.press("Control+,");
-      for (const section of ["appearance", "customize", "models"]) {
+      for (const section of ["appearance", "plugins", "agents", "models"]) {
         await page.click(`[data-settings=${section}]`);
         await audit(page, "settings " + section, sink);
       }

@@ -68,7 +68,7 @@ const path = require("node:path");
     assert.equal(await menu.getAttribute("role"), "menu");
     assert.deepEqual(await names(menu.locator('[role="group"] > p')), ["Personal", "Integrations", "Archived", "System"]);
     assert.deepEqual(await names(menu.getByRole("menuitem")), [
-      "Appearance", "Models", "Customize", "Archived chats",
+      "Appearance", "Models", "Plugins", "Agents", "Archived chats",
       "Providers", "Operations", "Run history", "Catalogs and vault", "Connection / MCP",
     ]);
 
@@ -146,7 +146,7 @@ const path = require("node:path");
     await other.goto(localhost + "/");
     await other.locator("#startup-gate").waitFor({ state: "hidden" });
     await other.click("#settings");
-    assert.deepEqual(await names(other.locator("#settings-menu").getByRole("menuitem")), ["Appearance", "Models", "Customize", "Archived chats"]);
+    assert.deepEqual(await names(other.locator("#settings-menu").getByRole("menuitem")), ["Appearance", "Models", "Plugins", "Agents", "Archived chats"]);
     assert.equal(await other.evaluate(() => openSettings("runs")), false);
     assert.equal(await other.locator("#settings-dialog").evaluate((d) => d.open), false);
     console.log("PASS settings submenu opens each section");

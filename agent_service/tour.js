@@ -6,10 +6,10 @@
   // D19: five steps, each for something a new user cannot guess. The rest is discoverable in place.
   const steps = [
     { target: "composer", title: "Write and route work", text: "Write a request, type / to choose agents, skills and commands, or @@ to call one of your agents. The chips under the box attach files and Space pages and choose plugins; the pickers set access, model and effort." },
-    { target: "rail-areas", title: "Space, Scheduled and Customize", text: "The rail opens Space (pages for each project), Scheduled (recurring tasks), Runs and Customize (your agents and skills). Hover or focus a rail button to read its name." },
+    { target: "rail-areas", title: "Space, Scheduled and Plugins", text: "The rail opens Space (pages for each project), Scheduled (recurring tasks), Runs and Plugins (skills, agents and MCPs). Hover or focus a rail button to read its name." },
     { target: "sidebar-state-groups", title: "Conversations by state", text: "Project chats stay inside their project; other conversations are listed under Chats, with what needs you first. A yellow dot means a conversation needs your answer; a spinner, running; a ring, queued; red, failed; blue, an unread answer." },
     { target: "run-console-tabs", title: "Live status and the Run console", text: "The status strip keeps running, queued and needs-you counts visible; select it or press Ctrl/⌘+J to open the Run console. Pipeline shows the current plan, Timeline and Logs show execution detail, and Runs lists work across the project.", reveal: "console" },
-    { target: "settings-admin", title: "Settings and help", text: "Settings holds Appearance, Customize, Models, Usage, Connect a client and About. On the computer that runs KeepHarness, its System section shows providers, operations, run history and catalogs. KeepHarness was called Tail Harness before 0.15. Choose Take the tour in Settings to replay this guide." },
+    { target: "settings-admin", title: "Settings and help", text: "Settings holds Appearance, Plugins, Agents, Models, Usage, Connect a client and About. On the computer that runs KeepHarness, its System section shows providers, operations, run history and catalogs. KeepHarness was called Tail Harness before 0.15. Choose Take the tour in Settings to replay this guide." },
   ];
 
   let root = null;

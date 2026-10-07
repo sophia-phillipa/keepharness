@@ -1,5 +1,5 @@
-// Settings: Appearance (themes, panel position, text size, theme switch), Customize (agents and
-// skills), Models, System (the embedded admin: Providers, Operations, Run history, Catalogs),
+// Settings: Appearance (themes, panel position, text size, theme switch), Plugins (skill catalog), Agents (your
+// agents), Models, System (the embedded admin: Providers, Operations, Run history, Catalogs),
 // Connect a client, Usage, About and the tour.
 "use strict";
 const { home } = require("../lib/app.cjs");
@@ -48,11 +48,16 @@ module.exports = {
       await op.select(page.locator("#reading-size"), "15");
     });
 
-    await op.step("customize", "Customize lists your agents and the skill catalog", async () => {
-      await op.click(nav("Customize"));
-      await op.see(page.locator("#settings-customize"));
-      await op.see(page.locator("#agent-create"));
+    await op.step("plugins", "Plugins lists the skill catalog", async () => {
+      await op.click(nav("Plugins"));
+      await op.see(page.locator("#settings-plugins"));
       await op.see(page.locator("#catalog-skills"));
+    });
+
+    await op.step("agents", "Agents lists your agents", async () => {
+      await op.click(nav("Agents"));
+      await op.see(page.locator("#settings-agents"));
+      await op.see(page.locator("#agent-create"));
     });
 
     await op.step("models", "Models lists the model catalog", async () => {

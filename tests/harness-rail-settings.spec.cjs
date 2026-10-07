@@ -1,5 +1,5 @@
 // D43 / D44 / D45 (L52): the rail names itself on keyboard focus, Admin/Theme/About live in Settings,
-// Settings is grouped as Appearance · Customize · Models · Usage · Connect a client · About,
+// Settings is grouped as Appearance · Plugins · Agents · Models · Usage · Connect a client · About,
 // Space and Scheduled stay reachable on a phone, and Chat | Code is one conversation in two views.
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
 const assert = require("node:assert/strict");
@@ -66,13 +66,18 @@ const RAIL = ["menu", "search-conversations", "attention-bell", "panel-toggle", 
     // Settings: the structure of D44, with Theme, About and the tour inside it.
     await page.keyboard.press("Control+,");
     const nav = (await page.locator("#settings-dialog .settings-nav button:visible").allInnerTexts()).map((text) => text.trim());
-    assert.deepEqual(nav, ["Appearance", "Models", "Customize", "Archived chats", "Usage", "Connect a client", "About", "Take the tour"]);
+    assert.deepEqual(nav, ["Appearance", "Models", "Plugins", "Agents", "Archived chats", "Usage", "Connect a client", "About", "Take the tour"]);
     assert.equal(await page.locator("#settings-appearance #theme-toggle").count(), 1);
     assert.equal(await page.locator("#settings-quota use").getAttribute("href"), "/assets/icons.svg#gauge");
-    await page.click('[data-settings="customize"]');
-    await page.locator("#agent-create").waitFor({ state: "visible" });
+    await page.click('[data-settings="plugins"]');
     await page.locator("#catalog-skills").waitFor({ state: "attached" });
-    assert.equal(await page.locator("#settings-customize #catalog-skills").count(), 1, "Skills live under Customize");
+    assert.equal(await page.locator("#settings-plugins h3").innerText(), "Plugins");
+    assert.equal(await page.locator("#settings-plugins p").first().innerText(), "Manage plugins, skills, and MCPs");
+    assert.equal(await page.locator("#settings-plugins #catalog-skills").count(), 1, "Skills live under Plugins");
+    await page.click('[data-settings="agents"]');
+    await page.locator("#agent-create").waitFor({ state: "visible" });
+    assert.equal(await page.locator("#settings-agents #harness-agents-list").count(), 1, "Your agents live under Agents");
+    assert.equal(await page.locator("#settings-plugins").isHidden(), true);
     await page.click('[data-settings="models"]');
     await page.locator("#settings-models").waitFor({ state: "visible" });
     assert.equal(await page.locator("#maestro-plan-policy").count(), 0, "Settings has no plan-review policy");
