@@ -238,7 +238,7 @@ def fingerprint(paths: Iterable[Path]) -> str:
 # --- write_json_atomic -----------------------------------------------------------------------
 
 # ``expected_sha256`` for create mode: "the file must not exist". Not a hex digest, so no file can match it.
-MISSING_FILE = "missing"
+MISSING_FILE = "<create-new-file>"
 NEW_FILE_MODE = 0o600
 _NO_HARD_LINKS = frozenset({errno.EPERM, errno.EOPNOTSUPP, errno.ENOSYS})  # the filesystem has no os.link
 _NEW_FILE_TEXT = (

@@ -81,12 +81,15 @@ class _Layer:
     data: dict
 
 
-def _read_json_object(path: Path) -> tuple[dict | None, str, str]:
-    """``(object, sha256 of the bytes, problem)``; problem is "", "missing", "invalid" or "unreadable"."""
+def _read_json_object(path: Path) -> tuple[dict | None, str | None, str]:
+    """``(object, sha256 of the bytes, problem)``; problem is "", "missing", "invalid" or "unreadable".
+
+    The digest is ``None`` for a missing file, so it can never be mistaken for ``MISSING_FILE``.
+    """
     try:
         raw = path.read_bytes()
     except (FileNotFoundError, NotADirectoryError):
-        return None, "missing", "missing"
+        return None, None, "missing"
     except OSError:
         return None, "unreadable", "unreadable"
     digest = hashlib.sha256(raw).hexdigest()
@@ -188,7 +191,7 @@ class _Reading:
     def load(self, path: Path, *, counts: bool = True, record: bool = True) -> dict | None:
         data, digest, problem = _read_json_object(path)
         if record:
-            self.parts.append((self.shown(path), digest))
+            self.parts.append((self.shown(path), digest or "missing"))
         if problem in ("invalid", "unreadable"):
             reason = "is not valid JSON" if problem == "invalid" else "could not be read"
             self.warn(f"{self.shown(path)} {reason}; its items are not shown")
@@ -610,9 +613,9 @@ class ClaudeStateAdapter:
             overrides[name] = value
             return document
 
-        _, digest, problem = _read_json_object(path)
+        _, digest, _ = _read_json_object(path)
         # An unreadable file is never treated as missing: create mode would hide it.
-        expected = MISSING_FILE if problem == "missing" else digest
+        expected = MISSING_FILE if digest is None else digest
         write_json_atomic(path, change, expected, validate=_settings_errors)
         document, _, _ = _read_json_object(path)
         overrides = (document or {}).get("skillOverrides")

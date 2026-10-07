@@ -14,6 +14,7 @@ from jsonschema import Draft7Validator
 from adapters.claude import state as claude_state
 from adapters.claude.state import ClaudeStateAdapter
 from adapters.shared.provider_state import (
+    MISSING_FILE,
     ProviderCommandError,
     ProviderStateAdapter,
     ProviderStateConflictError,
@@ -21,6 +22,7 @@ from adapters.shared.provider_state import (
     ProviderStateUnsupportedError,
     ProviderStateValidationError,
     ProviderStateVersionError,
+    write_json_atomic,
 )
 
 FAKE_CLAUDE_DIR = Path(__file__).parent / "fixtures" / "fake-claude"
@@ -667,6 +669,15 @@ def test_a_settings_file_that_appears_meanwhile_is_a_conflict(
     monkeypatch.undo()
     assert target.read_text() == '{"theirs": 1}'
     assert [p.name for p in (project / ".claude").iterdir()] == ["settings.local.json"]
+
+
+def test_a_missing_file_has_no_digest_that_could_pass_for_create_mode(tmp_path):  # R40-6
+    absent = tmp_path / "absent.json"
+    assert claude_state._read_json_object(absent) == (None, None, "missing")
+    assert MISSING_FILE not in {"missing", "unreadable"}
+    with pytest.raises(ProviderStateConflictError):
+        write_json_atomic(absent, lambda document: document, "missing")
+    assert not absent.exists()
 
 
 def test_a_missing_project_folder_is_not_created_for_a_skill_switch(adapter, config_dir, project):
