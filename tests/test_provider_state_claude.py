@@ -46,6 +46,8 @@ def make_skill(folder: Path, name: str) -> Path:
 
 @pytest.fixture(autouse=True)
 def fake_claude_on_path(monkeypatch, isolated_provider_homes):
+    # a checkout or sdist without the extensionless fake CLI must fail loudly, not run the real one
+    assert (FAKE_CLAUDE_DIR / "claude").is_file()
     monkeypatch.setenv("PATH", f"{FAKE_CLAUDE_DIR}{os.pathsep}{os.environ['PATH']}")
 
 
@@ -370,18 +372,21 @@ def test_a_home_reached_through_a_symlink_reads_the_same(adapter, tmp_path, monk
     assert set(by_id(adapter.read_state(project))) == {"plugin:a@m", "skill:alpha", "mcp:s"}
 
 
-def test_watch_paths(adapter, config_dir, project):
+def test_watch_paths(adapter, config_dir, project, managed):
+    managed_paths = (managed / "managed-settings.json", managed / "managed-settings.d")  # R40-8
     assert adapter.watch_paths(None) == (
         config_dir / "settings.json",
         config_dir / ".claude.json",
         config_dir / "plugins" / "installed_plugins.json",
         config_dir / "skills",
+        *managed_paths,
     )
     assert adapter.watch_paths(project)[4:] == (
         project / ".claude" / "settings.json",
         project / ".claude" / "settings.local.json",
         project / ".mcp.json",
         project / ".claude" / "skills",
+        *managed_paths,
     )
     assert not any(
         path.name in {".credentials.json", "auth.json"} for path in adapter.watch_paths(project)

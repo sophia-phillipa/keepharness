@@ -240,7 +240,8 @@ def fingerprint(paths: Iterable[Path]) -> str:
 # ``expected_sha256`` for create mode: "the file must not exist". Not a hex digest, so no file can match it.
 MISSING_FILE = "<create-new-file>"
 NEW_FILE_MODE = 0o600
-_NO_HARD_LINKS = frozenset({errno.EPERM, errno.EOPNOTSUPP, errno.ENOSYS})  # the filesystem has no os.link
+# errno values of a filesystem that cannot hard-link
+_NO_HARD_LINKS = frozenset({errno.EPERM, errno.EOPNOTSUPP, errno.ENOSYS})
 _NEW_FILE_TEXT = (
     "{\n  }\n"  # only its layout counts: a new file gets a 2-space indent and a final newline
 )

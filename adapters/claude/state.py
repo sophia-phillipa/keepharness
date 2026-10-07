@@ -182,7 +182,8 @@ class _Reading:
         self.project_root = project_root
         self.warnings: list[str] = []
         self.parts: list[tuple[str, str]] = []
-        self.digests: dict[Path, str | None] = {}  # sha256 of the bytes read per path; None if missing
+        # sha256 of the bytes read per path; None for a missing file
+        self.digests: dict[Path, str | None] = {}
         self.attempted = 0
         self.parsed = 0
 
@@ -529,6 +530,10 @@ class ClaudeStateAdapter:
                 folder / ".mcp.json",
                 folder / ".claude" / "skills",
             ]
+        paths += [
+            self.managed_dir / "managed-settings.json",
+            self.managed_dir / "managed-settings.d",
+        ]
         return tuple(paths)
 
     def is_project_trusted(self, project_root: Path) -> bool:
