@@ -123,7 +123,7 @@ One adapter per provider implements the seam (contract below). Kinds are `plugin
 | --- | --- | --- | --- |
 | Codex · plugin | `plugins."<name>@<marketplace>".enabled` in `$CODEX_HOME/config.toml`; installed list from app-server `plugin/list` | app-server `config/batchWrite` key `plugins.<id>.enabled` with `expectedVersion`. There is no `codex plugin enable` (confirmed: `codex plugin --help` lists only `add`, `list`, `marketplace`, `remove`) | [config reference](https://learn.chatgpt.com/docs/config-file/config-reference), [app-server](https://learn.chatgpt.com/docs/app-server) |
 | Codex · skill | app-server `skills/list` per `cwd` (user and repo skills); `[[skills.config]]` entries (`path`, `enabled`) | app-server `skills/config/write` (enable/disable by path) | same |
-| Codex · mcp | `mcp_servers.<id>` (+ `.enabled`, default true) in user config and, for a trusted project, `<project>/.codex/config.toml` | `config/batchWrite` key `mcp_servers.<id>.enabled` in the user file; for a project-scoped switch, the same call on the project's config file | same |
+| Codex · mcp | `mcp_servers.<id>` (+ `.enabled`, default true) in user config and, for a trusted project, `<project>/.codex/config.toml` | `config/batchWrite` key `mcp_servers.<id>.enabled` in the user file; for a project-scoped switch, the same call on the project's config file. **Note (2026-10-07):** codex-cli 0.157.1 refuses project-layer writes (`configLayerReadonly`, "Only writes to the user config are allowed"), so project-layer Codex rows are read-only with that reason; a project-scoped switch through the project's config file does not hold. | same |
 | Codex · app | app-server `app/list` (enabled metadata); `apps.<id>.enabled` (default true) | `config/batchWrite` key `apps.<id>.enabled` | same |
 | Claude · plugin | `enabledPlugins` in `~/.claude/settings.json`, `<project>/.claude/settings.json`, `<project>/.claude/settings.local.json`, managed settings (read-only) | `claude plugin enable\|disable <plugin> -s user\|project\|local --json` (confirmed in `--help`) | [settings](https://code.claude.com/docs/en/settings), [plugins reference](https://code.claude.com/docs/en/plugins-reference) |
 | Claude · skill | skills from `~/.claude/skills`, `<project>/.claude/skills`, plugins; state from `skillOverrides` (`on`, `name-only`, `user-invocable-only`, `off`; absent = `on`) in the settings files | Direct JSON edit of `skillOverrides.<name>` in the chosen settings file with the `settings.json` safeguards below (no CLI command found; the interactive `/skills` menu is the CLI's own writer). Plugin skills are not affected by `skillOverrides`: their row shows "Part of plugin X" and no switch | [skills](https://code.claude.com/docs/en/skills) |
@@ -221,6 +221,8 @@ class StateSnapshot:
     cli_version: str
     warnings: tuple[str, ...] = ()
 ```
+
+Note (2026-10-07, #39): the Codex adapter reads no file itself, so its `fingerprint` is a sha256 over the app-server layer `version` strings (each one already a sha256 of that layer file's content) plus the ids and flags of the skills, plugin and app lists the app-server returned.
 
 Errors (derive from `HarnessError`, codes snake_case): `ProviderStateConflictError` (`provider_state_conflict`), `ProviderStateUnsupportedError` (`provider_state_write_unsupported`), `ProviderStateSchemaError` (`provider_state_unreadable`), `ProviderStateVersionError` (`provider_state_version_untested`), `ProviderStateValidationError` (`provider_state_validation_failed`), `ProviderVersionUnsupportedError` (`provider_version_unsupported`, run start), `ProviderCommandError` (`provider_command_failed`, carries exit code and a redacted message, never the command's environment).
 
@@ -326,7 +328,7 @@ Errors (derive from `HarnessError`, codes snake_case): `ProviderStateConflictErr
 | DeepSeek (interim) | `-c cli_auth_credentials_store="file"` in its home |
 | Env passed through | `HOME` (host), `CODEX_HOME` and `CLAUDE_CONFIG_DIR` only if set by the owner; DeepSeek `CODEX_HOME=<state>/providers/deepseek` |
 
-Known issues: Codex `config/batchWrite` returns conflicts on version mismatch per the docs; the exact error shape is **UNVERIFIED** and must be pinned by a fixture against 0.157.1 before relying on it. `plugin/list` and `plugin/install` are marked "under development" in the app-server docs.
+Known issues: Codex `config/batchWrite` returns a conflict on a stale `expectedVersion`; the shape was pinned against 0.157.1 on 2026-10-07: JSON-RPC error `{"code": -32600, "message": "Configuration was modified since last read. Fetch latest version and retry.", "data": {"config_write_error_code": "configVersionConflict"}}`, and the fake `codex app-server` fixture reproduces it. `plugin/list` and `plugin/install` are marked "under development" in the app-server docs.
 
 ### 3.3 Test protocol
 
