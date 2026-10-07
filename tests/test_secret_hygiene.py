@@ -86,15 +86,17 @@ def test_control_state_keeps_secrets_out_and_files_private(tmp_path, open_umask)
         saved = client.post("/api/settings", json=manager.settings, headers=headers)
         assert saved.status_code == 200, saved.text
         start_without_process(state)
-        vpn_token = client.post("/api/vpn-key", json={}, headers=headers).json()["token"]
+        retired = client.post("/api/vpn-key", json={}, headers=headers)
         exported = client.post("/api/settings-export", json={}, headers=headers)
         assert exported.status_code == 200
-    secrets = (DEEPSEEK_TOKEN, vpn_token)
+    assert retired.status_code == 404
+    secrets = (DEEPSEEK_TOKEN,)
     for text in (exported.text, (state / "audit.jsonl").read_text()):
         assert not any(secret in text for secret in secrets)
     assert not any(secret.encode() in (state / "harness.log").read_bytes() for secret in secrets)
-    for name in ("audit.jsonl", "harness.log", "settings.json", "runtime.json", "vpn.key"):
+    for name in ("audit.jsonl", "harness.log", "settings.json", "runtime.json"):
         assert (state / name).exists(), name
+    assert not (state / "vpn.key").exists()
     assert private(state) == []
 
 

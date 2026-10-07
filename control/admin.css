@@ -601,12 +601,6 @@ label {
   display: block;
   padding: 8px 0;
 }
-#vpn-token {
-  display: block;
-  overflow-wrap: anywhere;
-  font-family: monospace;
-  margin: 12px 0;
-}
 .dialog-title {
   display: flex;
   align-items: center;

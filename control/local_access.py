@@ -45,7 +45,7 @@ ESTABLISHED = "01"
 # account), so Serve cannot be proven there and 65534 must never be accepted instead.
 USER_NAMESPACE_NOTICE = (
     "Tailnet sign-in is off: KeepHarness runs inside a user namespace; "
-    "run it on the host or use the VPN key"
+    "run it on the host"
 )
 
 

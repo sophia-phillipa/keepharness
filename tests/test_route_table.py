@@ -1169,15 +1169,6 @@ ADMIN_ROUTE_TABLE = [
     ),
     ("local-start", "POST", "/api/local-start", None, {}, 400, None),
     (
-        "vpn-key",
-        "POST",
-        "/api/vpn-key",
-        None,
-        {},
-        400,
-        lambda r: r.json() == {"error": "Start the harness first to generate the key."},
-    ),
-    (
         "tailnet",
         "POST",
         "/api/tailnet",

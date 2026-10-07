@@ -630,15 +630,6 @@ async def start_local_model(request, manager, data):
     return result
 
 
-async def reveal_vpn_key(request, manager, data):
-    key = manager.state / "vpn.key"
-    if not key.exists():
-        raise UserMessageError("Start the harness first to generate the key.")
-    result = {"token": key.read_text()}
-    manager.audit("vpn_key_revealed")
-    return result
-
-
 async def set_tailnet(request, manager, data):
     await manager.tailnet(data.get("enabled") is True)
     result = manager.status()
@@ -686,7 +677,6 @@ POST_ROUTES = {
     "/api/local-start": start_local_model,
     "/api/remote-model-add": add_remote_model,
     "/api/remote-model-remove": remove_remote_model,
-    "/api/vpn-key": reveal_vpn_key,
     "/api/tailnet": set_tailnet,
 }
 

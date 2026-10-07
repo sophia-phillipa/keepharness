@@ -101,7 +101,7 @@ def _build_manager(tmp_path):
     client_id = "tailnet-" + hashlib.sha256(b"person@example.com").hexdigest()[:16]
     previous_runtime = {
         "clients": {
-            "vpn": {"sha256": "0" * 64},
+            "vpn": {"sha256": "0" * 64},  # an old runtime.json's shared key must not come back
             "local": {"sha256": "1" * 64},
             client_id: {"sha256": "2" * 64},
         }
@@ -177,7 +177,6 @@ def test_build_runtime_config_matches_golden_shape(tmp_path):
         },
         "clients": {
             # Only the local owner starts with every project; guests start with "No project".
-            "vpn": {"sha256": "0" * 64, "projects": ["sem-projeto"]},
             "local": {"sha256": "1" * 64, "projects": all_projects},
             client_id: {"sha256": "2" * 64, "projects": ["sem-projeto"]},
         },

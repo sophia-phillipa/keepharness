@@ -154,7 +154,7 @@ def test_a_queued_full_run_fails_closed_once_full_access_is_turned_off(tmp_path)
 
 @pytest.mark.parametrize(
     "enabled,token,offered",
-    [(True, "local-token", True), (False, "local-token", False), (True, "vpn-token", False)],
+    [(True, "local-token", True), (False, "local-token", False), (True, "guest-token", False)],
 )
 def test_the_model_catalog_tells_the_access_menu_whether_to_offer_full(
     tmp_path, enabled, token, offered

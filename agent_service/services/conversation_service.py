@@ -298,8 +298,7 @@ class ConversationService:
         if config.get("tailscale_logins") and local_access.in_user_namespace():
             logger.warning(
                 "Running inside a user namespace: host uid 0 (tailscaled) is not visible, so "
-                "Tailscale logins cannot be proven and are refused. Run KeepHarness on the host "
-                "or use the VPN key."
+                "Tailscale logins cannot be proven and are refused. Run KeepHarness on the host."
             )
         self.cancellation_reasons = {}
         self.active_executors = {}

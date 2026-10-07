@@ -76,12 +76,12 @@ class AdminSecurityTest(unittest.IsolatedAsyncioTestCase):
 
         with patch.dict(
             "control.routes.POST_ROUTES",
-            {"/api/settings-export": denied, "/api/vpn-key": missing_key},
+            {"/api/settings-export": denied, "/api/missing-key": missing_key},
         ):
             os_error = await self.client.post(
                 "/api/settings-export", json={}, headers=self.headers
             )
-            key_error = await self.client.post("/api/vpn-key", json={}, headers=self.headers)
+            key_error = await self.client.post("/api/missing-key", json={}, headers=self.headers)
         bad_json = await self.client.post(
             "/api/settings-export", content=b"{not json", headers=self.headers
         )

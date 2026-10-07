@@ -97,7 +97,7 @@ class ControlTest(unittest.TestCase):
         self.assertEqual(
             notice,
             "Tailnet sign-in is off: KeepHarness runs inside a user namespace; "
-            "run it on the host or use the VPN key",
+            "run it on the host",
         )
         with patch("control.local_access.in_user_namespace", return_value=False):
             self.assertIsNone(self.manager.status()["tailnet_signin_off"])
