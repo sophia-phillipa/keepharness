@@ -59,7 +59,7 @@ validated the same way; `access_mode` is one of `ask` (default), `auto`, `full`,
   | Route | Result |
   | --- | --- |
   | Isolated (`scoped`) conversation or the local provider | Nothing is effective: no host connectors or plugins. |
-  | A caller other than the owner on this computer (vpn key, tailnet login) | Nothing is effective: host connectors run only for the owner. |
+  | A caller other than the owner on this computer (a tailnet login) | Nothing is effective: host connectors run only for the owner. |
   | Gemini with `read_only` | Nothing is effective: connectors are turned off. |
   | Codex, DeepSeek or Claude with `read_only` | Nothing is effective: connectors and plugins are turned off. |
   | Gemini without the `internet` permission (provider or project grant) | Allowed connectors are not effective. |

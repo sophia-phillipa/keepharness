@@ -15,7 +15,7 @@ across follow-up turns until the persona is released, like any conversational ag
 Harness agents are machine-wide: one set per computer, not per client. Every
 authenticated client lists them and uses them with `@@id`. Only the local client, the
 browser on the computer that runs the harness, creates, edits or deletes them; any
-other client (VPN key, tailnet login) gets `harness_agent_local_only` (403) before the
+other client (a tailnet login) gets `harness_agent_local_only` (403) before the
 request body is read. The service decides this from the identity it resolved for the
 request (`local`, see `ConversationService.identity`), never from a header, so a
 proxied or forwarded request is not local.
