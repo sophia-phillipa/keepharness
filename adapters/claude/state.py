@@ -67,11 +67,16 @@ MANAGED_SETTINGS_DIR = Path(
 SKILL_OVERRIDE_VALUES = frozenset({"on", "name-only", "user-invocable-only", "off"})
 MANAGED_REASON = "Set by managed settings"
 CHOOSE_PROJECT_REASON = "Choose a project"
+OPEN_PROJECT_REASON = "Open this project in Claude Code once"
 VERSION_TIMEOUT_SECONDS = 10
 PLUGIN_TIMEOUT_SECONDS = 10
 SETTINGS_SCHEMA = Path(__file__).parent / "schemas" / "claude-code-settings.schema.json"
 _PATH_IN_TEXT = re.compile(r"(?<![\w.:/])(?:~|\.{0,2})/[^\s\"']+")
 _MCP_PROJECT_KEYS = ("mcpServers", "disabledMcpServers", "enabledMcpServers")
+
+
+class _Unchanged(Exception):
+    """Raised inside a ``change`` callback: the file already holds the requested value, write nothing."""
 
 
 @dataclass(frozen=True)
@@ -100,14 +105,19 @@ def _read_json_object(path: Path) -> tuple[dict | None, str | None, str]:
     return (data, digest, "") if isinstance(data, dict) else (None, digest, "invalid")
 
 
-def _project_key(document: dict | None, project_root: Path) -> str | None:
-    """The key of ``projects`` that holds this project (as given or resolved), if any."""
+def _project_keys(document: dict | None, project_root: Path) -> list[str]:
+    """The keys of ``projects`` that hold this project (as given, then resolved), strongest first."""
     projects = document.get("projects") if document else None
-    if isinstance(projects, dict):
-        for key in dict.fromkeys((str(project_root), str(project_root.resolve()))):
-            if isinstance(projects.get(key), dict):
-                return key
-    return None
+    if not isinstance(projects, dict):
+        return []
+    candidates = dict.fromkeys((str(project_root), str(project_root.resolve())))
+    return [key for key in candidates if isinstance(projects.get(key), dict)]
+
+
+def _project_key(document: dict | None, project_root: Path) -> str | None:
+    """The key of ``projects`` used for this project: the as-given path wins over the resolved one."""
+    keys = _project_keys(document, project_root)
+    return keys[0] if keys else None
 
 
 def _project_entry(document: dict | None, project_root: Path) -> dict:
@@ -172,6 +182,7 @@ class _Reading:
         self.project_root = project_root
         self.warnings: list[str] = []
         self.parts: list[tuple[str, str]] = []
+        self.digests: dict[Path, str | None] = {}  # sha256 of the bytes read per path; None if missing
         self.attempted = 0
         self.parsed = 0
 
@@ -190,6 +201,7 @@ class _Reading:
 
     def load(self, path: Path, *, counts: bool = True, record: bool = True) -> dict | None:
         data, digest, problem = _read_json_object(path)
+        self.digests[path] = digest
         if record:
             self.parts.append((self.shown(path), digest or "missing"))
         if problem in ("invalid", "unreadable"):
@@ -426,6 +438,15 @@ class ClaudeStateAdapter:
         document = reading.load(claude_json, record=False)
         root = reading.project_root
         entry = _project_entry(document, root) if root is not None else {}
+        known = root is not None and _project_key(document, root) is not None
+        no_entry = OPEN_PROJECT_REASON
+        if reading.digests[claude_json] is None:
+            no_entry = f"{claude_json.name} does not exist; {no_entry[0].lower()}{no_entry[1:]}"
+        if root is not None and len(_project_keys(document, root)) > 1:
+            reading.warn(
+                f"{reading.shown(claude_json)} has entries for both the given and the resolved "
+                "path of this project; the given one is used"
+            )
         top = document.get("mcpServers") if document else None
         # The CLI rewrites the session fields of this file constantly: only MCP keys feed the fingerprint.
         subset = {"mcpServers": top, "project": {key: entry.get(key) for key in _MCP_PROJECT_KEYS}}
@@ -456,8 +477,10 @@ class ClaudeStateAdapter:
                 scope=scope,
                 enabled=root is None or name not in disabled,
                 source=where,
-                writable=root is not None,
-                reason="" if root is not None else CHOOSE_PROJECT_REASON,
+                writable=known,
+                reason=""
+                if known
+                else (no_entry if root is not None else CHOOSE_PROJECT_REASON),
             )
             for name, (scope, where) in defined.items()
         ]
@@ -522,9 +545,11 @@ class ClaudeStateAdapter:
 
         Plugins go through ``claude plugin enable|disable``. A skill is ``skillOverrides.<name>`` in
         the settings file of ``scope`` (``on`` or ``off``; ``on`` is written explicitly, because
-        removing the key would let a weaker layer's ``off`` win again). An MCP server is an entry of
+        removing the key would let a weaker layer's ``off`` win again, and it only ever replaces
+        ``off`` or a missing key: ``name-only`` and the like stay). An MCP server is an entry of
         ``projects["<project_root>"].disabledMcpServers`` in ``.claude.json`` whatever ``scope`` is;
-        that file is only edited, never created, and a project with no entry gets a minimal one.
+        that file is only edited, never created, and a project with no entry there is refused (open it
+        in Claude Code once). A request for the state a switch is already in writes nothing.
         Direct edits (skills, MCP) are refused outside ``tested_versions``.
 
         Synchronous and blocking (files, ``claude --version``, the plugin command, 10 s limits):
@@ -610,13 +635,18 @@ class ClaudeStateAdapter:
             overrides = document.setdefault("skillOverrides", {})
             if not isinstance(overrides, dict):
                 raise ProviderStateSchemaError(f"skillOverrides in {path.name} is not an object")
+            if enabled and overrides.get(name, "off") != "off":
+                raise _Unchanged  # "on" is there already, or a restricted override that stays
             overrides[name] = value
             return document
 
         _, digest, _ = _read_json_object(path)
         # An unreadable file is never treated as missing: create mode would hide it.
         expected = MISSING_FILE if digest is None else digest
-        write_json_atomic(path, change, expected, validate=_settings_errors)
+        try:
+            write_json_atomic(path, change, expected, validate=_settings_errors)
+        except _Unchanged:
+            return
         document, _, _ = _read_json_object(path)
         overrides = (document or {}).get("skillOverrides")
         self._confirm(overrides.get(name) if isinstance(overrides, dict) else None, value)
@@ -628,23 +658,29 @@ class ClaudeStateAdapter:
             raise ProviderStateUnsupportedError(".claude.json does not exist; it is not created")
 
         def change(document: dict) -> dict:
-            key = _project_key(document, root) or str(root)
-            projects = document.setdefault("projects", {})
-            entry = projects.setdefault(key, {}) if isinstance(projects, dict) else None
-            listed = entry.get("disabledMcpServers", []) if isinstance(entry, dict) else None
+            key = _project_key(document, root)
+            if key is None:  # never invented: Claude Code creates its own entry
+                raise ProviderStateUnsupportedError(OPEN_PROJECT_REASON)
+            entry = document["projects"][key]
+            listed = entry.get("disabledMcpServers", [])
             if not isinstance(listed, list):
                 raise ProviderStateSchemaError(".claude.json does not have the expected layout")
+            if (name in listed) == (not enabled):
+                raise _Unchanged  # already so: no rewrite, no backup, no empty key
             kept = [server for server in listed if server != name]
             entry["disabledMcpServers"] = kept if enabled else [*kept, name]
             return document
 
-        write_json_atomic(
-            path,
-            change,
-            digest,
-            backup_dir=claude_json_backup_dir(self.state_dir),
-            validate=_disabled_servers_errors(root),
-        )
+        try:
+            write_json_atomic(
+                path,
+                change,
+                digest,
+                backup_dir=claude_json_backup_dir(self.state_dir),
+                validate=_disabled_servers_errors(root),
+            )
+        except _Unchanged:
+            return
         document, _, _ = _read_json_object(path)
         disabled = _project_entry(document, root).get("disabledMcpServers")
         self._confirm(name in disabled if isinstance(disabled, list) else None, not enabled)

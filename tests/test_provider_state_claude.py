@@ -639,6 +639,15 @@ def test_enabling_a_skill_writes_on_so_a_weaker_layer_cannot_bring_it_back_off(
     assert by_id(snapshot)["skill:deploy"].enabled is True
 
 
+def test_enabling_a_skill_keeps_a_restricted_override(adapter, config_dir, project):  # R40-3
+    make_skill(config_dir / "skills", "deploy")
+    path = write_json(config_dir / "settings.json", {"skillOverrides": {"deploy": "name-only"}})
+    before = path.read_bytes()
+    snapshot = toggle(adapter, project, "skill:deploy", "user", True)
+    assert path.read_bytes() == before
+    assert by_id(snapshot)["skill:deploy"].enabled is True
+
+
 def test_a_missing_settings_file_is_created_exclusively_with_mode_0600(
     adapter, config_dir, project
 ):
@@ -740,13 +749,75 @@ def test_mcp_switch_edits_only_disabled_servers_and_backs_up_outside_claude(
         assert secret not in caplog.text and secret not in repr(snapshot)
 
 
-def test_mcp_switch_adds_a_minimal_entry_for_a_project_that_has_none(adapter, config_dir, project):
+def test_mcp_switch_never_invents_a_project_entry(adapter, config_dir, project, tmp_path):  # R40-2
     path = write_json(config_dir / ".claude.json", {"mcpServers": {"s": {"command": "x"}}})
-    toggle(adapter, project, "mcp:s", "user", False)
-    assert json.loads(path.read_text()) == {
-        "mcpServers": {"s": {"command": "x"}},
-        "projects": {str(project): {"disabledMcpServers": ["s"]}},
+    before = path.read_bytes()
+    snapshot = adapter.read_state(project)
+    row = by_id(snapshot)["mcp:s"]
+    assert row.writable is False and "Open this project in Claude Code" in row.reason
+    assert str(project) not in row.reason
+    with pytest.raises(ProviderStateUnsupportedError, match="Open this project"):
+        toggle(adapter, project, "mcp:s", "user", False)
+    assert path.read_bytes() == before
+    assert not (tmp_path / "state").exists()
+
+
+def test_mcp_switch_writes_into_the_entry_found_by_the_resolved_path(
+    adapter, config_dir, project, tmp_path
+):  # R40-2
+    link = tmp_path / "link"
+    link.symlink_to(project)
+    path = write_claude_json(config_dir, project)
+    keys = set(json.loads(path.read_text())["projects"])
+    assert str(link) not in keys
+    snapshot = toggle(adapter, link, "mcp:local-srv", "local", False)
+    document = json.loads(path.read_text())
+    assert set(document["projects"]) == keys
+    assert document["projects"][str(project)]["disabledMcpServers"] == ["user-srv", "local-srv"]
+    assert by_id(snapshot)["mcp:local-srv"].enabled is False
+
+
+def test_mcp_entries_for_both_paths_use_the_given_one_and_warn(
+    adapter, config_dir, project, tmp_path
+):  # R40-2
+    link = tmp_path / "link"
+    link.symlink_to(project)
+    path = write_claude_json(config_dir, project)
+    document = json.loads(path.read_text())
+    document["projects"][str(link)] = {
+        **document["projects"][str(project)],
+        "disabledMcpServers": [],
     }
+    write_json(path, document)
+    snapshot = toggle(adapter, link, "mcp:local-srv", "local", False)
+    after = json.loads(path.read_text())["projects"]
+    assert after[str(link)]["disabledMcpServers"] == ["local-srv"]
+    assert after[str(project)] == document["projects"][str(project)]
+    assert any("both the given and the resolved" in warning for warning in snapshot.warnings)
+    assert not any(str(tmp_path) in warning for warning in snapshot.warnings)
+
+
+@pytest.mark.parametrize(
+    ("item_id", "enabled", "entry"),
+    [
+        ("mcp:local-srv", True, {}),  # already enabled
+        ("mcp:user-srv", False, {}),  # already disabled
+        ("mcp:local-srv", True, {"disabledMcpServers": None}),  # no key: none is added
+    ],
+)
+def test_a_mcp_request_for_the_state_it_is_already_in_writes_nothing(
+    adapter, config_dir, project, tmp_path, item_id, enabled, entry
+):  # R40-1
+    path = write_claude_json(config_dir, project)
+    document = json.loads(path.read_text())
+    if entry:
+        del document["projects"][str(project)]["disabledMcpServers"]
+        write_json(path, document)
+    before = path.read_bytes()
+    snapshot = toggle(adapter, project, item_id, "local", enabled)
+    assert path.read_bytes() == before
+    assert not (tmp_path / "state" / "backups").exists()
+    assert by_id(snapshot)[item_id].enabled is enabled
 
 
 def test_mcp_switch_needs_a_project_and_an_existing_claude_json(adapter, config_dir, project):
