@@ -1,0 +1,349 @@
+#!/usr/bin/env python3
+"""A fake ``codex`` CLI for provider-state tests: ``--version`` and ``app-server --listen stdio://``.
+
+It answers over stdio JSON-RPC (one JSON object per line) the way codex-cli 0.157.1 does for
+``initialize``, ``config/read``, ``config/batchWrite``, ``skills/list``, ``skills/config/write``,
+``plugin/list`` and ``app/list``. Error shapes are the ones observed on the real CLI.
+
+The user layer is the real ``$CODEX_HOME/config.toml`` (parsed with ``tomllib``; edits are made
+line by line, so comments and unknown tables survive); a project layer is
+``<cwd>/.codex/config.toml`` and only applies when the user config trusts the project. Everything
+else comes from ``$CODEX_HOME/fake-app-server.json`` (all keys optional):
+
+  version          string  reported by ``--version`` and ``initialize`` (default "0.157.1")
+  fail_start       bool    ``app-server`` exits 1 before answering anything
+  missing_methods  list    methods answered with "Method not found" (-32601)
+  errors           object  method -> JSON-RPC error object returned instead of the result
+  system           object  {"file": str, "config": {...}} adds a system layer
+  profile_layers   list    [{"profile": str, "config": {...}}] user-file layers above the user layer
+  skills           list    [{"name", "path", "scope": user|repo|system|admin, "enabled", "pluginId"}]
+  plugins          list    [{"id", "name", "marketplace", "installed", "enabled"}]
+  apps             list    [{"id", "name", "isEnabled"}]
+
+Every request is appended as a JSON line ({"method", "params"}) to ``fake-app-server.log`` beside
+the settings file, so a test can assert which calls were made.
+"""
+
+import hashlib
+import json
+import os
+import re
+import sys
+import tomllib
+from pathlib import Path
+
+CONFLICT = {
+    "code": -32600,
+    "message": "Configuration was modified since last read. Fetch latest version and retry.",
+    "data": {"config_write_error_code": "configVersionConflict"},
+}
+READONLY = {
+    "code": -32600,
+    "message": "Only writes to the user config are allowed",
+    "data": {"config_write_error_code": "configLayerReadonly"},
+}
+NOT_FOUND = {"code": -32601, "message": "Method not found"}
+
+
+def home():
+    return Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
+
+
+def settings():
+    try:
+        return json.loads((home() / "fake-app-server.json").read_text())
+    except FileNotFoundError:
+        return {}
+
+
+def version_of(data):
+    return "sha256:" + hashlib.sha256(data).hexdigest()
+
+
+class Failure(Exception):
+    def __init__(self, error):
+        self.error = error
+
+
+def user_path():
+    return home() / "config.toml"
+
+
+def read_user():
+    path = user_path()
+    data = path.read_bytes() if path.exists() else b""
+    try:
+        return data, tomllib.loads(data.decode())
+    except (ValueError, UnicodeDecodeError):
+        raise Failure({"code": -32600, "message": "Invalid configuration"}) from None
+
+
+def merge(base, over):
+    for key, value in over.items():
+        if isinstance(value, dict) and isinstance(base.get(key), dict):
+            merge(base[key], value)
+        else:
+            base[key] = value
+    return base
+
+
+def trusted(user_config, cwd):
+    wanted = os.path.realpath(cwd)
+    for path, table in (user_config.get("projects") or {}).items():
+        if os.path.realpath(path) == wanted and table.get("trust_level") == "trusted":
+            return True
+    return False
+
+
+def config_read(params):
+    data, user = read_user()
+    cfg = settings()
+    layers = []  # strongest first
+    cwd = params.get("cwd")
+    if cwd:
+        folder = Path(cwd) / ".codex"
+        if folder.is_dir():
+            name = {"type": "project", "dotCodexFolder": str(folder)}
+            file = folder / "config.toml"
+            raw = file.read_bytes() if file.exists() else b""
+            if trusted(user, cwd):
+                layers.append(
+                    {
+                        "name": name,
+                        "version": version_of(raw),
+                        "config": tomllib.loads(raw.decode()),
+                    }
+                )
+            else:
+                layers.append(
+                    {
+                        "name": name,
+                        "version": version_of(raw),
+                        "config": {},
+                        "disabledReason": "project is not trusted",
+                    }
+                )
+    for entry in cfg.get("profile_layers", []):
+        blob = json.dumps(entry["config"], sort_keys=True).encode()
+        name = {"type": "user", "file": str(user_path()), "profile": entry["profile"]}
+        layers.append({"name": name, "version": version_of(blob), "config": entry["config"]})
+    name = {"type": "user", "file": str(user_path()), "profile": None}
+    layers.append({"name": name, "version": version_of(data), "config": user})
+    if cfg.get("system"):
+        system = cfg["system"]
+        blob = json.dumps(system["config"], sort_keys=True).encode()
+        name = {"type": "system", "file": system["file"]}
+        layers.append({"name": name, "version": version_of(blob), "config": system["config"]})
+    merged = {}
+    for layer in reversed(layers):
+        if "disabledReason" not in layer:
+            merge(merged, json.loads(json.dumps(layer["config"])))
+    result = {"config": merged, "origins": {}}
+    if params.get("includeLayers"):
+        result["layers"] = layers
+    return result
+
+
+# --- line-based TOML edits (comments, key order and unknown tables stay) ----------------------
+
+BARE = re.compile(r"[A-Za-z0-9_-]+")
+HEADER = re.compile(r"^\s*(\[\[?)\s*(.+?)\s*\]\]?\s*(#.*)?$")
+
+
+def segments(text):
+    return [a or b for a, b in re.findall(r'"((?:[^"\\]|\\.)*)"|([^.\s"]+)', text)]
+
+
+def quote(segment):
+    return segment if BARE.fullmatch(segment) else json.dumps(segment)
+
+
+def literal(value):
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, str)):
+        return json.dumps(value)
+    raise Failure({"code": -32600, "message": "Unsupported value"})
+
+
+def set_key(text, key_path, value):
+    table, key = segments(key_path)[:-1], segments(key_path)[-1]
+    if not table:
+        raise Failure({"code": -32600, "message": "Unsupported key path"})
+    lines = text.splitlines(keepends=True)
+    line = f"{quote(key)} = {literal(value)}\n"
+    start = None
+    for index, raw in enumerate(lines):
+        header = HEADER.match(raw)
+        if header and header.group(1) == "[" and segments(header.group(2)) == table:
+            start = index
+            break
+    if start is None:
+        prefix = "\n" if lines and lines[-1].strip() else ""
+        return "".join(lines) + f"{prefix}[{'.'.join(quote(s) for s in table)}]\n{line}"
+    for index in range(start + 1, len(lines)):
+        if HEADER.match(lines[index]):
+            break
+        found = re.match(r'^\s*("?)' + re.escape(key) + r"\1\s*=", lines[index])
+        if found:
+            lines[index] = line
+            return "".join(lines)
+    lines.insert(start + 1, line)
+    return "".join(lines)
+
+
+def write_user(text):
+    path = user_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(text)
+    os.replace(temporary, path)
+
+
+def config_batch_write(params):
+    target = params.get("filePath")
+    if target and os.path.realpath(target) != os.path.realpath(user_path()):
+        raise Failure(READONLY)
+    data, _ = read_user()
+    expected = params.get("expectedVersion")
+    if expected and expected != version_of(data):
+        raise Failure(CONFLICT)
+    text = data.decode()
+    for edit in params["edits"]:
+        text = set_key(text, edit["keyPath"], edit["value"])
+    write_user(text)
+    return {
+        "status": "ok",
+        "version": version_of(text.encode()),
+        "filePath": str(user_path()),
+        "overriddenMetadata": None,
+    }
+
+
+def skill_entries(user):
+    return {e.get("path"): e for e in (user.get("skills") or {}).get("config", [])}
+
+
+def skills_list(params):
+    _, user = read_user()
+    entries = skill_entries(user)
+    skills = []
+    for skill in settings().get("skills", []):
+        enabled = entries.get(skill["path"], {}).get("enabled", skill.get("enabled", True))
+        skills.append(
+            {
+                "name": skill["name"],
+                "description": "",
+                "path": skill["path"],
+                "scope": skill.get("scope", "user"),
+                "enabled": enabled,
+                "pluginId": skill.get("pluginId"),
+            }
+        )
+    cwds = params.get("cwds") or [os.getcwd()]
+    return {"data": [{"cwd": cwd, "skills": skills, "errors": []} for cwd in cwds]}
+
+
+def skills_config_write(params):
+    data, _ = read_user()
+    path = params.get("path")
+    if path is None:
+        named = [s["path"] for s in settings().get("skills", []) if s["name"] == params.get("name")]
+        if not named:
+            raise Failure({"code": -32600, "message": "Unknown skill"})
+        path = named[0]
+    blocks = re.split(r"(?m)^(?=\[)", data.decode())
+    kept = [b for b in blocks if not (b.startswith("[[skills.config]]") and json.dumps(path) in b)]
+    text = "".join(kept)
+    if not params["enabled"]:
+        prefix = "\n" if text.strip() and not text.endswith("\n\n") else ""
+        text += f"{prefix}[[skills.config]]\npath = {json.dumps(path)}\nenabled = false\n"
+    write_user(text)
+    return {"effectiveEnabled": params["enabled"]}
+
+
+def plugin_list(params):
+    grouped = {}
+    for plugin in settings().get("plugins", []):
+        grouped.setdefault(plugin.get("marketplace", "local"), []).append(
+            {
+                "id": plugin["id"],
+                "name": plugin.get("name", plugin["id"]),
+                "installed": plugin.get("installed", True),
+                "enabled": plugin.get("enabled", True),
+            }
+        )
+    return {
+        "marketplaces": [{"name": n, "plugins": p} for n, p in grouped.items()],
+        "marketplaceLoadErrors": [],
+        "featuredPluginIds": [],
+    }
+
+
+def app_list(params):
+    return {
+        "data": [
+            {"id": a["id"], "name": a.get("name", a["id"]), "isEnabled": a.get("isEnabled", True)}
+            for a in settings().get("apps", [])
+        ],
+        "nextCursor": None,
+    }
+
+
+HANDLERS = {
+    "config/read": config_read,
+    "config/batchWrite": config_batch_write,
+    "skills/list": skills_list,
+    "skills/config/write": skills_config_write,
+    "plugin/list": plugin_list,
+    "app/list": app_list,
+}
+
+
+def answer(method, params):
+    cfg = settings()
+    if method == "initialize":
+        return {
+            "userAgent": f"fake/{cfg.get('version', '0.157.1')}",
+            "codexHome": str(home()),
+            "platformFamily": "unix",
+            "platformOs": "linux",
+        }
+    if method in cfg.get("missing_methods", []) or method not in HANDLERS:
+        raise Failure(NOT_FOUND)
+    if method in cfg.get("errors", {}):
+        raise Failure(cfg["errors"][method])
+    return HANDLERS[method](params)
+
+
+def serve():
+    if settings().get("fail_start"):
+        print("fake codex: cannot start", file=sys.stderr)
+        return 1
+    for line in sys.stdin:
+        message = json.loads(line)
+        method, params = message.get("method"), message.get("params") or {}
+        with (home() / "fake-app-server.log").open("a") as log:
+            log.write(json.dumps({"method": method, "params": params}) + "\n")
+        if "id" not in message:  # notifications such as "initialized"
+            continue
+        try:
+            reply = {"id": message["id"], "result": answer(method, params)}
+        except Failure as failure:
+            reply = {"id": message["id"], "error": failure.error}
+        print(json.dumps(reply), flush=True)
+    return 0
+
+
+def main(argv):
+    if argv[:1] == ["--version"]:
+        print("codex-cli " + settings().get("version", "0.157.1"))
+        return 0
+    if argv[:1] == ["app-server"]:
+        return serve()
+    print("fake codex: unsupported arguments", file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
