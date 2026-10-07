@@ -168,7 +168,13 @@ class ProviderStateAdapter(Protocol):
     def read_state(self, project_root: Path | None) -> StateSnapshot: ...
 
     def set_enabled(
-        self, item_id: str, scope: Scope, enabled: bool, expected_fingerprint: str
+        self,
+        item_id: str,
+        scope: Scope,
+        enabled: bool,
+        expected_fingerprint: str,
+        *,
+        project_root: Path | None = None,
     ) -> StateSnapshot: ...
 
     def watch_paths(self, project_root: Path | None) -> tuple[Path, ...]: ...
