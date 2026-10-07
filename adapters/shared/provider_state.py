@@ -236,6 +236,13 @@ def fingerprint(paths: Iterable[Path]) -> str:
 
 # --- write_json_atomic -----------------------------------------------------------------------
 
+# ``expected_sha256`` for create mode: "the file must not exist". Not a hex digest, so no file can match it.
+MISSING_FILE = "missing"
+NEW_FILE_MODE = 0o600
+_NEW_FILE_TEXT = (
+    "{\n  }\n"  # only its layout counts: a new file gets a 2-space indent and a final newline
+)
+
 _LOCKS: dict[str, threading.Lock] = {}
 _LOCKS_GUARD = threading.Lock()
 
@@ -265,30 +272,42 @@ def _current_sha256(real: Path) -> str | None:
         return None
 
 
-def _swap(real: Path, data: bytes, expected_sha256: str, info: os.stat_result) -> None:
+def _swap(real: Path, data: bytes, expected_sha256: str, info: os.stat_result | None) -> None:
     """Replace ``real`` by ``data`` if it still holds the bytes with ``expected_sha256``.
 
     The temp file sits beside the real target (same filesystem) with its mode and, where
-    permitted, its owner. The hash is checked again right before ``os.replace``.
+    permitted, its owner. The hash is checked again right before ``os.replace``. With no ``info``
+    (create mode) the file is new: the temp file is hard-linked to the target, which fails when
+    something appeared there meanwhile, so a file that is not ours is never overwritten.
     """
     prefix = f".{real.name}."
     descriptor, temporary = tempfile.mkstemp(dir=real.parent, prefix=prefix, suffix=".tmp")
     try:
         with os.fdopen(descriptor, "wb") as stream:
-            os.fchmod(stream.fileno(), stat.S_IMODE(info.st_mode))
-            try:
-                os.fchown(stream.fileno(), info.st_uid, info.st_gid)
-            except PermissionError:
-                pass  # not our file to hand back to its owner; the mode still holds
+            os.fchmod(
+                stream.fileno(), NEW_FILE_MODE if info is None else stat.S_IMODE(info.st_mode)
+            )
+            if info is not None:
+                try:
+                    os.fchown(stream.fileno(), info.st_uid, info.st_gid)
+                except PermissionError:
+                    pass  # not our file to hand back to its owner; the mode still holds
             stream.write(data)
             stream.flush()
             os.fsync(stream.fileno())
-        if _current_sha256(real) != expected_sha256:
-            raise ProviderStateConflictError(f"{real.name} changed while it was being written")
-        os.replace(temporary, real)
-    except BaseException:
+        if info is None:
+            try:
+                os.link(temporary, real)
+            except FileExistsError:
+                raise ProviderStateConflictError(
+                    f"{real.name} appeared while it was being written"
+                ) from None
+        else:
+            if _current_sha256(real) != expected_sha256:
+                raise ProviderStateConflictError(f"{real.name} changed while it was being written")
+            os.replace(temporary, real)
+    finally:
         Path(temporary).unlink(missing_ok=True)
-        raise
     _fsync_directory(real.parent)
 
 
@@ -359,33 +378,46 @@ def write_json_atomic(
 
     The per-path lock is not reentrant: ``change`` and ``validate`` must not write files.
 
-    ``path`` is resolved first, so a symlink stays a symlink and its target is replaced. The file
-    is never created. Raises ``ProviderStateConflictError`` when the file is gone or its bytes are
-    not the ones with ``expected_sha256`` (now, or right before the replace),
-    ``ProviderStateSchemaError`` when it is not a JSON object and ``ProviderStateValidationError``
-    when ``validate`` reports an error on the new bytes that the previous bytes did not have;
-    nothing is written then.
+    ``path`` is resolved first, so a symlink stays a symlink and its target is replaced. Raises
+    ``ProviderStateConflictError`` when the file is gone or its bytes are not the ones with
+    ``expected_sha256`` (now, or right before the replace), ``ProviderStateSchemaError`` when it
+    is not a JSON object and ``ProviderStateValidationError`` when ``validate`` reports an error
+    on the new bytes that the previous bytes did not have; nothing is written then.
+
+    Create mode: with ``expected_sha256=MISSING_FILE`` the file must not exist. ``change`` starts
+    from ``{}``, ``validate`` still runs (the previous bytes being ``{}``), nothing is backed up, and
+    the file is placed with mode 0600 without ever overwriting one that appeared meanwhile (that is
+    a ``ProviderStateConflictError``). A missing parent folder is ``ProviderStateUnsupportedError``;
+    folders are never created. Without ``MISSING_FILE`` the function never creates the file.
 
     This is a plain blocking function, serialized by one thread lock per real path. A real
     ``~/.claude.json`` is often hundreds of KB, so async callers run it with ``asyncio.to_thread``.
     """
     real = Path(os.path.realpath(path))
+    creating = expected_sha256 == MISSING_FILE
     with _lock_for(real):
-        try:
-            before, info = real.read_bytes(), real.stat()
-        except FileNotFoundError:
-            raise ProviderStateConflictError(f"{real.name} is gone since it was read") from None
-        if _sha256(before) != expected_sha256:
-            raise ProviderStateConflictError(f"{real.name} changed since it was read")
-        document, original = _parse(real, before)
+        if creating:
+            if not real.parent.is_dir():
+                raise ProviderStateUnsupportedError(f"the folder of {real.name} does not exist")
+            if os.path.lexists(real):
+                raise ProviderStateConflictError(f"{real.name} appeared since it was read")
+            before, info, document, original = b"{}", None, {}, _NEW_FILE_TEXT
+        else:
+            try:
+                before, info = real.read_bytes(), real.stat()
+            except FileNotFoundError:
+                raise ProviderStateConflictError(f"{real.name} is gone since it was read") from None
+            if _sha256(before) != expected_sha256:
+                raise ProviderStateConflictError(f"{real.name} changed since it was read")
+            document, original = _parse(real, before)
         updated = change(document)
         if not isinstance(updated, dict):
             raise ProviderStateSchemaError("the change did not return a JSON object")
         written = _render(updated, original)
         if validate:
             _refuse_new_errors(real, before, written, validate)
-        if backup_dir is not None:
+        if backup_dir is not None and not creating:
             _backup(Path(backup_dir), before)  # no copy, no write
-        _swap(real, written, _sha256(before), info)
+        _swap(real, written, expected_sha256, info)
         logger.debug("provider state written: %s", real.name)
         return _sha256(written)

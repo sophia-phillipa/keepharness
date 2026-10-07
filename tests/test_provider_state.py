@@ -16,6 +16,7 @@ import pytest
 
 from adapters.shared import provider_state
 from adapters.shared.provider_state import (
+    MISSING_FILE,
     ProviderCommandError,
     ProviderStateAdapter,
     ProviderStateConflictError,
@@ -388,6 +389,95 @@ def test_a_change_that_returns_no_object_is_refused_untouched(tmp_path):
         write(path, lambda document: [])
 
     assert path.read_bytes() == before
+
+
+# --- write_json_atomic: create mode ----------------------------------------------------------
+
+
+def test_create_mode_makes_the_file_owner_only_with_the_cli_style_layout(tmp_path):
+    path = tmp_path / "settings.local.json"
+
+    digest = write_json_atomic(path, set_key("added", 1), MISSING_FILE)
+
+    assert path.read_text() == '{\n  "added": 1\n}\n'
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    assert digest == sha(path.read_bytes())
+    assert [p.name for p in tmp_path.iterdir()] == ["settings.local.json"]
+
+
+def test_create_mode_refuses_a_file_that_already_exists(tmp_path):
+    path = tmp_path / "settings.local.json"
+    path.write_text('{"mine": true}')
+
+    with pytest.raises(ProviderStateConflictError):
+        write_json_atomic(path, set_key("added", 1), MISSING_FILE)
+
+    assert path.read_text() == '{"mine": true}'
+    assert [p.name for p in tmp_path.iterdir()] == ["settings.local.json"]
+
+
+def test_a_file_that_appears_before_the_placement_is_a_conflict_and_is_kept(tmp_path, monkeypatch):
+    path = tmp_path / "settings.local.json"
+    real_link = os.link
+
+    def appear_then_link(source, target, *args, **kwargs):
+        Path(target).write_text('{"theirs": 1}')
+        return real_link(source, target, *args, **kwargs)
+
+    monkeypatch.setattr(os, "link", appear_then_link)
+
+    with pytest.raises(ProviderStateConflictError):
+        write_json_atomic(path, set_key("added", 1), MISSING_FILE)
+
+    monkeypatch.undo()
+    assert path.read_text() == '{"theirs": 1}'
+    assert [p.name for p in tmp_path.iterdir()] == ["settings.local.json"]
+
+
+def test_create_mode_never_creates_the_parent_folder(tmp_path):
+    path = tmp_path / ".claude" / "settings.local.json"
+
+    with pytest.raises(ProviderStateUnsupportedError):
+        write_json_atomic(path, set_key("added", 1), MISSING_FILE)
+
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_create_mode_still_validates_and_writes_nothing_when_refused(tmp_path):
+    path = tmp_path / "settings.local.json"
+
+    with pytest.raises(ProviderStateValidationError):
+        write_json_atomic(path, set_key("broken", True), MISSING_FILE, validate=broken_when_marked)
+
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_create_mode_takes_no_backup_and_a_failing_step_leaves_nothing(tmp_path, monkeypatch):
+    path = tmp_path / "settings.local.json"
+    folder = tmp_path / "backups"
+    write_json_atomic(path, set_key("a", 1), MISSING_FILE, backup_dir=folder)
+    assert not folder.exists()
+    path.unlink()
+
+    def fail(*args, **kwargs):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(os, "fsync", fail)
+    with pytest.raises(OSError):
+        write_json_atomic(path, set_key("a", 1), MISSING_FILE)
+    monkeypatch.undo()
+
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_create_mode_through_a_dangling_symlink_keeps_the_link(tmp_path):
+    real = tmp_path / "real.json"
+    link = tmp_path / "link.json"
+    link.symlink_to(real)
+
+    write_json_atomic(link, set_key("a", 1), MISSING_FILE)
+
+    assert link.is_symlink() and json.loads(real.read_text()) == {"a": 1}
 
 
 # --- write_json_atomic: conflicts ------------------------------------------------------------
