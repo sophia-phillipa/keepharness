@@ -22,6 +22,7 @@ The per-release notes in [`dossier/releases/`](dossier/releases/) hold the full 
 
 ### Changed
 
+- Settings "Customize" is now **Plugins** ("Manage plugins, skills, and MCPs"), and "Your agents" is its own Settings item **Agents**; both are back/forward entries, and a remembered "customize" section opens Plugins (D-034, #24).
 - The rail quota meters show each provider's logo instead of its name, so no name is cut; the same logo now appears wherever the provider's model icon is shown (model picker heading, run table, conversation and agent rows), including a new DeepSeek logo (D-035, #28).
 - The right panel is an exclusive **Activities | Files** switch; each view is an accordion with one open section that fills the panel, and Files splits into Project Files and System Files. Section resize handles are gone and stored heights are ignored (D-033).
 - Continue in another app: a segmented ChatGPT/Claude control, cleaner spacing, and inside a distrobox container the apps are detected and opened on the host with constant arguments; the prompt goes through the clipboard there.
