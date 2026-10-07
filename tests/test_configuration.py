@@ -111,7 +111,7 @@ class ConfigurationTest(unittest.TestCase):
                 self.assertFalse(c.get("/api/state").json()["status"]["running"])
                 before = Path(d, "settings.json").read_bytes()
                 bad = copy.deepcopy(bundle)
-                bad["settings"]["vpn_bind"] = "0.0.0.0"
+                bad["settings"]["port"] = 80  # below 1024: refused, nothing changes
                 self.assertEqual(
                     c.post(
                         "/api/settings-import", json={"bundle": bad, "apply": True}, headers=headers
