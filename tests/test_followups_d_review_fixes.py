@@ -135,6 +135,18 @@ def test_a_vpn_bind_that_is_not_an_ip_shows_a_sentence(tmp_path):
         Manager(tmp_path).validate({"vpn_bind": "not-an-ip"})
 
 
+def test_a_legacy_non_loopback_vpn_bind_loads_as_loopback(tmp_path, caplog):
+    first = Manager(tmp_path)
+    first.settings["vpn_bind"] = "10.44.0.2"
+    first.path.write_text(json.dumps(first.settings))
+    with caplog.at_level("WARNING", logger="control.manager"):
+        loaded = Manager(tmp_path)
+    assert loaded.settings["vpn_bind"] == "127.0.0.1"
+    assert [r.levelname for r in caplog.records if "vpn_bind" in r.getMessage()] == ["WARNING"]
+    caplog.clear()
+    assert Manager(tmp_path).settings["vpn_bind"] == "127.0.0.1"  # already coerced: quiet again
+
+
 class _Proc:
     def __init__(self, code):
         self.returncode = code

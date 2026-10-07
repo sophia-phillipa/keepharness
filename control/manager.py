@@ -142,6 +142,9 @@ class Manager:
                 "logins": [],
             }
         )
+        if self.settings.get("vpn_bind", "127.0.0.1") != "127.0.0.1":
+            logger.warning("Ignoring a saved non-loopback vpn_bind; the harness listens on 127.0.0.1.")
+            self.settings["vpn_bind"] = "127.0.0.1"
         self.settings["services"].setdefault(
             "deepseek",
             {
@@ -237,17 +240,13 @@ class Manager:
         if not isinstance(bind, str):
             raise UserMessageError("Provide the private IP as text.")
         try:
-            address = ipaddress.ip_address(bind)
+            ipaddress.ip_address(bind)
         except ValueError:
             raise UserMessageError("Provide the private IP as a valid IPv4 address.") from None
-        if (
-            address.version != 4
-            or not (address.is_loopback or address.is_private)
-            or address.is_unspecified
-            or address.is_multicast
-        ):
+        if bind != "127.0.0.1":
             raise UserMessageError(
-                "Use only the private IP specific to the VPN interface, never 0.0.0.0."
+                "The harness listens only on the private loopback address 127.0.0.1; "
+                "remote access goes through Tailscale Serve."
             )
         out["vpn_bind"] = bind
         out["uploads_enabled"] = data.get("uploads_enabled") is True or any(
@@ -896,10 +895,6 @@ class Manager:
             raise UserMessageError("Connect Tailscale first.")
         receipt = self.state / "tailnet.json"
         if enabled:
-            if self.settings.get("vpn_bind", "127.0.0.1") != "127.0.0.1":
-                raise UserMessageError(
-                    "For Tailscale Serve, use the local address 127.0.0.1; for another VPN, use the configured IP directly."
-                )
             if not self.running() or not self.settings["logins"]:
                 raise UserMessageError(
                     "Start the harness and register allowed identities before sharing."
