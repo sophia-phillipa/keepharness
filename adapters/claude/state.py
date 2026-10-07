@@ -243,8 +243,13 @@ class ClaudeStateAdapter:
     # --- reading ---
 
     def read_state(self, project_root: Path | None) -> StateSnapshot:
+        return self._read(project_root)[0]
+
+    def _read(self, project_root: Path | None) -> tuple[StateSnapshot, _Reading]:
+        """The snapshot and the pass that made it (its ``digests`` are what a write must still find)."""
         root = Path(project_root) if project_root else None
         reading = _Reading(root)
+        version = self._version(reading)  # slow: it must not sit between reading and writing
         layers = self._settings_layers(reading)
         plugins = self._plugin_items(layers, reading)
         items = [
@@ -254,8 +259,7 @@ class ClaudeStateAdapter:
         ]
         if reading.attempted and not reading.parsed:
             raise ProviderStateSchemaError("no Claude Code state file could be read")
-        version = self._version(reading)
-        return StateSnapshot(
+        snapshot = StateSnapshot(
             provider=self.provider,
             engine=self.engine,
             project_root=str(root) if root else None,
@@ -264,6 +268,7 @@ class ClaudeStateAdapter:
             cli_version=version,
             warnings=tuple(reading.warnings),
         )
+        return snapshot, reading
 
     def _settings_layers(self, reading: _Reading) -> list[_Layer]:
         """Readable settings files, strongest layer first."""
@@ -552,6 +557,12 @@ class ClaudeStateAdapter:
         in Claude Code once). A request for the state a switch is already in writes nothing.
         Direct edits (skills, MCP) are refused outside ``tested_versions``.
 
+        The write is checked against the sha256 of the bytes the fingerprint was made from. For
+        ``.claude.json`` that is the whole file, session fields included, so Claude Code rewriting
+        its own session fields between that read and the write is a ``ProviderStateConflictError``
+        too; the window is a few milliseconds (the slow version check runs before any file is
+        read) and the caller can read again and retry.
+
         Synchronous and blocking (files, ``claude --version``, the plugin command, 10 s limits):
         async callers use ``asyncio.to_thread``.
         """
@@ -561,7 +572,7 @@ class ClaudeStateAdapter:
             raise ProviderStateUnsupportedError(f"{item_id} has no writer")
         if scope in ("managed", "profile"):
             raise ProviderStateUnsupportedError(f"the {scope} layer cannot be written")
-        snapshot = self.read_state(root)
+        snapshot, reading = self._read(root)
         if snapshot.fingerprint != expected_fingerprint:
             raise ProviderStateConflictError("the Claude Code state changed since it was read")
         item = next((found for found in snapshot.items if found.id == item_id), None)
@@ -579,9 +590,9 @@ class ClaudeStateAdapter:
                     f"{TESTED_VERSIONS}; {kind} switches are not written"
                 )
             if kind == "skill":
-                self._set_skill(name, scope, enabled, root)
+                self._set_skill(name, scope, enabled, root, reading.digests)
             else:
-                self._set_mcp(name, enabled, root)
+                self._set_mcp(name, enabled, root, reading.digests)
         return self.read_state(root)
 
     def _settings_path(self, scope: Scope, root: Path | None) -> Path:
@@ -627,7 +638,9 @@ class ClaudeStateAdapter:
         plugins = (document or {}).get("enabledPlugins")
         self._confirm(plugins.get(plugin_id) if isinstance(plugins, dict) else None, enabled)
 
-    def _set_skill(self, name: str, scope: Scope, enabled: bool, root: Path | None) -> None:
+    def _set_skill(
+        self, name: str, scope: Scope, enabled: bool, root: Path | None, digests: dict
+    ) -> None:
         path = self._settings_path(scope, root)
         value = "on" if enabled else "off"
 
@@ -640,8 +653,9 @@ class ClaudeStateAdapter:
             overrides[name] = value
             return document
 
-        _, digest, _ = _read_json_object(path)
+        # The digest of the bytes the fingerprint covered: a change since then is a conflict.
         # An unreadable file is never treated as missing: create mode would hide it.
+        digest = digests[path]
         expected = MISSING_FILE if digest is None else digest
         try:
             write_json_atomic(path, change, expected, validate=_settings_errors)
@@ -651,10 +665,10 @@ class ClaudeStateAdapter:
         overrides = (document or {}).get("skillOverrides")
         self._confirm(overrides.get(name) if isinstance(overrides, dict) else None, value)
 
-    def _set_mcp(self, name: str, enabled: bool, root: Path) -> None:
+    def _set_mcp(self, name: str, enabled: bool, root: Path, digests: dict) -> None:
         path = self._claude_json()
-        document, digest, problem = _read_json_object(path)
-        if problem == "missing":
+        digest = digests[path]  # of the whole file as read; see set_enabled
+        if digest is None:
             raise ProviderStateUnsupportedError(".claude.json does not exist; it is not created")
 
         def change(document: dict) -> dict:

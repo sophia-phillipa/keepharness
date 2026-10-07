@@ -867,6 +867,62 @@ def test_a_stale_fingerprint_is_a_conflict_and_writes_nothing(adapter, config_di
     }
 
 
+def change_before(adapter, monkeypatch, method, rewrite):
+    """Run ``rewrite()`` after set_enabled has read the state and before ``method`` writes it."""
+    real = getattr(adapter, method)
+
+    def late(*args, **kwargs):
+        rewrite()
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(adapter, method, late)
+
+
+def test_a_settings_file_changed_after_the_read_is_a_conflict(
+    adapter, config_dir, project, monkeypatch
+):  # R40-4
+    make_skill(config_dir / "skills", "deploy")
+    path = write_json(config_dir / "settings.json", {"a": 1})
+    changed = json.dumps({"a": 2}).encode()
+    change_before(adapter, monkeypatch, "_set_skill", lambda: path.write_bytes(changed))
+    with pytest.raises(ProviderStateConflictError):
+        toggle(adapter, project, "skill:deploy", "user", False)
+    assert path.read_bytes() == changed
+
+
+def test_claude_json_changed_after_the_read_is_a_conflict_even_in_a_session_field(
+    adapter, config_dir, project, monkeypatch, tmp_path
+):  # R40-4
+    path = write_claude_json(config_dir, project)
+
+    def bump_session_field():
+        document = json.loads(path.read_text())
+        document["numStartups"] += 1
+        write_json(path, document)
+
+    change_before(adapter, monkeypatch, "_set_mcp", bump_session_field)
+    with pytest.raises(ProviderStateConflictError):
+        toggle(adapter, project, "mcp:local-srv", "local", False)
+    assert "local-srv" not in json.loads(path.read_text())["projects"][str(project)][
+        "disabledMcpServers"
+    ]
+    assert not (tmp_path / "state").exists()
+
+
+def test_the_version_is_read_before_any_file(adapter, config_dir, project, monkeypatch):  # R40-4
+    write_claude_json(config_dir, project)
+    seen = []
+    real = adapter._version
+
+    def spy(reading):
+        seen.append(list(reading.parts))
+        return real(reading)
+
+    monkeypatch.setattr(adapter, "_version", spy)
+    adapter.read_state(project)
+    assert seen == [[]]
+
+
 def test_a_value_that_did_not_stick_is_a_conflict(adapter, config_dir, project, monkeypatch):
     make_skill(config_dir / "skills", "deploy")
     write_claude_json(config_dir, project)
