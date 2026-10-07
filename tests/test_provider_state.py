@@ -4,6 +4,7 @@ Fake homes only: every file lives under ``tmp_path``; nothing reads the owner's 
 ``~/.claude.json``, ``~/.claude`` or ``~/.codex``.
 """
 
+import errno
 import hashlib
 import json
 import logging
@@ -432,6 +433,36 @@ def test_a_file_that_appears_before_the_placement_is_a_conflict_and_is_kept(tmp_
     monkeypatch.undo()
     assert path.read_text() == '{"theirs": 1}'
     assert [p.name for p in tmp_path.iterdir()] == ["settings.local.json"]
+
+
+@pytest.mark.parametrize("code", [errno.EPERM, errno.EOPNOTSUPP, errno.ENOSYS])
+def test_create_mode_on_a_filesystem_without_hard_links_is_unsupported(
+    tmp_path, monkeypatch, code
+):  # R40-5
+    path = tmp_path / "settings.local.json"
+
+    def no_links(*args, **kwargs):
+        raise OSError(code, "no hard links", str(args[1]))
+
+    monkeypatch.setattr(os, "link", no_links)
+
+    with pytest.raises(ProviderStateUnsupportedError) as caught:
+        write_json_atomic(path, set_key("added", 1), MISSING_FILE)
+
+    assert str(tmp_path) not in str(caught.value) and path.name not in str(caught.value)
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_create_mode_lets_other_link_errors_through(tmp_path, monkeypatch):
+    def denied(*args, **kwargs):
+        raise PermissionError(errno.EACCES, "denied")
+
+    monkeypatch.setattr(os, "link", denied)
+
+    with pytest.raises(PermissionError):
+        write_json_atomic(tmp_path / "settings.local.json", set_key("added", 1), MISSING_FILE)
+
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_create_mode_never_creates_the_parent_folder(tmp_path):

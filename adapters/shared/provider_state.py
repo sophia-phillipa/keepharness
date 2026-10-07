@@ -8,6 +8,7 @@ the shared contract only; the Codex, Claude and DeepSeek adapters implement it e
 owner-only backup folder) or puts file content in an error message.
 """
 
+import errno
 import hashlib
 import json
 import logging
@@ -239,6 +240,7 @@ def fingerprint(paths: Iterable[Path]) -> str:
 # ``expected_sha256`` for create mode: "the file must not exist". Not a hex digest, so no file can match it.
 MISSING_FILE = "missing"
 NEW_FILE_MODE = 0o600
+_NO_HARD_LINKS = frozenset({errno.EPERM, errno.EOPNOTSUPP, errno.ENOSYS})  # the filesystem has no os.link
 _NEW_FILE_TEXT = (
     "{\n  }\n"  # only its layout counts: a new file gets a 2-space indent and a final newline
 )
@@ -301,6 +303,12 @@ def _swap(real: Path, data: bytes, expected_sha256: str, info: os.stat_result | 
             except FileExistsError:
                 raise ProviderStateConflictError(
                     f"{real.name} appeared while it was being written"
+                ) from None
+            except OSError as error:
+                if error.errno not in _NO_HARD_LINKS:
+                    raise
+                raise ProviderStateUnsupportedError(
+                    "this filesystem cannot create a file exclusively"
                 ) from None
         else:
             if _current_sha256(real) != expected_sha256:
