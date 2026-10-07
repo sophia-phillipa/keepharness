@@ -1,18 +1,26 @@
 """Claude Code state reader: layering, skills, MCP, safety and the fake `claude` CLI."""
 
+import hashlib
 import json
 import logging
 import os
+import stat
 import subprocess
 from pathlib import Path
 
 import pytest
+from jsonschema import Draft7Validator
 
+from adapters.claude import state as claude_state
 from adapters.claude.state import ClaudeStateAdapter
 from adapters.shared.provider_state import (
+    ProviderCommandError,
     ProviderStateAdapter,
+    ProviderStateConflictError,
     ProviderStateSchemaError,
     ProviderStateUnsupportedError,
+    ProviderStateValidationError,
+    ProviderStateVersionError,
 )
 
 FAKE_CLAUDE_DIR = Path(__file__).parent / "fixtures" / "fake-claude"
@@ -438,7 +446,6 @@ def test_trust_is_read_never_written(adapter, config_dir, project, tmp_path):
 
 def test_methods_that_belong_to_later_issues_say_so(adapter, project):
     calls = [
-        lambda: adapter.set_enabled("plugin:a@m", "user", True, "x"),
         lambda: adapter.trust_project(project),
         lambda: adapter.approved_project_servers(project),
         lambda: adapter.run_environment(project, True, []),
@@ -497,3 +504,337 @@ def test_fake_cli_failures(config_dir, project):
     )
     assert json.loads(corrupt.stdout)["failureCode"] == "settings_write_failed"
     assert (project / ".claude" / "settings.json").read_text() == "{broken"
+
+
+# --- set_enabled -------------------------------------------------------------------------------
+
+
+def fingerprint_of(adapter, project):
+    return adapter.read_state(project).fingerprint
+
+
+def toggle(adapter, project, item_id, scope, enabled, **options):
+    fingerprint = options.pop("fingerprint", None) or fingerprint_of(adapter, project)
+    return adapter.set_enabled(
+        item_id, scope, enabled, fingerprint, project_root=project, **options
+    )
+
+
+def sha(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+@pytest.mark.parametrize(
+    ("scope", "relative"),
+    [
+        ("user", None),
+        ("project", ".claude/settings.json"),
+        ("local", ".claude/settings.local.json"),
+    ],
+)
+def test_plugin_switch_goes_through_the_cli_in_each_scope(
+    adapter, config_dir, project, scope, relative
+):
+    path = config_dir / "settings.json" if relative is None else project / relative
+    snapshot = toggle(adapter, project, "plugin:x@y", scope, True)
+    item = by_id(snapshot)["plugin:x@y"]
+    assert (item.enabled, item.scope) == (True, scope)
+    assert json.loads(path.read_text()) == {"enabledPlugins": {"x@y": True}}
+    snapshot = toggle(
+        adapter, project, "plugin:x@y", scope, False, fingerprint=snapshot.fingerprint
+    )
+    assert by_id(snapshot)["plugin:x@y"].enabled is False
+
+
+def test_a_failing_plugin_command_raises_a_redacted_command_error(
+    adapter, config_dir, project, monkeypatch
+):
+    monkeypatch.setenv("KEEPHARNESS_TEST_SECRET", SECRET_ENV)
+    write_json(config_dir / "settings.json", {})
+    (project / ".claude").mkdir()
+    (project / ".claude" / "settings.json").write_text("{broken")
+    with pytest.raises(ProviderCommandError) as caught:
+        toggle(adapter, project, "plugin:x@y", "project", True)
+    assert caught.value.exit_code == 1
+    text = str(caught.value) + repr(caught.value.args)
+    assert "Invalid JSON syntax in settings file" in text
+    for leaked in (str(project), str(config_dir), SECRET_ENV, "/settings.json"):
+        assert leaked not in text
+    assert (project / ".claude" / "settings.json").read_text() == "{broken"
+
+
+def test_a_cli_that_reports_failure_in_json_is_a_command_error(adapter, config_dir, project):
+    (config_dir / "fake-claude-fail").write_text("")
+    with pytest.raises(ProviderCommandError) as caught:
+        toggle(adapter, project, "plugin:x@y", "user", True)
+    assert caught.value.exit_code == 1 and str(config_dir) not in str(caught.value)
+
+
+def test_a_cli_without_json_output_is_reported_as_redacted_text(adapter, project, monkeypatch):
+    def fake_run(command, **kwargs):
+        text = f"Invalid scope at {project}/x"
+        return subprocess.CompletedProcess(command, 1, stdout="", stderr=text)
+
+    monkeypatch.setattr(claude_state.subprocess, "run", fake_run)
+    with pytest.raises(ProviderCommandError) as caught:
+        adapter._set_plugin("x@y", "user", True, project)
+    assert str(project) not in str(caught.value) and "<path>" in str(caught.value)
+
+
+def test_a_plugin_command_that_cannot_run_or_times_out_is_a_command_error(
+    adapter, project, monkeypatch
+):
+    for error in (FileNotFoundError("claude"), subprocess.TimeoutExpired(["claude"], 10)):
+
+        def fake_run(command, **kwargs):
+            raise error
+
+        monkeypatch.setattr(claude_state.subprocess, "run", fake_run)
+        with pytest.raises(ProviderCommandError):
+            adapter._set_plugin("x@y", "user", True, project)
+
+
+def test_plugin_switch_is_allowed_outside_the_tested_versions(adapter, config_dir, project):
+    (config_dir / "fake-claude-version").write_text("2.2.0")
+    snapshot = toggle(adapter, project, "plugin:x@y", "user", True)
+    assert by_id(snapshot)["plugin:x@y"].enabled is True
+
+
+@pytest.mark.parametrize(
+    ("scope", "relative"),
+    [
+        ("user", None),
+        ("project", ".claude/settings.json"),
+        ("local", ".claude/settings.local.json"),
+    ],
+)
+def test_skill_off_and_on_keep_unknown_keys_and_the_indent(
+    adapter, config_dir, project, scope, relative
+):
+    make_skill(config_dir / "skills", "deploy")
+    path = config_dir / "settings.json" if relative is None else project / relative
+    original = {"futureKey": {"x": [1, None]}, "skillOverrides": {"other": "name-only"}, "z": 1}
+    write_json(path, original, indent=4)
+    snapshot = toggle(adapter, project, "skill:deploy", scope, False)
+    expected = {**original, "skillOverrides": {"other": "name-only", "deploy": "off"}}
+    assert path.read_text() == json.dumps(expected, indent=4) + "\n"
+    assert by_id(snapshot)["skill:deploy"].enabled is False
+    snapshot = toggle(
+        adapter, project, "skill:deploy", scope, True, fingerprint=snapshot.fingerprint
+    )
+    expected["skillOverrides"]["deploy"] = "on"
+    assert path.read_text() == json.dumps(expected, indent=4) + "\n"
+    assert by_id(snapshot)["skill:deploy"].enabled is True
+
+
+def test_enabling_a_skill_writes_on_so_a_weaker_layer_cannot_bring_it_back_off(
+    adapter, config_dir, project
+):
+    make_skill(config_dir / "skills", "deploy")
+    write_json(config_dir / "settings.json", {"skillOverrides": {"deploy": "off"}})
+    (project / ".claude").mkdir()
+    snapshot = toggle(adapter, project, "skill:deploy", "local", True)
+    assert by_id(snapshot)["skill:deploy"].enabled is True
+
+
+def test_a_missing_settings_file_is_created_exclusively_with_mode_0600(
+    adapter, config_dir, project
+):
+    make_skill(config_dir / "skills", "deploy")
+    (project / ".claude").mkdir()
+    toggle(adapter, project, "skill:deploy", "local", False)
+    created = project / ".claude" / "settings.local.json"
+    assert json.loads(created.read_text()) == {"skillOverrides": {"deploy": "off"}}
+    assert stat.S_IMODE(created.stat().st_mode) == 0o600
+    assert sorted(p.name for p in (project / ".claude").iterdir()) == ["settings.local.json"]
+
+
+def test_a_settings_file_that_appears_meanwhile_is_a_conflict(
+    adapter, config_dir, project, monkeypatch
+):
+    make_skill(config_dir / "skills", "deploy")
+    (project / ".claude").mkdir()
+    target = project / ".claude" / "settings.local.json"
+    real_link = os.link
+
+    def appear_then_link(source, destination, *args, **kwargs):
+        Path(destination).write_text('{"theirs": 1}')
+        return real_link(source, destination, *args, **kwargs)
+
+    monkeypatch.setattr(os, "link", appear_then_link)
+    with pytest.raises(ProviderStateConflictError):
+        toggle(adapter, project, "skill:deploy", "local", False)
+    monkeypatch.undo()
+    assert target.read_text() == '{"theirs": 1}'
+    assert [p.name for p in (project / ".claude").iterdir()] == ["settings.local.json"]
+
+
+def test_a_missing_project_folder_is_not_created_for_a_skill_switch(adapter, config_dir, project):
+    make_skill(config_dir / "skills", "deploy")
+    with pytest.raises(ProviderStateUnsupportedError):
+        toggle(adapter, project, "skill:deploy", "project", False)
+    assert not (project / ".claude").exists()
+
+
+def test_a_schema_invalid_result_is_refused_and_the_file_keeps_its_bytes(
+    adapter, config_dir, project, monkeypatch
+):
+    make_skill(config_dir / "skills", "bad_name")
+    strict = {
+        "type": "object",
+        "properties": {"skillOverrides": {"propertyNames": {"pattern": "^[a-z]+$"}}},
+    }
+    monkeypatch.setattr(claude_state, "_settings_validator", lambda: Draft7Validator(strict))
+    path = write_json(config_dir / "settings.json", {"a": 1})
+    before = path.read_bytes()
+    with pytest.raises(ProviderStateValidationError) as caught:
+        toggle(adapter, project, "skill:bad_name", "user", False)
+    assert path.read_bytes() == before
+    assert caught.value.errors == ("/skillOverrides: pattern",)
+
+
+def test_the_real_schema_accepts_an_override_and_an_old_schema_error_does_not_block(
+    adapter, config_dir, project
+):
+    make_skill(config_dir / "skills", "deploy")
+    path = write_json(config_dir / "settings.json", {"skillOverrides": {"old": "bogus-value"}})
+    toggle(adapter, project, "skill:deploy", "user", False)
+    assert json.loads(path.read_text())["skillOverrides"] == {"old": "bogus-value", "deploy": "off"}
+    assert claude_state._settings_errors(b'{"skillOverrides": {"x": "SECRET-VALUE"}}') == [
+        "/skillOverrides/x: enum"
+    ]
+
+
+def test_mcp_switch_edits_only_disabled_servers_and_backs_up_outside_claude(
+    adapter, config_dir, project, tmp_path, caplog
+):
+    caplog.set_level(logging.DEBUG)
+    path = write_claude_json(config_dir, project)
+    original = json.loads(path.read_text())
+    snapshot = toggle(adapter, project, "mcp:local-srv", "local", False)
+    original["projects"][str(project)]["disabledMcpServers"] = ["user-srv", "local-srv"]
+    assert path.read_text() == json.dumps(original, indent=2) + "\n"
+    assert by_id(snapshot)["mcp:local-srv"].enabled is False
+    backups = sorted((tmp_path / "state" / "backups" / "claude-json").iterdir())
+    assert len(backups) == 1 and stat.S_IMODE(backups[0].stat().st_mode) == 0o600
+    assert SESSION in backups[0].read_text()
+    assert not (config_dir / "backups").exists()
+    snapshot = toggle(
+        adapter, project, "mcp:user-srv", "user", True, fingerprint=snapshot.fingerprint
+    )
+    original["projects"][str(project)]["disabledMcpServers"] = ["local-srv"]
+    assert path.read_text() == json.dumps(original, indent=2) + "\n"
+    assert by_id(snapshot)["mcp:user-srv"].enabled is True
+    for secret in (SESSION, SECRET_ENV, SECRET_HEADER):
+        assert secret not in caplog.text and secret not in repr(snapshot)
+
+
+def test_mcp_switch_adds_a_minimal_entry_for_a_project_that_has_none(adapter, config_dir, project):
+    path = write_json(config_dir / ".claude.json", {"mcpServers": {"s": {"command": "x"}}})
+    toggle(adapter, project, "mcp:s", "user", False)
+    assert json.loads(path.read_text()) == {
+        "mcpServers": {"s": {"command": "x"}},
+        "projects": {str(project): {"disabledMcpServers": ["s"]}},
+    }
+
+
+def test_mcp_switch_needs_a_project_and_an_existing_claude_json(adapter, config_dir, project):
+    write_json(project / ".mcp.json", {"mcpServers": {"s": {"command": "x"}}})
+    fingerprint = fingerprint_of(adapter, project)
+    with pytest.raises(ProviderStateUnsupportedError, match="does not exist"):
+        adapter.set_enabled("mcp:s", "project", False, fingerprint, project_root=project)
+    assert not (config_dir / ".claude.json").exists()
+    write_claude_json(config_dir, project)
+    with pytest.raises(ProviderStateUnsupportedError):
+        adapter.set_enabled("mcp:user-srv", "user", False, fingerprint_of(adapter, None))
+
+
+def test_a_symlinked_claude_json_stays_a_symlink(adapter, config_dir, project, tmp_path):
+    real = write_claude_json(tmp_path / "dotfiles", project)
+    (config_dir / ".claude.json").symlink_to(real)
+    toggle(adapter, project, "mcp:local-srv", "local", False)
+    assert (config_dir / ".claude.json").is_symlink()
+    assert (
+        "local-srv" in json.loads(real.read_text())["projects"][str(project)]["disabledMcpServers"]
+    )
+
+
+def test_direct_edits_are_refused_outside_the_tested_versions(adapter, config_dir, project):
+    make_skill(config_dir / "skills", "deploy")
+    write_claude_json(config_dir, project)
+    (config_dir / "fake-claude-version").write_text("2.2.0")
+    for item_id, scope in (("skill:deploy", "user"), ("mcp:local-srv", "local")):
+        with pytest.raises(ProviderStateVersionError):
+            toggle(adapter, project, item_id, scope, False)
+    assert not (config_dir / "settings.json").exists()
+    assert (
+        "local-srv"
+        not in json.loads((config_dir / ".claude.json").read_text())["projects"][str(project)][
+            "disabledMcpServers"
+        ]
+    )
+
+
+def test_a_stale_fingerprint_is_a_conflict_and_writes_nothing(adapter, config_dir, project):
+    fingerprint = fingerprint_of(adapter, project)
+    write_json(config_dir / "settings.json", {"enabledPlugins": {"a@m": True}})
+    with pytest.raises(ProviderStateConflictError):
+        toggle(adapter, project, "plugin:x@y", "user", True, fingerprint=fingerprint)
+    assert json.loads((config_dir / "settings.json").read_text()) == {
+        "enabledPlugins": {"a@m": True}
+    }
+
+
+def test_a_value_that_did_not_stick_is_a_conflict(adapter, config_dir, project, monkeypatch):
+    make_skill(config_dir / "skills", "deploy")
+    write_claude_json(config_dir, project)
+    monkeypatch.setattr(claude_state, "write_json_atomic", lambda *args, **kwargs: "")
+    for item_id, scope in (("skill:deploy", "user"), ("mcp:local-srv", "local")):
+        with pytest.raises(ProviderStateConflictError):
+            toggle(adapter, project, item_id, scope, False)
+    monkeypatch.undo()
+    monkeypatch.setattr(
+        claude_state.subprocess,
+        "run",
+        lambda command, **kwargs: subprocess.CompletedProcess(command, 0, stdout="{}", stderr=""),
+    )
+    with pytest.raises(ProviderStateConflictError):
+        adapter._set_plugin("x@y", "user", True, project)
+
+
+def test_managed_and_plugin_skill_rows_cannot_be_written(adapter, config_dir, project, managed):
+    make_skill(config_dir / "skills", "deploy")
+    write_json(
+        managed / "managed-settings.json",
+        {"enabledPlugins": {"m@m": False}, "skillOverrides": {"deploy": "off"}},
+    )
+    install = config_dir / "plugins" / "cache" / "mk" / "tool" / "1.0.0"
+    make_skill(install / "skills", "pskill")
+    write_json(
+        config_dir / "plugins" / "installed_plugins.json",
+        {"version": 2, "plugins": {"tool@mk": [{"scope": "user", "installPath": str(install)}]}},
+    )
+    write_json(config_dir / "settings.json", {"enabledPlugins": {"tool@mk": True}})
+    for item_id in ("plugin:m@m", "skill:deploy", "skill:tool:pskill"):
+        with pytest.raises(ProviderStateUnsupportedError):
+            toggle(adapter, project, item_id, "user", True)
+    for scope in ("managed", "profile"):
+        with pytest.raises(ProviderStateUnsupportedError):
+            toggle(adapter, project, "plugin:x@y", scope, True)
+    assert not (config_dir / "plugins" / "x").exists()
+
+
+def test_unknown_items_kinds_and_scopes_without_a_project_are_unsupported(
+    adapter, config_dir, project
+):
+    for item_id, scope, root in (
+        ("skill:ghost", "user", project),
+        ("mcp:ghost", "user", project),
+        ("hook:x", "user", project),
+        ("plugin:-x", "user", project),
+        ("plugin:x@y", "local", None),
+    ):
+        with pytest.raises(ProviderStateUnsupportedError):
+            adapter.set_enabled(
+                item_id, scope, True, fingerprint_of(adapter, root), project_root=root
+            )

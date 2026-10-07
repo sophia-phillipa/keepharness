@@ -3,7 +3,12 @@
 Reads the effective plugin, skill and MCP state from the files Claude Code itself uses, under
 ``$CLAUDE_CONFIG_DIR`` (default ``~/.claude``) and the project. Layers, strongest first: managed
 settings, ``<project>/.claude/settings.local.json``, ``<project>/.claude/settings.json``, the user
-``settings.json``. Writes are the next package; ``set_enabled`` is a stub until then.
+``settings.json``.
+
+Writes (``set_enabled``) go where Claude Code itself writes: plugins through ``claude plugin
+enable|disable``, skills as ``skillOverrides.<name>`` in the chosen scope's settings file and MCP
+servers as ``projects["<path>"].disabledMcpServers`` in ``.claude.json``, both through
+``write_json_atomic``. Direct edits need a Claude Code version inside ``tested_versions``.
 
 ``.claude.json`` holds the sign-in session. Only ``mcpServers`` (top level and under
 ``projects["<path>"]``), the project's ``disabledMcpServers`` / ``enabledMcpServers`` and
@@ -20,26 +25,36 @@ Blocking: ``read_state`` runs ``claude --version`` (10 s limit) and reads files;
 ``asyncio.to_thread``.
 """
 
+import functools
 import hashlib
 import json
 import logging
 import os
 import re
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from adapters.shared.process import child_environment
+from jsonschema import Draft7Validator
+
+from adapters.shared.process import child_environment, provider_message
 from adapters.shared.provider_state import (
+    MISSING_FILE,
     CredentialRule,
     LoginStatus,
+    ProviderCommandError,
+    ProviderStateConflictError,
     ProviderStateSchemaError,
     ProviderStateUnsupportedError,
+    ProviderStateVersionError,
     RunSetup,
     Scope,
     SecretStr,
     StateItem,
     StateSnapshot,
+    claude_json_backup_dir,
+    write_json_atomic,
 )
 
 logger = logging.getLogger(__name__)
@@ -53,6 +68,9 @@ SKILL_OVERRIDE_VALUES = frozenset({"on", "name-only", "user-invocable-only", "of
 MANAGED_REASON = "Set by managed settings"
 CHOOSE_PROJECT_REASON = "Choose a project"
 VERSION_TIMEOUT_SECONDS = 10
+PLUGIN_TIMEOUT_SECONDS = 10
+SETTINGS_SCHEMA = Path(__file__).parent / "schemas" / "claude-code-settings.schema.json"
+_PATH_IN_TEXT = re.compile(r"(?<![\w.:/])(?:~|\.{0,2})/[^\s\"']+")
 _MCP_PROJECT_KEYS = ("mcpServers", "disabledMcpServers", "enabledMcpServers")
 
 
@@ -79,13 +97,23 @@ def _read_json_object(path: Path) -> tuple[dict | None, str, str]:
     return (data, digest, "") if isinstance(data, dict) else (None, digest, "invalid")
 
 
-def _project_entry(document: dict | None, project_root: Path) -> dict:
+def _project_key(document: dict | None, project_root: Path) -> str | None:
+    """The key of ``projects`` that holds this project (as given or resolved), if any."""
     projects = document.get("projects") if document else None
     if isinstance(projects, dict):
         for key in dict.fromkeys((str(project_root), str(project_root.resolve()))):
             if isinstance(projects.get(key), dict):
-                return projects[key]
-    return {}
+                return key
+    return None
+
+
+def _project_entry(document: dict | None, project_root: Path) -> dict:
+    key = _project_key(document, project_root)
+    return document["projects"][key] if key is not None else {}
+
+
+def _tested(version: tuple[int, ...]) -> bool:
+    return _TESTED_FROM <= version < _TESTED_BELOW
 
 
 def _names(value) -> set[str]:
@@ -99,6 +127,39 @@ def _server_names(value) -> list[str]:
 def _version_tuple(text: str) -> tuple[int, ...] | None:
     found = re.search(r"\d+\.\d+\.\d+", text)
     return tuple(int(part) for part in found.group().split(".")) if found else None
+
+
+@functools.cache
+def _settings_validator() -> Draft7Validator:
+    return Draft7Validator(json.loads(SETTINGS_SCHEMA.read_text(encoding="utf-8")))
+
+
+def _settings_errors(raw: bytes) -> list[str]:
+    """Schema errors of a settings file as ``<path>: <keyword>``; never the offending value."""
+    try:
+        document = json.loads(raw)
+    except ValueError:
+        return ["not valid JSON"]
+    return sorted(
+        {
+            f"/{'/'.join(map(str, error.absolute_path))}: {error.validator}"
+            for error in _settings_validator().iter_errors(document)
+        }
+    )
+
+
+def _disabled_servers_errors(project_root: Path) -> Callable[[bytes], list[str]]:
+    def errors(raw: bytes) -> list[str]:
+        try:
+            document = json.loads(raw)
+        except ValueError:
+            return ["not valid JSON"]
+        value = _project_entry(document, project_root).get("disabledMcpServers")
+        if value is None or (isinstance(value, list) and all(isinstance(n, str) for n in value)):
+            return []
+        return ["disabledMcpServers is not a list of strings"]
+
+    return errors
 
 
 class _Reading:
@@ -415,7 +476,7 @@ class ClaudeStateAdapter:
             reading.warn("the Claude Code version could not be read")
             return ""
         text = ".".join(map(str, version))
-        if not _TESTED_FROM <= version < _TESTED_BELOW:
+        if not _tested(version):
             reading.warn(f"Claude Code {text} is outside the tested range {TESTED_VERSIONS}")
         return text
 
@@ -443,7 +504,7 @@ class ClaudeStateAdapter:
         document, _, _ = _read_json_object(self._claude_json())
         return _project_entry(document, Path(project_root)).get("hasTrustDialogAccepted") is True
 
-    # --- not in this package ---
+    # --- writing ---
 
     def set_enabled(
         self,
@@ -454,7 +515,138 @@ class ClaudeStateAdapter:
         *,
         project_root: Path | None = None,
     ) -> StateSnapshot:
-        raise ProviderStateUnsupportedError("writes land in the next package")
+        """Turn a plugin, skill or MCP server on or off in ``scope``; the fresh snapshot.
+
+        Plugins go through ``claude plugin enable|disable``. A skill is ``skillOverrides.<name>`` in
+        the settings file of ``scope`` (``on`` or ``off``; ``on`` is written explicitly, because
+        removing the key would let a weaker layer's ``off`` win again). An MCP server is an entry of
+        ``projects["<project_root>"].disabledMcpServers`` in ``.claude.json`` whatever ``scope`` is;
+        that file is only edited, never created, and a project with no entry gets a minimal one.
+        Direct edits (skills, MCP) are refused outside ``tested_versions``.
+
+        Synchronous and blocking (files, ``claude --version``, the plugin command, 10 s limits):
+        async callers use ``asyncio.to_thread``.
+        """
+        root = Path(project_root) if project_root else None
+        kind, _, name = item_id.partition(":")
+        if kind not in ("plugin", "skill", "mcp") or not name or name.startswith("-"):
+            raise ProviderStateUnsupportedError(f"{item_id} has no writer")
+        if scope in ("managed", "profile"):
+            raise ProviderStateUnsupportedError(f"the {scope} layer cannot be written")
+        snapshot = self.read_state(root)
+        if snapshot.fingerprint != expected_fingerprint:
+            raise ProviderStateConflictError("the Claude Code state changed since it was read")
+        item = next((found for found in snapshot.items if found.id == item_id), None)
+        if item is not None and not item.writable:
+            raise ProviderStateUnsupportedError(item.reason or f"{item_id} is read-only")
+        if kind == "plugin":
+            self._set_plugin(name, scope, enabled, root)
+        else:
+            if item is None:
+                raise ProviderStateUnsupportedError(f"{item_id} is not known")
+            version = _version_tuple(snapshot.cli_version)
+            if version is None or not _tested(version):
+                raise ProviderStateVersionError(
+                    f"Claude Code {snapshot.cli_version or 'of unknown version'} is outside "
+                    f"{TESTED_VERSIONS}; {kind} switches are not written"
+                )
+            if kind == "skill":
+                self._set_skill(name, scope, enabled, root)
+            else:
+                self._set_mcp(name, enabled, root)
+        return self.read_state(root)
+
+    def _settings_path(self, scope: Scope, root: Path | None) -> Path:
+        if scope == "user":
+            return self._config_dir() / "settings.json"
+        if scope not in ("project", "local") or root is None:
+            raise ProviderStateUnsupportedError(f"the {scope} layer needs a project to write")
+        return root / ".claude" / ("settings.json" if scope == "project" else "settings.local.json")
+
+    @staticmethod
+    def _confirm(found, expected) -> None:
+        if found != expected:
+            raise ProviderStateConflictError("the change did not stick; Claude Code state moved")
+
+    def _set_plugin(self, plugin_id: str, scope: Scope, enabled: bool, root: Path | None) -> None:
+        path = self._settings_path(scope, root)
+        verb = "enable" if enabled else "disable"
+        try:
+            done = subprocess.run(
+                ["claude", "plugin", verb, plugin_id, "-s", scope, "--json"],
+                cwd=root,
+                capture_output=True,
+                text=True,
+                timeout=PLUGIN_TIMEOUT_SECONDS,
+                env=child_environment(),
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            raise ProviderCommandError(f"claude plugin {verb} timed out") from None
+        except OSError:
+            raise ProviderCommandError(f"claude plugin {verb} could not run") from None
+        if done.returncode != 0:
+            try:
+                reported = json.loads(done.stdout)["message"]
+            except (ValueError, KeyError, TypeError):
+                reported = done.stdout or done.stderr
+            raise ProviderCommandError(
+                f"claude plugin {verb} failed: "
+                + provider_message(_PATH_IN_TEXT.sub("<path>", str(reported))),
+                exit_code=done.returncode,
+            )
+        document, _, _ = _read_json_object(path)
+        plugins = (document or {}).get("enabledPlugins")
+        self._confirm(plugins.get(plugin_id) if isinstance(plugins, dict) else None, enabled)
+
+    def _set_skill(self, name: str, scope: Scope, enabled: bool, root: Path | None) -> None:
+        path = self._settings_path(scope, root)
+        value = "on" if enabled else "off"
+
+        def change(document: dict) -> dict:
+            overrides = document.setdefault("skillOverrides", {})
+            if not isinstance(overrides, dict):
+                raise ProviderStateSchemaError(f"skillOverrides in {path.name} is not an object")
+            overrides[name] = value
+            return document
+
+        _, digest, problem = _read_json_object(path)
+        # An unreadable file is never treated as missing: create mode would hide it.
+        expected = MISSING_FILE if problem == "missing" else digest
+        write_json_atomic(path, change, expected, validate=_settings_errors)
+        document, _, _ = _read_json_object(path)
+        overrides = (document or {}).get("skillOverrides")
+        self._confirm(overrides.get(name) if isinstance(overrides, dict) else None, value)
+
+    def _set_mcp(self, name: str, enabled: bool, root: Path) -> None:
+        path = self._claude_json()
+        document, digest, problem = _read_json_object(path)
+        if problem == "missing":
+            raise ProviderStateUnsupportedError(".claude.json does not exist; it is not created")
+
+        def change(document: dict) -> dict:
+            key = _project_key(document, root) or str(root)
+            projects = document.setdefault("projects", {})
+            entry = projects.setdefault(key, {}) if isinstance(projects, dict) else None
+            listed = entry.get("disabledMcpServers", []) if isinstance(entry, dict) else None
+            if not isinstance(listed, list):
+                raise ProviderStateSchemaError(".claude.json does not have the expected layout")
+            kept = [server for server in listed if server != name]
+            entry["disabledMcpServers"] = kept if enabled else [*kept, name]
+            return document
+
+        write_json_atomic(
+            path,
+            change,
+            digest,
+            backup_dir=claude_json_backup_dir(self.state_dir),
+            validate=_disabled_servers_errors(root),
+        )
+        document, _, _ = _read_json_object(path)
+        disabled = _project_entry(document, root).get("disabledMcpServers")
+        self._confirm(name in disabled if isinstance(disabled, list) else None, not enabled)
+
+    # --- not in this package ---
 
     def trust_project(self, project_root: Path) -> None:
         raise ProviderStateUnsupportedError("writing trust lands with issue #44")
