@@ -528,9 +528,9 @@ class ConversationService:
         # Intentional (owner decision, F-25): unlike local_access above, a user-activated
         # cross-site top-level GET navigation still gets the Tailscale identity; every other
         # cross-site request was refused before this point.
+        # Through Serve a token is ignored (a stale Bearer must not hide the Serve identity).
         if (
-            not auth
-            and request.client
+            request.client
             and request.client.host in ("127.0.0.1", "::1")
             and self.through_tailnet_serve(request, host)
         ):

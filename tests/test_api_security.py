@@ -782,6 +782,27 @@ def test_remote_gate_is_owner_only_and_fails_closed(tmp_path):
             served.state.service.db.close()
 
 
+def test_a_stale_bearer_through_serve_still_gets_the_serve_identity(tmp_path):
+    import asyncio
+
+    stale = {"Authorization": "Bearer old-vpn-key"}
+    login = {"Tailscale-User-Login": GUEST_LOGIN, **SERVE_HEADERS}
+    refused = (401, "authentication_required")
+    app = seeded_owner_app(owner_config(tmp_path))
+    app.state.service.serve_peer_check = serve_from_tailscaled
+
+    async def scenario():
+        async with loopback(app) as client:
+            assert await who(client, headers={**stale, **login}) == (200, ["tailnet-guest-job"])
+            unlisted = {**login, "Tailscale-User-Login": "stranger@example.test"}
+            assert await who(client, headers={**stale, **unlisted}) == refused
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        app.state.service.db.close()
+
+
 def test_guest_cannot_browse_or_attach_host_files(tmp_path, monkeypatch):
     import asyncio
 
