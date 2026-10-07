@@ -86,6 +86,22 @@ def test_backup_with_secrets_adds_them_but_still_not_the_environment(tmp_path):
     assert manifest["with_secrets"] is True
 
 
+@pytest.mark.parametrize("with_secrets", [False, True])
+def test_backup_never_carries_the_claude_json_copies(tmp_path, with_secrets):
+    state = make_state(tmp_path)
+    copies = state / "backups/claude-json"
+    copies.mkdir(parents=True)
+    (copies / "00000000000000000001.json").write_text('{"oauthAccount": {"accessToken": "t"}}')
+    (state / "backups/other.txt").write_text("not a copy of ~/.claude.json")
+    archive = tmp_path / "out.tar.gz"
+
+    backup.create(state, archive, with_secrets=with_secrets)
+
+    found = names(archive)
+    assert "backups/other.txt" in found
+    assert not {n for n in found if n.startswith("backups/claude-json")}
+
+
 def test_backup_taken_while_a_writer_inserts_restores_the_counts_of_that_moment(tmp_path):
     state = make_state(tmp_path)
     stop, writing = threading.Event(), threading.Event()

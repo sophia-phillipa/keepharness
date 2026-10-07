@@ -24,6 +24,8 @@ from contextlib import closing
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from adapters.shared.provider_state import CLAUDE_JSON_BACKUP_PARTS
+
 from .product import (
     LEGACY_FOLDERS,
     LEGACY_MARKER,
@@ -176,7 +178,10 @@ def describe_plan(plan, stamp):
 def backup(plan, archive):
     def without_environment(member):
         parts = Path(member.name).parts
-        return None if len(parts) > 1 and parts[1] == "venv" else member
+        if len(parts) > 1 and parts[1] == "venv":
+            return None
+        # copies of ~/.claude.json hold the sign-in session: never archived
+        return None if parts[1:1 + len(CLAUDE_JSON_BACKUP_PARTS)] == CLAUDE_JSON_BACKUP_PARTS else member
 
     with tarfile.open(archive, "x") as tar:
         for folder in (plan.old, plan.new):

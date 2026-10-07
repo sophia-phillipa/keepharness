@@ -3,7 +3,8 @@
 ``keepharness backup`` writes one owner-only archive: every SQLite database is copied with
 SQLite's online backup API (consistent while the harness writes), and a manifest with the row
 counts comes first. Provider logins, keys and sessions stay out unless ``--with-secrets`` asks
-for them; the program's own environment (``venv``) and the logs never go in.
+for them; the program's own environment (``venv``), the logs and the pre-write copies of the
+owner's ``~/.claude.json`` (``backups/claude-json``) never go in.
 
 ``keepharness restore ARCHIVE`` prints the plan and changes nothing; ``--apply`` runs it. It
 refuses while the state is in use, and while the folder already holds data unless ``--replace``
@@ -22,6 +23,7 @@ import time
 from contextlib import closing
 from pathlib import Path
 
+from adapters.shared.provider_state import CLAUDE_JSON_BACKUP_PARTS
 from agent_service.config import VERSION_FILE
 
 from .product import (
@@ -64,6 +66,8 @@ def is_secret(relative: Path) -> bool:
 def wanted(relative: Path, with_secrets: bool) -> bool:
     if relative.parts[0] in KEPT or relative.name.endswith(VOLATILE_SUFFIXES):
         return False
+    if relative.parts[: len(CLAUDE_JSON_BACKUP_PARTS)] == CLAUDE_JSON_BACKUP_PARTS:
+        return False  # copies of ~/.claude.json hold the sign-in session: never exported
     return with_secrets or not is_secret(relative)
 
 

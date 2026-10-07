@@ -37,6 +37,10 @@ With one person on two machines, the gate decides who gets in and nothing inside
 
 Removes the guest code paths, the VPN key and `control/integrations.py`; changes the run builders, the Plugins switches and the remote gate tests. Needs tests for the owner-only gate, trust, project MCP approval (marker file), `~/.claude.json` backup and restore, and DeepSeek key leakage. Release notes name the ignored `<state>/providers/home`.
 
+## Amendment (2026-10-07, #37 review)
+
+Validation of a direct JSON edit now runs on the new bytes before the file is replaced, so an invalid result is refused and never written. The "restore the backup on a new error" step, and the "restore only over KeepHarness's own bytes" rule that came with it, are no longer needed. The policy is unchanged: back up first, validate the touched key, never leave a new error in the owner's file.
+
 ## Follow-up
 
 The issue split is in the [design](../provider-facade-design.md#proposed-issue-split); the guest and multi-identity removal is split in three (4a-4c) before entering a wave. Revisit if KeepHarness ever serves a second person (a new decision then restores per-identity policy), or if Claude Code gains a documented API for MCP switches (replace the direct edit).
