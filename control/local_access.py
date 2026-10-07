@@ -45,7 +45,7 @@ ESTABLISHED = "01"
 # account), so Serve cannot be proven there and 65534 must never be accepted instead.
 USER_NAMESPACE_NOTICE = (
     "Tailnet sign-in is off: KeepHarness runs inside a user namespace; "
-    "run it on the host or use the VPN key"
+    "run it on the host"
 )
 
 
@@ -185,6 +185,24 @@ def host_allowed(host: str, names: Iterable[str]) -> bool:
     except ValueError:
         return False
     return bool(name) and name in names
+
+
+FORWARD_HEADERS = ("x-forwarded-for", "forwarded", "x-real-ip")
+
+
+def direct_loopback(request) -> bool:
+    """The one "direct loopback channel" test of the admin and the harness.
+
+    A loopback peer that is not a proxy forward: no forwarding header and no ``tailscale-*``
+    header, whatever its case. Tailscale Serve reaches the app from 127.0.0.1 too, so the
+    peer address alone never proves that the owner's own program is calling.
+    """
+    return (
+        request.client is not None
+        and request.client.host in ("127.0.0.1", "::1")
+        and not any(request.headers.get(name) for name in FORWARD_HEADERS)
+        and not any(name.lower().startswith("tailscale-") for name in request.headers)
+    )
 
 
 def origin_names(origins: Iterable[str]) -> frozenset[str]:

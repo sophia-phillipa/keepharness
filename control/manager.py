@@ -1,7 +1,6 @@
 """Admin-panel state: settings, provider checks and the agent-service process."""
 
 import asyncio
-import ipaddress
 import json
 import logging
 import os
@@ -94,6 +93,13 @@ def migrate_local_ai_directory(root: Path, state: Path) -> None:
         target.write_text(text.replace("local-ai/", "local_ai/"))
 
 
+def clamp_legacy_bind(settings):
+    """Load a saved or imported non-loopback ``vpn_bind`` (VPN key era) as 127.0.0.1 (D-039)."""
+    if isinstance(settings, dict) and settings.get("vpn_bind", "127.0.0.1") != "127.0.0.1":
+        logger.warning("Ignoring a saved non-loopback vpn_bind; the harness listens on 127.0.0.1.")
+        settings["vpn_bind"] = "127.0.0.1"
+
+
 class Manager:
     def __init__(self, state):
         self.state = Path(state)
@@ -142,6 +148,7 @@ class Manager:
                 "logins": [],
             }
         )
+        clamp_legacy_bind(self.settings)
         self.settings["services"].setdefault(
             "deepseek",
             {
@@ -236,18 +243,10 @@ class Manager:
         bind = data.get("vpn_bind", "127.0.0.1")
         if not isinstance(bind, str):
             raise UserMessageError("Provide the private IP as text.")
-        try:
-            address = ipaddress.ip_address(bind)
-        except ValueError:
-            raise UserMessageError("Provide the private IP as a valid IPv4 address.") from None
-        if (
-            address.version != 4
-            or not (address.is_loopback or address.is_private)
-            or address.is_unspecified
-            or address.is_multicast
-        ):
+        if bind != "127.0.0.1":
             raise UserMessageError(
-                "Use only the private IP specific to the VPN interface, never 0.0.0.0."
+                "The harness listens only on the private loopback address 127.0.0.1; "
+                "remote access goes through Tailscale Serve."
             )
         out["vpn_bind"] = bind
         out["uploads_enabled"] = data.get("uploads_enabled") is True or any(
@@ -262,7 +261,7 @@ class Manager:
         if type(data.get("full_access", False)) is not bool:
             raise UserMessageError("Allow Full access must be an explicit boolean.")
         out["full_access"] = data.get("full_access", False)
-        # Registered projects reach guests and the VPN key only when the owner shares them.
+        # Registered projects reach guests only when the owner shares them.
         if type(data.get("shared_projects", False)) is not bool:
             raise UserMessageError("Share projects with guests must be an explicit boolean.")
         out["shared_projects"] = data.get("shared_projects", False)
@@ -896,10 +895,6 @@ class Manager:
             raise UserMessageError("Connect Tailscale first.")
         receipt = self.state / "tailnet.json"
         if enabled:
-            if self.settings.get("vpn_bind", "127.0.0.1") != "127.0.0.1":
-                raise UserMessageError(
-                    "For Tailscale Serve, use the local address 127.0.0.1; for another VPN, use the configured IP directly."
-                )
             if not self.running() or not self.settings["logins"]:
                 raise UserMessageError(
                     "Start the harness and register allowed identities before sharing."

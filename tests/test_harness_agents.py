@@ -79,7 +79,7 @@ def api(config):
 
 @pytest.fixture
 def remote(config):
-    """An authenticated client that is not the local browser (a VPN or tailnet device)."""
+    """A key-holding client that is not the local browser (the MCP bridge on this computer)."""
     with TestClient(create_app(config), headers={"Authorization": "Bearer a"}) as client:
         yield client
 
@@ -208,9 +208,14 @@ def test_every_authenticated_client_lists_and_uses_harness_agents(api, remote):
 
 
 def test_a_header_never_makes_a_client_local(remote):
-    spoofed = {"X-Forwarded-For": "127.0.0.1", "X-Harness-Client": "local", "Host": "localhost"}
+    spoofed = {"X-Harness-Client": "local", "Host": "localhost"}
     response = remote.post("/v1/harness-agents", json=agent(), headers=spoofed)
     assert response.status_code == 403 and response.json()["code"] == "harness_agent_local_only"
+    # A forwarded request is not a direct local peer: the token is not honored at all.
+    forwarded = remote.post(
+        "/v1/harness-agents", json=agent(), headers={**spoofed, "X-Forwarded-For": "127.0.0.1"}
+    )
+    assert forwarded.status_code == 401
     assert remote.get("/v1/harness-agents").json() == {"agents": []}
 
 

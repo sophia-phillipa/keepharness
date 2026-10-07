@@ -234,21 +234,12 @@ def mark_unrestricted(cfg, integrations):
 
 
 def build_clients(cfg, settings, state, previous):
-    """Reuse known client hashes; creates ``vpn.key`` on first use (after provider checks)."""
+    """Reuse known client hashes and drop the retired shared ``vpn.key`` (after provider checks)."""
     all_projects = list(cfg["projects"])
-    vpnkey = state / "vpn.key"
-    if not vpnkey.exists():
-        vpnkey.write_text(secrets.token_urlsafe(48))
-        vpnkey.chmod(0o600)
+    (state / "vpn.key").unlink(missing_ok=True)
     clients = previous.get("clients", {})
     # Only the local owner starts with every project; the others start with "No project" and
     # receive the rest when the owner shares them (ProjectService.share_projects).
-    cfg["clients"]["vpn"] = {
-        "sha256": clients.get("vpn", {}).get(
-            "sha256", hashlib.sha256(vpnkey.read_text().encode()).hexdigest()
-        ),
-        "projects": ["sem-projeto"],
-    }
     cfg["clients"]["local"] = {
         "sha256": clients.get("local", {}).get(
             "sha256", hashlib.sha256(secrets.token_bytes(48)).hexdigest()

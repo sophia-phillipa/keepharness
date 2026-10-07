@@ -37,7 +37,7 @@ from .local_models import (
     save_profile,
     validate_profile,
 )
-from .manager import PERMISSIONS
+from .manager import PERMISSIONS, clamp_legacy_bind
 from .operations import operation
 from .product import LEGACY_MARKER, PRODUCT, is_original
 from .remote_models import add_remote_model, remove_remote_model
@@ -65,10 +65,8 @@ def admin_guard(request, manager, port):
     allowed = (f"127.0.0.1:{port}", f"localhost:{port}")
     if (
         not local_access.host_allowed(request.headers.get("host", ""), local_access.LOOPBACK_NAMES)
-        or (request.client is None or request.client.host not in ("127.0.0.1", "::1", "testclient"))
-        or request.headers.get("tailscale-user-login")
-        # Funnel would put the panel on the public internet; refuse it whatever the Host says.
-        or "tailscale-funnel-request" in request.headers
+        # Any tailscale-* header (Serve identity, Funnel's public-internet marker) or forward.
+        or not local_access.direct_loopback(request)
     ):
         return JSONResponse({"error": "Management is only available on this machine."}, 403)
     origin = request.headers.get("origin")
@@ -301,6 +299,7 @@ async def import_settings(request, manager, data):
         or bundle.get("version") != 1
     ):
         raise UserMessageError("Incompatible configuration format.")
+    clamp_legacy_bind(bundle.get("settings"))  # an export from the VPN key era
     imported = manager.validate(bundle.get("settings"))
     profile = validate_profile(bundle.get("local_profile", {}), state_dir=manager.state)
     profiles = bundle.get("local_profiles", {})
@@ -630,15 +629,6 @@ async def start_local_model(request, manager, data):
     return result
 
 
-async def reveal_vpn_key(request, manager, data):
-    key = manager.state / "vpn.key"
-    if not key.exists():
-        raise UserMessageError("Start the harness first to generate the key.")
-    result = {"token": key.read_text()}
-    manager.audit("vpn_key_revealed")
-    return result
-
-
 async def set_tailnet(request, manager, data):
     await manager.tailnet(data.get("enabled") is True)
     result = manager.status()
@@ -686,7 +676,6 @@ POST_ROUTES = {
     "/api/local-start": start_local_model,
     "/api/remote-model-add": add_remote_model,
     "/api/remote-model-remove": remove_remote_model,
-    "/api/vpn-key": reveal_vpn_key,
     "/api/tailnet": set_tailnet,
 }
 

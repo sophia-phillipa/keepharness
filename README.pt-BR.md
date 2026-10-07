@@ -2,7 +2,7 @@
 
 [![🇺🇸 English](https://img.shields.io/badge/%F0%9F%87%BA%F0%9F%87%B8-English-blue.svg)](README.md) [![🇧🇷 Português (Brasil)](https://img.shields.io/badge/%F0%9F%87%A7%F0%9F%87%B7-Portugu%C3%AAs%20(Brasil)-green.svg)](README.pt-BR.md)
 
-Painel local em Python para descobrir, configurar e executar o Codex CLI, o Claude Code, o Gemini CLI e modelos de IA locais, com uma interface de conversa acessível pela Tailscale ou outra VPN. Python 3.11+, licença MIT, versão **0.16.0**.
+Painel local em Python para descobrir, configurar e executar o Codex CLI, o Claude Code, o Gemini CLI e modelos de IA locais, com uma interface de conversa acessível pela Tailscale. Python 3.11+, licença MIT, versão **0.16.0**.
 
 ## 🚀 Installation — agent-guided (start here)
 
@@ -89,7 +89,7 @@ O encerramento permite até 60 segundos para drenar os trabalhos, seguidos pelo 
 2. Complete o fluxo oficial de autorização do CLI usando o link mostrado em Operações.
 3. Escolha modelos e integrações; configure permissões para modelos locais.
 4. Salve um modelo habilitado; o harness inicia automaticamente.
-5. Para acesso remoto, autorize identidades Tailscale ou configure um endereço de VPN privado e uma chave de acesso.
+5. Para acesso remoto, autorize a identidade Tailscale do dono.
 
 A descoberta não concede permissões. O DeepSeek permite usar sua própria chave de API; as credenciais ficam privadas e são excluídas das exportações. A inferência do Codex e do Claude usa os respectivos serviços em nuvem. O backend local usa o Codex como agente com um endpoint de inferência local; ferramentas e integrações com internet habilitada ainda podem fazer requisições externas.
 
@@ -156,13 +156,13 @@ Instale Python e as dependências do projeto no outro computador, copie o projet
     "keepharness": {
       "command": "/caminho/keepharness/.venv/bin/python",
       "args": ["/caminho/keepharness/agent_service/mcp_bridge.py"],
-      "env": {"KEEPHARNESS_AGENT_URL": "http://SEU-SERVIDOR:8095"}
+      "env": {"KEEPHARNESS_AGENT_URL": "https://SEU-SERVIDOR-TAILSCALE"}
     }
   }
 }
 ```
 
-Na Tailscale com uma identidade autorizada, a rota encaminha a identidade. Para uma VPN com chave, crie `~/.config/keepharness/client.json` contendo `{"url":"http://IP-DA-VPN:8095","key_file":"/caminho/privado/para/a/chave"}`. Mantenha a chave em um arquivo privado nesse computador. Nunca coloque uma chave no Git ou em prompts.
+O acesso remoto é somente do dono, pela Tailscale Serve, que encaminha a identidade do dono. Não existe chave compartilhada: um token bearer ou cookie só vale em uma conexão local direta, então um cliente MCP em outro computador não consegue se autenticar com um. O bridge só funciona a partir de outro computador pela Tailscale Serve (a URL `https://SEU-SERVIDOR-TAILSCALE` acima), com o login Tailscale desse computador na lista de permitidos; o `client.json` dele não precisa de `key_file`.
 
 O bridge oferece descoberta de modelos/projetos, transferência de arquivos e workspaces, tarefas, progresso compacto, artefatos, cancelamento e aprovações. Continue uma sessão usando o último `job_id` como `parent_job_id`. A execução automática escolhe o executor padrão configurado ou o primeiro serviço elegível habilitado. Unidades systemd de projetos cadastrados só podem ser controladas pelas permissões correspondentes e por pedidos explícitos.
 
@@ -200,7 +200,7 @@ Na configuração de cada projeto, **Serviços deste projeto** cadastra unidades
 
 ```mermaid
 flowchart LR
-  Browser[Harness no navegador] --> VPN[Tailscale ou VPN]
+  Browser[Harness no navegador] --> VPN[Tailscale]
   VPN --> API[API Python e SSE]
   Admin[Administração local] --> Config[Configuração privada]
   Config --> API
@@ -253,9 +253,9 @@ O acesso tem quatro modos: Somente leitura, Pedir aprovação, Automático e Ace
 
 ## 🧙 Setup wizard and portable configuration
 
-O dashboard mostra somente os provedores cadastrados, com ações de edição e exclusão. **Adicionar provedor** abre um assistente de três etapas: **Serviço e modelos → Permissões e projetos → Revisão**. Permissões detalhadas, conectores, instalação de modelos, portas e outras VPNs ficam em opções expansíveis. O botão **Usar configuração atual** captura os parâmetros de desempenho do llama.cpp em execução sem reiniciá-lo e grava `local-profile.json` no diretório privado de estado (modo 0600). Esse perfil preserva GPU, MoE na CPU, threads e afinidade para futuras inicializações do mesmo modelo pelo painel; não copia chaves nem argumentos arbitrários.
+O dashboard mostra somente os provedores cadastrados, com ações de edição e exclusão. **Adicionar provedor** abre um assistente de três etapas: **Serviço e modelos → Permissões e projetos → Revisão**. Permissões detalhadas, conectores, instalação de modelos, portas e a Tailscale Serve ficam em opções expansíveis. O botão **Usar configuração atual** captura os parâmetros de desempenho do llama.cpp em execução sem reiniciá-lo e grava `local-profile.json` no diretório privado de estado (modo 0600). Esse perfil preserva GPU, MoE na CPU, threads e afinidade para futuras inicializações do mesmo modelo pelo painel; não copia chaves nem argumentos arbitrários.
 
-No dashboard, em **Acesso remoto e configuração → Exportar ou importar configuração**, exporte as escolhas salvas ou selecione um arquivo JSON para pré-visualizar e aplicar. Credenciais, tokens e chaves de VPN são excluídos. O arquivo ainda contém caminhos locais e identidades autorizadas: trate-o como privado. A importação valida caminhos e integrações existentes, não inicia serviços e não pode substituir escolhas durante uma execução ativa. Sem um perfil no arquivo, o perfil local atual é preservado.
+No dashboard, em **Acesso remoto e configuração → Exportar ou importar configuração**, exporte as escolhas salvas ou selecione um arquivo JSON para pré-visualizar e aplicar. Credenciais e tokens são excluídos. O arquivo ainda contém caminhos locais e identidades autorizadas: trate-o como privado. A importação valida caminhos e integrações existentes, não inicia serviços e não pode substituir escolhas durante uma execução ativa. Sem um perfil no arquivo, o perfil local atual é preservado.
 
 Para verificar o pacote já instalado, use o Python do ambiente da instalação (`~/.local/share/keepharness/venv` para `install.sh`, `.venv` para `setup.sh`):
 

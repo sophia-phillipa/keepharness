@@ -47,8 +47,12 @@ class ControlTest(unittest.TestCase):
         settings["vpn_bind"] = "0.0.0.0"
         with self.assertRaisesRegex(ValueError, "private"):
             self.manager.validate(settings)
-        settings["vpn_bind"] = "10.44.0.2"
-        self.assertEqual(self.manager.validate(settings)["vpn_bind"], "10.44.0.2")
+        for refused in ("10.44.0.2", "::1", "127.0.0.2"):
+            settings["vpn_bind"] = refused
+            with self.assertRaisesRegex(ValueError, "private loopback"):
+                self.manager.validate(settings)
+        settings["vpn_bind"] = "127.0.0.1"
+        self.assertEqual(self.manager.validate(settings)["vpn_bind"], "127.0.0.1")
 
     def test_claude_cli_aliases_are_rejected_like_the_ui_hides_them(self):
         # Same rule as HarnessUI.selectableModel: only versioned claude-<family>-<n> ids.
@@ -97,7 +101,7 @@ class ControlTest(unittest.TestCase):
         self.assertEqual(
             notice,
             "Tailnet sign-in is off: KeepHarness runs inside a user namespace; "
-            "run it on the host or use the VPN key",
+            "run it on the host",
         )
         with patch("control.local_access.in_user_namespace", return_value=False):
             self.assertIsNone(self.manager.status()["tailnet_signin_off"])

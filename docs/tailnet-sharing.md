@@ -13,7 +13,7 @@ All six were accepted as recommended.
 | N3 | Granularity of "projects shared with guests". | One owner switch for all registered projects (`shared_projects`, already in S2a, default off). | It exists and covers one guest. | A second guest needs a different set of projects; then a per-guest list. |
 | N4 | Switching an existing HTTP share to HTTPS. | Explicit only: the next `share` command or an admin toggle, with a warning in the status until then. Never automatic at upgrade. | An automatic switch silently breaks MCP bridges configured on `http://…:8095`. | — |
 | N5 | Which tailnet peers the discovery probe contacts. | Every online peer, tagged devices included, except devices shared in from other tailnets. | Finds the owner's instances without probing other people's machines. | — |
-| N6 | Accept 100.64.0.0/10 addresses in `vpn_bind` (asked by OPS-P13)? | No. Tailscale Serve stays the only tailnet path. | Serve is what proves who is connecting (peer uid proof, identity headers); a direct bind would take the VPN key over plain HTTP without that proof. | — |
+| N6 | Accept 100.64.0.0/10 addresses in `vpn_bind` (asked by OPS-P13)? | No. Tailscale Serve stays the only tailnet path. | Serve is what proves who is connecting (peer uid proof, identity headers); a direct bind would accept credentials over plain HTTP without that proof. | — |
 
 ## Consequences for the next slices
 

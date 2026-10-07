@@ -131,8 +131,19 @@ def test_non_numeric_gpu_layers_show_a_sentence(admin, tmp_path, monkeypatch):  
 
 
 def test_a_vpn_bind_that_is_not_an_ip_shows_a_sentence(tmp_path):
-    with pytest.raises(UserMessageError, match="valid IPv4"):
+    with pytest.raises(UserMessageError, match="only on the private loopback address 127.0.0.1"):
         Manager(tmp_path).validate({"vpn_bind": "not-an-ip"})
+
+
+def test_a_legacy_non_loopback_vpn_bind_loads_as_loopback(tmp_path, caplog):
+    first = Manager(tmp_path)
+    first.settings["vpn_bind"] = "10.44.0.2"
+    first.path.write_text(json.dumps(first.settings))
+    with caplog.at_level("WARNING", logger="control.manager"):
+        loaded = Manager(tmp_path)
+    assert loaded.settings["vpn_bind"] == "127.0.0.1"
+    assert [r.levelname for r in caplog.records if "vpn_bind" in r.getMessage()] == ["WARNING"]
+    assert Manager(tmp_path).settings["vpn_bind"] == "127.0.0.1"  # coerced again until the next save
 
 
 class _Proc:

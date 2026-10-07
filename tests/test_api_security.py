@@ -232,7 +232,7 @@ def owner_config(tmp_path, **overrides):
         "projects": {"sem-projeto": {}},
         "clients": {
             name: {"sha256": hashlib.sha256(name.encode()).hexdigest(), "projects": ["sem-projeto"]}
-            for name in ("local", "tailnet-guest", "vpn")
+            for name in ("local", "tailnet-guest", "token-guest")
         },
         "services": {},
     }
@@ -403,8 +403,8 @@ def test_tailscale_login_requires_remote_host(tmp_path):
                 response = await client.get(path, headers=rebinding)
                 assert (response.status_code, response.json()["code"]) == (403, "host_denied")
             # An explicit bearer token cannot be planted by another site, so it keeps working.
-            bearer = {"Authorization": "Bearer vpn", "Host": "attacker.test"}
-            assert await who(client, headers=bearer) == (200, ["vpn-job"])
+            bearer = {"Authorization": "Bearer token-guest", "Host": "attacker.test"}
+            assert await who(client, headers=bearer) == (200, ["token-guest-job"])
 
     try:
         asyncio.run(scenario())
@@ -462,7 +462,7 @@ def test_project_management_local_only(tmp_path):
     cfg = owner_config(tmp_path, project_registration=True, shared_projects=True)
     app = create_app(cfg)
     owner = owner_cookie(cfg)
-    vpn = {"Authorization": "Bearer vpn"}
+    guest = {"Authorization": "Bearer token-guest"}
 
     async def scenario():
         async with loopback(app) as client:
@@ -472,7 +472,7 @@ def test_project_management_local_only(tmp_path):
             assert created.status_code == 201, created.text
             pid = created.json()["project_id"]
             # Shared on purpose here, so only the new gate stands between a guest and the folder.
-            assert pid in (await client.get("/v1/projects", headers=vpn)).json()["projects"]
+            assert pid in (await client.get("/v1/projects", headers=guest)).json()["projects"]
             preview = (
                 await client.get("/v1/project-folder", params={"project_id": pid}, cookies=owner)
             ).json()
@@ -488,7 +488,7 @@ def test_project_management_local_only(tmp_path):
                 ("GET", "/v1/project-directories", None, None),
             )
             for method, path, params, data in attempts:
-                response = await client.request(method, path, params=params, json=data, headers=vpn)
+                response = await client.request(method, path, params=params, json=data, headers=guest)
                 assert (response.status_code, response.json()["code"]) == (
                     403,
                     "project_management_local_only",
@@ -517,7 +517,7 @@ def test_registered_projects_stay_with_the_owner_unless_shared(tmp_path):
             pid = created.json()["project_id"]
             assert pid in (await client.get("/v1/projects", cookies=owner)).json()["projects"]
             guest = (
-                await client.get("/v1/projects", headers={"Authorization": "Bearer vpn"})
+                await client.get("/v1/projects", headers={"Authorization": "Bearer token-guest"})
             ).json()
             assert guest["projects"] == ["sem-projeto"]
             return pid
@@ -530,7 +530,7 @@ def test_registered_projects_stay_with_the_owner_unless_shared(tmp_path):
     try:
         clients = restarted.state.service.config["clients"]
         assert pid in clients["local"]["projects"]
-        assert pid not in clients["vpn"]["projects"]
+        assert pid not in clients["token-guest"]["projects"]
         assert pid not in clients["tailnet-guest"]["projects"]
     finally:
         restarted.state.service.db.close()
@@ -584,7 +584,7 @@ def test_non_local_views_redacted(tmp_path, monkeypatch):
             views = {}
             for name, credential in (
                 ("owner", {"cookies": owner}),
-                ("guest", {"headers": {"Authorization": "Bearer vpn"}}),
+                ("guest", {"headers": {"Authorization": "Bearer token-guest"}}),
             ):
                 views[name] = {
                     path: await client.get(path, params=params, **credential)
@@ -611,7 +611,7 @@ def test_non_local_views_redacted(tmp_path, monkeypatch):
             items = views["guest"]["/v1/resources"].json()["items"]
             assert "private-skill" not in {item["name"] for item in items}
             guest_dirs = await client.get(
-                "/v1/project-directories", headers={"Authorization": "Bearer vpn"}
+                "/v1/project-directories", headers={"Authorization": "Bearer token-guest"}
             )
             assert guest_dirs.status_code == 403
 
@@ -643,7 +643,7 @@ def test_funnel_request_is_refused(tmp_path):
             for headers, cookies in (
                 ({**serve, **funnel}, None),
                 (funnel, owner_cookie(cfg)),
-                ({**funnel, "Authorization": "Bearer vpn"}, None),
+                ({**funnel, "Authorization": "Bearer token-guest"}, None),
             ):
                 assert await who(client, headers=headers, cookies=cookies) == (
                     403,
@@ -668,6 +668,176 @@ def test_funnel_request_is_refused(tmp_path):
     asyncio.run(admin_scenario())
 
 
+def peer(app, address="127.0.0.1"):
+    import httpx
+
+    return httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app, client=(address, 4321)),
+        base_url="http://127.0.0.1:8095",
+    )
+
+
+def test_tokens_never_substitute_for_a_tailnet_identity(tmp_path):
+    """A bearer header or harness_token cookie identifies only a direct loopback peer (F4/F5)."""
+    import asyncio
+
+    cfg = owner_config(tmp_path)
+    app = seeded_owner_app(cfg)
+    app.state.service.serve_peer_check = serve_from_tailscaled
+    bearer = {"Authorization": "Bearer tailnet-guest"}
+    cookie = {"harness_token": "tailnet-guest"}
+    refused = (401, "authentication_required")
+    forwarded = (
+        SERVE_HEADERS,
+        {"X-Forwarded-For": "100.101.102.103"},
+        {"Tailscale-User-Login": GUEST_LOGIN},
+        {"Tailscale-Name": "Guest"},
+    )
+
+    async def scenario():
+        async with loopback(app) as client:
+            assert await who(client, headers=bearer) == (200, ["tailnet-guest-job"])
+            assert await who(client, cookies=cookie) == (200, ["tailnet-guest-job"])
+            for extra in forwarded:
+                assert await who(client, headers={**bearer, **extra}) == refused, extra
+                assert await who(client, cookies=cookie, headers=extra) == refused, extra
+            # The retired shared key: no client carries it any more.
+            assert await who(client, headers={"Authorization": "Bearer vpn"}) == refused
+        for address in ("100.101.102.103", "192.168.1.20", "::2"):
+            async with peer(app, address) as client:
+                assert await who(client, headers=bearer) == refused, address
+                assert await who(client, cookies=cookie) == refused, address
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        app.state.service.db.close()
+
+
+def test_login_accepts_a_token_only_from_a_direct_loopback_peer(tmp_path):
+    import asyncio
+
+    app = seeded_owner_app(owner_config(tmp_path))
+    app.state.service.serve_peer_check = serve_from_tailscaled
+    origin = {"Origin": "http://127.0.0.1:8095"}
+    token = {"token": "tailnet-guest"}
+
+    async def scenario():
+        async with loopback(app) as client:
+            ok = await client.post("/v1/login", json=token, headers=origin)
+            assert ok.status_code == 200 and "harness_token" in ok.headers["set-cookie"]
+            for extra in (SERVE_HEADERS, {"Tailscale-User-Login": GUEST_LOGIN}):
+                response = await client.post("/v1/login", json=token, headers={**origin, **extra})
+                assert (response.status_code, "set-cookie" in response.headers) == (401, False)
+            retired = await client.post("/v1/login", json={"token": "vpn"}, headers=origin)
+            assert retired.status_code == 401
+        async with peer(app, "100.101.102.103") as client:
+            response = await client.post("/v1/login", json=token, headers=origin)
+            assert (response.status_code, "set-cookie" in response.headers) == (401, False)
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        app.state.service.db.close()
+
+
+def test_direct_loopback_is_one_helper_for_the_harness_and_the_admin(tmp_path, monkeypatch):
+    import asyncio
+    from types import SimpleNamespace
+
+    from starlette.datastructures import Headers
+
+    from control import local_access
+
+    def request(host, **headers):
+        return SimpleNamespace(client=SimpleNamespace(host=host), headers=Headers(headers))
+
+    assert local_access.direct_loopback(request("127.0.0.1"))
+    assert local_access.direct_loopback(request("::1", Accept="*/*"))
+    assert not local_access.direct_loopback(SimpleNamespace(client=None, headers=Headers({})))
+    assert not local_access.direct_loopback(request("100.101.102.103"))
+    for name in ("X-Forwarded-For", "Forwarded", "X-Real-IP", "Tailscale-Foo", "TAILSCALE-APP"):
+        assert not local_access.direct_loopback(request("127.0.0.1", **{name: "x"})), name
+
+    app = seeded_owner_app(owner_config(tmp_path))
+    origin = {"Origin": "http://127.0.0.1:8095"}
+
+    async def scenario():
+        async with loopback(app) as client:
+            monkeypatch.setattr(local_access, "direct_loopback", lambda request: False)
+            response = await client.post(
+                "/v1/login", json={"token": "tailnet-guest"}, headers=origin
+            )
+            assert response.status_code == 401
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        app.state.service.db.close()
+
+
+def test_remote_gate_is_owner_only_and_fails_closed(tmp_path):
+    import asyncio
+
+    login = {"Tailscale-User-Login": GUEST_LOGIN, **SERVE_HEADERS}
+    refused = (401, "authentication_required")
+    cfg = owner_config(tmp_path / "listed")
+    app = seeded_owner_app(cfg)
+    empty = seeded_owner_app(owner_config(tmp_path / "empty", tailscale_logins={}))
+    foreign = seeded_owner_app(owner_config(tmp_path / "foreign"))
+    off_cfg = owner_config(tmp_path / "off", local_access=False)
+    off = seeded_owner_app(off_cfg)
+    for served in (app, empty, off):
+        served.state.service.serve_peer_check = serve_from_tailscaled
+    foreign.state.service.serve_peer_check = lambda client, port: False
+
+    async def scenario():
+        owner = owner_cookie(cfg)
+        async with loopback(app) as client:
+            # An allow-listed login, through Serve, on a socket tailscaled owns.
+            assert await who(client, headers=login) == (200, ["tailnet-guest-job"])
+            unlisted = {**login, "Tailscale-User-Login": "stranger@example.test"}
+            assert await who(client, headers=unlisted) == refused
+            # `local` needs the owner's session, a loopback peer and a loopback Host.
+            assert await who(client, cookies=owner) == (200, ["local-job"])
+            assert await who(client) == refused
+        async with peer(app, "100.101.102.103") as client:
+            assert await who(client, cookies=owner) == refused
+        async with loopback(empty) as client:
+            assert await who(client, headers=login) == refused  # empty allow list
+        async with loopback(foreign) as client:
+            assert await who(client, headers=login) == refused  # headers from a foreign socket
+        async with loopback(off) as client:
+            assert await who(client, cookies=owner_cookie(off_cfg)) == refused  # local_access off
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        for served in (app, empty, foreign, off):
+            served.state.service.db.close()
+
+
+def test_a_stale_bearer_through_serve_still_gets_the_serve_identity(tmp_path):
+    import asyncio
+
+    stale = {"Authorization": "Bearer old-vpn-key"}
+    login = {"Tailscale-User-Login": GUEST_LOGIN, **SERVE_HEADERS}
+    refused = (401, "authentication_required")
+    app = seeded_owner_app(owner_config(tmp_path))
+    app.state.service.serve_peer_check = serve_from_tailscaled
+
+    async def scenario():
+        async with loopback(app) as client:
+            assert await who(client, headers={**stale, **login}) == (200, ["tailnet-guest-job"])
+            unlisted = {**login, "Tailscale-User-Login": "stranger@example.test"}
+            assert await who(client, headers={**stale, **unlisted}) == refused
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        app.state.service.db.close()
+
+
 def test_guest_cannot_browse_or_attach_host_files(tmp_path, monkeypatch):
     import asyncio
 
@@ -690,7 +860,7 @@ def test_guest_cannot_browse_or_attach_host_files(tmp_path, monkeypatch):
     )
     app = create_app(cfg)
     owner = owner_cookie(cfg)
-    vpn = {"Authorization": "Bearer vpn"}
+    guest = {"Authorization": "Bearer token-guest"}
     attach = "/v1/project-files/attach?project_id=sem-projeto&backend=codex&model=fixture"
     from_root = (home / "notes.txt").relative_to("/").as_posix()
 
@@ -698,15 +868,15 @@ def test_guest_cannot_browse_or_attach_host_files(tmp_path, monkeypatch):
         async with loopback(app) as client:
             tree = "/v1/project-files?view=tree&root_id=home"
             attempts = (
-                await client.get(tree, headers=vpn),
-                await client.get("/v1/project-files?view=tree", headers=vpn),
+                await client.get(tree, headers=guest),
+                await client.get("/v1/project-files?view=tree", headers=guest),
                 await client.post(
-                    attach, json={"root_id": "home", "paths": ["notes.txt"]}, headers=vpn
+                    attach, json={"root_id": "home", "paths": ["notes.txt"]}, headers=guest
                 ),
                 # The attach root used to default to the filesystem root, which reaches the same file.
-                await client.post(attach, json={"paths": [from_root]}, headers=vpn),
+                await client.post(attach, json={"paths": [from_root]}, headers=guest),
                 await client.post(
-                    attach, json={"root_id": "system", "paths": [from_root]}, headers=vpn
+                    attach, json={"root_id": "system", "paths": [from_root]}, headers=guest
                 ),
             )
             for response in attempts:

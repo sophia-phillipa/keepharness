@@ -413,7 +413,7 @@ def ceiling_config(tmp_path):
         owner: {"sha256": hashlib.sha256(token.encode()).hexdigest(), "projects": ["p"]}
         for owner, token in (
             ("local", "local-token"),
-            ("vpn", "vpn-token"),
+            ("token-guest", "guest-token"),
             (TAILNET_OWNER, "tailnet-token"),
         )
     }
@@ -440,7 +440,7 @@ def ceiling_config(tmp_path):
     }
 
 
-@pytest.mark.parametrize("guest", ["vpn-token", "tailnet-token"])
+@pytest.mark.parametrize("guest", ["guest-token", "tailnet-token"])
 def test_non_owner_capability_ceiling(tmp_path, guest):
     """Only the local owner may start Automatic or Full runs, the shell or host connectors."""
     from unittest.mock import AsyncMock, patch

@@ -298,8 +298,7 @@ class ConversationService:
         if config.get("tailscale_logins") and local_access.in_user_namespace():
             logger.warning(
                 "Running inside a user namespace: host uid 0 (tailscaled) is not visible, so "
-                "Tailscale logins cannot be proven and are refused. Run KeepHarness on the host "
-                "or use the VPN key."
+                "Tailscale logins cannot be proven and are refused. Run KeepHarness on the host."
             )
         self.cancellation_reasons = {}
         self.active_executors = {}
@@ -519,11 +518,8 @@ class ConversationService:
         if (
             not auth
             and not cross_site
-            and request.client
-            and request.client.host in ("127.0.0.1", "::1")
+            and local_access.direct_loopback(request)
             and local_access.host_allowed(host, local_access.LOOPBACK_NAMES)
-            and not request.headers.get("x-forwarded-for")
-            and not request.headers.get("tailscale-user-login")
             and self.config.get("local_access")
             and self.holds_local_session(request)
         ):
@@ -532,9 +528,9 @@ class ConversationService:
         # Intentional (owner decision, F-25): unlike local_access above, a user-activated
         # cross-site top-level GET navigation still gets the Tailscale identity; every other
         # cross-site request was refused before this point.
+        # Through Serve a token is ignored (a stale Bearer must not hide the Serve identity).
         if (
-            not auth
-            and request.client
+            request.client
             and request.client.host in ("127.0.0.1", "::1")
             and self.through_tailnet_serve(request, host)
         ):
@@ -542,10 +538,12 @@ class ConversationService:
             client_name = self.config.get("tailscale_logins", {}).get(login)
             if client_name in self.config["clients"]:
                 return identified(client_name, self.config["clients"][client_name])
-        digest = hashlib.sha256(token.encode()).hexdigest()
-        for name, client in self.config["clients"].items():
-            if token and hmac.compare_digest(digest, client["sha256"]):
-                return identified(name, client)
+        # A token never stands in for a tailnet identity: it identifies only a direct local peer.
+        if token and local_access.direct_loopback(request):
+            digest = hashlib.sha256(token.encode()).hexdigest()
+            for name, client in self.config["clients"].items():
+                if hmac.compare_digest(digest, client["sha256"]):
+                    return identified(name, client)
         raise APIError("authentication_required", 401)
 
     def refuse_rebinding(self, request, host):

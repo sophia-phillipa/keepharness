@@ -46,6 +46,24 @@ def pytest_configure(config):
     )
 
 
+# Starlette's TestClient peer is "testclient"; the harness honors tokens only from a direct
+# loopback peer, so clients act as a local program unless a test passes its own `client=`.
+LOOPBACK_PEER = ("127.0.0.1", 50000)
+
+
+@pytest.fixture(autouse=True)
+def loopback_test_client_peer(monkeypatch):
+    from starlette.testclient import TestClient
+
+    original = TestClient.__init__
+
+    def init(self, *args, **kwargs):
+        kwargs.setdefault("client", LOOPBACK_PEER)
+        original(self, *args, **kwargs)
+
+    monkeypatch.setattr(TestClient, "__init__", init)
+
+
 def _media_sandbox_unavailable_reason():
     """Return a reason string if the media sandbox cannot run here, else None."""
     missing = [tool for tool in MEDIA_SANDBOX_TOOLS if shutil.which(tool) is None]

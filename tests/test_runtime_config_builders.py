@@ -70,18 +70,23 @@ def test_mcp_defaults_and_unrestricted_marking():
     assert cfg["codex"]["plugin_inventory"] == ["plugin:x"]
 
 
-def test_clients_reuse_hashes_and_create_the_vpn_key_once(tmp_path):
+def test_clients_reuse_hashes_and_never_build_a_vpn_client(tmp_path):
     cfg = {"projects": {"sem-projeto": {}}, "clients": {}}
     settings = {"logins": ["person@example.com"]}
     previous = {"clients": {"vpn": {"sha256": "v"}, "local": {"sha256": "l"}}}
     runtime_config.build_clients(cfg, settings, tmp_path, previous)
-    key = (tmp_path / "vpn.key").read_text()
-    assert (tmp_path / "vpn.key").stat().st_mode & 0o777 == 0o600
-    assert cfg["clients"]["vpn"] == {"sha256": "v", "projects": ["sem-projeto"]}
+    assert "vpn" not in cfg["clients"]
     assert cfg["clients"]["local"]["sha256"] == "l"
     assert list(cfg["tailscale_logins"]) == ["person@example.com"]
-    runtime_config.build_clients(cfg, settings, tmp_path, {})
-    assert (tmp_path / "vpn.key").read_text() == key
+    assert not (tmp_path / "vpn.key").exists()
+
+
+def test_building_clients_deletes_a_stale_vpn_key(tmp_path):
+    (tmp_path / "vpn.key").write_text("old-shared-key")
+    cfg = {"projects": {"sem-projeto": {}}, "clients": {}}
+    runtime_config.build_clients(cfg, {"logins": []}, tmp_path, {})
+    assert not (tmp_path / "vpn.key").exists()
+    runtime_config.build_clients(cfg, {"logins": []}, tmp_path, {})
 
 
 @pytest.mark.parametrize(
@@ -107,7 +112,7 @@ def test_non_local_clients_start_with_sem_projeto(tmp_path):
     others = {
         name: client["projects"] for name, client in cfg["clients"].items() if name != "local"
     }
-    assert set(others) == {"vpn", cfg["tailscale_logins"]["person@example.com"]}
+    assert set(others) == {cfg["tailscale_logins"]["person@example.com"]}
     assert all(projects == ["sem-projeto"] for projects in others.values())
 
 
