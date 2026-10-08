@@ -8,6 +8,11 @@ import pytest
 from test_execution_modes import service
 
 
+def native_row(instance, job):
+    insert(instance, job, backend="codex", execution_mode="native")
+    return instance.conversation_repository.get(job)
+
+
 def test_dispatch_capacity_covers_planner_steps_and_releases_on_cancel(tmp_path):
     async def scenario():
         instance, _ = service(tmp_path)
@@ -30,12 +35,14 @@ def test_dispatch_capacity_covers_planner_steps_and_releases_on_cancel(tmp_path)
         instance._run_inference = dispatch
         first = asyncio.create_task(
             instance.infer(
-                {"id": "planner"}, {"backend": "codex", "model": "m", "_maestro_stage": "plan"}
+                native_row(instance, "planner"),
+                {"backend": "codex", "model": "m", "_maestro_stage": "plan"},
             )
         )
         second = asyncio.create_task(
             instance.infer(
-                {"id": "step"}, {"backend": "codex", "model": "m", "_maestro_stage": "step"}
+                native_row(instance, "step"),
+                {"backend": "codex", "model": "m", "_maestro_stage": "step"},
             )
         )
         await asyncio.sleep(0)
@@ -135,7 +142,7 @@ def test_capacity_decrease_applies_to_future_dispatches(tmp_path):
         )
         instance._finalize_inference = lambda plan, result: result
         instance._run_inference = AsyncMock(return_value={"answer": "warm"})
-        await instance.infer({"id": "warm"}, {"model": "m"})
+        await instance.infer(native_row(instance, "warm"), {"model": "m"})
         instance.config["services"]["codex"]["max_concurrent"] = 1
         entered = []
         release = asyncio.Event()
@@ -147,7 +154,7 @@ def test_capacity_decrease_applies_to_future_dispatches(tmp_path):
 
         instance._run_inference = dispatch
         tasks = [
-            asyncio.create_task(instance.infer({"id": job}, {"model": "m"}))
+            asyncio.create_task(instance.infer(native_row(instance, job), {"model": "m"}))
             for job in ("one", "two")
         ]
         await asyncio.sleep(0)

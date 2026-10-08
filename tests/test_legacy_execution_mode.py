@@ -1,6 +1,8 @@
 """D-044: historical evidence, never mutable settings, establishes legacy modes."""
 
+import asyncio
 import json
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from test_execution_modes import service
@@ -48,7 +50,7 @@ def test_legacy_single_mode_provider_continues_without_rewriting_root(tmp_path, 
         )
         assert bound["execution_mode"] == expected
         if backend == "local":
-            instance.submit(
+            child = instance.submit(
                 identity,
                 dict(
                     project_id="p",
@@ -57,7 +59,15 @@ def test_legacy_single_mode_provider_continues_without_rewriting_root(tmp_path, 
                     prompt="next",
                     parent_job_id="legacy",
                 ),
-            )
+            )["job_id"]
+            child_row = instance.job(identity, child)
+            with patch(
+                "adapters.run_native", AsyncMock(return_value={"answer": "continued"})
+            ) as native:
+                result = asyncio.run(instance.infer(child_row, json.loads(child_row["payload"])))
+            assert result["answer"] == "continued"
+            native.assert_awaited_once()
+            assert native.call_args.args[7] == "local"
         assert instance.job(identity, "legacy")["payload"] == before
     finally:
         instance.db.close()
@@ -132,5 +142,17 @@ def test_legacy_cloud_origin_survives_changed_backend_and_service_mode(tmp_path)
                 identity, dict(backend="gemini", parent_job_id=child["id"])
             )
         assert instance.conversation_execution_mode(root) is None
+    finally:
+        instance.db.close()
+
+
+@pytest.mark.parametrize("backend", [["codex"], {"provider": "codex"}])
+def test_legacy_malformed_provider_provenance_is_unavailable(tmp_path, backend):
+    instance, identity = service(tmp_path)
+    try:
+        row = stored(instance, backend)
+        assert instance.conversation_execution_mode(row) is None
+        with pytest.raises(APIError, match="execution_mode_unsupported"):
+            instance.bind_execution_mode(identity, dict(backend="codex", parent_job_id="legacy"))
     finally:
         instance.db.close()

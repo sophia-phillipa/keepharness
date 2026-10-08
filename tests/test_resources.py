@@ -206,7 +206,8 @@ def test_no_read_or_scoped_and_reserved_prefix(tmp_path, monkeypatch):
     put(root, ".codex/agents/a.toml", 'name="a"\ndeveloper_instructions="Do"')
     config = cfg(root)
     config["services"]["codex"]["mode"] = "scoped"
-    assert not resources.discover(config, "p", "codex")["items"]
+    assert resources.discover(config, "p", "codex")["items"]
+    assert not resources.discover(config, "p", "codex", execution_mode="scoped")["items"]
     for prefix in ("@@a", "//skill"):
         with pytest.raises(resources.ResourceError, match="harness_resources_unavailable"):
             resources.resolve(config, {"project_id": "p", "backend": "codex", "prompt": prefix})
@@ -433,9 +434,8 @@ def test_resources_follow_conversation_mode_not_service_default(
         assert native.status_code == 200
         assert len(native.json()["items"]) == 1
         scoped = client.get(url + "&execution_mode=scoped")
-        assert scoped.status_code == 200
-        assert scoped.json()["items"] == []
-        assert scoped.json()["warnings"]
+        assert scoped.status_code == 422
+        assert scoped.json()["code"] == "execution_mode_unsupported"
         assert client.get(url + "&execution_mode=invalid").status_code == 422
         item = native.json()["items"][0]
         data = {
@@ -449,7 +449,9 @@ def test_resources_follow_conversation_mode_not_service_default(
                 {"id": item["id"], "revision": item["revision"], "token": "/a"}
             ],
         }
-        assert client.post("/v1/jobs", json=data).status_code == 409
+        refused = client.post("/v1/jobs", json=data)
+        assert refused.status_code == 422
+        assert refused.json()["code"] == "execution_mode_unsupported"
         assert app.state.service.db.execute("SELECT count(*) FROM jobs").fetchone()[0] == 0
         data["execution_mode"] = "native"
         assert client.post("/v1/jobs", json=data).status_code == 202
@@ -808,3 +810,24 @@ def test_maestro_step_resources_follow_the_row_owner(tmp_path, monkeypatch):
             assert again["steps"][0]["resource_snapshots"][0]["resource_id"] == mine["resource_id"]
     finally:
         service.db.close()
+
+
+@pytest.mark.parametrize("backend", ["codex", "claude"])
+def test_catalog_preflight_ignores_retired_cloud_service_mode(tmp_path, monkeypatch, backend):
+    from unittest.mock import Mock
+
+    project, catalog = tmp_path / "project", tmp_path / "catalog"
+    put(catalog, "skills/review/SKILL.md", "---\nname: review\n---\nReview")
+    config = catalog_cfg(project, catalog, backend)
+    config["services"][backend]["mode"] = "scoped"
+    config["state_dir"] = str(tmp_path / "state")
+    put(
+        catalog,
+        "harness.catalog.json",
+        '{"version": 1, "integrations": [{"id": "fixture", "required": true}]}',
+    )
+    preflight = Mock(return_value=[])
+    monkeypatch.setattr("agent_service.integrations.integration_preflight", preflight)
+    resources.discover(config, "p", backend, include_workflows=False)
+    preflight.assert_called_once()
+    assert preflight.call_args.args[4:] == ("native", [{"id": "fixture", "required": True}])

@@ -898,7 +898,9 @@ class ConversationService:
         if root_data.get("execution_mode"):
             return root_data["execution_mode"]
         turns = self._conversation_payloads(row)
-        providers = {turn.get("backend") for turn in turns}
+        if any(not isinstance(turn.get("backend"), str) for turn in turns):
+            return None
+        providers = {turn["backend"] for turn in turns}
         # Historical cloud services offered two modes. Current configuration and
         # a later provider switch cannot establish which transport was used.
         historical = {
@@ -1889,7 +1891,7 @@ class ConversationService:
 
     async def validate_images(self, backend, model, execution_mode=None):
         if execution_mode is None:
-            execution_mode = self.config.get("services", {}).get(backend, {}).get("mode", "native")
+            execution_mode = self.default_execution_mode(backend)
         vision = False
         if backend == "local":
             try:
@@ -3084,7 +3086,7 @@ class ConversationService:
             if type(window) is int and window > 0:
                 model["context_window"] = window
             vision = as_dict(properties.get("modalities")).get("vision") is True
-            mode = self.config["services"]["local"].get("mode", "native")
+            mode = self.default_execution_mode("local")
             model["capabilities"]["images"] = image_refusal("local", mode, vision) is None
             if vision and tools.video_tools_available():
                 model["capabilities"]["video"] = True
@@ -3117,7 +3119,8 @@ class ConversationService:
                         ).items()
                         if key != "upload"
                     ),
-                    "images": image_refusal(provider, service.get("mode", "native")) is None,
+                    "images": image_refusal(provider, self.default_execution_mode(provider))
+                    is None,
                     "video": False,
                     "video_transcription": False,
                     "video_execution_modes": [],
@@ -3139,7 +3142,7 @@ class ConversationService:
             "backends": {
                 p: {
                     "enabled": c.get("enabled", False),
-                    "mode": c.get("mode", "native"),
+                    "mode": self.default_execution_mode(p),
                     "permissions": c.get("permissions", {}),
                 }
                 for p, c in self.config.get("services", {}).items()
@@ -3169,11 +3172,11 @@ class ConversationService:
             "integrations": {
                 p: c.get("integrations", [])
                 for p, c in self.config.get("services", {}).items()
-                if c.get("enabled") and c.get("mode") == "native"
+                if c.get("enabled") and "native" in self.execution_modes(p)
             },
             "concurrency": 1,
             "native_read_scope": "provider CLI policy; not a filesystem jail",
-            "scoped_read_scope": "explicit project mounts and limited MCP tools",
+            "scoped_read_scope": "Local sandbox with explicit authorized filesystem roots",
         }
 
     def project(self, identity, project):

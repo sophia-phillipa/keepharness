@@ -59,7 +59,7 @@ def test_stored_cloud_scoped_cannot_resume_retry_branch_or_switch(
         marker.write_text("old session")
         attachment = instance.root / "old-attachment.txt"
         attachment.write_bytes(b"old attachment")
-        before = tuple(row)
+        before = dict(row)
         with pytest.raises(APIError, match="execution_mode_unsupported"):
             if action == "retry":
                 asyncio.run(instance.retry_turn(identity, "legacy"))
@@ -76,7 +76,7 @@ def test_stored_cloud_scoped_cannot_resume_retry_branch_or_switch(
                 if action == "switch_preset":
                     data["access_mode"] = "full"
                 instance.submit(identity, data)
-        assert tuple(instance.job(identity, "legacy")) == before
+        assert instance.job(identity, "legacy") == before
         assert (
             json.loads(instance.conversation(identity, "legacy")[0]["result"])["answer"]
             == "history"
@@ -95,6 +95,7 @@ def test_preupgrade_queued_cloud_jobs_fail_before_provider_checks(
     instance, identity = service(tmp_path)
     try:
         row = stored(instance, backend, mode, state="queued")
+        instance.config["services"].setdefault(backend, {})["mode"] = "native"
         check = AsyncMock(side_effect=AssertionError("provider check reached"))
         monkeypatch.setattr(queue_worker, "provider_state_run_check", check)
         asyncio.run(queue_worker.run_job(instance, row))
@@ -137,6 +138,13 @@ def test_authoritative_capabilities_and_effects_retire_cloud_scoped(tmp_path):
         assert transport_support(backend, "native")["supported"]
     instance, _ = service(tmp_path)
     try:
+        assert instance.capabilities()["backends"]["codex"]["mode"] == "native"
+        assert instance.capabilities()["backends"]["local"]["mode"] == "scoped"
+        assert next(m for m in instance.models("p") if m["backend"] == "codex")["capabilities"][
+            "images"
+        ]
+        asyncio.run(instance.validate_images("codex", "gpt-6-astra"))
+
         assert all(
             item["backend"] == "local"
             for item in maestro.candidates(instance.config, "p", execution_mode="scoped")
@@ -210,5 +218,19 @@ def test_new_explicit_native_conversation_runs_without_old_session(tmp_path):
         native.assert_awaited_once()
         assert "history" not in native.call_args.args[1]
         assert "legacy" not in str(native.call_args.args[6])
+    finally:
+        instance.db.close()
+
+
+@pytest.mark.parametrize("backend", ["codex", "claude"])
+def test_local_scoped_workflow_cannot_dispatch_cloud_stage(
+    tmp_path, backend, no_retired_side_effects
+):
+    instance, _ = service(tmp_path)
+    try:
+        row = stored(instance, "local", "scoped")
+        stage = {**json.loads(row["payload"]), "backend": backend, "_maestro_stage": "1"}
+        with pytest.raises(APIError, match="execution_mode_unsupported"):
+            asyncio.run(instance.infer(row, stage))
     finally:
         instance.db.close()

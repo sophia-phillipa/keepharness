@@ -334,6 +334,11 @@ def discover(
     from .maestro import model_permissions
     from .workflows import discover_workflows
 
+    execution_mode = execution_mode or (
+        "native"
+        if backend in ("codex", "claude")
+        else config.get("services", {}).get(backend, {}).get("mode")
+    )
     engine = ENGINES.get(backend)
     result = {
         "engine": engine,
@@ -357,7 +362,7 @@ def discover(
     if engine is None:
         result["warnings"].append("Choose a concrete engine to query its resources.")
         return result
-    if (execution_mode or config.get("services", {}).get(backend, {}).get("mode")) != "native":
+    if execution_mode != "native":
         result["warnings"].append("Native resources require a native-mode execution.")
         return result
     project = config["projects"][project_id]
@@ -496,7 +501,7 @@ def discover(
                 project_id,
                 catalog_id,
                 backend,
-                execution_mode or config.get("services", {}).get(backend, {}).get("mode"),
+                execution_mode,
                 (manifest or {}).get("integrations", []),
             )
         )
