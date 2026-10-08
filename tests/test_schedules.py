@@ -39,6 +39,7 @@ FIELDS = [
     "model",
     "effort",
     "access_mode",
+    "execution_mode",
     "allow_internet",
     "cadence",
     "enabled",
@@ -796,3 +797,22 @@ def test_a_client_cannot_mark_its_own_job_as_scheduled(api):
         assert response.status_code == 422
         assert response.json()["code"] == "invalid_internal_field"
     assert conversations(api) == {}
+
+
+@pytest.mark.parametrize("backend", ["codex", "claude"])
+def test_retired_cloud_schedule_create_and_update_are_rejected(
+    api, backend, no_retired_side_effects
+):
+    created = make(api)
+    response = api.post(
+        "/v1/schedules", json={**VALID, "backend": backend, "execution_mode": "scoped"}
+    )
+    assert response.status_code == 422
+    assert response.json()["code"] == "execution_mode_unsupported"
+    response = api.put(
+        "/v1/schedules/" + created["id"],
+        json=change(created, backend=backend, execution_mode="scoped"),
+    )
+    assert response.status_code == 422
+    assert response.json()["code"] == "execution_mode_unsupported"
+    assert listing(api)[0] == created

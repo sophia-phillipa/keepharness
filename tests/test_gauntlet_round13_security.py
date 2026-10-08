@@ -12,10 +12,10 @@ import pytest
 from starlette.testclient import TestClient
 from test_workspaces import config
 
-from adapters.shared.scoped import prepare_scoped
 from agent_service.app import create_app
 from agent_service.catalog_pin import effective_catalogs, pin_catalog, preview_update
-from agent_service.effect_transport import scoped_enforcement
+from agent_service.effect_transport import validate_scoped_private_files
+from agent_service.errors import APIError
 from agent_service.log_config import RedactingFilter
 
 
@@ -47,43 +47,15 @@ def test_app_private_database_alias_is_not_mediated(tmp_path, linked):
     project = tmp_path / "project"
     project.mkdir()
     database = s.root / "jobs.sqlite3"
-    runtime = tmp_path / "runtime"
-    (runtime / "bin").mkdir(parents=True)
-    (runtime / "bin" / "python").symlink_to("/usr/bin/python3")
-    auth = tmp_path / "provider.json"
-    auth.write_text("{}")
-    adapter = {
-        "python": str(runtime / "bin" / "python"),
-        "binary": "/usr/bin/python3",
-        "auth_file": str(auth),
-    }
     if linked:
         os.link(database, project / "database-alias.db")
     try:
-        with prepare_scoped(
-            adapter, {"root": str(project)}, {}, None, "codex", "auth.json"
-        ) as scoped:
-            outcome = scoped_enforcement(s, scoped.command, copied_paths=[auth])
-            mounted = any(
-                scoped.command[i : i + 3] == ["--ro-bind", str(project), "/sources/project"]
-                for i in range(len(scoped.command) - 2)
-            )
-        print(
-            json.dumps(
-                {
-                    "linked": linked,
-                    "enforcement": outcome,
-                    "project_mounted_readonly": mounted,
-                    "same_inode": linked
-                    and database.stat().st_ino == (project / "database-alias.db").stat().st_ino,
-                    "repository_seeded_owner": s.conversation_repository.get("private-job")[
-                        "owner"
-                    ],
-                }
-            )
-        )
-        assert mounted
-        assert outcome == ("unenforced" if linked else "mediated")
+        if linked:
+            with pytest.raises(APIError, match="scoped_private_file_linked"):
+                validate_scoped_private_files(s)
+        else:
+            validate_scoped_private_files(s)
+        assert s.conversation_repository.get("private-job")["owner"] == "other_owner"
     finally:
         s.db.close()
 
@@ -325,7 +297,7 @@ def test_private_alias_blocks_scoped_provider_dispatch(tmp_path, effects):
         project = tmp_path / "project"
         project.mkdir()
         cfg["projects"]["p"]["root"] = str(project)
-        cfg["codex"] = {"binary": "synthetic"}
+        cfg["local"] = {"binary": "synthetic"}
         if effects:
             from test_effect_executor import configure_effects
 
@@ -336,8 +308,8 @@ def test_private_alias_blocks_scoped_provider_dispatch(tmp_path, effects):
             identity,
             {
                 "project_id": "p",
-                "backend": "codex",
-                "model": "gpt-6-astra",
+                "backend": "local",
+                "model": "installed-model",
                 "prompt": "Synthetic scoped review",
                 "execution_mode": "scoped",
             },
@@ -346,7 +318,7 @@ def test_private_alias_blocks_scoped_provider_dispatch(tmp_path, effects):
         os.link(service.root / "jobs.sqlite3", project / "alias.db")
         try:
             with (
-                patch("adapters.run_scoped", AsyncMock()) as provider,
+                patch("adapters.run_native", AsyncMock()) as provider,
                 patch.object(service, "quota", AsyncMock(return_value=None)),
             ):
                 with pytest.raises(APIError, match="scoped_private_file_linked"):

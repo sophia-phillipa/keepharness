@@ -363,6 +363,8 @@ async def run_job(service, row):
             service.conversation_repository.set_running(row["id"])
         service.event(row["id"], "running", {})
         request_data = json.loads(row["payload"])
+        if request_data.get("kind", "infer") == "infer":
+            request_data = service.dispatch_execution_mode(row, request_data)
         await provider_state_run_check(service, row, request_data)
         native_codex = (
             request_data.get("backend") == "codex"
@@ -370,9 +372,7 @@ async def run_job(service, row):
             == "native"
         )
         maximum = (
-            None
-            if native_codex
-            else timeout_seconds(service.config, "active_timeout_seconds", 600)
+            None if native_codex else timeout_seconds(service.config, "active_timeout_seconds", 600)
         )
         async with budget.limit(maximum):
             task = asyncio.create_task(service.execute(row))

@@ -2,17 +2,19 @@
 
 import asyncio
 import json
+import os
 import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from test_approval_sessions_lifecycle import browser, enroll, session_app
 from test_approval_authority import pending_approval
+from test_approval_sessions_lifecycle import browser, enroll, session_app  # noqa: F401
 from test_effect_executor import prepared, request
 
 from agent_service.approval_sessions import revoke_sessions
-from agent_service.effect_transport import scoped_enforcement
+from agent_service.effect_transport import validate_scoped_private_files
+from agent_service.errors import APIError
 from agent_service.secret_vault import SecretVault, redact_secrets
 
 
@@ -29,7 +31,7 @@ def test_redacts_literal_credentials_in_nested_object_keys(tmp_path):
     }
 
 
-def test_scoped_enforcement_checks_both_credential_stores(tmp_path):
+def test_local_scoped_preflight_checks_both_credential_stores(tmp_path):
     project = tmp_path / "project"
     project.mkdir()
     service = SimpleNamespace(
@@ -39,14 +41,15 @@ def test_scoped_enforcement_checks_both_credential_stores(tmp_path):
             "secret_vault_path": str(project / "vault.json"),
         },
     )
-    assert (
-        scoped_enforcement(service, ["bwrap", "--ro-bind", str(project), "/sources/project"])
-        == "unenforced"
-    )
-    assert (
-        scoped_enforcement(service, ["bwrap", "--ro-bind", str(tmp_path / "safe"), "/source"])
-        == "mediated"
-    )
+    for name in ("effect_credentials_path", "secret_vault_path"):
+        path = __import__("pathlib").Path(service.config[name])
+        path.write_text("fixture")
+        alias = tmp_path / (name + "-alias")
+        os.link(path, alias)
+        with pytest.raises(APIError, match="scoped_private_file_linked"):
+            validate_scoped_private_files(service)
+        alias.unlink()
+        validate_scoped_private_files(service)
 
 
 @pytest.mark.parametrize("kind", ["native", "gate"])

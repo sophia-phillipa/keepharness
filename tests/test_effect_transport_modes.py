@@ -17,8 +17,8 @@ from agent_service.effect_transport import effect_transport, transport_support
     [
         ("codex", "native", True),
         ("claude", "native", True),
-        ("codex", "scoped", True),
-        ("claude", "scoped", True),
+        ("codex", "scoped", False),
+        ("claude", "scoped", False),
         ("gemini", "native", False),
         ("local", "native", False),
         ("deepseek", "native", False),
@@ -114,22 +114,6 @@ def test_native_configs_use_owned_server_and_disable_host_impersonation(tmp_path
     assert params["config"]["mcp_servers"]["harness_effects"]["enabled"] is False
 
 
-def test_scoped_bind_cannot_expose_private_store(tmp_path):
-    from agent_service.effect_transport import scoped_enforcement
-
-    state = tmp_path / "state"
-    service = SimpleNamespace(root=state, config={})
-    command = ["bwrap", "--ro-bind", str(tmp_path / "project"), "/sources/project"]
-    assert scoped_enforcement(service, command) == "mediated"
-    for root in [tmp_path, state, Path("/"), state / "sessions" / "job"]:
-        assert scoped_enforcement(service, ["bwrap", "--bind", str(root), "/codex"]) == "unenforced"
-    alias = tmp_path / "alias"
-    alias.symlink_to(state, target_is_directory=True)
-    assert (
-        scoped_enforcement(service, ["bwrap", "--ro-bind", str(alias), "/source"]) == "unenforced"
-    )
-
-
 def test_real_stdio_mcp_exposes_prepare_only(tmp_path):
     from mcp import ClientSession, StdioServerParameters
     from mcp.client.stdio import stdio_client
@@ -170,95 +154,6 @@ def test_real_stdio_mcp_exposes_prepare_only(tmp_path):
     asyncio.run(scenario())
 
 
-def test_scoped_mcp_is_registered_in_temporary_config_only(tmp_path):
-    from adapters.shared.scoped import prepare_scoped
-
-    binary = tmp_path / "fixture"
-    binary.write_text("synthetic")
-    auth = tmp_path / "auth.json"
-    auth.write_text("{}")
-    socket = tmp_path / "effect.sock"
-    socket.touch()
-    config = {
-        "binary": str(binary),
-        "auth_file": str(auth),
-        "python": "/synthetic/venv/bin/python",
-        "_effect_capability": {"socket": str(socket), "token": "prepare-capability"},
-    }
-    with prepare_scoped(config, {}, {}, None, "codex", "auth.json") as workspace:
-        import tomllib
-
-        temporary = tomllib.loads((workspace.home / "config.toml").read_text())
-        server = temporary["mcp_servers"]["harness_effects"]
-        assert server["command"] == "/venv/bin/python"
-        assert server["args"][0] == "/bridge/effect_mcp.py"
-        assert server["args"][1] == "/bridge/effect.json"
-        credentials = json.loads((workspace.bridge / "effect.json").read_text())
-        assert credentials["socket"] == "/bridge/effect.sock"
-        assert credentials["token"] == "prepare-capability"
-        assert (workspace.bridge / "effect.json").stat().st_mode & 0o777 == 0o600
-        assert "prepare-capability" not in json.dumps(server)
-        assert "prepare-capability" not in json.dumps(workspace.command)
-        index = workspace.command.index(str(socket))
-        assert workspace.command[index - 1 : index + 2] == [
-            "--ro-bind",
-            str(socket),
-            "/bridge/effect.sock",
-        ]
-        assert "--clearenv" in workspace.command
-        assert (workspace.bridge / "effect_mcp.py").is_file()
-    assert auth.read_text() == "{}"
-
-
-@pytest.mark.host_tools("bwrap")
-def test_scoped_process_can_prepare_without_reading_harness_store(tmp_path):
-    """Exercise the actual filesystem boundary with synthetic credentials only."""
-    from adapters.shared.scoped import prepare_scoped
-
-    state = tmp_path / "state"
-    state.mkdir()
-    private = state / "harness.effect_credentials.json"
-    private.write_text("synthetic-private-value")
-    auth = tmp_path / "provider-auth.json"
-    auth.write_text("{}")
-
-    async def scenario():
-        service = SimpleNamespace(
-            effects=SimpleNamespace(
-                prepare=AsyncMock(return_value={"request_id": "sandbox-effect"})
-            ),
-            config={"effect_integrations": [{}]},
-            root=state,
-        )
-        async with effect_transport(service, "job-scoped", "codex", "scoped") as capability:
-            config = {
-                "binary": "/usr/bin/python3",
-                "auth_file": str(auth),
-                "python": "/usr/bin/python3",
-                "_effect_capability": capability,
-            }
-            with prepare_scoped(config, {}, {}, None, "codex", "auth.json") as workspace:
-                script = (
-                    "import socket,json,pathlib; assert not pathlib.Path("
-                    + repr(str(private))
-                    + ").exists(); config=json.loads(pathlib.Path('/bridge/effect.json').read_text()); s=socket.socket(socket.AF_UNIX); s.connect(config['socket']); s.sendall((json.dumps({'token':config['token'],'method':'prepare','request':{}})+'\\n').encode()); print(s.recv(8192).decode())"
-                )
-                process = await asyncio.create_subprocess_exec(
-                    *workspace.command,
-                    "--",
-                    "/codex-cli",
-                    "-c",
-                    script,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                out, err = await asyncio.wait_for(process.communicate(), 5)
-                assert process.returncode == 0, err.decode()
-                assert json.loads(out)["request_id"] == "sandbox-effect"
-
-    asyncio.run(scenario())
-
-
 def test_execution_end_closes_incomplete_capability_clients(tmp_path):
     async def scenario():
         service = SimpleNamespace(config={"effect_integrations": [{}]}, root=tmp_path)
@@ -274,38 +169,6 @@ def test_execution_end_closes_incomplete_capability_clients(tmp_path):
             await writer.wait_closed()
 
     asyncio.run(scenario())
-
-
-def test_scoped_isolation_checks_actual_venv_bind_and_auth_copy(tmp_path):
-    from adapters.shared.scoped import prepare_scoped
-    from agent_service.effect_transport import scoped_enforcement
-
-    runtime = tmp_path / "runtime"
-    (runtime / "bin").mkdir(parents=True)
-    (runtime / "bin" / "python").symlink_to("/usr/bin/python3")
-    service = SimpleNamespace(
-        root=tmp_path / "state",
-        config={"effect_credentials_path": str(runtime / "credentials.json")},
-    )
-    auth = tmp_path / "provider.json"
-    auth.write_text("{}")
-    config = {
-        "python": str(runtime / "bin" / "python"),
-        "binary": "/usr/bin/false",
-        "auth_file": str(auth),
-    }
-    with prepare_scoped(config, {}, {}, None, "codex", "auth.json") as workspace:
-        assert scoped_enforcement(service, workspace.command, copied_paths=[auth]) == "unenforced"
-        service.config = {}
-        assert scoped_enforcement(service, workspace.command, copied_paths=[auth]) == "mediated"
-        assert (
-            scoped_enforcement(
-                service,
-                workspace.command,
-                copied_paths=[service.root / "harness.effect_credentials.json"],
-            )
-            == "unenforced"
-        )
 
 
 def test_valid_large_prepare_response_is_not_lost(tmp_path):
@@ -382,43 +245,3 @@ def test_codex_startup_argv_has_no_capability_token(tmp_path):
             assert capability["config_file"] in json.dumps(command)
 
     asyncio.run(scenario())
-
-
-@pytest.mark.parametrize("persistent", [False, True])
-def test_enforcement_uses_prepared_bind_command(tmp_path, persistent):
-    from adapters.shared.scoped import prepare_scoped
-
-    state = tmp_path / "state"
-    state.mkdir()
-    auth = tmp_path / "provider.json"
-    auth.write_text("{}")
-
-    async def scenario():
-        service = SimpleNamespace(config={"effect_integrations": [{}]}, root=state)
-        async with effect_transport(service, "binds", "codex", "scoped") as capability:
-            config = {
-                "binary": "/usr/bin/false",
-                "python": "/usr/bin/python3",
-                "auth_file": str(auth),
-                "_effect_capability": capability,
-            }
-            home = state / "sessions" / "job" if persistent else None
-            observed = []
-            capability["_publication_policy"] = lambda: observed.append(capability["enforcement"])
-            with prepare_scoped(config, {}, {}, home, "codex", "auth.json") as workspace:
-                assert "--bind" in workspace.command
-                assert capability["enforcement"] == ("unenforced" if persistent else "mediated")
-                assert observed == [capability["enforcement"]]
-
-    asyncio.run(scenario())
-
-
-def test_enforcement_checks_new_bind_sources_from_actual_command(tmp_path):
-    from agent_service.effect_transport import scoped_enforcement
-
-    service = SimpleNamespace(root=tmp_path / "state", config={})
-    command = ["bwrap", "--ro-bind", "/usr", "/usr", "--bind", str(tmp_path / "work"), "/work"]
-    assert scoped_enforcement(service, command) == "mediated"
-    for flag in ("--bind", "--ro-bind"):
-        actual = [*command, flag, str(service.root / "private-file"), "/new-mount"]
-        assert scoped_enforcement(service, actual) == "unenforced"

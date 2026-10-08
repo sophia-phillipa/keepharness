@@ -1,5 +1,5 @@
 {
-  "adapter_spec_revision": 5,
+  "adapter_spec_revision": 6,
   "harness_baseline": "0.4.4 working-tree",
   "reviewed_at": "2026-09-21",
   "live_provider_validation": false,
@@ -50,7 +50,7 @@
   },
   "conversation_title": {
     "source": "KeepHarness root prompt (100 chars) or explicit conversation title",
-    "sync": "thread/name/set on create/resume, native and scoped",
+    "sync": "thread/name/set on native create/resume; cloud-scoped execution retired (D-044)",
     "validation": "Focused offline contract tests; no model inference"
   },
   "throughput": {

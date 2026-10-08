@@ -8,11 +8,10 @@ from adapters.shared.resources import copy_resource
 from adapters.shared.workspace import attachment_roots, prepare_workspace
 
 from . import native
-from .scoped import run as run_scoped
 
-SPEC_REVISION = 5
+SPEC_REVISION = 6
 
-__all__ = ["SPEC_REVISION", "run_native", "run_scoped"]
+__all__ = ["SPEC_REVISION", "run_native"]
 
 
 async def run_native(config, prompt, event, project, model, effort, session_dir, approve):

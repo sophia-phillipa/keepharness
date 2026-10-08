@@ -32,8 +32,8 @@ EXECUTION_MODES = MappingProxyType(
     {
         # "native" means the provider owns the host-side session.  The local adapter
         # always wraps Codex in bubblewrap, so exposing it as native would lie.
-        "codex": ("native", "scoped"),
-        "claude": ("native", "scoped"),
+        "codex": ("native",),
+        "claude": ("native",),
         "gemini": ("native",),
         "deepseek": ("native",),
         "local": ("scoped",),

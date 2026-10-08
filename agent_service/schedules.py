@@ -58,6 +58,7 @@ EDITABLE = (
     "model",
     "effort",
     "access_mode",
+    "execution_mode",
     "allow_internet",
     "cadence",
     "enabled",
@@ -251,6 +252,7 @@ def normalize(body: dict) -> dict:
         "model": clean_name(body.get("model"), "model"),
         "effort": clean_name(body.get("effort"), "effort"),
         "access_mode": body.get("access_mode"),
+        "execution_mode": body.get("execution_mode"),
         # Unattended runs have no internet unless the task opts in (D03); older files lack it.
         "allow_internet": body.get("allow_internet", False),
         "cadence": normalize_cadence(body.get("cadence")),
@@ -267,6 +269,14 @@ def normalize(body: dict) -> dict:
     if type(fields["enabled"]) is not bool:
         raise invalid("enabled")
     return fields
+
+
+def require_execution_mode(fields: dict) -> None:
+    from .config import EXECUTION_MODES
+
+    mode = fields.get("execution_mode")
+    if mode is not None and mode not in EXECUTION_MODES.get(fields["backend"], ()):
+        raise APIError("execution_mode_unsupported", 422)
 
 
 def require_available(config: dict, fields: dict) -> None:
@@ -416,6 +426,7 @@ def owned_record(config: dict, owner: str, schedule_id: str) -> dict:
 def create_schedule(config: dict, owner: str, body: dict) -> dict:
     reject_unknown_fields(body)
     fields = normalize({"access_mode": "ask", "enabled": True, **body_fields(body)})
+    require_execution_mode(fields)
     require_available(config, fields)
     require_agent(config, fields)
     now = clock()
@@ -464,6 +475,7 @@ def replace_schedule(config: dict, owner: str, schedule_id: str, body: dict) -> 
     with write_lock:
         current = load_owned(schedule_id, read_current(store, schedule_id, revision), owner)
         fields = normalize({**{key: current[key] for key in EDITABLE}, **body_fields(body)})
+        require_execution_mode(fields)
         # A paused schedule may keep a route that is gone, so it can still be renamed or deleted.
         if fields["enabled"] or any(fields[key] != current[key] for key in ROUTE):
             require_available(config, fields)
@@ -524,6 +536,8 @@ def job_request(config: dict, record: dict) -> dict:
         key: record[key]
         for key in ("prompt", "project_id", "backend", "model", "effort", "access_mode")
     }
+    if record.get("execution_mode") is not None:
+        request["execution_mode"] = record["execution_mode"]
     if record["agent"]:
         selection = agent_selection(config, record["agent"])
         request["resource_selections"] = [selection]

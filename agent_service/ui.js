@@ -2163,12 +2163,15 @@ function runTiming(result = {}) {
     waited: waited ? seconds(waited) : "",
   };
 }
+function executionModeLabel() {
+  return executionMode === "scoped" ? "Isolated conversation" : executionMode === "native" ? "Native conversation" : "Execution mode unavailable";
+}
 function renderConversationHeader(c = null) {
   const state = c ? conversationState(c) : "draft";
   const states = { "needs-you": "Awaiting approval", running: "Running", queued: "Queued", done: "Completed", draft: "Draft" };
   $("conversation-state-pill").textContent = ({ failed: "Failed", cancelled: "Cancelled", interrupted: "Interrupted" })[c?.state] || states[state];
   $("conversation-state-pill").dataset.state = state;
-  $("header-execution-mode").textContent = executionMode === "scoped" ? "Isolated conversation" : "Native conversation";
+  $("header-execution-mode").textContent = executionModeLabel();
   $("header-access").textContent = accessLabel();
 }
 // WP8 (D-032): one meter per provider in a fixed order. A reading shows a bar, DeepSeek shows its
@@ -2939,14 +2942,14 @@ function syncExecutionMode() {
     submitting ||
     uploads > 0 ||
     (modes.length < 2 && modes.includes(executionMode));
-  $("execution-mode-label").textContent = isolated
-    ? "Isolated conversation"
-    : "Native conversation";
+  $("execution-mode-label").textContent = executionModeLabel();
   const warning = $("execution-mode-unavailable");
   warning.hidden =
     !selected() || (modes.includes(executionMode) && modes.length > 1);
   warning.textContent =
-    modes.length === 1 && modes.includes(executionMode)
+    started && executionMode == null
+      ? "The historical execution mode is unavailable. Start a new native conversation to continue."
+      : modes.length === 1 && modes.includes(executionMode)
       ? isolated
         ? "This model requires isolation."
         : "This model only offers native mode."
@@ -2959,15 +2962,15 @@ function syncExecutionMode() {
   const indicator = $("execution-mode-indicator");
   indicator.hidden = !started || !modeContract;
   indicator.dataset.isolated = String(isolated);
-  const label = isolated
-    ? "Isolated conversation · isolation on"
-    : "Native conversation · isolation off";
+  const label = executionMode == null
+    ? "Execution mode unavailable"
+    : isolated
+      ? "Isolated conversation · isolation on"
+      : "Native conversation · isolation off";
   indicator.title = label;
   indicator.setAttribute("aria-label", label);
   $("dropzone").classList.toggle("has-execution-mode", started && modeContract);
-  $("header-execution-mode").textContent = isolated
-    ? "Isolated conversation"
-    : "Native conversation";
+  $("header-execution-mode").textContent = executionModeLabel();
 }
 $("isolation-toggle").onclick = () => {
   if (conversation || parent || busy || loading || submitting || uploads)
@@ -4908,12 +4911,7 @@ async function load(id, legacy = false, restoredView = null, scrollTop) {
         conversations.find((item) => item.id === id)?.title ||
         "New Conversation",
     );
-    executionMode =
-      data.execution_mode ||
-      data.turns[0].request?.execution_mode ||
-      conversations.find((c) => c.id === id)?.execution_mode ||
-      conversations.find((c) => c.id === id)?.execution?.execution_mode ||
-      "native";
+    executionMode = data.execution_mode ?? null;
     conversation = id;
     renderConversationHeader(conversations.find((item) => item.id === id));
     files = [];

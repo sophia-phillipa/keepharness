@@ -2,7 +2,7 @@
 
 **Responsible agent:** `integrate-codex_keepharness_engineer` (`.codex/agents/integrate-codex_keepharness_engineer.toml`).
 
-`adapter_spec_revision: 5`
+`adapter_spec_revision: 6`
 `harness_baseline: 0.4.4 working-tree`
 
 ## Observed baseline
@@ -19,14 +19,14 @@ The installed version was observed only with `codex --version`; no model turn or
 | Concern | Current behavior | Validation status |
 | --- | --- | --- |
 | Input | `turn/start` sends text and, in native mode, allowed images. | Contract tests exercise the selected adapter; no live provider turn. |
-| Session | Native mode stores `native-thread.json`; scoped mode stores `remote-thread.json`; the next compatible run uses `thread/resume` with `excludeTurns: true` (thread metadata only), otherwise `thread/start`. A native resume answered "no rollout found" / "thread not found" sets the marker aside (`*.before-session-missing`) and raises `native_session_missing`, so the turn runs once more on a fresh thread seeded with the harness history. | Fake app-server tests cover resume, `excludeTurns` and the lost-thread replay (`tests/test_native_session_missing.py`). |
+| Session | Native mode stores `native-thread.json`; retired scoped markers are left untouched; the next compatible run uses `thread/resume` with `excludeTurns: true` (thread metadata only), otherwise `thread/start`. A native resume answered "no rollout found" / "thread not found" sets the marker aside (`*.before-session-missing`) and raises `native_session_missing`, so the turn runs once more on a fresh thread seeded with the harness history. | Fake app-server tests cover resume, `excludeTurns` and the lost-thread replay (`tests/test_native_session_missing.py`). |
 | Effort | The selected `effort` is sent in `turn/start`; supported values come from authenticated `model/list`. | Config validation only; capability is account and CLI dependent. |
 | Streaming | Agent text, reasoning deltas, tool lifecycle, compaction and token usage are translated into harness events. | Fake app-server tests cover representative events. |
 | Cancel | The job owner controls cancellation. This adapter has no separately verified `turn/interrupt` call. | Documental limitation; keep cancellation semantics under contract test before changing it. |
 | Errors | Codes name the run's provider (`codex`, `deepseek`, `local`): JSON-RPC errors, `error` notifications and failed turns become `<provider>_execution_failed: <message>`, keeping `additionalDetails`, the `codexErrorInfo` kind and its HTTP status so account conditions (401, 402, 429, usage limits) are classified. An `error` with `willRetry: true` is Codex retrying on its own: the adapter emits `provider_retrying` and keeps reading within the idle watchdog. Output is bounded by `<provider>_output_limit`, also raised for a stdout line above the reader limit. | Fake app-server tests (`tests/test_adapters.py`, `tests/test_deepseek.py`). |
 | Interrupted native turns | A confirmed `turn/started` checkpoints the matching native session, allowing resume after cancellation, timeout or restart without replaying tool logs. Unconfirmed or replaced sessions still transfer portable history. | Native protocol and handoff contract tests; no paid inference. |
 | Long native tasks | Native Codex has no Harness wall-clock deadline; explicit cancellation remains available. Native compaction events pass through unchanged. Oversized portable history is saved as a private JSONL file when read and shell permissions allow it. | Worker cancellation, lossless history and permission tests. No new compaction RPC or context-size override. |
-| Authentication | Native mode uses the installed Codex profile. Scoped mode copies its configured credential artifact into the private runtime with restrictive permissions. No credential is documented here. | Implementation review; no account validation claimed. |
+| Authentication | Native mode uses the installed Codex profile. D-044 retires cloud-scoped execution before credential access; no credential copy or native fallback is allowed. | Implementation review; no account validation claimed. |
 
 The official reference specifies JSON-RPC responses and notifications, failed-turn `error` events, and approval requests. It also documents `experimentalApi` as opt-in; do not make an experimental method part of this contract without a failing behavior test and a versioned compatibility check.
 
@@ -112,12 +112,12 @@ The installed generated JSON schema confirms `skill` turn input and `forceReload
 
 The service passes `_conversation_title` separately from the prompt: the conversation root prompt truncated to 100 characters, overridden by an explicit Harness rename. Provider/model handoffs retain that title; workspace metadata and history wrappers are never used as its source.
 
-The shared Codex executor calls `thread/name/set` on session creation/resume before starting the model turn. This also covers local and DeepSeek inference through Codex; Codex scoped execution uses the same helper. Errors/timeouts emit `session_title_sync_failed` and do not claim successful synchronization. Renames made while no turn is starting are propagated at the next execution, not in real time. Calls without a nonblank title leave existing native titles unchanged.
+The shared Codex executor calls `thread/name/set` on session creation/resume before starting the model turn. This also covers local and DeepSeek inference through Codex; Codex cloud-scoped execution is retired under D-044. Errors/timeouts emit `session_title_sync_failed` and do not claim successful synchronization. Renames made while no turn is starting are propagated at the next execution, not in real time. Calls without a nonblank title leave existing native titles unchanged.
 
 Contract checked against installed Codex CLI 0.155.0-alpha.9.2 generated `v2/ThreadSetNameParams.json` (`threadId`, `name`) and https://learn.chatgpt.com/docs/app-server . Offline tests validate transport and handoff; no live model inference. This display metadata does not change session identity, isolation or inference model.
 
 ## Live throughput (2026-09-21)
 
-Native and scoped usage events now include turn output tokens and elapsed monotonic seconds for the live context meter. Notifications with another thread ID are ignored before accumulating or persisting usage. This also covers Local and DeepSeek execution through this engine. Codex CLI 0.155.0-alpha.9.2 was checked locally; offline notification fixtures cover resumed baselines, duplicates and foreign sessions. No live model inference was run.
+Native usage events include turn output tokens and elapsed monotonic seconds for the live context meter. Notifications with another thread ID are ignored before accumulating or persisting usage. This also covers Local and DeepSeek execution through this engine. Codex CLI 0.155.0-alpha.9.2 was checked locally; offline notification fixtures cover resumed baselines, duplicates and foreign sessions. No live model inference was run.
 
 The displayed rate is output tokens divided by elapsed execution time, including tool waits; it is not decoder-only speed. Missing provider counts remain unavailable and are never estimated from text length. Final results remain authoritative when reopening a conversation.

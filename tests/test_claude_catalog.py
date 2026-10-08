@@ -1,13 +1,11 @@
 import asyncio
 import sys
-from contextlib import contextmanager
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from starlette.testclient import TestClient
 
-from adapters.claude import account, native, scoped
+from adapters.claude import account, native
 from agent_service import maestro
 from agent_service.app import create_app
 from control.server import Manager
@@ -157,22 +155,24 @@ def test_active_versions_the_cli_picker_omits_are_listed():
         assert models[model] == ["configured", "low", "medium", "high", "xhigh", "max"]
 
 
-def test_scoped_execution_transmits_effort(tmp_path):
-    @contextmanager
-    def workspace(*args):
-        yield SimpleNamespace(command=["bwrap"], bridge=tmp_path)
+def test_native_execution_transmits_effort(tmp_path):
+    from adapters.claude.backend import run_native
 
     stream = AsyncMock(return_value={"effort": "high"})
-    with (
-        patch.object(scoped, "prepare_scoped", workspace),
-        patch.object(scoped, "collect_changes", return_value={}),
-        patch.object(scoped, "stream", stream),
-    ):
+    with patch("adapters.claude.native.run", stream):
         result = asyncio.run(
-            scoped.run({}, "test", lambda *_: None, model="claude-opus-4-6", effort="high")
+            run_native(
+                {"binary": "fixture"},
+                "test",
+                lambda *_: None,
+                {},
+                "claude-opus-4-6",
+                "high",
+                tmp_path,
+                None,
+            )
         )
-    args = stream.await_args.args
-    assert args[0][-2:] == ["--effort", "high"] and args[-1] == "high"
+    assert stream.await_args.kwargs["effort"] == "high"
     assert result["effort"] == "high"
 
 

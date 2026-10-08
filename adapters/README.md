@@ -6,12 +6,12 @@ Each provider has its own code, specification and development agent. The special
 
 | Folder | Responsibility | Specialist | Local contract |
 | --- | --- | --- | --- |
-| `codex/` | app-server protocol, sessions, effort, approvals and scoped execution | `integrate-codex_keepharness_engineer` | [Spec](codex/specs/README.md) |
+| `codex/` | app-server protocol, native sessions, effort and approvals | `integrate-codex_keepharness_engineer` | [Spec](codex/specs/README.md) |
 | `claude/` | Claude CLI stream-json, resume, tools and parsing | `integrate-claude_keepharness_engineer` | [Spec](claude/specs/README.md) |
 | `gemini/` | Gemini CLI ACP, Google OAuth, sessions and approvals | `integrate-gemini_keepharness_engineer` | [Spec](gemini/specs/README.md) |
 | `deepseek/` | API key, catalog, Responses endpoint and client continuity | `integrate-deepseek_keepharness_engineer` | [Spec](deepseek/specs/README.md) |
 | `local/` | Local endpoint, isolated credential, tool policy and sandbox | `integrate-local_keepharness_engineer` | [Spec](local/specs/README.md) |
-| `shared/` | Folder/attachment preparation and proposed changes in scoped mode | `integrate-contracts_keepharness_engineer` | Shared contracts below |
+| `shared/` | Shared process, provider state, resource and workspace helpers | `integrate-contracts_keepharness_engineer` | Shared contracts below |
 
 ```mermaid
 flowchart LR
@@ -30,11 +30,11 @@ flowchart LR
 
 ## Contracts and responsibilities
 
-`run_native(config, prompt, event, project, model, effort, session_dir, provider, approve)` picks an explicit implementation; each `backend.py` receives the same arguments minus `provider`. `run_scoped` only accepts Codex and Claude. An unknown provider or an unimplemented mode fails; there is no silent fallback.
+`run_native(config, prompt, event, project, model, effort, session_dir, provider, approve)` picks an explicit implementation; each `backend.py` receives the same arguments minus `provider`. `run_scoped` refuses Codex and Claude with `execution_mode_unsupported` under D-044; their scoped executors are removed. Local isolation remains inside its native adapter. An unknown provider or an unimplemented mode fails; there is no silent fallback.
 
 Adapters only receive permissions already computed by the service. The core owns the queue, authorization, conversation history, recovery and applying changes; the transport does not widen authorization. Attachment and response data never become installation instructions. `event` delivers incremental events and `approve` keeps the harness's approval policy. The legacy `agent_service/*backend.py`, `codex_rpc.py`, `local_sandbox.py` and `control/deepseek.py` compatibility-import shims have been removed; all code imports `adapters` directly.
 
-The design reuses the Codex protocol for DeepSeek and local models, but each integration chooses its own endpoint, authentication and policy. Each `backend.py` module satisfies the structural `ProviderAdapter` protocol in `adapters/base.py` (`ScopedProviderAdapter` when it also has `run_scoped`), and `adapters/__init__.py` lists them in the read-only `PROVIDERS` and `SCOPED_PROVIDERS` registries; there is no base class or plugin factory. Separate functions build commands, prepare sessions, handle interactions and parse streams. New Python code uses conventional formatting, with no one-line compressed methods.
+The design reuses the Codex protocol for DeepSeek and local models, but each integration chooses its own endpoint, authentication and policy. Each `backend.py` module satisfies the structural `ProviderAdapter` protocol in `adapters/base.py` and `adapters/__init__.py` lists them in the read-only `PROVIDERS` registry. The legacy `SCOPED_PROVIDERS` registry retains only Gemini's explicit unsupported-mode response (`ScopedProviderAdapter`); it offers no cloud-scoped execution; there is no base class or plugin factory. Separate functions build commands, prepare sessions, handle interactions and parse streams. New Python code uses conventional formatting, with no one-line compressed methods.
 
 ## Correlated versions and offline lookup
 

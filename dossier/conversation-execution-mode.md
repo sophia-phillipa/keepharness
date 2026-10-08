@@ -1,5 +1,19 @@
 # Conversation execution mode
 
+## Cloud-scoped retirement (#52, D-044)
+
+This section supersedes the Codex/Claude mode and legacy-resolution rules below. The earlier sections preserve the history of the original UI and permission work. [D-044](decisions/d-044-scoped-sandbox-under-facade.md) governs the retirement; issue #52 implements its backend contract. Unknown historical modes display "Execution mode unavailable" without a native fallback. The remaining UI retirement and guidance are a separate follow-up.
+
+The supported modes are `native` for Codex, Claude, Gemini and DeepSeek, and `scoped` for Local. New Codex/Claude conversations default to native even if a stale service setting says scoped. An explicit unsupported mode returns HTTP 422 `execution_mode_unsupported` before enqueueing. Queued work, workflow stages, scheduled occurrences and direct adapter dispatch enforce the same refusal before provider execution. Schedule creation and updates reject unsupported modes.
+
+A stored Codex/Claude scoped conversation cannot continue, retry, resume, branch or escape retirement through a provider or permission-preset change. Its mode, history, attachments, proposals, session markers and old home files remain untouched and readable. Starting a native conversation is an explicit new-conversation action; it does not import the old provider session.
+
+For an existing conversation without a root mode, consistent recorded provider context and unambiguous persisted turn modes determine the historical mode. Missing or conflicting evidence for historical Codex/Claude or unknown provenance refuses execution; the displayed historical mode is unavailable. Unambiguous historical Local remains scoped and historical Gemini/DeepSeek remain native. Neither the currently selected backend nor a mutable service configuration proves that a historical cloud conversation was native. Resolution does not migrate rows or silently rewrite stored payloads.
+
+Cloud-scoped executors and their registration are retired, including their effect-capability claims. The rejection path never reads or copies credentials, starts a provider, applies a proposal or makes an inference request. Local's independent sandbox and native permission/trust behavior remain covered by their existing regression tests. See the [0.16.0 release notes](releases/v0.16.0.md) for acceptance tests and actual validation.
+
+## Original mode selection
+
 New conversations offer a one-time isolation switch above the conversation, with native execution selected by default where supported. The explanation uses plain language about working in the project folder versus a separate space with restricted file/tool access; it avoids CLI, engine and session terminology. The switch can be changed until the first job is accepted; a failed submission preserves both the choice and the draft.
 
 After the first message, the switch and explanation disappear. The same shield icon remains at the upper-right corner inside the prompt box. The active switch and isolated-session icon use the theme accent; native state is neutral. The icon is an accessible read-only status, not an editable switch. Reloading or reopening a conversation restores its fixed mode. A new conversation resets to the supported default.

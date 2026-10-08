@@ -593,7 +593,7 @@ def discover_workflows(
                     result["warnings"].append(
                         "Catalog " + origin + " unavailable: " + snapshot["error"]
                     )
-                mode = execution_mode or config.get("services", {}).get(backend, {}).get("mode")
+                mode = execution_mode or ("scoped" if backend == "local" else "native")
                 problems.extend(
                     integration_preflight(
                         config,
