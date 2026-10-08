@@ -48,7 +48,10 @@ def make_skill(folder: Path, name: str) -> Path:
 def fake_claude_on_path(monkeypatch, isolated_provider_homes):
     # a checkout or sdist without the extensionless fake CLI must fail loudly, not run the real one
     assert (FAKE_CLAUDE_DIR / "claude").is_file()
-    monkeypatch.setenv("PATH", f"{FAKE_CLAUDE_DIR}{os.pathsep}{FAKE_CLAUDE_DIR.parent / 'fake-codex'}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setenv(
+        "PATH",
+        f"{FAKE_CLAUDE_DIR}{os.pathsep}{FAKE_CLAUDE_DIR.parent / 'fake-codex'}{os.pathsep}{os.environ['PATH']}",
+    )
 
 
 @pytest.fixture
@@ -373,6 +376,14 @@ def test_a_home_reached_through_a_symlink_reads_the_same(adapter, tmp_path, monk
 
 
 def test_watch_paths(adapter, config_dir, project, managed):
+    from adapters.shared.orchestration_state import claude_instructions
+
+    user_instructions = claude_instructions(
+        Path.home(), config_dir, None, managed, read_content=False
+    ).paths
+    project_instructions = claude_instructions(
+        Path.home(), config_dir, project, managed, read_content=False
+    ).paths
     managed_paths = (managed / "managed-settings.json", managed / "managed-settings.d")  # R40-8
     assert adapter.watch_paths(None) == (
         config_dir / "settings.json",
@@ -380,6 +391,7 @@ def test_watch_paths(adapter, config_dir, project, managed):
         config_dir / "plugins" / "installed_plugins.json",
         config_dir / "skills",
         *managed_paths,
+        *user_instructions,
     )
     assert adapter.watch_paths(project)[4:] == (
         project / ".claude" / "settings.json",
@@ -387,6 +399,7 @@ def test_watch_paths(adapter, config_dir, project, managed):
         project / ".mcp.json",
         project / ".claude" / "skills",
         *managed_paths,
+        *project_instructions,
     )
     assert not any(
         path.name in {".credentials.json", "auth.json"} for path in adapter.watch_paths(project)

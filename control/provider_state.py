@@ -28,6 +28,7 @@ from starlette.responses import JSONResponse
 
 from adapters.claude.state import ClaudeStateAdapter
 from adapters.codex.state import CodexStateAdapter
+from adapters.deepseek.state import DeepSeekStateAdapter
 from adapters.shared.process import redact_paths
 from adapters.shared.provider_state import (
     ProviderCommandError,
@@ -143,7 +144,11 @@ def _restore_security_writes(rollback):
 
 
 def snapshot_json(snapshot: StateSnapshot) -> dict:
-    return dataclasses.asdict(snapshot)  # tuples become JSON arrays when serialized
+    result = dataclasses.asdict(snapshot)
+    for item in result["items"]:
+        if not item["details"]:
+            item.pop("details")
+    return result  # preserve the existing item wire shape when no details apply
 
 
 def error_response(exc: _ProviderStateError, **extra) -> JSONResponse:
@@ -210,6 +215,15 @@ def _items_of(snapshot: StateSnapshot) -> dict[str, dict]:
             "source": item.source.rsplit("/", 1)[-1],
             "name": item.name,
             "scope": item.scope,  # the layer that decides the value
+            **(
+                {
+                    "content_digest": hashlib.sha256(
+                        json.dumps(item.details, sort_keys=True).encode()
+                    ).hexdigest()
+                }
+                if item.kind in ("hook", "instructions")
+                else {}
+            ),
         }
         for item in snapshot.items
     }
@@ -229,7 +243,12 @@ def diff_items(
     found = []
     for item_id in sorted(old.keys() | new.keys()):
         before, after = old.get(item_id), new.get(item_id)
-        if item_id == exclude or (before and after and before["enabled"] == after["enabled"]):
+        if item_id == exclude or (
+            before
+            and after
+            and before["enabled"] == after["enabled"]
+            and before.get("content_digest") == after.get("content_digest")
+        ):
             continue
         shown = after or before
         notice = {
@@ -239,6 +258,11 @@ def diff_items(
             "before": before and before["enabled"],
             "after": after and after["enabled"],
             "source": shown.get("source", ""),
+            **(
+                {"content_changed": True}
+                if before and after and before.get("content_digest") != after.get("content_digest")
+                else {}
+            ),
         }
         written = writes.get(item_id) or {}
         if (
@@ -259,7 +283,7 @@ def _merge(
     for change in found:
         earlier = pending.pop(change["item_id"], None)
         before = earlier["before"] if earlier else change["before"]
-        if change["after"] == before:
+        if change["after"] == before and not change.get("content_changed"):
             continue  # the item came back to what the owner last saw
         kind = (
             "added"
@@ -297,7 +321,14 @@ def _watch(adapter: ProviderStateAdapter, root: Path | None) -> str:
 
 def _source_identity(adapter: ProviderStateAdapter, root: Path | None) -> str:
     """Locations only: changing source homes requires a baseline, editing their files does not."""
-    locations = "\0".join(str(path) for path in adapter.watch_paths(root))
+    locations = "\0".join(
+        str(path)
+        for path in (
+            adapter.source_identity_paths(root)
+            if hasattr(adapter, "source_identity_paths")
+            else adapter.watch_paths(root)
+        )
+    )
     return hashlib.sha256(locations.encode()).hexdigest()
 
 
@@ -368,7 +399,7 @@ class ProviderStateService:
 
     def resolve(self, provider: str, project_id: str) -> Path | None:
         """The project's folder (``None`` for "No project"); 404 for an unknown provider or project."""
-        if provider not in PROVIDERS:
+        if provider not in (*PROVIDERS, "deepseek"):
             raise APIError("provider_unknown", 404)
         if project_id == NO_PROJECT:
             return None
@@ -380,6 +411,8 @@ class ProviderStateService:
         raise APIError("project_unknown", 404)
 
     def _adapter(self, provider: str) -> ProviderStateAdapter:
+        if provider == "deepseek" and provider not in self.adapters:
+            self.adapters[provider] = DeepSeekStateAdapter(self.state, environment=self.environment)
         if provider not in self.adapters:
             environment = _owner_environment(self.state, provider, source=self.environment)
             self.adapters[provider] = (

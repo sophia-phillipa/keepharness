@@ -38,6 +38,7 @@ from pathlib import Path
 
 from jsonschema import Draft7Validator
 
+from adapters.shared.orchestration_state import claude_instructions, hook_items
 from adapters.shared.process import child_environment, provider_message, redact_paths
 from adapters.shared.provider_state import (
     MISSING_FILE,
@@ -279,6 +280,66 @@ class ClaudeStateAdapter:
             *self._skill_items(layers, plugins, reading),
             *self._mcp_items(reading),
         ]
+        trusted = root is None or self.is_project_trusted(root)
+        active_layers = [
+            layer for layer in layers if trusted or layer.scope not in ("project", "local")
+        ]
+        disabled = next(
+            (
+                layer.data["disableAllHooks"]
+                for layer in active_layers
+                if isinstance(layer.data.get("disableAllHooks"), bool)
+            ),
+            False,
+        )
+        managed_only = any(
+            layer.scope == "managed" and layer.data.get("allowManagedHooksOnly") is True
+            for layer in layers
+        )
+        for layer in layers:
+            blocked = layer.scope in ("project", "local") and not trusted
+            layer_disabled = (
+                next(
+                    (
+                        item.data["disableAllHooks"]
+                        for item in layers
+                        if item.scope == "managed"
+                        and isinstance(item.data.get("disableAllHooks"), bool)
+                    ),
+                    False,
+                )
+                if layer.scope == "managed"
+                else disabled
+            )
+            active = (
+                not layer_disabled
+                and not blocked
+                and not (managed_only and layer.scope != "managed")
+            )
+            status = (
+                "pending project trust"
+                if blocked
+                else "disabled by disableAllHooks"
+                if layer_disabled
+                else "managed hooks only"
+                if managed_only and layer.scope != "managed"
+                else "configured"
+            )
+            items.extend(
+                hook_items(
+                    layer.data,
+                    layer.shown,
+                    layer.scope,
+                    enabled=active,
+                    status=status,
+                    extra={"disableAllHooks": layer_disabled},
+                )
+            )
+        instructions = claude_instructions(reading.home, self._config_dir(), root, self.managed_dir)
+        self._orchestration_paths = tuple(instructions.paths)
+        items.extend(instructions.items)
+        reading.parts.extend(instructions.parts)
+        reading.warnings.extend(instructions.warnings)
         if reading.attempted and not reading.parsed:
             raise ProviderStateSchemaError("no Claude Code state file could be read")
         snapshot = StateSnapshot(
@@ -556,7 +617,19 @@ class ClaudeStateAdapter:
             self.managed_dir / "managed-settings.json",
             self.managed_dir / "managed-settings.d",
         ]
-        return tuple(paths)
+        instructions = claude_instructions(
+            Path(self.environment["HOME"]) if self.environment is not None else Path.home(),
+            config_dir,
+            project_root,
+            self.managed_dir,
+            read_content=False,
+        )
+        return tuple(
+            dict.fromkeys([*paths, *instructions.paths, *getattr(self, "_orchestration_paths", ())])
+        )
+
+    def source_identity_paths(self, project_root):
+        return (self._config_dir(), self._claude_json(), self.managed_dir, project_root)
 
     def is_project_trusted(self, project_root: Path) -> bool:
         from adapters.shared.provider_state import project_trusted

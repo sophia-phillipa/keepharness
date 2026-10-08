@@ -418,9 +418,7 @@ def test_missing_list_methods_lock_only_their_kinds(adapter, codex_home):
     assert any("plugin/list" in w for w in snapshot.warnings)
 
 
-def test_a_missing_plugin_list_keeps_local_plugin_skills_read_only(
-    adapter, codex_home, tmp_path
-):
+def test_a_missing_plugin_list_keeps_local_plugin_skills_read_only(adapter, codex_home, tmp_path):
     source = tmp_path / "local-plugin"
     hidden = source / "skills" / ".hidden" / "SKILL.md"
     (codex_home / "config.toml").write_text(USER_CONFIG)
@@ -438,9 +436,7 @@ def test_a_missing_plugin_list_keeps_local_plugin_skills_read_only(
     assert writes(codex_home) == []
 
 
-def test_an_unanswered_app_list_does_not_lock_other_kinds(
-    adapter, codex_home, monkeypatch
-):
+def test_an_unanswered_app_list_does_not_lock_other_kinds(adapter, codex_home, monkeypatch):
     """Codex 0.157.1 can leave app/list unanswered after the other lists succeeded."""
     seed(codex_home)
     reconfigure(codex_home, no_response=["app/list"])
@@ -518,9 +514,11 @@ def test_reading_is_read_only_and_asks_the_right_cwds(adapter, codex_home, tmp_p
         "skills/list",
         "plugin/list",
         "app/list",
+        "hooks/list",
     }
     skill_cwds = [c["params"]["cwds"] for c in made if c["method"] == "skills/list"]
     assert skill_cwds == [[str(Path.home())], [str(tmp_path)]]
+    assert [c["params"]["cwds"] for c in made if c["method"] == "hooks/list"] == skill_cwds
     reads = [c["params"] for c in made if c["method"] == "config/read"]
     assert "cwd" not in reads[0] and reads[1]["cwd"] == str(tmp_path)
     assert all(read["includeLayers"] is True for read in reads)
@@ -544,12 +542,26 @@ def test_a_home_reached_through_a_symlink(adapter, isolated_provider_homes, monk
 
 
 def test_watch_paths(adapter, codex_home, tmp_path):
-    assert adapter.watch_paths(None) == (codex_home / "config.toml", codex_home / "skills")
+    from adapters.shared.orchestration_state import codex_instructions
+
+    user_instructions = codex_instructions(Path.home(), codex_home, None, read_content=False).paths
+    project_instructions = codex_instructions(
+        Path.home(), codex_home, tmp_path, read_content=False
+    ).paths
+    assert adapter.watch_paths(None) == (
+        codex_home / "config.toml",
+        codex_home / "skills",
+        codex_home / "hooks.json",
+        *user_instructions,
+    )
     assert adapter.watch_paths(tmp_path) == (
         codex_home / "config.toml",
         codex_home / "skills",
+        codex_home / "hooks.json",
+        *project_instructions,
         tmp_path / ".codex" / "config.toml",
         tmp_path / ".agents" / "skills",
+        tmp_path / ".codex/hooks.json",
     )
     assert not any("auth" in path.name for path in adapter.watch_paths(tmp_path))
     assert calls(codex_home) == []  # pure: no app-server involved
@@ -838,18 +850,14 @@ def test_a_skill_switch_rereads_the_user_layer_right_before_writing(adapter, cod
 
 
 @pytest.mark.parametrize("version", [None, 7, ""])
-def test_a_skill_switch_refuses_a_malformed_user_layer_version(
-    adapter, codex_home, version
-):
+def test_a_skill_switch_refuses_a_malformed_user_layer_version(adapter, codex_home, version):
     seed(codex_home)
     reconfigure(codex_home, user_layer_version=version)
     snapshot = adapter.read_state(None)
     assert f"skill:{REPO_SKILL}" in rows(snapshot)
 
     with pytest.raises(ProviderStateUnsupportedError, match="config was not read"):
-        adapter.set_enabled(
-            f"skill:{REPO_SKILL}", "user", False, snapshot.fingerprint
-        )
+        adapter.set_enabled(f"skill:{REPO_SKILL}", "user", False, snapshot.fingerprint)
 
     assert writes(codex_home) == []
     assert codex_home.joinpath("config.toml").read_text() == USER_CONFIG

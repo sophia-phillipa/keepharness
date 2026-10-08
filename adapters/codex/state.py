@@ -42,6 +42,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from adapters.codex.rpc import RPCError, connection, provider_message
+from adapters.shared.orchestration_state import (
+    codex_instructions,
+    hook_items,
+    safe_details,
+    safe_text,
+)
 from adapters.shared.process import child_environment
 from adapters.shared.provider_state import (
     CredentialRule,
@@ -442,11 +448,15 @@ class CodexStateAdapter:
                     ("skills", "skills/list", {"cwds": [cwd], "forceReload": False}),
                     ("plugins", "plugin/list", {}),
                     ("apps", "app/list", {}),
+                    ("hooks", "hooks/list", {"cwds": [cwd]}),
                 ],
                 environment=environment,
             )
         )
-        if not results:
+        if not results or (
+            set(results) == {"hooks"}
+            and not any(_listed(group, "hooks") for group in _listed(results.get("hooks"), "data"))
+        ):
             raise ProviderStateSchemaError(
                 "Codex state is not readable: " + "; ".join(failures.values())
             )
@@ -578,6 +588,103 @@ class CodexStateAdapter:
         flags = sorted((item.id, item.enabled) for item in items if item.kind != "mcp")
         digest.update(json.dumps(flags).encode())
 
+        instructions = codex_instructions(
+            (environment or os.environ).get("HOME") or Path.home(),
+            _codex_home(self.environment),
+            project_root,
+            (results.get("config") or {})
+            .get("config", {})
+            .get("project_doc_fallback_filenames", []),
+        )
+        items.extend(instructions.items)
+        warnings.extend(instructions.warnings)
+        digest.update(instructions.digest().encode())
+        for group in _listed(results.get("hooks"), "data"):
+            for hook in _listed(group, "hooks"):
+                details = safe_details(hook)
+                trust = hook.get("trustStatus")
+                details["status"] = (
+                    "pending review"
+                    if trust not in ("trusted", "managed")
+                    else "enabled"
+                    if hook.get("enabled")
+                    else "disabled"
+                )
+                scope = (
+                    "managed"
+                    if hook.get("isManaged")
+                    else "project"
+                    if hook.get("source") == "project"
+                    else "user"
+                )
+                details["event"] = details.get("eventName", "")
+                items.append(
+                    StateItem(
+                        "hook:"
+                        + hashlib.sha256(str(hook.get("key", hook)).encode()).hexdigest()[:20],
+                        "hook",
+                        safe_text(hook.get("eventName", "Hook")),
+                        scope,
+                        hook.get("enabled") is True and trust in ("trusted", "managed"),
+                        safe_text(hook.get("sourcePath", "")),
+                        False,
+                        "Read-only; review hooks with Codex /hooks.",
+                        details=details,
+                    )
+                )
+        native_sources = {
+            hook.get("sourcePath")
+            for group in _listed(results.get("hooks"), "data")
+            for hook in _listed(group, "hooks")
+        }
+        instructions.paths.extend(
+            Path(source) for source in native_sources if isinstance(source, str)
+        )
+        disabled_project = any(
+            entry.get("disabledReason") and _name(entry).get("type") == "project"
+            for entry in raw_layers
+        )
+        hook_sources = [("user", _codex_home(self.environment))]
+        if project_root:
+            hook_sources.append(("project", Path(project_root) / ".codex"))
+        for scope, folder in hook_sources:
+            path = folder / "hooks.json"
+            if str(path) in native_sources:
+                continue
+            raw = instructions.read(path)
+            if raw:
+                try:
+                    document = json.loads(raw)
+                except ValueError:
+                    warnings.append("A hooks.json source could not be parsed.")
+                    continue
+                if isinstance(document, dict):
+                    status = (
+                        "pending project trust"
+                        if scope == "project" and disabled_project
+                        else "pending review"
+                    )
+                    items.extend(
+                        hook_items(document, str(path), scope, enabled=False, status=status)
+                    )
+        for entry in raw_layers:
+            layer = _layer(entry, True)
+            if layer.source not in native_sources:
+                status = (
+                    "pending project trust" if entry.get("disabledReason") else "pending review"
+                )
+                items.extend(
+                    hook_items(
+                        layer.config, layer.source, layer.scope, enabled=False, status=status
+                    )
+                )
+        self._orchestration_paths = tuple(instructions.paths)
+        digest.update(instructions.digest().encode())
+        digest.update(
+            json.dumps(
+                [item.details for item in items if item.kind == "hook"], sort_keys=True
+            ).encode()
+        )
         version = _cli_version(binary, environment)
         if not version:
             warnings.append("The Codex version could not be read.")
@@ -656,11 +763,35 @@ class CodexStateAdapter:
 
     def watch_paths(self, project_root: Path | None) -> tuple[Path, ...]:
         home = _codex_home(self.environment)
-        paths = (home / "config.toml", home / "skills")
+        instructions = codex_instructions(
+            (self.environment or os.environ).get("HOME") or Path.home(),
+            home,
+            project_root,
+            read_content=False,
+        )
+        paths = (
+            home / "config.toml",
+            home / "skills",
+            home / "hooks.json",
+            *instructions.paths,
+            *getattr(self, "_orchestration_paths", ()),
+        )
         if project_root is None:
-            return paths
+            return tuple(dict.fromkeys(paths))
         project = Path(project_root)
-        return (*paths, project / ".codex" / "config.toml", project / ".agents" / "skills")
+        return tuple(
+            dict.fromkeys(
+                (
+                    *paths,
+                    project / ".codex" / "config.toml",
+                    project / ".agents" / "skills",
+                    project / ".codex/hooks.json",
+                )
+            )
+        )
+
+    def source_identity_paths(self, project_root):
+        return (_codex_home(self.environment), project_root)
 
     def is_project_trusted(self, project_root: Path) -> bool:
         from adapters.shared.provider_state import project_trusted

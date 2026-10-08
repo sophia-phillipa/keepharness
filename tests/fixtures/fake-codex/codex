@@ -342,6 +342,7 @@ HANDLERS = {
     "skills/config/write": skills_config_write,
     "plugin/list": plugin_list,
     "app/list": app_list,
+    "hooks/list": lambda params: settings().get("hooks", {"data": []}),
 }
 
 
