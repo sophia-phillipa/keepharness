@@ -485,3 +485,14 @@ safeguards. JEV selected extension of the existing chips over separate sidebar
 pages (confidence 0.94); the Codex inventory confirms the Hooks empty-state copy.
 Populated native fields must be verified from the CLI schema/documentation,
 not inferred from that empty screenshot.
+
+The #61 review correction also applies project trust to instruction rows, not
+only hooks. Claude plugin hook files and selected AGENTS fallback files join the
+same source monitoring contract. Preview reads use the shared pinned-descriptor
+helper: no directory creation, symlink traversal, special files or multiple-link
+files. Credential-looking argument/header values are removed before display.
+DeepSeek's read-only inventory does not authorize the Codex/Claude trust writer;
+that operation rejects DeepSeek before accessing either provider.
+The outside-change baseline also retains the discovered watch paths, so the
+run-start stat check uses the same sources without parsing CLI files. Only paths
+and display-field digests are persisted, never preview or command contents.
