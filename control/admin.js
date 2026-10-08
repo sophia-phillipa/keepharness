@@ -947,8 +947,10 @@ function setProviderNotices(provider, list) {
 function noticeParts(provider, notice) {
   const cli = HarnessUI.providerName(provider);
   const time = new Date(notice.detected_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
-  const detail = " (" + notice.source + ", " + time + ")";
   const [kind, id] = String(notice.item_id).includes(":") ? String(notice.item_id).split(/:(.*)/s) : ["item", String(notice.item_id)];
+  // Older pending skill notices stored the folder name instead of its source file.
+  const source = kind === "skill" && notice.source === id ? "SKILL.md" : notice.source;
+  const detail = " (" + source + ", " + time + ")";
   if (notice.change === "reverted")
     return [`Reverted by ${cli}: ${kind} `, id, ` is ${onOff(notice.after)} again${detail}. Your choice was ${onOff(notice.before)}.`];
   const what = { added: "was added", removed: "was removed" }[notice.change] || "was turned " + onOff(notice.after);

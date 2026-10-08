@@ -17,6 +17,7 @@ import dataclasses
 import hashlib
 import json
 import logging
+import os
 import threading
 import time
 from collections.abc import Callable, Mapping
@@ -32,6 +33,7 @@ from adapters.shared.provider_state import (
     ProviderCommandError,
     ProviderStateAdapter,
     ProviderStateConflictError,
+    ProviderStateSchemaError,
     StateSnapshot,
     _ProviderStateError,
     fingerprint,
@@ -51,6 +53,57 @@ NOTICE_CAP = 50
 
 logger = logging.getLogger(__name__)
 _runs_lock = threading.Lock()  # runs share one thread pool and one runs file
+
+
+def _owner_environment(
+    state: Path, provider: str | None = None, *, source: Mapping[str, str] | None = None
+) -> dict[str, str]:
+    """Pin the owner's locations; the 0.15 run homes never belong to this facade.
+
+    Resolve directory aliases for containment only, without reading CLI file contents.
+    Keep accepted custom path spellings, discard harness-owned locations, and report
+    unavailable owner directories only when their provider's state is requested.
+    """
+    source = os.environ if source is None else source
+    try:
+        harness = (Path(state) / "providers").resolve()
+    except (OSError, RuntimeError):
+        raise ProviderStateSchemaError("The provider state directory cannot be resolved.") from None
+
+    def owner_path(value: str) -> bool:
+        try:
+            path = Path(value).resolve()
+            if path.is_relative_to(harness):
+                return False
+            if path.exists() and not os.access(path, os.R_OK | os.X_OK):
+                raise PermissionError
+            return True
+        except (OSError, RuntimeError):
+            raise ProviderStateSchemaError(
+                "The owner CLI directory is unavailable for provider state."
+            ) from None
+
+    home = source.get("HOME")
+    if not home or not owner_path(home):
+        if os.name == "posix":
+            import pwd
+
+            home = pwd.getpwuid(os.getuid()).pw_dir
+        else:
+            home = source.get("USERPROFILE") or str(Path.home())
+    if not owner_path(home):
+        raise ProviderStateSchemaError("The owner home is unavailable for provider state.")
+    result = {"HOME": home}
+    locations = {"codex": ("CODEX_HOME", ".codex"), "claude": ("CLAUDE_CONFIG_DIR", ".claude")}
+    for name, folder in (locations[provider],) if provider is not None else locations.values():
+        configured = source.get(name)
+        location = configured if configured and owner_path(configured) else str(Path(home) / folder)
+        if not owner_path(location):
+            raise ProviderStateSchemaError(
+                "The owner CLI directory is unavailable for provider state."
+            )
+        result[name] = location
+    return result
 
 
 def snapshot_json(snapshot: StateSnapshot) -> dict:
@@ -206,6 +259,12 @@ def _watch(adapter: ProviderStateAdapter, root: Path | None) -> str:
     return fingerprint(adapter.watch_paths(root))
 
 
+def _source_identity(adapter: ProviderStateAdapter, root: Path | None) -> str:
+    """Locations only: changing source homes requires a baseline, editing their files does not."""
+    locations = "\0".join(str(path) for path in adapter.watch_paths(root))
+    return hashlib.sha256(locations.encode()).hexdigest()
+
+
 def _watch_or_blank(adapter: ProviderStateAdapter, root: Path | None) -> str:
     """The stat after a write that landed; unreadable is "unknown", so the next read diffs."""
     try:
@@ -223,13 +282,20 @@ def run_start_check(
     compare with, so nothing is written. Never raises: a run must not fail over this.
     """
     try:
-        adapter = CodexStateAdapter() if provider == "codex" else ClaudeStateAdapter(control_state)
+        environment = _owner_environment(control_state, provider)
+        adapter = (
+            CodexStateAdapter(environment=environment)
+            if provider == "codex"
+            else ClaudeStateAdapter(control_state, environment=environment)
+        )
         stat = _watch(adapter, project_root)
         key = _key(provider, project_id)
         seen = _read_entries(Path(control_state) / SEEN_FILE).get(key)
+        if seen is None or seen.get("source_identity") != _source_identity(adapter, project_root):
+            return
         with _runs_lock:  # read-modify-write of the one runs file
             runs = _read_entries(Path(control_state) / RUNS_FILE)
-            if seen is None or stat in (seen.get("stat"), runs.get(key, {}).get("stat")):
+            if stat in (seen.get("stat"), runs.get(key, {}).get("stat")):
                 return
             runs[key] = {"stat": stat, "detected_at": _now(time.time)}
             _write_entries(Path(control_state) / RUNS_FILE, runs)
@@ -249,7 +315,12 @@ class ProviderStateService:
     ) -> None:
         self.state = Path(state)
         self.projects = projects
-        self.adapters = adapters  # built on first use
+        self.adapters = dict(adapters or {})  # each provider is built on its first use
+        self.environment = {
+            name: os.environ[name]
+            for name in ("HOME", "USERPROFILE", "CODEX_HOME", "CLAUDE_CONFIG_DIR")
+            if name in os.environ
+        }
         self.clock = clock
         self.wall = wall
         self.locks: dict[str, asyncio.Lock] = {}
@@ -271,11 +342,13 @@ class ProviderStateService:
         raise APIError("project_unknown", 404)
 
     def _adapter(self, provider: str) -> ProviderStateAdapter:
-        if self.adapters is None:
-            self.adapters = {
-                "codex": CodexStateAdapter(),
-                "claude": ClaudeStateAdapter(self.state),
-            }
+        if provider not in self.adapters:
+            environment = _owner_environment(self.state, provider, source=self.environment)
+            self.adapters[provider] = (
+                CodexStateAdapter(environment=environment)
+                if provider == "codex"
+                else ClaudeStateAdapter(self.state, environment=environment)
+            )
         return self.adapters[provider]
 
     # --- the seen map: every method below is synchronous, so a load-modify-save never interleaves
@@ -331,8 +404,17 @@ class ProviderStateService:
         """
         key, items = _key(provider, project_id), _items_of(snapshot)
         entry = self._entries().get(key)
-        if entry is None:
-            self._entries()[key] = {"stat": stat, "items": items, "writes": {}, "notices": []}
+        root = Path(snapshot.project_root) if snapshot.project_root else None
+        source_identity = _source_identity(self._adapter(provider), root)
+        if entry is None or entry.get("source_identity") != source_identity:
+            # Legacy basename-only entries cannot distinguish owner and harness homes.
+            self._entries()[key] = {
+                "source_identity": source_identity,
+                "stat": stat,
+                "items": items,
+                "writes": {},
+                "notices": [],
+            }
             return self._save()
         if written is None and entry["stat"] == stat:
             return
@@ -365,9 +447,10 @@ class ProviderStateService:
 
     def _read_with_stat(self, provider: str, root: Path | None) -> tuple[str, StateSnapshot]:
         adapter = self._adapter(provider)
-        return _watch(adapter, root), adapter.read_state(
-            root
-        )  # stat first: a late edit shows next time
+        try:
+            return _watch(adapter, root), adapter.read_state(root)
+        except OSError:
+            raise ProviderStateSchemaError("The provider state is unreadable.") from None
 
     async def _read_fresh(self, provider: str, project_id: str, root: Path | None) -> StateSnapshot:
         stat, snapshot = await asyncio.to_thread(self._read_with_stat, provider, root)
@@ -401,8 +484,8 @@ class ProviderStateService:
         """``{"snapshot"}`` on success, the error response (409 with a fresh snapshot) otherwise."""
         root = self.resolve(provider, project_id)
         async with self.locks.setdefault(provider, asyncio.Lock()):
-            adapter = self._adapter(provider)
             try:
+                adapter = self._adapter(provider)
                 snapshot = await asyncio.to_thread(
                     partial(
                         adapter.set_enabled,

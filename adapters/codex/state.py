@@ -89,8 +89,9 @@ class _Layer:
     reason: str  # why it is not writable; empty for the user layer
 
 
-def _codex_home() -> Path:
-    return Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
+def _codex_home(environment=None) -> Path:
+    source = os.environ if environment is None else environment
+    return Path(source.get("CODEX_HOME") or Path(source.get("HOME") or Path.home()) / ".codex")
 
 
 def _name(entry: dict) -> dict:
@@ -165,23 +166,61 @@ def _app_list(result: dict | None) -> dict[str, tuple[str, bool | None]]:
     return found
 
 
-def _skill_list(result: dict | None) -> dict[str, dict]:
+def _skill_list(result: dict | None, home: Path, plugins: dict | None) -> dict[str, dict]:
+    roots = [home / "skills"]
+    for market in _listed(plugins, "marketplaces"):
+        for plugin in _listed(market, "plugins"):
+            source = plugin.get("source")
+            if (
+                isinstance(source, dict)
+                and source.get("type") == "local"
+                and isinstance(source.get("path"), str)
+                and Path(source["path"]).is_absolute()
+            ):
+                roots.append(Path(source["path"]) / "skills")
     found = {}
     for group in _listed(result, "data"):
+        cwd = Path(group["cwd"]) if isinstance(group.get("cwd"), str) else None
+        project_roots = []
+        if cwd is not None:
+            try:
+                cwd = cwd.resolve()
+            except (OSError, RuntimeError):
+                pass
+            project_roots = [directory / ".agents" / "skills" for directory in (cwd, *cwd.parents)]
+        locations = set()
+        for root in roots + project_roots:
+            try:
+                locations.add(root.resolve())
+            except (OSError, RuntimeError):
+                pass
+        # Use the longest canonical root known from home, project ancestry or plugin/list.
+        # Only its relative components count as hidden; unknown collections stay unchanged.
+        locations = sorted(locations, key=lambda root: len(root.parts), reverse=True)
         for skill in _listed(group, "skills"):
             if isinstance(skill.get("path"), str) and isinstance(skill.get("enabled"), bool):
+                try:
+                    path = Path(skill["path"]).resolve()
+                except (OSError, RuntimeError):
+                    found[skill["path"]] = skill
+                    continue
+                root = next((root for root in locations if path.is_relative_to(root)), None)
+                if root is not None and any(
+                    part.startswith(".") for part in path.relative_to(root).parts
+                ):
+                    continue
                 found[skill["path"]] = skill
     return found
 
 
-def _cli_version(binary: str) -> str:
+def _cli_version(binary: str, environment=None) -> str:
     try:
         done = subprocess.run(
             [binary, "--version"],
             capture_output=True,
             text=True,
             timeout=CALL_SECONDS,
-            env=child_environment(),
+            env=child_environment(environment),
             check=False,
         )
     except (OSError, subprocess.SubprocessError):
@@ -203,14 +242,18 @@ def _session_seconds(calls: int) -> float:
     return CALL_SECONDS * (calls + 1)
 
 
-async def _ask(binary: str, requests: list[tuple[str, str, dict]]) -> tuple[dict, dict]:
+async def _ask(
+    binary: str, requests: list[tuple[str, str, dict]], environment=None
+) -> tuple[dict, dict]:
     """One app-server session: ``({key: result}, {key: why})`` for the requests in order."""
     results: dict[str, dict] = {}
     failures: dict[str, str] = {}
     command = [binary, "app-server", "--listen", "stdio://"]
     try:
         async with asyncio.timeout(_session_seconds(len(requests))):
-            async with connection(command, config={"idle_timeout_seconds": CALL_SECONDS}) as rpc:
+            async with connection(
+                command, env=environment, config={"idle_timeout_seconds": CALL_SECONDS}
+            ) as rpc:
                 for key, method, params in requests:
                     try:
                         results[key] = await rpc.call(method, params)
@@ -224,7 +267,9 @@ async def _ask(binary: str, requests: list[tuple[str, str, dict]]) -> tuple[dict
     return results, failures
 
 
-async def _write(binary: str, method: str, params: dict, user_version: str | None) -> None:
+async def _write(
+    binary: str, method: str, params: dict, user_version: str | None, environment=None
+) -> None:
     """One write in its own app-server session.
 
     ``user_version`` is given for ``skills/config/write`` only (it has no ``expectedVersion``): the
@@ -234,7 +279,9 @@ async def _write(binary: str, method: str, params: dict, user_version: str | Non
     command = [binary, "app-server", "--listen", "stdio://"]
     try:
         async with asyncio.timeout(_session_seconds(1 if user_version is None else 2)):
-            async with connection(command, config={"idle_timeout_seconds": CALL_SECONDS}) as rpc:
+            async with connection(
+                command, env=environment, config={"idle_timeout_seconds": CALL_SECONDS}
+            ) as rpc:
                 if user_version is not None:
                     try:
                         result = await rpc.call("config/read", {"includeLayers": True})
@@ -273,6 +320,14 @@ def _write_failure(method: str, error: dict) -> Exception:
 class CodexStateAdapter:
     """The Codex view of the CLI's real state. Synchronous: async callers use ``to_thread``."""
 
+    environment = None
+
+    def __init__(self, *, environment=None):
+        self.environment = dict(environment) if environment is not None else None
+
+    def _environment(self):
+        return {**os.environ, **self.environment} if self.environment is not None else None
+
     def _binary(self) -> str:
         binary = shutil.which("codex")
         if binary is None:
@@ -285,7 +340,12 @@ class CodexStateAdapter:
     def _read(self, project_root: Path | None) -> tuple[StateSnapshot, str]:
         """The snapshot and the user layer version (``""`` when the user layer was not read)."""
         binary = self._binary()
-        cwd = str(project_root) if project_root else str(Path.home())
+        environment = self._environment()
+        cwd = (
+            str(project_root)
+            if project_root
+            else str((environment or os.environ).get("HOME") or Path.home())
+        )
         config_params = {"includeLayers": True, **({"cwd": cwd} if project_root else {})}
         results, failures = asyncio.run(
             _ask(
@@ -296,6 +356,7 @@ class CodexStateAdapter:
                     ("plugins", "plugin/list", {}),
                     ("apps", "app/list", {}),
                 ],
+                environment=environment,
             )
         )
         if not results:
@@ -353,7 +414,9 @@ class CodexStateAdapter:
         items += layered_rows("plugin", "plugins", _plugin_list(results.get("plugins")))
         items += layered_rows("app", "apps", _app_list(results.get("apps")))
         items += layered_rows("mcp", "mcp_servers", {})
-        for path, skill in _skill_list(results.get("skills")).items():
+        for path, skill in _skill_list(
+            results.get("skills"), _codex_home(self.environment), results.get("plugins")
+        ).items():
             scope, reason = _SKILL_SCOPES.get(
                 skill.get("scope"), ("managed", "Unrecognised skill scope.")
             )
@@ -370,7 +433,7 @@ class CodexStateAdapter:
         flags = sorted((item.id, item.enabled) for item in items if item.kind != "mcp")
         digest.update(json.dumps(flags).encode())
 
-        version = _cli_version(binary)
+        version = _cli_version(binary, environment)
         if not version:
             warnings.append("The Codex version could not be read.")
         elif not _tested(version):
@@ -439,7 +502,7 @@ class CodexStateAdapter:
             raise ProviderStateUnsupportedError(
                 f"Codex cannot address {ident!r} by key path; edit config.toml by hand."
             )
-        asyncio.run(_write(binary, method, params, guard))
+        asyncio.run(_write(binary, method, params, guard, environment=self._environment()))
         fresh = self.read_state(project_root)
         confirmed = next((entry for entry in fresh.items if entry.id == item_id), None)
         if confirmed is None or confirmed.enabled is not enabled:
@@ -447,7 +510,7 @@ class CodexStateAdapter:
         return fresh
 
     def watch_paths(self, project_root: Path | None) -> tuple[Path, ...]:
-        home = _codex_home()
+        home = _codex_home(self.environment)
         paths = (home / "config.toml", home / "skills")
         if project_root is None:
             return paths
@@ -459,7 +522,9 @@ class CodexStateAdapter:
         if binary is None:
             return False
         params = {"includeLayers": True, "cwd": str(project_root)}
-        results, _ = asyncio.run(_ask(binary, [("config", "config/read", params)]))
+        results, _ = asyncio.run(
+            _ask(binary, [("config", "config/read", params)], environment=self._environment())
+        )
         result = results.get("config") or {}
         for layer in _listed(result, "layers"):  # the CLI's own verdict, when it gives one
             if _name(layer).get("type") == "project":
