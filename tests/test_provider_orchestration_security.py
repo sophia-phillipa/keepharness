@@ -96,6 +96,92 @@ def test_quoted_credential_option_redacts_value(option):
     assert "private-value" not in safe_text(f'check {option} "private-value"')
 
 
+REDACTION_CASES = [
+    pytest.param(
+        'check --label "token" --token SECRET-ONE',
+        ("SECRET-ONE",),
+        ("check", '"token"', "--token"),
+        id="quoted-value-named-token",
+    ),
+    pytest.param(
+        'check --label "--token" --api-key SECRET-TWO',
+        ("SECRET-TWO",),
+        ("check", "--label", "--api-key"),
+        id="quoted-flag-as-value",
+    ),
+    pytest.param(
+        'check "--token" "SECRET-THREE"',
+        ("SECRET-THREE",),
+        ("check",),
+        id="quoted-flag-then-quoted-secret",
+    ),
+    pytest.param(
+        'check --token "first\\"leaked-suffix"',
+        ("first", "leaked-suffix"),
+        ("check", "--token"),
+        id="escaped-quote-inside-value",
+    ),
+    pytest.param(
+        "check --token=SECRET-FOUR --mode safe",
+        ("SECRET-FOUR",),
+        ("--token=", "--mode", "safe"),
+        id="equals-form",
+    ),
+    pytest.param(
+        "curl -H 'Authorization: Bearer s3cret-five'",
+        ("s3cret-five",),
+        ("curl", "-H", "Authorization:"),
+        id="bearer-header",
+    ),
+    pytest.param(
+        'curl -H "X-API-Key: first second"',
+        ("first", "second"),
+        ("curl", "-H", "X-API-Key:"),
+        id="multi-word-api-key-header",
+    ),
+    pytest.param(
+        'curl -H "Cookie: session=private-cookie"',
+        ("private-cookie",),
+        ("curl", "-H"),
+        id="cookie-header",
+    ),
+    pytest.param(
+        "curl -H 'Authorization: Custom private-auth'",
+        ("private-auth",),
+        ("curl", "-H"),
+        id="custom-authorization-header",
+    ),
+    pytest.param(
+        'check --token "first leaked-suffix',
+        ("first", "leaked-suffix"),
+        ("check", "--token"),
+        id="unbalanced-quote-after-credential",
+    ),
+    pytest.param(
+        'echo "oops --token private-value',
+        ("private-value",),
+        ("echo",),
+        id="unbalanced-quote-before-credential",
+    ),
+    pytest.param(
+        "plain words " * 22_000,
+        (),
+        ("plain",),
+        id="256-kib-nonsecret-input",
+    ),
+]
+
+
+@pytest.mark.parametrize(("value", "secrets", "kept"), REDACTION_CASES)
+def test_shell_words_redact_every_secret_and_keep_plain_text(value, secrets, kept):
+    with deadline(2):
+        result = safe_text(value)
+    for secret in secrets:
+        assert secret not in result
+    for text in kept:
+        assert text in result
+
+
 def test_nested_instruction_import_allows_safe_parent_traversal(tmp_path):
     project = tmp_path / "project"
     (project / "docs").mkdir(parents=True)

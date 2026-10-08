@@ -4,6 +4,8 @@ import hashlib
 import json
 import os
 import re
+import string
+from dataclasses import dataclass
 from pathlib import Path
 
 from adapters.shared.private_files import scoped_home_open_read
@@ -14,40 +16,128 @@ from agent_service.tools import ToolError
 MAX_BYTES = 256 * 1024
 PREVIEW_CHARS = 8000
 _SECRET = re.compile(r"token|secret|password|passwd|cookie|api.?key|authorization|credential", re.I)
-_FIELD = re.compile(r"""(?<![\w-])(?:--)?([\w-]+)(["']?\s*[:=]\s*|["']?[ \t]+)""")
 _BEARER = re.compile(r'(?i)\b(Bearer|Basic)\s+[^\s"\'<>]+')
 _URL_AUTH = re.compile(r"(https?://)[^/\s:@]+:[^/\s@]+@", re.I)
+_NAME_CHARS = frozenset(string.ascii_letters + string.digits + "-_.")
+_REDACTED = "[REDACTED]"
+_QUOTES = "\"'"
 
 
-def _redact_fields(text):
-    pieces, cursor = [], 0
-    while match := _FIELD.search(text, cursor):
-        if not _SECRET.search(match.group(1)):
-            pieces.append(text[cursor : match.end()])
-            cursor = match.end()
-            continue
-        start = end = match.end()
-        if ":" in match.group(2):
-            # A credential header can contain spaces and arbitrary authentication schemes.
-            while end < len(text) and text[end] not in "\r\n":
-                end += 1
+class _UnbalancedQuote(Exception):
+    """Raised by the quote-aware scanner; the caller falls back to literal words."""
+
+
+@dataclass(frozen=True, slots=True)
+class _Word:
+    start: int
+    end: int
+    value: str
+    newline_before: bool
+
+
+@dataclass(frozen=True, slots=True)
+class _Pending:
+    expect_value: bool = False
+    rest_of_line: bool = False
+
+
+def _read_quoted(text: str, start: int, chars: list[str]) -> int:
+    """Append the decoded body of the quote at ``start``; return the index after it."""
+    quote = text[start]
+    index = start + 1
+    while index < len(text):
+        char = text[index]
+        if char == quote:
+            return index + 1
+        if char == "\\" and quote == '"' and index + 1 < len(text):
+            index += 1
+            char = text[index]
+        chars.append(char)
+        index += 1
+    raise _UnbalancedQuote
+
+
+def _read_word(text: str, start: int, *, quoted: bool) -> tuple[int, str]:
+    """Return the end index and decoded value of the word starting at ``start``."""
+    index, chars = start, []
+    while index < len(text) and not text[index].isspace():
+        char = text[index]
+        if char in _QUOTES:
+            index = _read_quoted(text, index, chars) if quoted else index + 1
+        elif quoted and char == "\\" and index + 1 < len(text):
+            chars.append(text[index + 1])
+            index += 2
         else:
-            quote = None
-            while end < len(text):
-                character = text[end]
-                if character == "\\":
-                    end += 2
-                    continue
-                if quote:
-                    if character == quote:
-                        quote = None
-                elif character in ('"', "'"):
-                    quote = character
-                elif character.isspace() or character in ",;|&()":
-                    break
-                end += 1
-        pieces.extend((text[cursor:start], "[REDACTED]"))
-        cursor = max(end, start)
+            chars.append(char)
+            index += 1
+    return index, "".join(chars)
+
+
+def _scan_words(text: str, *, quoted: bool) -> list[_Word]:
+    """Split on whitespace in one linear pass; quotes group, or are dropped when literal."""
+    words: list[_Word] = []
+    index, newline = 0, False
+    while index < len(text):
+        if text[index].isspace():
+            newline = newline or text[index] in "\r\n"
+            index += 1
+            continue
+        end, value = _read_word(text, index, quoted=quoted)
+        words.append(_Word(index, end, value, newline))
+        index, newline = end, False
+    return words
+
+
+def _is_secret_name(name: str) -> bool:
+    return bool(name) and set(name) <= _NAME_CHARS and bool(_SECRET.search(name))
+
+
+def _is_credential_flag(value: str) -> bool:
+    return value.startswith("-") and "=" not in value and _is_secret_name(value.lstrip("-"))
+
+
+def _header_name(value: str) -> str | None:
+    name, colon, _ = value.partition(":")
+    return name if colon and _is_secret_name(name) else None
+
+
+def _redact_word(raw: str, value: str, pending: _Pending, fallback: bool) -> tuple[str, _Pending]:
+    """Return the display form of one word and the state for the next word."""
+    if pending.rest_of_line:
+        return _REDACTED, pending
+    if pending.expect_value and not _is_credential_flag(value):
+        # A flag-looking value keeps the expectation so a secret after it is still hidden.
+        return _REDACTED, _Pending(expect_value=value.startswith("-"))
+    key, equals, rest = value.partition("=")
+    if equals and _is_secret_name(key.lstrip("-")):
+        if rest:
+            return f"{key}={_REDACTED}", _Pending()
+        return raw, _Pending(expect_value=True)
+    header = _header_name(value)
+    if header is not None:
+        # A credential header can contain spaces and arbitrary authentication schemes.
+        return f"{header}: {_REDACTED}", _Pending(rest_of_line=True)
+    if _is_credential_flag(value):
+        # Quotes do not hide an option from the program that receives the words.
+        return raw, _Pending(expect_value=not fallback, rest_of_line=fallback)
+    return raw, _Pending()
+
+
+def _redact_tokens(text: str) -> str:
+    try:
+        words, fallback = _scan_words(text, quoted=True), False
+    except _UnbalancedQuote:
+        words, fallback = _scan_words(text, quoted=False), True
+    pieces, cursor, pending = [], 0, _Pending()
+    for word in words:
+        if word.newline_before and pending.rest_of_line:
+            pending = _Pending(expect_value=pending.expect_value)
+        pieces.append(text[cursor : word.start])
+        replacement, pending = _redact_word(
+            text[word.start : word.end], word.value, pending, fallback
+        )
+        pieces.append(replacement)
+        cursor = word.end
     pieces.append(text[cursor:])
     return "".join(pieces)
 
@@ -55,7 +145,7 @@ def _redact_fields(text):
 def safe_text(value):
     text = str(value)[: PREVIEW_CHARS * 2]
     text = _URL_AUTH.sub(r"\1[REDACTED]@", text)
-    text = _redact_fields(text)
+    text = _redact_tokens(text)
     return redact(_BEARER.sub(r"\1 [REDACTED]", text))[:PREVIEW_CHARS]
 
 
