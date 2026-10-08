@@ -280,6 +280,31 @@ const N5 = notice(5, { item_id: "plugin:figma@openai-curated", name: "figma", ch
     assert.equal(await row("GitHub").locator('[data-testid="plugin-changed"]').count(), 1, "the 409 marks the changed row");
     assert.match(await toast.innerText(), /^Changed outside KeepHarness: Codex › plugin github@openai-curated was turned on/);
 
+    // D-042: legacy folder sources and current file sources use the same wording on
+    // both screens and in the toast, including on a narrow screen.
+    await page.setViewportSize({ width: 390, height: 844 });
+    for (const [n, source, file] of [[10, "foo", "SKILL.md"], [11, "SKILL.md", "SKILL.md"], [12, "settings.json", "settings.json"]]) {
+      const skillNotice = notice(n, { item_id: "skill:foo", name: "foo", change: "removed", before: true, after: null, source });
+      server.codex = [];
+      server.claude = [skillNotice];
+      await page.getByRole("button", { name: "Refresh", exact: true }).click();
+      const line = pluginsBlock.locator(`[data-notice-id="${skillNotice.id}"]`);
+      await line.waitFor();
+      const sentence = await line.locator("span").innerText();
+      assert.match(sentence, /^Claude Code › skill foo was removed \((SKILL\.md|settings\.json), \d\d:\d\d\)\.$/);
+      assert.ok(sentence.includes(`(${file}, `));
+      assert.equal(sentence.match(/foo/g).length, 1, "the skill name appears once");
+      assert.equal(await toast.innerText(), "Changed outside KeepHarness: " + sentence);
+      await hideToast();
+      await go("#providers");
+      const providerLine = providersBlock.locator(`[data-notice-id="${skillNotice.id}"]`);
+      await providerLine.waitFor();
+      assert.equal(await providerLine.locator("span").innerText(), sentence);
+      assert.equal(await toast.isHidden(), true, "switching screens does not repeat the toast");
+      await go("#plugins");
+      await line.waitFor();
+    }
+
     // No polling: an idle page makes no further reads (the contract's 7 s).
     const idle = gets.length;
     await page.waitForTimeout(7000);
