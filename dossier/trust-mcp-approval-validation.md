@@ -250,3 +250,56 @@ executed checks. Task-owned temporary directories were removed; evidence logs
 and exact command scripts are retained under
 `/home/sophia/.cache/codex-runs/keepharness/w44-fix/root-evidence/` and
 `/home/sophia/.cache/codex-runs/keepharness/w44-fix/trust-mcp/`.
+
+## Security review correction 1 (2026-10-08)
+
+Baseline: `1a92c83`. The inherited child case now confirms the explicit effective
+Codex key instead of mistaking its parent's configuration layer for the child's
+trust. Both panels retain the inherited-configuration explanation after child
+revocation. A missing or failed confirmation read must not count as confirmed
+revocation.
+
+Trust writes now form a compensating transaction: both native confirmations
+must succeed before notice/receipt publication. On failure, completed writes are
+restored in reverse order. Codex uses native `config/batchWrite` and its opaque
+`expectedVersion`, including null edits to restore an absent child entry; Claude
+restores its prior bytes or absent file using the existing guarded writer.
+Cancellation waits for the in-flight writer before compensation. A concurrent
+edit or unavailable CLI can prevent rollback; the response explicitly reports
+`provider_trust_rollback_incomplete` without overwriting that edit or reporting
+success. This replaces the previous partial-write preservation contract.
+
+| Finding or review case | Regression |
+| --- | --- |
+| Child without its own Codex config under a trusted parent | `test_explicit_child_revocation_wins_over_inherited_parent_layer`; `test_real_codex_child_transaction_uses_native_versions`; inherited text before and after revoke in `project-trust-ui.spec.cjs` |
+| Rollback after each provider wrote | `test_failed_trust_restores_both_native_stores`, with absent/trusted/untrusted initial state and both failure locations |
+| Missing Claude file, existing receipts and external edits | Transaction tests restore absent state, preserve receipt/seen state, and refuse overwriting either provider's concurrent edit |
+| Cancellation during a native write | `test_cancelled_inflight_native_write_finishes_then_rolls_back` |
+| Failed or missing native confirmation | `test_revoke_requires_explicit_native_confirmation_before_commit`, with absent and empty responses |
+| Stale/direct owner-disabled MCP approval | `test_owner_disabled_approval_is_rechecked_before_write`: HTTP 409 `provider_mcp_disabled_by_owner`, clear explanation, no persisted approval |
+
+Native codex-cli 0.157.1 probes and regressions use fake homes only. They verify
+that the parent layer remains enabled while the explicit child key is untrusted,
+and that returned versions are opaque: they are neither file-byte SHA values nor
+necessarily equal after a semantically identical restoration. Rollback therefore
+confirms the restored key and its presence, not the old version identifier.
+
+The Chrome plugin connected to the already-open browser, but browser security
+policy denied navigation to the task's local fixture. The newly created tab was
+closed; existing tabs were untouched. That manual check remains blocked. The
+explicitly requested automated specs use synthetic APIs and isolated Chromium,
+without accessing the blocked URL or the owner's browser session.
+
+Final correction gates: 485 Python tests passed (one existing Starlette httpx
+warning), plus the five requested browser specs and all seven simulated trust
+profiles. The last strict-confirmation change passed 143 affected Python tests,
+including both real-Codex scenarios; earlier focused testing passed 253 cases.
+Red evidence: seven original transaction/MCP failures, one inherited-case
+failure, a missing inherited browser explanation, one cancellation failure and
+two invalid-confirmation failures. The old partial-write expectations were
+updated to require restoration, as explicitly requested in correction round 1.
+Independent review and conventions passed. Exact commands and retained logs are
+in ignored `reports/w44-correction1/`; temporary state was removed. Shared Git
+metadata was read-only; `.codex-commits/1.txt` and `2.txt` preserve the code/test
+and documentation commit messages with explicit file lists. No new commit,
+push, merge or real-owner CLI state change was performed in this round.

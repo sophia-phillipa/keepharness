@@ -186,14 +186,29 @@ Revocation writes `trust_level = "untrusted"` in Codex and
 `hasTrustDialogAccepted = false` in Claude for the rendered project. Both writes
 use the same owner gate, canonical-root recheck, concurrency guards and own-write
 receipts as acceptance. Success requires both stores to confirm the requested
-state; partial writes retain the existing error and retry behavior. Keyboard
+state. If either write or confirmation fails, compensate completed writes in
+reverse order, restoring the previous project entry (including its absence).
+Codex compensation uses native `config/batchWrite` with its returned opaque
+version; Claude compensation uses the guarded atomic writer. A concurrent edit
+must never be overwritten: a failed compensation returns an explicit incomplete
+rollback error, never success. Publish own-write receipts and notice state only
+after both trust writes and confirmations succeed. Keyboard
 focus stays on the corresponding trust action after the view refreshes.
+
+An explicit trust entry for the selected child takes precedence over a Codex
+configuration layer inherited from a parent when confirming the child's trust.
+When the native effective configuration has no explicit child entry, preserve
+the CLI's inherited verdict. The `trust.inherited_from` metadata identifies a
+trusted ancestor whose configuration remains loaded independently; both trust
+panels explain that revoking the child does not revoke its parent.
 
 **Project MCP approval (B2).** `claude -p` loads project-scoped `.mcp.json` servers without asking ([MCP docs](https://code.claude.com/docs/en/mcp)). Before a Claude run the adapter computes the approved set: names in `enabledMcpjsonServers` (or every server when `enableAllProjectMcpServers` is true) minus `disabledMcpjsonServers`, across the settings layers. Every `.mcp.json` server not in that set is passed as `--settings '{"disabledMcpjsonServers":[<names>]}'` (an entry in any settings file rejects a server, and `--settings` approvals apply even in an untrusted folder). KeepHarness then asks the owner, like the CLI would, and writes the approval to `<project>/.claude/settings.local.json` (`enabledMcpjsonServers`, validated like any `settings.json` edit); once written, the server is in the approved set on the next run. Codex has no `.mcp.json`; its project servers load only for a trusted project (trust above).
 
 An owner-disabled project MCP server is shown as "Disabled by owner" in the
 conversation and Plugins page, without Approve/Revoke actions. Stored approval
 does not override the native owner switch; runtime injection remains blocked.
+The server rechecks that native switch before saving an approval and refuses an
+owner-disabled server, including requests from stale controls or direct POSTs.
 
 ### 2.6 Leaving the 0.15 homes behind
 
