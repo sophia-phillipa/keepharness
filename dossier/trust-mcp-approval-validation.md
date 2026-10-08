@@ -212,3 +212,41 @@ remains on top of `a7b6c8e`; three local commit-message files under
 `.codex-commits/` identify backend, UI/routes and documentation units for the
 authorized commit fallback. Temporary probe and test state was removed after
 recording this evidence.
+
+## Visible-pass correction round (2026-10-08)
+
+Baseline `4c5373e`; implementation `63c643a`. The two UI findings were reproduced
+separately before product edits: the disabled row said Approved and had Revoke;
+the project had no Revoke trust button. New backend regressions initially had
+seven failures (revocation, owner-disabled metadata and five invalid boolean
+inputs). The final focused gate passed 485 Python tests and all five requested
+browser specs. No full suite, inference, push or merge was performed.
+
+| Finding | Evidence |
+| --- | --- |
+| Project trust revocation | `test_revoke_trust_writes_both_cli_states_and_suppresses_own_removals`; `test_partial_revoke_retry_preserves_receipt_and_truthful_union`; `test_revoke_stale_binding_never_changes_either_cli`; keyboard/focus checks in `project-trust-ui.spec.cjs` |
+| Owner-disabled MCP label | `test_owner_disabled_mcp_metadata_is_distinct_from_approval`; both UI panels assert Disabled by owner and no buttons; existing `test_approved_disabled_project_mcp_never_executes` still passes |
+| Codex project plugin read-only | Native codex-cli 0.157.1, fake HOME: `config/read` found the project layer; project `config/batchWrite` returned `configLayerReadonly`, with unchanged bytes. `test_a_trusted_project_layer_overrides_the_user_layer` passed. This is the native limitation already recorded in the facade design, not a fixture defect. |
+
+The seven-profile matrix above passed again, with revocation added to P1's
+visible actions, P2's draft/context preservation, P4's keyboard/focus recovery,
+P5's narrow-screen checks, P6's exact payloads and P7's contrast checks. P3's
+named-server/reload scenario now includes the owner-disabled distinction.
+Trusted projects without MCP servers retain their revoke control in both UIs.
+These are simulated profiles, not user studies or a real screen-reader test.
+
+Both CLI trust values are written through the existing guarded paths. Executed
+markers now also verify that revocation blocks hooks, environment effects and
+project MCP. Receipt regressions cover removed project rows, unchanged user
+fallbacks, partial-write retries and concurrent edits that must remain external
+notices. A native inherited-trust probe confirmed that explicit child untrusted
+disables the child's layer and preserves the parent's trust and layer.
+
+Independent artifact review, including Ponytail Review, found no open issue.
+Conventions: zero errors or warnings. Chrome plugin tools were unavailable;
+Playwright supplied browser validation on fake fixture APIs. The final JEV
+coverage query abstained (0.49); acceptance rests on the inspected artifacts and
+executed checks. Task-owned temporary directories were removed; evidence logs
+and exact command scripts are retained under
+`/home/sophia/.cache/codex-runs/keepharness/w44-fix/root-evidence/` and
+`/home/sophia/.cache/codex-runs/keepharness/w44-fix/trust-mcp/`.

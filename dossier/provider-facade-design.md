@@ -181,7 +181,19 @@ Residual risk, stated: all security now rests on who counts as `local` and as an
 - Until accepted: Claude runs with `--setting-sources user` and `--settings '{"disableAllHooks":true}'`, so the project's `.claude/settings.json` and `settings.local.json` (hooks, an `env` block such as `BASH_ENV`, `apiKeyHelper`, `statusLine`, `permissions.allow` rules) are not loaded, and loads no project MCP servers (fixture: a project `env` entry never reaches the run); Codex `trust_level = "untrusted"` already skips project config, hooks and rules.
 - Codex hooks that are trusted by neither the project nor the owner stay "pending review" (§2.1).
 
+The conversation and Plugins page also let the owner revoke project trust.
+Revocation writes `trust_level = "untrusted"` in Codex and
+`hasTrustDialogAccepted = false` in Claude for the rendered project. Both writes
+use the same owner gate, canonical-root recheck, concurrency guards and own-write
+receipts as acceptance. Success requires both stores to confirm the requested
+state; partial writes retain the existing error and retry behavior. Keyboard
+focus stays on the corresponding trust action after the view refreshes.
+
 **Project MCP approval (B2).** `claude -p` loads project-scoped `.mcp.json` servers without asking ([MCP docs](https://code.claude.com/docs/en/mcp)). Before a Claude run the adapter computes the approved set: names in `enabledMcpjsonServers` (or every server when `enableAllProjectMcpServers` is true) minus `disabledMcpjsonServers`, across the settings layers. Every `.mcp.json` server not in that set is passed as `--settings '{"disabledMcpjsonServers":[<names>]}'` (an entry in any settings file rejects a server, and `--settings` approvals apply even in an untrusted folder). KeepHarness then asks the owner, like the CLI would, and writes the approval to `<project>/.claude/settings.local.json` (`enabledMcpjsonServers`, validated like any `settings.json` edit); once written, the server is in the approved set on the next run. Codex has no `.mcp.json`; its project servers load only for a trusted project (trust above).
+
+An owner-disabled project MCP server is shown as "Disabled by owner" in the
+conversation and Plugins page, without Approve/Revoke actions. Stored approval
+does not override the native owner switch; runtime injection remains blocked.
 
 ### 2.6 Leaving the 0.15 homes behind
 
@@ -282,7 +294,7 @@ Errors (derive from `HarnessError`, codes snake_case): `ProviderStateConflictErr
 - `GET /api/provider-state?provider=<id>&project_id=<id|sem-projeto>` → `200 {snapshot, external_changes: [{item_id, before, after, source, detected_at}]}`; side-effect free (no notice is marked seen); `404 provider_unknown`.
 - `POST /api/provider-state` body `{provider, project_id, item_id, scope, enabled, fingerprint}` → `200 {snapshot}`; `409 provider_state_conflict` with the fresh snapshot; `422 provider_state_write_unsupported | provider_state_version_untested | provider_state_validation_failed`; `502 provider_command_failed` with a redacted `provider_message`. Not idempotency-keyed: setting the same value twice is naturally idempotent.
 - `POST /api/provider-state/notices:ack` body `{provider, project_id, notice_ids}` → `200 {}`; marks notices seen.
-- `POST /api/provider-state/trust` body `{provider, project_id, expected_project_root}` → `200 {snapshot}` (the owner accepted the prompt); `POST /api/provider-state/mcp-approvals` body `{provider, project_id, expected_project_root, server, approved}` → `200 {snapshot}`. The harness `/v1` twins use the same bodies. Each control captures its rendered provider, project id and canonical snapshot root; navigation invalidates that context. The server requires the rendered root and compares it with the current resolved project under the write locks before any CLI action. A missing context is refused; a changed project binding is a conflict requiring a fresh prompt (issue #44 security review correction).
+- `POST /api/provider-state/trust` body `{provider, project_id, expected_project_root, trusted?}` → `200 {snapshot}` (`trusted` defaults to `true` for acceptance; explicit `false` revokes trust in both CLIs); `POST /api/provider-state/mcp-approvals` body `{provider, project_id, expected_project_root, server, approved}` → `200 {snapshot}`. The harness `/v1` twins use the same bodies. Each control captures its rendered provider, project id and canonical snapshot root; navigation invalidates that context. The server requires the rendered root and compares it with the current resolved project under the write locks before any CLI action. A missing context is refused; a changed project binding is a conflict requiring a fresh prompt (issue #44 security review correction).
 - `POST /api/provider-check` (Check account, #36) → existing check result.
 - `/api/settings` no longer accepts `services.*.integrations` or `personal_setup`.
 
