@@ -839,6 +839,24 @@ def test_a_skill_switch_rereads_the_user_layer_right_before_writing(adapter, cod
     assert methods[methods.index("skills/config/write") - 1] == "config/read"
 
 
+@pytest.mark.parametrize("version", [None, 7, ""])
+def test_a_skill_switch_refuses_a_malformed_user_layer_version(
+    adapter, codex_home, version
+):
+    seed(codex_home)
+    reconfigure(codex_home, user_layer_version=version)
+    snapshot = adapter.read_state(None)
+    assert f"skill:{REPO_SKILL}" in rows(snapshot)
+
+    with pytest.raises(ProviderStateUnsupportedError, match="config was not read"):
+        adapter.set_enabled(
+            f"skill:{REPO_SKILL}", "user", False, snapshot.fingerprint
+        )
+
+    assert writes(codex_home) == []
+    assert codex_home.joinpath("config.toml").read_text() == USER_CONFIG
+
+
 def test_an_unlisted_skill_path_is_refused_and_nothing_is_sent(adapter, codex_home):
     seed(codex_home)
     with pytest.raises(ProviderStateUnsupportedError):
