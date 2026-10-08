@@ -142,3 +142,73 @@ git diff --check
 
 The Maestro pilot is already closed; no window was restarted. Total agent
 tokens and cost are unavailable, so no efficiency claim is made.
+
+## Independent security review correction round
+
+The independent review of `a7b6c8e` superseded the initial cross-review verdict:
+four major findings and one minor finding were reproduced despite the existing
+green targeted suites. Its full-suite baseline was 4,321 passed, 27 skipped and
+the two known missing-pip failures. This correction round uses targeted tests
+and the four browser specs; it does not repeat that full suite.
+
+| Finding | Named regression and evidence |
+| --- | --- |
+| R1: Unicode key escaped into a different Codex project | `test_unicode_trust_uses_exact_native_key`, `test_real_codex_parser_preserves_exact_project_paths`: real installed app-server parser, entirely fake homes, exact trust keys for Unicode, quotes, backslashes, spaces, newline and tab |
+| R2: stale conversation warning authorizes a different project | `project-trust-ui.spec.cjs`: existing-conversation navigation, delayed responses, A-to-B-to-A and provider changes; `test_security_write_requires_rendered_project_context` on both APIs, both actions and missing/wrong/rebound/current/alias roots; `test_service_rechecks_root_after_waiting_for_writer_lock` |
+| R3: approved but owner-disabled MCP can execute | `test_approved_disabled_project_mcp_never_executes`: synthetic MCP marker through `native.run`, covering native opt-out and user/project/local/managed approval denials; approval alone cannot override the owner's disabled state |
+| R4: external project edits hidden as own writes | `test_external_project_edit_during_trust_is_never_an_own_transition`, `test_project_change_between_snapshot_and_layer_capture_conflicts`: changed/added project items remain external, and mismatched pre-write reads conflict |
+| R5: retry loses an unconsumed own receipt | `test_unconsumed_receipt_survives_partial_trust_retry`, `test_consumed_receipt_is_not_revived_by_a_later_trust`: preserve the first successful trust through a retry without reviving consumed transitions |
+
+Python regression files: `tests/test_provider_trust_review.py` and
+`tests/test_provider_security_context.py`. The HTTP contract now requires
+`expected_project_root`, captured from the displayed snapshot together with
+provider and project id. A canonical alias still round-trips; a changed mapping
+is rejected under the writer locks before a CLI action.
+
+Native parser evidence: installed Codex **0.157.1**, no model turn. Loading the
+`a7b6c8e` adapter into an isolated temporary subprocess failed exact-key checks
+with "Native parser wrote unintended trust keys". The corrected adapter passed
+`test_real_codex_parser_preserves_exact_project_paths` for accented text, emoji,
+quotes, backslashes and spaces, with no unintended sibling keys. An additional
+real-parser probe reproduced the same key redirection for newline and tab;
+native quoting now escapes only backslash and quote, and preserves those
+literal characters. The final seven-case native probe passes. The first
+backend regressions also failed for disabled MCP execution, hidden external
+project edits and the lost retry receipt before their fixes.
+
+All probes use fake homes and no cloud inference. The JEV gateway required
+approval unavailable under this session's policy, so correction routing used
+the local security-risk criteria.
+
+**Final validation.** 331 targeted Python tests passed in 90.38 seconds across
+the two new files and `test_provider_trust.py`, `test_provider_state_claude.py`,
+`test_provider_state_codex.py`, `test_provider_state_notices.py`,
+`test_admin_provider_state.py`, `test_provider_state_run_start.py`,
+`test_native.py`, `test_scoped_home_security.py`, `test_adapter_conformance.py`
+and `test_adapter_idle_watchdog.py`. After the final native-quoting correction,
+all 89 Codex/review tests passed in 38.75 seconds. This includes 14 backend review
+cases; all 20 API context cases passed, including immediate read/retry after
+root rebinding and a lock-wait rebinding regression. No full suite was rerun in
+this correction round.
+
+The final combined browser campaign passed all four requested specs:
+`project-trust-ui.spec.cjs`, `admin-plugins-switches.spec.cjs`,
+`admin-provider-notices.spec.cjs`, `composer-plugins.spec.cjs`. The trust spec
+also verifies focus after conflict refresh and rejects callbacks from previous
+provider/navigation generations. One earlier campaign hit an existing notices
+focus race: the test observes the intermediate redraw before the asynchronous
+refresh restores focus. Neither that code nor its assertions changed; the final
+four-spec campaign passed. This intermittent test limitation remains disclosed.
+
+Backend and UI/route authors used Astra/high and reviewed each other's changed
+artifacts. Review corrections covered consumed-receipt revival, external
+inventory attribution, immediate cache recovery after root rebinding, five
+MCP denial layers and focus after a conflict. The final native-quoting delta was
+reviewed separately; no open finding remains. Ruff, JavaScript syntax,
+`git diff --check` and conventions passed with zero convention errors/warnings.
+
+The shared Git directory was read-only in this session. The implementation
+remains on top of `a7b6c8e`; three local commit-message files under
+`.codex-commits/` identify backend, UI/routes and documentation units for the
+authorized commit fallback. Temporary probe and test state was removed after
+recording this evidence.
