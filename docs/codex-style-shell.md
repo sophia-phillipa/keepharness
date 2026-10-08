@@ -21,6 +21,7 @@ The harness UI follows the layout of the ChatGPT/Codex desktop app, measured on 
 
 - Approvals, questions and publish gates use one 20 px card style with pill actions; the pending state keeps an orange status pill (WCAG AA in light and dark palettes).
 - Run console (Pipeline, Timeline, Logs, Runs, Agents) is a quiet bottom panel; on narrow or short windows it opens beside the rail.
+- Opening the console releases the Home screen's decorative bottom spacing. Timeline cards reserve enough width for publication metadata while preserving zoom and horizontal scrolling, so the full card remains vertically reachable at the default console height. Regression coverage: `harness-gauntlet-round2` A1-F5 and `harness-gauntlet-round9` A1-F1.
 - Provider quotas are compact meters in the rail, which modal panels keep operable through `aria-owns`.
 - Status counts stay in the status strip under the chat and in the rail bell; the sidebar shows each conversation's state as a dot instead of status groups.
 - The composer keeps the `/` palette guidance in its placeholder (clipped to one line inside the pill), the access mode (icon-only in the pill, full access flagged), model and effort pickers, and the isolation indicator in the theme accent.

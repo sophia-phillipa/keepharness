@@ -486,7 +486,8 @@
       if (span.attrs?.enforcement) row.append(el('span', 'Publication: ' + publicationLabel(span.attrs.enforcement), 'run-span-enforcement'));
       if (state.tab === 'Timeline') {
         const track = el('span', null, 'run-waterfall-track');
-        row.style.flexBasis = 240 * state.zoom + 'px';
+        // Leave room for the publication label without clipping the card vertically.
+        row.style.flexBasis = 280 * state.zoom + 'px';
         track.style.width = '100%';
         const bar = el('span', null, 'run-waterfall-bar');
         bar.style.marginLeft = Math.max(0, ((span.start_ts ?? start) - start) / Math.max(1, end - start) * 100) + '%';

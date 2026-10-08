@@ -3064,9 +3064,10 @@ function newConversation(title = "New Conversation", projectId = $("project").va
   bindSuggestions();
   modelAvailability();
   $("prompt").value = draft;
-  const restoredDraft = changedProject ? carriedDraft :
+  const preserveRetiredDraft = !resetExecutionMode && carriedDraft && normalizeDraftMode(carriedDraft).retiredLock;
+  const restoredDraft = changedProject && preserveRetiredDraft ? carriedDraft :
     (newDraft?.draft || newDraft?.files?.length ? newDraft : carriedDraft);
-  if (restoredDraft) restoreView(restoredDraft, { resetExecutionMode });
+  if (restoredDraft) restoreView(restoredDraft, { resetExecutionMode, restoreModelSelection: !changedProject });
   updateComposer();
   saveView();
   $("context-meter").textContent = "New conversation · independent context";
@@ -7399,8 +7400,9 @@ function normalizeDraftMode(saved) {
       mode === "scoped" && (!originBackend || ["codex", "claude"].includes(originBackend)),
   };
 }
-function restoreView(saved, { resetExecutionMode = false } = {}) {
+function restoreView(saved, { resetExecutionMode = false, restoreModelSelection = true } = {}) {
   if (
+    restoreModelSelection &&
     saved.project === $("project").value &&
     models.some((m) => m.id === saved.composer_selection?.model)
   ) {
