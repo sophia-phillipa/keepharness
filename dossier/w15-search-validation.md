@@ -46,8 +46,8 @@ Named scenarios print their IDs on success; the files run through
 | Issue | Acceptance bullet | Named browser scenarios |
 |---|---|---|
 | #54 | 1: shared entry points and preserved search | command-search A1, A4; conversation-search |
-| #54 | 2: distinguishable, executable results | command-search A2b, A2, A3, A4, A6, C2 |
-| #54 | 3: keyboard, empty state, preserved context, history | command-search A1, A2, A3, A6, C1a, C1b, C2 |
+| #54 | 2: distinguishable, executable results | command-search A2b, A2, A3, A4, A6, C2a–C2c |
+| #54 | 3: keyboard, empty state, preserved context, history | command-search A1, A2, A3, A6, C1a, C1b, C2a–C2c |
 | #54 | 4: owner/admin guard and remote fallback | command-search A5, A6 |
 | #54 | 5: light/dark tokens and contrast | command-search A7; visible pass pending |
 | #56 | 1: supported reference, filtering and empty state | keyboard-shortcuts B1, B2 |
@@ -56,9 +56,9 @@ Named scenarios print their IDs on success; the files run through
 | #56 | 4: modifiers, command entry and no duplicate action | keyboard-shortcuts B1, B3b, B4, B6 |
 | #56 | 5: light/dark tokens and contrast | keyboard-shortcuts B5; visible pass pending |
 | #55 | 1: individual names/descriptions and reached control | settings-search P1-S1, P4-S1, P6-S1 |
-| #55 | 2: no query writes, preserved edits and navigation | settings-search P2-S1, P3-S1, P6-S1 |
-| #55 | 3: capabilities and local/remote availability | settings-search P5-S1, P6-S1, P7-S1 |
-| #55 | 4: multiple/empty results, keyboard, recovery, persistence | settings-search P1-S1, P3-S1, P4-S1, P5-S1 |
+| #55 | 2: no query writes, preserved edits and navigation | settings-search P2-S1, P3-S1, P5-S2, P6-S1 |
+| #55 | 3: capabilities and local/remote availability | settings-search P5-S1–P5-S3, P6-S1, P7-S1 |
+| #55 | 4: multiple/empty results, keyboard, recovery, persistence | settings-search P1-S1, P3-S1, P4-S1, P5-S1–P5-S3 |
 | #55 | 5: displayed labels, English/pt-BR and contrast | settings-search P4-S1, P7-S1; visible pass pending |
 
 ## Seven-profile matrix
@@ -108,7 +108,10 @@ and a chosen project/provider throughout.
    filter a command, Settings destination, conversation and loaded file. Use
    arrows/Enter, no matches and Escape; check focus return and retained draft.
 2. Activate Focus composer and a Settings destination; use Back/Forward. During
-   an operation, confirm unavailable commands do not offer a dead action.
+   an operation, confirm unavailable commands do not offer a dead action. At
+   400px with the sidebar, 800px with the activity panel, and 650px with the run
+   console open, confirm Focus composer is absent; after closing the cover,
+   confirm the command focuses the composer and retains the draft.
 3. Open the shortcut reference using Ctrl/Cmd+/ and its command result. Search by action and `Ctrl+K` (or `Cmd+K`), navigate rows,
    close with Escape, and inspect readable text, spacing and modifier labels.
 4. In Settings, search by preference name and description. Open text size or a
@@ -116,8 +119,11 @@ and a chosen project/provider throughout.
    Query, clear and cancel without changing a preference.
 5. In local Settings, search an MCP default, leave an unsaved selection, navigate
    through search to Full access and back, and confirm the selection remains.
-   Check unavailable-admin explanation and Retry recovery; on the existing
-   remote fallback, confirm local-admin preferences are absent and Plugins works.
+   Check unavailable-admin explanation and Retry recovery. With a pending MCP
+   edit, save Full access and simulate one failed state refresh; retry the search
+   and confirm the edit survives and the selected preference receives focus.
+   On the existing remote fallback, confirm local-admin preferences are absent
+   and Plugins works.
 
 
 
@@ -200,4 +206,67 @@ The visible desktop pass remains with the orchestrator.
 Commit creation was blocked because the shared Git index is read-only in this
 round. The requested local commit-message fallback is `.codex-commits/1.txt`;
 its directory is ignored so local commit metadata is not added to the product.
-The correction remains as a reviewed, tested worktree diff on `59d62f3`.
+The orchestrator subsequently committed this correction as `5bb2880`.
+
+
+## Independent-review correction round 2 (base `5bb2880`)
+
+The remaining composer finding was reproduced at 800px with the activity panel
+and 650px with the run console. Following the explicit product decision,
+Focus composer is now omitted whenever its control is disabled, invisible or
+inside an inert region. One predicate guards both listing and activation. This
+also replaces round 1's sidebar-closing behavior: search leaves covering panels
+open, and the command returns once the composer is available.
+
+A failed state refresh after Full access has been saved leaves an initialized
+admin document eligible for explicit index recovery. Retry reads the existing
+rendered controls again, retaining pending MCP values and the iframe document;
+it neither reloads the form nor writes preferences. A refresh still in flight
+remains unready until rendering completes. Initial rendering and message
+source/origin/control allowlists keep their existing gates.
+
+| Finding or affected contract | Named regression | Evidence |
+|---|---|---|
+| Composer covered by sidebar, activity panel or console | command-search C2a, C2b, C2c | All three omission assertions fail on `5bb2880`; the correction passes and each command returns after its cover closes |
+| Failed initialized refresh blocks Retry | settings-search P5-S2 | Baseline times out after Retry; correction restores Default model, focuses that exact control, keeps pending model/effort and makes no extra write |
+| Recovery must not bypass a refresh in flight | settings-search P5-S3 | Await the child Retry handler before asserting readiness stays false; removing the eligibility guard fails this assertion, while releasing the response produces a focusable result |
+| Keyboard focus while admin initializes | settings-search P4-S1 | A held response makes ArrowDown occur during loading; semantic selection survives the authenticated result rebuild |
+
+The reported P4 intermittent assertion also recurred in the focused run. It
+compared a locator's resolved DOM node with the active element while asynchronous
+rendering could replace that node. The test now makes those comparisons in one
+atomic DOM query and verifies semantic focus through a deliberately held admin
+response. It does not wait for loading to finish before keyboard navigation,
+and adds no sleep or product workaround.
+
+The command and Settings authors independently cross-reviewed the final changes.
+Review caught an early recovery implementation that could bypass an in-flight
+refresh; the admin-owned failure marker and P5-S3 resolve that finding. The
+focused P4 re-review approved its deterministic loading/rebuild coverage. JEV
+remained unavailable under approval policy `never`; decisions used the explicit
+composer preference and local source/test evidence. Aggregate usage metrics
+remain unavailable.
+
+The final recovery regression also waits for the child frame to process Retry
+before inspecting readiness, rather than asserting before the posted message
+arrives. Removing only the failed-refresh eligibility guard makes P5-S3 fail
+(`true` readiness instead of `false`). The approved production asset was restored
+byte-for-byte before the final consecutive Settings runs.
+
+**Round 2 validation.** All 11 selected browser specs passed, including the
+60/60 persona matrix and automated 4.5:1 palette contrast checks. Settings then
+passed five consecutive executions with the strengthened child-message boundary
+and deterministic keyboard/rebuild test. `check_conventions.py` returned
+0 name errors, 0 name warnings, 0 Portuguese hits and 0 guest hits;
+`git diff --check` passed. The full Python suite and the standalone operator area
+were not repeated in this JavaScript correction round; their earlier results
+remain recorded above. The selected accessibility spec still exercises the
+operator arrow-step mutation checks. All runs used the isolated task temp root,
+fake homes, owned random ports and no display. The visible desktop pass remains
+with the orchestrator and the exact checks above now include the two re-review
+cases.
+
+Commit staging was blocked by the read-only shared Git index
+(`index.lock: Read-only file system`). The reviewed worktree diff remains on
+`5bb2880`; the requested Conventional Commit message is stored in the ignored
+local fallback `.codex-commits/2.txt`. No Git permission override was attempted.

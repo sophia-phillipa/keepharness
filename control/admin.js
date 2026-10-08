@@ -1297,8 +1297,15 @@ function render() {
     ". Isolated mode requires Linux and bubblewrap. Native mode uses the mechanisms of the installed CLI.";
 }
 async function load({ select = true } = {}) {
+  const hadSettingsSearchIndex = document.documentElement.dataset.settingsSearchReady === "true";
+  delete document.documentElement.dataset.settingsSearchRecovery;
   settingsSearchChanged(false);
-  state = await request("state");
+  try {
+    state = await request("state");
+  } catch (error) {
+    if (hadSettingsSearchIndex) document.documentElement.dataset.settingsSearchRecovery = "available";
+    throw error;
+  }
   if (state.authentication.claude === false) {
     try {
       const checked = await request("check", { provider: "claude" });
@@ -1324,6 +1331,7 @@ async function load({ select = true } = {}) {
       "Edit " +
       (visibleProviders().find((i) => i.id === editing)?.name || "provider");
   HarnessUI.decorate();
+  delete document.documentElement.dataset.settingsSearchRecovery;
   settingsSearchChanged(true);
 }
 $("refresh-log-tail").onclick = async () => {

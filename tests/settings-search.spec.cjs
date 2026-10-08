@@ -134,6 +134,18 @@ async function preferenceWrites(page) {
   return page.waitForTimeout(50);
 }
 
+async function waitForFocused(locator) {
+  await locator.evaluate((element) => new Promise((resolve, reject) => {
+    let frames = 0;
+    const check = () => {
+      if (document.activeElement === element) resolve();
+      else if (++frames < 120) requestAnimationFrame(check);
+      else reject(new Error("expected control did not receive focus"));
+    };
+    check();
+  }));
+}
+
 function contrast(a, b) {
   const lum = (rgb) => rgb.slice(0, 3).map((v) => {
     const n = v / 255;
@@ -262,13 +274,34 @@ async function runScenario(id, name, work) {
 
     await runScenario("P4-S1", "keyboard selection, focus, announcement and AA palettes", async () => {
       const { context, page } = await openFixture(browser, fixtureOrigin, freshState());
+      let adminStateStarted, releaseAdminState;
+      const adminStarting = new Promise((resolve) => { adminStateStarted = resolve; });
+      const adminGate = new Promise((resolve) => { releaseAdminState = resolve; });
+      await page.route(ADMIN + "/api/state", async (route) => {
+        adminStateStarted();
+        await adminGate;
+        return route.fulfill({ json: adminStateTemplate });
+      });
       const search = await openSearch(page);
       await query(page, "appearance");
+      await adminStarting;
       await buttons(page).first().waitFor();
+      assert.match(await page.locator("#settings-search-status").innerText(), /Checking local admin/i);
       await search.press("ArrowDown");
-      assert.equal(await buttons(page).first().evaluate((element) => element === document.activeElement), true);
+      await page.waitForFunction(() => document.activeElement?.matches("#settings-search-results button"));
+      assert.equal(await page.evaluate(() => document.activeElement === document.querySelector("#settings-search-results button")), true);
+      const focusedPreference = await page.evaluate(() => document.activeElement?.dataset.preference);
+      releaseAdminState();
+      await page.waitForFunction(() => !document.querySelector("#settings-search-status")?.textContent.includes("Checking local admin"));
+      assert.equal(await page.evaluate(() => document.activeElement?.dataset.preference), focusedPreference, "admin initialization preserves the focused semantic preference");
       await page.keyboard.press("End");
-      assert.equal(await buttons(page).last().evaluate((element) => element === document.activeElement), true);
+      const afterEnd = await page.evaluate(() => ({
+        id: document.activeElement?.id || "",
+        preference: document.activeElement?.dataset.preference || "",
+        tag: document.activeElement?.tagName || "",
+        isLast: document.activeElement === [...document.querySelectorAll("#settings-search-results button")].at(-1),
+      }));
+      assert.equal(afterEnd.isLast, true, JSON.stringify(afterEnd));
       await page.keyboard.press("Home");
       await page.keyboard.press("Enter");
       assert.equal(await page.evaluate(() => document.activeElement?.closest("#settings-appearance") !== null), true);
@@ -346,6 +379,128 @@ async function runScenario(id, name, work) {
       await delayed.context.close();
     });
 
+    await runScenario("P5-S2", "failed initialized refresh recovers without discarding pending admin edits", async () => {
+      const recovering = await openFixture(browser, fixtureOrigin, freshState(), { viewport: { width: 390, height: 780 } });
+      const recoveringAdminState = structuredClone(adminStateTemplate);
+      recoveringAdminState.models.codex = { fixture: ["low", "medium"] };
+      recoveringAdminState.settings.services.codex = {
+        ...recoveringAdminState.settings.services.codex,
+        enabled: true,
+        models: ["fixture"],
+      };
+      recoveringAdminState.settings.mcp_defaults = { backend: "codex", model: "fixture", effort: "low" };
+      let failRefresh = false, failedRefresh;
+      const refreshFailed = new Promise((resolve) => { failedRefresh = resolve; });
+      let settingsWrites = 0;
+      await recovering.page.route(ADMIN + "/**", async (route) => {
+        const request = route.request(), pathname = new URL(request.url()).pathname;
+        if (pathname === "/api/settings" && request.method() === "POST") {
+          settingsWrites += 1;
+          failRefresh = true;
+          return route.fulfill({ json: {} });
+        }
+        if (pathname === "/api/state") {
+          if (failRefresh) {
+            failRefresh = false;
+            failedRefresh();
+            return route.fulfill({ status: 503, json: { error: "fixture refresh failed" } });
+          }
+          return route.fulfill({ json: recoveringAdminState });
+        }
+        return route.continue();
+      });
+      await openSearch(recovering.page);
+      await query(recovering.page, "Full access");
+      await resultNamed(recovering.page, /Full access/i).waitFor({ timeout: 8000 });
+      await query(recovering.page, "Default model");
+      await resultNamed(recovering.page, /Default model/i).click();
+      const recoveringFrame = recovering.page.frameLocator("#admin-frame");
+      const recoveringModel = recoveringFrame.locator("#mcp-default-model");
+      const recoveringEffort = recoveringFrame.locator("#mcp-default-effort");
+      await recoveringModel.selectOption(JSON.stringify(["codex", "fixture"]));
+      await recoveringEffort.selectOption("medium");
+      await recovering.page.locator("#admin-frame").evaluate((element) => { element.dataset.fixtureIdentity = "recover-existing-frame"; });
+      await recovering.page.locator("#settings-search").focus();
+      await query(recovering.page, "Full access");
+      await resultNamed(recovering.page, /Full access/i).click();
+      await recoveringFrame.locator("#full-access").click();
+      await refreshFailed;
+      assert.equal(await recoveringFrame.locator("html").getAttribute("data-settings-search-ready"), "false", "failed refresh invalidates the inner index");
+      assert.equal(settingsWrites, 1, "the explicit Full access save succeeds before its refresh fails");
+      await query(recovering.page, "Default model");
+      const recoveringRetry = recovering.page.locator("#settings-search-retry");
+      await recoveringRetry.waitFor({ state: "visible", timeout: 8000 });
+      await recoveringRetry.click();
+      await resultNamed(recovering.page, /Default model/i).waitFor({ timeout: 8000 });
+      assert.equal(await recovering.page.locator("#admin-frame").getAttribute("data-fixture-identity"), "recover-existing-frame", "Retry preserves the initialized iframe");
+      assert.equal(await recoveringModel.inputValue(), JSON.stringify(["codex", "fixture"]), "Retry preserves the pending MCP model");
+      assert.equal(await recoveringEffort.inputValue(), "medium", "Retry preserves the pending MCP effort");
+      assert.equal(settingsWrites, 1, "Retry rebuilds the read-only index without another preference write");
+      await resultNamed(recovering.page, /Default model/i).click();
+      await waitForFocused(recoveringModel);
+      assert.equal(await recoveringModel.evaluate((element) => element === document.activeElement), true, "recovered result focuses its exact admin control");
+      assert.equal(await recoveringEffort.inputValue(), "medium", "recovered navigation still preserves the pending MCP effort");
+      await recovering.context.close();
+    });
+
+    await runScenario("P5-S3", "Retry waits for an in-flight initialized refresh to finish", async () => {
+      const pending = await openFixture(browser, fixtureOrigin, freshState(), { viewport: { width: 390, height: 780 } });
+      const pendingAdminState = structuredClone(adminStateTemplate);
+      let holdRefresh = false, refreshStarted, releaseRefresh;
+      const refreshing = new Promise((resolve) => { refreshStarted = resolve; });
+      const refreshGate = new Promise((resolve) => { releaseRefresh = resolve; });
+      await pending.page.route(ADMIN + "/**", async (route) => {
+        const request = route.request(), pathname = new URL(request.url()).pathname;
+        if (pathname === "/api/settings" && request.method() === "POST") {
+          holdRefresh = true;
+          return route.fulfill({ json: {} });
+        }
+        if (pathname === "/api/state") {
+          if (holdRefresh) {
+            holdRefresh = false;
+            refreshStarted();
+            await refreshGate;
+          }
+          return route.fulfill({ json: pendingAdminState });
+        }
+        return route.continue();
+      });
+      await openSearch(pending.page);
+      await query(pending.page, "Full access");
+      await resultNamed(pending.page, /Full access/i).click();
+      const pendingFrame = pending.page.frameLocator("#admin-frame");
+      await pendingFrame.locator("html").evaluate(() => {
+        window.fixtureSettingsRetrySeen = new Promise((resolve) => {
+          const observeRetry = (event) => {
+            if (event.data?.type !== "keepharness:settings-retry") return;
+            removeEventListener("message", observeRetry);
+            resolve();
+          };
+          addEventListener("message", observeRetry);
+        });
+      });
+      await pendingFrame.locator("#full-access").click();
+      await refreshing;
+      await pending.page.locator("#settings-search").focus();
+      await query(pending.page, "Default model");
+      const pendingRetry = pending.page.locator("#settings-search-retry");
+      await pendingRetry.waitFor({ state: "visible", timeout: 8000 });
+      await pendingRetry.click();
+      const readinessAfterRetry = await pendingFrame.locator("html").evaluate(async (element) => {
+        await window.fixtureSettingsRetrySeen;
+        return element.dataset.settingsSearchReady;
+      });
+      assert.equal(readinessAfterRetry, "false", "child Retry handler cannot reopen readiness while refresh is in flight");
+      assert.equal(await resultNamed(pending.page, /Default model/i).count(), 0, "Retry cannot publish while the admin refresh is still in flight");
+      releaseRefresh();
+      await resultNamed(pending.page, /Default model/i).waitFor({ timeout: 8000 });
+      await resultNamed(pending.page, /Default model/i).click();
+      const pendingModel = pendingFrame.locator("#mcp-default-model");
+      await waitForFocused(pendingModel);
+      assert.equal(await pendingModel.evaluate((element) => element === document.activeElement), true, "completed refresh publishes a focusable current index");
+      await pending.context.close();
+    });
+
     await runScenario("P6-S1", "admin allowlist, message authentication and unsaved iframe state", async () => {
       const { context, page } = await openFixture(browser, fixtureOrigin, freshState());
       const enabledAdminState = structuredClone(adminStateTemplate);
@@ -388,7 +543,7 @@ async function runScenario(id, name, work) {
       const frame = page.frameLocator("#admin-frame");
       const effortSelect = frame.locator("#mcp-default-effort");
       await effortSelect.waitFor();
-      await page.waitForTimeout(50);
+      await waitForFocused(effortSelect);
       assert.equal(await effortSelect.evaluate((element) => element === document.activeElement), true, "search focuses the reached admin effort control");
       const modelSelect = frame.locator("#mcp-default-model");
       await modelSelect.selectOption("");
@@ -399,7 +554,7 @@ async function runScenario(id, name, work) {
       await modelSelect.selectOption(JSON.stringify(["codex", "fixture"]));
       await page.waitForFunction((selector) => document.querySelector(selector)?.disabled === false, RESULTS + " button");
       await resultNamed(page, /Default effort/i).click();
-      await page.waitForTimeout(50);
+      await waitForFocused(effortSelect);
       assert.equal(await effortSelect.evaluate((element) => element === document.activeElement), true, "re-enabled admin results focus their existing control");
       await effortSelect.evaluate((select) => {
         if (![...select.options].some((option) => option.value === "fixture-unsaved")) select.add(new Option("Fixture unsaved", "fixture-unsaved"));
@@ -410,13 +565,14 @@ async function runScenario(id, name, work) {
       await page.locator("#settings-search").focus();
       await query(page, "Full access");
       await resultNamed(page, /Full access/i).click();
-      await page.waitForTimeout(50);
-      assert.equal(await frame.locator("#full-access").evaluate((element) => element === document.activeElement), true, "search focuses the reached admin access control");
+      const accessControl = frame.locator("#full-access");
+      await waitForFocused(accessControl);
+      assert.equal(await accessControl.evaluate((element) => element === document.activeElement), true, "search focuses the reached admin access control");
       assert.equal(await page.locator("#admin-frame").getAttribute("data-fixture-identity"), "retained", "navigation retains the existing iframe element");
       await page.locator("#settings-search").focus();
       await query(page, "Default effort");
       await resultNamed(page, /Default effort/i).click();
-      await page.waitForTimeout(50);
+      await waitForFocused(effortSelect);
       assert.equal(await effortSelect.evaluate((element) => element === document.activeElement), true, "repeated search focuses the existing admin effort control");
       assert.equal(await effortSelect.inputValue(), "fixture-unsaved");
       assert.equal(await effortSelect.evaluate(() => window.settingsSearchDraft), "unsaved MCP effort");

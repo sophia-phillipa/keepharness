@@ -25,9 +25,10 @@
       if (!control || !sections.has(section)) return [];
       return [{ id, section, label: labelFor(control), description: descriptionFor(control), disabled: control.disabled }];
     });
-    let latestRequest;
+    let latestRequest, hasReadyIndex = document.documentElement.dataset.settingsSearchReady === "true";
     const publish = () => {
       if (document.documentElement.dataset.settingsSearchReady !== "true" || !Number.isSafeInteger(latestRequest)) return;
+      hasReadyIndex = true;
       parent.postMessage({ type: "keepharness:settings-preferences", request: latestRequest, preferences: preferences() }, parentOrigin);
     };
     document.addEventListener("keepharness:settings-index-change", publish);
@@ -36,6 +37,13 @@
       const data = event.data;
       if (data?.type === "keepharness:settings-query" && Number.isSafeInteger(data.request)) {
         latestRequest = data.request;
+        publish();
+      } else if (data?.type === "keepharness:settings-retry" && Number.isSafeInteger(data.request) && hasReadyIndex &&
+          document.documentElement.dataset.settingsSearchRecovery === "available") {
+        // A failed refresh leaves the last completed form DOM intact. Re-index it without reloading pending edits.
+        latestRequest = data.request;
+        delete document.documentElement.dataset.settingsSearchRecovery;
+        document.documentElement.dataset.settingsSearchReady = "true";
         publish();
       } else if (data?.type === "keepharness:settings-section" && sections.has(data.section)) {
         location.hash = data.section;
@@ -138,7 +146,7 @@
       const url = new URL(frame.src);
       url.searchParams.set("settings_retry", String(current));
       frame.src = url.href;
-    }
+    } else if (reload) send({ type: "keepharness:settings-retry", request: current });
     const ask = () => { if (current === request) send({ type: "keepharness:settings-query", request: current }); };
     // Admin startup fetches its state asynchronously, after the iframe's load event.
     const started = Date.now();

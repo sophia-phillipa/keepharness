@@ -168,25 +168,56 @@ function contrast(rgb1, rgb2) {
     await page.evaluate((saved) => { conversations = saved; renderConversationSearch(); }, savedConversations);
     await page.keyboard.press("Escape");
 
+    const expectCoveredComposerOmitted = async (name) => {
+      await page.keyboard.press("Control+k");
+      await input.fill("focus composer");
+      if (await dialog.getByRole("button", { name: /Focus composer/ }).count())
+        correctionFailures.push("C2 " + name + " omits Focus composer while its target is covered");
+      await page.keyboard.press("Escape");
+      await dialog.waitFor({ state: "hidden" });
+    };
+    const expectComposerAvailable = async (name) => {
+      await page.keyboard.press("Control+k");
+      await input.fill("focus composer");
+      assert.equal(await dialog.getByRole("button", { name: /Focus composer/ }).count(), 1, name + " restores Focus composer after closing");
+      await page.keyboard.press("Escape");
+    };
+
     await page.setViewportSize({ width: 400, height: 860 });
     await page.click("#menu");
     assert.equal(await page.locator("#sidebar").getAttribute("class").then((value) => value.includes("open")), true);
-    await page.keyboard.press("Control+k");
-    await input.fill("focus composer");
-    await dialog.getByRole("button", { name: /Focus composer/ }).click();
-    const mobileFocus = await page.evaluate(() => ({
-      prompt: document.activeElement === document.querySelector("#prompt"),
-      inert: !!document.querySelector("#prompt").closest("[inert]"),
-      sidebarOpen: document.querySelector("#sidebar").classList.contains("open"),
-    }));
-    if (!mobileFocus.prompt || mobileFocus.inert || mobileFocus.sidebarOpen)
-      correctionFailures.push("C2 Focus composer closes the mobile sidebar and focuses an interactive composer");
+    assert.equal(await page.locator("#prompt").evaluate((node) => !!node.closest("[inert]")), true);
+    await expectCoveredComposerOmitted("mobile sidebar");
+    assert.equal(await page.locator("#sidebar").getAttribute("class").then((value) => value.includes("open")), true, "search does not close the covering sidebar");
+    await page.keyboard.press("Escape");
+    await expectComposerAvailable("mobile sidebar");
+
+    await page.setViewportSize({ width: 800, height: 860 });
+    await page.evaluate(() => setPanelOpen(true, false));
+    assert.equal(await page.locator("#prompt").evaluate((node) => !!node.closest("[inert]")), true);
+    await expectCoveredComposerOmitted("responsive activity panel");
+    assert.equal(await page.locator("#activity-panel").isVisible(), true, "search does not close the covering activity panel");
+    await page.evaluate(() => setPanelOpen(false, false));
+    await expectComposerAvailable("responsive activity panel");
+
+    await page.setViewportSize({ width: 650, height: 860 });
+    await page.keyboard.press("Control+j");
+    await page.locator("#run-console").waitFor({ state: "visible" });
+    assert.equal(await page.locator("#prompt").evaluate((node) => !!node.closest("[inert]")), true);
+    await expectCoveredComposerOmitted("responsive run console");
+    assert.equal(await page.locator("#run-console").isVisible(), true, "search does not close the covering run console");
+    await page.keyboard.press("Control+j");
+    await page.locator("#run-console").waitFor({ state: "hidden" });
+    await expectComposerAvailable("responsive run console");
+
     await page.setViewportSize({ width: 1280, height: 860 });
-    assert.deepEqual(await snapshot(), before, "async and mobile command activation preserve composer route state");
+    assert.deepEqual(await snapshot(), before, "async and responsive command checks preserve composer route state");
     assert.deepEqual(correctionFailures, [], correctionFailures.join("; "));
     console.log("PASS C1a delayed results preserve semantic focus and Enter activation");
     console.log("PASS C1b a vanished result returns focus to the search input");
-    console.log("PASS C2 mobile Focus composer closes the covering sidebar before focus");
+    console.log("PASS C2a mobile sidebar omits Focus composer while covered");
+    console.log("PASS C2b responsive activity panel omits Focus composer while covered");
+    console.log("PASS C2c responsive run console omits Focus composer while covered");
 
     await page.keyboard.press("Control+Shift+p");
     await input.fill("appearance");

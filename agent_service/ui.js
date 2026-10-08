@@ -9252,6 +9252,10 @@ function renderConversationSearch() {
     query = normalizeSearch(input.value.trim());
   const includes = (...values) =>
     !query || normalizeSearch(values.filter(Boolean).join(" ")).includes(query);
+  const composerAvailable = () => {
+    const composer = $("prompt");
+    return !composer.disabled && composer.checkVisibility() && !composer.closest("[inert]");
+  };
   const resultButton = (id, titleText, detailText, action) => {
     const button = document.createElement("button");
     button.type = "button";
@@ -9267,9 +9271,8 @@ function renderConversationSearch() {
   };
   const commandMatches = [
     { id: "new-conversation", title: "New conversation", terms: "new chat home", available: () => !(submitting || cancelling || loading || uploads), run: () => void navigate({ kind: "home" }) },
-    { id: "focus-composer", title: "Focus composer", terms: "write message prompt", available: () => !$("prompt").disabled, run: () => {
-      if (matchMedia("(max-width:620px)").matches && $("sidebar").classList.contains("open")) closeSidebar();
-      $("prompt").focus();
+    { id: "focus-composer", title: "Focus composer", terms: "write message prompt", available: composerAvailable, run: () => {
+      if (composerAvailable()) $("prompt").focus();
     } },
     { id: "keyboard-shortcuts", title: "Keyboard shortcuts", terms: "key bindings reference", run: openKeyboardShortcuts },
   ].filter((item) => (!item.available || item.available()) && includes(item.title, item.terms));
