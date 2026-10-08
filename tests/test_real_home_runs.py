@@ -1,6 +1,7 @@
 """Native runs share the owner's (fake in tests) CLI configuration in every preset."""
 import json
 import os
+import tomllib
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -181,7 +182,7 @@ def test_native_reader_never_overwrites_owner_mcp_entry(tmp_path, enabled):
     (home / 'config.toml').write_text('[mcp_servers.harness_reader]\ncommand="owner-reader"\nenabled=' + str(enabled).lower() + '\n')
     params = thread_parameters({}, {'access_mode': 'read_only'}, 'model',
                                SimpleNamespace(cwd=tmp_path, home=tmp_path, roots=[str(tmp_path)], permissions={'read': True}),
-                               RuntimeOptions(['codex']), False)
+                               RuntimeOptions(['codex']), False, native_config=tomllib.loads((home / 'config.toml').read_text()))
     assert 'harness_reader' not in params['config']['mcp_servers']
 
 
@@ -193,3 +194,19 @@ def test_unset_native_home_overrides_stay_unset(tmp_path, monkeypatch, provider)
     assert source["HOME"] == os.environ["HOME"]
     assert "CODEX_HOME" not in source and "CLAUDE_CONFIG_DIR" not in source
     assert not (tmp_path / "old").exists()
+
+
+@pytest.mark.parametrize('nested', [False, True])
+def test_native_reader_respects_disabled_trusted_repository_layer(tmp_path, nested):
+    repo = tmp_path / 'repo'
+    (repo / '.git').mkdir(parents=True)
+    (repo / '.codex').mkdir()
+    (repo / '.codex/config.toml').write_text('[mcp_servers.harness_reader]\ncommand="owner-reader"\nenabled=false\n')
+    home = Path(os.environ['CODEX_HOME'])
+    (home / 'config.toml').write_text('[projects.' + json.dumps(str(repo)) + ']\ntrust_level="trusted"\n')
+    cwd = repo / 'sub' if nested else repo
+    cwd.mkdir(exist_ok=True)
+    params = thread_parameters({}, {'access_mode': 'read_only'}, 'model',
+                               SimpleNamespace(cwd=cwd, home=tmp_path, roots=[str(cwd)], permissions={'read': True}),
+                               RuntimeOptions(['fixture-never-executed']), False, native_config=tomllib.loads((repo / '.codex/config.toml').read_text()))
+    assert 'harness_reader' not in params['config']['mcp_servers']

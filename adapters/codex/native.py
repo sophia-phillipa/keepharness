@@ -68,7 +68,7 @@ def build_command(binary, permissions, hosted_search=True, *, host_config=True):
     return command
 
 
-def thread_parameters(config, project, model, workspace, runtime, unrestricted):
+def thread_parameters(config, project, model, workspace, runtime, unrestricted, *, native_config=None):
     """Translate harness permissions and integrations to app-server settings."""
     cwd, permissions = workspace.cwd, workspace.permissions
     # Ask: the read-only sandbox makes every write escalate to an approval card.
@@ -115,7 +115,7 @@ def thread_parameters(config, project, model, workspace, runtime, unrestricted):
             plugin.split(":", 1)[1]: {"enabled": plugin in selected} for plugin in plugins
         }
     if not runtime.isolated:
-        add_reader(params, workspace, restrict=bool(local_provider))
+        add_reader(params, workspace, restrict=bool(local_provider), native_config=native_config)
     if config.get("_effect_capability"):
         from agent_service.effect_transport import server_spec
 
@@ -140,7 +140,7 @@ def host_servers(selected, ask):
     }
 
 
-def add_reader(params, workspace, *, restrict=False):
+def add_reader(params, workspace, *, restrict=False, native_config=None):
     """Without the native shell, read through the harness reader over the authorized roots.
 
     The reader enforces the roots itself: Codex 0.157.1 has no sandbox read allow-list.
@@ -149,14 +149,13 @@ def add_reader(params, workspace, *, restrict=False):
     if not permissions.get("read") or permissions.get("shell"):
         return
     if not restrict:
-        home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
-        for path in (home / "config.toml", Path(workspace.cwd) / ".codex/config.toml"):
-            try:
-                configured = tomllib.loads(path.read_text()).get("mcp_servers", {})
-            except (OSError, ValueError):
-                continue
-            if READER in configured:
-                return
+        # config/read is authoritative for inherited layers, trust and root markers.
+        # Unknown state never authorizes overriding a possibly owner-disabled server.
+        if not isinstance(native_config, dict):
+            return
+        servers = native_config.get("mcp_servers", {})
+        if not isinstance(servers, dict) or READER in servers:
+            return
     roots = readable_roots(workspace)
     if not roots:
         return
@@ -360,6 +359,22 @@ async def run_turn(
     ) as rpc:
         if runtime.check_configuration:
             await runtime.check_configuration(rpc, cwd)
+        native_config = None
+        if (
+            provider == "codex" and not runtime.isolated and not runtime.model_provider
+            and permissions.get("read") and not permissions.get("shell")
+            and readable_roots(workspace)
+        ):
+            try:
+                reading = await rpc.call("config/read", {"cwd": str(cwd), "includeLayers": False})
+                native_config = reading.get("config") if isinstance(reading, dict) else None
+            except RPCError:
+                # The native CLI tools remain available when the optional reader cannot
+                # establish whether its fixed server name is already configured.
+                event("provider_warning", {
+                    "backend": provider,
+                    "message": "Codex configuration could not be read; the optional harness reader was not added.",
+                })
         selected_inputs = await resource_inputs(rpc, project, cwd)
         turn_started = False
         resumable = bool(saved) and (
@@ -368,7 +383,9 @@ async def run_turn(
         )
         previous_usage = saved.get("usage_total") if resumable else {}
         isolation = runtime.session_metadata
-        params = thread_parameters(config, project, model, workspace, runtime, unrestricted)
+        params = thread_parameters(
+            config, project, model, workspace, runtime, unrestricted, native_config=native_config
+        )
         if resumable:
             # Thread metadata only: the stored turns (attached images included) can outgrow
             # any line limit, and the harness never reads them back.
