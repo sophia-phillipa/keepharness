@@ -1,8 +1,12 @@
 # Conversation execution mode
 
-## Cloud-scoped retirement (#52, D-044)
+## Cloud-scoped retirement (#52, #53, D-044, D-046)
 
-This section supersedes the Codex/Claude mode and legacy-resolution rules below. The earlier sections preserve the history of the original UI and permission work. [D-044](decisions/d-044-scoped-sandbox-under-facade.md) governs the retirement; issue #52 implements its backend contract and the draft safeguards below. Unknown historical modes display "Execution mode unavailable" without a native fallback. The remaining UI retirement and guidance are a separate follow-up.
+This section supersedes the Codex/Claude mode and legacy-resolution rules below. The earlier sections preserve the history of the original UI and permission work. [D-044](decisions/d-044-scoped-sandbox-under-facade.md) governs the retirement; issue #52 implements its backend contract and the draft safeguards below. Unknown historical modes display "Execution mode unavailable" without a native fallback. Issue #53 removes the cloud isolation controls and completes the retirement guidance. [D-046](decisions/d-046-cloud-isolation-ui-retirement.md) brings this UI cleanup ahead of #45 and #46 without changing their scope; their real-home parity and no-old-home-read checks must be re-validated when they land.
+
+Codex and Claude offer no isolation toggle, shield switch or explanation in the composer, new-conversation flow, Settings or model/resource/effect surfaces. Missing capability data never advertises an assumed transport. The four native permission presets remain separate from execution mode. Local retains its required-isolation display; DeepSeek and Gemini remain native-only.
+
+Retired cloud drafts remain visible with Send and Enter disabled. Stored scoped conversations keep their historical label and the message: "Isolated Codex and Claude conversations are no longer supported. Start a new native conversation to continue." The existing **New conversation** action remains keyboard-accessible, opens a fresh native conversation and never imports a provider session or submits old content automatically. History remains readable/exportable; retry, branch and resume cannot spawn retired cloud execution.
 
 The supported modes are `native` for Codex, Claude, Gemini and DeepSeek, and `scoped` for Local. New Codex/Claude conversations default to native even if a stale service setting says scoped. An explicit unsupported mode returns HTTP 422 `execution_mode_unsupported` before enqueueing. Queued work, workflow stages, scheduled occurrences and direct adapter dispatch enforce the same refusal before provider execution. Schedule creation and updates reject unsupported modes.
 

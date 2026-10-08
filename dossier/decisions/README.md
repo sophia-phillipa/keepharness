@@ -34,3 +34,4 @@ Spec: [Codex-app parity design](../codex-parity-design.md).
 | [D-039](d-039-single-owner-facade-policies.md) | Single-owner facade: no guests or run classes, trust like the CLIs, `~/.claude.json` safeguards, no 0.15 migration (supersedes UC-001 multi-identity and the D03/D04/D12/D15 clamps) | accepted |
 | [D-043](d-043-deepseek-engine.md) | DeepSeek 1.0 keeps the Codex engine and #47 fixes; later `dsh` adoption requires an opt-in gate | accepted for implementation |
 | [D-044](d-044-scoped-sandbox-under-facade.md) | Retire Codex/Claude scoped execution for 1.0; retain native presets and Local isolation | accepted for implementation |
+| [D-046](d-046-cloud-isolation-ui-retirement.md) | Bring cloud isolation UI retirement ahead of #45/#46; re-validate their checks when they land | accepted |
