@@ -11,14 +11,16 @@ import socket
 import sys
 import uuid
 from pathlib import Path
+from typing import get_args
 
 from starlette.requests import Request
-from starlette.responses import FileResponse, JSONResponse, RedirectResponse
+from starlette.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from starlette.routing import Route
 
 from adapters.claude.auth import cli_login_environment
 from adapters.deepseek import account as deepseek
 from adapters.shared.provider_setup import login_environment
+from adapters.shared.provider_state import Scope, _ProviderStateError
 from agent_service.errors import APIError, UserMessageError
 from agent_service.json_depth import too_deep
 from harness_ui import asset_response, static_response
@@ -40,6 +42,7 @@ from .local_models import (
 from .manager import PERMISSIONS, clamp_legacy_bind
 from .operations import operation
 from .product import LEGACY_MARKER, PRODUCT, is_original
+from .provider_state import NO_PROJECT, error_response
 from .remote_models import add_remote_model, remove_remote_model
 from .vault_admin import change_vault, read_vault
 
@@ -641,6 +644,38 @@ async def read_logs(request, manager):
     return {"lines": log_tail(manager.state, request.query_params.get("lines", LOG_TAIL_LINES))}
 
 
+async def read_provider_state(request, manager):
+    query = request.query_params
+    try:
+        return await manager.provider_state.read(
+            query.get("provider", ""), query.get("project_id", NO_PROJECT)
+        )
+    except _ProviderStateError as exc:
+        return error_response(exc)
+
+
+async def write_provider_state(request, manager, data):
+    provider, project_id, item_id, scope, fingerprint = (
+        data.get(key) for key in ("provider", "project_id", "item_id", "scope", "fingerprint")
+    )
+    if not (
+        isinstance(project_id, str)
+        and isinstance(item_id, str)
+        and 0 < len(item_id) <= 300
+        and scope in get_args(Scope)
+        and isinstance(data.get("enabled"), bool)
+        and isinstance(fingerprint, str)
+        and 0 < len(fingerprint) <= 200
+    ):
+        raise APIError("invalid_request", 400)
+    try:
+        return await manager.provider_state.write(
+            provider, project_id, item_id, scope, data["enabled"], fingerprint
+        )
+    except _ProviderStateError as exc:
+        return error_response(exc)
+
+
 GET_ROUTES = {
     "/api/logs": read_logs,
     "/api/catalogs": read_catalogs,
@@ -649,9 +684,11 @@ GET_ROUTES = {
     "/api/folders": list_folders,
     "/api/dashboard": read_dashboard,
     "/api/state": read_state,
+    "/api/provider-state": read_provider_state,
 }
 POST_ROUTES = {
     "/api/catalog-pin": change_pin,
+    "/api/provider-state": write_provider_state,
     "/api/vault": change_vault,
     "/api/folders/create": create_folder,
     "/api/scan": scan_inventory,
@@ -691,7 +728,8 @@ async def endpoint(request: Request):
             handler = GET_ROUTES.get(path)
             if handler is None:
                 return JSONResponse({"error": "Not found"}, 404)
-            return JSONResponse(await handler(request, manager))
+            result = await handler(request, manager)
+            return result if isinstance(result, Response) else JSONResponse(result)
         if request.headers.get("x-harness-admin") != "1":
             raise UserMessageError("Administrative header required.")
         if manager.lock.locked():
@@ -734,7 +772,7 @@ async def endpoint(request: Request):
             if handler is None:
                 return JSONResponse({"error": "Not found"}, 404)
             result = await handler(request, manager, data)
-        return JSONResponse(result)
+        return result if isinstance(result, Response) else JSONResponse(result)
     except APIError as exc:
         return JSONResponse({"error": exc.code}, exc.status)
     except TimeoutError:

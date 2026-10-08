@@ -39,6 +39,7 @@ from .dashboard import DashboardReader
 from .operations import Operations
 from .persistence import ControlStateRepository
 from .product import PRODUCT, ensure_lineage
+from .provider_state import ProviderStateService
 
 ROOT = env.REPOSITORY_ROOT
 logger = logging.getLogger(__name__)
@@ -125,6 +126,9 @@ class Manager:
         self.last_exit = None
         self.exited = None
         self.lock = asyncio.Lock()
+        self.provider_state = ProviderStateService(
+            self.state, lambda: self.settings.get("projects", [])
+        )
         self.settings = (
             json.loads(self.path.read_text())
             if self.path.exists()
