@@ -447,7 +447,7 @@ runPersona("H38", [
       assert.match(shown.model_not_allowed, /This model is not enabled/);
       assert.match(
         shown.execution_mode_unsupported,
-        /start a new conversation/,
+        /start a new native conversation/i,
       );
       assert.deepEqual(unexpected, []);
     },

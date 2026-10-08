@@ -214,14 +214,14 @@
       states.get(context.provider)?.snapshot?.project_root === context.expected_project_root;
   }
 
-  function writeTrust(context) {
+  function writeTrust(context, trusted = true) {
     if (!currentTrustContext(context)) return;
     const { provider, project_id: project, expected_project_root } = context;
     let current = true;
     return action(async () => {
       report("");
       try {
-        const body = await request("provider-state/trust", { provider, project_id: project, expected_project_root });
+        const body = await request("provider-state/trust", { provider, project_id: project, expected_project_root, ...(trusted ? {} : { trusted: false }) });
         current = currentTrustContext(context);
         if (!current) return;
         for (const info of view.clis) {
@@ -233,7 +233,7 @@
           const claude = states.get("claude") || {};
           states.set("claude", { ...claude, mcp_approvals: body.mcp_approvals });
         }
-        report(projectLabel() + " is trusted for Codex and Claude Code in KeepHarness.");
+        report(projectLabel() + (body.trust?.trusted ? " is trusted for Codex and Claude Code in KeepHarness." : " is no longer trusted by Codex or Claude Code."));
       } catch (error) {
         current = currentTrustContext(context);
         if (current && error.status === 409)
@@ -291,9 +291,11 @@
     const provider = view.clis.find((info) => states.get(info.id)?.trust && states.get(info.id)?.snapshot?.project_root)?.id,
       trust = states.get(provider)?.trust;
     const approvals = states.get("claude")?.mcp_approvals || [];
-    if (!trust?.required && !approvals.length) return;
+    if (!trust && !approvals.length) return;
     trustPanel.hidden = false;
     trustPanel.setAttribute("aria-label", "Project trust and MCP approvals");
+    if (trust?.inherited_from)
+      trustPanel.append(node("p", "Codex still loads trusted configuration from " + trust.inherited_from + ". Revoking this project's trust does not revoke its parent.", "project-trust-inherited"));
     if (trust?.required) {
       const copy = node("div", undefined, "project-trust-copy");
       copy.append(
@@ -307,20 +309,29 @@
       accept.onclick = () => writeTrust(context);
       trustPanel.append(copy, accept);
     }
+    if (trust?.trusted) {
+      const context = trustContext(provider),
+        revoke = node("button", "Revoke trust for " + projectLabel(), "button secondary");
+      revoke.type = "button";
+      revoke.disabled = !currentTrustContext(context);
+      revoke.onclick = () => writeTrust(context, false);
+      trustPanel.append(node("p", "Trusted by Codex or Claude Code. Revoking trust applies to both CLIs."), revoke);
+    }
     for (const item of approvals) {
       const row = node("div", undefined, "project-mcp-approval", "project-mcp-approval");
       row.dataset.server = item.server;
       const copy = node("div");
       copy.append(
         node("strong", item.server),
-        node("small", "Project MCP server · " + (item.approved ? "Approved" : "Not approved")),
+        node("small", "Project MCP server · " + (item.enabled === false ? "Disabled by owner" : item.approved ? "Approved" : "Not approved")),
       );
       const toggle = node("button", (item.approved ? "Revoke" : "Approve") + " " + item.server, "button secondary");
       toggle.type = "button";
       const context = trustContext("claude");
       toggle.disabled = !currentTrustContext(context);
       toggle.onclick = () => writeMcpApproval(context, item.server, !item.approved);
-      row.append(copy, toggle);
+      row.append(copy);
+      if (item.enabled !== false) row.append(toggle);
       trustPanel.append(row);
     }
   }

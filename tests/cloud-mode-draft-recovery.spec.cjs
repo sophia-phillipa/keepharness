@@ -137,7 +137,7 @@ for (const backend of ["codex", "claude"]) {
 }
 for (const backend of ["codex", "claude"]) {
   scenarios.push({
-    title: `${backend} retired lock survives Local selection and the mode toggle`,
+    title: `${backend} retired lock survives Local selection and its disabled isolation indicator`,
     async run(page) {
       const { state, catalog } = await openDraft(page, backend, ["native"]);
       catalog.models.push({ id: "local-fixture", backend: "local", execution_modes: ["scoped"], efforts: ["low"] });
@@ -146,8 +146,8 @@ for (const backend of ["codex", "claude"]) {
       await settled(page);
       assert.equal(await page.locator("#send").isDisabled(), true);
       assert.equal(await page.locator("#isolation-toggle").isDisabled(), true);
-      // Calling the handler also cannot bypass the lock.
-      await page.evaluate(() => $("isolation-toggle").onclick());
+      // A programmatic click on the required Local indicator cannot bypass the lock.
+      await page.evaluate(() => $("isolation-toggle").click());
       assert.equal(await page.evaluate(() => executionMode), "scoped");
       assert.match(await page.locator("#execution-mode-unavailable").innerText(), /no longer supported/);
       await page.locator("#prompt").press("Enter");

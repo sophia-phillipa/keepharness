@@ -1060,7 +1060,7 @@ const userErrors = {
   catalog_cwd_conflict: "Selected catalogs require different working folders. Run them separately.",
   catalog_environment_conflict: "Selected catalogs require incompatible environments. Run them separately.",
   catalog_hook_filter_unsupported: "This execution mode cannot enforce the catalog hook list. Choose a supported native provider.",
-  catalog_runtime_mode_unsupported: "This isolated execution mode cannot provide the catalog runtime. Choose a supported native provider.",
+  catalog_runtime_mode_unsupported: "This execution mode cannot provide the catalog runtime. Choose a supported native provider.",
   catalog_runtime_unavailable: "The catalog runtime is unavailable. Check its prerequisites in Admin.",
   catalog_preflight_failed: "Catalog prerequisites are missing. Check the catalog in Admin before trying again.",
   catalog_hook_failed: "A catalog hook failed. Check its run event before trying again.",
@@ -1155,7 +1155,7 @@ const userErrors = {
   cli_missing:
     "The provider's command-line tool is missing on the server. Reinstall it, refresh discovery in the admin panel and try again.",
   isolation_unavailable:
-    "Isolated conversations need Linux with bubblewrap on the server. Turn isolation off or ask the administrator to install bubblewrap.",
+    "This execution mode is unavailable. Start a new native conversation.",
   project_name_exists:
     "A project with that name already exists. Choose a different name.",
   invalid_project_name: "The name needs to be between 3 and 100 characters.",
@@ -1215,11 +1215,11 @@ const userErrors = {
   conversation_context_limit:
     "This conversation is too long for the model's context. Start a new conversation or use a model with a larger context.",
   conversation_execution_mode_locked:
-    "This conversation's isolation mode can't change. Start a new conversation to use another mode.",
+    "This conversation's execution mode can't change. Start a new conversation to use the supported default.",
   conversation_workspace_changed:
     "This conversation's workspace changed. Start a new conversation.",
   execution_mode_unsupported:
-    "This conversation uses an execution mode this model or server no longer offers. Choose another model or start a new conversation.",
+    "This conversation uses an execution mode this model or server no longer offers. Start a new native conversation to continue. Its history is still available.",
   invalid_conversation_title: "Use a title between 1 and 100 characters.",
   invalid_archived: "Archiving needs a yes or no answer. Refresh the page and try again.",
   invalid_continuation_target: "Choose Claude or ChatGPT as the app to continue in.",
@@ -1248,7 +1248,7 @@ const userErrors = {
   no_enabled_executor_for_task:
     "No enabled model can run this task. Ask the administrator to enable one.",
   use_scoped_inference_tools:
-    "This model can only work through the isolated tools. Turn isolation on or choose another model.",
+    "This model cannot run this request. Choose a supported model.",
   service_project_denied:
     "This provider is not enabled for this project. Choose another model or ask the administrator.",
   runtime_config_invalid:
@@ -1427,11 +1427,11 @@ const userErrors = {
   effect_request_too_large:
     "This publication request is too large. Reduce the artifact content and prepare it again.",
   unsafe_scoped_home:
-    "This execution cannot start because its isolated workspace is unsafe. Ask the server owner to check its workspace configuration.",
+    "This execution cannot start because its workspace is unsafe. Ask the server owner to check its workspace configuration.",
   scoped_private_file_linked:
-    "This isolated run cannot start because private server state has a linked copy. Ask the server owner to remove the link before retrying.",
+    "This run cannot start because private server state has a linked copy. Ask the server owner to remove the link before retrying.",
   scoped_private_files_unavailable:
-    "This isolated run cannot verify private server state. Ask the server owner to check its storage and permissions, then retry.",
+    "This run cannot verify private server state. Ask the server owner to check its storage and permissions, then retry.",
   // Projects, folders and workspaces.
   invalid_project: "This project is invalid. Choose another one.",
   project_busy: "This project is busy with another change. Try again shortly.",
@@ -1623,8 +1623,10 @@ async function api(path, options = {}) {
         ? " Try again in " + Math.max(1, Math.ceil(seconds)) + " seconds."
         : " Wait a moment before trying again.";
     }
+    const providerState = path.startsWith("/v1/provider-state/");
+    if (providerState && typeof e.message === "string") message = e.message;
     const error = Error(message);
-    error.code = e.code;
+    error.code = e.code || (providerState ? e.error : undefined);
     error.field = e.field;
     error.status = r.status;
     if (r.status === 429) {
@@ -2928,7 +2930,7 @@ function supportedExecutionModes() {
   const modes = selected()?.execution_modes;
   return Array.isArray(modes) &&
     modes.every((mode) => ["native", "scoped"].includes(mode))
-    ? modes
+    ? modes.filter((mode) => selected()?.backend === "local" ? mode === "scoped" : mode === "native")
     : [];
 }
 function syncExecutionMode() {
@@ -2940,34 +2942,29 @@ function syncExecutionMode() {
     executionMode = draftMode.mode;
   }
   const isolated = executionMode === "scoped";
-  const modeContract = Array.isArray(selected()?.execution_modes);
-  // F-58: isolation is chosen before the first message, then only stated.
-  // The sub-bar (project, files, agents) serves every new conversation; only the
-  // isolation choice needs a model that states its execution modes.
-  $("execution-mode-choice").hidden = !modeContract && started;
+  const modeContract = modes.length > 0;
+  const localIsolation = selected()?.backend === "local" && !draftMode.retiredLock;
+  // Local retains its required-isolation display; cloud modes have no switch.
+  $("execution-mode-choice").hidden = false;
   $("execution-mode-choice").classList.toggle("no-modes", !modeContract);
   $("execution-mode-choice").classList.toggle("started", started);
-  $("isolation-toggle").hidden = started;
-  $("execution-mode-help").hidden = started;
+  $("isolation-toggle").hidden = started || !localIsolation;
+  $("execution-mode-help").hidden = true;
   $("isolation-toggle").setAttribute("aria-checked", String(isolated));
-  // A retired draft requires New; supported drafts retain the pre-send choice.
-  $("isolation-toggle").disabled =
-    started ||
-    draftMode.retiredLock ||
-    busy ||
-    loading ||
-    submitting ||
-    uploads > 0 ||
-    (modes.length < 2 && modes.includes(executionMode));
+  $("isolation-toggle").disabled = true;
   $("execution-mode-label").textContent = executionModeLabel();
   const warning = $("execution-mode-unavailable");
   warning.hidden =
-    !draftMode.retiredLock && (!selected() || (modes.includes(executionMode) && modes.length > 1));
+    !draftMode.retiredLock && modes.includes(executionMode) && !localIsolation;
   warning.textContent =
     started && executionMode == null
       ? "The historical execution mode is unavailable. Start a new native conversation to continue."
+      : started && draftMode.retiredLock
+      ? "Isolated Codex and Claude conversations are no longer supported. Start a new native conversation to continue."
       : draftMode.retiredLock
       ? "This saved isolated mode is no longer supported. Start a new conversation to use native mode."
+      : !modeContract
+      ? "Execution capabilities are unavailable. Refresh the model list before sending."
       : modes.length === 1 && modes.includes(executionMode)
       ? isolated
         ? "This model requires isolation."
@@ -2977,9 +2974,9 @@ function syncExecutionMode() {
         " mode. Choose a different model" +
         (started
           ? " or start a new conversation."
-          : " or change the mode before sending.");
+          : " or start a new conversation.");
   const indicator = $("execution-mode-indicator");
-  indicator.hidden = !started || !modeContract;
+  indicator.hidden = !started || !localIsolation;
   indicator.dataset.isolated = String(isolated);
   const label = executionMode == null
     ? "Execution mode unavailable"
@@ -2988,30 +2985,9 @@ function syncExecutionMode() {
       : "Native conversation · isolation off";
   indicator.title = label;
   indicator.setAttribute("aria-label", label);
-  $("dropzone").classList.toggle("has-execution-mode", started && modeContract);
+  $("dropzone").classList.toggle("has-execution-mode", started && localIsolation);
   $("header-execution-mode").textContent = executionModeLabel();
 }
-$("isolation-toggle").onclick = () => {
-  if (conversation || parent || draftMode.retiredLock || busy || loading || submitting || uploads)
-    return;
-  draftMode = {
-    mode: executionMode === "scoped" ? "native" : "scoped",
-    modeChosen: true,
-    retiredLock: executionMode === "native" && ["codex", "claude"].includes(selected()?.backend),
-  };
-  executionMode = draftMode.mode;
-  invalidateResources();
-  updateComposer();
-  saveView();
-};
-$("header-execution-mode").onclick = () => {
-  if (!conversation && !parent && !$("isolation-toggle").disabled)
-    $("isolation-toggle").click();
-  else
-    status(
-      "Conversation mode is fixed after the first message. Start a new conversation to change it.",
-    );
-};
 function newConversation(title = "New Conversation", projectId = $("project").value, { resetExecutionMode = false, restoreHomeDraft = false } = {}) {
   if (submitting || cancelling || loading || uploads) {
     status(
@@ -3074,6 +3050,8 @@ function newConversation(title = "New Conversation", projectId = $("project").va
   $("context-meter").textContent = "New conversation · independent context";
   setBusy(false);
   status("");
+  // The mobile drawer makes the editor inert until it closes.
+  closeSidebar();
   $("prompt").focus({ preventScroll: true });
   void refreshProjectPermissions().then((ready) => ready && refreshProjectTrust());
   if (changedProject) { clearResourceItems(); void refreshWorkspaceResources(); void loadAuthorizedProjectRoots(); }
@@ -4330,7 +4308,7 @@ const workflowResumeKeys = new Map();
 function showWorkflowRecovery(run) {
   const target = active?.el;
   if (!target || !["failed", "cancelled", "interrupted"].includes(run.state) || target.querySelector(".workflow-recovery")) return;
-  if (!run.workflow_checkpoint) return;
+  if (!run.workflow_checkpoint || draftMode.retiredLock) return;
   const section = document.createElement("section"), note = document.createElement("p"), resume = document.createElement("button");
   section.className = "workflow-recovery";
   note.textContent = run.workflow_completed_steps === 0
@@ -4378,7 +4356,7 @@ function showWorkflowRecovery(run) {
 function showTurnRetry(run) {
   const target = active?.el, req = run.request || {};
   if (!target || !["failed", "interrupted"].includes(run.state) || target.querySelector(".turn-retry-actions")) return;
-  if (run.workflow_checkpoint || req.schedule_id || req.backend === "maestro" || req.invocations?.some?.((item) => item.kind === "workflow")) return;
+  if (draftMode.retiredLock || run.workflow_checkpoint || req.schedule_id || req.backend === "maestro" || req.invocations?.some?.((item) => item.kind === "workflow")) return;
   const section = document.createElement("p"), note = document.createElement("span"), button = document.createElement("button");
   section.className = "turn-retry-actions";
   note.setAttribute("role", "status");
@@ -6392,8 +6370,14 @@ function renderProjectTrust() {
       ? projectTrustData.mcp_approvals
       : [];
   panel.replaceChildren();
-  panel.hidden = !trust?.required && !approvals.length && !projectTrustError;
+  panel.hidden = !trust && !approvals.length && !projectTrustError;
   if (panel.hidden) return;
+  if (trust?.inherited_from) {
+    const inherited = document.createElement("p");
+    inherited.className = "project-trust-inherited";
+    inherited.textContent = "Codex still loads trusted configuration from " + trust.inherited_from + ". Revoking this project's trust does not revoke its parent.";
+    panel.append(inherited);
+  }
   if (trust?.required) {
     const copy = document.createElement("div"),
       heading = document.createElement("strong"),
@@ -6411,6 +6395,16 @@ function renderProjectTrust() {
     accept.onclick = () => writeProjectTrust(context, "trust", {});
     panel.append(copy, accept);
   }
+  if (trust?.trusted) {
+    const copy = document.createElement("p"), revoke = document.createElement("button");
+    copy.textContent = "Trusted by Codex or Claude Code. Revoking trust applies to both CLIs.";
+    revoke.type = "button";
+    revoke.className = "project-trust-action";
+    revoke.textContent = "Revoke trust for " + context.label;
+    revoke.disabled = projectTrustWriting;
+    revoke.onclick = () => writeProjectTrust(context, "trust", { trusted: false });
+    panel.append(copy, revoke);
+  }
   for (const item of approvals) {
     const row = document.createElement("div"),
       copy = document.createElement("div"),
@@ -6421,14 +6415,15 @@ function renderProjectTrust() {
     row.dataset.testid = "project-mcp-approval";
     row.dataset.server = item.server;
     name.textContent = item.server;
-    detail.textContent = "Project MCP server · " + (item.approved ? "Approved" : "Not approved");
+    detail.textContent = "Project MCP server · " + (item.enabled === false ? "Disabled by owner" : item.approved ? "Approved" : "Not approved");
     copy.append(name, detail);
     toggle.type = "button";
     toggle.className = "project-trust-action";
     toggle.textContent = (item.approved ? "Revoke " : "Approve ") + item.server;
     toggle.disabled = projectTrustWriting;
     toggle.onclick = () => writeProjectTrust(context, "mcp-approvals", { server: item.server, approved: !item.approved });
-    row.append(copy, toggle);
+    row.append(copy);
+    if (item.enabled !== false) row.append(toggle);
     panel.append(row);
   }
   if (projectTrustError) {
@@ -6473,7 +6468,7 @@ async function writeProjectTrust(context, action, extra) {
       current = request === projectTrustRequest && currentProjectTrust(projectTrustContext);
     }
     if (current)
-      projectTrustError = error.status === 409
+      projectTrustError = error.status === 409 && error.code === "provider_state_conflict"
         ? "The CLI state changed elsewhere. Review it and try again."
         : error.message;
   } finally {

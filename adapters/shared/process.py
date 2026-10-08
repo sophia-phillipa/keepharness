@@ -177,7 +177,7 @@ class StderrCapture:
         return text.encode()[-STDERR_LIMIT:].decode("utf-8", errors="ignore")
 
 
-async def stop_process(process):
+async def stop_process(process, *, kill=False):
     """Reap the whole provider session, including shells that inherited its pipes."""
 
     def send(sig):
@@ -198,12 +198,14 @@ async def stop_process(process):
     # No protocol reader remains at this point. Unread stdout can otherwise
     # leave asyncio's Process.wait waiting for a paused pipe after SIGTERM.
     output = asyncio.create_task(discard_stdout())
-    send(signal.SIGTERM)
+    send(signal.SIGKILL if kill else signal.SIGTERM)
     try:
         await asyncio.wait_for(process.wait(), 3)
-    except asyncio.TimeoutError:
+    except (asyncio.TimeoutError, asyncio.CancelledError) as exc:
         send(signal.SIGKILL)
-        await process.wait()
+        await asyncio.wait_for(process.wait(), 3)
+        if isinstance(exc, asyncio.CancelledError):
+            raise
     finally:
         # The CLI may exit before a descendant that ignores SIGTERM.
         send(signal.SIGKILL)
@@ -212,7 +214,9 @@ async def stop_process(process):
 
 
 @asynccontextmanager
-async def process_diagnostics(process, provider, event=None, environment=None):
+async def process_diagnostics(
+    process, provider, event=None, environment=None, *, kill_on_error=False
+):
     capture = StderrCapture(environment)
     reader = asyncio.create_task(capture.drain(getattr(process, "stderr", None)))
     failure = None
@@ -223,7 +227,10 @@ async def process_diagnostics(process, provider, event=None, environment=None):
         raise
     finally:
         try:
-            await stop_process(process)
+            await stop_process(
+                process,
+                kill=kill_on_error and failure is not None,
+            )
         finally:
             try:
                 await asyncio.wait_for(reader, 1)

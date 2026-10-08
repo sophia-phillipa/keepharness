@@ -137,6 +137,7 @@ async def connection(
     config=None,
     provider="codex",
     pass_fds=(),
+    kill_on_error=False,
 ):
     environment = child_environment(env, provider=provider)
     proc = await asyncio.create_subprocess_exec(
@@ -149,7 +150,7 @@ async def connection(
         limit=READ_LIMIT,
         pass_fds=pass_fds,
     )
-    async with process_diagnostics(proc, provider, event, env):
+    async with process_diagnostics(proc, provider, event, env, kill_on_error=kill_on_error):
         rpc = RPC(proc, config=config, provider=provider)
         await rpc.initialize()
         yield rpc

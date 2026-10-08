@@ -105,10 +105,10 @@ Installing/removing integrations modifies this user's CLI profile. Authenticatio
 
 The harness supports persisted SSE streaming, conversation history, model/effort selection, cancellation, attachments, approval prompts and tool activity. Reasoning summaries, compaction and token metrics are shown only when provided by the executor. Codex account quota is refreshed before/after execution and periodically in the icon rail's quota meters; Claude quota appears when its CLI events supply utilization, labeled with the last observation time.
 
-There are two modes:
+Execution mode follows the provider:
 
-- **Isolated:** Linux + bubblewrap; tools are limited to the project, with no general terminal or free internet access. Changes go through a propose/apply flow with a backup. It does not use external connectors.
-- **Native:** Codex, Claude and DeepSeek run directly on the system, with no sandbox and with access to files, terminal and network. Local models keep their per-model permissions and isolation. The selected folder defines the project but is not a read jail. Terminal, hooks and connectors have the reach of their own permissions. The Internet option is not a firewall for external processes. Native edits happen directly in the project.
+- **Local:** required filesystem isolation remains enabled, with the existing per-model permissions.
+- **Native:** Codex, Claude, DeepSeek and Gemini use their native execution routes and applicable permission policies. Codex and Claude no longer offer a separate isolated mode. The selected folder defines the project but is not a read jail. Terminal, hooks and connectors have the reach of their own permissions. The Internet option is not a firewall for external processes. Native edits happen directly in the project.
 
 The project is not a multi-user solution for mutually untrusted people. Other accounts on the same computer are not trusted: reaching 127.0.0.1 is not enough to act as the owner. The owner is whoever holds the per-install secret in `~/.local/share/keepharness/local.key` (mode 0600). The secret never leaves that file: the desktop app and `keepharness open` use it to sign a single-use link that gives the browser a session of its own, valid for 30 days; `keepharness open --revoke` signs every browser out. Only that owner registers, repoints or deletes project folders; folders registered in the harness are not shared with other clients, and other clients see neither agent personas nor home-folder paths. Each authorized client has its own history and approvals. For strong isolation of identities and credentials, run instances under separate operating-system users.
 
@@ -249,7 +249,7 @@ Version 0.4.4 adds throughput beside context usage. When the provider does not r
 
 Version 0.4.4 obtains local context capacity from the running model server instead of the Codex agent's generic model metadata. Missing capacity is not estimated.
 
-Access has four modes: Read only, Ask for approval, Automatic and Full access. Every new conversation starts in **Ask for approval**, shown as a start-of-session notice next to the isolation notice; a previous conversation's access choice no longer carries over (F-58). Isolation is chosen once, before the first message, then shown as a fixed "Native conversation"/"Isolated conversation" notice — neither choice has an in-chat toggle after that point. In Ask for approval, Codex and Claude are guaranteed a confirmation card before any file edit/write or non-read-only command; a read-only command may still run without a card. Network access and MCP connectors/plugins stay enabled in Ask — it restricts changes, not connectivity (F-110). See [conversation execution modes](dossier/conversation-execution-mode.md) for the full mode table.
+Access has four modes: Read only, Ask for approval, Automatic and Full access. Every new conversation starts in **Ask for approval**, shown as a start-of-session notice next to the execution-mode notice; a previous conversation's access choice no longer carries over (F-58). Execution mode follows the provider and stays fixed for the conversation. Native permission presets remain separate from Local’s required isolation. In Ask for approval, Codex and Claude are guaranteed a confirmation card before any file edit/write or non-read-only command; a read-only command may still run without a card. Network access and MCP connectors/plugins stay enabled in Ask — it restricts changes, not connectivity (F-110). See [conversation execution modes](dossier/conversation-execution-mode.md) for the full mode table.
 
 ## 🧙 Setup wizard and portable configuration
 
@@ -347,9 +347,9 @@ KeepHarness distinguishes the model from the execution engine. Other combination
 
 ## 🆕 Version 0.10.0
 
-Prepared publication now uses an execution-scoped MCP tool in Codex and Claude native/scoped runs. The tool returns immediately with a publish gate showing the Jira endpoint, project, request and artifact digest. Only an enrolled human session can approve or deny; approvals apply once to the exact request. The harness then creates the Jira issue and records its receipt. Access mode never approves publication automatically.
+Prepared publication uses an execution-scoped MCP tool in Codex and Claude native runs. Cloud-scoped execution was retired in 0.16.0. The tool returns immediately with a publish gate showing the Jira endpoint, project, request and artifact digest. Only an enrolled human session can approve or deny; approvals apply once to the exact request. The harness then creates the Jira issue and records its receipt. Access mode never approves publication automatically.
 
-The first mediated operation is **Jira Cloud create issue**. Configure a destination allowlist and a private credential binding as described in the [release specification](dossier/releases/v0.10.0.md). Credentials stay in a separate harness store. Scoped workers receive only a prepare capability; modes without a verified filesystem boundary are labelled **unenforced**. Update, transition and other publication paths remain advisory.
+The first mediated operation is **Jira Cloud create issue**. Configure a destination allowlist and a private credential binding as described in the [release specification](dossier/releases/v0.10.0.md). Credentials stay in a separate harness store. Modes without a verified filesystem boundary are labelled **unenforced**. Update, transition and other publication paths remain advisory.
 
 Pipeline and span detail show publication intent, approval, execution and receipt. An uncertain result stays **unknown**; **Reconcile** records an enrolled human's evidence check or decision to keep it unknown. An empty Jira search does not prove failure, and the harness never redispatches an unknown effect. Chat and standalone invocations both support prepared effects; workflows remain a later phase. The [previous release](dossier/releases/v0.9.0.md) describes the run console and work-item references.
 
@@ -361,7 +361,7 @@ Naming convention and specialist catalog: [canonical agent and skill model](doss
 
 Conversation titles are passed to execution engines on creation and resume. See [title synchronization](dossier/conversation-title-sync.md) for provider coverage and limitations for Gemini and nonpersistent sessions.
 
-New conversations offer isolation before the first message, defaulting to native execution where supported. The mode is then fixed and shown as a discreet prompt icon. Local models retain mandatory isolation. See [conversation execution modes](dossier/conversation-execution-mode.md).
+Codex and Claude conversations use native execution; no isolation option is offered. Retired isolated drafts stay visible with Send disabled. Their history remains readable/exportable: use **New conversation** to explicitly start native execution without importing the old provider session or automatically submitting content. Missing model capabilities block sending until refreshed. Local models retain mandatory isolation, and old `<state>/providers/home` files remain untouched. See [conversation execution modes](dossier/conversation-execution-mode.md).
 
 ## 📄 License
 
