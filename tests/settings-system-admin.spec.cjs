@@ -43,6 +43,7 @@ const path = require("node:path");
         return route.fulfill({ json: data });
       }
       return route.fulfill({
+        headers: { "Referrer-Policy": "same-origin" },
         path: path.join(
           __dirname,
           "..",
@@ -83,6 +84,36 @@ const path = require("node:path");
     assert.equal(await content.locator("html").getAttribute("data-palette"), "graphite");
     const frameBox = await frame.boundingBox();
     assert(frameBox.height > 700 && frameBox.width > 900, JSON.stringify(frameBox));
+
+    // #30: an already-open, cross-origin admin follows live theme changes without
+    // replacing its document or losing in-progress work.
+    const adminDocument = page.frames().find((item) => item.url() === src.href);
+    assert.equal(await adminDocument.evaluate(() => new URL(document.referrer).origin), harness);
+    const beforeColor = await content.locator("body").evaluate((el) => getComputedStyle(el).backgroundColor);
+    await adminDocument.evaluate(() => {
+      window.themeTestDraft = "unsaved provider edit";
+      localStorage.setItem(window.HarnessTheme.key, "amethyst");
+      for (const [source, origin, theme] of [
+        [window, new URL(document.referrer).origin, "paper"],
+        [parent, "http://untrusted.test", "paper"],
+        [parent, new URL(document.referrer).origin, "unknown-palette"],
+      ]) window.dispatchEvent(new MessageEvent("message", { source, origin, data: { type: "keepharness:theme", theme } }));
+    });
+    assert.equal(await content.locator("html").getAttribute("data-palette"), "graphite", "untrusted or invalid theme messages are ignored");
+    let navigations = 0;
+    page.on("framenavigated", (item) => { if (item === adminDocument) navigations++; });
+    await page.evaluate(() => window.HarnessTheme.apply("paper"));
+    await content.locator('html[data-palette="paper"]').waitFor({ state: "attached", timeout: 3000 });
+    const afterColor = await content.locator("body").evaluate((el) => getComputedStyle(el).backgroundColor);
+    assert.notEqual(afterColor, beforeColor, "the embedded admin visibly restyles");
+    assert.equal(await adminDocument.evaluate(() => window.themeTestDraft), "unsaved provider edit");
+    assert.equal(await adminDocument.evaluate(() => localStorage.getItem(window.HarnessTheme.key)), "amethyst", "the standalone admin preference stays independent");
+    assert.equal(navigations, 0, "theme changes do not navigate the iframe");
+    assert.equal(await frame.getAttribute("src"), src.href);
+    await page.evaluate(() => window.HarnessTheme.apply("graphite"));
+    await content.locator('html[data-palette="graphite"]').waitFor({ state: "attached" });
+    assert.equal(await content.locator("body").evaluate((el) => getComputedStyle(el).backgroundColor), beforeColor);
+    assert.equal(navigations, 0);
 
     await dialog.getByRole("button", { name: "Run history" }).click();
     await heading.filter({ hasText: /^Runs$/ }).waitFor({ state: "attached" });

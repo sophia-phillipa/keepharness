@@ -178,13 +178,73 @@ def test_deepseek_balance_not_read_fresh_stale_and_failed(rail, tmp_path):
     }  # fmt: skip
     cache_deepseek(service, fresh, age=FRESH + 1)
     assert quotas(service, identity)["deepseek"] == {
-        "available": False, "reason": "quota_stale", "checked_at": 99.0,
+        "available": True, "reason": "quota_stale", "kind": "balance", "checked_at": 99.0,
+        "balance": {"amount": "12.40", "currency": "USD"},
     }  # fmt: skip
     failed = {"provider": "deepseek", "available": False, "reason": "balance_unavailable"}
     cache_deepseek(service, failed)
     assert quotas(service, identity)["deepseek"]["reason"] == "balance_not_read"
     service.deepseek_quota.assert_not_called()
     deepseek_account.fetch_balance.assert_not_called()
+
+
+@pytest.mark.parametrize("outcome", ["success", "failure", "cancelled"])
+def test_deepseek_refresh_keeps_known_balance_while_pending(rail, tmp_path, monkeypatch, outcome):
+    service, identity = rail
+    deepseek_with_key(service, tmp_path)
+    del service.deepseek_quota  # Exercise the real refresh with a gated account response.
+    cache_deepseek(service, {
+        "provider": "deepseek", "available": True, "checked_at": 99.0,
+        "balances": [{"currency": "USD", "total": "12.40", "granted": "0", "topped_up": "12.40"}],
+    }, age=FRESH + 1)
+
+    async def scenario():
+        started, release = asyncio.Event(), asyncio.Event()
+
+        async def fetch_balance(_key):
+            started.set()
+            await release.wait()
+            return None if outcome == "failure" else {
+                "is_available": True,
+                "balance_infos": [{
+                    "currency": "USD", "total_balance": "9.25",
+                    "granted_balance": "0", "topped_up_balance": "9.25",
+                }],
+            }
+
+        monkeypatch.setattr(deepseek_account, "fetch_balance", fetch_balance)
+        task = asyncio.create_task(service.deepseek_quota())
+        try:
+            await asyncio.wait_for(started.wait(), timeout=2)
+            pending = quotas(service, identity)["deepseek"]
+            assert pending["available"] is True
+            assert pending["balance"] == {"amount": "12.40", "currency": "USD"}
+            assert pending["checked_at"] == 99.0  # Refreshing does not make old data fresh.
+            cached = service.deepseek_usage_cache
+            service.deepseek_usage_cache = None
+            assert quotas(service, identity)["deepseek"]["available"] is False
+            service.deepseek_usage_cache = cached
+            service.config["provider_revisions"] = {"deepseek": "changed-key"}
+            assert quotas(service, identity)["deepseek"]["available"] is False
+            service.config.pop("provider_revisions")
+            if outcome == "cancelled":
+                task.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await task
+                assert quotas(service, identity)["deepseek"]["reason"] == "quota_stale"
+            else:
+                release.set()
+                await asyncio.wait_for(task, timeout=2)
+                completed = quotas(service, identity)["deepseek"]
+                if outcome == "success":
+                    assert completed["balance"] == {"amount": "9.25", "currency": "USD"}
+                else:
+                    assert completed == {"available": False, "reason": "balance_not_read"}
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+    asyncio.run(scenario())
 
 
 def test_payload_keys_are_allow_listed_and_leak_nothing(rail, tmp_path):

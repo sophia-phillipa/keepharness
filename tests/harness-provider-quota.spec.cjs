@@ -241,6 +241,25 @@ const meterRows = (page) =>
     assert.equal(byProvider.deepseek.label, "DeepSeek balance $12.40. Open details.");
     assert.equal(await rail.page.locator('[data-provider="deepseek"] > i').count(), 0, "a balance replaces the bar");
 
+    // #31: an expired known balance stays visible before and during the refresh;
+    // its stale reason still primes a new reading even though the meter has a value.
+    const refreshing = await openRail(browser, { providers: [allProviders[3]], visibility: "hidden" });
+    const staleBalance = [{ ...allProviders[3], quota: { ...deepseekBalance, reason: "quota_stale" } }];
+    let pendingBalance;
+    await refreshing.page.route("**/v1/usage?backend=deepseek", (route) => { pendingBalance = route; });
+    await refreshing.page.evaluate(() => { window.__visibility = "visible"; });
+    await Promise.all([
+      refreshing.page.waitForRequest("**/v1/usage?backend=deepseek", { timeout: 3000 }),
+      feed(refreshing, staleBalance),
+    ]);
+    await feed(refreshing, staleBalance);
+    const duringRefresh = (await meterRows(refreshing.page))[0];
+    assert.equal(duringRefresh.state, "balance");
+    assert.equal(duringRefresh.label, "DeepSeek balance $12.40. Open details.");
+    assert.doesNotMatch(duringRefresh.text, /n\/a/);
+    await pendingBalance.fulfill({ json: balance });
+    await refreshing.context.close();
+
     // D-035: the provider's logo replaces its short name; the full name stays in the accessible name and tooltip.
     const logos = { codex: "brand-openai", claude: "brand-claude", gemini: "brand-gemini", deepseek: "brand-deepseek", local: "stack-2" };
     const fullNames = { codex: "Codex", claude: "Claude Code", gemini: "Gemini CLI", deepseek: "DeepSeek", local: "Local models" };

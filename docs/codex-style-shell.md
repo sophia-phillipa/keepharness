@@ -34,6 +34,14 @@ The harness UI follows the layout of the ChatGPT/Codex desktop app, measured on 
 
 The admin stays its own local app (own port, local-only guard, admin header and cookie). The harness frames it only from Settings › System, creating the iframe on first use. The admin's CSP allows framing only by the harness's own `127.0.0.1`/`localhost` origin (`frame-ancestors`), the harness's CSP allows only the local admin as a frame source (`frame-src`), and the System group appears only when the harness itself is opened on `127.0.0.1`/`localhost`; a page opened over the network keeps using its own machine's tools. The rail's admin button opens Settings › System; a modified click still opens the admin in a new tab.
 
+Theme changes also restyle an already-open embedded admin immediately, without
+reloading its document or discarding unfinished edits. The harness sends the
+selected palette to the iframe's exact origin; the embedded admin accepts only
+known palettes from its parent window and the parent's exact origin, supplied
+by an origin-only iframe referrer. Embedded updates do not change the standalone
+admin's saved theme. An iframe that finishes loading after a theme change adopts
+the harness's current palette.
+
 ## Electron readiness
 
 The rail and the sidebar head are drag regions (`-webkit-app-region: drag`) and their controls opt out, so the same UI can run in a frameless Electron window.

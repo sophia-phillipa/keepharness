@@ -34,6 +34,14 @@
   if(persist){try{localStorage.setItem(key,t.id);}catch{}if(surface==='harness')window.HarnessPrefs?.set('theme',t.id);}
   document.querySelectorAll('[data-theme-choice]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.themeChoice===t.id)));
   const select=document.getElementById('theme-select');if(select)select.value=t.id;
+  const frame=surface==='harness'&&document.getElementById('admin-frame');
+  if(frame?.src)frame.contentWindow?.postMessage({type:'keepharness:theme',theme:t.id},new URL(frame.src).origin);
+ }
+ if(surface==='admin'&&root.dataset.embedded){
+  const parentOrigin=document.referrer?new URL(document.referrer).origin:null;
+  addEventListener('message',e=>{
+   if(e.source===parent&&e.origin===parentOrigin&&e.data?.type==='keepharness:theme'&&themes.some(t=>t.id===e.data.theme))apply(e.data.theme,false);
+  });
  }
  window.HarnessTheme={themes,apply,key,surface};apply(initial,false);
  addEventListener('storage',e=>{if(e.key===key)apply(e.newValue,false);});

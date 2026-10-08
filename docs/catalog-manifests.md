@@ -52,6 +52,11 @@ reference changes; previous trees remain available to existing references.
 The update operation fetches by default. Pin operations suppress repository Git
 hooks. A checkout with modified content fails validation.
 
+Git failures while reading an unpinned catalog snapshot, including timeouts and a missing
+Git executable, mark that catalog's resources unavailable and produce a warning.
+Project and user skills remain available in Customize, the harness palette and
+the project catalog; one failed snapshot does not discard a provider's skills.
+
 Allowed hooks are explicit native pre-run executable scripts. They require the
 effective hooks grant; otherwise the run records that they were skipped. Only the
 listed scripts execute, with the catalog runtime environment and working directory

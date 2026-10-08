@@ -2200,7 +2200,7 @@ function providerQuotaReading(item) {
   if (windows.length) return { backend: item.backend, state: "ok", remaining: Math.min(...windows.map((window) => window.remaining)) };
   const amount = Number(q?.balance?.amount);
   if (q?.available && q.kind === "balance" && Number.isFinite(amount))
-    return { backend: item.backend, state: "balance", amount, currency: q.balance.currency };
+    return { backend: item.backend, state: "balance", amount, currency: q.balance.currency, reason: q.reason };
   return { backend: item.backend, state: "na", reason: q?.reason || "quota_not_read" };
 }
 // One meter per backend: a reading beats none, and the lowest remaining quota wins.
@@ -2264,7 +2264,7 @@ window.updateProviderQuotas = function updateProviderQuotas(items = []) {
   railQuotaSummaries.clear();
   const meters = readings.map(providerQuotaMeter);
   for (const reading of readings)
-    if (reading.state === "na" && QUOTA_PRIME_REASONS.has(reading.reason)) primeProviderQuota(reading.backend);
+    if (QUOTA_PRIME_REASONS.has(reading.reason)) primeProviderQuota(reading.backend);
   container.replaceChildren(...meters);
   container.hidden = !meters.length;
 };
@@ -8040,6 +8040,9 @@ function showAdminSection(section = "providers") {
   if (!frame) {
     frame = document.createElement("iframe");
     frame.id = "admin-frame";
+    // Share only our origin so the embedded admin can authenticate theme messages.
+    frame.referrerPolicy = "origin";
+    frame.onload = () => window.HarnessTheme?.apply(document.documentElement.dataset.palette, false);
     $("settings-system").append(frame);
   }
   const label = document.querySelector('[data-admin-section="' + section + '"]');
