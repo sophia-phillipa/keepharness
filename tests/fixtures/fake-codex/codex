@@ -13,6 +13,7 @@ else comes from ``$CODEX_HOME/fake-app-server.json`` (all keys optional):
   version          string  reported by ``--version`` and ``initialize`` (default "0.157.1")
   fail_start       bool    ``app-server`` exits 1 before answering anything
   missing_methods  list    methods answered like a method the CLI does not have (-32600, "unknown variant")
+  no_response      list    methods whose JSON-RPC request is deliberately left unanswered
   errors           object  method -> JSON-RPC error object returned instead of the result
   system           object  {"file": str, "config": {...}} replaces the (empty) system layer
   user_profile     string  labels the user layer with a profile name (the schema allows it)
@@ -363,6 +364,8 @@ def serve_requests():
         with (home() / "fake-app-server.log").open("a") as log:
             log.write(json.dumps({"method": method, "params": params}) + "\n")
         if "id" not in message:  # notifications such as "initialized"
+            continue
+        if method in settings().get("no_response", []):
             continue
         try:
             reply = {"id": message["id"], "result": answer(method, params)}
