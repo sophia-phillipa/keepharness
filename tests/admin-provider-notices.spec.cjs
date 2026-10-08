@@ -591,6 +591,9 @@ const N5 = notice(5, {
     );
 
     // The last dismiss hides the block on both screens; the focus lands on the heading, which is not left focusable.
+    holdGet = new Promise((resolve) => {
+      release = resolve;
+    });
     await providersBlock
       .getByRole("button", { name: "Dismiss all Claude Code" })
       .click();
@@ -600,6 +603,14 @@ const N5 = notice(5, {
       project_id: "sem-projeto",
       notice_ids: [N3.id, N6.id],
     });
+    release();
+    holdGet = null;
+    // Focus is restored after the fresh GET, not when local removal hides the block.
+    await page.waitForFunction(
+      () => document.activeElement === document.querySelector("#overview h1"),
+      null,
+      { timeout: 5000 },
+    );
     assert.equal(
       await page.evaluate(
         () => document.activeElement === document.querySelector("#overview h1"),
