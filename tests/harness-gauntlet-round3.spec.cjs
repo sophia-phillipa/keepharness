@@ -1,3 +1,4 @@
+const { executionModes } = require("./model-fixture.cjs");
 // Round-three synthetic browser regressions: actual rendering, keyboard and network boundaries.
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const assert = require('node:assert/strict');
@@ -16,14 +17,14 @@ async function fixture(browser, width = 1024, height = 768) {
   await mount(page, async (url, request) => {
     if (request.method() === 'POST') { state.posts.push({ path: url.pathname, data: request.postDataJSON() }); if (state.approvalResponse) await state.approvalResponse; return { status: state.approvalResponse ? 200 : 422, json: state.approvalResponse ? {resolved:true} : {error:'synthetic_stop'} }; }
     if (url.pathname === '/v1/projects') return { json: { projects: ['p', 'q'], details: { p: { label: 'Project P' }, q: { label: 'Project Q' } } } };
-    if (url.pathname === '/v1/models') return { json: { models: [{ id: 'fixture-model', backend: 'codex', efforts: ['configured'] }, { id: plan.steps[0].model, backend: 'codex', efforts: ['configured'] }], providers: { codex: true } } };
+    if (url.pathname === '/v1/models') return { json: { models: [{ id: 'fixture-model', backend: 'codex', execution_modes: executionModes('codex'), efforts: ['configured'] }, { id: plan.steps[0].model, backend: 'codex', execution_modes: executionModes('codex'), efforts: ['configured'] }], providers: { codex: true } } };
     if (url.pathname === '/v1/resources') return { json: { items: [resource], warnings: [] } };
     if (url.pathname === '/v1/activity') return { json: { counts: { running: 1 }, jobs: [{ ...run, job_id: 'a-job', conversation_id: 'a', project_id: 'p', backend: 'codex' }], needs_you: state.plan ? [{ job_id:'a-job', conversation_id:'a', gate_id:'plan', kind:'maestro_plan', plan }] : [], providers: [] } };
     if (url.pathname === '/v1/conversations') return { json: { conversations: ['a','b'].map(id => ({ id, title: id.toUpperCase() + ' report', state: 'failed', project: 'p', last_job_id: id + '-job' })) } };
     if (/^\/v1\/conversations\/(a|b|child)$/.test(url.pathname)) {
       if (state.delay) await state.delay;
       const id = url.pathname.split('/').at(-1);
-      return { json: { title: id.toUpperCase() + ' report', turns: [turn(id)] } };
+      return { json: { title: id.toUpperCase() + ' report', execution_mode: 'native', turns: [turn(id)] } };
     }
     if (url.pathname.endsWith('/cancel')) { state.running = false; return { json: { cancelled: true } }; }
     if (/^\/v1\/jobs\/.*-job$/.test(url.pathname)) return { json: turn(url.pathname.split('/').at(-1).replace('-job','')) };

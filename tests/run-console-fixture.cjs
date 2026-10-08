@@ -1,3 +1,4 @@
+const { executionModes } = require("./model-fixture.cjs");
 const fs = require('node:fs/promises');
 const path = require('node:path');
 async function mount(page, handler) {
@@ -8,7 +9,7 @@ async function mount(page, handler) {
       const reply = await handler(url, route.request());
       if (reply) return route.fulfill(reply);
       const data = url.pathname === '/v1/projects' ? { projects: ['sem-projeto'] }
-        : url.pathname === '/v1/models' ? { models: [{ id: 'fixture', backend: 'local', efforts: ['configured'] }], providers: { local: true } }
+        : url.pathname === '/v1/models' ? { models: [{ id: 'fixture', backend: 'local', execution_modes: executionModes('local'), efforts: ['configured'] }], providers: { local: true } }
         : url.pathname === '/v1/conversations' ? { conversations: [] }
         : url.pathname === '/v1/version' ? { version: 'fixture', build: 'fixture' } : {};
       return route.fulfill({ json: data });

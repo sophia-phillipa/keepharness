@@ -10,7 +10,7 @@ const MODELS = [
     backend: "codex",
     efforts: ["low"],
     permissions: { upload: true },
-    execution_modes: ["native", "scoped"],
+    execution_modes: ["native"],
   },
   {
     id: "gemini-3-pro",
@@ -173,15 +173,23 @@ runPersona("H30", [
     },
   },
   {
-    title: "H30-S2b isolation chosen for Codex blocks a DeepSeek send",
+    title: "H30-S2b retained Local isolation blocks a DeepSeek send",
     async run(page) {
-      const s = await open(page);
+      const s = await open(page, { "GET /v1/models": { json: {
+        models: [...MODELS, { id: "local-fixture", backend: "local", efforts: ["configured"],
+          execution_modes: ["scoped"], permissions: { upload: false } }],
+        providers: { codex: true, gemini: true, deepseek: true, local: true },
+        uploads_enabled: true,
+      } } });
       assert.equal(await page.locator("#model").inputValue(), "gpt-5.6-luna");
-      await page.click("#isolation-toggle");
-      assert.equal(
-        await page.locator("#isolation-toggle").getAttribute("aria-checked"),
-        "true",
-      );
+      await page.evaluate(() => sessionStorage.setItem("remote-view", JSON.stringify({
+        project: "sem-projeto", composer_selection: { model: "local-fixture", effort: "configured" },
+        draft_mode: { mode: "scoped", modeChosen: true, retiredLock: false },
+      })));
+      await page.reload();
+      await page.locator("#startup-gate").waitFor({ state: "hidden" });
+      assert.equal(await page.locator("#model").inputValue(), "local-fixture");
+      assert.equal(await page.locator("#isolation-toggle").getAttribute("aria-checked"), "true");
       await chooseModel(page, "deepseek-flash");
       await visible(page, "#execution-mode-unavailable");
       assert.match(

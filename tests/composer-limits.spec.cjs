@@ -1,3 +1,4 @@
+const { executionModes } = require("./model-fixture.cjs");
 // QA-R4-3/4/5: the draft limit and the attachment limits are visible before they bite, and typing stays cheap.
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
 const assert = require("node:assert/strict");
@@ -20,7 +21,7 @@ const path = require("node:path");
       let data = {};
       if (pathname === "/v1/projects") data = { projects: ["sem-projeto"] };
       else if (pathname === "/v1/models")
-        data = { models: [{ id: "fixture", name: "Fixture", backend: "local", efforts: ["low"], permissions: { upload: true } }], providers: { local: true }, uploads_enabled: true };
+        data = { models: [{ id: "fixture", name: "Fixture", backend: "local", execution_modes: executionModes("local"), efforts: ["low"], permissions: { upload: true } }], providers: { local: true }, uploads_enabled: true };
       else if (pathname === "/v1/conversations") data = { conversations: [] };
       else if (pathname === "/v1/version") data = { version: "fixture", build: "limits" };
       else if (pathname === "/v1/files") data = { file_id: "file-" + ++uploads, name: "n" };

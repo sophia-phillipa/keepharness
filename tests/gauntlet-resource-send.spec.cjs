@@ -1,3 +1,4 @@
+const { executionModes } = require("./model-fixture.cjs");
 // A slow quota lookup must not mix one prompt with another draft's resource refs.
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
 const assert = require("node:assert/strict"),
@@ -17,7 +18,7 @@ const assert = require("node:assert/strict"),
         if (p === "/v1/projects") data = { projects: ["sem-projeto"] };
         if (p === "/v1/models")
           data = {
-            models: [{ id: "gpt-6-astra", backend: "codex", efforts: ["low"] }],
+            models: [{ id: "gpt-6-astra", backend: "codex", execution_modes: executionModes("codex"), efforts: ["low"] }],
           };
         if (p === "/v1/conversations") data = { conversations: [] };
         if (p === "/v1/usage") {

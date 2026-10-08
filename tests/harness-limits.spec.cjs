@@ -1,3 +1,4 @@
+const { executionModes } = require("./model-fixture.cjs");
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
 const assert = require("node:assert/strict");
 (async () => {
@@ -17,6 +18,7 @@ const assert = require("node:assert/strict");
               id: "qwen-local",
               name: "Qwen local",
               backend: "local",
+              execution_modes: executionModes("local"),
               efforts: ["low"],
             },
           ],

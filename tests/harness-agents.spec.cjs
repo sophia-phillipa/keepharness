@@ -1,3 +1,4 @@
+const { executionModes } = require("./model-fixture.cjs");
 // Harness-owned agents (Sophia, 2026-10-03): create an agent with its own
 // instructions, purpose, tasks, target output, provider, model and effort,
 // then call it with @@name; selecting it moves the composer to its route.
@@ -47,8 +48,8 @@ const path = require("node:path");
       else if (pathname === "/v1/models")
         data = {
           models: [
-            { id: "gpt-6-astra", name: "GPT-6 Astra", backend: "codex", efforts: ["low", "medium", "high"] },
-            { id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5", backend: "claude", efforts: ["configured"] },
+            { id: "gpt-6-astra", name: "GPT-6 Astra", backend: "codex", execution_modes: executionModes("codex"), efforts: ["low", "medium", "high"] },
+            { id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5", backend: "claude", execution_modes: executionModes("claude"), efforts: ["configured"] },
           ],
           providers: { codex: true, claude: true },
           uploads_enabled: false,
