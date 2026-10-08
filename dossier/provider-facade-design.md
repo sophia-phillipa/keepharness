@@ -192,7 +192,9 @@ Codex compensation uses native `config/batchWrite` with its returned opaque
 version; Claude compensation uses the guarded atomic writer. A concurrent edit
 must never be overwritten: a failed compensation returns an explicit incomplete
 rollback error, never success. Publish own-write receipts and notice state only
-after both trust writes and confirmations succeed. Keyboard
+after both trust writes and confirmations succeed. Repeated request cancellation
+must wait for the in-flight native writer and every reverse compensation while
+both provider locks remain held, then propagate cancellation to the caller. Keyboard
 focus stays on the corresponding trust action after the view refreshes.
 
 An explicit trust entry for the selected child takes precedence over a Codex
