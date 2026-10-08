@@ -14,11 +14,15 @@ import json
 import logging
 import os
 import re
+import signal
 import stat
+import subprocess
 import tempfile
 import threading
 import time
 from collections.abc import Callable, Iterable, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, NamedTuple, Protocol, TypedDict, runtime_checkable
@@ -123,6 +127,10 @@ class _ProviderStateError(HarnessError):
 
 class ProviderStateConflictError(_ProviderStateError):
     error_code, http_status = "provider_state_conflict", 409
+
+
+class ProviderStateTimeoutError(_ProviderStateError):
+    error_code, http_status = "provider_state_timeout", 504
 
 
 class ProviderTrustRollbackError(_ProviderStateError):
@@ -282,6 +290,75 @@ def _lock_for(real: Path) -> threading.Lock:
         return _LOCKS.setdefault(str(real), threading.Lock())
 
 
+_WRITE_DEADLINE = ContextVar("provider_state_write_deadline", default=None)
+
+
+@contextmanager
+def state_write_deadline(seconds):
+    token = _WRITE_DEADLINE.set(time.monotonic() + seconds)
+    try:
+        yield
+    finally:
+        _WRITE_DEADLINE.reset(token)
+
+
+def state_write_active():
+    return _WRITE_DEADLINE.get() is not None
+
+
+def state_write_remaining(limit=None):
+    deadline = _WRITE_DEADLINE.get()
+    if deadline is None:
+        return limit
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise ProviderStateTimeoutError(
+            "The provider state operation timed out; refresh the CLI state before retrying."
+        )
+    return min(limit, remaining) if limit is not None else remaining
+
+
+def run_state_command(command, *, timeout, env):
+    """Version probes share the native process-group deadline and reaping contract."""
+    timeout = state_write_remaining(timeout)
+    process = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=env,
+        start_new_session=True,
+    )
+    try:
+        stdout, stderr = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.communicate(timeout=3)
+        raise ProviderStateTimeoutError(
+            "The provider version check timed out; its process was stopped."
+        ) from None
+    return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+
+
+@contextmanager
+def _state_write_lock(path):
+    lock = _lock_for(path)
+    remaining = state_write_remaining()
+    acquired = lock.acquire() if remaining is None else lock.acquire(timeout=remaining)
+    if not acquired:
+        raise ProviderStateTimeoutError(
+            "The provider state file remained locked until the write deadline."
+        )
+    try:
+        state_write_remaining()
+        yield
+    finally:
+        lock.release()
+
+
 def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -326,6 +403,7 @@ def _swap(real: Path, data: bytes, expected_sha256: str, info: os.stat_result | 
             os.fsync(stream.fileno())
         if info is None:
             try:
+                state_write_remaining()
                 os.link(temporary, real)
             except FileExistsError:
                 raise ProviderStateConflictError(
@@ -340,6 +418,7 @@ def _swap(real: Path, data: bytes, expected_sha256: str, info: os.stat_result | 
         else:
             if _current_sha256(real) != expected_sha256:
                 raise ProviderStateConflictError(f"{real.name} changed while it was being written")
+            state_write_remaining()
             os.replace(temporary, real)
     finally:
         Path(temporary).unlink(missing_ok=True)
@@ -423,7 +502,10 @@ class TrustWriteRollback:
         return cls(real, before, info)
 
     def restore(self):
-        with _lock_for(self.path):
+        prior = _sha256(self.before) if self.before is not None else MISSING_FILE
+        if self.written is None and (_current_sha256(self.path) or MISSING_FILE) == prior:
+            return  # A failed pre-write lock acquisition made no change to compensate.
+        with _state_write_lock(self.path):
             current = _current_sha256(self.path) or MISSING_FILE
             prior = _sha256(self.before) if self.before is not None else MISSING_FILE
             if current == prior:
@@ -435,6 +517,7 @@ class TrustWriteRollback:
                 # participate in our lock, so cross-file physical atomicity is impossible.
                 if _current_sha256(self.path) != self.written:
                     raise ProviderStateConflictError("Trust state changed during rollback.")
+                state_write_remaining()
                 self.path.unlink()
                 _fsync_directory(self.path.parent)
             else:
@@ -470,7 +553,7 @@ def write_json_atomic(
     """
     real = Path(os.path.realpath(path))
     creating = expected_sha256 == MISSING_FILE
-    with _lock_for(real):
+    with _state_write_lock(real):
         if creating:
             if not real.parent.is_dir():
                 raise ProviderStateUnsupportedError(f"the folder of {real.name} does not exist")

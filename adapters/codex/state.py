@@ -29,6 +29,7 @@ and the CLI's own write cannot be closed. A write is confirmed by reading the st
 """
 
 import asyncio
+import copy
 import hashlib
 import json
 import logging
@@ -48,12 +49,16 @@ from adapters.shared.provider_state import (
     ProviderCommandError,
     ProviderStateConflictError,
     ProviderStateSchemaError,
+    ProviderStateTimeoutError,
     ProviderStateUnsupportedError,
     RunSetup,
     Scope,
     SecretStr,
     StateItem,
     StateSnapshot,
+    run_state_command,
+    state_write_active,
+    state_write_remaining,
 )
 
 logger = logging.getLogger(__name__)
@@ -93,12 +98,16 @@ class _TrustRollback:
     key_path: str
     value: object
     before_version: str
+    expected_config: dict
     written: str | None = None
 
     def restore(self):
-        _, current = self.adapter._read(self.root)
+        checkpoint = {}
+        _, current = self.adapter._read(self.root, trust_checkpoint=checkpoint)
         if current == self.before_version:
             return
+        if self.written is None and checkpoint.get("config") == self.expected_config:
+            self.written = current
         if not self.written or current != self.written:
             raise ProviderStateConflictError("Codex changed during rollback.")
         asyncio.run(
@@ -261,14 +270,15 @@ def _skill_list(result: dict | None, home: Path, plugins: dict | None) -> dict[s
 
 def _cli_version(binary: str, environment=None) -> str:
     try:
-        done = subprocess.run(
+        done = run_state_command(
             [binary, "--version"],
-            capture_output=True,
-            text=True,
             timeout=CALL_SECONDS,
             env=child_environment(environment),
-            check=False,
         )
+    except ProviderStateTimeoutError:
+        if state_write_active():
+            raise
+        return ""
     except (OSError, subprocess.SubprocessError):
         return ""
     found = re.search(r"\d+\.\d+\.\d+\S*", done.stdout)
@@ -296,9 +306,12 @@ async def _ask(
     failures: dict[str, str] = {}
     command = [binary, "app-server", "--listen", "stdio://"]
     try:
-        async with asyncio.timeout(_session_seconds(len(requests))):
+        async with asyncio.timeout(state_write_remaining(_session_seconds(len(requests)))):
             async with connection(
-                command, env=environment, config={"idle_timeout_seconds": CALL_SECONDS}
+                command,
+                env=environment,
+                config={"idle_timeout_seconds": CALL_SECONDS},
+                kill_on_error=state_write_active(),
             ) as rpc:
                 for key, method, params in requests:
                     try:
@@ -306,6 +319,11 @@ async def _ask(
                     except RPCError:
                         failures[key] = f"{method} was refused"
     except Exception as exc:  # start, framing or timeout: the rest of the session is unreadable
+        if state_write_active() and (
+            isinstance(exc, (TimeoutError, ProviderStateTimeoutError))
+            or str(exc) == "provider_idle_timeout"
+        ):
+            raise ProviderStateTimeoutError("Codex state read timed out.") from None
         logger.debug("codex app-server session ended: %s", type(exc).__name__)
         for key, method, _ in requests:
             if key not in results and key not in failures:
@@ -324,9 +342,14 @@ async def _write(
     """
     command = [binary, "app-server", "--listen", "stdio://"]
     try:
-        async with asyncio.timeout(_session_seconds(1 if user_version is None else 2)):
+        async with asyncio.timeout(
+            state_write_remaining(_session_seconds(1 if user_version is None else 2))
+        ):
             async with connection(
-                command, env=environment, config={"idle_timeout_seconds": CALL_SECONDS}
+                command,
+                env=environment,
+                config={"idle_timeout_seconds": CALL_SECONDS},
+                kill_on_error=state_write_active(),
             ) as rpc:
                 if user_version is not None:
                     try:
@@ -342,11 +365,21 @@ async def _write(
                             "The Codex config changed since it was read."
                         )
                 return await rpc.call(method, params)
+    except (TimeoutError, ProviderStateTimeoutError):
+        if state_write_active():
+            raise ProviderStateTimeoutError(
+                "Codex state write timed out; the writer was stopped."
+            ) from None
+        raise ProviderCommandError(f"Codex did not complete {method}.") from None
     except (ProviderStateConflictError, ProviderCommandError):
         raise
     except RPCError as exc:
         raise _write_failure(method, exc.error) from None
     except Exception as exc:  # start, framing or timeout
+        if state_write_active() and str(exc) == "provider_idle_timeout":
+            raise ProviderStateTimeoutError(
+                "Codex state write timed out; the writer was stopped."
+            ) from None
         logger.debug("codex %s failed: %s", method, type(exc).__name__)
         raise ProviderCommandError(f"Codex did not complete {method}.") from None
 
@@ -453,6 +486,7 @@ class CodexStateAdapter:
             key = str(Path(project_root).resolve())
             entry = projects.get(key) if isinstance(projects, dict) else None
             trust_checkpoint.update(
+                config=copy.deepcopy(user.config),
                 exists=entry is not None,
                 value=entry.get("trust_level") if isinstance(entry, dict) else None,
             )
@@ -698,12 +732,17 @@ class CodexStateAdapter:
         key_path = f'projects."{quoted_root}".trust_level'
         undo = None
         if rollback is not None:
+            expected_config = copy.deepcopy(checkpoint["config"])
+            expected_config.setdefault("projects", {}).setdefault(str(root), {})["trust_level"] = (
+                "trusted" if trusted else "untrusted"
+            )
             undo = _TrustRollback(
                 self,
                 root,
                 key_path if checkpoint.get("exists") else f'projects."{quoted_root}"',
                 checkpoint.get("value"),
                 version,
+                expected_config,
             )
             rollback.append(undo)
         params = {

@@ -47,6 +47,7 @@ from adapters.shared.provider_state import (
     ProviderMcpDisabledError,
     ProviderStateConflictError,
     ProviderStateSchemaError,
+    ProviderStateTimeoutError,
     ProviderStateUnsupportedError,
     ProviderStateVersionError,
     RunSetup,
@@ -56,6 +57,8 @@ from adapters.shared.provider_state import (
     StateSnapshot,
     TrustWriteRollback,
     claude_json_backup_dir,
+    run_state_command,
+    state_write_active,
     write_json_atomic,
 )
 
@@ -511,15 +514,16 @@ class ClaudeStateAdapter:
 
     def _version(self, reading: _Reading) -> str:
         try:
-            done = subprocess.run(
+            done = run_state_command(
                 ["claude", "--version"],
-                capture_output=True,
-                text=True,
                 timeout=VERSION_TIMEOUT_SECONDS,
                 env=child_environment(self._environment()),
-                check=False,
             )
             version = _version_tuple(done.stdout) if done.returncode == 0 else None
+        except ProviderStateTimeoutError:
+            if state_write_active():
+                raise
+            version = None
         except (OSError, subprocess.TimeoutExpired):
             version = None
         if version is None:

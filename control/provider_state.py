@@ -38,11 +38,13 @@ from adapters.shared.provider_state import (
     StateSnapshot,
     _ProviderStateError,
     fingerprint,
+    state_write_deadline,
 )
 from agent_service.errors import APIError
 
 from .persistence import ControlStateRepository
 
+SECURITY_WRITE_SECONDS = 15.0
 PROVIDERS = ("codex", "claude")
 COALESCE_SECONDS = 5.0
 MESSAGE_LIMIT = 300
@@ -109,7 +111,8 @@ def _owner_environment(
 
 async def _finish_security_write(function, *args, **kwargs):
     """Finish the writer or complete rollback before propagating any cancellation."""
-    task = asyncio.create_task(asyncio.to_thread(function, *args, **kwargs))
+    with state_write_deadline(SECURITY_WRITE_SECONDS):
+        task = asyncio.create_task(asyncio.to_thread(function, *args, **kwargs))
     cancelled = None
     while not task.done():
         try:
@@ -130,7 +133,8 @@ def _restore_security_writes(rollback):
     failed = False
     for undo in reversed(rollback):
         try:
-            undo.restore()
+            with state_write_deadline(SECURITY_WRITE_SECONDS):
+                undo.restore()
         except Exception:
             failed = True
     if failed:
