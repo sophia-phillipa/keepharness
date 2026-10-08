@@ -1,6 +1,7 @@
 """Browser entry must not silently switch the user's identity after a reboot."""
 
 import asyncio
+import json
 import socket
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -49,6 +50,74 @@ def test_real_process_starts_with_redirect_and_stops_cleanly(tmp_path):
             await manager.stop(force=True)
         assert not manager.running()
         assert (tmp_path / "autostart").exists()
+
+    asyncio.run(scenario())
+
+
+def test_history_and_attachments_keep_owner_and_survive_restart(tmp_path):
+    import httpx
+
+    async def scenario():
+        cfg = single_owner_config(tmp_path)
+        cfg.update(
+            local_access=True,
+            browser_url=REMOTE,
+            origins=[REMOTE.rstrip("/")],
+            tailscale_logins={"fixture@example.test": "local"},
+        )
+        app = create_app(cfg)
+        app.state.service.serve_peer_check = lambda client, port: True
+        ids = ("first", "second")
+        with app.state.service.db as db:
+            for job in ids:
+                fid = job + "-image"
+                db.execute(
+                    "INSERT INTO jobs(id,project,owner,state,created,payload,result,idem,digest) VALUES(?,?,?,?,?,?,?,?,?)",
+                    (
+                        job,
+                        "p",
+                        "local",
+                        "completed",
+                        1,
+                        json.dumps({"prompt": job, "file_ids": [fid]}),
+                        "{}",
+                        None,
+                        job,
+                    ),
+                )
+                db.execute(
+                    "INSERT INTO files VALUES(?,?,?,?,?,?,?)",
+                    (fid, "p", "photo.png", 7, "fixture", '[{"media_type":"image/png"}]', "local"),
+                )
+                folder = tmp_path / "files" / "p" / fid
+                folder.mkdir(parents=True)
+                (folder / "source").write_bytes(b"fixture")
+        remote_headers = {
+            "host": "machine.example.ts.net:8093",
+            "tailscale-user-login": "fixture@example.test",
+            "x-forwarded-host": "machine.example.ts.net:8093",
+            "x-forwarded-for": "100.101.102.103",
+        }
+        for restart in (False, True):
+            if restart:
+                app.state.service.db.close()
+                app = create_app(cfg)
+                app.state.service.serve_peer_check = lambda client, port: True
+            kept = ids[1:] if restart else ids
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app, client=("127.0.0.1", 4321)),
+                base_url="http://127.0.0.1:8095",
+            ) as client:
+                for headers in ({}, remote_headers):
+                    rows = (await client.get("/v1/conversations", headers=headers)).json()
+                    assert sorted(row["id"] for row in rows["conversations"]) == sorted(kept)
+                for job in kept:
+                    for headers in ({}, remote_headers):
+                        preview = await client.get(f"/v1/files/{job}-image/preview", headers=headers)
+                        assert preview.content == b"fixture"
+                if not restart:
+                    assert (await client.delete("/v1/conversations/first")).status_code == 200
+        app.state.service.db.close()
 
     asyncio.run(scenario())
 

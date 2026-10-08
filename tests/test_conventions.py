@@ -219,7 +219,7 @@ def test_guest_scan_skips_history_other_file_types_and_the_allow_list(tmp_path, 
     assert all(conventions.GUEST_ALLOWED_FILES.values()), "every allow-list entry states a reason"
 
 
-def test_guest_scan_runs_alone_through_only(tmp_path):
+def test_guest_scan_runs_alone_through_only():
     result = subprocess.run(
         [sys.executable, "scripts/check_conventions.py", "--only", "guest"],
         cwd=REPOSITORY_ROOT,

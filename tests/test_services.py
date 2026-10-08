@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import sys
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -74,14 +75,46 @@ def test_a_control_built_config_validates(tmp_path):
     assert validate_runtime_config(current)
 
 
-@pytest.mark.parametrize("local_access", [True, False])
-def test_every_config_the_control_writes_validates_at_startup(tmp_path, local_access):
-    # First run (nothing enabled, no previous runtime); the control only binds loopback, so a
-    # local_access-off config is the same output with the flag cleared.
+@pytest.mark.parametrize(
+    "local_access,logins,hostname,allow_empty",
+    [
+        (True, [], None, True),
+        (False, [], None, True),
+        (True, ["me@example.test", "you@example.test"], "machine.example.ts.net", True),
+        (True, ["me@example.test"], "machine.example.ts.net", False),
+    ],
+)
+def test_every_config_the_control_writes_validates_at_startup(
+    tmp_path, local_access, logins, hostname, allow_empty
+):
+    # First run (nothing enabled, no previous runtime) or a shared install with one service; the
+    # control only binds loopback, so a local_access-off config is the same output with the flag
+    # cleared.
     manager = Manager(tmp_path)
-    manager.inventory = {"network": {"hostname": None}, "services": [], "binaries": {}}
-    cfg = asyncio.run(manager.build_runtime_config(manager.settings, allow_empty=True))
+    manager.inventory = {"network": {"hostname": hostname}, "services": [], "binaries": {}}
+    manager.settings["logins"] = logins
+    if not allow_empty:
+        manager.settings["services"]["codex"].update(enabled=True, models=["gpt-5-codex"])
+        manager.inventory["services"] = [
+            {
+                "id": "codex",
+                "found": True,
+                "binary": sys.executable,
+                "auth_file": str(tmp_path / "codex-auth.json"),
+            }
+        ]
+    checked = {"authenticated": True, "models": {"gpt-5-codex": ["low"]}}
+    with (
+        patch.object(manager, "check", AsyncMock(return_value=checked)),
+        patch.object(manager, "integrations", lambda: {}),
+    ):
+        cfg = asyncio.run(manager.build_runtime_config(manager.settings, allow_empty=allow_empty))
     assert cfg["local_access"] is True
+    assert cfg["tailscale_logins"] == dict.fromkeys(logins, "local")
+    assert (f"http://{hostname}:{manager.settings['tailnet_port']}" in cfg["origins"]) == bool(
+        hostname
+    )
+    assert allow_empty or "codex" in cfg["services"]
     cfg["local_access"] = local_access
     path = tmp_path / "runtime.json"
     path.write_text(json.dumps(cfg))
@@ -95,9 +128,10 @@ def test_startup_refuses_a_config_naming_another_client(tmp_path):
     path.write_text(json.dumps(current))
     with pytest.raises(SystemExit, match="runtime_config_invalid"):
         app.read_startup_config(path)
-    path.write_text("[]")
-    with pytest.raises(SystemExit, match="runtime_config_invalid"):
-        app.read_startup_config(path)
+    for text in ("[]", '{"clients": '):
+        path.write_text(text)
+        with pytest.raises(SystemExit, match="runtime_config_invalid"):
+            app.read_startup_config(path)
 
 
 def test_a_queued_job_of_an_unknown_owner_is_not_run(tmp_path):

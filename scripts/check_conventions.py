@@ -63,7 +63,7 @@ SELF_EXCLUDED_FILES = {
 # Code and tests carry no `guest` identifier or run class (D-040 items 4 and 8): any spelling counts
 # (guest, Guest, GUEST_LOGIN, tailnet-guest, guests). dossier/ and docs/ are history, not scanned.
 GUEST_RE = re.compile("guest", re.IGNORECASE)
-GUEST_EXTENSIONS = set(".py .js .cjs .html .css .sh".split())  # noqa: SIM905
+GUEST_EXTENSIONS = {".py", ".js", ".cjs", ".html", ".css", ".sh"}
 GUEST_SKIPPED_PREFIXES = ("dossier/", "docs/")
 GUEST_ALLOWED_FILES = {
     "scripts/check_conventions.py": "defines the pattern",

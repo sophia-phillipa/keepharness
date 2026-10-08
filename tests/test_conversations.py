@@ -456,6 +456,19 @@ def test_archived_conversation_can_be_deleted_permanently(retention):
     assert client.get("/v1/jobs/root").status_code == 404
 
 
+def test_orphaned_rows_of_a_retired_owner_stay_on_disk_and_out_of_sight(retention):
+    client, service, _ = retention
+    seed_turn(service, "orphan-root", owner="tailnet-0123abcd")
+    seed_turn(service, "kept-root")
+
+    assert listed(client) == ["kept-root"]
+    assert listed(client, archived="true") == []
+    assert client.get("/v1/conversations/orphan-root").status_code == 404
+    assert client.patch("/v1/conversations/orphan-root", json={"archived": True}).status_code == 404
+    assert client.delete("/v1/conversations/orphan-root").status_code == 404
+    assert count(service, "jobs", "id", ("orphan-root",)) == 1
+
+
 @pytest.mark.parametrize("value", ["true", 1, None])
 def test_archive_flag_must_be_a_boolean(retention, value):
     client, service, _ = retention

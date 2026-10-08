@@ -117,7 +117,10 @@ def create_app(config, runtime_path=None):
 
 def read_startup_config(path):
     """Load the runtime config and refuse to start on one the service would not accept on reload."""
-    config = json.loads(Path(path).read_text())
+    try:
+        config = json.loads(Path(path).read_text())
+    except ValueError:
+        config = None
     if not isinstance(config, dict) or not validate_runtime_config(config):
         raise SystemExit("runtime_config_invalid: " + str(path))
     return config
