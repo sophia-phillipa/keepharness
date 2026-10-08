@@ -32,3 +32,5 @@ Spec: [Codex-app parity design](../codex-parity-design.md).
 | [D-037](d-037-chat-code-views-of-one-conversation.md) | Chat and Code are two views of one conversation (records ledger D45) | accepted |
 | [D-038](d-038-keepharness-facade-over-provider-state.md) | KeepHarness is a facade over the providers' real state (supersedes D-034 §1 and the 0.15 provider homes) | accepted |
 | [D-039](d-039-single-owner-facade-policies.md) | Single-owner facade: no guests or run classes, trust like the CLIs, `~/.claude.json` safeguards, no 0.15 migration (supersedes UC-001 multi-identity and the D03/D04/D12/D15 clamps) | accepted |
+| [D-043](d-043-deepseek-engine.md) | DeepSeek 1.0 keeps the Codex engine and #47 fixes; later `dsh` adoption requires an opt-in gate | accepted for implementation |
+| [D-044](d-044-scoped-sandbox-under-facade.md) | Retire Codex/Claude scoped execution for 1.0; retain native presets and Local isolation | accepted for implementation |
