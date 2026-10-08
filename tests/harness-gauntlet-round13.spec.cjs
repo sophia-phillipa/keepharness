@@ -231,29 +231,21 @@ async function fixture(browser, width = 1280, kind = "plan") {
             document.documentElement.dataset.theme = theme;
             document.dispatchEvent(new Event("harness:history"));
           }, theme);
+          // Wait for the count that differs between the two states: "Completed synthetic" is in both.
           await p.waitForFunction(
             (pending) =>
               document
                 .querySelector("#run-status-toggle")
-                .textContent.includes(
-                  pending ? "1 needs you" : "Completed synthetic",
-                ),
+                .textContent.includes(pending ? "1 needs you" : "0 needs you"),
             pending,
           );
           const label = p.locator("#run-status-toggle");
           assert(await label.evaluate((n) => n.scrollWidth > n.clientWidth));
           assert(await hit(label));
-          assert(
-            (await label.getAttribute("title")).includes(
-              await label.innerText(),
-            ),
-          );
+          // One synchronous read: a refresh between two round trips would tear title and text.
+          assert(await label.evaluate((n) => n.title.includes(n.innerText)));
           await p.keyboard.press("Control+j");
-          assert(
-            (await label.getAttribute("title")).includes(
-              await label.innerText(),
-            ),
-          );
+          assert(await label.evaluate((n) => n.title.includes(n.innerText)));
           await p.keyboard.press("Control+j");
         }
       await p.close();
