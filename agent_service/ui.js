@@ -8040,6 +8040,9 @@ function showAdminSection(section = "providers") {
   if (!frame) {
     frame = document.createElement("iframe");
     frame.id = "admin-frame";
+    // Share only our origin so the embedded admin can authenticate theme messages.
+    frame.referrerPolicy = "origin";
+    frame.onload = () => window.HarnessTheme?.apply(document.documentElement.dataset.palette, false);
     $("settings-system").append(frame);
   }
   const label = document.querySelector('[data-admin-section="' + section + '"]');
