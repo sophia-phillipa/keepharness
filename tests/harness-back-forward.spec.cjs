@@ -388,6 +388,14 @@ const ORIGIN = "http://localhost:18990/";
       await page.goto(ORIGIN);
       await page.locator("#startup-gate").waitFor({ state: "hidden" });
     };
+    // The dialog's native close event records the Home entry in a later task. Back pressed before it
+    // lands steps to the entry below Plugins and the late record then buries it.
+    const closeSettingsRecorded = async () => {
+      await page.click("#settings-close");
+      await page.waitForFunction(
+        () => viewIndex > 0 && viewHistory[viewIndex].kind === "home",
+      );
+    };
     const raf = () =>
       page.evaluate(
         () =>
@@ -447,7 +455,7 @@ const ORIGIN = "http://localhost:18990/";
     await page.waitForFunction(
       () => !document.querySelector("#settings-system").hidden,
     );
-    await page.click("#settings-close");
+    await closeSettingsRecorded();
     await page.evaluate(() => modelAvailability({}));
     await page.keyboard.press("Control+[");
     await page.waitForFunction(
@@ -461,7 +469,7 @@ const ORIGIN = "http://localhost:18990/";
     await page.waitForFunction(
       () => !document.querySelector("#settings-plugins").hidden,
     );
-    await page.click("#settings-close");
+    await closeSettingsRecorded();
     await page.evaluate(
       (adminUrl) => modelAvailability({ admin_url: adminUrl }),
       ORIGIN + "admin/",
