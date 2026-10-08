@@ -9,6 +9,8 @@
 
 Facts about the CLIs were checked on 2026-10-07 against `codex-cli 0.157.1` and `Claude Code 2.1.292` (`--version`, `--help` of the subcommands named below) and the official docs cited inline. Anything not confirmed is marked **UNVERIFIED**. The Codex docs moved: the old `developers.openai.com/codex/*` URLs now answer 308; the current ones are [config reference](https://learn.chatgpt.com/docs/config-file/config-reference) and [app server](https://learn.chatgpt.com/docs/app-server).
 
+W13/W14 decision update (2026-10-08): [D-043](decisions/d-043-deepseek-engine.md) settles the DeepSeek engine for 1.0 and the later `dsh` gates; [D-044](decisions/d-044-scoped-sandbox-under-facade.md) retires Codex/Claude scoped execution for 1.0 while preserving Local isolation. These records refine the implementation plan below; this update changes documents only.
+
 ## #32 bullet to section map
 
 | #32 bullet | Section |
@@ -21,6 +23,7 @@ Facts about the CLIs were checked on 2026-10-07 against `codex-cli 0.157.1` and 
 | 6. Migration from the 0.15 homes | [§2.6 Leaving the 0.15 homes behind](#26-leaving-the-015-homes-behind) |
 | 7. Tests with fake homes only | [§3.3 Test protocol](#33-test-protocol) |
 | DeepSeek interim + seam (#33 runs in parallel) | [§2.7 DeepSeek and the provider seam](#27-deepseek-and-the-provider-seam) |
+| Scoped sandbox after real-home runs (#34) | [§2.1.1 Scoped sandbox disposition](#211-scoped-sandbox-disposition-d-044) |
 
 ## 1. Why (motivation and context)
 
@@ -45,7 +48,8 @@ D-038 replaces this with a facade: KeepHarness reads and writes the CLI's real s
 | Who may use KeepHarness | The owner only: `local` and the owner's allow-listed Tailscale logins, every project; no guests, no run classes; the remote gate stays owner-only and fails closed (§2.5) | Single person on two machines; the gate, not a per-caller policy, is the boundary |
 | Scheduled runs | Load everything like the owner and use whatever permission the schedule chooses, including Automatic/Full and internet | Same as the owner's own `codex exec` / `claude -p` |
 | Trust | A project trusted by either CLI is trusted in KeepHarness; untrusted shows a CLI-style prompt that writes trust into the CLI's own state | KeepHarness follows the CLI instead of inventing a trust flag |
-| DeepSeek | Interim: Codex engine with its own home and key; target: its own harness `dsh`, spike in #33 | It must never hold the ChatGPT login; the seam lets `dsh` replace the interim |
+| DeepSeek | 1.0: Codex engine with its own home and key plus #47; later `dsh` behind an opt-in flag after the D-043 gates | It must never hold the ChatGPT login; preview protocol gaps do not block the supported engine |
+| Cloud scoped sandbox | Unavailable for Codex/Claude in 1.0; native permission presets remain; Local isolation stays (D-044) | Credential copying and filtered orchestration conflict with the facade; old scoped runs fail without native fallback |
 | The 0.15 homes | Left untouched on disk and ignored; no migration of logins, sessions or the integrations allow list | She is not using KeepHarness now; sign-in is one click |
 
 ### What this design deliberately does not introduce
@@ -107,6 +111,15 @@ D-038 replaces this with a facade: KeepHarness reads and writes the CLI's real s
 - **Version check at run start.** The adapter compares the CLI version with `tested_versions` (§2.3). For Codex and Claude, outside the range the run proceeds with a warning on the run that names the installed and tested versions (CLIs update themselves; refusing would stop scheduled runs on every update), and direct file edits are refused (§2.3). Engines that require it (`dsh`, §2.7) hard-fail with `provider_version_unsupported`.
 - `agent_service/resources.py` lists user-scope skills, agents and commands from the real homes. The "listed as unavailable" states tied to the opt-in disappear.
 - Sessions: Codex rollouts and Claude transcripts are written to the real homes from the first run after the switch, so a conversation can be resumed in the terminal (`codex resume`, `claude --resume`) and vice versa. Sessions of the 0.15 homes are not carried over (§2.6).
+
+### 2.1.1 Scoped sandbox disposition (D-044)
+
+[D-044](decisions/d-044-scoped-sandbox-under-facade.md) is the implementation contract for #34. Codex/Claude offer only `native` in 1.0, using the presets and trust rules above. Local keeps its separate `scoped` filesystem boundary; DeepSeek and Gemini remain native-only. Permission presets are independent of the retired cloud isolation toggle.
+
+- Remove cloud-scoped admission and dispatch, including workflow, schedule, retry and already queued paths. An explicit or historical scoped request fails with `execution_mode_unsupported` before any provider spawn or credential access; it never falls back to native.
+- Keep history and old files readable and untouched. Missing legacy modes use D-044's conservative resolution; unresolved modes cannot gain native execution. The owner starts a new native conversation explicitly. The UI removes the Codex/Claude isolation toggle and explains unsupported historical conversations and stale drafts.
+- Do not copy the real CLI credentials, export keychain logins, bind real homes into `prepare_scoped`, or read the retired 0.15 homes. There is no cloud-scoped feature flag. A future facade-compatible sandbox requires a new decision.
+- The backend admission guard must land with or before the #45 release that removes credential-file overrides. The W14 UI/retirement completion follows #45 and #46; this ordering has no dependency cycle. #45 retains ownership of native presets, home discovery and scheduled parity.
 
 ### 2.2 Sign-in on the CLI's own login
 
@@ -180,16 +193,17 @@ There is no migration (D-039; she is not using KeepHarness now). The 0.15 folder
 
 ### 2.7 DeepSeek and the provider seam
 
-- Interim (D-039): DeepSeek stays on the Codex engine with `CODEX_HOME=<state>/providers/deepseek`, the key in `<PREFIX>_API_KEY` from `api_provider.key_file`, `model_provider="tail_api"` and `requires_openai_auth=false` (unchanged `adapters/deepseek/backend.py`), until a spike proves its own harness `dsh` ([research](research/deepseek-cli-2026-10.md); the spike lives in #33). Its plugins, skills and MCP servers are those of its own home, managed on the Plugins page under the DeepSeek tab with the Codex writer bound to that home. It does not see the owner's Codex global orchestration (own home only).
+- **1.0 decision ([D-043](decisions/d-043-deepseek-engine.md)).** DeepSeek stays on the Codex engine with `CODEX_HOME=<state>/providers/deepseek`, the key in `<PREFIX>_API_KEY` from `api_provider.key_file`, `model_provider="tail_api"` and `requires_openai_auth=false`. #47's seam and isolation fixes are required before release. Its plugins, skills and MCP servers are those of its own home, managed on the Plugins page under the DeepSeek provider with the Codex writer bound to that home. It does not see the owner's Codex global orchestration. `dsh` remains the autonomy target; there is no supported `dsh` run path in 1.0. D-043 contains the dated official-source verification and corrections to the earlier [research](research/deepseek-cli-2026-10.md).
 - **Key leakage (M6).** Codex's `shell_environment_policy.ignore_default_excludes` defaults to true, so variables whose names contain KEY, SECRET or TOKEN reach child shells. For the DeepSeek home: exclude `<PREFIX>_API_KEY` explicitly (the docs mark `exclude` as legacy in favour of `filters`; the exact `filters` syntax is **UNVERIFIED**, so the env-leak test decides which form ships); pass `-c cli_auth_credentials_store="file"` (values `file|keyring|auto|ephemeral`) so nothing lands in the OS keyring; the isolation check covers the keyring as well as `auth.json`. Test: `env` run in a model shell does not show the key.
-- **Seam gaps for `dsh`** (all additive to the contracts below):
-  - The engine id is separate from the provider id, so the Codex engine and `dsh` can coexist for the DeepSeek provider during the spike.
-  - `Kind` gains `hook` and `instructions`; `Scope` gains `profile` (layered config and profiles).
+- **Seam completion for #47** (reuse the existing types in the contracts below):
+  - Wire the engine id separately from the provider id: 1.0 identifies DeepSeek's engine as `codex`; a later qualified adapter can coexist under the same provider. The spike does not expose production dispatch.
+  - Wire consumers of the existing `Kind` values `hook` and `instructions` and `Scope` value `profile` (layered config and profiles); do not add duplicate types or fabricate unsupported Codex state.
   - The shared skills root `~/.agents/skills` is named in the adapter and shown on the Plugins page as affecting the other providers too.
   - A `set_api_key` credential operation (DeepSeek key file, mode 0600, never echoed or logged).
   - Hard fail at run start on an unsupported `dsh` version (§2.1); Codex and Claude only warn.
   - Session identity per engine: a session id belongs to `(provider id, engine id)`; resuming across engines is refused instead of guessed.
-- Seam: `ProviderStateAdapter` (below) plus the existing run entry `run_native(config, prompt, event, project, model, effort, session_dir, approve)`. A DeepSeek `dsh` adapter implements both and replaces `adapters/deepseek/state.py` and `backend.py`; nothing in `control/` changes.
+- **Later opt-in only.** A fixture-based spike must prove the pinned `dsh` version's ACP authentication boundary, updates, approvals, cancellation, session identity/resume, usage and permission behavior before an experimental flag exposes it. The documented ACP resume method is `session/resume`; `session/load` and transcript replay are unsupported in the audited source. Reuse Gemini transport primitives only where compatible. Unproven CLI/storage details stay **UNVERIFIED**, not implementation assumptions. There is no automatic engine fallback or cross-engine session migration. See D-043 for the full promotion gate and the items to revisit with Sophia.
+- Seam: `ProviderStateAdapter` (below) plus the existing run entry `run_native(config, prompt, event, project, model, effort, session_dir, approve)`. A later DeepSeek `dsh` adapter implements both alongside the Codex route through explicit engine dispatch; provider identity remains `deepseek`. The shared control surface consumes capabilities instead of assuming every engine is Codex. #47 owns the 1.0 seam; the post-1.0 runtime is separate work under #33.
 
 ### Contracts (function-level guarantees)
 
@@ -364,7 +378,7 @@ Sophia's answers of 2026-10-07 to the product questions of the first draft, reco
 
 ## Proposed issue split
 
-Order follows dependencies; #34 last. Titles carry the acceptance in short form.
+Order follows dependencies; #34 completion stays last. D-044's cloud-scoped admission guard must land with or before the #45 release; it does not wait for the rest of W14. D-043 and D-044 supersede the original high-level rows 13-14 below with one-PR packages in the W13/W14 issue handoff. Titles carry the acceptance in short form.
 
 | Order | Title | Size | Depends on |
 | --- | --- | --- | --- |
@@ -380,8 +394,8 @@ Order follows dependencies; #34 last. Titles carry the acceptance in short form.
 | 10 | #23 rewritten: Skills chip with scope tabs + shared-root notice | S | 2, 3, 8 |
 | 11 | External-change notices + `notices:ack` + revert notice | S | 2, 3 |
 | 12 | Drop the 0.15 homes and allow list, no migration | S | 6, 7 |
-| 13 | DeepSeek seam gaps + key leakage (M6); the `dsh` spike stays in #33 | M | 1, 2 |
-| 14 | #34 Scoped sandbox under the facade | M | 6, 12 |
+| 13 | #47 DeepSeek seam gaps + key isolation required for 1.0; #33 later `dsh` spike and opt-in gates ([D-043](decisions/d-043-deepseek-engine.md)) | Split into one-PR packages | 1, 2 |
+| 14 | #34 Retire Codex/Claude scoped routes; preserve Local isolation ([D-044](decisions/d-044-scoped-sandbox-under-facade.md)) | Two one-PR packages | Admission guard: existing mode contract; completion: guard, 6, 12 |
 
 Item 4 is too large for one wave: `rg` shows about 20 `guest` hits in 10 non-test files, 31 `LOCAL_CLIENT` checks, 13 project-sharing / VPN-key references, per-client projects in `control/runtime_config.py` and 19 test files. Proposed three-way split (tests move with the code they cover):
 
