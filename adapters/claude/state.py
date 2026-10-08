@@ -381,10 +381,15 @@ class ClaudeStateAdapter:
 
     @staticmethod
     def _claude_instruction_mode(layers, version):
-        # Builtin AGENTS fallback and these options were verified on 2.1.294.
-        if (_version_tuple(version) or ()) < (2, 1, 294):
+        # AGENTS fallback shipped in 2.1.277; the builtin alias changed in 2.1.285.
+        native_version = _version_tuple(version) or ()
+        if native_version < (2, 1, 277):
             return "claude-md"
-        aliases = ("cc-plugin-agents-md@builtin", "agents-md@builtin")
+        aliases = (
+            ("cc-plugin-agents-md@builtin", "agents-md@builtin")
+            if native_version >= (2, 1, 285)
+            else ("agents-md@builtin",)
+        )
         settings = [layer.data for layer in layers if layer.scope in ("user", "managed")]
         enabled = next(
             (
@@ -443,7 +448,21 @@ class ClaudeStateAdapter:
         items, seen = [], set()
         for plugin_id, entries in installed.items():
             plugin = plugins.get(plugin_id)
-            for entry in entries if isinstance(entries, list) else []:
+
+            def installation_order(entry):
+                scope = entry.get("scope") if isinstance(entry, dict) else None
+                priority = {"local": 0, "project": 1, "user": 2}.get(scope, 2)
+                if not trusted and scope in ("project", "local"):
+                    priority += 3
+                return priority, str(entry.get("installPath", "")) if isinstance(
+                    entry, dict
+                ) else ""
+
+            # Apply scope/trust precedence before source deduplication; registry order
+            # must not let a pending project copy suppress an active user installation.
+            for entry in sorted(
+                entries if isinstance(entries, list) else [], key=installation_order
+            ):
                 install = entry.get("installPath") if isinstance(entry, dict) else None
                 if not isinstance(install, str):
                     continue
@@ -455,7 +474,7 @@ class ClaudeStateAdapter:
                     continue
                 scope = (
                     entry.get("scope")
-                    if entry.get("scope") in ("project", "local")
+                    if entry.get("scope") in ("project", "local", "user")
                     else plugin.scope
                     if plugin
                     else "user"

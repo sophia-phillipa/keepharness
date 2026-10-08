@@ -256,3 +256,60 @@ def test_claude_project_plugin_index_filters_other_project_paths(setup, tmp_path
     assert len(hooks) == 1 and hooks[0].details["command"] == "current-hook"
     assert hooks[0].details["status"] == "pending project trust"
     assert not hooks[0].enabled
+
+
+@pytest.mark.parametrize(
+    "version,expected",
+    [
+        ("2.1.276", False),
+        ("2.1.277", True),
+        ("2.1.284", True),
+        ("2.1.285", True),
+        ("2.1.292", True),
+    ],
+)
+def test_claude_agents_fallback_native_version_threshold(setup, monkeypatch, version, expected):
+    adapter, home, project = setup
+    monkeypatch.setattr(adapter, "_version", lambda _: version)
+    put(project / "AGENTS.md", "Fallback instructions")
+    rows = [item for item in adapter.read_state(project).items if item.kind == "instructions"]
+    assert any(item.source == "AGENTS.md" for item in rows) is expected
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_duplicate_plugin_install_scopes_choose_trusted_user_before_dedup(setup, reverse):
+    adapter, home, project = setup
+    plugin = install_plugin(adapter, home)
+    entries = [
+        {"installPath": str(plugin), "scope": "project", "projectPath": str(project)},
+        {"installPath": str(plugin), "scope": "user"},
+    ]
+    put(
+        home / ".claude/plugins/installed_plugins.json",
+        {"plugins": {"fixture@market": entries[::-1] if reverse else entries}},
+    )
+    put(
+        plugin / "hooks/hooks.json",
+        {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "true"}]}]}},
+    )
+    rows = [item for item in adapter.read_state(project).items if item.kind == "hook"]
+    assert len(rows) == 1
+    assert rows[0].enabled and rows[0].scope == "user"
+
+
+@pytest.mark.parametrize(
+    "version,alias,expected",
+    [
+        ("2.1.277", "agents-md@builtin", False),
+        ("2.1.284", "cc-plugin-agents-md@builtin", True),
+        ("2.1.285", "cc-plugin-agents-md@builtin", False),
+        ("2.1.292", "agents-md@builtin", False),
+    ],
+)
+def test_claude_agents_builtin_alias_version_boundary(setup, monkeypatch, version, alias, expected):
+    adapter, home, project = setup
+    monkeypatch.setattr(adapter, "_version", lambda _: version)
+    put(project / "AGENTS.md", "Fallback instructions")
+    put(home / ".claude/settings.json", {"enabledPlugins": {alias: False}})
+    rows = [item for item in adapter.read_state(project).items if item.kind == "instructions"]
+    assert any(item.source == "AGENTS.md" for item in rows) is expected
