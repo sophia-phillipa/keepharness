@@ -152,17 +152,12 @@ def test_a_queued_full_run_fails_closed_once_full_access_is_turned_off(tmp_path)
         service.db.close()
 
 
-@pytest.mark.parametrize(
-    "enabled,token,offered",
-    [(True, "local-token", True), (False, "local-token", False), (True, "guest-token", False)],
-)
-def test_the_model_catalog_tells_the_access_menu_whether_to_offer_full(
-    tmp_path, enabled, token, offered
-):
+@pytest.mark.parametrize("enabled,offered", [(True, True), (False, False)])
+def test_the_model_catalog_tells_the_access_menu_whether_to_offer_full(tmp_path, enabled, offered):
     app = full_app(tmp_path, enabled)
 
     async def scenario():
-        async with client_for(app, headers={"Authorization": "Bearer " + token}) as client:
+        async with client_for(app, headers={"Authorization": "Bearer local-token"}) as client:
             return await client.get("/v1/models", params={"project_id": "p"})
 
     try:
@@ -170,8 +165,8 @@ def test_the_model_catalog_tells_the_access_menu_whether_to_offer_full(
             response = asyncio.run(scenario())
         assert response.status_code == 200, response.text
         assert response.json()["full_access"] is offered
-        # The owner is the owner whether or not Full mode is enabled; remote clients never are.
-        assert response.json()["local_owner"] is (token == "local-token")
+        # The owner is the owner whether or not Full mode is enabled.
+        assert response.json()["local_owner"] is True
     finally:
         app.state.service.db.close()
 

@@ -179,16 +179,35 @@ def test_queued_recovery_resolves_current_workflow_revision(tmp_path):
             ) as execute,
         ):
             asyncio.run(service.execute(service.job(identity, job)))
-        scope, _ = service.resource_scope(identity[0], data)
+        scope, owner = service.resource_scope(identity[0], data)
+        assert owner is True  # every client is the owner (D-040)
         assert "personal_setup" in scope  # the run's own resource scope, as at submit time
         resolve.assert_called_once_with(
             scope,
             "p",
             "project/p/workflows/review.json",
             execution_mode=data["execution_mode"],
-            owner=False,
+            owner=True,
         )
         assert execute.call_args.args[3] == current
+    finally:
+        service.db.close()
+
+
+def test_a_stored_row_owned_by_a_removed_per_login_client_does_not_raise_keyerror(tmp_path):
+    stored = "tailnet-0123456789abcdef"  # written before the single-owner collapse (D-040)
+    service = Service(config(tmp_path))
+    try:
+        identity = service.owner_identity({"owner": stored})
+        assert identity == (stored, {"projects": []})
+        configured = service.owner_identity({"owner": "a"})
+        assert configured == ("a", service.config["clients"]["a"])
+        # The paths that used clients[row["owner"]] now fail as a denial, never as a KeyError.
+        with pytest.raises(APIError) as refused:
+            service.assess(identity, {"project_id": "p", "backend": "codex", "prompt": "hi"})
+        assert refused.value.status in (403, 404)
+        with pytest.raises(APIError):
+            service.workspace(identity, "workspace", "p")
     finally:
         service.db.close()
 

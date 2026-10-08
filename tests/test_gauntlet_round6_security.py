@@ -71,8 +71,8 @@ def test_cross_owner_write(app, route, payload):
     response = c.request(
         "PATCH" if route == "/work-item" else "POST", "/v1/jobs/a" + route, json=payload
     )
-    # Saving a workflow is refused for every non-local client before any job is looked up.
-    assert response.status_code == (403 if route == "/save-workflow" else 404)
+    # Another owner's job is never found, saving a workflow included (D-040).
+    assert response.status_code == 404
 
 
 @pytest.mark.parametrize("suffix", ["", "/spans", "/events?format=json", "/effects"])

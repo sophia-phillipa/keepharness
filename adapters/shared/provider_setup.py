@@ -72,13 +72,13 @@ def personal_setup_on(config, *, owner, schedule_id=None):
     return config.get("personal_setup") is True and owner and not schedule_id
 
 
-def run_settings(config, backend, *, guest, data):
+def run_settings(config, backend, *, data):
     """The per-run opt-in keys of a provider config (decision D01).
 
-    Only the owner's own conversations carry the personal setup; guests and scheduled runs
-    stay isolated. The owner's files are read here, once per run, so adapters never read them.
+    Only the owner's own conversations carry the personal setup; scheduled runs stay
+    isolated. The owner's files are read here, once per run, so adapters never read them.
     """
-    personal = personal_setup_on(config, owner=not guest, schedule_id=data.get("schedule_id"))
+    personal = personal_setup_on(config, owner=True, schedule_id=data.get("schedule_id"))
     settings = {"personal_setup": personal}
     if personal and backend in PERSONAL_INSTRUCTIONS:
         settings["personal_instructions"] = owner_file(PERSONAL_INSTRUCTIONS[backend])

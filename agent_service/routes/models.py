@@ -2,14 +2,11 @@
 
 from starlette.responses import JSONResponse
 
-from .. import approval_policy, harness_agents
-from ..harness_agents import LOCAL_CLIENT
+from .. import approval_policy
 from . import api_route
 
 
 async def usage(request, service, identity):
-    # Plan usage and prepaid balance are the owner's; a guest never starts a provider read (D-032).
-    harness_agents.require_local_client(identity, "quota_owner_only")
     backend = request.query_params.get("backend", "codex")
     if backend == "claude":
         result = await service.claude_quota(identity[0])
@@ -43,11 +40,10 @@ async def models(request, service, identity):
                 p: c.get("enabled", False) for p, c in config.get("services", {}).items()
             },
             "uploads_enabled": service.uploads_enabled(project_id),
-            # The access menu offers Full access only to the owner, once enabled (D11).
-            "full_access": identity[0] == LOCAL_CLIENT
-            and not approval_policy.mode_disabled(config, "full"),
+            # The access menu offers Full access once the owner enabled it (D11).
+            "full_access": not approval_policy.mode_disabled(config, "full"),
             # Lets the UI default owner-only choices (project folders in a handoff) without Full mode.
-            "local_owner": identity[0] == LOCAL_CLIENT,
+            "local_owner": True,
             "admin_url": config.get("admin_url"),
         }
     )

@@ -217,8 +217,8 @@ def provider_turn(tmp_path, provider, *, personal=False):
         "binary": str(binary),
         "provider_homes": str(tmp_path / "state" / "providers"),
         "integrations": ["mcp:sentinel_mcp"],
-        # What the dispatch adds for an owner's own conversation (guest=False, not scheduled).
-        **run_settings({"personal_setup": personal}, provider, guest=False, data={}),
+        # What the dispatch adds for an owner's own conversation (not scheduled).
+        **run_settings({"personal_setup": personal}, provider, data={}),
     }
     if provider == "deepseek":
         key = tmp_path / "deepseek.key"

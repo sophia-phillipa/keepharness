@@ -276,14 +276,6 @@ def test_read_only_store_is_reported_and_patch_has_a_specific_error(api, cfg):
         folder.chmod(0o700)
 
 
-@pytest.mark.parametrize("method", ["GET", "PATCH"])
-def test_a_client_that_is_not_the_local_owner_is_refused(cfg, method):
-    with TestClient(create_app(cfg), headers={"Authorization": "Bearer a"}) as guest:
-        response = guest.request(method, "/v1/ui-state", json={"values": {}} if method == "PATCH" else None)
-    assert (response.status_code, response.json()["code"]) == (403, "ui_state_local_only")
-    assert not list(Path(cfg["state_dir"]).glob("ui-state/**/*.json"))
-
-
 def test_unauthenticated_and_foreign_origin_are_refused(cfg):
     with TestClient(create_app(cfg)) as anonymous:
         assert anonymous.get("/v1/ui-state").status_code == 401

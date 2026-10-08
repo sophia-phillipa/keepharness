@@ -150,14 +150,6 @@ def set_access_mode(service, identity, job, mode):
     service.conversation_repository.set_payload(job, json.dumps(payload))
 
 
-def test_owner_only_access_mode_is_rechecked_on_retry(tmp_path):
-    service, identity = make_service(tmp_path)
-    source = settle(service, identity, "failed")
-    set_access_mode(service, identity, source, "full")
-    assert code_of(service, identity, source) == ("access_mode_owner_only", 403)
-    service.db.close()
-
-
 def test_disabled_full_access_is_rechecked_on_retry(tmp_path, monkeypatch):
     monkeypatch.setattr("agent_service.harness_agents.LOCAL_CLIENT", "a")
     service, identity = make_service(tmp_path, full_access=True)

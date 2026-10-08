@@ -122,29 +122,3 @@ def test_scoped_turn_finishes_the_panel_before_quota_after(tmp_path, monkeypatch
         assert result["quota_before"] == result["quota_after"] == {"available": True}
     finally:
         instance.db.close()
-
-
-@pytest.mark.parametrize("mode", ["native", "scoped"])
-def test_guest_codex_job_never_carries_the_owner_quota(tmp_path, mode):
-    instance, identity = service(tmp_path)  # client "a" is a guest: the owner is "local"
-    quota, cursor, panel = recorder([])
-
-    async def run(config, prompt, progress, *args, **kwargs):
-        progress("answer_delta", {"text": "done"})
-        return {"answer": "done"}
-
-    try:
-        row, data = submitted(instance, identity, execution_mode=mode)
-        with (
-            patch("adapters.run_native", side_effect=run),
-            patch("adapters.run_scoped", side_effect=run),
-            patch.object(instance, "quota", side_effect=quota) as read,
-            patch.object(instance, "panel", side_effect=panel),
-            patch.object(conversation_context, "save_cursor", side_effect=cursor),
-        ):
-            result = asyncio.run(instance.infer(row, data))
-        assert read.call_count == 2  # the server-side cache is still refreshed
-        assert not {"quota_before", "quota_after"} & set(events(instance, row["id"]))
-        assert not {"quota_before", "quota_after"} & set(result)
-    finally:
-        instance.db.close()

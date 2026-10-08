@@ -13,12 +13,6 @@ from agent_service.app import create_app
 from tests.test_shared_projects import config
 
 
-@pytest.fixture(autouse=True)
-def owner_is_client_a(monkeypatch):
-    """Quota and balance are owner-only (D-032); client "a" is the owner here, "local" a guest."""
-    monkeypatch.setattr("agent_service.harness_agents.LOCAL_CLIENT", "a")
-
-
 @pytest.mark.parametrize(
     "value,expected",
     [
@@ -103,21 +97,6 @@ def test_claude_stream_quota_cache_is_private_and_expires(tmp_path):
         result = client.get("/v1/usage?backend=claude").json()
         assert result["rateLimitsByLimitId"]["five_hour"]["primary"]["usedPercent"] is None
         assert result["available"]  # the reported weekly window remains available
-    service.db.close()
-
-
-@pytest.mark.parametrize("backend", ["codex", "claude", "deepseek", "gemini", "local"])
-def test_usage_is_refused_to_a_guest_without_touching_any_provider(tmp_path, backend):
-    app = create_app(config(tmp_path))
-    service = app.state.service
-    refuse = AsyncMock(side_effect=AssertionError("a guest must not start a provider read"))
-    service.quota = service.claude_quota = service.deepseek_quota = refuse
-    with patch.object(account, "metadata", refuse):
-        with TestClient(app, headers={"Authorization": "Bearer local"}) as client:
-            response = client.get("/v1/usage?backend=" + backend)
-    assert response.status_code == 403
-    assert response.json()["code"] == "quota_owner_only"
-    refuse.assert_not_called()
     service.db.close()
 
 

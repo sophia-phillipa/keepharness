@@ -1,4 +1,5 @@
 import copy
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -106,15 +107,14 @@ class ControlTest(unittest.TestCase):
         with patch("control.local_access.in_user_namespace", return_value=False):
             self.assertIsNone(self.manager.status()["tailnet_signin_off"])
 
-    def test_shared_projects_setting_is_an_explicit_boolean_off_by_default(self):
-        settings = copy.deepcopy(self.manager.settings)
-        self.assertIs(self.manager.validate(settings)["shared_projects"], False)
-        settings["shared_projects"] = True
-        self.assertIs(self.manager.validate(settings)["shared_projects"], True)
-        for bad in ("yes", 1, None):
-            settings["shared_projects"] = bad
-            with self.assertRaisesRegex(ValueError, "Share projects with guests"):
-                self.manager.validate(settings)
+    def test_an_old_settings_file_with_shared_projects_loads_and_the_key_is_ignored(self):
+        old = copy.deepcopy(self.manager.settings)
+        old["shared_projects"] = True
+        Path(self.tmp.name, "settings.json").write_text(json.dumps(old))
+        manager = Manager(self.tmp.name)
+        for value in (True, "yes", None):
+            manager.settings["shared_projects"] = value
+            self.assertNotIn("shared_projects", manager.validate(manager.settings))
 
     def test_auth_csrf_and_save(self):
         with patch("control.discovery.scan", AsyncMock(return_value=INVENTORY)):

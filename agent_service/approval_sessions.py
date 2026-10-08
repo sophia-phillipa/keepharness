@@ -188,17 +188,9 @@ def require_approval_session(request, config, identity, *, revalidate=False):
         else getattr(request.state, "approval_session_owner", None)
     )
     if owner != identity[0]:
-        login = next(
-            (
-                name
-                for name, client in config.get("tailscale_logins", {}).items()
-                if client == identity[0]
-            ),
-            None,
-        )
         code = (
             "approval_session_expired"
             if session_expired(request, config, identity[0])
             else "approval_session_required"
         )
-        raise APIError(code, 403, owner=identity[0], login=login)
+        raise APIError(code, 403, owner=identity[0])

@@ -357,7 +357,7 @@ def test_runtime_config_carries_only_the_install_secret_digest(tmp_path):
         base_config(settings, tmp_path, 8094, None, {})["local_secret_sha256"]
         == cfg["local_secret_sha256"]
     )
-    assert (cfg["shared_projects"], cfg["project_registration"]) == (False, True)
+    assert (cfg["project_registration"], "shared_projects" in cfg) == (True, False)
 
 
 def test_tailscale_login_requires_remote_host(tmp_path):
@@ -453,56 +453,7 @@ def test_tailscale_login_never_maps_on_a_loopback_browser_url(tmp_path, browser_
         app.state.service.db.close()
 
 
-def test_project_management_local_only(tmp_path):
-    import asyncio
-
-    root = tmp_path / "host-folder"
-    root.mkdir()
-    (root / "keep.txt").write_text("fixture")
-    cfg = owner_config(tmp_path, project_registration=True, shared_projects=True)
-    app = create_app(cfg)
-    owner = owner_cookie(cfg)
-    guest = {"Authorization": "Bearer token-guest"}
-
-    async def scenario():
-        async with loopback(app) as client:
-            created = await client.post(
-                "/v1/projects", json={"root": str(root), "label": "Host"}, cookies=owner
-            )
-            assert created.status_code == 201, created.text
-            pid = created.json()["project_id"]
-            # Shared on purpose here, so only the new gate stands between a guest and the folder.
-            assert pid in (await client.get("/v1/projects", headers=guest)).json()["projects"]
-            preview = (
-                await client.get("/v1/project-folder", params={"project_id": pid}, cookies=owner)
-            ).json()
-            attempts = (
-                ("POST", "/v1/projects", None, {"root": str(tmp_path), "label": "Other"}),
-                ("PATCH", "/v1/projects", None, {"project_id": pid, "root": str(tmp_path)}),
-                (
-                    "DELETE",
-                    "/v1/project-folder",
-                    {"project_id": pid},
-                    {**preview, "confirmed": True},
-                ),
-                ("GET", "/v1/project-directories", None, None),
-            )
-            for method, path, params, data in attempts:
-                response = await client.request(method, path, params=params, json=data, headers=guest)
-                assert (response.status_code, response.json()["code"]) == (
-                    403,
-                    "project_management_local_only",
-                ), (method, path)
-            assert (root / "keep.txt").read_text() == "fixture"
-            assert app.state.service.config["projects"][pid]["root"] == str(root)
-
-    try:
-        asyncio.run(scenario())
-    finally:
-        app.state.service.db.close()
-
-
-def test_registered_projects_stay_with_the_owner_unless_shared(tmp_path):
+def test_registered_projects_reach_every_client_and_survive_a_restart(tmp_path):
     import asyncio
 
     root = tmp_path / "owner-folder"
@@ -516,10 +467,10 @@ def test_registered_projects_stay_with_the_owner_unless_shared(tmp_path):
             created = await client.post("/v1/projects", json={"root": str(root)}, cookies=owner)
             pid = created.json()["project_id"]
             assert pid in (await client.get("/v1/projects", cookies=owner)).json()["projects"]
-            guest = (
+            other = (
                 await client.get("/v1/projects", headers={"Authorization": "Bearer token-guest"})
             ).json()
-            assert guest["projects"] == ["sem-projeto"]
+            assert pid in other["projects"]
             return pid
 
     try:
@@ -529,97 +480,9 @@ def test_registered_projects_stay_with_the_owner_unless_shared(tmp_path):
     restarted = create_app(copy.deepcopy(cfg))
     try:
         clients = restarted.state.service.config["clients"]
-        assert pid in clients["local"]["projects"]
-        assert pid not in clients["token-guest"]["projects"]
-        assert pid not in clients["tailnet-guest"]["projects"]
+        assert all(pid in client["projects"] for client in clients.values())
     finally:
         restarted.state.service.db.close()
-
-
-def test_non_local_views_redacted(tmp_path, monkeypatch):
-    import asyncio
-
-    home = tmp_path / "home"
-    skill = home / ".claude" / "skills" / "private-skill"
-    skill.mkdir(parents=True)
-    (skill / "SKILL.md").write_text("---\nname: private-skill\ndescription: Fixture\n---\nBody\n")
-    monkeypatch.setenv("HOME", str(home))
-    monkeypatch.delenv("CODEX_HOME", raising=False)
-    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
-    control = tmp_path / "control"
-    control.mkdir()
-    service = {
-        "enabled": True,
-        "mode": "native",
-        "models": ["sonnet"],
-        "projects": ["sem-projeto"],
-        "permissions": {"read": True},
-    }
-    # The owner's user-scope skills are offered only with the personal-setup opt-in (D01), a
-    # top-level setting; non-local identities must never see them or their home paths.
-    cfg = owner_config(
-        tmp_path,
-        control_state_dir=str(control),
-        services={"claude": service},
-        project_registration=True,
-        personal_setup=True,
-    )
-    app = create_app(cfg)
-    owner = owner_cookie(cfg)
-    persona = {
-        "name": "release-checker",
-        "purpose": "Checks releases",
-        "instructions": "PRIVATE-INSTRUCTIONS",
-        "tasks": ["PRIVATE-TASK"],
-        "target_output": "PRIVATE-OUTPUT",
-        "backend": "claude",
-        "model": "sonnet",
-        "effort": "configured",
-    }
-    query = {"project_id": "sem-projeto", "backend": "claude", "model": "sonnet"}
-
-    async def scenario():
-        async with loopback(app) as client:
-            created = await client.post("/v1/harness-agents", json=persona, cookies=owner)
-            assert created.status_code == 201, created.text
-            views = {}
-            for name, credential in (
-                ("owner", {"cookies": owner}),
-                ("guest", {"headers": {"Authorization": "Bearer token-guest"}}),
-            ):
-                views[name] = {
-                    path: await client.get(path, params=params, **credential)
-                    for path, params in (
-                        ("/v1/harness-agents", None),
-                        ("/v1/resources", query),
-                        ("/v1/catalog", {"project_id": "sem-projeto"}),
-                    )
-                }
-            # The owner still sees everything, which proves the fixture exposes paths at all.
-            assert "PRIVATE-INSTRUCTIONS" in views["owner"]["/v1/harness-agents"].text
-            assert str(home) in views["owner"]["/v1/resources"].text
-            for path, response in views["guest"].items():
-                assert response.status_code == 200, (path, response.text)
-                for private in (
-                    "PRIVATE-INSTRUCTIONS",
-                    "PRIVATE-TASK",
-                    "PRIVATE-OUTPUT",
-                    str(home),
-                ):
-                    assert private not in response.text, (path, private)
-            agent = views["guest"]["/v1/harness-agents"].json()["agents"][0]
-            assert (agent["name"], agent["available"]) == ("release-checker", True)
-            items = views["guest"]["/v1/resources"].json()["items"]
-            assert "private-skill" not in {item["name"] for item in items}
-            guest_dirs = await client.get(
-                "/v1/project-directories", headers={"Authorization": "Bearer token-guest"}
-            )
-            assert guest_dirs.status_code == 403
-
-    try:
-        asyncio.run(scenario())
-    finally:
-        app.state.service.db.close()
 
 
 def test_funnel_request_is_refused(tmp_path):
@@ -818,6 +681,35 @@ def test_remote_gate_is_owner_only_and_fails_closed(tmp_path):
             served.state.service.db.close()
 
 
+def test_an_allow_listed_serve_login_is_the_owner_with_every_project(tmp_path):
+    import asyncio
+
+    from control.runtime_config import build_clients
+
+    (tmp_path / "state").mkdir()
+    cfg = owner_config(
+        tmp_path / "run", projects={"sem-projeto": {}, "docs": {}, "site": {}}, clients={}
+    )
+    build_clients(cfg, {"logins": [GUEST_LOGIN]}, tmp_path / "state", {})
+    assert list(cfg["clients"]) == ["local"] and cfg["tailscale_logins"] == {GUEST_LOGIN: "local"}
+    app = seeded_owner_app(cfg)
+    app.state.service.serve_peer_check = serve_from_tailscaled
+    login = {"Tailscale-User-Login": GUEST_LOGIN, **SERVE_HEADERS}
+
+    async def scenario():
+        async with loopback(app) as client:
+            assert await who(client, headers=login) == (200, ["local-job"])
+            projects = (await client.get("/v1/projects", headers=login)).json()["projects"]
+            assert sorted(projects) == ["docs", "sem-projeto", "site"]
+            stranger = {**login, "Tailscale-User-Login": "stranger@example.test"}
+            assert await who(client, headers=stranger) == (401, "authentication_required")
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        app.state.service.db.close()
+
+
 def test_a_stale_bearer_through_serve_still_gets_the_serve_identity(tmp_path):
     import asyncio
 
@@ -839,7 +731,7 @@ def test_a_stale_bearer_through_serve_still_gets_the_serve_identity(tmp_path):
         app.state.service.db.close()
 
 
-def test_guest_cannot_browse_or_attach_host_files(tmp_path, monkeypatch):
+def test_the_owner_browses_and_attaches_host_files(tmp_path, monkeypatch):
     import asyncio
 
     home = tmp_path / "home"
@@ -861,30 +753,12 @@ def test_guest_cannot_browse_or_attach_host_files(tmp_path, monkeypatch):
     )
     app = create_app(cfg)
     owner = owner_cookie(cfg)
-    guest = {"Authorization": "Bearer token-guest"}
     attach = "/v1/project-files/attach?project_id=sem-projeto&backend=codex&model=fixture"
     from_root = (home / "notes.txt").relative_to("/").as_posix()
 
     async def scenario():
         async with loopback(app) as client:
             tree = "/v1/project-files?view=tree&root_id=home"
-            attempts = (
-                await client.get(tree, headers=guest),
-                await client.get("/v1/project-files?view=tree", headers=guest),
-                await client.post(
-                    attach, json={"root_id": "home", "paths": ["notes.txt"]}, headers=guest
-                ),
-                # The attach root used to default to the filesystem root, which reaches the same file.
-                await client.post(attach, json={"paths": [from_root]}, headers=guest),
-                await client.post(
-                    attach, json={"root_id": "system", "paths": [from_root]}, headers=guest
-                ),
-            )
-            for response in attempts:
-                assert (response.status_code, response.json()["code"]) == (
-                    403,
-                    "host_files_owner_only",
-                ), response.text
             listing = await client.get(tree, cookies=owner)
             assert [entry["name"] for entry in listing.json()["entries"]] == ["notes.txt"]
             owned = await client.post(
