@@ -2993,6 +2993,7 @@ function newConversation(title = "New Conversation", projectId = $("project").va
     );
     return;
   }
+  clearProjectTrust();
   saveView();
   const draftProject = $("project").value;
   const changedProject = projectId !== draftProject;
@@ -3173,6 +3174,7 @@ function openDeleteProjectFolder(project, label, trigger) {
         if (deleted.has(option.value)) option.remove();
       if (deleted.has(project) && !$("project").value)
         $("project").value = "sem-projeto";
+      void refreshProjectTrust();
       dialog.close();
       resetProjectFiles();
       renderProjects();
@@ -4868,6 +4870,7 @@ async function watch(retries = 0) {
 }
 async function load(id, legacy = false, restoredView = null, scrollTop) {
   if (submitting || cancelling || uploads) return;
+  clearProjectTrust();
   if (!loading && !restoredView) saveView();
   let savedDraft = restoredView;
   if (!savedDraft) {
@@ -5037,6 +5040,7 @@ async function load(id, legacy = false, restoredView = null, scrollTop) {
     loading = false;
     if (savedDraft) restoreView(savedDraft);
     else updateComposer();
+    void refreshProjectTrust();
     if (restoreNavigationFocus) {
       const target = innerWidth <= 620 ? $("messages") :
         $("sidebar").querySelector('.conversation-row > button[aria-current="true"]');
@@ -5065,6 +5069,7 @@ async function load(id, legacy = false, restoredView = null, scrollTop) {
     setBusy(false);
     $("prompt").value = priorDraft;
     updateComposer();
+    void refreshProjectTrust();
     closeSidebar();
     // F-80: a conversation the server confirms is gone leaves the list.
     if (e.code === "conversation_not_found") {
@@ -6331,14 +6336,27 @@ $("project-button").onclick = () => {
 let projectTrustRequest = 0,
   projectTrustWriting = false,
   projectTrustData = null,
+  projectTrustContext = null,
   projectTrustError = "";
 
-function projectTrustLabel() {
-  return $("project").selectedOptions[0]?.textContent || $("project").value;
+function clearProjectTrust() {
+  projectTrustRequest++;
+  projectTrustData = projectTrustContext = null;
+  projectTrustError = "";
+  const panel = $("project-trust-prompt");
+  panel.replaceChildren();
+  panel.hidden = true;
+}
+
+function currentProjectTrust(context) {
+  return context && context.request === projectTrustRequest &&
+    context.conversation === conversation && context.project_id === $("project").value &&
+    context.provider === resourceEngine().backend;
 }
 
 function renderProjectTrust() {
-  const panel = $("project-trust-prompt"),
+  const context = projectTrustContext,
+    panel = $("project-trust-prompt"),
     trust = projectTrustData?.trust,
     approvals = Array.isArray(projectTrustData?.mcp_approvals)
       ? projectTrustData.mcp_approvals
@@ -6352,15 +6370,15 @@ function renderProjectTrust() {
       warning = document.createElement("p"),
       accept = document.createElement("button");
     copy.className = "project-trust-copy";
-    heading.textContent = "Trust " + projectTrustLabel() + "?";
+    heading.textContent = "Trust " + context.label + "?";
     warning.textContent =
       "Trusting this project applies to both Codex and Claude Code in KeepHarness. It enables project instructions, Claude hooks and environment settings, including env entries. Versioned .mcp.json servers approved in project settings can then run; other servers still need approval below.";
     copy.append(heading, warning);
     accept.type = "button";
     accept.className = "project-trust-action";
-    accept.textContent = "Trust " + projectTrustLabel();
+    accept.textContent = "Trust " + context.label;
     accept.disabled = projectTrustWriting;
-    accept.onclick = () => writeProjectTrust("trust", {});
+    accept.onclick = () => writeProjectTrust(context, "trust", {});
     panel.append(copy, accept);
   }
   for (const item of approvals) {
@@ -6379,7 +6397,7 @@ function renderProjectTrust() {
     toggle.className = "project-trust-action";
     toggle.textContent = (item.approved ? "Revoke " : "Approve ") + item.server;
     toggle.disabled = projectTrustWriting;
-    toggle.onclick = () => writeProjectTrust("mcp-approvals", { server: item.server, approved: !item.approved });
+    toggle.onclick = () => writeProjectTrust(context, "mcp-approvals", { server: item.server, approved: !item.approved });
     row.append(copy, toggle);
     panel.append(row);
   }
@@ -6392,22 +6410,21 @@ function renderProjectTrust() {
   }
 }
 
-async function writeProjectTrust(action, extra) {
-  if (projectTrustWriting) return;
-  const engine = resourceEngine(),
-    project = $("project").value,
-    server = extra.server;
+async function writeProjectTrust(context, action, extra) {
+  if (projectTrustWriting || !currentProjectTrust(context)) return;
+  const server = extra.server;
   projectTrustWriting = true;
   projectTrustError = "";
   renderProjectTrust();
   let current = true;
   try {
     const data = await post("/v1/provider-state/" + action, {
-      provider: action === "mcp-approvals" ? "claude" : engine.backend,
-      project_id: project,
+      provider: action === "mcp-approvals" ? "claude" : context.provider,
+      project_id: context.project_id,
+      expected_project_root: context.expected_project_root,
       ...extra,
     });
-    current = project === $("project").value && engine.backend === resourceEngine().backend;
+    current = currentProjectTrust(context);
     if (current) {
       projectTrustData = data;
       if (action === "mcp-approvals") {
@@ -6419,15 +6436,20 @@ async function writeProjectTrust(action, extra) {
       }
     }
   } catch (error) {
-    current = project === $("project").value && engine.backend === resourceEngine().backend;
+    current = currentProjectTrust(context);
+    if (current && error.status === 409) {
+      const refresh = refreshProjectTrust(), request = projectTrustRequest;
+      await refresh;
+      current = request === projectTrustRequest && currentProjectTrust(projectTrustContext);
+    }
     if (current)
       projectTrustError = error.status === 409
         ? "The CLI state changed elsewhere. Review it and try again."
         : error.message;
   } finally {
     projectTrustWriting = false;
-    if (current) {
-      renderProjectTrust();
+    renderProjectTrust();
+    if (current && currentProjectTrust(projectTrustContext)) {
       if (server)
         $("project-trust-prompt").querySelector('[data-server="' + CSS.escape(server) + '"] button')?.focus();
       else
@@ -6437,21 +6459,25 @@ async function writeProjectTrust(action, extra) {
 }
 
 async function refreshProjectTrust() {
-  const request = ++projectTrustRequest,
-    engine = resourceEngine(),
-    project = $("project").value,
-    panel = $("project-trust-prompt");
-  projectTrustData = null;
-  projectTrustError = "";
-  panel.hidden = true;
-  if (project === "sem-projeto" || !["codex", "claude"].includes(engine.backend)) return;
+  clearProjectTrust();
+  const context = {
+    request: projectTrustRequest,
+    conversation,
+    provider: resourceEngine().backend,
+    project_id: $("project").value,
+    label: $("project").selectedOptions[0]?.textContent || $("project").value,
+  };
+  if (context.project_id === "sem-projeto" || !["codex", "claude"].includes(context.provider)) return;
   try {
-    const query = new URLSearchParams({ provider: engine.backend, project_id: project });
+    const query = new URLSearchParams({ provider: context.provider, project_id: context.project_id });
     const data = await json("/v1/provider-state?" + query);
-    if (request !== projectTrustRequest || project !== $("project").value || engine.backend !== resourceEngine().backend) return;
+    if (!currentProjectTrust(context)) return;
+    if (data.snapshot?.provider !== context.provider || !data.snapshot?.project_root)
+      throw Error("The project context is unavailable. Refresh and try again.");
+    projectTrustContext = { ...context, expected_project_root: data.snapshot.project_root };
     projectTrustData = data;
   } catch (error) {
-    if (request !== projectTrustRequest) return;
+    if (!currentProjectTrust(context)) return;
     projectTrustError = "Couldn't check project trust. " + error.message;
   }
   renderProjectTrust();
@@ -7073,6 +7099,7 @@ let backgroundTicks = 0;
 async function initialize() {
   if (initializing) return;
   initializing = true;
+  clearProjectTrust();
   setReadiness(false);
   const retry = $("models-retry");
   retry.disabled = true;
@@ -7128,7 +7155,6 @@ async function initialize() {
     if (!(await refreshProjectPermissions(5000)))
       throw Error("Couldn't load this project's permissions.");
     modelAvailability(m);
-    void refreshProjectTrust();
     if (!(await history(5000)))
       throw Error("Couldn't load the conversation history.");
     status(
@@ -7152,6 +7178,7 @@ async function initialize() {
         }
       }, 10000);
     }
+    void refreshProjectTrust();
     setReadiness(true);
     if (!$("activity-panel").hidden) {
       loadAuthorizedProjectRoots();
@@ -7290,6 +7317,7 @@ async function probeReadiness() {
         ...p.projects.map((id) => new Option(p.details?.[id]?.label || id, id)),
       );
       $("project").value = project;
+      void refreshProjectTrust();
       renderProjects();
     }
     try {
@@ -9626,6 +9654,7 @@ $("image-capability-remove").onclick = () => {
   $("prompt").focus();
 };
 function updateComposer() {
+  if (projectTrustContext && !currentProjectTrust(projectTrustContext)) void refreshProjectTrust();
   syncComposerProjectButton();
   syncViewSwitch();
   syncComposerPickers();
@@ -10959,6 +10988,7 @@ $("project-form").onsubmit = async (event) => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
+    if (editing === current) clearProjectTrust();
     const p = await json("/v1/projects");
     updateProjectMetadata(p.details);
     $("project").replaceChildren(
@@ -10971,6 +11001,7 @@ $("project-form").onsubmit = async (event) => {
         policyProject = null;
         invalidateResources();
         await refreshProjectPermissions();
+        void refreshProjectTrust();
       }
       saveView();
     } else {

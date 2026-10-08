@@ -56,7 +56,7 @@ function contrastRatio(colors) {
     const admin = await browser.newPage({ viewport: { width: 1280, height: 850 } });
     admin.on("pageerror", (error) => errors.push("admin: " + error.message));
     const adminState = {
-      settings: { services: { codex: service(), claude: service() }, projects: [project], logins: [], port: 8095, tailnet_port: 8095, uploads_enabled: false },
+      settings: { services: { codex: service(), claude: service() }, projects: [project, { id: "other", label: "Other project", root: "/fixture/other" }], logins: [], port: 8095, tailnet_port: 8095, uploads_enabled: false },
       inventory: { platform: "Linux", services: [{ id: "codex", name: "Codex CLI", found: true }, { id: "claude", name: "Claude Code", found: true }], projects: [], network: { online: true } },
       authentication: {}, models: {}, integrations: { codex: [], claude: [] }, operations: [], credentials: {}, status: { running: false },
     };
@@ -92,6 +92,8 @@ function contrastRatio(colors) {
       if (name === "provider-state/mcp-approvals" && method === "POST") {
         const body = route.request().postDataJSON();
         adminWrites.push({ name, body });
+        if (body.expected_project_root !== adminBodies.claude.snapshot.project_root)
+          return route.fulfill({ status: 409, json: { error: "provider_state_conflict", message: "The project folder changed; review its trust prompt again." } });
         const item = adminBodies.claude.mcp_approvals.find((entry) => entry.server === body.server);
         if (body.approved && denyAdminApproval) denyAdminApproval = false;
         else item.approved = body.approved;
@@ -109,6 +111,18 @@ function contrastRatio(colors) {
     assert.match(await adminTrust.innerText(), /hooks and environment settings/i);
     assert.match(await adminTrust.innerText(), /versioned \.mcp\.json servers/i);
     assert(adminReads.some((read) => read.project_id === "demo" && read.provider === "claude"));
+
+    await admin.evaluate(() => {
+      globalThis.oldAdminTrust = document.querySelector('[data-testid="project-trust"] > button');
+      globalThis.oldAdminApproval = document.querySelector('[data-testid="project-mcp-approval"] button');
+    });
+    await admin.getByLabel("Project for plugins").selectOption("other");
+    await admin.evaluate(() => { oldAdminTrust.click(); oldAdminApproval.click(); });
+    assert.equal(adminWrites.length, 0, "detached Plugins controls must not authorize the newly selected project");
+    await admin.getByLabel("Project for plugins").selectOption("demo");
+    await adminTrust.getByRole("button", { name: "Trust Demo project" }).waitFor();
+    await admin.evaluate(() => { oldAdminTrust.click(); oldAdminApproval.click(); });
+    assert.equal(adminWrites.length, 0, "returning to project A must not revive its old controls");
 
     for (const palette of ["paper", "graphite"]) {
       const pairs = await admin.evaluate((id) => {
@@ -132,7 +146,7 @@ function contrastRatio(colors) {
     await trustButton.focus();
     await admin.keyboard.press("Enter"); // P4 main: keyboard-only acceptance.
     await adminTrust.getByRole("button", { name: "Trust Demo project" }).waitFor({ state: "detached" });
-    assert.deepEqual(adminWrites.filter((write) => write.name.endsWith("trust")).at(-1).body, { provider: "codex", project_id: "demo" });
+    assert.deepEqual(adminWrites.filter((write) => write.name.endsWith("trust")).at(-1).body, { provider: "codex", project_id: "demo", expected_project_root: "/fixture/demo" });
 
     const pending = admin.locator('[data-testid="project-mcp-approval"]', { hasText: "docs-local" });
     await pending.waitFor();
@@ -144,7 +158,7 @@ function contrastRatio(colors) {
     assert.match(await pending.innerText(), /Not approved/, "deny-wins response is rendered instead of optimistic approval");
     await approve.click();
     await admin.waitForFunction(() => document.querySelector('[data-testid="project-mcp-approval"]')?.textContent.includes("Approved"));
-    assert.deepEqual(adminWrites.at(-1), { name: "provider-state/mcp-approvals", body: { provider: "claude", project_id: "demo", server: "docs-local", approved: true } });
+    assert.deepEqual(adminWrites.at(-1), { name: "provider-state/mcp-approvals", body: { provider: "claude", project_id: "demo", expected_project_root: "/fixture/demo", server: "docs-local", approved: true } });
     assert.equal(await pending.getByRole("button", { name: "Revoke docs-local" }).evaluate((element) => element === document.activeElement), true); // P4 recovery: focus stays on the changed control.
     await admin.getByRole("switch", { name: "Fixture in Codex" }).click();
     assert.equal(adminWrites.at(-1).body.project_id, "demo", "plugin switches follow the selected project scope");
@@ -172,23 +186,39 @@ function contrastRatio(colors) {
       pairs.forEach((pair, index) => assert(contrastRatio(pair) >= 4.5, palette + " admin approval contrast " + index));
     }
 
+    adminBodies.codex.snapshot.project_root = adminBodies.claude.snapshot.project_root = "/fixture/rebound-demo";
+    await adminTrust.getByRole("button", { name: "Revoke docs-local" }).click();
+    await admin.getByText(/project folder changed/i).waitFor();
+    await adminTrust.getByRole("button", { name: "Revoke docs-local" }).click();
+    await adminTrust.getByRole("button", { name: "Approve docs-local" }).waitFor();
+    assert.equal(adminWrites.at(-1).body.expected_project_root, "/fixture/rebound-demo", "Plugins conflict recovery requires a fresh explicit click with the refreshed root");
+
     const chat = await browser.newPage({ viewport: { width: 1000, height: 800 } });
     chat.on("pageerror", (error) => errors.push("chat: " + error.message));
     await chat.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
     const chatBody = providerBody("claude");
+    let chatRoot = "/fixture/demo";
     const chatWrites = [], chatReads = [];
-    let failApproval = true;
+    let failApproval = true, releaseConversation;
+    const conversationStarted = new Promise((resolve) => { releaseConversation = resolve; });
+    let finishConversation;
+    const conversationReady = new Promise((resolve) => { finishConversation = resolve; });
     await chat.route("http://chat.test/**", async (route) => {
       const url = new URL(route.request().url()), pathname = url.pathname;
       if (!pathname.startsWith("/v1/")) return route.fulfill(await staticResponse("../agent_service", pathname));
       const method = route.request().method();
-      if (pathname === "/v1/projects") return route.fulfill({ json: { projects: ["sem-projeto", "demo"], details: { demo: { label: "Demo project" } } } });
-      if (pathname === "/v1/models") return route.fulfill({ json: { models: [{ id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5", backend: "claude", efforts: ["configured"], execution_modes: ["native"] }], providers: { claude: true }, uploads_enabled: false } });
+      if (pathname === "/v1/projects") return route.fulfill({ json: { projects: ["sem-projeto", "demo", "other"], details: { demo: { label: "Demo project" }, other: { label: "Other project" } } } });
+      if (pathname === "/v1/models") return route.fulfill({ json: { models: [{ id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5", backend: "claude", efforts: ["configured"], execution_modes: ["native"] }, { id: "codex-fixture", name: "Codex fixture", backend: "codex", efforts: ["configured"], execution_modes: ["native"] }], providers: { claude: true, codex: true }, uploads_enabled: false } });
+      if (pathname === "/v1/conversations/existing-other") {
+        releaseConversation();
+        await conversationReady;
+        return route.fulfill({ json: { title: "Existing other", turns: [{ id: "other-turn", project: "other", state: "completed", request: { backend: "claude", model: "claude-sonnet-5-5", prompt: "Existing turn" }, result: { answer: "Done" } }] } });
+      }
       if (pathname === "/v1/conversations") return route.fulfill({ json: { conversations: [] } });
       if (pathname === "/v1/version") return route.fulfill({ json: { version: "fixture", build: "trust" } });
       if (pathname === "/v1/provider-state" && method === "GET") {
         chatReads.push(Object.fromEntries(url.searchParams));
-        return route.fulfill({ json: url.searchParams.get("project_id") === "demo" ? chatBody : { snapshot: snapshot("claude"), external_changes: [] } });
+        return route.fulfill({ json: url.searchParams.get("project_id") === "demo" ? { ...chatBody, snapshot: { ...snapshot(url.searchParams.get("provider")), project_root: chatRoot } } : { snapshot: snapshot("claude"), external_changes: [] } });
       }
       if (pathname === "/v1/provider-state/trust" && method === "POST") {
         const body = route.request().postDataJSON(); chatWrites.push({ pathname, body });
@@ -197,7 +227,9 @@ function contrastRatio(colors) {
       }
       if (pathname === "/v1/provider-state/mcp-approvals" && method === "POST") {
         const body = route.request().postDataJSON(); chatWrites.push({ pathname, body });
-        if (failApproval) { failApproval = false; return route.fulfill({ status: 409, json: { error: "provider_state_conflict" } }); }
+        if (failApproval) { failApproval = false; chatRoot = "/fixture/rebound-demo"; return route.fulfill({ status: 409, json: { error: "provider_state_conflict" } }); }
+        if (body.expected_project_root !== chatRoot)
+          return route.fulfill({ status: 409, json: { error: "provider_state_conflict" } });
         chatBody.mcp_approvals.find((item) => item.server === body.server).approved = body.approved;
         return route.fulfill({ json: chatBody });
       }
@@ -216,6 +248,38 @@ function contrastRatio(colors) {
     assert.match(await conversationTrust.innerText(), /applies to both Codex and Claude Code[\s\S]*hooks and environment settings[\s\S]*versioned \.mcp\.json servers/i);
     assert(chatReads.some((read) => read.provider === "claude" && read.project_id === "demo"));
     assert.equal(await chat.locator("#messages article").count(), 0, "trust prompt is UI state, not a synthetic turn"); // P6 main: conversation contract stays clean.
+    await chat.evaluate(() => {
+      globalThis.oldChatTrust = document.querySelector("#project-trust-prompt > button");
+      globalThis.oldChatApproval = document.querySelector("#project-trust-prompt .project-mcp-approval button");
+    });
+    await chat.evaluate(() => { globalThis.pendingNavigation = load("existing-other"); });
+    await conversationStarted;
+    assert.equal(await conversationTrust.isVisible(), false, "navigation immediately clears the old prompt");
+    await chat.evaluate(() => { oldChatTrust.click(); oldChatApproval.click(); });
+    assert.equal(chatWrites.length, 0, "old controls cannot write while conversation navigation is pending");
+    finishConversation();
+    await chat.evaluate(() => pendingNavigation);
+    assert.equal(await chat.locator("#project").inputValue(), "other");
+    await chat.evaluate(() => { oldChatTrust.click(); oldChatApproval.click(); });
+    assert.equal(chatWrites.length, 0, "opening an existing conversation must invalidate both old authorization controls");
+    assert(!await conversationTrust.innerText().then((text) => text.includes("Trust Demo project")));
+    assert(chatReads.some((read) => read.project_id === "other"), "existing conversation navigation refreshes trust");
+    await chat.evaluate(() => newConversation("New Conversation", "demo"));
+    await conversationTrust.getByRole("button", { name: "Trust Demo project" }).waitFor();
+    await chat.evaluate(() => { oldChatTrust.click(); oldChatApproval.click(); });
+    assert.equal(chatWrites.length, 0, "returning to a new draft in A must not revive the earlier conversation's controls");
+    await chat.evaluate(() => {
+      globalThis.oldProviderTrust = document.querySelector("#project-trust-prompt > button");
+      globalThis.oldProviderApproval = document.querySelector("#project-trust-prompt .project-mcp-approval button");
+    });
+    await chat.locator("#model").selectOption("codex-fixture");
+    await chat.evaluate(() => { oldProviderTrust.click(); oldProviderApproval.click(); });
+    assert.equal(chatWrites.length, 0, "changing providers invalidates both rendered authorization controls");
+    await conversationTrust.getByRole("button", { name: "Trust Demo project" }).waitFor();
+    await chat.locator("#model").selectOption("claude-sonnet-5-5");
+    await conversationTrust.getByRole("button", { name: "Trust Demo project" }).waitFor();
+
+
     for (const palette of ["paper", "graphite"]) {
       const pairs = await chat.evaluate((id) => {
         window.HarnessTheme.apply(id, false);
@@ -235,10 +299,11 @@ function contrastRatio(colors) {
 
     await conversationTrust.getByRole("button", { name: "Trust Demo project" }).click();
     await chat.waitForFunction(() => !document.querySelector("#project-trust-prompt")?.textContent.includes("Trust Demo project"));
-    assert.deepEqual(chatWrites[0], { pathname: "/v1/provider-state/trust", body: { provider: "claude", project_id: "demo" } });
+    assert.deepEqual(chatWrites[0], { pathname: "/v1/provider-state/trust", body: { provider: "claude", project_id: "demo", expected_project_root: "/fixture/demo" } });
     const chatPending = conversationTrust.locator('[data-testid="project-mcp-approval"]', { hasText: "docs-local" });
     await chatPending.getByRole("button", { name: "Approve docs-local" }).click();
     await chat.getByText(/changed elsewhere|try again/i).waitFor(); // P2/P6 error: conflict is surfaced and the action can retry.
+    assert.equal(await chatPending.getByRole("button", { name: "Approve docs-local" }).evaluate((element) => element === document.activeElement), true, "conflict recovery restores keyboard focus on the refreshed control");
     for (const palette of ["paper", "graphite"]) {
       const colors = await chat.evaluate((id) => {
         window.HarnessTheme.apply(id, false);
@@ -250,6 +315,7 @@ function contrastRatio(colors) {
     await chatPending.getByRole("button", { name: "Approve docs-local" }).click();
     await chat.waitForFunction(() => document.querySelector('#project-trust-prompt [data-testid="project-mcp-approval"]')?.textContent.includes("Approved"));
     assert.equal(chatWrites.filter((write) => write.pathname.endsWith("mcp-approvals")).length, 2);
+    assert.equal(chatWrites.at(-1).body.expected_project_root, "/fixture/rebound-demo", "conversation conflict recovery refreshes the captured root before the next explicit click");
     assert.equal(await chat.locator("#prompt").inputValue(), "Keep this draft while trust changes", "trust actions preserve the draft"); // P2 recovery.
     assert.deepEqual(errors, []);
 

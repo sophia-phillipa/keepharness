@@ -128,16 +128,30 @@
     });
   }
 
-  function writeTrust() {
-    const provider = view.clis[0]?.id,
-      project = view.project;
-    if (!provider) return;
+  function trustContext(provider) {
+    return {
+      provider, project_id: view.project,
+      expected_project_root: states.get(provider)?.snapshot?.project_root,
+      read: stateRead,
+    };
+  }
+
+  function currentTrustContext(context) {
+    return context && context.read === stateRead && context.project_id === view.project &&
+      context.expected_project_root && !view.loading &&
+      view.clis.some((info) => info.id === context.provider) &&
+      states.get(context.provider)?.snapshot?.project_root === context.expected_project_root;
+  }
+
+  function writeTrust(context) {
+    if (!currentTrustContext(context)) return;
+    const { provider, project_id: project, expected_project_root } = context;
     let current = true;
     return action(async () => {
       report("");
       try {
-        const body = await request("provider-state/trust", { provider, project_id: project });
-        current = project === view.project;
+        const body = await request("provider-state/trust", { provider, project_id: project, expected_project_root });
+        current = currentTrustContext(context);
         if (!current) return;
         for (const info of view.clis) {
           const current = states.get(info.id) || {};
@@ -150,7 +164,9 @@
         }
         report(projectLabel() + " is trusted for Codex and Claude Code in KeepHarness.");
       } catch (error) {
-        current = project === view.project;
+        current = currentTrustContext(context);
+        if (current && error.status === 409)
+          current = await loadStates(view.clis);
         if (current) report(error.message);
       } finally {
         if (current) {
@@ -161,16 +177,17 @@
     });
   }
 
-  function writeMcpApproval(server, approved) {
-    const project = view.project;
+  function writeMcpApproval(context, server, approved) {
+    if (!currentTrustContext(context)) return;
+    const { provider, project_id: project, expected_project_root } = context;
     let current = true;
     return action(async () => {
       report("");
       try {
         const body = await request("provider-state/mcp-approvals", {
-          provider: "claude", project_id: project, server, approved,
+          provider, project_id: project, expected_project_root, server, approved,
         });
-        current = project === view.project;
+        current = currentTrustContext(context);
         if (!current) return;
         acceptProviderBody("claude", body);
         const actual = body.mcp_approvals?.find((item) => item.server === server)?.approved;
@@ -182,7 +199,9 @@
               : server + " remains not approved because another CLI settings layer denies it.",
         );
       } catch (error) {
-        current = project === view.project;
+        current = currentTrustContext(context);
+        if (current && error.status === 409)
+          current = await loadStates(view.clis);
         if (current) report(error.message);
       } finally {
         if (current) {
@@ -198,7 +217,8 @@
     trustPanel.replaceChildren();
     trustPanel.hidden = true;
     if (view.project === NO_PROJECT || view.loading) return;
-    const trust = view.clis.map((info) => states.get(info.id)?.trust).find(Boolean);
+    const provider = view.clis.find((info) => states.get(info.id)?.trust && states.get(info.id)?.snapshot?.project_root)?.id,
+      trust = states.get(provider)?.trust;
     const approvals = states.get("claude")?.mcp_approvals || [];
     if (!trust?.required && !approvals.length) return;
     trustPanel.hidden = false;
@@ -211,7 +231,9 @@
       );
       const accept = node("button", "Trust " + projectLabel(), "button primary");
       accept.type = "button";
-      accept.onclick = writeTrust;
+      const context = trustContext(provider);
+      accept.disabled = !currentTrustContext(context);
+      accept.onclick = () => writeTrust(context);
       trustPanel.append(copy, accept);
     }
     for (const item of approvals) {
@@ -224,7 +246,9 @@
       );
       const toggle = node("button", (item.approved ? "Revoke" : "Approve") + " " + item.server, "button secondary");
       toggle.type = "button";
-      toggle.onclick = () => writeMcpApproval(item.server, !item.approved);
+      const context = trustContext("claude");
+      toggle.disabled = !currentTrustContext(context);
+      toggle.onclick = () => writeMcpApproval(context, item.server, !item.approved);
       row.append(copy, toggle);
       trustPanel.append(row);
     }
