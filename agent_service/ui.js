@@ -1056,6 +1056,8 @@ const efforts = {
   ultra: "Ultra",
 };
 const userErrors = {
+  invalid_temporary: "The temporary chat setting is invalid. Start a new temporary chat and try again.",
+  temporary_session_required: "Start a temporary chat before sending this message. Nothing was sent as a saved conversation.",
   temporary_backend_unsupported: "This provider does not support temporary chats. Choose Claude, Codex, DeepSeek or a local model.",
   temporary_session_not_found: "This temporary chat has expired. Close it and start a new temporary chat. Nothing was sent as a saved conversation.",
   temporary_operation_unsupported: "This action is unavailable in a temporary chat.",
