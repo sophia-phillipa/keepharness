@@ -34,6 +34,54 @@ async function openDraft(page, backend, modes, historical = false, project = "se
 
 const scenarios = [];
 const settled = page => page.waitForFunction(() => !initializing && !loading && !policyPending);
+const historicalRoutes = [
+  ...["codex", "claude"].flatMap(backend => [
+    { name: `Local to ${backend}`, backends: ["local", backend], mode: "scoped", locked: true },
+    { name: `${backend} to Local`, backends: [backend, "local"], mode: "scoped", locked: true },
+    { name: `Local through ${backend} to Local`, backends: ["local", backend, "local"], mode: "scoped", locked: true },
+  ]),
+  { name: "Local-only", backends: ["local", "local"], mode: "scoped", locked: false },
+  { name: "native cloud handoff", backends: ["codex", "claude"], mode: "native", locked: false },
+];
+for (const history of historicalRoutes) {
+  scenarios.push({
+    title: `historical ${history.name} derives retirement from the complete conversation`,
+    async run(page) {
+      const { state, catalog } = await openDraft(page, "local", ["scoped"]);
+      catalog.models.push({ id: "codex-fixture", backend: "codex", execution_modes: ["native"], efforts: ["low"] });
+      await page.evaluate(() => initialize());
+      const turns = history.backends.map((backend, index) => ({
+        id: `historical-turn-${index}`, project: "sem-projeto", state: "completed",
+        request: { backend, model: backend + "-fixture", execution_mode: history.mode,
+          prompt: `Historical request ${index}`, ...(index ? { parent_job_id: `historical-turn-${index - 1}` } : {}) },
+        result: { answer: `Historical answer ${index}` },
+      }));
+      await page.route("**/v1/conversations/mixed-history", route => route.fulfill({ json: {
+        execution_mode: history.mode, turns,
+      } }));
+      await page.evaluate(() => navigate({ kind: "conversation", id: "mixed-history" }));
+      await settled(page);
+      await page.selectOption("#model", history.mode === "native" ? "codex-fixture" : "local-fixture", { force: true });
+      await page.fill("#prompt", "Continue the historical conversation");
+      await settled(page);
+      assert.equal(await page.getByText("Historical answer 0", { exact: true }).isVisible(), true);
+      assert.equal(await page.evaluate(() => draftMode.retiredLock), history.locked);
+      assert.equal(await page.evaluate(() => executionMode), history.mode);
+      assert.equal(await page.locator("#send").isDisabled(), history.locked);
+      if (history.locked) {
+        assert.match(await page.locator("#execution-mode-unavailable").innerText(), /no longer supported/);
+        await page.locator("#prompt").press("Enter");
+        assert.equal(state.posts.length, 0);
+        assert.equal(await page.evaluate(() => JSON.parse(sessionStorage.getItem("conversation-draft:mixed-history")).draft_mode.retiredLock), true);
+      } else {
+        await page.locator("#prompt").press("Enter");
+        await page.waitForFunction(() => job === "job-1");
+        assert.equal(state.posts.length, 1);
+        assert.equal(state.posts[0].parent_job_id, turns.at(-1).id);
+      }
+    },
+  });
+}
 for (const backend of ["codex", "claude"]) {
   for (const modeChosen of [false, true]) for (const transition of ["back", "forward", "home", "project", "probe", "refresh", "reload"]) {
     scenarios.push({

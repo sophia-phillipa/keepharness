@@ -4923,6 +4923,9 @@ async function load(id, legacy = false, restoredView = null, scrollTop) {
     );
     executionMode = data.execution_mode ?? null;
     draftMode = normalizeDraftMode({ execution_mode: executionMode, composer_selection: { model: data.turns[0]?.request?.model, backend: data.turns[0]?.request?.backend } });
+    // A later cloud turn retires a scoped history even when it started in Local.
+    if (executionMode === "scoped" && data.turns.some(turn => ["codex", "claude"].includes(turn.request?.backend)))
+      draftMode.retiredLock = true;
     conversation = id;
     renderConversationHeader(conversations.find((item) => item.id === id));
     files = [];

@@ -30,6 +30,8 @@ For an existing conversation without a root mode, consistent recorded provider c
 
 Historical evidence collection resolves ancestry from loaded rows with memoized roots, so a long supported Local conversation does not trigger a separate database ancestry walk for every turn. This optimization preserves refusal when the same conversation contains historical cloud-scoped evidence.
 
+The conversation API supplies the authoritative historical execution mode but currently has no separate retirement classification. When loading scoped history, the UI therefore inspects every turn's persisted backend: any Codex or Claude turn sets the retirement lock, including a cloud turn after a Local root or between Local turns. Selecting Local cannot unlock such history. All-Local scoped history and native cloud handoffs retain their supported continuation behavior; history remains readable.
+
 Cloud-scoped executors and their registration are retired, including their effect-capability claims. The rejection path never reads or copies credentials, starts a provider, applies a proposal or makes an inference request. Local's independent sandbox and native permission/trust behavior remain covered by their existing regression tests. See the [0.16.0 release notes](releases/v0.16.0.md) for acceptance tests and actual validation.
 
 ## Original mode selection
