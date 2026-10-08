@@ -170,51 +170,30 @@ def _skill_list(result: dict | None, home: Path) -> dict[str, dict]:
     found = {}
     for group in _listed(result, "data"):
         cwd = Path(group["cwd"]) if isinstance(group.get("cwd"), str) else None
-        roots = [home / "skills"]
-        bases = [home]
+        # A known home takes precedence over collection-like names in its own path.
+        roots = [home / "skills", home]
         if cwd is not None:
             roots.extend((cwd / ".agents" / "skills", cwd / ".codex" / "skills"))
-            bases.append(cwd)
-        # The CLI may return canonical paths although its configured homes use aliases.
-        # Resolve only collection/context roots; hidden descendant names must stay visible.
-        for directories in (roots, bases):
-            for directory in tuple(directories):
-                try:
-                    canonical = directory.resolve()
-                except (OSError, RuntimeError):
-                    continue
-                if canonical not in directories:
-                    directories.append(canonical)
+        # Resolve roots only, never descendants: their hidden names must not disappear.
+        locations = []
+        for root in roots:
+            locations.append(root)
+            try:
+                locations.append(root.resolve())
+            except (OSError, RuntimeError):
+                pass
         for skill in _listed(group, "skills"):
             if isinstance(skill.get("path"), str) and isinstance(skill.get("enabled"), bool):
                 path = Path(skill["path"])
-                root = next((root for root in roots if path.is_relative_to(root)), None)
+                root = next((root for root in locations if path.is_relative_to(root)), None)
                 if root is not None:
-                    parts = path.relative_to(root).parts[:-1]
+                    relative = path.relative_to(root).parts
                 else:
-                    parts = path.parts[:-1]
-                    # Ancestor project collections may be outside the requested cwd.
-                    boundary = next(
-                        (
-                            i + 2
-                            for i in range(len(parts) - 1)
-                            if parts[i] in (".codex", ".agents") and parts[i + 1] == "skills"
-                        ),
-                        None,
-                    )
-                    if boundary is not None:
-                        parts = parts[boundary:]
-                    else:
-                        # Plugin/system roots are CLI supplied. Ignore known location ancestors,
-                        # then keep the first collection boundary, including any nested skills.
-                        for base in bases:
-                            if path.is_relative_to(base):
-                                parts = path.relative_to(base).parts[:-1]
-                                break
-                        parts = (
-                            parts[parts.index("skills") + 1 :] if "skills" in parts else parts[-1:]
-                        )
-                if any(part.startswith(".") for part in parts):
+                    # External CLI collections use the first skills directory, never a
+                    # later descendant named skills or .agents. Without one, check all parts.
+                    parts = path.parts
+                    relative = parts[parts.index("skills") + 1 :] if "skills" in parts else parts
+                if any(part.startswith(".") for part in relative):
                     continue
                 found[skill["path"]] = skill
     return found

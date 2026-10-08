@@ -7,9 +7,12 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from starlette.testclient import TestClient
 
 from adapters.shared.provider_state import ProviderStateSchemaError, fingerprint
 from control.provider_state import ProviderStateService, _owner_environment
+from control.server import create_app
+from tests.owner_session import sign_in
 from tests.test_provider_state_codex import GITHUB, configure, seed
 
 
@@ -34,6 +37,168 @@ def read(service, provider):
     result = asyncio.run(service.read(provider, "sem-projeto"))
     assert isinstance(result, dict)
     return result
+
+
+@pytest.mark.parametrize("provider,folder", [("codex", ".codex"), ("claude", ".claude")])
+@pytest.mark.parametrize("failure", ["loop", "unreadable"])
+def test_unavailable_owner_cli_is_scoped_to_its_provider(
+    owner, tmp_path, monkeypatch, provider, folder, failure
+):
+    broken = owner / folder
+    if failure == "loop":
+        broken.rmdir()
+        broken.symlink_to(broken, target_is_directory=True)
+    else:
+        broken.chmod(0)
+    healthy = "claude" if provider == "codex" else "codex"
+    if healthy == "codex":
+        seed(owner / ".codex")
+    else:
+        (owner / ".claude" / "settings.json").write_text('{"enabledPlugins":{"x@y":true}}')
+    try:
+        app = create_app(tmp_path / "state")
+        service = app.state.manager.provider_state
+        if healthy == "claude":
+            service._adapter("claude").managed_dir = tmp_path / "managed"
+        assert not any(item["enabled"] for item in app.state.manager.settings["services"].values())
+        client = TestClient(app, base_url="http://127.0.0.1:18094")
+        sign_in(client)
+        assert client.get("/").status_code == 200
+        url = f"/api/provider-state?provider={provider}&project_id=sem-projeto"
+        response = client.get(url)
+        assert response.status_code == 422
+        assert response.json()["error"] == "provider_state_unreadable"
+        assert str(broken) not in response.text
+        body = dict(
+            provider=provider,
+            project_id="sem-projeto",
+            item_id="plugin:x@y",
+            scope="user",
+            enabled=False,
+            fingerprint="unreadable",
+        )
+        response = client.post("/api/provider-state", json=body, headers={"X-Harness-Admin": "1"})
+        assert response.status_code == 422
+        assert response.json()["error"] == "provider_state_unreadable"
+        good = client.get(f"/api/provider-state?provider={healthy}&project_id=sem-projeto")
+        assert good.status_code == 200
+        body.update(
+            provider=healthy,
+            item_id=GITHUB if healthy == "codex" else "plugin:x@y",
+            enabled=healthy == "codex",
+            fingerprint=good.json()["snapshot"]["fingerprint"],
+        )
+        assert (
+            client.post(
+                "/api/provider-state", json=body, headers={"X-Harness-Admin": "1"}
+            ).status_code
+            == 200
+        )
+        if failure == "loop":
+            broken.unlink()
+            broken.mkdir()
+        else:
+            broken.chmod(0o700)
+        if provider == "codex":
+            seed(broken)
+        else:
+            (broken / "settings.json").write_text('{"enabledPlugins":{"x@y":true}}')
+            service._adapter("claude").managed_dir = tmp_path / "managed"
+        assert client.get(url).status_code == 200
+    finally:
+        if failure == "unreadable":
+            broken.chmod(0o700)
+
+
+@pytest.mark.parametrize("failure", ["loop", "unreadable"])
+def test_unavailable_shared_home_does_not_abort_panel(owner, tmp_path, monkeypatch, failure):
+    import pwd
+
+    broken = tmp_path / "unavailable-home"
+    if failure == "loop":
+        broken.symlink_to(broken, target_is_directory=True)
+    else:
+        broken.mkdir(mode=0)
+    seed(owner / ".codex")
+    (owner / ".claude" / "settings.json").write_text('{"enabledPlugins":{"x@y":true}}')
+    monkeypatch.setenv("HOME", str(broken))
+    monkeypatch.setattr(pwd, "getpwuid", lambda uid: SimpleNamespace(pw_dir=str(broken)))
+    try:
+        app = create_app(tmp_path / "state")
+        client = TestClient(app, base_url="http://127.0.0.1:18094")
+        sign_in(client)
+        assert client.get("/").status_code == 200
+        for provider in ("codex", "claude"):
+            response = client.get(f"/api/provider-state?provider={provider}&project_id=sem-projeto")
+            assert response.status_code == 422
+            assert response.json()["error"] == "provider_state_unreadable"
+            assert str(broken) not in response.text
+            response = client.post(
+                "/api/provider-state",
+                json=dict(
+                    provider=provider,
+                    project_id="sem-projeto",
+                    item_id="plugin:x@y",
+                    scope="user",
+                    enabled=False,
+                    fingerprint="unreadable",
+                ),
+                headers={"X-Harness-Admin": "1"},
+            )
+            assert response.status_code == 422
+            assert response.json()["error"] == "provider_state_unreadable"
+    finally:
+        if failure == "unreadable":
+            broken.chmod(0o700)
+
+
+def test_hidden_custom_codex_home_does_not_hide_visible_plugin_skills(owner, tmp_path, monkeypatch):
+    home = tmp_path / "custom" / ".agents" / "skills" / ".config" / "codex"
+    home.mkdir(parents=True)
+    seed(home)
+    monkeypatch.setenv("CODEX_HOME", str(home))
+    visible = (
+        home / "plugins" / "cache" / "store" / "plugin" / "v1" / "skills" / "visible" / "SKILL.md"
+    )
+    configure(home, skills=[{"name": "visible", "path": str(visible), "scope": "user"}])
+    snapshot = read(service_at(tmp_path / "state", tmp_path), "codex")["snapshot"]
+    assert [item["id"] for item in snapshot["items"] if item["kind"] == "skill"] == [
+        f"skill:{visible}"
+    ]
+
+
+@pytest.mark.parametrize("collection", ["owner", "plugin", "project", "system"])
+def test_hidden_skill_components_cannot_reset_the_collection(owner, tmp_path, collection):
+    home = owner / ".codex"
+    seed(home)
+    project = tmp_path / "project"
+    project.mkdir()
+    root = {
+        "owner": home / "skills",
+        "plugin": home / "plugins" / "cache" / "store" / "plugin" / "v1" / "skills",
+        "project": project / ".agents" / "skills",
+        "system": tmp_path / "bundled" / "skills",
+    }[collection]
+    # Each generated path retains a hidden descendant before later collection-like names.
+    hidden = [
+        root.joinpath(*(["visible"] * depth), hidden_name, *suffix, "hidden", "SKILL.md")
+        for depth in range(4)
+        for hidden_name in (".trash", ".system", ".agents")
+        for suffix in [("skills",), (".agents", "skills"), ("skills", ".agents", "skills")]
+    ]
+    visible = [root.joinpath(*(["skills"] * depth), "visible", "SKILL.md") for depth in range(4)]
+    paths = hidden + visible
+    configure(
+        home,
+        skills=[
+            {"name": f"skill-{i}", "path": str(path), "scope": "user"}
+            for i, path in enumerate(paths)
+        ],
+    )
+    snapshot = service_at(tmp_path / "state", tmp_path)._adapter("codex").read_state(project)
+    assert {item.id for item in snapshot.items if item.kind == "skill"} == {
+        f"skill:{path}" for path in visible
+    }
 
 
 @pytest.mark.parametrize("provider", ["codex", "claude"])
@@ -117,13 +282,14 @@ def test_custom_owner_alias_and_missing_directory_keep_their_spelling(
 @pytest.mark.parametrize(
     "name,folder", [("CODEX_HOME", ".codex"), ("CLAUDE_CONFIG_DIR", ".claude")]
 )
-def test_unresolvable_custom_home_uses_the_safe_owner_default(
+def test_unresolvable_custom_home_reports_a_provider_error(
     owner, tmp_path, monkeypatch, name, folder
 ):
     loop = tmp_path / "loop"
     loop.symlink_to(loop, target_is_directory=True)
     monkeypatch.setenv(name, str(loop))
-    assert _owner_environment(tmp_path / "state")[name] == str(owner / folder)
+    with pytest.raises(ProviderStateSchemaError):
+        _owner_environment(tmp_path / "state")
 
 
 @pytest.mark.parametrize(

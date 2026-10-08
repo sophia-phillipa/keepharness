@@ -55,12 +55,16 @@ logger = logging.getLogger(__name__)
 _runs_lock = threading.Lock()  # runs share one thread pool and one runs file
 
 
-def _owner_environment(state: Path) -> dict[str, str]:
+def _owner_environment(
+    state: Path, provider: str | None = None, *, source: Mapping[str, str] | None = None
+) -> dict[str, str]:
     """Pin the owner's locations; the 0.15 run homes never belong to this facade.
 
     Resolve directory aliases for containment only, without reading CLI file contents.
-    Keep accepted custom path spellings, but discard harness-owned or unresolvable locations.
+    Keep accepted custom path spellings, discard harness-owned locations, and report
+    unavailable owner directories only when their provider's state is requested.
     """
+    source = os.environ if source is None else source
     try:
         harness = (Path(state) / "providers").resolve()
     except (OSError, RuntimeError):
@@ -68,23 +72,31 @@ def _owner_environment(state: Path) -> dict[str, str]:
 
     def owner_path(value: str) -> bool:
         try:
-            return not Path(value).resolve().is_relative_to(harness)
+            path = Path(value).resolve()
+            if path.is_relative_to(harness):
+                return False
+            if path.exists() and not os.access(path, os.R_OK | os.X_OK):
+                raise PermissionError
+            return True
         except (OSError, RuntimeError):
-            return False
+            raise ProviderStateSchemaError(
+                "The owner CLI directory is unavailable for provider state."
+            ) from None
 
-    home = os.environ.get("HOME")
+    home = source.get("HOME")
     if not home or not owner_path(home):
         if os.name == "posix":
             import pwd
 
             home = pwd.getpwuid(os.getuid()).pw_dir
         else:
-            home = os.environ.get("USERPROFILE") or str(Path.home())
+            home = source.get("USERPROFILE") or str(Path.home())
     if not owner_path(home):
         raise ProviderStateSchemaError("The owner home is unavailable for provider state.")
     result = {"HOME": home}
-    for name, folder in (("CODEX_HOME", ".codex"), ("CLAUDE_CONFIG_DIR", ".claude")):
-        configured = os.environ.get(name)
+    locations = {"codex": ("CODEX_HOME", ".codex"), "claude": ("CLAUDE_CONFIG_DIR", ".claude")}
+    for name, folder in (locations[provider],) if provider is not None else locations.values():
+        configured = source.get(name)
         location = configured if configured and owner_path(configured) else str(Path(home) / folder)
         if not owner_path(location):
             raise ProviderStateSchemaError(
@@ -270,7 +282,7 @@ def run_start_check(
     compare with, so nothing is written. Never raises: a run must not fail over this.
     """
     try:
-        environment = _owner_environment(control_state)
+        environment = _owner_environment(control_state, provider)
         adapter = (
             CodexStateAdapter(environment=environment)
             if provider == "codex"
@@ -303,8 +315,12 @@ class ProviderStateService:
     ) -> None:
         self.state = Path(state)
         self.projects = projects
-        self.adapters = adapters  # built on first use
-        self.environment = _owner_environment(self.state)
+        self.adapters = dict(adapters or {})  # each provider is built on its first use
+        self.environment = {
+            name: os.environ[name]
+            for name in ("HOME", "USERPROFILE", "CODEX_HOME", "CLAUDE_CONFIG_DIR")
+            if name in os.environ
+        }
         self.clock = clock
         self.wall = wall
         self.locks: dict[str, asyncio.Lock] = {}
@@ -326,11 +342,13 @@ class ProviderStateService:
         raise APIError("project_unknown", 404)
 
     def _adapter(self, provider: str) -> ProviderStateAdapter:
-        if self.adapters is None:
-            self.adapters = {
-                "codex": CodexStateAdapter(environment=self.environment),
-                "claude": ClaudeStateAdapter(self.state, environment=self.environment),
-            }
+        if provider not in self.adapters:
+            environment = _owner_environment(self.state, provider, source=self.environment)
+            self.adapters[provider] = (
+                CodexStateAdapter(environment=environment)
+                if provider == "codex"
+                else ClaudeStateAdapter(self.state, environment=environment)
+            )
         return self.adapters[provider]
 
     # --- the seen map: every method below is synchronous, so a load-modify-save never interleaves
@@ -429,9 +447,10 @@ class ProviderStateService:
 
     def _read_with_stat(self, provider: str, root: Path | None) -> tuple[str, StateSnapshot]:
         adapter = self._adapter(provider)
-        return _watch(adapter, root), adapter.read_state(
-            root
-        )  # stat first: a late edit shows next time
+        try:
+            return _watch(adapter, root), adapter.read_state(root)
+        except OSError:
+            raise ProviderStateSchemaError("The provider state is unreadable.") from None
 
     async def _read_fresh(self, provider: str, project_id: str, root: Path | None) -> StateSnapshot:
         stat, snapshot = await asyncio.to_thread(self._read_with_stat, provider, root)
@@ -465,8 +484,8 @@ class ProviderStateService:
         """``{"snapshot"}`` on success, the error response (409 with a fresh snapshot) otherwise."""
         root = self.resolve(provider, project_id)
         async with self.locks.setdefault(provider, asyncio.Lock()):
-            adapter = self._adapter(provider)
             try:
+                adapter = self._adapter(provider)
                 snapshot = await asyncio.to_thread(
                     partial(
                         adapter.set_enabled,
