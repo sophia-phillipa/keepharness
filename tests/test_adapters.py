@@ -52,36 +52,12 @@ def test_native_dispatch_uses_only_the_selected_adapter(provider, tmp_path):
 
 
 @pytest.mark.parametrize("provider", ["codex", "claude"])
-def test_scoped_dispatch_uses_provider_specific_implementation(provider):
+def test_retired_scoped_dispatch_cannot_reach_provider(provider):
     adapters = importlib.import_module("adapters")
     implementation = importlib.import_module(f"adapters.{provider}.backend")
-    with patch.object(
-        implementation, "run_scoped", AsyncMock(return_value={"answer": "ok"})
-    ) as run:
-        result = asyncio.run(
-            adapters.run_scoped(
-                {},
-                "prompt",
-                None,
-                {},
-                "model",
-                "low",
-                staged={"project/a": "text"},
-                session_dir=None,
-                provider=provider,
-            )
-        )
-    assert result == {"answer": "ok"}
-    run.assert_awaited_once_with(
-        {},
-        "prompt",
-        None,
-        {},
-        "model",
-        "low",
-        staged={"project/a": "text"},
-        session_dir=None,
-    )
+    assert not hasattr(implementation, "run_scoped")
+    with pytest.raises(ToolError, match="execution_mode_unsupported"):
+        asyncio.run(adapters.run_scoped({}, "prompt", None, provider=provider))
 
 
 @pytest.mark.parametrize("provider", ["local", "deepseek", "unknown"])
@@ -150,12 +126,14 @@ def test_package_attributes_are_the_provider_subpackages_not_their_backends(prov
 
 def test_no_phantom_codex_model_fallback():
     """F-53: a turn always carries its own model; nothing falls back to a made-up id."""
-    from adapters.codex import scoped
     from agent_service.services.conversation_service import ConversationService
 
     adapters = importlib.import_module("adapters")
-    for function in (adapters.run_scoped, scoped.run):
-        assert inspect.signature(function).parameters["model"].default is None
+    assert inspect.signature(adapters.run_scoped).parameters["model"].default is None
+    assert (
+        inspect.signature(adapters.run_native).parameters["model"].default
+        is inspect.Parameter.empty
+    )
     assert "gpt-6-astra" not in inspect.getsource(ConversationService)
 
 
@@ -266,29 +244,37 @@ def test_the_read_limit_carries_the_largest_attachable_image():
     assert READ_LIMIT > MAX_ATTACHMENT_BYTES * 4 // 3
 
 
-def scoped_codex_turn(tmp_path, notifications, runs=1):
-    """Run the scoped Codex adapter against scripted notifications; return the mock RPC."""
-    from contextlib import asynccontextmanager, nullcontext
-    from types import SimpleNamespace
-
-    from adapters.codex.scoped import run
+def native_codex_turn(tmp_path, notifications, runs=1):
+    """Run the native adapter against scripted notifications; return the mock RPC."""
+    from contextlib import asynccontextmanager
+    from adapters.codex.backend import run_native
 
     rpc = AsyncMock()
-    rpc.call.return_value = {"thread": {"id": "scoped-id"}}
+    rpc.call.return_value = {"thread": {"id": "native-id"}}
     rpc.receive.side_effect = notifications
 
     @asynccontextmanager
     async def connection(*args, **kwargs):
         yield rpc
 
-    workspace = SimpleNamespace(command=[], home=tmp_path)
     with (
-        patch("adapters.codex.scoped.prepare_scoped", side_effect=lambda *a: nullcontext(workspace)),
-        patch("adapters.codex.scoped.connection", connection),
-        patch("adapters.codex.scoped.collect_changes", return_value={}),
+        patch("adapters.codex.native.connection", connection),
+        patch("adapters.codex.native.configurations", return_value={"codex": {}}),
+        patch("adapters.codex.native.inventory", return_value={"codex": []}),
     ):
         results = [
-            asyncio.run(run({}, "Prompt", lambda *a: None, project={}, session_dir=tmp_path))
+            asyncio.run(
+                run_native(
+                    {"binary": "fixture"},
+                    "Prompt",
+                    lambda *a: None,
+                    {},
+                    None,
+                    "low",
+                    tmp_path,
+                    None,
+                )
+            )
             for _ in range(runs)
         ]
     return rpc, results
@@ -297,23 +283,23 @@ def scoped_codex_turn(tmp_path, notifications, runs=1):
 COMPLETED = {"method": "turn/completed", "params": {"turn": {"status": "completed"}}}
 
 
-def test_scoped_codex_resumes_thread_metadata_only(tmp_path):
-    rpc, _ = scoped_codex_turn(tmp_path, [COMPLETED, COMPLETED], runs=2)
+def test_native_codex_resumes_thread_metadata_only(tmp_path):
+    rpc, _ = native_codex_turn(tmp_path, [COMPLETED, COMPLETED], runs=2)
     resume = [c.args[1] for c in rpc.call.await_args_list if c.args[0] == "thread/resume"]
     assert len(resume) == 1 and resume[0]["excludeTurns"] is True
 
 
-def test_scoped_codex_waits_out_a_retry_codex_announces(tmp_path):
+def test_native_codex_waits_out_a_retry_codex_announces(tmp_path):
     retry = {
         "method": "error",
         "params": {"error": {"message": "Reconnecting... 1/5"}, "willRetry": True},
     }
     delta = {"method": "item/agentMessage/delta", "params": {"delta": "done"}}
-    _, results = scoped_codex_turn(tmp_path, [retry, delta, COMPLETED])
+    _, results = native_codex_turn(tmp_path, [retry, delta, COMPLETED])
     assert results[0]["answer"] == "done"
 
 
-def test_scoped_codex_failure_keeps_the_provider_message(tmp_path):
+def test_native_codex_failure_keeps_the_provider_message(tmp_path):
     failure = {
         "method": "error",
         "params": {
@@ -322,4 +308,4 @@ def test_scoped_codex_failure_keeps_the_provider_message(tmp_path):
         },
     }
     with pytest.raises(ToolError, match="^codex_execution_failed: You've hit your usage limit"):
-        scoped_codex_turn(tmp_path, [failure])
+        native_codex_turn(tmp_path, [failure])

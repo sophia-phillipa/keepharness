@@ -21,6 +21,7 @@ const path = require("node:path");
                     id: "fixture",
                     name: "Fixture",
                     backend: "local",
+                    execution_modes: ["scoped"],
                     efforts: ["low"],
                   },
                 ],

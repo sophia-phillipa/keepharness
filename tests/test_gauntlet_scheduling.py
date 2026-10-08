@@ -18,8 +18,8 @@ def test_option_gates_obey_consecutive_human_wait_limit(tmp_path):
             ident,
             {
                 "project_id": "p",
-                "backend": "codex",
-                "model": "gpt-6-astra",
+                "backend": "local",
+                "model": "installed-model",
                 "prompt": "wait",
                 "execution_mode": "scoped",
             },
@@ -27,7 +27,7 @@ def test_option_gates_obey_consecutive_human_wait_limit(tmp_path):
         replies = []
 
         async def execute(row):
-            plan = SimpleNamespace(row=row, data={"model": "gpt-6-astra"}, backend="codex")
+            plan = SimpleNamespace(row=row, data={"model": "installed-model"}, backend="local")
             approve = s._approval_handler(plan, lambda k, d: s.event(job, k, d), {}, {})
             for _ in range(4):
                 replies.append(
@@ -157,4 +157,3 @@ def test_declared_chain_local_step_acquires_effective_write_roots(tmp_path):
             s.db.close()
 
     asyncio.run(scenario())
-

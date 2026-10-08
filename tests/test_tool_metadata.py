@@ -444,7 +444,7 @@ def _skill_read(phase, command):
 def _codex_tool_events(tmp_path, adapter, notifications):
     """Run one Codex adapter against scripted notifications; return its tool events."""
     import asyncio
-    from contextlib import asynccontextmanager, nullcontext
+    from contextlib import asynccontextmanager
     from types import SimpleNamespace
     from unittest.mock import AsyncMock, patch
 
@@ -454,7 +454,9 @@ def _codex_tool_events(tmp_path, adapter, notifications):
         *notifications,
         {"method": "turn/completed", "params": {"turn": {"status": "completed"}}},
     ]
-    rpc.process = SimpleNamespace(stdin=SimpleNamespace(write=lambda value: None, drain=AsyncMock()))
+    rpc.process = SimpleNamespace(
+        stdin=SimpleNamespace(write=lambda value: None, drain=AsyncMock())
+    )
 
     @asynccontextmanager
     async def connection(*args, **kwargs):
@@ -462,47 +464,41 @@ def _codex_tool_events(tmp_path, adapter, notifications):
 
     events = []
     record = lambda kind, data: events.append((kind, data))  # noqa: E731
-    if adapter == "scoped":
-        from adapters.codex.scoped import run
+    from adapters import run_native as run
 
-        workspace = SimpleNamespace(command=[], home=tmp_path)
-        with (
-            patch("adapters.codex.scoped.prepare_scoped", return_value=nullcontext(workspace)),
-            patch("adapters.codex.scoped.connection", connection),
-            patch("adapters.codex.scoped.collect_changes", return_value={}),
-        ):
-            asyncio.run(run({}, "Prompt", record, project={}, session_dir=tmp_path))
-    else:
-        from adapters import run_native as run
-
-        with (
-            patch("adapters.codex.native.connection", connection),
-            patch("adapters.codex.native.configurations", return_value={"codex": {}}),
-            patch("adapters.codex.native.inventory", return_value={"codex": []}),
-        ):
-            asyncio.run(
-                run(
-                    {"binary": "fixture"},
-                    "fixture",
-                    record,
-                    {"permissions": {}},
-                    "fixture",
-                    "configured",
-                    tmp_path / "session",
-                    "codex",
-                    AsyncMock(return_value={"approved": False}),
-                )
+    with (
+        patch("adapters.codex.native.connection", connection),
+        patch("adapters.codex.native.configurations", return_value={"codex": {}}),
+        patch("adapters.codex.native.inventory", return_value={"codex": []}),
+    ):
+        asyncio.run(
+            run(
+                {"binary": "fixture"},
+                "fixture",
+                record,
+                {"permissions": {}},
+                "fixture",
+                "configured",
+                tmp_path / "session",
+                "codex",
+                AsyncMock(return_value={"approved": False}),
             )
+        )
     return [(kind, data) for kind, data in events if kind in ("tool_start", "tool_end")]
 
 
-@pytest.mark.parametrize("adapter", ["native", "scoped"])
+@pytest.mark.parametrize("adapter", ["native"])
 def test_codex_skill_marker_rides_on_tool_start_and_the_matching_tool_end(tmp_path, adapter):
     read = "cat /h/skills/ponytail/SKILL.md"
     if adapter == "scoped":
         # The scoped adapter reports MCP calls only, so the same read arrives as a Skill call.
         def note(phase):
-            item = {"type": "mcpToolCall", "id": "c1", "tool": "Skill", "arguments": {"skill": "ponytail"}}
+            item = {
+                "type": "mcpToolCall",
+                "id": "c1",
+                "tool": "Skill",
+                "arguments": {"skill": "ponytail"},
+            }
             return {"method": f"item/{phase}", "params": {"item": item}}
 
         notes = [note("started"), note("completed")]

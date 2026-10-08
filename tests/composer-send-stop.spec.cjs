@@ -24,7 +24,7 @@ const assert = require("node:assert/strict"),
         if (p === "/v1/models")
           data = {
             models: [
-              { id: "fixture", backend: "local", efforts: ["configured"] },
+              { id: "fixture", backend: "local", execution_modes: ["scoped"], efforts: ["configured"] },
             ],
           };
         if (p === "/v1/conversations") data = { conversations: [] };
@@ -173,7 +173,7 @@ const assert = require("node:assert/strict"),
         if (p === "/v1/models")
           data = {
             models: [
-              { id: "fixture", backend: "local", efforts: ["configured"] },
+              { id: "fixture", backend: "local", execution_modes: ["scoped"], efforts: ["configured"] },
             ],
           };
         if (p === "/v1/conversations") data = { conversations: [] };

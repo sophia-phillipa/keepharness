@@ -2,7 +2,7 @@
 
 import asyncio
 import json
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from test_workspaces import config
@@ -47,7 +47,8 @@ def recorder(order):
     return quota, cursor, panel
 
 
-def test_admission_errors_precede_executor_registration(tmp_path):
+@pytest.mark.parametrize("unknown_backend", ["unknown", [], {}])
+def test_admission_errors_precede_executor_registration(tmp_path, unknown_backend):
     instance, identity = service(tmp_path)
     try:
         row, data = submitted(instance, identity)
@@ -56,7 +57,7 @@ def test_admission_errors_precede_executor_registration(tmp_path):
         assert error.value.code == "prompt_required"
         assert row["id"] not in instance.active_executors
         with pytest.raises(APIError) as error:
-            asyncio.run(instance.infer(row, {**data, "backend": "unknown"}))
+            asyncio.run(instance.infer(row, {**data, "backend": unknown_backend}))
         assert error.value.code == "backend_unavailable"
         assert row["id"] not in instance.active_executors
         assert not instance.provider_inflight
@@ -97,26 +98,21 @@ def test_native_turn_reports_quota_around_the_adapter_and_saves_the_cursor_last(
         instance.db.close()
 
 
-def test_scoped_turn_finishes_the_panel_before_quota_after(tmp_path, monkeypatch):
-    instance, identity = service(tmp_path)
-    order = []
-    quota, cursor, panel = recorder(order)
+def test_retired_scoped_turn_cannot_reach_panel_quota_or_adapter(tmp_path, no_retired_side_effects):
+    from test_legacy_execution_mode import stored
 
-    async def run(config, prompt, progress, *args, **kwargs):
-        order.append("adapter")
-        return {"answer": "done"}
-
+    instance, _ = service(tmp_path)
     try:
-        row, data = submitted(instance, identity, execution_mode="scoped")
+        row = stored(instance, "codex", "scoped")
         with (
-            patch("adapters.run_scoped", side_effect=run),
-            patch.object(instance, "quota", side_effect=quota),
-            patch.object(instance, "panel", side_effect=panel),
-            patch.object(conversation_context, "save_cursor", side_effect=cursor),
+            patch.object(instance, "quota", AsyncMock()) as quota,
+            patch.object(instance, "panel") as panel,
+            patch.object(conversation_context, "save_cursor") as cursor,
         ):
-            result = asyncio.run(instance.infer(row, data))
-        assert order == ["quota", "adapter", "panel_finished", "quota", "cursor"]
-        assert events(instance, row["id"]) == ["queued", "publication_policy", "quota_before", "quota_after"]
-        assert result["quota_before"] == result["quota_after"] == {"available": True}
+            with pytest.raises(APIError, match="execution_mode_unsupported"):
+                asyncio.run(instance.infer(row, json.loads(row["payload"])))
+        quota.assert_not_called()
+        panel.assert_not_called()
+        cursor.assert_not_called()
     finally:
         instance.db.close()

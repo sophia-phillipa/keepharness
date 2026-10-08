@@ -10,13 +10,13 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from .errors import APIError
-from .private_storage import private_paths, private_roots
+from .private_storage import private_paths
 
 MAX_REQUEST_BYTES = 256 * 1024
 
 
 def transport_support(backend, mode):
-    supported = backend in ("codex", "claude") and mode in ("native", "scoped")
+    supported = backend in ("codex", "claude") and mode == "native"
     return {
         "supported": supported,
         "enforcement": "unenforced",
@@ -34,18 +34,12 @@ async def effect_transport(service, job_id, backend, mode, *, execution_id=None)
         return
     token = secrets.token_urlsafe(32)
     clients = set()
-    # Native processes share the owner's filesystem. The scoped adapter may upgrade
-    # this only after checking every bind against the harness's private stores.
+    # Native processes share the owner's filesystem.
     capability = {
         "token": token,
         "enforcement": "unenforced",
         "server_name": "harness_effects_" + secrets.token_hex(16),
     }
-
-    if mode == "scoped":
-        capability["_validate_scoped"] = lambda command, auth: scoped_enforcement(
-            service, command, copied_paths=[auth]
-        )
 
     async def handle(reader, writer):
         task = asyncio.current_task()
@@ -115,15 +109,15 @@ async def effect_transport(service, job_id, backend, mode, *, execution_id=None)
             await server.wait_closed()
 
 
-def server_spec(capability, *, scoped=False):
+def server_spec(capability):
     """Only the short-lived prepare capability enters the provider configuration."""
     import sys
 
     return {
-        "command": "/venv/bin/python" if scoped else sys.executable,
+        "command": sys.executable,
         "args": [
-            "/bridge/effect_mcp.py" if scoped else str(Path(__file__).with_name("effect_mcp.py")),
-            "/bridge/effect.json" if scoped else capability["config_file"],
+            str(Path(__file__).with_name("effect_mcp.py")),
+            capability["config_file"],
         ],
     }
 
@@ -142,50 +136,3 @@ def validate_scoped_private_files(service):
                 continue
     except (OSError, RuntimeError):
         raise APIError("scoped_private_files_unavailable") from None
-
-
-def scoped_enforcement(service, command, *, copied_paths=()):
-    """Classify the actual sandbox mounts and copied inputs, never a parallel plan."""
-    try:
-        validate_scoped_private_files(service)
-    except APIError:
-        return "unenforced"
-    private = [path.resolve() for path in private_roots(service.config, service.root)]
-    # A linked private file can be reachable under an unrelated mount or auth-copy
-    # name. Fail closed without walking potentially huge, worker-controlled roots.
-    stores = [
-        Path(service.root) / name
-        for name in ("harness.effect_credentials.json", "harness.secrets.json")
-    ] + private[1:]
-    for path in stores:
-        try:
-            if path.stat().st_nlink != 1:
-                return "unenforced"
-        except FileNotFoundError:
-            pass
-        except OSError:
-            return "unenforced"
-    exposed = [Path(path).resolve() for path in copied_paths]
-    index = 1
-    while index < len(command):
-        argument = command[index]
-        if argument == "--":
-            break
-        if argument in ("--bind", "--ro-bind"):
-            if index + 2 >= len(command):
-                return "unenforced"
-            exposed.append(Path(command[index + 1]).resolve())
-            index += 3
-        else:
-            index += 1
-    # Persistent harness subdirectories are worker-writable and untrusted, even
-    # if their parent approval store is not directly mounted in this execution.
-    return (
-        "unenforced"
-        if any(
-            source.is_relative_to(secret) or secret.is_relative_to(source)
-            for source in exposed
-            for secret in private
-        )
-        else "mediated"
-    )

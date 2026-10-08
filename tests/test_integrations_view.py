@@ -21,7 +21,9 @@ SECRET = "SECRET-TOKEN-123"
 DAY = 86400
 ISOLATED = "Isolated conversations use no host connectors or plugins."
 NOT_ALLOWED = "Not allowed for this provider. Change it in Settings › System › Providers."
-REMOTE_PLUGIN = "Remote ChatGPT plugins bring their tools as Codex apps, which harness runs turn off."
+REMOTE_PLUGIN = (
+    "Remote ChatGPT plugins bring their tools as Codex apps, which harness runs turn off."
+)
 GEMINI_READ_ONLY = "Read-only access turns connectors off for Gemini."
 READ_ONLY = "Read-only access turns connectors and plugins off."
 GEMINI_INTERNET = "Gemini connectors need the internet permission."
@@ -455,15 +457,10 @@ def test_local_backend_never_uses_host_connectors(client):
 
 
 @pytest.mark.parametrize("backend", ["codex", "claude"])
-def test_isolated_conversations_use_no_host_connectors(client, backend):
-    body = view(client, backend=backend, execution_mode="scoped", access_mode="full").json()
-    assert body["execution_mode"] == "scoped"
-    assert body["effective_note"] == ISOLATED
-    assert body["items"]
-    for item in body["items"]:
-        assert (item["effective"], item["reason"]) == (False, ISOLATED)
-    # Allowed stays a provider setting: isolation does not rewrite it.
-    assert {item["id"]: item["allowed"] for item in body["items"]}["mcp:github"] is True
+def test_retired_cloud_scoped_integration_view_is_rejected(client, backend):
+    response = view(client, backend=backend, execution_mode="scoped", access_mode="full")
+    assert response.status_code == 422
+    assert response.json()["code"] == "execution_mode_unsupported"
 
 
 # -- usage evidence -----------------------------------------------------------------------------

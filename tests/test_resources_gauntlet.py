@@ -186,8 +186,8 @@ def test_round10_handoff_rejection_preserves_request_and_queue(project, tmp_path
             "resource_selections": [selection(item)],
         }
         original = copy.deepcopy(data)
-        # An executor/mode change invalidates native selection before enqueue.
-        with pytest.raises(APIError, match="resource_unavailable"):
+        # A retired mode fails before selections or the caller's request are changed.
+        with pytest.raises(APIError, match="execution_mode_unsupported"):
             service.submit(identity, dict(data, execution_mode="scoped"))
         assert service.db.execute("SELECT count(*) FROM jobs").fetchone()[0] == 0
         assert data == original

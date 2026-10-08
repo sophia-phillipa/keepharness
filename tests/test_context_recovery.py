@@ -14,8 +14,19 @@ def test_overflow_excludes_inherited_files_and_resets_native_session_once(tmp_pa
     cfg["local"] = {}
     service = Service(cfg)
     payloads = [
-        {"prompt": "Previous valid question", "file_ids": ["old-csv"]},
-        {"prompt": "Huge rejected request", "parent_job_id": "a", "file_ids": ["new-csv"]},
+        {
+            "prompt": "Previous valid question",
+            "file_ids": ["old-csv"],
+            "backend": "local",
+            "execution_mode": "scoped",
+        },
+        {
+            "prompt": "Huge rejected request",
+            "parent_job_id": "a",
+            "file_ids": ["new-csv"],
+            "backend": "local",
+            "execution_mode": "scoped",
+        },
         {
             "prompt": "Continue normally",
             "parent_job_id": "b",

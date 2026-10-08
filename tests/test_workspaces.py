@@ -297,8 +297,13 @@ def test_direct_executor_saves_report_in_downloadable_workspace(tmp_path):
                 "backend": "local",
                 "model": "installed-model",
             }
-            # Execute a fixture row without starting a second background worker task.
-            row = {"id": "fixture", "owner": "a", "project": "p", "payload": json.dumps(data)}
+            # Persist the fixture as running so the existing worker cannot claim it.
+            data["execution_mode"] = "scoped"
+            service.conversation_repository.insert(
+                "fixture", "p", "a", "running", 1, json.dumps(data), None, None, "fixture"
+            )
+            service.db.commit()
+            row = service.job(("a", cfg["clients"]["a"]), "fixture")
             result = asyncio.run(service.execute(row))
         assert result["saved_answer"] == "_harness_results/fixture/answer.md"
         content = client.get("/v1/workspaces/" + wid + "/download").content

@@ -53,8 +53,8 @@ def test_local_model_without_reachable_server_is_false(tmp_path):
     assert [m["capabilities"]["images"] for m in models if m["id"] == "installed-model"] == [False]
 
 
-def test_non_native_mode_is_false_for_cloud_providers(tmp_path):
-    assert listed(tmp_path, codex_mode="scoped")["gpt-6-astra"] is False
+def test_retired_service_mode_cannot_hide_native_cloud_image_capability(tmp_path):
+    assert listed(tmp_path, codex_mode="scoped")["gpt-6-astra"] is True
 
 
 def test_list_agrees_with_validate_images(tmp_path):

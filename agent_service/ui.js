@@ -20,8 +20,8 @@ let providers = {},
   uiBuild = "",
   reloadPending = false;
 let queuedTurns = [];
-let executionMode = "native",
-  executionModeChosen = false;
+let executionMode = "native";
+let draftMode = { mode: "native", modeChosen: false, retiredLock: false };
 let policyProject = null,
   policyPending = false,
   policyError = "",
@@ -2177,12 +2177,15 @@ function runTiming(result = {}) {
     waited: waited ? seconds(waited) : "",
   };
 }
+function executionModeLabel() {
+  return executionMode === "scoped" ? "Isolated conversation" : executionMode === "native" ? "Native conversation" : "Execution mode unavailable";
+}
 function renderConversationHeader(c = null) {
   const state = c ? conversationState(c) : "draft";
   const states = { "needs-you": "Awaiting approval", running: "Running", queued: "Queued", done: "Completed", draft: "Draft" };
   $("conversation-state-pill").textContent = ({ failed: "Failed", cancelled: "Cancelled", interrupted: "Interrupted" })[c?.state] || states[state];
   $("conversation-state-pill").dataset.state = state;
-  $("header-execution-mode").textContent = executionMode === "scoped" ? "Isolated conversation" : "Native conversation";
+  $("header-execution-mode").textContent = executionModeLabel();
   $("header-access").textContent = accessLabel();
 }
 // WP8 (D-032): one meter per provider in a fixed order. A reading shows a bar, DeepSeek shows its
@@ -2922,18 +2925,20 @@ function openDeleteConversation(c, trigger) {
   cancel.focus();
 }
 function supportedExecutionModes() {
-  return (
-    selected()?.execution_modes ||
-    (["codex", "claude"].includes(selected()?.backend)
-      ? ["native", "scoped"]
-      : ["native"])
-  );
+  const modes = selected()?.execution_modes;
+  return Array.isArray(modes) &&
+    modes.every((mode) => ["native", "scoped"].includes(mode))
+    ? modes
+    : [];
 }
 function syncExecutionMode() {
   const started = !!conversation || !!parent,
     modes = supportedExecutionModes();
-  if (!started && !executionModeChosen)
-    executionMode = modes.includes("native") ? "native" : "scoped";
+  if (!started) {
+    if (!draftMode.modeChosen && !draftMode.retiredLock)
+      draftMode.mode = modes.includes("native") ? "native" : modes[0] || null;
+    executionMode = draftMode.mode;
+  }
   const isolated = executionMode === "scoped";
   const modeContract = Array.isArray(selected()?.execution_modes);
   // F-58: isolation is chosen before the first message, then only stated.
@@ -2945,22 +2950,25 @@ function syncExecutionMode() {
   $("isolation-toggle").hidden = started;
   $("execution-mode-help").hidden = started;
   $("isolation-toggle").setAttribute("aria-checked", String(isolated));
-  // F-94: a mode this model lacks can always be switched off.
+  // A retired draft requires New; supported drafts retain the pre-send choice.
   $("isolation-toggle").disabled =
     started ||
+    draftMode.retiredLock ||
     busy ||
     loading ||
     submitting ||
     uploads > 0 ||
     (modes.length < 2 && modes.includes(executionMode));
-  $("execution-mode-label").textContent = isolated
-    ? "Isolated conversation"
-    : "Native conversation";
+  $("execution-mode-label").textContent = executionModeLabel();
   const warning = $("execution-mode-unavailable");
   warning.hidden =
-    !selected() || (modes.includes(executionMode) && modes.length > 1);
+    !draftMode.retiredLock && (!selected() || (modes.includes(executionMode) && modes.length > 1));
   warning.textContent =
-    modes.length === 1 && modes.includes(executionMode)
+    started && executionMode == null
+      ? "The historical execution mode is unavailable. Start a new native conversation to continue."
+      : draftMode.retiredLock
+      ? "This saved isolated mode is no longer supported. Start a new conversation to use native mode."
+      : modes.length === 1 && modes.includes(executionMode)
       ? isolated
         ? "This model requires isolation."
         : "This model only offers native mode."
@@ -2973,21 +2981,25 @@ function syncExecutionMode() {
   const indicator = $("execution-mode-indicator");
   indicator.hidden = !started || !modeContract;
   indicator.dataset.isolated = String(isolated);
-  const label = isolated
-    ? "Isolated conversation · isolation on"
-    : "Native conversation · isolation off";
+  const label = executionMode == null
+    ? "Execution mode unavailable"
+    : isolated
+      ? "Isolated conversation · isolation on"
+      : "Native conversation · isolation off";
   indicator.title = label;
   indicator.setAttribute("aria-label", label);
   $("dropzone").classList.toggle("has-execution-mode", started && modeContract);
-  $("header-execution-mode").textContent = isolated
-    ? "Isolated conversation"
-    : "Native conversation";
+  $("header-execution-mode").textContent = executionModeLabel();
 }
 $("isolation-toggle").onclick = () => {
-  if (conversation || parent || busy || loading || submitting || uploads)
+  if (conversation || parent || draftMode.retiredLock || busy || loading || submitting || uploads)
     return;
-  executionMode = executionMode === "scoped" ? "native" : "scoped";
-  executionModeChosen = true;
+  draftMode = {
+    mode: executionMode === "scoped" ? "native" : "scoped",
+    modeChosen: true,
+    retiredLock: executionMode === "native" && ["codex", "claude"].includes(selected()?.backend),
+  };
+  executionMode = draftMode.mode;
   invalidateResources();
   updateComposer();
   saveView();
@@ -3000,7 +3012,7 @@ $("header-execution-mode").onclick = () => {
       "Conversation mode is fixed after the first message. Start a new conversation to change it.",
     );
 };
-function newConversation(title = "New Conversation", projectId = $("project").value) {
+function newConversation(title = "New Conversation", projectId = $("project").value, { resetExecutionMode = false } = {}) {
   if (submitting || cancelling || loading || uploads) {
     status(
       "Wait for the current send to finish before starting another conversation.",
@@ -3039,8 +3051,8 @@ function newConversation(title = "New Conversation", projectId = $("project").va
   last = 0;
   parent = null;
   conversation = "";
-  executionMode = "native";
-  executionModeChosen = false;
+  if (resetExecutionMode) draftMode = { mode: "native", modeChosen: false, retiredLock: false };
+  executionMode = draftMode.mode;
   renderConversationHeader();
   $("access-mode").value = "ask";
   syncAccessMode();
@@ -3052,8 +3064,9 @@ function newConversation(title = "New Conversation", projectId = $("project").va
   bindSuggestions();
   modelAvailability();
   $("prompt").value = draft;
-  if (newDraft?.draft || newDraft?.files?.length) restoreView(newDraft);
-  else if (carriedDraft) restoreView(carriedDraft);
+  const restoredDraft = changedProject ? carriedDraft :
+    (newDraft?.draft || newDraft?.files?.length ? newDraft : carriedDraft);
+  if (restoredDraft) restoreView(restoredDraft, { resetExecutionMode });
   updateComposer();
   saveView();
   $("context-meter").textContent = "New conversation · independent context";
@@ -3453,7 +3466,7 @@ function renderProjects() {
             );
             return;
           }
-          newConversation("New Conversation in project " + o.textContent, o.value);
+          newConversation("New Conversation in project " + o.textContent, o.value, { resetExecutionMode: true });
           expandedProjects.set(o.value, true);
           renderProjects();
           closeSidebar();
@@ -4925,12 +4938,11 @@ async function load(id, legacy = false, restoredView = null, scrollTop) {
         conversations.find((item) => item.id === id)?.title ||
         "New Conversation",
     );
-    executionMode =
-      data.execution_mode ||
-      data.turns[0].request?.execution_mode ||
-      conversations.find((c) => c.id === id)?.execution_mode ||
-      conversations.find((c) => c.id === id)?.execution?.execution_mode ||
-      "native";
+    executionMode = data.execution_mode ?? null;
+    draftMode = normalizeDraftMode({ execution_mode: executionMode, composer_selection: { model: data.turns[0]?.request?.model, backend: data.turns[0]?.request?.backend } });
+    // A later cloud turn retires a scoped history even when it started in Local.
+    if (executionMode === "scoped" && data.turns.some(turn => ["codex", "claude"].includes(turn.request?.backend)))
+      draftMode.retiredLock = true;
     conversation = id;
     renderConversationHeader(conversations.find((item) => item.id === id));
     files = [];
@@ -5296,9 +5308,11 @@ async function send() {
     return;
   }
   let m = selected();
-  if (!supportedExecutionModes().includes(executionMode)) {
+  if (draftMode.retiredLock || !supportedExecutionModes().includes(executionMode)) {
     status(
-      parent
+      draftMode.retiredLock
+        ? "This saved isolated mode is no longer supported. Start a new conversation to use native mode."
+        : parent
         ? "This model doesn't offer this conversation's mode. Choose a different model or start a new conversation."
         : "This model doesn't offer the selected mode. Choose a different model or change the mode.",
     );
@@ -5358,8 +5372,7 @@ async function send() {
     if (releasePersonaPending) data.release_persona = true;
     lastSentRoute = { backend: m.backend, model: m.id, effort: data.effort };
     if (parent) data.parent_job_id = parent;
-    else if (Array.isArray(m.execution_modes))
-      data.execution_mode = executionMode;
+    else data.execution_mode = executionMode;
     if (m.backend === "codex") {
       status("Checking quota before running…");
       quotaSnapshot("before", await json("/v1/usage"));
@@ -6085,7 +6098,7 @@ $("cancel").onclick = async () => {
   }
 };
 $("new").onclick = () => void navigate({ kind: "home" });
-function startNewConversation() {
+function startNewConversation(resetExecutionMode = false) {
   const loose = Array.from($("project").options).some(
     (o) => o.value === "sem-projeto",
   );
@@ -6095,6 +6108,7 @@ function startNewConversation() {
       : "New Conversation in project " +
           $("project").selectedOptions[0]?.textContent,
     loose ? "sem-projeto" : $("project").value,
+    { resetExecutionMode },
   );
   renderProjects();
   history();
@@ -6295,7 +6309,7 @@ $("files-new-chat").onclick = async () => {
   const selection = { root_id: fileTree.rootId, paths: [...fileTree.selected] },
     previous = conversation;
   if (!selection.paths.length) return;
-  newConversation();
+  newConversation(undefined, undefined, { resetExecutionMode: true });
   if (previous && conversation === previous) return;
   await attachSelectedProjectFiles(selection);
   $("prompt").focus({ preventScroll: true });
@@ -7371,7 +7385,21 @@ $("models-retry").onclick = async () => {
 };
 initialize();
 
-function restoreView(saved) {
+// The draft owns its mode, deliberate choice and retirement restriction together.
+// Legacy snapshots identify their origin model; an unknown scoped origin stays locked.
+function normalizeDraftMode(saved) {
+  const state = saved.draft_mode;
+  const mode = state ? state.mode : saved.execution_mode;
+  const originBackend = saved.composer_selection?.backend || saved.resource_context?.backend ||
+    models.find(model => model.id === saved.composer_selection?.model)?.backend;
+  return {
+    mode: ["native", "scoped"].includes(mode) ? mode : null,
+    modeChosen: (state ? state.modeChosen : saved.execution_mode_chosen) === true,
+    retiredLock: state ? state.retiredLock === true :
+      mode === "scoped" && (!originBackend || ["codex", "claude"].includes(originBackend)),
+  };
+}
+function restoreView(saved, { resetExecutionMode = false } = {}) {
   if (
     saved.project === $("project").value &&
     models.some((m) => m.id === saved.composer_selection?.model)
@@ -7385,9 +7413,14 @@ function restoreView(saved) {
     )
       $("effort").value = saved.composer_selection.effort;
   }
-  if (!conversation && ["native", "scoped"].includes(saved.execution_mode)) {
-    executionMode = saved.execution_mode;
-    executionModeChosen = saved.execution_mode_chosen !== false;
+  if (!conversation) {
+    draftMode = resetExecutionMode
+      ? { mode: null, modeChosen: false, retiredLock: false }
+      : normalizeDraftMode(saved);
+    syncExecutionMode();
+  } else {
+    const restoredMode = normalizeDraftMode(saved);
+    draftMode = { ...restoredMode, mode: executionMode, retiredLock: draftMode.retiredLock || restoredMode.retiredLock };
   }
   if (typeof saved.draft === "string") $("prompt").value = saved.draft;
   invalidResourceTokens = new Set(
@@ -7483,10 +7516,12 @@ function saveView() {
         conversation,
         composer_selection: {
           model: $("model").value,
+          backend: selected()?.backend,
           effort: $("effort").value,
         },
         execution_mode: executionMode,
-        execution_mode_chosen: executionModeChosen,
+        execution_mode_chosen: draftMode.modeChosen,
+        draft_mode: { ...draftMode, mode: executionMode },
         project: $("project").value,
         draft: $("prompt").value,
         files,
@@ -8473,7 +8508,7 @@ async function applyView(view, replay = false) {
     if (conversation !== view.id) return false;
   } else if (view.kind === "home") {
     // A click on New chat always starts a fresh one; a replayed Home only leaves the conversation.
-    if (conversation || !replay) startNewConversation();
+    if (conversation || !replay) startNewConversation(!replay);
   } else if (view.kind === "space") await openSpace();
   else if (view.kind === "scheduled") await openScheduled();
   else {
@@ -8788,7 +8823,7 @@ async function usePage(startChat) {
     title = $("page-title").value.trim() || "Untitled",
     file = pageFile(title, $("page-body").value);
   $("space-dialog").close();
-  if (startChat) newConversation(title, project);
+  if (startChat) newConversation(title, project, { resetExecutionMode: true });
   await refreshProjectPermissions();
   await upload([file]);
   $("prompt").focus({ preventScroll: true });
@@ -9859,6 +9894,7 @@ function updateComposer() {
     !prompt.value.trim() ||
     overLimit ||
     imagesBlocked ||
+    draftMode.retiredLock ||
     !supportedExecutionModes().includes(executionMode) ||
     cooldown > 0;
 }

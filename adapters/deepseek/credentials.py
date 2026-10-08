@@ -7,7 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from adapters.shared.scoped import scoped_home_directory, scoped_home_read
+from adapters.shared.private_files import scoped_home_directory, scoped_home_read
 from agent_service.secret_vault import redact_secrets
 from agent_service.tools import ToolError
 from control.product import PRODUCT

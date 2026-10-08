@@ -1,4 +1,4 @@
-"""Persistent worker homes cannot redirect privileged harness writes."""
+"""Private homes resist redirected writes; retired cloud homes remain untouched."""
 
 import asyncio
 import json
@@ -8,67 +8,53 @@ from pathlib import Path
 
 import pytest
 
-from adapters.shared.scoped import prepare_scoped
+import adapters
+from adapters.deepseek.account import store_key
+from agent_service.errors import UserMessageError
 from agent_service.tools import ToolError
 from tests.deepseek_fixtures import SAFE_CONFIG
 
 
-@pytest.fixture
-def scoped_config(tmp_path):
-    binary = tmp_path / "fixture"
-    binary.write_text("fixture")
-    auth = tmp_path / "provider.json"
-    auth.write_text("{}")
-    return {"binary": str(binary), "auth_file": str(auth), "python": "/usr/bin/python3"}
-
-
-@pytest.mark.parametrize("name", ["config.toml", "auth.json", ".credentials.json"])
-def test_planted_home_symlinks_refused_without_modifying_host(tmp_path, scoped_config, name):
+def test_planted_home_symlinks_refused_without_modifying_host(tmp_path):
     host = tmp_path / "host-secret"
     host.write_text("unchanged")
     host.chmod(0o640)
     home = tmp_path / "session"
     home.mkdir()
-    (home / name).symlink_to(host)
-    auth_name = ".credentials.json" if name == ".credentials.json" else "auth.json"
-    with pytest.raises(ToolError, match="unsafe_scoped_home"):
-        with prepare_scoped(scoped_config, {}, {}, home, "codex", auth_name):
-            pass
+    (home / "deepseek.key").symlink_to(host)
+    with pytest.raises(UserMessageError, match="safely store"):
+        store_key(home, "fixture-new-key-123")
     assert host.read_text() == "unchanged"
     assert host.stat().st_mode & 0o777 == 0o640
 
 
 @pytest.mark.parametrize("ancestor", [False, True])
-def test_home_symlink_or_ancestor_refused(tmp_path, scoped_config, ancestor):
+def test_home_symlink_or_ancestor_refused(tmp_path, ancestor):
     host = tmp_path / "host"
     host.mkdir()
     alias = tmp_path / "alias"
     alias.symlink_to(host, target_is_directory=True)
     home = alias / "session" if ancestor else alias
-    with pytest.raises(ToolError, match="unsafe_scoped_home"):
-        with prepare_scoped(scoped_config, {}, {}, home, "codex", "auth.json"):
-            pass
+    with pytest.raises(UserMessageError, match="safely store"):
+        store_key(home, "fixture-new-key-123")
     assert list(host.iterdir()) == []
 
 
-def test_home_hardlink_refused_without_modifying_host(tmp_path, scoped_config):
+def test_home_hardlink_refused_without_modifying_host(tmp_path):
     host = tmp_path / "host-secret"
     host.write_text("unchanged")
     home = tmp_path / "session"
     home.mkdir()
-    os.link(host, home / "auth.json")
-    with pytest.raises(ToolError, match="unsafe_scoped_home"):
-        with prepare_scoped(scoped_config, {}, {}, home, "codex", "auth.json"):
-            pass
+    os.link(host, home / "deepseek.key")
+    with pytest.raises(UserMessageError, match="safely store"):
+        store_key(home, "fixture-new-key-123")
     assert host.read_text() == "unchanged"
 
 
 def test_replacement_race_cannot_truncate_host(tmp_path, monkeypatch):
-    from adapters.shared.scoped import scoped_home_write
-
     home = tmp_path / "session"
     home.mkdir()
-    target = home / "config.toml"
+    target = home / "deepseek.key"
     target.write_text("old")
     host = tmp_path / "host"
     host.write_text("unchanged")
@@ -80,50 +66,46 @@ def test_replacement_race_cannot_truncate_host(tmp_path, monkeypatch):
         return replace(source, destination, **kwargs)
 
     monkeypatch.setattr(os, "replace", planted_replace)
-    scoped_home_write(home, "config.toml", "new")
+    store_key(home, "fixture-new-key-123")
     assert host.read_text() == "unchanged"
-    assert target.read_text() == "new"
+    assert target.read_text() == "fixture-new-key-123"
     assert not target.is_symlink()
     assert target.stat().st_mode & 0o777 == 0o600
 
 
 def test_directory_swap_does_not_redirect_write(tmp_path, monkeypatch):
-    from adapters.shared.scoped import scoped_home_write
-
     home = tmp_path / "session"
     home.mkdir()
     original = tmp_path / "original-session"
     host = tmp_path / "host"
     host.mkdir()
-    (host / "config.toml").write_text("unchanged")
+    (host / "deepseek.key").write_text("unchanged")
     original_open = os.open
 
     def swapped_open(path, flags, *args, **kwargs):
-        if str(path).startswith(".harness-"):
+        if str(path).startswith(".deepseek-"):
             home.rename(original)
             home.symlink_to(host, target_is_directory=True)
         return original_open(path, flags, *args, **kwargs)
 
     monkeypatch.setattr(os, "open", swapped_open)
-    scoped_home_write(home, "config.toml", "new")
-    assert (host / "config.toml").read_text() == "unchanged"
-    assert (original / "config.toml").read_text() == "new"
+    store_key(home, "fixture-new-key-123")
+    assert (host / "deepseek.key").read_text() == "unchanged"
+    assert (original / "deepseek.key").read_text() == "fixture-new-key-123"
 
 
-def test_thread_marker_rejects_planted_links(tmp_path):
-    from adapters.shared.scoped import scoped_home_read, scoped_home_write
+def test_private_key_rejects_planted_links(tmp_path):
+    from adapters.shared.private_files import scoped_home_read
 
     host = tmp_path / "host"
     host.write_text("unchanged")
     home = tmp_path / "session"
     home.mkdir()
-    (home / "remote-thread.json").symlink_to(host)
-    for operation in (
-        lambda: scoped_home_read(home, "remote-thread.json"),
-        lambda: scoped_home_write(home, "remote-thread.json", "new"),
-    ):
-        with pytest.raises(ToolError, match="unsafe_scoped_home"):
-            operation()
+    (home / "deepseek.key").symlink_to(host)
+    with pytest.raises(ToolError, match="unsafe_scoped_home"):
+        scoped_home_read(home, "deepseek.key")
+    with pytest.raises(UserMessageError, match="safely store"):
+        store_key(home, "fixture-new-key-123")
     assert host.read_text() == "unchanged"
 
 
@@ -336,3 +318,37 @@ def test_user_scope_resources_follow_the_personal_setup(tmp_path, personal_home,
             if item["scope"] == "user"
         ]
         assert bool(users) is personal
+
+
+@pytest.mark.parametrize("provider", ["codex", "claude"])
+@pytest.mark.parametrize(
+    "entry", ["auth.json", "config.toml", "remote-thread.json", ".credentials.json"]
+)
+@pytest.mark.parametrize("link", ["regular", "symlink", "hardlink"])
+@pytest.mark.parametrize("auth_setting", [False, True])
+def test_retired_dispatch_never_reads_or_rewrites_old_home(
+    tmp_path, provider, entry, link, auth_setting, no_retired_side_effects
+):
+    old_home = tmp_path / "providers" / "home" / ("." + provider)
+    old_home.mkdir(parents=True)
+    target = tmp_path / "sentinel"
+    target.write_text("sentinel credential")
+    artifact = old_home / entry
+    if link == "symlink":
+        artifact.symlink_to(target)
+    elif link == "hardlink":
+        os.link(target, artifact)
+    else:
+        artifact.write_text("sentinel credential")
+    no_retired_side_effects.extend([artifact, target])
+    before = artifact.lstat()
+    config = {"binary": "fixture"}
+    if auth_setting:
+        config["auth_file"] = str(artifact)
+    with pytest.raises(ToolError, match="execution_mode_unsupported"):
+        asyncio.run(
+            adapters.run_scoped(
+                config, "continue", lambda *_: None, session_dir=old_home, provider=provider
+            )
+        )
+    assert artifact.lstat() == before

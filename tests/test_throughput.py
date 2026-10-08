@@ -52,12 +52,11 @@ def test_claude_missing_or_invalid_usage_never_estimates_from_text():
     assert not events
 
 
-def test_scoped_codex_live_usage_excludes_other_sessions(tmp_path):
+def test_native_codex_live_usage_excludes_other_sessions(tmp_path):
     import asyncio
-    from contextlib import asynccontextmanager, nullcontext
-    from types import SimpleNamespace
+    from contextlib import asynccontextmanager
 
-    from adapters.codex.scoped import run
+    from adapters.codex.backend import run_native
 
     def usage(thread, count):
         return {
@@ -92,14 +91,24 @@ def test_scoped_codex_live_usage_excludes_other_sessions(tmp_path):
     async def connection(*args, **kwargs):
         yield RPC()
 
-    workspace = SimpleNamespace(command=[], home=tmp_path)
     events = []
     with (
-        patch("adapters.codex.scoped.prepare_scoped", return_value=nullcontext(workspace)),
-        patch("adapters.codex.scoped.connection", connection),
-        patch("adapters.codex.scoped.collect_changes", return_value={}),
+        patch("adapters.codex.native.connection", connection),
+        patch("adapters.codex.native.configurations", return_value={"codex": {}}),
+        patch("adapters.codex.native.inventory", return_value={"codex": []}),
     ):
-        result = asyncio.run(run({}, "fixture", lambda *args: events.append(args)))
+        result = asyncio.run(
+            run_native(
+                {"binary": "fixture"},
+                "fixture",
+                lambda *args: events.append(args),
+                {},
+                None,
+                "low",
+                tmp_path,
+                None,
+            )
+        )
     assert result["metrics"]["output_tokens"] == 30
     live = [data["metrics"] for kind, data in events if kind == "context_usage"]
     assert [m["output_tokens"] for m in live] == [20, 30]

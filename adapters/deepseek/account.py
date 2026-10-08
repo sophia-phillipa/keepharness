@@ -7,7 +7,7 @@ from pathlib import Path
 
 import httpx
 
-from adapters.shared.scoped import scoped_home_directory
+from adapters.shared.private_files import scoped_home_directory
 from agent_service.errors import UserMessageError
 from agent_service.tools import ToolError
 

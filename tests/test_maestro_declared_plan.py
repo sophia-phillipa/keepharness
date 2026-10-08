@@ -59,7 +59,11 @@ def test_declared_chain_executes_without_planner_and_keeps_order(tmp_path):
 
 def test_declared_plan_cannot_skip_policy_or_continue_after_failure(tmp_path):
     service = Service(config(tmp_path))
-    row = {"id": "run", "project": "p", "owner": "a"}
+    identity = ("a", service.config["clients"]["a"])
+    job = service.submit(
+        identity, dict(project_id="p", backend="codex", model="gpt-6-astra", prompt="Review")
+    )["job_id"]
+    row = service.job(identity, job)
     step = {
         "role": "review",
         "backend": "codex",

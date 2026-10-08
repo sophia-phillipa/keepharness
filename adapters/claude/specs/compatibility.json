@@ -1,5 +1,5 @@
 {
-  "adapter_spec_revision": 5,
+  "adapter_spec_revision": 6,
   "harness_baseline": "0.4.4 working-tree",
   "reviewed_at": "2026-09-21",
   "live_provider_validation": false,
@@ -11,7 +11,7 @@
   "protocol": "stream-json print mode",
   "session_title": {
     "native": "official --name option, passed from the canonical Harness title",
-    "scoped": "unsupported: --no-session-persistence intentionally prevents a provider-side session title"
+    "scoped": "execution retired under D-044; stored session files remain untouched"
   },
   "sources": [
     "https://code.claude.com/docs/en/cli-usage",

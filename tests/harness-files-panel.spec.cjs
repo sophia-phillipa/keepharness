@@ -56,6 +56,7 @@ const path = require("node:path");
               id: "fixture",
               name: "Fixture",
               backend: "local",
+              execution_modes: ["scoped"],
               efforts: ["low"],
               permissions: { upload: true },
             },
@@ -63,6 +64,7 @@ const path = require("node:path");
               id: "qwen-local",
               name: "Qwen3.6-35B-A3B",
               backend: "local",
+              execution_modes: ["scoped"],
               efforts: ["configured"],
               permissions: { upload: true },
             },
@@ -70,6 +72,7 @@ const path = require("node:path");
               id: "deepseek-flash",
               name: "deepseek-flash",
               backend: "deepseek",
+              execution_modes: ["native"],
               efforts: ["configured"],
               permissions: { upload: true },
             },
@@ -77,6 +80,7 @@ const path = require("node:path");
               id: "deepseek-v4-pro",
               name: "deepseek-v4-pro",
               backend: "deepseek",
+              execution_modes: ["native"],
               efforts: ["configured"],
               permissions: { upload: true },
             },
@@ -89,12 +93,14 @@ const path = require("node:path");
         await new Promise((resolve) => setTimeout(resolve, 150));
         data = {
           title: "Restored",
+          execution_mode: "scoped",
           turns: [
             {
               id: "restored-job",
               project: "sem-projeto",
               request: {
                 backend: "local",
+                execution_mode: "scoped",
                 model: "fixture",
                 effort: "low",
                 prompt: "restored",

@@ -77,7 +77,9 @@ def candidates(config, project, uploads=False, execution_mode=None):
     for provider, spec in config.get("services", {}).items():
         if not spec.get("enabled") or project not in spec.get("projects", []):
             continue
-        mode = execution_mode or spec.get("mode", "native")
+        mode = execution_mode or ("scoped" if provider == "local" else "native")
+        if mode == "scoped" and provider != "local":
+            continue
         for model in spec.get("models", []):
             permissions = model_permissions(config, provider, model, project)
             if uploads and not permissions.get("upload"):
@@ -460,6 +462,7 @@ async def wait_step_effects(service, job_id, execution_id):
 
 
 async def execute_workflow(service, row, data, workflow):
+    data = service.dispatch_execution_mode(row, data)
     from . import resources
     from .workflows import validate_workflow
 
@@ -530,6 +533,7 @@ def run_result(final, usage):
 
 
 async def execute_plan(service, row, data, declared):
+    data = service.dispatch_execution_mode(row, data)
     if "_workflow_context_parent_id" in data:
         data = {**data, "parent_job_id": data["_workflow_context_parent_id"]}
     available = candidates(
@@ -683,9 +687,7 @@ async def execute_plan(service, row, data, declared):
                 "resource_selections": step.get("resource_selections", []),
                 "invocations": [step["invocation"]],
             }
-            decision = service.assess(
-                service.owner_identity(row), payload
-            )
+            decision = service.assess(service.owner_identity(row), payload)
             if decision["decision"] != "accept":
                 raise ToolError("maestro_step_not_allowed")
 

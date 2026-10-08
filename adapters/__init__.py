@@ -25,9 +25,7 @@ PROVIDERS: Mapping[str, ProviderAdapter] = MappingProxyType(
     }
 )
 # Gemini is listed because it answers run_scoped with its own gemini_scoped_unsupported.
-SCOPED_PROVIDERS: Mapping[str, ScopedProviderAdapter] = MappingProxyType(
-    {"codex": codex_backend, "claude": claude_backend, "gemini": gemini_backend}
-)
+SCOPED_PROVIDERS: Mapping[str, ScopedProviderAdapter] = MappingProxyType({"gemini": gemini_backend})
 
 
 def get_adapter(provider) -> ProviderAdapter:
@@ -56,6 +54,8 @@ async def run_scoped(
     provider="codex",
 ):
     get_adapter(provider)
+    if provider in ("codex", "claude"):
+        raise ToolError("execution_mode_unsupported")
     adapter = SCOPED_PROVIDERS.get(provider)
     if adapter is None:
         raise ToolError("backend_unavailable")
