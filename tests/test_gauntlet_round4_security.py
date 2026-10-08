@@ -215,7 +215,7 @@ async def scenario(endpoint):
             "origins": [],
             "projects": {"p": {"root": str(project)}, "q": {}},
             "clients": {
-                "alice": {"sha256": hashlib.sha256(b"alice").hexdigest(), "projects": ["p", "q"]}
+                "local": {"sha256": hashlib.sha256(b"alice").hexdigest(), "projects": ["p", "q"]}
             },
             "services": {
                 "codex": {
@@ -253,7 +253,7 @@ async def scenario(endpoint):
                     held = asyncio.create_task(client.get(endpoint))
                     assert await asyncio.to_thread(entered.wait, 3)
                     candidate = copy.deepcopy(service.config)
-                    candidate["clients"]["alice"]["projects"] = ["q"]
+                    candidate["clients"]["local"]["projects"] = ["q"]
                     await service.apply_runtime_config(candidate)
                     fresh = await client.get(endpoint)
                     assert fresh.status_code == 403, fresh.text

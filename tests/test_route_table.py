@@ -98,7 +98,7 @@ AGENT_VALID_TABLE = [
                 "providers": {},
                 "uploads_enabled": False,
                 "full_access": False,
-                "local_owner": False,
+                "local_owner": True,
                 "admin_url": None,
             }
         ),
@@ -175,15 +175,15 @@ AGENT_VALID_TABLE = [
         200,
         lambda r: r.json() == {"agents": []},
     ),
-    # Client "a" is authenticated but not the local browser, so every write is refused first.
+    # Client "a" is the owner too (D-040): a write reaches its own validation.
     (
         "harness-agents-post",
         "POST",
         "/v1/harness-agents",
         None,
         {},
-        403,
-        "harness_agent_local_only",
+        400,
+        "harness_agent_invalid",
     ),
     (
         "harness-agents-put",
@@ -191,8 +191,8 @@ AGENT_VALID_TABLE = [
         "/v1/harness-agents/ghost-agent",
         None,
         {},
-        403,
-        "harness_agent_local_only",
+        400,
+        "harness_agent_invalid",
     ),
     (
         "harness-agents-delete",
@@ -200,8 +200,8 @@ AGENT_VALID_TABLE = [
         "/v1/harness-agents/ghost-agent",
         None,
         {"revision": "r"},
-        403,
-        "harness_agent_local_only",
+        404,
+        "harness_agent_not_found",
     ),
     (
         "ui-state-get",
@@ -209,8 +209,8 @@ AGENT_VALID_TABLE = [
         "/v1/ui-state",
         None,
         None,
-        403,
-        "ui_state_local_only",
+        200,
+        lambda r: r.json()["values"] == {},
     ),
     (
         "ui-state-patch",
@@ -218,8 +218,8 @@ AGENT_VALID_TABLE = [
         "/v1/ui-state",
         None,
         {"values": {}},
-        403,
-        "ui_state_local_only",
+        200,
+        lambda r: r.json()["values"] == {},
     ),
     (
         "pages-list",
@@ -336,9 +336,9 @@ AGENT_VALID_TABLE = [
         404,
         "schedule_not_found",
     ),
-    # Client "a" is not the local owner: project folders are refused before anything else.
-    ("projects-post", "POST", "/v1/projects", None, {}, 403, "project_management_local_only"),
-    ("projects-patch", "PATCH", "/v1/projects", None, {}, 403, "project_management_local_only"),
+    # Client "a" is the owner (D-040); registration is off in this fixture, so the first check is that.
+    ("projects-post", "POST", "/v1/projects", None, {}, 403, "project_registration_disabled"),
+    ("projects-patch", "PATCH", "/v1/projects", None, {}, 422, "invalid_project"),
     (
         "project-folder-get",
         "GET",
@@ -354,8 +354,8 @@ AGENT_VALID_TABLE = [
         "/v1/project-folder",
         {"project_id": "p"},
         {},
-        403,
-        "project_management_local_only",
+        422,
+        "project_folder_confirmation_required",
     ),
     (
         "project-git",
@@ -373,7 +373,7 @@ AGENT_VALID_TABLE = [
         None,
         None,
         403,
-        "project_management_local_only",
+        "project_registration_disabled",
     ),
     (
         "services",
@@ -661,14 +661,6 @@ def test_agent_capabilities_etag_304(client):
 # ---------------------------------------------------------------------------
 # Agent app: /v1/login (its own auth flow, checked ahead of `service.identity`).
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture(autouse=True)
-def owner_for_usage_rows(request, monkeypatch):
-    """/v1/usage is owner-only (D-032); only its rows treat the table's client "a" as the owner."""
-    callspec = getattr(request.node, "callspec", None)
-    if callspec and str(callspec.id).startswith("usage"):
-        monkeypatch.setattr("agent_service.harness_agents.LOCAL_CLIENT", "a")
 
 
 @pytest.fixture

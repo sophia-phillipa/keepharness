@@ -9,7 +9,7 @@ import pytest
 from starlette.testclient import TestClient
 from test_workflow_api import submitted
 from test_workflow_resume_rerun import setup_run
-from test_workspaces import config
+from test_workspaces import config, single_owner_config
 
 from agent_service import maestro
 from agent_service.app import Service, create_app
@@ -78,7 +78,7 @@ def test_legacy_maestro_settings_keys_are_stripped_without_error(tmp_path):
     validated = manager.validate(settings)
     assert not [key for key in validated if key.startswith("maestro_")]
     assert "maestro_plan_policy" not in validated["projects"][0]
-    candidate = config(tmp_path)
+    candidate = single_owner_config(tmp_path)
     candidate["projects"]["p"]["maestro_plan_policy"] = "silent"
     candidate["maestro_plan_policy"] = "silent"
     assert validate_runtime_config(candidate)

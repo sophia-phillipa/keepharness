@@ -10,19 +10,15 @@ from . import api_route, body
 
 async def collection(request, service, identity):
     if request.method == "POST":
-        harness_agents.require_local_client(identity)
         data = await body(request)
         created = await asyncio.to_thread(harness_agents.create_agent, service.config, data)
         return JSONResponse(created, status_code=201)
     agents = await asyncio.to_thread(harness_agents.list_agents, service.config)
     service.identity(request, revalidate=True)
-    if identity[0] != harness_agents.LOCAL_CLIENT:
-        agents = [harness_agents.public_view(agent) for agent in agents]
     return JSONResponse({"agents": agents})
 
 
 async def member(request, service, identity):
-    harness_agents.require_local_client(identity)
     data = await body(request)
     operation = (
         harness_agents.delete_agent if request.method == "DELETE" else harness_agents.replace_agent

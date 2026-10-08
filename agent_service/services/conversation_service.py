@@ -429,8 +429,6 @@ class ConversationService:
                 for key, bucket in data.get("rateLimitsByLimitId", {}).items():
                     buckets[key] = {**bucket, "checked_at": data["checked_at"]}
                     self.claude_reading_keys[(row["owner"], key)] = tag
-            if row and row["owner"] != harness_agents.LOCAL_CLIENT:
-                return  # the account's limits are the owner's, never a guest job's events (D-032)
         with self.db:
             self.message_repository.add_event(job, time.time(), kind, encoded(data))
 
@@ -445,6 +443,10 @@ class ConversationService:
                 queue_worker.hold_followups(self, job)
         self.stop_requests.discard(job)
         self.claude_job_keys.pop(job, None)
+
+    def owner_identity(self, row):
+        """The identity a stored row was made under; an owner no longer configured owns no project."""
+        return row["owner"], self.config["clients"].get(row["owner"], {"projects": []})
 
     def identity(self, request, *, revalidate=False):
         def identified(name, client):
@@ -1149,14 +1151,12 @@ class ConversationService:
             model,
             execution_mode,
             access_mode,
-            owner=identity[0] == harness_agents.LOCAL_CLIENT,
         )
-        # Only the owner may learn what other providers hold, and only those the project may use.
+        # Only the providers the project may use.
         eligible = [
             name
             for name, policy in self.config.get("services", {}).items()
-            if route.owner
-            and policy.get("enabled")
+            if policy.get("enabled")
             and project_id in policy.get("projects", [])
             and policy.get("models")
         ]
@@ -1185,14 +1185,13 @@ class ConversationService:
             backend,
             model,
             execution_mode=execution_mode,
-            owner=identity[0] == harness_agents.LOCAL_CLIENT,
+            owner=True,
             access_mode=access_mode,
         )
 
     def resource_scope(self, client, data):
         """The config and owner flag a run of ``client`` resolves resources with (decision D01)."""
-        owner = client == harness_agents.LOCAL_CLIENT
-        return resources.run_config(self.config, data, owner=owner), owner
+        return resources.run_config(self.config, data, owner=True), True
 
     def selected_resources(self, data, *, canonical=None, owner=False):
         # "read" guards project and catalog files; a Harness agent's persona is harness-kept text.
@@ -1291,7 +1290,7 @@ class ConversationService:
                         )
             canonical = values if values is not None and not supplied_selections else None
             selected = self.selected_resources(
-                data, canonical=canonical, owner=identity[0] == harness_agents.LOCAL_CLIENT
+                data, canonical=canonical, owner=True
             )
             selected_by_id = {item["resource_id"]: item for item in selected}
             normalized = (
@@ -1486,7 +1485,7 @@ class ConversationService:
                 row["project"],
                 source_invocations[0]["resource_id"],
                 execution_mode=data.get("execution_mode"),
-                owner=identity[0] == harness_agents.LOCAL_CLIENT,
+                owner=True,
             )
         elif plan.get("resource_id"):
             plan = workflows.resolve_workflow(
@@ -1494,7 +1493,7 @@ class ConversationService:
                 row["project"],
                 plan["resource_id"],
                 execution_mode=data.get("execution_mode"),
-                owner=identity[0] == harness_agents.LOCAL_CLIENT,
+                owner=True,
             )
         if type(from_step) is not int or not 1 <= from_step <= len(plan["steps"]):
             raise APIError("invalid_workflow_step")
@@ -1596,7 +1595,7 @@ class ConversationService:
                     self.config,
                     row["project"],
                     execution_mode=self.conversation_execution_mode(row),
-                    owner=identity[0] == harness_agents.LOCAL_CLIENT,
+                    owner=True,
                 ),
             )
         finally:
@@ -1690,11 +1689,6 @@ class ConversationService:
             ).get("access_mode", "ask")
         if data.get("access_mode", "ask") not in approval_policy.MODES:
             raise APIError("invalid_access_mode")
-        if (
-            data.get("access_mode", "ask") in approval_policy.OWNER_ONLY_MODES
-            and identity[0] != harness_agents.LOCAL_CLIENT
-        ):
-            raise APIError("access_mode_owner_only", 403)
         if approval_policy.mode_disabled(self.config, data.get("access_mode", "ask")):
             raise APIError("full_access_disabled", 403)
         if data.get("parent_job_id") and data.get("workspace_id") is None:
@@ -1777,7 +1771,7 @@ class ConversationService:
             canonical=[invocations.Invocation(**value) for value in data["invocations"]]
             if data.get("invocations")
             else None,
-            owner=identity[0] == harness_agents.LOCAL_CLIENT,
+            owner=True,
         )
         legacy_root = None
         if data.get("parent_job_id"):
@@ -2051,7 +2045,7 @@ class ConversationService:
             canonical=[invocations.Invocation(**value) for value in data["invocations"]]
             if data.get("invocations")
             else None,
-            owner=row["owner"] == harness_agents.LOCAL_CLIENT,
+            owner=True,
         )
         sources = []
         turns = self.context_turns(row, data)
@@ -2420,7 +2414,6 @@ class ConversationService:
         before = await self.quota(True) if backend == "codex" else None
         if before is not None:
             self.event(row["id"], "quota_before", before)
-        owner_job = row["owner"] == harness_agents.LOCAL_CLIENT
         live = {"answer": "", "thinking": "", "at": 0}
         from agent_service.secret_vault import SecretStream
 
@@ -2508,8 +2501,7 @@ class ConversationService:
             if backend == "codex":
                 after = await self.quota(True)
                 progress("quota_after", after)
-                if owner_job:
-                    result.update(quota_before=before, quota_after=after)
+                result.update(quota_before=before, quota_after=after)
             return result
         baseline = (
             deployment.snapshot(project_config["root"])
@@ -2561,9 +2553,8 @@ class ConversationService:
         if backend == "codex":
             after = await self.quota(True)
             self.event(row["id"], "quota_after", after)
-            if owner_job:
-                result["quota_before"] = before
-                result["quota_after"] = after
+            result["quota_before"] = before
+            result["quota_after"] = after
         return result
 
     def _finalize_inference(self, plan, result):
@@ -2611,7 +2602,7 @@ class ConversationService:
                 project_config.update(root=roots[0], additional_roots=roots[1:])
         if data.get("workspace_id"):
             self.workspace(
-                (row["owner"], self.config["clients"][row["owner"]]),
+                self.owner_identity(row),
                 data["workspace_id"],
                 row["project"],
             )
@@ -2623,12 +2614,6 @@ class ConversationService:
         )
         mode = data.get("access_mode", "ask")
         permissions = approval_policy.effective_permissions(permissions, mode)
-        guest = row["owner"] != harness_agents.LOCAL_CLIENT
-        if guest:
-            # Fails closed for runs queued before the submit-time ceiling (decisions D06, D11).
-            if mode in approval_policy.OWNER_ONLY_MODES:
-                raise APIError("access_mode_owner_only", 403)
-            permissions = approval_policy.guest_permissions(permissions)
         # Fails closed for a Full run queued before the owner turned Full access off (D11).
         if approval_policy.mode_disabled(self.config, mode):
             raise APIError("full_access_disabled", 403)
@@ -2688,17 +2673,14 @@ class ConversationService:
         if not permissions.get("tests"):
             project_config["test_commands"] = {}
         backend_config = self.config[backend]
-        # Host connectors run with the owner's account on this computer: never for guests (D04).
-        if guest or (
-            backend == "local" and "model_permissions" in self.config["services"][backend]
-        ):
+        if backend == "local" and "model_permissions" in self.config["services"][backend]:
             backend_config = {**backend_config, "integrations": [], "unrestricted": False}
         # Gemini connectors need the network, so an offline schedule runs without them (D03).
         if offline_schedule and backend == "gemini":
             backend_config = {**backend_config, "integrations": []}
         backend_config = {
             **backend_config,
-            **run_settings(self.config, backend, guest=guest, data=data),
+            **run_settings(self.config, backend, data=data),
         }
         return project_config, backend_config, permissions
 
@@ -2861,7 +2843,7 @@ class ConversationService:
                         canonical=[invocations.Invocation(**value) for value in data["invocations"]]
                         if data.get("invocations")
                         else None,
-                        owner=row["owner"] == harness_agents.LOCAL_CLIENT,
+                        owner=True,
                     ),
                 )
                 result = await maestro.execute_plan(self, row, data, declared)

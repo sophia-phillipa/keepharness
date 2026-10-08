@@ -28,8 +28,9 @@ SECRET = "sk-" + "k" * 24
 def rail(tmp_path, monkeypatch):
     """A service with every provider enabled, whose quota fetchers fail the test when called."""
     service, identity = invocation_service(tmp_path, monkeypatch)
-    # Quota and balance belong to the owner; the fixture's client "a" is the owner (D-032).
-    monkeypatch.setattr("agent_service.harness_agents.LOCAL_CLIENT", "a")
+    # Quota and balance belong to the owner, the only client a runtime config holds (D-032, D-040).
+    service.config["clients"] = {"local": service.config["clients"]["a"]}
+    identity = ("local", service.config["clients"]["local"])
     for backend in ("claude", "gemini", "deepseek"):
         service.config["services"][backend] = {
             "enabled": True, "models": [backend + "-model"], "projects": ["p"],
@@ -230,24 +231,6 @@ def test_provider_identity_is_not_repeated_inside_quota(rail):
     assert all("provider" not in quota for quota in quotas(service, identity).values())
 
 
-def test_guest_never_sees_the_owners_quota_or_balance(rail, tmp_path):
-    service, owner = rail
-    deepseek_with_key(service, tmp_path)
-    cache_claude(service, claude_account.quota_snapshot(usage(30)))
-    service.usage_cache = {"available": True, "checked_at": 1, "rateLimits": {}}
-    service.usage_at = time.monotonic()
-    balances = [{"currency": "USD", "total": "1.00", "granted": "0", "topped_up": "1.00"}]
-    cache_deepseek(
-        service, {"provider": "deepseek", "available": True, "checked_at": 1, "balances": balances}
-    )
-    assert quotas(service, owner)["claude"]["available"] is True
-    assert quotas(service, owner)["deepseek"]["available"] is True
-    guest = ("b", service.config["clients"]["b"])
-    result = quotas(service, guest)
-    assert set(result) == {"codex", "claude", "gemini", "deepseek", "local"}
-    assert all(quota == {"available": False, "reason": "owner_only"} for quota in result.values())
-
-
 def test_a_changed_deepseek_key_drops_the_cached_balance(rail, tmp_path, monkeypatch):
     service, identity = rail
     deepseek_with_key(service, tmp_path)
@@ -346,17 +329,6 @@ def test_claude_reading_does_not_survive_a_new_login(rail):
     claude = quotas(service, identity)["claude"]
     assert claude["available"] is True
     assert claude["rateLimitsByLimitId"]["five_hour"]["primary"]["usedPercent"] == 12
-
-
-def test_guest_claude_stream_is_not_saved_to_the_job_but_still_feeds_the_cache(rail):
-    service, identity = rail
-    service.conversation_repository.insert(
-        "guest-job", "p", "b", "running", 1, json.dumps({"backend": "claude"}), None, None, None
-    )
-    service.db.commit()
-    service.event("guest-job", "quota_update", claude_update(40))
-    assert service.message_repository.all_events("guest-job") == []
-    assert service.provider_usage["b"]["five_hour"]["primary"]["usedPercent"] == 40
 
 
 def test_owner_claude_stream_is_saved_to_the_job(rail):

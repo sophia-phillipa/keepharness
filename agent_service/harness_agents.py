@@ -33,8 +33,6 @@ TARGET_OUTPUT_LENGTH = (0, 500)
 EDITABLE = frozenset(
     {"purpose", "instructions", "tasks", "target_output", "backend", "model", "effort"}
 )
-# The name, the route it runs on and whether it can run; never purpose, instructions or tasks.
-PUBLIC_FIELDS = ("name", "backend", "model", "effort", "available", "unavailable_reason")
 # Echoed by a listing, so a client may send them back; they never change what is stored.
 READ_ONLY = frozenset(
     {"id", "created_at", "updated_at", "revision", "available", "unavailable_reason"}
@@ -49,8 +47,6 @@ PROVIDER_NAMES = MappingProxyType(
     }
 )
 GROUP = "Your agents"
-# The identity the service gives the browser on this computer (``ConversationService.identity``).
-LOCAL_CLIENT = "local"
 RESOURCE_PREFIX = "harness/agents/"
 FOLDER = "harness-agents"
 # Before 0.15.0, when KeepHarness was Tail Harness, the folder was "tail-agents" and jobs
@@ -65,17 +61,6 @@ write_lock = threading.Lock()
 
 def invalid(field: str) -> APIError:
     return APIError("harness_agent_invalid", 400, field=field)
-
-
-def require_local_client(identity: tuple, code: str = "harness_agent_local_only") -> None:
-    """Agents and project folders are machine-wide; only the owner on this computer changes them."""
-    if identity[0] != LOCAL_CLIENT:
-        raise APIError(code, 403)
-
-
-def public_view(agent: dict) -> dict:
-    """What a client other than the local owner may see: no persona text (SEC-R3-2)."""
-    return {key: agent[key] for key in PUBLIC_FIELDS if key in agent}
 
 
 def only_harness_agents(selections: object) -> bool:

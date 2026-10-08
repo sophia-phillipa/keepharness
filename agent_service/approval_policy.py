@@ -4,8 +4,6 @@ import hashlib
 import json
 
 MODES = {"ask", "auto", "full", "read_only"}
-# Modes that run without asking; only the owner on this computer may start them (D11).
-OWNER_ONLY_MODES = frozenset({"auto", "full"})
 
 
 def mode_disabled(config, mode):
@@ -39,11 +37,6 @@ def effective_permissions(permissions, mode):
 def hooks_allowed(permissions, catalogs):
     """Hooks run only when granted and no pinned catalog takes part in the run."""
     return permissions.get("hooks") is True and not catalogs
-
-
-def guest_permissions(permissions):
-    """A guest run never gets the host shell or hooks, whatever the provider grants (D06)."""
-    return {**permissions, "shell": False, "hooks": False}
 
 
 def full_approval_allowed(kind, request, permissions):

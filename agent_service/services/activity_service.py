@@ -4,7 +4,7 @@ import json
 import math
 import time
 
-from .. import harness_agents, schedules
+from .. import schedules
 from ..errors import APIError
 from ..resources import conversation_title
 from ..spans import queue_wait_reason
@@ -48,9 +48,6 @@ def public_quota(quota):
 
 def provider_quota(service, backend, owner):
     """A non-null quota entry for the rail, built from cached reads only (never a fetch)."""
-    if owner != harness_agents.LOCAL_CLIENT:
-        # Plan usage and prepaid balance are the owner's account, never a guest's to see (D-032).
-        return {"available": False, "reason": "owner_only"}
     if backend == "claude":
         quota = service.observed_claude_quota(owner)
     elif backend == "codex":

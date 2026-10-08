@@ -11,7 +11,6 @@ from pathlib import Path
 from .. import workspaces
 from ..config import REPOSITORY_ROOT
 from ..errors import APIError
-from ..harness_agents import LOCAL_CLIENT
 from ..persistence.db import encoded
 from ..private_storage import private_roots
 
@@ -32,16 +31,14 @@ class ProjectService:
         return self.config["projects"][project]
 
     def share_projects(self, config=None):
-        """Every project reaches every provider and the local owner; other clients receive
-        the registered ones only when the owner shares projects. ``config`` is a runtime
-        candidate not installed yet (default: the live one)."""
+        """Every project reaches every provider and every client (the owner). ``config`` is a
+        runtime candidate not installed yet (default: the live one)."""
         config = self.config if config is None else config
         projects = list(config["projects"])
         for spec in config.get("services", {}).values():
             spec["projects"] = projects.copy()
-        for name, client in config.get("clients", {}).items():
-            if name == LOCAL_CLIENT or config.get("shared_projects"):
-                client["projects"] = projects.copy()
+        for client in config.get("clients", {}).values():
+            client["projects"] = projects.copy()
 
     def add_project(self, data, project_id=None):
         if not self.config.get("project_registration"):

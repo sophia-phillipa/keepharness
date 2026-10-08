@@ -10,7 +10,6 @@ from . import api_route, body
 
 
 async def preferences(request, service, identity):
-    ui_state.require_owner(identity)
     if request.method == "PATCH":
         data = await body(request, limit=ui_state.BODY_BYTES)
         values = data.get("values")

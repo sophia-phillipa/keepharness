@@ -593,8 +593,8 @@ def test_hooks_run_only_when_granted_and_no_catalog_is_in_the_run():
     assert not hooks_allowed({}, [])
 
 
-def guest_and_owner_clients(tmp_path, monkeypatch):
-    """A service with a guest ("a") and the owner ("local"), the owner's personal files in HOME."""
+def owner_resources_config(tmp_path, monkeypatch):
+    """A service with the owner ("local") and the plain client "a", the owner's personal files in HOME."""
     import hashlib
 
     from test_workspaces import config
@@ -622,14 +622,14 @@ def guest_and_owner_clients(tmp_path, monkeypatch):
     return conf
 
 
-def test_guest_never_sees_the_owners_personal_resources_in_catalog_or_palette(
+def test_every_client_sees_the_owners_personal_resources_in_catalog_or_palette(
     tmp_path, monkeypatch
 ):
     from starlette.testclient import TestClient
 
     from agent_service.app import create_app
 
-    app = create_app(guest_and_owner_clients(tmp_path, monkeypatch))
+    app = create_app(owner_resources_config(tmp_path, monkeypatch))
     try:
         with TestClient(app) as client:
 
@@ -639,23 +639,23 @@ def test_guest_never_sees_the_owners_personal_resources_in_catalog_or_palette(
 
             catalog = "/v1/catalog?project_id=p"
             assert {"mine", "secret"} <= names("local", catalog)
-            assert not {"mine", "secret"} & names("a", catalog)
+            assert {"mine", "secret"} <= names("a", catalog)
             palette = "/v1/resources?project_id=p&backend={}&model={}"
             assert "mine" in names("local", palette.format("gemini", "fixture"))
-            assert "mine" not in names("a", palette.format("gemini", "fixture"))
+            assert "mine" in names("a", palette.format("gemini", "fixture"))
             assert "secret" in names("local", palette.format("codex", "gpt-6-astra"))
-            assert "secret" not in names("a", palette.format("codex", "gpt-6-astra"))
+            assert "secret" in names("a", palette.format("codex", "gpt-6-astra"))
     finally:
         app.state.service.db.close()
 
 
-def test_guest_cannot_resolve_an_owner_resource_id_at_run_time(tmp_path, monkeypatch):
+def test_a_non_owner_resolution_cannot_resolve_an_owner_resource_id_at_run_time(tmp_path, monkeypatch):
     from starlette.testclient import TestClient
 
     from agent_service.app import create_app
     from agent_service.errors import APIError
 
-    app = create_app(guest_and_owner_clients(tmp_path, monkeypatch))
+    app = create_app(owner_resources_config(tmp_path, monkeypatch))
     try:
         with TestClient(app, headers={"Authorization": "Bearer local"}) as owner:
             item = next(
@@ -712,7 +712,7 @@ def test_scheduled_run_does_not_resolve_prompts_behind_the_opt_in(tmp_path, monk
     from agent_service.app import create_app
     from agent_service.errors import APIError
 
-    app = create_app(guest_and_owner_clients(tmp_path, monkeypatch))
+    app = create_app(owner_resources_config(tmp_path, monkeypatch))
     service = app.state.service
     try:
         secret = owner_resource(service, "codex", "gpt-6-astra", "secret")
@@ -741,13 +741,13 @@ def test_scheduled_run_does_not_resolve_prompts_behind_the_opt_in(tmp_path, monk
         service.db.close()
 
 
-def test_owner_workflow_resolves_the_owners_resource_and_a_guest_does_not(tmp_path, monkeypatch):
+def test_every_client_workflow_resolves_the_owners_resource(tmp_path, monkeypatch):
     import json
 
     from agent_service import workflows
     from agent_service.app import create_app
 
-    conf = guest_and_owner_clients(tmp_path, monkeypatch)
+    conf = owner_resources_config(tmp_path, monkeypatch)
     conf["gemini_models"] = {"fixture": ["configured"]}
     put(
         tmp_path / "project",
@@ -775,9 +775,7 @@ def test_owner_workflow_resolves_the_owners_resource_and_a_guest_does_not(tmp_pa
         scope, owner = service.resource_scope("local", {})
         assert owner and workflows.resolve_workflow(scope, "p", rid, owner=True)["steps"]
         scope, owner = service.resource_scope("a", {})
-        assert not owner
-        with pytest.raises(workflows.WorkflowError):
-            workflows.resolve_workflow(scope, "p", rid, owner=owner)
+        assert owner and workflows.resolve_workflow(scope, "p", rid, owner=owner)["steps"]
     finally:
         service.db.close()
 
@@ -785,9 +783,8 @@ def test_owner_workflow_resolves_the_owners_resource_and_a_guest_does_not(tmp_pa
 def test_maestro_step_resources_follow_the_row_owner(tmp_path, monkeypatch):
     from agent_service import maestro
     from agent_service.app import create_app
-    from agent_service.errors import APIError
 
-    app = create_app(guest_and_owner_clients(tmp_path, monkeypatch))
+    app = create_app(owner_resources_config(tmp_path, monkeypatch))
     service = app.state.service
     try:
         mine = owner_resource(service, "gemini", "fixture", "mine")
@@ -802,8 +799,12 @@ def test_maestro_step_resources_follow_the_row_owner(tmp_path, monkeypatch):
         maestro.retain_resources(service, {"owner": "local"}, data, plan)
         assert plan["steps"][0]["resource_snapshots"][0]["resource_id"] == mine["resource_id"]
         assert maestro.resources_unchanged(service, {"owner": "local"}, data, plan)
-        assert not maestro.resources_unchanged(service, {"owner": "a"}, data, plan)
-        with pytest.raises(APIError):
-            maestro.retain_resources(service, {"owner": "a"}, data, {"steps": [dict(step)]})
+        # Every client is the owner (D-040), including a stored row from a removed per-login client.
+        for stored in ("a", "tailnet-0123456789abcdef"):
+            row = {"owner": stored}
+            assert maestro.resources_unchanged(service, row, data, plan)
+            again = {"steps": [dict(step)]}
+            maestro.retain_resources(service, row, data, again)
+            assert again["steps"][0]["resource_snapshots"][0]["resource_id"] == mine["resource_id"]
     finally:
         service.db.close()

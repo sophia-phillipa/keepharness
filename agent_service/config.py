@@ -59,6 +59,12 @@ def validate_runtime_config(candidate):
             return False
     if any(not isinstance(spec, dict) for spec in candidate["projects"].values()):
         return False
+    # Owner rights follow the config, so a config naming any other client is refused.
+    if set(candidate["clients"]) != {"local"}:
+        return False
+    logins = candidate.get("tailscale_logins", {})
+    if not isinstance(logins, dict) or any(name != "local" for name in logins.values()):
+        return False
     for spec in candidate["clients"].values():
         if (
             not isinstance(spec, dict)

@@ -261,10 +261,6 @@ class Manager:
         if type(data.get("full_access", False)) is not bool:
             raise UserMessageError("Allow Full access must be an explicit boolean.")
         out["full_access"] = data.get("full_access", False)
-        # Registered projects reach guests only when the owner shares them.
-        if type(data.get("shared_projects", False)) is not bool:
-            raise UserMessageError("Share projects with guests must be an explicit boolean.")
-        out["shared_projects"] = data.get("shared_projects", False)
         default = data.get("default_backend", "")
         if default not in ("", "codex", "claude", "gemini", "local", "deepseek"):
             raise UserMessageError("Invalid default executor.")

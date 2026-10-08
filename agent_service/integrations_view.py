@@ -36,7 +36,6 @@ ISOLATED = "Isolated conversations use no host connectors or plugins."
 NOT_ALLOWED = "Not allowed for this provider. Change it in Settings › System › Providers."
 GEMINI_READ_ONLY = "Read-only access turns connectors off for Gemini."
 READ_ONLY = "Read-only access turns connectors and plugins off."
-OWNER_ONLY = "Connectors run only for the owner of this computer."
 GEMINI_INTERNET = "Gemini connectors need the internet permission."
 ASKS = "Each connector call asks for your approval."
 UNATTENDED = "Connector calls run without asking (full access)."
@@ -65,7 +64,6 @@ class Route(NamedTuple):
     model: str
     execution_mode: str
     access_mode: str
-    owner: bool  # the caller is the local owner; guests get no host connectors
 
 
 class Limits(NamedTuple):
@@ -78,8 +76,6 @@ def route_limits(config: Settings, route: Route) -> Limits:
     """What the adapters do with allowed integrations on this route (adapters/*/native.py)."""
     if route.execution_mode == "scoped":
         return Limits(ISOLATED, "", ISOLATED)
-    if not route.owner:
-        return Limits(OWNER_ONLY, "", "")
     permissions = approval_policy.effective_permissions(
         maestro.model_permissions(config, route.backend, route.model, route.project_id),
         route.access_mode,

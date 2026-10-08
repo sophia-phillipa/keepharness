@@ -231,9 +231,10 @@ def test_reload_revokes_binding_scope_and_refreshes_credential_path(tmp_path):
 
     async def scenario():
         instance, _ = service(tmp_path)
+        instance.config["clients"] = {"local": instance.config["clients"]["a"]}
         instance.config["services"]["codex"]["models"] = ["fixture"]
         instance.config["projects"]["q"] = dict(instance.config["projects"]["p"])
-        instance.config["clients"]["a"]["projects"].append("q")
+        instance.config["clients"]["local"]["projects"].append("q")
         instance.config["services"]["codex"]["projects"].append("q")
         instance.config["integration_bindings"] = [
             {"integration": "demo", "project_id": "p", "credential_binding": "demo"}
@@ -242,7 +243,7 @@ def test_reload_revokes_binding_scope_and_refreshes_credential_path(tmp_path):
             instance.conversation_repository.insert(
                 job,
                 project,
-                "a",
+                "local",
                 "running",
                 0,
                 json.dumps({"backend": "codex", "model": "fixture"}),

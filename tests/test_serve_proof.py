@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 from test_api_security import (
-    GUEST_LOGIN,
+    REMOTE_LOGIN,
     SERVE_HEADERS,
     loopback,
     owner_config,
@@ -152,7 +152,7 @@ def test_malformed_proc_file_fails_closed(tmp_path):
 def test_forged_serve_headers_from_a_user_socket_get_401(tmp_path, caplog):
     cfg = owner_config(tmp_path)
     app = seeded_owner_app(cfg)
-    forged = {"Tailscale-User-Login": GUEST_LOGIN, **SERVE_HEADERS}
+    forged = {"Tailscale-User-Login": REMOTE_LOGIN, **SERVE_HEADERS}
 
     async def scenario():
         async with loopback(app) as client:
@@ -168,7 +168,7 @@ def test_forged_serve_headers_from_a_user_socket_get_401(tmp_path, caplog):
             service.serve_peer_check = functools.partial(
                 local_access.served_by_tailscaled, proc_net=proc_file(tmp_path, *peer_rows(0))
             )
-            assert await who(client, headers=forged) == (200, ["tailnet-guest-job"])
+            assert await who(client, headers=forged) == (200, ["local-job"])
             # An unreadable /proc fails closed.
             service.serve_peer_check = functools.partial(
                 local_access.served_by_tailscaled, proc_net=tmp_path / "missing"
@@ -191,7 +191,7 @@ def test_default_serve_check_is_the_proc_lookup(tmp_path):
 
 def test_refusal_warning_is_rate_limited(tmp_path, caplog):
     app = seeded_owner_app(owner_config(tmp_path))
-    forged = {"Tailscale-User-Login": GUEST_LOGIN, **SERVE_HEADERS}
+    forged = {"Tailscale-User-Login": REMOTE_LOGIN, **SERVE_HEADERS}
 
     async def scenario():
         async with loopback(app) as client:

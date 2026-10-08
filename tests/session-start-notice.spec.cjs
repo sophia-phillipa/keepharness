@@ -207,8 +207,8 @@ const assert = require("node:assert/strict"),
       .allInnerTexts();
     assert.deepEqual(copy, [
       "Asks before edits, commands that change files and every connector call. On Codex and DeepSeek, commands that change nothing run without asking and can read any file your account can.",
-      "Owner only. Edits inside the project folders without asking; anything outside them, and every connector call, asks first. Codex and DeepSeek run commands in a sandbox limited to those folders (network only with the provider's internet setting) and can still read any file your account can; Claude Code asks before every command. Local models stay in their sandbox.",
-      "Owner only, once turned on in the admin. Runs everything without asking: no sandbox for Codex, DeepSeek and Claude; local models keep the permissions set in the admin.",
+      "Edits inside the project folders without asking; anything outside them, and every connector call, asks first. Codex and DeepSeek run commands in a sandbox limited to those folders (network only with the provider's internet setting) and can still read any file your account can; Claude Code asks before every command. Local models stay in their sandbox.",
+      "Available once turned on in the admin. Runs everything without asking: no sandbox for Codex, DeepSeek and Claude; local models keep the permissions set in the admin.",
       "Reads and searches the project folders; web search follows the provider's internet setting. Edits, commands, tests, connectors and plugins are off.",
     ]);
     await page.keyboard.press("Escape");

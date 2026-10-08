@@ -24,7 +24,7 @@ const { spawn } = require("node:child_process");
       state_dir: path.join(state, "runs"),
       bind: "127.0.0.1",
       port,
-      clients: {},
+      clients: { local: { sha256: "0".repeat(64), projects: [] } },
       projects: {},
       services: {},
       origins: [canonical],

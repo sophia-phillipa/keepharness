@@ -49,18 +49,6 @@ def test_service_state_changes_need_an_enrolled_session(tmp_path):
                 app, "POST", "/v1/services", headers=bearer, json={"project_id": "p"}, local=True
             )
             assert listed.status_code == 200, listed.text
-            # Host services are machine-wide: a guest's enrolled session still cannot change them.
-            for action in ("start", "stop", "restart"):
-                guest = consume_enrollment(cfg, issue_enrollment(cfg, "a"))
-                refused = request(
-                    app,
-                    "POST",
-                    "/v1/services",
-                    headers={"Cookie": SESSION_COOKIE + "=" + guest},
-                    json={**start, "action": action},
-                )
-                assert refused.status_code == 403, action
-                assert refused.json()["code"] == "service_control_denied", action
             assert not [
                 call
                 for call in process.call_args_list
@@ -83,24 +71,17 @@ def test_service_state_changes_need_an_enrolled_session(tmp_path):
         app.state.service.db.close()
 
 
-def test_only_the_local_owner_saves_project_workflows(tmp_path):
+def test_every_client_is_the_owner_who_saves_project_workflows(tmp_path):
     cfg = config(tmp_path)
     cfg["local_access"] = True
     cfg["clients"]["local"] = {"sha256": hashlib.sha256(b"local").hexdigest(), "projects": ["p"]}
     app = create_app(cfg)
     try:
-        remote = request(
-            app,
-            "POST",
-            "/v1/jobs/j1/save-workflow",
-            headers={"Authorization": "Bearer a"},
-            json={"id": "planted"},
-            local=True,
-        )
-        assert remote.status_code == 403
-        assert remote.json()["code"] == "workflow_save_local_only"
-        # The owner on this computer reaches the save itself (here: an unknown job).
-        local = request(app, "POST", "/v1/jobs/j1/save-workflow", json={"id": "mine"}, local=True)
-        assert local.json()["code"] == "job_not_found", local.text
+        # Both clients reach the save itself (here: an unknown job); neither is refused up front.
+        for headers in ({"Authorization": "Bearer a"}, {}):
+            saved = request(
+                app, "POST", "/v1/jobs/j1/save-workflow", headers=headers, json={"id": "x"}, local=True
+            )
+            assert saved.json()["code"] == "job_not_found", saved.text
     finally:
         app.state.service.db.close()

@@ -89,31 +89,30 @@ def test_building_clients_deletes_a_stale_vpn_key(tmp_path):
     runtime_config.build_clients(cfg, {"logins": []}, tmp_path, {})
 
 
-@pytest.mark.parametrize(
-    "setting, expected",
-    [
-        ({}, False),
-        ({"shared_projects": False}, False),
-        ({"shared_projects": True}, True),
-        ({"shared_projects": "yes"}, False),
-    ],
-)
-def test_shared_projects_follows_the_setting_and_is_off_by_default(tmp_path, setting, expected):
-    settings = {"services": {}, "uploads_enabled": False, "projects": [], "port": 8095, **setting}
-    cfg = runtime_config.base_config(settings, tmp_path, 8094, None, {})
-    assert cfg["shared_projects"] is expected
+def test_the_runtime_config_has_no_shared_projects_switch(tmp_path):
+    settings = {"services": {}, "uploads_enabled": False, "projects": [], "port": 8095}
+    for extra in ({}, {"shared_projects": True}):
+        cfg = runtime_config.base_config({**settings, **extra}, tmp_path, 8094, None, {})
+        assert "shared_projects" not in cfg
 
 
-def test_non_local_clients_start_with_sem_projeto(tmp_path):
+def test_only_the_local_owner_exists_and_every_login_maps_to_it(tmp_path):
     cfg = {"projects": {"sem-projeto": {}, "registered": {}}, "clients": {}}
-    settings = {"logins": ["person@example.com"]}
+    settings = {"logins": ["person@example.com", "other@example.com"]}
     runtime_config.build_clients(cfg, settings, tmp_path, {})
+    assert list(cfg["clients"]) == ["local"]
     assert cfg["clients"]["local"]["projects"] == ["sem-projeto", "registered"]
-    others = {
-        name: client["projects"] for name, client in cfg["clients"].items() if name != "local"
+    assert cfg["tailscale_logins"] == {
+        "person@example.com": "local",
+        "other@example.com": "local",
     }
-    assert set(others) == {cfg["tailscale_logins"]["person@example.com"]}
-    assert all(projects == ["sem-projeto"] for projects in others.values())
+
+
+def test_an_empty_allow_list_maps_no_login(tmp_path):
+    cfg = {"projects": {"sem-projeto": {}}, "clients": {}}
+    runtime_config.build_clients(cfg, {"logins": []}, tmp_path, {})
+    assert list(cfg["clients"]) == ["local"]
+    assert cfg["tailscale_logins"] == {}
 
 
 def test_origins_include_the_tailnet_host_only_when_known():

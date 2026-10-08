@@ -251,6 +251,12 @@ async def run(service):
                     row = dict(source)
                     if row["id"] in tasks:
                         continue
+                    if row["owner"] not in service.config["clients"]:
+                        # A row stored under a client that no longer exists (D-040 item 2).
+                        await settle_running(
+                            service, row["id"], "failed", {"error": "owner_unknown"}
+                        )
+                        continue
                     backend = json.loads(row["payload"]).get("backend", "codex")
                     conversation = conversation_key(service, row)
                     reason = (

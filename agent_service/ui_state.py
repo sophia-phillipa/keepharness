@@ -20,7 +20,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .errors import APIError
-from .harness_agents import LOCAL_CLIENT
 from .pages import PROJECT_ID
 from .persistence.json_file_repository import JsonFileRepository, owner_folder_name
 
@@ -311,9 +310,3 @@ def update(config: dict, owner: str, changes: dict) -> dict:
         except OSError:
             raise unsafe() from None
     return view(values, False)
-
-
-def require_owner(identity: tuple) -> None:
-    """Preferences belong to the local owner; any other client gets no store."""
-    if identity[0] != LOCAL_CLIENT:
-        raise APIError("ui_state_local_only", 403)

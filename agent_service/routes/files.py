@@ -12,7 +12,7 @@ from pathlib import Path
 
 from starlette.responses import FileResponse, JSONResponse
 
-from .. import harness_agents, maestro, tools, workspaces
+from .. import maestro, tools, workspaces
 from ..config import MAX_PROJECT_UPLOAD_BYTES
 from ..errors import APIError
 from ..persistence.db import encoded
@@ -22,8 +22,6 @@ from . import api_route, body
 # Bidirectional embedding, override and isolate controls: they can reorder how a name
 # is displayed and hide its real extension ("invoice\u202etxt.exe").
 BIDI_CONTROLS = frozenset("\u061c\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069")
-# The host's own folders belong to the owner on this computer; guests only get project roots.
-HOST_FILES_OWNER_ONLY = "host_files_owner_only"
 
 
 def require_current_read(request, service, project):
@@ -221,7 +219,6 @@ async def authorized_project_files(request, service, identity):
         "path": "",
         "limited": False,
         "can_authorize": bool(service.config.get("project_registration"))
-        and identity[0] == harness_agents.LOCAL_CLIENT
         and project != "sem-projeto",
     }
     if not roots:
@@ -248,7 +245,6 @@ async def project_files(request, service, identity):
     if request.query_params.get("view") == "authorized":
         return await authorized_project_files(request, service, identity)
     if request.query_params.get("view") == "tree":
-        harness_agents.require_local_client(identity, HOST_FILES_OWNER_ONLY)
         roots = workspaces.system_roots()
         root_id = request.query_params.get("root_id", "home")
         try:
@@ -340,7 +336,6 @@ async def attach_project_files(request, service, identity):
             workspaces.selected_project_files, root, data.get("paths"), maximum
         )
     else:
-        harness_agents.require_local_client(identity, HOST_FILES_OWNER_ONLY)
         root = workspaces.system_root(data.get("root_id", "home"))
         selected, skipped = await asyncio.to_thread(
             workspaces.selected_system_files, root, data.get("paths"), maximum

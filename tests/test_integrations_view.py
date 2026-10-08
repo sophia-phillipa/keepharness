@@ -23,7 +23,6 @@ NOT_ALLOWED = "Not allowed for this provider. Change it in Settings â€º System â
 REMOTE_PLUGIN = "Remote ChatGPT plugins bring their tools as Codex apps, which harness runs turn off."
 GEMINI_READ_ONLY = "Read-only access turns connectors off for Gemini."
 READ_ONLY = "Read-only access turns connectors and plugins off."
-OWNER_ONLY = "Connectors run only for the owner of this computer."
 GEMINI_INTERNET = "Gemini connectors need the internet permission."
 ASKS = "Each connector call asks for your approval."
 NO_ASK = "Connector calls run without asking (full access)."
@@ -410,14 +409,6 @@ def test_ask_gates_every_connector_call(client, settings, backend):
     assert effective_state(view(client, backend=backend))["mcp:github"] == (True, True, "")
 
 
-@pytest.mark.parametrize("access_mode", ["ask", "read_only"])
-def test_a_guest_gets_no_host_connectors(client, access_mode):
-    client.headers["Authorization"] = "Bearer b"
-    body = view(client, access_mode=access_mode).json()
-    assert body["effective_note"] == ""
-    assert {(item["effective"], item["reason"]) for item in body["items"]} == {(False, OWNER_ONLY)}
-
-
 def test_a_restricted_adapter_never_runs_unattended(client, settings):
     settings["claude"]["unrestricted"] = False
     settings["services"]["claude"]["permissions"]["shell"] = True
@@ -771,11 +762,6 @@ def test_elsewhere_label_keeps_the_name_as_the_menu_shows_it(client, github_on_c
     labels = {key: entry["label"] for key, entry in elsewhere(client, backend="claude").items()}
     # Display casing wins; a lowercase id falls back to the title-cased key.
     assert labels == {"github": "GitHub", "postgresql": "PostgreSQL", "linear-app": "Linear App"}
-
-
-def test_a_guest_learns_nothing_about_tools_elsewhere(client, github_on_codex):
-    client.headers["Authorization"] = "Bearer b"
-    assert view(client, backend="claude").json()["elsewhere"] == []
 
 
 def test_a_provider_not_allowed_for_the_project_is_not_counted(client, github_on_codex, settings):

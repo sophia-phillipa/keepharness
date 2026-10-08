@@ -33,7 +33,7 @@ const railModels = [
   { id: "gemini-model", name: "Gemini model", backend: "gemini", efforts: ["low"] },
   { id: "local-model", name: "Local model", backend: "local", efforts: ["low"] },
 ];
-async function openRail(browser, { providers, width = 1280, height = 860, visibility = "visible", usageDenied = false }) {
+async function openRail(browser, { providers, width = 1280, height = 860, visibility = "visible" }) {
   const fixture = { providers };
   const context = await browser.newContext({ locale: "en-US", viewport: { width, height } });
   const page = await context.newPage();
@@ -54,10 +54,6 @@ async function openRail(browser, { providers, width = 1280, height = 860, visibi
     });
   await page.route("**/v1/**", (route) => {
     const url = new URL(route.request().url());
-    if (usageDenied && url.pathname === "/v1/usage") {
-      usageCalls.push(url.searchParams.get("backend") || "codex");
-      return route.fulfill({ status: 403, json: { code: "quota_owner_only", retryable: false } }); // the harness error shape
-    }
     const data =
       url.pathname === "/v1/usage"
         ? (usageCalls.push(url.searchParams.get("backend") || "codex"), { available: false, reason: "quota_not_read" })
@@ -406,40 +402,6 @@ const meterRows = (page) =>
     assert.deepEqual([...primed.usageCalls].sort(), ["claude", "codex", "deepseek"], "one call per backend across several polls, none for Gemini or local");
     assert.deepEqual(primed.errors, []);
     await primed.context.close();
-
-    // A guest sees every meter as n/a, owner only, and nothing is ever primed for it.
-    const ownerOnly = Object.fromEntries(["codex", "claude", "gemini", "deepseek", "local"].map((backend) => [backend, { backend, model: backend, quota: missing("owner_only") }]));
-    const guest = await openRail(browser, { providers: Object.values(ownerOnly) });
-    await guest.page.locator('[data-testid="quota-meter"]').first().waitFor();
-    for (let poll = 0; poll < 4; poll += 1) await feed(guest, Object.values(ownerOnly));
-    await guest.page.waitForTimeout(300);
-    rows = await meterRows(guest.page);
-    assert.deepEqual(rows.map((row) => row.provider), ["codex", "claude", "gemini", "deepseek", "local"], "a guest keeps all five meters");
-    for (const row of rows) {
-      assert.equal(row.state, "na", `${row.provider} is n/a for a guest`);
-      assert.match(row.text, /n\/a/);
-      assert.match(row.label, /^[\w ]+ quota not available: visible to the owner only\. Open details\.$/, row.label);
-      assert.equal(row.title, row.label);
-      assert.doesNotMatch(row.label + row.text, /%|\$/, "a guest never sees a quota or a balance");
-    }
-    assert.deepEqual(guest.usageCalls, [], "owner_only never triggers /v1/usage");
-    assert.deepEqual(guest.errors, []);
-    await guest.context.close();
-
-    // Ownership changed between polls: the activity feed still says "not read", /v1/usage answers 403
-    // quota_owner_only. Each backend is asked once, ends owner-only n/a and is not asked again this session.
-    const changed = await openRail(browser, { providers: stale, usageDenied: true });
-    await changed.page.locator('[data-testid="quota-meter"]').first().waitFor();
-    await changed.page.waitForFunction(() => document.querySelectorAll('#provider-quotas [data-state="na"]').length === 5);
-    for (let poll = 0; poll < 4; poll += 1) await feed(changed, stale);
-    await changed.page.waitForTimeout(300);
-    assert.deepEqual([...changed.usageCalls].sort(), ["claude", "codex", "deepseek"], "one denied call per backend, none repeated");
-    const labels = Object.fromEntries((await meterRows(changed.page)).map((row) => [row.provider, row.label]));
-    for (const backend of ["codex", "claude", "deepseek"]) assert.match(labels[backend], /: visible to the owner only\. Open details\.$/, `${backend}: ${labels[backend]}`);
-    assert.match(labels.gemini, /provider reports no quota/, "providers that were never primed keep their own reason");
-    assert.match(labels.local, /local models have no quota/);
-    assert.deepEqual(changed.errors, []);
-    await changed.context.close();
     await rail.context.close();
     assert.deepEqual(errors, []);
     console.log("PASS: quota panel per provider, meter opens its own provider, DeepSeek balance");

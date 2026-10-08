@@ -1,13 +1,20 @@
 """The service layer keeps the historical Service surface while delegating."""
 
-from unittest.mock import patch
+import asyncio
+import json
+import sys
+from unittest.mock import AsyncMock, patch
 
-from test_workspaces import config
+import pytest
+
+from test_workspaces import config, single_owner_config
 
 from agent_service import app
 from agent_service.config import runtime_job_affected, validate_runtime_config
 from agent_service.services import queue_worker
 from agent_service.services.conversation_service import ConversationService
+from control import runtime_config
+from control.server import Manager
 
 
 def test_service_alias_and_project_folder_sets_are_shared(tmp_path):
@@ -38,8 +45,118 @@ def test_queue_methods_delegate_to_the_queue_worker(tmp_path):
 
 
 def test_runtime_config_helpers_are_pure_functions(tmp_path):
-    current = config(tmp_path)
+    current = single_owner_config(tmp_path)
     assert validate_runtime_config(current)
     assert not validate_runtime_config({**current, "services": []})
-    row = {"id": "j", "owner": "a", "project": "p", "state": "queued", "payload": "{}"}
+    row = {"id": "j", "owner": "local", "project": "p", "state": "queued", "payload": "{}"}
     assert runtime_job_affected(current, {}, row, {**current, "projects": {}})
+
+
+def test_runtime_config_holds_only_the_owner(tmp_path):
+    current = single_owner_config(tmp_path)
+    assert validate_runtime_config({**current, "tailscale_logins": {"me@example.test": "local"}})
+    # An old config with a per-login client would otherwise be granted owner rights.
+    old_client = {"sha256": "0" * 64, "projects": ["p"]}
+    assert not validate_runtime_config(
+        {**current, "clients": {**current["clients"], "tailnet-0123abcd": old_client}}
+    )
+    assert not validate_runtime_config({**current, "clients": {"a": old_client}})
+    assert not validate_runtime_config({**current, "tailscale_logins": {"me@example.test": "a"}})
+    assert not validate_runtime_config({**current, "tailscale_logins": ["me@example.test"]})
+
+
+def test_a_control_built_config_validates(tmp_path):
+    current = single_owner_config(tmp_path)
+    current["clients"] = {}
+    runtime_config.build_clients(
+        current, {"logins": ["me@example.test", "you@example.test"]}, tmp_path, {}
+    )
+    assert set(current["clients"]) == {"local"}
+    assert validate_runtime_config(current)
+
+
+@pytest.mark.parametrize(
+    "local_access,logins,hostname,allow_empty",
+    [
+        (True, [], None, True),
+        (False, [], None, True),
+        (True, ["me@example.test", "you@example.test"], "machine.example.ts.net", True),
+        (True, ["me@example.test"], "machine.example.ts.net", False),
+    ],
+)
+def test_every_config_the_control_writes_validates_at_startup(
+    tmp_path, local_access, logins, hostname, allow_empty
+):
+    # First run (nothing enabled, no previous runtime) or a shared install with one service; the
+    # control only binds loopback, so a local_access-off config is the same output with the flag
+    # cleared.
+    manager = Manager(tmp_path)
+    manager.inventory = {"network": {"hostname": hostname}, "services": [], "binaries": {}}
+    manager.settings["logins"] = logins
+    if not allow_empty:
+        manager.settings["services"]["codex"].update(enabled=True, models=["gpt-5-codex"])
+        manager.inventory["services"] = [
+            {
+                "id": "codex",
+                "found": True,
+                "binary": sys.executable,
+                "auth_file": str(tmp_path / "codex-auth.json"),
+            }
+        ]
+    checked = {"authenticated": True, "models": {"gpt-5-codex": ["low"]}}
+    with (
+        patch.object(manager, "check", AsyncMock(return_value=checked)),
+        patch.object(manager, "integrations", lambda: {}),
+    ):
+        cfg = asyncio.run(manager.build_runtime_config(manager.settings, allow_empty=allow_empty))
+    assert cfg["local_access"] is True
+    assert cfg["tailscale_logins"] == dict.fromkeys(logins, "local")
+    assert (f"http://{hostname}:{manager.settings['tailnet_port']}" in cfg["origins"]) == bool(
+        hostname
+    )
+    assert allow_empty or cfg["services"]["codex"]["enabled"] is True
+    cfg["local_access"] = local_access
+    path = tmp_path / "runtime.json"
+    path.write_text(json.dumps(cfg))
+    assert app.read_startup_config(path) == cfg
+
+
+def test_startup_refuses_a_config_naming_another_client(tmp_path):
+    current = single_owner_config(tmp_path)
+    current["clients"]["tailnet-0123abcd"] = {"sha256": "0" * 64, "projects": ["p"]}
+    path = tmp_path / "runtime.json"
+    path.write_text(json.dumps(current))
+    with pytest.raises(SystemExit, match="runtime_config_invalid"):
+        app.read_startup_config(path)
+    for text in ("[]", '{"clients": '):
+        path.write_text(text)
+        with pytest.raises(SystemExit, match="runtime_config_invalid"):
+            app.read_startup_config(path)
+
+
+def test_a_queued_job_of_an_unknown_owner_is_not_run(tmp_path):
+    async def scenario():
+        service = ConversationService(single_owner_config(tmp_path))
+        try:
+            service.db.execute(
+                "INSERT INTO jobs(id,project,owner,state,created,payload,result,idem,digest)"
+                " VALUES(?,?,?,?,?,?,?,?,?)",
+                ("orphan", "p", "tailnet-0123abcd", "queued", 1, json.dumps(payload), None, None, "o"),
+            )
+            service.db.commit()
+            service.execute = AsyncMock(return_value={"answer": "must not run"})
+            worker = asyncio.create_task(service.worker())
+            for _ in range(200):
+                if service.conversation_repository.state("orphan")[0] != "queued":
+                    break
+                await asyncio.sleep(0.005)
+            worker.cancel()
+            await asyncio.gather(worker, return_exceptions=True)
+            state = service.conversation_repository.state("orphan")[0]
+            result = json.loads(service.conversation_repository.get("orphan")["result"])
+            return state, result["error"], service.execute.await_count
+        finally:
+            service.db.close()
+
+    payload = {"backend": "codex", "model": "gpt-6-astra", "prompt": "orphan", "project_id": "p"}
+    assert asyncio.run(scenario()) == ("failed", "owner_unknown", 0)

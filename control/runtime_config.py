@@ -50,9 +50,7 @@ def base_config(settings, state, admin_port, browser_url, provider_revisions):
         "uploads_enabled": settings["uploads_enabled"],
         "mcp_defaults": settings.get("mcp_defaults", {}),
         "default_backend": settings.get("default_backend", ""),
-        # The owner registers project folders; other clients receive them only when shared.
         "project_registration": True,
-        "shared_projects": settings.get("shared_projects") is True,
         "control_state_dir": str(state),
         "personal_setup": settings.get("personal_setup") is True,
         "full_access": settings.get("full_access") is True,
@@ -238,24 +236,14 @@ def build_clients(cfg, settings, state, previous):
     all_projects = list(cfg["projects"])
     (state / "vpn.key").unlink(missing_ok=True)
     clients = previous.get("clients", {})
-    # Only the local owner starts with every project; the others start with "No project" and
-    # receive the rest when the owner shares them (ProjectService.share_projects).
     cfg["clients"]["local"] = {
         "sha256": clients.get("local", {}).get(
             "sha256", hashlib.sha256(secrets.token_bytes(48)).hexdigest()
         ),
         "projects": all_projects,
     }
-    cfg["tailscale_logins"] = {}
-    for login in settings["logins"]:
-        client = "tailnet-" + hashlib.sha256(login.encode()).hexdigest()[:16]
-        cfg["clients"][client] = {
-            "sha256": clients.get(client, {}).get(
-                "sha256", hashlib.sha256(secrets.token_bytes(48)).hexdigest()
-            ),
-            "projects": ["sem-projeto"],
-        }
-        cfg["tailscale_logins"][login] = client
+    # Every allow-listed Tailscale login is the owner.
+    cfg["tailscale_logins"] = {login: "local" for login in settings["logins"]}
 
 
 def build_origins(cfg, settings, inventory):

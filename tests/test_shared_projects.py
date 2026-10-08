@@ -18,7 +18,6 @@ def config(tmp_path):
     return {
         "state_dir": str(tmp_path / "state"),
         "project_registration": True,
-        "shared_projects": True,
         "projects": {"sem-projeto": {}},
         # "local" is the owner on this computer, the only client that manages project folders.
         "clients": {
@@ -198,8 +197,8 @@ def test_start_rechecks_providers_and_builds_native_config(tmp_path):
     assert refresh.await_count == checked.await_count == 2
     assert cfg["deepseek_models"] == {"new-model": ["configured"]}
     assert cfg["deepseek"]["unrestricted"] is True
-    # The owner registers folders; other clients receive them only once shared (SEC-R3-1).
-    assert (cfg["project_registration"], cfg["shared_projects"]) == (True, False)
+    assert cfg["project_registration"] is True
+    assert "shared_projects" not in cfg
 
 
 def test_claude_native_disables_sandbox(tmp_path):
@@ -260,10 +259,9 @@ def test_model_catalog_excludes_maestro_even_when_enabled(tmp_path, project_id):
         assert any(model["backend"] == "codex" for model in models)
 
 
-@pytest.mark.parametrize("shared", [False, True])
-def test_guest_scope_survives_hot_reload(tmp_path, shared):
+def test_registered_project_scope_survives_hot_reload(tmp_path):
     cfg = config(tmp_path)
-    cfg["shared_projects"] = shared
+    cfg["clients"] = {"local": cfg["clients"]["local"]}  # a runtime config holds only the owner
     app = create_app(copy.deepcopy(cfg))
     root = tmp_path / "project"
     root.mkdir()
@@ -274,15 +272,14 @@ def test_guest_scope_survives_hot_reload(tmp_path, shared):
     client.close()
     service = app.state.service
     try:
-        # The control plane rebuilds clients without the registered project; the reload must not
-        # hand it to everyone (the owner's registered folders are durable data, not shared ones).
+        # The control plane rebuilds clients without the registered project; the reload gives it
+        # back to every client (D-040: every client is the owner).
         candidate = copy.deepcopy(cfg)
         candidate["config_revision"] = "after-a-settings-save"
         asyncio.run(service.apply_runtime_config(candidate))
         clients = service.config["clients"]
         assert pid in clients["local"]["projects"]
-        assert (pid in clients["a"]["projects"]) is shared
-        assert "sem-projeto" in clients["a"]["projects"]
+        assert "sem-projeto" in clients["local"]["projects"]
         assert all(pid in spec["projects"] for spec in service.config["services"].values())
     finally:
         service.db.close()

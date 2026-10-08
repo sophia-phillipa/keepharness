@@ -4,7 +4,7 @@ import json
 
 import pytest
 from starlette.testclient import TestClient
-from test_workspaces import config
+from test_workspaces import single_owner_config as config
 
 from agent_service.app import APIError, Service, create_app
 from control.manager import Manager
@@ -17,7 +17,7 @@ def payload(backend="codex", model="codex-test"):
 def queued(service, ident, data):
     service.db.execute(
         "INSERT INTO jobs(id,project,owner,state,created,payload,result,idem,digest) VALUES(?,?,?,?,?,?,?,?,?)",
-        (ident, "p", "a", "queued", 1, json.dumps(data), None, None, ident),
+        (ident, "p", "local", "queued", 1, json.dumps(data), None, None, ident),
     )
     service.db.commit()
 
@@ -25,8 +25,6 @@ def queued(service, ident, data):
 def test_reload_cancels_only_removed_model_and_keeps_registered_projects(tmp_path):
     cfg = config(tmp_path)
     cfg["project_registration"] = True
-    # Client "a" is a guest: it keeps the registered project through a reload only when shared.
-    cfg["shared_projects"] = True
     cfg["services"]["stable"] = {
         "enabled": True,
         "models": ["stable-model"],
@@ -45,7 +43,7 @@ def test_reload_cancels_only_removed_model_and_keeps_registered_projects(tmp_pat
             (
                 "registered",
                 project,
-                "a",
+                "local",
                 "queued",
                 1,
                 json.dumps({**payload("stable", "stable-model"), "project_id": project}),
@@ -62,9 +60,9 @@ def test_reload_cancels_only_removed_model_and_keeps_registered_projects(tmp_pat
 
         asyncio.run(service.apply_runtime_config(candidate))
 
-        assert service.job(("a", service.config["clients"]["a"]), "removed")["state"] == "cancelled"
-        assert service.job(("a", service.config["clients"]["a"]), "kept")["state"] == "queued"
-        assert service.job(("a", service.config["clients"]["a"]), "registered")["state"] == "queued"
+        assert service.job(("local", service.config["clients"]["local"]), "removed")["state"] == "cancelled"
+        assert service.job(("local", service.config["clients"]["local"]), "kept")["state"] == "queued"
+        assert service.job(("local", service.config["clients"]["local"]), "registered")["state"] == "queued"
         assert service.config["projects"][project]["root"] == str(registered)
         assert service.config["config_revision"] == "revision-two"
     finally:
@@ -116,17 +114,17 @@ def test_reload_revokes_client_and_only_affected_local_runtime(tmp_path):
         candidate = copy.deepcopy(cfg)
         candidate["local"]["local_models"]["one"] = {"endpoint": "replacement"}
         asyncio.run(service.apply_runtime_config(candidate))
-        identity = ("a", service.config["clients"]["a"])
+        identity = ("local", service.config["clients"]["local"])
         assert service.job(identity, "one")["state"] == "cancelled"
         assert service.job(identity, "two")["state"] == "queued"
 
         candidate = copy.deepcopy(service.config)
-        candidate["clients"]["a"]["projects"] = []
+        candidate["clients"]["local"]["projects"] = []
         asyncio.run(service.apply_runtime_config(candidate))
         assert (
             service.db.execute("SELECT state FROM jobs WHERE id='two'").fetchone()[0] == "cancelled"
         )
-        assert service.config["clients"]["a"]["projects"] == [], (
+        assert service.config["clients"]["local"]["projects"] == [], (
             "reload must not restore revoked grants"
         )
     finally:

@@ -1,6 +1,6 @@
 /* Durable UI preferences: the harness keeps them in its own store (GET/PATCH /v1/ui-state) instead of
  * the browser's per-origin localStorage. Loaded before ui.js, which reads preferences at the top level,
- * so the first read is one synchronous request. Any answer that is not a version 1 store (a guest's 403,
+ * so the first read is one synchronous request. Any answer that is not a version 1 store (a 403,
  * a mocked page, a network error) leaves "local mode": the previous localStorage behaviour, unchanged. */
 (() => {
   "use strict";

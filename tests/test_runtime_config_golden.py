@@ -24,6 +24,7 @@ import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
+from agent_service.config import validate_runtime_config
 from control import local_access
 from control.server import Manager
 
@@ -103,14 +104,14 @@ def _build_manager(tmp_path):
         "clients": {
             "vpn": {"sha256": "0" * 64},  # an old runtime.json's shared key must not come back
             "local": {"sha256": "1" * 64},
-            client_id: {"sha256": "2" * 64},
+            client_id: {"sha256": "2" * 64},  # a stale per-login client must not come back
         }
     }
     # Seeding a previous runtime.json makes the client hashes deterministic:
     # build_runtime_config only mints a fresh random hash when one is missing.
     (manager.state / "runtime.json").write_text(json.dumps(previous_runtime))
     (manager.state / "tailnet.json").write_text("{}")
-    return manager, settings, client_id
+    return manager, settings
 
 
 async def _fake_check(provider):
@@ -123,7 +124,7 @@ async def _fake_check(provider):
 
 
 def test_build_runtime_config_matches_golden_shape(tmp_path):
-    manager, settings, client_id = _build_manager(tmp_path)
+    manager, settings = _build_manager(tmp_path)
     with (
         patch.object(manager, "check", AsyncMock(side_effect=_fake_check)),
         patch.object(manager, "integrations", lambda: {}),
@@ -131,6 +132,8 @@ def test_build_runtime_config_matches_golden_shape(tmp_path):
     ):
         cfg = asyncio.run(manager.build_runtime_config(settings))
 
+    # The service refuses to start on a config this validator rejects.
+    assert validate_runtime_config(cfg)
     revision = cfg.pop("config_revision")
     assert re.fullmatch(r"[0-9a-f-]{36}", revision)
     # Only the digest of the per-install secret travels; the secret stays in its 0600 file.
@@ -176,9 +179,8 @@ def test_build_runtime_config_matches_golden_shape(tmp_path):
             },
         },
         "clients": {
-            # Only the local owner starts with every project; guests start with "No project".
+            # Only the local owner exists, with every project (D-040).
             "local": {"sha256": "1" * 64, "projects": all_projects},
-            client_id: {"sha256": "2" * 64, "projects": ["sem-projeto"]},
         },
         "services": {
             "codex": {
@@ -238,7 +240,6 @@ def test_build_runtime_config_matches_golden_shape(tmp_path):
         "mcp_defaults": {},
         "default_backend": "",
         "project_registration": True,
-        "shared_projects": False,
         "control_state_dir": "<TMP>/control",
         "personal_setup": False,
         "full_access": False,
@@ -288,6 +289,6 @@ def test_build_runtime_config_matches_golden_shape(tmp_path):
             "plugin_inventory": [],
         },
         "deepseek_models": {"deepseek-chat": ["configured"]},
-        "tailscale_logins": {"person@example.com": client_id},
+        "tailscale_logins": {"person@example.com": "local"},
     }
     assert scrubbed == expected

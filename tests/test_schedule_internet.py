@@ -137,14 +137,10 @@ def test_claude_scheduled_runs_get_no_web_tools_unless_opted_in(api, tmp_path, a
 
 
 @pytest.mark.parametrize("allow_internet", [False, True])
-def test_gemini_scheduled_runs_drop_connectors_without_internet(
-    api, tmp_path, monkeypatch, allow_internet
-):
+def test_gemini_scheduled_runs_drop_connectors_without_internet(api, tmp_path, allow_internet):
     """Connectors need the network (D03): without it the run starts and carries none."""
     from adapters.gemini.policy import prepare
 
-    # Connectors are the owner's own (D04): make the schedule's client the owner.
-    monkeypatch.setattr("agent_service.harness_agents.LOCAL_CLIENT", "a")
     project, config = scheduled_run(api, "gemini", allow_internet)
     assert config["integrations"] == (["mcp:drive"] if allow_internet else [])
     with (

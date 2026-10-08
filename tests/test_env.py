@@ -162,11 +162,10 @@ def test_personal_setup_is_an_owner_opt_in_off_by_default(tmp_path):
     assert runtime["personal_setup"] is False
     on = {"personal_setup": True}
 
-    def personal(config, guest=False, data=None):
-        return run_settings(config, "local", guest=guest, data=data or {})["personal_setup"]
+    def personal(config, data=None):
+        return run_settings(config, "local", data=data or {})["personal_setup"]
 
     assert personal(on) is True
-    assert personal(on, guest=True) is False
     assert personal(on, data={"schedule_id": "s1"}) is False
     assert personal({}) is False
 

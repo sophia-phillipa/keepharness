@@ -175,31 +175,6 @@ def test_requests_without_credentials_are_rejected(api):
         assert response.json()["code"] == "authentication_required"
 
 
-def test_only_the_local_client_writes_agents(api, remote, folder):
-    created = api.post("/v1/harness-agents", json=agent()).json()
-    before = (folder / "code-reviewer.json").read_text()
-    attempts = (
-        ("POST", "/v1/harness-agents", agent(name="other-agent")),
-        (
-            "PUT",
-            "/v1/harness-agents/code-reviewer",
-            {**agent(purpose="Hijacked"), "revision": created["revision"]},
-        ),
-        ("DELETE", "/v1/harness-agents/code-reviewer", {"revision": created["revision"]}),
-    )
-    for method, path, body in attempts:
-        response = remote.request(method, path, json=body)
-        assert response.status_code == 403, (method, response.text)
-        assert response.json()["code"] == "harness_agent_local_only"
-    assert (folder / "code-reviewer.json").read_text() == before
-    assert [entry.name for entry in folder.iterdir()] == ["code-reviewer.json"]
-
-
-def test_the_local_check_runs_before_the_body_is_read(remote):
-    response = remote.post("/v1/harness-agents", content=b"not json")
-    assert response.status_code == 403 and response.json()["code"] == "harness_agent_local_only"
-
-
 def test_every_authenticated_client_lists_and_uses_harness_agents(api, remote):
     api.post("/v1/harness-agents", json=agent())
     listed = remote.get("/v1/harness-agents")
@@ -207,10 +182,8 @@ def test_every_authenticated_client_lists_and_uses_harness_agents(api, remote):
     assert [item["name"] for item in listed.json()["agents"]] == ["code-reviewer"]
 
 
-def test_a_header_never_makes_a_client_local(remote):
+def test_a_forwarded_request_never_honors_the_token(remote):
     spoofed = {"X-Harness-Client": "local", "Host": "localhost"}
-    response = remote.post("/v1/harness-agents", json=agent(), headers=spoofed)
-    assert response.status_code == 403 and response.json()["code"] == "harness_agent_local_only"
     # A forwarded request is not a direct local peer: the token is not honored at all.
     forwarded = remote.post(
         "/v1/harness-agents", json=agent(), headers={**spoofed, "X-Forwarded-For": "127.0.0.1"}

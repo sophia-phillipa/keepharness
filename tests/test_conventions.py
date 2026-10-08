@@ -24,6 +24,8 @@ def test_this_repository_passes_its_own_convention_check_today():
     word_hits = conventions.check_words(files)
     assert word_hits == 0
 
+    assert conventions.check_guests(files) == 0
+
 
 def test_main_as_a_subprocess_matches_the_ci_invocation():
     """``ci.yml`` runs exactly ``python scripts/check_conventions.py``; exit code carries the verdict."""
@@ -37,6 +39,7 @@ def test_main_as_a_subprocess_matches_the_ci_invocation():
     assert result.returncode == 0, result.stdout + result.stderr
     assert "0 name errors" in result.stdout
     assert "0 portuguese hits" in result.stdout
+    assert "0 guest hits" in result.stdout
 
 
 def test_python_file_names_must_be_snake_case():
@@ -187,4 +190,42 @@ def test_json_output_summary_line_is_machine_parseable_enough_for_ci():
     summary = result.stdout.strip().splitlines()[-1]
     assert summary.startswith("conventions: ")
     counts = [int(part) for part in summary.replace("conventions: ", "").split() if part.isdigit()]
-    assert len(counts) == 3
+    assert len(counts) == 4
+
+
+def test_guest_scan_flags_every_spelling_in_code_and_tests(tmp_path, monkeypatch):
+    monkeypatch.setattr(conventions, "REPO_ROOT", tmp_path)
+    names = {
+        "a.py": "GUEST_LOGIN = 1\n",
+        "b.js": "const x = 'tailnet-guest';\n",
+        "c.cjs": "// Guests see nothing\n",
+        "d.html": "<p>guest</p>\n",
+        "e.css": ".guest {}\n",
+        "f.sh": "echo guest\n",
+    }
+    for name, text in names.items():
+        (tmp_path / name).write_text(text)
+    assert conventions.check_guests(list(names)) == len(names)
+
+
+def test_guest_scan_skips_history_other_file_types_and_the_allow_list(tmp_path, monkeypatch):
+    monkeypatch.setattr(conventions, "REPO_ROOT", tmp_path)
+    paths = ["dossier/decision.py", "docs/note.js", "README.md", *conventions.GUEST_ALLOWED_FILES]
+    for rel in paths:
+        target = tmp_path / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("guest\n")
+    assert conventions.check_guests(paths) == 0
+    assert all(conventions.GUEST_ALLOWED_FILES.values()), "every allow-list entry states a reason"
+
+
+def test_guest_scan_runs_alone_through_only():
+    result = subprocess.run(
+        [sys.executable, "scripts/check_conventions.py", "--only", "guest"],
+        cwd=REPOSITORY_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.strip().endswith("0 guest hits")

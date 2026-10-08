@@ -456,27 +456,17 @@ def test_archived_conversation_can_be_deleted_permanently(retention):
     assert client.get("/v1/jobs/root").status_code == 404
 
 
-def test_guests_archive_and_delete_only_their_own_conversations(retention):
+def test_orphaned_rows_of_a_retired_owner_stay_on_disk_and_out_of_sight(retention):
     client, service, _ = retention
-    bob = {"Authorization": "Bearer bob"}
-    seed_turn(service, "alice-root")
-    seed_turn(service, "bob-root", owner="bob")
+    seed_turn(service, "orphan-root", owner="tailnet-0123abcd")
+    seed_turn(service, "kept-root")
 
-    assert (
-        client.patch(
-            "/v1/conversations/alice-root", headers=bob, json={"archived": True}
-        ).status_code
-        == 404
-    )
-    assert client.delete("/v1/conversations/alice-root", headers=bob).status_code == 404
-    assert listed(client) == ["alice-root"]
-    assert count(service, "events", "job", ("alice-root",)) == 1
-    assert (
-        client.patch("/v1/conversations/bob-root", headers=bob, json={"archived": True}).status_code
-        == 200
-    )
-    assert client.delete("/v1/conversations/bob-root", headers=bob).status_code == 200
-    assert count(service, "jobs", "id", ("bob-root",)) == 0
+    assert listed(client) == ["kept-root"]
+    assert listed(client, archived="true") == []
+    assert client.get("/v1/conversations/orphan-root").status_code == 404
+    assert client.patch("/v1/conversations/orphan-root", json={"archived": True}).status_code == 404
+    assert client.delete("/v1/conversations/orphan-root").status_code == 404
+    assert count(service, "jobs", "id", ("orphan-root",)) == 1
 
 
 @pytest.mark.parametrize("value", ["true", 1, None])

@@ -333,7 +333,7 @@ def input_sources(service, row, data):
         from .workspaces import MAX_BYTES
 
         record = service.workspace(
-            (row["owner"], service.config["clients"][row["owner"]]),
+            service.owner_identity(row),
             data["workspace_id"],
             row["project"],
         )
@@ -684,7 +684,7 @@ async def execute_plan(service, row, data, declared):
                 "invocations": [step["invocation"]],
             }
             decision = service.assess(
-                (row["owner"], service.config["clients"][row["owner"]]), payload
+                service.owner_identity(row), payload
             )
             if decision["decision"] != "accept":
                 raise ToolError("maestro_step_not_allowed")

@@ -542,7 +542,7 @@ def test_killed_harness_is_restarted_and_last_exit_recorded(tmp_path, monkeypatc
                 "state_dir": str(tmp_path / "runs"),
                 "bind": "127.0.0.1",
                 "port": port,
-                "clients": {},
+                "clients": {"local": {"sha256": "0" * 64, "projects": []}},
                 "projects": {},
                 "services": {},
                 "origins": [],
