@@ -611,22 +611,48 @@ class CodexStateAdapter:
             and _name(entry).get("type") == "project"
             and isinstance(_name(entry).get("dotCodexFolder"), str)
         ]
+        project_trusted = bool(
+            project_root
+            and self._trust_details(results.get("config") or {}, project_root)["trusted"]
+        )
         for index, item in enumerate(instructions.items):
             source = Path(item.source)
             if item.source.startswith("~/"):
                 source = instructions.home / item.source[2:]
             elif not source.is_absolute() and project_root:
                 source = Path(project_root) / source
-            if item.scope == "project" and any(
-                source.is_relative_to(folder) for folder in blocked_rule_roots
+            if item.scope == "project" and (
+                not project_trusted
+                or any(source.is_relative_to(folder) for folder in blocked_rule_roots)
             ):
                 instructions.items[index] = replace(
-                    item, enabled=False, details={**item.details, "status": "pending project trust"}
+                    item,
+                    enabled=False,
+                    details={
+                        **item.details,
+                        "project_trust": "pending project trust",
+                        "status": "pending project trust"
+                        if item.enabled
+                        else item.details["status"],
+                    },
                 )
         items.extend(instructions.items)
         warnings.extend(instructions.warnings)
         digest.update(instructions.digest().encode())
         for group in _listed(results.get("hooks"), "data"):
+            for error in _listed(group, "errors"):
+                warnings.append(
+                    "Codex hooks: "
+                    + safe_text(error.get("path", ""))
+                    + ": "
+                    + safe_text(error.get("message", "Hook discovery failed."))
+                )
+            if isinstance(group.get("warnings"), list):
+                warnings.extend(
+                    "Codex hooks: " + safe_text(warning)
+                    for warning in group["warnings"][:100]
+                    if isinstance(warning, str)
+                )
             for hook in _listed(group, "hooks"):
                 details = safe_details(hook)
                 trust = hook.get("trustStatus")
@@ -840,6 +866,12 @@ class CodexStateAdapter:
             _ask(binary, [("config", "config/read", params)], environment=self._environment())
         )
         result = results.get("config") or {}
+        return self._trust_details(result, project_root, require_explicit=require_explicit)
+
+    @staticmethod
+    def _trust_details(result: dict, project_root: Path, *, require_explicit: bool = False) -> dict:
+        """Use the same native config answer for inventory and trust confirmation."""
+        root = Path(project_root).resolve()
         layers = [
             layer for layer in _listed(result, "layers") if _name(layer).get("type") == "project"
         ]

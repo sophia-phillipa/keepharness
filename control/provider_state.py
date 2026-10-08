@@ -35,6 +35,7 @@ from adapters.shared.provider_state import (
     ProviderStateAdapter,
     ProviderStateConflictError,
     ProviderStateSchemaError,
+    ProviderStateUnsupportedError,
     ProviderTrustRollbackError,
     StateSnapshot,
     _ProviderStateError,
@@ -355,11 +356,16 @@ def run_start_check(
             if provider == "codex"
             else ClaudeStateAdapter(control_state, environment=environment)
         )
-        stat = _watch(adapter, project_root)
         key = _key(provider, project_id)
         seen = _read_entries(Path(control_state) / SEEN_FILE).get(key)
         if seen is None or seen.get("source_identity") != _source_identity(adapter, project_root):
             return
+        paths = seen.get("watch_paths")
+        stat = (
+            fingerprint(Path(path) for path in paths)
+            if isinstance(paths, list) and all(isinstance(path, str) for path in paths)
+            else _watch(adapter, project_root)
+        )
         with _runs_lock:  # read-modify-write of the one runs file
             runs = _read_entries(Path(control_state) / RUNS_FILE)
             if stat in (seen.get("stat"), runs.get(key, {}).get("stat")):
@@ -471,8 +477,8 @@ class ProviderStateService:
 
         ``written`` is KeepHarness's own write, ``(item_id, enabled, scope)``: that item makes no
         notice and is remembered so a later change back shows as ``reverted``; a user-scope write
-        also moves the item in the provider's other keys, which see the same file. A read with an
-        unchanged stat fingerprint is not diffed.
+        also moves the item in the provider's other keys, which see the same file. A read with
+        unchanged file statistics and items is not diffed.
         """
         key, items = _key(provider, project_id), _items_of(snapshot)
         entry = self._entries().get(key)
@@ -483,6 +489,7 @@ class ProviderStateService:
             self._entries()[key] = {
                 "source_identity": source_identity,
                 "stat": stat,
+                "watch_paths": [str(path) for path in self._adapter(provider).watch_paths(root)],
                 "items": items,
                 "writes": {},
                 "notices": [],
@@ -493,6 +500,7 @@ class ProviderStateService:
         if (
             written is None
             and entry["stat"] == stat
+            and entry["items"] == items
             and receipt.get("id") == entry.get("receipt_id")
         ):
             return
@@ -543,6 +551,7 @@ class ProviderStateService:
                     _note_write(seen, item_id, held["enabled"], after, at)
                     held["enabled"] = after
         entry["items"], entry["stat"] = items, stat
+        entry["watch_paths"] = [str(path) for path in self._adapter(provider).watch_paths(root)]
         self._save()
 
     # --- adapter calls (threads)
@@ -550,7 +559,8 @@ class ProviderStateService:
     def _read_with_stat(self, provider: str, root: Path | None) -> tuple[str, StateSnapshot]:
         adapter = self._adapter(provider)
         try:
-            return _watch(adapter, root), adapter.read_state(root)
+            snapshot = adapter.read_state(root)
+            return _watch(adapter, root), snapshot
         except OSError:
             raise ProviderStateSchemaError("The provider state is unreadable.") from None
 
@@ -739,6 +749,12 @@ class ProviderStateService:
         expected_project_root: str | None = None,
     ) -> dict | JSONResponse:
         root = self.resolve(provider, project_id)
+        if provider not in PROVIDERS:
+            return error_response(
+                ProviderStateUnsupportedError(
+                    "DeepSeek project trust is read-only here; review it in its isolated CLI."
+                )
+            )
         if root is None or (server is not None and provider != "claude"):
             raise APIError("invalid_request", 400)
         # A trust action writes both CLIs. Always acquire locks in this fixed order.
