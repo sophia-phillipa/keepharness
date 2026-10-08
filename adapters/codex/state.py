@@ -776,7 +776,8 @@ class CodexStateAdapter:
     def run_environment(
         self, project_root: Path, trusted: bool, permission_flags: Sequence[str]
     ) -> RunSetup:
-        raise ProviderStateUnsupportedError("the run setup on the real home lands with #45")
+        # Codex resolves project trust itself when loading its native configuration.
+        return RunSetup({}, list(permission_flags), {})
 
     def credential_isolation(self) -> CredentialRule | None:
         return None

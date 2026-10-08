@@ -46,26 +46,15 @@ class RuntimeOptions:
 
 
 def build_command(binary, permissions, hosted_search=True, *, host_config=True):
-    command = [
-        binary,
-        "app-server",
-        "--listen",
-        "stdio://",
-        "-c",
-        "features.hooks=" + str(bool(permissions.get("hooks"))).lower(),
-        "-c",
-        "features.apps=false",
-        "-c",
-        "features.shell_tool=" + str(bool(permissions.get("shell"))).lower(),
-        "-c",
-        "features.unified_exec=" + str(bool(permissions.get("shell"))).lower(),
-        "-c",
-        'web_search="'
-        + ("live" if permissions.get("internet") and hosted_search else "disabled")
-        + '"',
-    ]
+    command = [binary, "app-server", "--listen", "stdio://"]
     if not host_config:
-        return command
+        return command + [
+            "-c", "features.hooks=" + str(bool(permissions.get("hooks"))).lower(),
+            "-c", "features.apps=false",
+            "-c", "features.shell_tool=" + str(bool(permissions.get("shell"))).lower(),
+            "-c", "features.unified_exec=" + str(bool(permissions.get("shell"))).lower(),
+            "-c", 'web_search="' + ("live" if permissions.get("internet") and hosted_search else "disabled") + '"',
+        ]
     # Never synthesize a disabled server without a transport. Only existing host
     # entries are disabled, using the home the CLI actually receives.
     home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
@@ -86,18 +75,7 @@ def thread_parameters(config, project, model, workspace, runtime, unrestricted):
     ask = project.get("access_mode", "ask") == "ask" and not runtime.isolated
     # Automatic: the workspace sandbox on the project; anything beyond asks (decision D11).
     automatic = project.get("access_mode") == "auto" and not runtime.isolated
-    # Read only never starts a connector or plugin (decisions D04, D12).
-    selected = [] if project.get("access_mode") == "read_only" else config.get("integrations", [])
     local_provider = runtime.model_provider
-    personal = config.get("personal_setup") is True
-    plugins = []
-    # The owner's plugins and MCP servers are part of the personal setup (decision D01).
-    if not runtime.isolated and personal:
-        plugins = (
-            config["plugin_inventory"]
-            if "plugin_inventory" in config
-            else [item["id"] for item in inventory()["codex"] if item["kind"] == "plugin"]
-        )
     params = {
         "model": model,
         "cwd": str(cwd),
@@ -115,7 +93,7 @@ def thread_parameters(config, project, model, workspace, runtime, unrestricted):
         ),
         "approvalsReviewer": "user",
         "developerInstructions": "Use the native CLI tools and only the configured integrations. Follow the selected project instructions. Ask approval for actions that exceed the configured permissions. Do not claim a tool succeeded without evidence. "
-        + instructions(config),
+        + instructions(config, provider="deepseek" if local_provider == "tail_api" else "codex"),
     }
     params["developerInstructions"] += (
         " Effective permissions for this turn: "
@@ -124,18 +102,20 @@ def thread_parameters(config, project, model, workspace, runtime, unrestricted):
     )
     params.update(runtime.thread_instructions)
     params["developerInstructions"] += runtime.developer_instructions
-    params["config"] = (
-        {"mcp_servers": {}, "plugins": {}}
-        if runtime.isolated
-        else {
-            "mcp_servers": host_servers(selected, ask or automatic) if personal else {},
-            "plugins": {
-                plugin.split(":", 1)[1]: {"enabled": plugin in selected} for plugin in plugins
-            },
+    params["config"] = {"mcp_servers": {}}
+    if runtime.isolated:
+        params["config"]["plugins"] = {}
+    if local_provider and config.get("personal_setup") is True and not runtime.isolated:
+        selected = [] if project.get("access_mode") == "read_only" else config.get("integrations", [])
+        params["config"]["mcp_servers"] = host_servers(selected, ask or automatic)
+        plugins = config["plugin_inventory"] if "plugin_inventory" in config else [
+            item["id"] for item in inventory()["codex"] if item["kind"] == "plugin"
+        ]
+        params["config"]["plugins"] = {
+            plugin.split(":", 1)[1]: {"enabled": plugin in selected} for plugin in plugins
         }
-    )
     if not runtime.isolated:
-        add_reader(params, workspace)
+        add_reader(params, workspace, restrict=bool(local_provider))
     if config.get("_effect_capability"):
         from agent_service.effect_transport import server_spec
 
@@ -160,7 +140,7 @@ def host_servers(selected, ask):
     }
 
 
-def add_reader(params, workspace):
+def add_reader(params, workspace, *, restrict=False):
     """Without the native shell, read through the harness reader over the authorized roots.
 
     The reader enforces the roots itself: Codex 0.157.1 has no sandbox read allow-list.
@@ -168,10 +148,21 @@ def add_reader(params, workspace):
     permissions = workspace.permissions
     if not permissions.get("read") or permissions.get("shell"):
         return
+    if not restrict:
+        home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
+        for path in (home / "config.toml", Path(workspace.cwd) / ".codex/config.toml"):
+            try:
+                configured = tomllib.loads(path.read_text()).get("mcp_servers", {})
+            except (OSError, ValueError):
+                continue
+            if READER in configured:
+                return
     roots = readable_roots(workspace)
     if not roots:
         return
     params["config"]["mcp_servers"][READER] = reader_spec(roots)
+    if not restrict:
+        return
     params["developerInstructions"] += (
         " Read files only with the " + READER + " tools (read_file, list_directory,"
         " search_files); they accept paths inside the authorized folders: " + ", ".join(roots) + "."

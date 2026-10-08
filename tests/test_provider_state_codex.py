@@ -603,8 +603,8 @@ def test_a_patch_release_inside_the_range_does_not_warn(adapter, codex_home):
 
 
 def test_later_issues_are_unsupported(adapter, tmp_path):
+    assert adapter.run_environment(tmp_path, True, ()).environment == {}
     for call in (
-        lambda: adapter.run_environment(tmp_path, True, ()),
         lambda: adapter.login_command(False),
         lambda: adapter.login_status(),
     ):

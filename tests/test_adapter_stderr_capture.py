@@ -137,7 +137,7 @@ print(json.dumps({'type':'result','subtype':'error','is_error':True}), flush=Tru
         with pytest.raises(Exception, match="claude_execution_failed") as caught:
             if native:
                 await claude_native.run(
-                    {},
+                    {"binary": sys.executable},
                     "prompt",
                     lambda *args: events.append(args),
                     tmp_path,

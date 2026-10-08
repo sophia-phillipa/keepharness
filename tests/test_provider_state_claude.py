@@ -452,8 +452,8 @@ def test_trust_is_read_never_written(adapter, config_dir, project, tmp_path):
 
 
 def test_methods_that_belong_to_later_issues_say_so(adapter, project):
+    assert adapter.run_environment(project, True, []).environment == {}
     calls = [
-        lambda: adapter.run_environment(project, True, []),
         lambda: adapter.login_command(False),
         lambda: adapter.login_status(),
         lambda: adapter.set_api_key(None),

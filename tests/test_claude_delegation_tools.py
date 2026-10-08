@@ -1,4 +1,4 @@
-"""Delegation is opt-in; unsupported TodoWrite stays absent."""
+"""The CLI owns its tool catalog; the harness can request subagent stream forwarding."""
 
 import pytest
 
@@ -6,16 +6,14 @@ from adapters.claude.native import build_command
 
 
 @pytest.mark.parametrize("delegate", [False, True])
-def test_task_requires_delegate_grant(tmp_path, monkeypatch, delegate):
-    monkeypatch.setattr("adapters.claude.native.configurations", lambda: {"claude": {}})
-    monkeypatch.setattr("adapters.claude.native.inventory", lambda: {"claude": []})
+def test_native_tools_are_not_filtered_by_delegate_grant(tmp_path, monkeypatch, delegate):
+    monkeypatch.setattr("control.integrations.configurations", lambda: {"claude": {}})
+    monkeypatch.setattr("control.integrations.inventory", lambda: {"claude": []})
     command = build_command(
         {"binary": "claude"}, "haiku", tmp_path, {"read": True, "delegate": delegate}, [], "ask", []
     )
-    tools = command[command.index("--tools") + 1].split(",")
-    assert ("Task" in tools) is delegate
-    assert "AskUserQuestion" in tools
-    assert "TodoWrite" not in tools
+    assert "--tools" not in command
+    assert ("--forward-subagent-text" in command) is delegate
 
 
 def test_child_stream_events_retain_parent_correlation():

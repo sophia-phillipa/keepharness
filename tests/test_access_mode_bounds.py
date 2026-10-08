@@ -43,8 +43,11 @@ def test_codex_automatic_is_a_workspace_sandbox_on_the_project(tmp_path, provide
         "excludeTmpdirEnvVar": True,
     }
     # Connector calls leave the project too: each one asks.
-    host = {name: thread["config"]["mcp_servers"][name] for name in HOST_SERVERS}
-    assert {spec["default_tools_approval_mode"] for spec in host.values()} == {"prompt"}
+    if provider == "deepseek":
+        host = {name: thread["config"]["mcp_servers"][name] for name in HOST_SERVERS}
+        assert {spec["default_tools_approval_mode"] for spec in host.values()} == {"prompt"}
+    else:
+        assert not set(HOST_SERVERS) & thread["config"]["mcp_servers"].keys()
 
 
 @pytest.mark.parametrize("provider", ["codex", "deepseek"])
@@ -58,8 +61,8 @@ def test_codex_full_access_stays_unrestricted(tmp_path, provider):
 
 def claude_build(tmp_path, mode, roots=()):
     with (
-        patch("adapters.claude.native.configurations", return_value={"claude": HOST_SERVERS}),
-        patch("adapters.claude.native.inventory", return_value={"claude": []}),
+        patch("control.integrations.configurations", return_value={"claude": HOST_SERVERS}),
+        patch("control.integrations.inventory", return_value={"claude": []}),
     ):
         return claude_command(
             {"binary": "claude", "unrestricted": True, "personal_setup": True},
@@ -78,8 +81,8 @@ def test_claude_automatic_accepts_edits_in_the_project_and_asks_beyond(tmp_path)
     assert command[command.index("--permission-mode") + 1] == "acceptEdits"
     assert command[command.index("--add-dir") + 1 :][:2] == ["/project", "/project-extra"]
     settings = json.loads(command[command.index("--settings") + 1])
-    # Ask rules win over a user "allow" rule: commands and connector calls always ask.
-    assert settings["permissions"] == {"ask": ["Bash", "mcp__*"]}
+    # Native acceptEdits decides approval; KeepHarness does not rewrite owner rules.
+    assert "permissions" not in settings
 
 
 def test_claude_full_access_bypasses_permissions(tmp_path):

@@ -364,8 +364,8 @@ def test_recovering_a_scheduled_workflow_starts_an_unscheduled_conversation(tmp_
         service.db.close()
 
 
-def test_a_scheduled_workflow_is_resolved_without_the_personal_setup_at_admission(config, service):
-    """Scheduled runs never carry the personal setup, so admission must refuse what execution would."""
+def test_scheduled_and_attended_workflows_share_owner_scope_at_admission(config, service):
+    """Scheduled and attended runs resolve resources with the same owner scope."""
     config["personal_setup"] = True
     seen = []
 
@@ -384,8 +384,8 @@ def test_a_scheduled_workflow_is_resolved_without_the_personal_setup_at_admissio
             service._submit_prepared(owner, data, None, schedule={"schedule_id": "f" * 32})
         with pytest.raises(workflows.WorkflowError):
             service._submit_prepared(owner, dict(data), None)
-    # The owner's scheduled run drops the personal setup; the same owner's live run keeps it.
-    assert seen == [(False, True), (True, True)]
+    # Scheduling does not change the owner's resource scope.
+    assert seen == [(True, True), (True, True)]
 
 
 # --------------------------------------------------------------------------- the background task

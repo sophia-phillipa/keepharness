@@ -1,13 +1,5 @@
-"""What a provider CLI may see of its host: a harness-owned home and the owner's opt-in.
+"""Provider run environment and the shared response-language rule."""
 
-Every Codex, DeepSeek and Claude run gets HOME and its config folder (CODEX_HOME,
-CLAUDE_CONFIG_DIR) under the state folder (decisions D01, D02). The admin's sign-in writes
-the login there and the CLIs keep their sessions there, so nothing is read from or copied
-into the owner's ~/.codex or ~/.claude. The owner may opt into the personal setup: that run
-then gets the owner's instructions, hooks and MCP servers on top, still in the same home.
-"""
-
-import json
 import os
 from pathlib import Path
 
@@ -34,8 +26,8 @@ def homes_root(state):
 
 
 def environment(config, provider):
-    """HOME and the provider's config folder, created private; empty for older runtime files."""
-    if not config.get("provider_homes"):
+    """Native Codex/Claude inherit the host; DeepSeek keeps its dedicated home."""
+    if provider in ("codex", "claude") or not config.get("provider_homes"):
         return {}
     root = Path(config["provider_homes"])
     name, folder = CONFIG_FOLDERS[provider]
@@ -46,13 +38,13 @@ def environment(config, provider):
 
 
 def child_source(config, provider):
-    """The source environment for ``child_environment``; None keeps the host's (older configs)."""
+    """The source for ``child_environment``; None inherits the owner environment."""
     homes = environment(config, provider)
     return {**os.environ, **homes} if homes else None
 
 
 def login_environment(state, provider):
-    """Sign-in and status checks keep the host session (a browser may open) in the harness home."""
+    """Sign-in uses the same home as runs; a host browser may open."""
     homes = {"provider_homes": str(homes_root(state))} if state is not None else {}
     return {
         **{key: value for key, value in os.environ.items() if not harness_authority(key)},
@@ -73,21 +65,13 @@ def personal_setup_on(config, *, owner, schedule_id=None):
 
 
 def run_settings(config, backend, *, data):
-    """The per-run opt-in keys of a provider config (decision D01).
-
-    Only the owner's own conversations carry the personal setup; scheduled runs stay
-    isolated. The owner's files are read here, once per run, so adapters never read them.
-    """
+    """Only separate-home providers still need KeepHarness to supply personal instructions."""
+    if backend in ("codex", "claude"):
+        return {}
     personal = personal_setup_on(config, owner=True, schedule_id=data.get("schedule_id"))
     settings = {"personal_setup": personal}
     if personal and backend in PERSONAL_INSTRUCTIONS:
         settings["personal_instructions"] = owner_file(PERSONAL_INSTRUCTIONS[backend])
-    if personal and backend == "claude":
-        try:
-            hooks = json.loads(owner_file(".claude/settings.json") or "{}").get("hooks")
-        except (ValueError, AttributeError):
-            hooks = None
-        settings["personal_hooks"] = hooks if isinstance(hooks, dict) else {}
     return settings
 
 
@@ -107,9 +91,26 @@ def command_permissions(config, permissions):
     return {**permissions, "hooks": False}
 
 
-def instructions(config):
-    """The language rule, plus the owner's own instructions when this run carries them."""
+def instructions(config, *, provider=None):
+    """Native homes load their own instructions; DeepSeek retains its separate-home policy."""
     personal = (config.get("personal_instructions") or "").strip()
-    if config.get("personal_setup") is not True or not personal:
-        return LANGUAGE_RULE
-    return LANGUAGE_RULE + "\nThe owner's personal instructions:\n" + personal
+    if provider == "deepseek" and config.get("personal_setup") is True and personal:
+        return LANGUAGE_RULE + "\nThe owner's personal instructions:\n" + personal
+    return LANGUAGE_RULE
+
+
+def version_notice(binary, provider, event, environment=None):
+    """Warn without blocking runs when the installed CLI has drifted from tested versions."""
+    from adapters.codex.state import _cli_version
+    if provider == "codex":
+        from adapters.codex.state import TESTED_VERSIONS, _tested
+    else:
+        from adapters.claude.state import TESTED_VERSIONS, _tested, _version_tuple
+    version = _cli_version(binary, environment)
+    tested = bool(version) and _tested(version if provider == "codex" else _version_tuple(version) or ())
+    if not tested:
+        event("provider_warning", {
+            "backend": provider,
+            "code": "provider_version_untested",
+            "message": f"{provider.title()} {version or 'unknown'} is outside the tested range {TESTED_VERSIONS}. The run will continue.",
+        })

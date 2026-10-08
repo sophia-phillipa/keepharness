@@ -204,7 +204,7 @@ def test_start_rechecks_providers_and_builds_native_config(tmp_path):
     assert "shared_projects" not in cfg
 
 
-def test_claude_native_disables_sandbox(tmp_path):
+def test_claude_native_preserves_owner_sandbox_settings(tmp_path):
     import json
     import sys
 
@@ -224,8 +224,8 @@ print(json.dumps({'type':'result','subtype':'success','result':json.dumps(sys.ar
         raise AssertionError("No inference or tools executed")
 
     with (
-        patch("adapters.claude.native.configurations", return_value={"claude": {}}),
-        patch("adapters.claude.native.inventory", return_value={"claude": []}),
+        patch("control.integrations.configurations", return_value={"claude": {}}),
+        patch("control.integrations.inventory", return_value={"claude": []}),
     ):
         result = asyncio.run(
             run(
@@ -245,7 +245,7 @@ print(json.dumps({'type':'result','subtype':'success','result':json.dumps(sys.ar
         )
     command = json.loads(result["answer"])
     assert command[command.index("--permission-mode") + 1] == "bypassPermissions"
-    assert json.loads(command[command.index("--settings") + 1])["sandbox"] == {"enabled": False}
+    assert "sandbox" not in json.loads(command[command.index("--settings") + 1])
 
 
 @pytest.mark.parametrize("project_id", [None, "sem-projeto"])
