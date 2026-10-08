@@ -29,7 +29,11 @@ const ORIGIN = "http://localhost:18990/";
     const gamma = () => gammaTurns.map((t) => (t.id === "g11" && !gammaDone ? { ...t, state: "running", result: undefined } : t));
     await page.route("http://localhost:18990/**", async (route) => {
       const pathname = new URL(route.request().url()).pathname;
-      if (pathname.startsWith("/admin")) return route.fulfill({ contentType: "text/html", body: "<!doctype html><title>admin</title>" });
+      if (pathname.startsWith("/admin"))
+        return route.fulfill({
+          contentType: "text/html",
+          body: "<!doctype html><title>admin fixture</title>",
+        });
       if (pathname === "/v1/jobs/g11/events") {
         await gammaHold;
         return route.fulfill({ contentType: "text/event-stream", body: "" }).catch(() => {});
@@ -140,7 +144,7 @@ const ORIGIN = "http://localhost:18990/";
     await page.waitForFunction(() => document.querySelector("#settings-dialog").open);
     await page.click("#settings-close");
 
-    // Space, Scheduled, Plugins and Agents are entries too.
+    // Space, Scheduled, the embedded Plugins facade and Agents are entries too.
     await page.click("#rail-space");
     await page.waitForFunction(() => document.querySelector("#space-dialog").open);
     await page.click("#space-close");
@@ -150,16 +154,19 @@ const ORIGIN = "http://localhost:18990/";
     await page.keyboard.press("Control+[");
     await page.waitForFunction(() => !document.querySelector("#scheduled-dialog").open);
     await page.click("#rail-agents");
-    await page.waitForFunction(() => !document.querySelector("#settings-plugins").hidden);
+    await page.waitForFunction(() => !document.querySelector("#settings-system").hidden);
+    assert.equal(await page.locator('[data-admin-section="plugins"]').getAttribute("aria-pressed"), "true");
+    assert.equal(new URL(await page.locator("#admin-frame").getAttribute("src")).hash, "#plugins");
     // Agents is its own Settings entry: Back returns to Plugins, Forward to Agents.
     await page.click('[data-settings="agents"]');
     await page.waitForFunction(() => !document.querySelector("#settings-agents").hidden && document.querySelector("#settings-plugins").hidden);
     await page.keyboard.press("Control+[");
-    await page.waitForFunction(() => !document.querySelector("#settings-plugins").hidden && document.querySelector("#settings-agents").hidden);
+    await page.waitForFunction(() => !document.querySelector("#settings-system").hidden && document.querySelector("#settings-agents").hidden);
+    assert.equal(await page.locator('[data-admin-section="plugins"]').getAttribute("aria-pressed"), "true");
     await page.keyboard.press("Control+]");
     await page.waitForFunction(() => !document.querySelector("#settings-agents").hidden && document.querySelector("#settings-plugins").hidden);
     await page.keyboard.press("Control+[");
-    await page.waitForFunction(() => !document.querySelector("#settings-plugins").hidden);
+    await page.waitForFunction(() => !document.querySelector("#settings-system").hidden);
     // The dialog is modal, so the top-bar button is out of reach; the shortcut works.
     await page.keyboard.press("Control+[");
     await page.waitForFunction(() => !document.querySelector("#settings-dialog").open);
@@ -175,6 +182,22 @@ const ORIGIN = "http://localhost:18990/";
     };
     const raf = () => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))));
     const scrollNear = (top) => page.waitForFunction((t) => Math.abs(document.querySelector("#messages").scrollTop - t) <= 1, top, { timeout: 5000 });
+
+    // A recorded Plugins view follows the current safe destination if admin availability changes.
+    await fresh();
+    await page.evaluate(() => openSettings("plugins"));
+    await page.waitForFunction(() => !document.querySelector("#settings-system").hidden);
+    await page.click('[data-settings="agents"]');
+    await page.evaluate(() => modelAvailability({}));
+    await page.keyboard.press("Control+[");
+    await page.waitForFunction(() => !document.querySelector("#settings-plugins").hidden);
+    await page.evaluate((adminUrl) => modelAvailability({ admin_url: adminUrl }), ORIGIN + "admin/");
+    await page.keyboard.press("Control+]");
+    await page.waitForFunction(() => !document.querySelector("#settings-agents").hidden);
+    await page.keyboard.press("Control+[");
+    await page.waitForFunction(() => !document.querySelector("#settings-system").hidden);
+    assert.equal(await page.locator('[data-admin-section="plugins"]').getAttribute("aria-pressed"), "true");
+    console.log("PASS Plugins history follows admin loss and recovery");
 
     // A conversation with a running turn: the scroll position is restored once its turns render,
     // not when the stream ends, and it does not jump afterwards.

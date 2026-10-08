@@ -6414,15 +6414,15 @@ function elsewhereSection(list, backend, menu) {
         : "Not connected on " + here + " (connected on " + on + ")";
     text.append(name, meta);
     box.append(HarnessUI.icon("plug"), text);
-    // The allow list lives in Settings (the harness API has no enable endpoint): System > Providers
-    // where the admin is reachable, Plugins otherwise.
+    // Provider state lives in the Plugins facade where the admin is reachable, and in the native
+    // Plugins catalog otherwise.
     const action = document.createElement("button");
     action.type = "button";
     action.className = "plugins-action";
     action.textContent = entry.here === "enable" ? "Enable" : "Open Plugins";
     action.onclick = () => {
       menu.hidePopover();
-      openSettings("providers") || openSettings("plugins");
+      openSettings("plugins");
     };
     box.append(action);
     row.append(box);
@@ -6520,10 +6520,10 @@ function showIntegrationDetail(item) {
     const manage = document.createElement("button");
     manage.type = "button";
     manage.className = "plugins-manage";
-    manage.append(HarnessUI.icon("settings"), document.createTextNode("Manage connectors and plugins"));
+    manage.append(HarnessUI.icon("settings"), document.createTextNode("Discover and manage plugins"));
     manage.onclick = () => {
       $("plugins-menu").hidePopover();
-      openSettings("providers");
+      openSettings("plugins");
     };
     parts.push(manage);
   }
@@ -6603,10 +6603,10 @@ async function renderPluginsMenu() {
       const manage = document.createElement("button");
       manage.type = "button";
       manage.className = "plugins-manage";
-      manage.append(HarnessUI.icon("settings"), document.createTextNode("Manage connectors and plugins"));
+      manage.append(HarnessUI.icon("settings"), document.createTextNode("Discover and manage plugins"));
       manage.onclick = () => {
         menu.hidePopover();
-        openSettings("providers");
+        openSettings("plugins");
       };
       parts.push(manage);
     }
@@ -6915,6 +6915,7 @@ function modelAvailability(
   // opened over the network, or as localhost for a 127.0.0.1 admin, cannot frame it.
   $("settings-system-nav").hidden =
     link.hidden || location.hostname !== new URL(link.href).hostname;
+  syncPluginsEntryPoint();
   // "Open admin panel" is Settings > Providers, not a second window.
   // Where Settings > System is unavailable (localhost, network host) the link keeps its normal navigation.
   link.onclick = (event) => {
@@ -8006,6 +8007,16 @@ function restoreSelection() {
 // "customize" is the pre-rename key of the Plugins section.
 const savedSection = prefs.get("last_section", "appearance");
 let lastSection = savedSection === "customize" ? "plugins" : savedSection;
+const pluginsSettingsButton = document.querySelector('[data-settings="plugins"]');
+function syncPluginsEntryPoint() {
+  if ($("settings-system-nav").hidden) {
+    pluginsSettingsButton.dataset.settings = "plugins";
+    delete pluginsSettingsButton.dataset.adminSection;
+  } else {
+    pluginsSettingsButton.dataset.settings = "system";
+    pluginsSettingsButton.dataset.adminSection = "plugins";
+  }
+}
 function showSettingsPage(button) {
   lastSection = button.dataset.adminSection || button.dataset.settings;
   prefs.set("last_section", lastSection);
@@ -8230,7 +8241,7 @@ const currentBaseView = () => (conversation ? { kind: "conversation", id: conver
 const pressedSettings = () => document.querySelector('[data-settings][aria-pressed="true"]');
 // The five System buttons share data-settings="system"; `sub` (the admin section) tells them apart.
 const settingsView = (section, button) =>
-  section === "plugins"
+  button === pluginsSettingsButton || section === "plugins"
     ? { kind: "plugins", button }
     : { kind: "settings", section, sub: section === "system" ? (button || pressedSettings())?.dataset.adminSection : undefined, button };
 const navigationBlocked = (view) => ["conversation", "home"].includes(view.kind) && (submitting || cancelling || loading || uploads > 0);
@@ -8287,14 +8298,15 @@ async function applyView(view, replay = false) {
   } else if (view.kind === "space") await openSpace();
   else if (view.kind === "scheduled") await openScheduled();
   else {
-    const section = view.kind === "plugins" ? "plugins" : view.section;
+    const section = view.kind === "plugins" ? pluginsSettingsButton.dataset.settings : view.section;
     if (!$("settings-dialog").open) {
       syncThemeToggle();
       $("settings-dialog").showModal();
       refreshCatalog();
     }
-    const button = view.button ||
-      document.querySelector('[data-settings="' + section + '"]' + (view.sub ? '[data-admin-section="' + view.sub + '"]' : ""));
+    const button = view.kind === "plugins"
+      ? pluginsSettingsButton
+      : view.button || document.querySelector('[data-settings="' + section + '"]' + (view.sub ? '[data-admin-section="' + view.sub + '"]' : ""));
     if (view.button || button !== pressedSettings()) showSettingsPage(button);
   }
 }
@@ -9136,9 +9148,11 @@ async function useHarnessAgent(agent) {
     status(error.message);
   }
 }
-// Rail shortcuts (Codex model): the run pipeline and the agent and skill catalog.
+// Rail shortcuts (Codex model): the run pipeline and the Plugins facade. A remote page cannot
+// frame the local admin, so its Plugins shortcut falls back to the native Agents page.
 $("rail-runs").onclick = () => $("run-status-toggle")?.click();
-$("rail-agents").onclick = () => void navigate({ kind: "plugins" });
+$("rail-agents").onclick = () =>
+  openSettings($("settings-system-nav").hidden ? "agents" : "plugins");
 $("settings-tour").onclick = () => $("settings-dialog").close();
 let quotaReturnsToSettings = false;
 $("settings-quota").onclick = () => {
