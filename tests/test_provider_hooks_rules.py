@@ -392,3 +392,36 @@ def test_codex_ancestors_above_git_root_are_inventory_only(isolated_provider_hom
     assert not by_name["Outside"].enabled
     assert by_name["Outside"].details["status"] == "outside native instruction chain"
     assert by_name["Root"].enabled and by_name["Nested"].enabled
+
+
+def test_codex_managed_execpolicy_uses_native_config_layer_source(
+    tmp_path, isolated_provider_homes, monkeypatch
+):
+    import adapters.codex.state as module
+
+    managed = tmp_path / "managed-codex"
+    put(managed / "rules/company.rules", 'prefix_rule(pattern=["deploy"], decision="forbidden")')
+
+    async def ask(*args, **kwargs):
+        return {
+            "config": {
+                "layers": [
+                    {
+                        "name": {"type": "system", "file": str(managed / "config.toml")},
+                        "version": "v1",
+                        "config": {},
+                    }
+                ]
+            },
+            "hooks": {"data": []},
+        }, {}
+
+    monkeypatch.setattr(module, "_ask", ask)
+    monkeypatch.setattr(module, "_cli_version", lambda *_: "0.157.1")
+    adapter = CodexStateAdapter()
+    monkeypatch.setattr(adapter, "_binary", lambda: "fake")
+    row = next(
+        item for item in adapter.read_state(None).items if item.source.endswith("company.rules")
+    )
+    assert row.scope == "managed" and row.enabled and not row.writable
+    assert "forbidden" in row.details["preview"]

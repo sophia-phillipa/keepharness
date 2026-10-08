@@ -596,6 +596,14 @@ class CodexStateAdapter:
             .get("config", {})
             .get("project_doc_fallback_filenames", []),
         )
+        for entry in raw_layers:
+            layer = _layer(entry, True)
+            source = Path(layer.source)
+            if source.is_absolute() and source.suffix == ".toml":
+                rules = source.parent / "rules"
+                instructions.paths.append(rules)
+                for path in sorted(rules.glob("*.rules"))[:200]:
+                    instructions.document(path, layer.scope)
         blocked_rule_roots = [
             Path(_name(entry)["dotCodexFolder"]) / "rules"
             for entry in raw_layers
