@@ -8059,7 +8059,10 @@ function showAdminSection(section = "providers") {
   const label = document.querySelector('[data-admin-section="' + section + '"]');
   frame.title = "Administration: " + (label?.textContent || section);
   const next = adminFrameUrl(section);
-  if (frame.src !== next) frame.src = next;
+  if (frame.dataset.settingsSearchReady && new URL(frame.src).origin === new URL(next).origin) {
+    // Search has authenticated this admin document. Retain its unsaved form values.
+    frame.contentWindow.postMessage({ type: "keepharness:settings-section", section }, new URL(next).origin);
+  } else if (frame.src !== next) frame.src = next;
 }
 // `section` is a data-admin-section or a data-settings value; false when it is an admin section
 // on a host that cannot frame the admin, or unknown.

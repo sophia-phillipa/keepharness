@@ -91,6 +91,11 @@ function contrast(rgb1, rgb2) {
     console.log("PASS A1 sidebar, Ctrl+K, and Ctrl+Shift+P share command search and preserve state");
 
     await page.keyboard.press("Control+k");
+    await input.fill("a");
+    assert.match(await dialog.getByRole("button", { name: /Focus composer/ }).innerText(), /Command/);
+    assert.match(await dialog.getByRole("button", { name: /Appearance/ }).innerText(), /Settings/);
+    assert.match(await dialog.getByRole("button", { name: /Known migration chat/ }).innerText(), /Project Alpha/);
+    console.log("PASS A2b one fixture query returns distinguishable command, Settings and conversation results");
     await input.fill("focus composer");
     assert.deepEqual(await dialog.locator(".search-result-group h3").allTextContents(), ["Commands · 1"]);
     const focusCommand = dialog.getByRole("button", { name: /Focus composer/ });
