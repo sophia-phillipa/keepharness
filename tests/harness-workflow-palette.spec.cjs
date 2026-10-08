@@ -41,6 +41,8 @@ const { mount, run } = require("./run-console-fixture.cjs");
       [400, 812],
     ]) {
       await page.setViewportSize({ width, height });
+      // Resize handlers dismiss popovers before the next animation frame.
+      await page.evaluate(() => new Promise(requestAnimationFrame));
       await page.locator("#prompt").fill("/rev");
       await page.locator("#resource-menu").waitFor({ state: "visible" });
       assert.match(

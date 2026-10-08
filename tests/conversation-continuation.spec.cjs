@@ -339,6 +339,12 @@ async function openDialog(page) {
       // 6. Escape closes the dialog and returns focus to the row trigger.
       await page.keyboard.press("Escape");
       await page.locator("#continuation-dialog").waitFor({ state: "hidden" });
+      // The native close event restores focus after the dialog becomes hidden.
+      await page.waitForFunction(
+        (trigger) => trigger === document.activeElement,
+        await rowTrigger(page).elementHandle(),
+        { timeout: 5000 },
+      );
       assert(
         await rowTrigger(page).evaluate((e) => e === document.activeElement),
         "focus returns to the row trigger",

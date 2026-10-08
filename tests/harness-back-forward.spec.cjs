@@ -297,6 +297,12 @@ const ORIGIN = "http://localhost:18990/";
     await page.waitForFunction(
       () => !document.querySelector("#settings-dialog").open,
     );
+    // The native close event records navigation after the open attribute clears.
+    await page.waitForFunction(
+      () => document.querySelector("#nav-forward").disabled,
+      null,
+      { timeout: 5000 },
+    );
     assert.equal(await forward.isDisabled(), true);
     await back.click();
     await page.waitForFunction(
