@@ -255,6 +255,7 @@ class ProviderStateService:
         self.locks: dict[str, asyncio.Lock] = {}
         self.cache: dict[tuple[str, str], tuple[float, StateSnapshot]] = {}
         self._seen: dict[str, dict] | None = None  # loaded on first use, then kept in memory
+        self._live: set[str] | None = None  # the project ids the seen map was last pruned against
 
     def resolve(self, provider: str, project_id: str) -> Path | None:
         """The project's folder (``None`` for "No project"); 404 for an unknown provider or project."""
@@ -262,7 +263,9 @@ class ProviderStateService:
             raise APIError("provider_unknown", 404)
         if project_id == NO_PROJECT:
             return None
-        for project in self.projects():
+        projects = self.projects()
+        self._prune(projects)
+        for project in projects:
             if project.get("id") == project_id:
                 return Path(project["root"])
         raise APIError("project_unknown", 404)
@@ -277,17 +280,25 @@ class ProviderStateService:
 
     # --- the seen map: every method below is synchronous, so a load-modify-save never interleaves
 
+    def _prune(self, projects: list[dict]) -> None:
+        """Drop the seen keys of removed projects, only when the project list changed since the last prune."""
+        live = {NO_PROJECT, *(project.get("id") for project in projects)}
+        if self._seen is None or live == self._live:
+            return
+        self._live = live
+        for key in [key for key in self._seen if key.split("|", 1)[1] not in live]:
+            del self._seen[key]  # a removed project: a project added later starts from a baseline
+
     def _entries(self) -> dict[str, dict]:
         if self._seen is None:
             loaded = _read_entries(self.state / SEEN_FILE)
             self._seen = {key: entry for key, entry in loaded.items() if _sound(entry)}
-        live = {NO_PROJECT, *(project.get("id") for project in self.projects())}
-        for key in [key for key in self._seen if key.split("|", 1)[1] not in live]:
-            del self._seen[key]  # a removed project: a project added later starts from a baseline
+            self._prune(self.projects())
         return self._seen
 
     def _save(self) -> None:
         try:
+            self._prune(self.projects())
             _write_entries(self.state / SEEN_FILE, self._entries())
         except OSError:
             logger.warning("Provider state seen map not saved: provider_state_seen_unwritable")

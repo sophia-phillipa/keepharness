@@ -75,8 +75,9 @@ const N5 = notice(5, { item_id: "plugin:figma@openai-curated", name: "figma", ch
         const provider = url.searchParams.get("provider");
         gets.push(url.search);
         if (getFailure === provider) return route.fulfill({ status: 500, json: { error: "unreadable" } });
+        const external = server[provider]; // answered with what the server held when the read arrived
         if (holdGet) await holdGet;
-        return route.fulfill({ json: { snapshot: snapshots[provider], external_changes: server[provider] } });
+        return route.fulfill({ json: { snapshot: snapshots[provider], external_changes: external } });
       }
       if (name === "provider-state" && method === "POST" && conflict) {
         const external = conflict;
@@ -219,6 +220,27 @@ const N5 = notice(5, { item_id: "plugin:figma@openai-curated", name: "figma", ch
     await shown(providersBlock).first().waitFor();
     assert.equal(await shown(providersBlock).count(), 1);
     assert.match(await shown(providersBlock).innerText(), /^Reverted by Claude Code: plugin linear@official is off again/);
+
+    // A read sent before the ack and answered after it must not bring the dismissed notice back.
+    const N9 = notice(9, { item_id: "plugin:late@official", name: "late", change: "added", before: null, after: true });
+    server.codex = [N9];
+    server.claude = [];
+    await focusWindow();
+    await shown(providersBlock).first().waitFor();
+    holdGet = new Promise((resolve) => { release = resolve; });
+    await focusWindow();
+    await page.waitForTimeout(100);
+    await providersBlock.getByRole("button", { name: /^Dismiss: Codex › plugin late@official was added/ }).click();
+    await page.waitForTimeout(100);
+    release();
+    holdGet = null;
+    await providersBlock.waitFor({ state: "hidden" });
+    await page.waitForTimeout(300);
+    assert.equal(await providersBlock.isHidden(), true, "the late read does not bring the dismissed notice back");
+    await go("#plugins");
+    await rows.first().waitFor();
+    assert.equal(await pluginsBlock.isHidden(), true, "nor on the other screen");
+    await go("#providers");
 
     // Names and files are text, never HTML. Two providers with several notices each get a Dismiss all each.
     server.codex = [N4, N5];

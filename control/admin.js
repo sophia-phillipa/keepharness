@@ -939,8 +939,9 @@ const NOTICE_SCOPE = "sem-projeto";
 const providerNotices = new Map(); // provider id -> the Notice list of its last provider-state read
 const toasted = new Set(); // notice ids already announced in this page session (memory only)
 const onOff = (enabled) => (enabled ? "on" : "off");
+const acked = new Set(); // dismissed notice ids; they embed detected_at, so one never legitimately returns
 function setProviderNotices(provider, list) {
-  providerNotices.set(provider, Array.isArray(list) ? list : []);
+  providerNotices.set(provider, Array.isArray(list) ? list.filter((notice) => !acked.has(notice.id)) : []);
 }
 // The sentence as [text, item id, text]: the id is shown in <code>, the rest is plain text.
 function noticeParts(provider, notice) {
@@ -1020,14 +1021,17 @@ function ackProviderNotices(provider, notices) {
   const ids = notices.slice(0, 100).map((notice) => notice.id);
   return action(async () => {
     await request("provider-state/notices:ack", { provider, project_id: NOTICE_SCOPE, notice_ids: ids });
-    setProviderNotices(provider, providerNotices.get(provider).filter((notice) => !ids.includes(notice.id)));
+    ids.forEach((id) => acked.add(id));
+    setProviderNotices(provider, providerNotices.get(provider));
     showProviderNotices();
     await refreshProviderNotices();
     // The Dismiss button is gone: keep the focus on the screen instead of <body>.
     const screen = onProviders() ? document.querySelector("#overview h1") : $("plugins-panel");
+    const next = noticeBlocks().find((box) => !box.hidden && box.offsetParent)?.querySelector("button");
+    if (next) return next.focus();
     screen.tabIndex = -1;
     screen.addEventListener("blur", () => screen.removeAttribute("tabindex"), { once: true });
-    (noticeBlocks().find((box) => !box.hidden && box.offsetParent)?.querySelector("button") || screen).focus();
+    screen.focus();
   });
 }
 // Focus and visibilitychange fire together: callers share the read that is already in flight.

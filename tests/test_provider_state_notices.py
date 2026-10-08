@@ -590,3 +590,14 @@ def test_seen_keys_of_removed_projects_are_pruned(client, app, now, codex_home):
     app.state.manager.settings["projects"] = projects
     later(now)
     assert changes(client, project_id="p") == []  # a baseline again, not a stale comparison
+
+
+def test_project_list_is_not_consulted_on_a_cached_get(client, app, now, codex_home):
+    get(client)
+    service = app.state.manager.provider_state
+    calls = []
+    listing = service.projects
+    service.projects = lambda: calls.append(1) or listing()
+    for _ in range(3):
+        assert changes(client) == []
+    assert calls == []  # a cached read of "No project" neither resolves a project nor prunes
