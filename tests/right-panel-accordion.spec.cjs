@@ -22,11 +22,23 @@ const JOBS = ["alpha", "beta"].map((name, index) => ({
   backend: "local", model: "fixture", created: index + 1, title: "Background " + name,
 }));
 
-// The harness allows 60 writes a minute per identity: each scenario replaces the stored
-// preferences with ONE patch (old keys cleared, seed applied) and waits out a 429.
+// The shared harness allows 240 reads and 60 writes a minute per identity. Wait out
+// either limit, then replace preferences with ONE patch (old keys cleared, seed applied).
 async function replacePreferences(seed) {
   const url = BASE + "/v1/ui-state", headers = { "Content-Type": "application/json" };
-  const { values } = await (await fetch(url)).json();
+  let values;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const response = await fetch(url);
+    if (response.status !== 429) {
+      assert(response.ok, "read preferences: " + response.status);
+      const data = await response.json();
+      assert(data?.values && typeof data.values === "object" && !Array.isArray(data.values), "read preferences: expected values object");
+      values = data.values;
+      break;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1000 * (Number(response.headers.get("retry-after")) || 5)));
+  }
+  assert(values, "read preferences: still rate limited");
   const body = JSON.stringify({ values: { ...Object.fromEntries(Object.keys(values).map((key) => [key, null])), ...seed } });
   for (let attempt = 0; attempt < 3; attempt++) {
     const response = await fetch(url, { method: "PATCH", headers, body });
