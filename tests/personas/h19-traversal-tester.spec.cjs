@@ -92,9 +92,8 @@ runPersona("H19", [
       const done = tolerateFailedLoads(page);
       const req = page.request;
 
-      // /v1/project-directories is gated (shared_projects off on the test
-      // server): every traversal payload gets a controlled error, never a
-      // listing of host paths.
+      // /v1/project-directories: every traversal payload gets a controlled
+      // error, never a listing of host paths.
       for (const p of [
         "",
         "..",

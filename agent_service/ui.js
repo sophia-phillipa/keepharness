@@ -28,7 +28,6 @@ let policyProject = null,
   policySequence = 0;
 let uploadsAllowed = false,
   fullAccessOffered = false,
-  localOwner = false,
   streamDisconnected = false,
   submitting = false,
   cancelling = false,
@@ -1118,7 +1117,6 @@ const userErrors = {
   workflow_model_or_effort_denied: "Choose a model and effort enabled for this project.",
   workflow_must_be_standalone: "Select one workflow at a time.",
   workflow_output_not_approved: "The step output was not approved. Review the evidence before continuing.",
-  workflow_save_local_only: "Workflows can only be saved from the computer that runs KeepHarness.",
   workflow_published_step_requires_explicit_rerun: "This changed step already published. Use an explicit re-run with fresh approval.",
   workflow_requires_successful_chain: "Only a completed, successful chain can be saved as a workflow.",
   workflow_resource_unavailable: "A required workflow resource is missing or unavailable. Refresh the catalog.",
@@ -1166,8 +1164,6 @@ const userErrors = {
   project_directory_forbidden:
     "One of the chosen folders is protected or not authorized.",
   // Interface preferences (ui-prefs.js).
-  ui_state_local_only:
-    "Interface preferences are saved only on the computer that runs the harness.",
   ui_state_unknown_key:
     "A saved interface preference was not recognized and was skipped.",
   ui_state_invalid_value:
@@ -1200,8 +1196,6 @@ const userErrors = {
     "The requested answer length is invalid. Refresh the page and try again.",
   invalid_access_mode:
     "That access mode is not available. Choose another one and try again.",
-  access_mode_owner_only:
-    "Automatic and Full access are only for the owner on the computer running KeepHarness. Choose Ask for approval or Read only.",
   full_access_disabled:
     "Full access is turned off. The owner can turn it on in Settings › System › Providers (Allow Full access), or choose another access mode.",
   invalid_parent_job:
@@ -1430,13 +1424,9 @@ const userErrors = {
   project_edit_forbidden: "You can't edit this project.",
   project_registration_disabled:
     "Adding projects is turned off on this server. Ask the administrator to enable it.",
-  project_management_local_only:
-    "Project folders can only be added, changed or deleted from the computer that runs KeepHarness.",
   host_denied: "This address is not one KeepHarness answers on. Open it by its usual address.",
   funnel_denied:
     "KeepHarness does not answer requests from the public internet. Turn off Tailscale Funnel for it.",
-  host_files_owner_only:
-    "Only the owner can browse or attach files from the folders of the computer that runs KeepHarness.",
   project_directory_shared:
     "One of the chosen folders already belongs to another project.",
   project_folder_busy:
@@ -1516,7 +1506,7 @@ const userErrors = {
   approval_expiration_limit:
     "The run was cancelled after repeated approval requests expired. Send your message again when you are ready to respond.",
   approval_session_required:
-    "This browser is not enrolled to approve actions yet. Ask the admin of this KeepHarness to enroll this browser for your own account (keepharness approve-device), then open the link they send you and try again.",
+    "This browser is not enrolled to approve actions yet. On the computer where KeepHarness runs, run keepharness approve-device --owner local, then open the link it prints in this browser and try again.",
   approval_session_expired:
     "This browser's approval session expired (approval sessions last 7 days). The approval is still waiting: ask the admin of this KeepHarness for a new enrollment link (keepharness approve-device), open it in this browser, then approve again.",
   approval_storage_unsafe:
@@ -1565,7 +1555,6 @@ const userErrors = {
   harness_agent_changed: "This agent was changed elsewhere. Reload it and try again.",
   harness_agent_not_found: "That agent no longer exists.",
   harness_agent_storage_unsafe: "The agents folder cannot be used safely. Check the harness state folder.",
-  harness_agent_local_only: "Agents can only be created, edited or deleted from the computer that runs KeepHarness.",
   page_invalid: "The page is not valid. Check the title and the text and try again.",
   page_not_found: "That page no longer exists.",
   page_changed: "This page was changed elsewhere. Reload it and try again.",
@@ -1580,21 +1569,6 @@ const userErrors = {
   schedule_limit: "You have reached the limit of 50 schedules. Delete one to add another.",
   schedule_storage_unsafe: "The schedules folder cannot be used safely. Check the harness state folder.",
 };
-// The 403 body names the caller's owner id, and a guest's Tailscale login. Name one in the
-// command only when it is safe to paste into a shell; otherwise keep the generic text, which
-// names no owner. Only the owner on this computer can run the command; a guest asks the owner
-// of this KeepHarness, by the login the owner knows them by (PRD-R4-5).
-const SAFE_OWNER_ID = /^[\w@][\w.@+-]{0,127}$/;
-function enrollmentMessage(owner, login) {
-  if (owner === "local")
-    return "This browser is not enrolled to approve actions yet. On this computer run: keepharness approve-device --owner local, then open the link it prints in this browser and try again.";
-  const id = typeof login === "string" && SAFE_OWNER_ID.test(login) ? login : owner;
-  return typeof id === "string" && SAFE_OWNER_ID.test(id)
-    ? "This browser is not enrolled to approve actions yet. Ask the owner of this KeepHarness to run keepharness approve-device --owner " +
-        id +
-        " and send you the link, then open it in this browser and try again."
-    : userErrors.approval_session_required;
-}
 async function api(path, options = {}) {
   let r;
   try {
@@ -1618,7 +1592,6 @@ async function api(path, options = {}) {
       e = { code: "HTTP " + r.status };
     }
     let message =
-      (e.code === "approval_session_required" && enrollmentMessage(e.owner, e.login)) ||
       userErrors[e.code] ||
       attachmentError(e.code) ||
       (r.status === 429
@@ -1715,7 +1688,6 @@ async function refreshProjectPermissions(timeout = 30000) {
     models = composerModels(data);
     uploadsAllowed = data.uploads_enabled === true;
     offerFullAccess(data.full_access === true);
-    localOwner = data.local_owner === true;
     $("model").replaceChildren(
       ...models.map((m) => new Option(modelLabel(m), m.id)),
     );
@@ -2809,7 +2781,7 @@ function openContinuation(c, trigger) {
     else $("history").querySelector(".conversation-actions summary")?.focus();
   };
   document.querySelector('input[name="continuation-target"][value="chatgpt"]').checked = true;
-  paths.checked = localOwner;
+  paths.checked = true;
   void load();
   dialog.showModal();
   $("continuation-close").focus();
@@ -5864,14 +5836,9 @@ async function loadProjectFileRoots(force = false) {
     if (request !== fileTree.request) return;
     $("files-loading").hidden = true;
     $("files-error").hidden = false;
-    // A guest cannot browse the system's folders: say so quietly, with nothing to retry.
-    const ownerOnly = error.code === "host_files_owner_only";
-    $("files-error").className = ownerOnly ? "file-tree-note" : "";
-    $("files-error").setAttribute("role", ownerOnly ? "note" : "alert");
-    $("files-error").textContent = ownerOnly
-      ? "System files are visible to the owner only."
-      : "Couldn't load the authorized folders: " + error.message;
-    $("files-retry").hidden = ownerOnly;
+    $("files-error").className = "";
+    $("files-error").textContent = "Couldn't load the authorized folders: " + error.message;
+    $("files-retry").hidden = false;
   }
 }
 async function selectProjectFileRoot(root) {
@@ -7029,7 +6996,6 @@ async function initialize() {
     models = composerModels(m);
     uploadsAllowed = m.uploads_enabled === true;
     offerFullAccess(m.full_access === true);
-    localOwner = m.local_owner === true;
     policyProject = null;
     policyPending = false;
     $("model").replaceChildren(

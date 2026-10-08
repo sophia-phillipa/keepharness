@@ -269,7 +269,7 @@ scenario("the open section is remembered in workspace_sections across a reload",
   await context.close();
 });
 
-const filesFixture = (state = { guest: false }) => (route, pathname, url) => {
+const filesFixture = (state = {}) => (route, pathname, url) => {
   if (pathname === "/v1/projects") return route.fulfill({ json: { projects: ["sem-projeto", "project-a"], details: { "project-a": { label: "Project Alpha", root: "/work/a" } } } });
   if (pathname === "/v1/project-files/attach") {
     state.attached = (state.attached || []).concat([route.request().postDataJSON()]);
@@ -280,14 +280,13 @@ const filesFixture = (state = { guest: false }) => (route, pathname, url) => {
   const view = url.searchParams.get("view"), rootId = url.searchParams.get("root_id"), roots = [{ id: "home", label: "Home" }, { id: "media-user", label: "User media" }];
   if (view === "tree") {
     state.treeRequests = (state.treeRequests || 0) + 1;
-    if (state.guest) return route.fulfill({ status: 403, json: { code: "host_files_owner_only", error: "owner only" } });
     return route.fulfill({ json: { state: "ready", roots, root_id: rootId || undefined, path: "", entries: rootId ? [{ path: "photo.png", name: "photo.png", type: "file" }] : [], limited: false } });
   }
   const authorized = [{ id: "proj-root", path: "/work/a", label: "a" }, { id: "extra-root", path: "/work/extra", label: "extra" }];
   return route.fulfill({ json: { state: "ready", roots: authorized, root_id: "proj-root", can_authorize: true, entries: rootId ? [{ path: "main.py", name: "main.py", type: "file" }] : [] } });
 };
 const filesPage = async (browser, options = {}) => {
-  const state = options.state || { guest: false };
+  const state = options.state || {};
   const opened = await openPage(browser, { view: "files", extra: filesFixture(state), ...options });
   opened.state = state;
   return opened;
@@ -384,20 +383,6 @@ scenario("System Files shows the home and media roots and attaches a file to a p
   assert.equal(state.attached[0].root_id, "home", "the system tree attaches by root_id");
   assert.equal(state.attached[0].project_root_id, undefined);
   assert.deepEqual(state.attached[0].paths, ["photo.png"]);
-  await context.close();
-});
-
-scenario("a guest sees an owner-only note in System Files, not an error alert", async (browser) => {
-  const { context, page, state } = await filesPage(browser, { state: { guest: true } });
-  await head(page, "system-files").click();
-  await page.waitForFunction(() => /owner only/.test(document.getElementById("files-error").textContent));
-  const note = page.locator("#files-error");
-  assert(await note.isVisible());
-  assert.equal((await note.textContent()).trim(), "System files are visible to the owner only.");
-  assert.equal(await note.getAttribute("role"), "note");
-  assert.equal(await page.locator("#files-retry").isVisible(), false, "nothing to retry");
-  assert.doesNotMatch(await page.locator("#files-view").innerText(), /Couldn't load/);
-  assert(state.treeRequests >= 1);
   await context.close();
 });
 

@@ -19,7 +19,7 @@ const luminance = (rgb) =>
   }).reduce((a, v, i) => a + v * [0.2126, 0.7152, 0.0722][i], 0);
 const ratio = (a, b) => (Math.max(luminance(a), luminance(b)) + 0.05) / (Math.min(luminance(a), luminance(b)) + 0.05);
 
-async function scenario(browser, { fullAccess = true, localOwner = fullAccess, bridge = null, clipboard = null } = {}) {
+async function scenario(browser, { fullAccess = true, bridge = null, clipboard = null } = {}) {
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, acceptDownloads: true });
   await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin });
   const page = await context.newPage();
@@ -73,7 +73,7 @@ async function scenario(browser, { fullAccess = true, localOwner = fullAccess, b
       }
       if (p === "/v1/projects") data = { projects: ["sem-projeto"], details: {} };
       if (p === "/v1/models")
-        data = { models: [{ id: "fixture", backend: "local", efforts: ["configured"] }], full_access: fullAccess, local_owner: localOwner, admin_url: origin + "/admin/" };
+        data = { models: [{ id: "fixture", backend: "local", efforts: ["configured"] }], full_access: fullAccess, local_owner: true, admin_url: origin + "/admin/" };
       if (p === "/v1/conversations") data = { conversations };
       if (p === "/v1/version") data = { version: "test", build: "continuation-test" };
       if (p === "/v1/catalog") data = { agents: [], skills: [], warnings: [] };
@@ -172,8 +172,8 @@ async function openDialog(page) {
       state.gates.claude = new Promise((r) => (release = r));
       await page.getByRole("button", { name: "Continue in another app…" }).click();
       await page.waitForFunction(() => document.getElementById("continuation-text").value !== "");
-      assert.equal(await page.locator("#continuation-paths").isChecked(), false, "remote clients start without project folders");
-      assert.deepEqual(state.requests[0], { id: "c1", target: "chatgpt", paths: "0" });
+      assert.equal(await page.locator("#continuation-paths").isChecked(), true, "the owner starts with project folders");
+      assert.deepEqual(state.requests[0], { id: "c1", target: "chatgpt", paths: "1" });
       assert.match(await page.locator("#continuation-summary").innerText(), /Older turns were left out to fit the size limit\./);
       await page.locator('input[name="continuation-target"][value="claude"]').check();
       await page.waitForFunction(() => document.getElementById("continuation-text").value === "");
@@ -181,7 +181,7 @@ async function openDialog(page) {
       await page.waitForFunction(() => document.getElementById("continuation-text").value.includes("for chatgpt"));
       release();
       await page.waitForTimeout(300);
-      assert.equal(await page.locator("#continuation-text").inputValue(), textFor("chatgpt", "0"), "the slower claude answer was dropped");
+      assert.equal(await page.locator("#continuation-text").inputValue(), textFor("chatgpt", "1"), "the slower claude answer was dropped");
       state.failWith = { status: 400, code: "invalid_continuation_target" };
       await page.locator('input[name="continuation-target"][value="claude"]').check();
       await page.locator("#continuation-error").filter({ hasText: "Choose Claude or ChatGPT" }).waitFor();
@@ -247,13 +247,13 @@ async function openDialog(page) {
       await page.waitForTimeout(200);
       assert.equal(await page.locator("#continuation-open").isHidden(), true);
     }
-    // 11. The owner's default does not depend on Full mode; guests never get it.
-    for (const [fullAccess, localOwner, checked] of [[false, true, true], [false, false, false]]) {
-      const { context, page, state } = await scenario(browser, { fullAccess, localOwner });
+    // 11. The owner's default does not depend on Full mode.
+    {
+      const { context, page, state } = await scenario(browser, { fullAccess: false });
       opened.push(context);
       await openDialog(page);
-      assert.equal(await page.locator("#continuation-paths").isChecked(), checked, `local_owner=${localOwner}`);
-      assert.equal(state.requests[0].paths, checked ? "1" : "0");
+      assert.equal(await page.locator("#continuation-paths").isChecked(), true);
+      assert.equal(state.requests[0].paths, "1");
     }
     // 12. Endpoint 404: the message is shown and nothing can be copied or saved.
     {

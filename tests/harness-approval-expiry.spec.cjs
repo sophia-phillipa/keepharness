@@ -16,9 +16,7 @@ const path = require("node:path");
         if (pathname.startsWith("/v1/approvals/")) {
           submissions++;
           if (pathname.endsWith("/not-enrolled"))
-            return route.fulfill({ status: 403, json: { code: "approval_session_required", owner: "alice@example.com" } });
-          if (pathname.endsWith("/not-enrolled-anonymous"))
-            return route.fulfill({ status: 403, json: { code: "approval_session_required" } });
+            return route.fulfill({ status: 403, json: { code: "approval_session_required", owner: "local" } });
           if (pathname.endsWith("/not-enrolled-hostile"))
             return route.fulfill({ status: 403, json: { code: "approval_session_required", owner: "x; touch pwned" } });
           if (pathname.endsWith("/keyboard-pending")) {
@@ -113,24 +111,24 @@ const path = require("node:path");
     await required("not-enrolled", 3);
     await page.locator("#approval-not-enrolled").getByRole("button", { name: "Allow once" }).click();
     await page.locator("#approval-not-enrolled").getByText(/not enrolled/).waitFor();
-    // The command names the caller's own owner id from the 403 body, never a fixed "local".
-    assert.match(await page.locator("#approval-not-enrolled").innerText(), /keepharness approve-device --owner alice@example\.com\b/);
-    assert.doesNotMatch(await page.locator("#approval-not-enrolled").innerText(), /--owner local/);
+    // The remote or local browser is told to run the command on the computer where KeepHarness runs.
+    const command = /On the computer where KeepHarness runs, run keepharness approve-device --owner local\b/;
+    assert.match(await page.locator("#approval-not-enrolled").innerText(), command);
+    assert.doesNotMatch(await page.locator("#approval-not-enrolled").innerText(), /guest|ask the owner|alice/i);
     assert.match(await page.locator("#status").innerText(), /not enrolled/);
-    assert.match(await page.locator("#status").innerText(), /--owner alice@example\.com\b/);
+    assert.match(await page.locator("#status").innerText(), command);
     assert.equal(await page.locator("#approval-not-enrolled button:enabled").count() > 0, true);
     console.log("PASS P6b: an approval from a browser that is not enrolled explains the enrollment");
-    // Without an owner in the body, no owner is named: the user is told to ask the admin.
-    // An owner id that is unsafe to paste into a shell is treated the same way.
-    for (const id of ["not-enrolled-anonymous", "not-enrolled-hostile"]) {
-      await required(id, id === "not-enrolled-anonymous" ? 4 : 5);
-      await page.locator("#approval-" + id).getByRole("button", { name: "Allow once" }).click();
-      await page.locator("#approval-" + id).getByText(/not enrolled/).waitFor();
-      const text = await page.locator("#approval-" + id).innerText();
-      assert.match(text, /Ask the admin of this KeepHarness to enroll this browser for your own account/);
-      assert.doesNotMatch(text, /--owner|local|touch pwned/);
+    // A 403 body naming any owner never reaches the command: the text is fixed.
+    {
+      await required("not-enrolled-hostile", 4);
+      await page.locator("#approval-not-enrolled-hostile").getByRole("button", { name: "Allow once" }).click();
+      await page.locator("#approval-not-enrolled-hostile").getByText(/not enrolled/).waitFor();
+      const text = await page.locator("#approval-not-enrolled-hostile").innerText();
+      assert.match(text, command);
+      assert.doesNotMatch(text, /touch pwned/);
     }
-    console.log("PASS P6c: enrollment guidance without a known owner asks the admin and names none");
+    console.log("PASS P6c: enrollment guidance is fixed and never echoes an owner from the response");
     await page.evaluate(async () => {
       job = "expired-waits";
       active = assistant(job, "fixture");
