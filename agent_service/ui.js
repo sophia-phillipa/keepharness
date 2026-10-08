@@ -8258,22 +8258,34 @@ function adminFrameUrl(section) {
 }
 function showAdminSection(section = "providers") {
   // Created on first use so ordinary page loads carry no extra document.
+  const next = adminFrameUrl(section);
   let frame = $("admin-frame");
+  if (frame && new URL(frame.src).origin !== new URL(next).origin) { frame.remove(); frame = null; }
+  const created = !frame;
   if (!frame) {
     frame = document.createElement("iframe");
     frame.id = "admin-frame";
     // Share only our origin so the embedded admin can authenticate theme messages.
     frame.referrerPolicy = "origin";
-    frame.onload = () => window.HarnessTheme?.apply(document.documentElement.dataset.palette, false);
+    frame.onload = () => {
+      window.HarnessTheme?.apply(document.documentElement.dataset.palette, false);
+      // Joint traversal can restore an older iframe document after the shell's popstate.
+      const desired = new URL(frame.dataset.adminUrl || frame.src);
+      frame.contentWindow.postMessage({ type: "keepharness:settings-section", section: desired.hash.slice(1) }, desired.origin);
+    };
+    frame.src = next;
     $("settings-system").append(frame);
   }
   const label = document.querySelector('[data-admin-section="' + section + '"]');
   frame.title = "Administration: " + (label?.textContent || section);
-  const next = adminFrameUrl(section);
-  if (frame.dataset.settingsSearchReady && new URL(frame.src).origin === new URL(next).origin) {
+  if (!created && frame.dataset.settingsSearchReady) {
     // Search has authenticated this admin document. Retain its unsaved form values.
     frame.contentWindow.postMessage({ type: "keepharness:settings-section", section }, new URL(next).origin);
-  } else if (frame.src !== next) frame.src = next;
+  } else if (!created && frame.dataset.adminUrl !== next) {
+    // Iframe entries share browser history with the shell. Replace, never append.
+    frame.contentWindow.location.replace(next);
+  }
+  frame.dataset.adminUrl = next;
 }
 // `section` is a data-admin-section or a data-settings value; false when it is an admin section
 // on a host that cannot frame the admin, or unknown.
@@ -8519,6 +8531,10 @@ async function applyView(view, replay = false) {
     else if (top !== undefined) restoreScroll(top);
     if (conversation !== view.id) return false;
   } else if (view.kind === "home") {
+    // Responsive drawers make the composer inert; close them before restoring focus.
+    closeSidebar();
+    if (innerWidth < 1000) setPanelOpen(false, false);
+    window.runConsole?.closeForPanel();
     // A click on New chat always starts a fresh one; a replayed Home only leaves the conversation.
     if (replay && view.project && [...$("project").options].some(option => option.value === view.project)) {
       newConversation("New Conversation", view.project, { restoreHomeDraft: true });

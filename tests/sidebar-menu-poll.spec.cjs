@@ -51,6 +51,8 @@ const path = require("node:path");
     await page.keyboard.press("Escape");
     await rowMenu.waitFor({ state: "hidden" });
     await page.clock.runFor(10500);
+    // Advancing the clock fires the poll; its network response and render finish asynchronously.
+    await page.waitForFunction(() => document.querySelector("#projects > *")?.dataset.mark !== "kept");
     assert.equal(await kept(), false, "the refresh must resume once the row menu is closed");
 
     // Project actions menu: same rule.
@@ -63,6 +65,7 @@ const path = require("node:path");
     await page.keyboard.press("Escape");
     await projectMenu.waitFor({ state: "hidden" });
     await page.clock.runFor(10500);
+    await page.waitForFunction(() => document.querySelector("#projects > *")?.dataset.mark !== "kept");
     assert.equal(await kept(), false, "the refresh must resume once the project menu is closed");
     assert.deepEqual(errors, []);
     console.log("PASS: the sidebar refresh leaves open actions menus alone");
