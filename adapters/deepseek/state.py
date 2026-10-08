@@ -31,7 +31,7 @@ class DeepSeekStateAdapter(CodexStateAdapter):
                 replace(
                     item,
                     writable=False,
-                    reason="Read-only DeepSeek facade; managed by its Codex engine.",
+                    reason=item.reason or "Read-only DeepSeek facade; managed by its Codex engine.",
                 )
                 for item in snapshot.items
                 if item.kind in ("hook", "instructions")

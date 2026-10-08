@@ -425,3 +425,90 @@ def test_codex_managed_execpolicy_uses_native_config_layer_source(
     )
     assert row.scope == "managed" and row.enabled and not row.writable
     assert "forbidden" in row.details["preview"]
+
+
+def test_deepseek_hooks_preserve_layers_trust_redaction_and_outside_changes(
+    tmp_path, isolated_provider_homes, monkeypatch
+):
+    import adapters.codex.state as module
+    from adapters.deepseek.state import DeepSeekStateAdapter
+
+    state = tmp_path / "state"
+    native_home = state / "providers/deepseek"
+    project = tmp_path / "project"
+    put(native_home / "AGENTS.md", "# Global DeepSeek rules\n")
+    put(project / "AGENTS.md", "# Shadowed project rules\n")
+    put(project / "AGENTS.override.md", "# Active project rules\n")
+    user_source = put(native_home / "hooks.json", {"hooks": {}})
+    project_source = put(project / ".codex/hooks.json", {"hooks": {}})
+    native_hooks = [
+        {
+            "key": "global-hook",
+            "eventName": "sessionStart",
+            "handlerType": "command",
+            "command": "check --api-key global-private",
+            "source": "user",
+            "sourcePath": str(user_source),
+            "enabled": True,
+            "trustStatus": "trusted",
+            "currentHash": "global-v1",
+            "timeoutSec": 600,
+        },
+        {
+            "key": "project-hook",
+            "eventName": "preToolUse",
+            "handlerType": "command",
+            "command": "check --token project-private",
+            "source": "project",
+            "sourcePath": str(project_source),
+            "enabled": True,
+            "trustStatus": "modified",
+            "currentHash": "project-v1",
+            "timeoutSec": 30,
+        },
+    ]
+
+    async def ask(*args, **kwargs):
+        assert kwargs["environment"]["CODEX_HOME"] == str(native_home)
+        return {
+            "config": {
+                "layers": [
+                    {
+                        "name": {"type": "project", "dotCodexFolder": str(project / ".codex")},
+                        "config": {},
+                        "version": "p1",
+                    },
+                    {
+                        "name": {"type": "user", "file": str(native_home / "config.toml")},
+                        "config": {},
+                        "version": "u1",
+                    },
+                ]
+            },
+            "hooks": {"data": [{"hooks": native_hooks}]},
+        }, {}
+
+    monkeypatch.setattr(module, "_ask", ask)
+    monkeypatch.setattr(module, "_cli_version", lambda *_: "0.157.1")
+    adapter = DeepSeekStateAdapter(state)
+    monkeypatch.setattr(adapter, "_binary", lambda: "fake")
+    first = adapter.read_state(project)
+    hooks = {row.scope: row for row in first.items if row.kind == "hook"}
+    assert hooks["user"].enabled and hooks["user"].source == str(user_source)
+    assert not hooks["project"].enabled and hooks["project"].source == str(project_source)
+    assert hooks["project"].details["status"] == "pending review"
+    assert hooks["project"].reason == "Read-only; review hooks with Codex /hooks."
+    rules = {row.name: row for row in first.items if row.kind == "instructions"}
+    assert rules["Global DeepSeek rules"].scope == "user"
+    assert not rules["Shadowed project rules"].enabled
+    assert rules["Active project rules"].enabled
+    serialized = json.dumps(dataclasses.asdict(first))
+    assert "global-private" not in serialized and "project-private" not in serialized
+    native_hooks[1]["currentHash"] = "project-v2"
+    second = adapter.read_state(project)
+    assert first.fingerprint != second.fingerprint
+    notices = diff_items(_items_of(first), _items_of(second), {})
+    assert len(notices) == 1 and notices[0]["change"] == "changed"
+    assert notices[0]["item_id"] == hooks["project"].id
+    assert _merge([], notices, "deepseek", "project", "now")
+    assert "project-private" not in json.dumps(notices)
