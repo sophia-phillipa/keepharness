@@ -44,8 +44,10 @@ from adapters.shared.provider_state import (
     CredentialRule,
     LoginStatus,
     ProviderCommandError,
+    ProviderMcpDisabledError,
     ProviderStateConflictError,
     ProviderStateSchemaError,
+    ProviderStateTimeoutError,
     ProviderStateUnsupportedError,
     ProviderStateVersionError,
     RunSetup,
@@ -53,7 +55,10 @@ from adapters.shared.provider_state import (
     SecretStr,
     StateItem,
     StateSnapshot,
+    TrustWriteRollback,
     claude_json_backup_dir,
+    run_state_command,
+    state_write_active,
     write_json_atomic,
 )
 
@@ -509,15 +514,16 @@ class ClaudeStateAdapter:
 
     def _version(self, reading: _Reading) -> str:
         try:
-            done = subprocess.run(
+            done = run_state_command(
                 ["claude", "--version"],
-                capture_output=True,
-                text=True,
                 timeout=VERSION_TIMEOUT_SECONDS,
                 env=child_environment(self._environment()),
-                check=False,
             )
             version = _version_tuple(done.stdout) if done.returncode == 0 else None
+        except ProviderStateTimeoutError:
+            if state_write_active():
+                raise
+            version = None
         except (OSError, subprocess.TimeoutExpired):
             version = None
         if version is None:
@@ -753,13 +759,18 @@ class ClaudeStateAdapter:
                 "Claude Code is outside the tested range; state is not written"
             )
 
-    def trust_project(self, project_root: Path) -> None:
+    def trust_project(self, project_root: Path, *, trusted: bool = True, rollback=None) -> None:
         root = Path(project_root).resolve()
         self._check_write_version(root)
         path = self._claude_json()
         _, digest, problem = _read_json_object(path)
         if problem and problem != "missing":
             raise ProviderStateSchemaError("Claude trust state is unreadable")
+
+        undo = None
+        if rollback is not None:
+            undo = TrustWriteRollback.capture(path, digest if digest is not None else MISSING_FILE)
+            rollback.append(undo)
 
         def change(document):
             projects = document.setdefault("projects", {})
@@ -768,10 +779,10 @@ class ClaudeStateAdapter:
             entry = projects.setdefault(str(root), {})
             if not isinstance(entry, dict):
                 raise ProviderStateSchemaError("Claude project is not an object")
-            entry["hasTrustDialogAccepted"] = True
+            entry["hasTrustDialogAccepted"] = trusted
             return document
 
-        write_json_atomic(
+        written = write_json_atomic(
             path,
             change,
             digest if digest is not None else MISSING_FILE,
@@ -782,7 +793,9 @@ class ClaudeStateAdapter:
                 else ["projects must be an object"]
             ),
         )
-        self._confirm(self._is_project_trusted(root), True)
+        if undo is not None:
+            undo.written = written
+        self._confirm(self._is_project_trusted(root), trusted)
 
     def project_servers(self, project_root: Path) -> dict:
         document, _, problem = _read_json_object(Path(project_root) / ".mcp.json")
@@ -832,6 +845,10 @@ class ClaudeStateAdapter:
         self._check_write_version(root)
         if server not in self.project_servers(root):
             raise ProviderStateUnsupportedError("The project MCP server is unknown")
+        if server not in self.enabled_project_servers(root):
+            raise ProviderMcpDisabledError(
+                "This MCP server is disabled by owner; enable it before changing approval."
+            )
         path = self._settings_path("local", root)
         _, digest, problem = _read_json_object(path)
         if problem not in ("", "missing"):
