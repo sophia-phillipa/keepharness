@@ -1,7 +1,8 @@
 "use strict";
 /* Plugins page of the admin panel (issue #20): the Codex Settings > Plugins layout over the
    integration catalogs. Classic script sharing admin.js globals ($, element, request, state,
-   integrationCatalogs, action, say, providerName, connectorIcon, connectorLabel). */
+   integrationCatalogs, action, say, providerName, connectorIcon, connectorLabel).
+   Row switches (issue #21, D-041) read and write the CLI's real state through /api/provider-state. */
 (() => {
   const CLIS = ["codex", "claude"]; // the only providers /api/integration-catalog answers for
   // Like every admin button, each chip leads with its own icon on the label's line.
@@ -11,10 +12,15 @@
     ["mcps", "MCPs", "mcp", "plug"],
     ["skills", "Skills", undefined, "list-check"], // no count until the Skills content lands
   ];
+  const NO_PROJECT = "sem-projeto"; // the only scope this page has (D-041 item 3)
   const view = { chip: "plugins", query: "", loading: false, built: false, clis: [] };
   const panel = $("plugins-panel");
   const chipButtons = new Map();
-  let list, note, menu, refreshButton;
+  // Provider id -> { snapshot } from GET /api/provider-state, or { error } when it could not be read.
+  const states = new Map();
+  // "<provider>|<item id>" -> the last write error, shown on that row until the next read or write.
+  const rowErrors = new Map();
+  let list, note, status, menu, refreshButton, noteCount = 0;
 
   const node = (tag, text, cls, testid) => {
     const el = element(tag, text, cls);
@@ -23,15 +29,21 @@
   };
 
   // Installed items of one kind, merged by id across the CLIs, each with the providers that have it.
+  // Plugins the CLI loads but the catalog does not list are added from its state snapshot.
   function installed(kind) {
     const merged = new Map();
-    for (const info of view.clis)
-      for (const item of integrationCatalogs.get(info.id)?.items || []) {
-        if (item.kind !== kind || item.status === "available") continue;
-        const group = merged.get(item.id) || { item, providers: [] };
-        group.providers.push(info);
-        merged.set(item.id, group);
-      }
+    const add = (info, item) => {
+      const group = merged.get(item.id) || { item, providers: [] };
+      if (!group.providers.includes(info)) group.providers.push(info);
+      merged.set(item.id, group);
+    };
+    for (const info of view.clis) {
+      for (const item of integrationCatalogs.get(info.id)?.items || [])
+        if (item.kind === kind && item.status !== "available") add(info, item);
+      if (kind === "plugin")
+        for (const item of states.get(info.id)?.snapshot?.items || [])
+          if (item.kind === "plugin") add(info, { id: item.id, name: item.name, kind, status: "installed" });
+    }
     return [...merged.values()].sort((a, b) =>
       connectorLabel(a.item).localeCompare(connectorLabel(b.item)),
     );
@@ -93,6 +105,88 @@
     popup.firstElementChild.focus();
   }
 
+  // The status line of the switches: #feedback can sit inside the closed provider wizard.
+  function report(text) {
+    status.textContent = text;
+    status.hidden = !text;
+  }
+  const onOff = (enabled) => (enabled ? "on" : "off");
+  const capitalized = (text) => text.charAt(0).toUpperCase() + text.slice(1);
+
+  // Writes go through action(), which holds the admin's one-operation lock and ignores a click that
+  // arrives while a write is in flight. The switch never flips ahead of the server: it is redrawn from
+  // the snapshot the server answered with.
+  function writeState(group, info, stateItem) {
+    const label = connectorLabel(group.item),
+      where = providerName(info),
+      key = info.id + "|" + stateItem.id;
+    report("");
+    return action(async () => {
+      try {
+        const body = await request("provider-state", {
+          provider: info.id,
+          project_id: NO_PROJECT,
+          item_id: stateItem.id,
+          scope: stateItem.scope,
+          enabled: !stateItem.enabled,
+          fingerprint: states.get(info.id).snapshot.fingerprint,
+        });
+        states.set(info.id, { snapshot: body.snapshot });
+        rowErrors.delete(key);
+        report(label + " is now " + onOff(!stateItem.enabled) + " in " + where + ".");
+      } catch (error) {
+        const fresh = error.status === 409 && error.body?.snapshot;
+        if (fresh) {
+          states.set(info.id, { snapshot: fresh });
+          const now = fresh.items.find((x) => x.id === stateItem.id);
+          report(
+            where + " changed since this page loaded: " + label + (now ? " is now " + onOff(now.enabled) : " was removed") + ". Try again.",
+          );
+        } else {
+          rowErrors.set(key, error.message);
+          report(error.message);
+        }
+      } finally {
+        render();
+        list.querySelector('[data-item-id="' + CSS.escape(stateItem.id) + '"][data-provider="' + info.id + '"]')?.focus();
+      }
+    });
+  }
+
+  // One provider on a row: its pill, plus a switch when its snapshot has the item. Returns [cell, note].
+  function providerCell(group, info) {
+    const label = connectorLabel(group.item),
+      where = providerName(info);
+    const cell = node("span", undefined, "plugins-provider");
+    cell.append(node("span", where, "pill"));
+    const read = states.get(info.id);
+    const stateItem = read?.snapshot?.items.find((x) => x.id === group.item.id);
+    const text = !read?.snapshot
+      ? where + ": " + (read?.error || "State is not readable here yet.")
+      : !stateItem
+        ? "Not installed in " + where
+        : [where + ": " + capitalized(stateItem.scope) + " · " + stateItem.source, !stateItem.writable && stateItem.reason, rowErrors.get(info.id + "|" + stateItem.id)]
+            .filter(Boolean)
+            .join(" · ");
+    const hint = node("small", text, "plugins-row-note", "plugin-note");
+    hint.id = "plugin-note-" + ++noteCount;
+    hint.dataset.provider = info.id;
+    if (stateItem) {
+      const input = node("button", undefined, "plugins-switch", "plugin-switch");
+      input.type = "button";
+      input.setAttribute("role", "switch");
+      input.setAttribute("aria-label", label + " in " + where);
+      input.setAttribute("aria-checked", String(stateItem.enabled));
+      input.setAttribute("aria-describedby", hint.id);
+      input.dataset.itemId = stateItem.id;
+      input.dataset.provider = info.id;
+      input.disabled = !stateItem.writable;
+      input.onclick = () => writeState(group, info, stateItem);
+      cell.append(input);
+    }
+    return [cell, hint];
+  }
+
   function row(group) {
     const label = connectorLabel(group.item);
     const text = node("div", undefined, "plugins-row-text");
@@ -100,7 +194,11 @@
     if (group.item.description)
       text.append(node("small", group.item.description, undefined, "plugin-description"));
     const badges = node("div", undefined, "plugins-row-providers");
-    badges.append(...group.providers.map((info) => node("span", providerName(info), "pill")));
+    for (const info of group.providers) {
+      const [cell, hint] = providerCell(group, info);
+      badges.append(cell);
+      text.append(hint);
+    }
     const more = node("button", "⋯", "plugins-more", "plugin-menu-button");
     more.type = "button";
     more.setAttribute("aria-label", label + " actions");
@@ -188,8 +286,11 @@
     toolbar.append(chips, search, refreshButton);
     note = node("p", undefined, "hint plugins-note", "plugins-note");
     note.setAttribute("aria-live", "polite");
+    status = node("p", undefined, "hint plugins-status", "plugins-status");
+    status.setAttribute("role", "status");
+    status.hidden = true;
     list = node("div", undefined, "plugins-list", "plugins-list");
-    panel.append(toolbar, note, list);
+    panel.append(toolbar, note, status, list);
     document.addEventListener("keydown", (event) => {
       if (event.key !== "Escape" || !menu) return;
       event.preventDefault();
@@ -201,6 +302,21 @@
     view.built = true;
   }
 
+  // The state of each found CLI, read in parallel: GET takes no admin lock. A failure only affects its provider.
+  function loadStates(clis) {
+    rowErrors.clear();
+    return Promise.all(
+      clis.map(async ({ id }) => {
+        try {
+          const body = await request("provider-state?provider=" + id + "&project_id=" + NO_PROJECT);
+          states.set(id, body.snapshot ? { snapshot: body.snapshot } : {});
+        } catch (error) {
+          states.set(id, { error: error.message });
+        }
+      }),
+    );
+  }
+
   async function loadCatalogs(force) {
     if (view.loading) return;
     view.loading = true;
@@ -209,6 +325,7 @@
     try {
       const inventory = (state || (await request("state"))).inventory;
       view.clis = inventory.services.filter((info) => info.found && CLIS.includes(info.id));
+      const reads = loadStates(view.clis);
       // One CLI at a time: the admin runs one operation at once and answers 429 to a second.
       for (const { id } of view.clis) {
         const cached = integrationCatalogs.get(id);
@@ -223,6 +340,7 @@
           catalogPending.delete(id);
         }
       }
+      await reads;
     } catch (error) {
       say(error.message, true);
     } finally {

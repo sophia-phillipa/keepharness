@@ -153,10 +153,11 @@ const contrast = (a, b) => {
     await page.waitForFunction(() => document.querySelector('[data-testid="plugins-list"]')?.getAttribute("aria-busy") === "false");
     assert.equal(catalogCalls, 4);
     assert.deepEqual(
-      apiCalls.filter((n) => !["state", "integration-catalog"].includes(n)),
+      apiCalls.filter((n) => !["state", "integration-catalog", "provider-state"].includes(n)),
       [],
-      "rendering requests only /api/state and /api/integration-catalog (no dashboard polling)",
+      "rendering requests only /api/state, /api/integration-catalog and /api/provider-state (no dashboard polling)",
     );
+    assert.equal(apiCalls.filter((n) => n === "provider-state").length, 4, "one state read per CLI on entry and again on Refresh");
     await page.waitForTimeout(3500);
     assert.equal(apiCalls.includes("dashboard"), false, "the 3 s dashboard poll skips #plugins");
     await page.locator("[data-panel=home]").click();

@@ -84,8 +84,8 @@ async function requestRaw(path, data) {
         "). Try again after checking the server.",
     );
   }
-  if (!r.ok)
-    throw Error(
+  if (!r.ok) {
+    const sentence =
       {
         model_not_available:
           "The selected model is not available. Check the provider models and choose again.",
@@ -97,10 +97,28 @@ async function requestRaw(path, data) {
         invalid_request:
           "The request is missing required data. Check the fields and try again.",
         invalid_json: "The request could not be read. Reload the page and try again.",
+        provider_state_conflict:
+          "The provider changed since this page loaded. Review the refreshed state and try again.",
+        provider_state_write_unsupported:
+          "KeepHarness cannot change this item in the provider.",
+        provider_state_version_untested:
+          "This provider version has not been tested for this change.",
+        provider_state_validation_failed:
+          "The provider rejected the change as invalid.",
+        provider_state_unreadable: "The provider state could not be read.",
+        provider_command_failed: "The provider command failed.",
+        provider_unknown: "There is no state adapter for this provider yet.",
+        project_unknown: "This project is not registered.",
       }[value.error] ||
-        value.error ||
-        "Could not complete this action. Check the data and try again.",
-    );
+      value.error ||
+      "Could not complete this action. Check the data and try again.";
+    // Provider-state errors carry the adapter's own sentence (already capped by the server).
+    const detail = value.message || value.provider_message;
+    const error = Error(detail ? sentence + " " + detail : sentence);
+    error.status = r.status;
+    error.body = value;
+    throw error;
+  }
   return value;
 }
 function dirty() {
@@ -1202,7 +1220,8 @@ async function action(fn) {
   const trigger = document.activeElement?.closest("button");
   if (trigger && !$("operation-dialog").open) operationOpener = trigger;
   const disabled = trigger?.disabled;
-  const label = trigger?.textContent?.trim() || "Load panel";
+  const label =
+    trigger?.textContent?.trim() || trigger?.getAttribute("aria-label") || "Load panel";
   if (trigger) trigger.disabled = true;
   $("wizard-content-lock").disabled = true;
   $("config-mcp").inert = true;
