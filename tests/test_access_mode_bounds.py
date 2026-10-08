@@ -188,3 +188,32 @@ def test_the_admin_setting_defaults_off_and_reaches_the_runtime_config(tmp_path)
     runtime = base_config(enabled, tmp_path / "state", 8094, "http://127.0.0.1:8095/", {})
     assert runtime["full_access"] is True
     assert base_config(manager.settings, tmp_path / "state", 8094, "", {})["full_access"] is False
+
+
+@pytest.mark.parametrize("mode", ["ask", "auto", "full", "read_only"])
+@pytest.mark.parametrize("shell,write", [(True, True), (False, False)])
+def test_access_menu_metadata_matches_actual_native_commands(tmp_path, mode, shell, write):
+    """The HTTP metadata and native execution must share their permission translation."""
+    from types import SimpleNamespace
+
+    from agent_service.routes.models import models as models_route
+
+    grants = {**ALL_GRANTS, "shell": shell, "write": write}
+    entries = [{"id": "fixture", "backend": p, "permissions": grants} for p in ("codex", "claude")]
+    identity = ("local", {"projects": ["p"]})
+    config = {"codex": {"unrestricted": True}, "claude": {"unrestricted": True}}
+    service = SimpleNamespace(
+        config=config, models_with_context=AsyncMock(return_value=entries),
+        project=lambda *a: None, identity=lambda *a, **k: identity, uploads_enabled=lambda *a: False,
+    )
+    response = asyncio.run(models_route(SimpleNamespace(query_params={}), service, identity))
+    codex, claude = json.loads(response.body)["models"]
+    project, _ = codex_project(tmp_path, mode, grants)
+    _, thread, turn = run_codex_route(tmp_path, "codex", project)
+    assert codex["access_modes"][mode] == {key: thread[key] for key in ("sandbox", "approvalPolicy")}
+    assert codex["access_modes"][mode]["approvalPolicy"] == turn["approvalPolicy"]
+    command = claude_command(
+        {"binary": "claude", "unrestricted": True}, "fixture", tmp_path,
+        effective_permissions(grants, mode), [], mode, [],
+    )
+    assert claude["access_modes"][mode] == {"permissionMode": command[command.index("--permission-mode") + 1]}

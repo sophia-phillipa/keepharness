@@ -203,13 +203,13 @@ const assert = require("node:assert/strict"),
     // The menu copy describes what each mode really does (F-110).
     await page.click("#access-trigger");
     const copy = await page
-      .locator("#access-menu [data-access] small")
+      .locator("#access-menu [data-access] small:not(.access-native-mode)")
       .allInnerTexts();
     assert.deepEqual(copy, [
-      "Asks before edits, commands that change files and every connector call. On Codex and DeepSeek, commands that change nothing run without asking and can read any file your account can.",
-      "Edits inside the project folders without asking; anything outside them, and every connector call, asks first. Codex and DeepSeek run commands in a sandbox limited to those folders (network only with the provider's internet setting) and can still read any file your account can; Claude Code asks before every command. Local models stay in their sandbox.",
-      "Available once turned on in the admin. Runs everything without asking: no sandbox for Codex, DeepSeek and Claude; local models keep the permissions set in the admin.",
-      "Reads and searches the project folders; web search follows the provider's internet setting. Edits, commands, tests, connectors and plugins are off.",
+      "Codex asks when an action needs to leave its read-only sandbox; Claude Code uses its default permission mode. Native connectors and plugins follow the CLI configuration. DeepSeek asks before edits and connector calls; read-only commands can read any file your account can.",
+      "Codex uses the sandbox shown above, with project-bounded writes when allowed; Claude Code accepts edits with its native permission rules. Native connectors and plugins follow the CLI configuration. DeepSeek asks before connector calls and actions beyond its workspace sandbox. Local models stay in their sandbox.",
+      "Available once turned on in the admin. Uses the native settings shown above, within the provider's configured grants. Codex and DeepSeek can run without a sandbox; Claude Code can bypass permission prompts. Local models keep the permissions set in the admin.",
+      "Codex uses a read-only sandbox with no approval escalation; Claude Code uses plan mode. Their connectors, plugins and tool permissions follow the native CLI configuration. Other providers keep their read-only restrictions.",
     ]);
     await page.keyboard.press("Escape");
 

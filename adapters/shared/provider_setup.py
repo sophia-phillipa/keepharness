@@ -114,3 +114,28 @@ def version_notice(binary, provider, event, environment=None):
             "code": "provider_version_untested",
             "message": f"{provider.title()} {version or 'unknown'} is outside the tested range {TESTED_VERSIONS}. The run will continue.",
         })
+
+
+def codex_access_settings(mode, permissions, unrestricted=False, isolated=False):
+    """Native settings shared by the app-server request and the Access menu."""
+    ask = mode == "ask" and not isolated
+    return {
+        "sandbox": (
+            "danger-full-access" if unrestricted
+            else "workspace-write" if permissions.get("write") and not ask
+            else "read-only"
+        ),
+        "approvalPolicy": (
+            "never" if mode in ("full", "read_only") and not isolated else "on-request"
+        ),
+    }
+
+
+def claude_access_settings(mode, permissions, unrestricted=False):
+    """Native permission mode shared by the CLI command and the Access menu."""
+    if mode == "full":
+        return {
+            "permissionMode": "bypassPermissions"
+            if unrestricted and permissions.get("shell") else "dontAsk"
+        }
+    return {"permissionMode": {"ask": "default", "auto": "acceptEdits", "read_only": "plan"}[mode]}

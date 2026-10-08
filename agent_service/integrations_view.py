@@ -12,7 +12,6 @@ import sqlite3
 from collections.abc import Sequence
 from typing import Any, NamedTuple
 
-from adapters.shared.provider_setup import CONFIG_FOLDERS
 from control.integrations import inventory
 
 from . import approval_policy, maestro
@@ -36,6 +35,8 @@ ISOLATED = "Isolated conversations use no host connectors or plugins."
 NOT_ALLOWED = "Not allowed for this provider. Change it in Settings › System › Providers."
 GEMINI_READ_ONLY = "Read-only access turns connectors off for Gemini."
 READ_ONLY = "Read-only access turns connectors and plugins off."
+NATIVE = "Availability and approvals follow the native CLI configuration and selected access mode."
+NATIVE_BACKENDS = frozenset({"codex", "claude"})
 GEMINI_INTERNET = "Gemini connectors need the internet permission."
 ASKS = "Each connector call asks for your approval."
 UNATTENDED = "Connector calls run without asking (full access)."
@@ -44,10 +45,9 @@ PERSONAL_SETUP_OFF = (
     "Your Codex and Claude Code connectors and plugins come with your personal setup,"
     " which is off. Turn it on in Settings › System."
 )
-# Harness Codex runs set features.apps=false (adapters/codex/native.py); remote ChatGPT
-# plugins bring their tools as apps, so those plugins never load in a run.
+# Separate-home DeepSeek runs disable apps; native Codex inherits the CLI configuration.
 REMOTE_PLUGIN = "Remote ChatGPT plugins bring their tools as Codex apps, which harness runs turn off."
-APPS_OFF_BACKENDS = frozenset({"codex", "deepseek"})
+APPS_OFF_BACKENDS = frozenset({"deepseek"})
 # control.integrations.inventory() hands these backends the Codex lists: one inventory, not two.
 SHARED_INVENTORY = {"deepseek": "codex", "local": "codex"}
 ELSEWHERE_LIMIT = 50
@@ -76,6 +76,8 @@ def route_limits(config: Settings, route: Route) -> Limits:
     """What the adapters do with allowed integrations on this route (adapters/*/native.py)."""
     if route.execution_mode == "scoped":
         return Limits(ISOLATED, "", ISOLATED)
+    if route.backend in NATIVE_BACKENDS:
+        return Limits("", "", NATIVE)
     permissions = approval_policy.effective_permissions(
         maestro.model_permissions(config, route.backend, route.model, route.project_id),
         route.access_mode,
@@ -108,6 +110,8 @@ def item_reason(allowed: bool, limits: Limits) -> str:
 
 def with_plugin_catalog(config: Settings, backend: str, installed: list[Item]) -> list[Item]:
     """Swap the profile's plugins for the list the adapter really toggles (``codex plugin list``)."""
+    if backend in NATIVE_BACKENDS:
+        return installed
     catalog = config.get(backend, {}).get("plugin_inventory")
     if not isinstance(catalog, list):
         return installed
@@ -132,7 +136,7 @@ def load_items(
     config: Settings, backend: str, catalog: dict[str, list[Item]] | None
 ) -> tuple[list[Item], list[str]]:
     """The backend's installed items; harness-owned homes see host connectors only by opt-in (D01)."""
-    if backend in CONFIG_FOLDERS and config.get("personal_setup") is not True:
+    if backend == "deepseek" and config.get("personal_setup") is not True:
         return [], [PERSONAL_SETUP_OFF]
     return read_inventory(config, backend, catalog)
 
@@ -229,6 +233,8 @@ def connected_elsewhere(
     catalog: dict[str, list[Item]] | None,
 ) -> list[Item]:
     """Tools another enabled provider has allowed that this route's provider lacks or has not allowed."""
+    if route.backend in NATIVE_BACKENDS:
+        return []  # Inventory alone cannot justify a native enable/switch recommendation.
     on_route: dict[str, bool] = {}  # family -> allowed on this route's provider
     names: dict[str, list[str]] = {}  # family -> display names, this route's first
     for item in here:
@@ -238,6 +244,8 @@ def connected_elsewhere(
     own_inventory = SHARED_INVENTORY.get(route.backend, route.backend)
     found: dict[str, list[Item]] = {}
     for backend in dict.fromkeys(providers):
+        if backend in NATIVE_BACKENDS:
+            continue  # Native availability is unverified, not an enforced harness allow-list.
         if SHARED_INVENTORY.get(backend, backend) == own_inventory:
             continue
         if EXECUTION_MODES.get(backend) == ("scoped",):
@@ -288,6 +296,8 @@ def build(
             REMOTE_PLUGIN if app_based(item, route.backend) else ""
         )
         item["effective"] = not item["reason"]
+        if route.backend in NATIVE_BACKENDS and route.execution_mode == "native":
+            item.update(allowed=None, effective=None, reason=NATIVE)
         item["used"] = used.get(item["id"], no_usage())
     return {
         "backend": route.backend,

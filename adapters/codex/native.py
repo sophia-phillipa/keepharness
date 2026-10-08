@@ -10,7 +10,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from adapters.shared.provider_setup import instructions
+from adapters.shared.provider_setup import codex_access_settings, instructions
 from adapters.shared.workspace import readable_roots
 from agent_service.reader_mcp import SERVER_NAME as READER
 from agent_service.reader_mcp import server_spec as reader_spec
@@ -79,17 +79,8 @@ def thread_parameters(config, project, model, workspace, runtime, unrestricted, 
     params = {
         "model": model,
         "cwd": str(cwd),
-        "sandbox": (
-            "danger-full-access"
-            if unrestricted
-            else "workspace-write"
-            if permissions.get("write") and not ask
-            else "read-only"
-        ),
-        "approvalPolicy": (
-            "never"
-            if project.get("access_mode") in ("full", "read_only") and not runtime.isolated
-            else "on-request"
+        **codex_access_settings(
+            project.get("access_mode", "ask"), permissions, unrestricted, runtime.isolated
         ),
         "approvalsReviewer": "user",
         "developerInstructions": "Use the native CLI tools and only the configured integrations. Follow the selected project instructions. Ask approval for actions that exceed the configured permissions. Do not claim a tool succeeded without evidence. "

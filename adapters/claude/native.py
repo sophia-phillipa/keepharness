@@ -6,7 +6,12 @@ import json
 from pathlib import Path
 
 from adapters.shared.process import child_environment, process_diagnostics
-from adapters.shared.provider_setup import child_source, instructions, version_notice
+from adapters.shared.provider_setup import (
+    child_source,
+    claude_access_settings,
+    instructions,
+    version_notice,
+)
 from agent_service.tools import ToolError
 
 from .stream import Stream
@@ -52,16 +57,10 @@ def build_command(config, model, home, permissions, selected, access_mode, addit
     ]
     if policy and not policy["trusted"]:
         command += ["--setting-sources", "user"]
-    if access_mode == "ask":
-        command += ["--permission-mode", "default"]
-    elif access_mode == "auto":
-        command += ["--permission-mode", "acceptEdits"]
-    elif config.get("unrestricted") and access_mode == "full" and permissions.get("shell"):
-        command += ["--permission-mode", "bypassPermissions"]
-    elif access_mode == "read_only":
-        command += ["--permission-mode", "plan"]
-    elif access_mode == "full":
-        command += ["--permission-mode", "dontAsk"]
+    command += [
+        "--permission-mode",
+        claude_access_settings(access_mode, permissions, config.get("unrestricted"))["permissionMode"],
+    ]
     if additional_roots:
         command += ["--add-dir", *additional_roots]
     if permissions.get("delegate"):
