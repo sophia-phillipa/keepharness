@@ -166,3 +166,52 @@ def test_deepseek_facade_refuses_credentials_and_config_aliases(facade, tmp_path
         service._adapter("deepseek").read_state(None)
     assert not (home / "fake-app-server.log").exists()
     assert path.read_bytes() == before
+
+
+def test_deepseek_facade_refuses_hardlinked_config_before_cli(facade, tmp_path):
+    from adapters.shared.provider_state import ProviderStateSchemaError
+
+    service, home = facade
+    foreign = tmp_path / "foreign-config.toml"
+    foreign.write_bytes(b'[mcp_servers.owner_only]\ncommand="owner-command"\nenabled=true\n')
+    config = home / "config.toml"
+    config.unlink()
+    os.link(foreign, config)
+    before = foreign.read_bytes()
+    with pytest.raises(ProviderStateSchemaError):
+        service._adapter("deepseek").read_state(None)
+    response = asyncio.run(service.read("deepseek", "sem-projeto"))
+    assert response.status_code == 422
+    assert json.loads(response.body)["error"] == "provider_state_unreadable"
+    assert not (home / "fake-app-server.log").exists()
+    assert config.read_bytes() == foreign.read_bytes() == before
+
+
+@pytest.mark.parametrize("kind", ["directory", "fifo", "inspection_error"])
+def test_deepseek_config_inspection_fails_closed(facade, monkeypatch, kind):
+    import adapters.codex.state as codex_state
+    from adapters.shared.provider_state import ProviderStateSchemaError
+
+    service, home = facade
+    config = home / "config.toml"
+    config.unlink()
+    if kind == "directory":
+        config.mkdir()
+    elif kind == "fifo":
+        os.mkfifo(config)
+    else:
+        original = Path.lstat
+
+        def inaccessible(path, *args, **kwargs):
+            if path == config:
+                raise PermissionError("fixture inspection failure")
+            return original(path, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "lstat", inaccessible)
+
+    async def forbidden(*args, **kwargs):
+        raise AssertionError("Unsafe config reached the CLI")
+
+    monkeypatch.setattr(codex_state, "_ask", forbidden)
+    with pytest.raises(ProviderStateSchemaError):
+        service._adapter("deepseek").read_state(None)

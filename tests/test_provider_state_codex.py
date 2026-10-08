@@ -560,6 +560,25 @@ def test_watch_paths(adapter, codex_home, tmp_path):
     assert calls(codex_home) == []  # pure: no app-server involved
 
 
+@pytest.mark.parametrize("canonical", [False, True])
+def test_shared_skill_notice_survives_aliased_root(adapter, codex_home, tmp_path, canonical):
+    root = adapter.shared_skills_root()
+    target = tmp_path / "shared-skills"
+    skill = target / "notes" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("Fixture skill")
+    root.parent.mkdir(parents=True, exist_ok=True)
+    root.symlink_to(target, target_is_directory=True)
+    path = skill if canonical else root / "notes" / "SKILL.md"
+    seed(codex_home)
+    reconfigure(codex_home, skills=[{"name": "notes", "path": str(path), "scope": "user"}])
+    item = rows(adapter.read_state(None))[f"skill:{path}"]
+    assert item.writable
+    assert f"Shared skills root: {root}." in item.reason
+    assert "other providers using this root" in item.reason
+    assert item.affects == ()
+
+
 def test_watch_paths_default_to_the_dot_codex_folder_of_the_home(
     adapter, isolated_provider_homes, monkeypatch
 ):

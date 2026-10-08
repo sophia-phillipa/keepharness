@@ -575,6 +575,10 @@ class CodexStateAdapter:
                     if item.id in layer.get("items", {})
                 }
         shared_root = self.shared_skills_root()
+        try:
+            shared_location = shared_root.resolve()
+        except (OSError, RuntimeError):
+            shared_location = None
         for path, skill in _skill_list(
             results.get("skills"),
             _codex_home(self.environment),
@@ -587,7 +591,13 @@ class CodexStateAdapter:
             source = user.source if user and not reason else path
             name = str(skill.get("name") or path)
             item = row("skill", path, name, skill["enabled"], scope, source, reason)
-            if Path(path).is_relative_to(shared_root):
+            try:
+                in_shared_root = shared_location is not None and Path(
+                    path
+                ).resolve().is_relative_to(shared_location)
+            except (OSError, RuntimeError):
+                in_shared_root = False
+            if in_shared_root:
                 shared = (
                     f"Shared skills root: {shared_root}. Content changes affect "
                     "other providers using this root; this switch changes only this provider's config."

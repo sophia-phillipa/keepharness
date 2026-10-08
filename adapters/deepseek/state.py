@@ -3,7 +3,9 @@
 from pathlib import Path
 
 from adapters.codex.state import CodexStateAdapter
+from adapters.shared.private_files import validate_private_file
 from adapters.shared.provider_state import ProviderStateSchemaError, SecretStr
+from agent_service.tools import ToolError
 from control.product import PRODUCT
 
 from .account import store_key
@@ -25,13 +27,24 @@ class DeepSeekStateAdapter(CodexStateAdapter):
     def _environment(self):
         # Listing state never needs the API key or any credential contents. Reject
         # directory aliases before the app-server can follow them to the owner's state.
-        for value in self.environment.values():
-            path = Path(value)
-            if any(part.is_symlink() for part in (path, *path.parents)):
-                raise ProviderStateSchemaError("DeepSeek's private home must not contain symlinks.")
         home = Path(self.environment["CODEX_HOME"])
-        if (home / "config.toml").is_symlink():
-            raise ProviderStateSchemaError("DeepSeek's private config must not be a symlink.")
+        try:
+            for value in self.environment.values():
+                path = Path(value)
+                if any(part.is_symlink() for part in (path, *path.parents)):
+                    raise ProviderStateSchemaError(
+                        "DeepSeek's private home must not contain symlinks."
+                    )
+            try:
+                metadata = (home / "config.toml").lstat()
+            except FileNotFoundError:
+                pass
+            else:
+                validate_private_file(metadata)
+        except (OSError, ToolError):
+            raise ProviderStateSchemaError(
+                "DeepSeek's private config is unsafe or unreadable."
+            ) from None
         for name in self.credential_isolation()["forbidden_files"]:
             try:
                 (home / name).lstat()

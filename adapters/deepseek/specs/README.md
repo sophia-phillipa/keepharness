@@ -8,7 +8,8 @@ Harness baseline: **0.16.0 working-tree**. Reviewed: **2026-10-08**.
 `DeepSeekStateAdapter` reuses the Codex state reader and CLI writer with provider
 `deepseek`, engine `codex`, `CODEX_HOME=<state>/providers/deepseek` and the same
 private `HOME=<state>/providers/home` as execution. State RPCs pin file credential
-storage and reject symlinked home/config paths or foreign authentication entries
+storage and reject symlinked home paths, nonregular or multiply linked private
+config files (including symlinks and hardlinks), and foreign authentication entries
 before starting the CLI. Listing state
 does not require or read the API key. `set_api_key` delegates to the existing
 atomic private key writer.
