@@ -695,15 +695,19 @@ async def ack_provider_notices(request, manager, data):
 
 
 async def trust_provider_project(request, manager, data):
-    provider, project_id = data.get("provider"), data.get("project_id")
-    if not isinstance(provider, str) or not isinstance(project_id, str):
+    provider, project_id, expected_root = (
+        data.get(key) for key in ("provider", "project_id", "expected_project_root")
+    )
+    if not all(isinstance(value, str) and value for value in (provider, project_id, expected_root)):
         raise APIError("invalid_request", 400)
-    return await manager.provider_state.security_write(provider, project_id)
+    return await manager.provider_state.security_write(
+        provider, project_id, expected_project_root=expected_root
+    )
 
 
 async def approve_provider_mcp(request, manager, data):
-    provider, project_id, server, approved = (
-        data.get(key) for key in ("provider", "project_id", "server", "approved")
+    provider, project_id, server, approved, expected_root = (
+        data.get(key) for key in ("provider", "project_id", "server", "approved", "expected_project_root")
     )
     if not (
         isinstance(provider, str)
@@ -711,10 +715,12 @@ async def approve_provider_mcp(request, manager, data):
         and isinstance(server, str)
         and 0 < len(server) <= 300
         and type(approved) is bool
+        and isinstance(expected_root, str)
+        and bool(expected_root)
     ):
         raise APIError("invalid_request", 400)
     return await manager.provider_state.security_write(
-        provider, project_id, server=server, approved=approved
+        provider, project_id, server=server, approved=approved, expected_project_root=expected_root
     )
 
 

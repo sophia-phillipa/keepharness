@@ -337,25 +337,13 @@ class CodexStateAdapter:
     def read_state(self, project_root: Path | None) -> StateSnapshot:
         return self._read(project_root)[0]
 
-    def project_trust_layers(self, project_root: Path) -> dict:
-        """CLI fingerprints and disabled flags, never the project config contents."""
-        results, _ = asyncio.run(
-            _ask(
-                self._binary(),
-                [("config", "config/read", {"includeLayers": True, "cwd": str(project_root)})],
-                environment=self._environment(),
-            )
-        )
-        return {
-            str(_name(layer).get("dotCodexFolder")): {
-                "version": layer.get("version"),
-                "enabled": not layer.get("disabledReason"),
-            }
-            for layer in _listed(results.get("config"), "layers")
-            if _name(layer).get("type") == "project"
-        }
+    def read_trust_state(self, project_root: Path) -> tuple[StateSnapshot, dict]:
+        """Return one snapshot and the project-layer versions from that same CLI response."""
+        layers = {}
+        snapshot, _ = self._read(project_root, trust_layers=layers)
+        return snapshot, layers
 
-    def _read(self, project_root: Path | None) -> tuple[StateSnapshot, str]:
+    def _read(self, project_root: Path | None, *, trust_layers=None) -> tuple[StateSnapshot, str]:
         """The snapshot and the user layer version (``""`` when the user layer was not read)."""
         binary = self._binary()
         environment = self._environment()
@@ -387,7 +375,28 @@ class CodexStateAdapter:
             failures["config"] = "config/read answered in an unexpected shape"
             warnings.append(f"Codex: {failures['config']}; its rows are read-only.")
         raw_layers = _listed(results.get("config"), "layers")
+        if trust_layers is not None:
+            trust_layers.update(
+                {
+                    str(_name(layer).get("dotCodexFolder")): {
+                        "version": layer.get("version"),
+                        "enabled": not layer.get("disabledReason"),
+                    }
+                    for layer in raw_layers
+                    if _name(layer).get("type") == "project"
+                }
+            )
         layers = _layers(raw_layers)
+        if trust_layers is not None:
+            # Only these flags are decided by a config layer. Skills and list fallbacks
+            # have separate sources, so config versions cannot attribute their changes.
+            for kind, key in _KEYS.items():
+                for ident, (layer, flag) in _decide(layers, key).items():
+                    folder = str(Path(layer.source).parent)
+                    if layer.scope == "project" and (flag is not None or kind == "mcp"):
+                        trust_layers[folder].setdefault("items", {})[f"{kind}:{ident}"] = (
+                            flag is not False
+                        )
         if any(entry.get("disabledReason") for entry in raw_layers):
             warnings.append("Project config skipped: the project is not trusted by Codex.")
         locked = (
@@ -565,17 +574,24 @@ class CodexStateAdapter:
                     return True
         return False
 
-    def trust_project(self, project_root: Path, *, on_written=None) -> None:
+    def trust_project(
+        self, project_root: Path, *, on_written=None, expected_fingerprint=None
+    ) -> None:
         root = Path(project_root).resolve()
         binary = self._binary()
-        _, version = self._read(root)
+        snapshot, version = self._read(root)
+        if expected_fingerprint is not None and snapshot.fingerprint != expected_fingerprint:
+            raise ProviderStateConflictError("The Codex state changed before accepting trust.")
         if not version:
             raise ProviderStateUnsupportedError("The Codex user config was not read.")
+        # Native key paths escape quotes/backslashes only; JSON Unicode/control escapes
+        # name a different project because this parser does not decode JSON strings.
+        quoted_root = str(root).replace("\\", "\\\\").replace('"', '\\"')
         params = {
             "expectedVersion": version,
             "edits": [
                 {
-                    "keyPath": f"projects.{json.dumps(str(root))}.trust_level",
+                    "keyPath": f'projects."{quoted_root}".trust_level',
                     "value": "trusted",
                     "mergeStrategy": "upsert",
                 }

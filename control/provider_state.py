@@ -341,7 +341,7 @@ class ProviderStateService:
         self._prune(projects)
         for project in projects:
             if project.get("id") == project_id:
-                return Path(project["root"])
+                return Path(project["root"]).resolve()
         raise APIError("project_unknown", 404)
 
     def _adapter(self, provider: str) -> ProviderStateAdapter:
@@ -418,6 +418,7 @@ class ProviderStateService:
                 "items": items,
                 "writes": {},
                 "notices": [],
+                "receipt_id": (receipt or {}).get("id"),
             }
             return self._save()
         receipt = receipt or {}
@@ -498,7 +499,11 @@ class ProviderStateService:
         try:
             async with self.locks.setdefault(provider, asyncio.Lock()):
                 cached = self.cache.get((provider, project_id))
-                if cached and self.clock() - cached[0] < COALESCE_SECONDS:
+                if (
+                    cached
+                    and self.clock() - cached[0] < COALESCE_SECONDS
+                    and cached[1].project_root == (str(root) if root else None)
+                ):
                     snapshot = cached[1]
                 else:
                     snapshot = await self._read_fresh(provider, project_id, root)
@@ -528,75 +533,121 @@ class ProviderStateService:
         ident = hashlib.sha256(_key(provider, project_id).encode()).hexdigest()
         return self.state / "provider-state-writes" / (ident + ".json")
 
+    def _validated_receipt(self, provider, root, snapshot, receipt):
+        """Attribute only an unchanged project layer that the write changed from disabled to enabled."""
+        if receipt.get("source_identity") != _source_identity(self._adapter(provider), root):
+            return {}
+        layers = receipt.get("project_layers")
+        if (
+            not layers
+            or provider != "codex"
+            or all(layer["enabled"] for layer in layers.values())
+            or any(
+                not isinstance(layer.get("version"), str) or not layer["version"]
+                for layer in layers.values()
+            )
+        ):
+            return receipt
+        verified, current = self._adapter(provider).read_trust_state(root)
+        if (
+            verified.fingerprint != snapshot.fingerprint
+            or not current
+            or not all(layer["enabled"] for layer in current.values())
+            or {key: layer["version"] for key, layer in layers.items()}
+            != {key: layer["version"] for key, layer in current.items()}
+        ):
+            return receipt
+        before = receipt["before"]
+        transitions = dict(receipt.get("transitions", {}))
+        expected = {
+            ident: enabled
+            for layer in current.values()
+            for ident, enabled in layer.get("items", {}).items()
+        }
+        for ident, item in _items_of(snapshot).items():
+            if (
+                item["scope"] == "project"
+                and ident in expected
+                and expected[ident] == item["enabled"]
+                and before.get(ident) != item
+            ):
+                held = transitions.get(ident)
+                original = (
+                    held["before"]
+                    if held and held["after"] == before.get(ident)
+                    else before.get(ident)
+                )
+                transitions[ident] = {"before": original, "after": item}
+        # Exact transitions no longer need re-derivation on a subsequent no-op retry.
+        return {
+            key: value
+            for key, value in {**receipt, "transitions": transitions}.items()
+            if key not in ("before", "project_layers")
+        }
+
     async def _prepare_receipt(self, provider, project_id, root, snapshot):
         receipt = _read_entries(self._receipt_path(provider, project_id)).get("receipt", {})
         entry = self._entries().get(_key(provider, project_id), {})
-        layers = receipt.get("project_layers")
-        if layers and provider == "codex" and receipt.get("id") != entry.get("receipt_id"):
-            current = await asyncio.to_thread(self._adapter(provider).project_trust_layers, root)
-            if (
-                current
-                and all(layer["enabled"] for layer in current.values())
-                and {key: layer["version"] for key, layer in layers.items()}
-                == {key: layer["version"] for key, layer in current.items()}
-            ):
-                before = receipt["before"]
-                receipt["transitions"] = {
-                    ident: {"before": before.get(ident), "after": item}
-                    for ident, item in _items_of(snapshot).items()
-                    if item["scope"] == "project" and before.get(ident) != item
-                }
+        if receipt.get("id") != entry.get("receipt_id"):
+            receipt = await asyncio.to_thread(
+                self._validated_receipt, provider, root, snapshot, receipt
+            )
         return receipt
 
     def _security_intent(self, provider, project_id, root, before, layers):
+        # No-op retries must preserve the earlier, possibly unconsumed own-write receipt.
+        if (
+            not layers
+            or all(layer["enabled"] for layer in layers.values())
+            or any(
+                not isinstance(layer.get("version"), str) or not layer["version"]
+                for layer in layers.values()
+            )
+        ):
+            return
         path = self._receipt_path(provider, project_id)
         path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        identity = _source_identity(self._adapter(provider), root)
+        previous = _read_entries(path).get("receipt", {})
+        seen = _read_entries(self.state / SEEN_FILE).get(_key(provider, project_id), {})
+        old = _items_of(before)
+        pending = previous.get("source_identity") == identity and previous.get("id") != seen.get(
+            "receipt_id"
+        )
+        transitions = {
+            ident: held
+            for ident, held in previous.get("transitions", {}).items()
+            if pending and old.get(ident) == held.get("after")
+        }
         _write_entries(
             path,
             {
                 "receipt": {
                     "id": str(time.time_ns()),
-                    "source_identity": _source_identity(self._adapter(provider), root),
+                    "source_identity": identity,
                     "fingerprint": before.fingerprint,
                     "before": _items_of(before),
                     "project_layers": layers,
-                }
-            },
-        )
-
-    def _security_receipt(self, provider, project_id, root, before, after):
-        old, new = _items_of(before), _items_of(after)
-        path = self._receipt_path(provider, project_id)
-        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        transitions = {
-            ident: {"before": old.get(ident), "after": new.get(ident)}
-            for ident in old.keys() | new.keys()
-            if provider == "codex"
-            and new.get(ident, {}).get("scope") == "project"
-            and old.get(ident) != new.get(ident)
-        }
-        if not transitions:
-            return
-        previous = _read_entries(path).get("receipt", {})
-        for ident, held in previous.get("transitions", {}).items():
-            if ident not in transitions and new.get(ident) == held.get("after"):
-                transitions[ident] = held
-            elif ident in transitions and held.get("after") == transitions[ident]["before"]:
-                transitions[ident]["before"] = held.get("before")
-        _write_entries(
-            path,
-            {
-                "receipt": {
-                    "id": str(time.time_ns()),
-                    "fingerprint": before.fingerprint,
-                    "source_identity": _source_identity(self._adapter(provider), root),
                     "transitions": transitions,
                 }
             },
         )
 
+    def _security_receipt(self, provider, project_id, root, after):
+        path = self._receipt_path(provider, project_id)
+        receipt = _read_entries(path).get("receipt", {})
+        checked = self._validated_receipt(provider, root, after, receipt)
+        if checked != receipt:
+            _write_entries(path, {"receipt": checked})
+
     async def security_write(
-        self, provider: str, project_id: str, *, server: str | None = None, approved: bool = False
+        self,
+        provider: str,
+        project_id: str,
+        *,
+        server: str | None = None,
+        approved: bool = False,
+        expected_project_root: str | None = None,
     ) -> dict | JSONResponse:
         root = self.resolve(provider, project_id)
         if root is None or (server is not None and provider != "claude"):
@@ -605,15 +656,30 @@ class ProviderStateService:
         async with self.locks.setdefault("codex", asyncio.Lock()):
             async with self.locks.setdefault("claude", asyncio.Lock()):
                 try:
+                    current_root = self.resolve(provider, project_id)
+                    if current_root != root or (
+                        expected_project_root is not None
+                        and expected_project_root != str(current_root)
+                    ):
+                        raise ProviderStateConflictError(
+                            "The project folder changed; review its trust prompt again."
+                        )
                     for name in PROVIDERS if server is None else ("claude",):
                         adapter = self._adapter(name)
                         _, before = await asyncio.to_thread(self._read_with_stat, name, root)
                         try:
                             if server is None and name == "codex":
-                                layers = await asyncio.to_thread(adapter.project_trust_layers, root)
+                                captured, layers = await asyncio.to_thread(
+                                    adapter.read_trust_state, root
+                                )
+                                if captured.fingerprint != before.fingerprint:
+                                    raise ProviderStateConflictError(
+                                        "The project state changed before accepting trust."
+                                    )
                                 await asyncio.to_thread(
                                     adapter.trust_project,
                                     root,
+                                    expected_fingerprint=before.fingerprint,
                                     on_written=partial(
                                         self._security_intent,
                                         name,
@@ -635,7 +701,7 @@ class ProviderStateService:
                                 del self.cache[key]
                             stat, fresh = await asyncio.to_thread(self._read_with_stat, name, root)
                             await asyncio.to_thread(
-                                self._security_receipt, name, project_id, root, before, fresh
+                                self._security_receipt, name, project_id, root, fresh
                             )
                             self.cache[name, project_id] = (self.clock(), fresh)
                             if self.track_notices:

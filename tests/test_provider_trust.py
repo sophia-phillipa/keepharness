@@ -43,7 +43,9 @@ def test_trust_accepts_both_cli_states_exact_project(client, app, codex_home, cl
     claude = setup_claude(app, claude_dir, project)
     assert get(client, "claude", "p").json()["trust"] == {"required": True, "trusted": False}
     response = client.post(
-        "/api/provider-state/trust", headers=HEADERS, json={"provider": "claude", "project_id": "p"}
+        "/api/provider-state/trust",
+        headers=HEADERS,
+        json={"provider": "claude", "project_id": "p", "expected_project_root": str(project)},
     )
     assert response.status_code == 200, response.text
     assert response.json()["trust"] == {"required": False, "trusted": True}
@@ -66,7 +68,13 @@ def test_either_cli_trust_and_denial_wins(client, app, codex_home, claude_dir, p
         response = client.post(
             "/api/provider-state/mcp-approvals",
             headers=HEADERS,
-            json={"provider": "claude", "project_id": "p", "server": server, "approved": True},
+            json={
+                "provider": "claude",
+                "project_id": "p",
+                "server": server,
+                "approved": True,
+                "expected_project_root": str(project),
+            },
         )
         assert response.status_code == 200, response.text
     assert claude.approved_project_servers(project) == frozenset({"marker"})
@@ -332,7 +340,11 @@ def test_harness_routes_accept_local_session_and_verified_remote_owner(
             remote = await client.post(
                 "/v1/provider-state/trust",
                 headers={**SERVE_HEADERS, "Tailscale-User-Login": REMOTE_LOGIN},
-                json={"provider": "claude", "project_id": "p"},
+                json={
+                    "provider": "claude",
+                    "project_id": "p",
+                    "expected_project_root": str(project),
+                },
             )
             assert remote.status_code == 200, remote.text
             assert remote.json()["trust"]["trusted"]
@@ -340,7 +352,11 @@ def test_harness_routes_accept_local_session_and_verified_remote_owner(
             denied = await client.post(
                 "/v1/provider-state/trust",
                 headers={**SERVE_HEADERS, "Tailscale-User-Login": REMOTE_LOGIN},
-                json={"provider": "claude", "project_id": "p"},
+                json={
+                    "provider": "claude",
+                    "project_id": "p",
+                    "expected_project_root": str(project),
+                },
             )
             assert denied.status_code == 401
 

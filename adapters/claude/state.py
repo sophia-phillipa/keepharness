@@ -793,6 +793,16 @@ class ClaudeStateAdapter:
             raise ProviderStateSchemaError("Project MCP servers is not an object")
         return servers
 
+    def enabled_project_servers(self, project_root: Path) -> frozenset[str]:
+        """The owner's native MCP opt-out still applies to explicitly injected definitions."""
+        document, _, problem = _read_json_object(self._claude_json())
+        if problem not in ("", "missing"):
+            raise ProviderStateSchemaError("Claude MCP switch state is unreadable")
+        disabled = _project_entry(document, Path(project_root)).get("disabledMcpServers", [])
+        if not isinstance(disabled, list) or any(not isinstance(name, str) for name in disabled):
+            raise ProviderStateSchemaError("Claude MCP disabled list is invalid")
+        return frozenset(self.project_servers(project_root).keys() - set(disabled))
+
     def approved_project_servers(
         self, project_root: Path, *, trusted: bool | None = None
     ) -> frozenset[str]:

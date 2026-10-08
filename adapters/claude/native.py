@@ -138,11 +138,12 @@ def project_security(config, root):
     claude = service._adapter("claude")
     servers = claude.project_servers(root)
     approved = claude.approved_project_servers(root, trusted=trusted)
+    runnable = approved & claude.enabled_project_servers(root)
     return {
         "trusted": trusted,
         "project_servers": sorted(servers),
-        "approved_servers": {name: servers[name] for name in approved},
-        "disabled_servers": sorted(servers.keys() - approved),
+        "approved_servers": {name: servers[name] for name in runnable},
+        "disabled_servers": sorted(servers.keys() - runnable),
     }
 
 
