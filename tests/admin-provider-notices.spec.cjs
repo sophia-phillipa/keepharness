@@ -122,6 +122,7 @@ const N5 = notice(5, { item_id: "plugin:figma@openai-curated", name: "figma", ch
     assert.equal(await pluginsBlock.locator("strong").innerText(), "Changed outside KeepHarness");
     assert.equal(await pluginsBlock.evaluate((el) => el === el.closest("#plugins-panel").firstElementChild), true, "the block sits at the top of the page");
     assert.match(await toast.innerText(), /^Changed outside KeepHarness: Codex › plugin github@openai-curated was turned off \(config\.toml, \d\d:\d\d\)\./);
+    await page.locator('[data-testid="plugins-mode"]').click();
     const rows = page.locator('[data-testid="plugin-row"]');
     await rows.first().waitFor();
     const row = (name) => rows.filter({ has: page.locator('[data-testid="plugin-name"]', { hasText: new RegExp("^" + name + "$") }) });
@@ -257,6 +258,7 @@ const N5 = notice(5, { item_id: "plugin:figma@openai-curated", name: "figma", ch
     await providersBlock.getByRole("button", { name: "Dismiss all Codex" }).click();
     await page.waitForFunction(() => document.querySelectorAll('#provider-state-notices [data-testid="provider-notice"]').length === 2);
     assert.deepEqual(acks.at(-1).body, { provider: "codex", project_id: "sem-projeto", notice_ids: [N4.id, N5.id] });
+    await page.waitForFunction(() => document.activeElement === document.querySelector("#provider-state-notices button"));
     assert.equal(await page.evaluate(() => document.activeElement.closest("#provider-state-notices") !== null), true, "focus stays in the notices block");
     assert.equal(await providersBlock.getByRole("button", { name: "Dismiss all Codex" }).count(), 0);
 

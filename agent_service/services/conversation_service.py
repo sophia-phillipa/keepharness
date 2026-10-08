@@ -21,6 +21,7 @@ from urllib.parse import urlsplit
 import adapters
 from adapters.claude import account as claude_account
 from adapters.codex import rpc as codex_rpc
+from adapters.codex.native import session_marker
 from adapters.shared.provider_setup import child_source, run_settings
 from control import local_access, remote_models
 
@@ -2060,6 +2061,10 @@ class ConversationService:
         ).get("upload"):
             raise APIError("uploads_denied", 403)
         native_session = self.session_folder(row, data)
+        backend = data.get("backend", "codex")
+        if backend in ("codex", "deepseek", "local"):
+            # Check provenance before context recovery or transfer can archive the marker.
+            session_marker(native_session / "native-thread.json", backend)
         for fid in file_ids:
             file = self.file(row["project"], fid, row["owner"])
             pages = json.loads(file["pages"])

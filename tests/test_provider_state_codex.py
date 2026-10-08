@@ -405,16 +405,58 @@ def test_a_layer_does_not_print_its_config():
 # --- degraded app-server -----------------------------------------------------------------------
 
 
-def test_a_missing_method_keeps_the_rest_but_locks_every_row(adapter, codex_home):
+def test_missing_list_methods_lock_only_their_kinds(adapter, codex_home):
     seed(codex_home)
     configure(codex_home, missing_methods=["skills/list", "plugin/list"], apps=[{"id": "mail"}])
     snapshot = adapter.read_state(None)
     found = rows(snapshot)
     assert "mcp:linear" in found and "app:mail" in found and "plugin:github@openai-curated" in found
     assert not any(key.startswith("skill:") for key in found)
-    assert all(not item.writable and item.reason for item in snapshot.items)
+    assert not found["plugin:github@openai-curated"].writable
+    assert found["mcp:linear"].writable and found["app:mail"].writable
     assert any("skills/list" in w for w in snapshot.warnings)
     assert any("plugin/list" in w for w in snapshot.warnings)
+
+
+def test_a_missing_plugin_list_keeps_local_plugin_skills_read_only(
+    adapter, codex_home, tmp_path
+):
+    source = tmp_path / "local-plugin"
+    hidden = source / "skills" / ".hidden" / "SKILL.md"
+    (codex_home / "config.toml").write_text(USER_CONFIG)
+    configure(
+        codex_home,
+        missing_methods=["plugin/list"],
+        plugins=[{"id": "local@test", "source": {"type": "local", "path": str(source)}}],
+        skills=[{"name": "hidden", "path": str(hidden), "scope": "user"}],
+    )
+    snapshot = adapter.read_state(None)
+    skill = rows(snapshot)[f"skill:{hidden}"]
+    assert not skill.writable and "plugin/list" in skill.reason
+    with pytest.raises(ProviderStateUnsupportedError, match="read-only"):
+        adapter.set_enabled(skill.id, "user", False, snapshot.fingerprint)
+    assert writes(codex_home) == []
+
+
+def test_an_unanswered_app_list_does_not_lock_other_kinds(
+    adapter, codex_home, monkeypatch
+):
+    """Codex 0.157.1 can leave app/list unanswered after the other lists succeeded."""
+    seed(codex_home)
+    reconfigure(codex_home, no_response=["app/list"])
+    monkeypatch.setattr(codex_state, "CALL_SECONDS", 0.1)
+    snapshot = adapter.read_state(None)
+    found = rows(snapshot)
+    assert found["plugin:github@openai-curated"].writable
+    assert found[f"skill:{USER_SKILL}"].writable
+    assert found["mcp:linear"].writable
+    assert not found["app:calendar"].writable
+    assert "app/list" in found["app:calendar"].reason
+    assert any("app/list" in warning for warning in snapshot.warnings)
+    updated = adapter.set_enabled(
+        "plugin:github@openai-curated", "user", True, snapshot.fingerprint
+    )
+    assert rows(updated)["plugin:github@openai-curated"].enabled is True
 
 
 def test_an_unreadable_config_gives_a_warning_and_no_config_rows(adapter, codex_home):
@@ -795,6 +837,24 @@ def test_a_skill_switch_rereads_the_user_layer_right_before_writing(adapter, cod
     assert methods[methods.index("skills/config/write") - 1] == "config/read"
 
 
+@pytest.mark.parametrize("version", [None, 7, ""])
+def test_a_skill_switch_refuses_a_malformed_user_layer_version(
+    adapter, codex_home, version
+):
+    seed(codex_home)
+    reconfigure(codex_home, user_layer_version=version)
+    snapshot = adapter.read_state(None)
+    assert f"skill:{REPO_SKILL}" in rows(snapshot)
+
+    with pytest.raises(ProviderStateUnsupportedError, match="config was not read"):
+        adapter.set_enabled(
+            f"skill:{REPO_SKILL}", "user", False, snapshot.fingerprint
+        )
+
+    assert writes(codex_home) == []
+    assert codex_home.joinpath("config.toml").read_text() == USER_CONFIG
+
+
 def test_an_unlisted_skill_path_is_refused_and_nothing_is_sent(adapter, codex_home):
     seed(codex_home)
     with pytest.raises(ProviderStateUnsupportedError):
@@ -938,12 +998,12 @@ def test_an_app_server_without_config_read_makes_switches_unsupported(adapter, c
     assert writes(codex_home) == []
 
 
-def test_a_degraded_app_server_keeps_rows_read_only_for_writes(adapter, codex_home):
+def test_a_missing_plugin_list_does_not_block_an_app_write(adapter, codex_home):
     seed(codex_home)
     reconfigure(codex_home, missing_methods=["plugin/list"])
-    with pytest.raises(ProviderStateUnsupportedError, match="read-only"):
-        switch(adapter, MAIL, False)
-    assert writes(codex_home) == []
+    snapshot = switch(adapter, MAIL, False)
+    assert rows(snapshot)[MAIL].enabled is False
+    assert [call["method"] for call in writes(codex_home)] == ["config/batchWrite"]
 
 
 def test_a_missing_write_method_is_unsupported(adapter, codex_home):
@@ -999,7 +1059,9 @@ def test_a_chatty_server_cannot_hold_a_read_past_the_session_bound(
     snapshot = adapter.read_state(None)
     assert time.monotonic() - started < 4.5  # the fake would keep talking for 5 s
     assert any("skills/list" in warning for warning in snapshot.warnings)
-    assert GITHUB in rows(snapshot) and not any(item.writable for item in snapshot.items)
+    found = rows(snapshot)
+    assert GITHUB in found and not found[GITHUB].writable
+    assert found[LINEAR].writable
 
 
 def test_a_chatty_server_cannot_hold_a_write_past_the_session_bound(

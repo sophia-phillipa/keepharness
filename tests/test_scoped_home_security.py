@@ -10,6 +10,7 @@ import pytest
 
 from adapters.shared.scoped import prepare_scoped
 from agent_service.tools import ToolError
+from tests.deepseek_fixtures import SAFE_CONFIG
 
 
 @pytest.fixture
@@ -130,7 +131,7 @@ def test_thread_marker_rejects_planted_links(tmp_path):
 
 SENTINEL = "SENTINEL-PERSONAL-SETUP"
 
-FAKE_CODEX = """
+FAKE_CODEX = "SAFE_CONFIG = " + repr(SAFE_CONFIG) + "\n" + """
 import json, os, sys
 from pathlib import Path
 record = {"argv": sys.argv, "env": dict(os.environ), "requests": []}
@@ -146,6 +147,8 @@ for line in sys.stdin:
         sessions.mkdir(parents=True, exist_ok=True)
         (sessions / "rollout-thread-1.jsonl").write_text(line)
         emit({"id": ident, "result": {"thread": {"id": "thread-1"}}})
+    elif method == "config/read":
+        emit({"id": ident, "result": SAFE_CONFIG})
     elif method == "turn/start":
         emit({"method": "turn/started", "params": {"turn": {"id": "turn-1"}}})
         emit({"method": "item/agentMessage/delta", "params": {"delta": "done"}})
@@ -237,7 +240,9 @@ def provider_turn(tmp_path, provider, *, personal=False):
         **run_settings({"personal_setup": personal}, provider, data={}),
     }
     if provider == "deepseek":
-        key = tmp_path / "deepseek.key"
+        key = tmp_path / "state" / "deepseek.key"
+        (key.parent / "providers" / "deepseek").mkdir(mode=0o700, parents=True)
+        (key.parent / "providers" / "home").mkdir(mode=0o700, parents=True)
         key.write_text("fixture-key")
         config["api_provider"] = {"url": "http://127.0.0.1:9/v1", "key_file": str(key)}
     session = tmp_path / "sessions" / provider

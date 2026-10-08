@@ -84,6 +84,9 @@ def isolated_provider_homes(tmp_path_factory, monkeypatch):
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("CODEX_HOME", str(codex_home))
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(claude_dir))
+    # DeepSeek isolation tests replace this fake explicitly for present/failed probes.
+    # No test may inspect the owner's OS credential store.
+    monkeypatch.setattr("adapters.deepseek.credentials.keyring_entry_exists", lambda *_: False)
     if Path.home().resolve() == REAL_HOME:
         pytest.fail(f"test reached the real home {REAL_HOME}; provider state must use fake homes")
     return home
