@@ -18,7 +18,8 @@ def test_unknown_historical_execution_mode_is_unavailable_in_ui():
 
     script = "\n".join([function("executionModeLabel"), function("syncExecutionMode")])
     script += """
-let executionMode = null, executionModeChosen = false;
+let executionMode = null;
+let draftMode = {mode: null, modeChosen: false, retiredLock: false};
 const conversation = 'legacy', parent = null, busy = false, loading = false, submitting = false, uploads = false;
 const elements = new Map();
 const $ = id => { if (!elements.has(id)) elements.set(id, {classList: {toggle() {}}, dataset: {}, setAttribute(k, v) {this[k] = v;}}); return elements.get(id); };

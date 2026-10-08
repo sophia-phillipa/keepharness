@@ -20,8 +20,8 @@ let providers = {},
   uiBuild = "",
   reloadPending = false;
 let queuedTurns = [];
-let executionMode = "native",
-  executionModeChosen = false;
+let executionMode = "native";
+let draftMode = { mode: "native", modeChosen: false, retiredLock: false };
 let policyProject = null,
   policyPending = false,
   policyError = "",
@@ -2920,8 +2920,11 @@ function supportedExecutionModes() {
 function syncExecutionMode() {
   const started = !!conversation || !!parent,
     modes = supportedExecutionModes();
-  if (!started && !executionModeChosen)
-    executionMode = modes.includes("native") ? "native" : modes[0] || null;
+  if (!started) {
+    if (!draftMode.modeChosen && !draftMode.retiredLock)
+      draftMode.mode = modes.includes("native") ? "native" : modes[0] || null;
+    executionMode = draftMode.mode;
+  }
   const isolated = executionMode === "scoped";
   const modeContract = Array.isArray(selected()?.execution_modes);
   // F-58: isolation is chosen before the first message, then only stated.
@@ -2933,9 +2936,10 @@ function syncExecutionMode() {
   $("isolation-toggle").hidden = started;
   $("execution-mode-help").hidden = started;
   $("isolation-toggle").setAttribute("aria-checked", String(isolated));
-  // F-94: a mode this model lacks can always be switched off.
+  // A retired draft requires New; supported drafts retain the pre-send choice.
   $("isolation-toggle").disabled =
     started ||
+    draftMode.retiredLock ||
     busy ||
     loading ||
     submitting ||
@@ -2944,11 +2948,11 @@ function syncExecutionMode() {
   $("execution-mode-label").textContent = executionModeLabel();
   const warning = $("execution-mode-unavailable");
   warning.hidden =
-    !selected() || (modes.includes(executionMode) && modes.length > 1);
+    !draftMode.retiredLock && (!selected() || (modes.includes(executionMode) && modes.length > 1));
   warning.textContent =
     started && executionMode == null
       ? "The historical execution mode is unavailable. Start a new native conversation to continue."
-      : isolated && ["codex", "claude"].includes(selected()?.backend) && modes.length === 1 && modes[0] === "native"
+      : draftMode.retiredLock
       ? "This saved isolated mode is no longer supported. Start a new conversation to use native mode."
       : modes.length === 1 && modes.includes(executionMode)
       ? isolated
@@ -2974,10 +2978,14 @@ function syncExecutionMode() {
   $("header-execution-mode").textContent = executionModeLabel();
 }
 $("isolation-toggle").onclick = () => {
-  if (conversation || parent || busy || loading || submitting || uploads)
+  if (conversation || parent || draftMode.retiredLock || busy || loading || submitting || uploads)
     return;
-  executionMode = executionMode === "scoped" ? "native" : "scoped";
-  executionModeChosen = true;
+  draftMode = {
+    mode: executionMode === "scoped" ? "native" : "scoped",
+    modeChosen: true,
+    retiredLock: executionMode === "native" && ["codex", "claude"].includes(selected()?.backend),
+  };
+  executionMode = draftMode.mode;
   invalidateResources();
   updateComposer();
   saveView();
@@ -3028,9 +3036,8 @@ function newConversation(title = "New Conversation", projectId = $("project").va
   last = 0;
   parent = null;
   conversation = "";
-  if (resetExecutionMode) executionMode = "native";
-  // Automatic transitions must keep the retained mode, even across model refreshes.
-  executionModeChosen = !resetExecutionMode;
+  if (resetExecutionMode) draftMode = { mode: "native", modeChosen: false, retiredLock: false };
+  executionMode = draftMode.mode;
   renderConversationHeader();
   $("access-mode").value = "ask";
   syncAccessMode();
@@ -3042,9 +3049,9 @@ function newConversation(title = "New Conversation", projectId = $("project").va
   bindSuggestions();
   modelAvailability();
   $("prompt").value = draft;
-  const modeAction = resetExecutionMode ? "reset" : "preserve";
-  if (newDraft?.draft || newDraft?.files?.length) restoreView(newDraft, modeAction);
-  else if (carriedDraft) restoreView(carriedDraft, modeAction);
+  const restoredDraft = changedProject ? carriedDraft :
+    (newDraft?.draft || newDraft?.files?.length ? newDraft : carriedDraft);
+  if (restoredDraft) restoreView(restoredDraft, { resetExecutionMode });
   updateComposer();
   saveView();
   $("context-meter").textContent = "New conversation · independent context";
@@ -4915,6 +4922,7 @@ async function load(id, legacy = false, restoredView = null, scrollTop) {
         "New Conversation",
     );
     executionMode = data.execution_mode ?? null;
+    draftMode = normalizeDraftMode({ execution_mode: executionMode, composer_selection: { model: data.turns[0]?.request?.model, backend: data.turns[0]?.request?.backend } });
     conversation = id;
     renderConversationHeader(conversations.find((item) => item.id === id));
     files = [];
@@ -5278,9 +5286,11 @@ async function send() {
     return;
   }
   let m = selected();
-  if (!supportedExecutionModes().includes(executionMode)) {
+  if (draftMode.retiredLock || !supportedExecutionModes().includes(executionMode)) {
     status(
-      parent
+      draftMode.retiredLock
+        ? "This saved isolated mode is no longer supported. Start a new conversation to use native mode."
+        : parent
         ? "This model doesn't offer this conversation's mode. Choose a different model or start a new conversation."
         : "This model doesn't offer the selected mode. Choose a different model or change the mode.",
     );
@@ -7198,7 +7208,21 @@ $("models-retry").onclick = async () => {
 };
 initialize();
 
-function restoreView(saved, executionModeAction = "restore") {
+// The draft owns its mode, deliberate choice and retirement restriction together.
+// Legacy snapshots identify their origin model; an unknown scoped origin stays locked.
+function normalizeDraftMode(saved) {
+  const state = saved.draft_mode;
+  const mode = state ? state.mode : saved.execution_mode;
+  const originBackend = saved.composer_selection?.backend || saved.resource_context?.backend ||
+    models.find(model => model.id === saved.composer_selection?.model)?.backend;
+  return {
+    mode: ["native", "scoped"].includes(mode) ? mode : null,
+    modeChosen: (state ? state.modeChosen : saved.execution_mode_chosen) === true,
+    retiredLock: state ? state.retiredLock === true :
+      mode === "scoped" && (!originBackend || ["codex", "claude"].includes(originBackend)),
+  };
+}
+function restoreView(saved, { resetExecutionMode = false } = {}) {
   if (
     saved.project === $("project").value &&
     models.some((m) => m.id === saved.composer_selection?.model)
@@ -7212,13 +7236,14 @@ function restoreView(saved, executionModeAction = "restore") {
     )
       $("effort").value = saved.composer_selection.effort;
   }
-  if (executionModeAction === "reset") {
-    const modes = supportedExecutionModes();
-    executionMode = modes.includes("native") ? "native" : modes[0] || null;
-    executionModeChosen = false;
-  } else if (executionModeAction === "restore" && !conversation && ["native", "scoped"].includes(saved.execution_mode)) {
-    executionMode = saved.execution_mode;
-    executionModeChosen = saved.execution_mode_chosen !== false;
+  if (!conversation) {
+    draftMode = resetExecutionMode
+      ? { mode: null, modeChosen: false, retiredLock: false }
+      : normalizeDraftMode(saved);
+    syncExecutionMode();
+  } else {
+    const restoredMode = normalizeDraftMode(saved);
+    draftMode = { ...restoredMode, mode: executionMode, retiredLock: draftMode.retiredLock || restoredMode.retiredLock };
   }
   if (typeof saved.draft === "string") $("prompt").value = saved.draft;
   invalidResourceTokens = new Set(
@@ -7314,10 +7339,12 @@ function saveView() {
         conversation,
         composer_selection: {
           model: $("model").value,
+          backend: selected()?.backend,
           effort: $("effort").value,
         },
         execution_mode: executionMode,
-        execution_mode_chosen: executionModeChosen,
+        execution_mode_chosen: draftMode.modeChosen,
+        draft_mode: { ...draftMode, mode: executionMode },
         project: $("project").value,
         draft: $("prompt").value,
         files,
@@ -9525,6 +9552,7 @@ function updateComposer() {
     !prompt.value.trim() ||
     overLimit ||
     imagesBlocked ||
+    draftMode.retiredLock ||
     !supportedExecutionModes().includes(executionMode) ||
     cooldown > 0;
 }

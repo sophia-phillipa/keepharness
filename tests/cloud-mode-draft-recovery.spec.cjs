@@ -3,7 +3,7 @@
 const assert = require("node:assert/strict");
 const { mockHarness, runPersona } = require("./personas/_harness.cjs");
 
-async function openDraft(page, backend, modes, historical = false, project = "sem-projeto") {
+async function openDraft(page, backend, modes, historical = false, project = "sem-projeto", modeChosen = true) {
   const model = { id: backend === "claude" ? "claude-sonnet-4-6" : backend + "-fixture", backend, efforts: ["low"], permissions: { upload: true } };
   if (modes !== undefined) model.execution_modes = modes;
   const catalog = { models: [model], providers: { [backend]: true }, uploads_enabled: true };
@@ -15,23 +15,192 @@ async function openDraft(page, backend, modes, historical = false, project = "se
     "GET /v1/conversations/old-session": { json: { execution_mode: "scoped", turns: [turn] } },
   });
   // Mutable response lets the test refresh capabilities without changing the draft.
-  await page.addInitScript(({ modelId, historical, project }) => {
+  await page.addInitScript(({ modelId, historical, project, modeChosen }) => {
+    if (sessionStorage.getItem("round3-reload")) return;
     const saved = {
       project, conversation: historical ? "old-session" : "",
       composer_selection: { model: modelId, effort: "low" },
-      execution_mode: "scoped", execution_mode_chosen: true,
+      execution_mode: "scoped", execution_mode_chosen: modeChosen,
       draft: "Preserved draft", files: [{ id: "kept-file", name: "notes.txt", project, type: "text/plain" }],
     };
     sessionStorage.setItem("remote-view", JSON.stringify(saved));
     sessionStorage.setItem("conversation-draft:" + (saved.conversation || "new:" + project), JSON.stringify(saved));
-  }, { modelId: model.id, historical, project });
+  }, { modelId: model.id, historical, project, modeChosen });
   await page.goto("http://harness.test");
   await page.locator("#startup-gate").waitFor({ state: "hidden" });
   await page.waitForFunction(() => !initializing && !loading && !policyPending);
-  return { state, model, projects };
+  return { state, model, projects, catalog };
 }
 
 const scenarios = [];
+const settled = page => page.waitForFunction(() => !initializing && !loading && !policyPending);
+for (const backend of ["codex", "claude"]) {
+  for (const modeChosen of [false, true]) for (const transition of ["back", "forward", "home", "project", "probe", "refresh", "reload"]) {
+    scenarios.push({
+      title: `${backend} locked draft retains its complete state through ${transition} (chosen=${modeChosen})`,
+      async run(page) {
+        const { state, projects } = await openDraft(page, backend, ["native"], false, "sem-projeto", modeChosen);
+        await page.route("**/v1/conversations/native-session", route => route.fulfill({ json: {
+          execution_mode: "native", turns: [{ id: "native-turn", project: "sem-projeto", state: "completed",
+            request: { backend, model: backend === "claude" ? "claude-sonnet-4-6" : backend + "-fixture", prompt: "Native history" }, result: { answer: "Answer" } }],
+        } }));
+        if (transition === "back") {
+          await page.evaluate(() => navigate({ kind: "conversation", id: "native-session" }));
+          await page.getByTestId("nav-back").click();
+        } else if (transition === "forward") {
+          await page.evaluate(() => navigate({ kind: "conversation", id: "native-session" }));
+          await page.getByTestId("nav-back").click();
+          await page.getByTestId("nav-forward").click();
+          await page.getByTestId("nav-back").click();
+        } else if (transition === "home") {
+          await page.evaluate(() => navigate({ kind: "conversation", id: "native-session" }));
+          await page.evaluate(() => applyView({ kind: "home" }, true));
+        } else if (transition === "project") {
+          projects.projects.push("another-project");
+          await page.evaluate(() => initialize());
+          await page.selectOption("#project", "another-project", { force: true });
+        } else if (transition === "probe") {
+          projects.projects = ["replacement-project"];
+          await page.evaluate(async () => { readinessRetryAt = 0; await probeReadiness(); });
+        } else if (transition === "refresh") {
+          await page.evaluate(() => initialize());
+        } else {
+          // The seed script must not replace the actual persisted snapshot on reload.
+          await page.evaluate(() => sessionStorage.setItem("round3-reload", "1"));
+          await page.reload();
+        }
+        await settled(page);
+        assert.equal(await page.evaluate(() => executionMode), "scoped");
+        assert.equal(await page.locator("#prompt").inputValue(), "Preserved draft");
+        assert.equal(await page.locator("#send").isDisabled(), true);
+        await page.locator("#prompt").press("Enter");
+        assert.equal(state.posts.length, 0);
+        for (const key of ["remote-view", "conversation-draft:new:" + await page.locator("#project").inputValue()]) {
+          assert.deepEqual(await page.evaluate(key => JSON.parse(sessionStorage.getItem(key)).draft_mode, key),
+            { mode: "scoped", modeChosen, retiredLock: true });
+        }
+        await page.click("#new");
+        await settled(page);
+        assert.equal(await page.evaluate(() => executionMode), "native");
+        assert.equal(await page.locator("#prompt").inputValue(), "Preserved draft");
+      },
+    });
+  }
+}
+for (const backend of ["codex", "claude"]) {
+  scenarios.push({
+    title: `${backend} retired lock survives Local selection and the mode toggle`,
+    async run(page) {
+      const { state, catalog } = await openDraft(page, backend, ["native"]);
+      catalog.models.push({ id: "local-fixture", backend: "local", execution_modes: ["scoped"], efforts: ["low"] });
+      await page.evaluate(() => initialize());
+      await page.selectOption("#model", "local-fixture", { force: true });
+      await settled(page);
+      assert.equal(await page.locator("#send").isDisabled(), true);
+      assert.equal(await page.locator("#isolation-toggle").isDisabled(), true);
+      // Calling the handler also cannot bypass the lock.
+      await page.evaluate(() => $("isolation-toggle").onclick());
+      assert.equal(await page.evaluate(() => executionMode), "scoped");
+      assert.match(await page.locator("#execution-mode-unavailable").innerText(), /no longer supported/);
+      await page.locator("#prompt").press("Enter");
+      assert.equal(state.posts.length, 0);
+      await page.click("#new");
+      await settled(page);
+      assert.equal(await page.locator("#model").inputValue(), "local-fixture");
+      assert.equal(await page.locator("#send").isDisabled(), false);
+    },
+  });
+}
+scenarios.push({
+  title: "legacy saved mode does not invent an explicit choice",
+  async run(page) {
+    const { state } = await openDraft(page, "codex", ["native"]);
+    await page.evaluate(() => {
+      const saved = JSON.parse(sessionStorage.getItem("remote-view"));
+      delete saved.draft_mode;
+      delete saved.execution_mode_chosen;
+      sessionStorage.setItem("remote-view", JSON.stringify(saved));
+      sessionStorage.setItem("round3-reload", "1");
+    });
+    await page.reload();
+    await settled(page);
+    assert.deepEqual(await page.evaluate(() => JSON.parse(sessionStorage.getItem("remote-view")).draft_mode),
+      { mode: "scoped", modeChosen: false, retiredLock: true });
+    await page.locator("#prompt").press("Enter");
+    assert.equal(state.posts.length, 0);
+  },
+});
+scenarios.push({
+  title: "historical Local backend remains scoped when its old model leaves the catalog",
+  async run(page) {
+    const { state } = await openDraft(page, "local", ["scoped"]);
+    await page.route("**/v1/conversations/local-history", route => route.fulfill({ json: {
+      execution_mode: "scoped", turns: [{ id: "local-turn", project: "sem-projeto", state: "completed",
+        request: { backend: "local", model: "removed-local-model", prompt: "Local history" }, result: { answer: "Answer" } }],
+    } }));
+    await page.evaluate(() => {
+      sessionStorage.setItem("conversation-draft:local-history", JSON.stringify({ project: "sem-projeto",
+        draft: "Local followup", draft_mode: { mode: "scoped", modeChosen: true, retiredLock: false } }));
+    });
+    await page.evaluate(() => navigate({ kind: "conversation", id: "local-history" }));
+    await settled(page);
+    assert.deepEqual(await page.evaluate(() => JSON.parse(sessionStorage.getItem("remote-view")).draft_mode),
+      { mode: "scoped", modeChosen: true, retiredLock: false });
+    assert.equal(await page.locator("#send").isDisabled(), false);
+    await page.locator("#prompt").press("Enter");
+    await page.waitForFunction(() => job === "job-1");
+    assert.equal(state.posts[0].parent_job_id, "local-turn");
+  },
+});
+scenarios.push({
+  title: "Back restores a native Home draft independently of the retired conversation being left",
+  async run(page) {
+    const { state } = await openDraft(page, "codex", ["native"]);
+    await page.click("#new");
+    await settled(page);
+    await page.evaluate(() => navigate({ kind: "conversation", id: "old-session" }));
+    await settled(page);
+    assert.equal(await page.locator("#send").isDisabled(), true);
+    await page.getByTestId("nav-back").click();
+    await settled(page);
+    assert.equal(await page.locator("#prompt").inputValue(), "Preserved draft");
+    assert.deepEqual(await page.evaluate(() => JSON.parse(sessionStorage.getItem("remote-view")).draft_mode),
+      { mode: "native", modeChosen: false, retiredLock: false });
+    assert.equal(await page.locator("#send").isDisabled(), false);
+    assert.equal(state.posts.length, 0);
+  },
+});
+scenarios.push({
+  title: "fresh project selection leaves mode unchosen so Local can send",
+  async run(page) {
+    const { state, projects, catalog } = await openDraft(page, "codex", ["native"]);
+    catalog.models.push({ id: "local-fixture", backend: "local", execution_modes: ["scoped"], efforts: ["low"], permissions: { upload: true } });
+    projects.projects.push("another-project");
+    await page.evaluate(() => initialize());
+    await page.click("#new");
+    await settled(page);
+    await page.selectOption("#project", "another-project", { force: true });
+    await settled(page);
+    assert.equal(await page.evaluate(() => JSON.parse(sessionStorage.getItem("remote-view")).execution_mode_chosen), false);
+    await page.selectOption("#model", "local-fixture", { force: true });
+    await settled(page);
+    assert.equal(await page.evaluate(() => executionMode), "scoped");
+    await page.selectOption("#project", "sem-projeto", { force: true });
+    await settled(page);
+    assert.equal(await page.locator("#model").inputValue(), "local-fixture");
+    assert.equal(await page.evaluate(() => executionMode), "scoped");
+    assert.equal(await page.locator("#send").isDisabled(), false);
+    await page.selectOption("#model", "codex-fixture", { force: true });
+    assert.deepEqual(await page.evaluate(() => JSON.parse(sessionStorage.getItem("remote-view")).draft_mode),
+      { mode: "native", modeChosen: false, retiredLock: false });
+    await page.selectOption("#model", "local-fixture", { force: true });
+    await page.locator("#prompt").press("Enter");
+    await page.waitForFunction(() => !!job);
+    assert.equal(state.posts[0].execution_mode, "scoped");
+    assert.equal(state.posts[0].model, "local-fixture");
+  },
+});
+
 for (const backend of ["codex", "claude"]) {
   for (const destinationDraft of [false, true]) {
     scenarios.push({

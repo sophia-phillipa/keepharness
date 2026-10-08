@@ -10,7 +10,21 @@ A stored Codex/Claude scoped conversation cannot continue, retry, resume, branch
 
 Absent or malformed model execution capabilities block sending, including restored scoped drafts. Receiving valid capabilities does not silently replace an explicitly retained draft mode. The explicit **New conversation** action establishes the selected model's supported default, preserving draft text and attachments without restoring an old mode or session and without submitting automatically.
 
-Automatic transitions preserve the retained mode: readiness probes, removed-project fallback, catalog refresh and navigation replay cannot establish native execution. Project selection and archive/delete side effects also preserve the mode. A saved native draft in the destination project cannot replace a retained scoped mode. The blocked composer explains that the saved isolated mode is no longer supported and directs the user to explicitly start a new conversation. Main, project, file and page actions explicitly starting a new chat may establish the supported default.
+### Explicit draft execution state
+
+Every composer draft stores `draft_mode: {mode, modeChosen, retiredLock}` with its text and attachments:
+
+- `mode` is the draft's execution mode.
+- `modeChosen` records an explicit user mode selection. Project selection never sets it.
+- `retiredLock` records that the draft has a retired cloud-scoped execution mode. It is independent of explicit choice and cannot be cleared by a model or project change.
+
+All save/restore paths preserve these three fields together: Back/Forward, Home replay, project switches, readiness probes, catalog refresh and reload. Restoring a draft restores its own restriction, not the mode of the conversation being exited. Automatic fallback cannot discard a retained retired restriction in favor of a saved native destination draft. Send and Enter are blocked while `retiredLock` is true, with an explanation directing the user to explicitly start a new conversation.
+
+Only an explicit **New conversation** action clears `retiredLock` and establishes a supported mode, while retaining text and same-project attachments. Main, project, file and page actions explicitly starting a new chat have this meaning; navigation replay, project selection and archive/delete side effects do not.
+
+Restoration itself does not manufacture a mode choice. An unlocked draft with `modeChosen: false` follows the selected model's current default when its project or model changes; selecting a project and then Local therefore yields scoped execution without requiring New. A selected Local model remains selected when available in the new project. An explicitly chosen mode remains chosen, and any retired lock takes precedence over default selection.
+
+Legacy drafts without `draft_mode` are normalized from their persisted execution mode, choice flag and provider evidence. A recorded retired cloud-scoped mode acquires the retirement lock; unknown scoped provenance also stays locked until explicit New. Normalization does not invent an explicit choice. Persisted backend evidence takes precedence over the current model catalog, so a historical Local conversation is not retired merely because its old model disappeared. The legacy mode fields remain compatibility mirrors, while the complete draft state is the restoration contract. This affects composer draft persistence only; stored conversation execution modes remain immutable.
 
 For an existing conversation without a root mode, consistent recorded provider context and unambiguous persisted turn modes determine the historical mode. Missing or conflicting evidence for historical Codex/Claude or unknown provenance refuses execution; the displayed historical mode is unavailable. Unambiguous historical Local remains scoped and historical Gemini/DeepSeek remain native. Neither the currently selected backend nor a mutable service configuration proves that a historical cloud conversation was native. Resolution does not migrate rows or silently rewrite stored payloads.
 

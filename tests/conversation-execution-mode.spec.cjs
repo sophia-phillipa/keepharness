@@ -62,7 +62,7 @@ const assert = require("node:assert/strict"),
                     name: "Fixture",
                     backend: "claude",
                     efforts: ["low"],
-                    execution_modes: ["native", "scoped"],
+                    execution_modes: ["native"],
                   },
                   {
                     id: "local-fixture",
@@ -107,16 +107,22 @@ const assert = require("node:assert/strict"),
       return route.fulfill({ json: data });
     });
     await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
+    await page.addInitScript(() => {
+      if (sessionStorage.getItem("mode-fixture-seeded")) return;
+      sessionStorage.setItem("mode-fixture-seeded", "1");
+      sessionStorage.setItem("remote-view", JSON.stringify({ project: "p",
+        composer_selection: { model: "local-fixture", effort: "low" },
+        draft_mode: { mode: "scoped", modeChosen: true, retiredLock: false } }));
+    });
     await page.goto("http://panel.test/");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     const toggle = page.getByRole("switch", { name: "Isolated conversation" });
-    assert.equal(await toggle.getAttribute("aria-checked"), "false");
+    assert.equal(await toggle.getAttribute("aria-checked"), "true");
     assert.equal(
       await page.locator("#execution-mode-indicator").isVisible(),
       false,
     );
-    await toggle.focus();
-    await page.keyboard.press("Space");
+    assert.equal(await toggle.isDisabled(), true);
     assert.equal(await toggle.getAttribute("aria-checked"), "true");
     const activeColor = await toggle.evaluate(
       (el) => getComputedStyle(el).backgroundColor,
@@ -137,7 +143,7 @@ const assert = require("node:assert/strict"),
     assert.equal(sent.length, 0);
     await page
       .locator("#model")
-      .selectOption("claude-sonnet-4-6", { force: true });
+      .selectOption("local-fixture", { force: true });
     assert.equal(await page.locator("#send").isEnabled(), true);
     await page.locator("#prompt").fill("Preserve draft");
     await page.reload();
@@ -153,12 +159,12 @@ const assert = require("node:assert/strict"),
     assert.equal(await page.locator("#prompt").inputValue(), "Preserve draft");
     fail = false;
     await page.locator("#send").click();
-    // F-58: the editable choice leaves the chat; the compact header records
-    // the immutable mode without duplicating the conversation header.
+    // F-58: the toggle leaves the chat; the header records its immutable mode.
+    // Local still states its isolation requirement beneath the composer.
     await toggle.waitFor({ state: "hidden" });
     assert.equal(
       await page.locator("#execution-mode-choice").isVisible(),
-      false,
+      true,
     );
     assert.equal(
       await page.locator("#header-execution-mode").innerText(),
@@ -229,7 +235,7 @@ const assert = require("node:assert/strict"),
     );
     await page.screenshot({ path: "/tmp/conversation-mode-started.png" });
     await page.locator("#new").click();
-    assert.equal(await toggle.getAttribute("aria-checked"), "false");
+    assert.equal(await toggle.getAttribute("aria-checked"), "true");
     assert.equal(
       await page.locator("#execution-mode-indicator").isVisible(),
       false,
@@ -265,7 +271,7 @@ const assert = require("node:assert/strict"),
     assert.equal(await toggle.isDisabled(), true);
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: native default, keyboard toggle, draft/reload/failure, locked mode, shared icon, continuation, reset, mobile",
+      "PASS: persisted Local choice, draft/reload/failure, locked mode, shared icon, continuation, defaults, mobile",
     );
   } finally {
     await browser.close();
