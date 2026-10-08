@@ -12,7 +12,7 @@ import pytest
 from test_catalog_pin import git
 from test_catalog_pin import repository as repository
 from test_effect_executor import prepared, request
-from test_workspaces import config
+from test_workspaces import config, single_owner_config
 
 from agent_service import catalog_pin as pins
 from agent_service.app import create_app
@@ -274,12 +274,12 @@ def test_pin_rejects_ignored_uncommitted_content(repository, tmp_path, relative)
 @pytest.mark.parametrize("operation", ["title", "upload"])
 def test_mutations_after_stream_revalidate_and_clean_up(tmp_path, operation):
     async def scenario():
-        cfg = config(tmp_path)
+        cfg = single_owner_config(tmp_path)
         app = create_app(cfg)
         service = app.state.service
         with service.db:
             service.conversation_repository.insert(
-                "job", "p", "a", "completed", 1, "{}", None, "job", "job"
+                "job", "p", "local", "completed", 1, "{}", None, "job", "job"
             )
         reading, release = asyncio.Event(), asyncio.Event()
 
@@ -305,7 +305,7 @@ def test_mutations_after_stream_revalidate_and_clean_up(tmp_path, operation):
                 )
                 await asyncio.wait_for(reading.wait(), 2)
                 candidate = copy.deepcopy(cfg)
-                candidate["clients"]["a"]["projects"] = []
+                candidate["clients"]["local"]["projects"] = []
                 await service.apply_runtime_config(candidate)
                 release.set()
                 response = await task

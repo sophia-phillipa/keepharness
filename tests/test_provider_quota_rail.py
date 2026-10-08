@@ -28,8 +28,9 @@ SECRET = "sk-" + "k" * 24
 def rail(tmp_path, monkeypatch):
     """A service with every provider enabled, whose quota fetchers fail the test when called."""
     service, identity = invocation_service(tmp_path, monkeypatch)
-    # Quota and balance belong to the owner; the fixture's client "a" is the owner (D-032).
-    monkeypatch.setattr("agent_service.harness_agents.LOCAL_CLIENT", "a")
+    # Quota and balance belong to the owner, the only client a runtime config holds (D-032, D-040).
+    service.config["clients"] = {"local": service.config["clients"]["a"]}
+    identity = ("local", service.config["clients"]["local"])
     for backend in ("claude", "gemini", "deepseek"):
         service.config["services"][backend] = {
             "enabled": True, "models": [backend + "-model"], "projects": ["p"],

@@ -261,6 +261,7 @@ def test_model_catalog_excludes_maestro_even_when_enabled(tmp_path, project_id):
 
 def test_registered_project_scope_survives_hot_reload(tmp_path):
     cfg = config(tmp_path)
+    cfg["clients"] = {"local": cfg["clients"]["local"]}  # a runtime config holds only the owner
     app = create_app(copy.deepcopy(cfg))
     root = tmp_path / "project"
     root.mkdir()
@@ -278,8 +279,7 @@ def test_registered_project_scope_survives_hot_reload(tmp_path):
         asyncio.run(service.apply_runtime_config(candidate))
         clients = service.config["clients"]
         assert pid in clients["local"]["projects"]
-        assert pid in clients["a"]["projects"]
-        assert "sem-projeto" in clients["a"]["projects"]
+        assert "sem-projeto" in clients["local"]["projects"]
         assert all(pid in spec["projects"] for spec in service.config["services"].values())
     finally:
         service.db.close()

@@ -51,6 +51,13 @@ def config(tmp_path):
     }
 
 
+def single_owner_config(tmp_path):
+    """``config`` reduced to the one client a runtime config may hold: the owner, ``local``."""
+    cfg = config(tmp_path)
+    cfg["clients"] = {"local": cfg["clients"]["a"]}
+    return cfg
+
+
 def test_workspace_roundtrip_ownership_and_search(tmp_path):
     cfg = config(tmp_path)
     with TestClient(create_app(cfg), headers={"Authorization": "Bearer a"}) as client:

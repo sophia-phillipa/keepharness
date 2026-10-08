@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from starlette.testclient import TestClient
-from test_workspaces import config
+from test_workspaces import config, single_owner_config
 
 from agent_service.app import create_app
 from control.server import Manager
@@ -178,7 +178,7 @@ def test_start_readiness_does_not_probe_redirecting_browser_entry(tmp_path, read
 
 
 def test_local_browser_redirects_but_api_and_remote_origin_do_not(tmp_path):
-    cfg = config(tmp_path)
+    cfg = single_owner_config(tmp_path)
     cfg.update(browser_url=REMOTE, origins=[REMOTE.rstrip("/")])
     app = create_app(cfg)
     with TestClient(app, base_url="http://127.0.0.1:8095") as client:
