@@ -160,6 +160,8 @@ function contrastRatio(colors) {
     await admin.waitForFunction(() => document.querySelector('[data-testid="project-mcp-approval"]')?.textContent.includes("Approved"));
     assert.deepEqual(adminWrites.at(-1), { name: "provider-state/mcp-approvals", body: { provider: "claude", project_id: "demo", expected_project_root: "/fixture/demo", server: "docs-local", approved: true } });
     assert.equal(await pending.getByRole("button", { name: "Revoke docs-local" }).evaluate((element) => element === document.activeElement), true); // P4 recovery: focus stays on the changed control.
+    await admin.locator('[data-testid="plugin-card"][data-item-id="plugin:fixture@local"]')
+      .getByRole("button", { name: "View Fixture details" }).click();
     await admin.getByRole("switch", { name: "Fixture in Codex" }).click();
     assert.equal(adminWrites.at(-1).body.project_id, "demo", "plugin switches follow the selected project scope");
     assert.equal(await adminTrust.isVisible(), true, "a plugin switch response preserves trust and approval metadata");
