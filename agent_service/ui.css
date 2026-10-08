@@ -3135,6 +3135,8 @@ body :is(button, .btn, [role="button"], summary):focus-visible {
   gap: 4px;
   width: 100%;
   padding: 12px;
+  color: var(--th-text);
+  background: transparent;
   text-align: left;
   border-radius: 8px;
 }
