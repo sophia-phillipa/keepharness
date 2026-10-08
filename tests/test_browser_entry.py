@@ -31,7 +31,7 @@ def test_real_process_starts_with_redirect_and_stops_cleanly(tmp_path):
             "state_dir": str(tmp_path / "runs"),
             "bind": "127.0.0.1",
             "port": port,
-            "clients": {},
+            "clients": {"local": {"sha256": "0" * 64, "projects": []}},
             "projects": {},
             "services": {},
             "origins": [REMOTE.rstrip("/")],

@@ -24,6 +24,7 @@ import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
+from agent_service.config import validate_runtime_config
 from control import local_access
 from control.server import Manager
 
@@ -131,6 +132,8 @@ def test_build_runtime_config_matches_golden_shape(tmp_path):
     ):
         cfg = asyncio.run(manager.build_runtime_config(settings))
 
+    # The service refuses to start on a config this validator rejects.
+    assert validate_runtime_config(cfg)
     revision = cfg.pop("config_revision")
     assert re.fullmatch(r"[0-9a-f-]{36}", revision)
     # Only the digest of the per-install secret travels; the secret stays in its 0600 file.

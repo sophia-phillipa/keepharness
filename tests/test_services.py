@@ -4,6 +4,8 @@ import asyncio
 import json
 from unittest.mock import AsyncMock, patch
 
+import pytest
+
 from test_workspaces import config, single_owner_config
 
 from agent_service import app
@@ -11,6 +13,7 @@ from agent_service.config import runtime_job_affected, validate_runtime_config
 from agent_service.services import queue_worker
 from agent_service.services.conversation_service import ConversationService
 from control import runtime_config
+from control.server import Manager
 
 
 def test_service_alias_and_project_folder_sets_are_shared(tmp_path):
@@ -69,6 +72,32 @@ def test_a_control_built_config_validates(tmp_path):
     )
     assert set(current["clients"]) == {"local"}
     assert validate_runtime_config(current)
+
+
+@pytest.mark.parametrize("local_access", [True, False])
+def test_every_config_the_control_writes_validates_at_startup(tmp_path, local_access):
+    # First run (nothing enabled, no previous runtime); the control only binds loopback, so a
+    # local_access-off config is the same output with the flag cleared.
+    manager = Manager(tmp_path)
+    manager.inventory = {"network": {"hostname": None}, "services": [], "binaries": {}}
+    cfg = asyncio.run(manager.build_runtime_config(manager.settings, allow_empty=True))
+    assert cfg["local_access"] is True
+    cfg["local_access"] = local_access
+    path = tmp_path / "runtime.json"
+    path.write_text(json.dumps(cfg))
+    assert app.read_startup_config(path) == cfg
+
+
+def test_startup_refuses_a_config_naming_another_client(tmp_path):
+    current = single_owner_config(tmp_path)
+    current["clients"]["tailnet-0123abcd"] = {"sha256": "0" * 64, "projects": ["p"]}
+    path = tmp_path / "runtime.json"
+    path.write_text(json.dumps(current))
+    with pytest.raises(SystemExit, match="runtime_config_invalid"):
+        app.read_startup_config(path)
+    path.write_text("[]")
+    with pytest.raises(SystemExit, match="runtime_config_invalid"):
+        app.read_startup_config(path)
 
 
 def test_a_queued_job_of_an_unknown_owner_is_not_run(tmp_path):

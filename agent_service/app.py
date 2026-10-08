@@ -12,6 +12,7 @@ from starlette.applications import Starlette
 from control import env
 from harness_ui import StaticGZipMiddleware
 
+from .config import validate_runtime_config
 from .conversation_context import context_overflow  # noqa: F401  (re-exported)
 from .errors import APIError
 from .routes import LimitedStream  # noqa: F401  (re-exported)
@@ -114,6 +115,14 @@ def create_app(config, runtime_path=None):
     return app
 
 
+def read_startup_config(path):
+    """Load the runtime config and refuse to start on one the service would not accept on reload."""
+    config = json.loads(Path(path).read_text())
+    if not isinstance(config, dict) or not validate_runtime_config(config):
+        raise SystemExit("runtime_config_invalid: " + str(path))
+    return config
+
+
 if __name__ == "__main__":
     import uvicorn
 
@@ -123,7 +132,7 @@ if __name__ == "__main__":
     agent_config = env.read("AGENT_CONFIG")
     if agent_config is None:
         raise KeyError(env.PRODUCT.env_prefix + "_AGENT_CONFIG")
-    config = json.loads(Path(agent_config).read_text())
+    config = read_startup_config(agent_config)
     configure_logging(config.get("control_state_dir", Path(config["state_dir"]).parent))
     uvicorn.run(
         create_app(config, Path(agent_config)),
