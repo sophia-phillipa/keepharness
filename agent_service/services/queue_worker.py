@@ -13,6 +13,8 @@ import time
 import traceback
 from pathlib import Path
 
+from control.provider_state import run_start_check
+
 from .. import maestro, tools
 from ..config import TERMINAL
 from ..conversation_context import context_overflow
@@ -22,6 +24,9 @@ from . import capacity
 from .budgets import RuntimeBudget, timeout_seconds
 
 logger = logging.getLogger(__name__)
+
+RUN_CHECK_SECONDS = 5.0
+_run_checks: dict[tuple[str, str], float] = {}
 
 # Provider account conditions shared with the UI: a run stopped by one ends ``interrupted``
 # with ``{"condition": <code>, "backend": <provider>}`` instead of a failure.
@@ -325,6 +330,28 @@ async def run(service):
         await asyncio.gather(*remaining, return_exceptions=True)
 
 
+async def provider_state_run_check(service, row, request_data):
+    """Stat the run's provider files so the control panel can date an outside change (issue #43).
+
+    Stats only and never raises: it must not change or fail the run.
+    """
+    try:
+        provider, state = request_data.get("backend"), service.config.get("control_state_dir")
+        if provider not in ("codex", "claude") or not state:
+            return
+        key, now = (provider, row["project"]), time.monotonic()
+        last = _run_checks.get(key)
+        if last is not None and now - last < RUN_CHECK_SECONDS:
+            return
+        _run_checks[key] = now
+        root = service.config.get("projects", {}).get(row["project"], {}).get("root")
+        await asyncio.to_thread(
+            run_start_check, Path(state), provider, row["project"], Path(root) if root else None
+        )
+    except Exception:
+        logger.debug("provider-state run check skipped")
+
+
 async def run_job(service, row):
     row = dict(row)
     started = time.time()
@@ -336,6 +363,7 @@ async def run_job(service, row):
             service.conversation_repository.set_running(row["id"])
         service.event(row["id"], "running", {})
         request_data = json.loads(row["payload"])
+        await provider_state_run_check(service, row, request_data)
         native_codex = (
             request_data.get("backend") == "codex"
             and request_data.get("execution_mode", service.configured_execution_mode("codex"))

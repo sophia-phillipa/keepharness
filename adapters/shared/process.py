@@ -88,6 +88,14 @@ def child_environment(environment=None, *, provider=None):
     return clean
 
 
+_PATH_IN_TEXT = re.compile(r"(?<![\w.:/])(?:~|\.{0,2})/[^\s\"']+")
+
+
+def redact_paths(text):
+    """``text`` with every file path replaced by ``<path>``."""
+    return _PATH_IN_TEXT.sub("<path>", text)
+
+
 def provider_message(text, limit=300):
     """A provider's own words for a failure: one line, redacted and bounded, safe to show."""
     return redact(" ".join(str(text).split()))[:limit]

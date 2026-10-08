@@ -7,7 +7,8 @@ Nothing else is faked; any other command exits 2.
 Control files (the adapter strips the environment, so the fake reads files, not variables), both
 inside the config directory ($CLAUDE_CONFIG_DIR, else ~/.claude):
   fake-claude-version   one line replaces the reported version (default 2.1.292)
-  fake-claude-fail      its presence makes every plugin command fail like a settings write error
+  fake-claude-fail      its presence makes every plugin command fail like a settings write error;
+                        any text in it replaces the failure reason
 Settings files: user -> <config dir>/settings.json, project -> <cwd>/.claude/settings.json,
 local -> <cwd>/.claude/settings.local.json; written with a 2-space indent like the real CLI.
 """
@@ -64,7 +65,9 @@ def toggle(command: str, plugin: str, scope: str, as_json: bool) -> None:
     path = settings_path(scope)
     failure = None
     if (config_dir() / "fake-claude-fail").exists():
-        failure = f"Invalid JSON syntax in settings file at {path}"
+        failure = (config_dir() / "fake-claude-fail").read_text().strip() or (
+            f"Invalid JSON syntax in settings file at {path}"
+        )
     document = {}
     if failure is None and path.exists():
         try:

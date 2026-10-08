@@ -38,7 +38,7 @@ from pathlib import Path
 
 from jsonschema import Draft7Validator
 
-from adapters.shared.process import child_environment, provider_message
+from adapters.shared.process import child_environment, provider_message, redact_paths
 from adapters.shared.provider_state import (
     MISSING_FILE,
     CredentialRule,
@@ -71,7 +71,6 @@ OPEN_PROJECT_REASON = "Open this project in Claude Code once"
 VERSION_TIMEOUT_SECONDS = 10
 PLUGIN_TIMEOUT_SECONDS = 10
 SETTINGS_SCHEMA = Path(__file__).parent / "schemas" / "claude-code-settings.schema.json"
-_PATH_IN_TEXT = re.compile(r"(?<![\w.:/])(?:~|\.{0,2})/[^\s\"']+")
 _MCP_PROJECT_KEYS = ("mcpServers", "disabledMcpServers", "enabledMcpServers")
 
 
@@ -646,8 +645,7 @@ class ClaudeStateAdapter:
             except (ValueError, KeyError, TypeError):
                 reported = done.stdout or done.stderr
             raise ProviderCommandError(
-                f"claude plugin {verb} failed: "
-                + provider_message(_PATH_IN_TEXT.sub("<path>", str(reported))),
+                f"claude plugin {verb} failed: " + provider_message(redact_paths(str(reported))),
                 exit_code=done.returncode,
             )
         document, _, _ = _read_json_object(path)
