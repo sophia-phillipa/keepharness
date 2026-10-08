@@ -86,6 +86,44 @@ _READ_DEPENDENCIES = {
 _ADDRESSABLE = re.compile(r"[\w@+-]+")  # a keyPath splits on dots, so ids with dots cannot be named
 
 
+@dataclass(repr=False)
+class _TrustRollback:
+    adapter: object
+    root: Path
+    key_path: str
+    value: object
+    before_version: str
+    written: str | None = None
+
+    def restore(self):
+        _, current = self.adapter._read(self.root)
+        if current == self.before_version:
+            return
+        if not self.written or current != self.written:
+            raise ProviderStateConflictError("Codex changed during rollback.")
+        asyncio.run(
+            _write(
+                self.adapter._binary(),
+                "config/batchWrite",
+                {
+                    "expectedVersion": self.written,
+                    "edits": [
+                        {"keyPath": self.key_path, "value": self.value, "mergeStrategy": "upsert"}
+                    ],
+                },
+                None,
+                environment=self.adapter._environment(),
+            )
+        )
+        restored = {}
+        self.adapter._read(self.root, trust_checkpoint=restored)
+        if (
+            restored.get("exists") != self.key_path.endswith(".trust_level")
+            or restored.get("value") != self.value
+        ):
+            raise ProviderStateConflictError("Codex did not confirm the restored trust state.")
+
+
 @dataclass(frozen=True)
 class _Layer:
     scope: Scope
@@ -277,7 +315,7 @@ async def _ask(
 
 async def _write(
     binary: str, method: str, params: dict, user_version: str | None, environment=None
-) -> None:
+) -> dict:
     """One write in its own app-server session.
 
     ``user_version`` is given for ``skills/config/write`` only (it has no ``expectedVersion``): the
@@ -303,7 +341,7 @@ async def _write(
                         raise ProviderStateConflictError(
                             "The Codex config changed since it was read."
                         )
-                await rpc.call(method, params)
+                return await rpc.call(method, params)
     except (ProviderStateConflictError, ProviderCommandError):
         raise
     except RPCError as exc:
@@ -351,7 +389,9 @@ class CodexStateAdapter:
         snapshot, _ = self._read(project_root, trust_layers=layers)
         return snapshot, layers
 
-    def _read(self, project_root: Path | None, *, trust_layers=None) -> tuple[StateSnapshot, str]:
+    def _read(
+        self, project_root: Path | None, *, trust_layers=None, trust_checkpoint=None
+    ) -> tuple[StateSnapshot, str]:
         """The snapshot and the user layer version (``""`` when the user layer was not read)."""
         binary = self._binary()
         environment = self._environment()
@@ -408,11 +448,17 @@ class CodexStateAdapter:
         if any(entry.get("disabledReason") for entry in raw_layers):
             warnings.append("Project config skipped: the project is not trusted by Codex.")
         user = next((layer for layer in layers if layer.scope == "user"), None)
+        if trust_checkpoint is not None and user is not None:
+            projects = user.config.get("projects", {})
+            key = str(Path(project_root).resolve())
+            entry = projects.get(key) if isinstance(projects, dict) else None
+            trust_checkpoint.update(
+                exists=entry is not None,
+                value=entry.get("trust_level") if isinstance(entry, dict) else None,
+            )
 
         def row(kind, item_id, name, enabled, scope, source, reason):
-            unavailable = [
-                failures[key] for key in _READ_DEPENDENCIES[kind] if key in failures
-            ]
+            unavailable = [failures[key] for key in _READ_DEPENDENCIES[kind] if key in failures]
             locked = (
                 f"Codex app-server did not answer the requests required for {kind} switches: "
                 + "; ".join(unavailable)
@@ -588,29 +634,47 @@ class CodexStateAdapter:
         return project_trusted(project_root, codex=self, environment=self.environment)
 
     def _is_project_trusted(self, project_root: Path) -> bool:
+        return self.project_trust_details(project_root)["trusted"]
+
+    def project_trust_details(self, project_root: Path, *, require_explicit: bool = False) -> dict:
         binary = shutil.which("codex")
         if binary is None:
-            return False
-        params = {"includeLayers": True, "cwd": str(project_root)}
+            if require_explicit:
+                raise ProviderStateSchemaError("Codex could not confirm the project trust write.")
+            return {"trusted": False}
+        root = Path(project_root).resolve()
+        params = {"includeLayers": True, "cwd": str(root)}
         results, _ = asyncio.run(
             _ask(binary, [("config", "config/read", params)], environment=self._environment())
         )
         result = results.get("config") or {}
-        for layer in _listed(result, "layers"):  # the CLI's own verdict, when it gives one
-            if _name(layer).get("type") == "project":
-                return not layer.get("disabledReason")
-        sources = [
-            result.get("config"),
-            *(layer.get("config") for layer in _listed(result, "layers")),
+        layers = [
+            layer for layer in _listed(result, "layers") if _name(layer).get("type") == "project"
         ]
-        keys = {str(project_root), str(Path(project_root).resolve())}
-        for source in sources:
-            projects = source.get("projects") if isinstance(source, dict) else None
-            for key in keys:
-                table = projects.get(key) if isinstance(projects, dict) else None
-                if isinstance(table, dict) and table.get("trust_level") == "trusted":
-                    return True
-        return False
+        inherited = next(
+            (
+                str(Path(_name(layer)["dotCodexFolder"]).parent)
+                for layer in layers
+                if not layer.get("disabledReason")
+                and _name(layer).get("dotCodexFolder")
+                and Path(_name(layer)["dotCodexFolder"]).parent != root
+            ),
+            None,
+        )
+        details = {"inherited_from": inherited} if inherited else {}
+        # The effective native key is authoritative even when the only config
+        # layer belongs to a trusted ancestor rather than this project.
+        config = result.get("config")
+        projects = config.get("projects") if isinstance(config, dict) else None
+        for key in (str(root), str(project_root)):
+            table = projects.get(key) if isinstance(projects, dict) else None
+            if isinstance(table, dict) and table.get("trust_level") in ("trusted", "untrusted"):
+                return {"trusted": table["trust_level"] == "trusted", **details}
+        if require_explicit:
+            raise ProviderStateSchemaError(
+                "Codex did not return an explicit project trust confirmation."
+            )
+        return {"trusted": bool(layers and not layers[0].get("disabledReason")), **details}
 
     def trust_project(
         self,
@@ -619,33 +683,52 @@ class CodexStateAdapter:
         trusted: bool = True,
         on_written=None,
         expected_fingerprint=None,
+        rollback=None,
     ) -> None:
         root = Path(project_root).resolve()
         binary = self._binary()
-        snapshot, version = self._read(root)
+        checkpoint = {}
+        snapshot, version = self._read(root, trust_checkpoint=checkpoint)
         if expected_fingerprint is not None and snapshot.fingerprint != expected_fingerprint:
             raise ProviderStateConflictError("The Codex state changed before accepting trust.")
         if not version:
             raise ProviderStateUnsupportedError("The Codex user config was not read.")
-        # Native key paths escape quotes/backslashes only; JSON Unicode/control escapes
-        # name a different project because this parser does not decode JSON strings.
+        # Native key paths escape quotes/backslashes only.
         quoted_root = str(root).replace("\\", "\\\\").replace('"', '\\"')
+        key_path = f'projects."{quoted_root}".trust_level'
+        undo = None
+        if rollback is not None:
+            undo = _TrustRollback(
+                self,
+                root,
+                key_path if checkpoint.get("exists") else f'projects."{quoted_root}"',
+                checkpoint.get("value"),
+                version,
+            )
+            rollback.append(undo)
         params = {
             "expectedVersion": version,
             "edits": [
                 {
-                    "keyPath": f'projects."{quoted_root}".trust_level',
+                    "keyPath": key_path,
                     "value": "trusted" if trusted else "untrusted",
                     "mergeStrategy": "upsert",
                 }
             ],
         }
-        asyncio.run(
+        result = asyncio.run(
             _write(binary, "config/batchWrite", params, None, environment=self._environment())
         )
+        if undo is not None:
+            written_version = result.get("version", "")
+            if not written_version:
+                raise ProviderStateConflictError(
+                    "Codex did not confirm its written rollback version."
+                )
+            undo.written = written_version
         if on_written is not None:
             on_written()
-        if self._is_project_trusted(root) != trusted:
+        if self.project_trust_details(root, require_explicit=True)["trusted"] != trusted:
             raise ProviderStateConflictError("Codex does not show the requested trust.")
 
     def approved_project_servers(self, project_root: Path) -> frozenset[str]:

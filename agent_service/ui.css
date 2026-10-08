@@ -6004,3 +6004,5 @@ body.panel-order-reversed #sidebar .sidebar-tree { margin: 0 0 0 12px; padding: 
 @media (max-width: 620px) {
   #settings-dialog .settings-search { flex: 0 0 min(280px, 80vw); }
 }
+
+.project-trust-inherited { grid-column: 1 / -1; min-width: 0; margin: 0; overflow-wrap: anywhere; }

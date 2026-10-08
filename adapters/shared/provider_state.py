@@ -125,6 +125,14 @@ class ProviderStateConflictError(_ProviderStateError):
     error_code, http_status = "provider_state_conflict", 409
 
 
+class ProviderTrustRollbackError(_ProviderStateError):
+    error_code, http_status = "provider_trust_rollback_incomplete", 409
+
+
+class ProviderMcpDisabledError(_ProviderStateError):
+    error_code, http_status = "provider_mcp_disabled_by_owner", 409
+
+
 class ProviderStateUnsupportedError(_ProviderStateError):
     error_code = "provider_state_write_unsupported"
 
@@ -391,6 +399,46 @@ def _refuse_new_errors(real: Path, before: bytes, written: bytes, validate: Call
         raise ProviderStateValidationError(
             f"{real.name} would fail validation, so nothing was written", errors=introduced
         )
+
+
+@dataclass(repr=False)
+class TrustWriteRollback:
+    """In-memory compensation; never persist or log credential-bearing prior bytes."""
+
+    path: Path
+    before: bytes | None
+    info: os.stat_result | None
+    written: str | None = None
+
+    @classmethod
+    def capture(cls, path: Path, expected_sha256: str):
+        real = Path(os.path.realpath(path))
+        try:
+            before, info = real.read_bytes(), real.stat()
+        except FileNotFoundError:
+            before, info = None, None
+        actual = _sha256(before) if before is not None else MISSING_FILE
+        if actual != expected_sha256:
+            raise ProviderStateConflictError("Trust state changed before the transaction.")
+        return cls(real, before, info)
+
+    def restore(self):
+        with _lock_for(self.path):
+            current = _current_sha256(self.path) or MISSING_FILE
+            prior = _sha256(self.before) if self.before is not None else MISSING_FILE
+            if current == prior:
+                return
+            if self.written is None or current != self.written:
+                raise ProviderStateConflictError("Trust state changed during rollback.")
+            if self.before is None:
+                # The same last-moment check used by _swap: external writers do not
+                # participate in our lock, so cross-file physical atomicity is impossible.
+                if _current_sha256(self.path) != self.written:
+                    raise ProviderStateConflictError("Trust state changed during rollback.")
+                self.path.unlink()
+                _fsync_directory(self.path.parent)
+            else:
+                _swap(self.path, self.before, self.written, self.info)
 
 
 def write_json_atomic(

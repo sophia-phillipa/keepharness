@@ -218,7 +218,7 @@ def test_remote_service_receipt_preserves_control_single_writer_and_external_rev
     )
 
 
-def test_partial_trust_write_keeps_receipt_and_reports_failure(
+def test_failed_trust_rolls_back_without_creating_own_notice(
     app, codex_home, claude_dir, project, monkeypatch
 ):
     from adapters.shared.provider_state import ProviderStateVersionError
@@ -231,7 +231,7 @@ def test_partial_trust_write_keeps_receipt_and_reports_failure(
     control = app.state.manager.provider_state
     asyncio.run(control.read("codex", "p"))
 
-    def refuse(root):
+    def refuse(root, **kwargs):
         raise ProviderStateVersionError("Unsupported version")
 
     monkeypatch.setattr(claude, "trust_project", refuse)
@@ -239,7 +239,7 @@ def test_partial_trust_write_keeps_receipt_and_reports_failure(
         control.state, control.projects, control.adapters, track_notices=False
     )
     assert asyncio.run(remote.security_write("codex", "p")).status_code == 422
-    assert control.adapters["codex"].is_project_trusted(project)
+    assert not control.adapters["codex"].is_project_trusted(project)
     assert not claude._is_project_trusted(project)
     control.cache.clear()
     assert asyncio.run(control.read("codex", "p"))["external_changes"] == []

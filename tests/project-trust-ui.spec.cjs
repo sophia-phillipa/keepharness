@@ -22,7 +22,7 @@ const snapshot = (provider) => ({
 const providerBody = (provider, trusted = false) => ({
   snapshot: snapshot(provider),
   external_changes: [],
-  trust: { trusted, required: !trusted },
+  trust: { trusted, required: !trusted, inherited_from: "/fixture/parent" },
   mcp_approvals: [
     { server: "docs-local", approved: false },
     { server: "reviewed", approved: true },
@@ -87,7 +87,7 @@ function contrastRatio(colors) {
           failTrust = false;
           return route.fulfill({ status: 422, json: { error: "provider_state_validation_failed", message: "CLI state changed; review it and try again." } });
         }
-        adminBodies.codex.trust = adminBodies.claude.trust = { trusted: body.trusted !== false, required: body.trusted === false };
+        adminBodies.codex.trust = adminBodies.claude.trust = { ...adminBodies.codex.trust, trusted: body.trusted !== false, required: body.trusted === false };
         return route.fulfill({ json: adminBodies[body.provider] });
       }
       if (name === "provider-state/mcp-approvals" && method === "POST") {
@@ -107,6 +107,7 @@ function contrastRatio(colors) {
     await admin.goto("http://admin.test/#plugins");
     await admin.getByLabel("Project for plugins").selectOption("demo");
     const adminTrust = admin.locator('[data-testid="project-trust"]');
+    await adminTrust.getByText(/Codex still loads trusted configuration from \/fixture\/parent/).waitFor({ timeout: 3000 });
     await adminTrust.waitFor();
     assert.match(await adminTrust.innerText(), /applies to both Codex and Claude Code/i); // P1 main: visible language needs no CLI knowledge.
     assert.match(await adminTrust.innerText(), /hooks and environment settings/i);
@@ -157,6 +158,7 @@ function contrastRatio(colors) {
     await admin.keyboard.press("Enter");
     await adminTrust.getByRole("button", { name: "Trust Demo project" }).waitFor();
     assert.equal(adminWrites.at(-1).body.trusted, false);
+    assert.match(await adminTrust.innerText(), /Codex still loads trusted configuration from \/fixture\/parent/);
     assert.equal(await adminTrust.getByRole("button", { name: "Trust Demo project" }).evaluate((el) => el === document.activeElement), true);
     await adminTrust.getByRole("button", { name: "Trust Demo project" }).click();
     await adminTrust.getByRole("button", { name: "Revoke trust for Demo project" }).waitFor();
@@ -255,7 +257,7 @@ function contrastRatio(colors) {
       }
       if (pathname === "/v1/provider-state/trust" && method === "POST") {
         const body = route.request().postDataJSON(); chatWrites.push({ pathname, body });
-        chatBody.trust = { trusted: body.trusted !== false, required: body.trusted === false };
+        chatBody.trust = { ...chatBody.trust, trusted: body.trusted !== false, required: body.trusted === false };
         return route.fulfill({ json: chatBody });
       }
       if (pathname === "/v1/provider-state/mcp-approvals" && method === "POST") {
@@ -275,6 +277,7 @@ function contrastRatio(colors) {
     await chat.click("#project-button");
     await chat.getByRole("option", { name: "Demo project" }).click();
     const conversationTrust = chat.locator("#project-trust-prompt");
+    await conversationTrust.getByText(/Codex still loads trusted configuration from \/fixture\/parent/).waitFor({ timeout: 3000 });
     await conversationTrust.waitFor();
     assert.equal(await conversationTrust.getAttribute("role"), "region");
     assert.match(await conversationTrust.getAttribute("aria-label"), /Project trust and MCP approvals/);
@@ -357,6 +360,7 @@ function contrastRatio(colors) {
     await chat.keyboard.press("Enter");
     await conversationTrust.getByRole("button", { name: "Trust Demo project" }).waitFor();
     assert.equal(chatWrites.at(-1).body.trusted, false);
+    assert.match(await conversationTrust.innerText(), /Codex still loads trusted configuration from \/fixture\/parent/);
     assert.equal(chatWrites.at(-1).body.expected_project_root, "/fixture/rebound-demo");
     assert.equal(await conversationTrust.getByRole("button", { name: "Trust Demo project" }).evaluate((el) => el === document.activeElement), true);
     assert.equal(await chat.locator("#prompt").inputValue(), "Keep this draft while trust changes");

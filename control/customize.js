@@ -294,6 +294,8 @@
     if (!trust && !approvals.length) return;
     trustPanel.hidden = false;
     trustPanel.setAttribute("aria-label", "Project trust and MCP approvals");
+    if (trust?.inherited_from)
+      trustPanel.append(node("p", "Codex still loads trusted configuration from " + trust.inherited_from + ". Revoking this project's trust does not revoke its parent.", "project-trust-inherited"));
     if (trust?.required) {
       const copy = node("div", undefined, "project-trust-copy");
       copy.append(

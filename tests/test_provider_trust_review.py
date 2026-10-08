@@ -71,7 +71,7 @@ def test_unconsumed_receipt_survives_partial_trust_retry(
     )
     real = claude.trust_project
 
-    def unavailable(root):
+    def unavailable(root, **kwargs):
         raise ProviderStateVersionError("Fixture refusal")
 
     monkeypatch.setattr(claude, "trust_project", unavailable)
@@ -338,7 +338,7 @@ def test_revoke_receipt_attributes_unchanged_user_fallback(app, codex_home, clau
     assert asyncio.run(service.read("codex", "p"))["external_changes"] == []
 
 
-def test_partial_revoke_retry_preserves_receipt_and_truthful_union(
+def test_failed_revoke_restores_trust_before_retry(
     app, codex_home, claude_dir, project, monkeypatch
 ):
     control, claude = fixture_service(app, codex_home, claude_dir, project, trusted=True)
@@ -354,7 +354,7 @@ def test_partial_revoke_retry_preserves_receipt_and_truthful_union(
 
     monkeypatch.setattr(claude, "trust_project", unavailable)
     assert asyncio.run(remote.security_write("codex", "p", trusted=False)).status_code == 422
-    assert not control.adapters["codex"]._is_project_trusted(project)
+    assert control.adapters["codex"]._is_project_trusted(project)
     assert claude.is_project_trusted(project)
     monkeypatch.setattr(claude, "trust_project", real)
     result = asyncio.run(remote.security_write("codex", "p", trusted=False))

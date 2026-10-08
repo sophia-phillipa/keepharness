@@ -1623,8 +1623,10 @@ async function api(path, options = {}) {
         ? " Try again in " + Math.max(1, Math.ceil(seconds)) + " seconds."
         : " Wait a moment before trying again.";
     }
+    const providerState = path.startsWith("/v1/provider-state/");
+    if (providerState && typeof e.message === "string") message = e.message;
     const error = Error(message);
-    error.code = e.code;
+    error.code = e.code || (providerState ? e.error : undefined);
     error.field = e.field;
     error.status = r.status;
     if (r.status === 429) {
@@ -6378,6 +6380,12 @@ function renderProjectTrust() {
   panel.replaceChildren();
   panel.hidden = !trust && !approvals.length && !projectTrustError;
   if (panel.hidden) return;
+  if (trust?.inherited_from) {
+    const inherited = document.createElement("p");
+    inherited.className = "project-trust-inherited";
+    inherited.textContent = "Codex still loads trusted configuration from " + trust.inherited_from + ". Revoking this project's trust does not revoke its parent.";
+    panel.append(inherited);
+  }
   if (trust?.required) {
     const copy = document.createElement("div"),
       heading = document.createElement("strong"),
@@ -6468,7 +6476,7 @@ async function writeProjectTrust(context, action, extra) {
       current = request === projectTrustRequest && currentProjectTrust(projectTrustContext);
     }
     if (current)
-      projectTrustError = error.status === 409
+      projectTrustError = error.status === 409 && error.code === "provider_state_conflict"
         ? "The CLI state changed elsewhere. Review it and try again."
         : error.message;
   } finally {

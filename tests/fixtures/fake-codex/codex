@@ -200,6 +200,21 @@ def set_key(text, key_path, value):
     if not table:
         raise Failure({"code": -32600, "message": "Unsupported key path"})
     lines = text.splitlines(keepends=True)
+    if value is None:
+        target = segments(key_path)
+        kept, skipping, current_table = [], False, []
+        for raw in lines:
+            header = HEADER.match(raw)
+            if header:
+                parts = segments(header.group(2))
+                skipping = parts[:len(target)] == target
+                current_table = parts
+            if skipping:
+                continue
+            if not header and current_table == table and re.match(r'^\s*' + re.escape(quote(key)) + r'\s*=', raw):
+                continue
+            kept.append(raw)
+        return "".join(kept)
     line = f"{quote(key)} = {literal(value)}\n"
     start = None
     for index, raw in enumerate(lines):
