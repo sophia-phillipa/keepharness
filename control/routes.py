@@ -673,6 +673,23 @@ async def write_provider_state(request, manager, data):
     )
 
 
+async def ack_provider_notices(request, manager, data):
+    provider, project_id, notice_ids = (
+        data.get(key) for key in ("provider", "project_id", "notice_ids")
+    )
+    manager.provider_state.resolve(  # 404 before the field checks
+        provider, project_id if isinstance(project_id, str) else NO_PROJECT
+    )
+    if not (
+        isinstance(project_id, str)
+        and isinstance(notice_ids, list)
+        and len(notice_ids) <= 100
+        and all(isinstance(notice_id, str) and len(notice_id) <= 40 for notice_id in notice_ids)
+    ):
+        raise APIError("invalid_request", 400)
+    return await manager.provider_state.ack(provider, project_id, notice_ids)
+
+
 GET_ROUTES = {
     "/api/logs": read_logs,
     "/api/catalogs": read_catalogs,
@@ -686,6 +703,7 @@ GET_ROUTES = {
 POST_ROUTES = {
     "/api/catalog-pin": change_pin,
     "/api/provider-state": write_provider_state,
+    "/api/provider-state/notices:ack": ack_provider_notices,
     "/api/vault": change_vault,
     "/api/folders/create": create_folder,
     "/api/scan": scan_inventory,
