@@ -24,8 +24,8 @@ and the CLI's own write cannot be closed. A write is confirmed by reading the st
   must use ``asyncio.to_thread``. A session is bounded by ``CALL_SECONDS`` for the start plus one
   for each request, however many notifications the server sends.
 * Degraded app-server (cannot start, a method missing or failing): what could be read still shows,
-  every row is read-only with a reason and a warning names the method. Only when nothing could be
-  read is ``ProviderStateSchemaError`` raised.
+  and only rows whose writes depend on the missing result are read-only. A warning names the
+  method. Only when nothing could be read is ``ProviderStateSchemaError`` raised.
 """
 
 import asyncio
@@ -77,6 +77,12 @@ _SKILL_SCOPES = {
 _UNKNOWN_METHOD = "Invalid request: unknown variant"  # what 0.157.1 answers for a method it lacks
 _ORDER = {"plugin": 0, "skill": 1, "mcp": 2, "app": 3}
 _KEYS = {"plugin": "plugins", "mcp": "mcp_servers", "app": "apps"}
+_READ_DEPENDENCIES = {
+    "plugin": ("config", "plugins"),
+    "skill": ("config", "skills", "plugins"),
+    "mcp": ("config",),
+    "app": ("config", "apps"),
+}
 _ADDRESSABLE = re.compile(r"[\w@+-]+")  # a keyPath splits on dots, so ids with dots cannot be named
 
 
@@ -372,14 +378,19 @@ class CodexStateAdapter:
         layers = _layers(raw_layers)
         if any(entry.get("disabledReason") for entry in raw_layers):
             warnings.append("Project config skipped: the project is not trusted by Codex.")
-        locked = (
-            "Codex app-server did not answer every request; switches are read-only until it does."
-            if failures
-            else ""
-        )
         user = next((layer for layer in layers if layer.scope == "user"), None)
 
         def row(kind, item_id, name, enabled, scope, source, reason):
+            unavailable = [
+                failures[key] for key in _READ_DEPENDENCIES[kind] if key in failures
+            ]
+            locked = (
+                f"Codex app-server did not answer the requests required for {kind} switches: "
+                + "; ".join(unavailable)
+                + f"; {kind} switches are read-only until it does."
+                if unavailable
+                else ""
+            )
             return StateItem(
                 id=f"{kind}:{item_id}",
                 kind=kind,
