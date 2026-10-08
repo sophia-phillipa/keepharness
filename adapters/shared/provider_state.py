@@ -159,6 +159,20 @@ class ProviderCommandError(_ProviderStateError):
         self.exit_code = exit_code
 
 
+def project_trusted(project_root: Path, *, codex=None, claude=None, environment=None) -> bool:
+    """Union of the two CLIs' own verdicts, without recursively querying adapters."""
+    from adapters.claude.state import ClaudeStateAdapter
+    from adapters.codex.state import CodexStateAdapter
+
+    codex = codex if codex is not None else CodexStateAdapter(environment=environment)
+    claude = (
+        claude
+        if claude is not None
+        else ClaudeStateAdapter(Path(project_root), environment=environment)
+    )
+    return codex._is_project_trusted(project_root) or claude._is_project_trusted(project_root)
+
+
 # --- adapter protocol ------------------------------------------------------------------------
 
 

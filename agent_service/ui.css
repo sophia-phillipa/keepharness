@@ -4714,6 +4714,21 @@ main > header #quota-toggle { display:none!important; }
 #execution-mode-choice .execution-mode-heading { min-height:30px; }
 #execution-mode-choice #execution-mode-help { position:absolute; width:1px; height:1px; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
 #execution-mode-choice #execution-mode-unavailable:not([hidden]) { margin:2px 0; }
+#project-trust-prompt { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:10px; margin:6px 0 4px; padding:10px 12px; border:1px solid var(--th-border); border-left:3px solid var(--th-warning); border-radius:10px; background:var(--th-panel); color:var(--th-text); }
+#project-trust-prompt[hidden] { display:none; }
+#project-trust-prompt .project-trust-copy { min-width:0; }
+#project-trust-prompt .project-trust-copy p { margin:3px 0 0; color:var(--th-text); font-size:12px; line-height:1.45; overflow-wrap:anywhere; }
+#project-trust-prompt .project-trust-action { min-height:30px; padding:4px 10px; border:1px solid var(--th-border); border-radius:8px; background:var(--th-soft); color:var(--th-text); font:inherit; font-size:12px; cursor:pointer; }
+#project-trust-prompt .project-trust-action:hover, #project-trust-prompt .project-trust-action:focus-visible { border-color:var(--th-accent); }
+#project-trust-prompt .project-trust-action:disabled { opacity:.55; cursor:wait; }
+#project-trust-prompt .project-mcp-approval { grid-column:1 / -1; display:flex; align-items:center; justify-content:space-between; gap:10px; padding-top:8px; border-top:1px solid var(--th-border); }
+#project-trust-prompt .project-mcp-approval > div { display:grid; min-width:0; }
+#project-trust-prompt .project-mcp-approval small { color:var(--th-muted); overflow-wrap:anywhere; }
+#project-trust-prompt .project-trust-error { grid-column:1 / -1; margin:0; color:var(--th-error); font-size:12px; overflow-wrap:anywhere; }
+@container chatpane (max-width:640px) {
+  #project-trust-prompt { grid-template-columns:minmax(0,1fr); }
+  #project-trust-prompt > .project-trust-action { justify-self:start; }
+}
 #model-availability { margin:14px 16px; padding:14px; }
 #messages { padding:12px 16px; }
 #welcome { margin:30px auto 0; }

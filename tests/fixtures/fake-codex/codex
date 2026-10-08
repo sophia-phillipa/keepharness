@@ -184,7 +184,7 @@ def segments(text):
 
 
 def quote(segment):
-    return segment if BARE.fullmatch(segment) else json.dumps(segment)
+    return segment if BARE.fullmatch(segment) else json.dumps(segment, ensure_ascii=False)
 
 
 def literal(value):
