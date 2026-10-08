@@ -53,10 +53,12 @@
       merged.set(key, group);
     };
     for (const info of view.clis) {
-      for (const item of integrationCatalogs.get(info.id)?.items || [])
+      const catalogItems = (integrationCatalogs.get(info.id)?.items || []).filter((item) => item.kind === "plugin");
+      for (const item of catalogItems)
         if (item.kind === "plugin") add(info, item);
       for (const item of states.get(info.id)?.snapshot?.items || [])
-        if (item.kind === "plugin") add(info, { id: item.id, name: item.name, kind: "plugin", status: "installed" }, true);
+        if (item.kind === "plugin" && !catalogItems.some((catalogItem) => catalogItem.id === item.id))
+          add(info, { id: item.id, name: item.name, kind: "plugin", status: "installed" }, true);
     }
     return [...merged.values()].sort((a, b) => connectorLabel(a.item).localeCompare(connectorLabel(b.item)));
   }
@@ -87,8 +89,16 @@
     );
   }
 
-  const familyStateItems = (group, info) => (states.get(info.id)?.snapshot?.items || [])
-    .filter((item) => item.kind === "plugin" && familyKey(item) === group.key);
+  const familyStateItems = (group, info) => {
+    const ids = new Set(providerVariants(group, info).map((item) => item.id));
+    const catalogIds = new Set((integrationCatalogs.get(info.id)?.items || [])
+      .filter((item) => item.kind === "plugin")
+      .map((item) => item.id));
+    return (states.get(info.id)?.snapshot?.items || [])
+      .filter((item) => item.kind === "plugin" && (
+        ids.has(item.id) || (!catalogIds.has(item.id) && familyKey(item) === group.key)
+      ));
+  };
   const exactStateItems = (group, info) => (states.get(info.id)?.snapshot?.items || [])
     .filter((item) => item.kind === "plugin" && item.id === group.item.id);
   const providerVariants = (group, info) => group.variants.get(info.id) || [];

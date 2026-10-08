@@ -1715,25 +1715,27 @@ html[data-embedded] #main { max-width: none; margin: 0; padding-inline: 24px; }
   background: color-mix(in srgb, var(--th-text) 8%, transparent); color: var(--th-text); font-size: 18px;
 }
 .plugin-card-action:hover { background: color-mix(in srgb, var(--th-text) 13%, transparent); }
-.plugin-detail { display: grid; gap: 18px; max-width: 880px; }
+.plugin-detail { display: grid; gap: 18px; min-width: 0; max-width: 880px; }
 .plugin-detail-back {
   display: inline-flex; align-items: center; gap: 5px; width: fit-content; padding: 4px 8px; border: 0; border-radius: 8px;
   background: transparent; color: var(--th-text); cursor: pointer; font: inherit;
 }
 .plugin-detail-back:hover { background: var(--th-soft); }
 .plugin-detail-back .th-icon { width: 16px; height: 16px; }
-.plugin-detail-heading { display: flex; align-items: center; gap: 14px; }
+.plugin-detail-heading { display: flex; align-items: center; gap: 14px; min-width: 0; }
 .plugin-detail-heading h2 { margin: 0; }
 .plugin-detail-description { margin: 0; color: var(--th-muted); }
 .plugin-detail-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 18px; margin: 0; }
 .plugin-detail-facts :is(dt, dd) { margin: 0; overflow-wrap: anywhere; }
 .plugin-detail-facts dt { color: var(--th-muted); }
-.plugin-detail-items { margin: -10px 0 0; padding-inline-start: 22px; }
-.plugin-providers { display: grid; gap: 0; }
+.plugin-detail-items { min-width: 0; margin: -10px 0 0; padding-inline-start: 22px; }
+.plugin-detail :is(h2, h3, p, li, dt, dd, small) { min-width: 0; overflow-wrap: anywhere; }
+.plugin-providers { display: grid; gap: 0; min-width: 0; }
 .plugin-provider-row {
   display: grid; grid-template-columns: minmax(180px, auto) minmax(0, 1fr); align-items: center; gap: 12px;
-  min-height: 54px; padding: 10px 0; border-top: 1px solid var(--th-line); color: var(--th-text);
+  min-width: 0; min-height: 54px; padding: 10px 0; border-top: 1px solid var(--th-line); color: var(--th-text);
 }
+.plugin-provider-row > * { min-width: 0; }
 .plugin-provider-row .plugins-provider { justify-content: space-between; }
 .plugin-provider-row .plugins-row-note { color: var(--th-muted); overflow-wrap: anywhere; }
 .plugin-card-open:focus-visible, .plugin-card-action:focus-visible, .plugin-detail-back:focus-visible, .plugin-install:focus-visible {

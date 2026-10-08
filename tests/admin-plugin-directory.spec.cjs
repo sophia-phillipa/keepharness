@@ -1,5 +1,6 @@
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
 const assert = require("node:assert/strict");
+const { execFileSync } = require("node:child_process");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 
@@ -12,6 +13,25 @@ const luminance = ([r, g, b]) => 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0
 
 (async () => {
   const fixture = JSON.parse(await fs.readFile(fixturePath, "utf8"));
+  const rawSource = "https://example-user:EXAMPLE_TOKEN@example.test/source-probe?token=EXAMPLE_QUERY#EXAMPLE_FRAGMENT";
+  const python = process.env.PYTHON || "python3";
+  const sourceProbe = JSON.parse(execFileSync(python, ["-c", `
+import json, os, subprocess, sys
+revision = os.environ.get("PLUGIN_CATALOG_REV")
+if revision:
+    source = subprocess.check_output(["git", "show", revision + ":control/integration_catalog.py"], text=True)
+    namespace = {"__name__": "control.integration_catalog", "__file__": "control/integration_catalog.py", "__package__": "control"}
+    exec(compile(source, namespace["__file__"], "exec"), namespace)
+    parse = namespace["_plugins"]
+else:
+    from control.integration_catalog import _plugins as parse
+print(json.dumps(parse(json.dumps({"available": [{"id": "source-probe@official", "name": "Source Probe", "homepage": sys.argv[1]}]}))[0]))
+`, rawSource], { cwd: path.join(__dirname, ".."), encoding: "utf8" }));
+  const sourceJson = JSON.stringify(sourceProbe);
+  for (const secret of ["EXAMPLE_TOKEN", "EXAMPLE_QUERY", "EXAMPLE_FRAGMENT"])
+    assert.equal(sourceJson.includes(secret), false, "public integration-catalog JSON omits " + secret);
+  assert.equal(sourceProbe.source, "https://example.test/source-probe");
+  fixture.catalogs.codex.items.push(sourceProbe);
   assert.deepEqual(fixture.family_cases.map(({ item }) => familyKey(item)), fixture.family_cases.map(({ key }) => key));
   const browser = await chromium.launch();
   try {
@@ -40,6 +60,8 @@ const luminance = ([r, g, b]) => 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0
         stateItem("plugin:github@openai-curated", "github"),
         stateItem("plugin:slack@team-tools", "slack", { writable: false, reason: "Managed by the team profile." }),
         stateItem("plugin:discord@beta-market", "discord"),
+        stateItem("plugin:documents@official", "documents@official"),
+        stateItem("plugin:archive@official", "archive@official"),
       ], warnings: [] },
       claude: { provider: "claude", fingerprint: "claude-fp", items: [
         stateItem("plugin:linear@official", "linear", { enabled: false, source: "settings.json" }),
@@ -81,6 +103,24 @@ const luminance = ([r, g, b]) => 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0
     assert.equal(await openaiCards.count(), 2);
     const boxes = await openaiCards.evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().toJSON()));
     assert(Math.abs(boxes[0].y - boxes[1].y) <= 2 && boxes[1].x > boxes[0].x, "cards use two columns");
+    for (const [id, label] of [["plugin:documents@official", "Internal Documents"], ["plugin:archive@official", "Internal Archive"]]) {
+      const exactCards = directory.locator('[data-item-id="' + id + '"]');
+      assert.equal(await exactCards.count(), 1, id + " reconciles catalog and snapshot before family grouping");
+      await exactCards.getByRole("button", { name: "View " + label + " details" }).click();
+      assert.equal(await page.locator('[data-testid="plugin-detail"]').getByRole("switch", { name: label + " in Codex" }).getAttribute("data-item-id"), id);
+      assert.equal(await page.locator('[data-testid="plugin-detail"]').getByRole("button", { name: "Install " + label + " in Codex" }).count(), 0, "an exact installed id is never offered for installation");
+      await page.locator('[data-testid="plugin-detail-back"]').click();
+    }
+    const aliasCard = directory.locator('[data-item-id="plugin:different@official"]');
+    await aliasCard.getByRole("button", { name: "View Documents details" }).click();
+    assert.equal(await page.locator('[data-testid="plugin-detail"]').getByRole("switch", { name: "Documents in Codex" }).count(), 0,
+      "a display-name collision cannot borrow a snapshot owned by another exact catalog id");
+    await page.locator('[data-testid="plugin-detail-back"]').click();
+    await directory.locator('[data-item-id="plugin:source-probe@official"]').getByRole("button", { name: "View Source Probe details" }).click();
+    assert.match(await page.locator('[data-testid="plugin-detail"]').innerText(), /Source\s+https:\/\/example\.test\/source-probe/);
+    for (const secret of ["EXAMPLE_TOKEN", "EXAMPLE_QUERY", "EXAMPLE_FRAGMENT"])
+      assert.equal((await page.locator("body").innerText()).includes(secret), false, "plugin detail DOM omits " + secret);
+    await page.locator('[data-testid="plugin-detail-back"]').click();
     await sections.filter({ has: page.getByText("official", { exact: true }) }).locator("summary").click();
     assert.equal(await directory.locator('[data-family-key="calendar"]').isHidden(), true, "section collapses");
 
@@ -104,6 +144,10 @@ const luminance = ([r, g, b]) => 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0
     assert.equal(await detail.getByRole("button", { name: "Back to plugins" }).locator("svg").count(), 1, "breadcrumb has an icon");
     assert.equal(await detail.getByText("Try now").count(), 0);
     assert.equal(await detail.getByText("Copy link").count(), 0);
+    await page.setViewportSize({ width: 390, height: 820 });
+    const detailWidth = await detail.evaluate((node) => ({ client: node.clientWidth, scroll: node.scrollWidth }));
+    assert(detailWidth.scroll <= detailWidth.client, "390px detail reflows long metadata: " + JSON.stringify(detailWidth));
+    await page.setViewportSize({ width: 1400, height: 1000 });
 
     // Provider rows preserve every independent state and use install only for a backed available variant.
     const providerRow = (name) => detail.locator('[data-testid="plugin-provider-row"]').filter({ hasText: name });
@@ -180,6 +224,8 @@ const luminance = ([r, g, b]) => 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0
     assert.deepEqual(errors, []);
     for (const scenario of [
       "directory-marketplace-two-column-family-grouping",
+      "public-source-api-and-dom-redaction",
+      "provider-id-before-family-reconciliation",
       "search-metadata-and-refresh-recovery",
       "keyboard-detail-breadcrumb-focus-return",
       "provider-enabled-and-disabled-independent-switches",
@@ -192,6 +238,7 @@ const luminance = ([r, g, b]) => 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0
       "unreadable-provider-recovery",
       "paper-and-graphite-aa-contrast",
       "mobile-directory-overflow",
+      "mobile-detail-long-metadata",
     ]) console.log("PASS scenario " + scenario);
   } finally {
     await browser.close();

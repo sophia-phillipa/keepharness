@@ -18,7 +18,7 @@
           "developer": "OpenAI",
           "source": "https://github.com/openai/github-plugin",
           "apps": ["GitHub Issues"],
-          "skills": ["Review pull requests"]
+          "skills": ["Review pull requests", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"]
         },
         {
           "id": "plugin:linear@openai-curated",
@@ -53,6 +53,30 @@
           "status": "installed",
           "description": "Catalog variant with no exact state item.",
           "marketplace": "alpha-market"
+        },
+        {
+          "id": "plugin:documents@official",
+          "name": "Internal Documents",
+          "kind": "plugin",
+          "status": "installed",
+          "description": "Catalog display metadata for documents.",
+          "marketplace": "official"
+        },
+        {
+          "id": "plugin:archive@official",
+          "name": "Internal Archive",
+          "kind": "plugin",
+          "status": "available",
+          "description": "Stale available catalog metadata.",
+          "marketplace": "official"
+        },
+        {
+          "id": "plugin:different@official",
+          "name": "Documents",
+          "kind": "plugin",
+          "status": "available",
+          "description": "A distinct catalog plugin whose display name collides with snapshot metadata.",
+          "marketplace": "official"
         },
         {
           "id": "plugin:figma@second-market",
