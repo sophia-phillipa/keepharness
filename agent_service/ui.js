@@ -3046,6 +3046,8 @@ function newConversation(title = "New Conversation", projectId = $("project").va
   $("context-meter").textContent = "New conversation · independent context";
   setBusy(false);
   status("");
+  // The mobile drawer makes the editor inert until it closes.
+  closeSidebar();
   $("prompt").focus({ preventScroll: true });
   void refreshProjectPermissions().then((ready) => ready && refreshProjectTrust());
   if (changedProject) { clearResourceItems(); void refreshWorkspaceResources(); void loadAuthorizedProjectRoots(); }

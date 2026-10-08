@@ -77,4 +77,48 @@ for (const backend of ['codex', 'claude']) for (const workflow of [false, true])
     assert.equal(state.posts[0].prompt, 'Explicit new content');
   } });
 }
+for (const theme of ['paper', 'graphite']) for (const origin of ['history', 'draft']) for (const entry of ['main', 'project', 'command']) {
+  scenarios.push({ title: `390px ${theme} ${origin} ${entry} New keeps editor focus after drawer closes`, viewport: { width: 390, height: 844 }, async run(page) {
+    const model = { id: 'codex-fixture', backend: 'codex', efforts: ['low'], execution_modes: ['native'] };
+    const turn = { id: 'retired-turn', project: 'sem-projeto', state: 'completed', request: { backend: 'codex', model: model.id, execution_mode: 'scoped', prompt: 'Historical content', provider_session_id: 'old-session' }, result: { answer: 'Readable history' } };
+    const state = await mockHarness(page, {
+      'GET /v1/models': { json: { models: [model], providers: { codex: true } } },
+      'GET /v1/projects': { json: { projects: ['sem-projeto', 'project-a'], details: { 'project-a': { label: 'Project Alpha' } } } },
+      'GET /v1/conversations/retired': { json: { execution_mode: 'scoped', turns: [turn] } },
+    });
+    if (origin === 'draft') await page.addInitScript(() => sessionStorage.setItem('remote-view', JSON.stringify({ project: 'sem-projeto', composer_selection: { model: 'codex-fixture', effort: 'low' }, draft: 'Preserved unsent draft', draft_mode: { mode: 'scoped', modeChosen: true, retiredLock: true } })));
+    await page.goto('http://harness.test');
+    await page.locator('#startup-gate').waitFor({ state: 'hidden' });
+    await page.evaluate(name => HarnessTheme.apply(name, false), theme);
+    if (origin === 'history') await page.evaluate(() => navigate({ kind: 'conversation', id: 'retired' }));
+    await page.waitForFunction(() => !loading && !policyPending);
+    assert.equal(await page.locator('#send').isDisabled(), true);
+    await page.locator('#menu').click();
+    assert.equal(await page.locator('main').evaluate(el => el.inert), true);
+    if (entry === 'command') {
+      await page.keyboard.press('Control+k');
+      await page.locator('#conversation-search').fill('New conversation');
+      const result = page.locator('#conversation-search-dialog').getByRole('button', { name: /New conversation/i });
+      await result.focus();
+    } else {
+      await page.locator(entry === 'main' ? '#new' : '.project-new').focus();
+    }
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => !loading && !policyPending && !conversation && !draftMode.retiredLock);
+    // Wait for rendering and the drawer transition before checking durable focus.
+    await page.evaluate(async () => {
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      await Promise.all(document.getElementById('sidebar').getAnimations().map(animation => animation.finished.catch(() => {})));
+    });
+    assert.equal(await page.locator('#sidebar').evaluate(el => el.classList.contains('open')), false);
+    assert.equal(await page.locator('main').evaluate(el => el.inert), false);
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'prompt');
+    assert.equal(await page.locator('#prompt').inputValue(), origin === 'draft' ? 'Preserved unsent draft' : '');
+    assert.equal(await page.evaluate(() => executionMode), 'native');
+    assert.equal(state.posts.length, 0);
+    await page.keyboard.type(' Fresh input');
+    assert.match(await page.locator('#prompt').inputValue(), / Fresh input$/);
+    assert.equal(state.posts.length, 0);
+  } });
+}
 runPersona('cloud-mode-ui-retirement', scenarios).then(r => console.log(`cloud-mode-ui-retirement: ${r.filter(x => x.status === 'pass').length}/${r.length} passed`));
