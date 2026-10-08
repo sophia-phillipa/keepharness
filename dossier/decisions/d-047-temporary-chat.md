@@ -1,6 +1,6 @@
 # D-047 — Temporary chat without persisted conversation state
 
-Status: implementation in progress. Date: 2026-10-08. Scope: #60.
+Status: implemented. Date: 2026-10-08. Scope: #60.
 Builds on [D-038](d-038-keepharness-facade-over-provider-state.md),
 [D-039](d-039-single-owner-facade-policies.md) and
 [D-043](d-043-deepseek-engine.md). This is not the retired scoped execution mode.
@@ -30,7 +30,9 @@ remove unrelated session folders. Provider cursor files are not created, so each
 turn replays conversation context from volatile state into a fresh native session.
 An expiring lease, renewed by browser heartbeats, also cleans abandoned sessions
 when a tab disappears without a successful discard request. Expiration never
-converts the temporary conversation into a saved one.
+converts the temporary conversation into a saved one. The lease expires after
+120 seconds without renewal; the next 15-second sweep cancels and awaits active
+work before removing artifacts. Server shutdown awaits cleanup directly.
 
 ## Provider evidence
 
@@ -71,6 +73,10 @@ All design consultations used risk `medium`.
    lease (confidence 0.98; threshold 0.80; 662 input tokens, 40 output tokens,
    360 ms). Independent review identified that an offline browser can lose its
    final DELETE request while the server continues running.
+4. Composer placement after the layout matrix exposed crowding: JEV abstained
+   (confidence 0.33). The local choice reuses the existing wrapping context row,
+   keeps the full accessible label, and preserves the original toolbar slots.
+   Both temporary-chat controls have a 28 px minimum height.
 
 The initial JEV abstentions are not approval or evidence of correctness.
 Tests and independent artifact review determine acceptance.
@@ -82,5 +88,8 @@ Local thread parameters, Claude spawn flags, refusal to resume saved cursors and
 preservation of normal Claude persistence. Initial failures preceded implementation;
 59 affected provider tests passed before commit `daf528f`.
 
-Backend, browser, cleanup and complete-suite evidence will be recorded in the
-#60 section of [v0.16.0](../releases/v0.16.0.md) after integration.
+Backend, browser, cleanup and complete-suite evidence is recorded in the
+#60 section of [v0.16.0](../releases/v0.16.0.md). Independent authors reviewed the
+backend, provider and UI changes, including later focused fixes. The single full
+UI run found three failures; all three affected files passed after corrections.
+That initial command is not represented as a zero-failure run.
