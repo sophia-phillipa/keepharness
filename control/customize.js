@@ -13,15 +13,15 @@
     ["mcps", "MCPs", "mcp", "plug"],
     ["skills", "Skills", undefined, "list-check"], // no count until the Skills content lands
   ];
-  const NO_PROJECT = "sem-projeto"; // the only scope this page has (D-041 item 3)
-  const view = { chip: "plugins", query: "", loading: false, built: false, clis: [] };
+  const NO_PROJECT = "sem-projeto";
+  const view = { chip: "plugins", query: "", loading: false, built: false, clis: [], project: NO_PROJECT };
   const panel = $("plugins-panel");
   const chipButtons = new Map();
   // Provider id -> { snapshot } from GET /api/provider-state, or { error } when it could not be read.
   const states = new Map();
   // "<provider>|<item id>" -> the last write error, shown on that row until the next read or write.
   const rowErrors = new Map();
-  let list, note, status, menu, refreshButton, noteCount = 0;
+  let list, note, status, menu, refreshButton, projectSelect, trustPanel, stateRead = 0, noteCount = 0;
 
   const node = (tag, text, cls, testid) => {
     const el = element(tag, text, cls);
@@ -115,31 +115,152 @@
   }
   const capitalized = (text) => text.charAt(0).toUpperCase() + text.slice(1);
 
+  const projectLabel = () =>
+    projectSelect?.selectedOptions[0]?.textContent || view.project;
+
+  function acceptProviderBody(provider, body) {
+    const current = states.get(provider) || {};
+    states.set(provider, {
+      ...current,
+      ...(body.snapshot ? { snapshot: body.snapshot } : {}),
+      ...(body.trust ? { trust: body.trust } : {}),
+      ...(Array.isArray(body.mcp_approvals) ? { mcp_approvals: body.mcp_approvals } : {}),
+    });
+  }
+
+  function writeTrust() {
+    const provider = view.clis[0]?.id,
+      project = view.project;
+    if (!provider) return;
+    let current = true;
+    return action(async () => {
+      report("");
+      try {
+        const body = await request("provider-state/trust", { provider, project_id: project });
+        current = project === view.project;
+        if (!current) return;
+        for (const info of view.clis) {
+          const current = states.get(info.id) || {};
+          states.set(info.id, { ...current, ...(body.trust ? { trust: body.trust } : {}) });
+        }
+        acceptProviderBody(provider, body);
+        if (Array.isArray(body.mcp_approvals)) {
+          const claude = states.get("claude") || {};
+          states.set("claude", { ...claude, mcp_approvals: body.mcp_approvals });
+        }
+        report(projectLabel() + " is trusted for Codex and Claude Code in KeepHarness.");
+      } catch (error) {
+        current = project === view.project;
+        if (current) report(error.message);
+      } finally {
+        if (current) {
+          renderTrust();
+          trustPanel.querySelector("button:not(:disabled)")?.focus();
+        }
+      }
+    });
+  }
+
+  function writeMcpApproval(server, approved) {
+    const project = view.project;
+    let current = true;
+    return action(async () => {
+      report("");
+      try {
+        const body = await request("provider-state/mcp-approvals", {
+          provider: "claude", project_id: project, server, approved,
+        });
+        current = project === view.project;
+        if (!current) return;
+        acceptProviderBody("claude", body);
+        const actual = body.mcp_approvals?.find((item) => item.server === server)?.approved;
+        report(
+          actual === approved
+            ? server + " is now " + (approved ? "approved" : "not approved") + " for " + projectLabel() + "."
+            : body.trust?.required
+              ? "Approval saved for " + server + ". Trust " + projectLabel() + " before it can run."
+              : server + " remains not approved because another CLI settings layer denies it.",
+        );
+      } catch (error) {
+        current = project === view.project;
+        if (current) report(error.message);
+      } finally {
+        if (current) {
+          renderTrust();
+          trustPanel.querySelector('[data-server="' + CSS.escape(server) + '"] button')?.focus();
+        }
+      }
+    });
+  }
+
+  function renderTrust() {
+    if (!trustPanel) return;
+    trustPanel.replaceChildren();
+    trustPanel.hidden = true;
+    if (view.project === NO_PROJECT || view.loading) return;
+    const trust = view.clis.map((info) => states.get(info.id)?.trust).find(Boolean);
+    const approvals = states.get("claude")?.mcp_approvals || [];
+    if (!trust?.required && !approvals.length) return;
+    trustPanel.hidden = false;
+    trustPanel.setAttribute("aria-label", "Project trust and MCP approvals");
+    if (trust?.required) {
+      const copy = node("div", undefined, "project-trust-copy");
+      copy.append(
+        node("strong", "Trust " + projectLabel() + "?"),
+        node("p", "Trusting this project applies to both Codex and Claude Code in KeepHarness. It enables project instructions, Claude hooks and environment settings, including env entries. Versioned .mcp.json servers approved in project settings can then run; other servers still need approval below."),
+      );
+      const accept = node("button", "Trust " + projectLabel(), "button primary");
+      accept.type = "button";
+      accept.onclick = writeTrust;
+      trustPanel.append(copy, accept);
+    }
+    for (const item of approvals) {
+      const row = node("div", undefined, "project-mcp-approval", "project-mcp-approval");
+      row.dataset.server = item.server;
+      const copy = node("div");
+      copy.append(
+        node("strong", item.server),
+        node("small", "Project MCP server · " + (item.approved ? "Approved" : "Not approved")),
+      );
+      const toggle = node("button", (item.approved ? "Revoke" : "Approve") + " " + item.server, "button secondary");
+      toggle.type = "button";
+      toggle.onclick = () => writeMcpApproval(item.server, !item.approved);
+      row.append(copy, toggle);
+      trustPanel.append(row);
+    }
+  }
+
   // Writes go through action(), which holds the admin's one-operation lock and ignores a click that
   // arrives while a write is in flight. The switch never flips ahead of the server: it is redrawn from
   // the snapshot the server answered with.
   function writeState(group, info, stateItem) {
     const label = connectorLabel(group.item),
       where = providerName(info),
-      key = info.id + "|" + stateItem.id;
+      key = info.id + "|" + stateItem.id,
+      project = view.project;
+    let current = true;
     return action(async () => {
       report("");
       try {
         const body = await request("provider-state", {
           provider: info.id,
-          project_id: NO_PROJECT,
+          project_id: project,
           item_id: stateItem.id,
           scope: stateItem.scope,
           enabled: !stateItem.enabled,
           fingerprint: states.get(info.id).snapshot.fingerprint,
         });
-        states.set(info.id, { snapshot: body.snapshot });
+        current = project === view.project;
+        if (!current) return;
+        acceptProviderBody(info.id, body);
         rowErrors.delete(key);
         report(label + " is now " + onOff(!stateItem.enabled) + " in " + where + ".");
       } catch (error) {
+        current = project === view.project;
+        if (!current) return;
         const fresh = error.status === 409 && error.body?.snapshot;
         if (fresh) {
-          states.set(info.id, { snapshot: fresh });
+          acceptProviderBody(info.id, error.body);
           setProviderNotices(info.id, error.body.external_changes);
           showProviderNotices();
           const now = fresh.items.find((x) => x.id === stateItem.id);
@@ -151,14 +272,16 @@
           report(error.message);
         }
       } finally {
-        render();
-        // The switch is gone or disabled after a 409: focus the row's menu button, else the list.
-        const id = CSS.escape(stateItem.id);
-        (
-          list.querySelector('.plugins-switch[data-item-id="' + id + '"][data-provider="' + info.id + '"]:not(:disabled)') ||
-          list.querySelector('[data-testid="plugin-row"][data-item-id="' + id + '"] .plugins-more') ||
-          list
-        ).focus();
+        if (current) {
+          render();
+          // The switch is gone or disabled after a 409: focus the row's menu button, else the list.
+          const id = CSS.escape(stateItem.id);
+          (
+            list.querySelector('.plugins-switch[data-item-id="' + id + '"][data-provider="' + info.id + '"]:not(:disabled)') ||
+            list.querySelector('[data-testid="plugin-row"][data-item-id="' + id + '"] .plugins-more') ||
+            list
+          ).focus();
+        }
       }
     });
   }
@@ -267,6 +390,7 @@
       chip.replaceChildren(icon(glyph), text);
     }
     renderNote();
+    renderTrust();
     renderList();
   }
 
@@ -297,15 +421,30 @@
     refreshButton.replaceChildren(icon("refresh"), document.createTextNode("Refresh"));
     refreshButton.onclick = () => loadCatalogs(true);
     const toolbar = node("div", undefined, "plugins-toolbar");
-    toolbar.append(chips, search, refreshButton);
+    const projectLabelNode = node("label", "Project", "plugins-project-label");
+    projectSelect = node("select", undefined, "plugins-project", "plugins-project");
+    projectSelect.setAttribute("aria-label", "Project for plugins");
+    projectSelect.onchange = () => {
+      view.project = projectSelect.value;
+      rowErrors.clear();
+      states.clear();
+      renderTrust();
+      renderList();
+      void loadStates(view.clis).then((applied) => applied && render());
+    };
+    projectLabelNode.append(projectSelect);
+    toolbar.append(chips, search, projectLabelNode, refreshButton);
     note = node("p", undefined, "hint plugins-note", "plugins-note");
     note.setAttribute("aria-live", "polite");
     status = node("p", undefined, "hint plugins-status", "plugins-status");
     status.setAttribute("role", "status");
     status.hidden = true;
+    trustPanel = node("section", undefined, "project-trust", "project-trust");
+    trustPanel.setAttribute("role", "region");
+    trustPanel.hidden = true;
     list = node("div", undefined, "plugins-list", "plugins-list");
     list.tabIndex = -1; // the focus fallback when a row disappears under a switch
-    panel.append(toolbar, note, status, list);
+    panel.append(toolbar, note, status, trustPanel, list);
     document.addEventListener("keydown", (event) => {
       if (event.key !== "Escape" || !menu) return;
       event.preventDefault();
@@ -319,19 +458,34 @@
 
   // The state of each found CLI, read in parallel: GET takes no admin lock. A failure only affects its provider.
   async function loadStates(clis) {
+    const readId = ++stateRead,
+      project = view.project,
+      next = new Map();
     await Promise.all(
       clis.map(async ({ id }) => {
         try {
-          const body = await request("provider-state?provider=" + id + "&project_id=" + NO_PROJECT);
-          states.set(id, body.snapshot ? { snapshot: body.snapshot } : {});
-          setProviderNotices(id, body.external_changes);
+          const body = await request("provider-state?provider=" + id + "&project_id=" + encodeURIComponent(project));
+          next.set(id, { body });
         } catch (error) {
-          states.set(id, { error: error.message });
-          setProviderNotices(id, []); // an unreadable CLI must not keep an old notice on show
+          next.set(id, { error });
         }
       }),
     );
+    if (readId !== stateRead || project !== view.project) return false;
+    states.clear();
+    for (const { id } of clis) {
+      const result = next.get(id);
+      if (result?.body) {
+        states.set(id, {});
+        acceptProviderBody(id, result.body);
+        setProviderNotices(id, result.body.external_changes);
+      } else {
+        states.set(id, { error: result?.error?.message || "State is not readable here yet." });
+        setProviderNotices(id, []);
+      }
+    }
     showProviderNotices();
+    return true;
   }
 
   async function loadCatalogs(force) {
@@ -342,6 +496,13 @@
     try {
       const inventory = (state || (await request("state"))).inventory;
       view.clis = inventory.services.filter((info) => info.found && CLIS.includes(info.id));
+      const projects = [
+        [NO_PROJECT, "No project"],
+        ...((state?.settings?.projects || []).map((project) => [project.id, project.label || project.id])),
+      ];
+      projectSelect.replaceChildren(...projects.map(([id, label]) => new Option(label, id)));
+      if (!projects.some(([id]) => id === view.project)) view.project = NO_PROJECT;
+      projectSelect.value = view.project;
       rowErrors.clear(); // a reload starts clean; a re-read on focus keeps the errors on their rows
       const reads = loadStates(view.clis);
       // One CLI at a time: the admin runs one operation at once and answers 429 to a second.

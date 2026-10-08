@@ -3045,7 +3045,7 @@ function newConversation(title = "New Conversation", projectId = $("project").va
   setBusy(false);
   status("");
   $("prompt").focus({ preventScroll: true });
-  refreshProjectPermissions();
+  void refreshProjectPermissions().then((ready) => ready && refreshProjectTrust());
   if (changedProject) { clearResourceItems(); void refreshWorkspaceResources(); void loadAuthorizedProjectRoots(); }
 }
 function chooseProject(id) {
@@ -6101,6 +6101,7 @@ $("model").onchange = () => {
   updateComposer();
   saveView();
   quota();
+  void refreshProjectTrust();
 };
 $("quota-refresh").onclick = () => void quota();
 document.addEventListener("visibilitychange", () => {
@@ -6327,6 +6328,135 @@ $("project-button").onclick = () => {
 };
 // Connectors and plugins (Codex "Plugins" chip): what is installed, allowed and
 // effective for this project and route, and what was used here recently.
+let projectTrustRequest = 0,
+  projectTrustWriting = false,
+  projectTrustData = null,
+  projectTrustError = "";
+
+function projectTrustLabel() {
+  return $("project").selectedOptions[0]?.textContent || $("project").value;
+}
+
+function renderProjectTrust() {
+  const panel = $("project-trust-prompt"),
+    trust = projectTrustData?.trust,
+    approvals = Array.isArray(projectTrustData?.mcp_approvals)
+      ? projectTrustData.mcp_approvals
+      : [];
+  panel.replaceChildren();
+  panel.hidden = !trust?.required && !approvals.length && !projectTrustError;
+  if (panel.hidden) return;
+  if (trust?.required) {
+    const copy = document.createElement("div"),
+      heading = document.createElement("strong"),
+      warning = document.createElement("p"),
+      accept = document.createElement("button");
+    copy.className = "project-trust-copy";
+    heading.textContent = "Trust " + projectTrustLabel() + "?";
+    warning.textContent =
+      "Trusting this project applies to both Codex and Claude Code in KeepHarness. It enables project instructions, Claude hooks and environment settings, including env entries. Versioned .mcp.json servers approved in project settings can then run; other servers still need approval below.";
+    copy.append(heading, warning);
+    accept.type = "button";
+    accept.className = "project-trust-action";
+    accept.textContent = "Trust " + projectTrustLabel();
+    accept.disabled = projectTrustWriting;
+    accept.onclick = () => writeProjectTrust("trust", {});
+    panel.append(copy, accept);
+  }
+  for (const item of approvals) {
+    const row = document.createElement("div"),
+      copy = document.createElement("div"),
+      name = document.createElement("strong"),
+      detail = document.createElement("small"),
+      toggle = document.createElement("button");
+    row.className = "project-mcp-approval";
+    row.dataset.testid = "project-mcp-approval";
+    row.dataset.server = item.server;
+    name.textContent = item.server;
+    detail.textContent = "Project MCP server · " + (item.approved ? "Approved" : "Not approved");
+    copy.append(name, detail);
+    toggle.type = "button";
+    toggle.className = "project-trust-action";
+    toggle.textContent = (item.approved ? "Revoke " : "Approve ") + item.server;
+    toggle.disabled = projectTrustWriting;
+    toggle.onclick = () => writeProjectTrust("mcp-approvals", { server: item.server, approved: !item.approved });
+    row.append(copy, toggle);
+    panel.append(row);
+  }
+  if (projectTrustError) {
+    const error = document.createElement("p");
+    error.className = "project-trust-error";
+    error.setAttribute("role", "status");
+    error.textContent = projectTrustError;
+    panel.append(error);
+  }
+}
+
+async function writeProjectTrust(action, extra) {
+  if (projectTrustWriting) return;
+  const engine = resourceEngine(),
+    project = $("project").value,
+    server = extra.server;
+  projectTrustWriting = true;
+  projectTrustError = "";
+  renderProjectTrust();
+  let current = true;
+  try {
+    const data = await post("/v1/provider-state/" + action, {
+      provider: action === "mcp-approvals" ? "claude" : engine.backend,
+      project_id: project,
+      ...extra,
+    });
+    current = project === $("project").value && engine.backend === resourceEngine().backend;
+    if (current) {
+      projectTrustData = data;
+      if (action === "mcp-approvals") {
+        const actual = data.mcp_approvals?.find((item) => item.server === server)?.approved;
+        if (actual !== extra.approved)
+          projectTrustError = data.trust?.required
+            ? "Approval saved for " + server + ". Trust this project before it can run."
+            : server + " remains not approved because another CLI settings layer denies it.";
+      }
+    }
+  } catch (error) {
+    current = project === $("project").value && engine.backend === resourceEngine().backend;
+    if (current)
+      projectTrustError = error.status === 409
+        ? "The CLI state changed elsewhere. Review it and try again."
+        : error.message;
+  } finally {
+    projectTrustWriting = false;
+    if (current) {
+      renderProjectTrust();
+      if (server)
+        $("project-trust-prompt").querySelector('[data-server="' + CSS.escape(server) + '"] button')?.focus();
+      else
+        $("project-trust-prompt").querySelector("button")?.focus();
+    }
+  }
+}
+
+async function refreshProjectTrust() {
+  const request = ++projectTrustRequest,
+    engine = resourceEngine(),
+    project = $("project").value,
+    panel = $("project-trust-prompt");
+  projectTrustData = null;
+  projectTrustError = "";
+  panel.hidden = true;
+  if (project === "sem-projeto" || !["codex", "claude"].includes(engine.backend)) return;
+  try {
+    const query = new URLSearchParams({ provider: engine.backend, project_id: project });
+    const data = await json("/v1/provider-state?" + query);
+    if (request !== projectTrustRequest || project !== $("project").value || engine.backend !== resourceEngine().backend) return;
+    projectTrustData = data;
+  } catch (error) {
+    if (request !== projectTrustRequest) return;
+    projectTrustError = "Couldn't check project trust. " + error.message;
+  }
+  renderProjectTrust();
+}
+
 function usageAge(seconds) {
   const age = Math.max(0, Date.now() / 1000 - Number(seconds || 0));
   return age < 3600
@@ -6998,6 +7128,7 @@ async function initialize() {
     if (!(await refreshProjectPermissions(5000)))
       throw Error("Couldn't load this project's permissions.");
     modelAvailability(m);
+    void refreshProjectTrust();
     if (!(await history(5000)))
       throw Error("Couldn't load the conversation history.");
     status(
