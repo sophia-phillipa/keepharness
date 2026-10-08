@@ -335,6 +335,8 @@ async def provider_state_run_check(service, row, request_data):
 
     Stats only and never raises: it must not change or fail the run.
     """
+    if service.config.get("temporary_chat"):
+        return
     try:
         provider, state = request_data.get("backend"), service.config.get("control_state_dir")
         if provider not in ("codex", "claude") or not state:

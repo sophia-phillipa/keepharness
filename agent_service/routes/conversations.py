@@ -128,6 +128,8 @@ def search_snippets(candidates, needle):
 
 async def conversations(request, service, identity):
     """The owner's conversations; with ``?q=`` only those whose prompts or answers contain it."""
+    if request.headers.get("x-keepharness-temporary"):
+        return JSONResponse({"conversations": []})
     searching = "q" in request.query_params
     needle = fold(request.query_params.get("q", "").strip())[0]
     if searching:
@@ -248,6 +250,8 @@ async def storage(request, service, identity):
 
 
 async def history(request, service, identity):
+    if request.headers.get("x-keepharness-temporary"):
+        return JSONResponse({"jobs": []})
     rows = service.conversation_repository.history(identity[0], identity[1]["projects"])
     return JSONResponse(
         {
@@ -415,6 +419,8 @@ async def job_events(request, service, identity):
     async def events():
         cursor = after
         while True:
+            if getattr(service, "temporary_closed", False):
+                break
             try:
                 service.job(service.identity(request, revalidate=True), job)
             except APIError:

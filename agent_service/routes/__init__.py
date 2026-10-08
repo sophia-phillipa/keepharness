@@ -96,9 +96,16 @@ def api_route(path, handler, methods=None, *, authenticated=True):
 
     async def endpoint(request):
         service = request.app.state.service
+        from ..services.temporary_chat_service import temporary_execution
+
+        temporary_token = temporary_execution.set(
+            bool(request.headers.get("x-keepharness-temporary"))
+        )
         try:
             identity = service.identity(request) if authenticated else None
             request.state.authenticated_owner = identity[0] if identity else None
+            if identity and not request.url.path.startswith("/v1/temporary"):
+                service = service.temporary.route(request, identity)
             return no_store(await handler(request, service, identity))
         except (APIError, tools.ToolError) as exc:
             return no_store(error_response(exc))
@@ -113,5 +120,10 @@ def api_route(path, handler, methods=None, *, authenticated=True):
                     status_code=500,
                 )
             )
+        finally:
+            session = getattr(request.state, "temporary_session", None)
+            if session is not None:
+                session.requests.discard(asyncio.current_task())
+            temporary_execution.reset(temporary_token)
 
     return Route(path, endpoint, methods=methods)
