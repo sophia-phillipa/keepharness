@@ -13,9 +13,10 @@ const path = require("node:path");
     });
     page.setDefaultTimeout(5000);
     const errors = [];
+    let historyGate = null;
     page.on("pageerror", (error) => errors.push(error.message));
     await page.clock.install();
-    await page.route("http://poll.test/**", (route) => {
+    await page.route("http://poll.test/**", async (route) => {
       const pathname = new URL(route.request().url()).pathname;
       if (pathname.startsWith("/v1/")) {
         let data = {};
@@ -39,6 +40,7 @@ const path = require("node:path");
             uploads_enabled: true,
           };
         else if (pathname === "/v1/conversations") {
+          if (historyGate) await historyGate;
           data = {
             conversations: [
               {
@@ -91,6 +93,18 @@ const path = require("node:path");
         .locator("#projects > *")
         .first()
         .evaluate((el) => el.dataset.mark === "kept");
+    const refreshAfterClose = async () => {
+      let release;
+      historyGate = new Promise((resolve) => (release = resolve));
+      await page.clock.runFor(10500);
+      assert.equal(await kept(), true, "the history response is still pending");
+      historyGate = null;
+      release();
+      // The timer has fired, but its asynchronous fetch must also finish rendering.
+      await page
+        .locator('#projects > [data-mark="kept"]')
+        .waitFor({ state: "detached" });
+    };
 
     // Row actions menu: a poll tick while it is open leaves the list, and the menu, alone.
     await sidebar.getByRole("button", { name: "Poll chat" }).first().hover();
@@ -110,7 +124,7 @@ const path = require("node:path");
     );
     await page.keyboard.press("Escape");
     await rowMenu.waitFor({ state: "hidden" });
-    await page.clock.runFor(10500);
+    await refreshAfterClose();
     assert.equal(
       await kept(),
       false,
@@ -136,7 +150,7 @@ const path = require("node:path");
     );
     await page.keyboard.press("Escape");
     await projectMenu.waitFor({ state: "hidden" });
-    await page.clock.runFor(10500);
+    await refreshAfterClose();
     assert.equal(
       await kept(),
       false,
