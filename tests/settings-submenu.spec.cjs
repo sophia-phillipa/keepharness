@@ -111,6 +111,37 @@ const path = require("node:path");
     assert.equal(new URL(await page.locator("#admin-frame").getAttribute("src")).hash, "#runs");
     await page.click("#settings-close");
 
+    // Plugins is the existing admin facade, embedded at #plugins rather than the native skill catalog.
+    await page.click("#settings");
+    await menu.getByRole("menuitem", { name: "Plugins" }).click();
+    await dialog.waitFor({ state: "visible" });
+    assert.equal(await dialog.locator('[data-admin-section="plugins"]').getAttribute("aria-pressed"), "true");
+    assert.equal(new URL(await page.locator("#admin-frame").getAttribute("src")).hash, "#plugins");
+    const adminFrame = page.frameLocator("#admin-frame");
+    await adminFrame.locator("#overview h1", { hasText: "Plugins" }).waitFor();
+    assert.equal(await adminFrame.locator("#overview .panel-description").innerText(), "Manage plugins, skills, and MCPs");
+    assert.equal(await adminFrame.locator('[data-testid="plugins-panel"] button', { hasText: "Plugins" }).first().isVisible(), true);
+    await page.click("#settings-close");
+
+    // The rail reaches the same real facade and keeps Agents as a separate Settings page.
+    await page.click("#rail-agents");
+    await dialog.locator('[data-admin-section="plugins"][aria-pressed="true"]').waitFor();
+    assert.equal(new URL(await page.locator("#admin-frame").getAttribute("src")).hash, "#plugins");
+    await adminFrame.locator('[data-testid="plugins-panel"] button', { hasText: "Plugins" }).first().waitFor();
+    await page.click('[data-settings="agents"]');
+    await page.locator("#settings-agents:not([hidden])").waitFor();
+    await page.click("#settings-close");
+
+    // The composer menu's Codex entry point also reaches the rendered admin facade.
+    await page.click("#plugins-chip");
+    const managePlugins = page.locator("#plugins-menu").getByRole("button", { name: "Discover and manage plugins" });
+    await managePlugins.waitFor();
+    await managePlugins.click();
+    await dialog.locator('[data-admin-section="plugins"][aria-pressed="true"]').waitFor();
+    assert.equal(new URL(await page.locator("#admin-frame").getAttribute("src")).hash, "#plugins");
+    await adminFrame.locator('[data-testid="plugins-panel"] button', { hasText: "Plugins" }).first().waitFor();
+    await page.click("#settings-close");
+
     // "Open admin panel" (#admin-link) is Settings > Providers, not a window.
     await page.evaluate(() => document.querySelector("#admin-link").click());
     await dialog.waitFor({ state: "visible" });
@@ -149,6 +180,14 @@ const path = require("node:path");
     assert.deepEqual(await names(other.locator("#settings-menu").getByRole("menuitem")), ["Appearance", "Models", "Plugins", "Agents", "Archived chats"]);
     assert.equal(await other.evaluate(() => openSettings("runs")), false);
     assert.equal(await other.locator("#settings-dialog").evaluate((d) => d.open), false);
+    await other.click("#rail-agents");
+    await other.locator('#settings-agents:not([hidden])').waitFor();
+    assert.equal(await other.locator('[data-settings="agents"]').getAttribute("aria-pressed"), "true");
+    await other.click("#settings-close");
+    await other.setViewportSize({ width: 390, height: 844 });
+    await other.click("#settings");
+    await other.locator("#settings-menu").getByRole("menuitem", { name: "Plugins" }).click();
+    await other.locator("#settings-plugins:not([hidden])").waitFor();
     console.log("PASS settings submenu opens each section");
   } finally {
     await browser.close();
