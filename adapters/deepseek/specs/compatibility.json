@@ -1,12 +1,15 @@
 {
   "adapter_spec_revision": 1,
-  "harness_baseline": "0.4.4 working-tree",
-  "reviewed_at": "2026-09-19",
+  "harness_baseline": "0.16.0 working-tree",
+  "reviewed_at": "2026-10-08",
   "live_provider_validation": false,
   "provider": "deepseek",
   "executor": {
     "name": "codex-cli",
-    "observed_version": "0.155.0-alpha.9.2"
+    "observed_version": "0.157.1",
+    "tested_versions": [
+      "0.157.1"
+    ]
   },
   "protocol": "stateless HTTP Responses API through Codex",
   "api_version": "rolling/unversioned",
@@ -14,7 +17,10 @@
     "https://api-docs.deepseek.com/guides/responses_api/",
     "https://api-docs.deepseek.com/api/create-response/",
     "https://api-docs.deepseek.com/guides/thinking_mode/",
-    "https://api-docs.deepseek.com/quick_start/agent_integrations/codex/"
+    "https://api-docs.deepseek.com/quick_start/agent_integrations/codex/",
+    "https://github.com/openai/codex/blob/rust-v0.157.1/codex-rs/login/src/auth/storage.rs",
+    "https://github.com/openai/codex/blob/rust-v0.157.1/codex-rs/secrets/src/lib.rs",
+    "https://github.com/openai/codex/blob/rust-v0.157.1/codex-rs/config/src/shell_environment_policy.rs"
   ],
   "models": [
     {
@@ -30,6 +36,47 @@
   ],
   "validation": [
     "mock account and dispatch",
-    "installed CLI to stateless localhost fixture: history, reasoning, tool results and resume"
-  ]
+    "installed CLI to stateless localhost fixture: history, reasoning, tool results and resume",
+    "pinned Codex 0.157.1 local Responses model-requested env: fake key reaches HTTP Authorization, variable and value absent in model shell",
+    "hostile environment/config filters and set reinsertion; refused credential probe",
+    "mocked Linux/macOS keyring metadata and failure paths; atomic key replacement and conflicting writers"
+  ],
+  "engine": "codex",
+  "session_identity": {
+    "marker": "native-thread.json",
+    "provider": "deepseek",
+    "engine": "codex",
+    "legacy_provenance": "adapter=deepseek",
+    "refusal": [
+      "deepseek_session_identity_mismatch",
+      "deepseek_session_identity_ambiguous"
+    ]
+  },
+  "credential_isolation": {
+    "home": "<state>/providers/deepseek",
+    "store": "file",
+    "error": "deepseek_credential_isolation",
+    "keyring_identifiers": [
+      {
+        "service": "Codex Auth",
+        "account": "cli|sha256(canonical_home)[:16]"
+      },
+      {
+        "service": "codex",
+        "account": "secrets|sha256(canonical_home)[:16]"
+      }
+    ],
+    "keyring_validation": "mocked metadata only; unavailable or failed platform probes refuse",
+    "shell_environment_policy": {
+      "inherit": "all",
+      "ignore_default_excludes": false,
+      "filters": {
+        "KEEPHARNESS_API_KEY": "exclude"
+      },
+      "set": {},
+      "experimental_use_profile": false
+    },
+    "effective_config_check": "config/read at cwd before thread/start or thread/resume; refuse set reinsertion",
+    "allow_login_shell": false
+  }
 }

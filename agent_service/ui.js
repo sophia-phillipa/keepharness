@@ -1319,6 +1319,20 @@ const userErrors = {
     "The server's Gemini settings are invalid. Ask the administrator to review them.",
   deepseek_api_configuration_required:
     "DeepSeek needs an API key. Add it in the admin panel.",
+  deepseek_credential_isolation:
+    "DeepSeek could not verify its private credentials and shell settings. Ask the administrator to review its provider setup.",
+  deepseek_session_identity_ambiguous:
+    "This saved session's DeepSeek identity cannot be verified. Start a new conversation to continue.",
+  deepseek_session_identity_mismatch:
+    "This saved session belongs to another provider or engine. Start a new conversation to use DeepSeek.",
+  codex_session_identity_ambiguous:
+    "This saved session's Codex identity cannot be verified. Start a new conversation to continue.",
+  codex_session_identity_mismatch:
+    "This saved session belongs to another provider or engine. Start a new conversation to use Codex.",
+  local_session_identity_ambiguous:
+    "This saved session's local model identity cannot be verified. Start a new conversation to continue.",
+  local_session_identity_mismatch:
+    "This saved session belongs to another provider or engine. Start a new conversation to use the local model.",
   deepseek_effort_unavailable:
     "This reasoning level is not available for DeepSeek. Choose another one.",
   local_cli_binary_unavailable:
@@ -2993,6 +3007,7 @@ function newConversation(title = "New Conversation", projectId = $("project").va
     );
     return;
   }
+  clearProjectTrust();
   saveView();
   const draftProject = $("project").value;
   const changedProject = projectId !== draftProject;
@@ -3045,7 +3060,7 @@ function newConversation(title = "New Conversation", projectId = $("project").va
   setBusy(false);
   status("");
   $("prompt").focus({ preventScroll: true });
-  refreshProjectPermissions();
+  void refreshProjectPermissions().then((ready) => ready && refreshProjectTrust());
   if (changedProject) { clearResourceItems(); void refreshWorkspaceResources(); void loadAuthorizedProjectRoots(); }
 }
 function chooseProject(id) {
@@ -3173,6 +3188,7 @@ function openDeleteProjectFolder(project, label, trigger) {
         if (deleted.has(option.value)) option.remove();
       if (deleted.has(project) && !$("project").value)
         $("project").value = "sem-projeto";
+      void refreshProjectTrust();
       dialog.close();
       resetProjectFiles();
       renderProjects();
@@ -4868,6 +4884,7 @@ async function watch(retries = 0) {
 }
 async function load(id, legacy = false, restoredView = null, scrollTop) {
   if (submitting || cancelling || uploads) return;
+  clearProjectTrust();
   if (!loading && !restoredView) saveView();
   let savedDraft = restoredView;
   if (!savedDraft) {
@@ -5037,6 +5054,7 @@ async function load(id, legacy = false, restoredView = null, scrollTop) {
     loading = false;
     if (savedDraft) restoreView(savedDraft);
     else updateComposer();
+    void refreshProjectTrust();
     if (restoreNavigationFocus) {
       const target = innerWidth <= 620 ? $("messages") :
         $("sidebar").querySelector('.conversation-row > button[aria-current="true"]');
@@ -5065,6 +5083,7 @@ async function load(id, legacy = false, restoredView = null, scrollTop) {
     setBusy(false);
     $("prompt").value = priorDraft;
     updateComposer();
+    void refreshProjectTrust();
     closeSidebar();
     // F-80: a conversation the server confirms is gone leaves the list.
     if (e.code === "conversation_not_found") {
@@ -6101,6 +6120,7 @@ $("model").onchange = () => {
   updateComposer();
   saveView();
   quota();
+  void refreshProjectTrust();
 };
 $("quota-refresh").onclick = () => void quota();
 document.addEventListener("visibilitychange", () => {
@@ -6327,6 +6347,156 @@ $("project-button").onclick = () => {
 };
 // Connectors and plugins (Codex "Plugins" chip): what is installed, allowed and
 // effective for this project and route, and what was used here recently.
+let projectTrustRequest = 0,
+  projectTrustWriting = false,
+  projectTrustData = null,
+  projectTrustContext = null,
+  projectTrustError = "";
+
+function clearProjectTrust() {
+  projectTrustRequest++;
+  projectTrustData = projectTrustContext = null;
+  projectTrustError = "";
+  const panel = $("project-trust-prompt");
+  panel.replaceChildren();
+  panel.hidden = true;
+}
+
+function currentProjectTrust(context) {
+  return context && context.request === projectTrustRequest &&
+    context.conversation === conversation && context.project_id === $("project").value &&
+    context.provider === resourceEngine().backend;
+}
+
+function renderProjectTrust() {
+  const context = projectTrustContext,
+    panel = $("project-trust-prompt"),
+    trust = projectTrustData?.trust,
+    approvals = Array.isArray(projectTrustData?.mcp_approvals)
+      ? projectTrustData.mcp_approvals
+      : [];
+  panel.replaceChildren();
+  panel.hidden = !trust?.required && !approvals.length && !projectTrustError;
+  if (panel.hidden) return;
+  if (trust?.required) {
+    const copy = document.createElement("div"),
+      heading = document.createElement("strong"),
+      warning = document.createElement("p"),
+      accept = document.createElement("button");
+    copy.className = "project-trust-copy";
+    heading.textContent = "Trust " + context.label + "?";
+    warning.textContent =
+      "Trusting this project applies to both Codex and Claude Code in KeepHarness. It enables project instructions, Claude hooks and environment settings, including env entries. Versioned .mcp.json servers approved in project settings can then run; other servers still need approval below.";
+    copy.append(heading, warning);
+    accept.type = "button";
+    accept.className = "project-trust-action";
+    accept.textContent = "Trust " + context.label;
+    accept.disabled = projectTrustWriting;
+    accept.onclick = () => writeProjectTrust(context, "trust", {});
+    panel.append(copy, accept);
+  }
+  for (const item of approvals) {
+    const row = document.createElement("div"),
+      copy = document.createElement("div"),
+      name = document.createElement("strong"),
+      detail = document.createElement("small"),
+      toggle = document.createElement("button");
+    row.className = "project-mcp-approval";
+    row.dataset.testid = "project-mcp-approval";
+    row.dataset.server = item.server;
+    name.textContent = item.server;
+    detail.textContent = "Project MCP server · " + (item.approved ? "Approved" : "Not approved");
+    copy.append(name, detail);
+    toggle.type = "button";
+    toggle.className = "project-trust-action";
+    toggle.textContent = (item.approved ? "Revoke " : "Approve ") + item.server;
+    toggle.disabled = projectTrustWriting;
+    toggle.onclick = () => writeProjectTrust(context, "mcp-approvals", { server: item.server, approved: !item.approved });
+    row.append(copy, toggle);
+    panel.append(row);
+  }
+  if (projectTrustError) {
+    const error = document.createElement("p");
+    error.className = "project-trust-error";
+    error.setAttribute("role", "status");
+    error.textContent = projectTrustError;
+    panel.append(error);
+  }
+}
+
+async function writeProjectTrust(context, action, extra) {
+  if (projectTrustWriting || !currentProjectTrust(context)) return;
+  const server = extra.server;
+  projectTrustWriting = true;
+  projectTrustError = "";
+  renderProjectTrust();
+  let current = true;
+  try {
+    const data = await post("/v1/provider-state/" + action, {
+      provider: action === "mcp-approvals" ? "claude" : context.provider,
+      project_id: context.project_id,
+      expected_project_root: context.expected_project_root,
+      ...extra,
+    });
+    current = currentProjectTrust(context);
+    if (current) {
+      projectTrustData = data;
+      if (action === "mcp-approvals") {
+        const actual = data.mcp_approvals?.find((item) => item.server === server)?.approved;
+        if (actual !== extra.approved)
+          projectTrustError = data.trust?.required
+            ? "Approval saved for " + server + ". Trust this project before it can run."
+            : server + " remains not approved because another CLI settings layer denies it.";
+      }
+    }
+  } catch (error) {
+    current = currentProjectTrust(context);
+    if (current && error.status === 409) {
+      const refresh = refreshProjectTrust(), request = projectTrustRequest;
+      await refresh;
+      current = request === projectTrustRequest && currentProjectTrust(projectTrustContext);
+    }
+    if (current)
+      projectTrustError = error.status === 409
+        ? "The CLI state changed elsewhere. Review it and try again."
+        : error.message;
+  } finally {
+    projectTrustWriting = false;
+    renderProjectTrust();
+    if (current && currentProjectTrust(projectTrustContext)) {
+      if (server)
+        $("project-trust-prompt").querySelector('[data-server="' + CSS.escape(server) + '"] button')?.focus();
+      else
+        $("project-trust-prompt").querySelector("button")?.focus();
+    }
+  }
+}
+
+async function refreshProjectTrust() {
+  clearProjectTrust();
+  const context = {
+    request: projectTrustRequest,
+    conversation,
+    provider: resourceEngine().backend,
+    project_id: $("project").value,
+    label: $("project").selectedOptions[0]?.textContent || $("project").value,
+  };
+  if (context.project_id === "sem-projeto" || !["codex", "claude"].includes(context.provider)) return;
+  try {
+    const query = new URLSearchParams({ provider: context.provider, project_id: context.project_id });
+    const data = await json("/v1/provider-state?" + query);
+    if (!currentProjectTrust(context)) return;
+    if (data.snapshot?.provider !== context.provider || !data.snapshot?.project_root)
+      throw Error("The project context is unavailable. Refresh and try again.");
+    projectTrustContext = { ...context, expected_project_root: data.snapshot.project_root };
+    projectTrustData = data;
+  } catch (error) {
+    if (!currentProjectTrust(context)) return;
+    projectTrustError = "Couldn't check project trust. " + error.message;
+  }
+  renderProjectTrust();
+}
+
 function usageAge(seconds) {
   const age = Math.max(0, Date.now() / 1000 - Number(seconds || 0));
   return age < 3600
@@ -6943,6 +7113,7 @@ let backgroundTicks = 0;
 async function initialize() {
   if (initializing) return;
   initializing = true;
+  clearProjectTrust();
   setReadiness(false);
   const retry = $("models-retry");
   retry.disabled = true;
@@ -7021,6 +7192,7 @@ async function initialize() {
         }
       }, 10000);
     }
+    void refreshProjectTrust();
     setReadiness(true);
     if (!$("activity-panel").hidden) {
       loadAuthorizedProjectRoots();
@@ -7159,6 +7331,7 @@ async function probeReadiness() {
         ...p.projects.map((id) => new Option(p.details?.[id]?.label || id, id)),
       );
       $("project").value = project;
+      void refreshProjectTrust();
       renderProjects();
     }
     try {
@@ -9646,6 +9819,7 @@ $("image-capability-remove").onclick = () => {
   $("prompt").focus();
 };
 function updateComposer() {
+  if (projectTrustContext && !currentProjectTrust(projectTrustContext)) void refreshProjectTrust();
   syncComposerProjectButton();
   syncViewSwitch();
   syncComposerPickers();
@@ -10975,6 +11149,7 @@ $("project-form").onsubmit = async (event) => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
+    if (editing === current) clearProjectTrust();
     const p = await json("/v1/projects");
     updateProjectMetadata(p.details);
     $("project").replaceChildren(
@@ -10987,6 +11162,7 @@ $("project-form").onsubmit = async (event) => {
         policyProject = null;
         invalidateResources();
         await refreshProjectPermissions();
+        void refreshProjectTrust();
       }
       saveView();
     } else {

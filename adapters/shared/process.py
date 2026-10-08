@@ -85,6 +85,13 @@ def child_environment(environment=None, *, provider=None):
     clean.update(injected_environment())
     for name in blocked_environment():
         clean.pop(name, None)
+    if provider == "deepseek" and environment is not None:
+        # Vault injections cannot redirect this provider or replace its transport key.
+        for name in ("HOME", "CODEX_HOME", provider_key):
+            if name in environment:
+                clean[name] = environment[name]
+            else:
+                clean.pop(name, None)
     return clean
 
 

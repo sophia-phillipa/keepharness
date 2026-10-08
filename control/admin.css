@@ -1668,7 +1668,7 @@ html[data-embedded] #main { max-width: none; margin: 0; padding-inline: 24px; }
   #main .header-right :is(.btn, .button, .pill) { padding-inline: 10px; white-space: nowrap; }
 }
 
-/* Plugins page: the Codex Settings > Plugins layout; chips, rows and menu use --th-* only. */
+/* Plugins page: directory cards and detail use only the shared theme tokens. */
 .plugins-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 12px; }
 .plugins-chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .plugins-chip {
@@ -1681,6 +1681,8 @@ html[data-embedded] #main { max-width: none; margin: 0; padding-inline: 24px; }
 .plugins-chip .th-icon { flex: none; width: 16px; height: 16px; }
 .plugins-count { margin-inline-start: 2px; font-weight: 600; }
 .plugins-search { flex: 1 1 200px; min-width: 0; max-width: 360px; min-height: 32px; padding: 0 12px; margin-inline-start: auto; font-size: 13px; }
+.plugins-project-label { display: inline-flex; align-items: center; gap: 8px; color: var(--th-muted); font-size: 13px; }
+.plugins-project { min-height: 32px; padding: 0 30px 0 10px; color: var(--th-text); }
 .plugins-toolbar .button { display: inline-flex; align-items: center; gap: 6px; }
 .plugins-note { white-space: pre-line; overflow-wrap: anywhere; }
 .plugins-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 12px; padding: 12px 0; border-top: 1px solid var(--th-line); }
@@ -1691,6 +1693,64 @@ html[data-embedded] #main { max-width: none; margin: 0; padding-inline: 24px; }
 .plugins-provider { display: inline-flex; align-items: center; gap: 8px; }
 .plugins-row-text .plugins-row-note { font-size: 12px; }
 .plugins-status { white-space: pre-line; overflow-wrap: anywhere; }
+.project-trust { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; margin-block: 12px 16px; padding: 14px; border: 1px solid var(--th-border); border-left: 3px solid var(--th-warning); border-radius: 10px; background: var(--th-panel); color: var(--th-text); }
+.project-trust[hidden] { display: none; }
+.project-trust-copy { min-width: 0; }
+.project-trust-copy p { margin: 4px 0 0; color: var(--th-text); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.project-mcp-approval { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 10px; border-top: 1px solid var(--th-line); background: var(--th-panel); color: var(--th-text); }
+.project-mcp-approval > div { display: grid; min-width: 0; }
+.project-mcp-approval small { color: var(--th-muted); overflow-wrap: anywhere; }
+.project-mcp-approval .button { background: var(--th-soft); color: var(--th-text); }
+.plugin-directory { display: grid; gap: 18px; }
+.plugin-marketplace { min-width: 0; }
+.plugin-marketplace > summary {
+  width: fit-content; margin-bottom: 10px; cursor: pointer; color: var(--th-text); font-size: 14px; font-weight: 600;
+}
+.plugin-card-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; }
+.plugin-card {
+  position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; min-width: 0;
+  border: 1px solid var(--th-line); border-radius: 12px; background: var(--th-panel);
+}
+.plugin-card-open {
+  display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 58px; padding: 9px 10px;
+  border: 0; border-radius: 12px; background: transparent; color: var(--th-text); text-align: start; cursor: pointer;
+}
+.plugin-card-open:hover { background: var(--th-soft); }
+.plugin-card-open > :is(svg, .th-icon), .plugin-detail-heading > :is(svg, .th-icon) { flex: none; width: 36px; height: 36px; }
+.plugin-card-text { display: grid; gap: 2px; min-width: 0; }
+.plugin-card-text :is(strong, small) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plugin-card-text small { color: var(--th-muted); }
+.plugin-card-action {
+  width: 32px; height: 32px; margin-inline-end: 8px; border: 0; border-radius: 9999px; cursor: pointer;
+  background: color-mix(in srgb, var(--th-text) 8%, transparent); color: var(--th-text); font-size: 18px;
+}
+.plugin-card-action:hover { background: color-mix(in srgb, var(--th-text) 13%, transparent); }
+.plugin-detail { display: grid; gap: 18px; min-width: 0; max-width: 880px; }
+.plugin-detail-back {
+  display: inline-flex; align-items: center; gap: 5px; width: fit-content; padding: 4px 8px; border: 0; border-radius: 8px;
+  background: transparent; color: var(--th-text); cursor: pointer; font: inherit;
+}
+.plugin-detail-back:hover { background: var(--th-soft); }
+.plugin-detail-back .th-icon { width: 16px; height: 16px; }
+.plugin-detail-heading { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.plugin-detail-heading h2 { margin: 0; }
+.plugin-detail-description { margin: 0; color: var(--th-muted); }
+.plugin-detail-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 18px; margin: 0; }
+.plugin-detail-facts :is(dt, dd) { margin: 0; overflow-wrap: anywhere; }
+.plugin-detail-facts dt { color: var(--th-muted); }
+.plugin-detail-items { min-width: 0; margin: -10px 0 0; padding-inline-start: 22px; }
+.plugin-detail :is(h2, h3, p, li, dt, dd, small) { min-width: 0; overflow-wrap: anywhere; }
+.plugin-providers { display: grid; gap: 0; min-width: 0; }
+.plugin-provider-row {
+  display: grid; grid-template-columns: minmax(180px, auto) minmax(0, 1fr); align-items: center; gap: 12px;
+  min-width: 0; min-height: 54px; padding: 10px 0; border-top: 1px solid var(--th-line); color: var(--th-text);
+}
+.plugin-provider-row > * { min-width: 0; }
+.plugin-provider-row .plugins-provider { justify-content: space-between; }
+.plugin-provider-row .plugins-row-note { color: var(--th-muted); overflow-wrap: anywhere; }
+.plugin-card-open:focus-visible, .plugin-card-action:focus-visible, .plugin-detail-back:focus-visible, .plugin-install:focus-visible {
+  outline: 3px solid var(--th-accent); outline-offset: 2px;
+}
 /* Changes made to a provider outside KeepHarness (issue #43): the Plugins page and Settings > Providers. */
 .provider-notices { display: grid; gap: 8px; margin-block: 0 16px; padding: 12px 14px; border: 1px solid var(--th-border); border-radius: 8px; background: var(--th-soft); }
 .provider-notices[hidden] { display: none; }
@@ -1732,6 +1792,12 @@ html[data-embedded] #main { max-width: none; margin: 0; padding-inline: 24px; }
 .plugins-chip:focus-visible, .plugins-more:focus-visible, .plugins-menu-item:focus-visible { outline: 3px solid var(--th-accent); outline-offset: 2px; }
 @media (max-width: 600px) {
   .plugins-search { max-width: none; margin-inline-start: 0; }
+  .plugins-project-label { flex: 1 1 100%; }
+  .plugins-project { flex: 1; min-width: 0; }
+  .project-trust { grid-template-columns: minmax(0, 1fr); }
+  .project-trust > .button { justify-self: start; }
   .plugins-row { grid-template-columns: auto minmax(0, 1fr) auto; }
   .plugins-row-providers { grid-column: 2 / -1; grid-row: 2; justify-content: flex-start; }
+  .plugin-card-grid { grid-template-columns: 1fr; }
+  .plugin-provider-row { grid-template-columns: 1fr; gap: 4px; }
 }

@@ -12,6 +12,7 @@ from starlette.testclient import TestClient
 from adapters import run_native as run
 from adapters.local.sandbox import WrappedCommand
 from agent_service.app import Service, create_app
+from tests.deepseek_fixtures import SAFE_CONFIG, write_deepseek_key
 from tests.test_shared_projects import config
 
 
@@ -131,6 +132,8 @@ def test_rpc_providers_receive_roots_on_every_turn(tmp_path, provider, read, wri
 
     class RPC:
         async def call(self, method, params):
+            if method == "config/read":
+                return SAFE_CONFIG
             recorded["calls"].append((method, params))
             return {"thread": {"id": "fixture"}}
 
@@ -160,7 +163,7 @@ def test_rpc_providers_receive_roots_on_every_turn(tmp_path, provider, read, wri
         "access_mode": "read_only" if not write else "auto",
     }
     key = tmp_path / "key"
-    key.write_text("test-key")
+    write_deepseek_key(key, "test-key")
     cfg = {"binary": "fixture"}
     if provider == "deepseek":
         cfg["api_provider"] = {"url": "https://example.invalid/v1", "key_file": str(key)}

@@ -10,6 +10,7 @@ import pytest
 
 from adapters.shared.scoped import prepare_scoped
 from agent_service.tools import ToolError
+from tests.deepseek_fixtures import SAFE_CONFIG
 
 
 @pytest.fixture
@@ -130,7 +131,7 @@ def test_thread_marker_rejects_planted_links(tmp_path):
 
 SENTINEL = "SENTINEL-PERSONAL-SETUP"
 
-FAKE_CODEX = """
+FAKE_CODEX = "SAFE_CONFIG = " + repr(SAFE_CONFIG) + "\n" + """
 import json, os, sys
 from pathlib import Path
 record = {"argv": sys.argv, "env": dict(os.environ), "requests": []}
@@ -146,6 +147,8 @@ for line in sys.stdin:
         sessions.mkdir(parents=True, exist_ok=True)
         (sessions / "rollout-thread-1.jsonl").write_text(line)
         emit({"id": ident, "result": {"thread": {"id": "thread-1"}}})
+    elif method == "config/read":
+        emit({"id": ident, "result": SAFE_CONFIG})
     elif method == "turn/start":
         emit({"method": "turn/started", "params": {"turn": {"id": "turn-1"}}})
         emit({"method": "item/agentMessage/delta", "params": {"delta": "done"}})
@@ -180,6 +183,10 @@ def write_executable(path, body, record):
 def personal_home(tmp_path, monkeypatch):
     """A fake owner HOME holding instructions, a skill, a hook and an MCP server."""
     home = tmp_path / "personal-home"
+    # Provider-housekeeping from an installed Codex must never touch this sentinel home.
+    monkeypatch.setattr(
+        "adapters.codex.state.CodexStateAdapter._is_project_trusted", lambda self, root: False
+    )
     files = {
         ".codex/AGENTS.md": SENTINEL + " Codex instructions",
         ".codex/skills/demo/SKILL.md": "---\nname: demo\ndescription: " + SENTINEL + "\n---\nBody",
@@ -190,7 +197,17 @@ def personal_home(tmp_path, monkeypatch):
         ".claude/settings.json": json.dumps(
             {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": SENTINEL}]}]}}
         ),
-        ".claude.json": json.dumps({"mcpServers": {"sentinel_mcp": {"command": SENTINEL}}}),
+        ".claude.json": json.dumps(
+            {
+                "mcpServers": {"sentinel_mcp": {"command": SENTINEL}},
+                # Trust is an explicit precondition, independent of personal-setup opt-in.
+                "projects": {
+                    str(tmp_path / "sessions" / "claude" / "workspace"): {
+                        "hasTrustDialogAccepted": True,
+                    }
+                },
+            }
+        ),
     }
     for name, text in files.items():
         (home / name).parent.mkdir(parents=True, exist_ok=True)
@@ -202,7 +219,9 @@ def personal_home(tmp_path, monkeypatch):
 
 
 def snapshot(root):
-    return sorted((str(path.relative_to(root)), path.stat().st_mtime_ns) for path in root.rglob("*"))
+    return sorted(
+        (str(path.relative_to(root)), path.stat().st_mtime_ns) for path in root.rglob("*")
+    )
 
 
 def provider_turn(tmp_path, provider, *, personal=False):
@@ -221,7 +240,9 @@ def provider_turn(tmp_path, provider, *, personal=False):
         **run_settings({"personal_setup": personal}, provider, data={}),
     }
     if provider == "deepseek":
-        key = tmp_path / "deepseek.key"
+        key = tmp_path / "state" / "deepseek.key"
+        (key.parent / "providers" / "deepseek").mkdir(mode=0o700, parents=True)
+        (key.parent / "providers" / "home").mkdir(mode=0o700, parents=True)
         key.write_text("fixture-key")
         config["api_provider"] = {"url": "http://127.0.0.1:9/v1", "key_file": str(key)}
     session = tmp_path / "sessions" / provider

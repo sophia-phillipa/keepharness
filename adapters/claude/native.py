@@ -3,6 +3,7 @@
 import asyncio
 import contextlib
 import json
+from pathlib import Path
 
 from adapters.shared.process import child_environment, process_diagnostics
 from adapters.shared.provider_setup import child_source, instructions
@@ -24,6 +25,12 @@ def build_command(config, model, home, permissions, selected, access_mode, addit
     selected_servers = {
         k: v for k, v in servers.items() if "mcp:" + k in selected and k != "harness_effects"
     }
+    policy = config.get("_project_security", {})
+    if policy:
+        # Until the real-home migration, strict MCP still needs explicit approved definitions.
+        for name in policy["project_servers"]:
+            selected_servers.pop(name, None)
+        selected_servers.update(policy["approved_servers"])
     if config.get("_effect_capability"):
         from agent_service.effect_transport import server_spec
 
@@ -67,6 +74,11 @@ def build_command(config, model, home, permissions, selected, access_mode, addit
         settings["permissions"] = {"ask": ["Bash", "mcp__*"]}
     if sandbox:
         settings["sandbox"] = sandbox
+    if policy:
+        settings["disabledMcpjsonServers"] = policy["disabled_servers"]
+        if not policy["trusted"]:
+            settings["disableAllHooks"] = True
+            settings.pop("hooks", None)
     command = [
         config["binary"],
         "--print",
@@ -88,7 +100,11 @@ def build_command(config, model, home, permissions, selected, access_mode, addit
         "--mcp-config",
         str(mcp),
         "--setting-sources",
-        "user,project" if permissions.get("hooks") and personal else "project",
+        "user"
+        if policy and not policy["trusted"]
+        else "user,project"
+        if permissions.get("hooks") and personal
+        else "project",
         "--settings",
         json.dumps(settings),
     ]
@@ -107,6 +123,28 @@ def build_command(config, model, home, permissions, selected, access_mode, addit
         if config.get("agents_file"):
             command += ["--agents", config["agents_file"]]
     return command
+
+
+def project_security(config, root):
+    """Read owner CLI trust at the execution boundary; read failures never launch a process."""
+    from adapters.shared.provider_state import project_trusted
+    from control.provider_state import ProviderStateService
+
+    state = Path(config.get("control_state_dir") or config.get("state_dir") or root)
+    service = ProviderStateService(state, lambda: [], track_notices=False)
+    trusted = project_trusted(
+        root, codex=service._adapter("codex"), claude=service._adapter("claude")
+    )
+    claude = service._adapter("claude")
+    servers = claude.project_servers(root)
+    approved = claude.approved_project_servers(root, trusted=trusted)
+    runnable = approved & claude.enabled_project_servers(root)
+    return {
+        "trusted": trusted,
+        "project_servers": sorted(servers),
+        "approved_servers": {name: servers[name] for name in runnable},
+        "disabled_servers": sorted(servers.keys() - runnable),
+    }
 
 
 @contextlib.asynccontextmanager
@@ -193,6 +231,10 @@ async def run(
     title=None,
     effort="configured",
 ):
+    config = {
+        **config,
+        "_project_security": await asyncio.to_thread(project_security, config, Path(cwd)),
+    }
     command = build_command(
         config, model, home, permissions, selected, access_mode, additional_roots
     )

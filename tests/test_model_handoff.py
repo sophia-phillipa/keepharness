@@ -64,7 +64,11 @@ def execute(service, ident, backend, parent=None, files=(), model=None, effort="
         session.mkdir(parents=True, exist_ok=True)
         captured["resumed"] = marker.exists()
         thread_id = json.loads(marker.read_text())["id"] if marker.exists() else "thread-" + ident
-        marker.write_text(json.dumps({"id": thread_id, "isolation": ISOLATION_VERSION}))
+        marker.write_text(json.dumps({
+            "id": thread_id,
+            "isolation": ISOLATION_VERSION,
+            **({"adapter": "deepseek"} if provider == "deepseek" else {}),
+        }))
         return {
             "answer": "answer-" + ident,
             "thread_id": thread_id,

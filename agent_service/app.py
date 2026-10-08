@@ -24,6 +24,7 @@ from .routes import harness_agents as harness_agent_routes
 from .routes import models as model_routes
 from .routes import pages as page_routes
 from .routes import projects as project_routes
+from .routes import provider_state as provider_state_routes
 from .routes import schedules as schedule_routes
 from .routes import spans as span_routes
 from .routes import system as system_routes
@@ -93,6 +94,7 @@ def create_app(config, runtime_path=None):
         routes=[
             *system_routes.ROUTES,
             *project_routes.ROUTES,
+            *provider_state_routes.ROUTES,
             *file_routes.ROUTES,
             *model_routes.ROUTES,
             *page_routes.ROUTES,
