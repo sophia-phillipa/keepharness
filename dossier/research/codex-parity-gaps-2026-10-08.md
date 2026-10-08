@@ -135,9 +135,17 @@ No newly demonstrated P0 product defect emerged from the bounded walk. The
 highest-priority work below is the incomplete Plugins management flow. Existing
 switches, notices, search, scheduling and run inspection are not counted as absent.
 
+Planning refresh (2026-10-08, local `main` at `b773026`): the observations above
+retain their `3a0cd4a` baseline. G01 is now fixed by #26, merge `f8e3272`, as
+recorded in the [release notes](../releases/v0.16.0.md#plugins-entry-points-26);
+the issue remains open administratively. The issue column below tracks the
+current P1 coverage used by the [1.0 plan](../plans/v1.0-plan.md). An issue link
+does not assert that every audited detail is implemented or accepted; the plan
+names the remaining Plugins acceptance checks. P2 rows remain post-1.0 backlog.
+
 | ID | Area | What Codex does | What KeepHarness does | User impact | Priority | Size | Existing issue |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| G01 | Plugins entry points | Rail Customize, Settings management and Manage are linked (C4). | Settings/rail Plugins opens the older skill catalog; new admin `#plugins` is separately reachable (K4/S). | The expected entry does not reach installed-plugin management. | P1 | S | #26 open; #24 closed is the rename only |
+| G01 | Plugins entry points | Rail Customize, Settings management and Manage are linked (C4). | At the audit baseline, Settings/rail Plugins opened the older skill catalog (K4/S); now fixed on main. | The entry-point gap is resolved; retain its routing regressions. | P1 | S | **Fixed** by [#26](https://github.com/sophia-phillipa/keepharness/issues/26), merge `f8e3272`; #24 was the rename only |
 | G02a | Plugin directory | Categorized Public/Personal card directory, search, Refresh (C4). | Installed-list shell; `available` catalog entries are filtered out; no matching directory (K4/S). | Discovery requires leaving the expected flow. | P1 | L | #25 open |
 | G02b | Plugin details | Detail page exposes description, Apps/Skills, developer information and actions (C4). | No equivalent card-to-detail view in the management shell (K4/S). | Users cannot inspect a plugin's capabilities before choosing it. | P1 | M | #25 open; its current scope omits several Codex actions |
 | G03 | Absent-item installation | `+` / `Install <name>` and `Install plugin`; no absent-item switch (C4). | Unmatched displayed catalog entry says `Not installed in <CLI>`; no Install action (KF/S). | The explanation has no next action; adding an enable switch would misrepresent installation. | P1 | M | #25, #27 open; #21 covers existing switches |
@@ -146,11 +154,11 @@ switches, notices, search, scheduling and run inspection are not counted as abse
 | G06 | Skills management | Scope labels, switches and directory filters (C4). | Skills chip is a placeholder; older catalog and `/` resource picker already exist (K4/KF/S). | Discovery and enablement/scope are split across surfaces. | P1 | M | #23 open; #19 closed is the read endpoint |
 | G07 | Add actions | Management Add offers Create plugin, Add a marketplace, Add MCP server (C4); directory has its own Add choices (C3). | No corresponding Add menu in new manager (K4/KF/S). | Installation/configuration paths are incomplete. | P1 | M | #27 open |
 | G08 | Project/write context | Management shows skill scopes; no plugin write-scope selector was observed (C4). | Manager always requests `sem-projeto` and writes the deciding scope (KF/S). | Cannot intentionally inspect another project's effective state; scope ambiguity is a KeepHarness-specific extension gap. | P1 | M | #21 open; #23 covers skill scopes |
-| G10 | Command menu | Commands, settings and chats share a searchable command surface (C4/C3). | Global search covers runs/conversations and project files (K4/S). | Keyboard users must leave search to navigate settings or commands. | P1 | M | — |
-| G11 | Settings search | Search settings finds individual preferences and their page (C3; field C4). | No settings search over existing sections (K4/S). | More navigation and recall for an increasingly large Settings area. | P1 | M | —; #6 closed covers submenu navigation |
+| G10 | Command menu | Commands, settings and chats share a searchable command surface (C4/C3). | Global search covers runs/conversations and project files (K4/S). | Keyboard users must leave search to navigate settings or commands. | P1 | M | [#54](https://github.com/sophia-phillipa/keepharness/issues/54) open (W15) |
+| G11 | Settings search | Search settings finds individual preferences and their page (C3; field C4). | No settings search over existing sections (K4/S). | More navigation and recall for an increasingly large Settings area. | P1 | M | [#55](https://github.com/sophia-phillipa/keepharness/issues/55) open (W15); #6 closed covers submenu navigation |
 | G12 | UI language | General includes Language (C4). | No interface-language selector; UI is English (K4/S). | Sophia cannot choose the requested Portuguese UI. | P1 | L | #16 open |
-| G17 | Shortcut reference | Searchable Keyboard shortcuts page/list (C4). | Appearance lists a few shortcuts; `Ctrl+/` focuses the composer, not a reference dialog (K4/S). | Shortcuts are harder to discover and muscle memory differs. | P1 | S | — |
-| G20 | Post-turn file review | Edited-files summary and Changes review pane (C3; not re-exercised on personal files). | No equivalent normal-turn summary found in the focused chat path; approval diffs and Files panel do exist (S/K4). | Reviewing a completed edit requires a different path; confirm on a synthetic editing run before implementation. | P1 | L | —; #17 closed covers the accordion only |
+| G17 | Shortcut reference | Searchable Keyboard shortcuts page/list (C4). | Appearance lists a few shortcuts; `Ctrl+/` focuses the composer, not a reference dialog (K4/S). | Shortcuts are harder to discover and muscle memory differs. | P1 | S | [#56](https://github.com/sophia-phillipa/keepharness/issues/56) open (W15) |
+| G20 | Post-turn file review | Edited-files summary and Changes review pane (C3; not re-exercised on personal files). | No equivalent normal-turn summary found in the focused chat path; approval diffs and Files panel do exist (S/K4). | Reviewing a completed edit requires a different path; confirm on a synthetic editing run before implementation. | P1 | L | [#57](https://github.com/sophia-phillipa/keepharness/issues/57) open (W16); #17 closed covers the accordion only |
 | G09 | Provider-row presentation | One switch for the single-provider installed plugin (C4). | Independent provider switches plus scope/source notes on one row (KF). | Denser rows; preserve independent state while improving grouping. | P2 | S | #21 open, implementation present |
 | G13 | Pin conversations | Pin/Unpin on chat rows and thread menu (C4). | Conversation menu lacks Pin; project favorites already exist (K4/S). | Frequent threads cannot be pinned by the same action. | P2 | M | — |
 | G14 | Sidebar organization | Project/chat section menus, sorting and custom sections (C3; section controls C4). | Attention-first chat ordering and project favorites; no equivalent custom section/sort controls found (S). | Different organization workflow for a large thread list. | P2 | M | — |
@@ -193,7 +201,7 @@ observed placeholder interrupts the daily Plugins management workflow despite
 configuration elsewhere. Priority is an impact judgment, not a correctness
 certificate. Estimates and research rows have not been validated by implementation.
 
-Implementation order follows dependencies: G01 makes the shipped management
+Implementation order follows dependencies: G01 now makes the shipped management
 reachable; G02/G03/G07 complete discovery and installation; G04–G06 connect the
 remaining management chips; G08 makes context explicit. Command/settings search,
 language and shortcut reference can proceed independently. Research rows should
