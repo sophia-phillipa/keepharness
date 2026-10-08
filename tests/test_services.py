@@ -141,7 +141,17 @@ def test_a_queued_job_of_an_unknown_owner_is_not_run(tmp_path):
             service.db.execute(
                 "INSERT INTO jobs(id,project,owner,state,created,payload,result,idem,digest)"
                 " VALUES(?,?,?,?,?,?,?,?,?)",
-                ("orphan", "p", "tailnet-0123abcd", "queued", 1, json.dumps(payload), None, None, "o"),
+                (
+                    "orphan",
+                    "p",
+                    "tailnet-0123abcd",
+                    "queued",
+                    1,
+                    json.dumps(payload),
+                    None,
+                    None,
+                    "o",
+                ),
             )
             service.db.commit()
             service.execute = AsyncMock(return_value={"answer": "must not run"})

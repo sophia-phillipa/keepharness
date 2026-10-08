@@ -37,7 +37,9 @@ PROJECT_FILES = {
     ".claude/commands/fixture-hello.md": "---\ndescription: Says hello from the fixture.\n---\nSay hello.\n",
 }
 # A user-scope skill, which a run never loads (ledger L06).
-HOME_FILES = {".claude/skills/user-only/SKILL.md": "---\nname: user-only\ndescription: A user-scope skill.\n---\nUser scope.\n"}
+HOME_FILES = {
+    ".claude/skills/user-only/SKILL.md": "---\nname: user-only\ndescription: A user-scope skill.\n---\nUser scope.\n"
+}
 
 
 def wrapper(path, python):
@@ -88,7 +90,9 @@ def seed(root, admin_port, harness_port):
             "gemini": {**service, "models": ["gemini-fixture"]},
         },
         "claude": {"binary": claude, "python": sys.executable},
-        "claude_models": {model: ["configured", "low", "medium", "high"] for model in CLAUDE_MODELS},
+        "claude_models": {
+            model: ["configured", "low", "medium", "high"] for model in CLAUDE_MODELS
+        },
         "gemini": {"binary": gemini},
         "gemini_models": ["gemini-fixture"],
         "origins": [f"http://127.0.0.1:{harness_port}"],
@@ -102,7 +106,14 @@ def seed(root, admin_port, harness_port):
         json.dumps(
             {
                 "services": {
-                    p: {"enabled": False, "models": [], "projects": ["sem-projeto"], "mode": "native", "integrations": [], "permissions": {}}
+                    p: {
+                        "enabled": False,
+                        "models": [],
+                        "projects": ["sem-projeto"],
+                        "mode": "native",
+                        "integrations": [],
+                        "permissions": {},
+                    }
                     for p in ("codex", "claude", "gemini", "local", "deepseek")
                 },
                 "projects": [],
@@ -150,12 +161,26 @@ def main():
     logs = [open(root / name, "ab") for name in ("admin.log", "harness.log")]
     children = [
         subprocess.Popen(
-            [sys.executable, "-m", "control", "--port", str(args.admin_port), "--state", str(admin_state)],
-            cwd=REPO, env=env, stdout=logs[0], stderr=subprocess.STDOUT,
+            [
+                sys.executable,
+                "-m",
+                "control",
+                "--port",
+                str(args.admin_port),
+                "--state",
+                str(admin_state),
+            ],
+            cwd=REPO,
+            env=env,
+            stdout=logs[0],
+            stderr=subprocess.STDOUT,
         ),
         subprocess.Popen(
             [sys.executable, "-m", "agent_service.app"],
-            cwd=REPO, env=env, stdout=logs[1], stderr=subprocess.STDOUT,
+            cwd=REPO,
+            env=env,
+            stdout=logs[1],
+            stderr=subprocess.STDOUT,
         ),
     ]
 

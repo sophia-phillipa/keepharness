@@ -85,15 +85,22 @@ const assert = require("node:assert/strict"),
       }
       return route.fulfill({ json: data });
     });
-    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
+    await page.addInitScript(() =>
+      localStorage.setItem("keepharness-tour-seen", "0.16.0"),
+    );
     // Retain an explicit native draft choice to test incompatible Local mode admission.
     await page.addInitScript(() => {
       if (sessionStorage.getItem("video-mode-seeded")) return;
       sessionStorage.setItem("video-mode-seeded", "1");
-      sessionStorage.setItem("remote-view", JSON.stringify({
-      project: "p", composer_selection: { model: "vision", effort: "low" },
-      draft_mode: { mode: "native", modeChosen: true, retiredLock: false },
-    })); });
+      sessionStorage.setItem(
+        "remote-view",
+        JSON.stringify({
+          project: "p",
+          composer_selection: { model: "vision", effort: "low" },
+          draft_mode: { mode: "native", modeChosen: true, retiredLock: false },
+        }),
+      );
+    });
     await page.goto("http://video.test");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     const add = () =>

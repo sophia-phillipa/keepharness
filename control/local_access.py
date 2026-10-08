@@ -44,8 +44,7 @@ ESTABLISHED = "01"
 # Inside a user namespace host uid 0 is unmapped (shown as 65534, like every other unmapped
 # account), so Serve cannot be proven there and 65534 must never be accepted instead.
 USER_NAMESPACE_NOTICE = (
-    "Tailnet sign-in is off: KeepHarness runs inside a user namespace; "
-    "run it on the host"
+    "Tailnet sign-in is off: KeepHarness runs inside a user namespace; run it on the host"
 )
 
 

@@ -60,7 +60,11 @@ class BackupRefused(Exception):
 
 def is_secret(relative: Path) -> bool:
     name = relative.name
-    return relative.parts[0] == "providers" or name.endswith(SECRET_SUFFIXES) or name.startswith(SECRET_FILES)
+    return (
+        relative.parts[0] == "providers"
+        or name.endswith(SECRET_SUFFIXES)
+        or name.startswith(SECRET_FILES)
+    )
 
 
 def wanted(relative: Path, with_secrets: bool) -> bool:
@@ -75,7 +79,11 @@ def selected(state: Path, with_secrets: bool):
     """The folders and files of ``state`` that go into a backup, as ``(path, relative)``."""
     for folder, dirs, files in os.walk(state):
         base = Path(folder).relative_to(state)
-        dirs[:] = sorted(d for d in dirs if wanted(base / d, with_secrets) and not (Path(folder) / d).is_symlink())
+        dirs[:] = sorted(
+            d
+            for d in dirs
+            if wanted(base / d, with_secrets) and not (Path(folder) / d).is_symlink()
+        )
         for name in dirs:
             yield Path(folder) / name, base / name
         for name in sorted(files):
@@ -90,14 +98,25 @@ def refuse_foreign(marker: dict | None, where: str) -> None:
 
 
 def row_counts(db: sqlite3.Connection) -> dict[str, int]:
-    tables = [n for (n,) in db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")]
-    return {t: db.execute('SELECT count(*) FROM "%s"' % t.replace('"', '""')).fetchone()[0] for t in tables}
+    tables = [
+        n
+        for (n,) in db.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+        )
+    ]
+    return {
+        t: db.execute('SELECT count(*) FROM "%s"' % t.replace('"', '""')).fetchone()[0]
+        for t in tables
+    }
 
 
 def snapshot_database(source: Path, target: Path) -> dict[str, int]:
     """Copy ``source`` with the online backup API, check the copy, return its rows per table."""
     target.parent.mkdir(parents=True, exist_ok=True)
-    with closing(sqlite3.connect(source, timeout=30)) as src, closing(sqlite3.connect(target)) as dst:
+    with (
+        closing(sqlite3.connect(source, timeout=30)) as src,
+        closing(sqlite3.connect(target)) as dst,
+    ):
         src.backup(dst)
         if (status := dst.execute("PRAGMA integrity_check").fetchone()[0]) != "ok":
             raise BackupRefused(f"The copy of {source} failed its check ({status}).")
@@ -118,7 +137,9 @@ def write_archive(partial: Path, manifest: dict, members: list[tuple[Path, Path]
     with os.fdopen(descriptor, "wb") as raw:
         with tarfile.open(fileobj=raw, mode="w:gz") as tar:
             payload = json.dumps(manifest, indent=2).encode()
-            info = tarfile.TarInfo(MANIFEST)  # first, so a restore can plan without reading the rest
+            info = tarfile.TarInfo(
+                MANIFEST
+            )  # first, so a restore can plan without reading the rest
             info.size, info.mode, info.mtime = len(payload), 0o600, time.time()
             tar.addfile(info, io.BytesIO(payload))
             for path, relative in members:
@@ -160,7 +181,9 @@ def create(state: Path, output: Path, *, with_secrets: bool = False) -> dict:
     members = list(selected(state, with_secrets))
     size = sum(path.stat().st_size for path, _ in members if path.is_file())
     if shutil.disk_usage(output.parent).free < 2 * size:
-        raise BackupRefused(f"Not enough free space in {output.parent} for a backup of {size} bytes.")
+        raise BackupRefused(
+            f"Not enough free space in {output.parent} for a backup of {size} bytes."
+        )
     staging = Path(tempfile.mkdtemp(prefix=".keepharness-backup-", dir=output.parent))
     partial = output.with_name(output.name + ".partial")
     try:
@@ -191,10 +214,18 @@ def read_manifest(archive: Path) -> dict:
     try:
         with tarfile.open(archive) as tar:
             first = tar.next()
-            manifest = json.load(tar.extractfile(first)) if first and first.name == MANIFEST and first.isfile() else None
+            manifest = (
+                json.load(tar.extractfile(first))
+                if first and first.name == MANIFEST and first.isfile()
+                else None
+            )
     except (tarfile.TarError, OSError, ValueError, KeyError) as exc:
         raise BackupRefused(f"{archive} is not a {PRODUCT.name} backup ({exc}).") from exc
-    if not isinstance(manifest, dict) or manifest.get("format") != FORMAT or not isinstance(manifest.get("databases", {}), dict):
+    if (
+        not isinstance(manifest, dict)
+        or manifest.get("format") != FORMAT
+        or not isinstance(manifest.get("databases", {}), dict)
+    ):
         raise BackupRefused(f"{archive} is not a {PRODUCT.name} backup this version can read.")
     return manifest
 
@@ -206,7 +237,9 @@ def check_target(state: Path, replace: bool) -> list[str]:
     if busy := state_in_use(state):
         raise BackupRefused(f"{state} is still in use: {busy}. Stop {PRODUCT.name} first.")
     ignored = (*KEPT, "harness.identity.json")
-    held = [p.name for p in sorted(state.iterdir()) if p.name not in ignored] if state.is_dir() else []
+    held = (
+        [p.name for p in sorted(state.iterdir()) if p.name not in ignored] if state.is_dir() else []
+    )
     if held and not replace:
         raise BackupRefused(
             f"{state} already holds data ({', '.join(held[:5])}). Run with --replace to move it aside "
@@ -225,7 +258,9 @@ def describe(archive: Path, manifest: dict, state: Path, held: list[str]) -> str
     for name, counts in manifest.get("databases", {}).items():
         lines.append(f"  database {name}: " + ", ".join(f"{t} {n}" for t, n in counts.items()))
     if held:
-        lines.append(f"  move what is there ({', '.join(held[:5])}) aside first; the environment stays")
+        lines.append(
+            f"  move what is there ({', '.join(held[:5])}) aside first; the environment stays"
+        )
     return "\n".join(lines)
 
 
@@ -254,7 +289,9 @@ def verify(staging: Path, manifest: dict) -> None:
             with closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)) as db:
                 found = db.execute("PRAGMA integrity_check").fetchone()[0], row_counts(db)
         except sqlite3.DatabaseError as exc:
-            raise BackupRefused(f"{relative} does not match the manifest ({exc}); nothing was changed.") from exc
+            raise BackupRefused(
+                f"{relative} does not match the manifest ({exc}); nothing was changed."
+            ) from exc
         if found != ("ok", counts):
             raise BackupRefused(f"{relative} does not match the manifest; nothing was changed.")
 
@@ -282,7 +319,14 @@ def swap_in(staging: Path, state: Path) -> Path | None:
     return aside if moved else None
 
 
-def restore(archive: Path, state: Path, *, apply: bool = False, replace: bool = False, home: Path | None = None) -> str:
+def restore(
+    archive: Path,
+    state: Path,
+    *,
+    apply: bool = False,
+    replace: bool = False,
+    home: Path | None = None,
+) -> str:
     """The plan for putting ``archive`` into ``state``; with ``apply``, do it and say what happened."""
     archive, state = Path(archive), Path(state)
     home = Path(home) if home is not None else Path.home()
@@ -307,4 +351,6 @@ def restore(archive: Path, state: Path, *, apply: bool = False, replace: bool = 
             fsync_directory(state.parent)
         finally:
             shutil.rmtree(staging, ignore_errors=True)
-    return plan + f"\nRestored into {state}." + (f" The previous data is in {aside}." if aside else "")
+    return (
+        plan + f"\nRestored into {state}." + (f" The previous data is in {aside}." if aside else "")
+    )

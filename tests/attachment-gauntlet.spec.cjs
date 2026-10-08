@@ -113,7 +113,9 @@ const assert = require("node:assert/strict"),
         await page.waitForFunction(() => !uploads);
       };
       try {
-        await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
+        await page.addInitScript(() =>
+          localStorage.setItem("keepharness-tour-seen", "0.16.0"),
+        );
         await page.goto("http://attachments.test");
         await page.locator("#startup-gate").waitFor({ state: "hidden" });
         if (profile === 1) {
@@ -312,7 +314,10 @@ const assert = require("node:assert/strict"),
         if (profile === 15) {
           await page.evaluate(() => {
             const dt = new DataTransfer();
-            dt.setData("application/x-keepharness-authorized-project-files", "null");
+            dt.setData(
+              "application/x-keepharness-authorized-project-files",
+              "null",
+            );
             document
               .querySelector("#dropzone")
               .dispatchEvent(

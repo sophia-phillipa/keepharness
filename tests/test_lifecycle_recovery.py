@@ -554,7 +554,11 @@ def test_killed_harness_is_restarted_and_last_exit_recorded(tmp_path, monkeypatc
             os.kill(first.pid, signal.SIGKILL)
             for _ in range(200):
                 await asyncio.sleep(0.1)
-                if manager.proc is not first and manager.running() and manager.startup_error is None:
+                if (
+                    manager.proc is not first
+                    and manager.running()
+                    and manager.startup_error is None
+                ):
                     break
             assert manager.proc is not first and manager.running()
             assert manager.last_exit["code"] == -signal.SIGKILL
@@ -606,7 +610,9 @@ def test_shutdown_waits_for_running_work_before_stopping_the_harness(tmp_path, m
     assert "terminate" not in events[:-1]
 
 
-def test_shutdown_stops_a_harness_whose_work_never_ends_after_the_drain_limit(tmp_path, monkeypatch):
+def test_shutdown_stops_a_harness_whose_work_never_ends_after_the_drain_limit(
+    tmp_path, monkeypatch
+):
     from starlette.testclient import TestClient
 
     from control import manager as manager_module
@@ -754,7 +760,9 @@ def test_shutdown_drain_allows_sixty_seconds_before_stopping(tmp_path, monkeypat
         elapsed += seconds
 
     monkeypatch.setattr(manager_module, "time", SimpleNamespace(monotonic=lambda: elapsed))
-    monkeypatch.setattr(manager_module, "asyncio", SimpleNamespace(sleep=sleep, to_thread=asyncio.to_thread))
+    monkeypatch.setattr(
+        manager_module, "asyncio", SimpleNamespace(sleep=sleep, to_thread=asyncio.to_thread)
+    )
     monkeypatch.setattr(manager_module, "DRAIN_POLL", 0.5)
     asyncio.run(app.state.manager.drain())
     assert elapsed == 60

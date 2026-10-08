@@ -112,7 +112,10 @@ const fs = require("node:fs/promises"),
             ],
           };
         if (p === "/v1/conversations/conversation")
-          data = { execution_mode: "scoped", turns: [turn("one"), turn("two")] };
+          data = {
+            execution_mode: "scoped",
+            turns: [turn("one"), turn("two")],
+          };
         if (p === "/v1/jobs" && route.request().method() === "POST")
           data = { job_id: "three" };
         if (p.startsWith("/v1/jobs/")) {
@@ -147,7 +150,9 @@ const fs = require("node:fs/promises"),
               : "text/html",
       });
     });
-    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
+    await page.addInitScript(() =>
+      localStorage.setItem("keepharness-tour-seen", "0.16.0"),
+    );
     await page.goto(origin);
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     await page.locator(".conversation-row>button").first().click();
@@ -162,8 +167,14 @@ const fs = require("node:fs/promises"),
     assert.equal(await latest.evaluate((el) => el.open), false);
     // QA-R1-2: "Worked for" leaves out the time spent waiting in the queue, which is shown apart.
     assert.equal(await old.locator("summary").innerText(), "Worked for 12.0 s");
-    assert.equal(await latest.locator("summary").innerText(), "Worked for 4.0 s");
-    assert.match(await page.locator("#messages .run-meta").last().innerText(), /4\.0 s · waited 8\.0 s$/);
+    assert.equal(
+      await latest.locator("summary").innerText(),
+      "Worked for 4.0 s",
+    );
+    assert.match(
+      await page.locator("#messages .run-meta").last().innerText(),
+      /4\.0 s · waited 8\.0 s$/,
+    );
     await old.locator("summary").click();
     await old
       .getByText(/command ls/i)

@@ -78,35 +78,112 @@ def claude_metadata(request):
         }
     else:
         effort = {"supportsEffort": True, "supportedEffortLevels": ["low", "medium", "high"]}
-        payload = {"models": [{"value": model, **effort} for model in ("claude-sonnet-5-5", "claude-opus-5-5", "claude-sonnet-4-5")]}
+        payload = {
+            "models": [
+                {"value": model, **effort}
+                for model in ("claude-sonnet-5-5", "claude-opus-5-5", "claude-sonnet-4-5")
+            ]
+        }
     emit(
         {
             "type": "control_response",
-            "response": {"subtype": "success", "request_id": request["request_id"], "response": payload},
+            "response": {
+                "subtype": "success",
+                "request_id": request["request_id"],
+                "response": payload,
+            },
         }
     )
 
 
 def claude_stream(text, model, session, delay=0.05):
     message = "msg-" + uuid.uuid4().hex[:8]
-    emit({"type": "stream_event", "session_id": session, "event": {"type": "message_start", "message": {"id": message, "usage": {"output_tokens": 1}}}})
+    emit(
+        {
+            "type": "stream_event",
+            "session_id": session,
+            "event": {
+                "type": "message_start",
+                "message": {"id": message, "usage": {"output_tokens": 1}},
+            },
+        }
+    )
     for piece in chunks(text):
-        emit({"type": "stream_event", "event": {"type": "content_block_delta", "delta": {"type": "text_delta", "text": piece}}})
+        emit(
+            {
+                "type": "stream_event",
+                "event": {
+                    "type": "content_block_delta",
+                    "delta": {"type": "text_delta", "text": piece},
+                },
+            }
+        )
         time.sleep(delay)
-    emit({"type": "stream_event", "event": {"type": "message_delta", "usage": {"output_tokens": max(1, len(text) // 4)}}})
+    emit(
+        {
+            "type": "stream_event",
+            "event": {"type": "message_delta", "usage": {"output_tokens": max(1, len(text) // 4)}},
+        }
+    )
 
 
 def claude_tool(tool_id, name, tool_input, failed=False):
-    emit({"type": "stream_event", "event": {"type": "content_block_start", "content_block": {"type": "tool_use", "id": tool_id, "name": name, "input": tool_input}}})
-    emit({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": tool_id, "content": "fixture output", "is_error": failed}]}})
+    emit(
+        {
+            "type": "stream_event",
+            "event": {
+                "type": "content_block_start",
+                "content_block": {
+                    "type": "tool_use",
+                    "id": tool_id,
+                    "name": name,
+                    "input": tool_input,
+                },
+            },
+        }
+    )
+    emit(
+        {
+            "type": "user",
+            "message": {
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": tool_id,
+                        "content": "fixture output",
+                        "is_error": failed,
+                    }
+                ]
+            },
+        }
+    )
 
 
 def claude_result(text, session, error=False):
     if error:
-        emit({"type": "result", "subtype": "error_during_execution", "is_error": True, "session_id": session})
+        emit(
+            {
+                "type": "result",
+                "subtype": "error_during_execution",
+                "is_error": True,
+                "session_id": session,
+            }
+        )
         return
-    usage = {"input_tokens": 120, "output_tokens": max(1, len(text) // 4), "cache_read_input_tokens": 0}
-    emit({"type": "result", "subtype": "success", "result": text, "session_id": session, "usage": usage})
+    usage = {
+        "input_tokens": 120,
+        "output_tokens": max(1, len(text) // 4),
+        "cache_read_input_tokens": 0,
+    }
+    emit(
+        {
+            "type": "result",
+            "subtype": "success",
+            "result": text,
+            "session_id": session,
+            "usage": usage,
+        }
+    )
 
 
 def claude(first, arguments):
@@ -122,7 +199,9 @@ def claude(first, arguments):
         claude_result("", session, error=True)
         return
     if kind == "SLOW":
-        answer = "Slow fixture stream. " + " ".join(f"chunk-{i:02d}" for i in range(40)) + " OPERATOR_OK"
+        answer = (
+            "Slow fixture stream. " + " ".join(f"chunk-{i:02d}" for i in range(40)) + " OPERATOR_OK"
+        )
         claude_stream(answer, model, session, delay=0.35)
     elif kind == "TABLE":
         answer = TABLE + "OPERATOR_OK"
@@ -131,30 +210,93 @@ def claude(first, arguments):
         answer = image_summary(images)
         claude_stream(answer, model, session)
     elif kind == "TOOLS":
-        emit({"type": "stream_event", "event": {"type": "content_block_delta", "delta": {"type": "thinking_delta", "thinking": "Planning a fixture read."}}})
+        emit(
+            {
+                "type": "stream_event",
+                "event": {
+                    "type": "content_block_delta",
+                    "delta": {"type": "thinking_delta", "thinking": "Planning a fixture read."},
+                },
+            }
+        )
         claude_tool("tool-read-1", "Read", {"file_path": "README.md"})
         claude_tool("tool-grep-1", "Grep", {"pattern": "fixture"})
         answer = "The fixture read README.md and searched for fixture. OPERATOR_OK"
         claude_stream(answer, model, session)
     elif kind in ("APPROVAL", "QUESTION"):
         if kind == "APPROVAL":
-            emit({"type": "stream_event", "event": {"type": "content_block_start", "content_block": {"type": "tool_use", "id": "tool-bash-1", "name": "Bash", "input": {"command": "echo operator-fixture"}}}})
-            request = {"subtype": "can_use_tool", "tool_name": "Bash", "input": {"command": "echo operator-fixture", "description": "Print a fixture line"}}
+            emit(
+                {
+                    "type": "stream_event",
+                    "event": {
+                        "type": "content_block_start",
+                        "content_block": {
+                            "type": "tool_use",
+                            "id": "tool-bash-1",
+                            "name": "Bash",
+                            "input": {"command": "echo operator-fixture"},
+                        },
+                    },
+                }
+            )
+            request = {
+                "subtype": "can_use_tool",
+                "tool_name": "Bash",
+                "input": {
+                    "command": "echo operator-fixture",
+                    "description": "Print a fixture line",
+                },
+            }
         else:
-            question = {"question": "Which fixture option should run?", "options": [{"label": "Alpha", "description": "First option"}, {"label": "Beta", "description": "Second option"}], "multiSelect": False}
-            request = {"subtype": "can_use_tool", "tool_name": "AskUserQuestion", "input": {"questions": [question]}}
+            question = {
+                "question": "Which fixture option should run?",
+                "options": [
+                    {"label": "Alpha", "description": "First option"},
+                    {"label": "Beta", "description": "Second option"},
+                ],
+                "multiSelect": False,
+            }
+            request = {
+                "subtype": "can_use_tool",
+                "tool_name": "AskUserQuestion",
+                "input": {"questions": [question]},
+            }
         emit({"type": "control_request", "request_id": "fixture-request-1", "request": request})
         reply = json.loads(sys.stdin.readline() or "{}").get("response", {}).get("response", {})
         allowed = reply.get("behavior") == "allow"
         if kind == "APPROVAL":
-            emit({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "tool-bash-1", "content": "operator-fixture" if allowed else "denied", "is_error": not allowed}]}})
-            answer = ("Approval granted: the fixture command ran." if allowed else "Approval denied: nothing ran.") + " OPERATOR_OK"
+            emit(
+                {
+                    "type": "user",
+                    "message": {
+                        "content": [
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": "tool-bash-1",
+                                "content": "operator-fixture" if allowed else "denied",
+                                "is_error": not allowed,
+                            }
+                        ]
+                    },
+                }
+            )
+            answer = (
+                "Approval granted: the fixture command ran."
+                if allowed
+                else "Approval denied: nothing ran."
+            ) + " OPERATOR_OK"
         else:
             answers = reply.get("updatedInput", {}).get("answers", {})
-            answer = ("You chose " + ", ".join(answers.values()) + "." if allowed else "The question was declined.") + " OPERATOR_OK"
+            answer = (
+                "You chose " + ", ".join(answers.values()) + "."
+                if allowed
+                else "The question was declined."
+            ) + " OPERATOR_OK"
         claude_stream(answer, model, session)
     else:
-        answer = f"OPERATOR_OK from the {model} fixture. It received a {len(text)}-character prompt."
+        answer = (
+            f"OPERATOR_OK from the {model} fixture. It received a {len(text)}-character prompt."
+        )
         claude_stream(answer, model, session)
     claude_result(answer, session)
 
@@ -168,7 +310,19 @@ def acp_reply(ident, result):
 
 def acp_chunks(session, text, delay=0.05):
     for piece in chunks(text):
-        emit({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": session, "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": piece}}}})
+        emit(
+            {
+                "jsonrpc": "2.0",
+                "method": "session/update",
+                "params": {
+                    "sessionId": session,
+                    "update": {
+                        "sessionUpdate": "agent_message_chunk",
+                        "content": {"type": "text", "text": piece},
+                    },
+                },
+            }
+        )
         time.sleep(delay)
 
 
@@ -190,19 +344,31 @@ def gemini(first):
             images = [part for part in parts if part.get("type") == "image"]
             kind = marker(text)
             if kind == "ERROR":
-                emit({"jsonrpc": "2.0", "id": ident, "error": {"code": -32603, "message": "fixture failure"}})
+                emit(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": ident,
+                        "error": {"code": -32603, "message": "fixture failure"},
+                    }
+                )
                 return
             if kind == "IMAGE":
                 answer = image_summary(images)
             elif kind == "SLOW":
-                answer = "Slow Gemini fixture. " + " ".join(f"chunk-{i:02d}" for i in range(40)) + " OPERATOR_OK"
+                answer = (
+                    "Slow Gemini fixture. "
+                    + " ".join(f"chunk-{i:02d}" for i in range(40))
+                    + " OPERATOR_OK"
+                )
             else:
                 answer = f"OPERATOR_OK from the {model} Gemini fixture. It received a {len(text)}-character prompt."
             acp_chunks(session, answer, 0.35 if kind == "SLOW" else 0.05)
             acp_reply(ident, {"stopReason": "end_turn"})
             return
         else:
-            emit({"jsonrpc": "2.0", "id": ident, "error": {"code": -32601, "message": "unsupported"}})
+            emit(
+                {"jsonrpc": "2.0", "id": ident, "error": {"code": -32601, "message": "unsupported"}}
+            )
         line = sys.stdin.readline()
         item = json.loads(line) if line.strip() else None
 

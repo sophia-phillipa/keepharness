@@ -103,9 +103,17 @@ def test_command_and_validation_errors_carry_their_details():
 
 def test_the_adapter_protocol_lists_the_contract_methods():
     contract = {
-        "read_state", "set_enabled", "watch_paths", "is_project_trusted", "trust_project",
-        "approved_project_servers", "run_environment", "credential_isolation", "login_command",
-        "login_status", "set_api_key",
+        "read_state",
+        "set_enabled",
+        "watch_paths",
+        "is_project_trusted",
+        "trust_project",
+        "approved_project_servers",
+        "run_environment",
+        "credential_isolation",
+        "login_command",
+        "login_status",
+        "set_api_key",
     }
 
     assert contract <= set(dir(ProviderStateAdapter))
@@ -259,9 +267,10 @@ def test_every_unknown_key_survives_with_the_detected_indent(tmp_path, indent):
 
     write(path, set_key("z", 2))
 
-    assert path.read_text(encoding="utf-8") == json.dumps(
-        {**document, "z": 2}, indent=indent, ensure_ascii=False
-    ) + "\n"
+    assert (
+        path.read_text(encoding="utf-8")
+        == json.dumps({**document, "z": 2}, indent=indent, ensure_ascii=False) + "\n"
+    )
 
 
 def test_a_file_without_trailing_newline_and_compact_separators_keeps_both(tmp_path):

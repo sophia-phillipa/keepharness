@@ -20,7 +20,9 @@ def gate_request(**overrides):
 
 
 @pytest.mark.parametrize("enrolled", [False, True])
-def test_gate_authorizes_then_revalidates_human_before_resolution(make_harness_config, monkeypatch, enrolled):
+def test_gate_authorizes_then_revalidates_human_before_resolution(
+    make_harness_config, monkeypatch, enrolled
+):
     from unittest.mock import Mock
 
     from agent_service.routes import conversations
@@ -33,7 +35,9 @@ def test_gate_authorizes_then_revalidates_human_before_resolution(make_harness_c
         service = app.state.service
         pending_approval(app, "local")
         task = asyncio.create_task(
-            service.gates.ask("job", gate_request(), lambda kind, data: service.event("job", kind, data))
+            service.gates.ask(
+                "job", gate_request(), lambda kind, data: service.event("job", kind, data)
+            )
         )
         await asyncio.sleep(0)
         gate = service.db.execute("SELECT gate_id FROM gates").fetchone()[0]

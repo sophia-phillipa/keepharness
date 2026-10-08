@@ -40,7 +40,9 @@ const assert = require("node:assert/strict");
       return limited(r);
     });
     await page.route("**/v1/fixture-limit", limited);
-    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
+    await page.addInitScript(() =>
+      localStorage.setItem("keepharness-tour-seen", "0.16.0"),
+    );
     await page.goto(process.env.HARNESS_URL || "http://127.0.0.1:8095/");
     for (const [failure, expected] of [
       ["submission_rate_limit", "too quickly"],

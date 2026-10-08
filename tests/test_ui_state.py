@@ -20,7 +20,10 @@ SAMPLES = {
     "panel_widths": [{"sidebar": 300, "activity_panel": 390.5}, {}],
     "reading_size": ["15", "19"],
     "chat_selection": [{"model": "gpt-6-astra", "effort": "high"}, {"model": "", "effort": ""}, {}],
-    "project_list_preferences": [{"p": {"favorite": True, "hidden": False, "hide_icon": False}}, {}],
+    "project_list_preferences": [
+        {"p": {"favorite": True, "hidden": False, "hide_icon": False}},
+        {},
+    ],
     "project_expanded": [{"p": False, "q": True}, {}],
     "right_panel_view": ["files", "activity"],
     "activity_open": [True, False],
@@ -33,7 +36,10 @@ SAMPLES = {
     "conversation_scroll": [[["a" * 32, 120.5], ["b", -1]], []],
     "tour_seen": ["0.16.0", ""],
     "run_console_height": [340, 190.5],
-    "workspace_sections": [{"files": {"open": True, "height": None}, "activity": {"open": False, "height": 220}}, {}],
+    "workspace_sections": [
+        {"files": {"open": True, "height": None}, "activity": {"open": False, "height": 220}},
+        {},
+    ],
     "last_section": ["appearance", ""],
 }
 OVER = {
@@ -119,7 +125,10 @@ def test_null_clears_one_key_and_keeps_the_others(api):
 def test_unknown_key_is_422_and_writes_nothing(api, cfg):
     response = patch(api, theme="paper", draft="secret")
     assert (response.status_code, response.json()["code"], response.json()["field"]) == (
-        422, "ui_state_unknown_key", "draft")
+        422,
+        "ui_state_unknown_key",
+        "draft",
+    )
     assert api.get("/v1/ui-state").json()["values"] == {}
 
 
@@ -127,14 +136,20 @@ def test_unknown_key_is_422_and_writes_nothing(api, cfg):
 def test_invalid_or_over_cap_value_is_422(api, key):
     response = patch(api, **{key: OVER[key]})
     assert (response.status_code, response.json()["code"], response.json()["field"]) == (
-        422, "ui_state_invalid_value", key)
+        422,
+        "ui_state_invalid_value",
+        key,
+    )
 
 
 def test_value_bytes_cap_is_enforced(api):
     big = {("k" * 120) + str(i): True for i in range(200)}
     response = patch(api, project_expanded=big)
     assert (response.status_code, response.json()["code"], response.json()["field"]) == (
-        422, "ui_state_invalid_value", "project_expanded")
+        422,
+        "ui_state_invalid_value",
+        "project_expanded",
+    )
 
 
 def test_values_must_be_an_object(api):
@@ -146,25 +161,34 @@ def test_values_must_be_an_object(api):
 @pytest.mark.parametrize("key", ["run_console_height", "conversation_scroll", "panel_widths"])
 def test_a_huge_integer_is_422_not_500(api, key):
     huge = 10**400
-    value = {"run_console_height": huge, "conversation_scroll": [["c", huge]],
-             "panel_widths": {"sidebar": huge}}[key]
+    value = {
+        "run_console_height": huge,
+        "conversation_scroll": [["c", huge]],
+        "panel_widths": {"sidebar": huge},
+    }[key]
     response = patch(api, **{key: value})
     assert (response.status_code, response.json()["code"], response.json()["field"]) == (
-        422, "ui_state_invalid_value", key)
+        422,
+        "ui_state_invalid_value",
+        key,
+    )
 
 
 def test_a_stored_huge_integer_is_dropped_and_the_rest_loads(api, cfg):
     patch(api, theme="paper")
-    stored_file(cfg).write_text('{"version": 1, "values": {"theme": "graphite", "run_console_height": 1'
-                                + "0" * 400 + "}}")
+    stored_file(cfg).write_text(
+        '{"version": 1, "values": {"theme": "graphite", "run_console_height": 1' + "0" * 400 + "}}"
+    )
     response = api.get("/v1/ui-state")
     assert (response.status_code, response.json()["values"]) == (200, {"theme": "graphite"})
 
 
 def test_project_ids_and_activity_tokens_must_be_identifiers(api):
-    for key, value in [("project_expanded", {"/home/someone/secret": True}),
-                       ("project_list_preferences", {"a\nb": {"favorite": True}}),
-                       ("conversation_activity", {"c1": {"token": "free text with spaces", "state": "done"}})]:
+    for key, value in [
+        ("project_expanded", {"/home/someone/secret": True}),
+        ("project_list_preferences", {"a\nb": {"favorite": True}}),
+        ("conversation_activity", {"c1": {"token": "free text with spaces", "state": "done"}}),
+    ]:
         response = patch(api, **{key: value})
         assert (response.status_code, response.json()["field"]) == (422, key)
     assert patch(api, project_expanded={"sem-projeto": True}).status_code == 200
@@ -183,6 +207,7 @@ def test_keys_from_a_newer_build_survive_a_write_from_this_one(api, cfg):
 
 def test_quarantine_moved_by_another_reader_is_not_read_only(cfg):
     from agent_service import ui_state
+
     store = ui_state.repository(cfg, "local")
     store.folder.mkdir(parents=True, exist_ok=True)
     assert ui_state.quarantine(store) is True  # nothing left to move: someone else already did
@@ -227,19 +252,33 @@ def test_corrupt_file_loads_defaults_and_keeps_a_timestamped_bak(api, cfg):
 
 def test_stored_unknown_and_invalid_fields_are_dropped_and_the_rest_loads(api, cfg):
     patch(api, theme="paper")
-    stored_file(cfg).write_text(json.dumps({"version": 9, "values": {
-        "theme": "graphite", "future_key": 1, "reading_size": "99",
-        "chat_selection": {"model": "m", "effort": 7, "extra": 1},
-        "project_expanded": {"p": True, "q": "yes"},
-    }}))
+    stored_file(cfg).write_text(
+        json.dumps(
+            {
+                "version": 9,
+                "values": {
+                    "theme": "graphite",
+                    "future_key": 1,
+                    "reading_size": "99",
+                    "chat_selection": {"model": "m", "effort": 7, "extra": 1},
+                    "project_expanded": {"p": True, "q": "yes"},
+                },
+            }
+        )
+    )
     assert api.get("/v1/ui-state").json()["values"] == {
-        "theme": "graphite", "chat_selection": {"model": "m"}, "project_expanded": {"p": True}}
+        "theme": "graphite",
+        "chat_selection": {"model": "m"},
+        "project_expanded": {"p": True},
+    }
 
 
 def test_stored_maps_over_cap_keep_the_most_recent_entries(api, cfg):
     patch(api, theme="paper")
     entries = [[f"c{i}", i] for i in range(150)]
-    stored_file(cfg).write_text(json.dumps({"version": 1, "values": {"conversation_scroll": entries}}))
+    stored_file(cfg).write_text(
+        json.dumps({"version": 1, "values": {"conversation_scroll": entries}})
+    )
     assert api.get("/v1/ui-state").json()["values"]["conversation_scroll"] == entries[-100:]
 
 
@@ -279,7 +318,9 @@ def test_read_only_store_is_reported_and_patch_has_a_specific_error(api, cfg):
 def test_unauthenticated_and_foreign_origin_are_refused(cfg):
     with TestClient(create_app(cfg)) as anonymous:
         assert anonymous.get("/v1/ui-state").status_code == 401
-    with TestClient(create_app(cfg), headers={"Authorization": "Bearer local", "Origin": "http://evil.example"}) as client:
+    with TestClient(
+        create_app(cfg), headers={"Authorization": "Bearer local", "Origin": "http://evil.example"}
+    ) as client:
         assert client.patch("/v1/ui-state", json={"values": {}}).json()["code"] == "origin_denied"
 
 
@@ -292,7 +333,11 @@ def test_a_patch_keeps_stored_values_this_build_rejects_or_truncates(api, cfg):
     document = json.loads(stored_file(cfg).read_text())
     oversize = {f"p{i}": True for i in range(250)}
     document["values"].update(
-        {"reading_size": "21", "project_expanded": oversize, "panel_widths": {"sidebar": 5, "future": 1}}
+        {
+            "reading_size": "21",
+            "project_expanded": oversize,
+            "panel_widths": {"sidebar": 5, "future": 1},
+        }
     )
     stored_file(cfg).write_text(json.dumps(document))
     body = patch(api, theme="graphite").json()["values"]

@@ -6,16 +6,26 @@ const path = require("node:path");
 
 async function assertEmptyStateGrouped(page, selector) {
   const box = await page.locator(selector).evaluate((node) => {
-    const [heading, text, button] = ["h3", "p", "button"].map((tag) => node.querySelector(tag).getBoundingClientRect());
-    return { headingToText: text.top - heading.bottom, textToButton: button.top - text.bottom };
+    const [heading, text, button] = ["h3", "p", "button"].map((tag) =>
+      node.querySelector(tag).getBoundingClientRect(),
+    );
+    return {
+      headingToText: text.top - heading.bottom,
+      textToButton: button.top - text.bottom,
+    };
   });
-  assert(box.headingToText < 24 && box.textToButton < 32, "heading, text and action stay together: " + JSON.stringify(box));
+  assert(
+    box.headingToText < 24 && box.textToButton < 32,
+    "heading, text and action stay together: " + JSON.stringify(box),
+  );
 }
 
 (async () => {
   const browser = await chromium.launch();
   try {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 860 } });
+    const page = await browser.newPage({
+      viewport: { width: 1280, height: 860 },
+    });
     const pages = [],
       schedules = [],
       calls = [],
@@ -34,31 +44,73 @@ async function assertEmptyStateGrouped(page, selector) {
         method = route.request().method();
       if (!pathname.startsWith("/v1/"))
         return route.fulfill({
-          path: path.join(__dirname, "..", pathname.startsWith("/assets/") ? "harness_ui" : "agent_service", pathname === "/" ? "index.html" : pathname),
+          path: path.join(
+            __dirname,
+            "..",
+            pathname.startsWith("/assets/") ? "harness_ui" : "agent_service",
+            pathname === "/" ? "index.html" : pathname,
+          ),
         });
       let body = {};
       try {
-        if (["POST", "PUT", "DELETE"].includes(method) && pathname !== "/v1/files") body = route.request().postDataJSON() || {};
+        if (
+          ["POST", "PUT", "DELETE"].includes(method) &&
+          pathname !== "/v1/files"
+        )
+          body = route.request().postDataJSON() || {};
       } catch {}
-      if (!["/v1/models", "/v1/version", "/v1/projects", "/v1/conversations", "/v1/usage", "/v1/activity"].includes(pathname))
+      if (
+        ![
+          "/v1/models",
+          "/v1/version",
+          "/v1/projects",
+          "/v1/conversations",
+          "/v1/usage",
+          "/v1/activity",
+        ].includes(pathname)
+      )
         calls.push([method, pathname, body]);
       let data = {},
         status = 200;
       if (method === "PUT" && pathname.startsWith("/v1/pages/")) {
         if (holdPut) await holdPut;
-        if (failPut) return route.fulfill({ status: 500, json: { code: "internal_error" } });
+        if (failPut)
+          return route.fulfill({
+            status: 500,
+            json: { code: "internal_error" },
+          });
       }
       const now = Date.now() / 1000;
       // A project's permissions arrive late, as on a slow link (QA-R2-2).
-      if (pathname === "/v1/models" && url.searchParams.get("project_id") === "alpha")
+      if (
+        pathname === "/v1/models" &&
+        url.searchParams.get("project_id") === "alpha"
+      )
         await new Promise((resolve) => setTimeout(resolve, 200));
-      if (pathname === "/v1/harness-agents") data = { agents: [{ name: "release-checker", available: true }] };
-      else if (pathname === "/v1/projects") data = { projects: ["sem-projeto", "alpha"], details: { alpha: { label: "Alpha" } } };
+      if (pathname === "/v1/harness-agents")
+        data = { agents: [{ name: "release-checker", available: true }] };
+      else if (pathname === "/v1/projects")
+        data = {
+          projects: ["sem-projeto", "alpha"],
+          details: { alpha: { label: "Alpha" } },
+        };
       else if (pathname === "/v1/models")
         data = {
           models: [
-            { id: "gpt-6-astra", name: "GPT-6 Astra", backend: "codex", efforts: ["low", "medium"], permissions: { upload: true } },
-            { id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5", backend: "claude", efforts: ["configured"], permissions: { upload: true } },
+            {
+              id: "gpt-6-astra",
+              name: "GPT-6 Astra",
+              backend: "codex",
+              efforts: ["low", "medium"],
+              permissions: { upload: true },
+            },
+            {
+              id: "claude-sonnet-5-5",
+              name: "Claude Sonnet 5.5",
+              backend: "claude",
+              efforts: ["configured"],
+              permissions: { upload: true },
+            },
           ],
           providers: { codex: true, claude: true },
           uploads_enabled: true,
@@ -66,36 +118,74 @@ async function assertEmptyStateGrouped(page, selector) {
       else if (pathname === "/v1/conversations")
         data = {
           conversations: [
-            { id: "c-run", title: "Weekly AI radar", project: "sem-projeto", state: "completed", last_job_id: "j9", schedule_id: "s1", schedule_title: "Weekly AI radar", updated_at: Date.now() / 1000 - 60 },
+            {
+              id: "c-run",
+              title: "Weekly AI radar",
+              project: "sem-projeto",
+              state: "completed",
+              last_job_id: "j9",
+              schedule_id: "s1",
+              schedule_title: "Weekly AI radar",
+              updated_at: Date.now() / 1000 - 60,
+            },
           ],
         };
-      else if (pathname === "/v1/version") data = { version: "fixture", build: "space" };
+      else if (pathname === "/v1/version")
+        data = { version: "fixture", build: "space" };
       else if (pathname === "/v1/files" && method === "POST") {
         uploads.push(url.searchParams.get("project_id"));
         uploadBodies.push(route.request().postData());
         data = { file_id: "f" + uploads.length, name: "page.md" };
       } else if (pathname === "/v1/pages" && method === "GET")
-        data = { pages: pages.filter((p) => p.project_id === url.searchParams.get("project_id")).map(({ body: _, ...p }) => p) };
+        data = {
+          pages: pages
+            .filter((p) => p.project_id === url.searchParams.get("project_id"))
+            .map(({ body: _, ...p }) => p),
+        };
       else if (pathname === "/v1/pages" && method === "POST") {
-        const created = { id: "p" + (pages.length + 1), title: body.title, body: body.body, project_id: body.project_id, created_at: now, updated_at: now, revision: "r" + ++revision, size: body.body.length };
+        const created = {
+          id: "p" + (pages.length + 1),
+          title: body.title,
+          body: body.body,
+          project_id: body.project_id,
+          created_at: now,
+          updated_at: now,
+          revision: "r" + ++revision,
+          size: body.body.length,
+        };
         pages.push(created);
         status = 201;
         data = created;
       } else if (pathname.startsWith("/v1/pages/")) {
         const found = pages.find((p) => p.id === pathname.split("/").pop());
         if (method === "GET") data = found;
-        else if (method === "PUT") data = Object.assign(found, { title: body.title, body: body.body, updated_at: now, revision: "r" + ++revision });
+        else if (method === "PUT")
+          data = Object.assign(found, {
+            title: body.title,
+            body: body.body,
+            updated_at: now,
+            revision: "r" + ++revision,
+          });
         else if (method === "DELETE") {
           pages.splice(pages.indexOf(found), 1);
           data = { deleted: true };
         }
-      } else if (pathname === "/v1/schedules" && method === "GET") data = { schedules };
+      } else if (pathname === "/v1/schedules" && method === "GET")
+        data = { schedules };
       else if (pathname === "/v1/schedules" && method === "POST") {
         if (!["ask", "read_only"].includes(body.access_mode)) {
           status = 422;
           data = { code: "schedule_invalid", field: "access_mode" };
         } else {
-          const created = { ...body, id: "s1", revision: "r" + ++revision, next_run: now + 3 * 3600, last_run: null, failures: 0, paused_reason: "" };
+          const created = {
+            ...body,
+            id: "s1",
+            revision: "r" + ++revision,
+            next_run: now + 3 * 3600,
+            last_run: null,
+            failures: 0,
+            paused_reason: "",
+          };
           schedules.push(created);
           status = 201;
           data = created;
@@ -105,24 +195,41 @@ async function assertEmptyStateGrouped(page, selector) {
         schedules[0].last_run = { job_id: "j9", at: now, state: "submitted" };
         schedules[0].revision = "r" + ++revision;
         data = { job_id: "j9" };
-      } else if (pathname === "/v1/schedules/s1" && ["PUT", "DELETE"].includes(method) && body.revision !== schedules[0].revision) {
+      } else if (
+        pathname === "/v1/schedules/s1" &&
+        ["PUT", "DELETE"].includes(method) &&
+        body.revision !== schedules[0].revision
+      ) {
         status = 409;
         data = { code: "schedule_changed" };
-      } else if (pathname === "/v1/schedules/s1" && method === "PUT") data = Object.assign(schedules[0], body, { revision: "r" + ++revision });
+      } else if (pathname === "/v1/schedules/s1" && method === "PUT")
+        data = Object.assign(schedules[0], body, {
+          revision: "r" + ++revision,
+        });
       else if (pathname === "/v1/schedules/s1" && method === "DELETE") {
         schedules.splice(0, 1);
         data = { deleted: true };
       }
       return route.fulfill({ status, json: data });
     });
-    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
+    await page.addInitScript(() =>
+      localStorage.setItem("keepharness-tour-seen", "0.16.0"),
+    );
     await page.goto("http://space.test/");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
 
     // A conversation started by a scheduled task is marked in Chats.
-    const scheduledRow = page.locator("#history .conversation-row", { hasText: "Weekly AI radar" });
-    assert.equal(await scheduledRow.locator(".conversation-scheduled").innerText(), "Scheduled");
-    assert.match(await scheduledRow.locator("button").first().getAttribute("title"), /Scheduled task: Weekly AI radar/);
+    const scheduledRow = page.locator("#history .conversation-row", {
+      hasText: "Weekly AI radar",
+    });
+    assert.equal(
+      await scheduledRow.locator(".conversation-scheduled").innerText(),
+      "Scheduled",
+    );
+    assert.match(
+      await scheduledRow.locator("button").first().getAttribute("title"),
+      /Scheduled task: Weekly AI radar/,
+    );
 
     // Space: write a page, preview it, then start a chat with it.
     await page.click("#rail-space");
@@ -132,70 +239,134 @@ async function assertEmptyStateGrouped(page, selector) {
     await assertEmptyStateGrouped(page, "#page-empty-state");
     await space.getByTestId("page-empty-new").click();
     await space.getByLabel("Page title").fill("Photo brief");
-    await space.getByLabel("Page content (Markdown)").fill("# Brief\n\n- Describe colors\n- Read signs");
+    await space
+      .getByLabel("Page content (Markdown)")
+      .fill("# Brief\n\n- Describe colors\n- Read signs");
     await page.keyboard.press("Control+s");
     await space.getByRole("button", { name: /^Photo brief/ }).waitFor();
-    assert.deepEqual(calls.find((c) => c[0] === "POST" && c[1] === "/v1/pages")[2], {
-      project_id: "sem-projeto",
-      title: "Photo brief",
-      body: "# Brief\n\n- Describe colors\n- Read signs",
-    });
+    assert.deepEqual(
+      calls.find((c) => c[0] === "POST" && c[1] === "/v1/pages")[2],
+      {
+        project_id: "sem-projeto",
+        title: "Photo brief",
+        body: "# Brief\n\n- Describe colors\n- Read signs",
+      },
+    );
     await space.getByRole("button", { name: "Preview" }).click();
     assert.equal(await space.locator("#page-preview h1").innerText(), "Brief");
     assert.equal(await space.locator("#page-preview li").count(), 2);
     await space.getByRole("button", { name: "Preview" }).click();
-    await space.getByLabel("Page content (Markdown)").fill("# Brief\n\nUpdated");
+    await space
+      .getByLabel("Page content (Markdown)")
+      .fill("# Brief\n\nUpdated");
     await space.getByRole("button", { name: "Save" }).click();
-    await page.waitForFunction(() => document.getElementById("page-status").textContent === "Saved");
+    await page.waitForFunction(
+      () => document.getElementById("page-status").textContent === "Saved",
+    );
     assert.equal(calls.filter((c) => c[0] === "PUT").at(-1)[2].revision, "r1");
-    await space.getByRole("button", { name: "Start chat with this page" }).click();
+    await space
+      .getByRole("button", { name: "Start chat with this page" })
+      .click();
     await space.waitFor({ state: "hidden" });
-    await page.waitForFunction(() => document.querySelectorAll(".attachment").length === 1);
-    assert.equal(await page.locator("#conversation-title").innerText(), "Photo brief");
+    await page.waitForFunction(
+      () => document.querySelectorAll(".attachment").length === 1,
+    );
+    assert.equal(
+      await page.locator("#conversation-title").innerText(),
+      "Photo brief",
+    );
 
     // QA-R2-2: a page of another project attaches to the composer's own project on the first click.
     await page.evaluate(() => chooseProject("alpha"));
-    await page.waitForFunction(() => document.getElementById("project").value === "alpha" && !document.querySelector(".attachment"));
+    await page.waitForFunction(
+      () =>
+        document.getElementById("project").value === "alpha" &&
+        !document.querySelector(".attachment"),
+    );
     await page.click("#rail-space");
     await space.getByLabel("Project").selectOption("sem-projeto");
     await space.getByRole("button", { name: /^Photo brief/ }).click();
     await space.getByRole("button", { name: "Attach to message" }).click();
-    await page.waitForFunction(() => document.querySelectorAll(".attachment").length === 1);
+    await page.waitForFunction(
+      () => document.querySelectorAll(".attachment").length === 1,
+    );
     assert.equal(uploads.at(-1), "alpha");
-    assert.equal(await page.locator("#project").inputValue(), "alpha", "the composer keeps its project");
-    assert.doesNotMatch(await page.locator("#status").innerText(), /admin panel/);
+    assert.equal(
+      await page.locator("#project").inputValue(),
+      "alpha",
+      "the composer keeps its project",
+    );
+    assert.doesNotMatch(
+      await page.locator("#status").innerText(),
+      /admin panel/,
+    );
 
     // OP-R1-22, D40: the Files chip attaches the current version of a page, a recent upload or a new
     // file, and never turns the chat into Code.
     await page.evaluate(() => chooseProject("sem-projeto"));
-    await page.waitForFunction(() => document.getElementById("project").value === "sem-projeto");
+    await page.waitForFunction(
+      () => document.getElementById("project").value === "sem-projeto",
+    );
     // A new conversation restores its own draft, attachments included; start this check from none.
     await page.evaluate(() => {
       files = [];
       renderFiles();
     });
-    pages.find((item) => item.title === "Photo brief").body = "# Brief\n\nEdited after the last use";
+    pages.find((item) => item.title === "Photo brief").body =
+      "# Brief\n\nEdited after the last use";
     const filesMenu = page.locator("#files-menu");
     await page.click("#files-chip");
     await filesMenu.waitFor({ state: "visible" });
-    assert.equal(await page.locator("#view-chat").getAttribute("aria-selected"), "true");
+    assert.equal(
+      await page.locator("#view-chat").getAttribute("aria-selected"),
+      "true",
+    );
     assert.equal(await page.locator("#activity-panel").isHidden(), true);
-    assert.equal(await page.locator("#files-chip").getAttribute("aria-expanded"), "true");
+    assert.equal(
+      await page.locator("#files-chip").getAttribute("aria-expanded"),
+      "true",
+    );
     const uploadsBefore = uploadBodies.length;
-    await filesMenu.getByTestId("files-menu-page").filter({ hasText: "Photo brief" }).click();
-    await page.waitForFunction(() => document.querySelectorAll(".attachment").length === 1);
+    await filesMenu
+      .getByTestId("files-menu-page")
+      .filter({ hasText: "Photo brief" })
+      .click();
+    await page.waitForFunction(
+      () => document.querySelectorAll(".attachment").length === 1,
+    );
     assert.equal(uploadBodies.length, uploadsBefore + 1);
     assert.equal(uploadBodies.at(-1), "# Brief\n\nEdited after the last use");
-    assert.equal(await page.locator("#view-chat").getAttribute("aria-selected"), "true");
-    await page.getByRole("button", { name: "Remove attachment Photo-brief.md" }).click();
+    assert.equal(
+      await page.locator("#view-chat").getAttribute("aria-selected"),
+      "true",
+    );
+    await page
+      .getByRole("button", { name: "Remove attachment Photo-brief.md" })
+      .click();
     await page.click("#files-chip");
-    await filesMenu.getByTestId("files-menu-recent").filter({ hasText: "Photo-brief.md" }).first().click();
-    await page.waitForFunction(() => document.querySelectorAll(".attachment").length === 1);
-    assert.equal(uploadBodies.length, uploadsBefore + 1, "a recent upload is attached again without uploading it twice");
+    await filesMenu
+      .getByTestId("files-menu-recent")
+      .filter({ hasText: "Photo-brief.md" })
+      .first()
+      .click();
+    await page.waitForFunction(
+      () => document.querySelectorAll(".attachment").length === 1,
+    );
+    assert.equal(
+      uploadBodies.length,
+      uploadsBefore + 1,
+      "a recent upload is attached again without uploading it twice",
+    );
     await page.click("#files-chip");
-    const [chooser] = await Promise.all([page.waitForEvent("filechooser"), filesMenu.getByTestId("files-menu-upload").click()]);
+    const [chooser] = await Promise.all([
+      page.waitForEvent("filechooser"),
+      filesMenu.getByTestId("files-menu-upload").click(),
+    ]);
     assert.equal(chooser.isMultiple(), true);
-    assert.equal(await page.locator("#view-chat").getAttribute("aria-selected"), "true");
+    assert.equal(
+      await page.locator("#view-chat").getAttribute("aria-selected"),
+      "true",
+    );
 
     // Pages belong to a project.
     await page.click("#rail-space");
@@ -210,7 +381,9 @@ async function assertEmptyStateGrouped(page, selector) {
     // Unsaved text survives ×, Esc and a project switch: Space saves first, to the page's project.
     await space.getByRole("button", { name: "New page" }).click();
     await space.getByLabel("Page title").fill("Draft one");
-    await space.getByLabel("Page content (Markdown)").fill("typed before closing");
+    await space
+      .getByLabel("Page content (Markdown)")
+      .fill("typed before closing");
     await space.getByRole("button", { name: "Close Space" }).click();
     await space.waitFor({ state: "hidden" });
     assert.deepEqual(
@@ -225,41 +398,71 @@ async function assertEmptyStateGrouped(page, selector) {
     assert.equal(pages[0].body, "typed before Esc");
     await page.click("#rail-space");
     await space.getByRole("button", { name: /^Draft one/ }).click();
-    await space.getByLabel("Page content (Markdown)").fill("typed before switching");
+    await space
+      .getByLabel("Page content (Markdown)")
+      .fill("typed before switching");
     await space.getByLabel("Project").selectOption("alpha");
     await space.getByText("No pages in this project yet.").waitFor();
-    assert.deepEqual([pages[0].project_id, pages[0].body], ["sem-projeto", "typed before switching"]);
+    assert.deepEqual(
+      [pages[0].project_id, pages[0].body],
+      ["sem-projeto", "typed before switching"],
+    );
     await space.getByLabel("Project").selectOption("sem-projeto");
 
     // A failed save keeps Space open, with the text and the page's own project.
     failPut = true;
     await space.getByRole("button", { name: /^Draft one/ }).click();
-    await space.getByLabel("Page content (Markdown)").fill("kept after a failed save");
+    await space
+      .getByLabel("Page content (Markdown)")
+      .fill("kept after a failed save");
     await space.getByLabel("Project").selectOption("alpha");
-    await page.waitForFunction(() => document.getElementById("space-project").value === "sem-projeto");
+    await page.waitForFunction(
+      () => document.getElementById("space-project").value === "sem-projeto",
+    );
     await space.getByRole("button", { name: "Close Space" }).click();
-    await page.waitForFunction(() => !document.getElementById("page-save").disabled);
+    await page.waitForFunction(
+      () => !document.getElementById("page-save").disabled,
+    );
     assert.equal(await space.isVisible(), true);
-    assert.equal(await space.getByLabel("Page content (Markdown)").inputValue(), "kept after a failed save");
+    assert.equal(
+      await space.getByLabel("Page content (Markdown)").inputValue(),
+      "kept after a failed save",
+    );
     failPut = false;
 
     // Text typed while a save is in flight stays unsaved, and the next save sends it.
     let release;
     holdPut = new Promise((resolve) => (release = resolve));
     await space.getByRole("button", { name: "Save" }).click();
-    await page.waitForFunction(() => document.getElementById("page-save").disabled);
+    await page.waitForFunction(
+      () => document.getElementById("page-save").disabled,
+    );
     await space.getByLabel("Page title").fill("Draft renamed");
-    await space.getByLabel("Page content (Markdown)").fill("typed during the save");
+    await space
+      .getByLabel("Page content (Markdown)")
+      .fill("typed during the save");
     holdPut = null;
     release();
-    await page.waitForFunction(() => !document.getElementById("page-save").disabled);
-    assert.equal(await page.locator("#page-status").innerText(), "Unsaved changes");
-    assert.equal(await space.getByLabel("Page title").inputValue(), "Draft renamed");
+    await page.waitForFunction(
+      () => !document.getElementById("page-save").disabled,
+    );
+    assert.equal(
+      await page.locator("#page-status").innerText(),
+      "Unsaved changes",
+    );
+    assert.equal(
+      await space.getByLabel("Page title").inputValue(),
+      "Draft renamed",
+    );
     assert.equal(pages[0].body, "kept after a failed save");
     const heldRevision = pages[0].revision;
     await space.getByRole("button", { name: "Save" }).click();
-    await page.waitForFunction(() => document.getElementById("page-status").textContent === "Saved");
-    const lastPut = calls.filter((c) => c[0] === "PUT" && c[1].startsWith("/v1/pages/")).at(-1)[2];
+    await page.waitForFunction(
+      () => document.getElementById("page-status").textContent === "Saved",
+    );
+    const lastPut = calls
+      .filter((c) => c[0] === "PUT" && c[1].startsWith("/v1/pages/"))
+      .at(-1)[2];
     assert.deepEqual(
       [lastPut.title, lastPut.body, lastPut.revision],
       ["Draft renamed", "typed during the save", heldRevision],
@@ -280,11 +483,19 @@ async function assertEmptyStateGrouped(page, selector) {
     // D03: no internet unless the task opts in.
     const internet = scheduled.getByLabel("Allow internet");
     assert.equal(await internet.isChecked(), false);
-    assert.match(await page.locator("#schedule-internet-help").innerText(), /^Off by default: the run gets no web search/);
+    assert.match(
+      await page.locator("#schedule-internet-help").innerText(),
+      /^Off by default: the run gets no web search/,
+    );
     await scheduled.getByRole("button", { name: "Create task" }).click();
-    assert.equal(await page.locator("#schedule-title").getAttribute("aria-invalid"), "true");
+    assert.equal(
+      await page.locator("#schedule-title").getAttribute("aria-invalid"),
+      "true",
+    );
     await scheduled.getByLabel("Title").fill("Weekly AI radar");
-    await scheduled.getByLabel("Prompt").fill("Summarize this week's AI changes for managers.");
+    await scheduled
+      .getByLabel("Prompt")
+      .fill("Summarize this week's AI changes for managers.");
     await scheduled.getByLabel("Project").selectOption("alpha");
     await scheduled.getByLabel("Provider").selectOption("claude");
     await scheduled.getByLabel("Repeat").selectOption("weekly");
@@ -292,67 +503,131 @@ async function assertEmptyStateGrouped(page, selector) {
     await scheduled.getByLabel("Time").fill("08:30");
     assert.equal(await scheduled.getByLabel("Hours").isVisible(), false);
     // The wall-clock time is the server's, which may differ from the browser's.
-    assert.equal(await page.locator("#schedule-time").getAttribute("aria-describedby"), "schedule-time-help");
-    assert.equal(await page.locator("#schedule-time-help").innerText(), "Server time");
+    assert.equal(
+      await page.locator("#schedule-time").getAttribute("aria-describedby"),
+      "schedule-time-help",
+    );
+    assert.equal(
+      await page.locator("#schedule-time-help").innerText(),
+      "Server time",
+    );
     assert.equal(await page.locator("#schedule-time-help").isVisible(), true);
     await scheduled.getByLabel("Repeat").selectOption("interval");
-    assert.equal(await page.locator("#schedule-time-help").isVisible(), false, "an interval has no wall-clock time");
+    assert.equal(
+      await page.locator("#schedule-time-help").isVisible(),
+      false,
+      "an interval has no wall-clock time",
+    );
     await scheduled.getByLabel("Repeat").selectOption("weekly");
     // D41: an agent is picked, never typed; the pages are ticked and read at run time.
-    pages.push({ id: "p9", title: "Weekly sources", body: "x", project_id: "alpha", created_at: 1, updated_at: 1, revision: "r0", size: 1 });
+    pages.push({
+      id: "p9",
+      title: "Weekly sources",
+      body: "x",
+      project_id: "alpha",
+      created_at: 1,
+      updated_at: 1,
+      revision: "r0",
+      size: 1,
+    });
     await scheduled.getByLabel("Project").selectOption("alpha");
     await scheduled.getByLabel("Weekly sources").check();
-    await scheduled.getByLabel("Prompt").fill("Check @@release-checker output.");
+    await scheduled
+      .getByLabel("Prompt")
+      .fill("Check @@release-checker output.");
     await scheduled.getByRole("button", { name: "Create task" }).click();
-    assert.match(await page.locator("#schedule-error").innerText(), /Pick @@release-checker in the Agent field/);
-    assert.equal(calls.some((c) => c[0] === "POST" && c[1] === "/v1/schedules"), false, "a stray marker is refused before saving");
+    assert.match(
+      await page.locator("#schedule-error").innerText(),
+      /Pick @@release-checker in the Agent field/,
+    );
+    assert.equal(
+      calls.some((c) => c[0] === "POST" && c[1] === "/v1/schedules"),
+      false,
+      "a stray marker is refused before saving",
+    );
     await scheduled.getByLabel("Agent").selectOption("release-checker");
-    await scheduled.getByLabel("Prompt").fill("Summarize this week's AI changes for managers.");
+    await scheduled
+      .getByLabel("Prompt")
+      .fill("Summarize this week's AI changes for managers.");
     await scheduled.getByRole("button", { name: "Create task" }).click();
     const row = scheduled.getByRole("button", { name: /^Weekly AI radar/ });
     await row.waitFor();
-    assert.deepEqual(calls.find((c) => c[0] === "POST" && c[1] === "/v1/schedules")[2], {
-      title: "Weekly AI radar",
-      prompt: "Summarize this week's AI changes for managers.",
-      project_id: "alpha",
-      backend: "claude",
-      model: "claude-sonnet-5-5",
-      effort: "configured",
-      access_mode: "ask",
-      allow_internet: false,
-      cadence: { kind: "weekly", weekday: 0, time: "08:30" },
-      enabled: true,
-      agent: "release-checker",
-      page_ids: ["p9"],
-    });
-    assert.match(await row.innerText(), /Active · Mondays at 08:30 · next in 3 h/);
+    assert.deepEqual(
+      calls.find((c) => c[0] === "POST" && c[1] === "/v1/schedules")[2],
+      {
+        title: "Weekly AI radar",
+        prompt: "Summarize this week's AI changes for managers.",
+        project_id: "alpha",
+        backend: "claude",
+        model: "claude-sonnet-5-5",
+        effort: "configured",
+        access_mode: "ask",
+        allow_internet: false,
+        cadence: { kind: "weekly", weekday: 0, time: "08:30" },
+        enabled: true,
+        agent: "release-checker",
+        page_ids: ["p9"],
+      },
+    );
+    assert.match(
+      await row.innerText(),
+      /Active · Mondays at 08:30 · next in 3 h/,
+    );
     await scheduled.getByRole("button", { name: "Run now" }).click();
     await scheduled.getByText("Started now. It appears in Chats.").waitFor();
     await scheduled.getByRole("button", { name: "Open run" }).waitFor();
     // CDX-R1-4: after Run now the editor holds the task's new revision, so Save works and keeps what was typed.
     await scheduled.getByLabel("Title").fill("Weekly AI radar, edited");
     await scheduled.getByRole("button", { name: "Save task" }).click();
-    await page.waitForFunction(() => /^Saved\./.test(document.getElementById("schedule-last").innerText));
+    await page.waitForFunction(() =>
+      /^Saved\./.test(document.getElementById("schedule-last").innerText),
+    );
     assert.equal(await page.locator("#schedule-error").innerText(), "");
     assert.equal(schedules[0].title, "Weekly AI radar, edited");
     // D15: Last run shows the run's real outcome, read back by the scheduler.
-    schedules[0].last_run = { job_id: "j9", at: Math.floor(Date.now() / 1000), state: "cancelled", error: "approval_expiration_limit", needs_you: true };
+    schedules[0].last_run = {
+      job_id: "j9",
+      at: Math.floor(Date.now() / 1000),
+      state: "cancelled",
+      error: "approval_expiration_limit",
+      needs_you: true,
+    };
     await scheduled.getByRole("button", { name: "Close Scheduled" }).click();
     await page.click("#rail-scheduled");
-    await page.waitForFunction(() => /Last run needs you/.test(document.querySelector("#schedules-list")?.innerText || ""));
+    await page.waitForFunction(() =>
+      /Last run needs you/.test(
+        document.querySelector("#schedules-list")?.innerText || "",
+      ),
+    );
     await row.click();
-    await page.waitForFunction(() => /Last run .* · cancelled · needs you/.test(document.querySelector("#schedule-last")?.innerText || ""));
+    await page.waitForFunction(() =>
+      /Last run .* · cancelled · needs you/.test(
+        document.querySelector("#schedule-last")?.innerText || "",
+      ),
+    );
     assert.match(await row.innerText(), /Last run needs you/);
-    assert.equal(await internet.isChecked(), false, "a saved task shows its stored choice");
+    assert.equal(
+      await internet.isChecked(),
+      false,
+      "a saved task shows its stored choice",
+    );
     await internet.check();
     await scheduled.getByLabel("Active").uncheck();
     await scheduled.getByRole("button", { name: "Save task" }).click();
-    await page.waitForFunction(() => /Paused/.test(document.querySelector("#schedules-list")?.innerText || ""));
-    const saved = calls.filter((c) => c[0] === "PUT" && c[1] === "/v1/schedules/s1").at(-1)[2];
+    await page.waitForFunction(() =>
+      /Paused/.test(document.querySelector("#schedules-list")?.innerText || ""),
+    );
+    const saved = calls
+      .filter((c) => c[0] === "PUT" && c[1] === "/v1/schedules/s1")
+      .at(-1)[2];
     assert.equal(saved.enabled, false);
     assert.equal(saved.allow_internet, true);
     await row.click();
-    assert.equal(await internet.isChecked(), true, "the opt-in comes back when the task is reopened");
+    assert.equal(
+      await internet.isChecked(),
+      true,
+      "the opt-in comes back when the task is reopened",
+    );
     // Run now, then Delete without reselecting the task.
     await scheduled.getByRole("button", { name: "Run now" }).click();
     await scheduled.getByText("Started now. It appears in Chats.").waitFor();

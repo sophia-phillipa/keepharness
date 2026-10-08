@@ -346,7 +346,9 @@ async def add_remote_model(request: Request, manager: "Manager", data: dict) -> 
     saved = list(manager.settings.get("remote_models", []))
     entry = {"url": url}
     if entry not in saved and len(saved) >= MAX_SERVERS:
-        raise UserMessageError(f"At most {MAX_SERVERS} network servers can be saved. Remove one first.")
+        raise UserMessageError(
+            f"At most {MAX_SERVERS} network servers can be saved. Remove one first."
+        )
     models = await probe(url, token)
     with manager.configuration_change():
         save_servers(manager, saved if entry in saved else [*saved, entry])

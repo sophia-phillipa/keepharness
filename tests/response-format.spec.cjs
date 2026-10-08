@@ -65,14 +65,20 @@ const path = require("node:path");
             : "text/html",
       });
     });
-    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
+    await page.addInitScript(() =>
+      localStorage.setItem("keepharness-tour-seen", "0.16.0"),
+    );
     await page.goto(origin);
     await page.waitForFunction(() => models.length === 1);
     // An answer with no text yet offers neither Copy nor Ask again.
     assert.equal(
       await page.evaluate(() => {
         const empty = assistant();
-        const hidden = ["copy-answer", "ask-again"].every((id) => getComputedStyle(empty.el.querySelector(`[data-testid="${id}"]`)).display === "none");
+        const hidden = ["copy-answer", "ask-again"].every(
+          (id) =>
+            getComputedStyle(empty.el.querySelector(`[data-testid="${id}"]`))
+              .display === "none",
+        );
         empty.el.remove();
         return hidden;
       }),
@@ -128,7 +134,10 @@ const path = require("node:path");
       await page.locator(".copy-answer").count(),
       await page.locator(".assistant").count(),
     );
-    assert.equal(await page.locator(".code-block .code-lang").first().textContent(), "js");
+    assert.equal(
+      await page.locator(".code-block .code-lang").first().textContent(),
+      "js",
+    );
     // Reuse actual final-result path for fenced JSON, invalid JSON and hostile Markdown.
     async function finalAnswer(answer) {
       turns[1].result.answer = answer;
@@ -196,7 +205,10 @@ const path = require("node:path");
       await page.setViewportSize({ width, height: 960 });
       for (const theme of ["light", "dark"]) {
         await page.evaluate((t) => {
-          HarnessTheme.apply(t === "dark" ? "amethyst" : "violet-bordeaux", false);
+          HarnessTheme.apply(
+            t === "dark" ? "amethyst" : "violet-bordeaux",
+            false,
+          );
         }, theme);
         assert(
           await page.evaluate(
@@ -216,13 +228,21 @@ const path = require("node:path");
     await page.setViewportSize({ width: 390, height: 960 });
     const region = page.locator(".assistant .text .table-scroll").last();
     assert.equal(await region.getAttribute("tabindex"), "0");
-    assert(await region.evaluate((el) => el.scrollWidth > el.clientWidth), "wide table scrolls");
+    assert(
+      await region.evaluate((el) => el.scrollWidth > el.clientWidth),
+      "wide table scrolls",
+    );
     assert.equal(
-      await region.locator("th").first().evaluate((el) => getComputedStyle(el).overflowWrap),
+      await region
+        .locator("th")
+        .first()
+        .evaluate((el) => getComputedStyle(el).overflowWrap),
       "normal",
     );
     assert(
-      await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
       "table and code never widen the page",
     );
     for (const theme of ["violet-bordeaux", "amethyst"]) {
@@ -232,27 +252,55 @@ const path = require("node:path");
         .last()
         .evaluate((el) => {
           const style = getComputedStyle(el);
-          return { color: style.scrollbarColor, overflow: style.overflowX, scrolls: el.scrollWidth > el.clientWidth };
+          return {
+            color: style.scrollbarColor,
+            overflow: style.overflowX,
+            scrolls: el.scrollWidth > el.clientWidth,
+          };
         });
       assert.notEqual(cue.color, "auto");
       assert.equal(cue.overflow, "auto");
       assert(cue.scrolls, "long code line scrolls instead of being cut");
     }
     assert.equal(
-      (await page.locator(".assistant .text .code-block .code-lang").last().textContent()).trim(),
+      (
+        await page
+          .locator(".assistant .text .code-block .code-lang")
+          .last()
+          .textContent()
+      ).trim(),
       "python",
     );
-    await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin });
+    await page
+      .context()
+      .grantPermissions(["clipboard-read", "clipboard-write"], { origin });
     await page.locator(".assistant .text .copy-code").last().click();
-    assert.equal(await page.evaluate(() => navigator.clipboard.readText()), wideCode + "\n");
-    assert.equal(await page.locator(".assistant .text .copy-code").last().textContent(), "Copied");
+    assert.equal(
+      await page.evaluate(() => navigator.clipboard.readText()),
+      wideCode + "\n",
+    );
+    assert.equal(
+      await page.locator(".assistant .text .copy-code").last().textContent(),
+      "Copied",
+    );
     assert.equal(await page.locator("#status").textContent(), "Copied");
     await page.locator(".copy-answer").last().click();
-    assert.equal(await page.evaluate(() => navigator.clipboard.readText()), wideAnswer);
+    assert.equal(
+      await page.evaluate(() => navigator.clipboard.readText()),
+      wideAnswer,
+    );
     // An insecure origin has no navigator.clipboard: the copy event still carries the text.
     await page.evaluate(() => {
-      Object.defineProperty(navigator, "clipboard", { value: undefined, configurable: true });
-      document.addEventListener("copy", () => (window.fallbackCopy = getSelection().toString() || document.activeElement?.value));
+      Object.defineProperty(navigator, "clipboard", {
+        value: undefined,
+        configurable: true,
+      });
+      document.addEventListener(
+        "copy",
+        () =>
+          (window.fallbackCopy =
+            getSelection().toString() || document.activeElement?.value),
+      );
     });
     await page.locator(".copy-answer").last().click();
     assert.equal(await page.evaluate(() => window.fallbackCopy), wideAnswer);
@@ -264,8 +312,7 @@ const path = require("node:path");
     });
     await page.screenshot({
       path:
-        process.env.FORMAT_SCREENSHOT ||
-        "/tmp/keepharness-response-format.png",
+        process.env.FORMAT_SCREENSHOT || "/tmp/keepharness-response-format.png",
       fullPage: true,
     });
     assert.deepEqual(errors, []);

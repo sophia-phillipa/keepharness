@@ -1,4 +1,5 @@
 """Read-only skills listing for Customize > Skills: whitelisted fields, never a path."""
+
 import asyncio
 import logging
 from pathlib import Path
@@ -27,7 +28,12 @@ def list_skills(config, project_id):
             continue
         try:
             discovered = discover(
-                config, project_id, provider, execution_mode=mode, include_workflows=False, owner=True
+                config,
+                project_id,
+                provider,
+                execution_mode=mode,
+                include_workflows=False,
+                owner=True,
             )
         except Exception:  # one broken provider must not hide the others; details stay in the log
             logger.exception("Skill discovery failed for %s", provider)

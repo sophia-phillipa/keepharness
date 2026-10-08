@@ -11,7 +11,7 @@ from control import runtime_config
 from control.server import Manager
 
 # Stand-ins for the CLIs: ``login status`` / ``auth status --json`` find no login in a new home.
-SIGNED_OUT_CLI = '#!/bin/sh\necho \'{"loggedIn": false}\'\nexit 1\n'
+SIGNED_OUT_CLI = "#!/bin/sh\necho '{\"loggedIn\": false}'\nexit 1\n"
 
 
 def signed_out_cli(tmp_path, name):
@@ -33,9 +33,7 @@ def manager_with(tmp_path, *, found=True):
         }
         for provider in ("codex", "claude")
     ]
-    services.append(
-        {"id": "deepseek", "found": True, "binary": sys.executable, "auth_file": ""}
-    )
+    services.append({"id": "deepseek", "found": True, "binary": sys.executable, "auth_file": ""})
     manager.inventory = {"network": {}, "services": services}
     settings = copy.deepcopy(manager.settings)
     settings["services"]["codex"].update(enabled=True, models=["gpt-5.5"])
@@ -94,4 +92,3 @@ def test_the_admin_status_names_the_reason_after_the_runtime_is_written(tmp_path
     reasons = manager.status()["unavailable_models"]
     assert reasons["codex"] == {"gpt-5.5": runtime_config.SIGN_IN_REQUIRED}
     assert runtime_config.SIGN_IN_REQUIRED.startswith("Sign in required")
-

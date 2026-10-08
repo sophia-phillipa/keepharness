@@ -178,7 +178,9 @@ const assert = require("node:assert/strict"),
       });
     });
     await page.emulateMedia({ reducedMotion: "reduce" });
-    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
+    await page.addInitScript(() =>
+      localStorage.setItem("keepharness-tour-seen", "0.16.0"),
+    );
     await page.goto(origin);
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
 
@@ -215,7 +217,9 @@ const assert = require("node:assert/strict"),
     // Project folders start expanded (Codex model); open it only if it is collapsed.
     if (!(await page.locator(".project-group").evaluate((el) => el.open)))
       await page.locator(".project-group > summary").click();
-    await page.screenshot({ path: "/tmp/keepharness-conversation-indicators.png" });
+    await page.screenshot({
+      path: "/tmp/keepharness-conversation-indicators.png",
+    });
     await page.locator("#projects .conversation-row > button").click();
     await page.waitForFunction(() =>
       Array.from(document.querySelectorAll(".assistant .text")).some((e) =>
@@ -254,9 +258,20 @@ const assert = require("node:assert/strict"),
     );
     // C-08: the live-activity feed shows a chat as running between two list refreshes; when the list then
     // reports it completed (same job token), the row must end as "Unread response", not as a silent row.
-    const rowOf0 = () => page.locator("#history .conversation-row", { hasText: /Conversation 0(?!\d)/ });
-    await page.evaluate(() => window.applyActivitySnapshot({ jobs: [{ conversation_id: "c0", state: "running" }] }));
-    assert.equal(await rowOf0().locator(".conversation-indicator.working").count(), 1, "activity feed shows it running");
+    const rowOf0 = () =>
+      page.locator("#history .conversation-row", {
+        hasText: /Conversation 0(?!\d)/,
+      });
+    await page.evaluate(() =>
+      window.applyActivitySnapshot({
+        jobs: [{ conversation_id: "c0", state: "running" }],
+      }),
+    );
+    assert.equal(
+      await rowOf0().locator(".conversation-indicator.working").count(),
+      1,
+      "activity feed shows it running",
+    );
     await page.evaluate(() => history());
     assert.equal(
       await rowOf0().locator(".conversation-indicator.unread").count(),
@@ -264,8 +279,16 @@ const assert = require("node:assert/strict"),
       "background completion shows the unread dot",
     );
     await rowOf0().locator("> button").click();
-    await page.waitForFunction(() => document.querySelector("#messages")?.innerText.includes("Answer from conversation 0"));
-    assert.equal(await rowOf0().locator(".conversation-indicator").count(), 0, "opening the answer clears the dot");
+    await page.waitForFunction(() =>
+      document
+        .querySelector("#messages")
+        ?.innerText.includes("Answer from conversation 0"),
+    );
+    assert.equal(
+      await rowOf0().locator(".conversation-indicator").count(),
+      0,
+      "opening the answer clears the dot",
+    );
     assert.deepEqual(errors, []);
     console.log(
       "PASS: working, unread, reload, acknowledge, new completion and terminal states",

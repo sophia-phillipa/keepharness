@@ -78,7 +78,9 @@ const path = require("node:path");
       }
       return route.fulfill({ json: data });
     });
-    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
+    await page.addInitScript(() =>
+      localStorage.setItem("keepharness-tour-seen", "0.16.0"),
+    );
     await page.goto("http://panel.test");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     // Projects are listed open by default in the Codex-style sidebar.
@@ -129,7 +131,9 @@ const path = require("node:path");
     assert.equal(await page.locator("#project-folder-location").count(), 0);
     await trigger.click();
     await page.keyboard.press("Escape");
-    await page.locator(".project-actions-menu:popover-open").waitFor({ state: "hidden" });
+    await page
+      .locator(".project-actions-menu:popover-open")
+      .waitFor({ state: "hidden" });
     // Native popover closure queues the toggle event that updates the ARIA state.
     await page.waitForFunction(
       (button) => button.getAttribute("aria-expanded") === "false",

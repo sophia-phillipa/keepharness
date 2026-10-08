@@ -34,7 +34,11 @@ def read(name: str, default: str | None = None) -> str | None:
     preferred = f"{PRODUCT.env_prefix}_{name}"
     if preferred in os.environ:
         return os.environ[preferred]
-    legacy = _LEGACY_ALIASES.get(name) if (PRODUCT.slug, PRODUCT.lineage) == ("keepharness", "keepharness") else None
+    legacy = (
+        _LEGACY_ALIASES.get(name)
+        if (PRODUCT.slug, PRODUCT.lineage) == ("keepharness", "keepharness")
+        else None
+    )
     if legacy and legacy in os.environ:
         if name not in _WARNED:
             _WARNED.add(name)

@@ -11,19 +11,38 @@
   const KEEPALIVE_BYTES = 60 * 1024; // browsers allow 64 KB of keepalive requests in flight
 
   const store = {
-    get(key) { try { return localStorage.getItem(key); } catch { return null; } },
+    get(key) {
+      try {
+        return localStorage.getItem(key);
+      } catch {
+        return null;
+      }
+    },
     set(key, value) {
       try {
-        if (value === null) localStorage.removeItem(key); else localStorage.setItem(key, value);
+        if (value === null) localStorage.removeItem(key);
+        else localStorage.setItem(key, value);
         return true;
-      } catch { return false; }
+      } catch {
+        return false;
+      }
     },
     keys(prefix) {
-      try { return Object.keys(localStorage).filter((key) => key.startsWith(prefix)); } catch { return []; }
+      try {
+        return Object.keys(localStorage).filter((key) =>
+          key.startsWith(prefix),
+        );
+      } catch {
+        return [];
+      }
     },
   };
   const parse = (key) => {
-    try { return JSON.parse(store.get(key)) ?? undefined; } catch { return undefined; }
+    try {
+      return JSON.parse(store.get(key)) ?? undefined;
+    } catch {
+      return undefined;
+    }
   };
   const number = (key) => {
     const text = store.get(key);
@@ -31,7 +50,10 @@
     return Number.isFinite(value) ? value : undefined;
   };
   const text = (key) => store.get(key) ?? undefined;
-  const flag = (key) => { const value = store.get(key); return value === null ? undefined : value === "1"; };
+  const flag = (key) => {
+    const value = store.get(key);
+    return value === null ? undefined : value === "1";
+  };
   const asJson = (value) => (value === null ? null : JSON.stringify(value));
   const renamed = (map, from, to) => {
     if (!map || typeof map !== "object") return map;
@@ -47,14 +69,18 @@
 
   // One entry per store key: the old localStorage keys it replaces, how to read them into the store's
   // shape, and how to write the store's shape back (local mode only). `keep` marks a cache that stays.
-  const WIDTHS = { sidebar: "sidebar-width", activity_panel: "activity-panel-width" };
+  const WIDTHS = {
+    sidebar: "sidebar-width",
+    activity_panel: "activity-panel-width",
+  };
   const SECTIONS = "workspace-section-";
   const CONVERSIONS = {
     theme: {
       keep: true,
       old: () => ["keepharness:theme:harness"],
       // theme.js owns this cache, including the pre-0.15 key; it writes it itself.
-      read: () => text("keepharness:theme:harness") ?? text("tail-harness:theme:harness"),
+      read: () =>
+        text("keepharness:theme:harness") ?? text("tail-harness:theme:harness"),
       write: () => [],
     },
     sidebar_collapsed: {
@@ -71,10 +97,17 @@
       old: () => Object.values(WIDTHS),
       read: () => {
         const result = {};
-        for (const [field, old] of Object.entries(WIDTHS)) { const value = number(old); if (value !== undefined) result[field] = value; }
+        for (const [field, old] of Object.entries(WIDTHS)) {
+          const value = number(old);
+          if (value !== undefined) result[field] = value;
+        }
         return Object.keys(result).length ? result : undefined;
       },
-      write: (value) => Object.entries(WIDTHS).map(([field, old]) => [old, Number.isFinite(value?.[field]) ? String(value[field]) : null]),
+      write: (value) =>
+        Object.entries(WIDTHS).map(([field, old]) => [
+          old,
+          Number.isFinite(value?.[field]) ? String(value[field]) : null,
+        ]),
     },
     reading_size: {
       old: () => ["reading-size"],
@@ -88,8 +121,14 @@
     },
     project_list_preferences: {
       old: () => ["project-list-preferences"],
-      read: () => renamed(parse("project-list-preferences"), "hideIcon", "hide_icon"),
-      write: (value) => [["project-list-preferences", asJson(renamed(value, "hide_icon", "hideIcon"))]],
+      read: () =>
+        renamed(parse("project-list-preferences"), "hideIcon", "hide_icon"),
+      write: (value) => [
+        [
+          "project-list-preferences",
+          asJson(renamed(value, "hide_icon", "hideIcon")),
+        ],
+      ],
     },
     project_expanded: {
       old: () => ["project-expanded"],
@@ -124,26 +163,44 @@
     run_console_height: {
       old: () => ["run-console-height"],
       read: () => number("run-console-height"),
-      write: (value) => [["run-console-height", value === null ? null : String(value)]],
+      write: (value) => [
+        ["run-console-height", value === null ? null : String(value)],
+      ],
     },
     workspace_sections: {
       old: () => store.keys(SECTIONS),
       read: () => {
         const result = {};
-        for (const key of store.keys(SECTIONS)) { const value = parse(key); if (value && typeof value === "object") result[key.slice(SECTIONS.length)] = value; }
+        for (const key of store.keys(SECTIONS)) {
+          const value = parse(key);
+          if (value && typeof value === "object")
+            result[key.slice(SECTIONS.length)] = value;
+        }
         return Object.keys(result).length ? result : undefined;
       },
       write: (value) => {
         const next = value || {};
-        const gone = store.keys(SECTIONS).filter((key) => !(key.slice(SECTIONS.length) in next)).map((key) => [key, null]);
-        return [...gone, ...Object.entries(next).map(([name, entry]) => [SECTIONS + name, asJson(entry)])];
+        const gone = store
+          .keys(SECTIONS)
+          .filter((key) => !(key.slice(SECTIONS.length) in next))
+          .map((key) => [key, null]);
+        return [
+          ...gone,
+          ...Object.entries(next).map(([name, entry]) => [
+            SECTIONS + name,
+            asJson(entry),
+          ]),
+        ];
       },
     },
     last_section: { old: () => [], read: () => undefined, write: () => [] },
     visual_markers: { old: () => [], read: () => undefined, write: () => [] },
   };
 
-  const clone = (value) => (value !== null && typeof value === "object" ? JSON.parse(JSON.stringify(value)) : value);
+  const clone = (value) =>
+    value !== null && typeof value === "object"
+      ? JSON.parse(JSON.stringify(value))
+      : value;
 
   let server = false;
   let limits = {};
@@ -165,7 +222,8 @@
   function announce(code) {
     if (noticed.has(code)) return;
     noticed.add(code);
-    if (notice) notice(code); else queuedNotices.push(code);
+    if (notice) notice(code);
+    else queuedNotices.push(code);
   }
 
   function prune(key, value) {
@@ -173,17 +231,26 @@
     if (!cap || value === null || typeof value !== "object") return value;
     if (Array.isArray(value)) return value.slice(-cap);
     const entries = Object.entries(value);
-    return entries.length > cap ? Object.fromEntries(entries.slice(-cap)) : value;
+    return entries.length > cap
+      ? Object.fromEntries(entries.slice(-cap))
+      : value;
   }
 
   function schedule(delay = DEBOUNCE_MS) {
     if (!server || readOnly) return;
     clearTimeout(timer);
-    timer = setTimeout(() => { flush(); }, delay);
+    timer = setTimeout(() => {
+      flush();
+    }, delay);
   }
 
   const encoded = (key) => JSON.stringify(pending[key] ?? null);
-  const dirty = () => Object.keys(pending).filter((key) => encoded(key) !== (baseline[key] ?? "null") && encoded(key) !== inflight[key]);
+  const dirty = () =>
+    Object.keys(pending).filter(
+      (key) =>
+        encoded(key) !== (baseline[key] ?? "null") &&
+        encoded(key) !== inflight[key],
+    );
 
   function drop(key, why) {
     console.warn("ui-state: dropped " + key + " (" + why + ")");
@@ -193,7 +260,8 @@
 
   function accepted(key, sent) {
     baseline[key] = sent;
-    if (migrating.delete(key) && !CONVERSIONS[key].keep) for (const old of CONVERSIONS[key].old()) store.set(old, null);
+    if (migrating.delete(key) && !CONVERSIONS[key].keep)
+      for (const old of CONVERSIONS[key].old()) store.set(old, null);
   }
 
   async function deliverEach(keys, keepalive) {
@@ -209,12 +277,25 @@
     const sent = {};
     for (const key of keys) sent[key] = prune(key, pending[key] ?? null);
     const payload = JSON.stringify({ values: sent });
-    if (keepalive && keys.length > 1 && new TextEncoder().encode(payload).length > KEEPALIVE_BYTES) return deliverEach(keys, keepalive);
-    if (keepalive) for (const key of keys) inflight[key] = JSON.stringify(sent[key]);
+    if (
+      keepalive &&
+      keys.length > 1 &&
+      new TextEncoder().encode(payload).length > KEEPALIVE_BYTES
+    )
+      return deliverEach(keys, keepalive);
+    if (keepalive)
+      for (const key of keys) inflight[key] = JSON.stringify(sent[key]);
     let response;
     try {
-      response = await fetch(ENDPOINT, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: payload, keepalive });
-    } catch { return "retry"; } finally {
+      response = await fetch(ENDPOINT, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: payload,
+        keepalive,
+      });
+    } catch {
+      return "retry";
+    } finally {
       if (keepalive) for (const key of keys) delete inflight[key];
     }
     if (response.ok) {
@@ -256,7 +337,10 @@
     while (batch.length && server && !readOnly) {
       const result = await deliver(batch, keepalive);
       if (result === "retry") {
-        backoff = Math.min(Math.max(backoff * 2, BACKOFF_MIN_MS), BACKOFF_MAX_MS);
+        backoff = Math.min(
+          Math.max(backoff * 2, BACKOFF_MIN_MS),
+          BACKOFF_MAX_MS,
+        );
         schedule(backoff + Math.random() * backoff * 0.25);
         return;
       }
@@ -270,10 +354,16 @@
     timer = 0;
     if (!server || readOnly) return Promise.resolve();
     if (keepalive) return drain(true); // the page is going away: do not wait for a request in flight
-    if (sending) { again = true; return sending; }
+    if (sending) {
+      again = true;
+      return sending;
+    }
     sending = drain(false).finally(() => {
       sending = null;
-      if (again) { again = false; schedule(0); }
+      if (again) {
+        again = false;
+        schedule(0);
+      }
     });
     return sending;
   }
@@ -284,11 +374,16 @@
     if (!conversion) return false;
     value = value === undefined ? null : clone(value);
     if (!server) {
-      if (value === null) delete memory[key]; else memory[key] = value;
-      return conversion.write(value).map(([old, text]) => store.set(old, text)).every(Boolean);
+      if (value === null) delete memory[key];
+      else memory[key] = value;
+      return conversion
+        .write(value)
+        .map(([old, text]) => store.set(old, text))
+        .every(Boolean);
     }
     value = prune(key, value);
-    if (value === null) delete values[key]; else values[key] = value;
+    if (value === null) delete values[key];
+    else values[key] = value;
     pending[key] = value;
     schedule();
     return true;
@@ -309,13 +404,26 @@
       request.send();
       if (request.status === 200) data = JSON.parse(request.responseText);
     } catch {}
-    if (!data || data.version !== 1 || !data.values || typeof data.values !== "object" || Array.isArray(data.values)) return;
+    if (
+      !data ||
+      data.version !== 1 ||
+      !data.values ||
+      typeof data.values !== "object" ||
+      Array.isArray(data.values)
+    )
+      return;
     server = true;
     readOnly = data.read_only === true;
     limits = data.limits && typeof data.limits === "object" ? data.limits : {};
-    values = Object.fromEntries(Object.entries(data.values).filter(([key]) => key in CONVERSIONS));
-    for (const key of Object.keys(values)) baseline[key] = JSON.stringify(values[key]);
-    if (readOnly) { announce("ui_state_read_only"); return; }
+    values = Object.fromEntries(
+      Object.entries(data.values).filter(([key]) => key in CONVERSIONS),
+    );
+    for (const key of Object.keys(values))
+      baseline[key] = JSON.stringify(values[key]);
+    if (readOnly) {
+      announce("ui_state_read_only");
+      return;
+    }
     for (const [key, conversion] of Object.entries(CONVERSIONS)) {
       if (key in values) continue; // the server wins; the old keys stay untouched
       const old = conversion.read();
@@ -332,22 +440,32 @@
     const theme = window.HarnessTheme;
     const chosen = values.theme;
     if (!server || !theme || !chosen || theme.surface !== "harness") return;
-    if (!theme.themes.some((item) => item.id === chosen) || store.get(theme.key) === chosen) return;
+    if (
+      !theme.themes.some((item) => item.id === chosen) ||
+      store.get(theme.key) === chosen
+    )
+      return;
     theme.apply(chosen, false);
     store.set(theme.key, chosen);
   }
 
   boot();
   reconcileTheme();
-  addEventListener("pagehide", () => { flush({ keepalive: true }); });
-  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") flush({ keepalive: true }); });
+  addEventListener("pagehide", () => {
+    flush({ keepalive: true });
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") flush({ keepalive: true });
+  });
 
   window.HarnessPrefs = {
     get,
     set,
     flush,
     ready: Promise.resolve(),
-    get server() { return server; },
+    get server() {
+      return server;
+    },
     onNotice(callback) {
       notice = callback;
       for (const code of queuedNotices.splice(0)) callback(code);

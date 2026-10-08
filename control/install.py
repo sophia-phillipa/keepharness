@@ -43,7 +43,10 @@ def unit_pid(service=SERVICE):
     try:
         result = subprocess.run(
             ["systemctl", "--user", "show", "-p", "MainPID", "--value", service],
-            capture_output=True, text=True, check=False, timeout=10,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
         )
     except (OSError, subprocess.SubprocessError):
         return None
@@ -139,7 +142,7 @@ exec xdg-open http://127.0.0.1:{port}/
     }
 
 
-BROWSER_ENTRIES = (PRODUCT.slug + '-browser.desktop', PRODUCT.slug + '.desktop')
+BROWSER_ENTRIES = (PRODUCT.slug + "-browser.desktop", PRODUCT.slug + ".desktop")
 
 
 def remove_browser_entry(path, home):
@@ -155,16 +158,16 @@ def remove_browser_entry(path, home):
     except (OSError, UnicodeDecodeError):
         return  # unreadable or not ours: keep it
     expected = {f'Exec="{h}/.local/bin/{PRODUCT.slug}-open"' for h in (home, Path(home).resolve())}
-    execs = [line for line in lines if line.startswith('Exec=')]
-    if len(execs) == 1 and execs[0] in expected and 'Icon=utilities-terminal' in lines:
+    execs = [line for line in lines if line.startswith("Exec=")]
+    if len(execs) == 1 and execs[0] in expected and "Icon=utilities-terminal" in lines:
         path.unlink()
 
 
 def atomic_write(path, content, mode):
     """Replace the entry itself, never follow an existing symlink."""
-    fd, name = tempfile.mkstemp(prefix='.' + path.name + '-', dir=path.parent)
+    fd, name = tempfile.mkstemp(prefix="." + path.name + "-", dir=path.parent)
     try:
-        with os.fdopen(fd, 'w') as stream:
+        with os.fdopen(fd, "w") as stream:
             stream.write(content)
             os.fchmod(stream.fileno(), mode)
         os.replace(name, path)
@@ -196,7 +199,7 @@ def rollback(home, run=subprocess.run):
     for path in files(home, sys.executable):
         path.unlink(missing_ok=True)
     for name in BROWSER_ENTRIES:
-        remove_browser_entry(Path(home) / '.local/share/applications' / name, home)
+        remove_browser_entry(Path(home) / ".local/share/applications" / name, home)
     run(["systemctl", "--user", "daemon-reload"], check=False)
     return rollback_state(home)
 
@@ -210,7 +213,9 @@ def preflight(port):
             "systemd cannot use an environment built here: run ./install.sh in a host terminal, "
             "or `distrobox-host-exec ./install.sh` from this checkout."
         )
-    return port_conflict(port, stopping=LEGACY_SERVICE) or migration_refusal(Path.home(), stopping=True)
+    return port_conflict(port, stopping=LEGACY_SERVICE) or migration_refusal(
+        Path.home(), stopping=True
+    )
 
 
 def roll_back():
@@ -256,7 +261,7 @@ def work_refusal(port):
 def register(args):
     os.umask(0o077)
     remove_legacy_service(Path.home())
-    applications = Path.home() / '.local/share/applications'
+    applications = Path.home() / ".local/share/applications"
     for name in BROWSER_ENTRIES:
         remove_browser_entry(applications / name, Path.home())
     for path, (content, mode) in files(Path.home(), sys.executable, args.port, args.dev).items():
@@ -276,12 +281,16 @@ def main(argv=None):
     parser.add_argument("--port", type=int, default=8094)
     parser.add_argument("--boot", action="store_true", help="Enable linger to start before login")
     parser.add_argument("--dev", action="store_true", help="Record an editable (checkout) install")
-    parser.add_argument("--force", action="store_true", help="Install even with queued or running work")
+    parser.add_argument(
+        "--force", action="store_true", help="Install even with queued or running work"
+    )
     parser.add_argument(
         "--check-only", action="store_true", help="Only check that the install may proceed"
     )
     parser.add_argument(
-        "--rollback-to-0.14", dest="rollback", action="store_true",
+        "--rollback-to-0.14",
+        dest="rollback",
+        action="store_true",
         help="Remove the service and give the state back to Tail Harness 0.14",
     )
     args = parser.parse_args(argv)
@@ -296,10 +305,14 @@ def main(argv=None):
     if refusal := preflight(args.port):
         raise SystemExit(refusal + (" Nothing was stopped or moved." if args.check_only else ""))
     if not args.force and (refusal := work_refusal(args.port)):
-        raise SystemExit(refusal + (
-            " Nothing was stopped or moved." if args.check_only else
-            " The package is installed; the service keeps the old code until it restarts."
-        ))
+        raise SystemExit(
+            refusal
+            + (
+                " Nothing was stopped or moved."
+                if args.check_only
+                else " The package is installed; the service keeps the old code until it restarts."
+            )
+        )
     if args.check_only:
         for old, new in legacy_folders():
             if waits_to_move(new):

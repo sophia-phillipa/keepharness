@@ -1,4 +1,5 @@
 """One identity controls runtime names; state cannot cross product lineages."""
+
 import errno
 import fcntl
 import json
@@ -23,7 +24,9 @@ CURRENT = {"slug": "keepharness", "lineage": "keepharness"}
 
 def test_current_identity_and_paths(tmp_path):
     assert (PRODUCT.name, PRODUCT.slug, PRODUCT.env_prefix) == (
-        "KeepHarness", "keepharness", "KEEPHARNESS"
+        "KeepHarness",
+        "keepharness",
+        "KEEPHARNESS",
     )
     assert PRODUCT.state_path(tmp_path) == tmp_path / ".local/share/keepharness"
     assert PRODUCT.config_path(tmp_path) == tmp_path / ".config/keepharness"
@@ -47,27 +50,39 @@ def test_only_original_identity_adopts_unmarked_existing_state(tmp_path):
 
 def test_lineage_does_not_follow_symlink(tmp_path):
     other = tmp_path / "other"
-    other.write_text('{}')
+    other.write_text("{}")
     (tmp_path / "harness.identity.json").symlink_to(other)
     with pytest.raises(ValueError, match="identity"):
         ensure_lineage(tmp_path)
-    assert other.read_text() == '{}'
+    assert other.read_text() == "{}"
 
 
 def test_changed_slug_cannot_adopt_unmarked_upstream(tmp_path):
-    (tmp_path / 'settings.json').write_text('{}')
-    with pytest.raises(ValueError, match='unmarked'):
-        ensure_lineage(tmp_path, replace(PRODUCT, slug='synthetic-harness'))
+    (tmp_path / "settings.json").write_text("{}")
+    with pytest.raises(ValueError, match="unmarked"):
+        ensure_lineage(tmp_path, replace(PRODUCT, slug="synthetic-harness"))
 
 
 def test_owner_enrollment_rejects_cross_identity(tmp_path, monkeypatch):
     from control import cli
+
     ensure_lineage(tmp_path)
-    (tmp_path / 'runtime.json').write_text(json.dumps({'clients': {'local': {}}, 'state_dir': str(tmp_path / 'runs'), 'port': 8095, 'origins': ['http://127.0.0.1:8095']}))
-    monkeypatch.setattr(cli, 'PRODUCT', replace(PRODUCT, slug='synthetic-harness', lineage='synthetic'))
+    (tmp_path / "runtime.json").write_text(
+        json.dumps(
+            {
+                "clients": {"local": {}},
+                "state_dir": str(tmp_path / "runs"),
+                "port": 8095,
+                "origins": ["http://127.0.0.1:8095"],
+            }
+        )
+    )
+    monkeypatch.setattr(
+        cli, "PRODUCT", replace(PRODUCT, slug="synthetic-harness", lineage="synthetic")
+    )
     with pytest.raises(SystemExit):
-        cli.main(['--state', str(tmp_path), 'approve-device', '--owner', 'local', '--yes'])
-    assert not (tmp_path / 'runs').exists()
+        cli.main(["--state", str(tmp_path), "approve-device", "--owner", "local", "--yes"])
+    assert not (tmp_path / "runs").exists()
 
 
 def closed_port():
@@ -103,16 +118,23 @@ def test_tail_harness_state_and_config_move_to_keepharness_once(tmp_path):
     # The Tail Harness marker stays, so 0.14.0 can still open the state after a rollback.
     assert json.loads((new / "harness.identity.json").read_text()) == LEGACY
     assert json.loads((new / "runtime.json").read_text()) == {
-        "state_dir": str(new / "runs"), "control_state_dir": str(new), "port": port
+        "state_dir": str(new / "runs"),
+        "control_state_dir": str(new),
+        "port": port,
     }
     assert (new / "runtime.json").stat().st_mode & 0o777 == 0o600
     assert not (tmp_path / ".config/tail-harness").exists()
-    assert (PRODUCT.config_path(tmp_path) / "client.json").read_text() == '{"url": "http://vpn:8095"}'
+    assert (
+        PRODUCT.config_path(tmp_path) / "client.json"
+    ).read_text() == '{"url": "http://vpn:8095"}'
     ensure_lineage(new / "runs")
     assert json.loads((new / "runs/harness.identity.json").read_text()) == LEGACY
     migrate_legacy_state(tmp_path)
     assert sorted(entry.name for entry in new.iterdir()) == [
-        "harness.identity.json", "runs", "runtime.json", "settings.json"
+        "harness.identity.json",
+        "runs",
+        "runtime.json",
+        "settings.json",
     ]
 
 
@@ -120,7 +142,9 @@ def test_unmarked_tail_harness_state_moves_like_marked_state(tmp_path):
     old = legacy_state(tmp_path)
     (old / "harness.identity.json").unlink()
     migrate_legacy_state(tmp_path)
-    assert json.loads((PRODUCT.state_path(tmp_path) / "harness.identity.json").read_text()) == LEGACY
+    assert (
+        json.loads((PRODUCT.state_path(tmp_path) / "harness.identity.json").read_text()) == LEGACY
+    )
 
 
 def test_migration_never_merges_into_an_existing_keepharness_folder(tmp_path, caplog):
@@ -150,7 +174,13 @@ def test_migration_leaves_another_identity_state_alone(tmp_path):
 
 def test_a_fork_never_takes_tail_harness_state(tmp_path):
     old = legacy_state(tmp_path)
-    fork = replace(PRODUCT, slug="synthetic-harness", lineage="synthetic", state_dir=".local/share/synthetic-harness", config_dir=".config/synthetic-harness")
+    fork = replace(
+        PRODUCT,
+        slug="synthetic-harness",
+        lineage="synthetic",
+        state_dir=".local/share/synthetic-harness",
+        config_dir=".config/synthetic-harness",
+    )
     migrate_legacy_state(tmp_path, fork)
     assert old.exists() and not fork.state_path(tmp_path).exists()
     with pytest.raises(ValueError, match="identity"):
@@ -366,7 +396,11 @@ def test_a_target_with_state_next_to_a_bridge_is_never_displaced(tmp_path):
     new = client_bridge(tmp_path, extra=["settings.json"])
     assert migrate_legacy_state(tmp_path) is None
     assert (old / "settings.json").exists()
-    assert sorted(entry.name for entry in new.iterdir()) == ["mcp_bridge.py", "settings.json", "venv"]
+    assert sorted(entry.name for entry in new.iterdir()) == [
+        "mcp_bridge.py",
+        "settings.json",
+        "venv",
+    ]
     assert [p.name for p in new.parent.iterdir() if "bridge-" in p.name] == []
 
 
@@ -399,13 +433,29 @@ def test_a_bridge_target_set_aside_failure_is_a_reason_not_a_crash(tmp_path, mon
 
 def test_the_generated_installer_keeps_the_bridge_out_of_the_state_folder(tmp_path):
     root = Path(product.__file__).resolve().parents[1]
-    for relative in ("pyproject.toml", "agent_service/mcp_bridge.py", "agent_service/index.html", "agent_service/ui.js", "agent_service/tour.js", "agent_service/setup-mcp.sh", "control/index.html", "control/admin.js", "harness_ui/assets/theme.js"):
+    for relative in (
+        "pyproject.toml",
+        "agent_service/mcp_bridge.py",
+        "agent_service/index.html",
+        "agent_service/ui.js",
+        "agent_service/tour.js",
+        "agent_service/setup-mcp.sh",
+        "control/index.html",
+        "control/admin.js",
+        "harness_ui/assets/theme.js",
+    ):
         (tmp_path / relative).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / relative).write_text((root / relative).read_text())
     script = tmp_path / "agent_service/setup-mcp.sh"
     product.generate(tmp_path, PRODUCT)
     assert script.read_text() == (root / "agent_service/setup-mcp.sh").read_text()
-    fork = replace(PRODUCT, slug="synthetic-harness", lineage="synthetic", state_dir=".local/share/synthetic-harness", config_dir=".config/synthetic-harness")
+    fork = replace(
+        PRODUCT,
+        slug="synthetic-harness",
+        lineage="synthetic",
+        state_dir=".local/share/synthetic-harness",
+        config_dir=".config/synthetic-harness",
+    )
     product.generate(tmp_path, fork)
     assert "TH_PRODUCT_BRIDGE=.local/share/synthetic-harness-mcp\n" in script.read_text()
     assert "TH_PRODUCT_STATE" not in script.read_text()
@@ -414,7 +464,17 @@ def test_the_generated_installer_keeps_the_bridge_out_of_the_state_folder(tmp_pa
 def test_generating_unchanged_assets_writes_nothing(tmp_path):
     """A read-only checkout still builds: the build backend regenerates only what differs."""
     root = Path(product.__file__).resolve().parents[1]
-    names = ("pyproject.toml", "agent_service/mcp_bridge.py", "agent_service/index.html", "agent_service/ui.js", "agent_service/tour.js", "agent_service/setup-mcp.sh", "control/index.html", "control/admin.js", "harness_ui/assets/theme.js")
+    names = (
+        "pyproject.toml",
+        "agent_service/mcp_bridge.py",
+        "agent_service/index.html",
+        "agent_service/ui.js",
+        "agent_service/tour.js",
+        "agent_service/setup-mcp.sh",
+        "control/index.html",
+        "control/admin.js",
+        "harness_ui/assets/theme.js",
+    )
     for relative in names:
         (tmp_path / relative).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / relative).write_text((root / relative).read_text())

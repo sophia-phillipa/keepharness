@@ -24,7 +24,12 @@ const assert = require("node:assert/strict"),
         if (p === "/v1/models")
           data = {
             models: [
-              { id: "fixture", backend: "local", execution_modes: ["scoped"], efforts: ["configured"] },
+              {
+                id: "fixture",
+                backend: "local",
+                execution_modes: ["scoped"],
+                efforts: ["configured"],
+              },
             ],
           };
         if (p === "/v1/conversations") data = { conversations: [] };
@@ -88,7 +93,9 @@ const assert = require("node:assert/strict"),
       });
     });
     page.on("pageerror", (e) => errors.push(e.message));
-    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
+    await page.addInitScript(() =>
+      localStorage.setItem("keepharness-tour-seen", "0.16.0"),
+    );
     await page.goto("http://composer.test");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     await page.evaluate(() => {
@@ -173,7 +180,12 @@ const assert = require("node:assert/strict"),
         if (p === "/v1/models")
           data = {
             models: [
-              { id: "fixture", backend: "local", execution_modes: ["scoped"], efforts: ["configured"] },
+              {
+                id: "fixture",
+                backend: "local",
+                execution_modes: ["scoped"],
+                efforts: ["configured"],
+              },
             ],
           };
         if (p === "/v1/conversations") data = { conversations: [] };
@@ -207,7 +219,9 @@ const assert = require("node:assert/strict"),
             : "text/html",
       });
     });
-    await race.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
+    await race.addInitScript(() =>
+      localStorage.setItem("keepharness-tour-seen", "0.16.0"),
+    );
     await race.goto("http://race.test");
     await race.locator("#startup-gate").waitFor({ state: "hidden" });
     await race.fill("#prompt", "First");

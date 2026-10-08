@@ -57,7 +57,9 @@ const assert = require("node:assert/strict");
       if (path === "/v1/conversations") data = { conversations: [] };
       return r.fulfill({ json: data });
     });
-    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
+    await page.addInitScript(() =>
+      localStorage.setItem("keepharness-tour-seen", "0.16.0"),
+    );
     await page.goto(process.env.HARNESS_URL || "http://127.0.0.1:8095/");
     await page.selectOption("#model", "gpt-5.6-sol");
     await page.waitForFunction(() =>
@@ -98,7 +100,9 @@ const assert = require("node:assert/strict");
       has: page.getByRole("button", { name: "Work project", exact: true }),
     });
     if (!(await work.evaluate((group) => group.open)))
-      await work.getByRole("button", { name: "Work project", exact: true }).click();
+      await work
+        .getByRole("button", { name: "Work project", exact: true })
+        .click();
     await work.locator(".project-new").click();
     assert.equal(
       await page.locator("#prompt").inputValue(),

@@ -418,9 +418,7 @@ def test_missing_list_methods_lock_only_their_kinds(adapter, codex_home):
     assert any("plugin/list" in w for w in snapshot.warnings)
 
 
-def test_a_missing_plugin_list_keeps_local_plugin_skills_read_only(
-    adapter, codex_home, tmp_path
-):
+def test_a_missing_plugin_list_keeps_local_plugin_skills_read_only(adapter, codex_home, tmp_path):
     source = tmp_path / "local-plugin"
     hidden = source / "skills" / ".hidden" / "SKILL.md"
     (codex_home / "config.toml").write_text(USER_CONFIG)
@@ -438,9 +436,7 @@ def test_a_missing_plugin_list_keeps_local_plugin_skills_read_only(
     assert writes(codex_home) == []
 
 
-def test_an_unanswered_app_list_does_not_lock_other_kinds(
-    adapter, codex_home, monkeypatch
-):
+def test_an_unanswered_app_list_does_not_lock_other_kinds(adapter, codex_home, monkeypatch):
     """Codex 0.157.1 can leave app/list unanswered after the other lists succeeded."""
     seed(codex_home)
     reconfigure(codex_home, no_response=["app/list"])
@@ -838,18 +834,14 @@ def test_a_skill_switch_rereads_the_user_layer_right_before_writing(adapter, cod
 
 
 @pytest.mark.parametrize("version", [None, 7, ""])
-def test_a_skill_switch_refuses_a_malformed_user_layer_version(
-    adapter, codex_home, version
-):
+def test_a_skill_switch_refuses_a_malformed_user_layer_version(adapter, codex_home, version):
     seed(codex_home)
     reconfigure(codex_home, user_layer_version=version)
     snapshot = adapter.read_state(None)
     assert f"skill:{REPO_SKILL}" in rows(snapshot)
 
     with pytest.raises(ProviderStateUnsupportedError, match="config was not read"):
-        adapter.set_enabled(
-            f"skill:{REPO_SKILL}", "user", False, snapshot.fingerprint
-        )
+        adapter.set_enabled(f"skill:{REPO_SKILL}", "user", False, snapshot.fingerprint)
 
     assert writes(codex_home) == []
     assert codex_home.joinpath("config.toml").read_text() == USER_CONFIG
