@@ -2989,12 +2989,11 @@ class ConversationService:
         if not cached or cached[0] != self.deepseek_cache_key() or not cached[2]["available"]:
             return {"available": False, "reason": "balance_not_read"}
         _, read_at, result = cached
-        if time.monotonic() - read_at > DEEPSEEK_BALANCE_SECONDS:
-            return {"available": False, "reason": "quota_stale", "checked_at": result["checked_at"]}
+        stale = time.monotonic() - read_at > DEEPSEEK_BALANCE_SECONDS
         first = result["balances"][0]
         return {
             "available": True,
-            "reason": None,
+            "reason": "quota_stale" if stale else None,
             "kind": "balance",
             "checked_at": result["checked_at"],
             "balance": {"amount": first["total"], "currency": first["currency"]},
