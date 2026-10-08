@@ -2,7 +2,8 @@
 /* Plugins page of the admin panel (issue #20): the Codex Settings > Plugins layout over the
    integration catalogs. Classic script sharing admin.js globals ($, element, request, state,
    integrationCatalogs, action, say, providerName, connectorIcon, connectorLabel).
-   Row switches (issue #21, D-041) read and write the CLI's real state through /api/provider-state. */
+   Row switches (issue #21, D-041) read and write the CLI's real state through /api/provider-state;
+   the changes made outside KeepHarness that those reads return go to admin.js (issue #43). */
 (() => {
   const CLIS = ["codex", "claude"]; // the only providers /api/integration-catalog answers for
   // Like every admin button, each chip leads with its own icon on the label's line.
@@ -112,7 +113,6 @@
     status.textContent = text;
     status.hidden = !text;
   }
-  const onOff = (enabled) => (enabled ? "on" : "off");
   const capitalized = (text) => text.charAt(0).toUpperCase() + text.slice(1);
 
   // Writes go through action(), which holds the admin's one-operation lock and ignores a click that
@@ -140,6 +140,8 @@
         const fresh = error.status === 409 && error.body?.snapshot;
         if (fresh) {
           states.set(info.id, { snapshot: fresh });
+          setProviderNotices(info.id, error.body.external_changes);
+          showProviderNotices();
           const now = fresh.items.find((x) => x.id === stateItem.id);
           report(
             where + " changed since this page loaded: " + label + (now ? " is now " + onOff(now.enabled) : " was removed") + ". Try again.",
@@ -169,6 +171,9 @@
     cell.append(node("span", where, "pill"));
     const read = states.get(info.id);
     const stateItem = read?.snapshot?.items.find((x) => x.id === group.item.id);
+    // An item changed outside KeepHarness that nobody dismissed yet carries a marker.
+    if (providerNotices.get(info.id)?.some((notice) => notice.item_id === group.item.id))
+      cell.append(node("span", "Changed outside KeepHarness", "pill plugins-changed", "plugin-changed"));
     const text = !read?.snapshot
       ? where + ": " + (read?.error || "State is not readable here yet.")
       : !stateItem
@@ -313,18 +318,20 @@
   }
 
   // The state of each found CLI, read in parallel: GET takes no admin lock. A failure only affects its provider.
-  function loadStates(clis) {
+  async function loadStates(clis) {
     rowErrors.clear();
-    return Promise.all(
+    await Promise.all(
       clis.map(async ({ id }) => {
         try {
           const body = await request("provider-state?provider=" + id + "&project_id=" + NO_PROJECT);
           states.set(id, body.snapshot ? { snapshot: body.snapshot } : {});
+          setProviderNotices(id, body.external_changes);
         } catch (error) {
           states.set(id, { error: error.message });
         }
       }),
     );
+    showProviderNotices();
   }
 
   async function loadCatalogs(force) {
@@ -369,5 +376,13 @@
     loadCatalogs(false);
   }
   window.addEventListener("hashchange", enter);
+  // A dismissed notice loses its row marker; coming back to the tab re-reads the states (no timers).
+  document.addEventListener("provider-notices", () => view.built && !view.loading && renderList());
+  const reread = () => {
+    if (location.hash === "#plugins" && view.built && !view.loading && !working && document.visibilityState === "visible")
+      loadStates(view.clis).then(render);
+  };
+  window.addEventListener("focus", reread);
+  document.addEventListener("visibilitychange", reread);
   enter();
 })();

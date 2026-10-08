@@ -933,6 +933,94 @@ function connectorIcon(item) {
   else mark.textContent = symbol;
   return mark;
 }
+// Changes made to a provider outside KeepHarness (issue #43, D-041). One store feeds the notices block
+// of the Plugins page and the one of Settings > Providers; customize.js hands over what its reads return.
+const NOTICE_SCOPE = "sem-projeto";
+const providerNotices = new Map(); // provider id -> the Notice list of its last provider-state read
+const toasted = new Set(); // notice ids already announced in this page session (memory only)
+const onOff = (enabled) => (enabled ? "on" : "off");
+function setProviderNotices(provider, list) {
+  providerNotices.set(provider, Array.isArray(list) ? list : []);
+}
+function noticeSentence(provider, notice) {
+  const where = HarnessUI.providerName(provider);
+  const time = new Date(notice.detected_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+  const detail = " (" + notice.source + ", " + time + ").";
+  if (notice.change === "reverted")
+    return "Reverted: " + notice.name + " was turned back " + onOff(notice.after) + " by " + where + detail;
+  const what = { added: "was added", removed: "was removed" }[notice.change] || "was turned " + onOff(notice.after);
+  return where + " › " + notice.name + " " + what + detail;
+}
+const noticeBlocks = () => ["provider-state-notices", "plugins-notices"].map($);
+// Redraws both blocks from the store, toasts the ids not announced yet (one toast per batch) and
+// tells the Plugins list to redraw its row markers.
+function showProviderNotices() {
+  const all = [...providerNotices].flatMap(([provider, list]) => list.map((notice) => ({ provider, notice })));
+  for (const box of noticeBlocks()) {
+    box.hidden = !all.length;
+    if (!all.length) {
+      box.replaceChildren();
+      continue;
+    }
+    const head = element("div", undefined, "provider-notices-head");
+    head.append(element("strong", all.length === 1 ? "Changed outside KeepHarness" : all.length + " changes outside KeepHarness"));
+    for (const [provider, list] of providerNotices) {
+      if (list.length < 2) continue;
+      const dismissAll = element("button", "Dismiss all " + HarnessUI.providerName(provider), "button secondary");
+      dismissAll.dataset.testid = "provider-notice-dismiss-all";
+      dismissAll.onclick = () => ackProviderNotices(provider, list);
+      head.append(dismissAll);
+    }
+    const items = element("ul", undefined, "provider-notices-list");
+    for (const { provider, notice } of all) {
+      const sentence = noticeSentence(provider, notice);
+      const dismiss = element("button", "Dismiss", "button secondary");
+      dismiss.setAttribute("aria-label", "Dismiss: " + sentence);
+      dismiss.onclick = () => ackProviderNotices(provider, [notice]);
+      const li = element("li", undefined, "provider-notice");
+      li.dataset.testid = "provider-notice";
+      li.dataset.noticeId = notice.id;
+      li.dataset.provider = provider;
+      li.append(element("span", sentence), dismiss);
+      items.append(li);
+    }
+    box.replaceChildren(head, items);
+  }
+  const fresh = all.filter(({ notice }) => !toasted.has(notice.id));
+  fresh.forEach(({ notice }) => toasted.add(notice.id));
+  if (fresh.length)
+    HarnessUI.toast(
+      fresh.length === 1
+        ? "Changed outside KeepHarness: " + noticeSentence(fresh[0].provider, fresh[0].notice)
+        : fresh.length + " changes were made outside KeepHarness.",
+    );
+  document.dispatchEvent(new Event("provider-notices"));
+}
+// The server accepts at most 100 ids per call; the rest stay listed and can be dismissed again.
+function ackProviderNotices(provider, notices) {
+  const ids = notices.slice(0, 100).map((notice) => notice.id);
+  return action(async () => {
+    await request("provider-state/notices:ack", { provider, project_id: NOTICE_SCOPE, notice_ids: ids });
+    setProviderNotices(provider, providerNotices.get(provider).filter((notice) => !ids.includes(notice.id)));
+    showProviderNotices();
+    // The Dismiss button is gone: keep the focus on the screen instead of <body>.
+    const heading = document.querySelector("#overview h1");
+    heading.tabIndex = -1;
+    (noticeBlocks().find((box) => !box.hidden && box.offsetParent)?.querySelector("button") || heading).focus();
+  });
+}
+async function refreshProviderNotices() {
+  await Promise.all(
+    ["codex", "claude"].map(async (id) => {
+      try {
+        setProviderNotices(id, (await request("provider-state?provider=" + id + "&project_id=" + NOTICE_SCOPE)).external_changes);
+      } catch {
+        // A CLI that is missing or unreadable has nothing to announce here; its own screens say why.
+      }
+    }),
+  );
+  showProviderNotices();
+}
 function renderDashboard() {
   const configured = visibleProviders().filter((i) => {
     const s = state.settings.services[i.id];
@@ -1836,11 +1924,20 @@ providerDialog.addEventListener("cancel", (event) => {
   event.preventDefault();
   if (!working) $("wizard-cancel").click();
 });
+const onProviders = () => location.hash === "#providers";
 window.addEventListener("hashchange", () => {
   renderPanel();
   refreshDashboard();
+  if (onProviders()) refreshProviderNotices();
 });
+// Coming back to the tab re-reads the notices (no timers); an operation in flight keeps its screen.
+const rereadNotices = () => {
+  if (onProviders() && !working && document.visibilityState === "visible") refreshProviderNotices();
+};
+window.addEventListener("focus", rereadNotices);
+document.addEventListener("visibilitychange", rereadNotices);
 renderPanel();
+if (onProviders()) refreshProviderNotices();
 const busyStatus = element("div");
 busyStatus.id = "busy-status";
 busyStatus.hidden = true;

@@ -1691,6 +1691,16 @@ html[data-embedded] #main { max-width: none; margin: 0; padding-inline: 24px; }
 .plugins-provider { display: inline-flex; align-items: center; gap: 8px; }
 .plugins-row-text .plugins-row-note { font-size: 12px; }
 .plugins-status { white-space: pre-line; overflow-wrap: anywhere; }
+/* Changes made to a provider outside KeepHarness (issue #43): the Plugins page and Settings > Providers. */
+.provider-notices { display: grid; gap: 8px; margin-block: 0 16px; padding: 12px 14px; border: 1px solid var(--th-border); border-radius: 8px; background: var(--th-soft); }
+.provider-notices[hidden] { display: none; }
+.provider-notices-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.provider-notices-head strong { margin-inline-end: auto; }
+.provider-notices-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.provider-notice { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.provider-notice > span { min-width: 0; overflow-wrap: anywhere; }
+.provider-notice .button, .provider-notices-head .button { flex: none; }
+.plugins-changed { color: var(--th-accent); }
 .plugins-row-menu { position: relative; }
 .plugins-more {
   width: 32px; height: 32px; border: 0; border-radius: 9999px; cursor: pointer;
