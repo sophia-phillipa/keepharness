@@ -50,6 +50,8 @@ const events = [
   // The server caps a target at 160 code points; the title must not cut an emoji in half.
   { id: 25, type: "tool_start", data: { tool: "Grep", tool_id: "t-8", target: "\u{1F642}".repeat(160) } },
   { id: 26, type: "tool_end", data: { tool: "Grep", tool_id: "t-8", status: "completed" } },
+  { id: 27, type: "provider_warning", data: { backend: "codex", code: "hooks_pending_review", message: "Codex hooks pending review. Review them in the Codex CLI. <img src=x onerror=alert(3)>" } },
+  { id: 28, type: "provider_warning", data: { backend: "claude", code: "provider_version_untested", message: "Claude 3.0.0 is outside the tested range >=2.1.292,<2.2." } },
   { id: 24, type: "answer_delta", data: { text: "Alpha." } },
   { id: 25, type: "completed", data: {} },
 ];
@@ -139,6 +141,8 @@ const events = [
     await steps.locator("summary").click();
     await steps.locator("li").first().waitFor();
     const text = await steps.innerText();
+    assert.match(text, /Codex hooks pending review\. Review them in the Codex CLI\./, "the owner sees the hook-review notice");
+    assert.match(text, /Claude 3\.0\.0 is outside the tested range >=2\.1\.292,<2\.2\./, "the owner sees version drift");
     assert.match(text, /Ran read_file/);
     assert.match(text, /Ran list_dir/, "an MCP tool is named by its last segment");
     assert.equal(text.match(/Ran tool/g)?.length, 2, "an odd name and a protocol type (fileChange) read as the generic step");

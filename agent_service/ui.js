@@ -3872,6 +3872,8 @@ function activityTitle(e) {
     data.backend,
   );
   if (condition) return condition.title;
+  if (type === "provider_warning")
+    return data.message || "Provider warning";
   if (type === "hook_scope") {
     return {
       disabled: "Hooks disabled for this run",
