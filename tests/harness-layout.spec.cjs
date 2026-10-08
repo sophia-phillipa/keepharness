@@ -1,3 +1,4 @@
+const { executionModes } = require("./model-fixture.cjs");
 async function openModelGroup(page, id) {
   const group = page
     .locator("#model-menu details")
@@ -83,18 +84,21 @@ const path = require("node:path");
                 id: "gpt-6-astra",
                 name: "GPT-6 Astra",
                 backend: "codex",
+                execution_modes: executionModes("codex"),
                 efforts: ["low", "medium", "high"],
               },
               {
                 id: "local-long",
                 name: "Local model with a very long name for testing",
                 backend: "local",
+                execution_modes: executionModes("local"),
                 efforts: ["low"],
               },
               {
                 id: "claude-opus-5",
                 name: "Claude Opus 5",
                 backend: "claude",
+                execution_modes: executionModes("claude"),
                 efforts: [
                   "configured",
                   "low",
@@ -170,7 +174,7 @@ const path = require("node:path");
     assert.equal(await page.locator("#task-section,#task-label").count(), 0);
     assert.equal(
       await page.locator("#conversation-search").getAttribute("placeholder"),
-      "Type a run or loaded file…",
+      "Type a command, setting, run, or file…",
     );
     assert.equal(
       Math.round((await page.locator("#sidebar").boundingBox()).width),

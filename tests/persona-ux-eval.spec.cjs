@@ -1,3 +1,4 @@
+const { executionModes } = require("./model-fixture.cjs");
 async function openModelGroup(page, id) {
   const group = page
     .locator("#model-menu details")
@@ -550,22 +551,32 @@ test(5, "Disabled uploads make no requests", async (p, s) => {
 });
 test(
   5,
-  "Switch providers and agents in the same session, continue and reload",
+  "Switch compatible providers in one session, reject Local handoff, continue and reload",
   async (p, s) => {
     s.extended = true;
     await p.reload();
     await p.locator("#startup-gate").waitFor({ state: "hidden" });
     const choices = [
-      ["qwen-local", "local"],
+      ["gpt-6-astra", "codex"],
       ["deepseek-flash", "deepseek"],
       ["gpt-6-astra", "codex"],
       ["gpt-5.6-terra", "codex"],
       ["claude-sonnet-4-6", "claude"],
       ["gemini-test", "gemini"],
-      ["maestro-test", "maestro"],
-      ["qwen-local", "local"],
+      ["deepseek-flash", "deepseek"],
+      ["gpt-6-astra", "codex"],
     ];
     for (const [i, [model, backend]] of choices.entries()) {
+      if (i === 1) {
+        // Local cannot change an existing native conversation to scoped mode.
+        await p.selectOption("#model", "qwen-local");
+        await p.fill("#prompt", "Preserve incompatible handoff draft");
+        assert(await p.locator("#send").isDisabled());
+        await p.keyboard.press("Enter");
+        assert.equal(s.posts.length, 1);
+        assert.equal(await p.inputValue("#prompt"), "Preserve incompatible handoff draft");
+        assert.equal(await p.evaluate(() => parent), "eval-job");
+      }
       await p.click("#model-trigger");
       await openModelGroup(p, model);
       await p.locator('#model-menu [data-value="' + model + '"]').click();
@@ -633,12 +644,14 @@ test(5, "A query limit does not simulate a disconnection", async (p, s) => {
           id: "qwen-local",
           name: "Qwen local",
           backend: "local",
+          execution_modes: executionModes("local"),
           efforts: ["low", "high"],
         },
         {
           id: "deepseek-flash",
           name: "DeepSeek",
           backend: "deepseek",
+          execution_modes: executionModes("deepseek"),
           efforts: ["low", "high"],
         },
       ];
@@ -699,27 +712,26 @@ test(5, "A query limit does not simulate a disconnection", async (p, s) => {
                           {
                             id: "gpt-6-astra",
                             backend: "codex",
+                            execution_modes: executionModes("codex"),
                             efforts: ["low"],
                           },
                           {
                             id: "gpt-5.6-terra",
                             backend: "codex",
+                            execution_modes: executionModes("codex"),
                             efforts: ["medium"],
                           },
                           {
                             id: "claude-sonnet-4-6",
                             backend: "claude",
+                            execution_modes: executionModes("claude"),
                             efforts: ["low"],
                           },
                           {
                             id: "gemini-test",
                             backend: "gemini",
+                            execution_modes: executionModes("gemini"),
                             efforts: ["low"],
-                          },
-                          {
-                            id: "maestro-test",
-                            backend: "maestro",
-                            efforts: ["auto"],
                           },
                         ]
                       : []),
@@ -733,7 +745,6 @@ test(5, "A query limit does not simulate a disconnection", async (p, s) => {
                 codex: true,
                 claude: true,
                 gemini: true,
-                maestro: true,
               },
               uploads_enabled: !!s.allowUploads,
             };
@@ -791,7 +802,7 @@ test(5, "A query limit does not simulate a disconnection", async (p, s) => {
             if (s.running) data.result = null;
           }
           if (q === "/v1/conversations/eval-job")
-            data = { title: "Evaluation session", turns: s.turns };
+            data = { title: "Evaluation session", execution_mode: s.turns[0]?.request.execution_mode, turns: s.turns };
           if (q.endsWith("/events"))
             return r.fulfill({ body: "", contentType: "text/event-stream" });
           return r.fulfill({ json: data });

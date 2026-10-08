@@ -1,3 +1,4 @@
+const { executionModes } = require("./model-fixture.cjs");
 // Seven simulated profiles. Browser/API fixtures, no live login or inference.
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
 const assert = require("node:assert/strict"),
@@ -110,6 +111,7 @@ const assert = require("node:assert/strict"),
               {
                 id: "claude-sonnet-4-6",
                 backend: "claude",
+                execution_modes: executionModes("claude"),
                 efforts: ["configured"],
                 permissions: {},
               },
@@ -156,7 +158,7 @@ const assert = require("node:assert/strict"),
         if (q.startsWith("/v1/jobs/") && !q.endsWith("/events"))
           data = turns.find((t) => t.id === q.split("/").at(-1)) || {};
         if (q === "/v1/conversations/turn-1")
-          data = { title: "Renewal", turns };
+          data = { title: "Renewal", execution_mode: "native", turns };
         if (q.endsWith("/events"))
           return route.fulfill({ body: "", contentType: "text/event-stream" });
         return route.fulfill({ json: data });
