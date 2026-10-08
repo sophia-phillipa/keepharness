@@ -2948,6 +2948,8 @@ function syncExecutionMode() {
   warning.textContent =
     started && executionMode == null
       ? "The historical execution mode is unavailable. Start a new native conversation to continue."
+      : isolated && ["codex", "claude"].includes(selected()?.backend) && modes.length === 1 && modes[0] === "native"
+      ? "This saved isolated mode is no longer supported. Start a new conversation to use native mode."
       : modes.length === 1 && modes.includes(executionMode)
       ? isolated
         ? "This model requires isolation."
@@ -2988,7 +2990,7 @@ $("header-execution-mode").onclick = () => {
       "Conversation mode is fixed after the first message. Start a new conversation to change it.",
     );
 };
-function newConversation(title = "New Conversation", projectId = $("project").value) {
+function newConversation(title = "New Conversation", projectId = $("project").value, { resetExecutionMode = false } = {}) {
   if (submitting || cancelling || loading || uploads) {
     status(
       "Wait for the current send to finish before starting another conversation.",
@@ -3026,8 +3028,9 @@ function newConversation(title = "New Conversation", projectId = $("project").va
   last = 0;
   parent = null;
   conversation = "";
-  executionMode = "native";
-  executionModeChosen = false;
+  if (resetExecutionMode) executionMode = "native";
+  // Automatic transitions must keep the retained mode, even across model refreshes.
+  executionModeChosen = !resetExecutionMode;
   renderConversationHeader();
   $("access-mode").value = "ask";
   syncAccessMode();
@@ -3039,8 +3042,9 @@ function newConversation(title = "New Conversation", projectId = $("project").va
   bindSuggestions();
   modelAvailability();
   $("prompt").value = draft;
-  if (newDraft?.draft || newDraft?.files?.length) restoreView(newDraft, true);
-  else if (carriedDraft) restoreView(carriedDraft, true);
+  const modeAction = resetExecutionMode ? "reset" : "preserve";
+  if (newDraft?.draft || newDraft?.files?.length) restoreView(newDraft, modeAction);
+  else if (carriedDraft) restoreView(carriedDraft, modeAction);
   updateComposer();
   saveView();
   $("context-meter").textContent = "New conversation · independent context";
@@ -3439,7 +3443,7 @@ function renderProjects() {
             );
             return;
           }
-          newConversation("New Conversation in project " + o.textContent, o.value);
+          newConversation("New Conversation in project " + o.textContent, o.value, { resetExecutionMode: true });
           expandedProjects.set(o.value, true);
           renderProjects();
           closeSidebar();
@@ -6062,7 +6066,7 @@ $("cancel").onclick = async () => {
   }
 };
 $("new").onclick = () => void navigate({ kind: "home" });
-function startNewConversation() {
+function startNewConversation(resetExecutionMode = false) {
   const loose = Array.from($("project").options).some(
     (o) => o.value === "sem-projeto",
   );
@@ -6072,6 +6076,7 @@ function startNewConversation() {
       : "New Conversation in project " +
           $("project").selectedOptions[0]?.textContent,
     loose ? "sem-projeto" : $("project").value,
+    { resetExecutionMode },
   );
   renderProjects();
   history();
@@ -6271,7 +6276,7 @@ $("files-new-chat").onclick = async () => {
   const selection = { root_id: fileTree.rootId, paths: [...fileTree.selected] },
     previous = conversation;
   if (!selection.paths.length) return;
-  newConversation();
+  newConversation(undefined, undefined, { resetExecutionMode: true });
   if (previous && conversation === previous) return;
   await attachSelectedProjectFiles(selection);
   $("prompt").focus({ preventScroll: true });
@@ -7193,7 +7198,7 @@ $("models-retry").onclick = async () => {
 };
 initialize();
 
-function restoreView(saved, resetExecutionMode = false) {
+function restoreView(saved, executionModeAction = "restore") {
   if (
     saved.project === $("project").value &&
     models.some((m) => m.id === saved.composer_selection?.model)
@@ -7207,11 +7212,11 @@ function restoreView(saved, resetExecutionMode = false) {
     )
       $("effort").value = saved.composer_selection.effort;
   }
-  if (resetExecutionMode) {
+  if (executionModeAction === "reset") {
     const modes = supportedExecutionModes();
     executionMode = modes.includes("native") ? "native" : modes[0] || null;
     executionModeChosen = false;
-  } else if (!conversation && ["native", "scoped"].includes(saved.execution_mode)) {
+  } else if (executionModeAction === "restore" && !conversation && ["native", "scoped"].includes(saved.execution_mode)) {
     executionMode = saved.execution_mode;
     executionModeChosen = saved.execution_mode_chosen !== false;
   }
@@ -8286,7 +8291,7 @@ async function applyView(view, replay = false) {
     if (conversation !== view.id) return false;
   } else if (view.kind === "home") {
     // A click on New chat always starts a fresh one; a replayed Home only leaves the conversation.
-    if (conversation || !replay) startNewConversation();
+    if (conversation || !replay) startNewConversation(!replay);
   } else if (view.kind === "space") await openSpace();
   else if (view.kind === "scheduled") await openScheduled();
   else {
@@ -8600,7 +8605,7 @@ async function usePage(startChat) {
     title = $("page-title").value.trim() || "Untitled",
     file = pageFile(title, $("page-body").value);
   $("space-dialog").close();
-  if (startChat) newConversation(title, project);
+  if (startChat) newConversation(title, project, { resetExecutionMode: true });
   await refreshProjectPermissions();
   await upload([file]);
   $("prompt").focus({ preventScroll: true });
