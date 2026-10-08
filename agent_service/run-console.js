@@ -633,15 +633,11 @@
     const scrollLeft = oldViewport?.scrollLeft || 0;
     const tableScrollTop = oldViewport?.scrollTop || 0;
     const scrollTop = body.scrollTop;
-    const toolbar = el('div', null, 'run-console-controls');
-    toolbar.append(field('Search logs', logSearch), field('Event type', logType), field('Log order', logOrder));
     const table = el('table', null, 'run-table run-log-list');
     const head = el('thead'), titles = el('tr'), list = el('tbody');
     for (const title of ['Date / time', 'Sequence', 'Type', 'Details']) titles.append(el('th', title));
     head.append(titles); table.append(head, list);
-    const viewport = el('div', null, 'run-log-scroll');
-    viewport.tabIndex = 0; viewport.setAttribute('role', 'region'); viewport.setAttribute('aria-label', 'Log table');
-    viewport.append(table);
+    const viewport = oldViewport || el('div', null, 'run-log-scroll');
     const search = logSearch.value.toLowerCase();
     for (const event of [...state.logs].sort((a, b) => logOrder.value === 'oldest' ? a.id - b.id : b.id - a.id)) {
       const text = `${event.id} · ${event.type} · ${JSON.stringify(event.data)}`;
@@ -655,9 +651,20 @@
       row.append(cell, el('td', String(event.id)), el('td', event.type), el('td', JSON.stringify(event.data)));
       list.append(row);
     }
-    const more = button(state.logLoading ? 'Loading events…' : 'Load more events', () => loadLogs());
+    // Keep the focused scroll region attached when live events arrive.
+    if (!oldViewport) {
+      const toolbar = el('div', null, 'run-console-controls');
+      toolbar.append(field('Search logs', logSearch), field('Event type', logType), field('Log order', logOrder));
+      viewport.tabIndex = 0; viewport.setAttribute('role', 'region'); viewport.setAttribute('aria-label', 'Log table');
+      const more = button('Load more events', () => loadLogs());
+      more.classList.add('run-log-more');
+      body.replaceChildren(toolbar, el('p', '', 'run-log-count'), viewport, more);
+    }
+    viewport.replaceChildren(table);
+    body.querySelector('.run-log-count').textContent = `${state.logs.length} events loaded · search applies to loaded events`;
+    const more = body.querySelector('.run-log-more');
+    more.textContent = state.logLoading ? 'Loading events…' : 'Load more events';
     more.disabled = !state.run || state.logLoading || !state.more;
-    body.replaceChildren(toolbar, el('p', `${state.logs.length} events loaded · search applies to loaded events`), viewport, more);
     restoringLogFocus = true;
     (focusedControl || (viewportFocused ? viewport : null))?.focus({ preventScroll: true });
     viewport.scrollLeft = scrollLeft;
