@@ -17,6 +17,7 @@ from adapters.gemini import backend as gemini
 from agent_service.app import Service
 from agent_service.services.queue_worker import provider_condition
 from agent_service.tools import ToolError
+from tests.deepseek_fixtures import SAFE_CONFIG
 
 
 async def approve(*_args):
@@ -296,6 +297,8 @@ def fake_codex(tmp_path, resume_error):
         "    if method == 'thread/resume':\n"
         "        emit({'id': ident, 'error': {'code': -32600,\n"
         f"            'message': {resume_error!r} + request['params']['threadId']}}}})\n"
+        "    elif method == 'config/read':\n"
+        f"        emit({{'id': ident, 'result': {SAFE_CONFIG!r}}})\n"
         "    elif method == 'thread/start':\n"
         "        emit({'id': ident, 'result': {'thread': {'id': 'new-thread'}}})\n"
         "    elif method == 'turn/start':\n"
@@ -333,6 +336,8 @@ def run_codex(executable, session, provider, tmp_path):
     if provider == "deepseek":  # DeepSeek runs on the same Codex app-server transport.
         key = tmp_path / "deepseek.key"
         key.write_text("fixture-key")
+        (key.parent / "providers" / "deepseek").mkdir(mode=0o700, parents=True, exist_ok=True)
+        (key.parent / "providers" / "home").mkdir(mode=0o700, parents=True, exist_ok=True)
         config["api_provider"] = {"url": "http://127.0.0.1:9/v1", "key_file": str(key)}
     return asyncio.run(
         adapters.run_native(

@@ -6,6 +6,7 @@ import os
 import re
 import time
 import tomllib
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -41,6 +42,7 @@ class RuntimeOptions:
     session_metadata: dict = field(default_factory=dict)
     thread_instructions: dict = field(default_factory=dict)
     developer_instructions: str = ""
+    check_configuration: Callable[[object, Path], Awaitable[None]] | None = None
 
 
 def build_command(binary, permissions, hosted_search=True, *, host_config=True):
@@ -365,6 +367,8 @@ async def run_turn(
         provider=provider,
         pass_fds=runtime.pass_fds,
     ) as rpc:
+        if runtime.check_configuration:
+            await runtime.check_configuration(rpc, cwd)
         selected_inputs = await resource_inputs(rpc, project, cwd)
         turn_started = False
         resumable = bool(saved) and (

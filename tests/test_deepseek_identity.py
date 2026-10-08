@@ -9,6 +9,7 @@ import pytest
 
 from adapters import run_native
 from agent_service.tools import ToolError
+from tests.deepseek_fixtures import SAFE_CONFIG
 
 
 @pytest.mark.parametrize(
@@ -81,6 +82,8 @@ def _exercise(tmp_path, saved, *, provider="deepseek", error=None):
 
     class RPC:
         async def call(self, method, params):
+            if method == "config/read":
+                return SAFE_CONFIG
             requests.append((method, params))
             if method == "thread/resume":
                 # Legacy enrichment happens only after successful continuation.
@@ -99,6 +102,8 @@ def _exercise(tmp_path, saved, *, provider="deepseek", error=None):
 
     key = tmp_path / "deepseek.key"
     key.write_text("fixture-only-api-key")
+    (key.parent / "providers" / "deepseek").mkdir(mode=0o700, parents=True, exist_ok=True)
+    (key.parent / "providers" / "home").mkdir(mode=0o700, parents=True, exist_ok=True)
     with (
         patch("adapters.codex.native.connection", connection),
         patch("adapters.codex.native.resource_inputs", AsyncMock(return_value=[])),
