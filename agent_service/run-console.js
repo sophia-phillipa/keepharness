@@ -622,7 +622,7 @@
       if (inbox.open) renderInbox();
     } catch (failure) {
       if (sequence !== state.activitySequence) return;
-      toggleButton.textContent =
+      toggleButton.textContent = toggleButton.title =
         "Activity unavailable · Open run console to retry";
       showError(failure.message);
     }

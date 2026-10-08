@@ -9,8 +9,11 @@ const { mount, run, span } = require("./run-console-fixture.cjs");
     page.on("pageerror", (error) => errors.push(error.message));
     const calls = [];
     let eventCount = 601;
+    let activityDown = false;
     await mount(page, async (url, request) => {
       calls.push(url.pathname + url.search);
+      if (activityDown && url.pathname === "/v1/activity")
+        return { status: 503, json: { detail: "activity down" } };
       if (url.pathname === "/v1/activity")
         return {
           json: {
@@ -262,6 +265,20 @@ const { mount, run, span } = require("./run-console-fixture.cjs");
           p.includes("work_item=CASE-42") &&
           p.includes("project_id=sem-projeto"),
       ),
+    );
+    // A failed activity refresh replaces the count text and the tooltip together.
+    activityDown = true;
+    await page.evaluate(() =>
+      document.dispatchEvent(new CustomEvent("harness:history")),
+    );
+    await page.waitForFunction(() =>
+      document
+        .querySelector("#run-status-toggle")
+        .textContent.includes("Activity unavailable"),
+    );
+    assert.equal(
+      await page.locator("#run-status-toggle").getAttribute("title"),
+      "Activity unavailable · Open run console to retry",
     );
     assert.deepEqual(errors, []);
     console.log(
