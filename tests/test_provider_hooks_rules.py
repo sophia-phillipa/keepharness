@@ -182,10 +182,10 @@ def test_deepseek_read_only_facade_uses_isolated_codex_home(
     assert len(snapshot.items) == 1
     assert snapshot.items[0].name == "DeepSeek instructions"
     assert all(not row.writable for row in snapshot.items)
-    payload = asyncio.run(service.read('deepseek', 'sem-projeto'))
+    payload = asyncio.run(service.read("deepseek", "sem-projeto"))
     assert isinstance(payload, dict)
-    assert payload['snapshot']['provider'] == 'deepseek'
-    assert payload['snapshot']['items'][0]['details']['preview'].startswith('# DeepSeek')
+    assert payload["snapshot"]["provider"] == "deepseek"
+    assert payload["snapshot"]["items"][0]["details"]["preview"].startswith("# DeepSeek")
 
 
 def test_claude_managed_hooks_ignore_user_disable_all(claude):
@@ -261,3 +261,99 @@ def test_codex_untrusted_project_hooks_remain_visible_when_native_list_skips_the
     hook = next(row for row in adapter.read_state(project).items if row.kind == "hook")
     assert hook.scope == "project" and not hook.enabled
     assert hook.details["status"] == "pending project trust"
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "curl --cookie session=private-cookie",
+        "curl -H 'Authorization: Custom private-auth'",
+        'curl --authorization "Custom private-auth"',
+    ],
+)
+def test_hook_command_and_preview_redact_cookie_and_custom_authorization(value):
+    from adapters.shared.orchestration_state import safe_text
+
+    assert "private-cookie" not in safe_text(value)
+    assert "private-auth" not in safe_text(value)
+
+
+def test_oversized_instructions_keep_metadata_and_bounded_preview(claude):
+    adapter, home = claude
+    path = put(home / ".claude/CLAUDE.md", "# Large instructions\n" + "safe content\n" * 30000)
+    row = next(item for item in adapter.read_state(None).items if item.kind == "instructions")
+    assert row.name == "Large instructions"
+    assert row.details["size_bytes"] == path.stat().st_size
+    assert row.details["preview_truncated"] is True
+    assert len(row.details["preview"]) <= 8000
+
+
+def test_codex_execpolicy_disabled_until_project_trust(
+    tmp_path, isolated_provider_homes, monkeypatch
+):
+    import adapters.codex.state as module
+
+    project = tmp_path / "project"
+    put(project / ".codex/rules/custom.rules", 'prefix_rule(pattern=["git"], decision="allow")')
+
+    async def ask(*args, **kwargs):
+        return {
+            "config": {
+                "layers": [
+                    {
+                        "name": {"type": "project", "dotCodexFolder": str(project / ".codex")},
+                        "version": "v1",
+                        "config": {},
+                        "disabledReason": "untrusted",
+                    }
+                ]
+            },
+            "hooks": {"data": []},
+        }, {}
+
+    monkeypatch.setattr(module, "_ask", ask)
+    monkeypatch.setattr(module, "_cli_version", lambda *_: "0.157.1")
+    adapter = CodexStateAdapter()
+    monkeypatch.setattr(adapter, "_binary", lambda: "fake")
+    row = next(
+        item for item in adapter.read_state(project).items if item.source.endswith("custom.rules")
+    )
+    assert row.enabled is False
+    assert row.details["status"] == "pending project trust"
+
+
+def test_codex_untrusted_ancestor_execpolicy_expands_home_display_path(
+    isolated_provider_homes, monkeypatch
+):
+    import adapters.codex.state as module
+
+    ancestor = isolated_provider_homes / "workspace"
+    project = ancestor / "project"
+    project.mkdir(parents=True)
+    put(ancestor / ".codex/rules/ancestor.rules", 'prefix_rule(pattern=["git"], decision="allow")')
+
+    async def ask(*args, **kwargs):
+        return {
+            "config": {
+                "layers": [
+                    {
+                        "name": {"type": "project", "dotCodexFolder": str(ancestor / ".codex")},
+                        "version": "v1",
+                        "config": {},
+                        "disabledReason": "untrusted",
+                    }
+                ]
+            },
+            "hooks": {"data": []},
+        }, {}
+
+    monkeypatch.setattr(module, "_ask", ask)
+    monkeypatch.setattr(module, "_cli_version", lambda *_: "0.157.1")
+    adapter = CodexStateAdapter()
+    monkeypatch.setattr(adapter, "_binary", lambda: "fake")
+    row = next(
+        item for item in adapter.read_state(project).items if item.source.endswith("ancestor.rules")
+    )
+    assert row.source.startswith("~/workspace/")
+    assert row.enabled is False
+    assert row.details["status"] == "pending project trust"

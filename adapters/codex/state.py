@@ -38,7 +38,7 @@ import re
 import shutil
 import subprocess
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from adapters.codex.rpc import RPCError, connection, provider_message
@@ -596,6 +596,25 @@ class CodexStateAdapter:
             .get("config", {})
             .get("project_doc_fallback_filenames", []),
         )
+        blocked_rule_roots = [
+            Path(_name(entry)["dotCodexFolder"]) / "rules"
+            for entry in raw_layers
+            if entry.get("disabledReason")
+            and _name(entry).get("type") == "project"
+            and isinstance(_name(entry).get("dotCodexFolder"), str)
+        ]
+        for index, item in enumerate(instructions.items):
+            source = Path(item.source)
+            if item.source.startswith("~/"):
+                source = instructions.home / item.source[2:]
+            elif not source.is_absolute() and project_root:
+                source = Path(project_root) / source
+            if item.scope == "project" and any(
+                source.is_relative_to(folder) for folder in blocked_rule_roots
+            ):
+                instructions.items[index] = replace(
+                    item, enabled=False, details={**item.details, "status": "pending project trust"}
+                )
         items.extend(instructions.items)
         warnings.extend(instructions.warnings)
         digest.update(instructions.digest().encode())

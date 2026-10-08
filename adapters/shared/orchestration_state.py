@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import os
 import re
 from pathlib import Path
 
@@ -12,14 +13,16 @@ MAX_BYTES = 256 * 1024
 PREVIEW_CHARS = 8000
 _SECRET = re.compile(r"token|secret|password|passwd|cookie|api.?key|authorization|credential", re.I)
 _ASSIGNMENT = re.compile(
-    r"""(?i)((?:[\w-]*(?:token|secret|password|passwd|api[_-]?key|credential)[\w-]*)["']?\s*(?:[:=]|\s)\s*)("[^"\n]*"|'[^'\n]*'|[^\s,;]+)"""
+    r"""(?i)((?:[\w-]*(?:token|secret|password|passwd|cookie|authorization|api[_-]?key|credential)[\w-]*)["']?\s*(?:[:=]|\s)\s*)("[^"\n]*"|'[^'\n]*'|[^\s,;]+)"""
 )
+_HEADER = re.compile(r"""(?i)((?:authorization|cookie)\s*:\s*)[^'"\r\n]+""")
 _BEARER = re.compile(r'(?i)\b(Bearer|Basic)\s+[^\s"\'<>]+')
 _URL_AUTH = re.compile(r"(https?://)[^/\s:@]+:[^/\s@]+@", re.I)
 
 
 def safe_text(value):
     text = _URL_AUTH.sub(r"\1[REDACTED]@", str(value))
+    text = _HEADER.sub(r"\1[REDACTED]", text)
     text = _ASSIGNMENT.sub(r"\1[REDACTED]", text)
     return redact(_BEARER.sub(r"\1 [REDACTED]", text))[:PREVIEW_CHARS]
 
@@ -107,6 +110,8 @@ class InstructionReader:
         self.warnings = []
         self.items = []
         self.visited = set()
+        self.sizes = {}
+        self.versions = {}
 
     def shown(self, path):
         path = Path(path)
@@ -131,6 +136,7 @@ class InstructionReader:
         try:
             with path.open("rb") as stream:
                 raw = stream.read(MAX_BYTES + 1)
+                info = os.fstat(stream.fileno())
         except (FileNotFoundError, NotADirectoryError):
             self.parts.append((str(path), "missing"))
             return None
@@ -138,10 +144,16 @@ class InstructionReader:
             self.warnings.append(f"{self.shown(path)}: source unreadable.")
             self.parts.append((str(path), "unreadable"))
             return None
-        self.parts.append((str(path), hashlib.sha256(raw).hexdigest()))
+        self.sizes[path] = info.st_size
+        version = hashlib.sha256(raw).hexdigest()
         if len(raw) > MAX_BYTES:
             self.warnings.append(f"{self.shown(path)}: source exceeds the preview limit.")
-            return None
+            # For a bounded prefix, include stat metadata to detect changes beyond the preview.
+            version = hashlib.sha256(
+                f"{version}:{info.st_size}:{info.st_mtime_ns}".encode()
+            ).hexdigest()
+        self.versions[path] = version
+        self.parts.append((str(path), version))
         return raw
 
     def document(
@@ -162,11 +174,11 @@ class InstructionReader:
         )
         details = {
             "title": safe_text(title),
-            "size_bytes": len(raw),
+            "size_bytes": self.sizes[path],
             "preview": safe_text(text),
             "preview_truncated": len(text) > PREVIEW_CHARS,
             "status": status,
-            "content_sha256": hashlib.sha256(raw).hexdigest(),
+            "content_sha256": self.versions[path],
         }
         if imported_from:
             details["imported_from"] = imported_from
