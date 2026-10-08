@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, fix/ci-green-v016]
   pull_request:
   schedule:
     - cron: "23 6 * * 1"
