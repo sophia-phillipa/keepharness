@@ -199,6 +199,8 @@ class _Reading:
         self.parsed = 0
 
     def warn(self, message: str) -> None:
+        if message in self.warnings:
+            return
         self.warnings.append(message)
         logger.debug("claude state: %s", message)
 
@@ -335,9 +337,33 @@ class ClaudeStateAdapter:
                     extra={"disableAllHooks": layer_disabled},
                 )
             )
-        instructions = claude_instructions(reading.home, self._config_dir(), root, self.managed_dir)
+        self._instruction_mode = self._claude_instruction_mode(layers, version)
+        instructions = claude_instructions(
+            reading.home,
+            self._config_dir(),
+            root,
+            self.managed_dir,
+            instruction_mode=self._instruction_mode,
+        )
+        items.extend(
+            self._plugin_hook_items(
+                self._plugin_items(active_layers, reading),
+                layers,
+                instructions,
+                trusted,
+                disabled,
+                managed_only,
+            )
+        )
         self._orchestration_paths = tuple(instructions.paths)
-        items.extend(instructions.items)
+        items.extend(
+            replace(
+                item, enabled=False, details={**item.details, "status": "pending project trust"}
+            )
+            if not trusted and item.scope in ("project", "local")
+            else item
+            for item in instructions.items
+        )
         reading.parts.extend(instructions.parts)
         reading.warnings.extend(instructions.warnings)
         if reading.attempted and not reading.parsed:
@@ -352,6 +378,144 @@ class ClaudeStateAdapter:
             warnings=tuple(reading.warnings),
         )
         return snapshot, reading
+
+    @staticmethod
+    def _claude_instruction_mode(layers, version):
+        # Builtin AGENTS fallback and these options were verified on 2.1.294.
+        if (_version_tuple(version) or ()) < (2, 1, 294):
+            return "claude-md"
+        aliases = ("cc-plugin-agents-md@builtin", "agents-md@builtin")
+        settings = [layer.data for layer in layers if layer.scope in ("user", "managed")]
+        enabled = next(
+            (
+                mapping[name]
+                for data in settings
+                if isinstance(mapping := data.get("enabledPlugins"), dict)
+                for name in aliases
+                if isinstance(mapping.get(name), bool)
+            ),
+            True,
+        )
+        if not enabled:
+            return "claude-md"
+        modes = {
+            "claude-md-or-agents-md": "or",
+            "claude-md-and-agents-md": "and",
+            "claude-md": "claude-md",
+            "managed-only": "managed-only",
+        }
+        for data in settings:
+            configs = data.get("pluginConfigs", {})
+            for name in aliases:
+                config = configs.get(name) if isinstance(configs, dict) else None
+                options = config.get("options") if isinstance(config, dict) else None
+                mode = options.get("instructionFiles") if isinstance(options, dict) else None
+                if isinstance(mode, str) and mode in modes:
+                    return modes[mode]
+        return "or"
+
+    def _plugin_hook_items(self, plugins, layers, reading, trusted, disabled, managed_only):
+        def load(path):
+            raw = reading.read(path)
+            if raw is None:
+                return None
+            try:
+                value = json.loads(raw)
+            except ValueError:
+                reading.warnings.append(
+                    f"{reading.shown(path)}: plugin hook source is not valid JSON."
+                )
+                return None
+            return value if isinstance(value, dict) else None
+
+        index = load(self._config_dir() / "plugins/installed_plugins.json") or {}
+        installed = index.get("plugins", {})
+        if not isinstance(installed, dict):
+            return []
+        managed_disabled = next(
+            (
+                layer.data["disableAllHooks"]
+                for layer in layers
+                if layer.scope == "managed" and isinstance(layer.data.get("disableAllHooks"), bool)
+            ),
+            False,
+        )
+        items, seen = [], set()
+        for plugin_id, entries in installed.items():
+            plugin = plugins.get(plugin_id)
+            for entry in entries if isinstance(entries, list) else []:
+                install = entry.get("installPath") if isinstance(entry, dict) else None
+                if not isinstance(install, str):
+                    continue
+                root = Path(install)
+                try:
+                    if not root.resolve().is_relative_to(self._config_dir().resolve()):
+                        continue
+                except (OSError, RuntimeError):
+                    continue
+                scope = (
+                    entry.get("scope")
+                    if entry.get("scope") in ("project", "local")
+                    else plugin.scope
+                    if plugin
+                    else "user"
+                )
+                if scope in ("project", "local") and reading.project is None:
+                    continue
+                selected = entry.get("projectPath")
+                if (
+                    scope in ("project", "local")
+                    and isinstance(selected, str)
+                    and Path(selected).resolve() != reading.project.resolve()
+                ):
+                    continue
+                managed = plugin is not None and plugin.scope == "managed" and plugin.enabled
+                blocked = scope in ("project", "local") and not trusted
+                status = (
+                    "pending project trust"
+                    if blocked
+                    else "plugin disabled"
+                    if not plugin or not plugin.enabled
+                    else "disabled by disableAllHooks"
+                    if (managed_disabled if managed else disabled)
+                    else "managed hooks only"
+                    if managed_only and not managed
+                    else "configured"
+                )
+                scope = "managed" if managed and not blocked else scope
+                manifest_path = root / ".claude-plugin/plugin.json"
+                manifest = load(manifest_path) or {}
+                definitions = manifest.get("hooks", [])
+                definitions = definitions if isinstance(definitions, list) else [definitions]
+                sources = [(root / "hooks/hooks.json", None)]
+                for index, definition in enumerate(definitions):
+                    if isinstance(definition, str):
+                        path = root / definition
+                        try:
+                            if path.resolve().is_relative_to(root.resolve()):
+                                sources.append((path, None))
+                        except (OSError, RuntimeError):
+                            continue
+                    elif isinstance(definition, dict):
+                        sources.append((manifest_path, (index, {"hooks": definition})))
+                for path, inline in sources:
+                    shown = reading.shown(path) + (f"#hooks[{inline[0]}]" if inline else "")
+                    if (plugin_id, shown) in seen:
+                        continue
+                    seen.add((plugin_id, shown))
+                    document = inline[1] if inline else load(path)
+                    if document:
+                        items.extend(
+                            hook_items(
+                                document,
+                                shown,
+                                scope,
+                                enabled=status == "configured",
+                                status=status,
+                                extra={"pluginId": plugin_id, "origin": "plugin"},
+                            )
+                        )
+        return items
 
     def _settings_layers(self, reading: _Reading) -> list[_Layer]:
         """Readable settings files, strongest layer first."""
@@ -623,6 +787,7 @@ class ClaudeStateAdapter:
             project_root,
             self.managed_dir,
             read_content=False,
+            instruction_mode=getattr(self, "_instruction_mode", "claude-md"),
         )
         return tuple(
             dict.fromkeys([*paths, *instructions.paths, *getattr(self, "_orchestration_paths", ())])

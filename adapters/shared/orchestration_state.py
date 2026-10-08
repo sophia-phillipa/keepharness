@@ -6,24 +6,56 @@ import os
 import re
 from pathlib import Path
 
+from adapters.shared.private_files import scoped_home_open_read
 from adapters.shared.provider_state import StateItem
 from agent_service.log_config import redact
+from agent_service.tools import ToolError
 
 MAX_BYTES = 256 * 1024
 PREVIEW_CHARS = 8000
 _SECRET = re.compile(r"token|secret|password|passwd|cookie|api.?key|authorization|credential", re.I)
-_ASSIGNMENT = re.compile(
-    r"""(?i)((?:[\w-]*(?:token|secret|password|passwd|cookie|authorization|api[_-]?key|credential)[\w-]*)["']?\s*(?:[:=]|\s)\s*)("[^"\n]*"|'[^'\n]*'|[^\s,;]+)"""
-)
-_HEADER = re.compile(r"""(?i)((?:authorization|cookie)\s*:\s*)[^'"\r\n]+""")
+_FIELD = re.compile(r"""(?<![\w-])(?:--)?([\w-]+)(["']?\s*[:=]\s*|[ \t]+)""")
 _BEARER = re.compile(r'(?i)\b(Bearer|Basic)\s+[^\s"\'<>]+')
 _URL_AUTH = re.compile(r"(https?://)[^/\s:@]+:[^/\s@]+@", re.I)
 
 
+def _redact_fields(text):
+    pieces, cursor = [], 0
+    while match := _FIELD.search(text, cursor):
+        if not _SECRET.search(match.group(1)):
+            pieces.append(text[cursor : match.end()])
+            cursor = match.end()
+            continue
+        start = end = match.end()
+        if ":" in match.group(2):
+            # A credential header can contain spaces and arbitrary authentication schemes.
+            while end < len(text) and text[end] not in "\r\n":
+                end += 1
+        else:
+            quote = None
+            while end < len(text):
+                character = text[end]
+                if character == "\\":
+                    end += 2
+                    continue
+                if quote:
+                    if character == quote:
+                        quote = None
+                elif character in ('"', "'"):
+                    quote = character
+                elif character.isspace() or character in ",;|&()":
+                    break
+                end += 1
+        pieces.extend((text[cursor:start], "[REDACTED]"))
+        cursor = max(end, start)
+    pieces.append(text[cursor:])
+    return "".join(pieces)
+
+
 def safe_text(value):
-    text = _URL_AUTH.sub(r"\1[REDACTED]@", str(value))
-    text = _HEADER.sub(r"\1[REDACTED]", text)
-    text = _ASSIGNMENT.sub(r"\1[REDACTED]", text)
+    text = str(value)[: PREVIEW_CHARS * 2]
+    text = _URL_AUTH.sub(r"\1[REDACTED]@", text)
+    text = _redact_fields(text)
     return redact(_BEARER.sub(r"\1 [REDACTED]", text))[:PREVIEW_CHARS]
 
 
@@ -134,14 +166,18 @@ class InstructionReader:
             self.parts.append((str(path), "symlink"))
             return None
         try:
-            with path.open("rb") as stream:
+            with scoped_home_open_read(path.parent, path.name) as stream:
+                if stream is None:
+                    raise FileNotFoundError
                 raw = stream.read(MAX_BYTES + 1)
                 info = os.fstat(stream.fileno())
         except (FileNotFoundError, NotADirectoryError):
             self.parts.append((str(path), "missing"))
             return None
-        except OSError:
-            self.warnings.append(f"{self.shown(path)}: source unreadable.")
+        except (OSError, ToolError):
+            self.warnings.append(
+                f"{self.shown(path)}: source unreadable or not a private regular file."
+            )
             self.parts.append((str(path), "unreadable"))
             return None
         self.sizes[path] = info.st_size
@@ -219,17 +255,18 @@ class InstructionReader:
                         imports=True,
                         depth=depth + 1,
                         imported_from=self.shown(path),
+                        status=status,
                     )
                 else:
                     self.warnings.append(
                         f"{self.shown(path)}: external import pending CLI approval; not previewed."
                     )
 
-    def rules(self, folder, scope):
+    def rules(self, folder, scope, *, status="configured"):
         folder = Path(folder)
         self.paths.append(folder)
         for path in sorted(folder.rglob("*.md"))[:200]:
-            self.document(path, scope)
+            self.document(path, scope, status=status)
 
     def digest(self):
         return hashlib.sha256(json.dumps(self.parts).encode()).hexdigest()
@@ -242,17 +279,33 @@ def ancestors(project):
     return list(reversed((path, *path.parents)))
 
 
-def claude_instructions(home, config, project, managed, *, read_content=True):
+def claude_instructions(
+    home, config, project, managed, *, read_content=True, instruction_mode="claude-md"
+):
     reader = InstructionReader(home, project, read_content=read_content)
+    status = (
+        "disabled by instructionFiles=managed-only"
+        if instruction_mode == "managed-only"
+        else "configured"
+    )
     reader.document(Path(managed) / "CLAUDE.md", "managed", imports=True)
-    reader.rules(Path(managed) / "rules", "managed")
-    reader.document(Path(config) / "CLAUDE.md", "user", imports=True)
-    reader.rules(Path(config) / "rules", "user")
+    reader.rules(Path(managed) / "rules", "managed", status=status)
+    reader.document(Path(config) / "CLAUDE.md", "user", imports=True, status=status)
+    reader.rules(Path(config) / "rules", "user", status=status)
     for folder in ancestors(project):
-        reader.document(folder / "CLAUDE.md", "project", imports=True)
-        reader.document(folder / ".claude/CLAUDE.md", "project", imports=True)
-        reader.document(folder / "CLAUDE.local.md", "local", imports=True)
-        reader.rules(folder / ".claude/rules", "project")
+        reader.document(folder / "CLAUDE.md", "project", imports=True, status=status)
+        reader.document(folder / ".claude/CLAUDE.md", "project", imports=True, status=status)
+        reader.document(folder / "CLAUDE.local.md", "local", imports=True, status=status)
+        reader.rules(folder / ".claude/rules", "project", status=status)
+    project_memory = any(
+        (folder / name).is_file()
+        for folder in ancestors(project)
+        for name in ("CLAUDE.md", ".claude/CLAUDE.md", "CLAUDE.local.md")
+    )
+    if instruction_mode == "and" or (instruction_mode == "or" and not project_memory):
+        for folder in ancestors(project):
+            reader.document(folder / "AGENTS.md", "project", imports=True)
+            reader.document(folder / ".claude/AGENTS.md", "project", imports=True)
     return reader
 
 
