@@ -39,6 +39,10 @@ def read(service, provider):
     return result
 
 
+def reported_plugin(collection):
+    return {"id": "fixture@local", "source": {"type": "local", "path": str(collection.parent)}}
+
+
 @pytest.mark.parametrize("provider,folder", [("codex", ".codex"), ("claude", ".claude")])
 @pytest.mark.parametrize("failure", ["loop", "unreadable"])
 def test_unavailable_owner_cli_is_scoped_to_its_provider(
@@ -152,6 +156,29 @@ def test_unavailable_shared_home_does_not_abort_panel(owner, tmp_path, monkeypat
             broken.chmod(0o700)
 
 
+@pytest.mark.parametrize("location", ["inside_home", "ancestor_named_skills"])
+def test_codex_known_project_collections_preserve_visible_skills(owner, tmp_path, location):
+    home = owner / ".codex"
+    seed(home)
+    project = (
+        home / "projects" / "repo" if location == "inside_home" else tmp_path / "skills" / "repo"
+    )
+    cwd = project if location == "inside_home" else project / "subdir"
+    cwd.mkdir(parents=True)
+    root = project / ".agents" / "skills"
+    visible = root / "visible" / "SKILL.md"
+    hidden = root / ".trash" / ".agents" / "skills" / "hidden" / "SKILL.md"
+    configure(
+        home,
+        skills=[
+            {"name": "visible", "path": str(visible), "scope": "repo"},
+            {"name": "hidden", "path": str(hidden), "scope": "repo"},
+        ],
+    )
+    snapshot = service_at(tmp_path / "state", tmp_path)._adapter("codex").read_state(cwd)
+    assert [item.id for item in snapshot.items if item.kind == "skill"] == [f"skill:{visible}"]
+
+
 def test_hidden_custom_codex_home_does_not_hide_visible_plugin_skills(owner, tmp_path, monkeypatch):
     home = tmp_path / "custom" / ".agents" / "skills" / ".config" / "codex"
     home.mkdir(parents=True)
@@ -160,11 +187,55 @@ def test_hidden_custom_codex_home_does_not_hide_visible_plugin_skills(owner, tmp
     visible = (
         home / "plugins" / "cache" / "store" / "plugin" / "v1" / "skills" / "visible" / "SKILL.md"
     )
-    configure(home, skills=[{"name": "visible", "path": str(visible), "scope": "user"}])
+    configure(
+        home,
+        plugins=[reported_plugin(visible.parents[1])],
+        skills=[{"name": "visible", "path": str(visible), "scope": "user"}],
+    )
     snapshot = read(service_at(tmp_path / "state", tmp_path), "codex")["snapshot"]
     assert [item["id"] for item in snapshot["items"] if item["kind"] == "skill"] == [
         f"skill:{visible}"
     ]
+
+
+@pytest.mark.parametrize("location", ["nested", "external"])
+def test_codex_uses_the_longest_reported_plugin_collection(owner, tmp_path, location):
+    home = owner / ".codex"
+    seed(home)
+    base = home / "skills" if location == "nested" else tmp_path / "external"
+    root = base / ".cache" / "plugin" / "skills"
+    alias = tmp_path / "plugin-link"
+    root.parent.mkdir(parents=True)
+    alias.symlink_to(root.parent, target_is_directory=True)
+    visible = root / "visible" / "SKILL.md"
+    hidden = root / ".trash" / ".agents" / "skills" / "hidden" / "SKILL.md"
+    configure(
+        home,
+        plugins=[reported_plugin(alias / "skills")],
+        skills=[
+            {"name": "visible", "path": str(visible), "scope": "user", "pluginId": "fixture@local"},
+            {"name": "hidden", "path": str(hidden), "scope": "user", "pluginId": "fixture@local"},
+        ],
+    )
+    snapshot = service_at(tmp_path / "state", tmp_path)._adapter("codex").read_state(None)
+    assert [item.id for item in snapshot.items if item.kind == "skill"] == [f"skill:{visible}"]
+
+
+def test_codex_preserves_reports_outside_known_collections(owner, tmp_path):
+    home = owner / ".codex"
+    seed(home)
+    paths = [
+        tmp_path / "unknown" / "skills" / ".trash" / "SKILL.md",
+        home / "unknown" / ".system" / "skills" / "SKILL.md",
+    ]
+    configure(
+        home,
+        skills=[{"name": f"skill-{i}", "path": str(path)} for i, path in enumerate(paths)],
+    )
+    snapshot = service_at(tmp_path / "state", tmp_path)._adapter("codex").read_state(None)
+    assert {item.id for item in snapshot.items if item.kind == "skill"} == {
+        f"skill:{path}" for path in paths
+    }
 
 
 @pytest.mark.parametrize("collection", ["owner", "plugin", "project", "system"])
@@ -177,7 +248,7 @@ def test_hidden_skill_components_cannot_reset_the_collection(owner, tmp_path, co
         "owner": home / "skills",
         "plugin": home / "plugins" / "cache" / "store" / "plugin" / "v1" / "skills",
         "project": project / ".agents" / "skills",
-        "system": tmp_path / "bundled" / "skills",
+        "system": home / "skills" / "bundled",
     }[collection]
     # Each generated path retains a hidden descendant before later collection-like names.
     hidden = [
@@ -190,6 +261,7 @@ def test_hidden_skill_components_cannot_reset_the_collection(owner, tmp_path, co
     paths = hidden + visible
     configure(
         home,
+        plugins=[reported_plugin(root)] if collection == "plugin" else [],
         skills=[
             {"name": f"skill-{i}", "path": str(path), "scope": "user"}
             for i, path in enumerate(paths)
@@ -330,7 +402,7 @@ def test_codex_hidden_ancestor_cannot_restart_the_collection_boundary(
         "owner": home / "skills",
         "project": project / ".agents" / "skills",
         "plugin": home / "plugins" / "cache" / "store" / "plugin" / "v1" / "skills",
-        "system": tmp_path / "bundled" / "skills",
+        "system": home / "skills" / "bundled",
     }
     root = roots[collection]
     hidden = root / ".trash" / nested
@@ -338,6 +410,7 @@ def test_codex_hidden_ancestor_cannot_restart_the_collection_boundary(
     scope = {"owner": "user", "project": "repo", "plugin": "user", "system": "system"}[collection]
     configure(
         home,
+        plugins=[reported_plugin(root)] if collection == "plugin" else [],
         skills=[
             {"name": "hidden", "path": str(hidden), "scope": scope},
             {"name": "visible", "path": str(visible), "scope": scope},
@@ -377,6 +450,7 @@ def test_codex_canonical_skill_paths_keep_alias_collection_boundaries(
     scope = "user" if collection in ("owner", "plugin") else "repo"
     configure(
         home,
+        plugins=[reported_plugin(root)] if collection == "plugin" else [],
         skills=[
             {"name": "visible", "path": str(visible), "scope": scope},
             {"name": "hidden", "path": str(hidden), "scope": scope},

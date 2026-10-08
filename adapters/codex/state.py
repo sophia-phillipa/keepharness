@@ -166,34 +166,48 @@ def _app_list(result: dict | None) -> dict[str, tuple[str, bool | None]]:
     return found
 
 
-def _skill_list(result: dict | None, home: Path) -> dict[str, dict]:
+def _skill_list(result: dict | None, home: Path, plugins: dict | None) -> dict[str, dict]:
+    roots = [home / "skills"]
+    for market in _listed(plugins, "marketplaces"):
+        for plugin in _listed(market, "plugins"):
+            source = plugin.get("source")
+            if (
+                isinstance(source, dict)
+                and source.get("type") == "local"
+                and isinstance(source.get("path"), str)
+                and Path(source["path"]).is_absolute()
+            ):
+                roots.append(Path(source["path"]) / "skills")
     found = {}
     for group in _listed(result, "data"):
         cwd = Path(group["cwd"]) if isinstance(group.get("cwd"), str) else None
-        # A known home takes precedence over collection-like names in its own path.
-        roots = [home / "skills", home]
+        project_roots = []
         if cwd is not None:
-            roots.extend((cwd / ".agents" / "skills", cwd / ".codex" / "skills"))
-        # Resolve roots only, never descendants: their hidden names must not disappear.
-        locations = []
-        for root in roots:
-            locations.append(root)
             try:
-                locations.append(root.resolve())
+                cwd = cwd.resolve()
             except (OSError, RuntimeError):
                 pass
+            project_roots = [directory / ".agents" / "skills" for directory in (cwd, *cwd.parents)]
+        locations = set()
+        for root in roots + project_roots:
+            try:
+                locations.add(root.resolve())
+            except (OSError, RuntimeError):
+                pass
+        # Use the longest canonical root known from home, project ancestry or plugin/list.
+        # Only its relative components count as hidden; unknown collections stay unchanged.
+        locations = sorted(locations, key=lambda root: len(root.parts), reverse=True)
         for skill in _listed(group, "skills"):
             if isinstance(skill.get("path"), str) and isinstance(skill.get("enabled"), bool):
-                path = Path(skill["path"])
+                try:
+                    path = Path(skill["path"]).resolve()
+                except (OSError, RuntimeError):
+                    found[skill["path"]] = skill
+                    continue
                 root = next((root for root in locations if path.is_relative_to(root)), None)
-                if root is not None:
-                    relative = path.relative_to(root).parts
-                else:
-                    # External CLI collections use the first skills directory, never a
-                    # later descendant named skills or .agents. Without one, check all parts.
-                    parts = path.parts
-                    relative = parts[parts.index("skills") + 1 :] if "skills" in parts else parts
-                if any(part.startswith(".") for part in relative):
+                if root is not None and any(
+                    part.startswith(".") for part in path.relative_to(root).parts
+                ):
                     continue
                 found[skill["path"]] = skill
     return found
@@ -401,7 +415,7 @@ class CodexStateAdapter:
         items += layered_rows("app", "apps", _app_list(results.get("apps")))
         items += layered_rows("mcp", "mcp_servers", {})
         for path, skill in _skill_list(
-            results.get("skills"), _codex_home(self.environment)
+            results.get("skills"), _codex_home(self.environment), results.get("plugins")
         ).items():
             scope, reason = _SKILL_SCOPES.get(
                 skill.get("scope"), ("managed", "Unrecognised skill scope.")

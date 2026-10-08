@@ -22,4 +22,16 @@ JEV: D1 out_of_scope (1.0); D2 fix_in_w10 (0.86); Home and D3 abstained (0.43 an
 
 ## Rationale
 
+### Codex collection boundaries (third correction review)
+
+The orchestration decision defines known roots as `CODEX_HOME/skills`,
+`.agents/skills` in the reported project cwd and every ancestor through `/`, and
+`skills` beneath each local plugin root reported by `plugin/list` (`source.type`
+is `local`, `source.path` is absolute). Compare canonical paths and select the
+longest matching root. Reject a skill if any component relative to that root
+starts with `.`; the root's own components do not count. Preserve reports outside
+known roots without guessing boundaries from directory names. This also preserves
+project collections inside custom homes and inherited collections whose ancestors
+happen to be named `skills`.
+
 #21 and D-038 make the Plugins page a facade over the CLI's real state; reading the harness homes shows state the CLIs do not use. D2 and D3 are defects against D-041's notice contract.

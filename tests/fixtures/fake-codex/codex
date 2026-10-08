@@ -49,7 +49,7 @@ READONLY = {
     "data": {"config_write_error_code": "configLayerReadonly"},
 }
 LEGACY_PROFILE = (
-    "legacy `profile = \"{}\"` config is no longer supported; "
+    'legacy `profile = "{}"` config is no longer supported; '
     "use `--profile {}` with `{}.config.toml` instead"
 )
 
@@ -296,6 +296,7 @@ def plugin_list(params):
                 "name": plugin.get("name", plugin["id"]),
                 "installed": plugin.get("installed", True),
                 "enabled": plugin.get("enabled", True),
+                "source": plugin.get("source", {"type": "remote"}),
             }
         )
     return {
