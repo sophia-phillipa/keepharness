@@ -1,3 +1,4 @@
+const { executionModes } = require("./model-fixture.cjs");
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises"),
@@ -90,6 +91,7 @@ const fs = require("node:fs/promises"),
                 id: "fixture",
                 name: "Test model",
                 backend: "local",
+                execution_modes: executionModes("local"),
                 efforts: ["low"],
               },
             ],
@@ -110,7 +112,7 @@ const fs = require("node:fs/promises"),
             ],
           };
         if (p === "/v1/conversations/conversation")
-          data = { turns: [turn("one"), turn("two")] };
+          data = { execution_mode: "scoped", turns: [turn("one"), turn("two")] };
         if (p === "/v1/jobs" && route.request().method() === "POST")
           data = { job_id: "three" };
         if (p.startsWith("/v1/jobs/")) {

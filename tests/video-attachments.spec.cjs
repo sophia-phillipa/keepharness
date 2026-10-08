@@ -35,7 +35,7 @@ const assert = require("node:assert/strict"),
               backend: "codex",
               efforts: ["low"],
               permissions: { upload: true },
-              execution_modes: ["native", "scoped"],
+              execution_modes: ["native"],
               capabilities: {
                 video: true,
                 video_execution_modes: ["native"],
@@ -86,6 +86,14 @@ const assert = require("node:assert/strict"),
       return route.fulfill({ json: data });
     });
     await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
+    // Retain an explicit native draft choice to test incompatible Local mode admission.
+    await page.addInitScript(() => {
+      if (sessionStorage.getItem("video-mode-seeded")) return;
+      sessionStorage.setItem("video-mode-seeded", "1");
+      sessionStorage.setItem("remote-view", JSON.stringify({
+      project: "p", composer_selection: { model: "vision", effort: "low" },
+      draft_mode: { mode: "native", modeChosen: true, retiredLock: false },
+    })); });
     await page.goto("http://video.test");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     const add = () =>
@@ -113,14 +121,14 @@ const assert = require("node:assert/strict"),
       "Attach file",
     );
     console.log("P4 accessible remove and attachment help: pass");
-    await page.click("#isolation-toggle");
+    await select("local-vision");
     await add();
     assert.equal(requests.length, 1);
     assert.match(
       await page.locator("#status").innerText(),
       /MP4.*model.*mode/i,
     );
-    await page.click("#isolation-toggle");
+    await select("vision");
     await add();
     assert.equal(requests.length, 2);
     console.log("P2 mode switch rejects and recovers: pass");
@@ -148,9 +156,8 @@ const assert = require("node:assert/strict"),
       await page.locator("#messages").innerText(),
       /lesson.mp4.*support.*MP4/,
     );
-    await select("vision");
-    await page.click("#isolation-toggle");
     await select("local-vision");
+    await page.click("#isolation-toggle");
     await add();
     assert.equal(requests.length, 3);
     assert.equal(requests[2].execution_mode, "scoped");

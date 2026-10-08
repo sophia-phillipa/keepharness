@@ -1,3 +1,4 @@
+const { executionModes } = require("./model-fixture.cjs");
 // Resource discovery is refreshed on open and scoped to the selected engine. No model runs.
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
 const assert = require("node:assert/strict");
@@ -17,12 +18,14 @@ const path = require("node:path");
       {
         id: "codex-model",
         backend: "codex",
+        execution_modes: executionModes("codex"),
         efforts: ["low"],
         permissions: { upload: true },
       },
       {
         id: "claude-sonnet-4-6",
         backend: "claude",
+        execution_modes: executionModes("claude"),
         efforts: ["low"],
         permissions: { upload: true },
       },
@@ -423,17 +426,16 @@ const path = require("node:path");
       false,
     );
     // Changing the conversation mode invalidates native resource references.
-    models = models.map((model) => ({
-      ...model,
-      execution_modes: ["native", "scoped"],
-    }));
+    models.push({ id: "local-model", backend: "local", efforts: ["configured"],
+      execution_modes: executionModes("local"), permissions: { upload: true } });
     await page.evaluate(() => sessionStorage.removeItem("remote-view"));
     await page.reload();
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     await page.fill("#prompt", "@writer");
     await page.locator('#resource-menu [data-resource-id="g-agent"]').click();
     assert.equal(resourceQueries.at(-1).execution_mode, "native");
-    await page.click("#isolation-toggle");
+    await page.selectOption("#model", "local-model");
+    assert.equal(await page.locator("#isolation-toggle").getAttribute("aria-checked"), "true");
     assert.equal(await page.locator(".prompt-resource").count(), 0);
     const sentBeforeModeChange = posts.length;
     await page.click("#send");

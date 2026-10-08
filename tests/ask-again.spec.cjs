@@ -11,7 +11,7 @@ const turn = (id, prompt, answer) => ({ id, project: 'sem-projeto', state: 'comp
     page.on('pageerror', (error) => errors.push(error.message));
     await mount(page, async (url, request) => {
       if (url.pathname === '/v1/conversations') return { json: { conversations: [{ id: 'c1', title: 'Pairs', project: 'sem-projeto', state: 'completed', last_job_id: 't2', execution: { backend: 'local', model: 'fixture' } }] } };
-      if (url.pathname === '/v1/conversations/c1') return { json: { title: 'Pairs', turns: [turn('t1', 'First question', 'First answer'), turn('t2', 'Second question', 'Second answer')] } };
+      if (url.pathname === '/v1/conversations/c1') return { json: { title: 'Pairs', execution_mode: 'scoped', turns: [turn('t1', 'First question', 'First answer'), turn('t2', 'Second question', 'Second answer')] } };
       if (url.pathname === '/v1/jobs' && request.method() === 'POST') {
         posted.push(request.postDataJSON());
         return { json: { job_id: 't3', backend: 'local', model: 'fixture', execution_mode: 'scoped' } };
