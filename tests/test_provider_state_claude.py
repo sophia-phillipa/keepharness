@@ -189,7 +189,7 @@ def test_skills_from_user_and_project_folders_with_overrides(adapter, config_dir
     assert skills["skill:gamma"].writable is True
     # No override: on, decided by the folder it lives in; the user copy shadows the project one.
     assert (skills["skill:shared"].enabled, skills["skill:shared"].scope) == (True, "user")
-    assert skills["skill:shared"].source == "~/.claude/skills/shared"
+    assert skills["skill:shared"].source == "~/.claude/skills/shared/SKILL.md"
     assert any("shared" in warning and "shadow" in warning for warning in snapshot.warnings)
 
 

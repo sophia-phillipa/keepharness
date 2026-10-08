@@ -177,8 +177,9 @@ def _disabled_servers_errors(project_root: Path) -> Callable[[bytes], list[str]]
 class _Reading:
     """One ``read_state`` pass: the warnings, the files that were tried and what feeds the fingerprint."""
 
-    def __init__(self, project_root: Path | None) -> None:
+    def __init__(self, project_root: Path | None, home: Path | None = None) -> None:
         self.project_root = project_root
+        self.home = home if home is not None else Path.home()
         self.warnings: list[str] = []
         self.parts: list[tuple[str, str]] = []
         # sha256 of the bytes read per path; None for a missing file
@@ -191,7 +192,7 @@ class _Reading:
         logger.debug("claude state: %s", message)
 
     def shown(self, path: Path) -> str:
-        for base, prefix in ((self.project_root, ""), (Path.home(), "~/")):
+        for base, prefix in ((self.project_root, ""), (self.home, "~/")):
             if base is not None:
                 try:
                     return prefix + path.relative_to(base).as_posix()
@@ -224,19 +225,28 @@ class ClaudeStateAdapter:
     engine = "claude"
     tested_versions = TESTED_VERSIONS
 
-    def __init__(self, state_dir: Path, managed_dir: Path = MANAGED_SETTINGS_DIR) -> None:
+    def __init__(
+        self, state_dir: Path, managed_dir: Path = MANAGED_SETTINGS_DIR, *, environment=None
+    ) -> None:
         self.state_dir = Path(state_dir)  # the write package keeps its backups here
         self.managed_dir = Path(managed_dir)
+        self.environment = dict(environment) if environment is not None else None
 
-    # --- locations (read at call time: the environment may change under a long-lived adapter) ---
+    # Standalone adapters retain call-time lookup; the admin service pins owner locations.
 
-    @staticmethod
-    def _config_dir() -> Path:
-        configured = os.environ.get("CLAUDE_CONFIG_DIR")
-        return Path(configured) if configured else Path.home() / ".claude"
+    def _environment(self):
+        return {**os.environ, **self.environment} if self.environment is not None else None
 
-    @staticmethod
-    def _claude_json() -> Path:
+    def _config_dir(self) -> Path:
+        source = os.environ if self.environment is None else self.environment
+        configured = source.get("CLAUDE_CONFIG_DIR")
+        return (
+            Path(configured) if configured else Path(source.get("HOME") or Path.home()) / ".claude"
+        )
+
+    def _claude_json(self) -> Path:
+        if self.environment is not None:
+            return Path(self.environment["HOME"]) / ".claude.json"
         configured = os.environ.get("CLAUDE_CONFIG_DIR")
         return Path(configured, ".claude.json") if configured else Path.home() / ".claude.json"
 
@@ -248,7 +258,9 @@ class ClaudeStateAdapter:
     def _read(self, project_root: Path | None) -> tuple[StateSnapshot, _Reading]:
         """The snapshot and the pass that made it (its ``digests`` are what a write must still find)."""
         root = Path(project_root) if project_root else None
-        reading = _Reading(root)
+        reading = _Reading(
+            root, Path(self.environment["HOME"]) if self.environment is not None else None
+        )
         version = self._version(reading)  # slow: it must not sit between reading and writing
         layers = self._settings_layers(reading)
         plugins = self._plugin_items(layers, reading)
@@ -339,6 +351,8 @@ class ClaudeStateAdapter:
             return []
         names = []
         for entry in entries:
+            if entry.name.startswith("."):
+                continue
             try:
                 inside = entry.resolve().is_relative_to(root)
             except (OSError, RuntimeError):  # a link loop
@@ -385,7 +399,7 @@ class ClaudeStateAdapter:
                     name=name,
                     scope=layer.scope if layer else scope,
                     enabled=value != "off",
-                    source=layer.shown if layer else reading.shown(path),
+                    source=layer.shown if layer else reading.shown(path / "SKILL.md"),
                     writable=not managed,
                     reason="; ".join(notes),
                 )
@@ -495,7 +509,7 @@ class ClaudeStateAdapter:
                 capture_output=True,
                 text=True,
                 timeout=VERSION_TIMEOUT_SECONDS,
-                env=child_environment(),
+                env=child_environment(self._environment()),
                 check=False,
             )
             version = _version_tuple(done.stdout) if done.returncode == 0 else None
@@ -632,7 +646,7 @@ class ClaudeStateAdapter:
                 capture_output=True,
                 text=True,
                 timeout=PLUGIN_TIMEOUT_SECONDS,
-                env=child_environment(),
+                env=child_environment(self._environment()),
                 check=False,
             )
         except subprocess.TimeoutExpired:

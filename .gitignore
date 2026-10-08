@@ -21,6 +21,7 @@ local_ai/
 
 # Personal agent settings (AGENTS.md and CLAUDE.md are shared and versioned).
 /.codex/
+/.codex-commits/
 CLAUDE.local.md
 .claude/settings.local.json
 /pytest-of-*/

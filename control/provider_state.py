@@ -17,6 +17,7 @@ import dataclasses
 import hashlib
 import json
 import logging
+import os
 import threading
 import time
 from collections.abc import Callable, Mapping
@@ -51,6 +52,34 @@ NOTICE_CAP = 50
 
 logger = logging.getLogger(__name__)
 _runs_lock = threading.Lock()  # runs share one thread pool and one runs file
+
+
+def _owner_environment(state: Path) -> dict[str, str]:
+    """Pin the owner's locations; the 0.15 run homes never belong to this facade.
+
+    Compare lexical paths only: resolving these locations must not read CLI state.
+    Keep custom owner directories, but discard inherited harness-owned locations.
+    """
+    harness = Path(os.path.abspath(Path(state) / "providers"))
+
+    def owned(value: str) -> bool:
+        return Path(os.path.abspath(value)).is_relative_to(harness)
+
+    home = os.environ.get("HOME")
+    if not home or owned(home):
+        if os.name == "posix":
+            import pwd
+
+            home = pwd.getpwuid(os.getuid()).pw_dir
+        else:
+            home = os.environ.get("USERPROFILE") or str(Path.home())
+    result = {"HOME": home}
+    for name, folder in (("CODEX_HOME", ".codex"), ("CLAUDE_CONFIG_DIR", ".claude")):
+        configured = os.environ.get(name)
+        result[name] = (
+            configured if configured and not owned(configured) else str(Path(home) / folder)
+        )
+    return result
 
 
 def snapshot_json(snapshot: StateSnapshot) -> dict:
@@ -206,6 +235,12 @@ def _watch(adapter: ProviderStateAdapter, root: Path | None) -> str:
     return fingerprint(adapter.watch_paths(root))
 
 
+def _source_identity(adapter: ProviderStateAdapter, root: Path | None) -> str:
+    """Locations only: changing source homes requires a baseline, editing their files does not."""
+    locations = "\0".join(str(path) for path in adapter.watch_paths(root))
+    return hashlib.sha256(locations.encode()).hexdigest()
+
+
 def _watch_or_blank(adapter: ProviderStateAdapter, root: Path | None) -> str:
     """The stat after a write that landed; unreadable is "unknown", so the next read diffs."""
     try:
@@ -223,13 +258,20 @@ def run_start_check(
     compare with, so nothing is written. Never raises: a run must not fail over this.
     """
     try:
-        adapter = CodexStateAdapter() if provider == "codex" else ClaudeStateAdapter(control_state)
+        environment = _owner_environment(control_state)
+        adapter = (
+            CodexStateAdapter(environment=environment)
+            if provider == "codex"
+            else ClaudeStateAdapter(control_state, environment=environment)
+        )
         stat = _watch(adapter, project_root)
         key = _key(provider, project_id)
         seen = _read_entries(Path(control_state) / SEEN_FILE).get(key)
+        if seen is None or seen.get("source_identity") != _source_identity(adapter, project_root):
+            return
         with _runs_lock:  # read-modify-write of the one runs file
             runs = _read_entries(Path(control_state) / RUNS_FILE)
-            if seen is None or stat in (seen.get("stat"), runs.get(key, {}).get("stat")):
+            if stat in (seen.get("stat"), runs.get(key, {}).get("stat")):
                 return
             runs[key] = {"stat": stat, "detected_at": _now(time.time)}
             _write_entries(Path(control_state) / RUNS_FILE, runs)
@@ -250,6 +292,7 @@ class ProviderStateService:
         self.state = Path(state)
         self.projects = projects
         self.adapters = adapters  # built on first use
+        self.environment = _owner_environment(self.state)
         self.clock = clock
         self.wall = wall
         self.locks: dict[str, asyncio.Lock] = {}
@@ -273,8 +316,8 @@ class ProviderStateService:
     def _adapter(self, provider: str) -> ProviderStateAdapter:
         if self.adapters is None:
             self.adapters = {
-                "codex": CodexStateAdapter(),
-                "claude": ClaudeStateAdapter(self.state),
+                "codex": CodexStateAdapter(environment=self.environment),
+                "claude": ClaudeStateAdapter(self.state, environment=self.environment),
             }
         return self.adapters[provider]
 
@@ -331,8 +374,17 @@ class ProviderStateService:
         """
         key, items = _key(provider, project_id), _items_of(snapshot)
         entry = self._entries().get(key)
-        if entry is None:
-            self._entries()[key] = {"stat": stat, "items": items, "writes": {}, "notices": []}
+        root = Path(snapshot.project_root) if snapshot.project_root else None
+        source_identity = _source_identity(self._adapter(provider), root)
+        if entry is None or entry.get("source_identity") != source_identity:
+            # Legacy basename-only entries cannot distinguish owner and harness homes.
+            self._entries()[key] = {
+                "source_identity": source_identity,
+                "stat": stat,
+                "items": items,
+                "writes": {},
+                "notices": [],
+            }
             return self._save()
         if written is None and entry["stat"] == stat:
             return

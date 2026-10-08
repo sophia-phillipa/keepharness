@@ -183,7 +183,7 @@ def test_fingerprint_of_a_directory_follows_its_children(tmp_path):
     assert fingerprint([skills]) != before
 
 
-def test_fingerprint_of_a_directory_notices_its_own_mtime(tmp_path):
+def test_fingerprint_of_a_directory_ignores_its_own_mtime(tmp_path):
     skills = tmp_path / "skills"
     skills.mkdir()
     (skills / "one").mkdir()
@@ -192,7 +192,7 @@ def test_fingerprint_of_a_directory_notices_its_own_mtime(tmp_path):
 
     os.utime(skills, ns=(2, 2))  # the directory itself changed, its children did not
 
-    assert fingerprint([skills]) != before
+    assert fingerprint([skills]) == before
 
 
 def test_fingerprint_of_a_directory_follows_a_symlinked_child(tmp_path):
