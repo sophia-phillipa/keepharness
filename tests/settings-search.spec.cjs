@@ -379,7 +379,7 @@ async function runScenario(id, name, work) {
       await delayed.context.close();
     });
 
-    await runScenario("P5-S2", "failed initialized refresh recovers without discarding pending admin edits", async () => {
+    const verifyRepeatedRecovery = async ({ saveFailures, retryFailures }) => {
       const recovering = await openFixture(browser, fixtureOrigin, freshState(), { viewport: { width: 390, height: 780 } });
       const recoveringAdminState = structuredClone(adminStateTemplate);
       recoveringAdminState.models.codex = { fixture: ["low", "medium"] };
@@ -389,21 +389,30 @@ async function runScenario(id, name, work) {
         models: ["fixture"],
       };
       recoveringAdminState.settings.mcp_defaults = { backend: "codex", model: "fixture", effort: "low" };
-      let failRefresh = false, failedRefresh;
-      const refreshFailed = new Promise((resolve) => { failedRefresh = resolve; });
-      let settingsWrites = 0;
+      let failNextRefresh = false, retryPhase = false, retryFailuresRemaining = retryFailures, failedRefresh;
+      let settingsWrites = 0, refreshRequests = 0;
       await recovering.page.route(ADMIN + "/**", async (route) => {
         const request = route.request(), pathname = new URL(request.url()).pathname;
         if (pathname === "/api/settings" && request.method() === "POST") {
           settingsWrites += 1;
-          failRefresh = true;
+          failNextRefresh = true;
           return route.fulfill({ json: {} });
         }
         if (pathname === "/api/state") {
-          if (failRefresh) {
-            failRefresh = false;
-            failedRefresh();
-            return route.fulfill({ status: 503, json: { error: "fixture refresh failed" } });
+          if (failNextRefresh) {
+            failNextRefresh = false;
+            refreshRequests += 1;
+            failedRefresh?.();
+            failedRefresh = null;
+            return route.fulfill({ status: 503, json: { error: "fixture post-save refresh failed" } });
+          }
+          if (retryPhase) {
+            refreshRequests += 1;
+            if (retryFailuresRemaining > 0) {
+              retryFailuresRemaining -= 1;
+              return route.fulfill({ status: 503, json: { error: "fixture Retry refresh failed" } });
+            }
+            retryPhase = false;
           }
           return route.fulfill({ json: recoveringAdminState });
         }
@@ -423,30 +432,55 @@ async function runScenario(id, name, work) {
       await recovering.page.locator("#settings-search").focus();
       await query(recovering.page, "Full access");
       await resultNamed(recovering.page, /Full access/i).click();
-      await recoveringFrame.locator("#full-access").click();
-      await refreshFailed;
+      const fullAccess = recoveringFrame.locator("#full-access");
+      for (let failure = 0; failure < saveFailures; failure += 1) {
+        const refreshFailed = new Promise((resolve) => { failedRefresh = resolve; });
+        await fullAccess.click();
+        await refreshFailed;
+      }
       assert.equal(await recoveringFrame.locator("html").getAttribute("data-settings-search-ready"), "false", "failed refresh invalidates the inner index");
-      assert.equal(settingsWrites, 1, "the explicit Full access save succeeds before its refresh fails");
+      assert.equal(settingsWrites, saveFailures, "each explicit Full access save succeeds before its refresh fails");
+      retryPhase = true;
       await query(recovering.page, "Default model");
       const recoveringRetry = recovering.page.locator("#settings-search-retry");
+      for (let failure = 0; failure < retryFailures; failure += 1) {
+        await recoveringRetry.waitFor({ state: "visible", timeout: 8000 });
+        await recoveringRetry.click();
+      }
       await recoveringRetry.waitFor({ state: "visible", timeout: 8000 });
       await recoveringRetry.click();
       await resultNamed(recovering.page, /Default model/i).waitFor({ timeout: 8000 });
       assert.equal(await recovering.page.locator("#admin-frame").getAttribute("data-fixture-identity"), "recover-existing-frame", "Retry preserves the initialized iframe");
       assert.equal(await recoveringModel.inputValue(), JSON.stringify(["codex", "fixture"]), "Retry preserves the pending MCP model");
       assert.equal(await recoveringEffort.inputValue(), "medium", "Retry preserves the pending MCP effort");
-      assert.equal(settingsWrites, 1, "Retry rebuilds the read-only index without another preference write");
+      assert.equal(settingsWrites, saveFailures, "Retry rebuilds the read-only index without another preference write");
+      assert.equal(refreshRequests, saveFailures + retryFailures + 1, "each failed load and Retry performs one real state refresh until recovery");
       await resultNamed(recovering.page, /Default model/i).click();
       await waitForFocused(recoveringModel);
       assert.equal(await recoveringModel.evaluate((element) => element === document.activeElement), true, "recovered result focuses its exact admin control");
       assert.equal(await recoveringEffort.inputValue(), "medium", "recovered navigation still preserves the pending MCP effort");
       await recovering.context.close();
-    });
+    };
+
+    const repeatedRecoveryFailures = [];
+    for (const [id, name, setup] of [
+      ["P5-S2", "two failed post-save loads retain the last good index for Retry", { saveFailures: 2, retryFailures: 0 }],
+      ["P5-S4", "three failed post-save loads retain pending edits for Retry", { saveFailures: 3, retryFailures: 0 }],
+      ["P5-S5", "failed Retry refreshes remain eligible until a real request succeeds", { saveFailures: 1, retryFailures: 2 }],
+    ]) {
+      try {
+        await verifyRepeatedRecovery(setup);
+        console.log("PASS " + id + " " + name);
+      } catch (error) {
+        repeatedRecoveryFailures.push(id + ": " + error.message);
+      }
+    }
+    assert.deepEqual(repeatedRecoveryFailures, [], repeatedRecoveryFailures.join("; "));
 
     await runScenario("P5-S3", "Retry waits for an in-flight initialized refresh to finish", async () => {
       const pending = await openFixture(browser, fixtureOrigin, freshState(), { viewport: { width: 390, height: 780 } });
       const pendingAdminState = structuredClone(adminStateTemplate);
-      let holdRefresh = false, refreshStarted, releaseRefresh;
+      let holdRefresh = false, refreshStarted, releaseRefresh, stateRequests = 0;
       const refreshing = new Promise((resolve) => { refreshStarted = resolve; });
       const refreshGate = new Promise((resolve) => { releaseRefresh = resolve; });
       await pending.page.route(ADMIN + "/**", async (route) => {
@@ -456,6 +490,7 @@ async function runScenario(id, name, work) {
           return route.fulfill({ json: {} });
         }
         if (pathname === "/api/state") {
+          stateRequests += 1;
           if (holdRefresh) {
             holdRefresh = false;
             refreshStarted();
@@ -481,6 +516,7 @@ async function runScenario(id, name, work) {
       });
       await pendingFrame.locator("#full-access").click();
       await refreshing;
+      const requestsBeforeRetry = stateRequests;
       await pending.page.locator("#settings-search").focus();
       await query(pending.page, "Default model");
       const pendingRetry = pending.page.locator("#settings-search-retry");
@@ -491,6 +527,7 @@ async function runScenario(id, name, work) {
         return element.dataset.settingsSearchReady;
       });
       assert.equal(readinessAfterRetry, "false", "child Retry handler cannot reopen readiness while refresh is in flight");
+      assert.equal(stateRequests, requestsBeforeRetry, "Retry coalesces with the in-flight state refresh");
       assert.equal(await resultNamed(pending.page, /Default model/i).count(), 0, "Retry cannot publish while the admin refresh is still in flight");
       releaseRefresh();
       await resultNamed(pending.page, /Default model/i).waitFor({ timeout: 8000 });
@@ -499,6 +536,70 @@ async function runScenario(id, name, work) {
       await waitForFocused(pendingModel);
       assert.equal(await pendingModel.evaluate((element) => element === document.activeElement), true, "completed refresh publishes a focusable current index");
       await pending.context.close();
+    });
+
+    await runScenario("P5-S6", "a newer admin load supersedes an older Retry refresh", async () => {
+      const superseded = await openFixture(browser, fixtureOrigin, freshState(), { viewport: { width: 390, height: 780 } });
+      const supersededAdminState = structuredClone(adminStateTemplate);
+      let failNextRefresh = false, failedRefresh;
+      const refreshFailed = new Promise((resolve) => { failedRefresh = resolve; });
+      let holdRetry = false, retryStarted, releaseRetry;
+      const retryStarting = new Promise((resolve) => { retryStarted = resolve; });
+      const retryGate = new Promise((resolve) => { releaseRetry = resolve; });
+      let holdNewer = false, newerStarted, releaseNewer;
+      const newerStarting = new Promise((resolve) => { newerStarted = resolve; });
+      const newerGate = new Promise((resolve) => { releaseNewer = resolve; });
+      await superseded.page.route(ADMIN + "/**", async (route) => {
+        const request = route.request(), pathname = new URL(request.url()).pathname;
+        if (pathname === "/api/settings" && request.method() === "POST") {
+          failNextRefresh = true;
+          return route.fulfill({ json: {} });
+        }
+        if (pathname === "/api/state") {
+          if (failNextRefresh) {
+            failNextRefresh = false;
+            failedRefresh();
+            return route.fulfill({ status: 503, json: { error: "fixture refresh failed" } });
+          }
+          if (holdRetry) {
+            holdRetry = false;
+            retryStarted();
+            await retryGate;
+          } else if (holdNewer) {
+            holdNewer = false;
+            newerStarted();
+            await newerGate;
+          }
+          return route.fulfill({ json: supersededAdminState });
+        }
+        return route.continue();
+      });
+      await openSearch(superseded.page);
+      await query(superseded.page, "Full access");
+      await resultNamed(superseded.page, /Full access/i).click();
+      const supersededFrame = superseded.page.frameLocator("#admin-frame");
+      await supersededFrame.locator("#full-access").click();
+      await refreshFailed;
+      await superseded.page.locator("#settings-search").focus();
+      await query(superseded.page, "Default model");
+      const supersededRetry = superseded.page.locator("#settings-search-retry");
+      await supersededRetry.waitFor({ state: "visible", timeout: 8000 });
+      holdRetry = true;
+      await supersededRetry.click();
+      await retryStarting;
+      holdNewer = true;
+      await supersededFrame.locator("html").evaluate(() => { window.fixtureNewerSettingsLoad = load({ select: false }); });
+      await newerStarting;
+      const retryResponse = superseded.page.waitForResponse((response) => new URL(response.url()).pathname === "/api/state" && response.status() === 200);
+      releaseRetry();
+      await retryResponse;
+      await supersededFrame.locator("html").evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      assert.equal(await supersededFrame.locator("html").getAttribute("data-settings-search-ready"), "false", "superseded Retry cannot reopen readiness during a newer load");
+      assert.equal(await resultNamed(superseded.page, /Default model/i).count(), 0, "superseded Retry cannot publish stale results");
+      releaseNewer();
+      await supersededFrame.locator("html").evaluate(() => window.fixtureNewerSettingsLoad);
+      await resultNamed(superseded.page, /Default model/i).waitFor({ timeout: 8000 });
+      await superseded.context.close();
     });
 
     await runScenario("P6-S1", "admin allowlist, message authentication and unsaved iframe state", async () => {

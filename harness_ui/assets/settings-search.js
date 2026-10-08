@@ -25,26 +25,65 @@
       if (!control || !sections.has(section)) return [];
       return [{ id, section, label: labelFor(control), description: descriptionFor(control), disabled: control.disabled }];
     });
-    let latestRequest, hasReadyIndex = document.documentElement.dataset.settingsSearchReady === "true";
-    const publish = () => {
-      if (document.documentElement.dataset.settingsSearchReady !== "true" || !Number.isSafeInteger(latestRequest)) return;
-      hasReadyIndex = true;
-      parent.postMessage({ type: "keepharness:settings-preferences", request: latestRequest, preferences: preferences() }, parentOrigin);
+    const indexState = window.settingsSearchIndexState || (window.settingsSearchIndexState = {
+      lastGoodIndex: null,
+      refreshing: true,
+      lastError: null,
+    });
+    let latestRequest, lifecycleGeneration = 0;
+    const syncReadiness = () => {
+      document.documentElement.dataset.settingsSearchReady = String(
+        !!indexState.lastGoodIndex && !indexState.refreshing && !indexState.lastError,
+      );
     };
-    document.addEventListener("keepharness:settings-index-change", publish);
+    const snapshot = () => { indexState.lastGoodIndex = preferences(); };
+    const publish = () => {
+      if (!indexState.lastGoodIndex || indexState.refreshing || indexState.lastError || !Number.isSafeInteger(latestRequest)) return;
+      parent.postMessage({ type: "keepharness:settings-preferences", request: latestRequest, preferences: indexState.lastGoodIndex }, parentOrigin);
+    };
+    document.addEventListener("keepharness:settings-index-change", (event) => {
+      const status = event.detail?.status;
+      if (status !== "changed") lifecycleGeneration += 1;
+      if ((status === "ready" || status === "changed") && !indexState.refreshing && !indexState.lastError) snapshot();
+      syncReadiness();
+      publish();
+    });
+    if (!indexState.refreshing && !indexState.lastError) snapshot();
+    syncReadiness();
+
+    const retry = async (retryRequest) => {
+      if (!Number.isSafeInteger(retryRequest) || !indexState.lastGoodIndex || indexState.refreshing || !indexState.lastError) return;
+      latestRequest = retryRequest;
+      indexState.refreshing = true;
+      indexState.lastError = null;
+      const operation = ++lifecycleGeneration;
+      syncReadiness();
+      try {
+        const response = await fetch("/api/state", { credentials: "same-origin", signal: AbortSignal.timeout(30000) });
+        if (!response.ok) throw Error("Admin refresh failed (" + response.status + ")");
+        const refreshed = await response.json();
+        if (!refreshed || typeof refreshed !== "object") throw Error("Admin refresh returned invalid state");
+        if (operation !== lifecycleGeneration) return;
+        snapshot();
+        indexState.refreshing = false;
+        indexState.lastError = null;
+        syncReadiness();
+        publish();
+      } catch (error) {
+        if (operation !== lifecycleGeneration) return;
+        indexState.refreshing = false;
+        indexState.lastError = error;
+        syncReadiness();
+      }
+    };
     addEventListener("message", (event) => {
       if (event.source !== parent || event.origin !== parentOrigin) return;
       const data = event.data;
       if (data?.type === "keepharness:settings-query" && Number.isSafeInteger(data.request)) {
         latestRequest = data.request;
         publish();
-      } else if (data?.type === "keepharness:settings-retry" && Number.isSafeInteger(data.request) && hasReadyIndex &&
-          document.documentElement.dataset.settingsSearchRecovery === "available") {
-        // A failed refresh leaves the last completed form DOM intact. Re-index it without reloading pending edits.
-        latestRequest = data.request;
-        delete document.documentElement.dataset.settingsSearchRecovery;
-        document.documentElement.dataset.settingsSearchReady = "true";
-        publish();
+      } else if (data?.type === "keepharness:settings-retry") {
+        void retry(data.request);
       } else if (data?.type === "keepharness:settings-section" && sections.has(data.section)) {
         location.hash = data.section;
       } else if (data?.type === "keepharness:settings-focus" && Object.hasOwn(adminControls, data.id)) {

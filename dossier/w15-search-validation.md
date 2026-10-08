@@ -56,9 +56,9 @@ Named scenarios print their IDs on success; the files run through
 | #56 | 4: modifiers, command entry and no duplicate action | keyboard-shortcuts B1, B3b, B4, B6 |
 | #56 | 5: light/dark tokens and contrast | keyboard-shortcuts B5; visible pass pending |
 | #55 | 1: individual names/descriptions and reached control | settings-search P1-S1, P4-S1, P6-S1 |
-| #55 | 2: no query writes, preserved edits and navigation | settings-search P2-S1, P3-S1, P5-S2, P6-S1 |
-| #55 | 3: capabilities and local/remote availability | settings-search P5-S1–P5-S3, P6-S1, P7-S1 |
-| #55 | 4: multiple/empty results, keyboard, recovery, persistence | settings-search P1-S1, P3-S1, P4-S1, P5-S1–P5-S3 |
+| #55 | 2: no query writes, preserved edits and navigation | settings-search P2-S1, P3-S1, P5-S2, P5-S4, P5-S5, P6-S1 |
+| #55 | 3: capabilities and local/remote availability | settings-search P5-S1–P5-S6, P6-S1, P7-S1 |
+| #55 | 4: multiple/empty results, keyboard, recovery, persistence | settings-search P1-S1, P3-S1, P4-S1, P5-S1–P5-S6 |
 | #55 | 5: displayed labels, English/pt-BR and contrast | settings-search P4-S1, P7-S1; visible pass pending |
 
 ## Seven-profile matrix
@@ -120,8 +120,11 @@ and a chosen project/provider throughout.
 5. In local Settings, search an MCP default, leave an unsaved selection, navigate
    through search to Full access and back, and confirm the selection remains.
    Check unavailable-admin explanation and Retry recovery. With a pending MCP
-   edit, save Full access and simulate one failed state refresh; retry the search
-   and confirm the edit survives and the selected preference receives focus.
+   edit, save Full access twice and then three times, making each state refresh
+   fail with 503. Restore the endpoint and retry search; confirm a new state
+   request, restored results, preserved edits and exact preference focus. Also
+   fail a Retry request, then retry successfully; while a refresh is pending,
+   confirm Retry neither starts another request nor publishes results early.
    On the existing remote fallback, confirm local-admin preferences are absent
    and Plugins works.
 
@@ -267,6 +270,57 @@ with the orchestrator and the exact checks above now include the two re-review
 cases.
 
 Commit staging was blocked by the read-only shared Git index
-(`index.lock: Read-only file system`). The reviewed worktree diff remains on
-`5bb2880`; the requested Conventional Commit message is stored in the ignored
-local fallback `.codex-commits/2.txt`. No Git permission override was attempted.
+(`index.lock: Read-only file system`). The requested Conventional Commit
+message was stored in the ignored local fallback `.codex-commits/2.txt`.
+The orchestrator committed the reviewed diff as `a30381d`. No Git permission
+override was attempted.
+
+
+## Independent-review correction round 3 (base `a30381d`)
+
+The re-review identified that consecutive refresh failures erased recovery
+eligibility: the second failure observed an already unready document instead of
+remembering its last valid index. The explicit product decision replaces that
+transient eligibility flag with `{lastGoodIndex, refreshing, lastError}`. A failed
+refresh retains the last good index, records the error and remains recoverable.
+Retry starts a fresh state read unless a refresh is already in flight; successful
+recovery rebuilds descriptors from the existing controls so pending edits survive.
+
+| Finding or contract | Named regression | Baseline evidence |
+|---|---|---|
+| Two failed post-save refreshes | settings-search P5-S2 | Two Full access saves each receive a state 503; Retry never restores Default model on `a30381d` |
+| Three failed post-save refreshes | settings-search P5-S4 | Three saves and three state 503s likewise leave Retry unable to restore the result |
+| Retry can itself fail repeatedly | settings-search P5-S5 | After one failed post-save refresh, the old Retry republishes without a new state request, failing the repeated-error recovery contract |
+| In-flight refresh remains gated | settings-search P5-S3 | Existing held-response and child-message-boundary coverage is retained, with a request-count assertion |
+| Older Retry must not supersede a newer load | settings-search P5-S6 | A held Retry response completes during a newer load; only the newer post-render completion may publish |
+
+The new recovery cases check exact state-request and settings-write counts,
+retained iframe identity, pending model/effort values and exact-control focus.
+Both reported failure counts were executed and aggregated before the baseline
+run failed; one failure does not hide the other.
+
+Independent focused review requested an initially refreshing state and explicit
+coverage of an older Retry response superseded by a newer load. Both were added;
+the final review approved the changes with no remaining findings. Readiness is
+derived from the single lifecycle object; the generation guard only rejects
+obsolete async completions. JEV remained unavailable under approval policy
+`never`; the user specified the lifecycle model directly. The existing regression
+playbook and seven-profile Settings matrix were reused. Aggregate usage metrics
+are unavailable.
+
+**Round 3 validation.** `command-search.spec.cjs` passed, followed by three
+consecutive passing executions of `settings-search.spec.cjs` against the final
+reviewed code. Each Settings run includes all seven profiles, the two/three-save
+failure regressions, further Retry failures, coalescing, stale completion,
+authentication and automated contrast checks. `check_conventions.py` reported
+0 name errors, 0 name warnings, 0 Portuguese hits and 0 guest hits;
+`git diff --check` passed. Only the requested focused gates were rerun; earlier
+11-spec, Python and operator results remain historical evidence above. Tests
+used one task temp root, fake homes, owned random ports and no display or cloud
+inference. The visible desktop pass remains with the orchestrator; its checklist
+above now includes repeated saves, failed Retry and in-flight recovery.
+
+Commit staging was blocked by the read-only shared Git index
+(`index.lock: Read-only file system`). The reviewed diff remains on `a30381d`;
+the requested local Conventional Commit fallback is `.codex-commits/3.txt`. No permission
+override was attempted.
