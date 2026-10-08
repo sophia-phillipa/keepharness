@@ -2,6 +2,8 @@
 
 Status: accepted and partly implemented. Decisions: [D-018](decisions/d-018-codex-parity-architecture.md) to [D-029](decisions/d-029-visible-pass-before-merge.md). Behavior as shipped: [0.16.0 release notes](releases/v0.16.0.md). Codex reference screens: [Codex app inventory](research/codex-app-inventory-2026-10.md).
 
+Current comparison: [fourth-round prioritized parity gaps (2026-10-08)](research/codex-parity-gaps-2026-10-08.md), including catalog installation versus enablement and the open scope/provider-switch recommendations. Its baseline is `3a0cd4a`; the work-package status table below retains its explicitly dated historical baseline.
+
 Kind: explanation and reference (why the parity work is shaped this way, and the contracts each work package must keep). The release notes are the record of what actually shipped and how it was validated; this document does not repeat them.
 
 ## Why
