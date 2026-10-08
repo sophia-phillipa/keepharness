@@ -3,10 +3,11 @@
 
 Standard library only. Checks (1) file/directory name lint (snake_case Python, kebab-case for
 other text extensions, with a grandfathered allowlist), (2) a Portuguese stop-word scan over
-text files, excluding README.pt-BR.md and a handful of documented sentinels, and (3) heading-
-structure parity between README.md and README.pt-BR.md.
+text files, excluding README.pt-BR.md and a handful of documented sentinels, (3) no `guest`
+identifier in code and tests, and (4) heading-structure parity between README.md and
+README.pt-BR.md.
 
-Usage: python scripts/check_conventions.py [--verbose] [--only names|words|readme]
+Usage: python scripts/check_conventions.py [--verbose] [--only names|words|guest|readme]
 """
 
 from __future__ import annotations
@@ -57,6 +58,16 @@ SELF_EXCLUDED_FILES = {
     "dossier/naming-model.md",
     "scripts/check_conventions.py",
     "README.pt-BR.md",
+}
+
+# Code and tests carry no `guest` identifier or run class (D-040 items 4 and 8): any spelling counts
+# (guest, Guest, GUEST_LOGIN, tailnet-guest, guests). dossier/ and docs/ are history, not scanned.
+GUEST_RE = re.compile("guest", re.IGNORECASE)
+GUEST_EXTENSIONS = set(".py .js .cjs .html .css .sh".split())  # noqa: SIM905
+GUEST_SKIPPED_PREFIXES = ("dossier/", "docs/")
+GUEST_ALLOWED_FILES = {
+    "scripts/check_conventions.py": "defines the pattern",
+    "tests/test_conventions.py": "plants the word to test the scan",
 }
 
 HEADING_RE = re.compile(r"^(#{1,6})\s+\S")
@@ -202,6 +213,26 @@ def check_words(files: list[str]) -> int:
     return hits
 
 
+def check_guests(files: list[str]) -> int:
+    hits = 0
+    for rel_path in files:
+        if (
+            Path(rel_path).suffix not in GUEST_EXTENSIONS
+            or rel_path.startswith(GUEST_SKIPPED_PREFIXES)
+            or rel_path in GUEST_ALLOWED_FILES
+        ):
+            continue
+        try:
+            lines = (REPO_ROOT / rel_path).read_text(encoding="utf-8").splitlines()
+        except (OSError, UnicodeDecodeError):
+            continue
+        for number, line in enumerate(lines, 1):
+            if GUEST_RE.search(line):
+                hits += 1
+                print(f"{rel_path}:{number}: guest")
+    return hits
+
+
 def heading_levels(rel_path: str) -> list[int]:
     """Return the heading depth of every Markdown heading, in document order."""
     full_path = REPO_ROOT / rel_path
@@ -247,22 +278,27 @@ def check_readme_parity(verbose: bool) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--verbose", action="store_true")
-    parser.add_argument("--only", choices=("names", "words", "readme"))
+    parser.add_argument("--only", choices=("names", "words", "guest", "readme"))
     args = parser.parse_args()
 
     files = list_tracked_files()
 
-    errors = warnings = hits = readme_errors = 0
+    errors = warnings = hits = guest_hits = readme_errors = 0
     if args.only in (None, "names"):
         errors, warnings = check_names(files, args.verbose)
     if args.only in (None, "words"):
         hits = check_words(files)
+    if args.only in (None, "guest"):
+        guest_hits = check_guests(files)
     if args.only in (None, "readme"):
         readme_errors = check_readme_parity(args.verbose)
     errors += readme_errors
 
-    print(f"conventions: {errors} name errors, {warnings} name warnings, {hits} portuguese hits")
-    return 0 if errors == 0 and hits == 0 else 1
+    print(
+        f"conventions: {errors} name errors, {warnings} name warnings, {hits} portuguese hits, "
+        f"{guest_hits} guest hits"
+    )
+    return 0 if errors == 0 and hits == 0 and guest_hits == 0 else 1
 
 
 if __name__ == "__main__":
