@@ -15,6 +15,7 @@ PUBLIC = frozenset(
         "themes.css",
         "theme.js",
         "components.js",
+        "settings-search.js",
         "icons.svg",
         "file-icons.svg",
         "file-icons-data.js",

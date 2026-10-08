@@ -6,6 +6,24 @@ let state,
   wizard = false,
   editing = null,
   unsaved = false;
+const settingsSearchIndexState = window.settingsSearchIndexState = {
+  lastGoodIndex: null,
+  refreshing: true,
+  lastError: null,
+};
+function settingsSearchChanged(status, error = null) {
+  if (status === "refreshing") {
+    settingsSearchIndexState.refreshing = true;
+    settingsSearchIndexState.lastError = null;
+  } else if (status === "ready") {
+    settingsSearchIndexState.refreshing = false;
+    settingsSearchIndexState.lastError = null;
+  } else if (status === "error") {
+    settingsSearchIndexState.refreshing = false;
+    settingsSearchIndexState.lastError = error;
+  }
+  document.dispatchEvent(new CustomEvent("keepharness:settings-index-change", { detail: { status } }));
+}
 let profileModel = "",
   profileDirty = false,
   discoveredModelFiles = [];
@@ -1295,32 +1313,39 @@ function render() {
     ". Isolated mode requires Linux and bubblewrap. Native mode uses the mechanisms of the installed CLI.";
 }
 async function load({ select = true } = {}) {
-  state = await request("state");
-  if (state.authentication.claude === false) {
-    try {
-      const checked = await request("check", { provider: "claude" });
-      state.authentication.claude = checked.authenticated;
-      state.models.claude = checked.models;
-    } catch {
-      state.authentication.claude = null;
+  settingsSearchChanged("refreshing");
+  try {
+    state = await request("state");
+    if (state.authentication.claude === false) {
+      try {
+        const checked = await request("check", { provider: "claude" });
+        state.authentication.claude = checked.authenticated;
+        state.models.claude = checked.models;
+      } catch {
+        state.authentication.claude = null;
+      }
     }
+    settings = structuredClone(state.settings);
+    unsaved = false;
+    if (select) {
+      const available = visibleProviders().filter((i) => {
+        const s = settings.services[i.id];
+        return s && (s.added || s.enabled || s.models.length);
+      });
+      editing = available.some((i) => i.id === editing) ? editing : null;
+      wizard = !!editing;
+    }
+    render();
+    if (wizard)
+      $("wizard-title").textContent =
+        "Edit " +
+        (visibleProviders().find((i) => i.id === editing)?.name || "provider");
+    HarnessUI.decorate();
+    settingsSearchChanged("ready");
+  } catch (error) {
+    settingsSearchChanged("error", error);
+    throw error;
   }
-  settings = structuredClone(state.settings);
-  unsaved = false;
-  if (select) {
-    const available = visibleProviders().filter((i) => {
-      const s = settings.services[i.id];
-      return s && (s.added || s.enabled || s.models.length);
-    });
-    editing = available.some((i) => i.id === editing) ? editing : null;
-    wizard = !!editing;
-  }
-  render();
-  if (wizard)
-    $("wizard-title").textContent =
-      "Edit " +
-      (visibleProviders().find((i) => i.id === editing)?.name || "provider");
-  HarnessUI.decorate();
 }
 $("refresh-log-tail").onclick = async () => {
   const button = $("refresh-log-tail");
@@ -1469,6 +1494,7 @@ $("full-access").onchange = () => {
   }
   action(async () => {
     toggle.disabled = true;
+    settingsSearchChanged("changed");
     try {
       await request("settings", { ...structuredClone(state.settings), full_access: enabled });
       await load({ select: false });
@@ -1480,6 +1506,7 @@ $("full-access").onchange = () => {
     } finally {
       toggle.checked = state.settings.full_access === true;
       toggle.disabled = false;
+      settingsSearchChanged("changed");
     }
   });
 };
@@ -2884,6 +2911,7 @@ function renderMcpEfforts(preferred = "") {
   const value = $("mcp-default-model").value;
   if (!value) {
     select.disabled = true;
+    settingsSearchChanged("changed");
     return;
   }
   select.disabled = false;
@@ -2896,6 +2924,7 @@ function renderMcpEfforts(preferred = "") {
   if (preferred && !efforts.includes(preferred))
     select.append(new Option(preferred + " · saved, check account", preferred));
   select.value = preferred;
+  settingsSearchChanged("changed");
 }
 $("mcp-default-model").onchange = () => renderMcpEfforts();
 $("save-mcp").onclick = () =>

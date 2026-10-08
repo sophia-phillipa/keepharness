@@ -8232,7 +8232,10 @@ function showAdminSection(section = "providers") {
   const label = document.querySelector('[data-admin-section="' + section + '"]');
   frame.title = "Administration: " + (label?.textContent || section);
   const next = adminFrameUrl(section);
-  if (frame.src !== next) frame.src = next;
+  if (frame.dataset.settingsSearchReady && new URL(frame.src).origin === new URL(next).origin) {
+    // Search has authenticated this admin document. Retain its unsaved form values.
+    frame.contentWindow.postMessage({ type: "keepharness:settings-section", section }, new URL(next).origin);
+  } else if (frame.src !== next) frame.src = next;
 }
 // `section` is a data-admin-section or a data-settings value; false when it is an admin section
 // on a host that cannot frame the admin, or unknown.
@@ -9416,9 +9419,46 @@ async function refreshProjectFileSearch(value) {
   }
 }
 function renderConversationSearch() {
-  const query = normalizeSearch($("conversation-search").value.trim());
+  const input = $("conversation-search"),
+    activeResult = document.activeElement?.closest?.(".conversation-search-result"),
+    focusedResultId = activeResult?.dataset.searchResultId,
+    query = normalizeSearch(input.value.trim());
   const includes = (...values) =>
     !query || normalizeSearch(values.filter(Boolean).join(" ")).includes(query);
+  const composerAvailable = () => {
+    const composer = $("prompt");
+    return !composer.disabled && composer.checkVisibility() && !composer.closest("[inert]");
+  };
+  const resultButton = (id, titleText, detailText, action) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "conversation-search-result";
+    button.dataset.searchResultId = id;
+    const title = document.createElement("strong"),
+      detail = document.createElement("small");
+    title.textContent = titleText;
+    detail.textContent = detailText;
+    button.append(title, detail);
+    button.onclick = action;
+    return button;
+  };
+  const commandMatches = [
+    { id: "new-conversation", title: "New conversation", terms: "new chat home", available: () => !(submitting || cancelling || loading || uploads), run: () => void navigate({ kind: "home" }) },
+    { id: "focus-composer", title: "Focus composer", terms: "write message prompt", available: composerAvailable, run: () => {
+      if (composerAvailable()) $("prompt").focus();
+    } },
+    { id: "keyboard-shortcuts", title: "Keyboard shortcuts", terms: "key bindings reference", run: openKeyboardShortcuts },
+  ].filter((item) => (!item.available || item.available()) && includes(item.title, item.terms));
+  const settingsMatches = [...document.querySelectorAll(".settings-nav-group:not([hidden])")]
+    .flatMap((section) => {
+      const group = section.querySelector(".settings-nav-label")?.textContent.trim() || "Settings";
+      return [...section.querySelectorAll("[data-settings]")].map((button) => ({
+        title: button.textContent.trim(),
+        section: button.dataset.adminSection || button.dataset.settings,
+        group,
+      }));
+    })
+    .filter((item) => includes(item.title, item.group, "Settings"));
   const observedConversationIds = new Set();
   const observedRuns = observedActivityJobs.map((item) => {
     const source = conversations.find((conversation) => conversation.id === item.conversation_id);
@@ -9475,13 +9515,13 @@ function renderConversationSearch() {
   const fileMatches = [...loadedFiles.entries()].filter(([path, file]) =>
     includes(path, file.name),
   );
-  const total = runMatches.length + fileMatches.length;
+  const total = commandMatches.length + settingsMatches.length + runMatches.length + fileMatches.length;
   $("search-clear").hidden = !query;
   $("search-results").textContent = total
     ? total + " result(s) found"
     : query
-      ? "No run or loaded file matched."
-      : "No runs or loaded files are available.";
+      ? "No command, setting, run, or loaded file matched."
+      : "No commands, settings, runs, or loaded files are available.";
   const sections = [];
   const group = (name, items) => {
     if (!items.length) return;
@@ -9493,11 +9533,30 @@ function renderConversationSearch() {
     sections.push(section);
   };
   group(
+    "Commands",
+    commandMatches.map((item) =>
+      resultButton("command:" + item.id, item.title, "Command", () => {
+        $("conversation-search-dialog").close();
+        item.run();
+      }),
+    ),
+  );
+  group(
+    "Settings",
+    settingsMatches.map((item) =>
+      resultButton("settings:" + item.section, item.title, "Settings › " + item.group, () => {
+        $("conversation-search-dialog").close();
+        openSettings(item.section);
+      }),
+    ),
+  );
+  group(
     "Runs",
     runMatches.map((c) => {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "conversation-search-result";
+      button.dataset.searchResultId = "run:" + (c.id || "") + ":" + (c.runId || "");
       const title = document.createElement("strong"),
         detail = document.createElement("small");
       title.textContent = c.title || "Conversation";
@@ -9545,6 +9604,7 @@ function renderConversationSearch() {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "conversation-search-result";
+      button.dataset.searchResultId = "file:" + path;
       const title = document.createElement("strong");
       title.textContent = path;
       const detail = document.createElement("small");
@@ -9559,7 +9619,13 @@ function renderConversationSearch() {
       return button;
     }),
   );
-  $("conversation-search-list").replaceChildren(...sections);
+  const list = $("conversation-search-list");
+  list.replaceChildren(...sections);
+  if (focusedResultId) {
+    const replacement = [...list.querySelectorAll(".conversation-search-result")]
+      .find((result) => result.dataset.searchResultId === focusedResultId && !result.disabled);
+    (replacement || input).focus({ preventScroll: true });
+  }
 }
 function openConversationSearch() {
   renderConversationSearch();
@@ -9573,7 +9639,17 @@ $("conversation-search-dialog").addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
     event.preventDefault();
     $("conversation-search-dialog").close();
+    return;
   }
+  if (!["ArrowDown", "ArrowUp"].includes(event.key)) return;
+  const results = [...$("conversation-search-list").querySelectorAll("button:not(:disabled)")];
+  if (!results.length) return;
+  const index = results.indexOf(document.activeElement);
+  event.preventDefault();
+  results[event.key === "ArrowDown"
+    ? (index + 1 + results.length) % results.length
+    : (index < 0 ? results.length - 1 : index - 1 + results.length) % results.length
+  ].focus();
 });
 $("conversation-search").addEventListener("input", () => {
   renderConversationSearch();
@@ -9591,6 +9667,81 @@ $("search-clear").onclick = () => {
   renderConversationSearch();
   $("conversation-search").focus();
 };
+const shortcutModifier = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl";
+$("conversation-search-title").textContent = "Search KeepHarness";
+document.querySelector('label[for="conversation-search"]').textContent = "Commands, Settings, runs, and files";
+$("conversation-search").placeholder = "Type a command, setting, run, or file…";
+$("search-conversations").querySelector("span").textContent = "Search KeepHarness";
+$("search-conversations").querySelector("kbd").textContent = shortcutModifier + " K";
+$("search-conversations").title = "Search KeepHarness · " + shortcutModifier + "+K";
+$("settings-appearance").querySelector(".shortcut-help").textContent =
+  shortcutModifier + "+/: keyboard shortcuts\n" +
+  shortcutModifier + "+K or " + shortcutModifier + "+Shift+P: search KeepHarness\n" +
+  "Escape: close the current dialog or panel";
+const keyboardShortcuts = [
+  ["Search KeepHarness", [shortcutModifier, "K"]],
+  ["Search KeepHarness", [shortcutModifier, "Shift", "P"]],
+  ["Open Settings", [shortcutModifier, ","]],
+  ["Toggle run console", [shortcutModifier, "J"]],
+  ["Go back", [shortcutModifier, "["]],
+  ["Go forward", [shortcutModifier, "]"]],
+  ["Keyboard shortcuts", [shortcutModifier, "/"]],
+];
+let shortcutReturnFocus = null;
+function renderKeyboardShortcuts() {
+  const query = normalizeSearch($("keyboard-shortcuts-search").value.trim());
+  const matches = keyboardShortcuts.filter(([action, keys]) =>
+    !query || normalizeSearch(action + " " + keys.join(" ") + " " + keys.join("+")).includes(query),
+  );
+  $("keyboard-shortcuts-status").textContent = matches.length
+    ? matches.length + " shortcut(s) found"
+    : "No shortcut matched.";
+  $("keyboard-shortcuts-list").replaceChildren(
+    ...matches.map(([action, keys]) => {
+      const row = document.createElement("div"),
+        label = document.createElement("span"),
+        binding = document.createElement("kbd");
+      row.className = "keyboard-shortcut-row";
+      row.tabIndex = -1;
+      row.setAttribute("role", "listitem");
+      label.textContent = action;
+      binding.textContent = keys.join(" ");
+      row.append(label, binding);
+      return row;
+    }),
+  );
+}
+function closeKeyboardShortcuts() {
+  $("keyboard-shortcuts-dialog").close();
+  if (shortcutReturnFocus?.isConnected && !shortcutReturnFocus.closest("[inert]"))
+    shortcutReturnFocus.focus();
+  shortcutReturnFocus = null;
+}
+function openKeyboardShortcuts() {
+  shortcutReturnFocus = document.activeElement;
+  $("keyboard-shortcuts-search").value = "";
+  renderKeyboardShortcuts();
+  $("keyboard-shortcuts-dialog").showModal();
+  $("keyboard-shortcuts-search").focus();
+}
+$("keyboard-shortcuts-search").addEventListener("input", renderKeyboardShortcuts);
+$("keyboard-shortcuts-close").onclick = closeKeyboardShortcuts;
+$("keyboard-shortcuts-dialog").addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeKeyboardShortcuts();
+    return;
+  }
+  if (!["ArrowDown", "ArrowUp"].includes(event.key)) return;
+  const rows = [...$("keyboard-shortcuts-list").querySelectorAll(".keyboard-shortcut-row")];
+  if (!rows.length) return;
+  const index = rows.indexOf(document.activeElement);
+  event.preventDefault();
+  rows[event.key === "ArrowDown"
+    ? (index + 1 + rows.length) % rows.length
+    : (index < 0 ? rows.length - 1 : index - 1 + rows.length) % rows.length
+  ].focus();
+});
 let composerWidth = 0;
 new ResizeObserver(entries => {
   const width = entries[0].contentRect.width;
@@ -9761,16 +9912,12 @@ document.addEventListener("keydown", (e) => {
     document.querySelector("[popover]:popover-open")
   )
     return;
-  if (
-    (e.ctrlKey || e.metaKey) &&
-    !e.altKey &&
-    (e.key === "/" || e.key.toLowerCase() === "k")
-  ) {
+  const searchShortcut =
+    (e.key.toLowerCase() === "k" && !e.shiftKey) ||
+    (e.key.toLowerCase() === "p" && e.shiftKey);
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === "/" || searchShortcut)) {
     e.preventDefault();
-    if (e.key === "/") {
-      if (innerWidth <= 620 && $("sidebar").classList.contains("open") || innerWidth < 1000 && !$("activity-panel").hidden || (innerWidth <= 700 || innerHeight <= 500) && document.querySelector("#run-console:not([hidden])")) return;
-      $("prompt").focus();
-    }
+    if (e.key === "/") openKeyboardShortcuts();
     else openConversationSearch();
   }
   if (e.key === "Escape") {

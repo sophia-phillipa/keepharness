@@ -3130,11 +3130,43 @@ body :is(button, .btn, [role="button"], summary):focus-visible {
   display: grid;
   gap: 6px;
 }
+#keyboard-shortcuts-dialog {
+  width: min(560px, calc(100vw - 32px));
+  max-height: 80dvh;
+  overflow: auto;
+}
+#keyboard-shortcuts-list {
+  display: grid;
+  gap: 4px;
+}
+.keyboard-shortcut-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  min-height: 42px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--th-text);
+  text-align: left;
+}
+.keyboard-shortcut-row:hover,
+.keyboard-shortcut-row:focus-visible {
+  background: var(--th-soft);
+}
+.keyboard-shortcut-row kbd {
+  flex: none;
+  color: var(--th-muted);
+}
 .conversation-search-result {
   display: grid;
   gap: 4px;
   width: 100%;
   padding: 12px;
+  color: var(--th-text);
+  background: transparent;
   text-align: left;
   border-radius: 8px;
 }
@@ -5954,3 +5986,21 @@ body.panel-order-reversed #sidebar .sidebar-tree { margin: 0 0 0 12px; padding: 
 .image-capability-warning { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 8px; padding: 8px 12px; border: 1px solid var(--th-warning); border-radius: 8px; background: color-mix(in srgb, var(--th-warning) 10%, var(--th-panel)); color: var(--th-text); font-size: 13px; line-height: 18px; }
 .image-capability-warning[hidden] { display: none; }
 .image-capability-warning > span { flex: 1 1 240px; }
+
+/* Settings preference search follows the current palette, including result details. */
+#settings-dialog .settings-search { padding: 8px; min-width: 0; color: var(--th-text); }
+#settings-dialog .settings-search > label { display: block; margin-bottom: 6px; font-weight: 500; }
+#settings-dialog .settings-search-input { display: flex; gap: 4px; }
+#settings-dialog #settings-search { min-width: 0; width: 100%; padding: 8px; border: 1px solid var(--th-border); border-radius: var(--th-row-radius); background: var(--th-soft); color: var(--th-text); }
+#settings-dialog #settings-search::placeholder { color: var(--th-text); opacity: 1; }
+#settings-dialog .settings-search button { background: var(--th-panel); color: var(--th-text); border: 1px solid var(--th-border); border-radius: var(--th-row-radius); padding: 8px; }
+#settings-dialog #settings-search-status { color: var(--th-text); font-size: 12px; }
+#settings-dialog #settings-search-results { list-style: none; padding: 0; margin: 8px 0; max-height: 40vh; overflow: auto; }
+#settings-dialog #settings-search-results button { width: 100%; text-align: left; margin: 2px 0; overflow-wrap: anywhere; }
+#settings-dialog #settings-search-results :is(strong, span) { display: block; color: var(--th-text); }
+#settings-dialog #settings-search-results span { margin-top: 4px; font-size: 12px; }
+#settings-dialog #settings-search-results button:focus-visible { outline: 2px solid var(--th-text); outline-offset: -2px; }
+#settings-dialog #settings-search-results button:disabled { opacity: 1; cursor: not-allowed; }
+@media (max-width: 620px) {
+  #settings-dialog .settings-search { flex: 0 0 min(280px, 80vw); }
+}

@@ -71,6 +71,7 @@ def test_defaults_validation_and_private_persistence(tmp_path):
 
 def test_shared_assets_whitelist():
     assert all((ASSETS / name).is_file() for name in PUBLIC)
+    assert asset_response("/assets/settings-search.js").status_code == 200
     assert asset_response("/assets/../__init__.py").status_code == 404
     assert asset_response("/assets/not-found.js").status_code == 404
 
