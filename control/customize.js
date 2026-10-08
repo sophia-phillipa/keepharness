@@ -5,13 +5,16 @@
    Row switches (issue #21, D-041) read and write the CLI's real state through /api/provider-state;
    the changes made outside KeepHarness that those reads return go to admin.js (issue #43). */
 (() => {
-  const CLIS = ["codex", "claude"]; // the only providers /api/integration-catalog answers for
+  const CLIS = ["codex", "claude"]; // providers with plugin catalogs
+  const STATE_CLIS = [...CLIS, "deepseek"];
   // Like every admin button, each chip leads with its own icon on the label's line.
   const CHIPS = [
     ["plugins", "Plugins", "plugin", "cube"],
     ["apps", "Apps", "account-app", "world"],
     ["mcps", "MCPs", "mcp", "plug"],
     ["skills", "Skills", undefined, "list-check"], // no count until the Skills content lands
+    ["hooks", "Hooks", "hook", "plug"],
+    ["rules", "Rules", "instructions", "list-check"],
   ];
   const NO_PROJECT = "sem-projeto";
   const view = { chip: "plugins", mode: "directory", query: "", detailKey: "", detailOrigin: "", loading: false, built: false, clis: [], project: NO_PROJECT };
@@ -594,6 +597,61 @@
     return article;
   }
 
+  const resourceKind = () => ({ hooks: "hook", rules: "instructions" })[view.chip];
+  const resourceItems = (kind) => view.clis.flatMap((info) =>
+    (states.get(info.id)?.snapshot?.items || []).filter((item) => item.kind === kind).map((item) => ({ info, item })),
+  );
+  const fieldLabel = (key) => capitalized(key.replace(/([a-z])([A-Z])/g, "$1 $2").replaceAll("_", " "));
+
+  function resourceRow(info, item) {
+    const row = node("article", undefined, "plugins-resource-row", "provider-resource-row");
+    row.append(node("h4", item.name), node("p", providerName(info) + ": " + capitalized(item.scope) + " · " + item.source, "plugins-resource-source"));
+    row.append(node("p", (item.enabled ? "Enabled" : "Disabled") + (item.reason ? " · " + item.reason : ""), "plugins-resource-status"));
+    if (providerNotices.get(info.id)?.some((notice) => notice.item_id === item.id))
+      row.append(node("span", "Changed outside KeepHarness", "pill plugins-changed", "resource-changed"));
+    const fields = node("dl", undefined, "plugins-resource-fields");
+    for (const [key, value] of Object.entries(item.details || {})) {
+      if (["preview", "content_sha256"].includes(key) || value === null) continue;
+      const text = key === "size_bytes" ? value + " bytes" : typeof value === "object" ? JSON.stringify(value, null, 2) : String(value);
+      fields.append(node("dt", fieldLabel(key)), node("dd", text));
+    }
+    row.append(fields);
+    if (typeof item.details?.preview === "string") {
+      const preview = node("details", undefined, "plugins-resource-preview");
+      preview.append(node("summary", "Preview " + item.name), node("pre", item.details.preview));
+      row.append(preview);
+    }
+    return row;
+  }
+
+  function renderResources(kind) {
+    const query = view.query.trim().toLocaleLowerCase();
+    const sections = view.clis.map((info) => {
+      const section = node("section", undefined, "plugins-resources");
+      section.setAttribute("aria-label", providerName(info) + (kind === "hook" ? " hooks" : " rules"));
+      section.append(node("h2", providerName(info)));
+      const data = states.get(info.id);
+      if (data?.error) {
+        section.append(node("p", data.error, "hint"));
+        return section;
+      }
+      for (const warning of data?.snapshot?.warnings || []) section.append(node("p", warning, "hint"));
+      const items = (data?.snapshot?.items || []).filter((item) => item.kind === kind &&
+        [item.name, item.scope, item.source, JSON.stringify(item.details || {})].join(" ").toLocaleLowerCase().includes(query));
+      if (!items.length) {
+        section.append(node("p", query ? "No matches for “" + view.query.trim() + "”." : kind === "hook" ? "No hooks found" : "No rules found", "hint"));
+        if (!query && kind === "hook") section.append(node("p", "Configured hooks will appear here", "hint"));
+      }
+      for (const scope of [...new Set(items.map((item) => item.scope))]) {
+        section.append(node("h3", capitalized(scope)));
+        section.append(...items.filter((item) => item.scope === scope).map((item) => resourceRow(info, item)));
+      }
+      return section;
+    });
+    list.replaceChildren(...sections);
+    if (!sections.length) list.append(node("p", "No provider CLI was found. Check AI Providers.", "hint"));
+  }
+
   function renderList() {
     list.setAttribute("aria-busy", String(view.loading));
     if (view.loading) {
@@ -603,6 +661,7 @@
     }
     const [, label] = CHIPS.find(([id]) => id === view.chip);
     const empty = (message) => list.replaceChildren(node("p", message, "hint", "plugins-empty"));
+    if (resourceKind()) return renderResources(resourceKind());
     if (view.chip !== "plugins") return empty(label + " are not listed here yet.");
     if (!view.clis.length)
       return empty("No Codex or Claude Code CLI was found. Check the environment on the AI Providers page.");
@@ -644,12 +703,16 @@
       chip.setAttribute("aria-pressed", String(id === view.chip));
       // The label and its count share one text box so they read "Plugins 3" beside the icon.
       const text = node("span", label);
-      if (kind && !view.loading) text.append(" ", node("span", String(kind === "plugin" && view.mode === "directory" ? pluginGroups().length : installed(kind).length), "plugins-count"));
+      if (kind && !view.loading) text.append(" ", node("span", String(["hook", "instructions"].includes(kind) ? resourceItems(kind).length : kind === "plugin" && view.mode === "directory" ? pluginGroups().length : installed(kind).length), "plugins-count"));
       chip.replaceChildren(icon(glyph), text);
     }
     renderNote();
     renderTrust();
     modeButton.replaceChildren(icon(view.mode === "directory" ? "settings" : "cube"), document.createTextNode(view.mode === "directory" ? "Manage" : "Browse directory"));
+    modeButton.hidden = view.chip !== "plugins";
+    const search = panel.querySelector(".plugins-search");
+    search.placeholder = "Search " + (resourceKind() ? view.chip : "plugins");
+    search.setAttribute("aria-label", search.placeholder);
     renderList();
   }
 
@@ -762,7 +825,7 @@
     render();
     try {
       const inventory = (state || (await request("state"))).inventory;
-      view.clis = inventory.services.filter((info) => info.found && CLIS.includes(info.id));
+      view.clis = inventory.services.filter((info) => info.found && STATE_CLIS.includes(info.id));
       const projects = [
         [NO_PROJECT, "No project"],
         ...((state?.settings?.projects || []).map((project) => [project.id, project.label || project.id])),
@@ -773,7 +836,7 @@
       rowErrors.clear(); // a reload starts clean; a re-read on focus keeps the errors on their rows
       const reads = loadStates(view.clis);
       // One CLI at a time: the admin runs one operation at once and answers 429 to a second.
-      for (const { id } of view.clis) {
+      for (const { id } of view.clis.filter((info) => CLIS.includes(info.id))) {
         const cached = integrationCatalogs.get(id);
         // catalogPending is shared with the Providers page so one CLI scan runs at a time.
         if ((!force && cached && !cached.error) || catalogPending.has(id)) continue;

@@ -465,3 +465,23 @@ Issue 6 depends on 4c, the last of the three.
 - [D-038](decisions/d-038-keepharness-facade-over-provider-state.md), [D-039](decisions/d-039-single-owner-facade-policies.md), [D-034](decisions/d-034-wp3-customize-product-answers.md), [UC-001](UC-001-multi-user-execution.md), [native resource discovery](native-resource-discovery.md), [DeepSeek CLI research](research/deepseek-cli-2026-10.md) (#33, in progress).
 - Codex: [config reference](https://learn.chatgpt.com/docs/config-file/config-reference), [app server](https://learn.chatgpt.com/docs/app-server), [openai/codex PR #7560](https://github.com/openai/codex/pull/7560) (`file_path` optional for config writes).
 - Claude Code: [settings](https://code.claude.com/docs/en/settings), [settings schema](https://json.schemastore.org/claude-code-settings.json), [MCP](https://code.claude.com/docs/en/mcp), [skills](https://code.claude.com/docs/en/skills), [plugins reference](https://code.claude.com/docs/en/plugins-reference).
+
+### Hooks and Rules display contract (#61)
+
+The Plugins facade adds Hooks and Rules chips, grouped by provider and native
+scope. These sections consume `StateItem.details`, an optional mapping of
+sanitized native display fields. Hook commands are text and are never executed
+by the reader or browser. Each row preserves its source file, effective enabled
+state, trust explanation and the existing outside-change marker. Instructions
+include their title, byte size and a collapsed plain-text preview. Content hashes
+are for change detection, not display. No content editor or synthetic per-hook
+switch is introduced; native global hook-disable settings remain visible as
+read-only metadata in this first iteration.
+
+DeepSeek state reads are separate from plugin catalog discovery: a state reader
+does not imply support for installing or managing plugins. Existing project
+trust actions and notice acknowledgements retain their original routes and
+safeguards. JEV selected extension of the existing chips over separate sidebar
+pages (confidence 0.94); the Codex inventory confirms the Hooks empty-state copy.
+Populated native fields must be verified from the CLI schema/documentation,
+not inferred from that empty screenshot.
