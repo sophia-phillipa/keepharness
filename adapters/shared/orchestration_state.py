@@ -188,7 +188,7 @@ class InstructionReader:
                 "instructions",
                 safe_text(title),
                 scope,
-                not status.startswith("shadowed"),
+                status == "configured",
                 self.shown(path),
                 False,
                 "Read-only; edit this source in your editor.",
@@ -258,24 +258,42 @@ def claude_instructions(home, config, project, managed, *, read_content=True):
 
 def codex_instructions(home, config, project, fallback_names=(), *, read_content=True):
     reader = InstructionReader(home, project, read_content=read_content)
-    for scope, folder in [("user", Path(config)), *(("project", p) for p in ancestors(project))]:
-        override = folder / "AGENTS.override.md"
-        standard = folder / "AGENTS.md"
-        reader.document(override, scope)
-        reader.document(
-            standard,
-            scope,
-            status="shadowed by AGENTS.override.md" if override.is_file() else "configured",
+    chain = ancestors(project)
+    git_root = next(
+        (folder for folder in reversed(chain) if (folder / ".git").exists()),
+        Path(project) if project else None,
+    )
+
+    def has_content(path):
+        try:
+            return path.is_file() and path.stat().st_size > 0
+        except OSError:
+            return False
+
+    for scope, folder in [("user", Path(config)), *(("project", p) for p in chain)]:
+        outside = (
+            scope == "project" and git_root is not None and not folder.is_relative_to(git_root)
         )
-        chosen = override.is_file() or standard.is_file()
-        for name in fallback_names:
-            if isinstance(name, str) and Path(name).name == name:
-                reader.document(
-                    folder / name,
-                    scope,
-                    status="shadowed by higher priority instructions" if chosen else "configured",
-                )
-                chosen = chosen or (folder / name).is_file()
+        chosen = None
+        names = ["AGENTS.override.md", "AGENTS.md"]
+        names.extend(
+            name for name in fallback_names if isinstance(name, str) and Path(name).name == name
+        )
+        for name in dict.fromkeys(names):
+            path = folder / name
+            present = has_content(path)
+            status = (
+                "outside native instruction chain"
+                if outside
+                else "empty instruction file"
+                if not present
+                else "shadowed by " + chosen
+                if chosen
+                else "configured"
+            )
+            reader.document(path, scope, status=status)
+            if present and chosen is None:
+                chosen = name
         rules = folder / "rules" if scope == "user" else folder / ".codex/rules"
         reader.paths.append(rules)
         for path in sorted(rules.glob("*.rules"))[:200]:

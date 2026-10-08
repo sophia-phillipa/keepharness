@@ -357,3 +357,38 @@ def test_codex_untrusted_ancestor_execpolicy_expands_home_display_path(
     assert row.source.startswith("~/workspace/")
     assert row.enabled is False
     assert row.details["status"] == "pending project trust"
+
+
+def test_codex_empty_override_does_not_shadow_nonempty_agents(isolated_provider_homes, tmp_path):
+    from adapters.shared.orchestration_state import codex_instructions
+
+    project = tmp_path / "project"
+    put(project / "AGENTS.override.md", "")
+    put(project / "AGENTS.md", "# Active\n")
+    reader = codex_instructions(
+        isolated_provider_homes, isolated_provider_homes / ".codex", project
+    )
+    standard = next(row for row in reader.items if row.source == "AGENTS.md")
+    override = next(row for row in reader.items if row.source == "AGENTS.override.md")
+    assert standard.enabled and standard.details["status"] == "configured"
+    assert not override.enabled and override.details["status"] == "empty instruction file"
+
+
+def test_codex_ancestors_above_git_root_are_inventory_only(isolated_provider_homes):
+    from adapters.shared.orchestration_state import codex_instructions
+
+    ancestor = isolated_provider_homes / "workspace"
+    root = ancestor / "repo"
+    project = root / "nested"
+    project.mkdir(parents=True)
+    (root / ".git").mkdir()
+    put(ancestor / "AGENTS.md", "# Outside\n")
+    put(root / "AGENTS.md", "# Root\n")
+    put(project / "AGENTS.md", "# Nested\n")
+    reader = codex_instructions(
+        isolated_provider_homes, isolated_provider_homes / ".codex", project
+    )
+    by_name = {row.name: row for row in reader.items}
+    assert not by_name["Outside"].enabled
+    assert by_name["Outside"].details["status"] == "outside native instruction chain"
+    assert by_name["Root"].enabled and by_name["Nested"].enabled
