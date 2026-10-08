@@ -387,6 +387,8 @@ const path = require("node:path");
     await page.waitForTimeout(100);
     assert.equal(posts.length, 2);
     await page.setViewportSize({ width: 390, height: 844 });
+    // Resize handlers dismiss popovers before the next animation frame.
+    await page.evaluate(() => new Promise(requestAnimationFrame));
     await page.fill("#prompt", "@");
     await page
       .locator('#resource-menu [data-resource-id="p-agent"]')

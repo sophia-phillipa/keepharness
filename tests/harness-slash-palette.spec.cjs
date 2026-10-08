@@ -358,6 +358,8 @@ const path = require("node:path");
     );
 
     await page.setViewportSize({ width: 390, height: 844 });
+    // Resize handlers dismiss popovers before the next animation frame.
+    await page.evaluate(() => new Promise(requestAnimationFrame));
     await page.fill("#prompt", "");
     await page.fill("#prompt", "/");
     await reviewer.waitFor({ state: "visible" });
