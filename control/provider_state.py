@@ -33,6 +33,7 @@ from adapters.shared.provider_state import (
     ProviderCommandError,
     ProviderStateAdapter,
     ProviderStateConflictError,
+    ProviderStateSchemaError,
     StateSnapshot,
     _ProviderStateError,
     fingerprint,
@@ -57,28 +58,39 @@ _runs_lock = threading.Lock()  # runs share one thread pool and one runs file
 def _owner_environment(state: Path) -> dict[str, str]:
     """Pin the owner's locations; the 0.15 run homes never belong to this facade.
 
-    Compare lexical paths only: resolving these locations must not read CLI state.
-    Keep custom owner directories, but discard inherited harness-owned locations.
+    Resolve directory aliases for containment only, without reading CLI file contents.
+    Keep accepted custom path spellings, but discard harness-owned or unresolvable locations.
     """
-    harness = Path(os.path.abspath(Path(state) / "providers"))
+    try:
+        harness = (Path(state) / "providers").resolve()
+    except (OSError, RuntimeError):
+        raise ProviderStateSchemaError("The provider state directory cannot be resolved.") from None
 
-    def owned(value: str) -> bool:
-        return Path(os.path.abspath(value)).is_relative_to(harness)
+    def owner_path(value: str) -> bool:
+        try:
+            return not Path(value).resolve().is_relative_to(harness)
+        except (OSError, RuntimeError):
+            return False
 
     home = os.environ.get("HOME")
-    if not home or owned(home):
+    if not home or not owner_path(home):
         if os.name == "posix":
             import pwd
 
             home = pwd.getpwuid(os.getuid()).pw_dir
         else:
             home = os.environ.get("USERPROFILE") or str(Path.home())
+    if not owner_path(home):
+        raise ProviderStateSchemaError("The owner home is unavailable for provider state.")
     result = {"HOME": home}
     for name, folder in (("CODEX_HOME", ".codex"), ("CLAUDE_CONFIG_DIR", ".claude")):
         configured = os.environ.get(name)
-        result[name] = (
-            configured if configured and not owned(configured) else str(Path(home) / folder)
-        )
+        location = configured if configured and owner_path(configured) else str(Path(home) / folder)
+        if not owner_path(location):
+            raise ProviderStateSchemaError(
+                "The owner CLI directory is unavailable for provider state."
+            )
+        result[name] = location
     return result
 
 
