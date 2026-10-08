@@ -108,6 +108,8 @@ def build_command(config, model, home, permissions, selected, access_mode, addit
         "--settings",
         json.dumps(settings),
     ]
+    if config.get("temporary_chat") is True:
+        command += ["--no-session-persistence"]
     if access_mode == "ask":
         command += ["--permission-mode", "default"]
     elif access_mode == "auto":
@@ -255,7 +257,8 @@ async def run(
         },
     )
     marker = home / "claude-session.json"
-    if marker.exists():
+    temporary = config.get("temporary_chat") is True
+    if not temporary and marker.exists():
         command += ["--resume", json.loads(marker.read_text())["id"]]
     if isinstance(title, str) and title.strip():
         command += ["--name", title]
@@ -327,7 +330,8 @@ async def run(
                 break
         result = state.finish(model, effort)
         if session:
-            marker.write_text(json.dumps({"id": session}))
+            if not temporary:
+                marker.write_text(json.dumps({"id": session}))
             result["thread_id"] = session
         result["context_strategy"] = "native_session"
         return result
