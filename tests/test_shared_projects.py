@@ -12,6 +12,7 @@ from starlette.testclient import TestClient
 from adapters import run_native as run
 from agent_service.app import Service, create_app
 from control.server import Manager
+from tests.deepseek_fixtures import SAFE_CONFIG, write_deepseek_key
 
 
 def config(tmp_path):
@@ -95,6 +96,8 @@ def test_cloud_native_turn_is_unrestricted(tmp_path, provider):
 
     class RPC:
         async def call(self, method, params):
+            if method == "config/read":
+                return SAFE_CONFIG
             recorded["thread"] = params
             return {"thread": {"id": "fixture"}}
 
@@ -116,7 +119,7 @@ def test_cloud_native_turn_is_unrestricted(tmp_path, provider):
     config = {"binary": "fixture", "unrestricted": True}
     if provider == "deepseek":
         key = tmp_path / "fixture.key"
-        key.write_text("fixture-key")
+        write_deepseek_key(key)
         config["api_provider"] = {"url": "https://api.deepseek.com", "key_file": str(key)}
     with (
         patch("adapters.codex.native.connection", connection),

@@ -11,6 +11,7 @@ from starlette.testclient import TestClient
 from adapters import run_native as run
 from adapters.deepseek import account as deepseek
 from control.server import create_app
+from tests.deepseek_fixtures import SAFE_CONFIG
 from tests.owner_session import sign_in
 
 
@@ -64,6 +65,8 @@ class DeepseekTest(unittest.IsolatedAsyncioTestCase):
 
         class RPC:
             async def call(self, method, params):
+                if method == "config/read":
+                    return SAFE_CONFIG
                 captured[method] = params
                 return {"thread": {"id": "test"}}
 
@@ -82,6 +85,8 @@ class DeepseekTest(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as d:
             key = Path(d, "key")
             key.write_text("fixture-private-key")
+            (key.parent / "providers" / "deepseek").mkdir(mode=0o700, parents=True, exist_ok=True)
+            (key.parent / "providers" / "home").mkdir(mode=0o700, parents=True, exist_ok=True)
             with (
                 patch("adapters.codex.native.connection", connection),
                 patch("adapters.codex.native.configurations", return_value={"codex": {}}),
@@ -156,6 +161,8 @@ async def deepseek_turn(notifications, events=None):
             self.notifications = iter(notifications)
 
         async def call(self, method, params):
+            if method == "config/read":
+                return SAFE_CONFIG
             return {"thread": {"id": "thread-1"}}
 
         async def send(self, *args):
@@ -171,6 +178,8 @@ async def deepseek_turn(notifications, events=None):
     with tempfile.TemporaryDirectory() as d:
         key = Path(d, "key")
         key.write_text("fixture-private-key")
+        (key.parent / "providers" / "deepseek").mkdir(mode=0o700, parents=True, exist_ok=True)
+        (key.parent / "providers" / "home").mkdir(mode=0o700, parents=True, exist_ok=True)
         with (
             patch("adapters.codex.native.connection", connection),
             patch("adapters.codex.native.configurations", return_value={"codex": {}}),
@@ -254,6 +263,8 @@ class DeepseekFailureTest(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as d:
             key = Path(d, "key")
             key.write_text("fixture-private-key")
+            (key.parent / "providers" / "deepseek").mkdir(mode=0o700, parents=True, exist_ok=True)
+            (key.parent / "providers" / "home").mkdir(mode=0o700, parents=True, exist_ok=True)
             command = runtime_options(
                 {"binary": "codex", "api_provider": {"url": deepseek.API, "key_file": str(key)}},
                 {},

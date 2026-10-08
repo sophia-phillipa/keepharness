@@ -6,6 +6,7 @@ import os
 import re
 import time
 import tomllib
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -41,6 +42,7 @@ class RuntimeOptions:
     session_metadata: dict = field(default_factory=dict)
     thread_instructions: dict = field(default_factory=dict)
     developer_instructions: str = ""
+    check_configuration: Callable[[object, Path], Awaitable[None]] | None = None
 
 
 def build_command(binary, permissions, hosted_search=True, *, host_config=True):
@@ -290,6 +292,34 @@ async def open_thread(rpc, method, params, marker, provider):
         raise execution_failed(provider, exc.error) from exc
 
 
+def session_marker(marker, provider):
+    """A DeepSeek thread belongs to its provider and engine, including on handoff."""
+    if not marker.exists():
+        return {}
+    try:
+        saved = json.loads(marker.read_text())
+    except (OSError, ValueError) as exc:
+        if provider == "deepseek":
+            raise ToolError("deepseek_session_identity_ambiguous") from exc
+        raise
+    if not isinstance(saved, dict):
+        raise ToolError(provider + "_session_identity_ambiguous")
+    expected = {"provider": provider, "engine": "codex"}
+    if any(key in saved and saved[key] != value for key, value in expected.items()):
+        raise ToolError(provider + "_session_identity_mismatch")
+    if provider == "deepseek":
+        if "adapter" in saved and saved["adapter"] != "deepseek":
+            raise ToolError("deepseek_session_identity_mismatch")
+        identified = all(saved.get(key) == value for key, value in expected.items())
+        if not isinstance(saved.get("id"), str) or not saved["id"].strip() or (
+            not identified and saved.get("adapter") != "deepseek"
+        ):
+            raise ToolError("deepseek_session_identity_ambiguous")
+    elif saved.get("adapter") == "deepseek":
+        raise ToolError(provider + "_session_identity_mismatch")
+    return saved
+
+
 async def run_turn(
     config,
     event,
@@ -303,6 +333,8 @@ async def run_turn(
     provider,
 ):
     home, cwd, prompt = workspace.home, workspace.cwd, workspace.prompt
+    marker = home / "native-thread.json"
+    saved = session_marker(marker, provider)
     permissions, images = workspace.permissions, workspace.images
     access_mode = project.get("access_mode", "ask")
     ask = access_mode == "ask" and not runtime.isolated
@@ -335,10 +367,10 @@ async def run_turn(
         provider=provider,
         pass_fds=runtime.pass_fds,
     ) as rpc:
+        if runtime.check_configuration:
+            await runtime.check_configuration(rpc, cwd)
         selected_inputs = await resource_inputs(rpc, project, cwd)
-        marker = home / "native-thread.json"
         turn_started = False
-        saved = json.loads(marker.read_text()) if marker.exists() else {}
         resumable = bool(saved) and (
             not runtime.isolated
             or all(saved.get(key) == value for key, value in runtime.session_metadata.items())

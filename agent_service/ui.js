@@ -1319,6 +1319,20 @@ const userErrors = {
     "The server's Gemini settings are invalid. Ask the administrator to review them.",
   deepseek_api_configuration_required:
     "DeepSeek needs an API key. Add it in the admin panel.",
+  deepseek_credential_isolation:
+    "DeepSeek could not verify its private credentials and shell settings. Ask the administrator to review its provider setup.",
+  deepseek_session_identity_ambiguous:
+    "This saved session's DeepSeek identity cannot be verified. Start a new conversation to continue.",
+  deepseek_session_identity_mismatch:
+    "This saved session belongs to another provider or engine. Start a new conversation to use DeepSeek.",
+  codex_session_identity_ambiguous:
+    "This saved session's Codex identity cannot be verified. Start a new conversation to continue.",
+  codex_session_identity_mismatch:
+    "This saved session belongs to another provider or engine. Start a new conversation to use Codex.",
+  local_session_identity_ambiguous:
+    "This saved session's local model identity cannot be verified. Start a new conversation to continue.",
+  local_session_identity_mismatch:
+    "This saved session belongs to another provider or engine. Start a new conversation to use the local model.",
   deepseek_effort_unavailable:
     "This reasoning level is not available for DeepSeek. Choose another one.",
   local_cli_binary_unavailable:

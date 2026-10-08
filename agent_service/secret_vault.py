@@ -22,6 +22,13 @@ _authority_fields = re.compile(
 )
 
 
+class SecretRedactionScope:
+    """Register transient provider credentials with the existing log/stream redactor."""
+
+    def __init__(self, *values):
+        _known_secrets[self] = {value for value in values if value}
+
+
 def _redaction_parts(value, *, authority=False, parts=None):
     """Mask overlapping matches on the original text, preserving parser offsets."""
     parts = list(value) if parts is None else parts
