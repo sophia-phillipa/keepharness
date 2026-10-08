@@ -636,3 +636,28 @@ def test_a_paused_schedule_raises_an_attention_item(config, service, clock):
     )
     assert alert["message"].startswith("Paused after 3 failed runs")
     assert service.activity(identity(config, "b"))["schedule_alerts"] == []
+
+
+@pytest.mark.parametrize("backend", ["codex", "claude"])
+def test_stored_retired_cloud_schedule_occurrence_records_failure(
+    config, service, clock, backend, monkeypatch, no_retired_side_effects
+):
+    created = add(config)
+    store = schedules.repository(config, "a")
+    record = json.loads(store.read(created["id"]))
+    record.update(backend=backend, execution_mode="scoped")
+    store.replace(created["id"], schedules.serialize(record))
+    execute = AsyncMock(side_effect=AssertionError("retired schedule executed"))
+    monkeypatch.setattr(service, "execute", execute)
+    now = local(2026, 10, 3, 9) + 1
+    tick(service, now)
+    after = current(config, created)
+    assert after["last_run"] == {
+        "job_id": None,
+        "at": now,
+        "state": "failed",
+        "error": "execution_mode_unsupported",
+    }
+    assert after["execution_mode"] == "scoped"
+    assert jobs(service) == []
+    execute.assert_not_awaited()

@@ -15,7 +15,8 @@ from agent_service.app import Service
 def service(tmp_path):
     cfg = config(tmp_path)
     cfg["services"]["deepseek"] = {**cfg["services"]["local"], "models": ["deepseek-flash"]}
-    for backend in ("codex", "local", "deepseek"):
+    cfg["services"]["gemini"] = {**cfg["services"]["codex"], "models": ["gemini-model"]}
+    for backend in ("codex", "local", "deepseek", "gemini"):
         cfg["services"][backend]["mode"] = "native"
         cfg[backend] = {}
     result = Service(cfg)
@@ -28,6 +29,7 @@ def add_turn(service, ident, backend, parent=None, files=(), model=None, effort=
     data = {
         "project_id": "p",
         "backend": backend,
+        "execution_mode": "scoped" if backend == "local" else "native",
         "model": model or backend + "-model",
         "effort": effort,
         "prompt": "request-" + ident,
@@ -92,12 +94,14 @@ def attachment(service, fid):
 
 def test_roundtrip_replays_missing_turns_and_attachments_after_restart(service):
     attachment(service, "first")
-    attachment(service, "during-local")
+    attachment(service, "during-gemini")
     execute(service, "a", "deepseek", files=["first"])
-    local = execute(service, "b", "local", "a", files=["during-local"])
+    local = execute(service, "b", "gemini", "a", files=["during-gemini"])
     assert "request-a" in local["prompt"] and "source-first" in local["prompt"]
     astra = execute(service, "c", "codex", "b", model="gpt-6-astra")
-    assert all(text in astra["prompt"] for text in ("request-a", "answer-b", "source-during-local"))
+    assert all(
+        text in astra["prompt"] for text in ("request-a", "answer-b", "source-during-gemini")
+    )
     restarted = Service(service.config)
     try:
         resumed = execute(restarted, "d", "deepseek", "c")
@@ -106,7 +110,7 @@ def test_roundtrip_replays_missing_turns_and_attachments_after_restart(service):
     assert resumed["resumed"]
     assert "request-a" not in resumed["prompt"], "already synchronized turn must not be duplicated"
     assert all(
-        text in resumed["prompt"] for text in ("answer-b", "answer-c", "source-during-local")
+        text in resumed["prompt"] for text in ("answer-b", "answer-c", "source-during-gemini")
     )
     assert "source-first" not in resumed["prompt"]
 
@@ -121,7 +125,7 @@ def test_model_and_effort_change_keep_native_session(service):
 
 def test_partial_turn_transfers_tools_and_partial_answer_without_reasoning(service):
     execute(service, "a", "deepseek")
-    row, _ = add_turn(service, "b", "local", "a")
+    row, _ = add_turn(service, "b", "gemini", "a")
     service.event("b", "answer_delta", {"text": "Partial verified result"})
     service.event("b", "reasoning_delta", {"text": "PRIVATE_REASONING"})
     service.event("b", "tool_start", {"tool": "exec_command", "tool_id": "t1"})
@@ -137,7 +141,7 @@ def test_partial_turn_transfers_tools_and_partial_answer_without_reasoning(servi
         "cancelled",
         "pending",
         "deepseek",
-        "local",
+        "gemini",
     ):
         assert text in final["prompt"]
     assert "PRIVATE_REASONING" not in final["prompt"]
@@ -183,7 +187,7 @@ def test_images_added_by_another_provider_reach_resumed_session(service):
             (json.dumps([{"media_type": "image/png"}]), "image"),
         )
     service.validate_images = AsyncMock()
-    execute(service, "b", "local", "a", files=["image"])
+    execute(service, "b", "gemini", "a", files=["image"])
     final = execute(service, "c", "deepseek", "b")
     assert final["resumed"]
     assert final["project"]["_images"] == [
@@ -194,7 +198,7 @@ def test_images_added_by_another_provider_reach_resumed_session(service):
 def test_context_limit_fails_explicitly_without_truncating_history(service):
     from agent_service.app import APIError
 
-    execute(service, "a", "local")
+    execute(service, "a", "gemini")
     with service.db:
         service.db.execute(
             "UPDATE jobs SET result=? WHERE id=?", (json.dumps({"answer": "x" * 150001}), "a")
@@ -222,7 +226,7 @@ def test_mode_change_rebuilds_history_instead_of_using_other_transport(service):
 def test_title_is_provider_independent_and_survives_handoff(service, backend):
     service.config["services"][backend] = {**service.config["services"]["codex"], "mode": "native"}
     service.config.setdefault(backend, {})
-    first = execute(service, "root-title", "codex")
+    first = execute(service, "root-title", "local" if backend == "local" else "codex")
     assert first["project"]["_conversation_title"] == "request-root-title"
     with service.db:
         service.db.execute(
@@ -255,7 +259,7 @@ def test_legacy_oversized_codex_history_is_readable_without_inline_replay(servic
     from pathlib import Path
 
     service.config["services"]["codex"]["permissions"]["shell"] = True
-    execute(service, "a", "local")
+    execute(service, "a", "gemini")
     service.event("a", "tool_end", {"result": "large evidence " * 15000})
     final = execute(service, "b", "codex", "a")
     assert len(final["prompt"]) < 20000
@@ -272,7 +276,7 @@ def test_legacy_oversized_codex_history_is_readable_without_inline_replay(servic
 def test_oversized_codex_history_without_tools_still_fails_explicitly(service):
     from agent_service.app import APIError
 
-    execute(service, "a", "local")
+    execute(service, "a", "gemini")
     service.event("a", "tool_end", {"result": "x" * 160000})
     row, data = add_turn(service, "b", "codex", "a")
     with pytest.raises(APIError, match="conversation_context_limit"):

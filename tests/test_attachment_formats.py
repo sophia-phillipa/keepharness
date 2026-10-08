@@ -150,10 +150,10 @@ def test_large_csv_keeps_full_content_outside_prompt(tmp_path):
     "backend,mode,reason",
     [
         ("deepseek", "native", "model_images_unavailable"),
-        ("local", "native", "local_vision_not_enabled"),
-        ("codex", "scoped", "images_require_native_service"),
-        ("claude", "scoped", "images_require_native_service"),
-        ("gemini", "scoped", "images_require_native_service"),
+        ("local", "scoped", "local_vision_not_enabled"),
+        ("codex", "native", "model_images_unavailable"),
+        ("claude", "native", "model_images_unavailable"),
+        ("gemini", "native", "model_images_unavailable"),
     ],
 )
 @pytest.mark.parametrize("historical", [False, True])
@@ -177,6 +177,7 @@ def test_unsupported_images_are_explained_without_losing_text(
     data = {
         "project_id": "p",
         "backend": backend,
+        "execution_mode": mode,
         "model": "fixture",
         "prompt": "Analyze files",
         "file_ids": [] if historical else ["picture", "text"],
@@ -204,7 +205,6 @@ def test_unsupported_images_are_explained_without_losing_text(
         patch.object(service, "context_turns", return_value=turns),
         patch.object(service, "quota", AsyncMock(return_value=None)),
         patch("adapters.run_native", side_effect=run),
-        patch("adapters.run_scoped", side_effect=run),
     ):
         result = asyncio.run(service.infer(row, data))
     assert "picture" in result["answer"] and "ignored" in result["answer"]

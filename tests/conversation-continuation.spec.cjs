@@ -73,7 +73,7 @@ async function scenario(browser, { fullAccess = true, bridge = null, clipboard =
       }
       if (p === "/v1/projects") data = { projects: ["sem-projeto"], details: {} };
       if (p === "/v1/models")
-        data = { models: [{ id: "fixture", backend: "local", efforts: ["configured"] }], full_access: fullAccess, local_owner: true, admin_url: origin + "/admin/" };
+        data = { models: [{ id: "fixture", backend: "local", execution_modes: ["scoped"], efforts: ["configured"] }], full_access: fullAccess, local_owner: true, admin_url: origin + "/admin/" };
       if (p === "/v1/conversations") data = { conversations };
       if (p === "/v1/version") data = { version: "test", build: "continuation-test" };
       if (p === "/v1/catalog") data = { agents: [], skills: [], warnings: [] };

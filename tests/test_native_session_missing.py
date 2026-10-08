@@ -400,6 +400,7 @@ def test_a_lost_codex_thread_replays_the_harness_history_once(tmp_path, codex_se
     try:
         old = {
             "backend": "codex",
+            "execution_mode": "native",
             "model": "gpt-6-astra",
             "effort": "low",
             "project_id": "p",
@@ -430,6 +431,8 @@ def test_a_lost_codex_thread_replays_the_harness_history_once(tmp_path, codex_se
         "thread/resume",
         "thread/start",
     ]
-    turns = [item["params"]["input"][0]["text"] for item in sent if item.get("method") == "turn/start"]
+    turns = [
+        item["params"]["input"][0]["text"] for item in sent if item.get("method") == "turn/start"
+    ]
     assert len(turns) == 1
     assert all(text in turns[0] for text in ("earlier-prompt", "earlier-answer", "new-prompt"))

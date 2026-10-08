@@ -1,3 +1,4 @@
+const { executionModes } = require("./model-fixture.cjs");
 // Synthetic round-fourteen UI contracts exercised with real rendered assets.
 const {chromium}=require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const assert=require('node:assert/strict');
@@ -15,7 +16,7 @@ async function fixture(browser,width=1440,height=900,empty=false){
   if(url.pathname==='/v1/resources')return{json:{items:state.resources,warnings:[]}};
   if(url.pathname==='/v1/conversations')return{json:{conversations:state.conversations}};
   if(request.method()==='POST'&&state.failSend)return{status:503,json:{code:'synthetic_offline'}};
-  if(url.pathname==='/v1/models')return{json:{models:state.empty?[]:[{id:'fixture',backend:'local',efforts:['configured']}],providers:{local:true},admin_url:'http://127.0.0.1:9999'}};
+  if(url.pathname==='/v1/models')return{json:{models:state.empty?[]:[{id:'fixture',backend:'local',execution_modes: executionModes('local'),efforts:['configured']}],providers:{local:true},admin_url:'http://127.0.0.1:9999'}};
   if(url.pathname==='/v1/activity')return{json:{counts:{running:6},jobs:providers.map(backend=>({...run,job_id:backend,title:backend,backend,model:'fixture-'+backend})),providers:providers.map(backend=>({backend,model:'fixture-'+backend,state:'busy',running:1,queued:0})),needs_you:[]}};
   if(url.pathname.endsWith('/spans'))return{json:{spans:[span]}};
   if(url.pathname.endsWith('/events')){const after=Number(url.searchParams.get('after')||0),before=Number(url.searchParams.get('before')||state.count+1),newest=url.searchParams.get('order')==='newest';let events=Array.from({length:state.count},(_,i)=>({id:i+1,timestamp:1700000000+i,type:'started',data:{message:'Synthetic event '+(i+1)}})).filter(e=>e.id>after&&e.id<before);if(newest)events.reverse();const more=events.length>200;events=events.slice(0,200);return{json:{events,next_after:Math.max(after,...events.map(e=>e.id)),next_before:Math.min(before,...events.map(e=>e.id)),has_more:more}};}
@@ -94,10 +95,10 @@ async function fixture(browser,width=1440,height=900,empty=false){
   for(const terminalState of ['completed','failed','cancelled','interrupted']){
   const p=await browser.newPage();let fail=true;await mount(p,async url=>{
    if(url.pathname==='/v1/projects')return{json:{projects:['sem-projeto','other']}};
-   if(url.pathname==='/v1/models'){if(fail&&url.searchParams.get('project_id')==='other')return{status:503,json:{code:'synthetic_unavailable'}};return{json:{models:[{id:'fixture',backend:'local',efforts:['configured']}]}};}
+   if(url.pathname==='/v1/models'){if(fail&&url.searchParams.get('project_id')==='other')return{status:503,json:{code:'synthetic_unavailable'}};return{json:{models:[{id:'fixture',backend:'local',execution_modes: executionModes('local'),efforts:['configured']}]}};}
    if(url.pathname==='/v1/conversations')return{json:{conversations:[{id:'done',title:'Synthetic completed report',project:'other',state:terminalState,last_job_id:'done',execution:{backend:'local',model:'fixture'}}]}};
    const turn={id:'done',project:'other',state:terminalState,request:{backend:'local',model:'fixture',prompt:'Synthetic prior request'},result:{answer:'Synthetic result'}};
-   if(url.pathname==='/v1/conversations/done')return{json:{title:'Synthetic completed report',turns:[turn]}};
+   if(url.pathname==='/v1/conversations/done')return{json:{title:'Synthetic completed report',execution_mode:'scoped',turns:[turn]}};
    if(url.pathname==='/v1/jobs/done')return{json:turn};
   });p.setDefaultTimeout(4000);await p.locator('#sidebar .conversation-row > button').filter({hasText:'Synthetic completed report'}).click();await p.waitForFunction(()=>!loading&&document.querySelector('#conversation-title').textContent==='Synthetic completed report');await p.locator('#prompt').fill('Continue this report');assert(await p.locator('#send').isDisabled());assert.match(await p.locator('#status').innerText(),/permissions.*retry/i);
   fail=false;await p.evaluate(()=>refreshProjectPermissions());assert.equal(await p.locator('#prompt').inputValue(),'Continue this report');assert.equal(await p.locator('#send').isDisabled(),false);await p.close();

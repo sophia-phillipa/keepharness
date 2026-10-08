@@ -22,12 +22,14 @@ const assert = require("node:assert/strict");
             {
               id: "qwen-local",
               backend: "local",
+              execution_modes: ["scoped"],
               efforts: ["configured"],
               permissions: { upload: true, internet: true, shell: true },
             },
             {
               id: "gemma-local",
               backend: "local",
+              execution_modes: ["scoped"],
               efforts: ["configured"],
               permissions: { upload: false, internet: false, shell: false },
             },

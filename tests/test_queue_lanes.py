@@ -11,7 +11,7 @@ def enqueue(instance, job, project, backend, parent=None, work_item=None):
         "a",
         "queued",
         0,
-        json.dumps({"backend": backend, **({"parent_job_id": parent} if parent else {})}),
+        json.dumps({"backend": backend, "execution_mode": "scoped" if backend == "local" else "native", **({"parent_job_id": parent} if parent else {})}),
         None,
         None,
         job,

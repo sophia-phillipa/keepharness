@@ -15,7 +15,7 @@ const path = require("node:path");
       { id: "qwen-local", backend: "local", efforts: ["configured"] },
       { id: "gpt-6-astra", backend: "codex", efforts: ["low", "high"] },
       { id: "gpt-5.6-terra", backend: "codex", efforts: ["low", "medium"] },
-    ].map((m) => ({ ...m, permissions: { upload: true } }));
+    ].map((m) => ({ ...m, execution_modes: m.backend === "local" ? ["scoped"] : ["native"], permissions: { upload: true } }));
     await page.route("http://handoff.test/**", async (route) => {
       const p = new URL(route.request().url()).pathname;
       if (p.startsWith("/v1/")) {
@@ -42,7 +42,7 @@ const path = require("node:path");
               : [],
           };
         if (p === "/v1/conversations/job-1")
-          data = { title: "Same task", turns };
+          data = { title: "Same task", execution_mode: "native", turns };
         if (p === "/v1/jobs" && route.request().method() === "POST") {
           const request = route.request().postDataJSON(),
             id = "job-" + (turns.length + 1);
@@ -83,7 +83,6 @@ const path = require("node:path");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     const choices = [
       ["deepseek-flash", "low"],
-      ["qwen-local", "configured"],
       ["gpt-6-astra", "low"],
       ["gpt-6-astra", "high"],
       ["gpt-5.6-terra", "medium"],
@@ -99,9 +98,17 @@ const path = require("node:path");
       assert.equal(turns.at(-1).request.effort, effort);
       assert.equal(await page.evaluate(() => conversation), "job-1");
     }
+    // A Local-only mode cannot change the established native conversation.
+    await page.selectOption("#model", "qwen-local");
+    await page.fill("#prompt", "Keep the native conversation");
+    assert.equal(await page.locator("#send").isDisabled(), true);
+    await page.locator("#prompt").press("Enter");
+    assert.equal(turns.length, choices.length);
+    assert.equal(await page.evaluate(() => executionMode), "native");
+    await page.selectOption("#model", "deepseek-flash");
     await page.reload();
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
-    assert.equal(await page.evaluate(() => parent), "job-6");
+    assert.equal(await page.evaluate(() => parent), "job-5");
     assert.equal(await page.evaluate(() => conversation), "job-1");
     turns.at(-1).state = "failed";
     turns.at(-1).result = { error: "context_limit_exceeded" };
@@ -117,13 +124,13 @@ const path = require("node:path");
       await page.getByText("To analyze the CSV", { exact: false }).count(),
       0,
     );
-    assert.equal(await page.evaluate(() => parent), "job-6");
+    assert.equal(await page.evaluate(() => parent), "job-5");
     await page.locator("#prompt").focus();
     await page.keyboard.type("Continue after the interruption");
     await page.locator("#send").focus();
     await page.keyboard.press("Enter");
     await page.waitForFunction(() => !busy && !submitting);
-    assert.equal(turns.at(-1).request.parent_job_id, "job-6");
+    assert.equal(turns.at(-1).request.parent_job_id, "job-5");
     await page.evaluate(() => {
       active = assistant("compact-fixture");
       event({ id: last + 1, type: "context_compacting", data: {} });

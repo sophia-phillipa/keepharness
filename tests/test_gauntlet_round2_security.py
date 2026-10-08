@@ -13,29 +13,36 @@ from test_approval_sessions_lifecycle import browser, enroll
 from test_effect_executor import prepared, request
 
 from agent_service.approval_sessions import revoke_sessions
-from agent_service.effect_transport import scoped_enforcement
+from agent_service.effect_transport import validate_scoped_private_files
+from agent_service.errors import APIError
 from agent_service.log_config import RedactingFilter
 from agent_service.persistence.db import migrate
 from agent_service.secret_vault import SecretVault
 
 
-@pytest.mark.parametrize("store", ["default", "generic-default", "effect_credentials_path", "secret_vault_path"])
-@pytest.mark.parametrize("copied", [False, True])
-def test_linked_private_store_cannot_claim_mediation(tmp_path, store, copied):
+@pytest.mark.parametrize(
+    "store", ["default", "generic-default", "effect_credentials_path", "secret_vault_path"]
+)
+def test_linked_private_store_blocks_local_scoped_preflight(tmp_path, store):
     root = tmp_path / "state"
     root.mkdir()
     project = tmp_path / "project"
     project.mkdir()
-    path = root / ("harness.effect_credentials.json" if store == "default" else "harness.secrets.json") if store in ("default", "generic-default") else tmp_path / (store + ".json")
+    path = (
+        root / ("harness.effect_credentials.json" if store == "default" else "harness.secrets.json")
+        if store in ("default", "generic-default")
+        else tmp_path / (store + ".json")
+    )
     vault = SecretVault(path)
     vault.set("fixture", {"token": "round-two-synthetic-secret"})
     alias = project / "alias.json"
     os.link(path, alias)
-    service = SimpleNamespace(root=root, config={} if store in ("default", "generic-default") else {store: str(path)})
-    command = ["bwrap"] if copied else ["bwrap", "--ro-bind", str(project), "/source"]
-    # A same-owner alias really has the bytes; the classification must not promise isolation.
+    service = SimpleNamespace(
+        root=root, config={} if store in ("default", "generic-default") else {store: str(path)}
+    )
     assert "round-two-synthetic-secret" in alias.read_text()
-    assert scoped_enforcement(service, command, copied_paths=[alias] if copied else []) == "unenforced"
+    with pytest.raises(APIError, match="scoped_private_file_linked"):
+        validate_scoped_private_files(service)
 
 
 @pytest.mark.parametrize("revocation", ["owner", "logout"])

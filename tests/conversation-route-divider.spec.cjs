@@ -1,3 +1,4 @@
+const { executionModes } = require("./model-fixture.cjs");
 // Aggregator (Sophia, 2026-10-03): a conversation can change model or provider
 // between turns and keep its context; a quiet divider marks each change.
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
@@ -40,9 +41,9 @@ const turn = (id, backend, model, prompt) => ({
       else if (pathname === "/v1/models")
         data = {
           models: [
-            { id: "gpt-6-astra", name: "GPT-6 Astra", backend: "codex", efforts: ["medium"] },
-            { id: "gpt-5.6-sol", name: "GPT-5.6 Sol", backend: "codex", efforts: ["medium"] },
-            { id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5", backend: "claude", efforts: ["medium"] },
+            { id: "gpt-6-astra", name: "GPT-6 Astra", backend: "codex", execution_modes: executionModes("codex"), efforts: ["medium"] },
+            { id: "gpt-5.6-sol", name: "GPT-5.6 Sol", backend: "codex", execution_modes: executionModes("codex"), efforts: ["medium"] },
+            { id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5", backend: "claude", execution_modes: executionModes("claude"), efforts: ["medium"] },
           ],
           providers: { codex: true, claude: true },
           uploads_enabled: false,
@@ -53,7 +54,7 @@ const turn = (id, backend, model, prompt) => ({
             { id: "mix", title: "Mixed models", project: "sem-projeto", state: "completed", last_job_id: "t3", updated_at: 1 },
           ],
         };
-      else if (pathname === "/v1/conversations/mix") data = { title: "Mixed models", turns };
+      else if (pathname === "/v1/conversations/mix") data = { title: "Mixed models", execution_mode: "native", turns };
       else if (pathname === "/v1/version") data = { version: "fixture", build: "route-divider" };
       else if (pathname === "/v1/jobs" && route.request().method() === "POST") {
         const body = route.request().postDataJSON();

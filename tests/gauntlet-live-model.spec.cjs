@@ -1,3 +1,4 @@
+const { executionModes } = require("./model-fixture.cjs");
 // Real browser, synthetic server: a running turn keeps its model while follow-ups change.
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
 const assert = require("node:assert/strict"),
@@ -22,10 +23,11 @@ const assert = require("node:assert/strict"),
         if (p === "/v1/models")
           data = {
             models: [
-              { id: "qwen-local", backend: "local", efforts: ["configured"] },
+              { id: "codex-fixture", backend: "codex", execution_modes: executionModes("codex"), efforts: ["configured"] },
               {
                 id: "deepseek-flash",
                 backend: "deepseek",
+                execution_modes: executionModes("deepseek"),
                 efforts: ["low", "high"],
               },
             ],
@@ -40,6 +42,7 @@ const assert = require("node:assert/strict"),
         if (p.endsWith("/events")) return;
         if (p === "/v1/conversations/turn-1")
           data = {
+            execution_mode: posts[0]?.execution_mode,
             turns: posts.map((request, i) => ({
               id: "turn-" + (i + 1),
               project: "sem-projeto",
@@ -108,7 +111,7 @@ const assert = require("node:assert/strict"),
       "New draft while sending " + round,
       "accepting a pending request must not erase newly typed text",
     );
-    assert.equal(posts[0].model, "qwen-local");
+    assert.equal(posts[0].model, "codex-fixture");
     assert.equal(posts[1].model, "deepseek-flash");
     assert.equal(posts[1].effort, "high");
     assert.equal(posts[1].parent_job_id, "turn-1");
@@ -123,13 +126,13 @@ const assert = require("node:assert/strict"),
       "Draft after switch " + round,
     );
     assert(await page.locator("#model-trigger").isEnabled());
-    await page.selectOption("#model", "qwen-local");
+    await page.selectOption("#model", "codex-fixture");
     await page.reload();
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     await page.waitForFunction(() => busy);
     assert.equal(
       await page.inputValue("#model"),
-      "qwen-local",
+      "codex-fixture",
       "reload must preserve the unsent model choice instead of reverting to the latest turn",
     );
     assert.deepEqual(errors, []);

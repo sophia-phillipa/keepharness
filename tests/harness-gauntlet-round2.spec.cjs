@@ -1,3 +1,4 @@
+const { executionModes } = require("./model-fixture.cjs");
 // Round-two synthetic browser regressions: actual rendering, keyboard and network boundaries.
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const assert = require('node:assert/strict');
@@ -13,14 +14,14 @@ async function fixture(browser, width = 1024, height = 768) {
   const turn = id => ({ id: id + '-job', project: 'p', state: state.running ? 'running' : 'failed', workflow_checkpoint: true, request: { prompt: 'Review ' + id, backend: 'codex', model: 'fixture-model', effort: 'configured', execution_mode: 'native' }, result: state.running ? null : { answer: 'Synthetic answer', error: 'fixture' } });
   await mount(page, async (url, request) => {
     if (url.pathname === '/v1/projects') return { json: { projects: ['p', 'q'], details: { p: { label: 'Project P' }, q: { label: 'Project Q' } } } };
-    if (url.pathname === '/v1/models') return { json: { models: [{ id: 'fixture-model', backend: 'codex', efforts: ['configured'] }], providers: { codex: true } } };
+    if (url.pathname === '/v1/models') return { json: { models: [{ id: 'fixture-model', backend: 'codex', execution_modes: executionModes('codex'), efforts: ['configured'] }], providers: { codex: true } } };
     if (url.pathname === '/v1/resources') return { json: { items: [resource], warnings: [] } };
     if (url.pathname === '/v1/activity') return { json: { counts: { running: 1 }, jobs: [{ ...run, project_id: 'p', backend: 'codex' }], needs_you: [], providers: [] } };
     if (url.pathname === '/v1/conversations') return { json: { conversations: ['a','b'].map(id => ({ id, title: id.toUpperCase() + ' report', state: 'failed', project: 'p', last_job_id: id + '-job' })) } };
     if (/^\/v1\/conversations\/(a|b|child)$/.test(url.pathname)) {
       if (state.delay) await state.delay;
       const id = url.pathname.split('/').at(-1);
-      return { json: { title: id.toUpperCase() + ' report', turns: [turn(id)] } };
+      return { json: { title: id.toUpperCase() + ' report', execution_mode: 'native', turns: [turn(id)] } };
     }
     if (url.pathname.endsWith('/cancel')) { state.running = false; return { json: { cancelled: true } }; }
     if (/^\/v1\/jobs\/.*-job$/.test(url.pathname)) return { json: turn(url.pathname.split('/').at(-1).replace('-job','')) };
@@ -155,7 +156,7 @@ const settle = page => page.evaluate(() => Promise.all(document.getAnimations().
       assert(keys[0]); assert.equal(keys[0], keys[1]); assert.equal(children.size, 1); await page.close();
     });
     await check('A5-F3 search states its loaded-file scope and no plan scope before searching', async () => {
-      const { page } = await fixture(browser); await page.locator('#search-conversations').click(); assert.doesNotMatch(await page.locator('#conversation-search-dialog').innerText(), /current plan/i); assert.match(await page.locator('#conversation-search-dialog').innerText(), /loaded files/i); await page.close();
+      const { page } = await fixture(browser); await page.locator('#search-conversations').click(); assert.doesNotMatch(await page.locator('#conversation-search-dialog').innerText(), /current plan/i); assert.match(await page.locator('#conversation-search-dialog').innerText(), /Commands, settings, runs, and files/i); await page.close();
     });
     await check('A5-F4 cancel remains reachable with a follow-up draft', async () => {
       const { page, open, state } = await fixture(browser); state.running = true; await open('a'); await page.fill('#prompt', 'Keep this unsent follow-up');

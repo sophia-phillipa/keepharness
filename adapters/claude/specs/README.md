@@ -2,7 +2,7 @@
 
 **Responsible agent:** `integrate-claude_keepharness_engineer` (`.codex/agents/integrate-claude_keepharness_engineer.toml`).
 
-`adapter_spec_revision: 5`
+`adapter_spec_revision: 6`
 `harness_baseline: 0.4.4 working-tree`
 
 ## Observed baseline
@@ -18,15 +18,15 @@ The version and naming option were observed with `claude --version` and `claude 
 
 | Concern | Current behavior | Validation status |
 | --- | --- | --- |
-| Input | Native mode sends a JSONL `user` message with text and permitted base64 images. Scoped mode passes the bounded prompt through the isolated command. | Fake CLI tests cover the native message and tool approval path. |
-| Session | Native mode records `claude-session.json`, passes `--resume <id>` on continuation, and passes the canonical Harness title unchanged through the official `--name` option when it is nonblank. Scoped mode reports `replayed_history` and deliberately disables Claude session persistence. | Fake CLI tests cover title transport and session ID persistence; no live resume or provider UI claim. |
-| Effort | The CLI initialize catalog supplies supported levels per model; `configured` preserves provider defaults. Explicit choices are passed via `--effort` in native and scoped mode. | Catalog, admission and fake CLI transport tests. |
+| Input | Native mode sends a JSONL `user` message with text and permitted base64 images. Cloud-scoped execution is retired under D-044. | Fake CLI tests cover the native message and tool approval path. |
+| Session | Native mode records `claude-session.json`, passes `--resume <id>` on continuation, and passes the canonical Harness title unchanged through the official `--name` option when it is nonblank. Retired scoped histories and session files remain untouched; they cannot resume or fall back to native. | Fake CLI tests cover title transport and session ID persistence; no live resume or provider UI claim. |
+| Effort | The CLI initialize catalog supplies supported levels per model; `configured` preserves provider defaults. Explicit choices are passed via `--effort` in native mode. | Catalog, admission and fake CLI transport tests. |
 | Streaming | `stream-json` events become text, thinking, tool lifecycle, token metrics and separate rate-limit events; a successful `result` is required. Token metrics are not account quota. | Stream parser tests cover representative messages. |
 | Cancel | Process cleanup terminates the child and escalates to kill after its timeout. A provider-side cancellation acknowledgement is not separately validated. | Implementation behavior; add a failing cancellation test before changing it. |
 | Errors | Invalid JSON, missing result, nonzero process result, provider failure and output limits map to `claude_*` errors. | Unit tests cover representative parser and native failures. |
-| Authentication | The CLI uses its existing configured credentials; the scoped adapter copies the configured credential artifact into its private runtime. | No account state or credential value is read by these specifications. |
+| Authentication | The CLI uses its existing configured credentials; retired cloud-scoped requests fail before credential access or copying. | No account state or credential value is read by these specifications. |
 
-The installed Claude Code `2.1.258` help and CLI reference document `--name`, `--resume`, `--continue`, `--model`, `--input-format stream-json`, `--output-format stream-json`, and permission controls. `--name` is used only for native, persisted sessions; the scoped command contains `--no-session-persistence`, so it cannot honestly promise a persistent provider-side title. The adapter uses explicit, already-authorized permission policy; do not weaken it based only on a CLI flag becoming available.
+The installed Claude Code `2.1.258` help and CLI reference document `--name`, `--resume`, `--continue`, `--model`, `--input-format stream-json`, `--output-format stream-json`, and permission controls. `--name` is used for native, persisted sessions. Cloud-scoped execution is unavailable. The adapter uses explicit, already-authorized permission policy; do not weaken it based only on a CLI flag becoming available.
 
 ## Aliases
 
@@ -110,7 +110,7 @@ Claude Code 2.1.236 was checked on this host with non-inference control requests
 
 ## Live throughput (2026-09-21)
 
-The shared native/scoped stream parser now emits live usage metrics from message_start and message_delta counts, retaining the latest cumulative output count per message. Source: [official streaming contract](https://platform.claude.com/docs/en/build-with-claude/streaming). Claude Code 2.1.258 was checked locally. Offline fixtures cover multiple messages, duplicate counts and invalid metrics; no live model inference was run.
+The native stream parser emits live usage metrics from message_start and message_delta counts, retaining the latest cumulative output count per message. Source: [official streaming contract](https://platform.claude.com/docs/en/build-with-claude/streaming). Claude Code 2.1.258 was checked locally. Offline fixtures cover multiple messages, duplicate counts and invalid metrics; no live model inference was run.
 
 Context meter (0.15.0): `usage.input_tokens` leaves out cache reads and writes, so a one-line turn
 reported "2 input tokens" for a prompt of about 57k. Each main-thread `message_start` now emits

@@ -1,11 +1,12 @@
+const { executionModes } = require("./model-fixture.cjs");
 // D-031: the composer warns before sending an image to a model that cannot read it.
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
 const assert = require("node:assert/strict");
 const path = require("node:path");
 
 const MODELS = [
-  { id: "deepseek-flash", name: "DeepSeek", backend: "deepseek", efforts: ["configured"], permissions: { upload: true }, capabilities: { images: false } },
-  { id: "gpt-6-astra", name: "Astra", backend: "codex", efforts: ["medium"], permissions: { upload: true }, capabilities: { images: true } },
+  { id: "deepseek-flash", name: "DeepSeek", backend: "deepseek", execution_modes: executionModes("deepseek"), efforts: ["configured"], permissions: { upload: true }, capabilities: { images: false } },
+  { id: "gpt-6-astra", name: "Astra", backend: "codex", execution_modes: executionModes("codex"), efforts: ["medium"], permissions: { upload: true }, capabilities: { images: true } },
 ];
 
 async function fixture(browser, uploadReply) {

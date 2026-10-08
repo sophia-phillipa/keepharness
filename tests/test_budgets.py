@@ -96,15 +96,15 @@ def test_queue_deadline_is_paused_until_human_decides(tmp_path):
             identity,
             dict(
                 project_id="p",
-                backend="codex",
-                model="gpt-6-astra",
+                backend="local",
+                model="installed-model",
                 execution_mode="scoped",
                 prompt="wait",
             ),
         )["job_id"]
 
         async def execute(row):
-            plan = SimpleNamespace(row=row, data={"model": "gpt-6-astra"}, backend="codex")
+            plan = SimpleNamespace(row=row, data={"model": "installed-model"}, backend="local")
             decision = await instance._approval_handler(plan, instance.event_for_test, {}, {})(
                 "command", {}
             )
@@ -148,8 +148,8 @@ def test_invalid_active_timeout_cannot_start_an_orphan_execution(tmp_path):
             identity,
             dict(
                 project_id="p",
-                backend="codex",
-                model="gpt-6-astra",
+                backend="local",
+                model="installed-model",
                 execution_mode="scoped",
                 prompt="wait",
             ),

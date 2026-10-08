@@ -213,3 +213,49 @@ def zone():
     else:
         os.environ["TZ"] = saved
     time.tzset()
+
+
+@pytest.fixture
+def no_retired_side_effects(monkeypatch, isolated_provider_homes):
+    import asyncio
+    import builtins
+    import io
+    import socket
+
+    import adapters
+    from agent_service import deployment
+
+    home = isolated_provider_homes
+    credentials = [home / ".codex" / "auth.json", home / ".claude" / ".credentials.json"]
+    for path in credentials:
+        path.write_text("sentinel credential")
+    calls = []
+
+    def denied(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise AssertionError("refused run reached an external side effect")
+
+    original_open, original_io_open = builtins.open, io.open
+
+    def guard(original):
+        def open_file(file, *args, **kwargs):
+            if isinstance(file, (str, Path)) and Path(file) in credentials:
+                return denied(file)
+            return original(file, *args, **kwargs)
+
+        return open_file
+
+    monkeypatch.setattr(builtins, "open", guard(original_open))
+    monkeypatch.setattr(io, "open", guard(original_io_open))
+    monkeypatch.setattr("subprocess.Popen", denied)
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", denied)
+    monkeypatch.setattr(socket, "create_connection", denied)
+    monkeypatch.setattr(socket.socket, "connect", denied)
+    monkeypatch.setattr("shutil.copyfile", denied)
+    monkeypatch.setattr(deployment, "apply", denied)
+    monkeypatch.setattr(adapters, "run_native", denied)
+    yield credentials
+    assert calls == []
+    for path in credentials:
+        with original_open(path) as stream:
+            assert stream.read() == "sentinel credential"

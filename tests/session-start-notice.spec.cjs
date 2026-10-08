@@ -69,11 +69,11 @@ const assert = require("node:assert/strict"),
             ? {
                 models: [
                   {
-                    id: "claude-sonnet-4-6",
+                    id: "local-fixture",
                     name: "Fixture",
-                    backend: "claude",
+                    backend: "local",
                     efforts: ["low"],
-                    execution_modes: ["native", "scoped"],
+                    execution_modes: ["scoped"],
                   },
                   {
                     id: "gemini-fixture",
@@ -83,7 +83,7 @@ const assert = require("node:assert/strict"),
                     execution_modes: ["native"],
                   },
                 ],
-                providers: { claude: true },
+                providers: { local: true },
                 uploads_enabled: false,
                 full_access: fullAccess,
               }
@@ -115,9 +115,9 @@ const assert = require("node:assert/strict"),
     // Empty conversation: one isolation choice plus the access notice.
     assert.equal(await notice.isVisible(), true);
     assert.equal(await toggle.isVisible(), true);
-    assert.equal(await isolation.innerText(), "Native conversation");
+    assert.equal(await isolation.innerText(), "Isolated conversation");
     assert.equal(await access.innerText(), "Access: Ask for approval");
-    await toggle.click();
+    assert.equal(await toggle.isDisabled(), true);
     assert.equal(await isolation.innerText(), "Isolated conversation");
     await chooseAccess("full");
     assert.equal(await access.innerText(), "Access: Full access");
@@ -128,7 +128,7 @@ const assert = require("node:assert/strict"),
     await idle();
     assert.equal(sent.at(-1).execution_mode, "scoped");
     assert.equal(sent.at(-1).access_mode, "full");
-    assert.equal(await notice.isVisible(), false);
+    assert.equal(await notice.isVisible(), true, "Local isolation requirement remains visible");
     assert.equal(await page.locator("#header-execution-mode").isVisible(), true);
     assert.equal(await page.locator("#header-execution-mode").innerText(), "Isolated conversation");
     assert.equal(await page.locator("#header-access").innerText(), "Full access");
@@ -164,7 +164,7 @@ const assert = require("node:assert/strict"),
     assert.equal(await page.locator("#send").isDisabled(), true);
     await page
       .locator("#model")
-      .selectOption("claude-sonnet-4-6", { force: true });
+      .selectOption("local-fixture", { force: true });
     assert.equal(await page.locator("#send").isEnabled(), true);
     await page.locator("#prompt").fill("");
 
@@ -191,7 +191,7 @@ const assert = require("node:assert/strict"),
     );
     assert.equal(await access.innerText(), "Access: Ask for approval");
     assert.equal(await toggle.isVisible(), true);
-    assert.equal(await isolation.innerText(), "Native conversation");
+    assert.equal(await isolation.innerText(), "Isolated conversation");
 
     // Nor does a reload of an empty conversation carry "Full access" over.
     await chooseAccess("full");

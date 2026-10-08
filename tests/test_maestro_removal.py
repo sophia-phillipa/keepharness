@@ -96,6 +96,18 @@ def test_queued_maestro_job_fails_backend_unavailable(tmp_path):
         service.db.close()
 
 
+def test_mode_less_maestro_job_refuses_unknown_transport(tmp_path, no_retired_side_effects):
+    service, identity = make_service(tmp_path)
+    try:
+        job = legacy_job(service, identity, execution_mode=None)
+        with patch.object(service, "infer", AsyncMock()) as infer:
+            with pytest.raises(APIError, match="execution_mode_unsupported"):
+                asyncio.run(service.execute(service.job(identity, job)))
+        infer.assert_not_called()
+    finally:
+        service.db.close()
+
+
 def test_maestro_job_offers_no_workflow_recovery(tmp_path):
     service, identity = make_service(tmp_path)
     try:

@@ -2,6 +2,8 @@
 
 Status: accepted for implementation; not implemented by this record. Date: 2026-10-08. Decided by: the W13/W14 design session under Sophia's instruction to settle #34, with JEV consultation and independent review. Builds on [D-038](d-038-keepharness-facade-over-provider-state.md) and [D-039](d-039-single-owner-facade-policies.md). Design: [provider facade](../provider-facade-design.md#21-runs-on-the-real-homes). Release notes: the implementing release must record this change; no 1.0 release is claimed here.
 
+Owner approval: Sophia approved option A on 2026-10-08: retire Codex/Claude cloud-scoped execution without native fallback and preserve Local isolation. Issue #52 implements the backend retirement contract.
+
 ## Context
 
 D-038 makes scoped isolation desirable, not required, and places it last in the milestone. It also requires provider runs to load the CLI's real orchestration. #45 removes the 0.15 homes and credential-file overrides. The existing cloud scoped transport cannot satisfy both contracts by changing a path.

@@ -25,15 +25,14 @@ def test_empty_title_does_not_issue_rpc(title):
     rpc.call.assert_not_called()
 
 
-def test_scoped_codex_sets_title_on_creation_and_resume(tmp_path):
-    from contextlib import asynccontextmanager, nullcontext
-    from types import SimpleNamespace
+def test_native_codex_sets_title_on_creation_and_resume(tmp_path):
+    from contextlib import asynccontextmanager
     from unittest.mock import patch
 
-    from adapters.codex.scoped import run
+    from adapters.codex.backend import run_native
 
     rpc = AsyncMock()
-    rpc.call.return_value = {"thread": {"id": "scoped-id"}}
+    rpc.call.return_value = {"thread": {"id": "native-id"}}
     rpc.receive.return_value = {
         "method": "turn/completed",
         "params": {"turn": {"status": "completed"}},
@@ -43,22 +42,22 @@ def test_scoped_codex_sets_title_on_creation_and_resume(tmp_path):
     async def connection(*args, **kwargs):
         yield rpc
 
-    workspace = SimpleNamespace(command=[], home=tmp_path)
     with (
-        patch(
-            "adapters.codex.scoped.prepare_scoped", side_effect=lambda *a: nullcontext(workspace)
-        ),
-        patch("adapters.codex.scoped.connection", connection),
-        patch("adapters.codex.scoped.collect_changes", return_value={}),
+        patch("adapters.codex.native.connection", connection),
+        patch("adapters.codex.native.configurations", return_value={"codex": {}}),
+        patch("adapters.codex.native.inventory", return_value={"codex": []}),
     ):
         for title in ("First title", "Renamed title"):
             asyncio.run(
-                run(
-                    {},
+                run_native(
+                    {"binary": "fixture"},
                     "Prompt",
                     lambda *a: None,
                     project={"_conversation_title": title},
                     session_dir=tmp_path,
+                    model=None,
+                    effort="low",
+                    approve=None,
                 )
             )
     calls = rpc.call.await_args_list
@@ -68,5 +67,5 @@ def test_scoped_codex_sets_title_on_creation_and_resume(tmp_path):
         "thread/resume",
         "thread/name/set",
     ]
-    assert calls[1].args[1] == {"threadId": "scoped-id", "name": "First title"}
-    assert calls[3].args[1] == {"threadId": "scoped-id", "name": "Renamed title"}
+    assert calls[1].args[1] == {"threadId": "native-id", "name": "First title"}
+    assert calls[3].args[1] == {"threadId": "native-id", "name": "Renamed title"}

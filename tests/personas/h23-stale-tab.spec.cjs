@@ -8,7 +8,7 @@ const CODEX = {
   backend: "codex",
   efforts: ["low"],
   permissions: { upload: false },
-  execution_modes: ["native", "scoped"],
+  execution_modes: ["native"],
 };
 const catalog = { models: [CODEX], providers: { codex: true } };
 
@@ -71,7 +71,7 @@ runPersona("H23", [
                 json: { code: "conversation_not_found" },
               })
             : route.fulfill({
-                json: { title: "Budget review", turns: [turn] },
+                json: { title: "Budget review", execution_mode: "native", turns: [turn] },
               }),
         "POST /v1/jobs": (route) => {
           s.posts.push(route.request().postDataJSON());

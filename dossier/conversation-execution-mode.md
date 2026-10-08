@@ -1,5 +1,43 @@
 # Conversation execution mode
 
+## Cloud-scoped retirement (#52, D-044)
+
+This section supersedes the Codex/Claude mode and legacy-resolution rules below. The earlier sections preserve the history of the original UI and permission work. [D-044](decisions/d-044-scoped-sandbox-under-facade.md) governs the retirement; issue #52 implements its backend contract and the draft safeguards below. Unknown historical modes display "Execution mode unavailable" without a native fallback. The remaining UI retirement and guidance are a separate follow-up.
+
+The supported modes are `native` for Codex, Claude, Gemini and DeepSeek, and `scoped` for Local. New Codex/Claude conversations default to native even if a stale service setting says scoped. An explicit unsupported mode returns HTTP 422 `execution_mode_unsupported` before enqueueing. Queued work, workflow stages, scheduled occurrences and direct adapter dispatch enforce the same refusal before provider execution. Schedule creation and updates reject unsupported modes.
+
+A stored Codex/Claude scoped conversation cannot continue, retry, resume, branch or escape retirement through a provider or permission-preset change. Its mode, history, attachments, proposals, session markers and old home files remain untouched and readable. Starting a native conversation is an explicit new-conversation action; it does not import the old provider session.
+
+Absent or malformed model execution capabilities block sending, including restored scoped drafts. Receiving valid capabilities does not silently replace an explicitly retained draft mode. The explicit **New conversation** action establishes the selected model's supported default, preserving draft text and attachments without restoring an old mode or session and without submitting automatically.
+
+### Explicit draft execution state
+
+Every composer draft stores `draft_mode: {mode, modeChosen, retiredLock}` with its text and attachments:
+
+- `mode` is the draft's execution mode.
+- `modeChosen` records an explicit user mode selection. Project selection never sets it.
+- `retiredLock` records that the draft has a retired cloud-scoped execution mode. It is independent of explicit choice and cannot be cleared by a model or project change.
+
+All save/restore paths preserve these three fields together: Back/Forward, Home replay, project switches, readiness probes, catalog refresh and reload. Restoring a draft restores its own restriction, not the mode of the conversation being exited. Automatic fallback cannot discard a retained retired restriction in favor of a saved native destination draft. Send and Enter are blocked while `retiredLock` is true, with an explanation directing the user to explicitly start a new conversation.
+
+Only an explicit **New conversation** action clears `retiredLock` and establishes a supported mode, while retaining text and same-project attachments. Main, project, file and page actions explicitly starting a new chat have this meaning; navigation replay, project selection and archive/delete side effects do not.
+
+Restoration itself does not manufacture a mode choice. An unlocked draft with `modeChosen: false` follows the selected model's current default when its project or model changes; selecting a project and then Local therefore yields scoped execution without requiring New. A selected Local model remains selected when available in the new project. An explicitly chosen mode remains chosen, and any retired lock takes precedence over default selection.
+
+Sidebar project navigation and project-specific New actions restore the destination project's saved draft when available, without replacing the currently selected model or effort. The composer's project picker keeps its current text when changing project. An implicit transition carrying a retired lock preserves the restricted source draft instead; only explicit New may reset that restriction. Subsequent reloads preserve each project's draft independently. Regression coverage: `harness-gauntlet-round2` A2-F1 and `cloud-mode-draft-recovery`.
+
+Legacy drafts without `draft_mode` are normalized from their persisted execution mode, choice flag and provider evidence. A recorded retired cloud-scoped mode acquires the retirement lock; unknown scoped provenance also stays locked until explicit New. Normalization does not invent an explicit choice. Persisted backend evidence takes precedence over the current model catalog, so a historical Local conversation is not retired merely because its old model disappeared. The legacy mode fields remain compatibility mirrors, while the complete draft state is the restoration contract. This affects composer draft persistence only; stored conversation execution modes remain immutable.
+
+For an existing conversation without a root mode, consistent recorded provider context and unambiguous persisted turn modes determine the historical mode. Missing or conflicting evidence for historical Codex/Claude or unknown provenance refuses execution; the displayed historical mode is unavailable. Unambiguous historical Local remains scoped and historical Gemini/DeepSeek remain native. Neither the currently selected backend nor a mutable service configuration proves that a historical cloud conversation was native. Resolution does not migrate rows or silently rewrite stored payloads.
+
+Historical evidence collection resolves ancestry from loaded rows with memoized roots, so a long supported Local conversation does not trigger a separate database ancestry walk for every turn. This optimization preserves refusal when the same conversation contains historical cloud-scoped evidence.
+
+The conversation API supplies the authoritative historical execution mode but currently has no separate retirement classification. When loading scoped history, the UI therefore inspects every turn's persisted backend: any Codex or Claude turn sets the retirement lock, including a cloud turn after a Local root or between Local turns. Selecting Local cannot unlock such history. All-Local scoped history and native cloud handoffs retain their supported continuation behavior; history remains readable.
+
+Cloud-scoped executors and their registration are retired, including their effect-capability claims. The rejection path never reads or copies credentials, starts a provider, applies a proposal or makes an inference request. Local's independent sandbox and native permission/trust behavior remain covered by their existing regression tests. See the [0.16.0 release notes](releases/v0.16.0.md) for acceptance tests and actual validation.
+
+## Original mode selection
+
 New conversations offer a one-time isolation switch above the conversation, with native execution selected by default where supported. The explanation uses plain language about working in the project folder versus a separate space with restricted file/tool access; it avoids CLI, engine and session terminology. The switch can be changed until the first job is accepted; a failed submission preserves both the choice and the draft.
 
 After the first message, the switch and explanation disappear. The same shield icon remains at the upper-right corner inside the prompt box. The active switch and isolated-session icon use the theme accent; native state is neutral. The icon is an accessible read-only status, not an editable switch. Reloading or reopening a conversation restores its fixed mode. A new conversation resets to the supported default.
