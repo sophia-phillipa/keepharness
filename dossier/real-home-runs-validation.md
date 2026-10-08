@@ -45,5 +45,79 @@ and reader-collision regressions each failed two cases before their fixes.
 - Conventions tests: 25 passed, 0 failed; checker: zero name errors/warnings,
   Portuguese hits or guest hits.
 
-The complete UI campaign and final integration evidence are recorded after the
-implementation commit; they are not claimed by the focused results above.
+The complete UI suite ran once against implementation commit `54af4af`:
+**166 PASS FILE, 0 FAIL FILE**, exit code 0. No flake or isolated retry occurred.
+This includes the notice regression, trust/MCP UI, cloud-mode retirement,
+visual checks and the persona matrix. No production file changed during the run.
+The preceding warning-rendering unit is commit `64c9191`.
+
+Logs are retained locally under
+`/home/sophia/.cache/codex-runs/keepharness/w11-45/implement-evidence/` and
+`/home/sophia/.cache/codex-runs/keepharness/w11-45/root-evidence/`.
+The temporary homes and test roots are removed after recording the results.
+No push, main merge or full Python-suite execution is part of this task.
+
+## Commands
+
+Interpreter: `/home/sophia/.cache/keepharness-gauntlet/venv-lock/bin/python`.
+Every run had a hard timeout. `pytest-timeout` was unavailable, so the shell
+`timeout` supplied the bound. The full Python suite was not run.
+
+The implementation campaigns used pytest's autouse fake-home fixture and their
+own temporary directory. Exact commands (line breaks are for readability):
+
+```sh
+TMPDIR=/tmp/claude-w45-TCe40t timeout 15m /home/sophia/.cache/keepharness-gauntlet/venv-lock/bin/python -m pytest -q --tb=short --basetemp=/tmp/claude-w45-TCe40t/pytest-final \
+  tests/test_real_home_runs.py tests/test_native.py tests/test_hook_scope.py tests/test_provider_trust.py tests/test_provider_trust_review.py tests/test_env.py tests/test_access_mode_bounds.py tests/test_adapters.py tests/test_scoped_home_security.py tests/test_scheduler.py tests/test_approval_policy.py tests/test_deepseek_isolation.py tests/test_adapter_stderr_capture.py tests/test_runtime_config_golden.py tests/test_native_plugin_inventory.py tests/test_claude_delegation_tools.py tests/test_schedule_internet.py tests/test_adapter_conformance.py tests/test_model_permissions.py tests/test_attachment_excerpt.py tests/test_effect_transport_modes.py tests/test_ask_user_question_mapping.py tests/test_shared_projects.py tests/test_project_folders.py
+# 432 passed
+
+TMPDIR=/tmp/claude-w45-TCe40t timeout 15m /home/sophia/.cache/keepharness-gauntlet/venv-lock/bin/python -m pytest -q --tb=short --basetemp=/tmp/claude-w45-TCe40t/pytest-state \
+  tests/test_provider_state_codex.py tests/test_provider_state_claude.py tests/test_provider_state_home_isolation.py tests/test_effect_codex_registration.py tests/test_native_session_missing.py
+# 168 passed, 2 fixture errors; corrected below
+
+TMPDIR=/tmp/claude-w45-TCe40t timeout 15m /home/sophia/.cache/keepharness-gauntlet/venv-lock/bin/python -m pytest -q --tb=short --basetemp=/tmp/claude-w45-TCe40t/pytest-more \
+  tests/test_native_session_missing.py tests/test_provider_login.py tests/test_claude_title_sync.py tests/test_claude_catalog.py
+# 49 passed, including both corrected cases
+```
+
+The root campaigns additionally set fake homes for server subprocesses before
+pytest or Node starts. `/tmp/claude-w45-EjLny5/test-env.sh` contained:
+
+```sh
+#!/bin/sh
+export HOME=/tmp/claude-w45-EjLny5/home
+export CODEX_HOME="$HOME/.codex"
+export CLAUDE_CONFIG_DIR="$HOME/.claude"
+export XDG_CONFIG_HOME=/tmp/claude-w45-EjLny5/config
+export XDG_CACHE_HOME=/tmp/claude-w45-EjLny5/cache
+export XDG_DATA_HOME=/tmp/claude-w45-EjLny5/data
+export TMPDIR=/tmp/claude-w45-EjLny5
+export PLAYWRIGHT_BROWSERS_PATH=/home/sophia/.cache/ms-playwright
+export NODE_PATH=/home/sophia/kbd-research/node_modules
+export PYTHON=/home/sophia/.cache/keepharness-gauntlet/venv-lock/bin/python
+exec env -u DISPLAY -u WAYLAND_DISPLAY "$@"
+```
+
+```sh
+sh /tmp/claude-w45-EjLny5/test-env.sh timeout 15m /home/sophia/.cache/keepharness-gauntlet/venv-lock/bin/python -m pytest -q --tb=short \
+  tests/test_resources.py tests/test_resources_gauntlet.py tests/test_native_resource_materialization.py tests/test_gauntlet_round5_resources.py tests/test_gauntlet_round9_resources.py tests/test_gauntlet_round12_resources.py tests/test_gauntlet_round13_resources.py tests/test_scoped_home_security.py::test_user_scope_resources_ignore_retired_personal_setup \
+  --basetemp=/tmp/claude-w45-EjLny5/pytest-resources-final
+# 130 passed
+
+sh /tmp/claude-w45-EjLny5/test-env.sh timeout 15m /home/sophia/.cache/keepharness-gauntlet/venv-lock/bin/python -m pytest -q --tb=short \
+  tests/test_provider_trust_transaction.py tests/test_provider_trust_timeouts.py tests/test_cloud_scoped_retirement.py tests/test_local_sandbox.py \
+  --basetemp=/tmp/claude-w45-EjLny5/pytest-boundaries
+# 70 passed, 2 optional installed-Codex cases skipped
+
+sh /tmp/claude-w45-EjLny5/test-env.sh timeout 3m node tests/chat-campaign-batch1.spec.cjs
+# Passed (hook/version notice text, hostile markup, existing visual assertions)
+
+sh /tmp/claude-w45-EjLny5/test-env.sh timeout 15m /home/sophia/.cache/keepharness-gauntlet/venv-lock/bin/python scripts/check_conventions.py
+# 0 name errors, 0 name warnings, 0 Portuguese hits, 0 guest hits
+
+sh /tmp/claude-w45-EjLny5/test-env.sh timeout 15m /home/sophia/.cache/keepharness-gauntlet/venv-lock/bin/python -m pytest -q --tb=short tests/test_conventions.py --basetemp=/tmp/claude-w45-EjLny5/pytest-conventions
+# 25 passed
+
+sh /tmp/claude-w45-EjLny5/test-env.sh timeout 60m ./scripts/test-ui.sh
+# 166 PASS FILE, 0 FAIL FILE; exit 0; one full run
+```
