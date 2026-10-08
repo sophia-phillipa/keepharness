@@ -6376,7 +6376,7 @@ function renderProjectTrust() {
       ? projectTrustData.mcp_approvals
       : [];
   panel.replaceChildren();
-  panel.hidden = !trust?.required && !approvals.length && !projectTrustError;
+  panel.hidden = !trust && !approvals.length && !projectTrustError;
   if (panel.hidden) return;
   if (trust?.required) {
     const copy = document.createElement("div"),
@@ -6395,6 +6395,16 @@ function renderProjectTrust() {
     accept.onclick = () => writeProjectTrust(context, "trust", {});
     panel.append(copy, accept);
   }
+  if (trust?.trusted) {
+    const copy = document.createElement("p"), revoke = document.createElement("button");
+    copy.textContent = "Trusted by Codex or Claude Code. Revoking trust applies to both CLIs.";
+    revoke.type = "button";
+    revoke.className = "project-trust-action";
+    revoke.textContent = "Revoke trust for " + context.label;
+    revoke.disabled = projectTrustWriting;
+    revoke.onclick = () => writeProjectTrust(context, "trust", { trusted: false });
+    panel.append(copy, revoke);
+  }
   for (const item of approvals) {
     const row = document.createElement("div"),
       copy = document.createElement("div"),
@@ -6405,14 +6415,15 @@ function renderProjectTrust() {
     row.dataset.testid = "project-mcp-approval";
     row.dataset.server = item.server;
     name.textContent = item.server;
-    detail.textContent = "Project MCP server · " + (item.approved ? "Approved" : "Not approved");
+    detail.textContent = "Project MCP server · " + (item.enabled === false ? "Disabled by owner" : item.approved ? "Approved" : "Not approved");
     copy.append(name, detail);
     toggle.type = "button";
     toggle.className = "project-trust-action";
     toggle.textContent = (item.approved ? "Revoke " : "Approve ") + item.server;
     toggle.disabled = projectTrustWriting;
     toggle.onclick = () => writeProjectTrust(context, "mcp-approvals", { server: item.server, approved: !item.approved });
-    row.append(copy, toggle);
+    row.append(copy);
+    if (item.enabled !== false) row.append(toggle);
     panel.append(row);
   }
   if (projectTrustError) {

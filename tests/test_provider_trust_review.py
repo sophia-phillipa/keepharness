@@ -276,8 +276,9 @@ def test_project_change_between_snapshot_and_layer_capture_conflicts(
     assert not adapter._is_project_trusted(project)
 
 
+@pytest.mark.parametrize("trusted", [True, False])
 def test_service_rechecks_root_after_waiting_for_writer_lock(
-    app, codex_home, claude_dir, project, tmp_path
+    app, codex_home, claude_dir, project, tmp_path, trusted
 ):
     service, _ = fixture_service(app, codex_home, claude_dir, project)
     replacement = tmp_path / "replacement"
@@ -287,7 +288,9 @@ def test_service_rechecks_root_after_waiting_for_writer_lock(
         lock = service.locks.setdefault("codex", asyncio.Lock())
         await lock.acquire()
         pending = asyncio.create_task(
-            service.security_write("codex", "p", expected_project_root=str(project))
+            service.security_write(
+                "codex", "p", expected_project_root=str(project), trusted=trusted
+            )
         )
         await asyncio.sleep(0)
         app.state.manager.settings["projects"][0]["root"] = str(replacement)
@@ -317,3 +320,78 @@ def test_external_skill_inventory_change_is_not_proven_by_config_version(
     assert isinstance(asyncio.run(service.security_write("codex", "p")), dict)
     notices = asyncio.run(service.read("codex", "p"))["external_changes"]
     assert any(notice["item_id"] == "skill:" + external for notice in notices)
+
+
+def test_revoke_receipt_attributes_unchanged_user_fallback(app, codex_home, claude_dir, project):
+    service, _ = fixture_service(app, codex_home, claude_dir, project, trusted=True)
+    path = project / ".codex/config.toml"
+    path.write_text('[mcp_servers.user_mcp]\ncommand="true"\nenabled=false\n')
+    with (codex_home / "config.toml").open("a") as stream:
+        stream.write('\n[mcp_servers.user_mcp]\ncommand="true"\nenabled=true\n')
+    # Establish the observer before the owner's explicit revocation.
+    service.cache.clear()
+    service._seen = None
+    (service.state / "provider-state-seen.json").unlink()
+    asyncio.run(service.read("codex", "p"))
+    result = asyncio.run(service.security_write("codex", "p", trusted=False))
+    assert isinstance(result, dict)
+    assert asyncio.run(service.read("codex", "p"))["external_changes"] == []
+
+
+def test_partial_revoke_retry_preserves_receipt_and_truthful_union(
+    app, codex_home, claude_dir, project, monkeypatch
+):
+    control, claude = fixture_service(app, codex_home, claude_dir, project, trusted=True)
+    claude.trust_project(project)
+    remote = ProviderStateService(
+        control.state, control.projects, control.adapters, track_notices=False
+    )
+    seen = (control.state / "provider-state-seen.json").read_bytes()
+    real = claude.trust_project
+
+    def unavailable(root, **kwargs):
+        raise ProviderStateVersionError("Fixture refusal")
+
+    monkeypatch.setattr(claude, "trust_project", unavailable)
+    assert asyncio.run(remote.security_write("codex", "p", trusted=False)).status_code == 422
+    assert not control.adapters["codex"]._is_project_trusted(project)
+    assert claude.is_project_trusted(project)
+    monkeypatch.setattr(claude, "trust_project", real)
+    result = asyncio.run(remote.security_write("codex", "p", trusted=False))
+    assert result["trust"] == {"trusted": False, "required": True}
+    assert (control.state / "provider-state-seen.json").read_bytes() == seen
+    control.cache.clear()
+    assert asyncio.run(control.read("codex", "p"))["external_changes"] == []
+
+
+def test_revoke_stale_binding_never_changes_either_cli(app, codex_home, claude_dir, project):
+    service, claude = fixture_service(app, codex_home, claude_dir, project, trusted=True)
+    claude.trust_project(project)
+    result = asyncio.run(
+        service.security_write("codex", "p", trusted=False, expected_project_root="/wrong/project")
+    )
+    assert result.status_code == 409
+    assert service.adapters["codex"]._is_project_trusted(project)
+    assert claude._is_project_trusted(project)
+
+
+@pytest.mark.parametrize("external", ["project", "user"])
+def test_revoke_receipt_does_not_hide_concurrent_config_edits(
+    app, codex_home, claude_dir, project, monkeypatch, external
+):
+    service, _ = fixture_service(app, codex_home, claude_dir, project, trusted=True)
+    real = service.adapters["codex"].trust_project
+
+    def revoke_and_edit(root, **kwargs):
+        real(root, **kwargs)
+        path = (
+            project / ".codex/config.toml" if external == "project" else codex_home / "config.toml"
+        )
+        with path.open("a") as stream:
+            stream.write('\n[mcp_servers.external]\ncommand="true"\n')
+
+    monkeypatch.setattr(service.adapters["codex"], "trust_project", revoke_and_edit)
+    assert isinstance(asyncio.run(service.security_write("codex", "p", trusted=False)), dict)
+    notices = asyncio.run(service.read("codex", "p"))["external_changes"]
+    expected = "mcp:original" if external == "project" else "mcp:external"
+    assert expected in {notice["item_id"] for notice in notices}

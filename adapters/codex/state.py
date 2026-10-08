@@ -431,8 +431,8 @@ class CodexStateAdapter:
                 reason=reason or locked,
             )
 
-        def layered_rows(kind, key, listed):
-            decided = _decide(layers, key)
+        def layered_rows(kind, key, listed, effective_layers=layers):
+            decided = _decide(effective_layers, key)
             fallback = user or _Layer("user", "", "", {}, "")
             for item_id in decided.keys() | listed.keys():
                 layer, flag = decided.get(item_id, (fallback, None))
@@ -454,6 +454,31 @@ class CodexStateAdapter:
         items += layered_rows("plugin", "plugins", _plugin_list(results.get("plugins")))
         items += layered_rows("app", "apps", _app_list(results.get("apps")))
         items += layered_rows("mcp", "mcp_servers", {})
+        if trust_layers is not None:
+            revoked_source = next(iter(trust_layers), None)
+            without_project = [
+                layer
+                for layer in layers
+                if layer.scope != "project" or str(Path(layer.source).parent) != revoked_source
+            ]
+            fallback_items = [
+                *layered_rows(
+                    "plugin", "plugins", _plugin_list(results.get("plugins")), without_project
+                ),
+                *layered_rows("app", "apps", _app_list(results.get("apps")), without_project),
+                *layered_rows("mcp", "mcp_servers", {}, without_project),
+            ]
+            for layer in trust_layers.values():
+                layer["fallbacks"] = {
+                    item.id: {
+                        "enabled": item.enabled,
+                        "source": item.source.rsplit("/", 1)[-1],
+                        "name": item.name,
+                        "scope": item.scope,
+                    }
+                    for item in fallback_items
+                    if item.id in layer.get("items", {})
+                }
         for path, skill in _skill_list(
             results.get("skills"), _codex_home(self.environment), results.get("plugins")
         ).items():
@@ -588,7 +613,12 @@ class CodexStateAdapter:
         return False
 
     def trust_project(
-        self, project_root: Path, *, on_written=None, expected_fingerprint=None
+        self,
+        project_root: Path,
+        *,
+        trusted: bool = True,
+        on_written=None,
+        expected_fingerprint=None,
     ) -> None:
         root = Path(project_root).resolve()
         binary = self._binary()
@@ -605,7 +635,7 @@ class CodexStateAdapter:
             "edits": [
                 {
                     "keyPath": f'projects."{quoted_root}".trust_level',
-                    "value": "trusted",
+                    "value": "trusted" if trusted else "untrusted",
                     "mergeStrategy": "upsert",
                 }
             ],
@@ -615,7 +645,7 @@ class CodexStateAdapter:
         )
         if on_written is not None:
             on_written()
-        if not self._is_project_trusted(root):
+        if self._is_project_trusted(root) != trusted:
             raise ProviderStateConflictError("Codex does not show the requested trust.")
 
     def approved_project_servers(self, project_root: Path) -> frozenset[str]:

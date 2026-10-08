@@ -753,7 +753,7 @@ class ClaudeStateAdapter:
                 "Claude Code is outside the tested range; state is not written"
             )
 
-    def trust_project(self, project_root: Path) -> None:
+    def trust_project(self, project_root: Path, *, trusted: bool = True) -> None:
         root = Path(project_root).resolve()
         self._check_write_version(root)
         path = self._claude_json()
@@ -768,7 +768,7 @@ class ClaudeStateAdapter:
             entry = projects.setdefault(str(root), {})
             if not isinstance(entry, dict):
                 raise ProviderStateSchemaError("Claude project is not an object")
-            entry["hasTrustDialogAccepted"] = True
+            entry["hasTrustDialogAccepted"] = trusted
             return document
 
         write_json_atomic(
@@ -782,7 +782,7 @@ class ClaudeStateAdapter:
                 else ["projects must be an object"]
             ),
         )
-        self._confirm(self._is_project_trusted(root), True)
+        self._confirm(self._is_project_trusted(root), trusted)
 
     def project_servers(self, project_root: Path) -> dict:
         document, _, problem = _read_json_object(Path(project_root) / ".mcp.json")

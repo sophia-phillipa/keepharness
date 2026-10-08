@@ -521,10 +521,11 @@ class ProviderStateService:
         )
         claude = self._adapter("claude")
         approved = claude.approved_project_servers(root, trusted=trusted)
+        enabled = claude.enabled_project_servers(root)
         return {
             "trust": {"trusted": trusted, "required": not trusted},
             "mcp_approvals": [
-                {"server": name, "approved": name in approved}
+                {"server": name, "approved": name in approved, "enabled": name in enabled}
                 for name in sorted(claude.project_servers(root))
             ],
         }
@@ -534,14 +535,15 @@ class ProviderStateService:
         return self.state / "provider-state-writes" / (ident + ".json")
 
     def _validated_receipt(self, provider, root, snapshot, receipt):
-        """Attribute only an unchanged project layer that the write changed from disabled to enabled."""
+        """Attribute only unchanged project layers crossing the requested trust boundary."""
         if receipt.get("source_identity") != _source_identity(self._adapter(provider), root):
             return {}
         layers = receipt.get("project_layers")
+        trusted = receipt.get("trusted", True)
         if (
             not layers
             or provider != "codex"
-            or all(layer["enabled"] for layer in layers.values())
+            or next(iter(layers.values()))["enabled"] == trusted
             or any(
                 not isinstance(layer.get("version"), str) or not layer["version"]
                 for layer in layers.values()
@@ -552,7 +554,8 @@ class ProviderStateService:
         if (
             verified.fingerprint != snapshot.fingerprint
             or not current
-            or not all(layer["enabled"] for layer in current.values())
+            or (trusted and not all(layer["enabled"] for layer in current.values()))
+            or (not trusted and next(iter(current.values()))["enabled"])
             or {key: layer["version"] for key, layer in layers.items()}
             != {key: layer["version"] for key, layer in current.items()}
         ):
@@ -564,7 +567,24 @@ class ProviderStateService:
             for layer in current.values()
             for ident, enabled in layer.get("items", {}).items()
         }
-        for ident, item in _items_of(snapshot).items():
+        after = _items_of(snapshot)
+        if not trusted:
+            # Match the pre-write fallback as well as unchanged project versions;
+            # a concurrent user-layer edit must still produce an external notice.
+            for key, layer in layers.items():
+                if not layer["enabled"] or current[key]["enabled"]:
+                    continue
+                for ident in layer.get("items", {}):
+                    expected_item = layer.get("fallbacks", {}).get(ident)
+                    if ident in before and after.get(ident) == expected_item:
+                        held = transitions.get(ident)
+                        original = (
+                            held["before"]
+                            if held and held["after"] == before[ident]
+                            else before[ident]
+                        )
+                        transitions[ident] = {"before": original, "after": expected_item}
+        for ident, item in after.items():
             if (
                 item["scope"] == "project"
                 and ident in expected
@@ -594,11 +614,11 @@ class ProviderStateService:
             )
         return receipt
 
-    def _security_intent(self, provider, project_id, root, before, layers):
+    def _security_intent(self, provider, project_id, root, before, layers, trusted=True):
         # No-op retries must preserve the earlier, possibly unconsumed own-write receipt.
         if (
             not layers
-            or all(layer["enabled"] for layer in layers.values())
+            or next(iter(layers.values()))["enabled"] == trusted
             or any(
                 not isinstance(layer.get("version"), str) or not layer["version"]
                 for layer in layers.values()
@@ -628,6 +648,7 @@ class ProviderStateService:
                     "fingerprint": before.fingerprint,
                     "before": _items_of(before),
                     "project_layers": layers,
+                    "trusted": trusted,
                     "transitions": transitions,
                 }
             },
@@ -647,6 +668,7 @@ class ProviderStateService:
         *,
         server: str | None = None,
         approved: bool = False,
+        trusted: bool = True,
         expected_project_root: str | None = None,
     ) -> dict | JSONResponse:
         root = self.resolve(provider, project_id)
@@ -679,6 +701,7 @@ class ProviderStateService:
                                 await asyncio.to_thread(
                                     adapter.trust_project,
                                     root,
+                                    trusted=trusted,
                                     expected_fingerprint=before.fingerprint,
                                     on_written=partial(
                                         self._security_intent,
@@ -687,10 +710,15 @@ class ProviderStateService:
                                         root,
                                         before,
                                         layers,
+                                        trusted,
                                     ),
                                 )
                             elif server is None:
-                                await asyncio.to_thread(adapter.trust_project, root)
+                                await asyncio.to_thread(
+                                    adapter.trust_project,
+                                    root,
+                                    **({} if trusted else {"trusted": False}),
+                                )
                             else:
                                 await asyncio.to_thread(
                                     adapter.set_project_server_approval, root, server, approved
