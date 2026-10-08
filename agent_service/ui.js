@@ -8307,7 +8307,7 @@ async function applyView(view, replay = false) {
     const button = view.kind === "plugins"
       ? pluginsSettingsButton
       : view.button || document.querySelector('[data-settings="' + section + '"]' + (view.sub ? '[data-admin-section="' + view.sub + '"]' : ""));
-    if (view.button || button !== pressedSettings()) showSettingsPage(button);
+    if (view.kind === "plugins" || view.button || button !== pressedSettings()) showSettingsPage(button);
   }
 }
 async function navigate(view, { record = true } = {}) {

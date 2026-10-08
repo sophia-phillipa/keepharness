@@ -199,6 +199,37 @@ const ORIGIN = "http://localhost:18990/";
     assert.equal(await page.locator('[data-admin-section="plugins"]').getAttribute("aria-pressed"), "true");
     console.log("PASS Plugins history follows admin loss and recovery");
 
+    // Closing Settings leaves its button selected. Replay must still reconcile the Plugins
+    // destination when availability changes without visiting another Settings section first.
+    const pluginsState = () => page.evaluate(() => ({
+      native: !document.querySelector("#settings-plugins").hidden,
+      admin: !document.querySelector("#settings-system").hidden,
+    }));
+    const directTransitions = [];
+    await fresh();
+    await page.evaluate(() => openSettings("plugins"));
+    await page.waitForFunction(() => !document.querySelector("#settings-system").hidden);
+    await page.click("#settings-close");
+    await page.evaluate(() => modelAvailability({}));
+    await page.keyboard.press("Control+[");
+    await page.waitForFunction(() => document.querySelector("#settings-dialog").open);
+    directTransitions.push(await pluginsState());
+
+    await fresh();
+    await page.evaluate(() => modelAvailability({}));
+    await page.evaluate(() => openSettings("plugins"));
+    await page.waitForFunction(() => !document.querySelector("#settings-plugins").hidden);
+    await page.click("#settings-close");
+    await page.evaluate((adminUrl) => modelAvailability({ admin_url: adminUrl }), ORIGIN + "admin/");
+    await page.keyboard.press("Control+[");
+    await page.waitForFunction(() => document.querySelector("#settings-dialog").open);
+    directTransitions.push(await pluginsState());
+    assert.deepEqual(directTransitions, [
+      { native: true, admin: false },
+      { native: false, admin: true },
+    ]);
+    console.log("PASS closed Plugins history reconciles admin loss and recovery");
+
     // A conversation with a running turn: the scroll position is restored once its turns render,
     // not when the stream ends, and it does not jump afterwards.
     await fresh();
