@@ -89,3 +89,39 @@ def test_sanitizer_bounds_large_inputs_and_redacts_secrets_crossing_cutoff():
         result = safe_text('run --token "' + "private-fragment" * 100_000)
     assert "private-fragment" not in result
     assert "[REDACTED]" in result
+
+
+@pytest.mark.parametrize("option", ['"--token"', "'--token'", '"--api-key"'])
+def test_quoted_credential_option_redacts_value(option):
+    assert "private-value" not in safe_text(f'check {option} "private-value"')
+
+
+def test_nested_instruction_import_allows_safe_parent_traversal(tmp_path):
+    project = tmp_path / "project"
+    (project / "docs").mkdir(parents=True)
+    (project / "CLAUDE.md").write_text("@docs/more.md")
+    (project / "docs/more.md").write_text("@../shared.md")
+    (project / "shared.md").write_text("Shared instructions")
+    reader = InstructionReader(tmp_path, project)
+    reader.document(project / "CLAUDE.md", "project", imports=True)
+    assert any(item.details.get("preview") == "Shared instructions" for item in reader.items)
+    assert project / "shared.md" in reader.paths
+
+
+@pytest.mark.parametrize("linked", [False, True])
+def test_nested_instruction_import_rejects_escape_and_symlink(tmp_path, linked):
+    project = tmp_path / "project"
+    (project / "docs").mkdir(parents=True)
+    (tmp_path / "private.md").write_text("private-content")
+    if linked:
+        (project / "linked").symlink_to(project / "docs", target_is_directory=True)
+        target = "../linked/../shared.md"
+        (project / "shared.md").write_text("private-content")
+    else:
+        target = "../../private.md"
+    (project / "CLAUDE.md").write_text("@docs/more.md")
+    (project / "docs/more.md").write_text("@" + target)
+    reader = InstructionReader(tmp_path, project)
+    reader.document(project / "CLAUDE.md", "project", imports=True)
+    assert all(item.details.get("preview") != "private-content" for item in reader.items)
+    assert reader.warnings

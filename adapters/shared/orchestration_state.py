@@ -14,7 +14,7 @@ from agent_service.tools import ToolError
 MAX_BYTES = 256 * 1024
 PREVIEW_CHARS = 8000
 _SECRET = re.compile(r"token|secret|password|passwd|cookie|api.?key|authorization|credential", re.I)
-_FIELD = re.compile(r"""(?<![\w-])(?:--)?([\w-]+)(["']?\s*[:=]\s*|[ \t]+)""")
+_FIELD = re.compile(r"""(?<![\w-])(?:--)?([\w-]+)(["']?\s*[:=]\s*|["']?[ \t]+)""")
 _BEARER = re.compile(r'(?i)\b(Bearer|Basic)\s+[^\s"\'<>]+')
 _URL_AUTH = re.compile(r"(https?://)[^/\s:@]+:[^/\s@]+@", re.I)
 
@@ -248,9 +248,16 @@ class InstructionReader:
                     )
                 except (OSError, RuntimeError):
                     inside = False
+                if inside and any(
+                    part.is_symlink() for part in (target_path, *target_path.parents)
+                ):
+                    self.warnings.append(f"{self.shown(path)}: linked import not previewed.")
+                    continue
                 if inside:
+                    # Normalize safe parent traversal only after checking the original path:
+                    # resolving first could hide a symlink that was traversed before '..'.
                     self.document(
-                        target_path,
+                        Path(os.path.abspath(target_path)),
                         scope,
                         imports=True,
                         depth=depth + 1,
