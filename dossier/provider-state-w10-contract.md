@@ -10,6 +10,7 @@ Fence: no Apps/MCP/Skills chips (#22/#23), no trust or .mcp.json approval (#44),
 - Never put `.claude.json` content, MCP env/headers, or file bytes into responses, logs, or notices. Logs carry `exc.code` only, never `str(exc)`.
 - Adapter-authored messages go into a body only as `message`/`provider_message`, truncated to 300 chars.
 - Tests use fake homes only (autouse `isolated_provider_homes`, conftest.py:72-89) and the fake CLIs on PATH; Claude adapters in tests get `managed_dir=tmp_path/"managed"`.
+- Owner and provider-state directory resolution rejects symbolic-link loops, including looping ancestors of absent leaves, on every supported Python version. Valid missing directories remain allowed, and accepted custom aliases retain their configured spelling.
 - Time: `detected_at` is ISO 8601 UTC with `Z`, seconds precision. Coalescing uses an injected monotonic clock.
 
 ## P1 — #21 backend (routes + service)

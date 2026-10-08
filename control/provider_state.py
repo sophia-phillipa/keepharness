@@ -67,15 +67,23 @@ def _owner_environment(
     Keep accepted custom path spellings, discard harness-owned locations, and report
     unavailable owner directories only when their provider's state is requested.
     """
+
+    def resolve_directory(path: Path) -> Path:
+        # Python 3.13+ suppresses symlink loops in non-strict resolution.
+        try:
+            return path.resolve(strict=True)
+        except FileNotFoundError:
+            return path.resolve()
+
     source = os.environ if source is None else source
     try:
-        harness = (Path(state) / "providers").resolve()
+        harness = resolve_directory(Path(state) / "providers")
     except (OSError, RuntimeError):
         raise ProviderStateSchemaError("The provider state directory cannot be resolved.") from None
 
     def owner_path(value: str) -> bool:
         try:
-            path = Path(value).resolve()
+            path = resolve_directory(Path(value))
             if path.is_relative_to(harness):
                 return False
             if path.exists() and not os.access(path, os.R_OK | os.X_OK):

@@ -354,12 +354,13 @@ def test_custom_owner_alias_and_missing_directory_keep_their_spelling(
 @pytest.mark.parametrize(
     "name,folder", [("CODEX_HOME", ".codex"), ("CLAUDE_CONFIG_DIR", ".claude")]
 )
+@pytest.mark.parametrize("suffix", ["", "not-created"])
 def test_unresolvable_custom_home_reports_a_provider_error(
-    owner, tmp_path, monkeypatch, name, folder
+    owner, tmp_path, monkeypatch, name, folder, suffix
 ):
     loop = tmp_path / "loop"
     loop.symlink_to(loop, target_is_directory=True)
-    monkeypatch.setenv(name, str(loop))
+    monkeypatch.setenv(name, str(loop / suffix))
     with pytest.raises(ProviderStateSchemaError):
         _owner_environment(tmp_path / "state")
 
