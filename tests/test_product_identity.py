@@ -1,5 +1,6 @@
 """One identity controls runtime names; state cannot cross product lineages."""
 
+import ast
 import errno
 import fcntl
 import json
@@ -9,7 +10,7 @@ import socket
 import subprocess
 import sys
 import threading
-from dataclasses import replace
+from dataclasses import asdict, replace
 from pathlib import Path
 
 import pytest
@@ -431,7 +432,8 @@ def test_a_bridge_target_set_aside_failure_is_a_reason_not_a_crash(tmp_path, mon
     assert (new / "mcp_bridge.py").exists()
 
 
-def test_the_generated_installer_keeps_the_bridge_out_of_the_state_folder(tmp_path):
+@pytest.mark.parametrize("multiline", [False, True])
+def test_the_generated_installer_keeps_the_bridge_out_of_the_state_folder(tmp_path, multiline):
     root = Path(product.__file__).resolve().parents[1]
     for relative in (
         "pyproject.toml",
@@ -446,6 +448,18 @@ def test_the_generated_installer_keeps_the_bridge_out_of_the_state_folder(tmp_pa
     ):
         (tmp_path / relative).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / relative).write_text((root / relative).read_text())
+    bridge = tmp_path / "agent_service/mcp_bridge.py"
+    source = bridge.read_text()
+    assignment = next(
+        node
+        for node in ast.parse(source).body
+        if isinstance(node, ast.Assign)
+        and any(isinstance(target, ast.Name) and target.id == "PRODUCT" for target in node.targets)
+    )
+    lines = source.splitlines(keepends=True)
+    literal = json.dumps(asdict(PRODUCT), indent=4) if multiline else repr(asdict(PRODUCT))
+    lines[assignment.lineno - 1 : assignment.end_lineno] = ["PRODUCT = " + literal + "\n"]
+    bridge.write_text("".join(lines))
     script = tmp_path / "agent_service/setup-mcp.sh"
     product.generate(tmp_path, PRODUCT)
     assert script.read_text() == (root / "agent_service/setup-mcp.sh").read_text()
@@ -459,6 +473,19 @@ def test_the_generated_installer_keeps_the_bridge_out_of_the_state_folder(tmp_pa
     product.generate(tmp_path, fork)
     assert "TH_PRODUCT_BRIDGE=.local/share/synthetic-harness-mcp\n" in script.read_text()
     assert "TH_PRODUCT_STATE" not in script.read_text()
+    generated = ast.parse(bridge.read_text())
+    values = next(
+        ast.literal_eval(node.value)
+        for node in generated.body
+        if isinstance(node, ast.Assign)
+        and any(isinstance(target, ast.Name) and target.id == "PRODUCT" for target in node.targets)
+    )
+    assert values == asdict(fork)
+    product.generate(tmp_path, PRODUCT)
+    assert script.read_text() == (root / "agent_service/setup-mcp.sh").read_text()
+    assert (tmp_path / "control/index.html").read_text() == (
+        root / "control/index.html"
+    ).read_text()
 
 
 def test_generating_unchanged_assets_writes_nothing(tmp_path):

@@ -531,8 +531,13 @@ def generate(root=None, product=PRODUCT):
     root = Path(root or Path(__file__).resolve().parents[1])
     bridge = root / "agent_service/mcp_bridge.py"
     source = bridge.read_text()
-    match = re.search(r"^PRODUCT = (\{.*\})$", source, re.M)
-    previous = ProductIdentity(**ast.literal_eval(match.group(1))) if match else ProductIdentity()
+    assignment = next(
+        node
+        for node in ast.parse(source).body
+        if isinstance(node, ast.Assign)
+        and any(isinstance(target, ast.Name) and target.id == "PRODUCT" for target in node.targets)
+    )
+    previous = ProductIdentity(**ast.literal_eval(assignment.value))
     # Only presentation/bootstrap files are generated. Persisted protocol identifiers
     # in Python business logic are never replaced.
     paths = [
@@ -564,9 +569,12 @@ def generate(root=None, product=PRODUCT):
         if relative.endswith(".html"):
             text = text.replace("icons.svg#__PRODUCT_ICON__", "icons.svg#" + product.icon)
         write_if_changed(path, text)
-    block = "PRODUCT = " + repr(asdict(product))
-    source = re.sub(r"^PRODUCT = \{.*\}$", lambda _: block, source, flags=re.M)
-    write_if_changed(bridge, source)
+    if previous != product:
+        lines = source.splitlines(keepends=True)
+        lines[assignment.lineno - 1 : assignment.end_lineno] = [
+            "PRODUCT = " + repr(asdict(product)) + "\n"
+        ]
+        write_if_changed(bridge, "".join(lines))
     script = root / "agent_service/setup-mcp.sh"
     text = script.read_text()
     values = {
