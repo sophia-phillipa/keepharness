@@ -68,6 +68,8 @@ async function scan(root, active = false) {
       assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
       const box = await page.locator('#temporary-chat-notice').boundingBox();
       assert(box.x >= 0 && box.x + box.width <= 390 && box.y >= 0 && box.y + box.height <= 844);
+      const closeBounds = await page.locator('#close-temporary-chat').boundingBox();
+      assert(closeBounds.width >= 24 && closeBounds.height >= 24, theme + ' temporary close meets pointer-target minimum');
       if (process.env.TEMPORARY_SCREENSHOT_DIR) {
         await fs.mkdir(process.env.TEMPORARY_SCREENSHOT_DIR, { recursive: true });
         await page.screenshot({ path: path.join(process.env.TEMPORARY_SCREENSHOT_DIR, `temporary-${theme}-390.png`) });

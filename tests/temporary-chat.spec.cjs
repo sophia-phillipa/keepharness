@@ -22,6 +22,8 @@ const origin = process.env.HARNESS_URL;
     await page.goto(origin);
     await page.locator('#startup-gate').waitFor({ state: 'hidden' });
     await page.fill('#prompt', 'ordinary draft');
+    const entryBounds = await page.locator('#composer-temporary').boundingBox();
+    assert(entryBounds.width >= 24 && entryBounds.height >= 24, 'temporary entry meets pointer-target minimum');
     await page.locator('#new-temporary').click();
     await page.locator('#temporary-chat-notice').waitFor({ state: 'visible' });
     assert.equal(await page.locator('#prompt').inputValue(), '');
