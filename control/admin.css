@@ -1699,6 +1699,8 @@ html[data-embedded] #main { max-width: none; margin: 0; padding-inline: 24px; }
 .provider-notices-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .provider-notice { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .provider-notice > span { min-width: 0; overflow-wrap: anywhere; }
+.provider-notices details > summary { cursor: pointer; width: fit-content; margin-block-end: 6px; }
+.provider-notices details[open] .provider-notices-list { max-height: 40vh; overflow-y: auto; }
 .provider-notice .button, .provider-notices-head .button { flex: none; }
 .plugins-changed { color: var(--th-accent); }
 .plugins-row-menu { position: relative; }

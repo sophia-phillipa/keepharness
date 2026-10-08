@@ -319,7 +319,6 @@
 
   // The state of each found CLI, read in parallel: GET takes no admin lock. A failure only affects its provider.
   async function loadStates(clis) {
-    rowErrors.clear();
     await Promise.all(
       clis.map(async ({ id }) => {
         try {
@@ -328,6 +327,7 @@
           setProviderNotices(id, body.external_changes);
         } catch (error) {
           states.set(id, { error: error.message });
+          setProviderNotices(id, []); // an unreadable CLI must not keep an old notice on show
         }
       }),
     );
@@ -342,6 +342,7 @@
     try {
       const inventory = (state || (await request("state"))).inventory;
       view.clis = inventory.services.filter((info) => info.found && CLIS.includes(info.id));
+      rowErrors.clear(); // a reload starts clean; a re-read on focus keeps the errors on their rows
       const reads = loadStates(view.clis);
       // One CLI at a time: the admin runs one operation at once and answers 429 to a second.
       for (const { id } of view.clis) {
@@ -378,9 +379,11 @@
   window.addEventListener("hashchange", enter);
   // A dismissed notice loses its row marker; coming back to the tab re-reads the states (no timers).
   document.addEventListener("provider-notices", () => view.built && !view.loading && renderList());
+  // Focus and visibilitychange fire together: the second one shares the read in flight.
+  let rereading = null;
   const reread = () => {
     if (location.hash === "#plugins" && view.built && !view.loading && !working && document.visibilityState === "visible")
-      loadStates(view.clis).then(render);
+      rereading ||= loadStates(view.clis).then(render).finally(() => (rereading = null));
   };
   window.addEventListener("focus", reread);
   document.addEventListener("visibilitychange", reread);

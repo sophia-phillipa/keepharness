@@ -942,15 +942,18 @@ const onOff = (enabled) => (enabled ? "on" : "off");
 function setProviderNotices(provider, list) {
   providerNotices.set(provider, Array.isArray(list) ? list : []);
 }
-function noticeSentence(provider, notice) {
-  const where = HarnessUI.providerName(provider);
+// The sentence as [text, item id, text]: the id is shown in <code>, the rest is plain text.
+function noticeParts(provider, notice) {
+  const cli = HarnessUI.providerName(provider);
   const time = new Date(notice.detected_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
-  const detail = " (" + notice.source + ", " + time + ").";
+  const detail = " (" + notice.source + ", " + time + ")";
+  const [kind, id] = String(notice.item_id).includes(":") ? String(notice.item_id).split(/:(.*)/s) : ["item", String(notice.item_id)];
   if (notice.change === "reverted")
-    return "Reverted: " + notice.name + " was turned back " + onOff(notice.after) + " by " + where + detail;
+    return [`Reverted by ${cli}: ${kind} `, id, ` is ${onOff(notice.after)} again${detail}. Your choice was ${onOff(notice.before)}.`];
   const what = { added: "was added", removed: "was removed" }[notice.change] || "was turned " + onOff(notice.after);
-  return where + " › " + notice.name + " " + what + detail;
+  return [`${cli} › ${kind} `, id, ` ${what}${detail}.`];
 }
+const noticeSentence = (provider, notice) => noticeParts(provider, notice).join("");
 const noticeBlocks = () => ["provider-state-notices", "plugins-notices"].map($);
 // Redraws both blocks from the store, toasts the ids not announced yet (one toast per batch) and
 // tells the Plugins list to redraw its row markers.
@@ -973,27 +976,43 @@ function showProviderNotices() {
     }
     const items = element("ul", undefined, "provider-notices-list");
     for (const { provider, notice } of all) {
-      const sentence = noticeSentence(provider, notice);
+      const [lead, id, tail] = noticeParts(provider, notice);
       const dismiss = element("button", "Dismiss", "button secondary");
-      dismiss.setAttribute("aria-label", "Dismiss: " + sentence);
+      dismiss.setAttribute("aria-label", "Dismiss: " + lead + id + tail);
       dismiss.onclick = () => ackProviderNotices(provider, [notice]);
+      const line = element("span");
+      line.append(lead, element("code", id), tail);
       const li = element("li", undefined, "provider-notice");
       li.dataset.testid = "provider-notice";
       li.dataset.noticeId = notice.id;
       li.dataset.provider = provider;
-      li.append(element("span", sentence), dismiss);
+      li.append(line, dismiss);
       items.append(li);
     }
-    box.replaceChildren(head, items);
+    if (all.length === 1) {
+      box.replaceChildren(head, items);
+      continue;
+    }
+    // Several changes fold into one line so up to 100 of them never push the page down.
+    const folded = element("details");
+    folded.open = box.querySelector("details")?.open || false;
+    folded.append(element("summary", "Show each change"), items);
+    box.replaceChildren(head, folded);
   }
-  const fresh = all.filter(({ notice }) => !toasted.has(notice.id));
+  // Only the Plugins and Providers screens toast; an id announced elsewhere would be lost, so it waits.
+  const fresh = ["#plugins", "#providers"].includes(location.hash) ? all.filter(({ notice }) => !toasted.has(notice.id)) : [];
   fresh.forEach(({ notice }) => toasted.add(notice.id));
-  if (fresh.length)
+  if (fresh.length) {
+    const [{ provider, notice }] = fresh;
+    const text = noticeSentence(provider, notice);
     HarnessUI.toast(
-      fresh.length === 1
-        ? "Changed outside KeepHarness: " + noticeSentence(fresh[0].provider, fresh[0].notice)
-        : fresh.length + " changes were made outside KeepHarness.",
+      fresh.length > 1
+        ? fresh.length + " changes were made outside KeepHarness."
+        : notice.change === "reverted"
+          ? text
+          : "Changed outside KeepHarness: " + text,
     );
+  }
   document.dispatchEvent(new Event("provider-notices"));
 }
 // The server accepts at most 100 ids per call; the rest stay listed and can be dismissed again.
@@ -1003,19 +1022,26 @@ function ackProviderNotices(provider, notices) {
     await request("provider-state/notices:ack", { provider, project_id: NOTICE_SCOPE, notice_ids: ids });
     setProviderNotices(provider, providerNotices.get(provider).filter((notice) => !ids.includes(notice.id)));
     showProviderNotices();
+    await refreshProviderNotices();
     // The Dismiss button is gone: keep the focus on the screen instead of <body>.
-    const heading = document.querySelector("#overview h1");
-    heading.tabIndex = -1;
-    (noticeBlocks().find((box) => !box.hidden && box.offsetParent)?.querySelector("button") || heading).focus();
+    const screen = onProviders() ? document.querySelector("#overview h1") : $("plugins-panel");
+    screen.tabIndex = -1;
+    screen.addEventListener("blur", () => screen.removeAttribute("tabindex"), { once: true });
+    (noticeBlocks().find((box) => !box.hidden && box.offsetParent)?.querySelector("button") || screen).focus();
   });
 }
-async function refreshProviderNotices() {
+// Focus and visibilitychange fire together: callers share the read that is already in flight.
+let noticesRead = null;
+const refreshProviderNotices = () => (noticesRead ||= readProviderNotices().finally(() => (noticesRead = null)));
+async function readProviderNotices() {
   await Promise.all(
     ["codex", "claude"].map(async (id) => {
       try {
         setProviderNotices(id, (await request("provider-state?provider=" + id + "&project_id=" + NOTICE_SCOPE)).external_changes);
       } catch {
-        // A CLI that is missing or unreadable has nothing to announce here; its own screens say why.
+        // A CLI that is missing or unreadable has nothing to announce here (its own screens say why),
+        // and an old notice must not stay on show for a state that can no longer be read.
+        setProviderNotices(id, []);
       }
     }),
   );
