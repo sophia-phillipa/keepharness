@@ -16,6 +16,8 @@ else comes from ``$CODEX_HOME/fake-app-server.json`` (all keys optional):
   no_response      list    methods whose JSON-RPC request is deliberately left unanswered
   errors           object  method -> JSON-RPC error object returned instead of the result
   system           object  {"file": str, "config": {...}} replaces the (empty) system layer
+  user_layer_version
+                   any     overrides the user layer version in ``config/read``
   user_profile     string  labels the user layer with a profile name (the schema allows it)
   profile_layers   list    [{"profile": str, "config": {...}}] user-file layers above the user
                            layer, in <home>/<profile>.config.toml. Schema shape only: the 0.157.1
@@ -155,7 +157,8 @@ def config_read(params):
         name = {"type": "user", "file": str(file), "profile": entry["profile"]}
         layers.append({"name": name, "version": version_of(blob), "config": entry["config"]})
     name = {"type": "user", "file": str(user_path()), "profile": cfg.get("user_profile")}
-    layers.append({"name": name, "version": version_of(data), "config": user})
+    user_version = cfg["user_layer_version"] if "user_layer_version" in cfg else version_of(data)
+    layers.append({"name": name, "version": user_version, "config": user})
     system = cfg.get("system") or {"file": "/etc/codex/config.toml", "config": {}}  # always there
     blob = json.dumps(system["config"], sort_keys=True).encode()
     name = {"type": "system", "file": system["file"]}

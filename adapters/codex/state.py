@@ -118,7 +118,9 @@ def _layers(entries: list[dict]) -> list[_Layer]:
 def _layer(entry: dict, lone_user_file: bool) -> _Layer:
     name = _name(entry)
     config = entry.get("config") if isinstance(entry.get("config"), dict) else {}
-    version, kind = str(entry.get("version", "")), name.get("type")
+    raw_version = entry.get("version")
+    version = raw_version if isinstance(raw_version, str) and raw_version else ""
+    kind = name.get("type")
     if kind == "user" and (lone_user_file or not name.get("profile")):
         return _Layer("user", str(name.get("file", "")), version, config, "")
     if kind == "user":
