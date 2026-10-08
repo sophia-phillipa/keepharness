@@ -2988,7 +2988,7 @@ function syncExecutionMode() {
   $("dropzone").classList.toggle("has-execution-mode", started && localIsolation);
   $("header-execution-mode").textContent = executionModeLabel();
 }
-function newConversation(title = "New Conversation", projectId = $("project").value, { resetExecutionMode = false } = {}) {
+function newConversation(title = "New Conversation", projectId = $("project").value, { resetExecutionMode = false, restoreHomeDraft = false } = {}) {
   if (submitting || cancelling || loading || uploads) {
     status(
       "Wait for the current send to finish before starting another conversation.",
@@ -3041,7 +3041,8 @@ function newConversation(title = "New Conversation", projectId = $("project").va
   modelAvailability();
   $("prompt").value = draft;
   const preserveRetiredDraft = !resetExecutionMode && carriedDraft && normalizeDraftMode(carriedDraft).retiredLock;
-  const restoredDraft = changedProject && preserveRetiredDraft ? carriedDraft :
+  const restoredDraft = restoreHomeDraft && newDraft ? newDraft :
+    changedProject && preserveRetiredDraft ? carriedDraft :
     (newDraft?.draft || newDraft?.files?.length ? newDraft : carriedDraft);
   if (restoredDraft) restoreView(restoredDraft, { resetExecutionMode, restoreModelSelection: !changedProject });
   updateComposer();
@@ -7508,7 +7509,7 @@ function saveView() {
     const route = new URL(location.href);
     if (conversation) route.searchParams.set("conversation", conversation);
     else route.searchParams.delete("conversation");
-    if (route.href !== location.href) window.history.replaceState(null, "", route);
+    if (route.href !== location.href) window.history.replaceState(window.history.state, "", route);
     const snapshot = JSON.stringify({
         conversation,
         composer_selection: {
@@ -8252,22 +8253,34 @@ function adminFrameUrl(section) {
 }
 function showAdminSection(section = "providers") {
   // Created on first use so ordinary page loads carry no extra document.
+  const next = adminFrameUrl(section);
   let frame = $("admin-frame");
+  if (frame && new URL(frame.src).origin !== new URL(next).origin) { frame.remove(); frame = null; }
+  const created = !frame;
   if (!frame) {
     frame = document.createElement("iframe");
     frame.id = "admin-frame";
     // Share only our origin so the embedded admin can authenticate theme messages.
     frame.referrerPolicy = "origin";
-    frame.onload = () => window.HarnessTheme?.apply(document.documentElement.dataset.palette, false);
+    frame.onload = () => {
+      window.HarnessTheme?.apply(document.documentElement.dataset.palette, false);
+      // Joint traversal can restore an older iframe document after the shell's popstate.
+      const desired = new URL(frame.dataset.adminUrl || frame.src);
+      frame.contentWindow.postMessage({ type: "keepharness:settings-section", section: desired.hash.slice(1) }, desired.origin);
+    };
+    frame.src = next;
     $("settings-system").append(frame);
   }
   const label = document.querySelector('[data-admin-section="' + section + '"]');
   frame.title = "Administration: " + (label?.textContent || section);
-  const next = adminFrameUrl(section);
-  if (frame.dataset.settingsSearchReady && new URL(frame.src).origin === new URL(next).origin) {
+  if (!created && frame.dataset.settingsSearchReady) {
     // Search has authenticated this admin document. Retain its unsaved form values.
     frame.contentWindow.postMessage({ type: "keepharness:settings-section", section }, new URL(next).origin);
-  } else if (frame.src !== next) frame.src = next;
+  } else if (!created && frame.dataset.adminUrl !== next) {
+    // Iframe entries share browser history with the shell. Replace, never append.
+    frame.contentWindow.location.replace(next);
+  }
+  frame.dataset.adminUrl = next;
 }
 // `section` is a data-admin-section or a data-settings value; false when it is an admin section
 // on a host that cannot frame the admin, or unknown.
@@ -8423,12 +8436,15 @@ settingsMenu.addEventListener("keydown", (event) => {
 });
 $("settings-close").onclick = () => $("settings-dialog").close();
 
-// Back / forward (Codex model): a short in-memory history of views. It never touches
-// window.history, so the saveView URL and the embedded admin iframe are unaffected.
+// Back / forward: a bounded view history, mirrored in this document's browser history.
+// Embedded admin iframe navigation remains separate.
 const NAV_LIMIT = 50;
 const DIALOG_VIEWS = { settings: "settings-dialog", plugins: "settings-dialog", space: "space-dialog", scheduled: "scheduled-dialog" };
 let viewHistory = [],
   viewIndex = -1;
+const navigationSession = Array.from(crypto.getRandomValues(new Uint32Array(4))).join("-");
+let navigationSequence = 0;
+const browserViewState = view => ({ keepHarnessView: { session: navigationSession, id: view.historyId } });
 // Scroll positions survive a reload: the 50 most recent conversations are kept in the UI state store.
 const scrollByConversation = new Map();
 for (const [id, top] of prefs.get("conversation_scroll", []))
@@ -8448,7 +8464,7 @@ const rememberScrollAndFlush = () => { rememberScroll(); void prefs.flush({ keep
 addEventListener("pagehide", rememberScrollAndFlush);
 document.addEventListener("visibilitychange", () => document.hidden && rememberScrollAndFlush());
 const sameView = (a, b) => a.kind === b.kind && (a.id || null) === (b.id || null) && (a.section || null) === (b.section || null) && (a.sub || null) === (b.sub || null);
-const currentBaseView = () => (conversation ? { kind: "conversation", id: conversation } : { kind: "home" });
+const currentBaseView = () => (conversation ? { kind: "conversation", id: conversation } : { kind: "home", project: $("project").value });
 const pressedSettings = () => document.querySelector('[data-settings][aria-pressed="true"]');
 // The five System buttons share data-settings="system"; `sub` (the admin section) tells them apart.
 const settingsView = (section, button) =>
@@ -8463,14 +8479,20 @@ function syncNavButtons() {
 }
 function recordView({ button, legacy, ...view }) {
   const base = currentBaseView();
-  if (!viewHistory.length) [viewHistory, viewIndex] = [[base], 0];
+  if (!viewHistory.length) {
+    [viewHistory, viewIndex] = [[{ ...base, historyId: navigationSequence++, historyPosition: 0 }], 0];
+    window.history.replaceState(browserViewState(viewHistory[0]), "");
+  }
   // The first send creates the conversation outside navigate(); only that Home entry is corrected here.
   // Any other entry may be a Back target whose load is still pending, while `conversation` is stale.
-  if (viewHistory[viewIndex].kind === "home") viewHistory[viewIndex] = base;
+  if (viewHistory[viewIndex].kind === "home") Object.assign(viewHistory[viewIndex], base);
   if (!sameView(viewHistory[viewIndex], view)) {
+    view.historyId = navigationSequence++;
+    view.historyPosition = viewHistory[viewIndex].historyPosition + 1;
     viewHistory.splice(viewIndex + 1, Infinity, view);
     if (viewHistory.length > NAV_LIMIT) viewHistory.shift();
     viewIndex = viewHistory.length - 1;
+    window.history.pushState(browserViewState(view), "");
   }
   syncNavButtons();
 }
@@ -8504,8 +8526,17 @@ async function applyView(view, replay = false) {
     else if (top !== undefined) restoreScroll(top);
     if (conversation !== view.id) return false;
   } else if (view.kind === "home") {
+    // Responsive drawers make the composer inert; close them before restoring focus.
+    closeSidebar();
+    if (innerWidth < 1000) setPanelOpen(false, false);
+    window.runConsole?.closeForPanel();
     // A click on New chat always starts a fresh one; a replayed Home only leaves the conversation.
-    if (conversation || !replay) startNewConversation(!replay);
+    if (replay && view.project && [...$("project").options].some(option => option.value === view.project)) {
+      newConversation("New Conversation", view.project, { restoreHomeDraft: true });
+      renderProjects();
+      history();
+      closeSidebar();
+    } else if (conversation || !replay) startNewConversation(!replay);
   } else if (view.kind === "space") await openSpace();
   else if (view.kind === "scheduled") await openScheduled();
   else {
@@ -8530,26 +8561,40 @@ async function navigate(view, { record = true } = {}) {
   if (record && shown === false && sameView(viewHistory[viewIndex], view)) {
     viewHistory.splice(viewIndex, 1);
     viewIndex--;
+    window.history.back();
     syncNavButtons();
   }
   return shown;
 }
-async function stepHistory(delta) {
+function stepHistory(delta) {
   const target = viewHistory[viewIndex + delta];
   if (!target || navigationBlocked(target) || foreignModalOpen()) return;
-  const from = viewIndex;
-  viewIndex += delta;
+  window.history.go(target.historyPosition - viewHistory[viewIndex].historyPosition);
+}
+addEventListener("popstate", async event => {
+  const state = event.state?.keepHarnessView;
+  if (!state) return;
+  const targetIndex = state.session === navigationSession
+    ? viewHistory.findIndex(view => view.historyId === state.id) : -1;
+  // Reloaded or evicted views are outside the bounded history. Keep the URL honest.
+  if (targetIndex < 0 || targetIndex === viewIndex) { saveView(); return; }
+  const from = viewIndex, target = viewHistory[targetIndex];
+  if (navigationBlocked(target) || foreignModalOpen()) {
+    window.history.go(viewHistory[from].historyPosition - target.historyPosition);
+    return;
+  }
+  viewIndex = targetIndex;
   syncNavButtons();
-  if ((await navigate(target, { record: false })) !== false || viewIndex !== from + delta) return;
-  // The view did not open: a dialog refused to close, or the conversation is gone. Keep the current view
-  // and drop a dead conversation entry so Back and Forward never point at it again.
+  if ((await navigate(target, { record: false })) !== false || viewIndex !== targetIndex) return;
+  // A refused dialog or a failed load stays on the previous view.
   viewIndex = from;
-  if (target.kind === "conversation" && !conversations.some((c) => c.id === target.id)) {
-    viewHistory.splice(from + delta, 1);
-    viewIndex = from + Math.min(delta, 0);
+  window.history.go(viewHistory[from].historyPosition - target.historyPosition);
+  if (target.kind === "conversation" && !conversations.some(c => c.id === target.id)) {
+    viewHistory.splice(targetIndex, 1);
+    if (targetIndex < from) viewIndex--;
   }
   syncNavButtons();
-}
+});
 // A modal dialog that is not a history view (About, search, ...) owns the keyboard shortcuts.
 const foreignModalOpen = () =>
   [...document.querySelectorAll("dialog[open]")].some((d) => !Object.values(DIALOG_VIEWS).includes(d.id));
@@ -8558,6 +8603,13 @@ const back = () => stepHistory(-1),
 $("nav-back").onclick = back;
 $("nav-forward").onclick = forward;
 document.addEventListener("keydown", (e) => {
+  if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && ["ArrowLeft", "ArrowRight"].includes(e.key)) {
+    const delta = e.key === "ArrowLeft" ? -1 : 1;
+    if (!viewHistory[viewIndex + delta]) return;
+    e.preventDefault();
+    stepHistory(delta);
+    return;
+  }
   if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || !["[", "]"].includes(e.key)) return;
   e.preventDefault();
   (e.key === "[" ? back : forward)();
@@ -8572,7 +8624,7 @@ document.addEventListener("keydown", (e) => {
 function openFromHash() {
   const section = /^#open=settings\/([a-z]+)$/.exec(location.hash)?.[1];
   if (!section || !interfaceReady) return;
-  window.history.replaceState(null, "", location.pathname + location.search);
+  window.history.replaceState(window.history.state, "", location.pathname + location.search);
   openSettings(section);
 }
 addEventListener("hashchange", openFromHash);

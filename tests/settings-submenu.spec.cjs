@@ -57,6 +57,11 @@ const path = require("node:path");
 
     const menu = page.locator("#settings-menu");
     const dialog = page.locator("#settings-dialog");
+    const adminHash = async hash => {
+      const frame = await page.locator("#admin-frame").elementHandle().then(element => element.contentFrame());
+      await frame.waitForURL(url => url.hash === hash);
+      return new URL(frame.url()).hash;
+    };
     const names = (locator) => locator.evaluateAll((nodes) => nodes.map((n) => n.textContent.trim()));
     assert.equal(await page.locator("#settings").getAttribute("aria-haspopup"), "menu");
     assert.equal(await page.locator("#admin-shortcut").count(), 0, "no separate Admin link");
@@ -108,7 +113,7 @@ const path = require("node:path");
     await menu.getByRole("menuitem", { name: "Run history" }).click();
     await dialog.waitFor({ state: "visible" });
     assert.equal(await dialog.locator('[data-admin-section="runs"]').getAttribute("aria-pressed"), "true");
-    assert.equal(new URL(await page.locator("#admin-frame").getAttribute("src")).hash, "#runs");
+    assert.equal(await adminHash("#runs"), "#runs");
     await page.click("#settings-close");
 
     // Plugins is the existing admin facade, embedded at #plugins rather than the native skill catalog.
@@ -116,7 +121,7 @@ const path = require("node:path");
     await menu.getByRole("menuitem", { name: "Plugins" }).click();
     await dialog.waitFor({ state: "visible" });
     assert.equal(await dialog.locator('[data-admin-section="plugins"]').getAttribute("aria-pressed"), "true");
-    assert.equal(new URL(await page.locator("#admin-frame").getAttribute("src")).hash, "#plugins");
+    assert.equal(await adminHash("#plugins"), "#plugins");
     const adminFrame = page.frameLocator("#admin-frame");
     await adminFrame.locator("#overview h1", { hasText: "Plugins" }).waitFor();
     assert.equal(await adminFrame.locator("#overview .panel-description").innerText(), "Manage plugins, skills, and MCPs");
@@ -126,7 +131,7 @@ const path = require("node:path");
     // The rail reaches the same real facade and keeps Agents as a separate Settings page.
     await page.click("#rail-agents");
     await dialog.locator('[data-admin-section="plugins"][aria-pressed="true"]').waitFor();
-    assert.equal(new URL(await page.locator("#admin-frame").getAttribute("src")).hash, "#plugins");
+    assert.equal(await adminHash("#plugins"), "#plugins");
     await adminFrame.locator('[data-testid="plugins-panel"] button', { hasText: "Plugins" }).first().waitFor();
     await page.click('[data-settings="agents"]');
     await page.locator("#settings-agents:not([hidden])").waitFor();
@@ -138,7 +143,7 @@ const path = require("node:path");
     await managePlugins.waitFor();
     await managePlugins.click();
     await dialog.locator('[data-admin-section="plugins"][aria-pressed="true"]').waitFor();
-    assert.equal(new URL(await page.locator("#admin-frame").getAttribute("src")).hash, "#plugins");
+    assert.equal(await adminHash("#plugins"), "#plugins");
     await adminFrame.locator('[data-testid="plugins-panel"] button', { hasText: "Plugins" }).first().waitFor();
     await page.click("#settings-close");
 
