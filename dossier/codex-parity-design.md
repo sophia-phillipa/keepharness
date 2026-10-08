@@ -34,8 +34,8 @@ Sizes: M = 1–2 days of agent work, L = more. Status is as of main `9bff3f8`.
 
 ### WP1 Back and Forward (M, frontend)
 
-- Contract: an app-owned, in-memory view history (`navigate(view, {record})`, `back()`, `forward()`), cap 50, a new navigation drops forward entries, equal views are not pushed; never `history.pushState`/`history.back()`; admin iframe navigations never push. Buttons before the sidebar toggle, `Ctrl/Cmd+[` and `]`, mouse buttons 3 and 4. Session-only on purpose: Codex starts with both buttons disabled.
-- Acceptance: `tests/harness-back-forward.spec.cjs`.
+- Contract: an app-owned, in-memory view history (`navigate(view, {record})`, `back()`, `forward()`), cap 50, a new navigation drops forward entries, equal views are not pushed. Issue #58 mirrors these entries into browser history so native Back/Forward and Alt+Left/Right replay the same views; admin iframe navigations never push into the app view history. Buttons before the sidebar toggle, `Ctrl/Cmd+[` and `]`, mouse buttons 3 and 4. Session-only on purpose: Codex starts with both buttons disabled.
+- Acceptance: `tests/harness-back-forward.spec.cjs` and `tests/home-draft-back.spec.cjs`.
 
 ### WP2 Settings submenu (M, frontend + desktop)
 
