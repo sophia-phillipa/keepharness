@@ -32,8 +32,10 @@
   // Plugins the CLI loads but the catalog does not list are added from its state snapshot.
   function installed(kind) {
     const merged = new Map();
-    const add = (info, item) => {
-      const group = merged.get(item.id) || { item, providers: [] };
+    const add = (info, item, made) => {
+      const group = merged.get(item.id) || { item, made, providers: [] };
+      // A catalog item replaces the one made up from another CLI's snapshot: it has the description.
+      if (group.made && !made) Object.assign(group, { item, made });
       if (!group.providers.includes(info)) group.providers.push(info);
       merged.set(item.id, group);
     };
@@ -42,7 +44,7 @@
         if (item.kind === kind && item.status !== "available") add(info, item);
       if (kind === "plugin")
         for (const item of states.get(info.id)?.snapshot?.items || [])
-          if (item.kind === "plugin") add(info, { id: item.id, name: item.name, kind, status: "installed" });
+          if (item.kind === "plugin") add(info, { id: item.id, name: item.name, kind, status: "installed" }, true);
     }
     return [...merged.values()].sort((a, b) =>
       connectorLabel(a.item).localeCompare(connectorLabel(b.item)),
@@ -120,8 +122,8 @@
     const label = connectorLabel(group.item),
       where = providerName(info),
       key = info.id + "|" + stateItem.id;
-    report("");
     return action(async () => {
+      report("");
       try {
         const body = await request("provider-state", {
           provider: info.id,
@@ -148,7 +150,13 @@
         }
       } finally {
         render();
-        list.querySelector('[data-item-id="' + CSS.escape(stateItem.id) + '"][data-provider="' + info.id + '"]')?.focus();
+        // The switch is gone or disabled after a 409: focus the row's menu button, else the list.
+        const id = CSS.escape(stateItem.id);
+        (
+          list.querySelector('.plugins-switch[data-item-id="' + id + '"][data-provider="' + info.id + '"]:not(:disabled)') ||
+          list.querySelector('[data-testid="plugin-row"][data-item-id="' + id + '"] .plugins-more') ||
+          list
+        ).focus();
       }
     });
   }
@@ -208,6 +216,7 @@
     const menuWrap = node("div", undefined, "plugins-row-menu");
     menuWrap.append(more);
     const article = node("article", undefined, "plugins-row", "plugin-row");
+    article.dataset.itemId = group.item.id;
     article.append(connectorIcon(group.item), text, badges, menuWrap);
     return article;
   }
@@ -290,6 +299,7 @@
     status.setAttribute("role", "status");
     status.hidden = true;
     list = node("div", undefined, "plugins-list", "plugins-list");
+    list.tabIndex = -1; // the focus fallback when a row disappears under a switch
     panel.append(toolbar, note, status, list);
     document.addEventListener("keydown", (event) => {
       if (event.key !== "Escape" || !menu) return;

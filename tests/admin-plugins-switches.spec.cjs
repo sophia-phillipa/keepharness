@@ -9,9 +9,10 @@ const item = (id, name) => ({ id, name, kind: "plugin", status: "installed" });
 const GITHUB = item("plugin:github@openai-curated", "GitHub");
 const SLACK = item("plugin:slack@openai-curated", "Slack");
 const LINEAR = item("plugin:linear@official", "Linear");
+const NOTION = { ...item("plugin:notion@official", "Notion"), description: "Notes and docs." };
 const CATALOGS = {
   codex: { items: [GITHUB, SLACK], warnings: [] },
-  claude: { items: [GITHUB, LINEAR], warnings: [] },
+  claude: { items: [GITHUB, LINEAR, NOTION], warnings: [] },
 };
 const stateItem = (id, name, extra) => ({
   id, kind: "plugin", name, scope: "user", enabled: true, source: "config.toml", writable: true, reason: "", affects: [], ...extra,
@@ -56,17 +57,19 @@ const snapshot = (provider, items, fingerprint) => ({
         stateItem(GITHUB.id, "github"),
         stateItem(SLACK.id, "slack", { scope: "project", source: ".codex/config.toml", writable: false, reason: "The project layer is read-only in Codex." }),
         stateItem("plugin:figma@openai-curated", "figma", { enabled: false }), // in the CLI, not in the catalog
+        stateItem(NOTION.id, "notion"), // in the Codex snapshot only; the Claude catalog describes it
       ], "fp-codex-1"),
       claude: snapshot("claude", [stateItem(GITHUB.id, "github", { enabled: false, source: "settings.json" })], "fp-claude-1"),
     };
     let readError = null, version = 1;
-    const posts = [], gets = [];
+    const posts = [], gets = [], settingsCalls = [];
     const next = []; // queued write outcomes: { status, json } or a function run before answering
     let inFlight = 0, maxInFlight = 0;
     await page.route("**/api/**", async (route) => {
       const url = new URL(route.request().url());
       const name = url.pathname.replace(/^.*\/api\//, "");
       const method = route.request().method();
+      if (name === "settings") settingsCalls.push(method);
       if (name === "provider-state" && method === "GET") {
         const provider = url.searchParams.get("provider");
         gets.push(url.search);
@@ -105,7 +108,9 @@ const snapshot = (provider, items, fingerprint) => ({
     assert.deepEqual(gets.sort(), ["?provider=claude&project_id=sem-projeto", "?provider=codex&project_id=sem-projeto"]);
 
     // Rows: catalog rows plus the plugin only the CLI loads; one switch per provider that has the item.
-    assert.deepEqual(await rows.locator('[data-testid="plugin-name"]').allInnerTexts(), ["Figma", "GitHub", "Linear", "Slack"]);
+    assert.deepEqual(await rows.locator('[data-testid="plugin-name"]').allInnerTexts(), ["Figma", "GitHub", "Linear", "Notion", "Slack"]);
+    // A plugin only the Codex snapshot lists, but the Claude catalog describes, keeps the catalog's description.
+    assert.equal(await row("Notion").locator('[data-testid="plugin-description"]').innerText(), "Notes and docs.");
     assert.equal(await row("GitHub").getByRole("switch").count(), 2, "two providers on one row get two switches");
     assert.equal(await on("GitHub", "Codex"), true);
     assert.equal(await on("GitHub", "Claude Code"), false);
@@ -140,6 +145,14 @@ const snapshot = (provider, items, fingerprint) => ({
     await page.waitForFunction(() => document.querySelector('[data-provider="claude"][data-item-id="plugin:github@openai-curated"]').getAttribute("aria-checked") === "true");
     assert.deepEqual(posts[1], { provider: "claude", project_id: "sem-projeto", item_id: GITHUB.id, scope: "user", enabled: true, fingerprint: "fp-claude-1" });
     assert.equal(posts.length, 2);
+    assert.deepEqual(settingsCalls, [], "switches never write to /api/settings");
+
+    // A click that arrives while another admin operation runs is ignored and leaves the status line alone.
+    await page.evaluate(() => { working = true; });
+    await sw("GitHub", "Codex").dispatchEvent("click");
+    await page.evaluate(() => { working = false; });
+    assert.equal(posts.length, 2, "no write while another operation runs");
+    assert.equal(await status.innerText(), "GitHub is now on in Claude Code.", "the status line is not cleared by an ignored click");
 
     // No concurrent posts under a double click.
     await sw("Figma", "Codex").dblclick();
@@ -170,6 +183,20 @@ const snapshot = (provider, items, fingerprint) => ({
     await sw("Figma", "Codex").click();
     await row("Figma").waitFor({ state: "detached" });
     assert.equal(await status.innerText(), "Codex changed since this page loaded: Figma was removed. Try again.");
+    assert.equal(await page.evaluate(() => document.activeElement === document.querySelector('[data-testid="plugins-list"]')), true, "focus falls back to the list when the row is gone");
+    // 409 where the switch is now read-only: focus moves to the row's menu button instead of <body>.
+    next.push(() => {
+      server.codex.items[0].writable = false;
+      server.codex.fingerprint = "fp-codex-ro";
+      return { status: 409, json: { error: "provider_state_conflict", snapshot: server.codex, external_changes: [] } };
+    });
+    await sw("GitHub", "Codex").click();
+    await page.waitForFunction(() => document.querySelector('[data-provider="codex"][data-item-id="plugin:github@openai-curated"]')?.disabled === true);
+    await page.waitForFunction(() => !document.body.hasAttribute("aria-busy")); // the admin lock is released
+    assert.equal(await page.getByRole("button", { name: "GitHub actions" }).evaluate((el) => el === document.activeElement), true);
+    server.codex.items[0].writable = true;
+    await page.getByRole("button", { name: "Refresh" }).click();
+    await page.waitForFunction(() => document.querySelector('[data-provider="codex"][data-item-id="plugin:github@openai-curated"]')?.disabled === false);
 
     // 422 and 502: the message shows as text on the row and in the status, the switch keeps the server value.
     next.push(() => ({ status: 422, json: { error: "provider_state_write_unsupported", message: "<b>Managed</b> by a profile." } }));
@@ -204,6 +231,7 @@ const snapshot = (provider, items, fingerprint) => ({
     assert.match((await notes("Slack"))[0], /config\.toml is not valid TOML\./);
     assert.equal(await sw("Slack", "Codex").count(), 0);
 
+    assert.deepEqual(settingsCalls, []);
     assert.deepEqual(errors, []);
     console.log("PASS admin plugins switches");
   } finally {
