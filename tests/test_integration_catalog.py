@@ -57,6 +57,8 @@ def test_codex_catalog_combines_configured_mcp_and_available_plugins_without_sec
             "kind": "plugin",
             "status": "installed",
             "enabled": True,
+            "marketplace": "openai",
+            "version": "1",
         },
         {
             "id": "plugin:linear@openai",
@@ -64,6 +66,8 @@ def test_codex_catalog_combines_configured_mcp_and_available_plugins_without_sec
             "kind": "plugin",
             "status": "available",
             "enabled": False,
+            "marketplace": "openai",
+            "version": "2",
         },
     ]
     assert "secret" not in str(result)
@@ -91,6 +95,7 @@ def test_claude_uses_available_plugins_and_only_parses_mcp_names():
                 "kind": "plugin",
                 "status": "available",
                 "enabled": False,
+                "marketplace": "anthropic",
             },
         ],
         "warnings": [],
@@ -197,6 +202,32 @@ def test_plugin_descriptions_are_preserved_as_text_for_both_statuses():
     assert items[0]["description"] == "Explains installed tools."
     assert items[1]["description"] == "<b>Plain text description</b>"
     assert "description" not in items[2]
+
+
+def test_plugin_detail_metadata_is_allowlisted_and_bounded():
+    import json
+
+    from control.integration_catalog import _plugins
+
+    items = _plugins(json.dumps({"available": [{
+        "id": "documents@official", "marketplaceName": "official", "version": "1.2.3",
+        "author": {"name": "Example Developer", "email": "secret@example.test"},
+        "homepage": "https://example.test/plugin", "apps": [{"name": "Documents", "token": "secret"}],
+        "skills": ["Draft documents"], "credentials": {"token": "never"},
+        "source": {"source": "local", "path": "/secret/local/path"},
+    }, {
+        "id": "issues@official", "repository": {"url": "https://example.test/issues", "token": "secret"}
+    }]}))
+    item = items[0]
+    assert item == {
+        "id": "plugin:documents@official", "name": "documents@official", "kind": "plugin",
+        "status": "available", "enabled": False, "marketplace": "official", "version": "1.2.3",
+        "developer": "Example Developer", "source": "https://example.test/plugin",
+        "apps": ["Documents"], "skills": ["Draft documents"],
+    }
+    assert "secret" not in str(item)
+    assert items[1]["source"] == "https://example.test/issues"
+    assert "/secret/local/path" not in str(items)
 
 
 def test_plugin_description_from_local_manifest_is_bounded(tmp_path):

@@ -117,6 +117,36 @@ def _plugin_description(plugin):
     return ""
 
 
+def _plugin_metadata(plugin):
+    """Return bounded public display metadata, never arbitrary manifest fields."""
+    metadata = {}
+    marketplace = plugin.get("marketplaceName") or plugin.get("marketplace")
+    for key, value in (("marketplace", marketplace), ("version", plugin.get("version"))):
+        if isinstance(value, str) and value.strip():
+            metadata[key] = value.strip()[:200]
+    developer = plugin.get("developer") or plugin.get("author")
+    if isinstance(developer, dict):
+        developer = developer.get("name")
+    if isinstance(developer, str) and developer.strip():
+        metadata["developer"] = developer.strip()[:200]
+    source = plugin.get("homepage") or plugin.get("repository")
+    if isinstance(source, dict):
+        source = source.get("url")
+    if isinstance(source, str) and source.strip():
+        metadata["source"] = source.strip()[:500]
+    for key in ("apps", "skills"):
+        values = []
+        for entry in plugin.get(key, []) if isinstance(plugin.get(key), list) else []:
+            value = entry.get("name") if isinstance(entry, dict) else entry
+            if isinstance(value, str) and value.strip():
+                values.append(value.strip()[:200])
+            if len(values) == 50:
+                break
+        if values:
+            metadata[key] = values
+    return metadata
+
+
 def _plugins(payload):
     try:
         decoded = json.loads(payload)
@@ -159,6 +189,7 @@ def _plugins(payload):
                     else "available",
                     "enabled": plugin.get("enabled") is True,
                     **({"description": description} if description else {}),
+                    **_plugin_metadata(plugin),
                 }
             )
     return items

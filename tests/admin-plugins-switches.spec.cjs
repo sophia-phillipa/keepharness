@@ -96,6 +96,7 @@ const snapshot = (provider, items, fingerprint) => ({
     });
 
     await page.goto("http://admin.test/#plugins");
+    await page.locator('[data-testid="plugins-mode"]').click();
     const rows = page.locator('[data-testid="plugin-row"]');
     await rows.first().waitFor();
     const row = (name) => rows.filter({ has: page.locator('[data-testid="plugin-name"]', { hasText: new RegExp("^" + name + "$") }) });
@@ -128,7 +129,7 @@ const snapshot = (provider, items, fingerprint) => ({
 
     // A catalog-only item has no switch and says so.
     assert.equal(await row("Linear").getByRole("switch").count(), 0, "catalog-only row has no switch");
-    assert.deepEqual(await notes("Linear"), ["Not installed in Claude Code"]);
+    assert.deepEqual(await notes("Linear"), ["Claude Code: The catalog reports this plugin as installed, but provider state did not return a matching item."]);
 
     // Toggle: one POST with that provider's fingerprint, the row follows the returned snapshot.
     await sw("GitHub", "Codex").click();
@@ -216,6 +217,7 @@ const snapshot = (provider, items, fingerprint) => ({
     // A provider whose state cannot be read (DeepSeek-style 404): reason on its pills, no switch, others unaffected.
     readError = { claude: { status: 404, json: { error: "provider_unknown" } } };
     await page.reload();
+    await page.locator('[data-testid="plugins-mode"]').click();
     await rows.first().waitFor();
     await page.waitForFunction(() => document.querySelectorAll('[data-testid="plugin-note"]').length > 0);
     assert.equal(await row("Linear").getByRole("switch").count(), 0);
@@ -226,6 +228,7 @@ const snapshot = (provider, items, fingerprint) => ({
     // An unreadable state keeps the reason too.
     readError = { codex: { status: 422, json: { error: "provider_state_unreadable", message: "config.toml is not valid TOML." } } };
     await page.reload();
+    await page.locator('[data-testid="plugins-mode"]').click();
     await rows.first().waitFor();
     await page.waitForFunction(() => document.querySelectorAll('[data-testid="plugin-note"]').length > 0);
     assert.match((await notes("Slack"))[0], /config\.toml is not valid TOML\./);
