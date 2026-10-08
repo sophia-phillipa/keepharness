@@ -114,7 +114,7 @@ def test_every_config_the_control_writes_validates_at_startup(
     assert (f"http://{hostname}:{manager.settings['tailnet_port']}" in cfg["origins"]) == bool(
         hostname
     )
-    assert allow_empty or "codex" in cfg["services"]
+    assert allow_empty or cfg["services"]["codex"]["enabled"] is True
     cfg["local_access"] = local_access
     path = tmp_path / "runtime.json"
     path.write_text(json.dumps(cfg))
