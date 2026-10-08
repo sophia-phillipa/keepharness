@@ -259,6 +259,7 @@ def test_the_read_limit_carries_the_largest_attachable_image():
 def native_codex_turn(tmp_path, notifications, runs=1):
     """Run the native adapter against scripted notifications; return the mock RPC."""
     from contextlib import asynccontextmanager
+
     from adapters.codex.backend import run_native
 
     rpc = AsyncMock()

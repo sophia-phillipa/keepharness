@@ -6,7 +6,6 @@ import fcntl
 import hashlib
 import json
 import os
-from pathlib import Path
 import re
 import shutil
 import socket
@@ -14,6 +13,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+from pathlib import Path
 
 VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+(?:[+-][0-9A-Za-z.]+)?")
 STAGE = re.compile(r"\.keepharness-[A-Za-z0-9]{6}")

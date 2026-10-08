@@ -79,7 +79,7 @@ def test_declared_chain_local_step_acquires_effective_write_roots(tmp_path):
                 "prompt": "Review",
             },
         )["job_id"]
-        c = s.submit(
+        s.submit(
             ident,
             {
                 "project_id": "q",

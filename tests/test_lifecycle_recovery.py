@@ -750,6 +750,7 @@ def test_a_start_that_fails_before_spawning_keeps_the_exit_that_was_reported(tmp
 def test_shutdown_drain_allows_sixty_seconds_before_stopping(tmp_path, monkeypatch):
     import asyncio
     from types import SimpleNamespace
+
     from control import manager as manager_module
 
     app, events = _draining(tmp_path, monkeypatch, lambda: True)

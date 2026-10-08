@@ -382,6 +382,7 @@ def admin_work(home, monkeypatch, request):
     from types import SimpleNamespace
 
     from starlette.testclient import TestClient
+
     from control.server import create_app
 
     state = PRODUCT.state_path(home)
@@ -509,6 +510,7 @@ def test_install_old_admin_refuses_without_creating_owner_sessions(admin_work, h
 
 def test_install_admin_auth_rejects_invalid_and_replayed_tickets(tmp_path):
     from starlette.testclient import TestClient
+
     from control.local_access import SESSIONS_FILE, open_ticket
     from control.server import create_app
 
@@ -543,6 +545,7 @@ def test_work_refusal_real_opener_carries_admin_cookie(home, monkeypatch):
     from http.server import BaseHTTPRequestHandler, HTTPServer
     from threading import Thread
     from urllib.parse import parse_qs, urlsplit
+
     from control.local_access import KEY_FILE
 
     state = PRODUCT.state_path(home)

@@ -1,7 +1,8 @@
-import pytest
 import tempfile
 import unittest
 from unittest.mock import patch
+
+import pytest
 
 from control import install_runtime
 
@@ -91,9 +92,10 @@ def test_install_py_atomic_entry_does_not_follow_symlink(tmp_path):
 
 
 def test_install_py_register_removes_only_exact_stale_browser(tmp_path, monkeypatch):
-    from control import install
-    from types import SimpleNamespace
     from pathlib import Path
+    from types import SimpleNamespace
+
+    from control import install
 
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     monkeypatch.setattr(install, "remove_legacy_service", lambda home: None)
@@ -124,9 +126,10 @@ def test_install_py_register_removes_only_exact_stale_browser(tmp_path, monkeypa
 def test_legacy_browser_desktop_entry_removed_only_when_exact(
     tmp_path, monkeypatch, operation, kind
 ):
-    from control import install
     from pathlib import Path
     from types import SimpleNamespace
+
+    from control import install
 
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     monkeypatch.setattr(install, "remove_legacy_service", lambda home: None)
@@ -166,9 +169,10 @@ def test_legacy_browser_desktop_entry_removed_only_when_exact(
 def test_browser_cleanup_preserves_foreign_entries_and_desktop(
     tmp_path, monkeypatch, operation, kind
 ):
-    from control import install
     from pathlib import Path
     from types import SimpleNamespace
+
+    from control import install
 
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     monkeypatch.setattr(install, "remove_legacy_service", lambda home: None)

@@ -4,9 +4,9 @@
 import hashlib
 import json
 import os
-from pathlib import Path
 import sys
 import zipfile
+from pathlib import Path
 
 root, dist = map(Path, sys.argv[1:])
 version = json.loads((root / "desktop/package.json").read_text())["devDependencies"]["electron"]

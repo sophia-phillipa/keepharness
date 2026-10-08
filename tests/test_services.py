@@ -6,7 +6,6 @@ import sys
 from unittest.mock import AsyncMock, patch
 
 import pytest
-
 from test_workspaces import config, single_owner_config
 
 from agent_service import app

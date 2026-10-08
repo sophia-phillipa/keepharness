@@ -39,7 +39,9 @@ def test_security_write_requires_rendered_project_context(
     harness = None
     if surface == "admin":
         target, prefix, headers = client, "/api", HEADERS
-        rebind = lambda root: manager.settings["projects"][0].update(root=str(root))
+
+        def rebind(root):
+            manager.settings["projects"][0].update(root=str(root))
     else:
         from agent_service.app import create_app
         from tests.test_api_security import owner_config, owner_cookie
@@ -57,7 +59,10 @@ def test_security_write_requires_rendered_project_context(
         target = TestClient(harness, base_url="http://127.0.0.1:8095", client=("127.0.0.1", 42000))
         target.cookies.update(owner_cookie(cfg))
         prefix, headers = "/v1", {}
-        rebind = lambda root: service.config["projects"]["p"].update(root=str(root))
+
+        def rebind(root):
+            service.config["projects"]["p"].update(root=str(root))
+
     try:
         if context == "alias":
             alias = tmp_path / "project-alias"
