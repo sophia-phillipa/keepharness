@@ -1623,8 +1623,10 @@ async function api(path, options = {}) {
         ? " Try again in " + Math.max(1, Math.ceil(seconds)) + " seconds."
         : " Wait a moment before trying again.";
     }
+    const providerState = path.startsWith("/v1/provider-state/");
+    if (providerState && typeof e.message === "string") message = e.message;
     const error = Error(message);
-    error.code = e.code;
+    error.code = e.code || (providerState ? e.error : undefined);
     error.field = e.field;
     error.status = r.status;
     if (r.status === 429) {
@@ -6391,8 +6393,14 @@ function renderProjectTrust() {
       ? projectTrustData.mcp_approvals
       : [];
   panel.replaceChildren();
-  panel.hidden = !trust?.required && !approvals.length && !projectTrustError;
+  panel.hidden = !trust && !approvals.length && !projectTrustError;
   if (panel.hidden) return;
+  if (trust?.inherited_from) {
+    const inherited = document.createElement("p");
+    inherited.className = "project-trust-inherited";
+    inherited.textContent = "Codex still loads trusted configuration from " + trust.inherited_from + ". Revoking this project's trust does not revoke its parent.";
+    panel.append(inherited);
+  }
   if (trust?.required) {
     const copy = document.createElement("div"),
       heading = document.createElement("strong"),
@@ -6410,6 +6418,16 @@ function renderProjectTrust() {
     accept.onclick = () => writeProjectTrust(context, "trust", {});
     panel.append(copy, accept);
   }
+  if (trust?.trusted) {
+    const copy = document.createElement("p"), revoke = document.createElement("button");
+    copy.textContent = "Trusted by Codex or Claude Code. Revoking trust applies to both CLIs.";
+    revoke.type = "button";
+    revoke.className = "project-trust-action";
+    revoke.textContent = "Revoke trust for " + context.label;
+    revoke.disabled = projectTrustWriting;
+    revoke.onclick = () => writeProjectTrust(context, "trust", { trusted: false });
+    panel.append(copy, revoke);
+  }
   for (const item of approvals) {
     const row = document.createElement("div"),
       copy = document.createElement("div"),
@@ -6420,14 +6438,15 @@ function renderProjectTrust() {
     row.dataset.testid = "project-mcp-approval";
     row.dataset.server = item.server;
     name.textContent = item.server;
-    detail.textContent = "Project MCP server · " + (item.approved ? "Approved" : "Not approved");
+    detail.textContent = "Project MCP server · " + (item.enabled === false ? "Disabled by owner" : item.approved ? "Approved" : "Not approved");
     copy.append(name, detail);
     toggle.type = "button";
     toggle.className = "project-trust-action";
     toggle.textContent = (item.approved ? "Revoke " : "Approve ") + item.server;
     toggle.disabled = projectTrustWriting;
     toggle.onclick = () => writeProjectTrust(context, "mcp-approvals", { server: item.server, approved: !item.approved });
-    row.append(copy, toggle);
+    row.append(copy);
+    if (item.enabled !== false) row.append(toggle);
     panel.append(row);
   }
   if (projectTrustError) {
@@ -6472,7 +6491,7 @@ async function writeProjectTrust(context, action, extra) {
       current = request === projectTrustRequest && currentProjectTrust(projectTrustContext);
     }
     if (current)
-      projectTrustError = error.status === 409
+      projectTrustError = error.status === 409 && error.code === "provider_state_conflict"
         ? "The CLI state changed elsewhere. Review it and try again."
         : error.message;
   } finally {

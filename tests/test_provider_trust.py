@@ -179,6 +179,11 @@ print(json.dumps({'type':'result', 'subtype':'success', 'result':'ok', 'usage':{
     claude.set_project_server_approval(project, "marker", True)
     execute()
     assert mcp.exists()
+    asyncio.run(app.state.manager.provider_state.security_write("codex", "p", trusted=False))
+    for marker in (hook, env, mcp):
+        marker.unlink()
+    execute()
+    assert not any(path.exists() for path in (hook, env, mcp))
 
 
 def test_remote_service_receipt_preserves_control_single_writer_and_external_revert(
@@ -213,7 +218,7 @@ def test_remote_service_receipt_preserves_control_single_writer_and_external_rev
     )
 
 
-def test_partial_trust_write_keeps_receipt_and_reports_failure(
+def test_failed_trust_rolls_back_without_creating_own_notice(
     app, codex_home, claude_dir, project, monkeypatch
 ):
     from adapters.shared.provider_state import ProviderStateVersionError
@@ -226,7 +231,7 @@ def test_partial_trust_write_keeps_receipt_and_reports_failure(
     control = app.state.manager.provider_state
     asyncio.run(control.read("codex", "p"))
 
-    def refuse(root):
+    def refuse(root, **kwargs):
         raise ProviderStateVersionError("Unsupported version")
 
     monkeypatch.setattr(claude, "trust_project", refuse)
@@ -234,7 +239,7 @@ def test_partial_trust_write_keeps_receipt_and_reports_failure(
         control.state, control.projects, control.adapters, track_notices=False
     )
     assert asyncio.run(remote.security_write("codex", "p")).status_code == 422
-    assert control.adapters["codex"].is_project_trusted(project)
+    assert not control.adapters["codex"].is_project_trusted(project)
     assert not claude._is_project_trusted(project)
     control.cache.clear()
     assert asyncio.run(control.read("codex", "p"))["external_changes"] == []
@@ -348,6 +353,18 @@ def test_harness_routes_accept_local_session_and_verified_remote_owner(
             )
             assert remote.status_code == 200, remote.text
             assert remote.json()["trust"]["trusted"]
+            revoked = await client.post(
+                "/v1/provider-state/trust",
+                headers={**SERVE_HEADERS, "Tailscale-User-Login": REMOTE_LOGIN},
+                json={
+                    "provider": "claude",
+                    "project_id": "p",
+                    "expected_project_root": str(project),
+                    "trusted": False,
+                },
+            )
+            assert revoked.status_code == 200, revoked.text
+            assert revoked.json()["trust"] == {"trusted": False, "required": True}
             harness.state.service.serve_peer_check = lambda *args: False
             denied = await client.post(
                 "/v1/provider-state/trust",
@@ -450,3 +467,64 @@ def test_project_mcp_cannot_replace_harness_effects(tmp_path, monkeypatch):
         json.loads((tmp_path / "mcp.json").read_text())["mcpServers"]["harness_effects"]["command"]
         == "trusted-harness"
     )
+
+
+def test_revoke_trust_writes_both_cli_states_and_suppresses_own_removals(
+    client, app, codex_home, claude_dir, project
+):
+    import tomllib
+
+    seed(codex_home)
+    claude = setup_claude(app, claude_dir, project)
+    (project / ".codex").mkdir()
+    (project / ".codex/config.toml").write_text('[mcp_servers.project_only]\ncommand="true"\n')
+    payload = {"provider": "codex", "project_id": "p", "expected_project_root": str(project)}
+    assert (
+        client.post("/api/provider-state/trust", headers=HEADERS, json=payload).status_code == 200
+    )
+    assert get(client, "codex", "p").json()["external_changes"] == []
+    response = client.post(
+        "/api/provider-state/trust", headers=HEADERS, json={**payload, "trusted": False}
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["trust"] == {"trusted": False, "required": True}
+    assert (
+        tomllib.loads((codex_home / "config.toml").read_text())["projects"][str(project)][
+            "trust_level"
+        ]
+        == "untrusted"
+    )
+    document = json.loads(claude._claude_json().read_text())
+    assert document["projects"][str(project)]["hasTrustDialogAccepted"] is False
+    assert document["other"] == {"keep": 1}
+    assert get(client, "codex", "p").json()["external_changes"] == []
+
+
+def test_owner_disabled_mcp_metadata_is_distinct_from_approval(
+    client, app, codex_home, claude_dir, project
+):
+    seed(codex_home)
+    claude = setup_claude(app, claude_dir, project)
+    claude.trust_project(project)
+    (project / ".claude/settings.json").write_text('{"enabledMcpjsonServers":["marker"]}')
+    document = json.loads(claude._claude_json().read_text())
+    document["projects"][str(project)]["disabledMcpServers"] = ["marker"]
+    claude._claude_json().write_text(json.dumps(document))
+    items = {item["server"]: item for item in get(client, "claude", "p").json()["mcp_approvals"]}
+    assert items["marker"] == {"server": "marker", "approved": True, "enabled": False}
+    assert items["denied"] == {"server": "denied", "approved": False, "enabled": True}
+
+
+@pytest.mark.parametrize("trusted", [None, "false", 0, [], {}])
+def test_trust_route_requires_boolean_when_given(client, trusted):
+    response = client.post(
+        "/api/provider-state/trust",
+        headers=HEADERS,
+        json={
+            "provider": "codex",
+            "project_id": "p",
+            "expected_project_root": "/fixture",
+            "trusted": trusted,
+        },
+    )
+    assert response.status_code == 400

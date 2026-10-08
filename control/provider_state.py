@@ -34,15 +34,17 @@ from adapters.shared.provider_state import (
     ProviderStateAdapter,
     ProviderStateConflictError,
     ProviderStateSchemaError,
+    ProviderTrustRollbackError,
     StateSnapshot,
     _ProviderStateError,
     fingerprint,
-    project_trusted,
+    state_write_deadline,
 )
 from agent_service.errors import APIError
 
 from .persistence import ControlStateRepository
 
+SECURITY_WRITE_SECONDS = 15.0
 PROVIDERS = ("codex", "claude")
 COALESCE_SECONDS = 5.0
 MESSAGE_LIMIT = 300
@@ -105,6 +107,39 @@ def _owner_environment(
             )
         result[name] = location
     return result
+
+
+async def _finish_security_write(function, *args, **kwargs):
+    """Finish the writer or complete rollback before propagating any cancellation."""
+    with state_write_deadline(SECURITY_WRITE_SECONDS):
+        task = asyncio.create_task(asyncio.to_thread(function, *args, **kwargs))
+    cancelled = None
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError as exc:
+            cancelled = exc
+        except Exception:
+            break
+    if cancelled is not None:
+        if not task.cancelled():
+            task.exception()  # Retrieve a failed writer's result before compensation.
+        raise cancelled
+    return task.result()
+
+
+def _restore_security_writes(rollback):
+    """Run every compensation as one unit, including after an earlier undo fails."""
+    failed = False
+    for undo in reversed(rollback):
+        try:
+            with state_write_deadline(SECURITY_WRITE_SECONDS):
+                undo.restore()
+        except Exception:
+            failed = True
+    if failed:
+        logger.warning("Provider trust rollback incomplete: provider_trust_rollback_incomplete")
+    return failed
 
 
 def snapshot_json(snapshot: StateSnapshot) -> dict:
@@ -516,15 +551,15 @@ class ProviderStateService:
     def _security_metadata(self, root: Path | None) -> dict:
         if root is None:
             return {}
-        trusted = project_trusted(
-            root, codex=self._adapter("codex"), claude=self._adapter("claude")
-        )
+        codex_trust = self._adapter("codex").project_trust_details(root)
+        trusted = codex_trust["trusted"] or self._adapter("claude")._is_project_trusted(root)
         claude = self._adapter("claude")
         approved = claude.approved_project_servers(root, trusted=trusted)
+        enabled = claude.enabled_project_servers(root)
         return {
-            "trust": {"trusted": trusted, "required": not trusted},
+            "trust": {**codex_trust, "trusted": trusted, "required": not trusted},
             "mcp_approvals": [
-                {"server": name, "approved": name in approved}
+                {"server": name, "approved": name in approved, "enabled": name in enabled}
                 for name in sorted(claude.project_servers(root))
             ],
         }
@@ -534,14 +569,15 @@ class ProviderStateService:
         return self.state / "provider-state-writes" / (ident + ".json")
 
     def _validated_receipt(self, provider, root, snapshot, receipt):
-        """Attribute only an unchanged project layer that the write changed from disabled to enabled."""
+        """Attribute only unchanged project layers crossing the requested trust boundary."""
         if receipt.get("source_identity") != _source_identity(self._adapter(provider), root):
             return {}
         layers = receipt.get("project_layers")
+        trusted = receipt.get("trusted", True)
         if (
             not layers
             or provider != "codex"
-            or all(layer["enabled"] for layer in layers.values())
+            or next(iter(layers.values()))["enabled"] == trusted
             or any(
                 not isinstance(layer.get("version"), str) or not layer["version"]
                 for layer in layers.values()
@@ -552,7 +588,8 @@ class ProviderStateService:
         if (
             verified.fingerprint != snapshot.fingerprint
             or not current
-            or not all(layer["enabled"] for layer in current.values())
+            or (trusted and not all(layer["enabled"] for layer in current.values()))
+            or (not trusted and next(iter(current.values()))["enabled"])
             or {key: layer["version"] for key, layer in layers.items()}
             != {key: layer["version"] for key, layer in current.items()}
         ):
@@ -564,7 +601,24 @@ class ProviderStateService:
             for layer in current.values()
             for ident, enabled in layer.get("items", {}).items()
         }
-        for ident, item in _items_of(snapshot).items():
+        after = _items_of(snapshot)
+        if not trusted:
+            # Match the pre-write fallback as well as unchanged project versions;
+            # a concurrent user-layer edit must still produce an external notice.
+            for key, layer in layers.items():
+                if not layer["enabled"] or current[key]["enabled"]:
+                    continue
+                for ident in layer.get("items", {}):
+                    expected_item = layer.get("fallbacks", {}).get(ident)
+                    if ident in before and after.get(ident) == expected_item:
+                        held = transitions.get(ident)
+                        original = (
+                            held["before"]
+                            if held and held["after"] == before[ident]
+                            else before[ident]
+                        )
+                        transitions[ident] = {"before": original, "after": expected_item}
+        for ident, item in after.items():
             if (
                 item["scope"] == "project"
                 and ident in expected
@@ -594,11 +648,11 @@ class ProviderStateService:
             )
         return receipt
 
-    def _security_intent(self, provider, project_id, root, before, layers):
+    def _security_intent(self, provider, project_id, root, before, layers, trusted=True):
         # No-op retries must preserve the earlier, possibly unconsumed own-write receipt.
         if (
             not layers
-            or all(layer["enabled"] for layer in layers.values())
+            or next(iter(layers.values()))["enabled"] == trusted
             or any(
                 not isinstance(layer.get("version"), str) or not layer["version"]
                 for layer in layers.values()
@@ -628,6 +682,7 @@ class ProviderStateService:
                     "fingerprint": before.fingerprint,
                     "before": _items_of(before),
                     "project_layers": layers,
+                    "trusted": trusted,
                     "transitions": transitions,
                 }
             },
@@ -647,6 +702,7 @@ class ProviderStateService:
         *,
         server: str | None = None,
         approved: bool = False,
+        trusted: bool = True,
         expected_project_root: str | None = None,
     ) -> dict | JSONResponse:
         root = self.resolve(provider, project_id)
@@ -664,52 +720,78 @@ class ProviderStateService:
                         raise ProviderStateConflictError(
                             "The project folder changed; review its trust prompt again."
                         )
-                    for name in PROVIDERS if server is None else ("claude",):
-                        adapter = self._adapter(name)
-                        _, before = await asyncio.to_thread(self._read_with_stat, name, root)
-                        try:
+                    names = PROVIDERS if server is None else ("claude",)
+                    rollback, intents, updates = [], [], {}
+                    try:
+                        for name in names:
+                            adapter = self._adapter(name)
+                            _, before = await asyncio.to_thread(self._read_with_stat, name, root)
                             if server is None and name == "codex":
                                 captured, layers = await asyncio.to_thread(
                                     adapter.read_trust_state, root
                                 )
                                 if captured.fingerprint != before.fingerprint:
                                     raise ProviderStateConflictError(
-                                        "The project state changed before accepting trust."
+                                        "The project state changed before changing trust."
                                     )
-                                await asyncio.to_thread(
+                                await _finish_security_write(
                                     adapter.trust_project,
                                     root,
+                                    trusted=trusted,
                                     expected_fingerprint=before.fingerprint,
-                                    on_written=partial(
-                                        self._security_intent,
-                                        name,
-                                        project_id,
-                                        root,
-                                        before,
-                                        layers,
-                                    ),
+                                    rollback=rollback,
                                 )
+                                intents.append((name, project_id, root, before, layers, trusted))
                             elif server is None:
-                                await asyncio.to_thread(adapter.trust_project, root)
+                                await _finish_security_write(
+                                    adapter.trust_project, root, trusted=trusted, rollback=rollback
+                                )
                             else:
                                 await asyncio.to_thread(
                                     adapter.set_project_server_approval, root, server, approved
                                 )
-                        finally:
-                            # Never leave a pre-write cache behind if the confirmation fails.
-                            for key in [key for key in self.cache if key[0] == name]:
-                                del self.cache[key]
-                            stat, fresh = await asyncio.to_thread(self._read_with_stat, name, root)
-                            await asyncio.to_thread(
-                                self._security_receipt, name, project_id, root, fresh
+                        # Confirmation reads belong to the transaction too. No own-write
+                        # receipt or notice map changes until both providers confirm.
+                        for name in names:
+                            updates[name] = await asyncio.to_thread(
+                                self._read_with_stat, name, root
                             )
-                            self.cache[name, project_id] = (self.clock(), fresh)
-                            if self.track_notices:
-                                receipt = await self._prepare_receipt(name, project_id, root, fresh)
-                                self._record(name, project_id, stat, fresh, receipt=receipt)
-                    snapshot = self.cache[provider, project_id][1]
-                    metadata = await asyncio.to_thread(self._security_metadata, root)
-                    return {"snapshot": snapshot_json(snapshot), **metadata}
+                        metadata = await asyncio.to_thread(self._security_metadata, root)
+                    except BaseException as exc:
+                        failed = await _finish_security_write(_restore_security_writes, rollback)
+                        if isinstance(exc, asyncio.CancelledError):
+                            raise
+                        if failed:
+                            raise ProviderTrustRollbackError(
+                                "Trust change failed and rollback could not finish because CLI state changed "
+                                "or became unavailable. Review both CLIs; no concurrent edits were overwritten."
+                            ) from None
+                        if isinstance(exc, _ProviderStateError):
+                            raise
+                        if not isinstance(exc, Exception):
+                            raise
+                        raise ProviderStateSchemaError(
+                            "The CLI state could not be updated; trust changes were rolled back."
+                            if server is None
+                            else "The MCP approval could not be updated."
+                        ) from None
+                    finally:
+                        for key in [key for key in self.cache if key[0] in names]:
+                            del self.cache[key]
+                    for intent in intents:
+                        await asyncio.to_thread(self._security_intent, *intent)
+                    for name, (stat, fresh) in updates.items():
+                        await asyncio.to_thread(
+                            self._security_receipt, name, project_id, root, fresh
+                        )
+                        self.cache[name, project_id] = (self.clock(), fresh)
+                        if self.track_notices:
+                            receipt = await self._prepare_receipt(name, project_id, root, fresh)
+                            self._record(name, project_id, stat, fresh, receipt=receipt)
+                    return {
+                        "snapshot": snapshot_json(self.cache[provider, project_id][1]),
+                        **metadata,
+                    }
                 except _ProviderStateError as exc:
                     return error_response(exc)
 

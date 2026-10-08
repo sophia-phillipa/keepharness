@@ -22,10 +22,11 @@ const snapshot = (provider) => ({
 const providerBody = (provider, trusted = false) => ({
   snapshot: snapshot(provider),
   external_changes: [],
-  trust: { trusted, required: !trusted },
+  trust: { trusted, required: !trusted, inherited_from: "/fixture/parent" },
   mcp_approvals: [
     { server: "docs-local", approved: false },
     { server: "reviewed", approved: true },
+    { server: "owner-disabled", approved: true, enabled: false },
   ],
 });
 
@@ -86,7 +87,7 @@ function contrastRatio(colors) {
           failTrust = false;
           return route.fulfill({ status: 422, json: { error: "provider_state_validation_failed", message: "CLI state changed; review it and try again." } });
         }
-        adminBodies.codex.trust = adminBodies.claude.trust = { trusted: true, required: false };
+        adminBodies.codex.trust = adminBodies.claude.trust = { ...adminBodies.codex.trust, trusted: body.trusted !== false, required: body.trusted === false };
         return route.fulfill({ json: adminBodies[body.provider] });
       }
       if (name === "provider-state/mcp-approvals" && method === "POST") {
@@ -106,6 +107,7 @@ function contrastRatio(colors) {
     await admin.goto("http://admin.test/#plugins");
     await admin.getByLabel("Project for plugins").selectOption("demo");
     const adminTrust = admin.locator('[data-testid="project-trust"]');
+    await adminTrust.getByText(/Codex still loads trusted configuration from \/fixture\/parent/).waitFor({ timeout: 3000 });
     await adminTrust.waitFor();
     assert.match(await adminTrust.innerText(), /applies to both Codex and Claude Code/i); // P1 main: visible language needs no CLI knowledge.
     assert.match(await adminTrust.innerText(), /hooks and environment settings/i);
@@ -147,6 +149,19 @@ function contrastRatio(colors) {
     await admin.keyboard.press("Enter"); // P4 main: keyboard-only acceptance.
     await adminTrust.getByRole("button", { name: "Trust Demo project" }).waitFor({ state: "detached" });
     assert.deepEqual(adminWrites.filter((write) => write.name.endsWith("trust")).at(-1).body, { provider: "codex", project_id: "demo", expected_project_root: "/fixture/demo" });
+
+    assert.equal(await adminTrust.getByRole("button", { name: "Revoke trust for Demo project" }).count(), 1);
+    const disabledAdmin = adminTrust.locator('[data-server="owner-disabled"]');
+    assert.match(await disabledAdmin.innerText(), /Disabled by owner/);
+    assert.equal(await disabledAdmin.getByRole("button").count(), 0);
+    await adminTrust.getByRole("button", { name: "Revoke trust for Demo project" }).focus();
+    await admin.keyboard.press("Enter");
+    await adminTrust.getByRole("button", { name: "Trust Demo project" }).waitFor();
+    assert.equal(adminWrites.at(-1).body.trusted, false);
+    assert.match(await adminTrust.innerText(), /Codex still loads trusted configuration from \/fixture\/parent/);
+    assert.equal(await adminTrust.getByRole("button", { name: "Trust Demo project" }).evaluate((el) => el === document.activeElement), true);
+    await adminTrust.getByRole("button", { name: "Trust Demo project" }).click();
+    await adminTrust.getByRole("button", { name: "Revoke trust for Demo project" }).waitFor();
 
     const pending = admin.locator('[data-testid="project-mcp-approval"]', { hasText: "docs-local" });
     await pending.waitFor();
@@ -195,6 +210,24 @@ function contrastRatio(colors) {
     await adminTrust.getByRole("button", { name: "Approve docs-local" }).waitFor();
     assert.equal(adminWrites.at(-1).body.expected_project_root, "/fixture/rebound-demo", "Plugins conflict recovery requires a fresh explicit click with the refreshed root");
 
+    for (const palette of ["paper", "graphite"]) {
+      const pairs = await admin.evaluate((id) => {
+        window.HarnessTheme.apply(id, false);
+        const panel = document.querySelector('[data-testid="project-trust"]'),
+          disabled = panel.querySelector('[data-server="owner-disabled"] small'),
+          revoke = panel.querySelector(":scope > button");
+        return [[getComputedStyle(disabled).color, getComputedStyle(disabled.parentElement.parentElement).backgroundColor],
+          [getComputedStyle(revoke).color, getComputedStyle(revoke).backgroundColor]];
+      }, palette);
+      pairs.forEach((pair) => assert(contrastRatio(pair) >= 4.5));
+    }
+    assert.equal(await admin.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    adminBodies.claude.mcp_approvals = adminBodies.codex.mcp_approvals = [];
+    await admin.reload();
+    await admin.getByLabel("Project for plugins").selectOption("demo");
+    await adminTrust.getByRole("button", { name: "Revoke trust for Demo project" }).waitFor();
+    assert.equal(await adminTrust.locator('[data-testid="project-mcp-approval"]').count(), 0);
+
     const chat = await browser.newPage({ viewport: { width: 1000, height: 800 } });
     chat.on("pageerror", (error) => errors.push("chat: " + error.message));
     await chat.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
@@ -224,7 +257,7 @@ function contrastRatio(colors) {
       }
       if (pathname === "/v1/provider-state/trust" && method === "POST") {
         const body = route.request().postDataJSON(); chatWrites.push({ pathname, body });
-        chatBody.trust = { trusted: true, required: false };
+        chatBody.trust = { ...chatBody.trust, trusted: body.trusted !== false, required: body.trusted === false };
         return route.fulfill({ json: chatBody });
       }
       if (pathname === "/v1/provider-state/mcp-approvals" && method === "POST") {
@@ -244,6 +277,7 @@ function contrastRatio(colors) {
     await chat.click("#project-button");
     await chat.getByRole("option", { name: "Demo project" }).click();
     const conversationTrust = chat.locator("#project-trust-prompt");
+    await conversationTrust.getByText(/Codex still loads trusted configuration from \/fixture\/parent/).waitFor({ timeout: 3000 });
     await conversationTrust.waitFor();
     assert.equal(await conversationTrust.getAttribute("role"), "region");
     assert.match(await conversationTrust.getAttribute("aria-label"), /Project trust and MCP approvals/);
@@ -319,6 +353,23 @@ function contrastRatio(colors) {
     assert.equal(chatWrites.filter((write) => write.pathname.endsWith("mcp-approvals")).length, 2);
     assert.equal(chatWrites.at(-1).body.expected_project_root, "/fixture/rebound-demo", "conversation conflict recovery refreshes the captured root before the next explicit click");
     assert.equal(await chat.locator("#prompt").inputValue(), "Keep this draft while trust changes", "trust actions preserve the draft"); // P2 recovery.
+    const disabledChat = conversationTrust.locator('[data-server="owner-disabled"]');
+    assert.match(await disabledChat.innerText(), /Disabled by owner/);
+    assert.equal(await disabledChat.getByRole("button").count(), 0);
+    await conversationTrust.getByRole("button", { name: "Revoke trust for Demo project" }).focus();
+    await chat.keyboard.press("Enter");
+    await conversationTrust.getByRole("button", { name: "Trust Demo project" }).waitFor();
+    assert.equal(chatWrites.at(-1).body.trusted, false);
+    assert.match(await conversationTrust.innerText(), /Codex still loads trusted configuration from \/fixture\/parent/);
+    assert.equal(chatWrites.at(-1).body.expected_project_root, "/fixture/rebound-demo");
+    assert.equal(await conversationTrust.getByRole("button", { name: "Trust Demo project" }).evaluate((el) => el === document.activeElement), true);
+    assert.equal(await chat.locator("#prompt").inputValue(), "Keep this draft while trust changes");
+    chatBody.mcp_approvals = [];
+    await conversationTrust.getByRole("button", { name: "Trust Demo project" }).click();
+    await conversationTrust.getByRole("button", { name: "Revoke trust for Demo project" }).waitFor();
+    assert.equal(await conversationTrust.locator('[data-testid="project-mcp-approval"]').count(), 0);
+    await chat.setViewportSize({ width: 390, height: 780 });
+    assert.equal(await chat.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     assert.deepEqual(errors, []);
 
     console.log("PASS P1 beginner: visible trust meaning and validation retry");

@@ -700,8 +700,11 @@ async def trust_provider_project(request, manager, data):
     )
     if not all(isinstance(value, str) and value for value in (provider, project_id, expected_root)):
         raise APIError("invalid_request", 400)
+    trusted = data.get("trusted", True)
+    if type(trusted) is not bool:
+        raise APIError("invalid_request", 400)
     return await manager.provider_state.security_write(
-        provider, project_id, expected_project_root=expected_root
+        provider, project_id, expected_project_root=expected_root, trusted=trusted
     )
 
 

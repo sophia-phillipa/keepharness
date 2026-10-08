@@ -1801,3 +1801,5 @@ html[data-embedded] #main { max-width: none; margin: 0; padding-inline: 24px; }
   .plugin-card-grid { grid-template-columns: 1fr; }
   .plugin-provider-row { grid-template-columns: 1fr; gap: 4px; }
 }
+
+.project-trust-inherited { grid-column: 1 / -1; min-width: 0; margin: 0; overflow-wrap: anywhere; }
