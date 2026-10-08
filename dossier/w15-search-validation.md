@@ -322,5 +322,87 @@ above now includes repeated saves, failed Retry and in-flight recovery.
 
 Commit staging was blocked by the read-only shared Git index
 (`index.lock: Read-only file system`). The reviewed diff remains on `a30381d`;
-the requested local Conventional Commit fallback is `.codex-commits/3.txt`. No permission
-override was attempted.
+the requested local Conventional Commit fallback was `.codex-commits/3.txt`.
+The orchestrator subsequently committed the correction as `d127165`. No
+permission override was attempted.
+
+
+## Visible-pass follow-up: D1 Home draft restoration (round 4)
+
+**Status: open, pre-existing; not introduced by W15 and not fixed by the tested
+w14a revision.** The visible pass completed all requested checks on fake homes.
+All passed except V1.3/D1: Back from a conversation search result returned to an
+empty Home composer and No project, losing the visible text/attachment/project
+context. The provider remained selected. Existing green W15 specs do not prove
+this path: A1/A2 check cancellation or composer focus, A3 checks Settings history,
+and A4 opens a conversation without returning to a named-project Home draft.
+
+Visible evidence supplied by the orchestrator: the report at
+`/home/sophia/.cache/kho/chat/runs/w15-visible/log.md` and its
+`shots/01-paper-draft.png` / `shots/05b-back-state.png`. Those two screenshots were
+inspected; no further visible desktop operation was performed in this round.
+
+A temporary browser spec, `search-home-draft.spec.cjs`, reproduced D1 using
+real project/model controls, upload, typing, Ctrl+K, a conversation result and
+Ctrl+[. Synthetic routes included both `project-a` and `sem-projeto`. The spec
+compared all four fields independently and verified zero job POSTs. The identical
+spec ran through each revision's `scripts/test-ui.sh`; main and w14a were exported
+with `git archive` under the one task temp root. No worktree command, fetch,
+merge or write to another checkout was used.
+
+| Revision | Identity | D1 result |
+|---|---|---|
+| W15 | `d127165a99dd14970989f893c7f108c560ec711c` | Exit 1: text, attachment and project assertions fail; provider passes |
+| Main | `bf7f281d3451bb6b726b018080971544a1649df9` | Identical field failures, exit 1 |
+| w14a | `281502c5c7531049ae0fd36a41270634448625c1`, actual branch `feat/w14-retire-cloud-scoped` | Identical field failures, exit 1 |
+
+The before/after values were identical across all three runs:
+
+| Field | Before navigation | After Back |
+|---|---|---|
+| Text | `Preserve this search Home draft` | Empty string |
+| Attachment | `pending-note.txt`, 26 bytes | No attachment |
+| Project | `project-a` | `sem-projeto` |
+| Provider/model | `cloud` (synthetic fixture) | `cloud`, preserved |
+
+**Cause.** `currentBaseView()` / `recordView()` in `agent_service/ui.js` record
+Home only as `{kind: "home"}`, without its project/draft identity. Replaying Home
+through `applyView()` calls `startNewConversation()`, which chooses `sem-projeto`
+when available. `newConversation()` therefore cannot select the original
+`conversation-draft:new:project-a` snapshot on that route. These behaviors are
+already present in main. W14 changes the execution-mode reset policy for #52,
+but retains the missing Home project identity and the No project target. Its
+existing Back test uses `sem-projeto`, so it does not cover this named-project
+case. Independent source review and the three browser runs agree on the origin.
+
+**Disposition.** Follow the user's record-only branch: no W15 product fix and no
+change to w14a's draft-restoration area. The failing diagnostic is not shipped
+as a regression spec; its temporary copies are removed with task scratch data.
+D1 remains an explicit unmet visible acceptance case until the navigation/draft
+owner restores the Home project and draft identity. After that correction, rerun
+the same named-project/text/upload/search/Back flow and retain it as a passing
+regression. The otherwise successful visible pass must not be reported as fully
+approved.
+
+**Round 4 validation.** The diagnostic reproduced D1 on all three revisions
+(three expected failing runs, with identical per-field failures). The unchanged
+W15 browser gate then passed all 11 selected specs, including the 60/60 persona
+matrix. Python UI-state, UI-preference and execution-default/asset contracts
+passed: `pytest -q -p no:cacheprovider tests/test_ui_state.py
+tests/test_ui_prefs_contract.py tests/test_execution_defaults.py` — 78 passed,
+one Starlette TestClient/httpx deprecation warning. Conventions reported
+0 name errors, 0 name warnings, 0 Portuguese hits and 0 guest hits; diff checks
+passed. These green existing gates do not resolve D1. Independent review
+approved the reproduction, origin analysis and record-only disposition.
+
+All comparisons and gates used fake homes, task-owned random ports, the specified
+Python environment and no display/cloud inference. The supplied report and two
+screenshots were the only reads under the otherwise excluded visible-run folder.
+The w14a worktree was read-only; archived comparisons and the diagnostic are
+removed with the single task temp root. No product code or persistent test file
+changed. The explicit user condition selected this disposition; JEV remained
+unavailable under approval policy `never`.
+
+Commit staging was blocked by the read-only shared Git index. The two-document
+diff remains on `d127165`; the requested local commit fallback is `.codex-commits/4.txt`.
+No Git permission override was attempted.
