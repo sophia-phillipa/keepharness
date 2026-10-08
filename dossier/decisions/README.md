@@ -35,3 +35,4 @@ Spec: [Codex-app parity design](../codex-parity-design.md).
 | [D-043](d-043-deepseek-engine.md) | DeepSeek 1.0 keeps the Codex engine and #47 fixes; later `dsh` adoption requires an opt-in gate | accepted for implementation |
 | [D-044](d-044-scoped-sandbox-under-facade.md) | Retire Codex/Claude scoped execution for 1.0; retain native presets and Local isolation | accepted for implementation |
 | [D-046](d-046-cloud-isolation-ui-retirement.md) | Bring cloud isolation UI retirement ahead of #45/#46; re-validate their checks when they land | accepted |
+| [D-048](d-048-fail-closed-hook-command-masking.md) | Mask hook command values by default instead of guessing secrets (#61) | accepted |
