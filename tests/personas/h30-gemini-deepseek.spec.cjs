@@ -121,12 +121,9 @@ runPersona("H30", [
         /DeepSeek API · uses your DeepSeek credits/,
       );
       assert.equal(await text(page, "#model-trigger-icon"), "🐋");
-      await visible(page, "#execution-mode-unavailable");
-      assert.equal(
-        await text(page, "#execution-mode-unavailable"),
-        "This model only offers native mode.",
-      );
-      assert.equal(await page.locator("#isolation-toggle").isDisabled(), true);
+      assert.equal(await text(page, "#execution-mode-label"), "Native conversation");
+      assert.equal(await page.locator("#execution-mode-unavailable").isVisible(), false);
+      assert.equal(await page.locator("#isolation-toggle").isVisible(), false);
       // DeepSeek is text-only and this fixture denies uploads.
       assert.equal(await page.locator("#attach").isDisabled(), true);
       assert.match(
@@ -161,15 +158,9 @@ runPersona("H30", [
       assert.equal(s.posts[0].execution_mode, "native");
       // Only Codex sends pre-flight a quota snapshot.
       assert.equal(usage, before);
-      await page
-        .locator("#execution-mode-indicator")
-        .waitFor({ state: "visible" });
-      assert.equal(
-        await page
-          .locator("#execution-mode-indicator")
-          .getAttribute("aria-label"),
-        "Native conversation · isolation off",
-      );
+      await page.locator("#header-execution-mode").waitFor({ state: "visible" });
+      assert.equal(await text(page, "#header-execution-mode"), "Native conversation");
+      assert.equal(await page.locator("#execution-mode-indicator").isVisible(), false);
     },
   },
   {
@@ -194,7 +185,7 @@ runPersona("H30", [
       await visible(page, "#execution-mode-unavailable");
       assert.match(
         await text(page, "#execution-mode-unavailable"),
-        /does not offer isolated mode\. Choose a different model or change the mode before sending\./,
+        /does not offer isolated mode\. Choose a different model or start a new conversation\./,
       );
       await page.fill("#prompt", "Should not leave the browser");
       await page.keyboard.press("Enter");
@@ -208,24 +199,14 @@ runPersona("H30", [
         await page.locator("#prompt").inputValue(),
         "Should not leave the browser",
       );
-      // F-94: the switch stays usable while it names a mode this model lacks, so
-      // the user turns isolation off without leaving DeepSeek.
-      assert.equal(await page.locator("#isolation-toggle").isDisabled(), false);
-      assert.equal(
-        await page.locator("#isolation-toggle").getAttribute("aria-checked"),
-        "true",
-      );
-      await page.click("#isolation-toggle");
-      assert.equal(
-        await page.locator("#isolation-toggle").getAttribute("aria-checked"),
-        "false",
-      );
-      assert.equal(await page.locator("#isolation-toggle").isDisabled(), true);
+      // The incompatible draft stays blocked until explicit New establishes native mode.
+      assert.equal(await page.locator("#isolation-toggle").isVisible(), false);
+      assert.equal(await page.locator("#send").isDisabled(), true);
+      await page.click("#new");
       assert.equal(await page.locator("#model").inputValue(), "deepseek-flash");
-      assert.equal(
-        await text(page, "#execution-mode-unavailable"),
-        "This model only offers native mode.",
-      );
+      assert.equal(await text(page, "#execution-mode-label"), "Native conversation");
+      assert.equal(await page.locator("#execution-mode-unavailable").isVisible(), false);
+      assert.equal(s.posts.length, 0);
       assert.equal(
         await page.locator("#prompt").inputValue(),
         "Should not leave the browser",

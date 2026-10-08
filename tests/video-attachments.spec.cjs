@@ -157,7 +157,10 @@ const assert = require("node:assert/strict"),
       /lesson.mp4.*support.*MP4/,
     );
     await select("local-vision");
-    await page.click("#isolation-toggle");
+    // An explicit New adopts Local's required mode; the saved native draft cannot convert silently.
+    await page.click("#menu");
+    await page.click("#new");
+    assert.equal(await page.locator("#isolation-toggle").isDisabled(), true);
     await add();
     assert.equal(requests.length, 3);
     assert.equal(requests[2].execution_mode, "scoped");

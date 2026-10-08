@@ -166,7 +166,7 @@ runPersona("H34", [
         "continue the pre-0.6 conversation",
       );
       // F-101 (F-07 UI side): a guided message instead of the raw code.
-      assert.match(status, /start a new conversation/);
+      assert.match(status, /start a new native conversation/i);
       assert.doesNotMatch(status, /execution_mode_unsupported/);
       noConsoleErrors();
     },
