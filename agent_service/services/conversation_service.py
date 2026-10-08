@@ -948,6 +948,9 @@ class ConversationService:
     def dispatch_execution_mode(self, row, data):
         """Recheck persisted work before provider state, sessions or effects are touched."""
         mode = self._stored_execution_mode(row)
+        backend = data.get("backend", "codex")
+        if not isinstance(backend, str) or backend not in EXECUTION_MODES:
+            raise APIError("backend_unavailable", 422)
         requested = data.get("execution_mode", mode)
         if requested != mode:
             raise APIError("execution_mode_unsupported", 422)

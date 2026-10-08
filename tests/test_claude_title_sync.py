@@ -42,9 +42,11 @@ def test_native_session_receives_the_harness_conversation_title(tmp_path, monkey
     assert result["thread_id"] == "claude-session"
 
 
-def test_scoped_contract_has_no_persisted_claude_session():
-    source = native.__file__.replace("native.py", "scoped.py")
-    assert "--no-session-persistence" in open(source, encoding="utf-8").read()
+def test_retired_scoped_claude_executor_is_absent():
+    import importlib.util
+
+    assert importlib.util.find_spec("adapters.claude.scoped") is None
+    assert not hasattr(backend, "run_scoped")
 
 
 def test_backend_forwards_the_canonical_title_to_native(tmp_path, monkeypatch):

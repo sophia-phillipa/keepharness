@@ -70,7 +70,7 @@ def test_s27_workflow_mode_requirement_uses_actual_execution_mode(tmp_path):
     from agent_service import maestro
     from agent_service.tools import ToolError
 
-    service, _identity, row, data, plan = setup_run(tmp_path)
+    service, _identity, row, data, plan = setup_mode_run(tmp_path, "scoped")
     plan["steps"] = [plan["steps"][0]]
     plan["steps"][0]["requires"] = {"mode": "native"}
     actual = {**data, "execution_mode": "scoped"}
@@ -197,9 +197,28 @@ def test_queue_reason_projects_latest_safe_cause(tmp_path, reason):
         service.db.close()
 
 
+def setup_mode_run(tmp_path, mode):
+    service, identity, row, data, plan = setup_run(tmp_path)
+    if mode == "scoped":
+        request = dict(
+            project_id="p",
+            backend="local",
+            model="installed-model",
+            effort="configured",
+            prompt="Review",
+            execution_mode="scoped",
+        )
+        job = service.submit(identity, request)["job_id"]
+        row = service.job(identity, job)
+        data = json.loads(row["payload"])
+        for step in plan["steps"]:
+            step.update(backend="local", model="installed-model", effort="configured")
+    return service, identity, row, data, plan
+
+
 @pytest.mark.parametrize("mode", ["native", "scoped"])
 def test_workflow_matching_effective_mode_reaches_dispatch(tmp_path, mode):
-    service, _, row, data, plan = setup_run(tmp_path)
+    service, _, row, data, plan = setup_mode_run(tmp_path, mode)
     service.config["services"]["codex"]["mode"] = "scoped" if mode == "native" else "native"
     plan["steps"] = plan["steps"][:1]
     plan["steps"][0]["requires"] = {"mode": mode}
