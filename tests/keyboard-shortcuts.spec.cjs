@@ -76,9 +76,10 @@ function contrast(rgb1, rgb2) {
       "Go backCtrl [",
       "Go forwardCtrl ]",
       "Keyboard shortcutsCtrl /",
+      "New temporary chatCtrl Shift N",
     ]);
     assert.equal(await page.locator("#keyboard-shortcuts-list").getAttribute("role"), "list");
-    assert.equal(await dialog.locator('.keyboard-shortcut-row[role="listitem"]').count(), 7);
+    assert.equal(await dialog.locator('.keyboard-shortcut-row[role="listitem"]').count(), 8);
     assert.equal(await dialog.getByText("Focus composer", { exact: true }).count(), 0, "Focus composer has no invented binding");
     console.log("PASS B1 reference lists only supported bindings and omits a Focus composer binding");
 
