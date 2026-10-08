@@ -121,7 +121,7 @@ const contrast = (a, b) => {
     assert.equal(await page.locator("#dashboard").isHidden(), true);
     assert.equal(await page.locator("#catalog-panel").isHidden(), true);
     assert.equal(await page.locator('[data-panel="plugins"]').getAttribute("aria-current"), "page");
-    assert.deepEqual(await panel.locator('[data-testid^="plugins-chip-"]').allInnerTexts(), ["Plugins 3", "Apps 1", "MCPs 1", "Skills"]);
+    assert.deepEqual(await panel.locator('[data-testid^="plugins-chip-"]').allInnerTexts(), ["Plugins 3", "Apps 1", "MCPs 1", "Skills 0", "Hooks 0", "Instructions 0"]);
     assert.equal(await panel.locator('[data-testid="plugins-chip-plugins"]').getAttribute("aria-pressed"), "true");
     // Each chip leads with one icon on the label's line, like the other admin buttons.
     for (const chip of await panel.locator('[data-testid^="plugins-chip-"]').all()) {
@@ -152,8 +152,9 @@ const contrast = (a, b) => {
     await search.fill("");
     await panel.locator('[data-testid="plugins-chip-apps"]').click();
     assert.equal(await panel.locator('[data-testid="plugins-chip-apps"]').getAttribute("aria-pressed"), "true");
-    assert.equal(await rows.count(), 0);
-    assert.match(await panel.locator('[data-testid="plugins-empty"]').innerText(), /Apps are not listed here yet/);
+    assert.equal(await rows.count(), 1);
+    assert.equal(await rows.first().getAttribute("data-item-id"), "account-app:claude.ai Gmail");
+    assert.equal(await rows.first().getByRole("switch").count(), 0, "account connectors retain their catalog identity without a fabricated switch");
     await panel.locator('[data-testid="plugins-chip-plugins"]').click();
     assert.equal(await rows.count(), 3);
 

@@ -175,7 +175,7 @@ def test_ack_invalid_body_400(client, now, change):
 
 
 def test_ack_checks_provider_and_project_before_the_fields(client, now):
-    assert ack(client, [5], provider="deepseek").status_code == 404
+    assert ack(client, [5], provider="dsh").status_code == 404
     assert ack(client, [5], project_id="nope").json() == {"error": "project_unknown"}
     assert ack(client, ["n_1"] * 100).status_code == 200
 

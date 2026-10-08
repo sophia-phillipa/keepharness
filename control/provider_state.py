@@ -28,6 +28,7 @@ from starlette.responses import JSONResponse
 
 from adapters.claude.state import ClaudeStateAdapter
 from adapters.codex.state import CodexStateAdapter
+from adapters.deepseek.state import DeepSeekStateAdapter
 from adapters.shared.process import redact_paths
 from adapters.shared.provider_state import (
     ProviderCommandError,
@@ -45,7 +46,7 @@ from agent_service.errors import APIError
 from .persistence import ControlStateRepository
 
 SECURITY_WRITE_SECONDS = 15.0
-PROVIDERS = ("codex", "claude")
+PROVIDERS = ("codex", "claude", "deepseek")
 COALESCE_SECONDS = 5.0
 MESSAGE_LIMIT = 300
 NO_PROJECT = "sem-projeto"
@@ -318,9 +319,11 @@ def run_start_check(
     compare with, so nothing is written. Never raises: a run must not fail over this.
     """
     try:
-        environment = _owner_environment(control_state, provider)
+        environment = _owner_environment(control_state, provider) if provider != "deepseek" else None
         adapter = (
-            CodexStateAdapter(environment=environment)
+            DeepSeekStateAdapter(control_state)
+            if provider == "deepseek"
+            else CodexStateAdapter(environment=environment)
             if provider == "codex"
             else ClaudeStateAdapter(control_state, environment=environment)
         )
@@ -380,6 +383,8 @@ class ProviderStateService:
         raise APIError("project_unknown", 404)
 
     def _adapter(self, provider: str) -> ProviderStateAdapter:
+        if provider == "deepseek" and provider not in self.adapters:
+            self.adapters[provider] = DeepSeekStateAdapter(self.state)
         if provider not in self.adapters:
             environment = _owner_environment(self.state, provider, source=self.environment)
             self.adapters[provider] = (
@@ -543,7 +548,11 @@ class ProviderStateService:
                 else:
                     snapshot = await self._read_fresh(provider, project_id, root)
                 changes = self._pending(provider, project_id) if self.track_notices else []
-                metadata = await asyncio.to_thread(self._security_metadata, root)
+                metadata = (
+                    {}
+                    if provider == "deepseek"
+                    else await asyncio.to_thread(self._security_metadata, root)
+                )
         except _ProviderStateError as exc:
             return error_response(exc)
         return {"snapshot": snapshot_json(snapshot), "external_changes": changes, **metadata}
@@ -706,7 +715,7 @@ class ProviderStateService:
         expected_project_root: str | None = None,
     ) -> dict | JSONResponse:
         root = self.resolve(provider, project_id)
-        if root is None or (server is not None and provider != "claude"):
+        if provider == "deepseek" or root is None or (server is not None and provider != "claude"):
             raise APIError("invalid_request", 400)
         # A trust action writes both CLIs. Always acquire locks in this fixed order.
         async with self.locks.setdefault("codex", asyncio.Lock()):
@@ -720,7 +729,7 @@ class ProviderStateService:
                         raise ProviderStateConflictError(
                             "The project folder changed; review its trust prompt again."
                         )
-                    names = PROVIDERS if server is None else ("claude",)
+                    names = ("codex", "claude") if server is None else ("claude",)
                     rollback, intents, updates = [], [], {}
                     try:
                         for name in names:

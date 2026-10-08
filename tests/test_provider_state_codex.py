@@ -544,10 +544,15 @@ def test_a_home_reached_through_a_symlink(adapter, isolated_provider_homes, monk
 
 
 def test_watch_paths(adapter, codex_home, tmp_path):
-    assert adapter.watch_paths(None) == (codex_home / "config.toml", codex_home / "skills")
+    assert adapter.watch_paths(None) == (
+        codex_home / "config.toml",
+        codex_home / "skills",
+        adapter.shared_skills_root(),
+    )
     assert adapter.watch_paths(tmp_path) == (
         codex_home / "config.toml",
         codex_home / "skills",
+        adapter.shared_skills_root(),
         tmp_path / ".codex" / "config.toml",
         tmp_path / ".agents" / "skills",
     )

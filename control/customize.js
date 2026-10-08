@@ -5,13 +5,15 @@
    Row switches (issue #21, D-041) read and write the CLI's real state through /api/provider-state;
    the changes made outside KeepHarness that those reads return go to admin.js (issue #43). */
 (() => {
-  const CLIS = ["codex", "claude"]; // the only providers /api/integration-catalog answers for
+  const CLIS = ["codex", "claude", "deepseek"];
   // Like every admin button, each chip leads with its own icon on the label's line.
   const CHIPS = [
     ["plugins", "Plugins", "plugin", "cube"],
-    ["apps", "Apps", "account-app", "world"],
+    ["apps", "Apps", "app", "world"],
     ["mcps", "MCPs", "mcp", "plug"],
-    ["skills", "Skills", undefined, "list-check"], // no count until the Skills content lands
+    ["skills", "Skills", "skill", "list-check"],
+    ["hooks", "Hooks", "hook", "list-check"],
+    ["instructions", "Instructions", "instructions", "list-check"],
   ];
   const NO_PROJECT = "sem-projeto";
   const view = { chip: "plugins", mode: "directory", query: "", detailKey: "", detailOrigin: "", loading: false, built: false, clis: [], project: NO_PROJECT };
@@ -79,10 +81,9 @@
     };
     for (const info of view.clis) {
       for (const item of integrationCatalogs.get(info.id)?.items || [])
-        if (item.kind === kind && item.status !== "available") add(info, item);
-      if (kind === "plugin")
-        for (const item of states.get(info.id)?.snapshot?.items || [])
-          if (item.kind === "plugin") add(info, { id: item.id, name: item.name, kind, status: "installed" }, true);
+        if ((item.kind === kind || (kind === "app" && item.kind === "account-app")) && item.status !== "available") add(info, item);
+      for (const item of states.get(info.id)?.snapshot?.items || [])
+        if (item.kind === kind) add(info, { id: item.id, name: item.name, kind, status: "installed" }, true);
     }
     return [...merged.values()].sort((a, b) =>
       connectorLabel(a.item).localeCompare(connectorLabel(b.item)),
@@ -100,9 +101,10 @@
       ));
   };
   const exactStateItems = (group, info) => (states.get(info.id)?.snapshot?.items || [])
-    .filter((item) => item.kind === "plugin" && item.id === group.item.id);
+    .filter((item) => item.kind === group.item.kind && item.id === group.item.id);
   const providerVariants = (group, info) => group.variants.get(info.id) || [];
   const installedTargets = (group, family = false) => group.providers.filter((info) =>
+    group.item.kind === "plugin" && info.id !== "deepseek" &&
     (family ? familyStateItems(group, info) : exactStateItems(group, info)).length === 1,
   );
   const providerTarget = (group, info, family = false) => {
@@ -418,7 +420,7 @@
         ? "Not installed in " + where + "."
       : !stateItem
         ? where + ": This plugin is not offered by this provider."
-        : [where + ": " + capitalized(stateItem.scope) + " · " + stateItem.source, !stateItem.writable && stateItem.reason, rowErrors.get(info.id + "|" + stateItem.id)]
+        : [where + ": " + capitalized(stateItem.scope) + " · " + stateItem.source, stateItem.reason, stateItem.affects?.length && "Also affects: " + stateItem.affects.join(", "), rowErrors.get(info.id + "|" + stateItem.id)]
             .filter(Boolean)
             .join(" · ");
     const hint = node("small", text, "plugins-row-note", "plugin-note");
@@ -603,7 +605,12 @@
     }
     const [, label] = CHIPS.find(([id]) => id === view.chip);
     const empty = (message) => list.replaceChildren(node("p", message, "hint", "plugins-empty"));
-    if (view.chip !== "plugins") return empty(label + " are not listed here yet.");
+    if (view.chip !== "plugins") {
+      const kind = CHIPS.find(([id]) => id === view.chip)[2];
+      const query = view.query.trim().toLocaleLowerCase();
+      const rows = installed(kind).filter((group) => connectorLabel(group.item).toLocaleLowerCase().includes(query));
+      return rows.length ? list.replaceChildren(...rows.map(row)) : empty("No " + label.toLowerCase() + " are listed.");
+    }
     if (!view.clis.length)
       return empty("No Codex or Claude Code CLI was found. Check the environment on the AI Providers page.");
     const query = view.query.trim().toLocaleLowerCase();
@@ -774,6 +781,7 @@
       const reads = loadStates(view.clis);
       // One CLI at a time: the admin runs one operation at once and answers 429 to a second.
       for (const { id } of view.clis) {
+        if (id === "deepseek") continue; // Its private state has no catalog command.
         const cached = integrationCatalogs.get(id);
         // catalogPending is shared with the Providers page so one CLI scan runs at a time.
         if ((!force && cached && !cached.error) || catalogPending.has(id)) continue;

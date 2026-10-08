@@ -2,6 +2,25 @@
 
 Responsible agent: `integrate-deepseek_keepharness_engineer`. Adapter spec revision: **1**.
 Harness baseline: **0.16.0 working-tree**. Reviewed: **2026-10-08**.
+
+## Provider state facade
+
+`DeepSeekStateAdapter` reuses the Codex state reader and CLI writer with provider
+`deepseek`, engine `codex`, `CODEX_HOME=<state>/providers/deepseek` and the same
+private `HOME=<state>/providers/home` as execution. State RPCs pin file credential
+storage and reject symlinked home/config paths or foreign authentication entries
+before starting the CLI. Listing state
+does not require or read the API key. `set_api_key` delegates to the existing
+atomic private key writer.
+
+The Plugins page shows DeepSeek's own state and sends its own fingerprint when
+switching a row. Profile layers retain the Codex writer's read-only rules. Hook
+and instructions rows are consumed when reported by an adapter; the Codex reader
+does not invent unsupported rows. DeepSeek has no directory or uninstall command
+in this facade. Shared `~/.agents/skills` roots are watched and named using each
+adapter's actual HOME: content changes affect other providers using that root,
+while switches change only the selected provider's config. A private DeepSeek
+root is never described as the owner's root or assigned invented `affects` IDs.
 Executor tested: **codex-cli 0.157.1**. Remote API: rolling, unversioned `/responses`.
 Machine-readable correlation: [compatibility.json](compatibility.json).
 
