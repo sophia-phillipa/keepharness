@@ -18,6 +18,67 @@ Type: reference. Source: the ChatGPT desktop app, build `26.930.31730`, observed
 
 Gaps remaining after the third pass (2026-10-05, same build, same read-only rules): approval cards (none pending), a failed turn's Retry affordance (no failed thread exists and sending is out of scope), the Settings pages Profile and Account (external web links, not opened), the Code Review screen with real pull requests (the app showed `App unavailable` with a `Retry` button), and preference-persistence behaviour beyond the file listing below. Details of the second-pass gaps are now closed in the sections named in the table above.
 
+### Fourth pass: 2026-10-08
+
+Build `26.930.31730`, reconfirmed from the running executable and launcher.
+Comparison baseline: KeepHarness `0.16.0` development at `3a0cd4a`.
+See the [prioritized fourth-round gaps](codex-parity-gaps-2026-10-08.md).
+This pass separates newly observed evidence from the earlier coverage above.
+
+| Area | Fourth-pass coverage and limits |
+| --- | --- |
+| Window, mode and app menus | ChatGPT-to-Codex mode navigation; File and Help menus; normal launch restored after inspection |
+| Directory and absent plugin | Loaded Public directory, categories and card controls; uninstalled Figma detail has `Install plugin`, no switch; no install attempted |
+| Plugins management | Manage opens Settings > Plugins, distinct from the directory; five installed rows, all observed on; Add menu inspected without selecting a write action |
+| Apps / MCPs / Skills | All three management chips opened; Apps 13, MCPs 7, Skills 3; server/plugin groups, switches and Personal skill labels inspected; counts are account-specific |
+| Skills directory / scopes | Installed block and Team / Personal / System tabs observed; no plugin write-scope picker observed; scope-write effects not tested |
+| Settings | General and all internal navigation pages opened, including Code Review settings, Git, Worktrees, Archived chats and Keyboard shortcuts; structural inspection only on personal-data pages; Profile and Account external links not opened |
+| Composer and per-thread tools | Blank composer, plus menu, permissions and model control inspected without sending or selecting a setting; third-pass insertion behavior remains the reference, not a new enablement test |
+| Sidebar / command menu | Thread-row Pin/Archive controls and section controls reconfirmed; command menu opened; no thread names retained |
+| Thread | One thread opened solely for toolbar/control structure and its fixed action menu; personal messages neither extracted nor saved |
+| Run steps / approvals / Retry | No pending approval or usable completed-step/failed-turn sample established in the structurally inspected thread; earlier run-step descriptions carried forward, no fresh behavioral proof |
+| Space / Scheduled / Explore / Code Review | All opened; library controls, New task, Explore destinations and Code Review Retry observed; populated external content not inspected |
+| Shortcuts | Internal Keyboard shortcuts page opened and its list recorded; not an execution test of every shortcut |
+| Persistence | No preference mutation or persistence experiment; restoring the normal app is not proof of all preference persistence |
+
+New or newly resolved observations:
+
+- The absent-item distinction is now explicit: the directory card has `+` with
+  `Install <name>`; the detail has `Install plugin`; installed management rows
+  have `Toggle plugin enabled state`. No disabled switch substitutes for Install.
+  Installation, OAuth and disable/re-enable effects remain untested.
+- The loaded directory includes a Chrome-extension promotion and the additional
+  category headings `Small Business`, `Business & Operations`, `Data & Analytics`,
+  `Scientific Research`, `Security`, `Other`. These are observed catalog-content
+  changes within the same build, not evidence of an app binary upgrade.
+- The uninstalled Figma detail includes both an Apps section and a Skills section,
+  plus an Information block and `Copy link`. Its public capability descriptions
+  are catalog data, not instructions for this audit.
+- The inspected thread action menu includes `Move to right pane` and `Open in`;
+  `Add scheduled task...` was not present in this sample. Treat availability as
+  context-dependent rather than deleting the earlier observation.
+- The management page's scope labels and the directory's scope tabs do not prove
+  where enablement writes land. No per-thread toggle or project/plugin scope
+  write was performed. The observed switch values were on; the appearance of an
+  actually disabled plugin remains unverified.
+
+Local evidence is under `~/.cache/codex-runs/keepharness/parity-round4/shots/`
+(`c-directory.png`, `c-absent-detail.png`, `c-manage.png`, `c-apps.png`,
+`c-mcps.png`, `c-skills.png`, structural JSON and the shortcut list), not in git.
+The initial `c-settings.json` contains navigation failures after the rail Code
+Review entry was selected instead of its Settings entry. The later targeted
+recovery opened Code Review settings, Git, Worktrees, Archived chats and Keyboard
+shortcuts successfully; `c-settings-recovery.json` preserves that tool output
+with its provenance, and `c-shortcuts.txt` was captured during that recovery.
+The existing Chrome was connected through its plugin using a new task-owned tab.
+Electron attachment is outside that plugin's exposed capabilities, so the
+announced desktop fallback used Playwright over loopback port 9339. The initial
+window-close request did not exit the main process within 30 seconds; SIGTERM
+targeted only the verified ChatGPT main PID. The inspected debug instance was
+then quit through File > Quit ChatGPT and the usual `chatgpt-host` launcher was
+started without debug flags. Port 9339 was verified closed. No unrelated Codex
+server process was targeted.
+
 Launch note: the debug port is opened by passing `--remote-debugging-port=9339 --remote-debugging-address=127.0.0.1` to the launcher (`chatgpt-host` forwards its arguments to the binary); OS-level accelerators such as `Ctrl+,` and `Ctrl+K` sent through the debug protocol did not reach the app, so pages were opened through the UI buttons. The earlier crashes (Skia `SkFontMgr_FontConfigInterface` "Not implemented") came from launching without the app's own fontconfig. Launching the build through `systemd-run --user` on the host with `FONTCONFIG_FILE=<app dir>/fonts.conf`, `ELECTRON_OZONE_PLATFORM_HINT=auto`, `--disable-gpu --ozone-platform=wayland` and `--remote-debugging-port=9339` (loopback only) rendered text in screenshots and did not crash on any page opened in the second pass.
 
 ## Navigation model
@@ -100,7 +161,7 @@ First control: a scope dropdown with three values, `Codex`, `Work`, `Admin` (the
 | Parental controls, Trusted contact | One explanatory paragraph and a single add button |
 | Voice | Microphone, Language, Voice, Voice chat hotkey, Dictation, Recent recordings (per row `Retry` and an actions menu: Download recording, Delete recording) |
 | Mini & Pets | `Show mini` preview, `Customize`, `My pets`, `Create pet` |
-| Plugins | Same directory as the Customize screen (see below) |
+| Plugins | Installed-item management, reached through Customize > Manage; distinct from the directory (see Manage destination below) |
 | Passwords | Search, `Saved passwords (n)`, `Refresh`, empty state `No saved passwords` |
 | Computer use | `Control` section listing a browser with `Install` |
 | Browser | In-app browser: link and URL open destinations, `Show full URL`, clear browsing data, history, annotation screenshots, password manager, contact info, extensions, downloads, site permissions, WebMCP site tools switch, agent permissions table (site pattern, Browsing, Downloads, Uploads; values Requires approval, Always allow, Block), developer mode `Enable full CDP access` |

@@ -2,6 +2,8 @@ import asyncio
 import sys
 from unittest.mock import AsyncMock, patch
 
+import pytest
+
 from control.integration_catalog import catalog
 
 
@@ -57,6 +59,8 @@ def test_codex_catalog_combines_configured_mcp_and_available_plugins_without_sec
             "kind": "plugin",
             "status": "installed",
             "enabled": True,
+            "marketplace": "openai",
+            "version": "1",
         },
         {
             "id": "plugin:linear@openai",
@@ -64,6 +68,8 @@ def test_codex_catalog_combines_configured_mcp_and_available_plugins_without_sec
             "kind": "plugin",
             "status": "available",
             "enabled": False,
+            "marketplace": "openai",
+            "version": "2",
         },
     ]
     assert "secret" not in str(result)
@@ -91,6 +97,7 @@ def test_claude_uses_available_plugins_and_only_parses_mcp_names():
                 "kind": "plugin",
                 "status": "available",
                 "enabled": False,
+                "marketplace": "anthropic",
             },
         ],
         "warnings": [],
@@ -197,6 +204,98 @@ def test_plugin_descriptions_are_preserved_as_text_for_both_statuses():
     assert items[0]["description"] == "Explains installed tools."
     assert items[1]["description"] == "<b>Plain text description</b>"
     assert "description" not in items[2]
+
+
+def test_plugin_detail_metadata_is_allowlisted_and_bounded():
+    import json
+
+    from control.integration_catalog import _plugins
+
+    items = _plugins(json.dumps({"available": [{
+        "id": "documents@official", "marketplaceName": "official", "version": "1.2.3",
+        "author": {"name": "Example Developer", "email": "secret@example.test"},
+        "homepage": "https://example-user:EXAMPLE_TOKEN@example.test/plugin?token=EXAMPLE_QUERY#EXAMPLE_FRAGMENT",
+        "apps": [{"name": "Documents", "token": "secret"}],
+        "skills": ["Draft documents"], "credentials": {"token": "never"},
+        "source": {"source": "local", "path": "/secret/local/path"},
+    }, {
+        "id": "issues@official", "repository": {"url": "https://example.test/issues?private=yes#fragment", "token": "secret"}
+    }, {
+        "id": "local-file@official", "homepage": "file:///private/example/checkout"
+    }, {
+        "id": "local-http@official", "homepage": "http://127.0.0.1/private/example/checkout"
+    }, {
+        "id": "local-http-dot@official", "homepage": "http://127.0.0.1./private/example/checkout"
+    }, {
+        "id": "local-private-dot@official", "homepage": "http://192.168.1.1./private/example/checkout"
+    }, {
+        "id": "local-short-loopback@official", "homepage": "http://127.1/private/example/checkout"
+    }, {
+        "id": "public-port@official", "homepage": "https://example.test:8443/plugin?private=yes#fragment"
+    }, {
+        "id": "malformed-port@official", "homepage": "https://example.test:not-a-port/plugin"
+    }, {
+        "id": "local-hex-ipv4@official", "homepage": "http://0x7f.0.0.1/private/example/checkout"
+    }, {
+        "id": "local-path@official", "repository": "/private/example/checkout"
+    }]}))
+    item = items[0]
+    assert item == {
+        "id": "plugin:documents@official", "name": "documents@official", "kind": "plugin",
+        "status": "available", "enabled": False, "marketplace": "official", "version": "1.2.3",
+        "developer": "Example Developer", "source": "https://example.test/plugin",
+        "apps": ["Documents"], "skills": ["Draft documents"],
+    }
+    assert "secret" not in str(item)
+    assert items[1]["source"] == "https://example.test/issues"
+    assert all("source" not in item for item in items[2:7])
+    assert items[7]["source"] == "https://example.test:8443/plugin"
+    assert all("source" not in item for item in items[8:])
+    public_json = json.dumps(items)
+    for secret in ("EXAMPLE_TOKEN", "EXAMPLE_QUERY", "EXAMPLE_FRAGMENT", "/private/example/checkout", "/secret/local/path"):
+        assert secret not in public_json
+
+
+@pytest.mark.parametrize("source", [
+    "http://127%2e0.0.1/private/example/checkout",
+    "https://bad host.example/plugin",
+    "https://bad\thost.example/plugin",
+    "https://bad\nhost.example/plugin",
+    "https://bad\x00host.example/plugin",
+    "https://bad\\host.example/plugin",
+    "https://bad_host.example/plugin",
+    "https://-bad.example/plugin",
+    "https://bad-.example/plugin",
+    "https://bad..example/plugin",
+    "https://example.test../plugin",
+    "https://" + "x" * 64 + ".example/plugin",
+    "https://" + ".".join(["x" * 63] * 4) + "/plugin",
+    "http://[2606:4700:4700::1111%25eth0]/plugin",
+    "https://example.test:/plugin",
+    "https://example.test:65536/plugin",
+    "https://example.test:+443/plugin",
+    "https://example.test:１２/plugin",
+    "https://[example.test]/plugin",
+    "https://example.test]/plugin",
+    "https://example.0x7f/plugin",
+    "https://example.123/plugin",
+])
+def test_plugin_metadata_omits_malformed_source_authorities(source):
+    from control.integration_catalog import _plugin_metadata
+
+    assert "source" not in _plugin_metadata({"homepage": source})
+
+
+@pytest.mark.parametrize(("source", "expected"), [
+    ("https://USER:secret@Example.Test.:8443/plugin?q=secret#secret", "https://example.test:8443/plugin"),
+    ("http://8.8.8.8:8080/plugin", "http://8.8.8.8:8080/plugin"),
+    ("https://[2606:4700:4700::1111]:443/plugin", "https://[2606:4700:4700::1111]:443/plugin"),
+    ("https://xn--bcher-kva.example/plugin", "https://xn--bcher-kva.example/plugin"),
+])
+def test_plugin_metadata_preserves_valid_public_source_authorities(source, expected):
+    from control.integration_catalog import _plugin_metadata
+
+    assert _plugin_metadata({"homepage": source})["source"] == expected
 
 
 def test_plugin_description_from_local_manifest_is_bounded(tmp_path):

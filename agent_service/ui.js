@@ -1319,6 +1319,20 @@ const userErrors = {
     "The server's Gemini settings are invalid. Ask the administrator to review them.",
   deepseek_api_configuration_required:
     "DeepSeek needs an API key. Add it in the admin panel.",
+  deepseek_credential_isolation:
+    "DeepSeek could not verify its private credentials and shell settings. Ask the administrator to review its provider setup.",
+  deepseek_session_identity_ambiguous:
+    "This saved session's DeepSeek identity cannot be verified. Start a new conversation to continue.",
+  deepseek_session_identity_mismatch:
+    "This saved session belongs to another provider or engine. Start a new conversation to use DeepSeek.",
+  codex_session_identity_ambiguous:
+    "This saved session's Codex identity cannot be verified. Start a new conversation to continue.",
+  codex_session_identity_mismatch:
+    "This saved session belongs to another provider or engine. Start a new conversation to use Codex.",
+  local_session_identity_ambiguous:
+    "This saved session's local model identity cannot be verified. Start a new conversation to continue.",
+  local_session_identity_mismatch:
+    "This saved session belongs to another provider or engine. Start a new conversation to use the local model.",
   deepseek_effort_unavailable:
     "This reasoning level is not available for DeepSeek. Choose another one.",
   local_cli_binary_unavailable:
@@ -3005,6 +3019,7 @@ function newConversation(title = "New Conversation", projectId = $("project").va
     );
     return;
   }
+  clearProjectTrust();
   saveView();
   const draftProject = $("project").value;
   const changedProject = projectId !== draftProject;
@@ -3058,7 +3073,7 @@ function newConversation(title = "New Conversation", projectId = $("project").va
   setBusy(false);
   status("");
   $("prompt").focus({ preventScroll: true });
-  refreshProjectPermissions();
+  void refreshProjectPermissions().then((ready) => ready && refreshProjectTrust());
   if (changedProject) { clearResourceItems(); void refreshWorkspaceResources(); void loadAuthorizedProjectRoots(); }
 }
 function chooseProject(id) {
@@ -3186,6 +3201,7 @@ function openDeleteProjectFolder(project, label, trigger) {
         if (deleted.has(option.value)) option.remove();
       if (deleted.has(project) && !$("project").value)
         $("project").value = "sem-projeto";
+      void refreshProjectTrust();
       dialog.close();
       resetProjectFiles();
       renderProjects();
@@ -4881,6 +4897,7 @@ async function watch(retries = 0) {
 }
 async function load(id, legacy = false, restoredView = null, scrollTop) {
   if (submitting || cancelling || uploads) return;
+  clearProjectTrust();
   if (!loading && !restoredView) saveView();
   let savedDraft = restoredView;
   if (!savedDraft) {
@@ -5049,6 +5066,7 @@ async function load(id, legacy = false, restoredView = null, scrollTop) {
     loading = false;
     if (savedDraft) restoreView(savedDraft);
     else updateComposer();
+    void refreshProjectTrust();
     if (restoreNavigationFocus) {
       const target = innerWidth <= 620 ? $("messages") :
         $("sidebar").querySelector('.conversation-row > button[aria-current="true"]');
@@ -5077,6 +5095,7 @@ async function load(id, legacy = false, restoredView = null, scrollTop) {
     setBusy(false);
     $("prompt").value = priorDraft;
     updateComposer();
+    void refreshProjectTrust();
     closeSidebar();
     // F-80: a conversation the server confirms is gone leaves the list.
     if (e.code === "conversation_not_found") {
@@ -6115,6 +6134,7 @@ $("model").onchange = () => {
   updateComposer();
   saveView();
   quota();
+  void refreshProjectTrust();
 };
 $("quota-refresh").onclick = () => void quota();
 document.addEventListener("visibilitychange", () => {
@@ -6341,6 +6361,156 @@ $("project-button").onclick = () => {
 };
 // Connectors and plugins (Codex "Plugins" chip): what is installed, allowed and
 // effective for this project and route, and what was used here recently.
+let projectTrustRequest = 0,
+  projectTrustWriting = false,
+  projectTrustData = null,
+  projectTrustContext = null,
+  projectTrustError = "";
+
+function clearProjectTrust() {
+  projectTrustRequest++;
+  projectTrustData = projectTrustContext = null;
+  projectTrustError = "";
+  const panel = $("project-trust-prompt");
+  panel.replaceChildren();
+  panel.hidden = true;
+}
+
+function currentProjectTrust(context) {
+  return context && context.request === projectTrustRequest &&
+    context.conversation === conversation && context.project_id === $("project").value &&
+    context.provider === resourceEngine().backend;
+}
+
+function renderProjectTrust() {
+  const context = projectTrustContext,
+    panel = $("project-trust-prompt"),
+    trust = projectTrustData?.trust,
+    approvals = Array.isArray(projectTrustData?.mcp_approvals)
+      ? projectTrustData.mcp_approvals
+      : [];
+  panel.replaceChildren();
+  panel.hidden = !trust?.required && !approvals.length && !projectTrustError;
+  if (panel.hidden) return;
+  if (trust?.required) {
+    const copy = document.createElement("div"),
+      heading = document.createElement("strong"),
+      warning = document.createElement("p"),
+      accept = document.createElement("button");
+    copy.className = "project-trust-copy";
+    heading.textContent = "Trust " + context.label + "?";
+    warning.textContent =
+      "Trusting this project applies to both Codex and Claude Code in KeepHarness. It enables project instructions, Claude hooks and environment settings, including env entries. Versioned .mcp.json servers approved in project settings can then run; other servers still need approval below.";
+    copy.append(heading, warning);
+    accept.type = "button";
+    accept.className = "project-trust-action";
+    accept.textContent = "Trust " + context.label;
+    accept.disabled = projectTrustWriting;
+    accept.onclick = () => writeProjectTrust(context, "trust", {});
+    panel.append(copy, accept);
+  }
+  for (const item of approvals) {
+    const row = document.createElement("div"),
+      copy = document.createElement("div"),
+      name = document.createElement("strong"),
+      detail = document.createElement("small"),
+      toggle = document.createElement("button");
+    row.className = "project-mcp-approval";
+    row.dataset.testid = "project-mcp-approval";
+    row.dataset.server = item.server;
+    name.textContent = item.server;
+    detail.textContent = "Project MCP server · " + (item.approved ? "Approved" : "Not approved");
+    copy.append(name, detail);
+    toggle.type = "button";
+    toggle.className = "project-trust-action";
+    toggle.textContent = (item.approved ? "Revoke " : "Approve ") + item.server;
+    toggle.disabled = projectTrustWriting;
+    toggle.onclick = () => writeProjectTrust(context, "mcp-approvals", { server: item.server, approved: !item.approved });
+    row.append(copy, toggle);
+    panel.append(row);
+  }
+  if (projectTrustError) {
+    const error = document.createElement("p");
+    error.className = "project-trust-error";
+    error.setAttribute("role", "status");
+    error.textContent = projectTrustError;
+    panel.append(error);
+  }
+}
+
+async function writeProjectTrust(context, action, extra) {
+  if (projectTrustWriting || !currentProjectTrust(context)) return;
+  const server = extra.server;
+  projectTrustWriting = true;
+  projectTrustError = "";
+  renderProjectTrust();
+  let current = true;
+  try {
+    const data = await post("/v1/provider-state/" + action, {
+      provider: action === "mcp-approvals" ? "claude" : context.provider,
+      project_id: context.project_id,
+      expected_project_root: context.expected_project_root,
+      ...extra,
+    });
+    current = currentProjectTrust(context);
+    if (current) {
+      projectTrustData = data;
+      if (action === "mcp-approvals") {
+        const actual = data.mcp_approvals?.find((item) => item.server === server)?.approved;
+        if (actual !== extra.approved)
+          projectTrustError = data.trust?.required
+            ? "Approval saved for " + server + ". Trust this project before it can run."
+            : server + " remains not approved because another CLI settings layer denies it.";
+      }
+    }
+  } catch (error) {
+    current = currentProjectTrust(context);
+    if (current && error.status === 409) {
+      const refresh = refreshProjectTrust(), request = projectTrustRequest;
+      await refresh;
+      current = request === projectTrustRequest && currentProjectTrust(projectTrustContext);
+    }
+    if (current)
+      projectTrustError = error.status === 409
+        ? "The CLI state changed elsewhere. Review it and try again."
+        : error.message;
+  } finally {
+    projectTrustWriting = false;
+    renderProjectTrust();
+    if (current && currentProjectTrust(projectTrustContext)) {
+      if (server)
+        $("project-trust-prompt").querySelector('[data-server="' + CSS.escape(server) + '"] button')?.focus();
+      else
+        $("project-trust-prompt").querySelector("button")?.focus();
+    }
+  }
+}
+
+async function refreshProjectTrust() {
+  clearProjectTrust();
+  const context = {
+    request: projectTrustRequest,
+    conversation,
+    provider: resourceEngine().backend,
+    project_id: $("project").value,
+    label: $("project").selectedOptions[0]?.textContent || $("project").value,
+  };
+  if (context.project_id === "sem-projeto" || !["codex", "claude"].includes(context.provider)) return;
+  try {
+    const query = new URLSearchParams({ provider: context.provider, project_id: context.project_id });
+    const data = await json("/v1/provider-state?" + query);
+    if (!currentProjectTrust(context)) return;
+    if (data.snapshot?.provider !== context.provider || !data.snapshot?.project_root)
+      throw Error("The project context is unavailable. Refresh and try again.");
+    projectTrustContext = { ...context, expected_project_root: data.snapshot.project_root };
+    projectTrustData = data;
+  } catch (error) {
+    if (!currentProjectTrust(context)) return;
+    projectTrustError = "Couldn't check project trust. " + error.message;
+  }
+  renderProjectTrust();
+}
+
 function usageAge(seconds) {
   const age = Math.max(0, Date.now() / 1000 - Number(seconds || 0));
   return age < 3600
@@ -6428,15 +6598,15 @@ function elsewhereSection(list, backend, menu) {
         : "Not connected on " + here + " (connected on " + on + ")";
     text.append(name, meta);
     box.append(HarnessUI.icon("plug"), text);
-    // The allow list lives in Settings (the harness API has no enable endpoint): System > Providers
-    // where the admin is reachable, Plugins otherwise.
+    // Provider state lives in the Plugins facade where the admin is reachable, and in the native
+    // Plugins catalog otherwise.
     const action = document.createElement("button");
     action.type = "button";
     action.className = "plugins-action";
     action.textContent = entry.here === "enable" ? "Enable" : "Open Plugins";
     action.onclick = () => {
       menu.hidePopover();
-      openSettings("providers") || openSettings("plugins");
+      openSettings("plugins");
     };
     box.append(action);
     row.append(box);
@@ -6534,10 +6704,10 @@ function showIntegrationDetail(item) {
     const manage = document.createElement("button");
     manage.type = "button";
     manage.className = "plugins-manage";
-    manage.append(HarnessUI.icon("settings"), document.createTextNode("Manage connectors and plugins"));
+    manage.append(HarnessUI.icon("settings"), document.createTextNode("Discover and manage plugins"));
     manage.onclick = () => {
       $("plugins-menu").hidePopover();
-      openSettings("providers");
+      openSettings("plugins");
     };
     parts.push(manage);
   }
@@ -6617,10 +6787,10 @@ async function renderPluginsMenu() {
       const manage = document.createElement("button");
       manage.type = "button";
       manage.className = "plugins-manage";
-      manage.append(HarnessUI.icon("settings"), document.createTextNode("Manage connectors and plugins"));
+      manage.append(HarnessUI.icon("settings"), document.createTextNode("Discover and manage plugins"));
       manage.onclick = () => {
         menu.hidePopover();
-        openSettings("providers");
+        openSettings("plugins");
       };
       parts.push(manage);
     }
@@ -6929,6 +7099,7 @@ function modelAvailability(
   // opened over the network, or as localhost for a 127.0.0.1 admin, cannot frame it.
   $("settings-system-nav").hidden =
     link.hidden || location.hostname !== new URL(link.href).hostname;
+  syncPluginsEntryPoint();
   // "Open admin panel" is Settings > Providers, not a second window.
   // Where Settings > System is unavailable (localhost, network host) the link keeps its normal navigation.
   link.onclick = (event) => {
@@ -6956,6 +7127,7 @@ let backgroundTicks = 0;
 async function initialize() {
   if (initializing) return;
   initializing = true;
+  clearProjectTrust();
   setReadiness(false);
   const retry = $("models-retry");
   retry.disabled = true;
@@ -7034,6 +7206,7 @@ async function initialize() {
         }
       }, 10000);
     }
+    void refreshProjectTrust();
     setReadiness(true);
     if (!$("activity-panel").hidden) {
       loadAuthorizedProjectRoots();
@@ -7172,6 +7345,7 @@ async function probeReadiness() {
         ...p.projects.map((id) => new Option(p.details?.[id]?.label || id, id)),
       );
       $("project").value = project;
+      void refreshProjectTrust();
       renderProjects();
     }
     try {
@@ -8041,6 +8215,16 @@ function restoreSelection() {
 // "customize" is the pre-rename key of the Plugins section.
 const savedSection = prefs.get("last_section", "appearance");
 let lastSection = savedSection === "customize" ? "plugins" : savedSection;
+const pluginsSettingsButton = document.querySelector('[data-settings="plugins"]');
+function syncPluginsEntryPoint() {
+  if ($("settings-system-nav").hidden) {
+    pluginsSettingsButton.dataset.settings = "plugins";
+    delete pluginsSettingsButton.dataset.adminSection;
+  } else {
+    pluginsSettingsButton.dataset.settings = "system";
+    pluginsSettingsButton.dataset.adminSection = "plugins";
+  }
+}
 function showSettingsPage(button) {
   lastSection = button.dataset.adminSection || button.dataset.settings;
   prefs.set("last_section", lastSection);
@@ -8083,7 +8267,10 @@ function showAdminSection(section = "providers") {
   const label = document.querySelector('[data-admin-section="' + section + '"]');
   frame.title = "Administration: " + (label?.textContent || section);
   const next = adminFrameUrl(section);
-  if (frame.src !== next) frame.src = next;
+  if (frame.dataset.settingsSearchReady && new URL(frame.src).origin === new URL(next).origin) {
+    // Search has authenticated this admin document. Retain its unsaved form values.
+    frame.contentWindow.postMessage({ type: "keepharness:settings-section", section }, new URL(next).origin);
+  } else if (frame.src !== next) frame.src = next;
 }
 // `section` is a data-admin-section or a data-settings value; false when it is an admin section
 // on a host that cannot frame the admin, or unknown.
@@ -8268,7 +8455,7 @@ const currentBaseView = () => (conversation ? { kind: "conversation", id: conver
 const pressedSettings = () => document.querySelector('[data-settings][aria-pressed="true"]');
 // The five System buttons share data-settings="system"; `sub` (the admin section) tells them apart.
 const settingsView = (section, button) =>
-  section === "plugins"
+  button === pluginsSettingsButton || section === "plugins"
     ? { kind: "plugins", button }
     : { kind: "settings", section, sub: section === "system" ? (button || pressedSettings())?.dataset.adminSection : undefined, button };
 const navigationBlocked = (view) => ["conversation", "home"].includes(view.kind) && (submitting || cancelling || loading || uploads > 0);
@@ -8325,15 +8512,16 @@ async function applyView(view, replay = false) {
   } else if (view.kind === "space") await openSpace();
   else if (view.kind === "scheduled") await openScheduled();
   else {
-    const section = view.kind === "plugins" ? "plugins" : view.section;
+    const section = view.kind === "plugins" ? pluginsSettingsButton.dataset.settings : view.section;
     if (!$("settings-dialog").open) {
       syncThemeToggle();
       $("settings-dialog").showModal();
       refreshCatalog();
     }
-    const button = view.button ||
-      document.querySelector('[data-settings="' + section + '"]' + (view.sub ? '[data-admin-section="' + view.sub + '"]' : ""));
-    if (view.button || button !== pressedSettings()) showSettingsPage(button);
+    const button = view.kind === "plugins"
+      ? pluginsSettingsButton
+      : view.button || document.querySelector('[data-settings="' + section + '"]' + (view.sub ? '[data-admin-section="' + view.sub + '"]' : ""));
+    if (view.kind === "plugins" || view.button || button !== pressedSettings()) showSettingsPage(button);
   }
 }
 async function navigate(view, { record = true } = {}) {
@@ -9174,9 +9362,11 @@ async function useHarnessAgent(agent) {
     status(error.message);
   }
 }
-// Rail shortcuts (Codex model): the run pipeline and the agent and skill catalog.
+// Rail shortcuts (Codex model): the run pipeline and the Plugins facade. A remote page cannot
+// frame the local admin, so its Plugins shortcut falls back to the native Agents page.
 $("rail-runs").onclick = () => $("run-status-toggle")?.click();
-$("rail-agents").onclick = () => void navigate({ kind: "plugins" });
+$("rail-agents").onclick = () =>
+  openSettings($("settings-system-nav").hidden ? "agents" : "plugins");
 $("settings-tour").onclick = () => $("settings-dialog").close();
 let quotaReturnsToSettings = false;
 $("settings-quota").onclick = () => {
@@ -9264,9 +9454,46 @@ async function refreshProjectFileSearch(value) {
   }
 }
 function renderConversationSearch() {
-  const query = normalizeSearch($("conversation-search").value.trim());
+  const input = $("conversation-search"),
+    activeResult = document.activeElement?.closest?.(".conversation-search-result"),
+    focusedResultId = activeResult?.dataset.searchResultId,
+    query = normalizeSearch(input.value.trim());
   const includes = (...values) =>
     !query || normalizeSearch(values.filter(Boolean).join(" ")).includes(query);
+  const composerAvailable = () => {
+    const composer = $("prompt");
+    return !composer.disabled && composer.checkVisibility() && !composer.closest("[inert]");
+  };
+  const resultButton = (id, titleText, detailText, action) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "conversation-search-result";
+    button.dataset.searchResultId = id;
+    const title = document.createElement("strong"),
+      detail = document.createElement("small");
+    title.textContent = titleText;
+    detail.textContent = detailText;
+    button.append(title, detail);
+    button.onclick = action;
+    return button;
+  };
+  const commandMatches = [
+    { id: "new-conversation", title: "New conversation", terms: "new chat home", available: () => !(submitting || cancelling || loading || uploads), run: () => void navigate({ kind: "home" }) },
+    { id: "focus-composer", title: "Focus composer", terms: "write message prompt", available: composerAvailable, run: () => {
+      if (composerAvailable()) $("prompt").focus();
+    } },
+    { id: "keyboard-shortcuts", title: "Keyboard shortcuts", terms: "key bindings reference", run: openKeyboardShortcuts },
+  ].filter((item) => (!item.available || item.available()) && includes(item.title, item.terms));
+  const settingsMatches = [...document.querySelectorAll(".settings-nav-group:not([hidden])")]
+    .flatMap((section) => {
+      const group = section.querySelector(".settings-nav-label")?.textContent.trim() || "Settings";
+      return [...section.querySelectorAll("[data-settings]")].map((button) => ({
+        title: button.textContent.trim(),
+        section: button.dataset.adminSection || button.dataset.settings,
+        group,
+      }));
+    })
+    .filter((item) => includes(item.title, item.group, "Settings"));
   const observedConversationIds = new Set();
   const observedRuns = observedActivityJobs.map((item) => {
     const source = conversations.find((conversation) => conversation.id === item.conversation_id);
@@ -9323,13 +9550,13 @@ function renderConversationSearch() {
   const fileMatches = [...loadedFiles.entries()].filter(([path, file]) =>
     includes(path, file.name),
   );
-  const total = runMatches.length + fileMatches.length;
+  const total = commandMatches.length + settingsMatches.length + runMatches.length + fileMatches.length;
   $("search-clear").hidden = !query;
   $("search-results").textContent = total
     ? total + " result(s) found"
     : query
-      ? "No run or loaded file matched."
-      : "No runs or loaded files are available.";
+      ? "No command, setting, run, or loaded file matched."
+      : "No commands, settings, runs, or loaded files are available.";
   const sections = [];
   const group = (name, items) => {
     if (!items.length) return;
@@ -9341,11 +9568,30 @@ function renderConversationSearch() {
     sections.push(section);
   };
   group(
+    "Commands",
+    commandMatches.map((item) =>
+      resultButton("command:" + item.id, item.title, "Command", () => {
+        $("conversation-search-dialog").close();
+        item.run();
+      }),
+    ),
+  );
+  group(
+    "Settings",
+    settingsMatches.map((item) =>
+      resultButton("settings:" + item.section, item.title, "Settings › " + item.group, () => {
+        $("conversation-search-dialog").close();
+        openSettings(item.section);
+      }),
+    ),
+  );
+  group(
     "Runs",
     runMatches.map((c) => {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "conversation-search-result";
+      button.dataset.searchResultId = "run:" + (c.id || "") + ":" + (c.runId || "");
       const title = document.createElement("strong"),
         detail = document.createElement("small");
       title.textContent = c.title || "Conversation";
@@ -9393,6 +9639,7 @@ function renderConversationSearch() {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "conversation-search-result";
+      button.dataset.searchResultId = "file:" + path;
       const title = document.createElement("strong");
       title.textContent = path;
       const detail = document.createElement("small");
@@ -9407,7 +9654,13 @@ function renderConversationSearch() {
       return button;
     }),
   );
-  $("conversation-search-list").replaceChildren(...sections);
+  const list = $("conversation-search-list");
+  list.replaceChildren(...sections);
+  if (focusedResultId) {
+    const replacement = [...list.querySelectorAll(".conversation-search-result")]
+      .find((result) => result.dataset.searchResultId === focusedResultId && !result.disabled);
+    (replacement || input).focus({ preventScroll: true });
+  }
 }
 function openConversationSearch() {
   renderConversationSearch();
@@ -9421,7 +9674,17 @@ $("conversation-search-dialog").addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
     event.preventDefault();
     $("conversation-search-dialog").close();
+    return;
   }
+  if (!["ArrowDown", "ArrowUp"].includes(event.key)) return;
+  const results = [...$("conversation-search-list").querySelectorAll("button:not(:disabled)")];
+  if (!results.length) return;
+  const index = results.indexOf(document.activeElement);
+  event.preventDefault();
+  results[event.key === "ArrowDown"
+    ? (index + 1 + results.length) % results.length
+    : (index < 0 ? results.length - 1 : index - 1 + results.length) % results.length
+  ].focus();
 });
 $("conversation-search").addEventListener("input", () => {
   renderConversationSearch();
@@ -9439,6 +9702,81 @@ $("search-clear").onclick = () => {
   renderConversationSearch();
   $("conversation-search").focus();
 };
+const shortcutModifier = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl";
+$("conversation-search-title").textContent = "Search KeepHarness";
+document.querySelector('label[for="conversation-search"]').textContent = "Commands, Settings, runs, and files";
+$("conversation-search").placeholder = "Type a command, setting, run, or file…";
+$("search-conversations").querySelector("span").textContent = "Search KeepHarness";
+$("search-conversations").querySelector("kbd").textContent = shortcutModifier + " K";
+$("search-conversations").title = "Search KeepHarness · " + shortcutModifier + "+K";
+$("settings-appearance").querySelector(".shortcut-help").textContent =
+  shortcutModifier + "+/: keyboard shortcuts\n" +
+  shortcutModifier + "+K or " + shortcutModifier + "+Shift+P: search KeepHarness\n" +
+  "Escape: close the current dialog or panel";
+const keyboardShortcuts = [
+  ["Search KeepHarness", [shortcutModifier, "K"]],
+  ["Search KeepHarness", [shortcutModifier, "Shift", "P"]],
+  ["Open Settings", [shortcutModifier, ","]],
+  ["Toggle run console", [shortcutModifier, "J"]],
+  ["Go back", [shortcutModifier, "["]],
+  ["Go forward", [shortcutModifier, "]"]],
+  ["Keyboard shortcuts", [shortcutModifier, "/"]],
+];
+let shortcutReturnFocus = null;
+function renderKeyboardShortcuts() {
+  const query = normalizeSearch($("keyboard-shortcuts-search").value.trim());
+  const matches = keyboardShortcuts.filter(([action, keys]) =>
+    !query || normalizeSearch(action + " " + keys.join(" ") + " " + keys.join("+")).includes(query),
+  );
+  $("keyboard-shortcuts-status").textContent = matches.length
+    ? matches.length + " shortcut(s) found"
+    : "No shortcut matched.";
+  $("keyboard-shortcuts-list").replaceChildren(
+    ...matches.map(([action, keys]) => {
+      const row = document.createElement("div"),
+        label = document.createElement("span"),
+        binding = document.createElement("kbd");
+      row.className = "keyboard-shortcut-row";
+      row.tabIndex = -1;
+      row.setAttribute("role", "listitem");
+      label.textContent = action;
+      binding.textContent = keys.join(" ");
+      row.append(label, binding);
+      return row;
+    }),
+  );
+}
+function closeKeyboardShortcuts() {
+  $("keyboard-shortcuts-dialog").close();
+  if (shortcutReturnFocus?.isConnected && !shortcutReturnFocus.closest("[inert]"))
+    shortcutReturnFocus.focus();
+  shortcutReturnFocus = null;
+}
+function openKeyboardShortcuts() {
+  shortcutReturnFocus = document.activeElement;
+  $("keyboard-shortcuts-search").value = "";
+  renderKeyboardShortcuts();
+  $("keyboard-shortcuts-dialog").showModal();
+  $("keyboard-shortcuts-search").focus();
+}
+$("keyboard-shortcuts-search").addEventListener("input", renderKeyboardShortcuts);
+$("keyboard-shortcuts-close").onclick = closeKeyboardShortcuts;
+$("keyboard-shortcuts-dialog").addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeKeyboardShortcuts();
+    return;
+  }
+  if (!["ArrowDown", "ArrowUp"].includes(event.key)) return;
+  const rows = [...$("keyboard-shortcuts-list").querySelectorAll(".keyboard-shortcut-row")];
+  if (!rows.length) return;
+  const index = rows.indexOf(document.activeElement);
+  event.preventDefault();
+  rows[event.key === "ArrowDown"
+    ? (index + 1 + rows.length) % rows.length
+    : (index < 0 ? rows.length - 1 : index - 1 + rows.length) % rows.length
+  ].focus();
+});
 let composerWidth = 0;
 new ResizeObserver(entries => {
   const width = entries[0].contentRect.width;
@@ -9516,6 +9854,7 @@ $("image-capability-remove").onclick = () => {
   $("prompt").focus();
 };
 function updateComposer() {
+  if (projectTrustContext && !currentProjectTrust(projectTrustContext)) void refreshProjectTrust();
   syncComposerProjectButton();
   syncViewSwitch();
   syncComposerPickers();
@@ -9609,16 +9948,12 @@ document.addEventListener("keydown", (e) => {
     document.querySelector("[popover]:popover-open")
   )
     return;
-  if (
-    (e.ctrlKey || e.metaKey) &&
-    !e.altKey &&
-    (e.key === "/" || e.key.toLowerCase() === "k")
-  ) {
+  const searchShortcut =
+    (e.key.toLowerCase() === "k" && !e.shiftKey) ||
+    (e.key.toLowerCase() === "p" && e.shiftKey);
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === "/" || searchShortcut)) {
     e.preventDefault();
-    if (e.key === "/") {
-      if (innerWidth <= 620 && $("sidebar").classList.contains("open") || innerWidth < 1000 && !$("activity-panel").hidden || (innerWidth <= 700 || innerHeight <= 500) && document.querySelector("#run-console:not([hidden])")) return;
-      $("prompt").focus();
-    }
+    if (e.key === "/") openKeyboardShortcuts();
     else openConversationSearch();
   }
   if (e.key === "Escape") {
@@ -10850,6 +11185,7 @@ $("project-form").onsubmit = async (event) => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
+    if (editing === current) clearProjectTrust();
     const p = await json("/v1/projects");
     updateProjectMetadata(p.details);
     $("project").replaceChildren(
@@ -10862,6 +11198,7 @@ $("project-form").onsubmit = async (event) => {
         policyProject = null;
         invalidateResources();
         await refreshProjectPermissions();
+        void refreshProjectTrust();
       }
       saveView();
     } else {

@@ -1,11 +1,13 @@
 """Read-only, bounded connector and plugin catalogues from installed CLIs."""
 
 import asyncio
+import ipaddress
 import json
 import os
 import re
 import signal
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 OUTPUT_LIMIT = 8 * 1024 * 1024
 # First CLI plugin discovery can take ~10 s; stay below the admin's 30 s deadline.
@@ -117,6 +119,79 @@ def _plugin_description(plugin):
     return ""
 
 
+def _plugin_metadata(plugin):
+    """Return bounded public display metadata, never arbitrary manifest fields."""
+    metadata = {}
+    marketplace = plugin.get("marketplaceName") or plugin.get("marketplace")
+    for key, value in (("marketplace", marketplace), ("version", plugin.get("version"))):
+        if isinstance(value, str) and value.strip():
+            metadata[key] = value.strip()[:200]
+    developer = plugin.get("developer") or plugin.get("author")
+    if isinstance(developer, dict):
+        developer = developer.get("name")
+    if isinstance(developer, str) and developer.strip():
+        metadata["developer"] = developer.strip()[:200]
+    source = plugin.get("homepage") or plugin.get("repository")
+    if isinstance(source, dict):
+        source = source.get("url")
+    if isinstance(source, str) and (source := _public_source(source)):
+        metadata["source"] = source
+    for key in ("apps", "skills"):
+        values = []
+        for entry in plugin.get(key, []) if isinstance(plugin.get(key), list) else []:
+            value = entry.get("name") if isinstance(entry, dict) else entry
+            if isinstance(value, str) and value.strip():
+                values.append(value.strip()[:200])
+            if len(values) == 50:
+                break
+        if values:
+            metadata[key] = values
+    return metadata
+
+
+def _public_source(value):
+    """Return a public HTTP(S) source without credentials or request-specific data."""
+    # urlsplit silently removes some controls; reject them before parsing.
+    if any(character.isspace() or ord(character) < 32 or ord(character) == 127 for character in value) or "\\" in value:
+        return ""
+    try:
+        parsed = urlsplit(value)
+        host = parsed.hostname
+        port = parsed.port
+    except (TypeError, ValueError):
+        return ""
+    if parsed.scheme not in {"http", "https"} or not host:
+        return ""
+    # Validate the complete authority: encoded hosts, zones, empty ports and
+    # bracket suffixes must not acquire a different meaning in the browser.
+    authority = parsed.netloc.rsplit("@", 1)[-1]
+    if not re.fullmatch(r"(?:\[[0-9a-fA-F:.]+\]|[A-Za-z0-9.-]+)(?::[0-9]+)?", authority):
+        return ""
+    normalized_host = host.removesuffix(".").lower()
+    try:
+        address = ipaddress.ip_address(normalized_host)
+    except ValueError:
+        labels = normalized_host.split(".")
+        if (
+            len(normalized_host) > 253
+            or len(labels) < 2
+            or any(not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label) for label in labels)
+            or normalized_host.endswith((".localhost", ".local", ".internal", ".lan"))
+            # Browsers treat a numeric final label as an IPv4 address attempt.
+            or re.fullmatch(r"(?:[0-9]+|0x[0-9a-f]*)", labels[-1])
+        ):
+            return ""
+        netloc = normalized_host
+    else:
+        if not address.is_global or address.is_multicast:
+            return ""
+        netloc = f"[{address.compressed}]" if address.version == 6 else address.compressed
+    if port is not None:
+        netloc += f":{port}"
+    source = urlunsplit((parsed.scheme, netloc, parsed.path, "", ""))
+    return source if len(source) <= 500 else ""
+
+
 def _plugins(payload):
     try:
         decoded = json.loads(payload)
@@ -159,6 +234,7 @@ def _plugins(payload):
                     else "available",
                     "enabled": plugin.get("enabled") is True,
                     **({"description": description} if description else {}),
+                    **_plugin_metadata(plugin),
                 }
             )
     return items

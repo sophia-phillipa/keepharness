@@ -8,6 +8,7 @@ import hashlib
 import json
 import logging
 import time
+from pathlib import Path
 
 import pytest
 from starlette.testclient import TestClient
@@ -657,6 +658,14 @@ def test_personal_connectors_do_not_appear_without_the_opt_in(client, settings, 
 )
 def test_family_key_normalises_the_connector_name(item, key):
     assert integrations_view.family_key(item) == key
+
+
+def test_plugin_directory_javascript_family_cases_share_the_python_contract():
+    fixture = json.loads(
+        (Path(__file__).parent / "fixtures" / "plugin-directory.json").read_text()
+    )
+    for case in fixture["family_cases"]:
+        assert integrations_view.family_key(case["item"]) == case["key"]
 
 
 def elsewhere(client, **query):

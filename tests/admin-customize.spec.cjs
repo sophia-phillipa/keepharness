@@ -81,6 +81,14 @@ const contrast = (a, b) => {
         posts.push(route.request().postDataJSON());
         return route.fulfill({ json: { id: "op-1" } });
       }
+      if (name === "provider-state") {
+        const provider = url.searchParams.get("provider");
+        const items = CATALOGS[provider].items.filter((item) => item.kind === "plugin" && item.status === "installed").map((item) => ({
+          id: item.id, name: item.name, kind: "plugin", scope: "user", enabled: true,
+          source: provider === "codex" ? "config.toml" : "settings.json", writable: true, reason: "", affects: [],
+        }));
+        return route.fulfill({ json: { snapshot: { provider, fingerprint: "fp-" + provider, items, warnings: [] }, external_changes: [] } });
+      }
       if (name === "integration-catalog") {
         catalogCalls++;
         catalogInFlight++;
@@ -103,6 +111,8 @@ const contrast = (a, b) => {
     assert.match(await loading.innerText(), /Loading plugins/);
     release();
     releaseCatalog = null;
+    await page.waitForFunction(() => document.querySelector('[data-testid="plugins-list"]')?.getAttribute("aria-busy") === "false");
+    await panel.locator('[data-testid="plugins-mode"]').click();
     const rows = panel.locator('[data-testid="plugin-row"]');
     await rows.first().waitFor();
 
@@ -123,7 +133,7 @@ const contrast = (a, b) => {
     }
     assert.equal(maxCatalogInFlight, 1, "catalogs are read one CLI at a time (the admin answers 429 to a second operation)");
     assert.equal(await panel.locator('[data-testid="plugins-add"], [aria-label*="Add"]').count(), 0, "no Add menu yet (D-034)");
-    assert.equal(await panel.locator('input[type="checkbox"], [role="switch"]').count(), 0, "no enable switch yet (#21)");
+    assert.equal(await panel.locator('[role="switch"]').count(), 4, "management keeps one real provider switch per installed state item");
 
     // One row per installed plugin, grouped by id, with provider badges.
     assert.deepEqual(await rows.locator('[data-testid="plugin-name"]').allInnerTexts(), ["GitHub", "Linear", "Slack"]);

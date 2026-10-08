@@ -30,7 +30,11 @@ const path = require("node:path");
     const serve = async (route) => {
       const url = new URL(route.request().url()),
         pathname = url.pathname;
-      if (pathname.startsWith("/admin-fixture")) return route.fulfill({ contentType: "text/html", body: "<title>admin</title>" });
+      if (pathname.startsWith("/admin-fixture"))
+        return route.fulfill({
+          contentType: "text/html",
+          body: "<!doctype html><title>admin fixture</title>",
+        });
       if (!pathname.startsWith("/v1/"))
         return route.fulfill({
           path: path.join(__dirname, "..", pathname.startsWith("/assets/") ? "harness_ui" : "agent_service", pathname === "/" ? "index.html" : pathname),
@@ -146,7 +150,7 @@ const path = require("node:path");
       (await menu.innerText()).indexOf("Installed, not available here") < (await menu.innerText()).indexOf("On other providers"),
       "the route reason comes first",
     );
-    // No enable endpoint exists on the harness API: the button opens Settings (Plugins here: the admin nav is hidden on this host).
+    // No enable endpoint exists on the harness API: on this remote host the button opens the native Plugins catalog.
     const apiCalls = [];
     page.on("request", (r) => r.method() !== "GET" && apiCalls.push(r.method() + " " + r.url()));
     await rows.nth(0).getByRole("button", { name: "Enable" }).click();
@@ -237,7 +241,7 @@ const path = require("node:path");
     assert.equal(await page.evaluate(() => elsewhereView.key), "");
     noModels = false;
 
-    // Enable with Settings > System reachable (a local host): it opens Providers, from the keyboard too.
+    // With the local admin reachable, the action opens its Plugins facade, from the keyboard too.
     const local = await (await browser.newContext({ viewport: { width: 1280, height: 860 } })).newPage();
     await local.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
     await local.route("http://127.0.0.1:18700/**", serve);
@@ -247,13 +251,14 @@ const path = require("node:path");
     await local.locator("#startup-gate").waitFor({ state: "hidden" });
     const localChip = local.locator("#execution-mode-choice").getByRole("button", { name: "Plugins" });
     const localMenu = local.getByRole("dialog", { name: "Connectors and plugins" });
-    const providers = local.locator('button[data-admin-section="providers"][aria-pressed="true"]');
     await local.waitForFunction(() => document.getElementById("plugins-chip").dataset.elsewhere === "true");
     assert.equal(await local.locator("#settings-system-nav").evaluate((el) => el.hidden), false);
     await localChip.click();
     await localMenu.getByRole("button", { name: "Enable" }).click();
-    await providers.waitFor();
+    const localPlugins = local.locator('button[data-admin-section="plugins"][aria-pressed="true"]');
+    await localPlugins.waitFor();
     assert.equal(await localMenu.isVisible(), false);
+    assert.equal(new URL(await local.locator("#admin-frame").getAttribute("src")).hash, "#plugins");
     await local.keyboard.press("Escape");
     await localChip.click();
     await localMenu.locator('[data-testid="elsewhere-row"]').first().waitFor();
@@ -261,9 +266,30 @@ const path = require("node:path");
       await local.keyboard.press("Tab");
     assert.equal(await local.evaluate(() => document.activeElement.textContent), "Enable", "Enable is reachable with Tab");
     await local.keyboard.press("Enter");
-    await providers.waitFor();
+    await localPlugins.waitFor();
     await local.waitForFunction(() => document.activeElement.closest("#settings-dialog"));
     assert.deepEqual(localWrites, []);
+
+    await local.keyboard.press("Escape");
+    await localChip.click();
+    const manage = localMenu.getByRole("button", { name: "Discover and manage plugins" });
+    await manage.waitFor();
+    await manage.click();
+    await localPlugins.waitFor();
+    assert.equal(new URL(await local.locator("#admin-frame").getAttribute("src")).hash, "#plugins");
+
+    await local.keyboard.press("Escape");
+    await localChip.click();
+    await localMenu.getByRole("button", { name: /^github/ }).click();
+    await localMenu.getByRole("button", { name: "Discover and manage plugins" }).click();
+    await localPlugins.waitFor();
+    assert.equal(new URL(await local.locator("#admin-frame").getAttribute("src")).hash, "#plugins");
+
+    await local.keyboard.press("Escape");
+    await localChip.click();
+    await localMenu.locator('[data-testid="elsewhere-row"]').nth(1).getByRole("button", { name: "Open Plugins" }).click();
+    await localPlugins.waitFor();
+    assert.equal(new URL(await local.locator("#admin-frame").getAttribute("src")).hash, "#plugins");
 
     // Nothing to connect elsewhere: no dot, no section, no carry-over line.
     noElsewhere = true;

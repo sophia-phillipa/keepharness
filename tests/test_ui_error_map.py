@@ -33,6 +33,10 @@ DYNAMIC = {
     "codex_output_limit",
     "deepseek_output_limit",
     "local_output_limit",
+    "codex_session_identity_ambiguous",  # shared native marker validation
+    "codex_session_identity_mismatch",
+    "local_session_identity_ambiguous",
+    "local_session_identity_mismatch",
     "context_limit_exceeded",  # queue_worker settle
     "service_restarted",  # conversation_service recovery
     "model_removed",  # conversation_service cancels a run on a config reload

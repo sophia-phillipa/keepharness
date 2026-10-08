@@ -120,7 +120,7 @@ test(0, "Search for a conversation with no result", async (p) => {
   await p.fill("#conversation-search", "nonexistent");
   assert.match(
     await p.locator("#search-results").innerText(),
-    /No run or loaded file matched/,
+    /No command, setting, run, or loaded file matched/,
   );
 });
 test(0, "Understand the lack of models", async (p, s) => {
@@ -222,8 +222,11 @@ test(1, "Draft survives a reload", async (p) => {
   assert.equal(await p.locator("#prompt").inputValue(), "On mobile");
 });
 // Carla: efficient use and persistence.
-test(2, "Shortcut to write", async (p) => {
+test(2, "Shortcut reference opens and returns focus", async (p) => {
+  await p.locator("#prompt").focus();
   await p.keyboard.press("Control+/");
+  await focus(p, "#keyboard-shortcuts-search");
+  await p.keyboard.press("Escape");
   await focus(p, "#prompt");
 });
 test(2, "Shortcut to search", async (p) => {

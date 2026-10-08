@@ -21,6 +21,7 @@ local_ai/
 
 # Personal agent settings (AGENTS.md and CLAUDE.md are shared and versioned).
 /.codex/
+/.codex-commits/
 CLAUDE.local.md
 .claude/settings.local.json
 /pytest-of-*/
@@ -33,3 +34,6 @@ desktop/node_modules/
 
 # Operator suite reports (tests/operator, scripts/operator-suite.sh).
 /operator-report/
+
+# Local commit messages when shared Git metadata is read-only.
+/.codex-commits/

@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from agent_service.tools import ToolError
+from tests.deepseek_fixtures import SAFE_CONFIG, write_deepseek_key
 
 
 @pytest.mark.parametrize("provider", ["codex", "claude", "gemini", "deepseek", "local"])
@@ -137,7 +138,7 @@ def test_no_phantom_codex_model_fallback():
 
 
 # Codex app-server transport, shared by the codex, deepseek and local adapters (HAR-R3-1).
-ECHOING_APP_SERVER = """
+ECHOING_APP_SERVER = "SAFE_CONFIG = " + repr(SAFE_CONFIG) + "\n" + """
 import json, sys
 def emit(value): print(json.dumps(value), flush=True)
 for line in sys.stdin:
@@ -150,6 +151,8 @@ for line in sys.stdin:
         image = {'type': 'image', 'url': 'data:image/png;base64,' + 'A' * (4 << 20)}
         turns = [] if params.get('excludeTurns') else [{'items': [{'type': 'userMessage', 'content': [image]}]}]
         emit({'id': ident, 'result': {'thread': {'id': params['threadId'], 'turns': turns}}})
+    elif method == 'config/read':
+        emit({'id': ident, 'result': SAFE_CONFIG})
     elif method == 'thread/start':
         emit({'id': ident, 'result': {'thread': {'id': 'thread-1'}}})
     elif method == 'turn/start':
@@ -181,7 +184,7 @@ def run_app_server_turn(executable, session, provider, project, tmp_path):
     config = {"binary": str(executable)}
     if provider == "deepseek":
         key = tmp_path / "deepseek.key"
-        key.write_text("fixture-key")
+        write_deepseek_key(key)
         config["api_provider"] = {"url": "http://127.0.0.1:9/v1", "key_file": str(key)}
     return asyncio.run(
         adapters.run_native(

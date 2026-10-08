@@ -22,6 +22,15 @@ def test_unrelated_project_catalog_and_child_gate_stdio(make_harness_config, mon
     with isolated_fixture() as fixture:
         for key in ("HOME", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "SYNTHETIC_HOOK_LOG"):
             monkeypatch.setenv(key, fixture.env[key])
+        # The protocol fixture owns Claude only; never start an ambient Codex CLI.
+        monkeypatch.setattr(
+            "adapters.codex.state.CodexStateAdapter._is_project_trusted", lambda self, root: False
+        )
+        (fixture.home / ".claude.json").write_text(
+            json.dumps(
+                {"projects": {str(fixture.project.resolve()): {"hasTrustDialogAccepted": True}}}
+            )
+        )
         monkeypatch.setattr("adapters.claude.native.configurations", lambda: {"claude": {}})
         monkeypatch.setattr("adapters.claude.native.inventory", lambda: {"claude": []})
         monkeypatch.setattr("adapters.claude.native.child_environment", lambda *_: fixture.env)

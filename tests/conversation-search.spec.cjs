@@ -199,7 +199,7 @@ const assert = require("node:assert/strict"),
     );
     assert.equal(
       await page.locator("#app-topbar #search-conversations span").innerText(),
-      "Search runs, plans, files",
+      "Search KeepHarness",
     );
     assert.equal(
       await page.locator("#admin-link").getAttribute("href"),
@@ -337,10 +337,10 @@ const assert = require("node:assert/strict"),
     assert.equal(await page.locator(".conversation-search-result").count(), 0);
     assert.match(
       await page.locator("#search-results").innerText(),
-      /No run or loaded file matched/,
+      /No command, setting, run, or loaded file matched/,
     );
     await page.click("#search-clear");
-    assert.equal(await page.locator(".conversation-search-result").count(), 35);
+    assert.equal(await page.locator(".search-result-group").filter({ hasText: /^Runs/ }).locator(".conversation-search-result").count(), 35);
     await page.fill("#conversation-search", "qwen-local");
     assert.equal(
       await page.locator(".conversation-search-result").count(),

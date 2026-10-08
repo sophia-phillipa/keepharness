@@ -159,6 +159,20 @@ class ProviderCommandError(_ProviderStateError):
         self.exit_code = exit_code
 
 
+def project_trusted(project_root: Path, *, codex=None, claude=None, environment=None) -> bool:
+    """Union of the two CLIs' own verdicts, without recursively querying adapters."""
+    from adapters.claude.state import ClaudeStateAdapter
+    from adapters.codex.state import CodexStateAdapter
+
+    codex = codex if codex is not None else CodexStateAdapter(environment=environment)
+    claude = (
+        claude
+        if claude is not None
+        else ClaudeStateAdapter(Path(project_root), environment=environment)
+    )
+    return codex._is_project_trusted(project_root) or claude._is_project_trusted(project_root)
+
+
 # --- adapter protocol ------------------------------------------------------------------------
 
 
@@ -207,15 +221,17 @@ def _stat_marker(path: Path) -> str:
         info = os.stat(path)
         if not stat.S_ISDIR(info.st_mode):
             return f"{info.st_mtime_ns}:{info.st_size}:{info.st_ino}"
-        newest, count = 0, 0
+        children = []
         with os.scandir(path) as entries:
             for entry in entries:
+                if path.name == "skills" and entry.name.startswith("."):
+                    continue
                 try:
-                    newest = max(newest, entry.stat().st_mtime_ns)
+                    child = entry.stat()
                 except OSError:
                     continue  # removed while we looked, a symlink loop or no permission
-                count += 1
-        return f"dir:{info.st_mtime_ns}:{newest}:{count}"
+                children.append((entry.name, child.st_mtime_ns, child.st_size, child.st_ino))
+        return "dir:" + json.dumps(sorted(children), separators=(",", ":"))
     except OSError:  # missing, not a directory, a symlink loop or no permission
         return "missing"
 
@@ -223,9 +239,11 @@ def _stat_marker(path: Path) -> str:
 def fingerprint(paths: Iterable[Path]) -> str:
     """The cheap "did anything move" check: one sha256 over a stat tuple per path.
 
-    A file contributes ``(st_mtime_ns, st_size, st_ino)``, a directory its own mtime, the newest
-    mtime among its direct children and their number (so removing an older child shows too), a
-    missing path a marker. Symlinks are followed, as the CLIs do; a child that cannot be stat'ed
+    A file contributes ``(st_mtime_ns, st_size, st_ino)``; a directory contributes the names and
+    stat tuples of its direct children. Skill directories skip hidden children; other watched
+    directories (such as managed policy drop-ins) include them. The directory's own mtime is
+    ignored, so a hidden skill change stays invisible. A missing path contributes a marker.
+    Symlinks are followed, as the CLIs do; a child that cannot be stat'ed
     (dangling, a loop, no permission) is not counted, and such a path counts as missing. This is
     not the write-side conflict hash.
     """
