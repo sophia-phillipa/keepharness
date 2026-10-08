@@ -638,7 +638,7 @@
   function renderNote() {
     const lines = view.clis.flatMap((info) => {
       const data = integrationCatalogs.get(info.id);
-      return [data?.error, ...(data?.warnings || [])].filter(Boolean).map((line) => providerName(info) + ": " + line);
+      return [states.get(info.id)?.error, data?.error, ...(data?.warnings || [])].filter(Boolean).map((line) => providerName(info) + ": " + line);
     });
     note.textContent = lines.join("\n");
     note.hidden = !lines.length || view.loading;
