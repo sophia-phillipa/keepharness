@@ -197,6 +197,19 @@ must wait for the in-flight native writer and every reverse compensation while
 both provider locks remain held, then propagate cancellation to the caller. Keyboard
 focus stays on the corresponding trust action after the view refreshes.
 
+Each trust writer and each compensation has its own finite deadline. A native
+Codex session that reaches the deadline is killed as a process group and reaped
+before compensation or lock release; a detached thread is not a timeout solution.
+Claude file writes acquire their real path lock within the remaining deadline
+and check it again immediately before replacing, creating or removing a file.
+After timeout, compensate completed changes, release both provider locks, return
+a clear timeout error when compensation succeeds and invalidate cached state so
+the next read uses the real CLI files. If Codex wrote but never acknowledged its
+version, recover the native version only when its complete user configuration
+matches the expected trust-only
+change, then compensate through native compare-and-swap. Preserve concurrent
+changes and report incomplete rollback when recovery cannot be confirmed.
+
 An explicit trust entry for the selected child takes precedence over a Codex
 configuration layer inherited from a parent when confirming the child's trust.
 When the native effective configuration has no explicit child entry, preserve
