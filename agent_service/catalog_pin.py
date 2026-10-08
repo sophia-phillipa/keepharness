@@ -238,7 +238,7 @@ def snapshot_catalogs(config, project):
                         )
                     )
                 )
-            except CatalogPinError as failure:
+            except (CatalogPinError, subprocess.SubprocessError, OSError) as failure:
                 error = str(failure)
         result.append(
             {

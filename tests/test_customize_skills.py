@@ -11,6 +11,8 @@ import pytest
 from starlette.testclient import TestClient
 
 from agent_service import resources
+from agent_service.catalog import catalog
+from control.catalog_admin import catalog_config
 from control.server import create_app
 from tests.owner_session import sign_in
 
@@ -111,6 +113,35 @@ def test_discovery_failure_is_a_warning_not_a_500(setup):
     assert "only-claude" not in [item["name"] for item in body["items"]]
     assert len(body["warnings"]) == 1 and "claude" in body["warnings"][0]
     assert SECRET not in json.dumps(body) and str(tmp_path) not in json.dumps(body)
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [subprocess.TimeoutExpired("git", 60), FileNotFoundError(2, "Git missing", "git")],
+    ids=["git-timeout", "git-missing"],
+)
+def test_catalog_git_failure_preserves_project_and_user_skills(setup, failure):
+    client, tmp_path = setup
+    config = catalog_config(client.app.state.manager)
+    with patch("agent_service.catalog_pin._git", side_effect=failure):
+        body = listing(client, project_id="p")
+        assert {item["name"] for item in body["items"]} == {"shared", "only-claude", "mine"}
+        assert {item["scope"] for item in body["items"]} == {"project", "user"}
+        assert body["warnings"]
+        assert str(tmp_path) not in json.dumps(body)
+
+        # The harness palette and project catalog use discovery without the
+        # admin endpoint's broad exception handler, including workflow discovery.
+        discovered = resources.discover(config, "p", "codex", owner=True)
+        project_catalog = catalog(config, config["projects"]["p"], "p", owner=True)
+        for result in (discovered, project_catalog):
+            skills = [item for item in result["items"] if item["kind"] == "skill"]
+            available = {item["name"] for item in skills if item["selectable"]}
+            assert {"shared", "mine"} <= available
+            unavailable = [item for item in skills if item["scope"] == "catalog"]
+            assert unavailable and all(not item["selectable"] for item in unavailable)
+            assert all(str(failure) in item["unavailable_reason"] for item in unavailable)
+            assert any("Catalog demo unavailable:" in warning for warning in result["warnings"])
 
 
 def test_unreadable_resource_warnings_from_discovery_carry_no_path(setup):
