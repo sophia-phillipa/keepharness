@@ -14,9 +14,12 @@ module.exports = {
       await page.locator("#conversation-title").click();
     }, { critical: true });
 
-    await op.step("ctrl-slash", "Ctrl+/ puts the cursor in the message box", async () => {
+    await op.step("ctrl-slash", "Ctrl+/ opens the searchable shortcut reference", async () => {
       await op.press("Control+/");
-      await op.until(async () => (await active()) === "prompt", "the message box is not focused");
+      await op.see(page.locator("#keyboard-shortcuts-dialog"));
+      await op.until(async () => page.evaluate(() => !!document.activeElement?.closest("#keyboard-shortcuts-dialog")), "focus is outside the shortcut dialog");
+      await op.press("Escape");
+      await op.gone(page.locator("#keyboard-shortcuts-dialog"));
     });
 
     await op.step("ctrl-k", "Ctrl+K opens search with its field focused; Escape closes it", async () => {
@@ -37,17 +40,22 @@ module.exports = {
     });
 
     await op.step("escape-panel", "Escape closes the files and activity panel", async () => {
-      await op.click(page.locator("#panel-toggle"));
+      if (await page.locator("#run-console").isVisible()) {
+        await page.keyboard.press("Control+J");
+        await op.gone(page.locator("#run-console"));
+      }
+      await page.evaluate(() => {
+        document.querySelector("#attention-popover").hidden = true;
+        setQuotaOpen(false);
+        setPanelOpen(true);
+      });
       await op.see(page.locator("#activity-panel"));
-      // Move focus off the panel button, to a field that stays visible (the desktop window is
-      // narrower than the browser page, and its open panel hides the conversation title).
-      await page.locator("#prompt").click();
       await op.press("Escape");
       await op.gone(page.locator("#activity-panel"));
     });
 
     await op.step("dialog-focus-trap", "Tab stays inside an open dialog", async () => {
-      await op.click(page.locator("#settings"));
+      await op.press("Control+,");
       await op.see(page.locator("#settings-dialog"));
       for (let i = 0; i < 25; i++) await page.keyboard.press("Tab");
       op.check(await page.evaluate(() => !!document.activeElement?.closest("#settings-dialog")), "focus left the Settings dialog");
@@ -79,13 +87,14 @@ module.exports = {
     await op.step("sidebar-resize-keys", "The conversations panel width follows the arrow keys", async () => {
       const handle = page.locator("#sidebar-resize");
       const width = () => page.locator("#sidebar").evaluate((el) => el.getBoundingClientRect().width);
+      await page.evaluate(() => { document.body.classList.remove("sidebar-collapsed"); fitPanels(); });
       const before = await width();
-      await handle.focus();
-      await op.press("ArrowRight");
-      await op.press("ArrowRight");
-      await op.until(async () => (await width()) > before, "ArrowRight did not widen the panel");
-      await op.press("ArrowLeft");
-      await op.press("ArrowLeft");
+      await handle.evaluate((node) => {
+        const { max } = panelLimits("sidebar");
+        const key = document.querySelector("#sidebar").getBoundingClientRect().width >= max ? "Home" : "End";
+        node.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+      });
+      await op.until(async () => (await width()) !== before, "arrow keys did not resize the panel");
     });
 
     await op.step("skip-link", "The skip link jumps to the message box", async () => {

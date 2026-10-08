@@ -3130,6 +3130,36 @@ body :is(button, .btn, [role="button"], summary):focus-visible {
   display: grid;
   gap: 6px;
 }
+#keyboard-shortcuts-dialog {
+  width: min(560px, calc(100vw - 32px));
+  max-height: 80dvh;
+  overflow: auto;
+}
+#keyboard-shortcuts-list {
+  display: grid;
+  gap: 4px;
+}
+.keyboard-shortcut-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  min-height: 42px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--th-text);
+  text-align: left;
+}
+.keyboard-shortcut-row:hover,
+.keyboard-shortcut-row:focus-visible {
+  background: var(--th-soft);
+}
+.keyboard-shortcut-row kbd {
+  flex: none;
+  color: var(--th-muted);
+}
 .conversation-search-result {
   display: grid;
   gap: 4px;
