@@ -71,7 +71,12 @@ OPEN_PROJECT_REASON = "Open this project in Claude Code once"
 VERSION_TIMEOUT_SECONDS = 10
 PLUGIN_TIMEOUT_SECONDS = 10
 SETTINGS_SCHEMA = Path(__file__).parent / "schemas" / "claude-code-settings.schema.json"
-_MCP_PROJECT_KEYS = ("mcpServers", "disabledMcpServers", "enabledMcpServers")
+_MCP_PROJECT_KEYS = (
+    "mcpServers",
+    "disabledMcpServers",
+    "enabledMcpServers",
+    "hasTrustDialogAccepted",
+)
 
 
 class _Unchanged(Exception):
@@ -548,6 +553,11 @@ class ClaudeStateAdapter:
         return tuple(paths)
 
     def is_project_trusted(self, project_root: Path) -> bool:
+        from adapters.shared.provider_state import project_trusted
+
+        return project_trusted(project_root, claude=self, environment=self.environment)
+
+    def _is_project_trusted(self, project_root: Path) -> bool:
         document, _, _ = _read_json_object(self._claude_json())
         return _project_entry(document, Path(project_root)).get("hasTrustDialogAccepted") is True
 
@@ -736,13 +746,105 @@ class ClaudeStateAdapter:
         disabled = _project_entry(document, root).get("disabledMcpServers")
         self._confirm(name in disabled if isinstance(disabled, list) else None, not enabled)
 
-    # --- not in this package ---
+    def _check_write_version(self, root: Path) -> None:
+        version = self._version(_Reading(root))
+        if not _tested(_version_tuple(version) or ()):
+            raise ProviderStateVersionError(
+                "Claude Code is outside the tested range; state is not written"
+            )
 
     def trust_project(self, project_root: Path) -> None:
-        raise ProviderStateUnsupportedError("writing trust lands with issue #44")
+        root = Path(project_root).resolve()
+        self._check_write_version(root)
+        path = self._claude_json()
+        _, digest, problem = _read_json_object(path)
+        if problem and problem != "missing":
+            raise ProviderStateSchemaError("Claude trust state is unreadable")
 
-    def approved_project_servers(self, project_root: Path) -> frozenset[str]:
-        raise ProviderStateUnsupportedError("project MCP approval lands with issue #44")
+        def change(document):
+            projects = document.setdefault("projects", {})
+            if not isinstance(projects, dict):
+                raise ProviderStateSchemaError("Claude projects is not an object")
+            entry = projects.setdefault(str(root), {})
+            if not isinstance(entry, dict):
+                raise ProviderStateSchemaError("Claude project is not an object")
+            entry["hasTrustDialogAccepted"] = True
+            return document
+
+        write_json_atomic(
+            path,
+            change,
+            digest if digest is not None else MISSING_FILE,
+            backup_dir=claude_json_backup_dir(self.state_dir),
+            validate=lambda raw: (
+                []
+                if isinstance(json.loads(raw).get("projects"), dict)
+                else ["projects must be an object"]
+            ),
+        )
+        self._confirm(self._is_project_trusted(root), True)
+
+    def project_servers(self, project_root: Path) -> dict:
+        document, _, problem = _read_json_object(Path(project_root) / ".mcp.json")
+        if problem not in ("", "missing"):
+            raise ProviderStateSchemaError("Project MCP state is unreadable")
+        servers = (document or {}).get("mcpServers", {})
+        if not isinstance(servers, dict):
+            raise ProviderStateSchemaError("Project MCP servers is not an object")
+        return servers
+
+    def approved_project_servers(
+        self, project_root: Path, *, trusted: bool | None = None
+    ) -> frozenset[str]:
+        if trusted is None:
+            trusted = self.is_project_trusted(project_root)
+        if not trusted:
+            return frozenset()
+        servers = set(self.project_servers(project_root))
+        reading = _Reading(Path(project_root))
+        layers = self._settings_layers(reading)
+        if reading.warnings:
+            raise ProviderStateSchemaError("Project MCP approval settings are unreadable")
+        approved, denied = set(), set()
+        for layer in layers:
+            for key in ("enabledMcpjsonServers", "disabledMcpjsonServers"):
+                value = layer.data.get(key, [])
+                if not isinstance(value, list) or any(not isinstance(name, str) for name in value):
+                    raise ProviderStateSchemaError("Project MCP approval list is invalid")
+            approved.update(_names(layer.data.get("enabledMcpjsonServers")))
+            denied.update(_names(layer.data.get("disabledMcpjsonServers")))
+            if layer.data.get("enableAllProjectMcpServers") is True:
+                approved.update(servers)
+        return frozenset((approved & servers) - denied)
+
+    def set_project_server_approval(self, project_root: Path, server: str, approved: bool) -> None:
+        root = Path(project_root)
+        self._check_write_version(root)
+        if server not in self.project_servers(root):
+            raise ProviderStateUnsupportedError("The project MCP server is unknown")
+        path = self._settings_path("local", root)
+        _, digest, problem = _read_json_object(path)
+        if problem not in ("", "missing"):
+            raise ProviderStateSchemaError("Project approval settings are unreadable")
+        path.parent.mkdir(mode=0o700, exist_ok=True)
+
+        def change(document):
+            for key, include in (
+                ("enabledMcpjsonServers", approved),
+                ("disabledMcpjsonServers", not approved),
+            ):
+                names = document.get(key, [])
+                if not isinstance(names, list) or any(not isinstance(name, str) for name in names):
+                    raise ProviderStateSchemaError("Project MCP approval list is invalid")
+                kept = [name for name in names if name != server]
+                document[key] = [*kept, server] if include else kept
+            return document
+
+        write_json_atomic(
+            path, change, digest if digest is not None else MISSING_FILE, validate=_settings_errors
+        )
+
+    # --- later run-home migration and sign-in packages ---
 
     def run_environment(self, project_root: Path, trusted: bool, permission_flags) -> RunSetup:
         raise ProviderStateUnsupportedError("the run setup lands with the runs issue (plan item 6)")

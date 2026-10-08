@@ -337,6 +337,24 @@ class CodexStateAdapter:
     def read_state(self, project_root: Path | None) -> StateSnapshot:
         return self._read(project_root)[0]
 
+    def project_trust_layers(self, project_root: Path) -> dict:
+        """CLI fingerprints and disabled flags, never the project config contents."""
+        results, _ = asyncio.run(
+            _ask(
+                self._binary(),
+                [("config", "config/read", {"includeLayers": True, "cwd": str(project_root)})],
+                environment=self._environment(),
+            )
+        )
+        return {
+            str(_name(layer).get("dotCodexFolder")): {
+                "version": layer.get("version"),
+                "enabled": not layer.get("disabledReason"),
+            }
+            for layer in _listed(results.get("config"), "layers")
+            if _name(layer).get("type") == "project"
+        }
+
     def _read(self, project_root: Path | None) -> tuple[StateSnapshot, str]:
         """The snapshot and the user layer version (``""`` when the user layer was not read)."""
         binary = self._binary()
@@ -518,6 +536,11 @@ class CodexStateAdapter:
         return (*paths, project / ".codex" / "config.toml", project / ".agents" / "skills")
 
     def is_project_trusted(self, project_root: Path) -> bool:
+        from adapters.shared.provider_state import project_trusted
+
+        return project_trusted(project_root, codex=self, environment=self.environment)
+
+    def _is_project_trusted(self, project_root: Path) -> bool:
         binary = shutil.which("codex")
         if binary is None:
             return False
@@ -542,8 +565,29 @@ class CodexStateAdapter:
                     return True
         return False
 
-    def trust_project(self, project_root: Path) -> None:
-        raise ProviderStateUnsupportedError("trusting a project from KeepHarness lands with #44")
+    def trust_project(self, project_root: Path, *, on_written=None) -> None:
+        root = Path(project_root).resolve()
+        binary = self._binary()
+        _, version = self._read(root)
+        if not version:
+            raise ProviderStateUnsupportedError("The Codex user config was not read.")
+        params = {
+            "expectedVersion": version,
+            "edits": [
+                {
+                    "keyPath": f"projects.{json.dumps(str(root))}.trust_level",
+                    "value": "trusted",
+                    "mergeStrategy": "upsert",
+                }
+            ],
+        }
+        asyncio.run(
+            _write(binary, "config/batchWrite", params, None, environment=self._environment())
+        )
+        if on_written is not None:
+            on_written()
+        if not self._is_project_trusted(root):
+            raise ProviderStateConflictError("Codex does not show the requested trust.")
 
     def approved_project_servers(self, project_root: Path) -> frozenset[str]:
         return frozenset()  # Codex has no .mcp.json

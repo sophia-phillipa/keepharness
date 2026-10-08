@@ -48,7 +48,7 @@ def make_skill(folder: Path, name: str) -> Path:
 def fake_claude_on_path(monkeypatch, isolated_provider_homes):
     # a checkout or sdist without the extensionless fake CLI must fail loudly, not run the real one
     assert (FAKE_CLAUDE_DIR / "claude").is_file()
-    monkeypatch.setenv("PATH", f"{FAKE_CLAUDE_DIR}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setenv("PATH", f"{FAKE_CLAUDE_DIR}{os.pathsep}{FAKE_CLAUDE_DIR.parent / 'fake-codex'}{os.pathsep}{os.environ['PATH']}")
 
 
 @pytest.fixture
@@ -453,8 +453,6 @@ def test_trust_is_read_never_written(adapter, config_dir, project, tmp_path):
 
 def test_methods_that_belong_to_later_issues_say_so(adapter, project):
     calls = [
-        lambda: adapter.trust_project(project),
-        lambda: adapter.approved_project_servers(project),
         lambda: adapter.run_environment(project, True, []),
         lambda: adapter.login_command(False),
         lambda: adapter.login_status(),

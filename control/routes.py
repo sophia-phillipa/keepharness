@@ -167,7 +167,9 @@ async def list_folders(request, manager):
                         if len(directories) > 200:
                             break
         except PermissionError:
-            raise UserMessageError("No permission to open this folder. Choose another folder.") from None
+            raise UserMessageError(
+                "No permission to open this folder. Choose another folder."
+            ) from None
         except (FileNotFoundError, NotADirectoryError):
             raise UserMessageError(
                 "The folder was not found on this server. Choose another folder."
@@ -224,7 +226,9 @@ async def create_folder(request, manager, data):
     try:
         await asyncio.to_thread(folder.mkdir)
     except FileExistsError:
-        raise UserMessageError("An item with that name already exists. Choose another name.") from None
+        raise UserMessageError(
+            "An item with that name already exists. Choose another name."
+        ) from None
     except PermissionError:
         raise UserMessageError("No permission to create a folder in this location.") from None
     result = {"path": str(folder), "created": True}
@@ -690,6 +694,30 @@ async def ack_provider_notices(request, manager, data):
     return await manager.provider_state.ack(provider, project_id, notice_ids)
 
 
+async def trust_provider_project(request, manager, data):
+    provider, project_id = data.get("provider"), data.get("project_id")
+    if not isinstance(provider, str) or not isinstance(project_id, str):
+        raise APIError("invalid_request", 400)
+    return await manager.provider_state.security_write(provider, project_id)
+
+
+async def approve_provider_mcp(request, manager, data):
+    provider, project_id, server, approved = (
+        data.get(key) for key in ("provider", "project_id", "server", "approved")
+    )
+    if not (
+        isinstance(provider, str)
+        and isinstance(project_id, str)
+        and isinstance(server, str)
+        and 0 < len(server) <= 300
+        and type(approved) is bool
+    ):
+        raise APIError("invalid_request", 400)
+    return await manager.provider_state.security_write(
+        provider, project_id, server=server, approved=approved
+    )
+
+
 GET_ROUTES = {
     "/api/logs": read_logs,
     "/api/catalogs": read_catalogs,
@@ -701,6 +729,8 @@ GET_ROUTES = {
     "/api/provider-state": read_provider_state,
 }
 POST_ROUTES = {
+    "/api/provider-state/trust": trust_provider_project,
+    "/api/provider-state/mcp-approvals": approve_provider_mcp,
     "/api/catalog-pin": change_pin,
     "/api/provider-state": write_provider_state,
     "/api/provider-state/notices:ack": ack_provider_notices,

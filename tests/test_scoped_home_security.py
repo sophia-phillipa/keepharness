@@ -180,6 +180,10 @@ def write_executable(path, body, record):
 def personal_home(tmp_path, monkeypatch):
     """A fake owner HOME holding instructions, a skill, a hook and an MCP server."""
     home = tmp_path / "personal-home"
+    # Provider-housekeeping from an installed Codex must never touch this sentinel home.
+    monkeypatch.setattr(
+        "adapters.codex.state.CodexStateAdapter._is_project_trusted", lambda self, root: False
+    )
     files = {
         ".codex/AGENTS.md": SENTINEL + " Codex instructions",
         ".codex/skills/demo/SKILL.md": "---\nname: demo\ndescription: " + SENTINEL + "\n---\nBody",
@@ -190,7 +194,17 @@ def personal_home(tmp_path, monkeypatch):
         ".claude/settings.json": json.dumps(
             {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": SENTINEL}]}]}}
         ),
-        ".claude.json": json.dumps({"mcpServers": {"sentinel_mcp": {"command": SENTINEL}}}),
+        ".claude.json": json.dumps(
+            {
+                "mcpServers": {"sentinel_mcp": {"command": SENTINEL}},
+                # Trust is an explicit precondition, independent of personal-setup opt-in.
+                "projects": {
+                    str(tmp_path / "sessions" / "claude" / "workspace"): {
+                        "hasTrustDialogAccepted": True,
+                    }
+                },
+            }
+        ),
     }
     for name, text in files.items():
         (home / name).parent.mkdir(parents=True, exist_ok=True)
@@ -202,7 +216,9 @@ def personal_home(tmp_path, monkeypatch):
 
 
 def snapshot(root):
-    return sorted((str(path.relative_to(root)), path.stat().st_mtime_ns) for path in root.rglob("*"))
+    return sorted(
+        (str(path.relative_to(root)), path.stat().st_mtime_ns) for path in root.rglob("*")
+    )
 
 
 def provider_turn(tmp_path, provider, *, personal=False):
