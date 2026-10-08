@@ -156,3 +156,79 @@ def test_legacy_malformed_provider_provenance_is_unavailable(tmp_path, backend):
             instance.bind_execution_mode(identity, dict(backend="codex", parent_job_id="legacy"))
     finally:
         instance.db.close()
+
+
+@pytest.mark.parametrize("count", [100, 998])
+@pytest.mark.parametrize("cloud_ancestor", [None, "codex", "claude"])
+def test_long_local_history_mode_validation_uses_linear_queries(
+    tmp_path, count, cloud_ancestor, record_property
+):
+    instance, identity = service(tmp_path)
+    try:
+        with instance.db:
+            instance.db.executemany(
+                "INSERT INTO jobs(id,project,owner,state,created,payload,result,idem,digest) VALUES(?,?,?,?,?,?,?,?,?)",
+                [
+                    (
+                        f"turn-{i}",
+                        "p",
+                        "a",
+                        "completed",
+                        i,
+                        json.dumps(
+                            dict(
+                                backend="local",
+                                execution_mode="scoped",
+                                **({"parent_job_id": f"turn-{i - 1}"} if i else {}),
+                            )
+                        ),
+                        "{}",
+                        None,
+                        f"turn-{i}",
+                    )
+                    for i in range(count)
+                ],
+            )
+        if cloud_ancestor:
+            with instance.db:
+                instance.db.execute(
+                    "UPDATE jobs SET payload=json_set(payload, '$.backend', ?) WHERE id=?",
+                    (cloud_ancestor, f"turn-{count // 2}"),
+                )
+        row = instance.job(identity, f"turn-{count - 1}")
+        queries = []
+        instance.db.set_trace_callback(queries.append)
+        if cloud_ancestor:
+            with pytest.raises(APIError, match="execution_mode_unsupported"):
+                instance.dispatch_execution_mode(row, {"backend": "local"})
+        else:
+            assert (
+                instance.dispatch_execution_mode(row, {"backend": "local"})["execution_mode"]
+                == "scoped"
+            )
+        instance.db.set_trace_callback(None)
+        record_property("query_count", len(queries))
+        assert len(queries) <= 4 * count + 10, len(queries)
+    finally:
+        instance.db.close()
+
+
+@pytest.mark.parametrize("invalid", ["missing", "cycle", "other-owner", "other-project"])
+def test_history_mode_scan_rejects_invalid_unrelated_ancestry(tmp_path, invalid):
+    instance, identity = service(tmp_path)
+    try:
+        row = stored(instance, "local", "scoped", job="valid")
+        stored(instance, "local", job="broken", parent="ancestor")
+        if invalid != "missing":
+            stored(
+                instance, "local", job="ancestor", parent="broken" if invalid == "cycle" else None
+            )
+        with instance.db:
+            if invalid == "other-owner":
+                instance.db.execute("UPDATE jobs SET owner='other' WHERE id='ancestor'")
+            if invalid == "other-project":
+                instance.db.execute("UPDATE jobs SET project='other' WHERE id='ancestor'")
+        with pytest.raises(APIError, match="invalid_parent_job"):
+            instance.dispatch_execution_mode(row, {"backend": "local"})
+    finally:
+        instance.db.close()

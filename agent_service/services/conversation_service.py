@@ -886,10 +886,30 @@ class ConversationService:
 
     def _conversation_payloads(self, row):
         cid = self.conversation_id(row)
-        return [
-            json.loads(turn["payload"])
+        payloads = {
+            turn["id"]: json.loads(turn["payload"])
             for turn in self.conversation_repository.owned(row["owner"], [row["project"]])
-            if self.conversation_id(turn) == cid
+        }
+        roots = {}
+
+        def root(job_id):
+            path = set()
+            current = job_id
+            while current not in roots:
+                if current in path or current not in payloads:
+                    raise APIError("invalid_parent_job")
+                path.add(current)
+                parent = payloads[current].get("parent_job_id")
+                if not parent:
+                    roots[current] = current
+                    break
+                current = parent
+            for visited in path:
+                roots[visited] = roots[current]
+            return roots[job_id]
+
+        return [
+            payload for job_id, payload in payloads.items() if root(job_id) == cid
         ]
 
     def conversation_execution_mode(self, row):

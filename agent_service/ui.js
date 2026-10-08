@@ -2911,18 +2911,17 @@ function openDeleteConversation(c, trigger) {
   cancel.focus();
 }
 function supportedExecutionModes() {
-  return (
-    selected()?.execution_modes ||
-    (["codex", "claude"].includes(selected()?.backend)
-      ? ["native", "scoped"]
-      : ["native"])
-  );
+  const modes = selected()?.execution_modes;
+  return Array.isArray(modes) &&
+    modes.every((mode) => ["native", "scoped"].includes(mode))
+    ? modes
+    : [];
 }
 function syncExecutionMode() {
   const started = !!conversation || !!parent,
     modes = supportedExecutionModes();
   if (!started && !executionModeChosen)
-    executionMode = modes.includes("native") ? "native" : "scoped";
+    executionMode = modes.includes("native") ? "native" : modes[0] || null;
   const isolated = executionMode === "scoped";
   const modeContract = Array.isArray(selected()?.execution_modes);
   // F-58: isolation is chosen before the first message, then only stated.
@@ -3040,8 +3039,8 @@ function newConversation(title = "New Conversation", projectId = $("project").va
   bindSuggestions();
   modelAvailability();
   $("prompt").value = draft;
-  if (newDraft?.draft || newDraft?.files?.length) restoreView(newDraft);
-  else if (carriedDraft) restoreView(carriedDraft);
+  if (newDraft?.draft || newDraft?.files?.length) restoreView(newDraft, true);
+  else if (carriedDraft) restoreView(carriedDraft, true);
   updateComposer();
   saveView();
   $("context-meter").textContent = "New conversation · independent context";
@@ -5337,8 +5336,7 @@ async function send() {
     if (releasePersonaPending) data.release_persona = true;
     lastSentRoute = { backend: m.backend, model: m.id, effort: data.effort };
     if (parent) data.parent_job_id = parent;
-    else if (Array.isArray(m.execution_modes))
-      data.execution_mode = executionMode;
+    else data.execution_mode = executionMode;
     if (m.backend === "codex") {
       status("Checking quota before running…");
       quotaSnapshot("before", await json("/v1/usage"));
@@ -7195,7 +7193,7 @@ $("models-retry").onclick = async () => {
 };
 initialize();
 
-function restoreView(saved) {
+function restoreView(saved, resetExecutionMode = false) {
   if (
     saved.project === $("project").value &&
     models.some((m) => m.id === saved.composer_selection?.model)
@@ -7209,7 +7207,11 @@ function restoreView(saved) {
     )
       $("effort").value = saved.composer_selection.effort;
   }
-  if (!conversation && ["native", "scoped"].includes(saved.execution_mode)) {
+  if (resetExecutionMode) {
+    const modes = supportedExecutionModes();
+    executionMode = modes.includes("native") ? "native" : modes[0] || null;
+    executionModeChosen = false;
+  } else if (!conversation && ["native", "scoped"].includes(saved.execution_mode)) {
     executionMode = saved.execution_mode;
     executionModeChosen = saved.execution_mode_chosen !== false;
   }
