@@ -17,6 +17,7 @@ from starlette.responses import JSONResponse
 
 from adapters.claude.state import ClaudeStateAdapter
 from adapters.codex.state import CodexStateAdapter
+from adapters.shared.process import redact_paths
 from adapters.shared.provider_state import (
     ProviderCommandError,
     ProviderStateAdapter,
@@ -44,7 +45,8 @@ def error_response(exc: _ProviderStateError, **extra) -> JSONResponse:
     field = "provider_message" if isinstance(exc, ProviderCommandError) else "message"
     body = {"error": exc.code, **extra}
     if not isinstance(exc, ProviderStateConflictError):
-        body[field] = str(exc)[:MESSAGE_LIMIT]
+        text = redact_paths(str(exc)) if field == "provider_message" else str(exc)
+        body[field] = text[:MESSAGE_LIMIT]
     return JSONResponse(body, exc.status)
 
 
@@ -88,14 +90,17 @@ class ProviderStateService:
         self.cache[provider, project_id] = (self.clock(), snapshot)
         return snapshot
 
-    async def read(self, provider: str, project_id: str) -> dict:
+    async def read(self, provider: str, project_id: str) -> dict | JSONResponse:
         root = self.resolve(provider, project_id)
-        async with self.locks.setdefault(provider, asyncio.Lock()):
-            cached = self.cache.get((provider, project_id))
-            if cached and self.clock() - cached[0] < COALESCE_SECONDS:
-                snapshot = cached[1]
-            else:
-                snapshot = await self._read_fresh(provider, project_id, root)
+        try:
+            async with self.locks.setdefault(provider, asyncio.Lock()):
+                cached = self.cache.get((provider, project_id))
+                if cached and self.clock() - cached[0] < COALESCE_SECONDS:
+                    snapshot = cached[1]
+                else:
+                    snapshot = await self._read_fresh(provider, project_id, root)
+        except _ProviderStateError as exc:
+            return error_response(exc)
         return {"snapshot": snapshot_json(snapshot), "external_changes": []}
 
     async def write(
@@ -107,7 +112,7 @@ class ProviderStateService:
         enabled: bool,
         fingerprint: str,
     ) -> dict | JSONResponse:
-        """``{"snapshot"}`` on success, the 409 response (with a fresh snapshot) on a conflict."""
+        """``{"snapshot"}`` on success, the error response (409 with a fresh snapshot) otherwise."""
         root = self.resolve(provider, project_id)
         async with self.locks.setdefault(provider, asyncio.Lock()):
             adapter = self._adapter(provider)
@@ -125,5 +130,11 @@ class ProviderStateService:
             except ProviderStateConflictError as exc:
                 fresh = await self._read_fresh(provider, project_id, root)
                 return error_response(exc, snapshot=snapshot_json(fresh), external_changes=[])
+            except _ProviderStateError as exc:
+                return error_response(exc)
+            finally:
+                # a write can change what any project of this provider sees, even a failed one
+                for key in [key for key in self.cache if key[0] == provider]:
+                    del self.cache[key]
             self.cache[provider, project_id] = (self.clock(), snapshot)
         return {"snapshot": snapshot_json(snapshot)}

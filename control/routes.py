@@ -20,7 +20,7 @@ from starlette.routing import Route
 from adapters.claude.auth import cli_login_environment
 from adapters.deepseek import account as deepseek
 from adapters.shared.provider_setup import login_environment
-from adapters.shared.provider_state import Scope, _ProviderStateError
+from adapters.shared.provider_state import Scope
 from agent_service.errors import APIError, UserMessageError
 from agent_service.json_depth import too_deep
 from harness_ui import asset_response, static_response
@@ -42,7 +42,7 @@ from .local_models import (
 from .manager import PERMISSIONS, clamp_legacy_bind
 from .operations import operation
 from .product import LEGACY_MARKER, PRODUCT, is_original
-from .provider_state import NO_PROJECT, error_response
+from .provider_state import NO_PROJECT
 from .remote_models import add_remote_model, remove_remote_model
 from .vault_admin import change_vault, read_vault
 
@@ -646,17 +646,17 @@ async def read_logs(request, manager):
 
 async def read_provider_state(request, manager):
     query = request.query_params
-    try:
-        return await manager.provider_state.read(
-            query.get("provider", ""), query.get("project_id", NO_PROJECT)
-        )
-    except _ProviderStateError as exc:
-        return error_response(exc)
+    return await manager.provider_state.read(
+        query.get("provider", ""), query.get("project_id", NO_PROJECT)
+    )
 
 
 async def write_provider_state(request, manager, data):
     provider, project_id, item_id, scope, fingerprint = (
         data.get(key) for key in ("provider", "project_id", "item_id", "scope", "fingerprint")
+    )
+    manager.provider_state.resolve(  # 404 before the field checks
+        provider, project_id if isinstance(project_id, str) else NO_PROJECT
     )
     if not (
         isinstance(project_id, str)
@@ -668,12 +668,9 @@ async def write_provider_state(request, manager, data):
         and 0 < len(fingerprint) <= 200
     ):
         raise APIError("invalid_request", 400)
-    try:
-        return await manager.provider_state.write(
-            provider, project_id, item_id, scope, data["enabled"], fingerprint
-        )
-    except _ProviderStateError as exc:
-        return error_response(exc)
+    return await manager.provider_state.write(
+        provider, project_id, item_id, scope, data["enabled"], fingerprint
+    )
 
 
 GET_ROUTES = {

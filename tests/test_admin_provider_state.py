@@ -4,10 +4,10 @@ Fake homes only (the autouse ``isolated_provider_homes`` fixture) and the fake `
 ``claude`` CLIs first on PATH; the Claude adapter gets a temporary managed-settings folder.
 """
 
+import asyncio
 import json
 import logging
 import os
-import threading
 from pathlib import Path
 
 import pytest
@@ -16,11 +16,12 @@ from starlette.testclient import TestClient
 from adapters.claude.state import ClaudeStateAdapter
 from adapters.codex.state import CodexStateAdapter
 from adapters.shared.provider_state import (
+    ProviderCommandError,
     ProviderStateSchemaError,
     ProviderStateUnsupportedError,
     ProviderStateValidationError,
 )
-from control.provider_state import COALESCE_SECONDS, ProviderStateService
+from control.provider_state import COALESCE_SECONDS, ProviderStateService, error_response
 from control.server import create_app
 from tests.owner_session import sign_in
 from tests.test_provider_state_codex import DOCS, GITHUB, calls, seed, writes
@@ -92,6 +93,10 @@ def post(client, **fields):
 
 def fresh_fingerprint(client, provider="codex"):
     return get(client, provider).json()["snapshot"]["fingerprint"]
+
+
+def fresh_fingerprint_for(client, project_id, provider="codex"):
+    return get(client, provider, project_id).json()["snapshot"]["fingerprint"]
 
 
 def row(body, item_id):
@@ -303,11 +308,57 @@ def test_post_missing_field_400(client):
     assert response.status_code == 400
 
 
+def test_post_command_failed_502_hides_secrets_from_stderr(client, claude_dir):
+    (claude_dir / "fake-claude-fail").write_text(
+        "denied for Bearer abc123SECRETvalue with sk-ant-api03-abcdefghijklmnopqrstuv"
+        f" in {claude_dir}/settings.json"
+    )
+    fingerprint = fresh_fingerprint(client, "claude")
+    response = post(client, provider="claude", item_id=CLAUDE_PLUGIN, fingerprint=fingerprint)
+    assert response.status_code == 502 and response.json()["provider_message"]
+    for leaked in ("abc123SECRETvalue", "sk-ant-api03", str(claude_dir)):
+        assert leaked not in response.text
+
+
+def test_error_response_strips_paths_from_provider_message():
+    exc = ProviderCommandError("codex failed at /home/sophia/.codex/config.toml (~/x, ./y)")
+    message = json.loads(error_response(exc).body)["provider_message"]
+    assert "/home" not in message and "config.toml" not in message and "<path>" in message
+
+
+def test_post_checks_provider_and_project_before_the_fields(client):
+    assert post(client, provider="deepseek", item_id=5).status_code == 404
+    assert post(client, project_id="nope", enabled="yes").status_code == 404
+    assert post(client, project_id=3).status_code == 400
+
+
+def test_write_in_a_project_drops_the_providers_other_cache_keys(client, app, codex_home):
+    seed(codex_home)
+    clocked(app)
+    get(client)  # caches (codex, sem-projeto)
+    before = len(sessions(codex_home))
+    post(client, project_id="p", fingerprint=fresh_fingerprint_for(client, "p"))
+    after_write = len(sessions(codex_home))
+    get(client)
+    assert len(sessions(codex_home)) > after_write >= before  # sem-projeto was read again
+
+
+def test_failed_write_drops_the_providers_cache(client, app, codex_home):
+    seed(codex_home)
+    clocked(app)
+    service = app.state.manager.provider_state
+    get(client)
+    assert ("codex", "sem-projeto") in service.cache
+    service.adapters["codex"] = Failing(ProviderStateUnsupportedError("no"))
+    assert post(client).status_code == 422
+    assert not [key for key in service.cache if key[0] == "codex"]
+
+
 def clocked(app):
     now = [100.0]
     service = ProviderStateService(
         app.state.manager.state,
-        lambda: [],
+        lambda: app.state.manager.settings["projects"],
         app.state.manager.provider_state.adapters,
         clock=lambda: now[0],
     )
@@ -346,18 +397,25 @@ def test_post_refreshes_cache(client, app, codex_home):
 def test_adapter_calls_run_off_loop(client, app):
     seen = []
 
+    def where():
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return "off-loop"
+        return "on-loop"
+
     class Spy(CodexStateAdapter):
         def __init__(self):
             pass
 
         def read_state(self, project_root):
-            seen.append(threading.current_thread())
+            seen.append(where())
             raise ProviderStateSchemaError("stop here")
 
         def set_enabled(self, *args, **kwargs):
-            seen.append(threading.current_thread())
+            seen.append(where())
             raise ProviderStateUnsupportedError("stop here")
 
     app.state.manager.provider_state.adapters["codex"] = Spy()
     assert get(client).status_code == 422 and post(client).status_code == 422
-    assert len(seen) == 2 and all(t is not threading.main_thread() for t in seen)
+    assert seen == ["off-loop"] * 2
