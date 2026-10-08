@@ -108,16 +108,34 @@ def _owner_environment(
 
 
 async def _finish_security_write(function, *args, **kwargs):
-    """A cancelled request must wait for its native writer before compensating."""
+    """Finish the writer or complete rollback before propagating any cancellation."""
     task = asyncio.create_task(asyncio.to_thread(function, *args, **kwargs))
-    try:
-        return await asyncio.shield(task)
-    except asyncio.CancelledError as cancelled:
+    cancelled = None
+    while not task.done():
         try:
-            await task
+            await asyncio.shield(task)
+        except asyncio.CancelledError as exc:
+            cancelled = exc
         except Exception:
-            pass
+            break
+    if cancelled is not None:
+        if not task.cancelled():
+            task.exception()  # Retrieve a failed writer's result before compensation.
         raise cancelled
+    return task.result()
+
+
+def _restore_security_writes(rollback):
+    """Run every compensation as one unit, including after an earlier undo fails."""
+    failed = False
+    for undo in reversed(rollback):
+        try:
+            undo.restore()
+        except Exception:
+            failed = True
+    if failed:
+        logger.warning("Provider trust rollback incomplete: provider_trust_rollback_incomplete")
+    return failed
 
 
 def snapshot_json(snapshot: StateSnapshot) -> dict:
@@ -736,18 +754,15 @@ class ProviderStateService:
                             )
                         metadata = await asyncio.to_thread(self._security_metadata, root)
                     except BaseException as exc:
-                        failed = False
-                        for undo in reversed(rollback):
-                            try:
-                                await asyncio.to_thread(undo.restore)
-                            except Exception:
-                                failed = True
+                        failed = await _finish_security_write(_restore_security_writes, rollback)
+                        if isinstance(exc, asyncio.CancelledError):
+                            raise
                         if failed:
                             raise ProviderTrustRollbackError(
                                 "Trust change failed and rollback could not finish because CLI state changed "
                                 "or became unavailable. Review both CLIs; no concurrent edits were overwritten."
                             ) from None
-                        if isinstance(exc, (asyncio.CancelledError, _ProviderStateError)):
+                        if isinstance(exc, _ProviderStateError):
                             raise
                         if not isinstance(exc, Exception):
                             raise

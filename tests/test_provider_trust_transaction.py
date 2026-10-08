@@ -343,3 +343,113 @@ def test_revoke_requires_explicit_native_confirmation_before_commit(
     assert tomllib.loads((codex_home / "config.toml").read_text()) == before_codex
     assert claude._claude_json().read_bytes() == before_claude
     assert not list((service.state / "provider-state-writes").glob("*.json"))
+
+
+@pytest.mark.parametrize("writer_fails", [False, True])
+def test_repeated_cancellation_waits_for_native_writer_and_restores_state(
+    app, codex_home, claude_dir, project, monkeypatch, writer_fails
+):
+    import threading
+
+    seed(codex_home)
+    claude = setup_claude(app, claude_dir, project)
+    service = app.state.manager.provider_state
+    before_codex = tomllib.loads((codex_home / "config.toml").read_text())
+    before_claude = claude._claude_json().read_bytes()
+    started, release, done = threading.Event(), threading.Event(), threading.Event()
+    real = service.adapters["codex"].trust_project
+
+    def suspended_writer(root, **kwargs):
+        started.set()
+        assert release.wait(10)
+        try:
+            real(root, **kwargs)
+            if writer_fails:
+                raise ProviderStateVersionError("Injected failure after the cancelled write")
+        finally:
+            done.set()
+
+    monkeypatch.setattr(service.adapters["codex"], "trust_project", suspended_writer)
+
+    async def scenario():
+        task = asyncio.create_task(service.security_write("codex", "p"))
+        try:
+            assert await asyncio.to_thread(started.wait, 10)
+            for _ in range(2):
+                task.cancel()
+                for _ in range(3):
+                    await asyncio.sleep(0)
+            assert not task.done(), "Repeated cancellation must still wait for the native writer"
+            assert all(service.locks[name].locked() for name in ("codex", "claude"))
+        finally:
+            release.set()
+            result = await asyncio.gather(task, return_exceptions=True)
+            assert await asyncio.to_thread(done.wait, 10)
+        assert isinstance(result[0], asyncio.CancelledError)
+        assert all(not service.locks[name].locked() for name in ("codex", "claude"))
+
+    asyncio.run(scenario())
+    assert tomllib.loads((codex_home / "config.toml").read_text()) == before_codex
+    assert claude._claude_json().read_bytes() == before_claude
+
+
+def test_repeated_cancellation_waits_for_every_reverse_compensation(
+    app, codex_home, claude_dir, project, monkeypatch
+):
+    import threading
+
+    from adapters.codex.state import _TrustRollback
+    from adapters.shared.provider_state import TrustWriteRollback
+
+    seed(codex_home)
+    claude = setup_claude(app, claude_dir, project)
+    service = app.state.manager.provider_state
+    before_codex = tomllib.loads((codex_home / "config.toml").read_text())
+    before_claude = claude._claude_json().read_bytes()
+    started, release, done = threading.Event(), threading.Event(), threading.Event()
+    completed = []
+    write = claude.trust_project
+    restore_claude, restore_codex = TrustWriteRollback.restore, _TrustRollback.restore
+
+    def fail_after_claude(root, **kwargs):
+        write(root, **kwargs)
+        raise ProviderStateVersionError("Injected confirmation failure")
+
+    def suspended_undo(undo):
+        started.set()
+        assert release.wait(10)
+        try:
+            restore_claude(undo)
+            completed.append("claude")
+        finally:
+            done.set()
+
+    def second_undo(undo):
+        restore_codex(undo)
+        completed.append("codex")
+
+    monkeypatch.setattr(claude, "trust_project", fail_after_claude)
+    monkeypatch.setattr(TrustWriteRollback, "restore", suspended_undo)
+    monkeypatch.setattr(_TrustRollback, "restore", second_undo)
+
+    async def scenario():
+        task = asyncio.create_task(service.security_write("codex", "p"))
+        try:
+            assert await asyncio.to_thread(started.wait, 10)
+            for _ in range(3):
+                task.cancel()
+                for _ in range(3):
+                    await asyncio.sleep(0)
+            assert not task.done(), "Cancellation must not detach the reverse compensation"
+            assert all(service.locks[name].locked() for name in ("codex", "claude"))
+        finally:
+            release.set()
+            result = await asyncio.gather(task, return_exceptions=True)
+            assert await asyncio.to_thread(done.wait, 10)
+        assert isinstance(result[0], asyncio.CancelledError)
+        assert completed == ["claude", "codex"]
+        assert all(not service.locks[name].locked() for name in ("codex", "claude"))
+
+    asyncio.run(scenario())
+    assert tomllib.loads((codex_home / "config.toml").read_text()) == before_codex
+    assert claude._claude_json().read_bytes() == before_claude
