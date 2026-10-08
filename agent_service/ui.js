@@ -1216,7 +1216,7 @@ const userErrors = {
   catalog_hook_filter_unsupported:
     "This execution mode cannot enforce the catalog hook list. Choose a supported native provider.",
   catalog_runtime_mode_unsupported:
-    "This isolated execution mode cannot provide the catalog runtime. Choose a supported native provider.",
+    "This execution mode cannot provide the catalog runtime. Choose a supported native provider.",
   catalog_runtime_unavailable:
     "The catalog runtime is unavailable. Check its prerequisites in Admin.",
   catalog_preflight_failed:
@@ -1365,7 +1365,7 @@ const userErrors = {
   cli_missing:
     "The provider's command-line tool is missing on the server. Reinstall it, refresh discovery in the admin panel and try again.",
   isolation_unavailable:
-    "Isolated conversations need Linux with bubblewrap on the server. Turn isolation off or ask the administrator to install bubblewrap.",
+    "This execution mode is unavailable. Start a new native conversation.",
   project_name_exists:
     "A project with that name already exists. Choose a different name.",
   invalid_project_name: "The name needs to be between 3 and 100 characters.",
@@ -1425,11 +1425,11 @@ const userErrors = {
   conversation_context_limit:
     "This conversation is too long for the model's context. Start a new conversation or use a model with a larger context.",
   conversation_execution_mode_locked:
-    "This conversation's isolation mode can't change. Start a new conversation to use another mode.",
+    "This conversation's execution mode can't change. Start a new conversation to use the supported default.",
   conversation_workspace_changed:
     "This conversation's workspace changed. Start a new conversation.",
   execution_mode_unsupported:
-    "This conversation uses an execution mode this model or server no longer offers. Choose another model or start a new conversation.",
+    "This conversation uses an execution mode this model or server no longer offers. Start a new native conversation to continue. Its history is still available.",
   invalid_conversation_title: "Use a title between 1 and 100 characters.",
   invalid_archived:
     "Archiving needs a yes or no answer. Refresh the page and try again.",
@@ -1462,7 +1462,7 @@ const userErrors = {
   no_enabled_executor_for_task:
     "No enabled model can run this task. Ask the administrator to enable one.",
   use_scoped_inference_tools:
-    "This model can only work through the isolated tools. Turn isolation on or choose another model.",
+    "This model cannot run this request. Choose a supported model.",
   service_project_denied:
     "This provider is not enabled for this project. Choose another model or ask the administrator.",
   runtime_config_invalid:
@@ -1648,11 +1648,11 @@ const userErrors = {
   effect_request_too_large:
     "This publication request is too large. Reduce the artifact content and prepare it again.",
   unsafe_scoped_home:
-    "This execution cannot start because its isolated workspace is unsafe. Ask the server owner to check its workspace configuration.",
+    "This execution cannot start because its workspace is unsafe. Ask the server owner to check its workspace configuration.",
   scoped_private_file_linked:
-    "This isolated run cannot start because private server state has a linked copy. Ask the server owner to remove the link before retrying.",
+    "This run cannot start because private server state has a linked copy. Ask the server owner to remove the link before retrying.",
   scoped_private_files_unavailable:
-    "This isolated run cannot verify private server state. Ask the server owner to check its storage and permissions, then retry.",
+    "This run cannot verify private server state. Ask the server owner to check its storage and permissions, then retry.",
   // Projects, folders and workspaces.
   invalid_project: "This project is invalid. Choose another one.",
   project_busy: "This project is busy with another change. Try again shortly.",
@@ -3323,7 +3323,9 @@ function supportedExecutionModes() {
   const modes = selected()?.execution_modes;
   return Array.isArray(modes) &&
     modes.every((mode) => ["native", "scoped"].includes(mode))
-    ? modes
+    ? modes.filter((mode) =>
+        selected()?.backend === "local" ? mode === "scoped" : mode === "native",
+      )
     : [];
 }
 function syncExecutionMode() {
@@ -3335,47 +3337,42 @@ function syncExecutionMode() {
     executionMode = draftMode.mode;
   }
   const isolated = executionMode === "scoped";
-  const modeContract = Array.isArray(selected()?.execution_modes);
-  // F-58: isolation is chosen before the first message, then only stated.
-  // The sub-bar (project, files, agents) serves every new conversation; only the
-  // isolation choice needs a model that states its execution modes.
-  $("execution-mode-choice").hidden = !modeContract && started;
+  const modeContract = modes.length > 0;
+  const localIsolation =
+    selected()?.backend === "local" && !draftMode.retiredLock;
+  // Local retains its required-isolation display; cloud modes have no switch.
+  $("execution-mode-choice").hidden = false;
   $("execution-mode-choice").classList.toggle("no-modes", !modeContract);
   $("execution-mode-choice").classList.toggle("started", started);
-  $("isolation-toggle").hidden = started;
-  $("execution-mode-help").hidden = started;
+  $("isolation-toggle").hidden = started || !localIsolation;
+  $("execution-mode-help").hidden = true;
   $("isolation-toggle").setAttribute("aria-checked", String(isolated));
-  // A retired draft requires New; supported drafts retain the pre-send choice.
-  $("isolation-toggle").disabled =
-    started ||
-    draftMode.retiredLock ||
-    busy ||
-    loading ||
-    submitting ||
-    uploads > 0 ||
-    (modes.length < 2 && modes.includes(executionMode));
+  $("isolation-toggle").disabled = true;
   $("execution-mode-label").textContent = executionModeLabel();
   const warning = $("execution-mode-unavailable");
   warning.hidden =
-    !draftMode.retiredLock &&
-    (!selected() || (modes.includes(executionMode) && modes.length > 1));
+    !draftMode.retiredLock && modes.includes(executionMode) && !localIsolation;
   warning.textContent =
     started && executionMode == null
       ? "The historical execution mode is unavailable. Start a new native conversation to continue."
-      : draftMode.retiredLock
-        ? "This saved isolated mode is no longer supported. Start a new conversation to use native mode."
-        : modes.length === 1 && modes.includes(executionMode)
-          ? isolated
-            ? "This model requires isolation."
-            : "This model only offers native mode."
-          : "This model does not offer " +
-            (isolated ? "isolated" : "native") +
-            " mode. Choose a different model" +
-            (started
-              ? " or start a new conversation."
-              : " or change the mode before sending.");
+      : started && draftMode.retiredLock
+        ? "Isolated Codex and Claude conversations are no longer supported. Start a new native conversation to continue."
+        : draftMode.retiredLock
+          ? "This saved isolated mode is no longer supported. Start a new conversation to use native mode."
+          : !modeContract
+            ? "Execution capabilities are unavailable. Refresh the model list before sending."
+            : modes.length === 1 && modes.includes(executionMode)
+              ? isolated
+                ? "This model requires isolation."
+                : "This model only offers native mode."
+              : "This model does not offer " +
+                (isolated ? "isolated" : "native") +
+                " mode. Choose a different model" +
+                (started
+                  ? " or start a new conversation."
+                  : " or start a new conversation.");
   const indicator = $("execution-mode-indicator");
-  indicator.hidden = !started || !modeContract;
+  indicator.hidden = !started || !localIsolation;
   indicator.dataset.isolated = String(isolated);
   const label =
     executionMode == null
@@ -3385,44 +3382,16 @@ function syncExecutionMode() {
         : "Native conversation · isolation off";
   indicator.title = label;
   indicator.setAttribute("aria-label", label);
-  $("dropzone").classList.toggle("has-execution-mode", started && modeContract);
+  $("dropzone").classList.toggle(
+    "has-execution-mode",
+    started && localIsolation,
+  );
   $("header-execution-mode").textContent = executionModeLabel();
 }
-$("isolation-toggle").onclick = () => {
-  if (
-    conversation ||
-    parent ||
-    draftMode.retiredLock ||
-    busy ||
-    loading ||
-    submitting ||
-    uploads
-  )
-    return;
-  draftMode = {
-    mode: executionMode === "scoped" ? "native" : "scoped",
-    modeChosen: true,
-    retiredLock:
-      executionMode === "native" &&
-      ["codex", "claude"].includes(selected()?.backend),
-  };
-  executionMode = draftMode.mode;
-  invalidateResources();
-  updateComposer();
-  saveView();
-};
-$("header-execution-mode").onclick = () => {
-  if (!conversation && !parent && !$("isolation-toggle").disabled)
-    $("isolation-toggle").click();
-  else
-    status(
-      "Conversation mode is fixed after the first message. Start a new conversation to change it.",
-    );
-};
 function newConversation(
   title = "New Conversation",
   projectId = $("project").value,
-  { resetExecutionMode = false } = {},
+  { resetExecutionMode = false, restoreHomeDraft = false } = {},
 ) {
   if (submitting || cancelling || loading || uploads) {
     status(
@@ -3485,11 +3454,13 @@ function newConversation(
     carriedDraft &&
     normalizeDraftMode(carriedDraft).retiredLock;
   const restoredDraft =
-    changedProject && preserveRetiredDraft
-      ? carriedDraft
-      : newDraft?.draft || newDraft?.files?.length
-        ? newDraft
-        : carriedDraft;
+    restoreHomeDraft && newDraft
+      ? newDraft
+      : changedProject && preserveRetiredDraft
+        ? carriedDraft
+        : newDraft?.draft || newDraft?.files?.length
+          ? newDraft
+          : carriedDraft;
   if (restoredDraft)
     restoreView(restoredDraft, {
       resetExecutionMode,
@@ -3500,6 +3471,8 @@ function newConversation(
   $("context-meter").textContent = "New conversation · independent context";
   setBusy(false);
   status("");
+  // The mobile drawer makes the editor inert until it closes.
+  closeSidebar();
   $("prompt").focus({ preventScroll: true });
   void refreshProjectPermissions().then(
     (ready) => ready && refreshProjectTrust(),
@@ -4901,7 +4874,7 @@ function showWorkflowRecovery(run) {
     target.querySelector(".workflow-recovery")
   )
     return;
-  if (!run.workflow_checkpoint) return;
+  if (!run.workflow_checkpoint || draftMode.retiredLock) return;
   const section = document.createElement("section"),
     note = document.createElement("p"),
     resume = document.createElement("button");
@@ -4982,6 +4955,7 @@ function showTurnRetry(run) {
   )
     return;
   if (
+    draftMode.retiredLock ||
     run.workflow_checkpoint ||
     req.schedule_id ||
     req.backend === "maestro" ||
@@ -8582,7 +8556,7 @@ function saveView() {
     if (conversation) route.searchParams.set("conversation", conversation);
     else route.searchParams.delete("conversation");
     if (route.href !== location.href)
-      window.history.replaceState(null, "", route);
+      window.history.replaceState(window.history.state, "", route);
     const snapshot = JSON.stringify({
       conversation,
       composer_selection: {
@@ -9421,34 +9395,51 @@ function adminFrameUrl(section) {
 }
 function showAdminSection(section = "providers") {
   // Created on first use so ordinary page loads carry no extra document.
+  const next = adminFrameUrl(section);
   let frame = $("admin-frame");
+  if (frame && new URL(frame.src).origin !== new URL(next).origin) {
+    frame.remove();
+    frame = null;
+  }
+  const created = !frame;
   if (!frame) {
     frame = document.createElement("iframe");
     frame.id = "admin-frame";
     // Share only our origin so the embedded admin can authenticate theme messages.
     frame.referrerPolicy = "origin";
-    frame.onload = () =>
+    frame.onload = () => {
       window.HarnessTheme?.apply(
         document.documentElement.dataset.palette,
         false,
       );
+      // Joint traversal can restore an older iframe document after the shell's popstate.
+      const desired = new URL(frame.dataset.adminUrl || frame.src);
+      frame.contentWindow.postMessage(
+        {
+          type: "keepharness:settings-section",
+          section: desired.hash.slice(1),
+        },
+        desired.origin,
+      );
+    };
+    frame.src = next;
     $("settings-system").append(frame);
   }
   const label = document.querySelector(
     '[data-admin-section="' + section + '"]',
   );
   frame.title = "Administration: " + (label?.textContent || section);
-  const next = adminFrameUrl(section);
-  if (
-    frame.dataset.settingsSearchReady &&
-    new URL(frame.src).origin === new URL(next).origin
-  ) {
+  if (!created && frame.dataset.settingsSearchReady) {
     // Search has authenticated this admin document. Retain its unsaved form values.
     frame.contentWindow.postMessage(
       { type: "keepharness:settings-section", section },
       new URL(next).origin,
     );
-  } else if (frame.src !== next) frame.src = next;
+  } else if (!created && frame.dataset.adminUrl !== next) {
+    // Iframe entries share browser history with the shell. Replace, never append.
+    frame.contentWindow.location.replace(next);
+  }
+  frame.dataset.adminUrl = next;
 }
 // `section` is a data-admin-section or a data-settings value; false when it is an admin section
 // on a host that cannot frame the admin, or unknown.
@@ -9625,8 +9616,8 @@ settingsMenu.addEventListener("keydown", (event) => {
 });
 $("settings-close").onclick = () => $("settings-dialog").close();
 
-// Back / forward (Codex model): a short in-memory history of views. It never touches
-// window.history, so the saveView URL and the embedded admin iframe are unaffected.
+// Back / forward: a bounded view history, mirrored in this document's browser history.
+// Embedded admin iframe navigation remains separate.
 const NAV_LIMIT = 50;
 const DIALOG_VIEWS = {
   settings: "settings-dialog",
@@ -9636,6 +9627,13 @@ const DIALOG_VIEWS = {
 };
 let viewHistory = [],
   viewIndex = -1;
+const navigationSession = Array.from(
+  crypto.getRandomValues(new Uint32Array(4)),
+).join("-");
+let navigationSequence = 0;
+const browserViewState = (view) => ({
+  keepHarnessView: { session: navigationSession, id: view.historyId },
+});
 // Scroll positions survive a reload: the 50 most recent conversations are kept in the UI state store.
 const scrollByConversation = new Map();
 for (const [id, top] of prefs.get("conversation_scroll", []))
@@ -9673,7 +9671,9 @@ const sameView = (a, b) =>
   (a.section || null) === (b.section || null) &&
   (a.sub || null) === (b.sub || null);
 const currentBaseView = () =>
-  conversation ? { kind: "conversation", id: conversation } : { kind: "home" };
+  conversation
+    ? { kind: "conversation", id: conversation }
+    : { kind: "home", project: $("project").value };
 const pressedSettings = () =>
   document.querySelector('[data-settings][aria-pressed="true"]');
 // The five System buttons share data-settings="system"; `sub` (the admin section) tells them apart.
@@ -9701,14 +9701,24 @@ function syncNavButtons() {
 }
 function recordView({ button, legacy, ...view }) {
   const base = currentBaseView();
-  if (!viewHistory.length) [viewHistory, viewIndex] = [[base], 0];
+  if (!viewHistory.length) {
+    [viewHistory, viewIndex] = [
+      [{ ...base, historyId: navigationSequence++, historyPosition: 0 }],
+      0,
+    ];
+    window.history.replaceState(browserViewState(viewHistory[0]), "");
+  }
   // The first send creates the conversation outside navigate(); only that Home entry is corrected here.
   // Any other entry may be a Back target whose load is still pending, while `conversation` is stale.
-  if (viewHistory[viewIndex].kind === "home") viewHistory[viewIndex] = base;
+  if (viewHistory[viewIndex].kind === "home")
+    Object.assign(viewHistory[viewIndex], base);
   if (!sameView(viewHistory[viewIndex], view)) {
+    view.historyId = navigationSequence++;
+    view.historyPosition = viewHistory[viewIndex].historyPosition + 1;
     viewHistory.splice(viewIndex + 1, Infinity, view);
     if (viewHistory.length > NAV_LIMIT) viewHistory.shift();
     viewIndex = viewHistory.length - 1;
+    window.history.pushState(browserViewState(view), "");
   }
   syncNavButtons();
 }
@@ -9743,8 +9753,23 @@ async function applyView(view, replay = false) {
     else if (top !== undefined) restoreScroll(top);
     if (conversation !== view.id) return false;
   } else if (view.kind === "home") {
+    // Responsive drawers make the composer inert; close them before restoring focus.
+    closeSidebar();
+    if (innerWidth < 1000) setPanelOpen(false, false);
+    window.runConsole?.closeForPanel();
     // A click on New chat always starts a fresh one; a replayed Home only leaves the conversation.
-    if (conversation || !replay) startNewConversation(!replay);
+    if (
+      replay &&
+      view.project &&
+      [...$("project").options].some((option) => option.value === view.project)
+    ) {
+      newConversation("New Conversation", view.project, {
+        restoreHomeDraft: true,
+      });
+      renderProjects();
+      history();
+      closeSidebar();
+    } else if (conversation || !replay) startNewConversation(!replay);
   } else if (view.kind === "space") await openSpace();
   else if (view.kind === "scheduled") await openScheduled();
   else {
@@ -9780,33 +9805,57 @@ async function navigate(view, { record = true } = {}) {
   if (record && shown === false && sameView(viewHistory[viewIndex], view)) {
     viewHistory.splice(viewIndex, 1);
     viewIndex--;
+    window.history.back();
     syncNavButtons();
   }
   return shown;
 }
-async function stepHistory(delta) {
+function stepHistory(delta) {
   const target = viewHistory[viewIndex + delta];
   if (!target || navigationBlocked(target) || foreignModalOpen()) return;
-  const from = viewIndex;
-  viewIndex += delta;
+  window.history.go(
+    target.historyPosition - viewHistory[viewIndex].historyPosition,
+  );
+}
+addEventListener("popstate", async (event) => {
+  const state = event.state?.keepHarnessView;
+  if (!state) return;
+  const targetIndex =
+    state.session === navigationSession
+      ? viewHistory.findIndex((view) => view.historyId === state.id)
+      : -1;
+  // Reloaded or evicted views are outside the bounded history. Keep the URL honest.
+  if (targetIndex < 0 || targetIndex === viewIndex) {
+    saveView();
+    return;
+  }
+  const from = viewIndex,
+    target = viewHistory[targetIndex];
+  if (navigationBlocked(target) || foreignModalOpen()) {
+    window.history.go(
+      viewHistory[from].historyPosition - target.historyPosition,
+    );
+    return;
+  }
+  viewIndex = targetIndex;
   syncNavButtons();
   if (
     (await navigate(target, { record: false })) !== false ||
-    viewIndex !== from + delta
+    viewIndex !== targetIndex
   )
     return;
-  // The view did not open: a dialog refused to close, or the conversation is gone. Keep the current view
-  // and drop a dead conversation entry so Back and Forward never point at it again.
+  // A refused dialog or a failed load stays on the previous view.
   viewIndex = from;
+  window.history.go(viewHistory[from].historyPosition - target.historyPosition);
   if (
     target.kind === "conversation" &&
     !conversations.some((c) => c.id === target.id)
   ) {
-    viewHistory.splice(from + delta, 1);
-    viewIndex = from + Math.min(delta, 0);
+    viewHistory.splice(targetIndex, 1);
+    if (targetIndex < from) viewIndex--;
   }
   syncNavButtons();
-}
+});
 // A modal dialog that is not a history view (About, search, ...) owns the keyboard shortcuts.
 const foreignModalOpen = () =>
   [...document.querySelectorAll("dialog[open]")].some(
@@ -9817,6 +9866,19 @@ const back = () => stepHistory(-1),
 $("nav-back").onclick = back;
 $("nav-forward").onclick = forward;
 document.addEventListener("keydown", (e) => {
+  if (
+    e.altKey &&
+    !e.ctrlKey &&
+    !e.metaKey &&
+    !e.shiftKey &&
+    ["ArrowLeft", "ArrowRight"].includes(e.key)
+  ) {
+    const delta = e.key === "ArrowLeft" ? -1 : 1;
+    if (!viewHistory[viewIndex + delta]) return;
+    e.preventDefault();
+    stepHistory(delta);
+    return;
+  }
   if (
     !(e.ctrlKey || e.metaKey) ||
     e.altKey ||
@@ -9845,7 +9907,11 @@ document.addEventListener("keydown", (e) => {
 function openFromHash() {
   const section = /^#open=settings\/([a-z]+)$/.exec(location.hash)?.[1];
   if (!section || !interfaceReady) return;
-  window.history.replaceState(null, "", location.pathname + location.search);
+  window.history.replaceState(
+    window.history.state,
+    "",
+    location.pathname + location.search,
+  );
   openSettings(section);
 }
 addEventListener("hashchange", openFromHash);

@@ -90,6 +90,14 @@ const path = require("node:path");
 
     const menu = page.locator("#settings-menu");
     const dialog = page.locator("#settings-dialog");
+    const adminHash = async (hash) => {
+      const frame = await page
+        .locator("#admin-frame")
+        .elementHandle()
+        .then((element) => element.contentFrame());
+      await frame.waitForURL((url) => url.hash === hash);
+      return new URL(frame.url()).hash;
+    };
     const names = (locator) =>
       locator.evaluateAll((nodes) => nodes.map((n) => n.textContent.trim()));
     assert.equal(
@@ -208,10 +216,7 @@ const path = require("node:path");
         .getAttribute("aria-pressed"),
       "true",
     );
-    assert.equal(
-      new URL(await page.locator("#admin-frame").getAttribute("src")).hash,
-      "#runs",
-    );
+    assert.equal(await adminHash("#runs"), "#runs");
     await page.click("#settings-close");
 
     // Plugins is the existing admin facade, embedded at #plugins rather than the native skill catalog.
@@ -224,10 +229,7 @@ const path = require("node:path");
         .getAttribute("aria-pressed"),
       "true",
     );
-    assert.equal(
-      new URL(await page.locator("#admin-frame").getAttribute("src")).hash,
-      "#plugins",
-    );
+    assert.equal(await adminHash("#plugins"), "#plugins");
     const adminFrame = page.frameLocator("#admin-frame");
     await adminFrame.locator("#overview h1", { hasText: "Plugins" }).waitFor();
     assert.equal(
@@ -248,10 +250,7 @@ const path = require("node:path");
     await dialog
       .locator('[data-admin-section="plugins"][aria-pressed="true"]')
       .waitFor();
-    assert.equal(
-      new URL(await page.locator("#admin-frame").getAttribute("src")).hash,
-      "#plugins",
-    );
+    assert.equal(await adminHash("#plugins"), "#plugins");
     await adminFrame
       .locator('[data-testid="plugins-panel"] button', { hasText: "Plugins" })
       .first()
@@ -270,10 +269,7 @@ const path = require("node:path");
     await dialog
       .locator('[data-admin-section="plugins"][aria-pressed="true"]')
       .waitFor();
-    assert.equal(
-      new URL(await page.locator("#admin-frame").getAttribute("src")).hash,
-      "#plugins",
-    );
+    assert.equal(await adminHash("#plugins"), "#plugins");
     await adminFrame
       .locator('[data-testid="plugins-panel"] button', { hasText: "Plugins" })
       .first()

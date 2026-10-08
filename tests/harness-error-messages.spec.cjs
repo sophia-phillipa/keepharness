@@ -102,11 +102,25 @@ const path = require("node:path");
       conditions[2],
       /^DeepSeek rejected the API key\. In the admin panel, paste a valid DeepSeek API key/,
     );
-    // F-23: an isolated conversation refused up front names what the server lacks.
+    // Retired cloud execution guidance directs an explicit native conversation.
     const isolation = await page.evaluate(
       () => userErrors.isolation_unavailable,
     );
-    assert.match(isolation, /bubblewrap/);
+    assert.match(isolation, /Start a new native conversation/);
+    assert.doesNotMatch(isolation, /Turn isolation|install bubblewrap/);
+    const localSafety = await page.evaluate(() => [
+      userErrors.unsafe_scoped_home,
+      userErrors.scoped_private_file_linked,
+      userErrors.scoped_private_files_unavailable,
+    ]);
+    assert.match(localSafety[0], /workspace.*unsafe/);
+    assert.match(localSafety[1], /remove the link/);
+    assert.match(localSafety[2], /storage and permissions/);
+    for (const message of localSafety)
+      assert.doesNotMatch(
+        message,
+        /retired|no longer supported|new native conversation/,
+      );
     assert.deepEqual(errors, []);
     console.log(
       "PASS: a missing provider CLI shows a guided message; unknown codes get generic text without the code.",

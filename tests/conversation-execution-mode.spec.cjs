@@ -123,7 +123,7 @@ const assert = require("node:assert/strict"),
     });
     await page.goto("http://panel.test/");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
-    const toggle = page.getByRole("switch", { name: "Isolated conversation" });
+    const toggle = page.locator("#isolation-toggle");
     assert.equal(await toggle.getAttribute("aria-checked"), "true");
     assert.equal(
       await page.locator("#execution-mode-indicator").isVisible(),
@@ -175,7 +175,10 @@ const assert = require("node:assert/strict"),
       await page.locator("#header-execution-mode").innerText(),
       "Isolated conversation",
     );
-    await page.locator("#header-execution-mode").click();
+    assert.equal(
+      await page.locator("#header-execution-mode").evaluate((el) => el.tagName),
+      "SPAN",
+    );
     assert.equal(
       await toggle.isVisible(),
       false,
@@ -242,16 +245,16 @@ const assert = require("node:assert/strict"),
         .getAttribute("data-isolated"),
       "true",
     );
-    await page.screenshot({ path: "/tmp/conversation-mode-started.png" });
+
     await page.locator("#new").click();
     assert.equal(await toggle.getAttribute("aria-checked"), "true");
     assert.equal(
       await page.locator("#execution-mode-indicator").isVisible(),
       false,
     );
-    await page.screenshot({ path: "/tmp/conversation-mode-new.png" });
+
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.screenshot({ path: "/tmp/conversation-mode-mobile.png" });
+
     assert.equal(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= innerWidth,

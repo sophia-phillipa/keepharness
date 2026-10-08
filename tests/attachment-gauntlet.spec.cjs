@@ -36,14 +36,21 @@ const assert = require("node:assert/strict"),
                   backend: "codex",
                   efforts: ["low"],
                   permissions: { upload: true },
-                  execution_modes: ["native", "scoped"],
+                  execution_modes: ["native"],
                 },
                 {
                   id: "other",
                   backend: "claude",
                   efforts: ["low"],
                   permissions: { upload: true },
-                  execution_modes: ["native", "scoped"],
+                  execution_modes: ["native"],
+                },
+                {
+                  id: "local-fixture",
+                  backend: "local",
+                  efforts: ["low"],
+                  permissions: { upload: true },
+                  execution_modes: ["scoped"],
                 },
               ],
             };
@@ -257,7 +264,11 @@ const assert = require("node:assert/strict"),
           );
         }
         if (profile === 11) {
-          await page.click("#isolation-toggle");
+          await page.selectOption("#model", "local-fixture", { force: true });
+          assert.equal(
+            await page.locator("#isolation-toggle").isDisabled(),
+            true,
+          );
           await add();
           assert.equal(
             requests[0].params.execution_mode,
@@ -274,7 +285,11 @@ const assert = require("node:assert/strict"),
               return timeout(ms);
             };
           });
-          await page.click("#isolation-toggle");
+          await page.selectOption("#model", "local-fixture", { force: true });
+          assert.equal(
+            await page.locator("#isolation-toggle").isDisabled(),
+            true,
+          );
           await page.evaluate(() =>
             attachSelectedProjectFiles({
               root_id: "home",

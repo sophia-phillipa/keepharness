@@ -381,16 +381,11 @@ runPersona("H36", [
       assert.notEqual(await ring(), idle);
       // Status is carried by text, not only by colour.
       assert.match(await page.locator("#quota-short").innerText(), /\w/);
-      const indicator = page.locator("#execution-mode-indicator");
-      await indicator.waitFor({ state: "visible" });
-      assert.equal(
-        await indicator.getAttribute("aria-label"),
-        "Native conversation · isolation off",
-      );
-      assert.equal(
-        await indicator.getAttribute("title"),
-        "Native conversation · isolation off",
-      );
+      const mode = page.locator("#header-execution-mode");
+      await mode.waitFor({ state: "visible" });
+      assert.equal(await mode.innerText(), "Native conversation");
+      assert.equal(await mode.evaluate(el => el.tagName), "SPAN");
+      assert.equal(await page.locator("#execution-mode-indicator").isVisible(), false);
     },
   },
   {

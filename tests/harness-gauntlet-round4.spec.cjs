@@ -10,6 +10,7 @@ async function capture(page, name) {
   await page.screenshot({ path: path.join(folder, name + ".png") });
 }
 const { mount, run, span } = require("./run-console-fixture.cjs");
+const { executionModes } = require("./model-fixture.cjs");
 const resource = {
   id: "project/p/reviewer",
   resource_id: "project/p/reviewer",
@@ -91,7 +92,12 @@ async function fixture(browser, width = 1024, height = 768) {
       return {
         json: {
           models: [
-            { id: "fixture-model", backend: "codex", efforts: ["configured"] },
+            {
+              id: "fixture-model",
+              backend: "codex",
+              execution_modes: executionModes("codex"),
+              efforts: ["configured"],
+            },
           ],
           providers: { codex: true },
         },
@@ -145,7 +151,11 @@ async function fixture(browser, width = 1024, height = 768) {
       if (state.delay) await state.delay;
       const id = url.pathname.split("/").at(-1);
       return {
-        json: { title: id.toUpperCase() + " report", turns: [turn(id)] },
+        json: {
+          title: id.toUpperCase() + " report",
+          execution_mode: "native",
+          turns: [turn(id)],
+        },
       };
     }
     if (url.pathname.endsWith("/cancel")) {

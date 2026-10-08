@@ -202,7 +202,7 @@ runPersona("H31", [
                 backend: "local",
                 efforts: ["low"],
                 permissions: { upload: false },
-                execution_modes: ["native"],
+                execution_modes: ["scoped"],
               },
             ],
           },

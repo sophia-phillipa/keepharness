@@ -20,6 +20,16 @@
     if (!document.documentElement.dataset.embedded || !document.referrer) return;
     const parentOrigin = new URL(document.referrer).origin;
     const sections = new Set([...document.querySelectorAll("[data-panel]")].map((node) => node.dataset.panel));
+    // Embedded section links share the shell's browser history; replace their entry.
+    document.addEventListener("click", event => {
+      const link = event.target.closest?.("a[href]");
+      if (!link || link.target || link.hasAttribute("download") || event.button !== 0 ||
+          event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+      const url = new URL(link.href);
+      if (url.origin !== location.origin || url.pathname !== location.pathname || url.search !== location.search || !url.hash) return;
+      event.preventDefault();
+      location.replace(url.href);
+    });
     const preferences = () => Object.entries(adminControls).flatMap(([id, section]) => {
       const control = byId(id);
       if (!control || !sections.has(section)) return [];
@@ -85,11 +95,11 @@
       } else if (data?.type === "keepharness:settings-retry") {
         void retry(data.request);
       } else if (data?.type === "keepharness:settings-section" && sections.has(data.section)) {
-        location.hash = data.section;
+        location.replace("#" + data.section);
       } else if (data?.type === "keepharness:settings-focus" && Object.hasOwn(adminControls, data.id)) {
         const control = byId(data.id);
         if (!control || control.disabled) return;
-        location.hash = adminControls[data.id];
+        location.replace("#" + adminControls[data.id]);
         // The admin's hashchange handler owns panel visibility; wait until it runs.
         setTimeout(() => {
           if (control.checkVisibility() && !control.disabled) {
@@ -182,9 +192,10 @@
     if (!frame) { showAdminSection("providers"); frame = byId("admin-frame"); }
     if (reload && !frame.dataset.settingsSearchReady) {
       // Reassigning the same fragment URL can leave the failed document in place.
-      const url = new URL(frame.src);
+      const url = new URL(frame.dataset.adminUrl || frame.src);
       url.searchParams.set("settings_retry", String(current));
-      frame.src = url.href;
+      frame.contentWindow.location.replace(url.href);
+      frame.dataset.adminUrl = url.href;
     } else if (reload) send({ type: "keepharness:settings-retry", request: current });
     const ask = () => { if (current === request) send({ type: "keepharness:settings-query", request: current }); };
     // Admin startup fetches its state asynchronously, after the iframe's load event.

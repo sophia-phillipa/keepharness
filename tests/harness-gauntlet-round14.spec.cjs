@@ -806,7 +806,16 @@ async function fixture(browser, width = 1440, height = 900, empty = false) {
         n.scrollLeft = 150;
         n.scrollTop = 90;
       });
-      assert.equal(await viewport.evaluate((n) => n.scrollLeft), 150);
+      // Observe both scroll offsets at the next frame before appending live events.
+      assert.deepEqual(
+        await viewport.evaluate(
+          (n) =>
+            new Promise((resolve) =>
+              requestAnimationFrame(() => resolve([n.scrollLeft, n.scrollTop])),
+            ),
+        ),
+        [150, 90],
+      );
       state.count = 603;
       await p.evaluate(() =>
         runConsole.observe({ type: "started", job_id: "codex" }),
