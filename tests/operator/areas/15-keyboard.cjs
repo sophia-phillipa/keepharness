@@ -1,6 +1,6 @@
 // Keyboard shortcuts and keyboard-only paths.
 "use strict";
-const { home } = require("../lib/app.cjs");
+const { home, dismissTour } = require("../lib/app.cjs");
 
 module.exports = {
   id: "keyboard",
@@ -11,6 +11,11 @@ module.exports = {
 
     await op.step("home", "Start from the home screen, focus on the page", async () => {
       await home(op);
+      await page.evaluate(async () => {
+        const { version } = await fetch("/v1/version").then((response) => response.json());
+        HarnessPrefs.set("tour_seen", version);
+      });
+      await dismissTour(op);
       await page.locator("#conversation-title").click();
     }, { critical: true });
 
@@ -87,14 +92,19 @@ module.exports = {
     await op.step("sidebar-resize-keys", "The conversations panel width follows the arrow keys", async () => {
       const handle = page.locator("#sidebar-resize");
       const width = () => page.locator("#sidebar").evaluate((el) => el.getBoundingClientRect().width);
-      await page.evaluate(() => { document.body.classList.remove("sidebar-collapsed"); fitPanels(); });
-      const before = await width();
-      await handle.evaluate((node) => {
-        const { max } = panelLimits("sidebar");
-        const key = document.querySelector("#sidebar").getBoundingClientRect().width >= max ? "Home" : "End";
-        node.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+      await page.evaluate(() => {
+        document.body.classList.remove("sidebar-collapsed");
+        applyPanelOrder("conversations-left", false);
+        const { min, max } = panelLimits("sidebar");
+        sizePanel("sidebar", (min + max) / 2);
       });
-      await op.until(async () => (await width()) !== before, "arrow keys did not resize the panel");
+      const before = await width();
+      await handle.focus();
+      await op.press("ArrowRight");
+      await op.until(async () => (await width()) > before, "ArrowRight did not widen the left sidebar");
+      const wider = await width();
+      await op.press("ArrowLeft");
+      await op.until(async () => (await width()) < wider, "ArrowLeft did not narrow the left sidebar");
     });
 
     await op.step("skip-link", "The skip link jumps to the message box", async () => {

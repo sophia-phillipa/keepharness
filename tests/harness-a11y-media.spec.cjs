@@ -83,6 +83,30 @@ const path = require("node:path");
     const results = [];
     const check = (id, ok, detail) => results.push({ id, ok, detail });
 
+    // Exercise the operator's actual resize step, including mutations that omit
+    // each key press. A Home/End-only step must not pass as arrow-key coverage.
+    const keyboardArea = require("./operator/areas/15-keyboard.cjs");
+    const resizeStep = async (omitKey) => keyboardArea.run({
+      page,
+      async step(id, _description, run) {
+        if (id === "sidebar-resize-keys") await run();
+      },
+      async press(key) {
+        if (key !== omitKey) await page.keyboard.press(key);
+      },
+      async until(predicate, message) {
+        for (let i = 0; i < 20; i++) {
+          if (await predicate()) return;
+          await page.waitForTimeout(25);
+        }
+        assert.fail(message);
+      },
+    });
+    await assert.rejects(resizeStep("ArrowRight"), /ArrowRight/, "removing ArrowRight must fail the operator's directional assertion");
+    await assert.rejects(resizeStep("ArrowLeft"), /ArrowLeft/, "removing ArrowLeft must fail the operator's directional assertion");
+    await resizeStep();
+    check("P5-W15 operator real arrows resize directionally; omitted presses fail", true);
+
     // P5-20: each dialog opens from the keyboard, Escape closes it, and focus returns
     // to the button that opened it.
     async function openWithKeyboardAndEscape(openerId, dialogId) {

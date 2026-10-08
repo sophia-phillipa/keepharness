@@ -313,6 +313,37 @@ async function runScenario(id, name, work) {
         assert.match(await page.locator("#settings-search-status").innerText(), /no (matching )?(settings|preferences|results)/i);
       }
       await context.close();
+
+      const delayed = await openFixture(browser, fixtureOrigin, freshState(), { viewport: { width: 390, height: 780 } });
+      const delayedAdminState = structuredClone(adminStateTemplate);
+      delayedAdminState.authentication.claude = false;
+      delayedAdminState.settings.mcp_defaults = {};
+      for (const service of Object.values(delayedAdminState.settings.services)) service.models = [];
+      let checkStarted;
+      const checking = new Promise((resolve) => { checkStarted = resolve; });
+      await delayed.page.route(ADMIN + "/**", async (route) => {
+        const pathname = new URL(route.request().url()).pathname;
+        if (pathname === "/api/state") return route.fulfill({ json: delayedAdminState });
+        if (pathname === "/api/check") {
+          checkStarted();
+          await new Promise((resolve) => setTimeout(resolve, 700));
+          return route.fulfill({ json: { authenticated: false, models: [] } });
+        }
+        return route.continue();
+      });
+      await openSearch(delayed.page);
+      await query(delayed.page, "Default effort");
+      await checking;
+      const delayedEffort = resultNamed(delayed.page, /Default effort/i);
+      await delayedEffort.waitFor();
+      const publishedBeforeReady = !(await delayedEffort.isDisabled());
+      const delayedFrameEffort = delayed.page.frameLocator("#admin-frame").locator("#mcp-default-effort");
+      await delayedFrameEffort.waitFor({ state: "attached" });
+      await delayed.page.waitForTimeout(800);
+      assert.equal(await delayedFrameEffort.isDisabled(), true, "admin rendering disables effort when no MCP model exists");
+      assert.equal(publishedBeforeReady, false, "search never publishes an enabled preference before admin rendering completes");
+      assert.equal(await delayedEffort.isDisabled(), true, "search availability stays aligned with the rendered control");
+      await delayed.context.close();
     });
 
     await runScenario("P6-S1", "admin allowlist, message authentication and unsaved iframe state", async () => {
@@ -357,6 +388,19 @@ async function runScenario(id, name, work) {
       const frame = page.frameLocator("#admin-frame");
       const effortSelect = frame.locator("#mcp-default-effort");
       await effortSelect.waitFor();
+      await page.waitForTimeout(50);
+      assert.equal(await effortSelect.evaluate((element) => element === document.activeElement), true, "search focuses the reached admin effort control");
+      const modelSelect = frame.locator("#mcp-default-model");
+      await modelSelect.selectOption("");
+      await page.locator("#settings-search").focus();
+      await query(page, "Default effort");
+      await page.waitForFunction((selector) => document.querySelector(selector)?.disabled, RESULTS + " button");
+      assert.equal(await resultNamed(page, /Default effort/i).isDisabled(), true, "search receives availability changes from the rendered admin control");
+      await modelSelect.selectOption(JSON.stringify(["codex", "fixture"]));
+      await page.waitForFunction((selector) => document.querySelector(selector)?.disabled === false, RESULTS + " button");
+      await resultNamed(page, /Default effort/i).click();
+      await page.waitForTimeout(50);
+      assert.equal(await effortSelect.evaluate((element) => element === document.activeElement), true, "re-enabled admin results focus their existing control");
       await effortSelect.evaluate((select) => {
         if (![...select.options].some((option) => option.value === "fixture-unsaved")) select.add(new Option("Fixture unsaved", "fixture-unsaved"));
         select.value = "fixture-unsaved";
@@ -366,10 +410,14 @@ async function runScenario(id, name, work) {
       await page.locator("#settings-search").focus();
       await query(page, "Full access");
       await resultNamed(page, /Full access/i).click();
+      await page.waitForTimeout(50);
+      assert.equal(await frame.locator("#full-access").evaluate((element) => element === document.activeElement), true, "search focuses the reached admin access control");
       assert.equal(await page.locator("#admin-frame").getAttribute("data-fixture-identity"), "retained", "navigation retains the existing iframe element");
       await page.locator("#settings-search").focus();
       await query(page, "Default effort");
       await resultNamed(page, /Default effort/i).click();
+      await page.waitForTimeout(50);
+      assert.equal(await effortSelect.evaluate((element) => element === document.activeElement), true, "repeated search focuses the existing admin effort control");
       assert.equal(await effortSelect.inputValue(), "fixture-unsaved");
       assert.equal(await effortSelect.evaluate(() => window.settingsSearchDraft), "unsaved MCP effort");
       await context.close();

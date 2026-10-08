@@ -25,13 +25,18 @@
       if (!control || !sections.has(section)) return [];
       return [{ id, section, label: labelFor(control), description: descriptionFor(control), disabled: control.disabled }];
     });
+    let latestRequest;
+    const publish = () => {
+      if (document.documentElement.dataset.settingsSearchReady !== "true" || !Number.isSafeInteger(latestRequest)) return;
+      parent.postMessage({ type: "keepharness:settings-preferences", request: latestRequest, preferences: preferences() }, parentOrigin);
+    };
+    document.addEventListener("keepharness:settings-index-change", publish);
     addEventListener("message", (event) => {
       if (event.source !== parent || event.origin !== parentOrigin) return;
       const data = event.data;
       if (data?.type === "keepharness:settings-query" && Number.isSafeInteger(data.request)) {
-        // Do not advertise controls before the existing admin initialization succeeds.
-        if (typeof state === "undefined" || !state?.settings) return;
-        parent.postMessage({ type: "keepharness:settings-preferences", request: data.request, preferences: preferences() }, parentOrigin);
+        latestRequest = data.request;
+        publish();
       } else if (data?.type === "keepharness:settings-section" && sections.has(data.section)) {
         location.hash = data.section;
       } else if (data?.type === "keepharness:settings-focus" && Object.hasOwn(adminControls, data.id)) {

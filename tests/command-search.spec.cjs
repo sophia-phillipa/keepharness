@@ -25,8 +25,15 @@ function contrast(rgb1, rgb2) {
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 860 } });
     let jobPosts = 0;
-    await page.route("**/v1/**", (route) => {
+    let delayedProjectSearch = null;
+    await page.route("**/v1/**", async (route) => {
       const url = new URL(route.request().url());
+      if (url.pathname === "/v1/project-files" && delayedProjectSearch) {
+        const delayed = delayedProjectSearch;
+        delayedProjectSearch = null;
+        delayed.started();
+        await delayed.response;
+      }
       if (route.request().method() === "POST" && url.pathname === "/v1/jobs") jobPosts += 1;
       const data =
         url.pathname === "/v1/projects"
@@ -106,6 +113,80 @@ function contrast(rgb1, rgb2) {
     assert.equal(await page.locator("#prompt").evaluate((node) => node === document.activeElement), true);
     assert.deepEqual(await snapshot(), before);
     console.log("PASS A2 command filtering, arrow navigation, Enter, and focus composer activation");
+
+    const correctionFailures = [];
+    let releaseDelayedSearch;
+    const delayedSearchStarted = new Promise((resolve) => {
+      delayedProjectSearch = {
+        started: resolve,
+        response: new Promise((release) => { releaseDelayedSearch = release; }),
+      };
+    });
+    await page.keyboard.press("Control+k");
+    const contentResponse = page.waitForResponse((response) =>
+      new URL(response.url()).pathname === "/v1/conversations" && response.url().includes("focus+composer"));
+    await input.fill("focus composer");
+    await delayedSearchStarted;
+    await contentResponse;
+    await page.keyboard.press("ArrowDown");
+    const focusedResultId = await page.evaluate(() => document.activeElement?.dataset.searchResultId || null);
+    const delayedResponse = page.waitForResponse((response) =>
+      new URL(response.url()).pathname === "/v1/project-files" && response.url().includes("focus+composer"));
+    releaseDelayedSearch();
+    await delayedResponse;
+    const focusedAfterRefresh = await page.evaluate(() => document.activeElement?.dataset.searchResultId || null);
+    if (focusedResultId !== "command:focus-composer" || focusedAfterRefresh !== focusedResultId)
+      correctionFailures.push("C1 delayed search refresh preserves the focused semantic result");
+    await page.keyboard.press("Enter");
+    if (!(await page.locator("#prompt").evaluate((node) => node === document.activeElement)))
+      correctionFailures.push("C1 Enter activates the result after delayed search refresh");
+    if (await dialog.isVisible()) await page.keyboard.press("Escape");
+
+    const savedConversations = await page.evaluate(() => structuredClone(conversations));
+    const disappearingSearchStarted = new Promise((resolve) => {
+      delayedProjectSearch = {
+        started: resolve,
+        response: new Promise((release) => { releaseDelayedSearch = release; }),
+      };
+    });
+    await page.keyboard.press("Control+k");
+    const disappearingContentResponse = page.waitForResponse((response) =>
+      new URL(response.url()).pathname === "/v1/conversations" && response.url().includes("known+migration"));
+    await input.fill("known migration");
+    await disappearingSearchStarted;
+    await disappearingContentResponse;
+    await page.keyboard.press("ArrowDown");
+    if (await page.evaluate(() => document.activeElement?.dataset.searchResultId) !== "run:c-known:")
+      correctionFailures.push("C1 the disappearing run starts with its semantic result focused");
+    await page.evaluate(() => { conversations = []; });
+    const disappearingResponse = page.waitForResponse((response) =>
+      new URL(response.url()).pathname === "/v1/project-files" && response.url().includes("known+migration"));
+    releaseDelayedSearch();
+    await disappearingResponse;
+    if (!(await input.evaluate((node) => node === document.activeElement)))
+      correctionFailures.push("C1 a vanished focused result returns focus to search input without selecting another result");
+    await page.evaluate((saved) => { conversations = saved; renderConversationSearch(); }, savedConversations);
+    await page.keyboard.press("Escape");
+
+    await page.setViewportSize({ width: 400, height: 860 });
+    await page.click("#menu");
+    assert.equal(await page.locator("#sidebar").getAttribute("class").then((value) => value.includes("open")), true);
+    await page.keyboard.press("Control+k");
+    await input.fill("focus composer");
+    await dialog.getByRole("button", { name: /Focus composer/ }).click();
+    const mobileFocus = await page.evaluate(() => ({
+      prompt: document.activeElement === document.querySelector("#prompt"),
+      inert: !!document.querySelector("#prompt").closest("[inert]"),
+      sidebarOpen: document.querySelector("#sidebar").classList.contains("open"),
+    }));
+    if (!mobileFocus.prompt || mobileFocus.inert || mobileFocus.sidebarOpen)
+      correctionFailures.push("C2 Focus composer closes the mobile sidebar and focuses an interactive composer");
+    await page.setViewportSize({ width: 1280, height: 860 });
+    assert.deepEqual(await snapshot(), before, "async and mobile command activation preserve composer route state");
+    assert.deepEqual(correctionFailures, [], correctionFailures.join("; "));
+    console.log("PASS C1a delayed results preserve semantic focus and Enter activation");
+    console.log("PASS C1b a vanished result returns focus to the search input");
+    console.log("PASS C2 mobile Focus composer closes the covering sidebar before focus");
 
     await page.keyboard.press("Control+Shift+p");
     await input.fill("appearance");

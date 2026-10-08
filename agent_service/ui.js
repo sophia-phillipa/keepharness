@@ -9246,13 +9246,17 @@ async function refreshProjectFileSearch(value) {
   }
 }
 function renderConversationSearch() {
-  const query = normalizeSearch($("conversation-search").value.trim());
+  const input = $("conversation-search"),
+    activeResult = document.activeElement?.closest?.(".conversation-search-result"),
+    focusedResultId = activeResult?.dataset.searchResultId,
+    query = normalizeSearch(input.value.trim());
   const includes = (...values) =>
     !query || normalizeSearch(values.filter(Boolean).join(" ")).includes(query);
-  const resultButton = (titleText, detailText, action) => {
+  const resultButton = (id, titleText, detailText, action) => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "conversation-search-result";
+    button.dataset.searchResultId = id;
     const title = document.createElement("strong"),
       detail = document.createElement("small");
     title.textContent = titleText;
@@ -9262,9 +9266,12 @@ function renderConversationSearch() {
     return button;
   };
   const commandMatches = [
-    { title: "New conversation", terms: "new chat home", available: () => !(submitting || cancelling || loading || uploads), run: () => void navigate({ kind: "home" }) },
-    { title: "Focus composer", terms: "write message prompt", available: () => !$("prompt").disabled, run: () => $("prompt").focus() },
-    { title: "Keyboard shortcuts", terms: "key bindings reference", run: openKeyboardShortcuts },
+    { id: "new-conversation", title: "New conversation", terms: "new chat home", available: () => !(submitting || cancelling || loading || uploads), run: () => void navigate({ kind: "home" }) },
+    { id: "focus-composer", title: "Focus composer", terms: "write message prompt", available: () => !$("prompt").disabled, run: () => {
+      if (matchMedia("(max-width:620px)").matches && $("sidebar").classList.contains("open")) closeSidebar();
+      $("prompt").focus();
+    } },
+    { id: "keyboard-shortcuts", title: "Keyboard shortcuts", terms: "key bindings reference", run: openKeyboardShortcuts },
   ].filter((item) => (!item.available || item.available()) && includes(item.title, item.terms));
   const settingsMatches = [...document.querySelectorAll(".settings-nav-group:not([hidden])")]
     .flatMap((section) => {
@@ -9352,7 +9359,7 @@ function renderConversationSearch() {
   group(
     "Commands",
     commandMatches.map((item) =>
-      resultButton(item.title, "Command", () => {
+      resultButton("command:" + item.id, item.title, "Command", () => {
         $("conversation-search-dialog").close();
         item.run();
       }),
@@ -9361,7 +9368,7 @@ function renderConversationSearch() {
   group(
     "Settings",
     settingsMatches.map((item) =>
-      resultButton(item.title, "Settings › " + item.group, () => {
+      resultButton("settings:" + item.section, item.title, "Settings › " + item.group, () => {
         $("conversation-search-dialog").close();
         openSettings(item.section);
       }),
@@ -9373,6 +9380,7 @@ function renderConversationSearch() {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "conversation-search-result";
+      button.dataset.searchResultId = "run:" + (c.id || "") + ":" + (c.runId || "");
       const title = document.createElement("strong"),
         detail = document.createElement("small");
       title.textContent = c.title || "Conversation";
@@ -9420,6 +9428,7 @@ function renderConversationSearch() {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "conversation-search-result";
+      button.dataset.searchResultId = "file:" + path;
       const title = document.createElement("strong");
       title.textContent = path;
       const detail = document.createElement("small");
@@ -9434,7 +9443,13 @@ function renderConversationSearch() {
       return button;
     }),
   );
-  $("conversation-search-list").replaceChildren(...sections);
+  const list = $("conversation-search-list");
+  list.replaceChildren(...sections);
+  if (focusedResultId) {
+    const replacement = [...list.querySelectorAll(".conversation-search-result")]
+      .find((result) => result.dataset.searchResultId === focusedResultId && !result.disabled);
+    (replacement || input).focus({ preventScroll: true });
+  }
 }
 function openConversationSearch() {
   renderConversationSearch();

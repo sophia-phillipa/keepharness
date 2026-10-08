@@ -6,6 +6,10 @@ let state,
   wizard = false,
   editing = null,
   unsaved = false;
+function settingsSearchChanged(ready = document.documentElement.dataset.settingsSearchReady === "true") {
+  document.documentElement.dataset.settingsSearchReady = String(ready);
+  document.dispatchEvent(new Event("keepharness:settings-index-change"));
+}
 let profileModel = "",
   profileDirty = false,
   discoveredModelFiles = [];
@@ -1293,6 +1297,7 @@ function render() {
     ". Isolated mode requires Linux and bubblewrap. Native mode uses the mechanisms of the installed CLI.";
 }
 async function load({ select = true } = {}) {
+  settingsSearchChanged(false);
   state = await request("state");
   if (state.authentication.claude === false) {
     try {
@@ -1319,6 +1324,7 @@ async function load({ select = true } = {}) {
       "Edit " +
       (visibleProviders().find((i) => i.id === editing)?.name || "provider");
   HarnessUI.decorate();
+  settingsSearchChanged(true);
 }
 $("refresh-log-tail").onclick = async () => {
   const button = $("refresh-log-tail");
@@ -1467,6 +1473,7 @@ $("full-access").onchange = () => {
   }
   action(async () => {
     toggle.disabled = true;
+    settingsSearchChanged();
     try {
       await request("settings", { ...structuredClone(state.settings), full_access: enabled });
       await load({ select: false });
@@ -1478,6 +1485,7 @@ $("full-access").onchange = () => {
     } finally {
       toggle.checked = state.settings.full_access === true;
       toggle.disabled = false;
+      settingsSearchChanged();
     }
   });
 };
@@ -2882,6 +2890,7 @@ function renderMcpEfforts(preferred = "") {
   const value = $("mcp-default-model").value;
   if (!value) {
     select.disabled = true;
+    settingsSearchChanged();
     return;
   }
   select.disabled = false;
@@ -2894,6 +2903,7 @@ function renderMcpEfforts(preferred = "") {
   if (preferred && !efforts.includes(preferred))
     select.append(new Option(preferred + " · saved, check account", preferred));
   select.value = preferred;
+  settingsSearchChanged();
 }
 $("mcp-default-model").onchange = () => renderMcpEfforts();
 $("save-mcp").onclick = () =>

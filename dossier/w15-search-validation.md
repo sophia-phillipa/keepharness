@@ -46,8 +46,8 @@ Named scenarios print their IDs on success; the files run through
 | Issue | Acceptance bullet | Named browser scenarios |
 |---|---|---|
 | #54 | 1: shared entry points and preserved search | command-search A1, A4; conversation-search |
-| #54 | 2: distinguishable, executable results | command-search A2b, A2, A3, A4, A6 |
-| #54 | 3: keyboard, empty state, preserved context, history | command-search A1, A2, A3, A6 |
+| #54 | 2: distinguishable, executable results | command-search A2b, A2, A3, A4, A6, C2 |
+| #54 | 3: keyboard, empty state, preserved context, history | command-search A1, A2, A3, A6, C1a, C1b, C2 |
 | #54 | 4: owner/admin guard and remote fallback | command-search A5, A6 |
 | #54 | 5: light/dark tokens and contrast | command-search A7; visible pass pending |
 | #56 | 1: supported reference, filtering and empty state | keyboard-shortcuts B1, B2 |
@@ -109,8 +109,7 @@ and a chosen project/provider throughout.
    arrows/Enter, no matches and Escape; check focus return and retained draft.
 2. Activate Focus composer and a Settings destination; use Back/Forward. During
    an operation, confirm unavailable commands do not offer a dead action.
-3. Open the shortcut reference using Ctrl/Cmd+/, its visible Settings entry and
-   its command result. Search by action and `Ctrl+K` (or `Cmd+K`), navigate rows,
+3. Open the shortcut reference using Ctrl/Cmd+/ and its command result. Search by action and `Ctrl+K` (or `Cmd+K`), navigate rows,
    close with Escape, and inspect readable text, spacing and modifier labels.
 4. In Settings, search by preference name and description. Open text size or a
    palette, confirm focus, change it, and reopen Settings to verify persistence.
@@ -161,3 +160,44 @@ at task completion.
   runner shutdown limitation, not a failed keyboard check or a visible pass.
 - The executor reported no callable JEV gateway in its subtask and used local
   deterministic decisions. The three JEV records above belong to the principal.
+
+
+## Independent-review correction round (base `59d62f3`)
+
+The independent review identified one major and three minor findings. All four
+were reproduced before correction; the earlier green gates did not exercise
+these cases. Their regression coverage is now explicit:
+
+| Finding | Regression | Baseline failure | Correction |
+|---|---|---|---|
+| Async search removes keyboard focus | command-search C1a, C1b | Delayed updates lose the selected result and Enter does nothing; a removed result leaves focus on body | Preserve focus using semantic result IDs; return to the search input when that result disappears |
+| Mobile Focus composer targets inert content | command-search C2 | At 400px, the sidebar remains open and the prompt cannot receive focus | Close the existing sidebar overlay before focusing the composer |
+| Admin preference index precedes rendering | settings-search P5-S1, P6-S1 | A delayed account check publishes enabled Default effort before the actual control becomes disabled | Publish only after admin initialization/rendering and republish changes in control availability |
+| Operator arrow coverage was lost | harness-a11y-media P5-W15; operator keyboard.sidebar-resize-keys | Omitting ArrowRight still lets the old Home/End-only step pass | Start away from width limits, press real ArrowRight/ArrowLeft, and assert widening/narrowing; omitting either press now fails |
+
+Settings coverage also checks live disable/re-enable updates and the actual
+focused element in the admin document. The operator fixture explicitly marks
+the tour as seen in durable test preferences and dismisses it before keyboard
+checks: the first corrected operator run revealed the tour capturing ArrowRight.
+The direction assertions remain intact. The visible-check instructions above
+were corrected to remove an unimplemented Settings entry for shortcut reference.
+
+Two separate authors cross-reviewed the command and Settings corrections; the
+operator test received independent review. No remaining finding was reported.
+The JEV call was blocked because the current approval policy is `never`; local
+source-based decisions were used without retry. No paid-call usage or savings
+are claimed for this round.
+
+**Correction validation.** All 11 requested browser specs passed in one integrated
+run (including the new delayed/mutation cases and the existing seven-profile
+Settings matrix). The headless operator keyboard area passed 9/9 with zero new layout findings
+and exited 0. `check_conventions.py` returned 0 name errors, 0 Portuguese hits
+and 0 guest hits; `git diff --check` passed.
+The full Python suite was not repeated for this JavaScript/test-only correction;
+the earlier run and its two known missing-pip failures remain separately recorded.
+The visible desktop pass remains with the orchestrator.
+
+Commit creation was blocked because the shared Git index is read-only in this
+round. The requested local commit-message fallback is `.codex-commits/1.txt`;
+its directory is ignored so local commit metadata is not added to the product.
+The correction remains as a reviewed, tested worktree diff on `59d62f3`.
