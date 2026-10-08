@@ -1,0 +1,126 @@
+{
+  "family_cases": [
+    {"item": {"id": "plugin:GitHub@openai-curated"}, "key": "github"},
+    {"item": {"name": "MCP:Issue Tracker@personal"}, "key": "issue-tracker"},
+    {"item": {"id": "plugin:code_review@team"}, "key": "code-review"}
+  ],
+  "catalogs": {
+    "codex": {
+      "items": [
+        {
+          "id": "plugin:github@openai-curated",
+          "name": "GitHub",
+          "kind": "plugin",
+          "status": "installed",
+          "description": "Triage pull requests and issues.",
+          "marketplace": "openai-curated",
+          "version": "2.4.0",
+          "developer": "OpenAI",
+          "source": "https://github.com/openai/github-plugin",
+          "apps": ["GitHub Issues"],
+          "skills": ["Review pull requests", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"]
+        },
+        {
+          "id": "plugin:linear@openai-curated",
+          "name": "Linear",
+          "kind": "plugin",
+          "status": "available",
+          "description": "Plan and track product work.",
+          "marketplace": "openai-curated",
+          "developer": "Linear"
+        },
+        {
+          "id": "plugin:slack@team-tools",
+          "name": "Slack",
+          "kind": "plugin",
+          "status": "installed",
+          "description": "Read team channels.",
+          "marketplace": "team-tools"
+        },
+        {
+          "id": "plugin:figma@personal-lab",
+          "name": "Figma",
+          "kind": "plugin",
+          "status": "available",
+          "description": "<b>Inspect design files.</b>",
+          "marketplace": "personal-lab",
+          "developer": "<img src=x onerror=window.__pwned=1>"
+        },
+        {
+          "id": "plugin:discord@alpha-market",
+          "name": "Discord",
+          "kind": "plugin",
+          "status": "installed",
+          "description": "Catalog variant with no exact state item.",
+          "marketplace": "alpha-market"
+        },
+        {
+          "id": "plugin:documents@official",
+          "name": "Internal Documents",
+          "kind": "plugin",
+          "status": "installed",
+          "description": "Catalog display metadata for documents.",
+          "marketplace": "official"
+        },
+        {
+          "id": "plugin:archive@official",
+          "name": "Internal Archive",
+          "kind": "plugin",
+          "status": "available",
+          "description": "Stale available catalog metadata.",
+          "marketplace": "official"
+        },
+        {
+          "id": "plugin:different@official",
+          "name": "Documents",
+          "kind": "plugin",
+          "status": "available",
+          "description": "A distinct catalog plugin whose display name collides with snapshot metadata.",
+          "marketplace": "official"
+        },
+        {
+          "id": "plugin:figma@second-market",
+          "name": "Figma",
+          "kind": "plugin",
+          "status": "available",
+          "description": "A second provider-local listing.",
+          "marketplace": "second-market"
+        }
+      ],
+      "warnings": []
+    },
+    "claude": {
+      "items": [
+        {
+          "id": "plugin:github@anthropic",
+          "name": "GitHub",
+          "kind": "plugin",
+          "status": "available",
+          "description": "Work with repositories.",
+          "marketplace": "anthropic",
+          "version": "9.0.0",
+          "developer": "Anthropic",
+          "source": "https://example.test/anthropic-github",
+          "apps": ["Claude GitHub"]
+        },
+        {
+          "id": "plugin:linear@official",
+          "name": "Linear",
+          "kind": "plugin",
+          "status": "installed",
+          "description": "Plan and track product work.",
+          "marketplace": "official"
+        },
+        {
+          "id": "plugin:calendar@official",
+          "name": "Calendar",
+          "kind": "plugin",
+          "status": "installed",
+          "description": "Coordinate events.",
+          "marketplace": "official"
+        }
+      ],
+      "warnings": []
+    }
+  }
+}
