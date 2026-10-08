@@ -14,6 +14,7 @@ from agent_service.approval_policy import (
     full_approval_allowed,
     rule_key,
 )
+from tests.deepseek_fixtures import SAFE_CONFIG, write_deepseek_key
 
 
 def test_full_is_valid_but_does_not_expand_grants():
@@ -82,6 +83,8 @@ def run_codex_route(tmp_path, provider, project, backend_config=None):
         process = SimpleNamespace(stdin=SimpleNamespace(write=lambda value: None))
 
         async def call(self, method, params):
+            if method == "config/read":
+                return SAFE_CONFIG
             recorded[method] = params
             return {"thread": {"id": "fixture"}}
 
@@ -97,7 +100,7 @@ def run_codex_route(tmp_path, provider, project, backend_config=None):
         yield RPC()
 
     key = tmp_path / "deepseek.key"
-    key.write_text("fixture-key")
+    write_deepseek_key(key)
     config = {
         "binary": "fixture",
         "unrestricted": True,
