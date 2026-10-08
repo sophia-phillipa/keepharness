@@ -156,7 +156,7 @@ Body `{"provider": "codex", "project_id": "sem-projeto", "notice_ids": ["n_3f9a0
 
 ### Run-start hook (queue_worker.py `run_job`, after `request_data = json.loads(row["payload"])`, before `service.execute`)
 ```python
-await provider_state_run_check(service, row, request_data)   # new small function in queue_worker.py
+await provider_state_run_check(service, row, request_data)  # new small function in queue_worker.py
 ```
 - Only when `request_data.get("backend") in ("codex", "claude")` and `service.config.get("control_state_dir")`.
 - Root: `service.config.get("projects", {}).get(row["project"], {}).get("root")` (None for sem-projeto).
