@@ -54,6 +54,8 @@ def runtime_options(config, permissions):
         environment=environment,
         model_provider="tail_api",
         session_metadata={
+            "provider": "deepseek",
+            "engine": "codex",
             "adapter": "deepseek",
             "adapter_spec_revision": SPEC_REVISION,
         },

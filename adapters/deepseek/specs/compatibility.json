@@ -31,5 +31,16 @@
   "validation": [
     "mock account and dispatch",
     "installed CLI to stateless localhost fixture: history, reasoning, tool results and resume"
-  ]
+  ],
+  "engine": "codex",
+  "session_identity": {
+    "marker": "native-thread.json",
+    "provider": "deepseek",
+    "engine": "codex",
+    "legacy_provenance": "adapter=deepseek",
+    "refusal": [
+      "deepseek_session_identity_mismatch",
+      "deepseek_session_identity_ambiguous"
+    ]
+  }
 }

@@ -290,6 +290,34 @@ async def open_thread(rpc, method, params, marker, provider):
         raise execution_failed(provider, exc.error) from exc
 
 
+def session_marker(marker, provider):
+    """A DeepSeek thread belongs to its provider and engine, including on handoff."""
+    if not marker.exists():
+        return {}
+    try:
+        saved = json.loads(marker.read_text())
+    except (OSError, ValueError) as exc:
+        if provider == "deepseek":
+            raise ToolError("deepseek_session_identity_ambiguous") from exc
+        raise
+    if not isinstance(saved, dict):
+        raise ToolError(provider + "_session_identity_ambiguous")
+    expected = {"provider": provider, "engine": "codex"}
+    if any(key in saved and saved[key] != value for key, value in expected.items()):
+        raise ToolError(provider + "_session_identity_mismatch")
+    if provider == "deepseek":
+        if "adapter" in saved and saved["adapter"] != "deepseek":
+            raise ToolError("deepseek_session_identity_mismatch")
+        identified = all(saved.get(key) == value for key, value in expected.items())
+        if not isinstance(saved.get("id"), str) or not saved["id"].strip() or (
+            not identified and saved.get("adapter") != "deepseek"
+        ):
+            raise ToolError("deepseek_session_identity_ambiguous")
+    elif saved.get("adapter") == "deepseek":
+        raise ToolError(provider + "_session_identity_mismatch")
+    return saved
+
+
 async def run_turn(
     config,
     event,
@@ -303,6 +331,8 @@ async def run_turn(
     provider,
 ):
     home, cwd, prompt = workspace.home, workspace.cwd, workspace.prompt
+    marker = home / "native-thread.json"
+    saved = session_marker(marker, provider)
     permissions, images = workspace.permissions, workspace.images
     access_mode = project.get("access_mode", "ask")
     ask = access_mode == "ask" and not runtime.isolated
@@ -336,9 +366,7 @@ async def run_turn(
         pass_fds=runtime.pass_fds,
     ) as rpc:
         selected_inputs = await resource_inputs(rpc, project, cwd)
-        marker = home / "native-thread.json"
         turn_started = False
-        saved = json.loads(marker.read_text()) if marker.exists() else {}
         resumable = bool(saved) and (
             not runtime.isolated
             or all(saved.get(key) == value for key, value in runtime.session_metadata.items())

@@ -344,12 +344,16 @@ def run_codex(executable, session, provider, tmp_path):
 
 @pytest.mark.parametrize("provider", ["codex", "deepseek"])
 def test_codex_thread_without_rollout_is_dropped_for_a_fresh_one(tmp_path, codex_session, provider):
+    original_marker = {"id": "old-thread"}
+    if provider == "deepseek":
+        original_marker["adapter"] = "deepseek"
+        (codex_session / "native-thread.json").write_text(json.dumps(original_marker))
     executable, log = fake_codex(tmp_path, "no rollout found for thread id ")
     with pytest.raises(ToolError, match="^native_session_missing$"):
         run_codex(executable, codex_session, provider, tmp_path)
     assert not (codex_session / "native-thread.json").exists()
     kept = codex_session / "native-thread.json.before-session-missing"
-    assert json.loads(kept.read_text()) == {"id": "old-thread"}
+    assert json.loads(kept.read_text()) == original_marker
     assert run_codex(executable, codex_session, provider, tmp_path)["thread_id"] == "new-thread"
     assert json.loads((codex_session / "native-thread.json").read_text())["id"] == "new-thread"
     methods = [item.get("method") for item in requests(log)]
