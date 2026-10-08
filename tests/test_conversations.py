@@ -456,29 +456,6 @@ def test_archived_conversation_can_be_deleted_permanently(retention):
     assert client.get("/v1/jobs/root").status_code == 404
 
 
-def test_guests_archive_and_delete_only_their_own_conversations(retention):
-    client, service, _ = retention
-    bob = {"Authorization": "Bearer bob"}
-    seed_turn(service, "alice-root")
-    seed_turn(service, "bob-root", owner="bob")
-
-    assert (
-        client.patch(
-            "/v1/conversations/alice-root", headers=bob, json={"archived": True}
-        ).status_code
-        == 404
-    )
-    assert client.delete("/v1/conversations/alice-root", headers=bob).status_code == 404
-    assert listed(client) == ["alice-root"]
-    assert count(service, "events", "job", ("alice-root",)) == 1
-    assert (
-        client.patch("/v1/conversations/bob-root", headers=bob, json={"archived": True}).status_code
-        == 200
-    )
-    assert client.delete("/v1/conversations/bob-root", headers=bob).status_code == 200
-    assert count(service, "jobs", "id", ("bob-root",)) == 0
-
-
 @pytest.mark.parametrize("value", ["true", 1, None])
 def test_archive_flag_must_be_a_boolean(retention, value):
     client, service, _ = retention

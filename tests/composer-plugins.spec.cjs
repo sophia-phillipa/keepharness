@@ -10,7 +10,7 @@ const path = require("node:path");
     const page = await browser.newPage({ viewport: { width: 1280, height: 860 } });
     const queries = [];
     page.on("pageerror", (e) => console.error("PAGEERROR", e.message));
-    // WP4: tools connected on another provider, per backend; `noElsewhere` models a guest.
+    // WP4: tools connected on another provider, per backend; `noElsewhere` models nothing to connect.
     const provider = (backend) => ({ backend, allowed: true, effective_capable: true });
     const elsewhereByBackend = {
       claude: [
@@ -265,26 +265,26 @@ const path = require("node:path");
     await local.waitForFunction(() => document.activeElement.closest("#settings-dialog"));
     assert.deepEqual(localWrites, []);
 
-    // No elsewhere (a guest, or nothing to connect): no dot, no section, no carry-over line.
+    // Nothing to connect elsewhere: no dot, no section, no carry-over line.
     noElsewhere = true;
-    const guest = await (await browser.newContext({ viewport: { width: 1280, height: 860 } })).newPage();
-    await guest.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
-    await guest.route("http://plugins.test/**", serve);
-    await guest.goto("http://plugins.test/");
-    await guest.locator("#startup-gate").waitFor({ state: "hidden" });
-    const guestChip = guest.locator("#execution-mode-choice").getByRole("button", { name: "Plugins" });
-    await guestChip.click();
-    const guestMenu = guest.getByRole("dialog", { name: "Connectors and plugins" });
-    await guestMenu.getByText("Available in this conversation").waitFor();
-    assert.equal(await guestChip.getAttribute("data-elsewhere"), null);
-    assert.equal(await guestChip.getAttribute("aria-label"), null);
-    assert.equal(await guestMenu.locator('[data-testid="elsewhere-section"]').count(), 0);
-    await guest.keyboard.press("Escape");
-    await guest.locator("#history .conversation-row > button", { hasText: "Plugins talk" }).click();
-    await guest.waitForFunction(() => document.querySelectorAll("#messages article.user").length === 1);
-    await guest.locator("#model").selectOption("gpt-6-astra");
+    const bare = await (await browser.newContext({ viewport: { width: 1280, height: 860 } })).newPage();
+    await bare.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
+    await bare.route("http://plugins.test/**", serve);
+    await bare.goto("http://plugins.test/");
+    await bare.locator("#startup-gate").waitFor({ state: "hidden" });
+    const bareChip = bare.locator("#execution-mode-choice").getByRole("button", { name: "Plugins" });
+    await bareChip.click();
+    const bareMenu = bare.getByRole("dialog", { name: "Connectors and plugins" });
+    await bareMenu.getByText("Available in this conversation").waitFor();
+    assert.equal(await bareChip.getAttribute("data-elsewhere"), null);
+    assert.equal(await bareChip.getAttribute("aria-label"), null);
+    assert.equal(await bareMenu.locator('[data-testid="elsewhere-section"]').count(), 0);
+    await bare.keyboard.press("Escape");
+    await bare.locator("#history .conversation-row > button", { hasText: "Plugins talk" }).click();
+    await bare.waitForFunction(() => document.querySelectorAll("#messages article.user").length === 1);
+    await bare.locator("#model").selectOption("gpt-6-astra");
     assert.equal(
-      await guest.locator("#route-carryover").innerText(),
+      await bare.locator("#route-carryover").innerText(),
       "Next message goes to Codex · GPT-6 Astra. The conversation so far goes with it.",
     );
     console.log("PASS composer Plugins chip shows connectors and plugins for the route");

@@ -203,7 +203,7 @@ def test_api_json_is_neither_compressed_nor_cached(api):
 # The local owner, the Host allow-list and the views other clients get (D09, SEC-R5 RC-01/02/04/05).
 LOCAL_SECRET = "fixture-install-secret"
 REMOTE = "http://machine.example.ts.net:8093"
-GUEST_LOGIN = "guest@example.test"
+REMOTE_LOGIN = "remote@example.test"
 # What Tailscale Serve adds when it proxies a tailnet peer to 127.0.0.1 (ipn/ipnlocal/serve.go).
 SERVE_HEADERS = {
     "Host": "machine.example.ts.net:8093",
@@ -228,11 +228,11 @@ def owner_config(tmp_path, **overrides):
         "control_state_dir": str(tmp_path / "control"),
         "origins": ["http://127.0.0.1:8095", "http://localhost:8095", REMOTE],
         "browser_url": REMOTE + "/",
-        "tailscale_logins": {GUEST_LOGIN: "tailnet-guest"},
+        "tailscale_logins": {REMOTE_LOGIN: "local"},
         "projects": {"sem-projeto": {}},
         "clients": {
             name: {"sha256": hashlib.sha256(name.encode()).hexdigest(), "projects": ["sem-projeto"]}
-            for name in ("local", "tailnet-guest", "token-guest")
+            for name in ("local",)
         },
         "services": {},
     }
@@ -366,7 +366,7 @@ def test_tailscale_login_requires_remote_host(tmp_path):
     cfg = owner_config(tmp_path)
     app = seeded_owner_app(cfg)
     app.state.service.serve_peer_check = serve_from_tailscaled
-    login = {"Tailscale-User-Login": GUEST_LOGIN}
+    login = {"Tailscale-User-Login": REMOTE_LOGIN}
 
     async def scenario():
         async with loopback(app) as client:
@@ -377,7 +377,7 @@ def test_tailscale_login_requires_remote_host(tmp_path):
             assert await who(client, headers=login) == (401, "authentication_required")
             # Only the remote origin's Host, as Tailscale Serve forwards it, maps the login.
             remote = {**login, **SERVE_HEADERS}
-            assert await who(client, headers=remote) == (200, ["tailnet-guest-job"])
+            assert await who(client, headers=remote) == (200, ["local-job"])
             # Without Serve's forwarding headers, or with a peer outside the tailnet ranges or a
             # forwarded Host that differs, the request did not come through Serve.
             for name, value in (
@@ -392,7 +392,7 @@ def test_tailscale_login_requires_remote_host(tmp_path):
                     "authentication_required",
                 ), (name, value)
             ipv6 = {**remote, "X-Forwarded-For": "fd7a:115c:a1e0::1"}
-            assert await who(client, headers=ipv6) == (200, ["tailnet-guest-job"])
+            assert await who(client, headers=ipv6) == (200, ["local-job"])
             # An unlisted Host never reaches the owner, even with the owner's cookie (which a
             # browser would not send to that name anyway).
             owner = owner_cookie(cfg)
@@ -403,8 +403,8 @@ def test_tailscale_login_requires_remote_host(tmp_path):
                 response = await client.get(path, headers=rebinding)
                 assert (response.status_code, response.json()["code"]) == (403, "host_denied")
             # An explicit bearer token cannot be planted by another site, so it keeps working.
-            bearer = {"Authorization": "Bearer token-guest", "Host": "attacker.test"}
-            assert await who(client, headers=bearer) == (200, ["token-guest-job"])
+            bearer = {"Authorization": "Bearer local", "Host": "attacker.test"}
+            assert await who(client, headers=bearer) == (200, ["local-job"])
 
     try:
         asyncio.run(scenario())
@@ -437,7 +437,7 @@ def test_tailscale_login_never_maps_on_a_loopback_browser_url(tmp_path, browser_
     app = seeded_owner_app(cfg)
     app.state.service.serve_peer_check = serve_from_tailscaled
     forged = {
-        "Tailscale-User-Login": GUEST_LOGIN,
+        "Tailscale-User-Login": REMOTE_LOGIN,
         **SERVE_HEADERS,
         "Host": host,
         "X-Forwarded-Host": host,
@@ -468,7 +468,7 @@ def test_registered_projects_reach_every_client_and_survive_a_restart(tmp_path):
             pid = created.json()["project_id"]
             assert pid in (await client.get("/v1/projects", cookies=owner)).json()["projects"]
             other = (
-                await client.get("/v1/projects", headers={"Authorization": "Bearer token-guest"})
+                await client.get("/v1/projects", headers={"Authorization": "Bearer local"})
             ).json()
             assert pid in other["projects"]
             return pid
@@ -497,17 +497,17 @@ def test_funnel_request_is_refused(tmp_path):
     app = seeded_owner_app(cfg)
     app.state.service.serve_peer_check = serve_from_tailscaled
     funnel = {"Tailscale-Funnel-Request": "?1"}
-    serve = {"Tailscale-User-Login": GUEST_LOGIN, **SERVE_HEADERS}
+    serve = {"Tailscale-User-Login": REMOTE_LOGIN, **SERVE_HEADERS}
 
     async def scenario():
         async with loopback(app) as client:
-            assert await who(client, headers=serve) == (200, ["tailnet-guest-job"])
+            assert await who(client, headers=serve) == (200, ["local-job"])
             # Funnel traffic reaches the harness through the same proxy; whatever else it
             # carries, it never authenticates (not by login, owner session or token).
             for headers, cookies in (
                 ({**serve, **funnel}, None),
                 (funnel, owner_cookie(cfg)),
-                ({**funnel, "Authorization": "Bearer token-guest"}, None),
+                ({**funnel, "Authorization": "Bearer local"}, None),
             ):
                 assert await who(client, headers=headers, cookies=cookies) == (
                     403,
@@ -548,20 +548,20 @@ def test_tokens_never_substitute_for_a_tailnet_identity(tmp_path):
     cfg = owner_config(tmp_path)
     app = seeded_owner_app(cfg)
     app.state.service.serve_peer_check = serve_from_tailscaled
-    bearer = {"Authorization": "Bearer tailnet-guest"}
-    cookie = {"harness_token": "tailnet-guest"}
+    bearer = {"Authorization": "Bearer local"}
+    cookie = {"harness_token": "local"}
     refused = (401, "authentication_required")
     forwarded = (
         SERVE_HEADERS,
         {"X-Forwarded-For": "100.101.102.103"},
-        {"Tailscale-User-Login": GUEST_LOGIN},
-        {"Tailscale-Name": "Guest"},
+        {"Tailscale-User-Login": REMOTE_LOGIN},
+        {"Tailscale-Name": "Remote"},
     )
 
     async def scenario():
         async with loopback(app) as client:
-            assert await who(client, headers=bearer) == (200, ["tailnet-guest-job"])
-            assert await who(client, cookies=cookie) == (200, ["tailnet-guest-job"])
+            assert await who(client, headers=bearer) == (200, ["local-job"])
+            assert await who(client, cookies=cookie) == (200, ["local-job"])
             for extra in forwarded:
                 assert await who(client, headers={**bearer, **extra}) == refused, extra
                 assert await who(client, cookies=cookie, headers=extra) == refused, extra
@@ -584,13 +584,13 @@ def test_login_accepts_a_token_only_from_a_direct_loopback_peer(tmp_path):
     app = seeded_owner_app(owner_config(tmp_path))
     app.state.service.serve_peer_check = serve_from_tailscaled
     origin = {"Origin": "http://127.0.0.1:8095"}
-    token = {"token": "tailnet-guest"}
+    token = {"token": "local"}
 
     async def scenario():
         async with loopback(app) as client:
             ok = await client.post("/v1/login", json=token, headers=origin)
             assert ok.status_code == 200 and "harness_token" in ok.headers["set-cookie"]
-            for extra in (SERVE_HEADERS, {"Tailscale-User-Login": GUEST_LOGIN}):
+            for extra in (SERVE_HEADERS, {"Tailscale-User-Login": REMOTE_LOGIN}):
                 response = await client.post("/v1/login", json=token, headers={**origin, **extra})
                 assert (response.status_code, "set-cookie" in response.headers) == (401, False)
             retired = await client.post("/v1/login", json={"token": "vpn"}, headers=origin)
@@ -630,7 +630,7 @@ def test_direct_loopback_is_one_helper_for_the_harness_and_the_admin(tmp_path, m
         async with loopback(app) as client:
             monkeypatch.setattr(local_access, "direct_loopback", lambda request: False)
             response = await client.post(
-                "/v1/login", json={"token": "tailnet-guest"}, headers=origin
+                "/v1/login", json={"token": "local"}, headers=origin
             )
             assert response.status_code == 401
 
@@ -643,7 +643,7 @@ def test_direct_loopback_is_one_helper_for_the_harness_and_the_admin(tmp_path, m
 def test_remote_gate_is_owner_only_and_fails_closed(tmp_path):
     import asyncio
 
-    login = {"Tailscale-User-Login": GUEST_LOGIN, **SERVE_HEADERS}
+    login = {"Tailscale-User-Login": REMOTE_LOGIN, **SERVE_HEADERS}
     refused = (401, "authentication_required")
     cfg = owner_config(tmp_path / "listed")
     app = seeded_owner_app(cfg)
@@ -659,7 +659,7 @@ def test_remote_gate_is_owner_only_and_fails_closed(tmp_path):
         owner = owner_cookie(cfg)
         async with loopback(app) as client:
             # An allow-listed login, through Serve, on a socket tailscaled owns.
-            assert await who(client, headers=login) == (200, ["tailnet-guest-job"])
+            assert await who(client, headers=login) == (200, ["local-job"])
             unlisted = {**login, "Tailscale-User-Login": "stranger@example.test"}
             assert await who(client, headers=unlisted) == refused
             # `local` needs the owner's session, a loopback peer and a loopback Host.
@@ -690,11 +690,11 @@ def test_an_allow_listed_serve_login_is_the_owner_with_every_project(tmp_path):
     cfg = owner_config(
         tmp_path / "run", projects={"sem-projeto": {}, "docs": {}, "site": {}}, clients={}
     )
-    build_clients(cfg, {"logins": [GUEST_LOGIN]}, tmp_path / "state", {})
-    assert list(cfg["clients"]) == ["local"] and cfg["tailscale_logins"] == {GUEST_LOGIN: "local"}
+    build_clients(cfg, {"logins": [REMOTE_LOGIN]}, tmp_path / "state", {})
+    assert list(cfg["clients"]) == ["local"] and cfg["tailscale_logins"] == {REMOTE_LOGIN: "local"}
     app = seeded_owner_app(cfg)
     app.state.service.serve_peer_check = serve_from_tailscaled
-    login = {"Tailscale-User-Login": GUEST_LOGIN, **SERVE_HEADERS}
+    login = {"Tailscale-User-Login": REMOTE_LOGIN, **SERVE_HEADERS}
 
     async def scenario():
         async with loopback(app) as client:
@@ -714,14 +714,14 @@ def test_a_stale_bearer_through_serve_still_gets_the_serve_identity(tmp_path):
     import asyncio
 
     stale = {"Authorization": "Bearer old-vpn-key"}
-    login = {"Tailscale-User-Login": GUEST_LOGIN, **SERVE_HEADERS}
+    login = {"Tailscale-User-Login": REMOTE_LOGIN, **SERVE_HEADERS}
     refused = (401, "authentication_required")
     app = seeded_owner_app(owner_config(tmp_path))
     app.state.service.serve_peer_check = serve_from_tailscaled
 
     async def scenario():
         async with loopback(app) as client:
-            assert await who(client, headers={**stale, **login}) == (200, ["tailnet-guest-job"])
+            assert await who(client, headers={**stale, **login}) == (200, ["local-job"])
             unlisted = {**login, "Tailscale-User-Login": "stranger@example.test"}
             assert await who(client, headers={**stale, **unlisted}) == refused
 
@@ -795,7 +795,6 @@ def test_cross_site_login_refused_before_limit(api):
 
 
 def test_v1_no_store_and_foreign_404(api, monkeypatch):
-    monkeypatch.setattr("agent_service.harness_agents.LOCAL_CLIENT", "alice")  # usage is owner-only (D-032)
     client, service, _ = api
     job = seed_job(service)
     for path in ("/v1/projects", "/v1/conversations", "/v1/models", "/v1/usage"):

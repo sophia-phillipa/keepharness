@@ -411,7 +411,6 @@ def ceiling_config(tmp_path):
         owner: {"sha256": hashlib.sha256(token.encode()).hexdigest(), "projects": ["p"]}
         for owner, token in (
             ("local", "local-token"),
-            ("token-guest", "guest-token"),
             (TAILNET_OWNER, "tailnet-token"),
         )
     }

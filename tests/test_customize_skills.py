@@ -157,8 +157,8 @@ def test_non_owner_requests_are_refused(setup):
     remote = httpx.ASGITransport(app=client.app, client=("10.0.0.2", 1234))
 
     async def ask():
-        async with httpx.AsyncClient(transport=remote, base_url="http://127.0.0.1:8094") as guest:
-            return await guest.get("/api/customize-skills", params={"project_id": "p"})
+        async with httpx.AsyncClient(transport=remote, base_url="http://127.0.0.1:8094") as remote_client:
+            return await remote_client.get("/api/customize-skills", params={"project_id": "p"})
 
     assert asyncio.run(ask()).status_code == 403
 

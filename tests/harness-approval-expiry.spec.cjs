@@ -114,7 +114,7 @@ const path = require("node:path");
     // The remote or local browser is told to run the command on the computer where KeepHarness runs.
     const command = /On the computer where KeepHarness runs, run keepharness approve-device --owner local\b/;
     assert.match(await page.locator("#approval-not-enrolled").innerText(), command);
-    assert.doesNotMatch(await page.locator("#approval-not-enrolled").innerText(), /guest|ask the owner|alice/i);
+    assert.doesNotMatch(await page.locator("#approval-not-enrolled").innerText(), /ask the owner|alice/i);
     assert.match(await page.locator("#status").innerText(), /not enrolled/);
     assert.match(await page.locator("#status").innerText(), command);
     assert.equal(await page.locator("#approval-not-enrolled button:enabled").count() > 0, true);

@@ -1,8 +1,6 @@
 """Browser entry must not silently switch the user's identity after a reboot."""
 
 import asyncio
-import hashlib
-import json
 import socket
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -51,89 +49,6 @@ def test_real_process_starts_with_redirect_and_stops_cleanly(tmp_path):
             await manager.stop(force=True)
         assert not manager.running()
         assert (tmp_path / "autostart").exists()
-
-    asyncio.run(scenario())
-
-
-def test_history_and_attachments_keep_owner_and_survive_restart(tmp_path):
-    import httpx
-
-    async def scenario():
-        cfg = config(tmp_path)
-        cfg.update(
-            local_access=True,
-            browser_url=REMOTE,
-            origins=[REMOTE.rstrip("/")],
-            tailscale_logins={"fixture@example.test": "tailnet-fixture"},
-        )
-        cfg["clients"] = {
-            owner: {"sha256": hashlib.sha256(owner.encode()).hexdigest(), "projects": ["p"]}
-            for owner in ("local", "tailnet-fixture")
-        }
-        app = create_app(cfg)
-        app.state.service.serve_peer_check = lambda client, port: True
-        with app.state.service.db as db:
-            for owner in cfg["clients"]:
-                fid = owner + "-image"
-                db.execute(
-                    "INSERT INTO jobs(id,project,owner,state,created,payload,result,idem,digest) VALUES(?,?,?,?,?,?,?,?,?)",
-                    (
-                        owner,
-                        "p",
-                        owner,
-                        "completed",
-                        1,
-                        json.dumps({"prompt": owner, "file_ids": [fid]}),
-                        "{}",
-                        None,
-                        owner,
-                    ),
-                )
-                db.execute(
-                    "INSERT INTO files VALUES(?,?,?,?,?,?,?)",
-                    (fid, "p", "photo.png", 7, "fixture", '[{"media_type":"image/png"}]', owner),
-                )
-                folder = tmp_path / "files" / "p" / fid
-                folder.mkdir(parents=True)
-                (folder / "source").write_bytes(b"fixture")
-        remote_headers = {
-            "host": "machine.example.ts.net:8093",
-            "tailscale-user-login": "fixture@example.test",
-            "x-forwarded-host": "machine.example.ts.net:8093",
-            "x-forwarded-for": "100.101.102.103",
-        }
-        for restart in (False, True):
-            if restart:
-                app.state.service.db.close()
-                app = create_app(cfg)
-                app.state.service.serve_peer_check = lambda client, port: True
-            async with httpx.AsyncClient(
-                transport=httpx.ASGITransport(app=app, client=("127.0.0.1", 4321)),
-                base_url="http://127.0.0.1:8095",
-            ) as client:
-                local = (await client.get("/v1/conversations")).json()["conversations"]
-                assert [row["id"] for row in local] == ([] if restart else ["local"])
-                remote = (await client.get("/v1/conversations", headers=remote_headers)).json()[
-                    "conversations"
-                ]
-                assert [row["id"] for row in remote] == ["tailnet-fixture"]
-                assert (
-                    await client.get("/v1/files/tailnet-fixture-image/preview")
-                ).status_code == 404
-                assert (
-                    await client.get(
-                        "/v1/files/tailnet-fixture-image/preview", headers=remote_headers
-                    )
-                ).content == b"fixture"
-                assert (
-                    await client.get("/v1/files/local-image/preview", headers=remote_headers)
-                ).status_code == 404
-                if not restart:
-                    assert (
-                        await client.delete("/v1/conversations/tailnet-fixture")
-                    ).status_code in (403, 404)
-                    assert (await client.delete("/v1/conversations/local")).status_code == 200
-        app.state.service.db.close()
 
     asyncio.run(scenario())
 

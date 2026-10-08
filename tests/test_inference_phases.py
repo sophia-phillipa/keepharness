@@ -65,7 +65,6 @@ def test_admission_errors_precede_executor_registration(tmp_path):
 
 
 def test_native_turn_reports_quota_around_the_adapter_and_saves_the_cursor_last(tmp_path, monkeypatch):
-    monkeypatch.setattr("agent_service.harness_agents.LOCAL_CLIENT", "a")  # quota events are owner-only
     instance, identity = service(tmp_path)
     order = []
     quota, cursor, panel = recorder(order)
@@ -99,7 +98,6 @@ def test_native_turn_reports_quota_around_the_adapter_and_saves_the_cursor_last(
 
 
 def test_scoped_turn_finishes_the_panel_before_quota_after(tmp_path, monkeypatch):
-    monkeypatch.setattr("agent_service.harness_agents.LOCAL_CLIENT", "a")  # quota events are owner-only
     instance, identity = service(tmp_path)
     order = []
     quota, cursor, panel = recorder(order)

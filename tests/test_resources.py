@@ -593,8 +593,8 @@ def test_hooks_run_only_when_granted_and_no_catalog_is_in_the_run():
     assert not hooks_allowed({}, [])
 
 
-def guest_and_owner_clients(tmp_path, monkeypatch):
-    """A service with a guest ("a") and the owner ("local"), the owner's personal files in HOME."""
+def owner_resources_config(tmp_path, monkeypatch):
+    """A service with the owner ("local") and the plain client "a", the owner's personal files in HOME."""
     import hashlib
 
     from test_workspaces import config
@@ -629,7 +629,7 @@ def test_every_client_sees_the_owners_personal_resources_in_catalog_or_palette(
 
     from agent_service.app import create_app
 
-    app = create_app(guest_and_owner_clients(tmp_path, monkeypatch))
+    app = create_app(owner_resources_config(tmp_path, monkeypatch))
     try:
         with TestClient(app) as client:
 
@@ -649,13 +649,13 @@ def test_every_client_sees_the_owners_personal_resources_in_catalog_or_palette(
         app.state.service.db.close()
 
 
-def test_guest_cannot_resolve_an_owner_resource_id_at_run_time(tmp_path, monkeypatch):
+def test_a_non_owner_resolution_cannot_resolve_an_owner_resource_id_at_run_time(tmp_path, monkeypatch):
     from starlette.testclient import TestClient
 
     from agent_service.app import create_app
     from agent_service.errors import APIError
 
-    app = create_app(guest_and_owner_clients(tmp_path, monkeypatch))
+    app = create_app(owner_resources_config(tmp_path, monkeypatch))
     try:
         with TestClient(app, headers={"Authorization": "Bearer local"}) as owner:
             item = next(
@@ -712,7 +712,7 @@ def test_scheduled_run_does_not_resolve_prompts_behind_the_opt_in(tmp_path, monk
     from agent_service.app import create_app
     from agent_service.errors import APIError
 
-    app = create_app(guest_and_owner_clients(tmp_path, monkeypatch))
+    app = create_app(owner_resources_config(tmp_path, monkeypatch))
     service = app.state.service
     try:
         secret = owner_resource(service, "codex", "gpt-6-astra", "secret")
@@ -747,7 +747,7 @@ def test_every_client_workflow_resolves_the_owners_resource(tmp_path, monkeypatc
     from agent_service import workflows
     from agent_service.app import create_app
 
-    conf = guest_and_owner_clients(tmp_path, monkeypatch)
+    conf = owner_resources_config(tmp_path, monkeypatch)
     conf["gemini_models"] = {"fixture": ["configured"]}
     put(
         tmp_path / "project",
@@ -784,7 +784,7 @@ def test_maestro_step_resources_follow_the_row_owner(tmp_path, monkeypatch):
     from agent_service import maestro
     from agent_service.app import create_app
 
-    app = create_app(guest_and_owner_clients(tmp_path, monkeypatch))
+    app = create_app(owner_resources_config(tmp_path, monkeypatch))
     service = app.state.service
     try:
         mine = owner_resource(service, "gemini", "fixture", "mine")

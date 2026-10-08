@@ -150,8 +150,7 @@ def set_access_mode(service, identity, job, mode):
     service.conversation_repository.set_payload(job, json.dumps(payload))
 
 
-def test_disabled_full_access_is_rechecked_on_retry(tmp_path, monkeypatch):
-    monkeypatch.setattr("agent_service.harness_agents.LOCAL_CLIENT", "a")
+def test_disabled_full_access_is_rechecked_on_retry(tmp_path):
     service, identity = make_service(tmp_path, full_access=True)
     source = settle(service, identity, "failed", access_mode="full")
     service.config["full_access"] = False

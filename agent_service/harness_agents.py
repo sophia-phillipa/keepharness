@@ -47,8 +47,6 @@ PROVIDER_NAMES = MappingProxyType(
     }
 )
 GROUP = "Your agents"
-# The identity the service gives the browser on this computer (``ConversationService.identity``).
-LOCAL_CLIENT = "local"
 RESOURCE_PREFIX = "harness/agents/"
 FOLDER = "harness-agents"
 # Before 0.15.0, when KeepHarness was Tail Harness, the folder was "tail-agents" and jobs

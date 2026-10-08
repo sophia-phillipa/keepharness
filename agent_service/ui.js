@@ -1885,7 +1885,6 @@ function quotaText(q) {
 }
 const quotaPrimedAt = new Map(); // backend -> last /v1/usage read, in memory only
 const railQuotaSummaries = new Map(); // backend -> why its rail meter reads n/a, for the panel
-const quotaOwnerOnly = new Set(); // backends that answered 403 quota_owner_only this session
 let quotaIdentityBackend = "",
   quotaView = "",
   quotaFocus = null; // the provider whose meter was activated; null follows the selected model
@@ -2098,8 +2097,7 @@ async function quota() {
     quotaPrimedAt.set(backend, Date.now());
     const value = await json(quotaUrls[backend]);
     if (request === quotaRequest && quotaViewBackend() === backend) paint(value);
-  } catch (error) {
-    noteQuotaOwnerOnly(backend, error);
+  } catch {
     if (request === quotaRequest && quotaViewBackend() === backend) paint(null);
   }
 }
@@ -2183,7 +2181,6 @@ const quotaReasonTexts = {
   quota_not_reported: "provider reports no quota",
   local_no_quota: "local models have no quota",
   balance_not_read: "balance not read yet",
-  owner_only: "visible to the owner only",
 };
 const QUOTA_PRIME_REASONS = new Set(["quota_not_read", "quota_stale", "balance_not_read", "usage_unavailable"]);
 const QUOTA_PRIME_MS = 300 * 1000;
@@ -2195,14 +2192,7 @@ function primeProviderQuota(backend) {
   quotaPrimedAt.set(backend, Date.now());
   json(quotaUrls[backend])
     .then(() => document.dispatchEvent(new CustomEvent("harness:quota-primed")))
-    .catch((error) => noteQuotaOwnerOnly(backend, error));
-}
-// A 403 quota_owner_only (ownership changed between polls) turns the meter into the owner-only n/a
-// for the rest of the session, which also stops priming: owner_only is not a priming reason.
-function noteQuotaOwnerOnly(backend, error) {
-  if (error?.code !== "quota_owner_only" || quotaOwnerOnly.has(backend)) return;
-  quotaOwnerOnly.add(backend);
-  document.dispatchEvent(new CustomEvent("harness:quota-primed"));
+    .catch(() => {});
 }
 function providerQuotaReading(item) {
   const q = item.quota;
@@ -2211,7 +2201,7 @@ function providerQuotaReading(item) {
   const amount = Number(q?.balance?.amount);
   if (q?.available && q.kind === "balance" && Number.isFinite(amount))
     return { backend: item.backend, state: "balance", amount, currency: q.balance.currency };
-  return { backend: item.backend, state: "na", reason: quotaOwnerOnly.has(item.backend) ? "owner_only" : q?.reason || "quota_not_read" };
+  return { backend: item.backend, state: "na", reason: q?.reason || "quota_not_read" };
 }
 // One meter per backend: a reading beats none, and the lowest remaining quota wins.
 function preferredReading(previous, next) {
