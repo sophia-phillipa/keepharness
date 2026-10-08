@@ -33,6 +33,7 @@ async function assertEmptyStateGrouped(page, selector) {
       uploadBodies = [];
     let revision = 0,
       failPut = false,
+      holdPages = null,
       holdPut = null;
     page.on("pageerror", (e) => console.error("PAGEERROR", e.message));
     page.on("dialog", () => {
@@ -72,6 +73,8 @@ async function assertEmptyStateGrouped(page, selector) {
         calls.push([method, pathname, body]);
       let data = {},
         status = 200;
+      if (method === "GET" && pathname === "/v1/pages" && holdPages)
+        await holdPages;
       if (method === "PUT" && pathname.startsWith("/v1/pages/")) {
         if (holdPut) await holdPut;
         if (failPut)
@@ -379,11 +382,24 @@ async function assertEmptyStateGrouped(page, selector) {
     await space.getByText("No pages in this project yet.").waitFor();
 
     // Unsaved text survives ×, Esc and a project switch: Space saves first, to the page's project.
+    let releasePages;
+    holdPages = new Promise((resolve) => (releasePages = resolve));
     await space.getByRole("button", { name: "New page" }).click();
+    assert.equal(
+      await page.evaluate(() => document.activeElement.id),
+      "page-title",
+      "New page focuses its title before the page list response arrives",
+    );
     await space.getByLabel("Page title").fill("Draft one");
     await space
       .getByLabel("Page content (Markdown)")
       .fill("typed before closing");
+    const pageListResponse = page.waitForResponse(
+      (response) => new URL(response.url()).pathname === "/v1/pages",
+    );
+    holdPages = null;
+    releasePages();
+    await (await pageListResponse).finished();
     await space.getByRole("button", { name: "Close Space" }).click();
     await space.waitFor({ state: "hidden" });
     assert.deepEqual(

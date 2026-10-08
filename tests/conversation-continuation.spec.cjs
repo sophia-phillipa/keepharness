@@ -5,7 +5,7 @@ const assert = require("node:assert/strict"),
 
 // WP5 UI: "Continue in another app..." row action. The endpoint and the desktop bridge are
 // mocked; nothing here opens another app or calls a provider.
-const origin = "http://127.0.0.1:8094";
+const origin = process.env.HARNESS_URL || "http://127.0.0.1:8094";
 const TITLE = 'Plan: v2/draft? "final"*';
 const conversations = [
   {

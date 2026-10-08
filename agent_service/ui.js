@@ -10167,8 +10167,8 @@ $("page-preview-toggle").onclick = () =>
 $("page-new").onclick = async () => {
   if (!(await leavePage())) return;
   showPageEditor(null);
-  await loadPages(null);
   $("page-title").focus();
+  await loadPages(null);
 };
 $("page-empty-new").onclick = () => $("page-new").click();
 $("page-attach").onclick = () => void usePage(false);

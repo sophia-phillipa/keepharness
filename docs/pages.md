@@ -152,4 +152,6 @@ DELETE /v1/pages/5d1c…   {"project_id": "p", "revision": "9f2c…"}
   A lost server connection leaves Space, Scheduled and the agent editor open.
 - Saves run one at a time, each sending the revision the previous one returned. Text typed
   while a save is in flight stays "Unsaved changes" and goes out with the next save.
+- New page focuses its title as soon as the editor opens. Refreshing the page list must
+  not move focus after the user has started editing, even on a slow connection.
 - Error copy for every code above lives in `userErrors` in `agent_service/ui.js`.
