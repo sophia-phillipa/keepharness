@@ -12,6 +12,7 @@ import logging
 import os
 import re
 import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -101,7 +102,12 @@ def test_first_read_is_baseline_without_notices(client, app, now):
     assert body["external_changes"] == []
     entry = json.loads(seen_path(app).read_text())["entries"]["codex|sem-projeto"]
     assert entry["notices"] == [] and entry["writes"] == {}
-    assert entry["items"][GITHUB] == {"enabled": False, "source": "config.toml", "name": "github"}
+    assert entry["items"][GITHUB] == {
+        "enabled": False,
+        "source": "config.toml",
+        "name": "github",
+        "scope": "user",
+    }
     assert entry["stat"]
 
 
@@ -458,3 +464,129 @@ def test_user_scope_write_does_not_notify_another_project_key(client, now, codex
     assert post(client, item_id=GITHUB, enabled=True, fingerprint=fingerprint).status_code == 200
     later(now)
     assert changes(client) == [] and changes(client, project_id="p") == []
+
+
+# --- the review of the first cut (#43) ---------------------------------------------------------
+
+
+@pytest.fixture(params=["codex", "claude"])
+def layered(request, now, codex_home, claude_dir, project):
+    """One item with a user and a project layer on each provider; no project file yet."""
+    if request.param == "codex":
+        (project / ".codex").mkdir()
+        with (codex_home / "config.toml").open("a") as stream:
+            stream.write(f'\n[projects."{project}"]\ntrust_level = "trusted"\n')
+        item, project_file = DOCS, project / ".codex" / "config.toml"
+
+        def project_value(value):
+            edit(project_file, f'[plugins."docs@openai-curated"]\nenabled = {str(value).lower()}\n')
+
+        def user_value(value):
+            config = (codex_home / "config.toml").read_text()
+            pattern = r'(\[plugins\."docs@openai-curated"\]\s+enabled = )(true|false)'
+            edit(codex_home / "config.toml", re.sub(pattern, rf"\g<1>{str(value).lower()}", config))
+
+    else:
+        (project / ".claude").mkdir()
+        item = CLAUDE_PLUGIN
+        edit(claude_dir / "settings.json", json.dumps({"enabledPlugins": {"x@y": True}}))
+
+        def project_value(value):
+            settings = project / ".claude" / "settings.json"
+            edit(settings, json.dumps({"enabledPlugins": {"x@y": value}}))
+
+        def user_value(value):
+            edit(claude_dir / "settings.json", json.dumps({"enabledPlugins": {"x@y": value}}))
+
+    return SimpleNamespace(
+        provider=request.param, item=item, project_value=project_value, user_value=user_value
+    )
+
+
+def owner_turns_off(client, layered):
+    fingerprint = fresh_fingerprint(client, layered.provider)
+    response = post(
+        client,
+        provider=layered.provider,
+        item_id=layered.item,
+        enabled=False,
+        fingerprint=fingerprint,
+    )
+    assert response.status_code == 200, response.text
+
+
+def test_user_write_leaves_a_project_override_alone(client, now, layered):
+    layered.project_value(True)
+    get(client, layered.provider)
+    assert row(get(client, layered.provider, "p").json(), layered.item)["scope"] == "project"
+    owner_turns_off(client, layered)
+    later(now)
+    assert changes(client, layered.provider, "p") == [] and changes(client, layered.provider) == []
+    assert row(get(client, layered.provider, "p").json(), layered.item)["enabled"] is True
+
+
+def test_user_write_does_not_hide_an_outside_project_edit(client, now, layered):
+    layered.project_value(True)
+    get(client, layered.provider)
+    get(client, layered.provider, "p")
+    layered.project_value(False)  # outside edit that the owner's later user write happens to equal
+    owner_turns_off(client, layered)
+    later(now)
+    (notice,) = changes(client, layered.provider, "p")
+    assert (notice["item_id"], notice["before"], notice["after"]) == (layered.item, True, False)
+    assert changes(client, layered.provider) == []
+
+
+def test_user_write_marks_another_key_so_a_revert_shows(client, now, layered):
+    get(client, layered.provider)
+    get(client, layered.provider, "p")
+    owner_turns_off(client, layered)
+    later(now)
+    assert changes(client, layered.provider, "p") == []
+    layered.user_value(True)
+    later(now)
+    (notice,) = changes(client, layered.provider, "p")
+    assert (notice["change"], notice["before"], notice["after"]) == ("reverted", False, True)
+
+
+def test_own_write_drops_the_pending_notice_of_that_item(client, now, codex_home):
+    get(client)
+    edit_codex(codex_home, "enabled = false  # turned off", "enabled = true  # turned on")
+    later(now)
+    assert len(changes(client)) == 1
+    written = post(client, item_id=GITHUB, enabled=False, fingerprint=fresh_fingerprint(client))
+    assert written.status_code == 200
+    assert changes(client) == []
+    later(now)
+    assert changes(client) == []
+
+
+def test_a_stat_failure_after_a_write_keeps_the_write(client, app, now, monkeypatch):
+    get(client)
+    fingerprint = fresh_fingerprint(client)
+
+    def refuse(*args):
+        raise OSError("stat refused")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(provider_state, "_watch", refuse)
+        written = post(client, item_id=GITHUB, enabled=True, fingerprint=fingerprint)
+    assert written.status_code == 200
+    assert json.loads(seen_path(app).read_text())["entries"]["codex|sem-projeto"]["stat"] == ""
+    later(now)
+    assert changes(client) == []  # the next read diffs, and the written item is not a notice
+    assert json.loads(seen_path(app).read_text())["entries"]["codex|sem-projeto"]["stat"] != ""
+
+
+def test_seen_keys_of_removed_projects_are_pruned(client, app, now, codex_home):
+    get(client)
+    get(client, project_id="p")
+    projects = app.state.manager.settings["projects"]
+    app.state.manager.settings["projects"] = []
+    edit_codex(codex_home, "enabled = false  # turned off", "enabled = true  # turned on")
+    later(now)
+    assert len(changes(client)) == 1  # a diff saves the map
+    assert set(json.loads(seen_path(app).read_text())["entries"]) == {"codex|sem-projeto"}
+    app.state.manager.settings["projects"] = projects
+    later(now)
+    assert changes(client, project_id="p") == []  # a baseline again, not a stale comparison

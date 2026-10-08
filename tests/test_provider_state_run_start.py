@@ -7,6 +7,7 @@ side reuses that date. It never parses a CLI file and never raises into a run.
 
 import asyncio
 import json
+import threading
 import time
 from types import SimpleNamespace
 
@@ -151,3 +152,30 @@ def test_run_job_calls_hook_once_per_5s(monkeypatch, tmp_path):
     assert len(calls) == 4
     run("deepseek", "sem-projeto")  # not a state provider
     assert len(calls) == 4
+
+
+def test_concurrent_run_starts_keep_every_key(client, app, now, codex_home, project, monkeypatch):
+    get(client)
+    get(client, project_id="p")
+    change_codex(codex_home)
+    barrier = threading.Barrier(2, timeout=0.5)
+    real = provider_state._write_entries
+
+    def meet_then_write(path, entries):
+        try:
+            barrier.wait()  # both have read the runs file, unless a lock holds one back
+        except threading.BrokenBarrierError:
+            pass
+        real(path, entries)
+
+    monkeypatch.setattr(provider_state, "_write_entries", meet_then_write)
+    state = app.state.manager.state
+    threads = [
+        threading.Thread(target=run_start_check, args=(state, "codex", "sem-projeto", None)),
+        threading.Thread(target=run_start_check, args=(state, "codex", "p", project)),
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert set(runs(app)) == {KEY, "codex|p"}

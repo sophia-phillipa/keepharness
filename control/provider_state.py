@@ -17,6 +17,7 @@ import dataclasses
 import hashlib
 import json
 import logging
+import threading
 import time
 from collections.abc import Callable, Mapping
 from functools import partial
@@ -49,6 +50,7 @@ FILE_VERSION = 1
 NOTICE_CAP = 50
 
 logger = logging.getLogger(__name__)
+_runs_lock = threading.Lock()  # runs share one thread pool and one runs file
 
 
 def snapshot_json(snapshot: StateSnapshot) -> dict:
@@ -118,6 +120,7 @@ def _items_of(snapshot: StateSnapshot) -> dict[str, dict]:
             "enabled": item.enabled,
             "source": item.source.rsplit("/", 1)[-1],
             "name": item.name,
+            "scope": item.scope,  # the layer that decides the value
         }
         for item in snapshot.items
     }
@@ -191,8 +194,24 @@ def _merge(
     return list(pending.values())[-NOTICE_CAP:]
 
 
+def _note_write(entry: dict, item_id: str, before: bool | None, after: bool, at: str) -> None:
+    """KeepHarness wrote ``item_id``: remember it for ``reverted`` and drop its stale notice."""
+    entry["writes"].pop(item_id, None)
+    if before is not None and before != after:
+        entry["writes"][item_id] = {"before": before, "after": after, "at": at}
+    entry["notices"] = [n for n in entry["notices"] if n["item_id"] != item_id]
+
+
 def _watch(adapter: ProviderStateAdapter, root: Path | None) -> str:
     return fingerprint(adapter.watch_paths(root))
+
+
+def _watch_or_blank(adapter: ProviderStateAdapter, root: Path | None) -> str:
+    """The stat after a write that landed; unreadable is "unknown", so the next read diffs."""
+    try:
+        return _watch(adapter, root)
+    except OSError:
+        return ""
 
 
 def run_start_check(
@@ -208,11 +227,12 @@ def run_start_check(
         stat = _watch(adapter, project_root)
         key = _key(provider, project_id)
         seen = _read_entries(Path(control_state) / SEEN_FILE).get(key)
-        runs = _read_entries(Path(control_state) / RUNS_FILE)
-        if seen is None or stat in (seen.get("stat"), runs.get(key, {}).get("stat")):
-            return
-        runs[key] = {"stat": stat, "detected_at": _now(time.time)}
-        _write_entries(Path(control_state) / RUNS_FILE, runs)
+        with _runs_lock:  # read-modify-write of the one runs file
+            runs = _read_entries(Path(control_state) / RUNS_FILE)
+            if seen is None or stat in (seen.get("stat"), runs.get(key, {}).get("stat")):
+                return
+            runs[key] = {"stat": stat, "detected_at": _now(time.time)}
+            _write_entries(Path(control_state) / RUNS_FILE, runs)
     except Exception:
         logger.debug("provider_state_run_check_failed")
 
@@ -261,6 +281,9 @@ class ProviderStateService:
         if self._seen is None:
             loaded = _read_entries(self.state / SEEN_FILE)
             self._seen = {key: entry for key, entry in loaded.items() if _sound(entry)}
+        live = {NO_PROJECT, *(project.get("id") for project in self.projects())}
+        for key in [key for key in self._seen if key.split("|", 1)[1] not in live]:
+            del self._seen[key]  # a removed project: a project added later starts from a baseline
         return self._seen
 
     def _save(self) -> None:
@@ -310,19 +333,20 @@ class ProviderStateService:
         for notice in found:
             entry["writes"].pop(notice["item_id"], None)
         if written:
-            before = entry["items"].get(item_id, {}).get("enabled")
             after = items.get(item_id, {}).get("enabled", written[1])
-            entry["writes"].pop(item_id, None)
-            if before is not None and before != after:
-                entry["writes"][item_id] = {"before": before, "after": after, "at": _now(self.wall)}
-            if written[2] == "user":
-                for other, seen in self._entries().items():
-                    if (
-                        other.startswith(f"{provider}|")
-                        and other != key
-                        and item_id in seen["items"]
-                    ):
-                        seen["items"][item_id]["enabled"] = after
+            at = _now(self.wall)
+            _note_write(entry, item_id, entry["items"].get(item_id, {}).get("enabled"), after, at)
+            for other, seen in self._entries().items():
+                held = seen["items"].get(item_id, {})
+                # only a key whose value the user layer decides moves with a user-scope write
+                if (
+                    written[2] == "user"
+                    and other.startswith(f"{provider}|")
+                    and other != key
+                    and held.get("scope") == "user"
+                ):
+                    _note_write(seen, item_id, held["enabled"], after, at)
+                    held["enabled"] = after
         entry["items"], entry["stat"] = items, stat
         self._save()
 
@@ -378,7 +402,7 @@ class ProviderStateService:
                         project_root=root,
                     )
                 )
-                stat = await asyncio.to_thread(_watch, adapter, root)
+                stat = await asyncio.to_thread(_watch_or_blank, adapter, root)
             except ProviderStateConflictError as exc:
                 fresh = await self._read_fresh(provider, project_id, root)
                 changes = self._pending(provider, project_id)
