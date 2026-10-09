@@ -185,3 +185,50 @@ def test_random_token_shaped_words_are_never_shown():
                 continue  # a prefixed path made of one short opaque segment is checked below
             assert secret not in mask_command(command), command
     assert "ghp_ABCD1234efgh5678ijkl" not in mask_command("run /a/ghp_ABCD1234efgh5678ijkl")
+
+
+UNKNOWN_FIELD_LEAKS = [
+    {"body": '{"k": "hunter2-secret"}'},
+    {"data": "--data-raw pw=hunter2"},
+    {"extra": ["-p", "hunter2"]},
+    {"options": {"argv2": ["--pass", "hunter2"]}},
+    {"cmdArgs": ["login", "hunter2-password-here"]},
+    {"target": "https://example.com/hook?sig=SECRETSIG"},
+    {"webhook": "https://u:p@h/x?token=abc"},
+]
+
+
+@pytest.mark.parametrize("fields", UNKNOWN_FIELD_LEAKS)
+def test_unknown_hook_fields_are_replaced_not_scanned(fields):
+    (key,) = fields
+    details = safe_details({"type": "command", **fields})
+    assert details == {"type": "command", key: PLACEHOLDER}
+
+
+def test_known_harmless_fields_pass_unchanged():
+    hook = {
+        "type": "command",
+        "timeout": 30,
+        "async": False,
+        "eventName": "preToolUse",
+        "handlerType": "command",
+        "trustStatus": "trusted",
+        "timeoutSec": 600,
+        "displayOrder": 0,
+        "isManaged": False,
+        "enabled": True,
+        "pluginId": "audit@local",
+        "sourcePath": "/fake/hooks.json",
+        "allowedEnvVars": ["HOME", "PATH"],
+    }
+    assert safe_details(hook) == hook
+
+
+def test_random_unknown_keys_never_expose_values():
+    rng = random.Random(62)
+    chars = string.ascii_letters + string.digits + "-_/:.@ '\""
+    for _ in range(500):
+        key = "".join(rng.choices(string.ascii_letters, k=rng.randint(3, 10))) + "X9"
+        secret = "".join(rng.choices(chars, k=rng.randint(8, 40))).strip() or "s3cretvalue"
+        for value in (secret, [secret, "-p", secret], {"nested": {"deep": [secret]}}, {secret: 1}):
+            assert secret not in repr(safe_details({"command": "run", key: value})), (key, value)

@@ -35,6 +35,18 @@ _NAMED_VALUE_KEYS = frozenset(
     {"env", "environment", "envvars", "env_vars", "headers", "httpheaders", "http_headers"}
 )
 _URL_KEYS = frozenset({"url", "uri", "endpoint"})
+# Hook fields that are known, bounded and not free text (Claude settings, Codex HooksListResponse).
+_PLAIN_KEYS = frozenset(
+    key.lower()
+    for key in (
+        "type handlerType timeout timeoutSec async enabled event eventName source sourcePath "
+        "pluginId origin isManaged trustStatus currentHash key displayOrder additionalContextLimit "
+        "server tool model status disableAllHooks"
+    ).split()
+)
+_TEXT_KEYS = frozenset({"matcher", "prompt", "statusmessage", "description"})
+_ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_-]{0,63}")
+_FIELD_CHARS = 300
 
 
 class _UnbalancedQuote(Exception):
@@ -178,32 +190,41 @@ def _mask_known_field(value, key):
     return None
 
 
-def safe_details(value, key="", depth=0):
-    if depth > 6:
-        return "[truncated]"
+def _safe_scalar(value):
+    if isinstance(value, (bool, int, float)):
+        return value
+    return safe_text(value)[:_FIELD_CHARS] if isinstance(value, str) else PLACEHOLDER
+
+
+def _safe_field(value, key):
+    """One hook field: known shapes pass, everything else is replaced and never recursed into (D-049)."""
+    if value is None:
+        return None
+    lower = key.lower()
     if _SECRET.search(key):
-        return "[REDACTED]"
-    masked = _mask_known_field(value, key.lower())
+        return _REDACTED
+    masked = _mask_known_field(value, lower)
     if masked is not None:
         return masked
-    if isinstance(value, dict):
-        return {
-            safe_text(k): safe_details(v, str(k), depth + 1) for k, v in list(value.items())[:80]
-        }
-    if isinstance(value, list):
-        result, hide = [], False
-        for part in value[:100]:
-            result.append("[REDACTED]" if hide else safe_details(part, depth=depth + 1))
-            hide = (
-                isinstance(part, str)
-                and part.startswith("-")
-                and bool(_SECRET.search(part))
-                and "=" not in part
-            )
-        return result
-    if isinstance(value, str):
-        return safe_text(value)
-    return value if value is None or isinstance(value, (bool, int, float)) else None
+    if lower in _TEXT_KEYS:
+        return _safe_scalar(value)
+    if lower == "allowedenvvars":
+        names = value if isinstance(value, list) else []
+        return [
+            n if isinstance(n, str) and _ENV_NAME.fullmatch(n) else PLACEHOLDER for n in names[:100]
+        ]
+    return _safe_scalar(value) if lower in _PLAIN_KEYS else PLACEHOLDER
+
+
+def safe_details(hook):
+    """Display metadata for one hook object: an allowlist of fields, never a scan of unknown ones."""
+    if not isinstance(hook, dict):
+        return {}
+    return {
+        key: _safe_field(value, key)
+        for key, value in list(hook.items())[:80]
+        if isinstance(key, str) and _ENV_NAME.fullmatch(key)
+    }
 
 
 def hook_items(document, source, scope, *, enabled=True, status="configured", extra=None):
