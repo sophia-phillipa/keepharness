@@ -370,7 +370,8 @@ def main():
             }
             if not exact_entry(entry, own) and not exact_entry(entry, browser_lines, browser=True):
                 refuse("Foreign desktop entry preserved")
-        old = target_of(container, "current", opt) if exists(container / "current") else None
+        # A dangling current link (its version folder was removed) counts as no install.
+        old = target_of(container, "current", opt) if (container / "current").exists() else None
         if old is None:
             for candidate in opt.iterdir():
                 if marker(candidate) and exact_entry(
