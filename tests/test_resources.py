@@ -63,9 +63,17 @@ def test_trusted_catalog_precedence_relative_ids_and_symlink_boundary(tmp_path, 
     project = tmp_path / "project"
     catalog = tmp_path / "catalog"
     outside = tmp_path / "outside"
-    put(tmp_path / "home", ".codex/agents/reviewer.toml", 'name="demo--reviewer"\ndeveloper_instructions="User"')
+    put(
+        tmp_path / "home",
+        ".codex/agents/reviewer.toml",
+        'name="demo--reviewer"\ndeveloper_instructions="User"',
+    )
     put(catalog, "agents/reviewer.toml", 'name="demo--reviewer"\ndeveloper_instructions="Catalog"')
-    put(project, ".codex/agents/reviewer.toml", 'name="demo--reviewer"\ndeveloper_instructions="Project"')
+    put(
+        project,
+        ".codex/agents/reviewer.toml",
+        'name="demo--reviewer"\ndeveloper_instructions="Project"',
+    )
     put(catalog, "skills/shared/SKILL.md", "---\nname: shared\n---\nInside")
     alias = catalog / "skills/alias"
     alias.symlink_to(catalog / "skills/shared")
@@ -234,10 +242,7 @@ def test_command_expansion_no_execution(tmp_path, monkeypatch):
 
 def test_single_leading_command_expands_all_verbatim_arguments():
     item = {"kind": "command", "name": "inspect", "_body": "ARGS=[$ARGUMENTS]"}
-    assert (
-        resources.prepare_prompt("/inspect first\nsecond  ", [item])
-        == "ARGS=[first\nsecond  ]"
-    )
+    assert resources.prepare_prompt("/inspect first\nsecond  ", [item]) == "ARGS=[first\nsecond  ]"
 
 
 def test_api_permissions_and_revalidation_before_queue(tmp_path, monkeypatch):
@@ -313,30 +318,22 @@ def test_codex_native_skill_reload_and_structured_input(tmp_path):
         asyncio.run(resource_inputs(RPC(), project, tmp_path))
 
 
-def test_claude_skill_tool_is_only_enabled_for_explicit_selection(tmp_path):
-    from unittest.mock import patch
-
+def test_claude_native_tools_are_not_filtered_by_resource_selection(tmp_path):
     from adapters.claude.native import build_command
 
-    with (
-        patch("adapters.claude.native.configurations", return_value={"claude": {}}),
-        patch("adapters.claude.native.inventory", return_value={"claude": []}),
-    ):
-        basic = build_command(
-            {"binary": "claude"}, "sonnet", tmp_path, {"read": True}, [], "ask", []
-        )
-        selected = build_command(
-            {"binary": "claude", "resource_skills": ["review"]},
-            "sonnet",
-            tmp_path,
-            {"read": True},
-            [],
-            "ask",
-            [],
-        )
-    assert "Skill" not in basic[basic.index("--tools") + 1].split(",")
-    assert "Skill" in selected[selected.index("--tools") + 1].split(",")
-    assert "Agent" not in selected[selected.index("--tools") + 1].split(",")
+    basic = build_command({"binary": "claude"}, "sonnet", tmp_path, {"read": True}, [], "ask", [])
+    selected = build_command(
+        {"binary": "claude", "resource_skills": ["review"]},
+        "sonnet",
+        tmp_path,
+        {"read": True},
+        [],
+        "ask",
+        [],
+    )
+    assert "--tools" not in basic
+    assert "--tools" not in selected
+    assert selected == basic
 
 
 def test_execution_rechecks_selection_and_preserves_stored_prompt(tmp_path, monkeypatch):
@@ -473,46 +470,40 @@ def skill(name):
     return f"---\nname: {name}\ndescription: {name} skill\n---\nDo {name}"
 
 
-def test_claude_user_skills_load_only_with_the_personal_setup_and_hooks(tmp_path, monkeypatch):
+def test_claude_user_skills_load_without_personal_setup_or_hooks_grant(tmp_path, monkeypatch):
     owner, state, root = tmp_path / "owner", tmp_path / "state", tmp_path / "project"
     monkeypatch.setenv("HOME", str(owner))
     monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
-    harness = state / "providers/home/.claude"
-    put(harness, "skills/home/SKILL.md", skill("home"))
-    put(harness, "commands/homecmd.md", "---\ndescription: cmd\n---\nRun")
+    put(state / "providers/home/.claude", "skills/retired/SKILL.md", skill("retired"))
     put(owner / ".claude", "skills/owner/SKILL.md", skill("owner"))
+    put(owner / ".claude", "commands/ownercmd.md", "---\ndescription: cmd\n---\nRun")
     put(root, ".claude/skills/local/SKILL.md", skill("local"))
-
-    def listed(**extra):
-        config = provider_home_config(root, state, "claude", **extra)
-        return user_items(config, "claude")
-
-    for extra in ({}, {"personal_setup": True}):
-        items = listed(**extra)
-        owned = {("skill", "owner")} if extra else set()
-        assert set(items) == {("skill", "home"), ("command", "homecmd")} | owned, extra
-        assert not any(i["selectable"] for i in items.values())
-        assert all(i["unavailable_reason"] for i in items.values())
-    hooks = {"projects": {"p": {"root": str(root), "permissions": {"delegate": True, "hooks": True}}}}
-    assert not any(i["selectable"] for i in listed(**hooks).values())
-    items = listed(personal_setup=True, **hooks)
-    assert {k for k, i in items.items() if i["selectable"]} == {("skill", "home"), ("command", "homecmd")}
-    assert not items[("skill", "owner")]["selectable"]
-    config = provider_home_config(root, state, "claude")
-    project = [i for i in resources.discover(config, "p", "claude")["items"] if i["name"] == "local"]
-    assert [i["selectable"] for i in project] == [True]
+    for personal in (False, True):
+        for hooks in (False, True):
+            config = provider_home_config(root, state, "claude", personal_setup=personal)
+            config["projects"]["p"]["permissions"]["hooks"] = hooks
+            items = user_items(config, "claude")
+            assert set(items) == {("skill", "owner"), ("command", "ownercmd")}
+            assert all(i["selectable"] and not i["unavailable_reason"] for i in items.values())
+            project = [
+                i
+                for i in resources.discover(config, "p", "claude")["items"]
+                if i["name"] == "local"
+            ]
+            assert [i["selectable"] for i in project] == [True]
 
 
-def test_claude_hint_names_the_folder_for_each_kind(tmp_path, monkeypatch):
-    state, root = tmp_path / "state", tmp_path / "project"
-    monkeypatch.setenv("HOME", str(tmp_path / "owner"))
-    harness = state / "providers/home/.claude"
-    put(harness, "skills/home/SKILL.md", skill("home"))
-    put(harness, "commands/homecmd.md", "---\ndescription: cmd\n---\nRun")
+def test_claude_user_resource_hints_do_not_require_personal_setup(tmp_path, monkeypatch):
+    state, root, home = tmp_path / "state", tmp_path / "project", tmp_path / "owner"
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(home / ".claude"))
+    put(home / ".claude", "skills/home/SKILL.md", skill("home"))
+    put(home / ".claude", "commands/homecmd.md", "---\ndescription: cmd\n---\nRun")
     items = user_items(provider_home_config(root, state, "claude"), "claude")
-    assert ".claude/skills" in items[("skill", "home")]["preflight_hint"]
-    assert ".claude/commands" in items[("command", "homecmd")]["preflight_hint"]
-    assert not any(".agents" in i["preflight_hint"] for i in items.values())
+    assert set(items) == {("skill", "home"), ("command", "homecmd")}
+    assert all(
+        i["preflight_hint"] == "Ready to invoke with the current provider and execution mode."
+        for i in items.values()
+    )
 
 
 def test_legacy_claude_config_with_hooks_lists_host_skills_as_available(tmp_path, monkeypatch):
@@ -528,19 +519,19 @@ def test_legacy_claude_config_with_hooks_lists_host_skills_as_available(tmp_path
     assert [i["selectable"] for i in user_items(config, "claude").values()] == [True]
 
 
-def test_codex_lists_the_harness_home_whatever_the_opt_in_says(tmp_path, monkeypatch):
+def test_codex_lists_native_home_whatever_the_retired_opt_in_says(tmp_path, monkeypatch):
     owner, state, root = tmp_path / "owner", tmp_path / "state", tmp_path / "project"
     monkeypatch.setenv("HOME", str(owner))
     monkeypatch.delenv("CODEX_HOME", raising=False)
     put(state / "providers/home/.codex", "skills/harness/SKILL.md", skill("harness"))
     put(state / "providers/home", ".agents/skills/shared/SKILL.md", skill("shared"))
     put(owner / ".codex", "skills/owner/SKILL.md", skill("owner"))
+    put(owner, ".agents/skills/shared/SKILL.md", skill("shared"))
     for extra in ({}, {"personal_setup": True}):
         items = user_items(provider_home_config(root, state, "codex", **extra), "codex")
         listed = {name: i["selectable"] for (_, name), i in items.items()}
-        # The owner's own skill shows only with the opt-in, and never as runnable.
-        assert listed == {"harness": True, "shared": True, **({"owner": False} if extra else {})}
-        assert bool(items.get(("skill", "owner"), {}).get("unavailable_reason")) is bool(extra)
+        assert listed == {"shared": True, "owner": True}
+        assert all(not item["unavailable_reason"] for item in items.values())
 
 
 def test_gemini_owner_commands_are_harness_expanded_and_hidden_unless_owner(tmp_path, monkeypatch):
@@ -560,29 +551,32 @@ def test_gemini_owner_commands_are_harness_expanded_and_hidden_unless_owner(tmp_
     assert names(owner=False) == {"shared": "project"}
 
 
-def test_codex_owner_prompts_stay_available_with_the_opt_in(tmp_path, monkeypatch):
+def test_codex_owner_prompts_do_not_need_the_retired_opt_in(tmp_path, monkeypatch):
     owner, state, root = tmp_path / "owner", tmp_path / "state", tmp_path / "project"
     monkeypatch.setenv("HOME", str(owner))
     monkeypatch.delenv("CODEX_HOME", raising=False)
     put(owner / ".codex", "prompts/mine.md", "---\ndescription: mine\n---\nDo it")
     on = provider_home_config(root, state, "codex", personal_setup=True)
-    assert ("command", "mine") not in user_items(provider_home_config(root, state, "codex"), "codex")
-    assert ("command", "mine") not in user_items(on, "codex", owner=False)
+    assert user_items(provider_home_config(root, state, "codex"), "codex")[("command", "mine")][
+        "selectable"
+    ]
+    assert user_items(on, "codex", owner=False)[("command", "mine")]["selectable"]
     assert user_items(on, "codex")[("command", "mine")]["selectable"] is True
 
 
-def test_claude_user_skills_are_unavailable_when_a_catalog_turns_hooks_off(tmp_path, monkeypatch):
+def test_claude_user_skills_stay_available_with_catalogs(tmp_path, monkeypatch):
     owner, state, root = tmp_path / "owner", tmp_path / "state", tmp_path / "project"
     catalog = tmp_path / "catalog"
     monkeypatch.setenv("HOME", str(owner))
-    put(state / "providers/home/.claude", "skills/home/SKILL.md", skill("home"))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(owner / ".claude"))
+    put(owner / ".claude", "skills/home/SKILL.md", skill("home"))
     config = {
         **catalog_cfg(root, catalog, "claude"),
         "control_state_dir": str(state),
         "personal_setup": True,
     }
     config["projects"]["p"]["permissions"]["hooks"] = True
-    assert not user_items(config, "claude")[("skill", "home")]["selectable"]
+    assert user_items(config, "claude")[("skill", "home")]["selectable"]
     config["projects"]["p"]["catalogs"] = []
     assert user_items(config, "claude")[("skill", "home")]["selectable"]
 
@@ -651,7 +645,9 @@ def test_every_client_sees_the_owners_personal_resources_in_catalog_or_palette(
         app.state.service.db.close()
 
 
-def test_a_non_owner_resolution_cannot_resolve_an_owner_resource_id_at_run_time(tmp_path, monkeypatch):
+def test_a_non_owner_resolution_cannot_resolve_an_owner_resource_id_at_run_time(
+    tmp_path, monkeypatch
+):
     from starlette.testclient import TestClient
 
     from agent_service.app import create_app
@@ -672,7 +668,9 @@ def test_a_non_owner_resolution_cannot_resolve_an_owner_resource_id_at_run_time(
             "backend": "gemini",
             "model": "fixture",
             "prompt": "/mine hi",
-            "resource_selections": [{"id": item["id"], "revision": item["revision"], "token": "/mine"}],
+            "resource_selections": [
+                {"id": item["id"], "revision": item["revision"], "token": "/mine"}
+            ],
         }
         service = app.state.service
         assert service.selected_resources(data, owner=True)[0]["name"] == "mine"
@@ -684,10 +682,11 @@ def test_a_non_owner_resolution_cannot_resolve_an_owner_resource_id_at_run_time(
         app.state.service.db.close()
 
 
-def test_claude_hooks_follow_read_only_mode(tmp_path, monkeypatch):
+def test_claude_user_skills_stay_available_in_read_only_mode(tmp_path, monkeypatch):
     owner, state, root = tmp_path / "owner", tmp_path / "state", tmp_path / "project"
     monkeypatch.setenv("HOME", str(owner))
-    put(state / "providers/home/.claude", "skills/home/SKILL.md", skill("home"))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(owner / ".claude"))
+    put(owner / ".claude", "skills/home/SKILL.md", skill("home"))
     config = provider_home_config(root, state, "claude", personal_setup=True)
     config["projects"]["p"]["permissions"]["hooks"] = True
 
@@ -697,7 +696,7 @@ def test_claude_hooks_follow_read_only_mode(tmp_path, monkeypatch):
 
     assert selectable(access_mode="ask")
     assert selectable()
-    assert not selectable(access_mode="read_only")
+    assert selectable(access_mode="read_only")
 
 
 def owner_resource(service, backend, model, name):
@@ -710,9 +709,8 @@ def selection(item, token):
     return [{"id": item["id"], "revision": item["revision"], "token": token}]
 
 
-def test_scheduled_run_does_not_resolve_prompts_behind_the_opt_in(tmp_path, monkeypatch):
+def test_scheduled_run_resolves_native_owner_prompts(tmp_path, monkeypatch):
     from agent_service.app import create_app
-    from agent_service.errors import APIError
 
     app = create_app(owner_resources_config(tmp_path, monkeypatch))
     service = app.state.service
@@ -735,9 +733,8 @@ def test_scheduled_run_does_not_resolve_prompts_behind_the_opt_in(tmp_path, monk
         }
         scheduled = {"schedule_id": "f" * 32}
         assert service.selected_resources(codex, owner=True)[0]["name"] == "secret"
-        with pytest.raises(APIError):
-            service.selected_resources({**codex, **scheduled}, owner=True)
-        # Gemini commands do not depend on the opt-in, so the owner's schedule keeps them.
+        assert service.selected_resources({**codex, **scheduled}, owner=True)[0]["name"] == "secret"
+        # Gemini retains the same owner-command behavior.
         assert service.selected_resources({**gemini, **scheduled}, owner=True)[0]["name"] == "mine"
     finally:
         service.db.close()
@@ -831,3 +828,46 @@ def test_catalog_preflight_ignores_retired_cloud_service_mode(tmp_path, monkeypa
     resources.discover(config, "p", backend, include_workflows=False)
     preflight.assert_called_once()
     assert preflight.call_args.args[4:] == ("native", [{"id": "fixture", "required": True}])
+
+
+@pytest.mark.parametrize(
+    "backend,variable", [("codex", "CODEX_HOME"), ("claude", "CLAUDE_CONFIG_DIR")]
+)
+@pytest.mark.parametrize("preset", ["ask", "read_only", "auto", "full"])
+@pytest.mark.parametrize("scheduled", [False, True])
+@pytest.mark.parametrize("override", [False, True])
+def test_native_resources_use_cli_home_for_every_preset_and_schedule(
+    tmp_path, monkeypatch, backend, variable, preset, scheduled, override
+):
+    home, state, root = tmp_path / "owner", tmp_path / "state", tmp_path / "project"
+    monkeypatch.setenv("HOME", str(home))
+    native = tmp_path / "custom" if override else home / ("." + backend)
+    if override:
+        monkeypatch.setenv(variable, str(native))
+    else:
+        monkeypatch.delenv(variable, raising=False)
+    put(native, "skills/native/SKILL.md", skill("native"))
+    folder = "prompts" if backend == "codex" else "commands"
+    put(native, folder + "/nativecmd.md", "---\ndescription: Native command\n---\nRun")
+    put(state / "providers/home" / ("." + backend), "skills/retired/SKILL.md", skill("retired"))
+    config = provider_home_config(root, state, backend, personal_setup=False)
+    config["provider_homes"] = str(state / "providers")
+    config["projects"]["p"]["permissions"]["hooks"] = False
+    result = resources.discover(config, "p", backend, owner=True, access_mode=preset)
+    items = {
+        (item["kind"], item["name"]): item for item in result["items"] if item["scope"] == "user"
+    }
+    assert set(items) == {("skill", "native"), ("command", "nativecmd")}
+    assert all(item["selectable"] for item in items.values())
+    assert all(not item["unavailable_reason"] for item in items.values())
+    item = items[("skill", "native")]
+    token = resources.accepted_tokens(item)[0]
+    data = {
+        "project_id": "p",
+        "backend": backend,
+        "schedule_id": "s" if scheduled else None,
+        "access_mode": preset,
+        "prompt": token,
+        "resource_selections": selection(item, token),
+    }
+    assert resources.resolve(config, data, owner=True)[0]["id"] == item["id"]

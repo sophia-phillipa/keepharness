@@ -352,7 +352,10 @@ def test_a_turn_with_many_attachments_and_tools_still_fits():
         "answer": "done",
         "state": "completed",
         "attachments": [f"file-{i:03d}-" + "x" * 190 for i in range(150)],
-        "evidence": [{"type": "tool_end", "data": {"tool": f"tool{i}", "status": "completed"}} for i in range(150)],
+        "evidence": [
+            {"type": "tool_end", "data": {"tool": f"tool{i}", "status": "completed"}}
+            for i in range(150)
+        ],
     }
     result = continuation_prompt([record], {"name": "P", "paths": []}, "claude")
     assert result["turns_included"] == 1

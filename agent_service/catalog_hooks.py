@@ -68,7 +68,9 @@ async def run_hooks(runtime, granted, event, *, timeout=30, output_limit=32768):
     for hook in hooks:
         data = _verified_bytes(hook, runtime.get("hook_catalogs", []))
         if data is None:  # changed since trusted, or never hashed: skip, never run unhashed
-            event("catalog_hook", {"outcome": "skipped", "reason": "hooks_not_trusted", "hook": hook})
+            event(
+                "catalog_hook", {"outcome": "skipped", "reason": "hooks_not_trusted", "hook": hook}
+            )
             continue
         process = None
         readers = []

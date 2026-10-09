@@ -31,8 +31,8 @@ def test_unrelated_project_catalog_and_child_gate_stdio(make_harness_config, mon
                 {"projects": {str(fixture.project.resolve()): {"hasTrustDialogAccepted": True}}}
             )
         )
-        monkeypatch.setattr("adapters.claude.native.configurations", lambda: {"claude": {}})
-        monkeypatch.setattr("adapters.claude.native.inventory", lambda: {"claude": []})
+        monkeypatch.setattr("control.integrations.configurations", lambda: {"claude": {}})
+        monkeypatch.setattr("control.integrations.inventory", lambda: {"claude": []})
         monkeypatch.setattr("adapters.claude.native.child_environment", lambda *_: fixture.env)
         # Generated synthetic payload keeps a 99 KB test fixture out of the repository.
         supplemental = fixture.root / "supplemental_catalog"
@@ -94,10 +94,9 @@ def test_unrelated_project_catalog_and_child_gate_stdio(make_harness_config, mon
             + """import json, sys
 from pathlib import Path
 arguments = sys.argv[1:]
-assert arguments[arguments.index("--setting-sources") + 1] == "project"
-assert "Task" in arguments[arguments.index("--tools") + 1].split(",")
-assert "TodoWrite" not in arguments[arguments.index("--tools") + 1].split(",")
-assert not json.loads(arguments[arguments.index("--settings") + 1])["disableAllHooks"]
+assert "--setting-sources" not in arguments
+assert "--tools" not in arguments
+assert "disableAllHooks" not in json.loads(arguments[arguments.index("--settings") + 1])
 agents = json.loads(Path(arguments[arguments.index("--agents") + 1]).read_text())
 assert "SYNTHETIC_GLOBAL_AGENT_REVIEWER" in agents["demo--reviewer"]["prompt"]
 assert "tools" not in agents["demo--reviewer"]
@@ -170,7 +169,8 @@ emit({"type":"result", "subtype":"success", "result":"SYNTHETIC_GLOBAL_AGENT_REV
                     for kind, data in events
                 )
                 assert any(
-                    kind == "hook_scope" and data["scope"] == "project" for kind, data in events
+                    kind == "hook_scope" and data["scope"] == "global_and_project"
+                    for kind, data in events
                 )
                 assert any(
                     kind == "gate_resolved" and data["resolved_by"] == "local"

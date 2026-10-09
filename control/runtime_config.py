@@ -16,7 +16,7 @@ from pathlib import Path
 from types import MappingProxyType
 
 from adapters.deepseek import account as deepseek
-from adapters.shared.provider_setup import credential_file, homes_root
+from adapters.shared.provider_setup import homes_root
 from agent_service.errors import UserMessageError
 
 from . import local_access
@@ -66,7 +66,12 @@ def base_config(settings, state, admin_port, browser_url, provider_revisions):
     for key in ("approval_timeout_seconds", "approval_max_consecutive_expirations"):
         if key in settings:
             cfg[key] = settings[key]
-    for key in ("integrations", "integration_bindings", "effect_integrations", "secret_vault_revision"):
+    for key in (
+        "integrations",
+        "integration_bindings",
+        "effect_integrations",
+        "secret_vault_revision",
+    ):
         if key in settings:
             cfg[key] = json.loads(json.dumps(settings[key]))
     if settings.get("integration_bindings"):
@@ -138,7 +143,9 @@ def catalog_models(cfg, provider, models, catalog):
         raise UserMessageError(CATALOG_MISSING)
     logger.warning(
         "%s: %s Routes unavailable until repaired: %s",
-        provider, CATALOG_MISSING, ", ".join(retired),
+        provider,
+        CATALOG_MISSING,
+        ", ".join(retired),
     )
     cfg["services"][provider]["models"] = kept
     cfg.setdefault("unavailable_models", {})[provider] = dict.fromkeys(retired, CATALOG_MISSING)
@@ -167,14 +174,11 @@ def build_cli_provider(cfg, provider, spec, checked, info, state):
     models = catalog_models(cfg, provider, spec["models"], checked["models"])
     cfg[provider] = {
         "binary": str(binary),
-        "auth_file": info["auth_file"],
         "python": sys.executable,
         "integrations": spec.get("integrations", []),
     }
-    if provider in ("codex", "claude"):
-        # Logins and sessions live in the harness-owned home, never the terminal's (D02).
-        cfg[provider]["provider_homes"] = str(homes_root(state))
-        cfg[provider]["auth_file"] = str(credential_file(state, provider))
+    if provider not in ("codex", "claude"):
+        cfg[provider]["auth_file"] = info["auth_file"]
     if provider == "claude" and (state / "claude-cli-login").exists():
         cfg[provider]["use_cli_login"] = True
     cfg[provider + "_models"] = (

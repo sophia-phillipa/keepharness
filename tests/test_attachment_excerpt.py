@@ -30,8 +30,8 @@ print(json.dumps({'type':'result','subtype':'success','result':json.dumps(sys.ar
         raise AssertionError("No real inference")
 
     with (
-        patch("adapters.claude.native.configurations", return_value={"claude": {}}),
-        patch("adapters.claude.native.inventory", return_value={"claude": []}),
+        patch("control.integrations.configurations", return_value={"claude": {}}),
+        patch("control.integrations.inventory", return_value={"claude": []}),
     ):
         result = asyncio.run(
             run(

@@ -6,6 +6,7 @@ import json
 import pytest
 
 from adapters.codex.state import CodexStateAdapter
+from agent_service.errors import APIError
 from control.provider_state import ProviderStateService
 
 
@@ -90,12 +91,10 @@ def test_deepseek_trust_rejected_before_touching_other_providers(tmp_path, monke
         raise AssertionError("An unsupported trust request must not reach any adapter")
 
     monkeypatch.setattr(service, "_adapter", adapter)
-    response = asyncio.run(service.security_write("deepseek", "p", trusted=trusted))
+    with pytest.raises(APIError) as refused:
+        asyncio.run(service.security_write("deepseek", "p", trusted=trusted))
     assert touched == []
-    assert response.status_code == 422
-    body = json.loads(response.body)
-    assert body["error"] == "provider_state_write_unsupported"
-    assert "DeepSeek" in body["message"]
+    assert (refused.value.code, refused.value.status) == ("invalid_request", 400)
     assert not service.cache and not service.locks
 
 

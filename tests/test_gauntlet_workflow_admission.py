@@ -125,6 +125,7 @@ def test_source_workflows_reject_unknown_and_internal_metadata(top_level):
 
 def test_recovery_visibility_uses_durable_checkpoint_in_both_read_routes(tmp_path):
     from types import SimpleNamespace
+
     from agent_service.routes.conversations import conversation, job
 
     service, identity, row, data, plan = setup_run(tmp_path)

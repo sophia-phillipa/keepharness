@@ -116,8 +116,8 @@ print(json.dumps({{'type':'result','subtype':'success','result':'ok'}}),flush=Tr
     )
     cli.chmod(0o700)
     with (
-        patch.object(native, "configurations", return_value={"claude": {}}),
-        patch.object(native, "inventory", return_value={"claude": []}),
+        patch("control.integrations.configurations", return_value={"claude": {}}),
+        patch("control.integrations.inventory", return_value={"claude": []}),
     ):
         result = asyncio.run(
             native.run(

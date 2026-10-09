@@ -113,7 +113,9 @@ def test_history_and_attachments_keep_owner_and_survive_restart(tmp_path):
                     assert sorted(row["id"] for row in rows["conversations"]) == sorted(kept)
                 for job in kept:
                     for headers in ({}, remote_headers):
-                        preview = await client.get(f"/v1/files/{job}-image/preview", headers=headers)
+                        preview = await client.get(
+                            f"/v1/files/{job}-image/preview", headers=headers
+                        )
                         assert preview.content == b"fixture"
                 if not restart:
                     assert (await client.delete("/v1/conversations/first")).status_code == 200

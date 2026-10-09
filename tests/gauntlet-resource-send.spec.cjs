@@ -18,7 +18,14 @@ const assert = require("node:assert/strict"),
         if (p === "/v1/projects") data = { projects: ["sem-projeto"] };
         if (p === "/v1/models")
           data = {
-            models: [{ id: "gpt-6-astra", backend: "codex", execution_modes: executionModes("codex"), efforts: ["low"] }],
+            models: [
+              {
+                id: "gpt-6-astra",
+                backend: "codex",
+                execution_modes: executionModes("codex"),
+                efforts: ["low"],
+              },
+            ],
           };
         if (p === "/v1/conversations") data = { conversations: [] };
         if (p === "/v1/usage") {
@@ -73,7 +80,9 @@ const assert = require("node:assert/strict"),
               : "text/html",
       });
     });
-    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
+    await page.addInitScript(() =>
+      localStorage.setItem("keepharness-tour-seen", "0.16.0"),
+    );
     await page.goto("http://resource-send.test");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     await page.fill("#prompt", "@review");

@@ -19,8 +19,15 @@ def test_prepared_effect_activity_uses_one_query_for_all_jobs(make_harness_confi
         service.db.execute("UPDATE jobs SET state='completed' WHERE id='job'")
         for index in range(12):
             service.conversation_repository.insert(
-                f"finished-{index}", "sem-projeto", "local", "completed", index,
-                "{}", None, None, None,
+                f"finished-{index}",
+                "sem-projeto",
+                "local",
+                "completed",
+                index,
+                "{}",
+                None,
+                None,
+                None,
             )
         service.db.commit()
         queries = []

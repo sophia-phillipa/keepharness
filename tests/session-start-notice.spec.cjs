@@ -108,7 +108,9 @@ const assert = require("node:assert/strict"),
     };
     const idle = () => page.waitForFunction(() => !busy && !submitting);
 
-    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
+    await page.addInitScript(() =>
+      localStorage.setItem("keepharness-tour-seen", "0.16.0"),
+    );
 
     await page.goto("http://panel.test/");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
@@ -128,10 +130,23 @@ const assert = require("node:assert/strict"),
     await idle();
     assert.equal(sent.at(-1).execution_mode, "scoped");
     assert.equal(sent.at(-1).access_mode, "full");
-    assert.equal(await notice.isVisible(), true, "Local isolation requirement remains visible");
-    assert.equal(await page.locator("#header-execution-mode").isVisible(), true);
-    assert.equal(await page.locator("#header-execution-mode").innerText(), "Isolated conversation");
-    assert.equal(await page.locator("#header-access").innerText(), "Full access");
+    assert.equal(
+      await notice.isVisible(),
+      true,
+      "Local isolation requirement remains visible",
+    );
+    assert.equal(
+      await page.locator("#header-execution-mode").isVisible(),
+      true,
+    );
+    assert.equal(
+      await page.locator("#header-execution-mode").innerText(),
+      "Isolated conversation",
+    );
+    assert.equal(
+      await page.locator("#header-access").innerText(),
+      "Full access",
+    );
     assert.equal(
       await toggle.isVisible(),
       false,
@@ -156,15 +171,16 @@ const assert = require("node:assert/strict"),
       .locator("#model")
       .selectOption("gemini-fixture", { force: true });
     await page.locator("#prompt").fill("Blocked draft");
-    assert.equal(await page.locator("#execution-mode-unavailable").isVisible(), true);
+    assert.equal(
+      await page.locator("#execution-mode-unavailable").isVisible(),
+      true,
+    );
     assert.match(
       await page.locator("#execution-mode-unavailable").innerText(),
       /Choose a different model or start a new conversation\./,
     );
     assert.equal(await page.locator("#send").isDisabled(), true);
-    await page
-      .locator("#model")
-      .selectOption("local-fixture", { force: true });
+    await page.locator("#model").selectOption("local-fixture", { force: true });
     assert.equal(await page.locator("#send").isEnabled(), true);
     await page.locator("#prompt").fill("");
 
@@ -177,8 +193,14 @@ const assert = require("node:assert/strict"),
         "Isolated conversation",
     );
     assert.equal(await toggle.isVisible(), false);
-    assert.equal(await page.locator("#header-execution-mode").isVisible(), true);
-    assert.equal(await page.locator("#header-execution-mode").innerText(), "Isolated conversation");
+    assert.equal(
+      await page.locator("#header-execution-mode").isVisible(),
+      true,
+    );
+    assert.equal(
+      await page.locator("#header-execution-mode").innerText(),
+      "Isolated conversation",
+    );
     assert.equal(await page.locator("#header-access").innerText(), "Read only");
     assert.equal(await access.innerText(), "Access: Read only");
 
@@ -203,13 +225,13 @@ const assert = require("node:assert/strict"),
     // The menu copy describes what each mode really does (F-110).
     await page.click("#access-trigger");
     const copy = await page
-      .locator("#access-menu [data-access] small")
+      .locator("#access-menu [data-access] small:not(.access-native-mode)")
       .allInnerTexts();
     assert.deepEqual(copy, [
-      "Asks before edits, commands that change files and every connector call. On Codex and DeepSeek, commands that change nothing run without asking and can read any file your account can.",
-      "Edits inside the project folders without asking; anything outside them, and every connector call, asks first. Codex and DeepSeek run commands in a sandbox limited to those folders (network only with the provider's internet setting) and can still read any file your account can; Claude Code asks before every command. Local models stay in their sandbox.",
-      "Available once turned on in the admin. Runs everything without asking: no sandbox for Codex, DeepSeek and Claude; local models keep the permissions set in the admin.",
-      "Reads and searches the project folders; web search follows the provider's internet setting. Edits, commands, tests, connectors and plugins are off.",
+      "Codex asks when an action needs to leave its read-only sandbox; Claude Code uses its default permission mode. Native connectors and plugins follow the CLI configuration. DeepSeek asks before edits and connector calls; read-only commands can read any file your account can.",
+      "Codex uses the sandbox shown above, with project-bounded writes when allowed; Claude Code accepts edits with its native permission rules. Native connectors and plugins follow the CLI configuration. DeepSeek asks before connector calls and actions beyond its workspace sandbox. Local models stay in their sandbox.",
+      "Available once turned on in the admin. Uses the native settings shown above, within the provider's configured grants. Codex and DeepSeek can run without a sandbox; Claude Code can bypass permission prompts. Local models keep the permissions set in the admin.",
+      "Codex uses a read-only sandbox with no approval escalation; Claude Code uses plan mode. Their connectors, plugins and tool permissions follow the native CLI configuration. Other providers keep their read-only restrictions.",
     ]);
     await page.keyboard.press("Escape");
 
@@ -219,11 +241,16 @@ const assert = require("node:assert/strict"),
     await page.reload();
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     await page.click("#access-trigger");
-    assert.equal(await page.locator('#access-menu [data-access="full"]').isVisible(), false);
+    assert.equal(
+      await page.locator('#access-menu [data-access="full"]').isVisible(),
+      false,
+    );
     const reachable = [];
     for (let step = 0; step < 4; step++) {
       await page.keyboard.press("ArrowDown");
-      reachable.push(await page.evaluate(() => document.activeElement.dataset.access));
+      reachable.push(
+        await page.evaluate(() => document.activeElement.dataset.access),
+      );
     }
     assert.equal(reachable.includes("full"), false, reachable.join());
     await page.keyboard.press("Escape");

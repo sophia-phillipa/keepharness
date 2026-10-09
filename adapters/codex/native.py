@@ -10,7 +10,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from adapters.shared.provider_setup import instructions
+from adapters.shared.provider_setup import codex_access_settings, instructions
 from adapters.shared.workspace import readable_roots
 from agent_service.reader_mcp import SERVER_NAME as READER
 from agent_service.reader_mcp import server_spec as reader_spec
@@ -46,26 +46,22 @@ class RuntimeOptions:
 
 
 def build_command(binary, permissions, hosted_search=True, *, host_config=True):
-    command = [
-        binary,
-        "app-server",
-        "--listen",
-        "stdio://",
-        "-c",
-        "features.hooks=" + str(bool(permissions.get("hooks"))).lower(),
-        "-c",
-        "features.apps=false",
-        "-c",
-        "features.shell_tool=" + str(bool(permissions.get("shell"))).lower(),
-        "-c",
-        "features.unified_exec=" + str(bool(permissions.get("shell"))).lower(),
-        "-c",
-        'web_search="'
-        + ("live" if permissions.get("internet") and hosted_search else "disabled")
-        + '"',
-    ]
+    command = [binary, "app-server", "--listen", "stdio://"]
     if not host_config:
-        return command
+        return command + [
+            "-c",
+            "features.hooks=" + str(bool(permissions.get("hooks"))).lower(),
+            "-c",
+            "features.apps=false",
+            "-c",
+            "features.shell_tool=" + str(bool(permissions.get("shell"))).lower(),
+            "-c",
+            "features.unified_exec=" + str(bool(permissions.get("shell"))).lower(),
+            "-c",
+            'web_search="'
+            + ("live" if permissions.get("internet") and hosted_search else "disabled")
+            + '"',
+        ]
     # Never synthesize a disabled server without a transport. Only existing host
     # entries are disabled, using the home the CLI actually receives.
     home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
@@ -79,43 +75,25 @@ def build_command(binary, permissions, hosted_search=True, *, host_config=True):
     return command
 
 
-def thread_parameters(config, project, model, workspace, runtime, unrestricted):
+def thread_parameters(
+    config, project, model, workspace, runtime, unrestricted, *, native_config=None
+):
     """Translate harness permissions and integrations to app-server settings."""
     cwd, permissions = workspace.cwd, workspace.permissions
     # Ask: the read-only sandbox makes every write escalate to an approval card.
     ask = project.get("access_mode", "ask") == "ask" and not runtime.isolated
     # Automatic: the workspace sandbox on the project; anything beyond asks (decision D11).
     automatic = project.get("access_mode") == "auto" and not runtime.isolated
-    # Read only never starts a connector or plugin (decisions D04, D12).
-    selected = [] if project.get("access_mode") == "read_only" else config.get("integrations", [])
     local_provider = runtime.model_provider
-    personal = config.get("personal_setup") is True
-    plugins = []
-    # The owner's plugins and MCP servers are part of the personal setup (decision D01).
-    if not runtime.isolated and personal:
-        plugins = (
-            config["plugin_inventory"]
-            if "plugin_inventory" in config
-            else [item["id"] for item in inventory()["codex"] if item["kind"] == "plugin"]
-        )
     params = {
         "model": model,
         "cwd": str(cwd),
-        "sandbox": (
-            "danger-full-access"
-            if unrestricted
-            else "workspace-write"
-            if permissions.get("write") and not ask
-            else "read-only"
-        ),
-        "approvalPolicy": (
-            "never"
-            if project.get("access_mode") in ("full", "read_only") and not runtime.isolated
-            else "on-request"
+        **codex_access_settings(
+            project.get("access_mode", "ask"), permissions, unrestricted, runtime.isolated
         ),
         "approvalsReviewer": "user",
         "developerInstructions": "Use the native CLI tools and only the configured integrations. Follow the selected project instructions. Ask approval for actions that exceed the configured permissions. Do not claim a tool succeeded without evidence. "
-        + instructions(config),
+        + instructions(config, provider="deepseek" if local_provider == "tail_api" else "codex"),
     }
     params["developerInstructions"] += (
         " Effective permissions for this turn: "
@@ -124,18 +102,24 @@ def thread_parameters(config, project, model, workspace, runtime, unrestricted):
     )
     params.update(runtime.thread_instructions)
     params["developerInstructions"] += runtime.developer_instructions
-    params["config"] = (
-        {"mcp_servers": {}, "plugins": {}}
-        if runtime.isolated
-        else {
-            "mcp_servers": host_servers(selected, ask or automatic) if personal else {},
-            "plugins": {
-                plugin.split(":", 1)[1]: {"enabled": plugin in selected} for plugin in plugins
-            },
+    params["config"] = {"mcp_servers": {}}
+    if runtime.isolated:
+        params["config"]["plugins"] = {}
+    if local_provider and config.get("personal_setup") is True and not runtime.isolated:
+        selected = (
+            [] if project.get("access_mode") == "read_only" else config.get("integrations", [])
+        )
+        params["config"]["mcp_servers"] = host_servers(selected, ask or automatic)
+        plugins = (
+            config["plugin_inventory"]
+            if "plugin_inventory" in config
+            else [item["id"] for item in inventory()["codex"] if item["kind"] == "plugin"]
+        )
+        params["config"]["plugins"] = {
+            plugin.split(":", 1)[1]: {"enabled": plugin in selected} for plugin in plugins
         }
-    )
     if not runtime.isolated:
-        add_reader(params, workspace)
+        add_reader(params, workspace, restrict=bool(local_provider), native_config=native_config)
     if config.get("_effect_capability"):
         from agent_service.effect_transport import server_spec
 
@@ -160,7 +144,7 @@ def host_servers(selected, ask):
     }
 
 
-def add_reader(params, workspace):
+def add_reader(params, workspace, *, restrict=False, native_config=None):
     """Without the native shell, read through the harness reader over the authorized roots.
 
     The reader enforces the roots itself: Codex 0.157.1 has no sandbox read allow-list.
@@ -168,10 +152,20 @@ def add_reader(params, workspace):
     permissions = workspace.permissions
     if not permissions.get("read") or permissions.get("shell"):
         return
+    if not restrict:
+        # config/read is authoritative for inherited layers, trust and root markers.
+        # Unknown state never authorizes overriding a possibly owner-disabled server.
+        if not isinstance(native_config, dict):
+            return
+        servers = native_config.get("mcp_servers", {})
+        if not isinstance(servers, dict) or READER in servers:
+            return
     roots = readable_roots(workspace)
     if not roots:
         return
     params["config"]["mcp_servers"][READER] = reader_spec(roots)
+    if not restrict:
+        return
     params["developerInstructions"] += (
         " Read files only with the " + READER + " tools (read_file, list_directory,"
         " search_files); they accept paths inside the authorized folders: " + ", ".join(roots) + "."
@@ -311,8 +305,10 @@ def session_marker(marker, provider):
         if "adapter" in saved and saved["adapter"] != "deepseek":
             raise ToolError("deepseek_session_identity_mismatch")
         identified = all(saved.get(key) == value for key, value in expected.items())
-        if not isinstance(saved.get("id"), str) or not saved["id"].strip() or (
-            not identified and saved.get("adapter") != "deepseek"
+        if (
+            not isinstance(saved.get("id"), str)
+            or not saved["id"].strip()
+            or (not identified and saved.get("adapter") != "deepseek")
         ):
             raise ToolError("deepseek_session_identity_ambiguous")
     elif saved.get("adapter") == "deepseek":
@@ -369,6 +365,28 @@ async def run_turn(
     ) as rpc:
         if runtime.check_configuration:
             await runtime.check_configuration(rpc, cwd)
+        native_config = None
+        if (
+            provider == "codex"
+            and not runtime.isolated
+            and not runtime.model_provider
+            and permissions.get("read")
+            and not permissions.get("shell")
+            and readable_roots(workspace)
+        ):
+            try:
+                reading = await rpc.call("config/read", {"cwd": str(cwd), "includeLayers": False})
+                native_config = reading.get("config") if isinstance(reading, dict) else None
+            except RPCError:
+                # The native CLI tools remain available when the optional reader cannot
+                # establish whether its fixed server name is already configured.
+                event(
+                    "provider_warning",
+                    {
+                        "backend": provider,
+                        "message": "Codex configuration could not be read; the optional harness reader was not added.",
+                    },
+                )
         selected_inputs = await resource_inputs(rpc, project, cwd)
         turn_started = False
         resumable = bool(saved) and (
@@ -377,7 +395,9 @@ async def run_turn(
         )
         previous_usage = saved.get("usage_total") if resumable else {}
         isolation = runtime.session_metadata
-        params = thread_parameters(config, project, model, workspace, runtime, unrestricted)
+        params = thread_parameters(
+            config, project, model, workspace, runtime, unrestricted, native_config=native_config
+        )
         if resumable:
             # Thread metadata only: the stored turns (attached images included) can outgrow
             # any line limit, and the harness never reads them back.
@@ -470,7 +490,13 @@ async def run_turn(
                 text = params.get("delta", "")
                 item_id = params.get("itemId")
                 # Distinct agent messages (progress commentary, final answer) must not run together.
-                if item_id and answer_item and item_id != answer_item and answer and not answer.endswith("\n"):
+                if (
+                    item_id
+                    and answer_item
+                    and item_id != answer_item
+                    and answer
+                    and not answer.endswith("\n")
+                ):
                     answer += "\n\n"
                     event("answer_delta", {"text": "\n\n"})
                 answer_item = item_id or answer_item

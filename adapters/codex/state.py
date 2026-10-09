@@ -129,6 +129,7 @@ class _TrustRollback:
                 },
                 None,
                 environment=self.adapter._environment(),
+                extra_args=self.adapter.extra_args,
             )
         )
         restored = {}
@@ -228,8 +229,10 @@ def _app_list(result: dict | None) -> dict[str, tuple[str, bool | None]]:
     return found
 
 
-def _skill_list(result: dict | None, home: Path, plugins: dict | None) -> dict[str, dict]:
-    roots = [home / "skills"]
+def _skill_list(
+    result: dict | None, home: Path, plugins: dict | None, shared_root=None
+) -> dict[str, dict]:
+    roots = [home / "skills", *([shared_root] if shared_root is not None else [])]
     for market in _listed(plugins, "marketplaces"):
         for plugin in _listed(market, "plugins"):
             source = plugin.get("source")
@@ -306,12 +309,12 @@ def _session_seconds(calls: int) -> float:
 
 
 async def _ask(
-    binary: str, requests: list[tuple[str, str, dict]], environment=None
+    binary: str, requests: list[tuple[str, str, dict]], environment=None, extra_args=()
 ) -> tuple[dict, dict]:
     """One app-server session: ``({key: result}, {key: why})`` for the requests in order."""
     results: dict[str, dict] = {}
     failures: dict[str, str] = {}
-    command = [binary, "app-server", "--listen", "stdio://"]
+    command = [binary, "app-server", "--listen", "stdio://", *extra_args]
     try:
         async with asyncio.timeout(state_write_remaining(_session_seconds(len(requests)))):
             async with connection(
@@ -339,7 +342,12 @@ async def _ask(
 
 
 async def _write(
-    binary: str, method: str, params: dict, user_version: str | None, environment=None
+    binary: str,
+    method: str,
+    params: dict,
+    user_version: str | None,
+    environment=None,
+    extra_args=(),
 ) -> dict:
     """One write in its own app-server session.
 
@@ -347,7 +355,7 @@ async def _write(
     user layer is read again first and the write is refused when it is no longer the one the
     caller saw.
     """
-    command = [binary, "app-server", "--listen", "stdio://"]
+    command = [binary, "app-server", "--listen", "stdio://", *extra_args]
     try:
         async with asyncio.timeout(
             state_write_remaining(_session_seconds(1 if user_version is None else 2))
@@ -407,12 +415,18 @@ class CodexStateAdapter:
     """The Codex view of the CLI's real state. Synchronous: async callers use ``to_thread``."""
 
     environment = None
+    provider = PROVIDER
+    extra_args = ()
 
     def __init__(self, *, environment=None):
         self.environment = dict(environment) if environment is not None else None
 
     def _environment(self):
         return {**os.environ, **self.environment} if self.environment is not None else None
+
+    def shared_skills_root(self) -> Path:
+        source = {**os.environ, **(self.environment or {})}
+        return Path(source.get("HOME") or Path.home()) / ".agents" / "skills"
 
     def _binary(self) -> str:
         binary = shutil.which("codex")
@@ -452,6 +466,7 @@ class CodexStateAdapter:
                     ("hooks", "hooks/list", {"cwds": [cwd]}),
                 ],
                 environment=environment,
+                extra_args=self.extra_args,
             )
         )
         if not results or (
@@ -570,15 +585,36 @@ class CodexStateAdapter:
                     for item in fallback_items
                     if item.id in layer.get("items", {})
                 }
+        shared_root = self.shared_skills_root()
+        try:
+            shared_location = shared_root.resolve()
+        except (OSError, RuntimeError):
+            shared_location = None
         for path, skill in _skill_list(
-            results.get("skills"), _codex_home(self.environment), results.get("plugins")
+            results.get("skills"),
+            _codex_home(self.environment),
+            results.get("plugins"),
+            shared_root,
         ).items():
             scope, reason = _SKILL_SCOPES.get(
                 skill.get("scope"), ("managed", "Unrecognised skill scope.")
             )
             source = user.source if user and not reason else path
             name = str(skill.get("name") or path)
-            items.append(row("skill", path, name, skill["enabled"], scope, source, reason))
+            item = row("skill", path, name, skill["enabled"], scope, source, reason)
+            try:
+                in_shared_root = shared_location is not None and Path(
+                    path
+                ).resolve().is_relative_to(shared_location)
+            except (OSError, RuntimeError):
+                in_shared_root = False
+            if in_shared_root:
+                shared = (
+                    f"Shared skills root: {shared_root}. Content changes affect "
+                    "other providers using this root; this switch changes only this provider's config."
+                )
+                item = replace(item, reason=" ".join(filter(None, (item.reason, shared))))
+            items.append(item)
         items.sort(key=lambda item: (_ORDER[item.kind], item.id))
 
         digest = hashlib.sha256()
@@ -752,7 +788,7 @@ class CodexStateAdapter:
                 "reads may be incomplete."
             )
         snapshot = StateSnapshot(
-            provider=PROVIDER,
+            provider=self.provider,
             engine=ENGINE,
             project_root=str(project_root) if project_root else None,
             items=tuple(items),
@@ -812,7 +848,16 @@ class CodexStateAdapter:
             raise ProviderStateUnsupportedError(
                 f"Codex cannot address {ident!r} by key path; edit config.toml by hand."
             )
-        asyncio.run(_write(binary, method, params, guard, environment=self._environment()))
+        asyncio.run(
+            _write(
+                binary,
+                method,
+                params,
+                guard,
+                environment=self._environment(),
+                extra_args=self.extra_args,
+            )
+        )
         fresh = self.read_state(project_root)
         confirmed = next((entry for entry in fresh.items if entry.id == item_id), None)
         if confirmed is None or confirmed.enabled is not enabled:
@@ -830,6 +875,7 @@ class CodexStateAdapter:
         paths = (
             home / "config.toml",
             home / "skills",
+            self.shared_skills_root(),
             home / "hooks.json",
             *instructions.paths,
             *getattr(self, "_orchestration_paths", ()),
@@ -868,7 +914,12 @@ class CodexStateAdapter:
         root = Path(project_root).resolve()
         params = {"includeLayers": True, "cwd": str(root)}
         results, _ = asyncio.run(
-            _ask(binary, [("config", "config/read", params)], environment=self._environment())
+            _ask(
+                binary,
+                [("config", "config/read", params)],
+                environment=self._environment(),
+                extra_args=self.extra_args,
+            )
         )
         result = results.get("config") or {}
         return self._trust_details(result, project_root, require_explicit=require_explicit)
@@ -951,7 +1002,14 @@ class CodexStateAdapter:
             ],
         }
         result = asyncio.run(
-            _write(binary, "config/batchWrite", params, None, environment=self._environment())
+            _write(
+                binary,
+                "config/batchWrite",
+                params,
+                None,
+                environment=self._environment(),
+                extra_args=self.extra_args,
+            )
         )
         if undo is not None:
             written_version = result.get("version", "")
@@ -971,7 +1029,8 @@ class CodexStateAdapter:
     def run_environment(
         self, project_root: Path, trusted: bool, permission_flags: Sequence[str]
     ) -> RunSetup:
-        raise ProviderStateUnsupportedError("the run setup on the real home lands with #45")
+        # Codex resolves project trust itself when loading its native configuration.
+        return RunSetup({}, list(permission_flags), {})
 
     def credential_isolation(self) -> CredentialRule | None:
         return None

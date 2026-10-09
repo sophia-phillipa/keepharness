@@ -1,5 +1,16 @@
 # Conversation execution mode
 
+## Native permission presets (#45, D-039)
+
+Codex and Claude load the owner's native orchestration in every preset, including
+Read only. KeepHarness does not turn their connectors, apps, plugins or hooks off
+based on that preset. Project trust and native MCP approvals remain required.
+The Access menu shows the selected provider's actual sandbox/approval or permission
+mode beside each preset, derived from the same mapping used to launch the CLI.
+This supersedes the historical filtering and injected permission rules below;
+those earlier sections record previous releases. DeepSeek and Local retain their
+separate policies.
+
 ## Cloud-scoped retirement (#52, #53, D-044, D-046)
 
 This section supersedes the Codex/Claude mode and legacy-resolution rules below. The earlier sections preserve the history of the original UI and permission work. [D-044](decisions/d-044-scoped-sandbox-under-facade.md) governs the retirement; issue #52 implements its backend contract and the draft safeguards below. Unknown historical modes display "Execution mode unavailable" without a native fallback. Issue #53 removes the cloud isolation controls and completes the retirement guidance. [D-046](decisions/d-046-cloud-isolation-ui-retirement.md) brings this UI cleanup ahead of #45 and #46 without changing their scope; their real-home parity and no-old-home-read checks must be re-validated when they land.

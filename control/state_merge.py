@@ -61,9 +61,13 @@ def skipped(relative):
     """What the plan handles by itself, or never copies (the environment, a client bridge)."""
     parts, name = relative.parts, relative.name
     if len(parts) == 1:
-        return name in ("venv", "harness.identity.json", "audit.jsonl") or name.startswith("mcp_bridge.")
-    return parts[0] == "runs" and len(parts) == 2 and (
-        name == "harness.identity.json" or name.split("-")[0] in DATABASES
+        return name in ("venv", "harness.identity.json", "audit.jsonl") or name.startswith(
+            "mcp_bridge."
+        )
+    return (
+        parts[0] == "runs"
+        and len(parts) == 2
+        and (name == "harness.identity.json" or name.split("-")[0] in DATABASES)
     )
 
 
@@ -93,7 +97,8 @@ def make_plan(home):
     if plan.collisions:
         raise MergeRefused(
             "These conversations have files in both folders: "
-            + ", ".join(map(str, plan.collisions)) + ". Nothing was merged."
+            + ", ".join(map(str, plan.collisions))
+            + ". Nothing was merged."
         )
     if not shutil.disk_usage(old.parent).free > 2 * (size(old) + size(new)):
         raise MergeRefused(f"Not enough free space in {old.parent} for the backup and the copies.")
@@ -109,11 +114,15 @@ def check_split(home, old, new):
     if os.path.lexists(old / "runs") and not is_folder(old / "runs"):
         raise MergeRefused(f"{old / 'runs'} is not a folder.")
     if any((old / "runs").glob("*.sqlite3*")):
-        raise MergeRefused(f"Both folders hold a conversation database ({old / 'runs'}): merge by hand.")
+        raise MergeRefused(
+            f"Both folders hold a conversation database ({old / 'runs'}): merge by hand."
+        )
     for folder in (old, old / "runs", new, new / "runs"):
         check_marker(folder)
     if busy := legacy_in_use(home) or state_in_use(new):
-        raise MergeRefused(f"The state is still in use: {busy}. Stop Tail Harness and KeepHarness first.")
+        raise MergeRefused(
+            f"The state is still in use: {busy}. Stop Tail Harness and KeepHarness first."
+        )
 
 
 def is_folder(path):
@@ -130,13 +139,19 @@ def check_marker(folder):
 
 
 def size(folder):
-    return sum(p.lstat().st_size for p in folder.rglob("*") if "venv" not in p.relative_to(folder).parts[:1])
+    return sum(
+        p.lstat().st_size
+        for p in folder.rglob("*")
+        if "venv" not in p.relative_to(folder).parts[:1]
+    )
 
 
 def settings_changes(plan):
     """Settings that differ between the two folders; tail-harness/'s values are kept."""
     try:
-        older, newer = (json.loads((folder / "settings.json").read_text()) for folder in (plan.new, plan.old))
+        older, newer = (
+            json.loads((folder / "settings.json").read_text()) for folder in (plan.new, plan.old)
+        )
     except (OSError, ValueError):
         return []
     lines = []
@@ -144,7 +159,9 @@ def settings_changes(plan):
         if older.get(key) != newer.get(key):
             secret = any(word in key.lower() for word in SECRET_WORDS)
             show = (lambda value: "***") if secret else (lambda value: str(value)[:60])
-            lines.append(f"    {key}: keepharness {show(older.get(key))} | tail-harness {show(newer.get(key))}")
+            lines.append(
+                f"    {key}: keepharness {show(older.get(key))} | tail-harness {show(newer.get(key))}"
+            )
     return lines
 
 
@@ -166,7 +183,10 @@ def describe_plan(plan, stamp):
     if plan.kept:
         lines.append(f"  keep the tail-harness copy of: {listed(plan.kept)}")
     if changes := settings_changes(plan):
-        lines += ["  settings that differ (tail-harness's are kept; change them in Settings later):", *changes]
+        lines += [
+            "  settings that differ (tail-harness's are kept; change them in Settings later):",
+            *changes,
+        ]
     lines += [
         "  put keepharness/audit.jsonl before tail-harness/audit.jsonl",
         "  mark tail-harness/runs as Tail Harness state",
@@ -181,7 +201,11 @@ def backup(plan, archive):
         if len(parts) > 1 and parts[1] == "venv":
             return None
         # copies of ~/.claude.json hold the sign-in session: never archived
-        return None if parts[1:1 + len(CLAUDE_JSON_BACKUP_PARTS)] == CLAUDE_JSON_BACKUP_PARTS else member
+        return (
+            None
+            if parts[1 : 1 + len(CLAUDE_JSON_BACKUP_PARTS)] == CLAUDE_JSON_BACKUP_PARTS
+            else member
+        )
 
     with tarfile.open(archive, "x") as tar:
         for folder in (plan.old, plan.new):

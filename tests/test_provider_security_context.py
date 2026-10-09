@@ -6,7 +6,13 @@ from starlette.testclient import TestClient
 
 from control.provider_state import ProviderStateService
 from tests.test_admin_provider_state import (
-    HEADERS, app, claude_dir, client, codex_home, get, project,
+    HEADERS,
+    app,
+    claude_dir,
+    client,
+    codex_home,
+    get,
+    project,
 )
 from tests.test_provider_state_codex import seed
 from tests.test_provider_trust import setup_claude
@@ -16,8 +22,16 @@ from tests.test_provider_trust import setup_claude
 @pytest.mark.parametrize("action", ["trust", "mcp-approvals"])
 @pytest.mark.parametrize("context", ["missing", "wrong", "rebound", "current", "alias"])
 def test_security_write_requires_rendered_project_context(
-    app, client, codex_home, claude_dir, project, tmp_path, monkeypatch,
-    surface, action, context,
+    app,
+    client,
+    codex_home,
+    claude_dir,
+    project,
+    tmp_path,
+    monkeypatch,
+    surface,
+    action,
+    context,
 ):
     seed(codex_home)
     setup_claude(app, claude_dir, project)
@@ -25,7 +39,9 @@ def test_security_write_requires_rendered_project_context(
     harness = None
     if surface == "admin":
         target, prefix, headers = client, "/api", HEADERS
-        rebind = lambda root: manager.settings["projects"][0].update(root=str(root))
+
+        def rebind(root):
+            manager.settings["projects"][0].update(root=str(root))
     else:
         from agent_service.app import create_app
         from tests.test_api_security import owner_config, owner_cookie
@@ -43,13 +59,18 @@ def test_security_write_requires_rendered_project_context(
         target = TestClient(harness, base_url="http://127.0.0.1:8095", client=("127.0.0.1", 42000))
         target.cookies.update(owner_cookie(cfg))
         prefix, headers = "/v1", {}
-        rebind = lambda root: service.config["projects"]["p"].update(root=str(root))
+
+        def rebind(root):
+            service.config["projects"]["p"].update(root=str(root))
+
     try:
         if context == "alias":
             alias = tmp_path / "project-alias"
             alias.symlink_to(project, target_is_directory=True)
             rebind(alias)
-        response = target.get(prefix + "/provider-state", params={"provider": "claude", "project_id": "p"})
+        response = target.get(
+            prefix + "/provider-state", params={"provider": "claude", "project_id": "p"}
+        )
         assert response.status_code == 200, response.text
         rendered_root = response.json()["snapshot"]["project_root"]
         writes = []
@@ -82,7 +103,9 @@ def test_security_write_requires_rendered_project_context(
         else:
             assert writes == [], "a stale or absent context must fail before any CLI writer"
         if context == "rebound":
-            fresh = target.get(prefix + "/provider-state", params={"provider": "claude", "project_id": "p"})
+            fresh = target.get(
+                prefix + "/provider-state", params={"provider": "claude", "project_id": "p"}
+            )
             assert fresh.status_code == 200, fresh.text
             assert fresh.json()["snapshot"]["project_root"] == str(other)
             body["expected_project_root"] = fresh.json()["snapshot"]["project_root"]

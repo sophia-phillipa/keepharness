@@ -138,7 +138,11 @@ def test_no_phantom_codex_model_fallback():
 
 
 # Codex app-server transport, shared by the codex, deepseek and local adapters (HAR-R3-1).
-ECHOING_APP_SERVER = "SAFE_CONFIG = " + repr(SAFE_CONFIG) + "\n" + """
+ECHOING_APP_SERVER = (
+    "SAFE_CONFIG = "
+    + repr(SAFE_CONFIG)
+    + "\n"
+    + """
 import json, sys
 def emit(value): print(json.dumps(value), flush=True)
 for line in sys.stdin:
@@ -164,6 +168,7 @@ for line in sys.stdin:
     elif ident is not None:
         emit({'id': ident, 'result': {}})
 """
+)
 
 
 def echoing_app_server(tmp_path):
@@ -188,7 +193,14 @@ def run_app_server_turn(executable, session, provider, project, tmp_path):
         config["api_provider"] = {"url": "http://127.0.0.1:9/v1", "key_file": str(key)}
     return asyncio.run(
         adapters.run_native(
-            config, "hello", lambda *_: None, project, "fixture", "low", session, provider,
+            config,
+            "hello",
+            lambda *_: None,
+            project,
+            "fixture",
+            "low",
+            session,
+            provider,
             AsyncMock(),
         )
     )
@@ -247,6 +259,7 @@ def test_the_read_limit_carries_the_largest_attachable_image():
 def native_codex_turn(tmp_path, notifications, runs=1):
     """Run the native adapter against scripted notifications; return the mock RPC."""
     from contextlib import asynccontextmanager
+
     from adapters.codex.backend import run_native
 
     rpc = AsyncMock()

@@ -629,9 +629,7 @@ def test_direct_loopback_is_one_helper_for_the_harness_and_the_admin(tmp_path, m
     async def scenario():
         async with loopback(app) as client:
             monkeypatch.setattr(local_access, "direct_loopback", lambda request: False)
-            response = await client.post(
-                "/v1/login", json={"token": "local"}, headers=origin
-            )
+            response = await client.post("/v1/login", json={"token": "local"}, headers=origin)
             assert response.status_code == 401
 
     try:
@@ -788,9 +786,7 @@ def test_cross_site_login_refused_before_limit(api):
         assert response.status_code == 403, response.text
         assert response.json()["code"] == "origin_denied"
     # The hostile loop spent none of the shared budget a real device needs.
-    ok = client.post(
-        "/v1/login", json={"token": "alice"}, headers={"Origin": "http://testserver"}
-    )
+    ok = client.post("/v1/login", json={"token": "alice"}, headers={"Origin": "http://testserver"})
     assert ok.status_code == 200, ok.text
 
 

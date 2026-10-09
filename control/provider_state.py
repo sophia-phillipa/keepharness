@@ -35,7 +35,6 @@ from adapters.shared.provider_state import (
     ProviderStateAdapter,
     ProviderStateConflictError,
     ProviderStateSchemaError,
-    ProviderStateUnsupportedError,
     ProviderTrustRollbackError,
     StateSnapshot,
     _ProviderStateError,
@@ -47,7 +46,7 @@ from agent_service.errors import APIError
 from .persistence import ControlStateRepository
 
 SECURITY_WRITE_SECONDS = 15.0
-PROVIDERS = ("codex", "claude")
+PROVIDERS = ("codex", "claude", "deepseek")
 COALESCE_SECONDS = 5.0
 MESSAGE_LIMIT = 300
 NO_PROJECT = "sem-projeto"
@@ -69,15 +68,23 @@ def _owner_environment(
     Keep accepted custom path spellings, discard harness-owned locations, and report
     unavailable owner directories only when their provider's state is requested.
     """
+
+    def resolve_directory(path: Path) -> Path:
+        # Python 3.13+ suppresses symlink loops in non-strict resolution.
+        try:
+            return path.resolve(strict=True)
+        except FileNotFoundError:
+            return path.resolve()
+
     source = os.environ if source is None else source
     try:
-        harness = (Path(state) / "providers").resolve()
+        harness = resolve_directory(Path(state) / "providers")
     except (OSError, RuntimeError):
         raise ProviderStateSchemaError("The provider state directory cannot be resolved.") from None
 
     def owner_path(value: str) -> bool:
         try:
-            path = Path(value).resolve()
+            path = resolve_directory(Path(value))
             if path.is_relative_to(harness):
                 return False
             if path.exists() and not os.access(path, os.R_OK | os.X_OK):
@@ -350,9 +357,13 @@ def run_start_check(
     compare with, so nothing is written. Never raises: a run must not fail over this.
     """
     try:
-        environment = _owner_environment(control_state, provider)
+        environment = (
+            _owner_environment(control_state, provider) if provider != "deepseek" else None
+        )
         adapter = (
-            CodexStateAdapter(environment=environment)
+            DeepSeekStateAdapter(control_state)
+            if provider == "deepseek"
+            else CodexStateAdapter(environment=environment)
             if provider == "codex"
             else ClaudeStateAdapter(control_state, environment=environment)
         )
@@ -418,7 +429,7 @@ class ProviderStateService:
 
     def _adapter(self, provider: str) -> ProviderStateAdapter:
         if provider == "deepseek" and provider not in self.adapters:
-            self.adapters[provider] = DeepSeekStateAdapter(self.state, environment=self.environment)
+            self.adapters[provider] = DeepSeekStateAdapter(self.state)
         if provider not in self.adapters:
             environment = _owner_environment(self.state, provider, source=self.environment)
             self.adapters[provider] = (
@@ -586,7 +597,11 @@ class ProviderStateService:
                 else:
                     snapshot = await self._read_fresh(provider, project_id, root)
                 changes = self._pending(provider, project_id) if self.track_notices else []
-                metadata = await asyncio.to_thread(self._security_metadata, root)
+                metadata = (
+                    {}
+                    if provider == "deepseek"
+                    else await asyncio.to_thread(self._security_metadata, root)
+                )
         except _ProviderStateError as exc:
             return error_response(exc)
         return {"snapshot": snapshot_json(snapshot), "external_changes": changes, **metadata}
@@ -749,13 +764,7 @@ class ProviderStateService:
         expected_project_root: str | None = None,
     ) -> dict | JSONResponse:
         root = self.resolve(provider, project_id)
-        if provider not in PROVIDERS:
-            return error_response(
-                ProviderStateUnsupportedError(
-                    "DeepSeek project trust is read-only here; review it in its isolated CLI."
-                )
-            )
-        if root is None or (server is not None and provider != "claude"):
+        if provider == "deepseek" or root is None or (server is not None and provider != "claude"):
             raise APIError("invalid_request", 400)
         # A trust action writes both CLIs. Always acquire locks in this fixed order.
         async with self.locks.setdefault("codex", asyncio.Lock()):
@@ -769,7 +778,7 @@ class ProviderStateService:
                         raise ProviderStateConflictError(
                             "The project folder changed; review its trust prompt again."
                         )
-                    names = PROVIDERS if server is None else ("claude",)
+                    names = ("codex", "claude") if server is None else ("claude",)
                     rollback, intents, updates = [], [], {}
                     try:
                         for name in names:

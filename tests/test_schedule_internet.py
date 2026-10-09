@@ -107,21 +107,21 @@ def scheduled_run(api, backend, allow_internet):
 
 
 @pytest.mark.parametrize("allow_internet", [False, True])
-def test_codex_scheduled_runs_have_no_network_unless_opted_in(api, tmp_path, allow_internet):
+def test_codex_scheduled_runs_keep_owner_network_grant(api, tmp_path, allow_internet):
     project, _ = scheduled_run(api, "codex", allow_internet)
-    assert project["permissions"]["internet"] is allow_internet
+    assert project["permissions"]["internet"] is True
     command, _, turn = run_codex_route(tmp_path, "codex", {**project, "root": None})
-    assert turn["sandboxPolicy"]["networkAccess"] is allow_internet
-    assert ('web_search="live"' if allow_internet else 'web_search="disabled"') in command
+    assert turn["sandboxPolicy"]["networkAccess"] is True
+    assert not any(arg.startswith("web_search=") for arg in command)
 
 
 @pytest.mark.parametrize("allow_internet", [False, True])
-def test_claude_scheduled_runs_get_no_web_tools_unless_opted_in(api, tmp_path, allow_internet):
+def test_claude_scheduled_runs_keep_owner_web_tools(api, tmp_path, allow_internet):
     project, _ = scheduled_run(api, "claude", allow_internet)
-    assert project["permissions"]["internet"] is allow_internet
+    assert project["permissions"]["internet"] is True
     with (
-        patch("adapters.claude.native.configurations", return_value={"claude": {}}),
-        patch("adapters.claude.native.inventory", return_value={"claude": []}),
+        patch("control.integrations.configurations", return_value={"claude": {}}),
+        patch("control.integrations.inventory", return_value={"claude": []}),
     ):
         command = claude_command(
             {"binary": "claude"},
@@ -132,8 +132,7 @@ def test_claude_scheduled_runs_get_no_web_tools_unless_opted_in(api, tmp_path, a
             project["access_mode"],
             [],
         )
-    tools = command[command.index("--tools") + 1].split(",")
-    assert ("WebFetch" in tools, "WebSearch" in tools) == (allow_internet, allow_internet)
+    assert "--tools" not in command
 
 
 @pytest.mark.parametrize("allow_internet", [False, True])

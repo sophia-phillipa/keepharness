@@ -15,7 +15,11 @@ const path = require("node:path");
       { id: "qwen-local", backend: "local", efforts: ["configured"] },
       { id: "gpt-6-astra", backend: "codex", efforts: ["low", "high"] },
       { id: "gpt-5.6-terra", backend: "codex", efforts: ["low", "medium"] },
-    ].map((m) => ({ ...m, execution_modes: m.backend === "local" ? ["scoped"] : ["native"], permissions: { upload: true } }));
+    ].map((m) => ({
+      ...m,
+      execution_modes: m.backend === "local" ? ["scoped"] : ["native"],
+      permissions: { upload: true },
+    }));
     await page.route("http://handoff.test/**", async (route) => {
       const p = new URL(route.request().url()).pathname;
       if (p.startsWith("/v1/")) {
@@ -78,7 +82,9 @@ const path = require("node:path");
             : "text/html",
       });
     });
-    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
+    await page.addInitScript(() =>
+      localStorage.setItem("keepharness-tour-seen", "0.16.0"),
+    );
     await page.goto("http://handoff.test");
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     const choices = [

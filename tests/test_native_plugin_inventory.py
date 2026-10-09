@@ -4,7 +4,7 @@ from unittest.mock import patch
 from adapters.codex.native import RuntimeOptions, thread_parameters
 
 
-def test_plugin_inventory_is_authoritative_and_only_selects_integrations(tmp_path):
+def test_native_plugin_inventory_does_not_override_owner_state(tmp_path):
     # A read grant without the shell also asks for the harness reader's roots.
     workspace = SimpleNamespace(
         cwd="/tmp/project", permissions={"read": True, "write": True}, roots=[], home=tmp_path
@@ -25,13 +25,10 @@ def test_plugin_inventory_is_authoritative_and_only_selects_integrations(tmp_pat
     ):
         params = thread_parameters(config, {}, "fixture", workspace, runtime, False)
 
-    assert params["config"]["plugins"] == {
-        "installed@marketplace": {"enabled": False},
-        "other@marketplace": {"enabled": True},
-    }
+    assert "plugins" not in params["config"]
 
 
-def test_empty_plugin_inventory_disables_legacy_inventory_fallback():
+def test_native_empty_plugin_inventory_does_not_filter_owner_state():
     workspace = SimpleNamespace(cwd="/tmp/project", permissions={})
     runtime = RuntimeOptions(command=["codex"])
 
@@ -51,10 +48,10 @@ def test_empty_plugin_inventory_disables_legacy_inventory_fallback():
             False,
         )
 
-    assert params["config"]["plugins"] == {}
+    assert "plugins" not in params["config"]
 
 
-def test_plugin_inventory_falls_back_to_legacy_catalog_when_absent():
+def test_native_plugin_inventory_never_falls_back_to_allow_list():
     workspace = SimpleNamespace(cwd="/tmp/project", permissions={})
     runtime = RuntimeOptions(command=["codex"])
 
@@ -74,7 +71,7 @@ def test_plugin_inventory_falls_back_to_legacy_catalog_when_absent():
             False,
         )
 
-    assert params["config"]["plugins"] == {"legacy@marketplace": {"enabled": True}}
+    assert "plugins" not in params["config"]
 
 
 def test_isolated_runtime_does_not_read_or_expose_plugin_inventory():

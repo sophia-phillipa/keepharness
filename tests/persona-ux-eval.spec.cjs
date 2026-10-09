@@ -83,7 +83,10 @@ test(0, "Discover how to add a line break without sending", async (p) => {
   const prompt = p.locator("#prompt");
   assert(await prompt.evaluate((e) => e.matches(":placeholder-shown")));
   // WP-05: the placeholder is short enough to fit; the line-break hint stays in the field's description.
-  assert.match(await prompt.getAttribute("placeholder"), /Send a message.*\/ for agents and skills/);
+  assert.match(
+    await prompt.getAttribute("placeholder"),
+    /Send a message.*\/ for agents and skills/,
+  );
   assert.match(await prompt.getAttribute("aria-describedby"), /composer-help/);
   assert.match(
     await p.locator("#composer-help").textContent(),
@@ -574,7 +577,10 @@ test(
         assert(await p.locator("#send").isDisabled());
         await p.keyboard.press("Enter");
         assert.equal(s.posts.length, 1);
-        assert.equal(await p.inputValue("#prompt"), "Preserve incompatible handoff draft");
+        assert.equal(
+          await p.inputValue("#prompt"),
+          "Preserve incompatible handoff draft",
+        );
         assert.equal(await p.evaluate(() => parent), "eval-job");
       }
       await p.click("#model-trigger");
@@ -802,7 +808,11 @@ test(5, "A query limit does not simulate a disconnection", async (p, s) => {
             if (s.running) data.result = null;
           }
           if (q === "/v1/conversations/eval-job")
-            data = { title: "Evaluation session", execution_mode: s.turns[0]?.request.execution_mode, turns: s.turns };
+            data = {
+              title: "Evaluation session",
+              execution_mode: s.turns[0]?.request.execution_mode,
+              turns: s.turns,
+            };
           if (q.endsWith("/events"))
             return r.fulfill({ body: "", contentType: "text/event-stream" });
           return r.fulfill({ json: data });
@@ -815,7 +825,9 @@ test(5, "A query limit does not simulate a disconnection", async (p, s) => {
             body: await fs.readFile(
               path.join(
                 __dirname,
-                file.startsWith("assets/") ? "../harness_ui" : "../agent_service",
+                file.startsWith("assets/")
+                  ? "../harness_ui"
+                  : "../agent_service",
                 file,
               ),
             ),
@@ -838,7 +850,9 @@ test(5, "A query limit does not simulate a disconnection", async (p, s) => {
         task: c.title,
       };
       try {
-        await p.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
+        await p.addInitScript(() =>
+          localStorage.setItem("keepharness-tour-seen", "0.16.0"),
+        );
         await p.goto("http://eval.test");
         await p.locator("#startup-gate").waitFor({ state: "hidden" });
         await c.run(p, s);

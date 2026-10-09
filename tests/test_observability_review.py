@@ -88,7 +88,10 @@ def test_crash_stays_in_log_tail_after_a_successful_restart(tmp_path):
     with log_config.open_process_log(tmp_path) as restarted:  # supervised restart succeeds
         restarted.write(b"serving\n")
     lines = log_config.log_tail(tmp_path)
-    assert lines == ["[process output] Traceback: boom Bearer [redacted]", "[process output] serving"]
+    assert lines == [
+        "[process output] Traceback: boom Bearer [redacted]",
+        "[process output] serving",
+    ]
     assert "crash-secret" not in str(lines)
 
 
@@ -236,7 +239,9 @@ def test_rotating_handler_isolates_formatter_failure(tmp_path, monkeypatch):
 
 def test_log_tail_reads_the_active_log_and_its_backup_within_one_budget(tmp_path, monkeypatch):
     budget = log_config.LOG_TAIL_BYTES
-    (tmp_path / "harness.log.1").write_bytes(b"".join(b"old %06d\n" % n for n in range(budget // 8)))
+    (tmp_path / "harness.log.1").write_bytes(
+        b"".join(b"old %06d\n" % n for n in range(budget // 8))
+    )
     (tmp_path / "harness.log").write_bytes(b"".join(b"new %06d\n" % n for n in range(budget // 8)))
     reads = []
     real = log_config._file_tail

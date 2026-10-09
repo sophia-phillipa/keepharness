@@ -113,7 +113,11 @@ def test_private_key_rejects_planted_links(tmp_path):
 
 SENTINEL = "SENTINEL-PERSONAL-SETUP"
 
-FAKE_CODEX = "SAFE_CONFIG = " + repr(SAFE_CONFIG) + "\n" + """
+FAKE_CODEX = (
+    "SAFE_CONFIG = "
+    + repr(SAFE_CONFIG)
+    + "\n"
+    + """
 import json, os, sys
 from pathlib import Path
 record = {"argv": sys.argv, "env": dict(os.environ), "requests": []}
@@ -138,6 +142,7 @@ for line in sys.stdin:
     elif ident is not None:
         emit({"id": ident, "result": {}})
 """
+)
 
 FAKE_CLAUDE = """
 import json, os, sys
@@ -206,7 +211,7 @@ def snapshot(root):
     )
 
 
-def provider_turn(tmp_path, provider, *, personal=False):
+def provider_turn(tmp_path, provider, *, personal=False, mode="auto", scheduled=False):
     """One stubbed native turn; returns what the fake CLI saw."""
     import adapters
     from adapters.shared.provider_setup import run_settings
@@ -218,8 +223,11 @@ def provider_turn(tmp_path, provider, *, personal=False):
         "binary": str(binary),
         "provider_homes": str(tmp_path / "state" / "providers"),
         "integrations": ["mcp:sentinel_mcp"],
+        "unrestricted": True,
         # What the dispatch adds for an owner's own conversation (not scheduled).
-        **run_settings({"personal_setup": personal}, provider, data={}),
+        **run_settings(
+            {"personal_setup": personal}, provider, data={"schedule_id": "s"} if scheduled else {}
+        ),
     }
     if provider == "deepseek":
         key = tmp_path / "state" / "deepseek.key"
@@ -238,7 +246,15 @@ def provider_turn(tmp_path, provider, *, personal=False):
             config,
             "Hello",
             lambda *_: None,
-            {"permissions": {"read": True, "hooks": True}, "access_mode": "auto"},
+            {
+                "permissions": {
+                    "read": True,
+                    "write": mode != "read_only",
+                    "shell": mode != "read_only",
+                    "hooks": False,
+                },
+                "access_mode": mode,
+            },
             "fixture",
             "low" if provider != "claude" else "configured",
             session,
@@ -254,53 +270,36 @@ def seen_text(record):
     return json.dumps(record)
 
 
-@pytest.mark.parametrize("provider", ["codex", "deepseek", "claude"])
-def test_sentinel_home_untouched_and_no_personal_setup_reaches_the_cli(
-    tmp_path, personal_home, provider
+@pytest.mark.parametrize("provider", ["codex", "claude"])
+@pytest.mark.parametrize("personal", [False, True])
+def test_native_home_and_sessions_ignore_retired_opt_in(
+    tmp_path, personal_home, provider, personal
 ):
     from adapters.shared.provider_setup import LANGUAGE_RULE
 
-    before = snapshot(personal_home)
-    record = provider_turn(tmp_path, provider)
-    assert SENTINEL not in seen_text(record)
-    assert snapshot(personal_home) == before
-    assert not (personal_home / ".codex" / "sessions").exists()
-    assert not (personal_home / ".claude" / "projects").exists()
-    providers = tmp_path / "state" / "providers"
-    assert Path(record["env"]["HOME"]).is_relative_to(providers)
-    home_key = "CLAUDE_CONFIG_DIR" if provider == "claude" else "CODEX_HOME"
-    assert Path(record["env"][home_key]).is_relative_to(providers)
-    assert [path for path in providers.rglob("*") if path.suffix == ".jsonl"]
+    record = provider_turn(tmp_path, provider, personal=personal)
+    assert record["env"]["HOME"] == str(personal_home)
+    assert not (tmp_path / "state/providers").exists()
+    assert [path for path in personal_home.rglob("*") if path.suffix == ".jsonl"]
     assert LANGUAGE_RULE in seen_text(record)
+    assert SENTINEL + " instructions" not in seen_text(record)
     if provider == "claude":
-        argv = record["argv"]
-        assert argv[argv.index("--setting-sources") + 1] == "project"
-        assert "hooks" not in json.loads(argv[argv.index("--settings") + 1])
+        assert "--strict-mcp-config" not in record["argv"]
+        assert "--setting-sources" not in record["argv"]
     else:
-        assert "features.hooks=false" in record["argv"]
+        assert not any("features.hooks=" in arg for arg in record["argv"])
 
 
-@pytest.mark.parametrize("provider", ["codex", "claude"])
-def test_owner_opt_in_brings_the_personal_setup_into_the_harness_home(
-    tmp_path, personal_home, provider
-):
+def test_deepseek_keeps_its_dedicated_home(tmp_path, personal_home):
     before = snapshot(personal_home)
-    record = provider_turn(tmp_path, provider, personal=True)
-    text = seen_text(record)
-    assert SENTINEL + (" Claude" if provider == "claude" else " Codex") + " instructions" in text
-    assert "sentinel_mcp" in text
-    if provider == "claude":
-        argv = record["argv"]
-        assert argv[argv.index("--setting-sources") + 1] == "user,project"
-        assert json.loads(argv[argv.index("--settings") + 1])["hooks"]["Stop"]
-    else:
-        assert "features.hooks=true" in record["argv"]
-    # Session copies still stay inside the harness state (D01).
+    record = provider_turn(tmp_path, "deepseek")
     assert snapshot(personal_home) == before
+    assert Path(record["env"]["CODEX_HOME"]) == tmp_path / "state/providers/deepseek"
+    assert SENTINEL not in seen_text(record)
 
 
 @pytest.mark.parametrize("personal", [False, True])
-def test_user_scope_resources_follow_the_personal_setup(tmp_path, personal_home, personal):
+def test_user_scope_resources_ignore_retired_personal_setup(tmp_path, personal_home, personal):
     from agent_service import resources
 
     project = tmp_path / "project"
@@ -317,7 +316,8 @@ def test_user_scope_resources_follow_the_personal_setup(tmp_path, personal_home,
             for item in resources.discover(config, "p", backend, owner=True)["items"]
             if item["scope"] == "user"
         ]
-        assert bool(users) is personal
+        assert users
+        assert all(item["selectable"] for item in users if item["kind"] == "skill")
 
 
 @pytest.mark.parametrize("provider", ["codex", "claude"])

@@ -199,9 +199,9 @@ def test_mcp_cannot_resolve_any_lineage(monkeypatch):
 
     monkeypatch.setattr(mcp_bridge, "call", forbidden)
     for job in ("self", "ancestor", "unrelated"):
-        result = asyncio.run(mcp_bridge.mcp.call_tool(
-            "resolve_approval", {"approval_id": job, "approved": True}
-        ))
+        result = asyncio.run(
+            mcp_bridge.mcp.call_tool("resolve_approval", {"approval_id": job, "approved": True})
+        )
         assert result.isError is True
         body = json.loads(result.content[0].text)
         assert body["http_status"] == 403
@@ -246,10 +246,14 @@ def test_expired_session_row_survives_enrollment_for_the_grace_period(approval_a
     )
     request = SimpleNamespace(cookies={approval_sessions.SESSION_COOKIE: token})
     now += approval_sessions.SESSION_SECONDS + 1
-    approval_sessions.consume_enrollment(config, approval_sessions.issue_enrollment(config, "local"))
+    approval_sessions.consume_enrollment(
+        config, approval_sessions.issue_enrollment(config, "local")
+    )
     assert approval_sessions.session_expired(request, config, "local")  # not purged yet
     now += approval_sessions.EXPIRED_GRACE_SECONDS
-    approval_sessions.consume_enrollment(config, approval_sessions.issue_enrollment(config, "local"))
+    approval_sessions.consume_enrollment(
+        config, approval_sessions.issue_enrollment(config, "local")
+    )
     assert not approval_sessions.session_expired(request, config, "local")  # purged after grace
 
 
@@ -387,6 +391,7 @@ def test_approval_expiring_during_body_read_rejects_late_reply(approval_app, rem
 @pytest.mark.parametrize("credential", ["bearer", "tailnet"])
 def test_a_refused_approval_names_the_owner_to_enroll(approval_app, credential):
     owner = "local"  # an allow-listed Serve login is the owner too (D-040)
+
     async def scenario():
         pending_approval(approval_app, owner)
         async with client_for(approval_app) as client:

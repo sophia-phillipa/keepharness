@@ -116,7 +116,7 @@ import json, os, subprocess, sys
 from pathlib import Path
 args = sys.argv[1:]
 settings = json.loads(args[args.index('--settings') + 1])
-sources = args[args.index('--setting-sources') + 1].split(',')
+sources = args[args.index('--setting-sources') + 1].split(',') if '--setting-sources' in args else ['user', 'project', 'local']
 env = dict(os.environ)
 project_settings = {}
 if 'project' in sources:
@@ -128,7 +128,8 @@ if not settings.get('disableAllHooks'):
     for group in project_settings.get('hooks', {}).get('SessionStart', []):
         for hook in group['hooks']:
             subprocess.run(hook['command'], shell=True, check=True, env=env)
-mcp = json.loads(Path(args[args.index('--mcp-config') + 1]).read_text())
+mcp = json.loads(Path('.mcp.json').read_text())
+mcp['mcpServers'].update(json.loads(Path(args[args.index('--mcp-config') + 1]).read_text())['mcpServers'])
 for name, server in mcp['mcpServers'].items():
     if name not in settings.get('disabledMcpjsonServers', []):
         subprocess.run([server['command'], *server.get('args', [])], check=True, env=env)

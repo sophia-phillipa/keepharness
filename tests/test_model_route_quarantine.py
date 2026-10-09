@@ -53,9 +53,7 @@ def test_one_retired_codex_model_does_not_stop_the_other_providers(tmp_path):
     assert cfg["services"]["claude"]["models"] == ["claude-opus-4-6"]
     assert cfg["services"]["codex"]["models"] == ["current-model"]
     assert cfg["codex_models"] == {"current-model": ["low", "high"]}
-    assert cfg["unavailable_models"] == {
-        "codex": {"retired-model": runtime_config.CATALOG_MISSING}
-    }
+    assert cfg["unavailable_models"] == {"codex": {"retired-model": runtime_config.CATALOG_MISSING}}
     assert settings["services"]["codex"]["models"] == ["retired-model", "current-model"]
 
 

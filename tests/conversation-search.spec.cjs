@@ -127,7 +127,10 @@ const assert = require("node:assert/strict"),
           data = url.searchParams.has("q")
             ? {
                 conversations: [
-                  { ...conversations[3], snippet: "…the KESTREL launch slipped to Friday…" },
+                  {
+                    ...conversations[3],
+                    snippet: "…the KESTREL launch slipped to Friday…",
+                  },
                   { ...conversations[4] },
                 ],
               }
@@ -188,7 +191,9 @@ const assert = require("node:assert/strict"),
       });
     });
     await page.emulateMedia({ reducedMotion: "reduce" });
-    await page.addInitScript(() => localStorage.setItem("keepharness-tour-seen", "0.16.0"));
+    await page.addInitScript(() =>
+      localStorage.setItem("keepharness-tour-seen", "0.16.0"),
+    );
     await page.goto(origin);
     await page.locator("#startup-gate").waitFor({ state: "hidden" });
     assert.equal(await page.locator("#sidebar input[type=search]").count(), 0);
@@ -207,10 +212,16 @@ const assert = require("node:assert/strict"),
       "the admin link must use the URL configured by the service",
     );
     await page.keyboard.press("Control+,");
-    assert.equal(await page.locator("#admin-shortcut").count(), 0, "Admin is a Settings section, not a link");
+    assert.equal(
+      await page.locator("#admin-shortcut").count(),
+      0,
+      "Admin is a Settings section, not a link",
+    );
     await page.click("#settings-close");
     assert.equal(
-      await page.locator("#projects .conversation-model-icon use").getAttribute("href"),
+      await page
+        .locator("#projects .conversation-model-icon use")
+        .getAttribute("href"),
       "/assets/icons.svg#stack-2",
     );
     assert.equal(
@@ -225,16 +236,30 @@ const assert = require("node:assert/strict"),
     );
     // Mock 4 uses a labeled primary action; project creation remains in its disclosure.
     assert.match(await page.locator("#new").innerText(), /New conversation/i);
-    assert.match(await page.locator("#add-project").textContent(), /Add project/i);
+    assert.match(
+      await page.locator("#add-project").textContent(),
+      /Add project/i,
+    );
     assert.equal(await page.locator(".project-new").count(), 1);
-    const projectGroup = page.locator('#projects .project-group');
-    const wasOpen = await projectGroup.evaluate(n => n.open);
-    const treeWasOpen = await page.locator('#project-tree').evaluate(n => n.open);
-    await page.locator('#project-tree').evaluate(n => n.open = true);
-    await projectGroup.evaluate(n => n.open = true);
-    assert(await page.locator("#projects .conversation-model-icon svg").evaluate(n => { const r = n.getBoundingClientRect(); return r.width > 0 && r.height > 0; }));
-    await projectGroup.evaluate((n, value) => n.open = value, wasOpen);
-    await page.locator('#project-tree').evaluate((n, value) => n.open = value, treeWasOpen);
+    const projectGroup = page.locator("#projects .project-group");
+    const wasOpen = await projectGroup.evaluate((n) => n.open);
+    const treeWasOpen = await page
+      .locator("#project-tree")
+      .evaluate((n) => n.open);
+    await page.locator("#project-tree").evaluate((n) => (n.open = true));
+    await projectGroup.evaluate((n) => (n.open = true));
+    assert(
+      await page
+        .locator("#projects .conversation-model-icon svg")
+        .evaluate((n) => {
+          const r = n.getBoundingClientRect();
+          return r.width > 0 && r.height > 0;
+        }),
+    );
+    await projectGroup.evaluate((n, value) => (n.open = value), wasOpen);
+    await page
+      .locator("#project-tree")
+      .evaluate((n, value) => (n.open = value), treeWasOpen);
     for (const palette of [
       "violet-bordeaux",
       "porcelain",
@@ -293,8 +318,7 @@ const assert = require("node:assert/strict"),
       if (trigger === "settings") {
         await page.locator("#settings").focus();
         await page.keyboard.press("Control+,");
-      }
-      else await page.click("#" + trigger);
+      } else await page.click("#" + trigger);
       const dialog = page.locator("#" + id);
       await dialog.waitFor({ state: "visible" });
       await dialog.locator("h2").click();
@@ -340,7 +364,14 @@ const assert = require("node:assert/strict"),
       /No command, setting, run, or loaded file matched/,
     );
     await page.click("#search-clear");
-    assert.equal(await page.locator(".search-result-group").filter({ hasText: /^Runs/ }).locator(".conversation-search-result").count(), 35);
+    assert.equal(
+      await page
+        .locator(".search-result-group")
+        .filter({ hasText: /^Runs/ })
+        .locator(".conversation-search-result")
+        .count(),
+      35,
+    );
     await page.fill("#conversation-search", "qwen-local");
     assert.equal(
       await page.locator(".conversation-search-result").count(),
@@ -356,7 +387,11 @@ const assert = require("node:assert/strict"),
     assert.match(hit, /KESTREL launch slipped/);
     assert.match(hit, /Local models/);
     assert.doesNotMatch(hit, /[0-9a-f]{32}|\bc3\b/);
-    assert.equal(projectFileRequests, 0, "a project without a folder never asks for its files (422)");
+    assert.equal(
+      projectFileRequests,
+      0,
+      "a project without a folder never asks for its files (422)",
+    );
     await page.fill("#conversation-search", "Naïve");
     await page.locator(".conversation-search-result").click();
     await page
@@ -411,7 +446,9 @@ const assert = require("node:assert/strict"),
         return r.left >= 0 && r.right <= innerWidth;
       }),
     );
-    await page.screenshot({ path: "/tmp/keepharness-conversation-search-mobile.png" });
+    await page.screenshot({
+      path: "/tmp/keepharness-conversation-search-mobile.png",
+    });
     await page.keyboard.press("Escape");
     await page
       .locator("#conversation-search-dialog")
@@ -494,7 +531,11 @@ const assert = require("node:assert/strict"),
     );
     await page
       .locator("#sidebar .conversation-row")
-      .filter({ has: page.locator(".conversation-title").filter({ hasText: /^Conversation 0$/ }) })
+      .filter({
+        has: page
+          .locator(".conversation-title")
+          .filter({ hasText: /^Conversation 0$/ }),
+      })
       .locator(":scope > button")
       .click();
     let opened = false;

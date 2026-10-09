@@ -137,7 +137,7 @@ def test_get_claude_snapshot_shape(client, claude_dir):
     assert isinstance(item["affects"], list) and body["external_changes"] == []
 
 
-@pytest.mark.parametrize("provider", ["gemini", "x", ""])
+@pytest.mark.parametrize("provider", ["dsh", "x", ""])
 def test_get_unknown_provider_404(client, provider):
     response = get(client, provider)
     assert (response.status_code, response.json()) == (404, {"error": "provider_unknown"})
@@ -327,7 +327,7 @@ def test_error_response_strips_paths_from_provider_message():
 
 
 def test_post_checks_provider_and_project_before_the_fields(client):
-    assert post(client, provider="gemini", item_id=5).status_code == 404
+    assert post(client, provider="dsh", item_id=5).status_code == 404
     assert post(client, project_id="nope", enabled="yes").status_code == 404
     assert post(client, project_id=3).status_code == 400
 

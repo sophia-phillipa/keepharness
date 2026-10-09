@@ -551,12 +551,14 @@ def test_watch_paths(adapter, codex_home, tmp_path):
     assert adapter.watch_paths(None) == (
         codex_home / "config.toml",
         codex_home / "skills",
+        adapter.shared_skills_root(),
         codex_home / "hooks.json",
         *user_instructions,
     )
     assert adapter.watch_paths(tmp_path) == (
         codex_home / "config.toml",
         codex_home / "skills",
+        adapter.shared_skills_root(),
         codex_home / "hooks.json",
         *project_instructions,
         tmp_path / ".codex" / "config.toml",
@@ -565,6 +567,25 @@ def test_watch_paths(adapter, codex_home, tmp_path):
     )
     assert not any("auth" in path.name for path in adapter.watch_paths(tmp_path))
     assert calls(codex_home) == []  # pure: no app-server involved
+
+
+@pytest.mark.parametrize("canonical", [False, True])
+def test_shared_skill_notice_survives_aliased_root(adapter, codex_home, tmp_path, canonical):
+    root = adapter.shared_skills_root()
+    target = tmp_path / "shared-skills"
+    skill = target / "notes" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("Fixture skill")
+    root.parent.mkdir(parents=True, exist_ok=True)
+    root.symlink_to(target, target_is_directory=True)
+    path = skill if canonical else root / "notes" / "SKILL.md"
+    seed(codex_home)
+    reconfigure(codex_home, skills=[{"name": "notes", "path": str(path), "scope": "user"}])
+    item = rows(adapter.read_state(None))[f"skill:{path}"]
+    assert item.writable
+    assert f"Shared skills root: {root}." in item.reason
+    assert "other providers using this root" in item.reason
+    assert item.affects == ()
 
 
 def test_watch_paths_default_to_the_dot_codex_folder_of_the_home(
@@ -615,8 +636,8 @@ def test_a_patch_release_inside_the_range_does_not_warn(adapter, codex_home):
 
 
 def test_later_issues_are_unsupported(adapter, tmp_path):
+    assert adapter.run_environment(tmp_path, True, ()).environment == {}
     for call in (
-        lambda: adapter.run_environment(tmp_path, True, ()),
         lambda: adapter.login_command(False),
         lambda: adapter.login_status(),
     ):

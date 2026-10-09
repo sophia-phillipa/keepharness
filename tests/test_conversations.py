@@ -199,7 +199,9 @@ def test_search_finds_text_inside_answers_and_prompts(api):
     assert [c["id"] for c in found] == ["answered"]
     assert "Kestrel migration" in found[0]["snippet"]
     assert found[0]["title"] == "Summarize the quarterly report."
-    assert [c["id"] for c in api.get("/v1/conversations", params={"q": "CAFE"}).json()["conversations"]] == ["answered"]
+    assert [
+        c["id"] for c in api.get("/v1/conversations", params={"q": "CAFE"}).json()["conversations"]
+    ] == ["answered"]
     by_prompt = api.get("/v1/conversations", params={"q": "quarterly"}).json()["conversations"]
     assert "quarterly report" in by_prompt[0]["snippet"]
     assert api.get("/v1/conversations", params={"q": "absent-term"}).json() == {"conversations": []}
@@ -276,9 +278,15 @@ def test_search_is_limited_to_the_callers_conversations(api):
 @pytest.mark.parametrize(
     ("prompt", "title"),
     [
-        ("@@planner Summarize the quarterly report. Then mail it.", "Summarize the quarterly report."),
+        (
+            "@@planner Summarize the quarterly report. Then mail it.",
+            "Summarize the quarterly report.",
+        ),
         ("First line of a long request\nsecond line", "First line of a long request"),
-        ("Hi. please plan the whole migration for me", "Hi. please plan the whole migration for me"),
+        (
+            "Hi. please plan the whole migration for me",
+            "Hi. please plan the whole migration for me",
+        ),
         ("@@only @@markers", "Conversation"),
         ("x" * 300, "x" * 100),
     ],

@@ -1131,7 +1131,15 @@ class ClaudeStateAdapter:
     # --- later run-home migration and sign-in packages ---
 
     def run_environment(self, project_root: Path, trusted: bool, permission_flags) -> RunSetup:
-        raise ProviderStateUnsupportedError("the run setup lands with the runs issue (plan item 6)")
+        servers = self.project_servers(project_root)
+        approved = self.approved_project_servers(project_root, trusted=trusted)
+        runnable = approved & self.enabled_project_servers(project_root)
+        settings = {"disabledMcpjsonServers": sorted(servers.keys() - runnable)}
+        flags = list(permission_flags)
+        if not trusted:
+            flags += ["--setting-sources", "user"]
+            settings["disableAllHooks"] = True
+        return RunSetup({}, flags, settings)
 
     def credential_isolation(self) -> CredentialRule | None:
         return None

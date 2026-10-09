@@ -41,7 +41,13 @@ def setup(tmp_path, monkeypatch):
         manager = app.state.manager
         manager.settings["projects"] = [{"id": "p", "root": str(project), "catalogs": ["demo"]}]
         manager.settings["catalogs"] = [
-            {"id": "demo", "namespace": "demo", "kind": "git", "root": str(catalog), "trusted": True}
+            {
+                "id": "demo",
+                "namespace": "demo",
+                "kind": "git",
+                "root": str(catalog),
+                "trusted": True,
+            }
         ]
         for name in ("codex", "claude", "gemini"):
             manager.settings["services"][name].update(enabled=True, projects=["p", "sem-projeto"])
@@ -50,8 +56,10 @@ def setup(tmp_path, monkeypatch):
         put_skill(catalog / "skills", "review", "From the catalog")
         git(catalog, "init", "-q")
         git(catalog, "add", ".")
-        git(catalog, "-c", "user.email=f@example.invalid", "-c", "user.name=F", "commit", "-qm", "x")
-        put_skill(manager.state / "providers/home/.codex/skills", "mine", "Personal skill")
+        git(
+            catalog, "-c", "user.email=f@example.invalid", "-c", "user.name=F", "commit", "-qm", "x"
+        )
+        put_skill(tmp_path / "real-home/skills", "mine", "Personal skill")
         with TestClient(app, base_url="http://127.0.0.1:8094") as client:
             sign_in(client).get("/")
             yield client, tmp_path
@@ -188,7 +196,9 @@ def test_non_owner_requests_are_refused(setup):
     remote = httpx.ASGITransport(app=client.app, client=("10.0.0.2", 1234))
 
     async def ask():
-        async with httpx.AsyncClient(transport=remote, base_url="http://127.0.0.1:8094") as remote_client:
+        async with httpx.AsyncClient(
+            transport=remote, base_url="http://127.0.0.1:8094"
+        ) as remote_client:
             return await remote_client.get("/api/customize-skills", params={"project_id": "p"})
 
     assert asyncio.run(ask()).status_code == 403
@@ -198,7 +208,11 @@ def test_same_name_in_two_files_stays_two_items(setup):
     client, tmp_path = setup
     put_skill(tmp_path / "project/.claude/skills", "shared", "Claude's own copy")
     body = listing(client, project_id="p")
-    shared = sorted((item["description"], item["providers"]) for item in body["items"] if item["name"] == "shared")
+    shared = sorted(
+        (item["description"], item["providers"])
+        for item in body["items"]
+        if item["name"] == "shared"
+    )
     assert shared == [("Claude's own copy", ["claude"]), ("Offered to codex and gemini", ["codex"])]
 
 
@@ -207,7 +221,9 @@ def test_skill_without_front_matter_is_named_after_its_folder(setup):
     folder = tmp_path / "project/.claude/skills/bare-skill"
     folder.mkdir(parents=True)
     (folder / "SKILL.md").write_text("Does one thing well. More text.")
-    item = next(item for item in listing(client, project_id="p")["items"] if item["name"] == "bare-skill")
+    item = next(
+        item for item in listing(client, project_id="p")["items"] if item["name"] == "bare-skill"
+    )
     assert item["providers"] == ["claude"]
     assert str(tmp_path) not in json.dumps(item) and "SKILL.md" not in json.dumps(item)
 
@@ -216,7 +232,9 @@ def test_unloadable_skills_and_non_native_providers_are_not_offered(setup):
     client, tmp_path = setup
     folder = tmp_path / "project/.claude/skills/hidden"
     folder.mkdir(parents=True)
-    (folder / "SKILL.md").write_text("---\nname: hidden\ndescription: x\nuser-invocable: false\n---\nBody")
+    (folder / "SKILL.md").write_text(
+        "---\nname: hidden\ndescription: x\nuser-invocable: false\n---\nBody"
+    )
     client.app.state.manager.settings["services"]["codex"]["mode"] = "api"
     names = {item["name"]: item["providers"] for item in listing(client, project_id="p")["items"]}
     assert "hidden" not in names

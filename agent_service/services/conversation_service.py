@@ -626,6 +626,10 @@ class ConversationService:
         lane = (
             "control" if control else ("write" if request and request.method != "GET" else "read")
         )
+        # The page paints from this read; sharing the polling budget made a busy minute drop
+        # the saved interface state (the page fell back to browser storage).
+        if lane == "read" and request and request.url.path == "/v1/ui-state":
+            lane = "ui_state"
         human = control and getattr(request.state, "approval_session_owner", None) == name
         self.limit(
             (name, "human_control" if human else lane),
@@ -909,9 +913,7 @@ class ConversationService:
                 roots[visited] = roots[current]
             return roots[job_id]
 
-        return [
-            payload for job_id, payload in payloads.items() if root(job_id) == cid
-        ]
+        return [payload for job_id, payload in payloads.items() if root(job_id) == cid]
 
     def conversation_execution_mode(self, row):
         root = self.conversation_repository.get(self.conversation_id(row))
@@ -1253,7 +1255,7 @@ class ConversationService:
 
     def resource_scope(self, client, data):
         """The config and owner flag a run of ``client`` resolves resources with (decision D01)."""
-        return resources.run_config(self.config, data, owner=True), True
+        return self.config, True
 
     def selected_resources(self, data, *, canonical=None, owner=False):
         # "read" guards project and catalog files; a Harness agent's persona is harness-kept text.
@@ -1351,9 +1353,7 @@ class ConversationService:
                             data["resource_selections"][0]["token"] + " " + data.get("prompt", "")
                         )
             canonical = values if values is not None and not supplied_selections else None
-            selected = self.selected_resources(
-                data, canonical=canonical, owner=True
-            )
+            selected = self.selected_resources(data, canonical=canonical, owner=True)
             selected_by_id = {item["resource_id"]: item for item in selected}
             normalized = (
                 [
@@ -2618,7 +2618,11 @@ class ConversationService:
         if approval_policy.mode_disabled(self.config, mode):
             raise APIError("full_access_disabled", 403)
         # Unattended runs have no internet unless their task opts in (D03).
-        offline_schedule = data.get("schedule_id") and data.get("schedule_internet") is not True
+        offline_schedule = (
+            backend not in ("codex", "claude")
+            and data.get("schedule_id")
+            and data.get("schedule_internet") is not True
+        )
         if offline_schedule:
             permissions["internet"] = False
         if backend == "claude":
@@ -3024,7 +3028,12 @@ class ConversationService:
         if summary is None:
             result = {"provider": "deepseek", "available": False, "reason": "balance_unavailable"}
         else:
-            result = {"provider": "deepseek", "available": True, "checked_at": time.time(), **summary}
+            result = {
+                "provider": "deepseek",
+                "available": True,
+                "checked_at": time.time(),
+                **summary,
+            }
         self.deepseek_usage_cache = (cache_key, time.monotonic(), result)
         return result
 

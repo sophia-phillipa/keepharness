@@ -79,7 +79,10 @@ def test_conversation_turn_waits_even_with_legacy_execution_parent(tmp_path):
         instance.conversation_repository.set_result("parent", "queued", None)
         assert [row["id"] for row in instance.conversation_repository.ready()] == ["parent"]
         instance.conversation_repository.set_result("parent", "completed", None)
-        assert [row["id"] for row in instance.conversation_repository.ready()] == ["execution", "turn"]
+        assert [row["id"] for row in instance.conversation_repository.ready()] == [
+            "execution",
+            "turn",
+        ]
     finally:
         instance.db.close()
 

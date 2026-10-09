@@ -26,9 +26,7 @@ def test_control_validates_and_plumbs_project_catalogs(tmp_path):
             "namespace": "demo",
         }
     ]
-    settings["projects"] = [
-        {"id": "p", "root": str(project), "catalogs": ["demo"]}
-    ]
+    settings["projects"] = [{"id": "p", "root": str(project), "catalogs": ["demo"]}]
     validated = manager.validate(settings)
     config = runtime_config.base_config(validated, state, 8094, "http://local/", {})
     assert config["catalogs"] == validated["catalogs"]
