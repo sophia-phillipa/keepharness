@@ -242,13 +242,25 @@ def _safe_field(value, key):
     return _safe_shaped(value, lower)
 
 
+_MODEL_CASE_FLIPS = 3
+_MODEL_MIXED_PART = 6
+
+
+def _model_part(part):
+    plain = part.isalpha() or part.isdigit() or len(part) <= _MODEL_MIXED_PART
+    return plain and not is_opaque(part)
+
+
 def _plain_name(value, *, model=False):
     """Identifier-shaped and not token-like. Names refuse digits ("hunter2"); a model id such as
-    ``claude-sonnet-5-5`` keeps them, so only its dash-separated parts are checked for tokens."""
+    ``claude-sonnet-5-5`` keeps them: each separated part must be all letters, all digits or a
+    short mixed part (``4o``, ``qwen2``), and the whole may not alternate case like base64."""
     if not isinstance(value, str) or not _NAME_PATTERN.fullmatch(value):
         return False
     if model:
-        return not any(is_opaque(part) for part in re.split("[-.:@]", value))
+        if len(re.findall("[a-z][A-Z]", value)) >= _MODEL_CASE_FLIPS:
+            return False
+        return all(_model_part(part) for part in re.split("[-.:@]", value))
     return not is_opaque(value) and not any(char.isdigit() for char in value)
 
 

@@ -410,3 +410,30 @@ def test_token_shaped_env_prefix_names_and_long_options_are_masked():
     assert mask_command("HOME=1 cmd") == f"HOME={PLACEHOLDER} cmd"
     assert mask_command("cmd --deadbeefdeadbeef12345") == f"cmd {PLACEHOLDER}"
     assert mask_command("cmd --verbose") == "cmd --verbose"
+
+
+@pytest.mark.parametrize(
+    "model",
+    [
+        "claude-3-5-sonnet-20241022",
+        "gpt-6-astra",
+        "claude-sonnet-5-5",
+        "gpt-4o",
+        "qwen2:32b",
+        "deepseek-v3",
+    ],
+)
+def test_model_ids_keep_their_digits(model):
+    assert safe_details({"model": model})["model"] == model
+
+
+@pytest.mark.parametrize(
+    "token",
+    [
+        "aB3dE5fG7hJ9-kL1mN3pQ5rS7-tU9vW1xY",
+        "123e4567-e89b-12d3-a456-426614174000",
+    ],
+)
+def test_a_separated_token_is_not_a_model_id(token):
+    assert safe_details({"model": token})["model"] == PLACEHOLDER
+
