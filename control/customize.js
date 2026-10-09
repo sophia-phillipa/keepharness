@@ -1121,7 +1121,12 @@
       );
       return rows.length
         ? list.replaceChildren(...rows.map(row))
-        : empty("No " + label.toLowerCase() + " are listed.");
+        : empty(
+            "No " +
+              (kind === "skill" ? view.skillScope + " " : "") +
+              label.toLowerCase() +
+              " are listed.",
+          );
     }
     if (!view.clis.length)
       return empty(
@@ -1223,6 +1228,17 @@
     );
     modeButton.hidden = view.chip !== "plugins";
     scopeTabs.hidden = view.chip !== "skills";
+    // The list is the tab panel of the selected Skills scope, and a plain list elsewhere.
+    if (scopeTabs.hidden) {
+      list.removeAttribute("role");
+      list.removeAttribute("aria-labelledby");
+    } else {
+      list.setAttribute("role", "tabpanel");
+      list.setAttribute(
+        "aria-labelledby",
+        "plugins-scope-tab-" + view.skillScope,
+      );
+    }
     for (const tab of scopeTabs.children) {
       const selected = tab.dataset.scope === view.skillScope;
       tab.setAttribute("aria-selected", String(selected));
@@ -1342,6 +1358,8 @@
       );
       tab.type = "button";
       tab.setAttribute("role", "tab");
+      tab.id = "plugins-scope-tab-" + id;
+      tab.setAttribute("aria-controls", "plugins-list");
       tab.dataset.scope = id;
       tab.onclick = () => {
         view.skillScope = id;
@@ -1350,6 +1368,7 @@
       scopeTabs.append(tab);
     }
     list = node("div", undefined, "plugins-list", "plugins-list");
+    list.id = "plugins-list";
     list.tabIndex = -1; // the focus fallback when a row disappears under a switch
     panel.append(toolbar, note, status, trustPanel, scopeTabs, list);
     document.addEventListener("keydown", (event) => {

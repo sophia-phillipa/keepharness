@@ -192,7 +192,9 @@ const snapshot = (provider, project, items) => ({
         }),
       });
     const sw = (name, cli) =>
-      page.getByRole("switch", { name: new RegExp("^" + name + " in " + cli + "$", "i") });
+      page.getByRole("switch", {
+        name: new RegExp("^" + name + " in " + cli + "$", "i"),
+      });
     const on = async (name, cli) =>
       (await sw(name, cli).getAttribute("aria-checked")) === "true";
     const settle = () =>
@@ -298,6 +300,31 @@ const snapshot = (provider, project, items) => ({
       "skill:/fake-home/alpha/.claude/skills/deploy/SKILL.md",
     );
     assert.equal(await on("deploy", "Claude Code"), false);
+
+    // Keyboard: arrows, Home and End move the selected tab; the list is its tab panel.
+    const tab = (name) => page.getByRole("tab", { name, exact: true });
+    const panel = page.locator("#plugins-list");
+    assert.equal(await panel.getAttribute("role"), "tabpanel");
+    assert.equal(
+      await panel.getAttribute("aria-labelledby"),
+      "plugins-scope-tab-project",
+    );
+    await tab("Project").focus();
+    await page.keyboard.press("ArrowRight");
+    assert.equal(await tab("User").getAttribute("aria-selected"), "true");
+    assert.equal(
+      await tab("User").evaluate((n) => n === document.activeElement),
+      true,
+    );
+    assert.equal(await row("deploy").count(), 0);
+    await page.keyboard.press("End");
+    assert.equal(await tab("Project").getAttribute("aria-selected"), "true");
+    await page.keyboard.press("Home");
+    assert.equal(await tab("User").getAttribute("aria-selected"), "true");
+    assert.equal(
+      await tab("User").getAttribute("aria-controls"),
+      "plugins-list",
+    );
 
     assert.deepEqual(errors, []);
     console.log("PASS admin provider chips");
