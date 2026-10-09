@@ -32,10 +32,6 @@
       "id": "L52",
       "note": "Space and Scheduled are unreachable below 620 px."
     },
-    "themes.dark-contrast": {
-      "id": "L58",
-      "note": "Graphite muted text is 4.14:1, below AA."
-    },
     "desktop.no-dev-menu": {
       "id": "L63",
       "note": "Stock Electron menu with Reload and DevTools."

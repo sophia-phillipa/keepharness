@@ -100,13 +100,18 @@ module.exports = {
           `muted ${muted} on ${panel} is ${ratio.toFixed(2)}:1`,
         );
       },
-      { recover: false },
     );
 
     await op.step(
       "dark-persists",
       "The dark theme survives a reload",
       async () => {
+        // theme.js caches the theme in localStorage; drop that cache so the reload can only get
+        // graphite back from the backend store (reconcileTheme, ui-prefs.js).
+        await page.evaluate(async () => {
+          await HarnessPrefs.flush();
+          localStorage.removeItem("keepharness:theme:harness");
+        });
         await page.reload();
         await page
           .locator("#startup-gate")

@@ -32,6 +32,24 @@ module.exports = {
       { critical: true },
     );
 
+    // The Settings button opens a submenu of the visible sections (ui.js:9830-9860), not the dialog.
+    await op.step(
+      "submenu",
+      "The Settings button opens a menu of the sections",
+      async () => {
+        if (await dialog.isVisible()) await page.locator("#settings-close").click();
+        await op.click(page.locator("#settings"));
+        const menu = page.locator("#settings-menu");
+        await op.see(menu);
+        op.check((await menu.getByRole("menuitem").count()) >= 1, "the Settings menu lists no section");
+        for (const name of ["Appearance", "Plugins", "Agents", "Models", "Archived chats"])
+          await op.see(menu.getByRole("menuitem", { name, exact: true }));
+        await op.press("Escape");
+        await op.gone(menu);
+        await open();
+      },
+    );
+
     await op.step(
       "themes",
       "Appearance lists the themes; pick Graphite, then Paper",

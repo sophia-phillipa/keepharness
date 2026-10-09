@@ -89,11 +89,16 @@ module.exports = {
       "manage",
       "Discover and manage plugins opens Settings › Plugins",
       async () => {
+        // The button is rendered only while Settings › System is shown (ui.js:7847, 7970, 8377).
+        const systemShown = await page
+          .locator("#settings-system-nav")
+          .evaluate((el) => !el.hidden);
+        if (!systemShown)
+          op.skip("Settings › System is shown only on the admin's own host");
         const manage = menu.getByRole("button", {
           name: "Discover and manage plugins",
         });
-        if (!(await manage.count()))
-          op.skip("Settings › System is shown only on the admin's own host");
+        await op.see(manage);
         await op.click(manage);
         const settings = page.locator("#settings-dialog");
         await op.see(settings);

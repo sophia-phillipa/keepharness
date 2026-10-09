@@ -337,55 +337,20 @@ module.exports = {
         },
       );
 
-      await op.step(
-        "isolation-on",
-        "Turn on the isolated conversation switch",
-        async () => {
-          const toggle = page.locator("#isolation-toggle");
-          if (await toggle.isDisabled())
-            op.skip("this model offers one execution mode");
-          await op.click(toggle);
-          await op.until(
-            async () => (await toggle.getAttribute("aria-checked")) === "true",
-            "isolation did not turn on",
-          );
-          await op.seeText(page.locator("#execution-mode-label"), /Isolated/);
-        },
-      );
-
-      await op.step(
-        "isolation-off",
-        "Turn it off again: back to a native conversation",
-        async () => {
-          const toggle = page.locator("#isolation-toggle");
-          if (await toggle.isDisabled())
-            op.skip("this model offers one execution mode");
-          await op.click(toggle);
-          await op.until(
-            async () => (await toggle.getAttribute("aria-checked")) === "false",
-            "isolation did not turn off",
-          );
-          await op.seeText(page.locator("#execution-mode-label"), /Native/);
-        },
-      );
-
-      // Cloud isolation is retired (a1a129a): a native-only model shows a native conversation, no switch.
+      // Cloud isolation is retired (a1a129a): a native-only model shows a native conversation and no
+      // unavailable notice (ui.js:3433-3436 keeps the isolation switch disabled).
       await op.step(
         "native-only",
-        "A native-only model has no isolation switch and shows a native conversation",
+        "A native-only model shows a native conversation without the unavailable notice",
         async () => {
           await chooseModel(op, "gemini-fixture");
-          op.check(
-            await page.locator("#isolation-toggle").isDisabled(),
-            "the switch is enabled for a native-only model",
-          );
-          op.check(
-            await page.locator("#isolation-toggle").isHidden(),
-            "the isolation switch is shown for a native-only model",
-          );
           await op.seeText(
-            page.locator("#execution-mode-choice"),
-            /Native conversation/,
+            page.locator("#execution-mode-label"),
+            /^Native conversation$/,
+          );
+          op.check(
+            await page.locator("#execution-mode-unavailable").isHidden(),
+            "the execution-mode unavailable notice is shown for a native-only model",
           );
           await chooseModel(op, "claude-sonnet-5-5");
         },
