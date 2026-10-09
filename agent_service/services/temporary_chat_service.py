@@ -92,9 +92,18 @@ class TemporaryChatService:
 
     def _remove_folders(self, sid):
         """Delete one session's run folders and state folder; the caller holds the storage lock."""
+        # A symlink is unlinked, never followed; one folder failing must not leave the other behind.
+        failure = None
         for folder in (self.sessions_base / sid, self.root / sid):
-            if folder.exists():
-                shutil.rmtree(folder)
+            try:
+                if folder.is_symlink():
+                    folder.unlink()
+                elif folder.exists():
+                    shutil.rmtree(folder)
+            except OSError as error:
+                failure = failure or error
+        if failure:
+            raise failure
 
     def _publish(self, root):
         """Create the session folder and take its lease; blocks on other harness processes."""

@@ -98,6 +98,72 @@ def test_crash_sweep_also_removes_the_stale_run_folders(tmp_path):
     app.state.service.db.close()
 
 
+def test_symlinked_run_folder_never_blocks_the_crash_sweep(tmp_path):
+    app = create_app(config(tmp_path))
+    sid = "b" * 32
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "keep.txt").write_text("not ours")
+    (tmp_path / "temporary-chats" / sid).mkdir(parents=True)
+    link = app.state.service.temporary.sessions_base / sid
+    link.symlink_to(outside, target_is_directory=True)
+    restarted = create_app(config(tmp_path))
+    assert not (tmp_path / "temporary-chats" / sid).exists()
+    assert not link.is_symlink()
+    assert (outside / "keep.txt").read_text() == "not ours"
+    app.state.service.db.close()
+    restarted.state.service.db.close()
+
+
+def test_discard_removes_the_state_folder_even_when_the_run_folder_is_a_symlink(tmp_path):
+    async def scenario():
+        parent = ConversationService(config(tmp_path))
+        identity = ("a", parent.config["clients"]["a"])
+        sid = await parent.temporary.open(identity)
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        link = parent.temporary.sessions_base / sid
+        if link.exists():
+            link.rmdir()
+        link.symlink_to(outside, target_is_directory=True)
+        await parent.temporary.close(identity, sid)
+        assert not (parent.temporary.root / sid).exists()
+        assert not link.is_symlink()
+        assert outside.is_dir()
+        parent.db.close()
+
+    asyncio.run(scenario())
+
+
+def test_cancelled_open_removes_its_folders(tmp_path):
+    import threading
+
+    async def scenario():
+        parent = ConversationService(config(tmp_path))
+        identity = ("a", parent.config["clients"]["a"])
+        publish = parent.temporary._publish
+        started, release = threading.Event(), threading.Event()
+
+        def slow(root):
+            started.set()
+            release.wait(5)
+            return publish(root)
+
+        parent.temporary._publish = slow
+        task = asyncio.create_task(parent.temporary.open(identity))
+        await asyncio.to_thread(started.wait, 5)
+        task.cancel()
+        release.set()
+        await asyncio.gather(task, return_exceptions=True)
+        assert task.cancelled()
+        assert not parent.temporary.sessions
+        assert not list(parent.temporary.root.iterdir())
+        assert not list(parent.temporary.sessions_base.iterdir())
+        parent.db.close()
+
+    asyncio.run(scenario())
+
+
 def test_open_during_a_slow_close_keeps_the_event_loop_responsive(tmp_path, monkeypatch):
     import shutil
     import threading
