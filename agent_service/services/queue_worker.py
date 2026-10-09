@@ -337,7 +337,7 @@ async def provider_state_run_check(service, row, request_data):
     """
     try:
         provider, state = request_data.get("backend"), service.config.get("control_state_dir")
-        if provider not in ("codex", "claude") or not state:
+        if provider not in ("codex", "claude", "deepseek") or not state:
             return
         key, now = (provider, row["project"]), time.monotonic()
         last = _run_checks.get(key)

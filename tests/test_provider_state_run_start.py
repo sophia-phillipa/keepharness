@@ -150,8 +150,11 @@ def test_run_job_calls_hook_once_per_5s(monkeypatch, tmp_path):
     tick[0] += 0.2
     run("codex", "sem-projeto")
     assert len(calls) == 4
-    run("deepseek", "sem-projeto")  # not a state provider
-    assert len(calls) == 4
+    run("deepseek", "sem-projeto")
+    assert len(calls) == 5
+    assert calls[-1][1] == "deepseek"
+    run("dsh", "sem-projeto")  # not a supported provider
+    assert len(calls) == 5
 
 
 def test_concurrent_run_starts_keep_every_key(client, app, now, codex_home, project, monkeypatch):
