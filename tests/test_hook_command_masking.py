@@ -364,3 +364,13 @@ def test_aws_access_key_ids_are_redacted_from_free_text():
 def test_home_relative_paths_are_kept():
     assert mask_command("~/bin/run ~/scripts/check") == "~/bin/run ~/scripts/check"
     assert mask_command("~/bin/run ~/.config/x") == "~/bin/run ~/.config/x"
+
+
+def test_token_like_env_and_header_names_are_masked():
+    name = "ghp_" + "a" * 36
+    assert mask_named_values({name: "v", "HOME": "v"}) == {
+        PLACEHOLDER: PLACEHOLDER,
+        "HOME": PLACEHOLDER,
+    }
+    assert safe_details({"env": {name: "v"}})["env"] == {PLACEHOLDER: PLACEHOLDER}
+    assert PLACEHOLDER in safe_details({"allowedEnvVars": [name]})["allowedEnvVars"]

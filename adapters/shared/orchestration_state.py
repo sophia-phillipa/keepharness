@@ -9,8 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from adapters.shared.command_mask import (
-    NAME,
     PLACEHOLDER,
+    is_name,
     mask_argv,
     mask_command,
     mask_matcher,
@@ -213,7 +213,7 @@ def _safe_field(value, key):
         return _safe_scalar(value)
     if lower == "allowedenvvars":
         names = value if isinstance(value, list) else []
-        return [n if isinstance(n, str) and NAME.fullmatch(n) else PLACEHOLDER for n in names[:100]]
+        return [n if isinstance(n, str) and is_name(n) else PLACEHOLDER for n in names[:100]]
     return _safe_shaped(value, lower)
 
 
@@ -224,7 +224,7 @@ def _safe_shaped(value, lower):
     elif lower in _BOOL_KEYS:
         shaped = isinstance(value, bool)
     elif lower in _ENUM_KEYS:
-        shaped = isinstance(value, str) and NAME.fullmatch(value)
+        shaped = isinstance(value, str) and is_name(value)
     else:
         return _safe_scalar(value) if lower in _PLAIN_KEYS else PLACEHOLDER
     return value if shaped else PLACEHOLDER
@@ -237,7 +237,7 @@ def safe_details(hook):
     return {
         key: _safe_field(value, key)
         for key, value in list(hook.items())[:80]
-        if isinstance(key, str) and NAME.fullmatch(key)
+        if isinstance(key, str) and is_name(key)
     }
 
 
