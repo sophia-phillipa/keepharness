@@ -1,3 +1,5 @@
+import hashlib
+import json
 import random
 import re
 import string
@@ -11,7 +13,7 @@ from adapters.shared.command_mask import (
     mask_named_values,
     mask_url,
 )
-from adapters.shared.orchestration_state import safe_details
+from adapters.shared.orchestration_state import hook_items, safe_details
 
 V = "LEAKVALUE"
 
@@ -258,3 +260,11 @@ def test_free_text_fields_are_truncated():
         {"prompt": "x" * 5000, "statusMessage": "y" * 5000, "description": "z" * 5000}
     )
     assert all(len(text) <= 300 for text in details.values())
+
+
+def test_hook_items_carry_no_digest_of_the_raw_hook():
+    hook = {"type": "command", "command": f"run --token {V}"}
+    (item,) = hook_items({"hooks": {"Stop": [{"hooks": [hook]}]}}, "/fake/settings.json", "user")
+    raw_digest = hashlib.sha256(json.dumps(hook, sort_keys=True).encode()).hexdigest()
+    assert "content_sha256" not in item.details
+    assert raw_digest not in repr(item.details)

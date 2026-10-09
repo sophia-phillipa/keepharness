@@ -254,9 +254,6 @@ def hook_items(document, source, scope, *, enabled=True, status="configured", ex
                     }
                 )
                 details["status"] = status
-                details["content_sha256"] = hashlib.sha256(
-                    json.dumps(hook, sort_keys=True).encode()
-                ).hexdigest()
                 ident = hashlib.sha256(
                     f"{source}:{event}:{group_index}:{index}".encode()
                 ).hexdigest()[:20]
