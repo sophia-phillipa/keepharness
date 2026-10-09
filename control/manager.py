@@ -667,6 +667,22 @@ class Manager:
                 )
                 raise
 
+    async def signed_in(self, provider, binary):
+        """Ask the CLI whether its account is signed in; shared by the check and the login poll."""
+        if provider == "codex":
+            # The login KeepHarness signed in with, in its own home (decision D02).
+            code, _ = await discovery.command(
+                binary, "login", "status", env=login_environment(self.state, "codex")
+            )
+            return code == 0
+        code, raw = await discovery.command(
+            binary, "auth", "status", "--json", env=cli_login_environment(self.state)
+        )
+        try:
+            return code == 0 and json.loads(raw).get("loggedIn") is True
+        except ValueError:
+            return False
+
     async def check(self, provider):
         if provider not in ("codex", "claude", "gemini", "local", "deepseek"):
             raise UserMessageError("Unknown service.")
@@ -698,10 +714,7 @@ class Manager:
             return result
         if provider == "codex":
             # The login KeepHarness signed in with, in its own home (decision D02).
-            code, _ = await discovery.command(
-                info["binary"], "login", "status", env=login_environment(self.state, "codex")
-            )
-            authenticated = code == 0
+            authenticated = await self.signed_in("codex", info["binary"])
             if authenticated:
                 listing = await metadata(
                     info["binary"],
@@ -714,13 +727,7 @@ class Manager:
                     for m in listing.get("data", [])
                 }
         else:
-            code, raw = await discovery.command(
-                info["binary"], "auth", "status", "--json", env=cli_login_environment(self.state)
-            )
-            try:
-                authenticated = code == 0 and json.loads(raw).get("loggedIn") is True
-            except ValueError:
-                authenticated = False
+            authenticated = await self.signed_in("claude", info["binary"])
             self.provider_models[provider] = {}
             if authenticated:
                 self.provider_models[provider] = claude.model_catalog(

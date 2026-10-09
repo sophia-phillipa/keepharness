@@ -1,6 +1,7 @@
 """Explicit UI-triggered CLI operations; no shell interpolation or automatic installs."""
 
 import asyncio
+import contextlib
 import os
 import re
 import signal
@@ -22,6 +23,12 @@ ANSI_PARTIAL = re.compile(r"\x1b(?:\[[0-?]*[ -/]*|\][^\x07\x1b\n]*\x1b?|[ -/]+)?
 MAX_HELD_ESCAPE = 2048
 
 
+# The first https:// URL a login CLI prints: the sign-in page, held on the job for the UI only.
+LOGIN_URL = re.compile(r"https://[^\s\"'<>]+")
+# Status polling after a login starts: first delay, growth, cap, and the total time (seconds).
+POLL_DELAY, POLL_FACTOR, POLL_CAP, POLL_LIMIT = 2, 1.5, 10, 600
+
+
 def released(held):
     """The text of an OSC sequence that never ended; other unfinished sequences are noise."""
     return held[2:] if held.startswith("\x1b]") else ""
@@ -37,6 +44,17 @@ def strip_ansi(text):
     return done, held
 
 
+def terminate(proc):
+    """Ask a CLI and everything it started to stop."""
+    try:
+        if os.name == "posix":
+            os.killpg(proc.pid, signal.SIGTERM)
+        else:
+            proc.terminate()
+    except ProcessLookupError:
+        pass
+
+
 class Operations:
     def __init__(self):
         self.jobs = {}
@@ -44,6 +62,8 @@ class Operations:
         self.by_id = {}
         self.stdin = {}
         self.codes = {}  # the code last pasted into a job, kept in memory to redact an echo of it
+        self.watched = {}  # jobs with a status check: set once the pasted code is written to the CLI
+        self.confirmed = set()  # logins the status command confirmed before the CLI exited
 
     def append_output(self, jid, fresh):
         """Add text to a job's output, redacting an echo of the pasted code."""
@@ -51,14 +71,41 @@ class Operations:
         if self.codes.get(jid):
             text = text.replace(self.codes[jid], "[redacted]")
         self.jobs[jid]["output"] = text[-12000:]
+        if jid in self.watched and (url := LOGIN_URL.search(text)):
+            self.jobs[jid]["login_url"] = url.group(0).rstrip(".,;)")
 
-    def launch(self, args, timeout=300, *, env=None, on_success=None, interactive=False):
-        """Run one CLI; ``interactive`` keeps stdin open for one pasted line (login codes)."""
+    def launch(
+        self, args, timeout=300, *, env=None, on_success=None, interactive=False, signed_in=None
+    ):
+        """Run one CLI; ``interactive`` keeps stdin open for one pasted line (login codes).
+
+        A login passes ``signed_in``, an async check of the CLI's account status: its sign-in URL
+        becomes the job's ``login_url`` while it runs, and once the status says signed in (after
+        the code is pasted, for an interactive login) the job completes without waiting for the CLI.
+        """
         jid = uuid.uuid4().hex
         self.jobs[jid] = {"id": jid, "state": "running", "output": "", "accepts_input": False}
+        if signed_in:
+            self.watched[jid] = asyncio.Event()
+
+        async def poll(proc):
+            with contextlib.suppress(OSError, TimeoutError):
+                if await signed_in():  # signed in already: only the CLI's own exit ends the login
+                    return
+                if interactive:
+                    await self.watched[jid].wait()
+                delay = POLL_DELAY
+                async with asyncio.timeout(POLL_LIMIT):
+                    while True:
+                        await asyncio.sleep(delay)
+                        if await signed_in():
+                            self.confirmed.add(jid)
+                            terminate(proc)
+                            return
+                        delay = min(delay * POLL_FACTOR, POLL_CAP)
 
         async def run():
-            proc = None
+            proc = poller = None
             held = ""
             try:
                 proc = await asyncio.create_subprocess_exec(
@@ -72,6 +119,8 @@ class Operations:
                 if interactive:
                     self.stdin[jid] = proc.stdin
                     self.jobs[jid]["accepts_input"] = True
+                if signed_in:
+                    poller = asyncio.create_task(poll(proc))
                 async with asyncio.timeout(timeout):
                     while True:
                         chunk = await proc.stdout.read(2048)
@@ -81,7 +130,7 @@ class Operations:
                         self.append_output(jid, fresh)
                     # An OSC that never ended must not swallow the output that followed it.
                     self.append_output(jid, released(held))
-                    succeeded = await proc.wait() == 0
+                    succeeded = await proc.wait() == 0 or jid in self.confirmed
                     if succeeded and on_success:
                         await on_success()
                     self.jobs[jid].update(state="completed" if succeeded else "failed")
@@ -96,14 +145,13 @@ class Operations:
                 self.jobs[jid]["accepts_input"] = False
                 self.stdin.pop(jid, None)
                 self.codes.pop(jid, None)
+                self.watched.pop(jid, None)
+                self.confirmed.discard(jid)
+                self.jobs[jid].pop("login_url", None)  # one-time URL: held only while it runs
+                if poller:
+                    poller.cancel()
                 if proc and proc.returncode is None:
-                    try:
-                        if os.name == "posix":
-                            os.killpg(proc.pid, signal.SIGTERM)
-                        else:
-                            proc.terminate()
-                    except ProcessLookupError:
-                        pass
+                    terminate(proc)
                     try:
                         await asyncio.wait_for(proc.wait(), 5)
                     except asyncio.TimeoutError:
@@ -131,6 +179,8 @@ class Operations:
         self.jobs[jid]["accepts_input"] = False
         self.stdin.pop(jid, None)
         self.codes[jid] = text.strip()
+        if jid in self.watched:
+            self.watched[jid].set()
         stream.write(text.encode() + b"\n")
         await stream.drain()
         stream.close()

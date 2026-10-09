@@ -297,6 +297,52 @@ const LOGIN_STEPS = {
 const DEVICE_CODE = /\b[A-Z0-9]{4}-[A-Z0-9]{4,6}\b/;
 const DEVICE_CODE_NOTE =
   "Device code sign-in must be turned on in your ChatGPT security settings (for a workspace: in its permissions) before this code works.";
+// The providers' sign-in pages: a sign-in URL on any other host gets no Copy or Open button.
+const AUTH_HOSTS = new Set([
+  "auth.openai.com",
+  "chatgpt.com",
+  "platform.openai.com",
+  "claude.ai",
+  "console.anthropic.com",
+  "accounts.google.com",
+  "antigravity.google",
+]);
+function loginUrlRow(raw) {
+  let url;
+  try {
+    url = new URL(raw);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "https:" || !AUTH_HOSTS.has(url.hostname)) {
+    const text = element("p", raw, "login-url-text");
+    text.dataset.testid = "login-url-text";
+    return text;
+  }
+  const row = element("div", undefined, "login-url");
+  const field = element("input");
+  field.readOnly = true;
+  field.value = raw;
+  field.dataset.testid = "login-url";
+  field.setAttribute("aria-label", "Sign-in URL");
+  const copy = element("button", "Copy", "button secondary");
+  copy.onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(raw);
+      say("Link copied.");
+    } catch {
+      say("Copy is not available here. Select the link in the field instead.");
+    }
+  };
+  const open = element(
+    "button",
+    url.hostname === "antigravity.google" ? "Open migration guide" : "Open",
+    "button secondary",
+  );
+  open.onclick = () => window.open(url.href, "_blank", "noopener");
+  row.append(field, copy, open);
+  return row;
+}
 function operationTitle(job) {
   return job.kind === "provider-login" && job.provider
     ? providerName({ id: job.provider, name: job.provider }) + " sign-in"
@@ -1841,7 +1887,13 @@ async function pollOperations() {
           code.append(value);
           d.append(code, element("p", DEVICE_CODE_NOTE, "hint"));
         }
-        const urls = new Set((j.output || "").match(/https:\/\/[^\s<>"']+/g));
+        if (j.login_url) d.append(loginUrlRow(j.login_url) || "");
+        // The other operations (and a harness without login_url) link the URLs in the log.
+        const urls = new Set(
+          j.login_url || j.state !== "running"
+            ? []
+            : (j.output || "").match(/https:\/\/[^\s<>"']+/g),
+        );
         for (const match of urls) {
           try {
             const url = new URL(match);

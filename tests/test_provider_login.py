@@ -475,3 +475,187 @@ def test_codex_signs_in_in_the_browser_locally_and_by_device_code_when_headless(
             )
     assert response.status_code == 200
     assert seen == [expected]
+
+
+# --- #35 login URL and #36 status polling -----------------------------------------------------
+
+LOGIN_URL = "https://claude.ai/oauth/authorize?code=true&state=one-time-secret"
+URL_THEN_WAIT = f"print({LOGIN_URL!r}, flush=True); import sys; sys.stdin.readline(); import time; time.sleep(30)"
+
+
+@pytest.fixture
+def sleeps(monkeypatch):
+    """Record the polling delays and skip the waiting."""
+    delays = []
+    real_sleep = asyncio.sleep
+
+    async def fake(delay, *args):
+        if delay < 1:  # the tests' own short waits stay real
+            return await real_sleep(delay, *args)
+        delays.append(delay)
+        await real_sleep(0.001)
+
+    monkeypatch.setattr(asyncio, "sleep", fake)
+    return delays
+
+
+def flips_on_call(number):
+    calls = []
+
+    async def status():
+        calls.append(1)
+        return len(calls) >= number
+
+    status.calls = calls
+    return status
+
+
+def test_login_url_is_parsed_into_its_own_field_and_dropped_when_the_job_ends(tmp_path):
+    async def exercise():
+        operations = Operations()
+        job = operations.launch(
+            [sys.executable, "-c", URL_THEN_WAIT],
+            interactive=True,
+            signed_in=flips_on_call(1),
+        )
+        for _ in range(200):
+            if "login_url" in job:
+                break
+            await asyncio.sleep(0.01)
+        assert job["login_url"] == LOGIN_URL
+        assert LOGIN_URL in job["output"]
+        operations.cancel(job["id"])
+        await asyncio.gather(*operations.tasks, return_exceptions=True)
+        assert job["state"] == "cancelled"
+        assert "login_url" not in job
+
+    asyncio.run(exercise())
+    assert not any(LOGIN_URL.encode() in p.read_bytes() for p in tmp_path.rglob("*") if p.is_file())
+
+
+def test_a_plain_operation_has_no_login_url():
+    async def exercise():
+        operations = Operations()
+        job = operations.launch([sys.executable, "-c", f"print({LOGIN_URL!r})"])
+        await asyncio.gather(*operations.tasks)
+        assert "login_url" not in job
+
+    asyncio.run(exercise())
+
+
+def test_status_polling_completes_the_login_with_backoff(sleeps):
+    async def exercise():
+        operations = Operations()
+        status, finished = flips_on_call(3), AsyncMock()
+        job = operations.launch(
+            [sys.executable, "-c", "import time; time.sleep(30)"],
+            timeout=60,
+            on_success=finished,
+            signed_in=status,
+        )
+        await asyncio.wait_for(asyncio.gather(*operations.tasks), 20)
+        assert job["state"] == "completed"
+        assert len(status.calls) == 3  # once before the login, then twice while it ran
+        finished.assert_awaited_once()
+
+    asyncio.run(exercise())
+    assert sleeps[:2] == [2, 3.0]
+
+
+def test_status_polling_backs_off_up_to_ten_seconds(sleeps):
+    async def exercise():
+        operations = Operations()
+        operations.launch(
+            [sys.executable, "-c", "import time; time.sleep(30)"],
+            timeout=60,
+            signed_in=flips_on_call(8),
+        )
+        await asyncio.wait_for(asyncio.gather(*operations.tasks), 20)
+
+    asyncio.run(exercise())
+    assert sleeps[:6] == [2, 3.0, 4.5, 6.75, 10, 10]
+
+
+def test_an_interactive_login_polls_only_after_the_code_is_pasted(sleeps):
+    async def exercise():
+        operations = Operations()
+        status = flips_on_call(2)
+        job = operations.launch(
+            [sys.executable, "-c", URL_THEN_WAIT], timeout=60, interactive=True, signed_in=status
+        )
+        await asyncio.sleep(0.3)
+        assert len(status.calls) == 1 and job["state"] == "running"
+        await operations.send_input(job["id"], "pasted-code-1")
+        await asyncio.wait_for(asyncio.gather(*operations.tasks), 20)
+        assert job["state"] == "completed"
+        assert len(status.calls) == 2
+
+    asyncio.run(exercise())
+
+
+def test_a_login_already_signed_in_is_left_to_the_cli_to_finish():
+    async def exercise():
+        operations = Operations()
+        status = flips_on_call(1)
+        job = operations.launch(
+            [sys.executable, "-c", "import time; time.sleep(0.3)"], signed_in=status
+        )
+        await asyncio.wait_for(asyncio.gather(*operations.tasks), 20)
+        assert job["state"] == "completed" and len(status.calls) == 1
+
+    asyncio.run(exercise())
+
+
+def test_status_polling_stops_after_its_time_limit(monkeypatch):
+    monkeypatch.setattr("control.operations.POLL_LIMIT", 0.05)
+
+    async def exercise():
+        operations = Operations()
+        status = flips_on_call(99)
+        job = operations.launch(
+            [sys.executable, "-c", "import time; time.sleep(0.5)"], signed_in=status
+        )
+        await asyncio.wait_for(asyncio.gather(*operations.tasks), 20)
+        assert job["state"] == "completed" and len(status.calls) == 1
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize("provider", ["codex", "claude"])
+def test_provider_login_finishes_on_its_own_and_runs_the_account_check_once(
+    tmp_path, sleeps, provider
+):
+    fake_cli = tmp_path / "fake-cli"
+    fake_cli.write_text(f"#!/bin/sh\necho '{LOGIN_URL}'\nread line\nsleep 30\n")
+    fake_cli.chmod(0o755)
+    status_calls, seen = [], []
+
+    async def exercise():
+        from control.routes import login_provider
+
+        manager = Manager(tmp_path / "state")
+        manager.inventory = {"binaries": {provider: str(fake_cli)}, "services": []}
+        manager.check = AsyncMock(return_value={"authenticated": True, "models": {}})
+
+        async def command(binary, *args, **kwargs):
+            status_calls.append(args)
+            jobs = list(manager.operations.jobs.values())
+            seen.extend(job.get("login_url") for job in jobs)
+            # Signed in from the third call on, once the CLI has printed its URL.
+            signed_in = len(status_calls) >= 3 and LOGIN_URL in seen
+            return (0, '{"loggedIn": true}') if signed_in else (1, '{"loggedIn": false}')
+
+        with patch("control.discovery.command", side_effect=command):
+            job = await login_provider(None, manager, {"provider": provider})
+            if provider == "claude":
+                while not job["accepts_input"]:
+                    await asyncio.sleep(0.01)
+                await manager.operations.send_input(job["id"], "pasted-code-1")
+            await asyncio.wait_for(asyncio.gather(*manager.operations.tasks), 20)
+        assert job["state"] == "completed"
+        assert "login_url" not in job
+        manager.check.assert_awaited_once_with(provider)
+
+    asyncio.run(exercise())
+    expected = ("login", "status") if provider == "codex" else ("auth", "status", "--json")
+    assert status_calls[0] == expected and len(status_calls) >= 3
