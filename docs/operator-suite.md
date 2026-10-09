@@ -80,6 +80,32 @@ shrinks as fixes land. Lint findings are labeled with a ledger id when a `lint` 
 matches, `noise` for measured-but-intended cases, and `new` otherwise; new lint findings are
 reported, not failed.
 
+## Areas
+
+Each file in `tests/operator/areas/` is one area; the id is what `--areas` takes.
+
+- `01-shell.cjs` (`shell`): app shell, rail and tour.
+- `02-sidebar.cjs` (`sidebar`): chats, projects, search.
+- `03-new-chat.cjs` (`new-chat`): providers, model, effort, access.
+- `04-composer.cjs` (`composer`): attachments, palettes, chips.
+- `05-conversation.cjs` (`conversation`): the conversation view.
+- `06-run-console.cjs` (`run-console`): pipeline, timeline, logs, runs, agents.
+- `07-approvals.cjs` (`approvals`): approvals, needs you, attention.
+- `08-agents.cjs` (`agents`): user agents.
+- `09-space.cjs` (`space`): space pages.
+- `10-scheduled.cjs` (`scheduled`): scheduled tasks.
+- `11-plugins.cjs` (`plugins`): plugins and connectors.
+- `12-files-code.cjs` (`files-code`): files panel and Code mode.
+- `13-settings.cjs` (`settings`): settings.
+- `14-admin.cjs` (`admin`): standalone admin pages.
+- `15-keyboard.cjs` (`keyboard`): keyboard shortcuts.
+- `16-window-sizes.cjs` (`window-sizes`): window sizes 1440, 1024, 800 and 390.
+- `17-themes.cjs` (`themes`): light and dark themes.
+- `18-desktop.cjs` (`desktop`): the packaged desktop app.
+- `19-desktop-wp18.cjs` (`desktop-wp18`): desktop WP-18 journeys.
+- `20-chat-real-providers.cjs` (`chat-real`): chat with real providers; a self-run area.
+- `21-temporary-chat.cjs` (`temporary-chat`): temporary chat; nothing saved, discard and return. Providers the fixture lacks (Codex, DeepSeek) are skipped.
+
 ## Add a step
 
 Areas live in `tests/operator/areas/NN-name.cjs` and export `{ id, title, run(op) }`:
