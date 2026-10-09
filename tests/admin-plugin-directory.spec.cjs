@@ -225,6 +225,42 @@ print(json.dumps(parse(json.dumps({"available": [{"id": "source-probe@official",
       Math.abs(boxes[0].y - boxes[1].y) <= 2 && boxes[1].x > boxes[0].x,
       "cards use two columns",
     );
+    // #65: the card action text must fit inside its button box (layout-lint "spill" on the Install buttons).
+    const cardActions = directory.locator(
+      '[data-testid="plugin-card"] button.plugin-card-action',
+    );
+    assert(
+      (await cardActions.count()) > 0,
+      "marketplace cards expose plugin-card-action buttons",
+    );
+    const actionFit = await cardActions.evaluateAll((nodes) =>
+      nodes.map((node) => {
+        const text = document.createRange();
+        text.selectNodeContents(node);
+        const textBox = text.getBoundingClientRect();
+        const box = node.getBoundingClientRect();
+        return {
+          label: node.getAttribute("aria-label"),
+          overflowY: node.scrollHeight - node.clientHeight,
+          textOverflowY: Math.max(
+            textBox.bottom - box.bottom,
+            box.top - textBox.top,
+          ),
+        };
+      }),
+    );
+    for (const item of actionFit) {
+      assert(
+        item.overflowY <= 1,
+        item.label + " scrollHeight exceeds clientHeight by " + item.overflowY,
+      );
+      assert(
+        item.textOverflowY <= 1,
+        item.label +
+          " text range exceeds the button box by " +
+          item.textOverflowY,
+      );
+    }
     for (const [id, label] of [
       ["plugin:documents@official", "Internal Documents"],
       ["plugin:archive@official", "Internal Archive"],
@@ -599,6 +635,7 @@ print(json.dumps(parse(json.dumps({"available": [{"id": "source-probe@official",
       "paper-and-graphite-aa-contrast",
       "mobile-directory-overflow",
       "mobile-detail-long-metadata",
+      "marketplace-card-action-text-fits",
     ])
       console.log("PASS scenario " + scenario);
   } finally {

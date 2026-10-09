@@ -145,6 +145,22 @@ const feed = (rail, providers) => {
     providers,
   );
 };
+// An activity poll already in flight when feed() runs can repaint the previous providers once
+// more, so readers that follow a feed wait until the rail shows the expected providers.
+const settledRows = async (page, providers, timeout = 8000) => {
+  const end = Date.now() + timeout;
+  for (;;) {
+    const rows = await meterRows(page);
+    const seen = rows.map((row) => row.provider);
+    if (JSON.stringify(seen) === JSON.stringify(providers)) return rows;
+    if (Date.now() > end) {
+      throw new Error(
+        `meters did not settle on ${JSON.stringify(providers)} within ${timeout} ms: ${JSON.stringify(seen)}`,
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+};
 const meterRows = (page) =>
   page.locator("#provider-quotas .provider-quota-meter").evaluateAll((nodes) =>
     nodes.map((node) => ({
@@ -551,22 +567,19 @@ const meterRows = (page) =>
 
     // The rail follows the providers it is given: five, one, none; two Claude models make one meter.
     await feed(rail, [allProviders[2]]);
-    assert.deepEqual(
-      (await meterRows(rail.page)).map((row) => row.provider),
-      ["gemini"],
-    );
+    await settledRows(rail.page, ["gemini"]);
     await feed(rail, [
       { backend: "claude", model: "claude-sonnet-4-5", quota: reading(30) },
       { backend: "claude", model: "claude-opus-4-1", quota: reading(60) },
     ]);
-    rows = await meterRows(rail.page);
-    assert.equal(rows.length, 1);
+    rows = await settledRows(rail.page, ["claude"]);
     assert.match(
       rows[0].label,
       /40% remaining/,
       "the meter shows the lowest remaining quota",
     );
     await feed(rail, []);
+    await settledRows(rail.page, []);
     assert.equal(
       await rail.page.locator("#provider-quotas").isHidden(),
       true,
