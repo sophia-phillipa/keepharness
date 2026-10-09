@@ -41,7 +41,7 @@ _PLAIN_KEYS = frozenset(
     key.lower()
     for key in (
         "type handlerType timeout timeoutSec async enabled event eventName source sourcePath "
-        "pluginId origin isManaged trustStatus currentHash key displayOrder additionalContextLimit "
+        "pluginId origin isManaged trustStatus key displayOrder additionalContextLimit "
         "server tool model status disableAllHooks"
     ).split()
 )

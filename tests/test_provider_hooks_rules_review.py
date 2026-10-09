@@ -97,3 +97,23 @@ def test_deepseek_trust_rejected_before_touching_other_providers(tmp_path, monke
     assert body["error"] == "provider_state_write_unsupported"
     assert "DeepSeek" in body["message"]
     assert not service.cache and not service.locks
+
+
+def test_codex_hook_without_a_key_gets_a_location_id_not_a_hash_of_the_command(
+    tmp_path, isolated_provider_homes, monkeypatch
+):
+    import hashlib
+
+    hook = {
+        "eventName": "preToolUse",
+        "command": "check weakpw1",
+        "sourcePath": str(tmp_path / "hooks.json"),
+        "currentHash": "sha256:" + "ab" * 32,
+    }
+    adapter = fake_codex(
+        monkeypatch, {"config": {"layers": []}, "hooks": {"data": [{"hooks": [hook]}]}}
+    )
+    (row,) = [x for x in adapter.read_state(tmp_path).items if x.kind == "hook"]
+    location = f"{hook['sourcePath']}:preToolUse:0"
+    assert row.id == "hook:" + hashlib.sha256(location.encode()).hexdigest()[:20]
+    assert hook["currentHash"] not in json.dumps(row.details)

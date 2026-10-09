@@ -654,7 +654,7 @@ class CodexStateAdapter:
                     for warning in group["warnings"][:100]
                     if isinstance(warning, str)
                 )
-            for hook in _listed(group, "hooks"):
+            for index, hook in enumerate(_listed(group, "hooks")):
                 details = safe_details(hook)
                 trust = hook.get("trustStatus")
                 details["status"] = (
@@ -672,10 +672,12 @@ class CodexStateAdapter:
                     else "user"
                 )
                 details["event"] = details.get("eventName", "")
+                key = hook.get("key")
+                if not isinstance(key, str) or not key:
+                    key = f"{hook.get('sourcePath')}:{hook.get('eventName')}:{index}"
                 items.append(
                     StateItem(
-                        "hook:"
-                        + hashlib.sha256(str(hook.get("key", hook)).encode()).hexdigest()[:20],
+                        "hook:" + hashlib.sha256(key.encode()).hexdigest()[:20],
                         "hook",
                         safe_text(hook.get("eventName", "Hook")),
                         scope,
@@ -737,7 +739,8 @@ class CodexStateAdapter:
         digest.update(instructions.digest().encode())
         digest.update(
             json.dumps(
-                [item.details for item in items if item.kind == "hook"], sort_keys=True
+                [item.content_digest or item.details for item in items if item.kind == "hook"],
+                sort_keys=True,
             ).encode()
         )
         version = _cli_version(binary, environment)
