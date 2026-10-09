@@ -22,6 +22,7 @@ def check_admin_api(client, state):
     assert not snapshot["status"]["running"]
     assert not any(s["enabled"] for s in snapshot["settings"]["services"].values())
     assert snapshot["local_profile"] == {}
+    assert client.get("/api/first-run").json()["completed"] is False
 
 
 def main():
@@ -54,6 +55,7 @@ def main():
                         raise RuntimeError("Installed server startup timeout")
                     for path in (
                         "/admin.js",
+                        "/first-run.js",
                         "/admin.css",
                         "/assets/theme.js",
                         "/assets/themes.css",

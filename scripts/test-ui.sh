@@ -36,6 +36,9 @@ kill -0 "$TH_PID"
 # this cookie, a session issued for the fixture install, in their browser context.
 ADMIN_LOCAL_COOKIE="keepharness-local=$("${PYTHON:-python3}" -c 'import sys;from pathlib import Path;from control import local_access;print(local_access.issue_session(Path(sys.argv[1])))' "$TH_STATE")"
 export ADMIN_LOCAL_COOKIE
+# Specs that read back what the control process stored (the first-run wizard) need its state folder.
+KEEPHARNESS_TEST_STATE=$TH_STATE
+export KEEPHARNESS_TEST_STATE
 "${PYTHON:-python3}" -c 'import json,sys,uuid;from pathlib import Path
 root=Path(sys.argv[1]);port=int(sys.argv[2]);(root/"chat.json").write_text(json.dumps({"state_dir":str(root/"chat"),"bind":"127.0.0.1","port":port,"local_access":True,"clients":{"local":{"sha256":"0"*64,"projects":["sem-projeto"]}},"projects":{"sem-projeto":{}},"services":{},"origins":[f"http://127.0.0.1:{port}"],"config_revision":uuid.uuid4().hex}))' "$TH_STATE" "$TH_CHAT_PORT"
 KEEPHARNESS_AGENT_CONFIG="$TH_STATE/chat.json" "${PYTHON:-python3}" -m agent_service.app >"$TH_STATE/chat.log" 2>&1 &
@@ -71,6 +74,20 @@ for attempt in range(3):
     except urllib.error.HTTPError as error:
         if error.code!=429 or attempt==2: raise
         time.sleep(int(error.headers.get("Retry-After") or 5))' "$TH_CHAT_URL"
+  # The first-run wizard opens on an install that never finished it, which would cover every admin
+  # page. Specs start with it completed; a spec named tests/first-run*.spec.cjs starts truly fresh.
+  case "$test_file" in */first-run*.spec.cjs) TH_FIRST_RUN=first-run:reset ;; *) TH_FIRST_RUN=first-run ;; esac
+  "${PYTHON:-python3}" -c 'import sys,time,urllib.error,urllib.request
+base,cookie,route=sys.argv[1:4]
+page=urllib.request.urlopen(urllib.request.Request(base+"/",headers={"Cookie":cookie}),timeout=5)
+admin=page.headers["Set-Cookie"].split(";")[0]
+for attempt in range(3):
+    try:
+        urllib.request.urlopen(urllib.request.Request(base+"/api/"+route,data=b"{}",method="POST",headers={"Cookie":admin,"X-Harness-Admin":"1","Content-Type":"application/json"}),timeout=5)
+        break
+    except urllib.error.HTTPError as error:
+        if error.code!=429 or attempt==2: raise
+        time.sleep(int(error.headers.get("Retry-After") or 5))' "$TH_ADMIN_URL" "$ADMIN_LOCAL_COOKIE" "$TH_FIRST_RUN"
   echo "RUN $test_file"
   if ADMIN_URL="$TH_ADMIN_URL" HARNESS_URL="$TH_CHAT_URL" node "$test_file"; then
     echo "PASS FILE $test_file"

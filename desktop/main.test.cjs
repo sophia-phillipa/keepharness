@@ -25,18 +25,20 @@ async function boot(options = {}) {
   Object.assign(app, { isPackaged: options.packaged ?? true, setName() {}, setBadgeCount: n => badges.push(n), getPath: name => name === 'downloads' ? path.join(home, 'Downloads') : userData,
     requestSingleInstanceLock: () => true, whenReady: async () => {}, quit: () => { app.quits++; app.emit('before-quit', event()); }, quits: 0 });
   let menu;
+  const trays = [];
   const event = () => ({ prevented: false, preventDefault() { this.prevented = true; } });
   class Window extends EventEmitter {
     constructor(opts) {
       super(); this.options = opts; this.shows = 0; this.destroyed = false; this.bounds = {x:100,y:100,width:1200,height:800}; this.maximized = false;
       this.webContents = new EventEmitter();
       Object.assign(this.webContents, { setWindowOpenHandler: fn => { this.open = fn; }, getURL: () => this.url,
-        executeJavaScript: async code => { const hash = /^location\.hash = (".*")$/.exec(code); if (hash) { this.url = this.url.split('#')[0] + JSON.parse(hash[1]); return; } if (options.failEnrollment) throw new Error("enrollment failed"); }, reload: () => { this.reloads = (this.reloads || 0) + 1; } });
+        executeJavaScript: async code => { (this.scripts ||= []).push(code); if (/HarnessPrefs\?\.get\('always_on_top'/.test(code)) return options.storedPin ?? false; const hash = /^location\.hash = (".*")$/.exec(code); if (hash) { this.url = this.url.split('#')[0] + JSON.parse(hash[1]); return; } if (options.failEnrollment) throw new Error("enrollment failed"); }, reload: () => { this.reloads = (this.reloads || 0) + 1; } });
       windows.push(this);
     }
     async loadURL(url) { this.url = url; this.loads = (this.loads || 0) + 1; if (options.dieOnRestartLoad && children.length === 2) { children[1].exitCode=1; children[1].emit('exit',1,null); children[1].emit('close',1,null); } }
     async loadFile(file) { this.file = file; }
     setTitle(title) { this.title = title; }
+    setAlwaysOnTop(flag) { this.pinned = flag; }
     setProgressBar(value) { this.progress = value; }
     show() { this.shows++; }
     isVisible() { return this.shows > 0 && !this.hidden; }
@@ -57,6 +59,7 @@ async function boot(options = {}) {
   app.getApplicationNameForProtocol = scheme => protocolApps[scheme] ?? '';
   const electron = { app, BrowserWindow: Window, ipcMain: { handle: (channel, fn) => handlers.set(channel, fn) }, shell: { openExternal: async url => { if (options.failOpenExternal) throw new Error('boom'); external.push(url); } },
     screen: { getAllDisplays: () => [{workArea:{x:0,y:0,width:1920,height:1080}}], getPrimaryDisplay: () => ({workArea:{x:0,y:0,width:1920,height:1080}}) },
+    Tray: class { constructor(icon) { if (options.trayFails) throw new Error('no tray'); this.icon = icon; trays.push(this); } setToolTip(tip) { this.tip = tip; } setContextMenu(m) { this.menu = m; } },
     Menu: { buildFromTemplate: template => template, setApplicationMenu: template => { menu = template; } },
     dialog: { showMessageBox: async (...args) => { const d = args.at(-1); dialogs.push(JSON.parse(JSON.stringify(d))); if (options.onDialog) return options.onDialog(d, app); return { response: options.response ?? 1 }; }, showAboutPanel() {} },
     session: { defaultSession: Object.assign(new EventEmitter(), { setPermissionRequestHandler(fn) { this.permission = fn; }, setPermissionCheckHandler(fn) { this.check = fn; }, cookies: { set: async cookie => { cookies.push(cookie); }, get: async query => query.name === 'keepharness-local' ? cookies.filter(cookie => cookie.name === query.name && new URL(cookie.url).origin === new URL(query.url).origin) : options.noSession ? [] : [{}] } }) } };
@@ -91,7 +94,7 @@ async function boot(options = {}) {
   const proc = new EventEmitter(); Object.assign(proc, { env:{ KEEPHARNESS_ADMIN_PORT:'18194', KEEPHARNESS_PYTHON:process.execPath, ...options.env }, platform:'linux', getuid: () => 1000 });
   vm.runInNewContext(source, { require(name) { return ({electron, 'node:fs':fakeFs, 'node:os':{homedir:()=>home}, 'node:http':http, 'node:child_process':childProcess, './policy.cjs':require('./policy.cjs')})[name] || require(name); }, __dirname, process:proc, console, Buffer, URL, Date: {now: () => clock.t, parse: Date.parse}, setTimeout:(fn,ms)=> { if (ms >= 5000) { const timer={fn,ms,unref(){}}; timers.set(timer,timer); return timer; } if (ms === 250) clock.t += 250; return setTimeout(fn,ms===250?0:ms); }, clearTimeout:timer => { timers.delete(timer); clearTimeout(timer); } }, {filename:'main.cjs'});
   await settle();
-  return {hostCalls,handlers,timers,badges,session:electron.session.defaultSession,home,userData,windows,dialogs,external,requests,requestDetails,children,probes,app,event,get menu(){return menu;},main:windows.find(w=>!w.options.frame && !w.file) || windows.find(w=>w.options.frame !== false)};
+  return {trays,hostCalls,handlers,timers,badges,session:electron.session.defaultSession,home,userData,windows,dialogs,external,requests,requestDetails,children,probes,app,event,get menu(){return menu;},main:windows.find(w=>!w.options.frame && !w.file) || windows.find(w=>w.options.frame !== false)};
 }
 
 test('credential-requiring harness is accepted and opens the main window', async () => {
@@ -161,6 +164,73 @@ test('packaged branded menu omits Reload and DevTools', async () => {
   assert.ok(!/reload|devtools/i.test(JSON.stringify(h.menu)));
   assert.match(JSON.stringify(h.menu), /about/); assert.match(JSON.stringify(h.menu), /zoomIn/);
   const dev = await boot({packaged:false}); assert.match(JSON.stringify(dev.menu), /toggleDevTools/);
+});
+const items = (template, label) => template.flatMap(entry => entry.submenu ?? [entry]).find(item => item.label === label);
+test('window menu has File > New chat and View > Always on top, tray has four items', async () => {
+  const h = await boot();
+  h.main.url = 'http://127.0.0.1:18194/'; h.main.webContents.emit('did-navigate');
+  assert.equal(items(h.menu, 'New chat').enabled, false); // the admin is loaded
+  h.main.url = 'http://127.0.0.1:8095/'; h.main.webContents.emit('did-navigate'); // Electron fires this when a page commits
+  assert.equal(items(h.menu.filter(e => e.label === 'File'), 'New chat').enabled, true);
+  assert.equal(items(h.menu.filter(e => e.label === 'View'), 'Always on top').type, 'checkbox');
+  assert.equal(h.trays.length, 1);
+  assert.match(h.trays[0].icon, /build[\\/]icons[\\/]32x32\.png$/); assert.ok(fs.existsSync(h.trays[0].icon));
+  assert.deepEqual(plain(h.trays[0].menu.map(i => i.label)), ['Open KeepHarness', 'New chat', 'Always on top', 'Quit']);
+  assert.equal(h.trays[0].menu[2].type, 'checkbox');
+  h.trays[0].menu[3].click(); assert.equal(h.app.quits, 1);
+});
+test('tray Quit surfaces a minimized window so the confirmation is visible', async () => {
+  const h = await boot({startBackend: true}); h.main.minimized = true;
+  h.trays[0].menu[3].click(); await settle();
+  assert.equal(h.main.restored, true); assert.equal(h.main.focused, true);
+  assert.equal(h.main.minimizedAtFocus, false);
+  assert.ok(h.dialogs.some(d => d.type === 'warning')); // closeWindow's confirmation
+});
+test('New chat clicks the harness button, surfaces the window, and is disabled on the admin page', async () => {
+  const h = await boot(); h.main.minimized = true; h.main.webContents.emit('did-navigate');
+  items(h.menu, 'New chat').click();
+  assert.equal(h.main.restored, true);
+  assert.ok(h.main.scripts.includes("document.getElementById('new')?.click()"));
+  h.main.url = 'http://127.0.0.1:18194/'; h.main.webContents.emit('did-navigate');
+  assert.equal(items(h.menu, 'New chat').enabled, false); assert.equal(h.trays[0].menu[1].enabled, false);
+  const before = h.main.scripts.length; items(h.menu, 'New chat').click(); h.trays[0].menu[1].click();
+  assert.equal(h.main.scripts.length, before);
+  h.main.url = 'http://127.0.0.1:8095/'; h.main.webContents.emit('did-navigate');
+  assert.equal(items(h.menu, 'New chat').enabled, true); assert.equal(h.trays[0].menu[1].enabled, true);
+});
+test('Always on top pins the window, keeps both menus in step and persists only through HarnessPrefs.set', async () => {
+  const h = await boot();
+  items(h.menu, 'Always on top').click({checked: true}); await settle();
+  assert.equal(h.main.pinned, true);
+  assert.equal(items(h.menu, 'Always on top').checked, true); assert.equal(h.trays[0].menu[2].checked, true);
+  assert.ok(h.main.scripts.includes("window.HarnessPrefs?.set('always_on_top', true)"));
+  h.trays[0].menu[2].click({checked: false}); await settle();
+  assert.equal(h.main.pinned, false); assert.equal(items(h.menu, 'Always on top').checked, false);
+  assert.ok(h.main.scripts.includes("window.HarnessPrefs?.set('always_on_top', false)"));
+  h.main.url = 'http://127.0.0.1:18194/'; const before = h.main.scripts.length;
+  items(h.menu, 'Always on top').click({checked: true}); await settle();
+  assert.equal(h.main.pinned, true); assert.equal(h.main.scripts.length, before); // admin: window only
+});
+test('the stored pin is applied once after the first harness page is ready', async () => {
+  const reads = w => w.scripts.filter(c => /HarnessPrefs\?\.get/.test(c)).length;
+  const h = await boot({storedPin: true}); h.main.webContents.emit('dom-ready'); await settle();
+  assert.equal(h.main.pinned, true); assert.equal(items(h.menu, 'Always on top').checked, true);
+  h.main.pinned = false; h.main.webContents.emit('dom-ready'); await settle(); // a later load never re-reads
+  assert.equal(h.main.pinned, false); assert.equal(reads(h.main), 1);
+  const off = await boot(); off.main.webContents.emit('dom-ready'); await settle();
+  assert.ok(!off.main.pinned);
+});
+test('the stored pin is not read or consumed while the admin is the first page', async () => {
+  const h = await boot({storedPin: true}); h.main.url = 'http://127.0.0.1:18194/';
+  h.main.webContents.emit('dom-ready'); await settle();
+  assert.equal((h.main.scripts ?? []).filter(c => /HarnessPrefs\?\.get/.test(c)).length, 0); assert.ok(!h.main.pinned);
+  h.main.url = 'http://127.0.0.1:8095/'; h.main.webContents.emit('dom-ready'); await settle();
+  assert.equal(h.main.pinned, true);
+});
+test('a tray that cannot be created is logged and the app carries on', async () => {
+  const h = await boot({trayFails: true});
+  assert.equal(h.trays.length, 0); assert.equal(h.app.quits, 0); assert.equal(h.main.url, 'http://127.0.0.1:8095/');
+  assert.ok(items(h.menu, 'New chat')); assert.match(fs.readFileSync(path.join(h.userData, 'logs', 'main.log'), 'utf8'), /Tray unavailable: no tray/);
 });
 test('normal bounds and maximized state survive restart atomically', async () => {
   const h = await boot(); h.main.bounds={x:120,y:90,width:1100,height:750}; h.main.maximized=true;
@@ -736,4 +806,10 @@ test('the Linux packager copies every local module main.cjs loads, preload inclu
   assert.ok(copied.includes('preload.cjs'));
   for (const [, name] of source.matchAll(/require\('\.\/([\w.-]+)'\)/g)) assert.ok(copied.includes(name), name);
   assert.ok(source.includes("path.join(__dirname, 'preload.cjs')"));
+  assert.ok(copied.includes('build/icons/32x32.png') && source.includes("'icons', '32x32.png'"));
+});
+test('the tray and menus add no IPC channel', async () => {
+  const h = await boot();
+  assert.deepEqual([...h.handlers.keys()].sort(), [APPS, OPEN]);
+  assert.ok(!/ipcRenderer|ipcMain\.on\b/.test(source.replace(/ipcMain\.handle/g, '')));
 });

@@ -880,7 +880,7 @@ def test_the_claude_identity_is_the_credential_in_the_cli_config_directory(tmp_p
             again = await manager.signed_in("claude", "claude")
             (folder / ".credentials.json").write_text("123456")
             second = await manager.signed_in("claude", "claude")
-        assert missing == {"signed_in": True, "identity": None}
+        assert missing == {"signed_in": True, "identity": None, "timed_out": False}
         assert first["identity"] and first == again and first["identity"] != second["identity"]
 
     asyncio.run(exercise())

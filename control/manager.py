@@ -28,6 +28,7 @@ from agent_service.work_items import validate_pattern
 from . import (
     discovery,
     env,
+    first_run,
     integration_catalog,
     integrations,
     local_access,
@@ -184,6 +185,14 @@ class Manager:
                 "permissions": {k: False for k in PERMISSIONS},
             },
         )
+        if "first_run" not in self.settings:
+            # An install from before the wizard counts as done when a service is on; decided
+            # here, once, and kept (a fresh state has no file yet and is written by its first save).
+            existed = self.path.exists()
+            self.settings["first_run"] = first_run.legacy_marker(self.settings)
+            if existed:
+                self.state_repository.save_settings(self.settings)
+        self._scan_task = None  # the first-run scan in flight, shared by concurrent callers
         self.provider_models = {}
         self.auth = {}
         self.applied = None
@@ -545,6 +554,9 @@ class Manager:
         # a posted or imported payload can neither add an address nor drop a saved one.
         if self.settings.get("remote_models"):
             out["remote_models"] = list(self.settings["remote_models"])
+        # The first-run marker is written by its own route, never by a posted payload.
+        if self.settings.get("first_run"):
+            out["first_run"] = dict(self.settings["first_run"])
         return out
 
     def save(self, data):
@@ -676,7 +688,11 @@ class Manager:
         if provider == "codex":
             # The login KeepHarness signed in with, in its own home (decision D02).
             code, _ = await discovery.command(binary, "login", "status", env=login_environment())
-            return {"signed_in": code == 0, "identity": None}
+            return {
+                "signed_in": code == 0,
+                "identity": None,
+                "timed_out": code == discovery.TIMED_OUT,
+            }
         env = cli_login_environment()
         code, raw = await discovery.command(binary, "auth", "status", "--json", env=env)
         try:
@@ -695,6 +711,7 @@ class Manager:
         return {
             "signed_in": status.get("loggedIn") is True,
             "identity": None if identity == [None] else ":".join(map(str, identity)),
+            "timed_out": code == discovery.TIMED_OUT,
         }
 
     async def check(self, provider):

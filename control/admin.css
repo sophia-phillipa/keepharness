@@ -1543,6 +1543,52 @@ body:has(#provider-dialog[open]) {
 #network input[type="file"] {
   max-width: 100%;
 }
+#first-run {
+  width: min(680px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+}
+#first-run-body {
+  display: grid;
+  gap: 16px;
+  margin: 16px 0;
+}
+#first-run-body h3:focus-visible {
+  outline: 2px solid var(--th-accent);
+  outline-offset: 4px;
+}
+.first-run-group {
+  display: grid;
+  gap: 8px;
+}
+.first-run-providers {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.first-run-provider {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.first-run-provider-actions {
+  margin-left: auto;
+}
+.first-run-error {
+  color: var(--th-danger);
+}
+.first-run-footer,
+.first-run-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.first-run-footer {
+  justify-content: space-between;
+}
 
 .configured-models {
   display: flex;

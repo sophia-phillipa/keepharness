@@ -101,7 +101,8 @@ def seed(root, admin_port, harness_port):
     (root / "chat.json").write_text(json.dumps(config))
     admin_state.mkdir(mode=0o700)
     # The admin lets only its harness port frame it (Settings > System); no provider is
-    # enabled, so it never starts a harness of its own.
+    # enabled, so it never starts a harness of its own. The first-run wizard (#69) counts as
+    # finished, or its dialog would cover every admin page; the first-run area resets it.
     (admin_state / "settings.json").write_text(
         json.dumps(
             {
@@ -122,6 +123,7 @@ def seed(root, admin_port, harness_port):
                 "port": harness_port,
                 "tailnet_port": harness_port,
                 "logins": [],
+                "first_run": {"completed_at": "2026-01-01T00:00:00+00:00"},
             }
         )
     )

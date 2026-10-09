@@ -3,7 +3,7 @@
 // window, keeps navigation inside the two local origins and stops the admin it
 // started when the app quits. The window is the owner's: it signs itself in with a session
 // minted from the per-install secret and enrolls itself for approvals (decisions D09 and D13).
-const { app, BrowserWindow, dialog, ipcMain, session, shell, Menu, screen } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, session, shell, Menu, Tray, screen } = require('electron');
 const { execFile, spawn, spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const http = require('node:http');
@@ -55,6 +55,9 @@ let win = null,
   adminCookie = null,
   asking = false,
   closeConfirmed = false,
+  tray = null,
+  pinned = false,
+  pinRestored = false,
   stderr = '',
   buildLabel = 'development build';
 
@@ -151,11 +154,69 @@ function restoredBounds() {
   const primary = screen.getPrimaryDisplay().workArea;
   return clampBounds(state, [primary, ...screen.getAllDisplays().map(display => display.workArea)]);
 }
+// Window and tray menus share these items. New chat clicks the harness page's own button, so it
+// is enabled only while the harness (not the admin) is loaded. The pin has one writer: the page's
+// HarnessPrefs; main only mirrors it on the window (D-050).
+function onHarness() {
+  try { return !!win && !win.isDestroyed() && new URL(win.webContents.getURL()).origin === new URL(harnessUrl).origin; } catch { return false; }
+}
+function newChat() {
+  if (!onHarness()) return;
+  surface(win);
+  win.webContents.executeJavaScript("document.getElementById('new')?.click()").catch(error => log(error.message));
+}
+const newChatItem = () => ({label:'New chat', enabled:onHarness(), click:newChat});
+const pinItem = () => ({label:'Always on top', type:'checkbox', checked:pinned, click:item => setPinned(item.checked)});
+function refreshMenus() {
+  installMenu();
+  tray?.setContextMenu(Menu.buildFromTemplate(trayTemplate()));
+}
+function applyPinned(flag) {
+  pinned = flag;
+  if (win && !win.isDestroyed()) win.setAlwaysOnTop(flag);
+  refreshMenus();
+}
+function setPinned(flag) {
+  applyPinned(flag);
+  // On the admin page the pin applies to the window only; it is not persisted.
+  if (onHarness()) win.webContents.executeJavaScript("window.HarnessPrefs?.set('always_on_top', " + Boolean(flag) + ')').catch(error => log(error.message));
+}
+// Once per run, after the first harness page load, apply the stored pin.
+async function restorePinned() {
+  if (pinRestored || !onHarness()) return;
+  try {
+    const stored = await win.webContents.executeJavaScript("window.HarnessPrefs?.get('always_on_top', false)");
+    pinRestored = true; // consumed only once the page has answered
+    if (stored === true) applyPinned(true);
+  } catch (error) { log(error.message); }
+}
+function trayTemplate() {
+  return [
+    {label:'Open KeepHarness', click:() => { if (win && !win.isDestroyed()) surface(win); }},
+    newChatItem(),
+    pinItem(),
+    // The before-quit confirmation is a dialog on the window: bring the window up first.
+    {label:'Quit', click:() => { if (win && !win.isDestroyed()) surface(win); app.quit(); }},
+  ];
+}
+function installTray() {
+  if (tray) return tray;
+  try {
+    tray = new Tray(path.join(__dirname, 'build', 'icons', '32x32.png'));
+    tray.setToolTip(TITLE);
+    tray.setContextMenu(Menu.buildFromTemplate(trayTemplate()));
+  } catch (error) {
+    tray = null;
+    log('Tray unavailable: ' + error.message);
+  }
+  return tray;
+}
 function installMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     {label:TITLE, submenu:[{id:'about', label:'About KeepHarness', click:() => dialog.showMessageBox({type:'info', title:'About KeepHarness', message:TITLE, detail:buildLabel})}, {label:'Quit', accelerator:'CmdOrCtrl+Q', click:() => app.quit()}]},
+    {label:'File', submenu:[newChatItem()]},
     {label:'Edit', submenu:['undo','redo','cut','copy','paste','selectAll'].map(role => ({role}))},
-    {label:'View', submenu:[{role:'resetZoom'}, {role:'zoomIn'}, {role:'zoomOut'}, {role:'togglefullscreen'}, ...(!app.isPackaged ? [{role:'toggleDevTools'}] : [])]},
+    {label:'View', submenu:[{role:'resetZoom'}, {role:'zoomIn'}, {role:'zoomOut'}, {role:'togglefullscreen'}, pinItem(), ...(!app.isPackaged ? [{role:'toggleDevTools'}] : [])]},
   ]));
 }
 // The admin is a Settings section of the harness window, never a window of its own: for the admin
@@ -709,6 +770,9 @@ async function start() {
   if (quitting) return;
   requireBackendAlive();
   win = createWindow('main');
+  win.webContents.on('did-navigate', refreshMenus);
+  win.webContents.on('dom-ready', () => { void restorePinned(); });
+  installTray();
   const enrollment = target === harnessUrl ? await enrollmentTarget() : null;
   if (quitting) return;
   requireBackendAlive();

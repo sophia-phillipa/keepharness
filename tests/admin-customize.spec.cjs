@@ -346,10 +346,16 @@ const contrast = (a, b) => {
     assert.equal(catalogCalls, 4);
     assert.deepEqual(
       apiCalls.filter(
-        (n) => !["state", "integration-catalog", "provider-state"].includes(n),
+        (n) =>
+          ![
+            "state",
+            "integration-catalog",
+            "provider-state",
+            "first-run",
+          ].includes(n),
       ),
       [],
-      "rendering requests only /api/state, /api/integration-catalog and /api/provider-state (no dashboard polling)",
+      "rendering requests only /api/state, /api/integration-catalog, /api/provider-state and the one-time /api/first-run check (no dashboard polling)",
     );
     assert.equal(
       apiCalls.filter((n) => n === "provider-state").length,

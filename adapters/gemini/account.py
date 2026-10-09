@@ -40,20 +40,21 @@ async def _request(proc, request_id, method, params):
             return item.get("result", {})
 
 
-async def check(binary):
-    """Confirm the locally selected OAuth state without an inference request."""
-    settings_path = Path.home() / ".gemini" / "settings.json"
-    selected_oauth = False
+def credential_present():
+    """Whether OAuth is selected and its credential file exists; the credential is never opened."""
     try:
-        settings = json.loads(settings_path.read_text())
+        settings = json.loads((Path.home() / ".gemini" / "settings.json").read_text())
         selected_oauth = (
             settings.get("security", {}).get("auth", {}).get("selectedType") == "oauth-personal"
         )
     except (OSError, ValueError, AttributeError):
-        pass
-    # Deliberately check only existence. OAuth credentials must never be read.
-    credential_present = (Path.home() / ".gemini" / "oauth_creds.json").is_file()
-    if not selected_oauth or not credential_present:
+        return False
+    return selected_oauth and (Path.home() / ".gemini" / "oauth_creds.json").is_file()
+
+
+async def check(binary):
+    """Confirm the locally selected OAuth state without an inference request."""
+    if not credential_present():
         return {
             "authenticated": False,
             "credential_present": False,
