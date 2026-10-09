@@ -403,3 +403,10 @@ def test_closed_enum_values_pass():
     hook = {"type": "mcp_tool", "handlerType": "agent", "trustStatus": "modified"}
     hook |= {"status": "pending review", "source": "sessionFlags", "model": "claude-sonnet-5-5"}
     assert safe_details(hook) == hook
+
+
+def test_token_shaped_env_prefix_names_and_long_options_are_masked():
+    assert mask_command("AKIAIOSFODNN7EXAMPLE=1 cmd") == f"{PLACEHOLDER} {PLACEHOLDER}"
+    assert mask_command("HOME=1 cmd") == f"HOME={PLACEHOLDER} cmd"
+    assert mask_command("cmd --deadbeefdeadbeef12345") == f"cmd {PLACEHOLDER}"
+    assert mask_command("cmd --verbose") == "cmd --verbose"

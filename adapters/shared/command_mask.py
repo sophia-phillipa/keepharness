@@ -99,6 +99,8 @@ def _mask_option(word: _Word) -> str:
     if match is None:
         return "--" if word.value == "--" and not word.quoted else PLACEHOLDER
     name = match.group(1)
+    if is_opaque(name[2:]):
+        return PLACEHOLDER
     tail = word.value[len(name) :]
     if name.startswith("--"):
         if tail.startswith("="):
@@ -149,7 +151,9 @@ def _mask_words(words: Iterable[_Word]) -> list[str]:
             out.append(_mask_option(word))
             masked = True
         elif not masked and _ENV_PREFIX.match(word.head):
-            out.append(word.head.split("=", 1)[0] + "=" + PLACEHOLDER)
+            name = word.head.split("=", 1)[0]
+            out.append(f"{name}={PLACEHOLDER}" if is_name(name) else PLACEHOLDER)
+            masked = masked or not is_name(name)
         elif (
             not masked
             and not word.quoted
