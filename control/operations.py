@@ -31,7 +31,7 @@ POLL_DELAY, POLL_FACTOR, POLL_CAP, POLL_LIMIT = 2, 1.5, 10, 600
 # Once status says signed in, the time the CLI gets to finish writing its credentials and exit.
 EXIT_GRACE = 5
 # What a one-time link leaves behind when the output cut splits the URL: its state and code.
-LINK_TAIL = re.compile(r"(?:state|code)=[^\s&]+")
+LINK_TAIL = re.compile(r"(?<![\w-])(?:state|code)=[^\s&]+")
 
 
 def released(held):
@@ -117,9 +117,9 @@ class Operations:
                         await signed_in()
                     )  # before any code is pasted: the credentials as they are
                 finally:
-                    if (
-                        interactive
-                    ):  # the baseline is taken first, so a pasted code cannot land in it
+                    # The baseline is taken first, so a pasted code cannot land in it; a job that
+                    # already ended has no stdin left and must not reopen its input.
+                    if interactive and jid in self.stdin:
                         self.jobs[jid]["accepts_input"] = True
                 if interactive:
                     await self.watched[jid].wait()

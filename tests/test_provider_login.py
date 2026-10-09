@@ -803,6 +803,42 @@ def test_a_login_expiry_drops_a_state_or_code_left_by_the_output_cut():
     asyncio.run(exercise())
 
 
+def test_a_login_expiry_leaves_words_that_merely_end_in_state_or_code_alone():
+    """`exit_code=1` or `status_code=401` in the CLI output are not link tails."""
+
+    async def exercise():
+        operations = Operations()
+        script = "print('exit_code=1 status_code=401 encode=utf8 state=SECRET')"
+        job = operations.launch([sys.executable, "-c", script], login=True)
+        await asyncio.gather(*operations.tasks)
+        assert "exit_code=1 status_code=401 encode=utf8" in job["output"]
+        assert "SECRET" not in job["output"]
+
+    asyncio.run(exercise())
+
+
+def test_a_login_that_ends_during_the_baseline_does_not_reopen_its_input():
+    """The poller's baseline may outlive a CLI that exits at once: the job stays closed."""
+
+    async def exercise():
+        operations = Operations()
+
+        async def status():
+            await asyncio.sleep(0.5)
+            return {"signed_in": False, "identity": None}
+
+        job = operations.launch(
+            [sys.executable, "-c", "print('bye')"], timeout=60, interactive=True, signed_in=status
+        )
+        await asyncio.gather(*operations.tasks)
+        await asyncio.sleep(0.7)  # let the baseline finish after the job ended
+        assert job["state"] == "completed"
+        assert job["accepts_input"] is False
+        await operations.close()
+
+    asyncio.run(exercise())
+
+
 def test_a_login_without_a_status_check_expires_its_link_too():
     """Gemini has no status command, yet its one-time sign-in URL must not outlive the job."""
 
