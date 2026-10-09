@@ -23,6 +23,7 @@ from adapters.gemini import account as gemini
 from adapters.shared.provider_setup import login_environment
 from agent_service.config import VERSION_FILE
 from agent_service.errors import UserMessageError
+from agent_service.tools import ToolError
 from agent_service.work_items import validate_pattern
 
 from . import (
@@ -120,6 +121,11 @@ class Manager:
         if self.state.stat().st_uid == os.getuid():
             self.state.chmod(0o700)
         migrate_local_ai_directory(env.LOCAL_AI_ROOT, self.state)
+        try:
+            deepseek.ensure_private_home(self.state)
+        except (OSError, ToolError):
+            # Runtime still refuses a missing or unsafe home, so startup must not fail here.
+            logger.warning("DeepSeek private home could not be provisioned at startup.")
         self.state_repository = ControlStateRepository(self.state)
         self.path = self.state_repository.settings_path
         self.cookie = secrets.token_urlsafe(32)

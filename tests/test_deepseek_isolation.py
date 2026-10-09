@@ -349,3 +349,18 @@ def test_key_echoes_are_redacted_in_events_errors_and_logs(tmp_path, channel):
         read_logs(SimpleNamespace(query_params={}), SimpleNamespace(state=tmp_path))
     )
     assert sentinel not in json.dumps(exported)
+
+
+def test_saved_key_without_private_home_is_provisioned_at_startup(tmp_path):
+    config = configuration(tmp_path)
+    home = tmp_path / "providers" / "deepseek"
+    home.rmdir()
+    account.ensure_private_home(tmp_path)
+    assert home.stat().st_mode & 0o777 == 0o700
+    runtime = backend.runtime_options(config, {})
+    assert runtime.environment["CODEX_HOME"] == str(home)
+
+
+def test_private_home_is_not_provisioned_without_saved_key(tmp_path):
+    account.ensure_private_home(tmp_path)
+    assert not (tmp_path / "providers" / "deepseek").exists()
