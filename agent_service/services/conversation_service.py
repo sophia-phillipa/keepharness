@@ -437,7 +437,7 @@ class ConversationService:
                     **candidate,
                     "temporary_chat": True,
                     "state_dir": str(session.service.root),
-                    "sessions_dir": str(session.service.root / "sessions"),
+                    "sessions_dir": str(session.service.sessions_root()),
                 }
                 await session.service.apply_runtime_config(temporary_config)
 

@@ -7,7 +7,7 @@ from . import api_route
 
 async def sessions(request, service, identity):
     if request.method == "POST":
-        return JSONResponse({"id": service.temporary.open(identity)}, status_code=201)
+        return JSONResponse({"id": await service.temporary.open(identity)}, status_code=201)
     sid = request.path_params["session"]
     if request.method == "GET":
         service.temporary.get(identity, sid)

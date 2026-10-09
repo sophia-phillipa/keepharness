@@ -26,6 +26,7 @@ from pathlib import Path
 
 from adapters.shared.provider_state import CLAUDE_JSON_BACKUP_PARTS
 
+from .backup import is_temporary_chat
 from .product import (
     LEGACY_FOLDERS,
     LEGACY_MARKER,
@@ -60,6 +61,8 @@ class Plan:
 def skipped(relative):
     """What the plan handles by itself, or never copies (the environment, a client bridge)."""
     parts, name = relative.parts, relative.name
+    if is_temporary_chat(parts):
+        return True  # disposable chat artifacts must never become durable merged state
     if len(parts) == 1:
         return name in ("venv", "harness.identity.json", "audit.jsonl") or name.startswith("mcp_bridge.")
     return parts[0] == "runs" and len(parts) == 2 and (
@@ -178,7 +181,7 @@ def describe_plan(plan, stamp):
 def backup(plan, archive):
     def without_environment(member):
         parts = Path(member.name).parts
-        if len(parts) > 1 and parts[1] == "venv":
+        if (len(parts) > 1 and parts[1] == "venv") or is_temporary_chat(parts[1:]):
             return None
         # copies of ~/.claude.json hold the sign-in session: never archived
         return None if parts[1:1 + len(CLAUDE_JSON_BACKUP_PARTS)] == CLAUDE_JSON_BACKUP_PARTS else member

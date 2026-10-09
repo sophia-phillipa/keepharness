@@ -156,6 +156,20 @@ def test_the_rollback_archive_leaves_the_claude_json_copies_out(split):
     assert not any("claude-json" in name for name in names)
 
 
+def test_temporary_chat_artifacts_are_never_archived_or_merged(split):
+    home, old, new = split
+    write(new / f"runs/temporary-chats/{'a' * 32}/source.txt", "private")
+    write(new / "runs/temporary-chats.lock", "")
+    write(new / f"runs/sessions/temporary-chats/{'b' * 32}/c/codex/x.json", "private")
+
+    state_merge.main(["--apply"], home=home)
+
+    (backup,) = (home / ".local/share").glob("keepharness-merge-*.tar")
+    with tarfile.open(backup) as archive:
+        assert not any("temporary-chats" in name for name in archive.getnames())
+    assert not any("temporary-chats" in str(p) for p in old.rglob("*"))
+
+
 def test_a_conversation_present_in_both_folders_refuses_the_merge(split):
     home, old, new = split
     write(old / "runs/sessions/c3/claude/claude-session.json", "{}")

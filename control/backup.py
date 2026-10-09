@@ -63,8 +63,16 @@ def is_secret(relative: Path) -> bool:
     return relative.parts[0] == "providers" or name.endswith(SECRET_SUFFIXES) or name.startswith(SECRET_FILES)
 
 
+def is_temporary_chat(parts):
+    """The volatile temporary-chat folders (run folders sit in the sessions folder or beside it)."""
+    return (
+        parts[:2] in (("runs", "temporary-chats"), ("runs", "temporary-chats.lock"))
+        or parts[:3] == ("runs", "sessions", "temporary-chats")
+    )
+
+
 def wanted(relative: Path, with_secrets: bool) -> bool:
-    if "temporary-chats" in relative.parts:
+    if is_temporary_chat(relative.parts):
         return False  # disposable chat artifacts must never become durable backups
     if relative.parts[0] in KEPT or relative.name.endswith(VOLATILE_SUFFIXES):
         return False

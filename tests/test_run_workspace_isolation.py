@@ -28,11 +28,10 @@ def test_runtime_config_keeps_run_folders_outside_the_state(tmp_path):
     assert sessions.parent == state.parent
 
 
-def test_run_cwd_outside_state_and_reads_scoped(tmp_path):
-    state = tmp_path / "keepharness"
+def isolation_config(state):
     (state / "runs").mkdir(parents=True)
     (state / "vpn.key").write_text("fixture-secret")
-    config = {
+    return {
         **runtime(state),
         "projects": {"sem-projeto": {"label": "No project"}},
         "clients": {
@@ -51,8 +50,10 @@ def test_run_cwd_outside_state_and_reads_scoped(tmp_path):
         "codex_models": {"gpt-6-astra": ["low"]},
         "origins": [],
     }
-    service = Service(config)
-    identity = ("local", config["clients"]["local"])
+
+
+def run_folders(service, identity):
+    """The provider cwd and session folder of one fixture turn served by ``service``."""
     data = {
         "project_id": "sem-projeto",
         "backend": "codex",
@@ -68,21 +69,53 @@ def test_run_cwd_outside_state_and_reads_scoped(tmp_path):
         seen["session"] = Path(session_dir)
         return {"answer": "fixture"}
 
+    job = service.submit(identity, data)["job_id"]
+    with (
+        patch("adapters.run_native", side_effect=native),
+        patch.object(service, "quota", AsyncMock(return_value={})),
+    ):
+        asyncio.run(service.infer(service.job(identity, job), data))
+    return seen["cwd"], seen["session"]
+
+
+def test_run_cwd_outside_state_and_reads_scoped(tmp_path):
+    state = tmp_path / "keepharness"
+    config = isolation_config(state)
+    service = Service(config)
+    identity = ("local", config["clients"]["local"])
     try:
-        job = service.submit(identity, data)["job_id"]
-        with (
-            patch("adapters.run_native", side_effect=native),
-            patch.object(service, "quota", AsyncMock(return_value={})),
-        ):
-            asyncio.run(service.infer(service.job(identity, job), data))
+        folders = run_folders(service, identity)
     finally:
         service.db.close()
-    for folder in (seen["cwd"], seen["session"]):
+    for folder in folders:
         # No run folder has the key folder (or the run database folder) among its parents.
         assert state not in folder.parents and folder != state
         assert folder.is_relative_to(Path(config["sessions_dir"]))
     # The relocated run folders stay private storage: never registrable as a project.
     assert Path(config["sessions_dir"]) in private_roots(config, config["state_dir"])
+
+
+def test_temporary_run_folders_also_stay_outside_the_key_folder(tmp_path):
+    state = tmp_path / "keepharness"
+    config = isolation_config(state)
+    service = Service(config)
+    identity = ("local", config["clients"]["local"])
+
+    async def scenario():
+        sid = await service.temporary.open(identity)
+        session = service.temporary.get(identity, sid)
+        folders = await asyncio.to_thread(run_folders, session.service, identity)
+        await service.temporary.close(identity, sid)
+        return folders
+
+    try:
+        folders = asyncio.run(scenario())
+    finally:
+        service.db.close()
+    for folder in folders:
+        assert state not in folder.parents and folder != state
+        assert folder.is_relative_to(Path(config["sessions_dir"]))
+    assert not any((Path(config["sessions_dir"]) / "temporary-chats").iterdir())
 
 
 @pytest.fixture

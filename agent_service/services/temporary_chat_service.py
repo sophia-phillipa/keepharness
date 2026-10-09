@@ -41,6 +41,7 @@ class Session:
     worker: asyncio.Task
     lock: object
     deadline: float
+    sid: str
     requests: set = field(default_factory=set)
 
 
@@ -48,10 +49,15 @@ class TemporaryChatService:
     def __init__(self, service):
         self.service = service
         self.root = service.root / "temporary-chats"
+        # Provider run folders sit beside the harness state, like ordinary runs: the folder that
+        # holds the keys is never a parent of a provider cwd (see runtime_config.base_config).
+        sessions = service.sessions_root()
+        self.sessions_base = sessions / "temporary-chats"
         self.sessions = {}
-        if self.root.is_symlink():
-            raise APIError("temporary_storage_unavailable")
-        self.root.mkdir(mode=0o700, exist_ok=True)
+        for folder in (self.root, sessions, self.sessions_base):
+            if folder.is_symlink():
+                raise APIError("temporary_storage_unavailable")
+            folder.mkdir(mode=0o700, parents=True, exist_ok=True)
         with self._storage_lock():
             self._sweep_stale()
 
@@ -82,21 +88,57 @@ class TemporaryChatService:
                     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 except BlockingIOError:
                     continue
+                self._remove_folders(folder.name)
+
+    def _remove_folders(self, sid):
+        """Delete one session's run folders and state folder; the caller holds the storage lock."""
+        for folder in (self.sessions_base / sid, self.root / sid):
+            if folder.exists():
                 shutil.rmtree(folder)
 
-    def open(self, identity):
-        from .conversation_service import ConversationService
-
-        if sum(session.owner == identity[0] for session in self.sessions.values()) >= 8:
-            raise APIError("temporary_session_limit", 429)
-        sid = uuid.uuid4().hex
-        root = self.root / sid
+    def _publish(self, root):
+        """Create the session folder and take its lease; blocks on other harness processes."""
         with self._storage_lock():
             root.mkdir(mode=0o700)
             lock = (root / ".lock").open("a")
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return lock
+
+    def _discard(self, sid, lock):
+        try:
+            with self._storage_lock():
+                self._remove_folders(sid)
+        finally:
+            if lock:
+                lock.close()
+
+    async def open(self, identity):
+        sid = uuid.uuid4().hex
+        publish = asyncio.ensure_future(asyncio.to_thread(self._publish, self.root / sid))
+        try:
+            return self._start(identity, sid, await asyncio.shield(publish))
+        except BaseException:
+            # Even a cancelled request must not leave its folder behind.
+            await asyncio.shield(self._abandon(sid, publish))
+            raise
+
+    async def _abandon(self, sid, publish):
+        try:
+            lock = await publish
+        except Exception:
+            lock = None
+        await asyncio.to_thread(self._discard, sid, lock)
+
+    def _start(self, identity, sid, lock):
+        from .conversation_service import ConversationService
+
+        if sum(session.owner == identity[0] for session in self.sessions.values()) >= 8:
+            raise APIError("temporary_session_limit", 429)
+        root = self.root / sid
         config = copy.deepcopy(self.service.config)
-        config.update(temporary_chat=True, state_dir=str(root), sessions_dir=str(root / "sessions"))
+        config.update(
+            temporary_chat=True, state_dir=str(root), sessions_dir=str(self.sessions_base / sid)
+        )
         token = temporary_execution.set(True)
         protect_logs()
         try:
@@ -113,17 +155,10 @@ class TemporaryChatService:
             ):
                 setattr(service, name, getattr(self.service, name))
             worker = asyncio.create_task(service.worker())
-        except BaseException:
-            try:
-                with self._storage_lock():
-                    shutil.rmtree(root)
-            finally:
-                lock.close()
-            raise
         finally:
             temporary_execution.reset(token)
         self.sessions[sid] = Session(
-            identity[0], service, worker, lock, time.monotonic() + LEASE_SECONDS
+            identity[0], service, worker, lock, time.monotonic() + LEASE_SECONDS, sid
         )
         self.service.project_service.conversation_repositories.add(service.conversation_repository)
         return sid
@@ -162,14 +197,7 @@ class TemporaryChatService:
             session.service.conversation_repository
         )
         session.service.db.close()
-        await asyncio.to_thread(self._remove_artifacts, session)
-
-    def _remove_artifacts(self, session):
-        try:
-            with self._storage_lock():
-                shutil.rmtree(session.service.root)
-        finally:
-            session.lock.close()
+        await asyncio.to_thread(self._discard, session.sid, session.lock)
 
     async def close_all(self):
         for sid, session in list(self.sessions.items()):

@@ -86,6 +86,54 @@ def test_temporary_shutdown_and_crash_sweep(tmp_path):
     app.state.service.db.close()
 
 
+def test_crash_sweep_also_removes_the_stale_run_folders(tmp_path):
+    app = create_app(config(tmp_path))
+    sid = "a" * 32
+    (tmp_path / "temporary-chats" / sid).mkdir(parents=True)
+    residue = app.state.service.temporary.sessions_base / sid / "conversation" / "codex"
+    residue.mkdir(parents=True)
+    (residue / "native-thread.json").write_text("crash residue")
+    create_app(config(tmp_path))
+    assert not residue.parent.parent.exists()
+    app.state.service.db.close()
+
+
+def test_open_during_a_slow_close_keeps_the_event_loop_responsive(tmp_path, monkeypatch):
+    import shutil
+    import threading
+    import time
+
+    async def scenario():
+        parent = ConversationService(config(tmp_path))
+        identity = ("a", parent.config["clients"]["a"])
+        first = await parent.temporary.open(identity)
+        started, release = threading.Event(), threading.Event()
+        remove = shutil.rmtree
+
+        def slow(path, *args, **kwargs):
+            started.set()
+            release.wait(5)
+            remove(path, *args, **kwargs)
+
+        monkeypatch.setattr(shutil, "rmtree", slow)
+        threading.Timer(1.0, release.set).start()  # a blocked loop cannot release it itself
+        closing = asyncio.create_task(parent.temporary.close(identity, first))
+        await asyncio.to_thread(started.wait, 5)
+        opening = asyncio.create_task(parent.temporary.open(identity))
+        begun = time.monotonic()
+        await asyncio.sleep(0.01)
+        assert time.monotonic() - begun < 0.5
+        assert not opening.done()
+        release.set()
+        await closing
+        second = await opening
+        assert second in parent.temporary.sessions
+        await parent.temporary.close_all()
+        parent.db.close()
+
+    asyncio.run(scenario())
+
+
 def test_temporary_marker_without_session_never_persists(tmp_path):
     with TestClient(create_app(config(tmp_path)), headers={"Authorization": "Bearer a"}) as client:
         response = client.post(
@@ -137,7 +185,7 @@ def test_temporary_history_replayed_inline_and_provider_flags(tmp_path):
         cfg["codex"] = {}
         parent = ConversationService(cfg)
         identity = ("a", cfg["clients"]["a"])
-        sid = parent.temporary.open(identity)
+        sid = await parent.temporary.open(identity)
         service = parent.temporary.get(identity, sid).service
         service.quota = AsyncMock(return_value={"available": False})
         row, data = add_turn(service, "first", "codex", model="gpt-6-astra")
@@ -192,7 +240,7 @@ def test_temporary_services_share_capacity_and_quotas(tmp_path):
         cfg = config(tmp_path)
         parent = ConversationService(cfg)
         identity = ("a", cfg["clients"]["a"])
-        sid = parent.temporary.open(identity)
+        sid = await parent.temporary.open(identity)
         service = parent.temporary.get(identity, sid).service
         assert service.write_ownership is parent.write_ownership
         assert service.provider_lanes is parent.provider_lanes
@@ -251,7 +299,7 @@ def test_startup_does_not_sweep_another_live_temporary_session(tmp_path):
         cfg = config(tmp_path)
         parent = ConversationService(cfg)
         identity = ("a", cfg["clients"]["a"])
-        sid = parent.temporary.open(identity)
+        sid = await parent.temporary.open(identity)
         root = parent.temporary.get(identity, sid).service.root
         another = ConversationService(config(tmp_path))
         assert root.exists()
@@ -270,7 +318,7 @@ def test_runtime_changes_reach_temporary_pending_jobs(tmp_path):
         cfg = single_owner_config(tmp_path)
         parent = ConversationService(copy.deepcopy(cfg))
         identity = ("local", cfg["clients"]["local"])
-        sid = parent.temporary.open(identity)
+        sid = await parent.temporary.open(identity)
         service = parent.temporary.get(identity, sid).service
         queued(
             service,
@@ -300,7 +348,7 @@ def test_abandoned_temporary_session_expires_and_cannot_be_revived(tmp_path):
         cfg = config(tmp_path)
         parent = ConversationService(cfg)
         identity = ("a", cfg["clients"]["a"])
-        sid = parent.temporary.open(identity)
+        sid = await parent.temporary.open(identity)
         session = parent.temporary.get(identity, sid)
         root = session.service.root
         session.deadline = 0
@@ -332,7 +380,7 @@ def test_cancelled_close_still_finishes_artifact_cleanup(tmp_path):
         cfg = config(tmp_path)
         parent = ConversationService(cfg)
         identity = ("a", cfg["clients"]["a"])
-        sid = parent.temporary.open(identity)
+        sid = await parent.temporary.open(identity)
         session = parent.temporary.get(identity, sid)
         entered, release = asyncio.Event(), asyncio.Event()
 
@@ -424,7 +472,7 @@ def test_temporary_creation_is_atomic_with_another_startup_sweep(tmp_path, monke
         monkeypatch.setattr(Path, "mkdir", mkdir)
         monkeypatch.setattr(fcntl, "flock", flock)
         try:
-            sid = parent.temporary.open(identity)
+            sid = await parent.temporary.open(identity)
             sweeper.result(timeout=5)
             session = parent.temporary.get(identity, sid)
             assert session.service.root.is_dir()
