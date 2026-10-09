@@ -15,7 +15,7 @@ const state = {
 function items(provider) {
   return [
     { id: "hook:" + provider, kind: "hook", name: "Before tool", scope: "project", source: "/fake/project/." + provider + "/settings.json", enabled: false, writable: false,
-      reason: "Project hooks disabled until trust", details: { event: "PreToolUse", matcher: "Bash", type: "command", command: "check --token=[REDACTED] " + "x".repeat(180), timeout: 30, async: false, status: provider === "codex" ? "pending review" : "disabled until trust", env: { API_KEY: "[REDACTED]" }, eventName: "PreToolUse", handlerType: "command", server: "audit", tool: "check", sourcePath: "/fake/hooks.json", statusMessage: "Review in CLI", timeoutSec: 30, additionalContextLimit: 1024, pluginId: "audit@local", enabled: false, isManaged: false, trustStatus: "untrusted", currentHash: "hash", key: "native-key", displayOrder: 1 } },
+      reason: "Project hooks disabled until trust", details: { event: "PreToolUse", matcher: "Bash", type: "command", command: "check --token=‹value› " + "x".repeat(180), timeout: 30, async: false, status: provider === "codex" ? "pending review" : "disabled until trust", env: { API_KEY: "‹value›" }, eventName: "PreToolUse", handlerType: "command", server: "audit", tool: "check", sourcePath: "/fake/hooks.json", statusMessage: "Review in CLI", timeoutSec: 30, additionalContextLimit: 1024, pluginId: "audit@local", enabled: false, isManaged: false, trustStatus: "untrusted", currentHash: "hash", key: "native-key", displayOrder: 1 } },
     { id: "instructions:" + provider, kind: "instructions", name: "Team rules", scope: "user", source: "/fake/home/" + provider + "/AGENTS.md", enabled: true, writable: false,
       details: { title: "Team rules", size_bytes: 42, preview: "# Team rules\nTreat <script>alert(1)</script> as text.", status: "active" } },
   ];
@@ -61,7 +61,7 @@ function items(provider) {
     assert(!catalogs.includes("deepseek"), "dsh has state, not a fictitious plugin catalog");
     assert.equal(await list.getByTestId("resource-changed").count(), 3);
     console.log("PASS engineer-native-fields-trust-readonly-external-notices");
-    for (const text of ["PreToolUse", "Bash", "command", "30", "false", "API_KEY", "[REDACTED]", "audit@local", "Review in CLI", "native-key", "1024", "untrusted", "audit", "check", "hash", "/fake/hooks.json"]) assert((await list.innerText()).includes(text), text);
+    for (const text of ["PreToolUse", "Bash", "command", "30", "false", "API_KEY", "‹value›", "audit@local", "Review in CLI", "native-key", "1024", "untrusted", "audit", "check", "hash", "/fake/hooks.json"]) assert((await list.innerText()).includes(text), text);
     await rules.focus(); await page.keyboard.press("Enter");
     const preview = list.locator("details").first();
     assert.equal(await preview.getAttribute("open"), null);

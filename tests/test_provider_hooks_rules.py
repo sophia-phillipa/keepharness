@@ -225,7 +225,8 @@ def test_hook_redaction_http_headers_and_exec_arguments():
     assert not any(
         secret in serialized for secret in ("two words", "user:pass", "hidden", "token=secret")
     )
-    assert "plain" in serialized
+    # D-048: values after an option are masked even when they look harmless.
+    assert "plain" not in serialized and "--mode" in serialized
 
 
 def test_codex_untrusted_project_hooks_remain_visible_when_native_list_skips_them(

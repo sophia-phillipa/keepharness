@@ -8,6 +8,13 @@ import string
 from dataclasses import dataclass
 from pathlib import Path
 
+from adapters.shared.command_mask import (
+    PLACEHOLDER,
+    mask_argv,
+    mask_command,
+    mask_named_values,
+    mask_url,
+)
 from adapters.shared.private_files import scoped_home_open_read
 from adapters.shared.provider_state import StateItem
 from agent_service.log_config import redact
@@ -21,6 +28,13 @@ _URL_AUTH = re.compile(r"(https?://)[^/\s:@]+:[^/\s@]+@", re.I)
 _NAME_CHARS = frozenset(string.ascii_letters + string.digits + "-_.")
 _REDACTED = "[REDACTED]"
 _QUOTES = "\"'"
+_COMMAND_KEYS = frozenset(
+    {"command", "commandline", "cmd", "args", "argv", "run", "script", "exec"}
+)
+_NAMED_VALUE_KEYS = frozenset(
+    {"env", "environment", "envvars", "env_vars", "headers", "httpheaders", "http_headers"}
+)
+_URL_KEYS = frozenset({"url", "uri", "endpoint"})
 
 
 class _UnbalancedQuote(Exception):
@@ -149,11 +163,29 @@ def safe_text(value):
     return redact(_BEARER.sub(r"\1 [REDACTED]", text))[:PREVIEW_CHARS]
 
 
+def _mask_known_field(value, key):
+    """Fail-closed masking (D-048) for hook command, env, header and URL fields."""
+    if value is None:
+        return None
+    if key in _COMMAND_KEYS:
+        if isinstance(value, str):
+            return mask_command(value)
+        return mask_argv(value) if isinstance(value, (list, tuple)) else PLACEHOLDER
+    if key in _NAMED_VALUE_KEYS:
+        return mask_named_values(value)
+    if key in _URL_KEYS:
+        return mask_url(value) if isinstance(value, str) else PLACEHOLDER
+    return None
+
+
 def safe_details(value, key="", depth=0):
     if depth > 6:
         return "[truncated]"
     if _SECRET.search(key):
         return "[REDACTED]"
+    masked = _mask_known_field(value, key.lower())
+    if masked is not None:
+        return masked
     if isinstance(value, dict):
         return {
             safe_text(k): safe_details(v, str(k), depth + 1) for k, v in list(value.items())[:80]
